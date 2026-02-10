@@ -68,10 +68,8 @@ Approach: incremental JIT — profile first, register IR, then ARM64 codegen.
 ### Completed (cont.)
 - 3.9: Function-level JIT (compile entire hot functions)
 - 3.10: Tiered execution (back-edge counting + JitRestart)
-
-### Remaining
 - 3.11: JIT call optimization (fast JIT-to-JIT calls)
-- 3.12: JIT code quality (instruction scheduling, constant folding)
+- 3.12: JIT code quality (direct dest reg, selective reload, shared error epilogue)
 
 ### Future
 - Superinstruction expansion (profile-guided)

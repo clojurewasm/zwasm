@@ -571,6 +571,8 @@ pub const Compiler = struct {
     pc_map: std.ArrayList(u32),
     /// Forward branch patches: (arm64_idx, target_reg_pc).
     patches: std.ArrayList(Patch),
+    /// Error stubs: branch-to-error sites to be patched at end of function.
+    error_stubs: std.ArrayList(ErrorStub),
     alloc: Allocator,
     reg_count: u16,
     local_count: u16,
@@ -587,11 +589,19 @@ pub const Compiler = struct {
 
     const PatchKind = enum { b, b_cond, cbz32, cbnz32 };
 
+    const ErrorStub = struct {
+        branch_idx: u32, // index of B.cond placeholder in code
+        error_code: u16, // 0 = error code already in x0 (call errors)
+        kind: enum { b_cond_inverted, cbnz64 },
+        cond: a64.Cond, // only used for b_cond_inverted
+    };
+
     pub fn init(alloc: Allocator) Compiler {
         return .{
             .code = .empty,
             .pc_map = .empty,
             .patches = .empty,
+            .error_stubs = .empty,
             .alloc = alloc,
             .reg_count = 0,
             .local_count = 0,
@@ -606,6 +616,7 @@ pub const Compiler = struct {
         self.code.deinit(self.alloc);
         self.pc_map.deinit(self.alloc);
         self.patches.deinit(self.alloc);
+        self.error_stubs.deinit(self.alloc);
     }
 
     fn emit(self: *Compiler, inst: u32) void {
@@ -642,6 +653,12 @@ pub const Compiler = struct {
         return scratch;
     }
 
+    /// Get destination register: physical register if mapped, otherwise SCRATCH.
+    /// Use with storeVreg(rd, dest) which is a no-op when dest == physical.
+    fn destReg(vreg: u8) u5 {
+        return vregToPhys(vreg) orelse SCRATCH;
+    }
+
     /// Store all live virtual regs to memory (before function calls).
     fn spillAll(self: *Compiler) void {
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
@@ -661,6 +678,26 @@ pub const Compiler = struct {
             if (vregToPhys(vreg)) |phys| {
                 self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
             }
+        }
+    }
+
+    /// Reload only caller-saved virtual regs from memory (after function calls).
+    /// Callee-saved regs (r0-r4 → x22-x26) are preserved across BLR.
+    fn reloadCallerSaved(self: *Compiler) void {
+        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        // r5-r11 (vreg 5..11) → x9-x15 (caller-saved, may be clobbered)
+        for (5..max) |i| {
+            const vreg: u8 = @intCast(i);
+            if (vregToPhys(vreg)) |phys| {
+                self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
+            }
+        }
+    }
+
+    /// Reload a single virtual register from memory.
+    fn reloadVreg(self: *Compiler, vreg: u8) void {
+        if (vregToPhys(vreg)) |phys| {
+            self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
         }
     }
 
@@ -799,6 +836,9 @@ pub const Compiler = struct {
         // Trailing entry for end-of-function
         self.pc_map.items[ir.len] = self.currentIdx();
 
+        // Emit error stubs (after all code including epilogue, before patching)
+        self.emitErrorStubs();
+
         // Patch forward branches
         self.patchBranches() catch return null;
 
@@ -814,20 +854,22 @@ pub const Compiler = struct {
                 self.storeVreg(instr.rd, src);
             },
             regalloc_mod.OP_CONST32 => {
+                const d = destReg(instr.rd);
                 const val = instr.operand;
                 if (val <= 0xFFFF) {
-                    self.emit(a64.movz64(SCRATCH, @truncate(val), 0));
+                    self.emit(a64.movz64(d, @truncate(val), 0));
                 } else {
-                    self.emit(a64.movz64(SCRATCH, @truncate(val), 0));
-                    self.emit(a64.movk64(SCRATCH, @truncate(val >> 16), 1));
+                    self.emit(a64.movz64(d, @truncate(val), 0));
+                    self.emit(a64.movk64(d, @truncate(val >> 16), 1));
                 }
-                self.storeVreg(instr.rd, SCRATCH);
+                self.storeVreg(instr.rd, d);
             },
             regalloc_mod.OP_CONST64 => {
+                const d = destReg(instr.rd);
                 const val = self.pool64[instr.operand];
-                const instrs = a64.loadImm64(SCRATCH, val);
+                const instrs = a64.loadImm64(d, val);
                 for (instrs) |inst| self.emit(inst);
-                self.storeVreg(instr.rd, SCRATCH);
+                self.storeVreg(instr.rd, d);
             },
 
             // --- Control flow ---
@@ -904,26 +946,30 @@ pub const Compiler = struct {
             0x77 => { // i32.rotl — RORV(n, 32-count)
                 const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
                 const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+                const d = destReg(instr.rd);
                 self.emit(a64.neg32(SCRATCH2, rs2)); // negate shift amount
-                self.emit(a64.rorv32(SCRATCH, rs1, SCRATCH2));
-                self.storeVreg(instr.rd, SCRATCH);
+                self.emit(a64.rorv32(d, rs1, SCRATCH2));
+                self.storeVreg(instr.rd, d);
             },
             0x78 => { // i32.rotr
                 const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
                 const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
-                self.emit(a64.rorv32(SCRATCH, rs1, rs2));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.rorv32(d, rs1, rs2));
+                self.storeVreg(instr.rd, d);
             },
             0x67 => { // i32.clz
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                self.emit(a64.clz32(SCRATCH, src));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.clz32(d, src));
+                self.storeVreg(instr.rd, d);
             },
             0x68 => { // i32.ctz — RBIT then CLZ
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                self.emit(a64.rbit32(SCRATCH, src));
-                self.emit(a64.clz32(SCRATCH, SCRATCH));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.rbit32(d, src));
+                self.emit(a64.clz32(d, d));
+                self.storeVreg(instr.rd, d);
             },
             0x69 => { // i32.popcnt — no single ARM64 instruction; use FPCNT trick or loop
                 // For now, bail out (popcnt is rare)
@@ -933,9 +979,10 @@ pub const Compiler = struct {
             // --- i32 comparison ---
             0x45 => { // i32.eqz
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
+                const d = destReg(instr.rd);
                 self.emit(a64.cmp32(src, 31)); // CMP Wn, WZR
-                self.emit(a64.cset32(SCRATCH, .eq));
-                self.storeVreg(instr.rd, SCRATCH);
+                self.emit(a64.cset32(d, .eq));
+                self.storeVreg(instr.rd, d);
             },
             0x46 => self.emitCmp32(.eq, instr),
             0x47 => self.emitCmp32(.ne, instr),
@@ -965,35 +1012,40 @@ pub const Compiler = struct {
             0x89 => { // i64.rotl
                 const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
                 const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+                const d = destReg(instr.rd);
                 self.emit(a64.neg64(SCRATCH2, rs2));
-                self.emit(a64.rorv64(SCRATCH, rs1, SCRATCH2));
-                self.storeVreg(instr.rd, SCRATCH);
+                self.emit(a64.rorv64(d, rs1, SCRATCH2));
+                self.storeVreg(instr.rd, d);
             },
             0x8A => { // i64.rotr
                 const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
                 const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
-                self.emit(a64.rorv64(SCRATCH, rs1, rs2));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.rorv64(d, rs1, rs2));
+                self.storeVreg(instr.rd, d);
             },
             0x79 => { // i64.clz
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                self.emit(a64.clz64(SCRATCH, src));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.clz64(d, src));
+                self.storeVreg(instr.rd, d);
             },
             0x7A => { // i64.ctz
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                self.emit(a64.rbit64(SCRATCH, src));
-                self.emit(a64.clz64(SCRATCH, SCRATCH));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.rbit64(d, src));
+                self.emit(a64.clz64(d, d));
+                self.storeVreg(instr.rd, d);
             },
             0x7B => return false, // i64.popcnt — bail
 
             // --- i64 comparison ---
             0x50 => { // i64.eqz
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
+                const d = destReg(instr.rd);
                 self.emit(a64.cmpImm64(src, 0));
-                self.emit(a64.cset64(SCRATCH, .eq));
-                self.storeVreg(instr.rd, SCRATCH);
+                self.emit(a64.cset64(d, .eq));
+                self.storeVreg(instr.rd, d);
             },
             0x51 => self.emitCmp64(.eq, instr),
             0x52 => self.emitCmp64(.ne, instr),
@@ -1009,25 +1061,29 @@ pub const Compiler = struct {
             // --- Conversions ---
             0xA7 => { // i32.wrap_i64
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                self.emit(a64.uxtw(SCRATCH, src));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.uxtw(d, src));
+                self.storeVreg(instr.rd, d);
             },
             0xAC => { // i64.extend_i32_s
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                self.emit(a64.sxtw(SCRATCH, src));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.sxtw(d, src));
+                self.storeVreg(instr.rd, d);
             },
             0xAD => { // i64.extend_i32_u
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                self.emit(a64.uxtw(SCRATCH, src));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.uxtw(d, src));
+                self.storeVreg(instr.rd, d);
             },
 
             // --- Reinterpret (bit-preserving) ---
             0xBC, 0xBE => { // i32.reinterpret_f32, f32.reinterpret_i32
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                self.emit(a64.uxtw(SCRATCH, src)); // truncate to 32-bit
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.uxtw(d, src)); // truncate to 32-bit
+                self.storeVreg(instr.rd, d);
             },
             0xBD, 0xBF => { // i64.reinterpret_f64, f64.reinterpret_i64
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
@@ -1037,32 +1093,33 @@ pub const Compiler = struct {
             // --- Sign extension (Wasm 2.0) ---
             0xC0 => { // i32.extend8_s — SXTB Wd, Wn
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                // SXTB Wd, Wn = SBFM Wd, Wn, #0, #7
-                self.emit(0x13001C00 | (@as(u32, src) << 5) | SCRATCH);
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(0x13001C00 | (@as(u32, src) << 5) | d);
+                self.storeVreg(instr.rd, d);
             },
             0xC1 => { // i32.extend16_s — SXTH Wd, Wn
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                // SXTH Wd, Wn = SBFM Wd, Wn, #0, #15
-                self.emit(0x13003C00 | (@as(u32, src) << 5) | SCRATCH);
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(0x13003C00 | (@as(u32, src) << 5) | d);
+                self.storeVreg(instr.rd, d);
             },
             0xC2 => { // i64.extend8_s — SXTB Xd, Wn
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                // SBFM Xd, Xn, #0, #7
-                self.emit(0x93401C00 | (@as(u32, src) << 5) | SCRATCH);
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(0x93401C00 | (@as(u32, src) << 5) | d);
+                self.storeVreg(instr.rd, d);
             },
             0xC3 => { // i64.extend16_s — SXTH Xd, Wn
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                // SBFM Xd, Xn, #0, #15
-                self.emit(0x93403C00 | (@as(u32, src) << 5) | SCRATCH);
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(0x93403C00 | (@as(u32, src) << 5) | d);
+                self.storeVreg(instr.rd, d);
             },
             0xC4 => { // i64.extend32_s — SXTW Xd, Wn
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                self.emit(a64.sxtw(SCRATCH, src));
-                self.storeVreg(instr.rd, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.sxtw(d, src));
+                self.storeVreg(instr.rd, d);
             },
 
             // --- Memory load ---
@@ -1098,36 +1155,37 @@ pub const Compiler = struct {
             regalloc_mod.OP_ADDI32 => self.emitImmOp32(.add, instr),
             regalloc_mod.OP_SUBI32 => self.emitImmOp32(.sub, instr),
             regalloc_mod.OP_MULI32 => {
-                // MUL doesn't have immediate form; load imm to scratch
                 const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+                const d = destReg(instr.rd);
                 self.emit(a64.movz32(SCRATCH2, @truncate(instr.operand), 0));
                 if (instr.operand > 0xFFFF) {
                     self.emit(a64.movk64(SCRATCH2, @truncate(instr.operand >> 16), 1));
                 }
-                self.emit(a64.mul32(SCRATCH, rs1, SCRATCH2));
-                self.storeVreg(instr.rd, SCRATCH);
+                self.emit(a64.mul32(d, rs1, SCRATCH2));
+                self.storeVreg(instr.rd, d);
             },
             regalloc_mod.OP_ANDI32, regalloc_mod.OP_ORI32, regalloc_mod.OP_XORI32 => {
-                // No immediate form for AND/OR/XOR in our encoding; use scratch
                 const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+                const d = destReg(instr.rd);
                 self.emit(a64.movz32(SCRATCH2, @truncate(instr.operand), 0));
                 if (instr.operand > 0xFFFF) {
                     self.emit(a64.movk64(SCRATCH2, @truncate(instr.operand >> 16), 1));
                 }
                 const enc: u32 = switch (instr.op) {
-                    regalloc_mod.OP_ANDI32 => a64.and32(SCRATCH, rs1, SCRATCH2),
-                    regalloc_mod.OP_ORI32 => a64.orr32(SCRATCH, rs1, SCRATCH2),
-                    regalloc_mod.OP_XORI32 => a64.eor32(SCRATCH, rs1, SCRATCH2),
+                    regalloc_mod.OP_ANDI32 => a64.and32(d, rs1, SCRATCH2),
+                    regalloc_mod.OP_ORI32 => a64.orr32(d, rs1, SCRATCH2),
+                    regalloc_mod.OP_XORI32 => a64.eor32(d, rs1, SCRATCH2),
                     else => unreachable,
                 };
                 self.emit(enc);
-                self.storeVreg(instr.rd, SCRATCH);
+                self.storeVreg(instr.rd, d);
             },
             regalloc_mod.OP_SHLI32 => {
                 const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+                const d = destReg(instr.rd);
                 self.emit(a64.movz32(SCRATCH2, @truncate(instr.operand), 0));
-                self.emit(a64.lslv32(SCRATCH, rs1, SCRATCH2));
-                self.storeVreg(instr.rd, SCRATCH);
+                self.emit(a64.lslv32(d, rs1, SCRATCH2));
+                self.storeVreg(instr.rd, d);
             },
 
             // --- Fused comparison with immediate ---
@@ -1144,6 +1202,7 @@ pub const Compiler = struct {
             0x1B => { // select: rd = cond ? val1 : val2
                 const val2_idx: u8 = @truncate(instr.operand);
                 const cond_idx: u8 = @truncate(instr.operand >> 8);
+                const d = destReg(instr.rd);
                 // Compare condition first (before clobbering scratch regs)
                 const cond_reg = self.getOrLoad(cond_idx, SCRATCH);
                 self.emit(a64.cmpImm32(cond_reg, 0));
@@ -1151,8 +1210,8 @@ pub const Compiler = struct {
                 const val1 = self.getOrLoad(instr.rs1, SCRATCH);
                 const val2_reg = self.getOrLoad(val2_idx, SCRATCH2);
                 // CSEL: if cond != 0 (ne), select val1; else val2
-                self.emit(a64.csel64(SCRATCH, val1, val2_reg, .ne));
-                self.storeVreg(instr.rd, SCRATCH);
+                self.emit(a64.csel64(d, val1, val2_reg, .ne));
+                self.storeVreg(instr.rd, d);
             },
 
             // --- Drop ---
@@ -1176,19 +1235,20 @@ pub const Compiler = struct {
     fn emitBinop32(self: *Compiler, op: BinOp32, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
         const enc: u32 = switch (op) {
-            .add => a64.add32(SCRATCH, rs1, rs2),
-            .sub => a64.sub32(SCRATCH, rs1, rs2),
-            .mul => a64.mul32(SCRATCH, rs1, rs2),
-            .@"and" => a64.and32(SCRATCH, rs1, rs2),
-            .@"or" => a64.orr32(SCRATCH, rs1, rs2),
-            .xor => a64.eor32(SCRATCH, rs1, rs2),
-            .shl => a64.lslv32(SCRATCH, rs1, rs2),
-            .shr_s => a64.asrv32(SCRATCH, rs1, rs2),
-            .shr_u => a64.lsrv32(SCRATCH, rs1, rs2),
+            .add => a64.add32(d, rs1, rs2),
+            .sub => a64.sub32(d, rs1, rs2),
+            .mul => a64.mul32(d, rs1, rs2),
+            .@"and" => a64.and32(d, rs1, rs2),
+            .@"or" => a64.orr32(d, rs1, rs2),
+            .xor => a64.eor32(d, rs1, rs2),
+            .shl => a64.lslv32(d, rs1, rs2),
+            .shr_s => a64.asrv32(d, rs1, rs2),
+            .shr_u => a64.lsrv32(d, rs1, rs2),
         };
         self.emit(enc);
-        self.storeVreg(instr.rd, SCRATCH);
+        self.storeVreg(instr.rd, d);
     }
 
     const BinOp64 = enum { add, sub, mul, @"and", @"or", xor, shl, shr_s, shr_u };
@@ -1196,39 +1256,43 @@ pub const Compiler = struct {
     fn emitBinop64(self: *Compiler, op: BinOp64, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
         const enc: u32 = switch (op) {
-            .add => a64.add64(SCRATCH, rs1, rs2),
-            .sub => a64.sub64(SCRATCH, rs1, rs2),
-            .mul => a64.mul64(SCRATCH, rs1, rs2),
-            .@"and" => a64.and64(SCRATCH, rs1, rs2),
-            .@"or" => a64.orr64(SCRATCH, rs1, rs2),
-            .xor => a64.eor64(SCRATCH, rs1, rs2),
-            .shl => a64.lslv64(SCRATCH, rs1, rs2),
-            .shr_s => a64.asrv64(SCRATCH, rs1, rs2),
-            .shr_u => a64.lsrv64(SCRATCH, rs1, rs2),
+            .add => a64.add64(d, rs1, rs2),
+            .sub => a64.sub64(d, rs1, rs2),
+            .mul => a64.mul64(d, rs1, rs2),
+            .@"and" => a64.and64(d, rs1, rs2),
+            .@"or" => a64.orr64(d, rs1, rs2),
+            .xor => a64.eor64(d, rs1, rs2),
+            .shl => a64.lslv64(d, rs1, rs2),
+            .shr_s => a64.asrv64(d, rs1, rs2),
+            .shr_u => a64.lsrv64(d, rs1, rs2),
         };
         self.emit(enc);
-        self.storeVreg(instr.rd, SCRATCH);
+        self.storeVreg(instr.rd, d);
     }
 
     fn emitCmp32(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
         self.emit(a64.cmp32(rs1, rs2));
-        self.emit(a64.cset32(SCRATCH, cond));
-        self.storeVreg(instr.rd, SCRATCH);
+        self.emit(a64.cset32(d, cond));
+        self.storeVreg(instr.rd, d);
     }
 
     fn emitCmp64(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
         self.emit(a64.cmp64(rs1, rs2));
-        self.emit(a64.cset64(SCRATCH, cond));
-        self.storeVreg(instr.rd, SCRATCH);
+        self.emit(a64.cset64(d, cond));
+        self.storeVreg(instr.rd, d);
     }
 
     fn emitCmpImm32(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const d = destReg(instr.rd);
         const imm = instr.operand;
         if (imm <= 0xFFF) {
             self.emit(a64.cmpImm32(rs1, @intCast(imm)));
@@ -1238,17 +1302,18 @@ pub const Compiler = struct {
                 self.emit(a64.movk64(SCRATCH2, @truncate(imm >> 16), 1));
             self.emit(a64.cmp32(rs1, SCRATCH2));
         }
-        self.emit(a64.cset32(SCRATCH, cond));
-        self.storeVreg(instr.rd, SCRATCH);
+        self.emit(a64.cset32(d, cond));
+        self.storeVreg(instr.rd, d);
     }
 
     fn emitImmOp32(self: *Compiler, op: enum { add, sub }, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const d = destReg(instr.rd);
         const imm = instr.operand;
         if (imm <= 0xFFF) {
             const enc: u32 = switch (op) {
-                .add => a64.addImm32(SCRATCH, rs1, @intCast(imm)),
-                .sub => a64.subImm32(SCRATCH, rs1, @intCast(imm)),
+                .add => a64.addImm32(d, rs1, @intCast(imm)),
+                .sub => a64.subImm32(d, rs1, @intCast(imm)),
             };
             self.emit(enc);
         } else {
@@ -1256,12 +1321,12 @@ pub const Compiler = struct {
             if (imm > 0xFFFF)
                 self.emit(a64.movk64(SCRATCH2, @truncate(imm >> 16), 1));
             const enc: u32 = switch (op) {
-                .add => a64.add32(SCRATCH, rs1, SCRATCH2),
-                .sub => a64.sub32(SCRATCH, rs1, SCRATCH2),
+                .add => a64.add32(d, rs1, SCRATCH2),
+                .sub => a64.sub32(d, rs1, SCRATCH2),
             };
             self.emit(enc);
         }
-        self.storeVreg(instr.rd, SCRATCH);
+        self.storeVreg(instr.rd, d);
     }
 
     const Signedness = enum { signed, unsigned };
@@ -1269,6 +1334,7 @@ pub const Compiler = struct {
     fn emitDiv32(self: *Compiler, sign: Signedness, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
         // Check divisor == 0 → DivisionByZero
         self.emit(a64.cmpImm32(rs2, 0));
         self.emitCondError(.eq, 3); // error code 3 = DivisionByZero
@@ -1289,33 +1355,34 @@ pub const Compiler = struct {
             // Reload rs1/rs2 since we clobbered SCRATCH
             const rs1b = self.getOrLoad(instr.rs1, SCRATCH);
             const rs2b = self.getOrLoad(instr.rs2(), SCRATCH2);
-            self.emit(a64.sdiv32(SCRATCH, rs1b, rs2b));
+            self.emit(a64.sdiv32(d, rs1b, rs2b));
         } else {
-            self.emit(a64.udiv32(SCRATCH, rs1, rs2));
+            self.emit(a64.udiv32(d, rs1, rs2));
         }
-        self.storeVreg(instr.rd, SCRATCH);
+        self.storeVreg(instr.rd, d);
     }
 
     fn emitRem32(self: *Compiler, sign: Signedness, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
         // Check divisor == 0 → DivisionByZero
         self.emit(a64.cmpImm32(rs2, 0));
         self.emitCondError(.eq, 3);
         // rem = rs1 - (rs1/rs2)*rs2  via SDIV + MSUB
         if (sign == .signed) {
-            self.emit(a64.sdiv32(SCRATCH, rs1, rs2));
+            self.emit(a64.sdiv32(d, rs1, rs2));
         } else {
-            self.emit(a64.udiv32(SCRATCH, rs1, rs2));
+            self.emit(a64.udiv32(d, rs1, rs2));
         }
-        // MSUB SCRATCH, SCRATCH, rs2, rs1 → rs1 - SCRATCH*rs2
-        self.emit(a64.msub32(SCRATCH, SCRATCH, rs2, rs1));
-        self.storeVreg(instr.rd, SCRATCH);
+        self.emit(a64.msub32(d, d, rs2, rs1));
+        self.storeVreg(instr.rd, d);
     }
 
     fn emitDiv64(self: *Compiler, sign: Signedness, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
         // Check divisor == 0
         self.emit(a64.cmpImm64(rs2, 0));
         self.emitCondError(.eq, 3);
@@ -1339,34 +1406,39 @@ pub const Compiler = struct {
             self.code.items[skip_idx] = a64.bCond(.ne, @intCast(@as(i32, @intCast(here)) - @as(i32, @intCast(skip_idx))));
             const rs1b = self.getOrLoad(instr.rs1, SCRATCH);
             const rs2b = self.getOrLoad(instr.rs2(), SCRATCH2);
-            self.emit(a64.sdiv64(SCRATCH, rs1b, rs2b));
+            self.emit(a64.sdiv64(d, rs1b, rs2b));
         } else {
-            self.emit(a64.udiv64(SCRATCH, rs1, rs2));
+            self.emit(a64.udiv64(d, rs1, rs2));
         }
-        self.storeVreg(instr.rd, SCRATCH);
+        self.storeVreg(instr.rd, d);
     }
 
     fn emitRem64(self: *Compiler, sign: Signedness, instr: RegInstr) void {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
         self.emit(a64.cmpImm64(rs2, 0));
         self.emitCondError(.eq, 3);
         if (sign == .signed) {
-            self.emit(a64.sdiv64(SCRATCH, rs1, rs2));
+            self.emit(a64.sdiv64(d, rs1, rs2));
         } else {
-            self.emit(a64.udiv64(SCRATCH, rs1, rs2));
+            self.emit(a64.udiv64(d, rs1, rs2));
         }
-        self.emit(a64.msub64(SCRATCH, SCRATCH, rs2, rs1));
-        self.storeVreg(instr.rd, SCRATCH);
+        self.emit(a64.msub64(d, d, rs2, rs1));
+        self.storeVreg(instr.rd, d);
     }
 
-    /// Emit conditional error return: if condition is true, return error code.
+    /// Emit conditional error: if condition is true, branch to shared error stub.
+    /// Error stubs are emitted at function end by emitErrorStubs().
     fn emitCondError(self: *Compiler, cond: a64.Cond, error_code: u16) void {
-        const skip_idx = self.currentIdx();
-        self.emit(a64.bCond(cond.invert(), 0)); // skip if NOT condition
-        self.emitErrorReturn(error_code);
-        const here = self.currentIdx();
-        self.code.items[skip_idx] = a64.bCond(cond.invert(), @intCast(@as(i32, @intCast(here)) - @as(i32, @intCast(skip_idx))));
+        const branch_idx = self.currentIdx();
+        self.emit(a64.bCond(cond, 0)); // placeholder: branch TO error if condition met
+        self.error_stubs.append(self.alloc, .{
+            .branch_idx = branch_idx,
+            .error_code = error_code,
+            .kind = .b_cond_inverted,
+            .cond = cond,
+        }) catch {};
     }
 
     // --- Memory access helpers ---
@@ -1490,45 +1562,73 @@ pub const Compiler = struct {
         for (t_instrs) |inst| self.emit(inst);
         self.emit(a64.blr(SCRATCH));
 
-        // 4. Check error (x0 != 0 → error)
-        // Store result to regs[rd] is done by the trampoline
-        // On error, propagate: restore callee-saved and return error code
+        // 4. Check error (x0 != 0 → error) — branch to shared error epilogue
         const error_branch = self.currentIdx();
-        self.emit(a64.cbnz64(0, 0)); // placeholder — branch to error handler
+        self.emit(a64.cbnz64(0, 0)); // placeholder — patched by emitErrorStubs
+        self.error_stubs.append(self.alloc, .{
+            .branch_idx = error_branch,
+            .error_code = 0, // 0 = x0 already has error code from trampoline
+            .kind = .cbnz64,
+            .cond = .eq, // unused
+        }) catch {};
 
-        // 5. Reload all virtual regs from memory
-        self.reloadAll();
+        // 5. Reload caller-saved regs + result register (callee-saved preserved by BLR)
+        self.reloadCallerSaved();
+        if (rd <= 4) self.reloadVreg(rd); // callee-saved result needs explicit reload
 
         // 6. Reload memory cache (memory may have grown during call)
         if (self.has_memory) {
             self.emitLoadMemCache();
         }
+    }
 
-        // Emit error handler (out-of-line, after normal flow)
-        // We'll use a simple approach: the error handler is right here,
-        // and normal flow jumps over it.
-        const skip_idx = self.currentIdx();
-        self.emit(a64.b(0)); // placeholder — skip error handler
+    // --- Error stub emission ---
 
-        // Error handler: restore and return error code from x0
-        const error_target = self.currentIdx();
-        // Patch the cbnz to jump here
-        const error_offset: i19 = @intCast(@as(i32, @intCast(error_target)) - @as(i32, @intCast(error_branch)));
-        self.code.items[error_branch] = a64.cbnz64(0, error_offset);
-        // Restore callee-saved regs and return with error in x0
+    /// Emit error stubs and shared error epilogue at end of function.
+    /// Each error site branches to a stub that sets x0 and jumps to shared exit.
+    fn emitErrorStubs(self: *Compiler) void {
+        if (self.error_stubs.items.len == 0) return;
+
+        // Shared error epilogue: restore callee-saved regs and return (x0 has error code)
+        const shared_exit = self.currentIdx();
         self.emit(a64.ldpPost(27, 28, 31, 2));
         self.emit(a64.ldpPost(25, 26, 31, 2));
         self.emit(a64.ldpPost(23, 24, 31, 2));
         self.emit(a64.ldpPost(21, 22, 31, 2));
         self.emit(a64.ldpPost(19, 20, 31, 2));
         self.emit(a64.ldpPost(29, 30, 31, 2));
-        // x0 already has error code from trampoline
         self.emit(a64.ret_());
 
-        // Patch skip branch
-        const skip_target = self.currentIdx();
-        const skip_offset: i26 = @intCast(@as(i32, @intCast(skip_target)) - @as(i32, @intCast(skip_idx)));
-        self.code.items[skip_idx] = a64.b(skip_offset);
+        // Emit per-error stubs and patch branch sites
+        for (self.error_stubs.items) |stub| {
+            if (stub.error_code == 0) {
+                // Call error: x0 already has error code, branch directly to shared exit
+                const offset: i32 = @as(i32, @intCast(shared_exit)) - @as(i32, @intCast(stub.branch_idx));
+                switch (stub.kind) {
+                    .cbnz64 => {
+                        const imm: i19 = @intCast(offset);
+                        self.code.items[stub.branch_idx] = a64.cbnz64(0, imm);
+                    },
+                    .b_cond_inverted => unreachable, // call errors always use cbnz64
+                }
+            } else {
+                // Condition error: emit stub with MOVZ + B shared_exit
+                const stub_idx = self.currentIdx();
+                self.emit(a64.movz64(0, stub.error_code, 0)); // x0 = error_code
+                const exit_offset: i26 = @intCast(@as(i32, @intCast(shared_exit)) - @as(i32, @intCast(self.currentIdx())));
+                self.emit(a64.b(exit_offset));
+
+                // Patch the original branch to point to this stub
+                const offset: i32 = @as(i32, @intCast(stub_idx)) - @as(i32, @intCast(stub.branch_idx));
+                switch (stub.kind) {
+                    .b_cond_inverted => {
+                        const imm: u19 = @bitCast(@as(i19, @intCast(offset)));
+                        self.code.items[stub.branch_idx] = 0x54000000 | (@as(u32, imm) << 5) | @as(u32, @intFromEnum(stub.cond));
+                    },
+                    .cbnz64 => unreachable, // condition errors always use b_cond
+                }
+            }
+        }
     }
 
     // --- Branch patching ---

@@ -95,3 +95,25 @@ entries:
       st_nestedloop: {time_ms: 4.4}
       st_ackermann: {time_ms: 22.0}
       st_matrix: {time_ms: 2733.4}
+  - id: "3.12"
+    date: "2026-02-11"
+    reason: "JIT code quality: direct dest reg, selective reload, shared error epilogue"
+    commit: "8e47ed0"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 223.6}
+      tak: {time_ms: 23.7}
+      sieve: {time_ms: 4.8}
+      nbody: {time_ms: 133.4}
+      nqueens: {time_ms: 1.6}
+      tgo_fib: {time_ms: 132.4}
+      tgo_tak: {time_ms: 20.5}
+      tgo_arith: {time_ms: 1.4}
+      tgo_sieve: {time_ms: 35.9}
+      tgo_fib_loop: {time_ms: 2.5}
+      tgo_gcd: {time_ms: 2.0}
+      st_fib2: {time_ms: 16089.1}
+      st_sieve: {time_ms: 6117.0}
+      st_nestedloop: {time_ms: 3.5}
+      st_ackermann: {time_ms: 22.3}
+      st_matrix: {time_ms: 2730.3}

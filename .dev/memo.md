@@ -10,8 +10,8 @@ Session handover document. Read at session start.
 - Source: ~14K LOC, 14 files (+ cli.zig, 3 examples), 132 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
-- Benchmark: fib(35) = 234ms, sieve(1M) = 5.7ms (ReleaseSafe, CLI, JIT)
-- vs wasmtime JIT: 52ms fib / 7ms sieve (4.5x / 0.8x gap — sieve beats wasmtime!)
+- Benchmark: fib(35) = 224ms, sieve(1M) = 4.8ms (ReleaseSafe, CLI, JIT)
+- vs wasmtime JIT: 52ms fib / 7ms sieve (4.3x / 0.7x gap — sieve beats wasmtime!)
 - Benchmarks: 3 layers — 5 WAT, 6 TinyGo, 5 shootout (sub-ms precision)
 - Spec test pass rate: 30,648/30,686 (99.9%) — 151 files, 28K skipped
 - CI: GitHub Actions (ubuntu + macOS, zig build test + spec tests)
@@ -19,6 +19,7 @@ Session handover document. Read at session start.
 - **ARM64 JIT**: function-level codegen — arithmetic, control flow, function calls,
   division/remainder (traps), memory load/store (14 ops), rotation, CLZ/CTZ, select, sign-ext
 - **JIT call fast path**: JIT-to-JIT direct calls bypass callFunction dispatch
+- **JIT code quality**: direct dest reg, selective reload, shared error epilogue
 
 ## Task Queue
 
@@ -36,22 +37,21 @@ Stage 3: JIT + Optimization (ARM64)
 10. [x] 3.9: ARM64 function-level JIT — compile entire hot functions
 11. [x] 3.10: Tiered execution — interpreter → JIT with hot function detection
 12. [x] 3.11: JIT call optimization — fast path for JIT-to-JIT calls
-13. [ ] 3.12: JIT code quality — instruction scheduling, constant folding
+13. [x] 3.12: JIT code quality — instruction scheduling, constant folding
 
 ## Current Task
 
-3.12: JIT code quality — instruction scheduling, constant folding.
+Stage 3 complete — Task Queue empty. Plan next steps.
 
 ## Previous Task
 
-3.11: JIT call optimization — COMPLETE.
+3.12: JIT code quality — COMPLETE.
 Key changes:
-- Fast path in jitCallTrampoline: when callee has jit_code, allocate reg file
-  from reg_stack, copy args, call JIT entry directly — bypass callFunction entirely
-- REG_STACK_SIZE made pub for jit.zig access
-- fib: 331→234ms (-29%), tak: 40→26ms (-35%), tgo_fib: 179→132ms (-26%)
-- Recursive/mutual-recursive workloads get biggest benefit (~30M calls for fib(35))
-- vs wasmtime: fib 4.5x gap (was 6.4x)
+- Direct destination register: emit ARM64 ops directly to physical regs, skip SCRATCH→MOV
+- Selective reload: only reload caller-saved + result reg after calls (callee-saved preserved)
+- Shared error epilogue: error stubs at function end → smaller code, better i-cache
+- fib: 234→224ms (-5%), sieve: 5.7→4.8ms (-16%), nqueens: 2.4→1.6ms (-33%)
+- vs wasmtime: fib 4.3x (was 4.5x)
 
 ## Known Bugs
 
