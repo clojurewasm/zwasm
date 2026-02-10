@@ -217,6 +217,23 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
 }
 
 
+/// Profiling data collected during execution.
+pub const Profile = struct {
+    opcode_counts: [256]u64,
+    misc_counts: [32]u64,
+    call_count: u64,
+    total_instrs: u64,
+
+    pub fn init() Profile {
+        return .{
+            .opcode_counts = [_]u64{0} ** 256,
+            .misc_counts = [_]u64{0} ** 32,
+            .call_count = 0,
+            .total_instrs = 0,
+        };
+    }
+};
+
 pub const Vm = struct {
     op_stack: [OPERAND_STACK_SIZE]u128,
     op_ptr: usize,
@@ -227,6 +244,7 @@ pub const Vm = struct {
     alloc: Allocator,
     current_instance: ?*Instance = null,
     current_branch_table: ?*BranchTable = null,
+    profile: ?*Profile = null,
 
     pub fn init(alloc: Allocator) Vm {
         return .{
@@ -282,6 +300,7 @@ pub const Vm = struct {
         args: []const u64,
         results: []u64,
     ) WasmError!void {
+        if (self.profile) |p| p.call_count += 1;
         switch (func_ptr.subtype) {
             .wasm_function => |*wf| {
                 const base = self.op_ptr;
@@ -369,6 +388,11 @@ pub const Vm = struct {
         while (reader.hasMore()) {
             const byte = try reader.readByte();
             const op: Opcode = @enumFromInt(byte);
+
+            if (self.profile) |p| {
+                p.opcode_counts[byte] += 1;
+                p.total_instrs += 1;
+            }
 
             switch (op) {
                 // ---- Control flow ----
@@ -837,6 +861,9 @@ pub const Vm = struct {
 
     fn executeMisc(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {
         const sub = try reader.readU32();
+        if (self.profile) |p| {
+            if (sub < 32) p.misc_counts[sub] += 1;
+        }
         const misc: opcode.MiscOpcode = @enumFromInt(sub);
         switch (misc) {
             .i32_trunc_sat_f32_s => { const a = self.popF32(); try self.pushI32(truncSatClamp(i32, f32, a)); },
@@ -1745,6 +1772,7 @@ pub const Vm = struct {
     }
 
     fn doCallDirect(self: *Vm, instance: *Instance, func_ptr: *store_mod.Function, reader: *Reader) WasmError!void {
+        if (self.profile) |p| p.call_count += 1;
         switch (func_ptr.subtype) {
             .wasm_function => |*wf| {
                 const param_count = func_ptr.params.len;
@@ -1890,6 +1918,11 @@ pub const Vm = struct {
         while (pc < code_len) {
             const instr = code[pc];
             pc += 1;
+
+            if (self.profile) |p| {
+                p.opcode_counts[instr.opcode] += 1;
+                p.total_instrs += 1;
+            }
 
             switch (instr.opcode) {
                 // ---- Control flow ----
@@ -2359,6 +2392,7 @@ pub const Vm = struct {
     }
 
     fn doCallDirectIR(self: *Vm, instance: *Instance, func_ptr: *store_mod.Function) WasmError!void {
+        if (self.profile) |p| p.call_count += 1;
         switch (func_ptr.subtype) {
             .wasm_function => |*wf| {
                 const param_count = func_ptr.params.len;
@@ -2430,6 +2464,9 @@ pub const Vm = struct {
 
     fn executeMiscIR(self: *Vm, instr: PreInstr, instance: *Instance) WasmError!void {
         const sub = instr.opcode - predecode_mod.MISC_BASE;
+        if (self.profile) |p| {
+            if (sub < 32) p.misc_counts[sub] += 1;
+        }
         switch (sub) {
             0x00 => { const a = self.popF32(); try self.pushI32(truncSatClamp(i32, f32, a)); },
             0x01 => { const a = self.popF32(); try self.pushI32(@bitCast(truncSatClamp(u32, f32, a))); },
@@ -4120,4 +4157,63 @@ test "Conformance — SIMD float arithmetic" {
     // i32x4.trunc_sat_f64x2_s_zero: lane 2 = 0 (zero-padded)
     try vm.invoke(&inst, "trunc_f64_zero", @constCast(&no_args), &r64);
     try testing.expectEqual(@as(u64, 0), r64[0]);
+}
+
+test "Profile — fib(10) opcode counting" {
+    const wasm = try readTestFile(testing.allocator, "02_fibonacci.wasm");
+    defer testing.allocator.free(wasm);
+
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var profile = Profile.init();
+    var vm = Vm.init(testing.allocator);
+    vm.profile = &profile;
+
+    var args = [_]u64{10};
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "fib", &args, &results);
+    try testing.expectEqual(@as(u64, 55), results[0]);
+
+    // Profiling data should be populated
+    try testing.expect(profile.total_instrs > 0);
+    try testing.expect(profile.call_count > 0); // fib is recursive
+
+    // local.get (0x20) should be the most frequent opcode in fib
+    try testing.expect(profile.opcode_counts[0x20] > 0);
+    // i32.sub (0x6B) or i32.add (0x6A) should be used
+    try testing.expect(profile.opcode_counts[0x6A] > 0 or profile.opcode_counts[0x6B] > 0);
+}
+
+test "Profile — disabled by default (no overhead)" {
+    const wasm = try readTestFile(testing.allocator, "01_add.wasm");
+    defer testing.allocator.free(wasm);
+
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    // profile is null by default
+    try testing.expect(vm.profile == null);
+
+    var args = [_]u64{ 3, 4 };
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "add", &args, &results);
+    try testing.expectEqual(@as(u64, 7), results[0]);
 }

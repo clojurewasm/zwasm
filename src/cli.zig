@@ -14,6 +14,7 @@ const Allocator = std.mem.Allocator;
 const types = @import("types.zig");
 const module_mod = @import("module.zig");
 const opcode = @import("opcode.zig");
+const vm_mod = @import("vm.zig");
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -76,6 +77,7 @@ fn printUsage(w: *std.Io.Writer) void {
         \\  --link name=file    Link a module as import source (repeatable)
         \\  --dir <path>        Preopen a host directory (repeatable)
         \\  --env KEY=VALUE     Set a WASI environment variable (repeatable)
+        \\  --profile           Print execution profile (opcode frequency, call counts)
         \\
     , .{}) catch {};
 }
@@ -89,6 +91,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     var wasm_path: ?[]const u8 = null;
     var func_args_start: usize = 0;
     var batch_mode = false;
+    var profile_mode = false;
 
     // Collected options
     var env_keys: std.ArrayList([]const u8) = .empty;
@@ -107,6 +110,8 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--batch")) {
             batch_mode = true;
+        } else if (std.mem.eql(u8, args[i], "--profile")) {
+            profile_mode = true;
         } else if (std.mem.eql(u8, args[i], "--invoke")) {
             i += 1;
             if (i >= args.len) {
@@ -232,6 +237,10 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             };
         defer module.deinit();
 
+        // Enable profiling if requested
+        var profile = vm_mod.Profile.init();
+        if (profile_mode) module.vm.profile = &profile;
+
         // Parse function arguments as u64
         const func_args_slice = args[func_args_start..];
         const wasm_args = try allocator.alloc(u64, func_args_slice.len);
@@ -259,6 +268,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         module.invoke(func_name, wasm_args, results) catch |err| {
             try stderr.print("error: invoke '{s}' failed: {s}\n", .{ func_name, @errorName(err) });
             try stderr.flush();
+            if (profile_mode) printProfile(&profile, stderr);
             return false;
         };
 
@@ -278,6 +288,8 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         }
         if (results.len > 0) try stdout.print("\n", .{});
         try stdout.flush();
+
+        if (profile_mode) printProfile(&profile, stderr);
     } else {
         // Build WASI args: [wasm_path] ++ remaining args
         const wasi_str_args = args[func_args_start..];
@@ -303,18 +315,26 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         };
         defer module.deinit();
 
+        // Enable profiling if requested
+        var wasi_profile = vm_mod.Profile.init();
+        if (profile_mode) module.vm.profile = &wasi_profile;
+
         var no_args = [_]u64{};
         var no_results = [_]u64{};
         module.invoke("_start", &no_args, &no_results) catch |err| {
             // proc_exit triggers a Trap — check if exit_code was set
             if (module.getWasiExitCode()) |code| {
+                if (profile_mode) printProfile(&wasi_profile, stderr);
                 if (code != 0) std.process.exit(@truncate(code));
                 return true;
             }
             try stderr.print("error: _start failed: {s}\n", .{@errorName(err)});
             try stderr.flush();
+            if (profile_mode) printProfile(&wasi_profile, stderr);
             return false;
         };
+
+        if (profile_mode) printProfile(&wasi_profile, stderr);
 
         // Normal completion — check for explicit exit code
         if (module.getWasiExitCode()) |code| {
@@ -322,6 +342,176 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         }
     }
     return true;
+}
+
+// ============================================================
+// Profile printing
+// ============================================================
+
+fn printProfile(profile: *const vm_mod.Profile, w: *std.Io.Writer) void {
+    w.print("\n=== Execution Profile ===\n", .{}) catch {};
+    w.print("Total instructions: {d}\n", .{profile.total_instrs}) catch {};
+    w.print("Function calls:     {d}\n\n", .{profile.call_count}) catch {};
+
+    // Collect and sort opcode counts
+    const Entry = struct { op: u8, count: u64 };
+    var entries: [256]Entry = undefined;
+    var n: usize = 0;
+    for (0..256) |i| {
+        if (profile.opcode_counts[i] > 0) {
+            entries[n] = .{ .op = @intCast(i), .count = profile.opcode_counts[i] };
+            n += 1;
+        }
+    }
+
+    // Sort by count descending (simple insertion sort, max 256 entries)
+    for (1..n) |i| {
+        var j = i;
+        while (j > 0 and entries[j].count > entries[j - 1].count) {
+            const tmp = entries[j];
+            entries[j] = entries[j - 1];
+            entries[j - 1] = tmp;
+            j -= 1;
+        }
+    }
+
+    // Print top 20 opcodes
+    const top = @min(n, 20);
+    if (top > 0) {
+        w.print("Top opcodes:\n", .{}) catch {};
+        for (0..top) |i| {
+            const e = entries[i];
+            const name = opcodeName(e.op);
+            const pct = if (profile.total_instrs > 0)
+                @as(f64, @floatFromInt(e.count)) / @as(f64, @floatFromInt(profile.total_instrs)) * 100.0
+            else
+                0.0;
+            if (std.mem.eql(u8, name, "unknown")) {
+                w.print("  0x{X:0>2}{s:22} {d:>12} ({d:.1}%)\n", .{ e.op, "", e.count, pct }) catch {};
+            } else {
+                w.print("  {s:24} {d:>12} ({d:.1}%)\n", .{ name, e.count, pct }) catch {};
+            }
+        }
+    }
+
+    // Print misc opcode counts if any
+    var has_misc = false;
+    for (0..32) |i| {
+        if (profile.misc_counts[i] > 0) { has_misc = true; break; }
+    }
+    if (has_misc) {
+        w.print("\nMisc opcodes (0xFC prefix):\n", .{}) catch {};
+        for (0..32) |i| {
+            if (profile.misc_counts[i] > 0) {
+                const name = miscOpcodeName(@intCast(i));
+                w.print("  {s:24} {d:>12}\n", .{ name, profile.misc_counts[i] }) catch {};
+            }
+        }
+    }
+
+    w.print("=========================\n", .{}) catch {};
+    w.flush() catch {};
+}
+
+fn opcodeName(op: u8) []const u8 {
+    return switch (op) {
+        0x00 => "unreachable",
+        0x01 => "nop",
+        0x02 => "block",
+        0x03 => "loop",
+        0x04 => "if",
+        0x05 => "else",
+        0x0B => "end",
+        0x0C => "br",
+        0x0D => "br_if",
+        0x0E => "br_table",
+        0x0F => "return",
+        0x10 => "call",
+        0x11 => "call_indirect",
+        0x1A => "drop",
+        0x1B => "select",
+        0x20 => "local.get",
+        0x21 => "local.set",
+        0x22 => "local.tee",
+        0x23 => "global.get",
+        0x24 => "global.set",
+        0x28 => "i32.load",
+        0x29 => "i64.load",
+        0x36 => "i32.store",
+        0x37 => "i64.store",
+        0x41 => "i32.const",
+        0x42 => "i64.const",
+        0x43 => "f32.const",
+        0x44 => "f64.const",
+        0x45 => "i32.eqz",
+        0x46 => "i32.eq",
+        0x47 => "i32.ne",
+        0x48 => "i32.lt_s",
+        0x49 => "i32.lt_u",
+        0x4A => "i32.gt_s",
+        0x4B => "i32.gt_u",
+        0x4C => "i32.le_s",
+        0x4D => "i32.le_u",
+        0x4E => "i32.ge_s",
+        0x4F => "i32.ge_u",
+        0x50 => "i64.eqz",
+        0x51 => "i64.eq",
+        0x53 => "i64.lt_s",
+        0x6A => "i32.add",
+        0x6B => "i32.sub",
+        0x6C => "i32.mul",
+        0x6D => "i32.div_s",
+        0x6E => "i32.div_u",
+        0x71 => "i32.and",
+        0x72 => "i32.or",
+        0x73 => "i32.xor",
+        0x74 => "i32.shl",
+        0x75 => "i32.shr_s",
+        0x76 => "i32.shr_u",
+        0x7C => "i64.add",
+        0x7D => "i64.sub",
+        0x7E => "i64.mul",
+        0x92 => "f32.add",
+        0xA0 => "f64.add",
+        0xA7 => "i32.wrap_i64",
+        0xAC => "i64.extend_i32_s",
+        0xAD => "i64.extend_i32_u",
+        0xFC => "misc_prefix",
+        0xFD => "simd_prefix",
+        // Superinstructions (predecoded fused ops, 0xE0-0xEF)
+        0xE0 => "local.get+get",
+        0xE1 => "local.get+const",
+        0xE2 => "locals+add",
+        0xE3 => "locals+sub",
+        0xE4 => "local+const+add",
+        0xE5 => "local+const+sub",
+        0xE6 => "local+const+lt_s",
+        0xE7 => "local+const+ge_s",
+        0xE8 => "local+const+lt_u",
+        0xE9 => "locals+gt_s",
+        0xEA => "locals+le_s",
+        else => "unknown",
+    };
+}
+
+fn miscOpcodeName(sub: u8) []const u8 {
+    return switch (sub) {
+        0x00 => "i32.trunc_sat_f32_s",
+        0x01 => "i32.trunc_sat_f32_u",
+        0x02 => "i32.trunc_sat_f64_s",
+        0x03 => "i32.trunc_sat_f64_u",
+        0x08 => "memory.init",
+        0x09 => "data.drop",
+        0x0A => "memory.copy",
+        0x0B => "memory.fill",
+        0x0C => "table.init",
+        0x0D => "elem.drop",
+        0x0E => "table.copy",
+        0x0F => "table.grow",
+        0x10 => "table.size",
+        0x11 => "table.fill",
+        else => "misc.unknown",
+    };
 }
 
 // ============================================================

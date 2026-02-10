@@ -32,7 +32,7 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 
 Stage 3: JIT + Optimization (ARM64)
 
-1. [ ] 3.1: Profiling infrastructure — opcode frequency + function call counters
+1. [x] 3.1: Profiling infrastructure — opcode frequency + function call counters
 2. [ ] 3.2: Benchmark suite expansion — add nbody, binary-trees, sieve Wasm benchmarks
 3. [ ] 3.3: Profile hot paths — analyze benchmark profiles, document bottleneck patterns
 4. [ ] 3.4: Register IR design — D## decision for IR representation
@@ -45,29 +45,26 @@ Stage 3: JIT + Optimization (ARM64)
 
 ## Current Task
 
-3.1: Profiling infrastructure.
+3.2: Benchmark suite expansion.
 
-Add instrumentation to the interpreter to collect:
-- Opcode execution frequency (per-opcode counter)
-- Function call counts (which exports/internal functions are hot)
-- Basic block execution counts (optional, for later JIT decisions)
+Add more Wasm benchmarks beyond fib:
+- nbody: N-body simulation (float-heavy, memory access)
+- binary-trees: Allocation-heavy tree manipulation
+- sieve: Eratosthenes sieve (memory, loops)
+- tak: Takeuchi function (recursive calls, integer)
 
-Implementation approach:
-- Add `--profile` flag to CLI
-- Counters in Vm struct (conditional compilation or runtime flag)
-- Print profile summary after execution
-- Output format: sorted by frequency, top-N opcodes/functions
+These are needed to profile diverse workloads before register IR design.
 
 ## Previous Task
 
-2.7: CI pipeline (GitHub Actions) — COMPLETE.
-Set up ubuntu + macOS matrix, zig 0.15.2, unit tests + spec tests.
-
-Stage 2 achievements:
-- Spec test pass rate: 30,647/30,686 (99.9%)
-- spectest host module, multi-value typed loops, table fixes
-- assert_invalid/malformed validation support (+132 tests)
-- CI pipeline with cross-platform testing
+3.1: Profiling infrastructure — COMPLETE.
+- `Profile` struct in vm.zig: opcode_counts[256], misc_counts[32], call_count, total_instrs
+- Zero overhead when disabled (null pointer check, default)
+- `--profile` CLI flag for `zwasm run`
+- Sorted top-20 opcode display with percentages
+- Superinstruction names (0xE0-0xEA) in profile output
+- Both bytecode and IR execution paths instrumented
+- 2 new tests: profile counting + disabled-by-default
 
 ## Known Issues
 
