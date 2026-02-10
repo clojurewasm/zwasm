@@ -6,6 +6,9 @@ zig-cache/
 # OS
 .DS_Store
 
+# Nix / direnv
+.direnv/
+
 # Python
 __pycache__/
 
