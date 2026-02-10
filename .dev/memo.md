@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - **Stage 1: Library Quality + CLI Polish** — COMPLETE
 - **Stage 2: Spec Conformance** — COMPLETE
 - **Stage 4: Polish & Robustness** — COMPLETE (tasks 4.1-4.4)
-- Source: ~14K LOC, 14 files (+ cli.zig, 3 examples), 132 tests all pass
+- Source: ~14K LOC, 14 files (+ cli.zig, 3 examples), 137 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 103ms, sieve(1M) = 5.4ms (ReleaseSafe, CLI, JIT)
@@ -24,6 +24,7 @@ Session handover document. Read at session start.
 - **Inline self-call**: direct BL for self-recursive calls, cached &vm.reg_ptr in x27
 - **Smart spill**: only spill caller-saved + arg vregs; direct physical reg arg copy
 - **doCallDirectIR fast path**: regIR/JIT for callees of stack-IR functions (task 5.1)
+- **RegIR opcodes**: br_table (with arity trampolines), memory.fill/copy, trunc_sat (task 5.2)
 
 ## Task Queue
 
@@ -34,25 +35,25 @@ Root causes: missing JIT opcode coverage (st_sieve/matrix), missing f64 JIT (nbo
 st_fib2 fixed: 1754ms → 2.6x wasmtime (was 23.6x). st_ackermann: 6ms (beats wasmtime).
 
 1. [x] 5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass
-2. [ ] 5.2: Close remaining gaps (st_sieve/matrix opcode coverage)
+2. [x] 5.2: Close remaining gaps (st_sieve/matrix regIR opcode coverage)
 3. [ ] 5.3: f64 ARM64 JIT — codegen for f64 operations (key gap for nbody)
 4. [ ] 5.4: Re-record cross-runtime benchmarks
 
 ## Current Task
 
-5.2: Close remaining shootout gaps — st_sieve (32x) and st_matrix (31x) still
-use stack interpreter for hot functions. Profile to find which opcodes are missing
-from JIT coverage, then implement them.
+5.3: f64 ARM64 JIT — codegen for f64 operations.
+Key gap for st_nbody (6.2x slower than wasmtime). Need f64 arithmetic,
+comparisons, conversions in ARM64 JIT codegen.
 
 ## Previous Task
 
-5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass — COMPLETE.
-Root cause: doCallDirectIR completely bypassed regIR/JIT paths. Callees of
-stack-IR functions were stuck in the slow interpreter forever.
-Fix: trigger regIR conversion + JIT compilation in doCallDirectIR, redirect
-JIT-ready functions to executeJIT. Also increased REG_STACK_SIZE 4096→32768
-to support deep recursion via regIR path.
-Results: st_fib2 9x faster (15746→1754ms), st_ackermann 3.3x faster (20→6ms).
+5.2: Close remaining shootout regIR gaps — COMPLETE.
+Added br_table (with arity trampoline for heterogeneous result_regs),
+memory.fill/copy, trunc_sat (0xFC00-0xFC07), call_indirect stub.
+Key finding: st_sieve and st_matrix now fully convert to regIR — no unsupported
+opcodes remain. The 32x/31x gap vs wasmtime is register IR interpreter overhead,
+not opcode coverage. Real fix requires expanding ARM64 JIT codegen to cover
+these functions' instruction sets (memory ops, br_table, etc.).
 
 ## Known Bugs
 
