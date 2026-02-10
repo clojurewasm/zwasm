@@ -1,0 +1,14 @@
+# Zig
+zig-out/
+zig-cache/
+.zig-cache/
+
+# OS
+.DS_Store
+
+# Editor
+*.swp
+*~
+
+# Private
+private/
