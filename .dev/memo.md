@@ -12,6 +12,7 @@ Session handover document. Read at session start.
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 443ms (ReleaseSafe, CLI, register IR + fusion)
 - vs wasmtime JIT: 58ms (7.6x gap — interpreter vs JIT)
+- Benchmarks: 3 layers — 5 WAT, 6 TinyGo, 19 shootout (all 5 runtimes)
 - Spec test pass rate: 30,648/30,686 (99.9%) — 151 files, 28K skipped
 - CI: GitHub Actions (ubuntu + macOS, zig build test + spec tests)
 - **Register IR**: lazy conversion at first call, fallback to stack IR on failure
@@ -83,7 +84,8 @@ Implement `src/jit.zig` with ARM64 code emission:
 
 ## Known Issues
 
-- None currently open
+- **fib_loop TinyGo execution bug**: zwasm returns 196608 for fib_loop(25), correct is 75025
+- **regalloc u8 overflow**: Complex WASI programs with >255 virtual registers cause panic
 
 ## Reference Chain
 
