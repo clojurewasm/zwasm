@@ -191,15 +191,51 @@ pub const Instance = struct {
     }
 
     fn instantiateElems(self: *Instance) !void {
-        for (0..self.module.elements.items.len) |_| {
-            const addr = try self.store.addElem(.funcref, 0);
+        for (self.module.elements.items) |elem_seg| {
+            const count: u32 = switch (elem_seg.init) {
+                .func_indices => |indices| @intCast(indices.len),
+                .expressions => |exprs| @intCast(exprs.len),
+            };
+            const addr = try self.store.addElem(elem_seg.reftype, count);
+            const elem = try self.store.getElem(addr);
+
+            // Populate store elem: convention 0 = null, addr+1 = valid ref
+            switch (elem_seg.init) {
+                .func_indices => |indices| {
+                    for (indices, 0..) |func_idx, i| {
+                        if (func_idx < self.funcaddrs.items.len) {
+                            elem.set(i, @intCast(self.funcaddrs.items[func_idx] + 1));
+                        }
+                    }
+                },
+                .expressions => |exprs| {
+                    for (exprs, 0..) |expr, i| {
+                        if (expr.len > 0 and expr[0] == @intFromEnum(opcode.Opcode.ref_null)) {
+                            elem.set(i, 0);
+                        } else if (expr.len > 0 and expr[0] == @intFromEnum(opcode.Opcode.ref_func)) {
+                            var expr_reader = Reader.init(expr);
+                            _ = try expr_reader.readByte();
+                            const func_idx = try expr_reader.readU32();
+                            if (func_idx < self.funcaddrs.items.len) {
+                                elem.set(i, @intCast(self.funcaddrs.items[func_idx] + 1));
+                            }
+                        } else {
+                            const val = try evalInitExpr(expr, self);
+                            elem.set(i, @intCast(val));
+                        }
+                    }
+                },
+            }
             try self.elemaddrs.append(self.alloc, addr);
         }
     }
 
     fn instantiateData(self: *Instance) !void {
-        for (0..self.module.datas.items.len) |_| {
-            const addr = try self.store.addData(0);
+        for (self.module.datas.items) |data_seg| {
+            const addr = try self.store.addData(@intCast(data_seg.data.len));
+            const d = try self.store.getData(addr);
+            // Copy data segment content to store
+            @memcpy(d.data, data_seg.data);
             try self.dataaddrs.append(self.alloc, addr);
         }
     }
@@ -223,7 +259,27 @@ pub const Instance = struct {
                                 try t.set(dest, func_addr);
                             }
                         },
-                        .expressions => {}, // Expression-based init deferred to VM
+                        .expressions => |exprs| {
+                            for (exprs, 0..) |expr, i| {
+                                const dest: u32 = @intCast(@as(u64, @truncate(offset)) + i);
+                                // Parse expression to distinguish ref.null from ref.func
+                                if (expr.len > 0 and expr[0] == @intFromEnum(opcode.Opcode.ref_null)) {
+                                    try t.set(dest, 0);
+                                } else if (expr.len > 0 and expr[0] == @intFromEnum(opcode.Opcode.ref_func)) {
+                                    var expr_reader = Reader.init(expr);
+                                    _ = try expr_reader.readByte(); // skip ref.func opcode
+                                    const func_idx = try expr_reader.readU32();
+                                    if (func_idx < self.funcaddrs.items.len) {
+                                        try t.set(dest, self.funcaddrs.items[func_idx]);
+                                    } else {
+                                        return error.FunctionIndexOutOfBounds;
+                                    }
+                                } else {
+                                    const val = try evalInitExpr(expr, self);
+                                    try t.set(dest, @intCast(val));
+                                }
+                            }
+                        },
                     }
                 },
                 .passive, .declarative => {},

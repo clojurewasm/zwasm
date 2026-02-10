@@ -183,9 +183,10 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             };
         }
 
-        // Determine result count from export info
+        // Determine result count and types from export info
         var result_count: usize = 1;
-        if (module.getExportInfo(func_name)) |info| {
+        const export_info = module.getExportInfo(func_name);
+        if (export_info) |info| {
             result_count = info.result_types.len;
         }
 
@@ -199,10 +200,19 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             return false;
         };
 
-        // Print results
+        // Print results (truncate 32-bit types to u32)
         for (results, 0..) |r, idx| {
             if (idx > 0) try stdout.print(" ", .{});
-            try stdout.print("{d}", .{r});
+            const val = if (export_info) |info| blk: {
+                if (idx < info.result_types.len) {
+                    break :blk switch (info.result_types[idx]) {
+                        .i32, .f32 => r & 0xFFFFFFFF,
+                        else => r,
+                    };
+                }
+                break :blk r;
+            } else r;
+            try stdout.print("{d}", .{val});
         }
         if (results.len > 0) try stdout.print("\n", .{});
         try stdout.flush();
@@ -566,9 +576,10 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Writer
             continue;
         }
 
-        // Determine result count from export
+        // Determine result count and types from export
         var result_count: usize = 1;
-        if (module.getExportInfo(func_name)) |info| {
+        const batch_export_info = module.getExportInfo(func_name);
+        if (batch_export_info) |info| {
             result_count = info.result_types.len;
         }
         if (result_count > result_buf.len) result_count = result_buf.len;
@@ -581,10 +592,19 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Writer
             continue;
         };
 
-        // Output: "ok [val1 val2 ...]"
+        // Output: "ok [val1 val2 ...]" (truncate 32-bit types to u32)
         try stdout.print("ok", .{});
-        for (result_buf[0..result_count]) |val| {
-            try stdout.print(" {d}", .{val});
+        for (result_buf[0..result_count], 0..) |val, ridx| {
+            const out_val = if (batch_export_info) |info| blk: {
+                if (ridx < info.result_types.len) {
+                    break :blk switch (info.result_types[ridx]) {
+                        .i32, .f32 => val & 0xFFFFFFFF,
+                        else => val,
+                    };
+                }
+                break :blk val;
+            } else val;
+            try stdout.print(" {d}", .{out_val});
         }
         try stdout.print("\n", .{});
         try stdout.flush();

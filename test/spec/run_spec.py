@@ -128,6 +128,7 @@ class BatchRunner:
             ready, _, _ = select.select([self.proc.stdout], [], [], timeout)
             if not ready:
                 self.proc.kill()
+                self._cleanup_proc()
                 self.proc = None
                 return (False, "timeout")
 
@@ -146,10 +147,21 @@ class BatchRunner:
             else:
                 return (False, f"unexpected: {response}")
         except Exception as e:
+            self._cleanup_proc()
             self.proc = None
             if not self.needs_state:
                 return run_invoke_single(self.wasm_path, func_name, args)
             return (False, str(e))
+
+    def _cleanup_proc(self):
+        """Close all pipes on the process to avoid BrokenPipeError on GC."""
+        if self.proc:
+            for pipe in (self.proc.stdin, self.proc.stdout, self.proc.stderr):
+                try:
+                    if pipe:
+                        pipe.close()
+                except Exception:
+                    pass
 
     def close(self):
         if self.proc and self.proc.poll() is None:
@@ -158,6 +170,7 @@ class BatchRunner:
                 self.proc.wait(timeout=5)
             except Exception:
                 self.proc.kill()
+        self._cleanup_proc()
         self.proc = None
 
 

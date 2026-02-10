@@ -11,7 +11,7 @@ Session handover document. Read at session start.
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 544ms (ReleaseSafe, CLI)
 - vs wasmtime JIT: 58ms (9.4x gap — interpreter vs JIT)
-- Spec test pass rate: 29,175/30,383 (96.0%) — 151 files, 28K skipped
+- Spec test pass rate: 29,338/30,383 (96.6%) — 151 files, 28K skipped
 
 ## Strategic Position
 
@@ -41,8 +41,7 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-2.5: Fix spec test failures — 96.0% achieved. Remaining: multi-module (1070),
-small runtime bugs (138).
+2.5: Fix spec test failures — 96.6% achieved (29,338/30,383).
 
 Fixes applied:
 - CLI exit code propagation for trap detection
@@ -50,14 +49,26 @@ Fixes applied:
 - truncSat overflow bounds (power-of-2 exact bounds)
 - Length-prefixed batch protocol for Unicode function names
 - Fallback to single-process for problematic function names
+- roundToEven -0.0 sign preservation (f32/f64 nearest)
+- Start function execution on module load
+- i32/f32 result truncation in CLI output (endianness fix)
+- call_indirect full type comparison (not just length)
+- Ref null convention: stack uses addr+1, 0=null (table_get/set/grow/fill)
+- ref.func pushes store address (not module index)
+- table.init + table.copy implementation
+- memory.init/data.drop via instance dataaddrs
+- Elem/Data store population during instantiation
+- Dropped segments: effective length 0 (n=0 succeeds per spec)
+- BrokenPipeError cleanup in test runner
 
 Remaining failure categories:
-- table_copy/init (multi-module linking): ~1070
-- memory_init (multi-module): ~40
-- bulk ops (multi-module): ~23
-- f32/f64 (3 each): NaN canonicalization
-- fac-ssa: infinite loop (VM bug)
-- Various small: ~32
+- table_copy/init (multi-module linking): ~982
+- table_size64 (memory64 proposal): 36
+- bulk ops (multi-module/table state): ~12
+- fac (timeout/infinite loop): 1
+- table_get/set (externref test runner limitation): ~4
+- names (special chars): 2
+- memory_grow64 (memory64 proposal): 2
 
 ## Previous Task
 

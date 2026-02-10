@@ -262,6 +262,18 @@ pub const Vm = struct {
         try self.callFunction(instance, func_ptr, args, results);
     }
 
+    /// Invoke a function by its module-local index (used for start functions).
+    pub fn invokeByIndex(
+        self: *Vm,
+        instance: *Instance,
+        func_idx: u32,
+        args: []const u64,
+        results: []u64,
+    ) WasmError!void {
+        const func_ptr = try instance.getFuncPtr(func_idx);
+        try self.callFunction(instance, func_ptr, args, results);
+    }
+
     /// Call a function (wasm or host) with given args, writing results.
     fn callFunction(
         self: *Vm,
@@ -499,11 +511,11 @@ pub const Vm = struct {
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
 
-                    // Type check
+                    // Type check: compare param/result types, not just lengths
                     if (type_idx < instance.module.types.items.len) {
                         const expected = instance.module.types.items[type_idx];
-                        if (expected.params.len != func_ptr.params.len or
-                            expected.results.len != func_ptr.results.len)
+                        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
+                            !std.mem.eql(ValType, expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
 
@@ -553,14 +565,17 @@ pub const Vm = struct {
                     const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(table_idx);
                     const val = t.get(elem_idx) catch return error.OutOfBoundsMemoryAccess;
-                    try self.push(if (val) |v| @as(u64, @intCast(v)) else 0);
+                    // Stack convention: addr+1 for valid refs, 0 for null
+                    try self.push(if (val) |v| @as(u64, @intCast(v)) + 1 else 0);
                 },
                 .table_set => {
                     const table_idx = try reader.readU32();
                     const val = self.pop();
                     const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(table_idx);
-                    t.set(elem_idx, @intCast(val)) catch return error.OutOfBoundsMemoryAccess;
+                    // Stack convention: 0 = null, addr+1 = valid ref
+                    const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
+                    t.set(elem_idx, ref_val) catch return error.OutOfBoundsMemoryAccess;
                 },
 
                 // ---- Memory load ----
@@ -798,7 +813,15 @@ pub const Vm = struct {
                 // ---- Reference types ----
                 .ref_null => { _ = try reader.readByte(); try self.push(0); },
                 .ref_is_null => { const a = self.pop(); try self.pushI32(b2i(a == 0)); },
-                .ref_func => { const idx = try reader.readU32(); try self.push(@as(u64, idx)); },
+                .ref_func => {
+                    const idx = try reader.readU32();
+                    // Push store address + 1 (0 = null ref convention)
+                    if (idx < instance.funcaddrs.items.len) {
+                        try self.push(@as(u64, @intCast(instance.funcaddrs.items[idx])) + 1);
+                    } else {
+                        return error.FunctionIndexOutOfBounds;
+                    }
+                },
 
                 // ---- 0xFC prefix (misc) ----
                 .misc_prefix => try self.executeMisc(reader, instance),
@@ -847,15 +870,18 @@ pub const Vm = struct {
                 const src = @as(u32, @bitCast(self.popI32()));
                 const dst = @as(u32, @bitCast(self.popI32()));
                 const m = try instance.getMemory(0);
-                const d = try instance.store.getData(data_idx);
-                if (d.dropped) return error.Trap;
-                if (@as(u64, src) + n > d.data.len or @as(u64, dst) + n > m.memory().len)
+                if (data_idx >= instance.dataaddrs.items.len) return error.Trap;
+                const d = try instance.store.getData(instance.dataaddrs.items[data_idx]);
+                // Dropped segments have effective length 0 (spec: n=0 succeeds even if dropped)
+                const data_len: u64 = if (d.dropped) 0 else d.data.len;
+                if (@as(u64, src) + n > data_len or @as(u64, dst) + n > m.memory().len)
                     return error.OutOfBoundsMemoryAccess;
-                @memcpy(m.memory()[dst..][0..n], d.data[src..][0..n]);
+                if (n > 0) @memcpy(m.memory()[dst..][0..n], d.data[src..][0..n]);
             },
             .data_drop => {
                 const data_idx = try reader.readU32();
-                const d = try instance.store.getData(data_idx);
+                if (data_idx >= instance.dataaddrs.items.len) return error.Trap;
+                const d = try instance.store.getData(instance.dataaddrs.items[data_idx]);
                 d.dropped = true;
             },
             .table_grow => {
@@ -863,7 +889,9 @@ pub const Vm = struct {
                 const n = @as(u32, @bitCast(self.popI32()));
                 const val = self.pop();
                 const t = try instance.store.getTable(table_idx);
-                const old = t.grow(n, @intCast(val)) catch {
+                // Stack convention: 0 = null ref, addr+1 = valid ref
+                const init_val: ?usize = if (val == 0) null else @intCast(val - 1);
+                const old = t.grow(n, init_val) catch {
                     try self.pushI32(-1);
                     return;
                 };
@@ -880,30 +908,61 @@ pub const Vm = struct {
                 const val = self.pop();
                 const start = @as(u32, @bitCast(self.popI32()));
                 const t = try instance.store.getTable(table_idx);
+                // Stack convention: 0 = null ref, addr+1 = valid ref
+                const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 for (0..n) |i| {
-                    t.set(start + @as(u32, @intCast(i)), @intCast(val)) catch return error.OutOfBoundsMemoryAccess;
+                    t.set(start + @as(u32, @intCast(i)), ref_val) catch return error.OutOfBoundsMemoryAccess;
                 }
             },
             .table_copy => {
-                _ = try reader.readU32(); // dst table
-                _ = try reader.readU32(); // src table
-                // Simple implementation (same table)
+                const dst_table_idx = try reader.readU32();
+                const src_table_idx = try reader.readU32();
                 const n = @as(u32, @bitCast(self.popI32()));
-                _ = self.popI32(); // src
-                _ = self.popI32(); // dst
-                _ = n; // F136: implement cross-table copy
+                const src = @as(u32, @bitCast(self.popI32()));
+                const dst = @as(u32, @bitCast(self.popI32()));
+                const dst_t = try instance.getTable(dst_table_idx);
+                const src_t = try instance.getTable(src_table_idx);
+                // Bounds check
+                if (@as(u64, src) + n > src_t.size() or @as(u64, dst) + n > dst_t.size())
+                    return error.OutOfBoundsMemoryAccess;
+                // Copy with overlap handling
+                if (dst <= src) {
+                    for (0..n) |i| {
+                        const val = src_t.get(src + @as(u32, @intCast(i))) catch return error.OutOfBoundsMemoryAccess;
+                        dst_t.set(dst + @as(u32, @intCast(i)), val) catch return error.OutOfBoundsMemoryAccess;
+                    }
+                } else {
+                    var i: u32 = n;
+                    while (i > 0) {
+                        i -= 1;
+                        const val = src_t.get(src + i) catch return error.OutOfBoundsMemoryAccess;
+                        dst_t.set(dst + i, val) catch return error.OutOfBoundsMemoryAccess;
+                    }
+                }
             },
             .table_init => {
-                _ = try reader.readU32(); // elem idx
-                _ = try reader.readU32(); // table idx
+                const elem_idx = try reader.readU32();
+                const table_idx = try reader.readU32();
                 const n = @as(u32, @bitCast(self.popI32()));
-                _ = self.popI32(); // src
-                _ = self.popI32(); // dst
-                _ = n; // F137: implement table.init
+                const src = @as(u32, @bitCast(self.popI32()));
+                const dst = @as(u32, @bitCast(self.popI32()));
+                if (elem_idx >= instance.elemaddrs.items.len) return error.Trap;
+                const e = try instance.store.getElem(instance.elemaddrs.items[elem_idx]);
+                const t = try instance.getTable(table_idx);
+                // Dropped segments have effective length 0 (spec: n=0 succeeds even if dropped)
+                const elem_len: u64 = if (e.dropped) 0 else e.data.len;
+                if (@as(u64, src) + n > elem_len or @as(u64, dst) + n > t.size())
+                    return error.OutOfBoundsMemoryAccess;
+                for (0..n) |i| {
+                    const val = e.data[src + @as(u32, @intCast(i))];
+                    const ref: ?usize = if (val == 0) null else @intCast(val - 1);
+                    t.set(dst + @as(u32, @intCast(i)), ref) catch return error.OutOfBoundsMemoryAccess;
+                }
             },
             .elem_drop => {
                 const elem_idx = try reader.readU32();
-                const e = try instance.store.getElem(elem_idx);
+                if (elem_idx >= instance.elemaddrs.items.len) return error.Trap;
+                const e = try instance.store.getElem(instance.elemaddrs.items[elem_idx]);
                 e.dropped = true;
             },
             _ => return error.Trap,
@@ -1909,8 +1968,8 @@ pub const Vm = struct {
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
                     if (type_idx < instance.module.types.items.len) {
                         const expected = instance.module.types.items[type_idx];
-                        if (expected.params.len != func_ptr.params.len or
-                            expected.results.len != func_ptr.results.len)
+                        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
+                            !std.mem.eql(ValType, expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
                     try self.doCallDirectIR(instance, func_ptr);
@@ -1952,13 +2011,14 @@ pub const Vm = struct {
                     const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(instr.operand);
                     const val = t.get(elem_idx) catch return error.OutOfBoundsMemoryAccess;
-                    try self.push(if (val) |v| @as(u64, @intCast(v)) else 0);
+                    try self.push(if (val) |v| @as(u64, @intCast(v)) + 1 else 0);
                 },
                 0x26 => { // table_set
                     const val = self.pop();
                     const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(instr.operand);
-                    t.set(elem_idx, @intCast(val)) catch return error.OutOfBoundsMemoryAccess;
+                    const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
+                    t.set(elem_idx, ref_val) catch return error.OutOfBoundsMemoryAccess;
                 },
 
                 // ---- Memory load (offset pre-decoded in operand, cached memory) ----
@@ -2194,7 +2254,13 @@ pub const Vm = struct {
                 // ---- Reference types ----
                 0xD0 => try self.push(0), // ref_null
                 0xD1 => { const a = self.pop(); try self.pushI32(b2i(a == 0)); }, // ref_is_null
-                0xD2 => try self.push(@as(u64, instr.operand)), // ref_func
+                0xD2 => { // ref_func — push store address + 1 (0 = null)
+                    if (instr.operand < instance.funcaddrs.items.len) {
+                        try self.push(@as(u64, @intCast(instance.funcaddrs.items[instr.operand])) + 1);
+                    } else {
+                        return error.FunctionIndexOutOfBounds;
+                    }
+                },
 
                 // ---- Misc prefix (flattened) ----
                 0xFC00...0xFCFF => try self.executeMiscIR(instr, instance),
@@ -2386,14 +2452,16 @@ pub const Vm = struct {
                 const src = @as(u32, @bitCast(self.popI32()));
                 const dst = @as(u32, @bitCast(self.popI32()));
                 const m = try instance.getMemory(0);
-                const d = try instance.store.getData(instr.operand);
-                if (d.dropped) return error.Trap;
-                if (@as(u64, src) + n > d.data.len or @as(u64, dst) + n > m.memory().len)
+                if (instr.operand >= instance.dataaddrs.items.len) return error.Trap;
+                const d = try instance.store.getData(instance.dataaddrs.items[instr.operand]);
+                const data_len: u64 = if (d.dropped) 0 else d.data.len;
+                if (@as(u64, src) + n > data_len or @as(u64, dst) + n > m.memory().len)
                     return error.OutOfBoundsMemoryAccess;
-                @memcpy(m.memory()[dst..][0..n], d.data[src..][0..n]);
+                if (n > 0) @memcpy(m.memory()[dst..][0..n], d.data[src..][0..n]);
             },
             0x09 => { // data.drop
-                const d = try instance.store.getData(instr.operand);
+                if (instr.operand >= instance.dataaddrs.items.len) return error.Trap;
+                const d = try instance.store.getData(instance.dataaddrs.items[instr.operand]);
                 d.dropped = true;
             },
             0x0E => { // table.fill
@@ -2401,15 +2469,17 @@ pub const Vm = struct {
                 const val = self.pop();
                 const start = @as(u32, @bitCast(self.popI32()));
                 const t = try instance.store.getTable(instr.operand);
+                const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 for (0..n) |i| {
-                    t.set(start + @as(u32, @intCast(i)), @intCast(val)) catch return error.OutOfBoundsMemoryAccess;
+                    t.set(start + @as(u32, @intCast(i)), ref_val) catch return error.OutOfBoundsMemoryAccess;
                 }
             },
             0x0F => { // table.grow
                 const n = @as(u32, @bitCast(self.popI32()));
                 const val = self.pop();
                 const t = try instance.store.getTable(instr.operand);
-                const old = t.grow(n, @intCast(val)) catch {
+                const init_val: ?usize = if (val == 0) null else @intCast(val - 1);
+                const old = t.grow(n, init_val) catch {
                     try self.pushI32(-1);
                     return;
                 };
@@ -2421,18 +2491,45 @@ pub const Vm = struct {
             },
             0x0C => { // table.copy
                 const n = @as(u32, @bitCast(self.popI32()));
-                _ = self.popI32();
-                _ = self.popI32();
-                _ = n;
+                const src = @as(u32, @bitCast(self.popI32()));
+                const dst = @as(u32, @bitCast(self.popI32()));
+                const dst_t = try instance.getTable(instr.operand);
+                const src_t = try instance.getTable(instr.extra);
+                if (@as(u64, src) + n > src_t.size() or @as(u64, dst) + n > dst_t.size())
+                    return error.OutOfBoundsMemoryAccess;
+                if (dst <= src) {
+                    for (0..n) |i| {
+                        const val = src_t.get(src + @as(u32, @intCast(i))) catch return error.OutOfBoundsMemoryAccess;
+                        dst_t.set(dst + @as(u32, @intCast(i)), val) catch return error.OutOfBoundsMemoryAccess;
+                    }
+                } else {
+                    var idx: u32 = n;
+                    while (idx > 0) {
+                        idx -= 1;
+                        const val = src_t.get(src + idx) catch return error.OutOfBoundsMemoryAccess;
+                        dst_t.set(dst + idx, val) catch return error.OutOfBoundsMemoryAccess;
+                    }
+                }
             },
             0x0D => { // table.init
                 const n = @as(u32, @bitCast(self.popI32()));
-                _ = self.popI32();
-                _ = self.popI32();
-                _ = n;
+                const src = @as(u32, @bitCast(self.popI32()));
+                const dst = @as(u32, @bitCast(self.popI32()));
+                if (instr.operand >= instance.elemaddrs.items.len) return error.Trap;
+                const e = try instance.store.getElem(instance.elemaddrs.items[instr.operand]);
+                const t = try instance.getTable(instr.extra);
+                const elem_len: u64 = if (e.dropped) 0 else e.data.len;
+                if (@as(u64, src) + n > elem_len or @as(u64, dst) + n > t.size())
+                    return error.OutOfBoundsMemoryAccess;
+                for (0..n) |i| {
+                    const val = e.data[src + @as(u32, @intCast(i))];
+                    const ref: ?usize = if (val == 0) null else @intCast(val - 1);
+                    t.set(dst + @as(u32, @intCast(i)), ref) catch return error.OutOfBoundsMemoryAccess;
+                }
             },
             0x11 => { // elem.drop
-                const e = try instance.store.getElem(instr.operand);
+                if (instr.operand >= instance.elemaddrs.items.len) return error.Trap;
+                const e = try instance.store.getElem(instance.elemaddrs.items[instr.operand]);
                 e.dropped = true;
             },
             else => return error.Trap,
@@ -2976,8 +3073,10 @@ fn roundToEven(comptime T: type, x: T) T {
     };
     const ax = @abs(x);
     if (ax >= magic) return x;
-    if (x > 0) return (x + magic) - magic;
-    return (x - magic) + magic;
+    const result = if (x > 0) (x + magic) - magic else (x - magic) + magic;
+    // Preserve sign: small negatives round to -0.0, not +0.0
+    if (result == 0 and math.signbit(x)) return -result;
+    return result;
 }
 
 // ============================================================

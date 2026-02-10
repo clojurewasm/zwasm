@@ -197,6 +197,12 @@ pub const WasmModule = struct {
         self.vm = try allocator.create(rt.vm_mod.Vm);
         self.vm.* = rt.vm_mod.Vm.init(allocator);
 
+        // Execute start function if present
+        if (self.module.start) |start_idx| {
+            self.vm.reset();
+            try self.vm.invokeByIndex(&self.instance, start_idx, &.{}, &.{});
+        }
+
         return self;
     }
 
