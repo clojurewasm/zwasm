@@ -4,9 +4,10 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- **Stage 0: Extraction & Independence** — COMPLETE (tasks 0.1-0.7, 0.9.1-0.9.4)
-- **Stage 1: Library Quality + CLI Polish** — COMPLETE (tasks 1.1-1.7)
-- **Stage 2: Spec Conformance** — COMPLETE (tasks 2.1-2.7)
+- **Stage 0: Extraction & Independence** — COMPLETE
+- **Stage 1: Library Quality + CLI Polish** — COMPLETE
+- **Stage 2: Spec Conformance** — COMPLETE
+- **Stage 4: Polish & Robustness** — COMPLETE (tasks 4.1-4.4)
 - Source: ~14K LOC, 14 files (+ cli.zig, 3 examples), 132 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
@@ -25,25 +26,25 @@ Session handover document. Read at session start.
 
 ## Task Queue
 
-Stage 4: Polish & Robustness
+Stage 5: JIT Coverage Expansion
 
-1. [x] 4.1: Fix fib_loop TinyGo bug — regalloc aliasing in local.tee
-2. [x] 4.2: Fix regalloc u8 overflow — graceful fallback to stack IR
-3. [x] 4.3: Inline self-call for memory functions — recompute reg_ptr addr via SCRATCH
-4. [x] 4.4: Cross-runtime benchmark update — recorded comparison vs 5 runtimes
+Performance gaps: shootout 23-33x, nbody 6.2x slower than wasmtime.
+Root causes: functions not getting JIT'd, missing f64 JIT, interpreter overhead.
+
+1. [ ] 5.1: Profile shootout benchmarks — identify JIT coverage gaps
+2. [ ] 5.2: Close identified gaps (based on 5.1 findings)
+3. [ ] 5.3: f64 ARM64 JIT — codegen for f64 operations (key gap for nbody)
+4. [ ] 5.4: Re-record cross-runtime benchmarks
 
 ## Current Task
 
-(none — Stage 4 task queue empty)
+5.1: Profile shootout benchmarks — identify why 23-33x slower than wasmtime.
 
 ## Previous Task
 
 4.4: Cross-runtime benchmark update — COMPLETE.
-Fixed record_comparison.sh to handle runtime failures gracefully.
-Recorded comparison vs wasmtime/wasmer/bun/node (wasmer 5.0.4 fails TinyGo --invoke).
-Key results: fib 104ms (2.0x wasmtime), sieve 5ms (beats wasmtime 6ms),
-nqueens 2ms (beats all), tak 11ms (1.1x wasmtime).
-Memory: zwasm 2-3MB vs wasmtime 12MB / bun 32MB / node 43MB.
+Key results: fib 104ms (2.0x wasmtime), sieve 5ms (beats wasmtime 6ms).
+Memory: zwasm 2-3MB vs wasmtime 12-43MB.
 
 ## Known Bugs
 

@@ -78,6 +78,28 @@ Approach: incremental JIT — profile first, register IR, then ARM64 codegen.
 **Exit criteria**: fib(35) within 2x of wasmtime JIT. ARM64 JIT stable.
 **Result**: fib(35) = 103ms, wasmtime = 52ms, ratio = 2.0x. EXIT CRITERIA MET.
 
+## Stage 4: Polish & Robustness (COMPLETE)
+
+**Goal**: Fix known bugs and polish the runtime.
+
+- 4.1: Fix fib_loop TinyGo bug (regalloc local.tee aliasing)
+- 4.2: Fix regalloc u8 overflow (graceful fallback to stack IR)
+- 4.3: Inline self-call for memory functions (recompute addr via SCRATCH)
+- 4.4: Cross-runtime benchmark update (5 runtimes comparison)
+
+## Stage 5: JIT Coverage Expansion
+
+**Goal**: Close the remaining performance gaps with wasmtime.
+Key gaps: shootout 23-33x slower (not JIT'd), nbody 6.2x (no f64 JIT).
+
+### Tasks
+- 5.1: Profile shootout benchmarks — identify JIT coverage gaps
+- 5.2: Close identified gaps (JIT threshold, opcode coverage)
+- 5.3: f64 ARM64 JIT — codegen for f64 operations
+- 5.4: Re-record cross-runtime benchmarks
+
+**Exit criteria**: Shootout benchmarks within 5x of wasmtime. nbody within 3x.
+
 ### Future
 - Superinstruction expansion (profile-guided)
 - x86_64 JIT backend
