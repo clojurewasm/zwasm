@@ -5,9 +5,8 @@
 # for zwasm and other Wasm runtimes.
 #
 # Usage:
-#   bash bench/record_comparison.sh                                # zwasm vs wasmtime (default)
-#   bash bench/record_comparison.sh --rt=zwasm,wasmtime,wasmer     # add wasmer
-#   bash bench/record_comparison.sh --rt=zwasm,wasmtime,wasmer,bun,node  # all 5
+#   bash bench/record_comparison.sh                                # all 5 runtimes (default)
+#   bash bench/record_comparison.sh --rt=zwasm,wasmtime            # specific runtimes
 #   bash bench/record_comparison.sh --bench=fib                    # specific benchmark
 #   bash bench/record_comparison.sh --quick                        # 1 run, no warmup
 #
@@ -20,10 +19,11 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT="$SCRIPT_DIR/runtime_comparison.yaml"
 ZWASM="$PROJECT_ROOT/zig-out/bin/zwasm"
 RUNNER="$SCRIPT_DIR/run_wasm.mjs"
+RUNNER_WASI="$SCRIPT_DIR/run_wasm_wasi.mjs"
 
 cd "$PROJECT_ROOT"
 
-RUNTIMES="zwasm,wasmtime"
+RUNTIMES="zwasm,wasmtime,wasmer,bun,node"
 BENCH_FILTER=""
 RUNS=3
 WARMUP=1
@@ -38,7 +38,7 @@ for arg in "$@"; do
       echo "Usage: bash bench/record_comparison.sh [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --rt=RT1,RT2,...  Runtimes (default: zwasm,wasmtime)"
+      echo "  --rt=RT1,RT2,...  Runtimes (default: all 5)"
       echo "                    Available: zwasm, wasmtime, wasmer, bun, node"
       echo "  --bench=NAME      Specific benchmark"
       echo "  --quick           1 run, no warmup"
@@ -102,13 +102,26 @@ get_binary_size() {
 
 # Build command for a given runtime + benchmark
 build_cmd() {
-  local rt="$1" wasm="$2" func="$3" args="$4"
-  case "$rt" in
-    zwasm)    echo "$ZWASM run --invoke $func $wasm $args" ;;
-    wasmtime) echo "wasmtime run --invoke $func $wasm $args" ;;
-    wasmer)   echo "wasmer run $wasm -i $func $args" ;;
-    bun)      echo "bun $RUNNER $wasm $func $args" ;;
-    node)     echo "node $RUNNER $wasm $func $args" ;;
+  local rt="$1" wasm="$2" func="$3" args="$4" kind="$5"
+  case "$kind" in
+    invoke)
+      case "$rt" in
+        zwasm)    echo "$ZWASM run --invoke $func $wasm $args" ;;
+        wasmtime) echo "wasmtime run --invoke $func $wasm $args" ;;
+        wasmer)   echo "wasmer run $wasm -i $func $args" ;;
+        bun)      echo "bun $RUNNER $wasm $func $args" ;;
+        node)     echo "node $RUNNER $wasm $func $args" ;;
+      esac
+      ;;
+    wasi)
+      case "$rt" in
+        zwasm)    echo "$ZWASM run $wasm" ;;
+        wasmtime) echo "wasmtime $wasm" ;;
+        wasmer)   echo "wasmer $wasm" ;;
+        bun)      echo "bun $RUNNER_WASI $wasm" ;;
+        node)     echo "node $RUNNER_WASI $wasm" ;;
+      esac
+      ;;
   esac
 }
 
@@ -121,17 +134,31 @@ measure_memory() {
   echo "$output" | grep "maximum resident set size" | awk '{print $1}'
 }
 
-# --- Benchmarks ---
+# --- Benchmarks: name:wasm:func:args:type ---
+# type: invoke (--invoke func args) or wasi (_start entry point)
+# Keep in sync with compare_runtimes.sh and record.sh
 BENCHMARKS=(
-  "fib:src/testdata/02_fibonacci.wasm:fib:35:pure"
-  "tak:bench/wasm/tak.wasm:tak:24 16 8:pure"
-  "sieve:bench/wasm/sieve.wasm:sieve:1000000:pure"
-  "nbody:bench/wasm/nbody.wasm:run:1000000:pure"
-  "nqueens:src/testdata/25_nqueens.wasm:nqueens:8:pure"
-  "tgo_fib:bench/wasm/tgo_fib.wasm:fib:35:wasi"
-  "tgo_tak:bench/wasm/tgo_tak.wasm:tak:24 16 8:wasi"
-  "tgo_arith:bench/wasm/tgo_arith.wasm:arith_loop:100000000:wasi"
-  "tgo_sieve:bench/wasm/tgo_sieve.wasm:sieve:1000000:wasi"
+  # Layer 1: WAT hand-written
+  "fib:src/testdata/02_fibonacci.wasm:fib:35:invoke"
+  "tak:bench/wasm/tak.wasm:tak:24 16 8:invoke"
+  "sieve:bench/wasm/sieve.wasm:sieve:1000000:invoke"
+  "nbody:bench/wasm/nbody.wasm:run:1000000:invoke"
+  "nqueens:src/testdata/25_nqueens.wasm:nqueens:8:invoke"
+  # Layer 2: TinyGo
+  "tgo_fib:bench/wasm/tgo_fib.wasm:fib:35:invoke"
+  "tgo_tak:bench/wasm/tgo_tak.wasm:tak:24 16 8:invoke"
+  "tgo_arith:bench/wasm/tgo_arith.wasm:arith_loop:100000000:invoke"
+  "tgo_sieve:bench/wasm/tgo_sieve.wasm:sieve:1000000:invoke"
+  "tgo_fib_loop:bench/wasm/tgo_fib_loop.wasm:fib_loop:25:invoke"
+  "tgo_gcd:bench/wasm/tgo_gcd.wasm:gcd:12345 67890:invoke"
+  # Layer 3: Sightglass shootout (WASI _start)
+  # Heavy shootout benchmarks temporarily commented out (slow on interpreter)
+  #"st_fib2:bench/wasm/shootout/shootout-fib2.wasm::_start:wasi"
+  #"st_sieve:bench/wasm/shootout/shootout-sieve.wasm::_start:wasi"
+  "st_nestedloop:bench/wasm/shootout/shootout-nestedloop.wasm::_start:wasi"
+  "st_ackermann:bench/wasm/shootout/shootout-ackermann.wasm::_start:wasi"
+  #"st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
+  #"st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
 )
 
 TMPDIR_BENCH=$(mktemp -d)
@@ -197,12 +224,7 @@ for entry in "${BENCHMARKS[@]}"; do
   echo "  $name:" >> "$OUTPUT"
 
   for rt in "${RT_LIST[@]}"; do
-    # bun/node skip WASI benchmarks
-    if [[ "$kind" == "wasi" && ("$rt" == "bun" || "$rt" == "node") ]]; then
-      continue
-    fi
-
-    cmd=$(build_cmd "$rt" "$wasm" "$func" "$bench_args")
+    cmd=$(build_cmd "$rt" "$wasm" "$func" "$bench_args" "$kind")
     json_file="$TMPDIR_BENCH/${name}_${rt}.json"
 
     # Speed: hyperfine

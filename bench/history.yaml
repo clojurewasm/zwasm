@@ -9,16 +9,20 @@ env:
 entries:
   - id: "3.6"
     date: "2026-02-10"
-    reason: "Register IR + immediate fusion + NOP compaction"
-    commit: "331c112"
+    reason: "Baseline with shootout + TinyGo additions"
+    commit: "c3665c6"
     build: ReleaseSafe
     results:
-      fib: {time_ms: 439}
+      fib: {time_ms: 463}
       tak: {time_ms: 42}
-      sieve: {time_ms: 41}
-      nbody: {time_ms: 135}
+      sieve: {time_ms: 44}
+      nbody: {time_ms: 150}
       nqueens: {time_ms: 3}
-      tgo_fib: {time_ms: 366}
+      tgo_fib: {time_ms: 383}
       tgo_tak: {time_ms: 32}
-      tgo_arith: {time_ms: 1}
-      tgo_sieve: {time_ms: 36}
+      tgo_arith: {time_ms: 2}
+      tgo_sieve: {time_ms: 37}
+      tgo_fib_loop: {time_ms: 5}
+      tgo_gcd: {time_ms: 3}
+      st_nestedloop: {time_ms: 4}
+      st_ackermann: {time_ms: 20}
