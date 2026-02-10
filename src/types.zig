@@ -1,11 +1,11 @@
-// Copyright (c) 2026 ClojureWasm Contributors. All rights reserved.
-// Licensed under the MIT License. See LICENSE at the root of this distribution.
+// Copyright (c) 2026 zwasm contributors. Licensed under the MIT License.
+// See LICENSE at the root of this distribution.
 
 //! Wasm module and function types — the primary public API of zwasm.
 //!
 //! Provides WasmModule (load, invoke, memory access) and WasmFn (bound export)
 //! types. All external interfaces use raw u64 values matching the Wasm spec.
-//! Embedders (e.g., ClojureWasm) wrap u64 in their own type system.
+//! Embedders wrap u64 in their own type system.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -265,7 +265,7 @@ pub const WasmFn = struct {
 };
 
 // ============================================================
-// Import registration (D103: struct-based, no CW Value)
+// Import registration (struct-based API)
 // ============================================================
 
 /// Register all import entries (wasm module links + host functions).
@@ -544,7 +544,7 @@ test "getExportInfo — nonexistent name returns null" {
     try testing.expect(wasm_mod.getExportInfo("nonexistent") == null);
 }
 
-// Multi-module linking tests (using ImportEntry, not CW Value maps)
+// Multi-module linking tests (using ImportEntry)
 
 test "multi-module — two modules, function import" {
     // math_mod exports "add" and "mul"
