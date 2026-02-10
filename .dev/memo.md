@@ -31,7 +31,7 @@ Stage 1: Library Quality + CLI Polish
 
 1. [x] 1.1: build.zig.zon (package metadata for Zig package manager)
 2. [x] 1.2: Structured error types (W3 — already resolved, no EvalError remains)
-3. [ ] 1.3: Public API doc comments (types.zig comprehensive documentation)
+3. [x] 1.3: Public API doc comments (types.zig comprehensive documentation)
 4. [ ] 1.4: CLI `zwasm run` WASI args/env/preopen support
 5. [ ] 1.5: CLI exit code propagation from WASI modules
 6. [ ] 1.6: Example programs (examples/ directory with standalone .zig files)
@@ -42,13 +42,13 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-1.3: Public API doc comments — comprehensive documentation for types.zig.
-All public types, functions, and fields get doc comments.
+1.4: CLI `zwasm run` WASI args/env/preopen support.
+Pass command-line args and environment to WASI modules.
 
 ## Previous Task
 
-1.2: W3 checked — no EvalError remains. Zig inferred error sets are appropriate.
-1.1: build.zig.zon created (v0.1.0, Zig 0.15.2+).
+1.3: Public API doc comments enhanced on types.zig.
+All public types, fields, and functions documented.
 
 ## Known Issues
 

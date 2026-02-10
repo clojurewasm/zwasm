@@ -25,13 +25,16 @@ const rt = struct {
 // Public types
 // ============================================================
 
-/// Wasm value types.
+/// WebAssembly numeric value types exposed through the public API.
+/// These correspond to the four core Wasm numeric types.
 pub const WasmValType = enum {
     i32,
     i64,
     f32,
     f64,
 
+    /// Convert an internal runtime ValType to a public WasmValType.
+    /// Returns null for non-numeric types (funcref, externref, v128).
     pub fn fromRuntime(vt: rt.opcode.ValType) ?WasmValType {
         return switch (vt) {
             .i32 => .i32,
@@ -43,10 +46,14 @@ pub const WasmValType = enum {
     }
 };
 
-/// Export function signature — extracted from Wasm binary at load time.
+/// Metadata for an exported function, extracted from the Wasm binary at load time.
+/// Use `WasmModule.getExportInfo()` to look up by name.
 pub const ExportInfo = struct {
+    /// The export name as declared in the Wasm binary.
     name: []const u8,
+    /// Parameter types of the function signature.
     param_types: []const WasmValType,
+    /// Result types of the function signature.
     result_types: []const WasmValType,
 };
 
@@ -57,9 +64,13 @@ pub const ExportInfo = struct {
 pub const HostFn = rt.store_mod.HostFn;
 
 /// A single host function entry for import registration.
+/// Used in `ImportSource.host_fns` to provide native callbacks to Wasm modules.
 pub const HostFnEntry = struct {
+    /// Function name matching the Wasm import declaration.
     name: []const u8,
+    /// Native callback invoked when the Wasm module calls this import.
     callback: HostFn,
+    /// Embedder-defined identifier passed to the callback for dispatch.
     context: usize,
 };
 
@@ -71,9 +82,12 @@ pub const ImportSource = union(enum) {
     host_fns: []const HostFnEntry,
 };
 
-/// A single import entry: maps a Wasm import module name to a source.
+/// Maps a Wasm import module name to a source of functions.
+/// Pass a slice of these to `WasmModule.loadWithImports()`.
 pub const ImportEntry = struct {
+    /// The module name in the Wasm import declaration (e.g., "env", "math").
     module: []const u8,
+    /// Where to resolve the imported functions from.
     source: ImportSource,
 };
 
@@ -152,6 +166,8 @@ pub const WasmModule = struct {
         return self;
     }
 
+    /// Release all resources held by this module (VM, instance, store, WASI context).
+    /// After calling deinit, the module pointer is invalid.
     pub fn deinit(self: *WasmModule) void {
         const allocator = self.allocator;
         if (self.cached_fns.len > 0) allocator.free(self.cached_fns);
@@ -176,6 +192,7 @@ pub const WasmModule = struct {
     }
 
     /// Read bytes from linear memory at the given offset.
+    /// The returned slice is owned by the caller and must be freed with `allocator`.
     pub fn memoryRead(self: *WasmModule, allocator: Allocator, offset: u32, length: u32) ![]const u8 {
         const mem = try self.instance.getMemory(0);
         const mem_bytes = mem.memory();
