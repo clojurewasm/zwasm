@@ -30,7 +30,7 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 
 Stage 2: Spec Conformance
 
-1. [ ] 2.1: Download spec test suite + convert .wast to JSON with wast2json
+1. [x] 2.1: Download spec test suite + convert .wast to JSON with wast2json
 2. [ ] 2.2: Wast test runner — JSON parser + assert_return + assert_trap
 3. [ ] 2.3: spectest host module (memory, table, globals, print functions)
 4. [ ] 2.4: Run MVP spec tests, measure initial pass rate
@@ -42,12 +42,13 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-2.1: Download spec test suite and convert all .wast files to JSON + .wasm
-using wast2json. Store in test/spec/ directory.
+2.2: Wast test runner — parse JSON commands and execute assert_return/assert_trap.
+Design: test/spec/runner.zig as a standalone executable.
 
 ## Previous Task
 
-Stage 1 complete (tasks 1.1-1.7).
+2.1: Spec test suite converted — 151 JSON files, 4311 wasm binaries.
+Script: test/spec/convert.sh (uses wast2json from WABT).
 
 ## Known Issues
 
