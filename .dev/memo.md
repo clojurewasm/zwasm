@@ -28,8 +28,8 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 
 Stage 0.9: Independence & CLI (direction correction)
 
-1. [ ] 0.9.1: Fix license headers (EPL→MIT) and remove CW references from source
-2. [ ] 0.9.2: CLI tool (`zwasm run`, `zwasm inspect`, `zwasm validate`)
+1. [x] 0.9.1: Fix license headers (EPL→MIT) and remove CW references from source
+2. [x] 0.9.2: CLI tool (`zwasm run`, `zwasm inspect`, `zwasm validate`)
 3. [ ] 0.9.3: wasmtime comparison benchmark (hyperfine zwasm vs wasmtime)
 4. [ ] 0.9.4: Update roadmap for independent library + JIT optimization track
 
@@ -39,21 +39,18 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-0.9.1: Fix all source file license headers from EPL-1.0 to MIT.
-Remove CW-specific references from code comments.
+0.9.3: wasmtime comparison benchmark — hyperfine zwasm vs wasmtime on fib(35).
+Establish the performance gap for optimization planning.
 
 ## Previous Task
 
-Stage 0 tasks 0.1-0.7: Extraction from CW complete.
-- 10 clean files + rewritten types.zig (D103 ImportEntry API)
-- 115 tests pass, fib(35) benchmark = 586ms
+0.9.2: CLI tool implemented — `zwasm run`, `zwasm inspect`, `zwasm validate`.
+- src/cli.zig: argument parsing, WASI support, function signatures in inspect
+- All 3 commands tested on fib + wasi_hello modules
 
 ## Known Issues
 
-- EPL license headers in 9 source files (should be MIT)
-- types.zig comments reference ClojureWasm
-- No CLI tool yet (library only)
-- No wasmtime comparison benchmark
+- No wasmtime comparison benchmark yet
 
 ## Reference Chain
 
