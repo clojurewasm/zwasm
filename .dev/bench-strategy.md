@@ -53,22 +53,58 @@ When adding new benchmarks, write TinyGo source first:
 - matrix (matrix multiplication)
 - binary-trees (allocation-heavy, recursive)
 
+## Cross-Runtime Comparison
+
+Compare zwasm against other Wasm runtimes. Run when benchmarks are added or after
+major optimizations (JIT milestones).
+
+```bash
+bash bench/compare_runtimes.sh                              # zwasm vs wasmtime (default)
+bash bench/compare_runtimes.sh --rt=zwasm,wasmtime,wasmer   # add wasmer
+bash bench/compare_runtimes.sh --rt=zwasm,wasmtime,wasmer,bun,node  # all 5
+bash bench/compare_runtimes.sh --bench=fib --quick          # quick single benchmark
+```
+
+### Supported runtimes
+
+| Runtime  | Type            | WASI | Notes                          |
+|----------|-----------------|:----:|--------------------------------|
+| zwasm    | Interpreter+RegIR | Yes | Our runtime                    |
+| wasmtime | JIT (Cranelift) | Yes  | Primary comparison target      |
+| wasmer   | JIT (multiple)  | Yes  | Secondary comparison           |
+| bun      | JIT (JSC)       | No   | Pure-wasm only via run_wasm.mjs |
+| node     | JIT (V8)        | No   | Pure-wasm only via run_wasm.mjs |
+
+bun/node use `bench/run_wasm.mjs` wrapper. WASI benchmarks (tgo_*) are skipped
+for bun/node since they lack WASI support in this mode.
+
+### Dependencies
+
+Managed via `flake.nix` (`nix develop`): wasmtime, wasmer, bun, nodejs, hyperfine.
+
+## Benchmark History
+
+Track performance progression across optimization tasks.
+
+```bash
+bash bench/record.sh --id="3.8" --reason="ARM64 JIT basic"
+bash bench/record.sh --id="3.8" --reason="re-measure" --overwrite
+bash bench/record.sh --bench=fib --id="3.8" --reason="fib only"
+bash bench/record.sh --delete="3.8"
+```
+
+Results: `bench/history.yaml` — zwasm-only, hyperfine mean ms.
+
 ## Layer 3: Standard Reference (External Comparison) — DEFERRED
 
-For apples-to-apples comparison with wasmtime, wasmer, wasm3.
+For standardized cross-runtime benchmarks (sightglass, WasmScore).
 Target: post-JIT (Stage 3.9+), when external comparison becomes meaningful.
 
 ### Candidate sources
 
-| Suite                    | URL                                              | Notes                       |
-|--------------------------|--------------------------------------------------|-----------------------------|
-| sightglass/shootout      | github.com/bytecodealliance/sightglass           | wasmtime official, 21 algos |
-| WasmScore                | github.com/bytecodealliance/wasm-score            | Built on sightglass         |
-| libsodium                | 00f.net/2023/01/04/webassembly-benchmark-2023/   | 70 crypto tests, portable   |
-| Programming Lang Bench   | programming-language-benchmarks.vercel.app/wasm   | 14+ Rust→wasm benchmarks    |
-
-### Integration notes
-
-- sightglass benchmarks import `bench_start()`/`bench_end()` — need no-op host functions
-- shootout .wasm files are C compiled with wasi-sdk — should be portable
-- Selection criteria: pick ~10 diverse workloads covering int, float, memory, crypto, string
+| Suite                  | URL                                            | Notes                       |
+|------------------------|------------------------------------------------|-----------------------------|
+| sightglass/shootout    | github.com/bytecodealliance/sightglass         | wasmtime official, 21 algos |
+| WasmScore              | github.com/bytecodealliance/wasm-score          | Built on sightglass         |
+| libsodium              | 00f.net/2023/01/04/webassembly-benchmark-2023/ | 70 crypto tests, portable   |
+| Programming Lang Bench | programming-language-benchmarks.vercel.app/wasm | 14+ Rust→wasm benchmarks    |

@@ -1,0 +1,24 @@
+# zwasm Benchmark History
+# Tracks zwasm performance across optimization tasks.
+# All times in milliseconds (hyperfine mean).
+env:
+  cpu: Apple M4 Pro
+  ram: 48 GB
+  os: Darwin 25.2.0
+  tool: hyperfine
+entries:
+  - id: "3.6"
+    date: "2026-02-10"
+    reason: "Register IR + immediate fusion + NOP compaction"
+    commit: "331c112"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 439}
+      tak: {time_ms: 42}
+      sieve: {time_ms: 41}
+      nbody: {time_ms: 135}
+      nqueens: {time_ms: 3}
+      tgo_fib: {time_ms: 366}
+      tgo_tak: {time_ms: 32}
+      tgo_arith: {time_ms: 1}
+      tgo_sieve: {time_ms: 36}
