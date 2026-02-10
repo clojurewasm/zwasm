@@ -6,12 +6,14 @@ Session handover document. Read at session start.
 
 - **Stage 0: Extraction & Independence** — COMPLETE (tasks 0.1-0.7, 0.9.1-0.9.4)
 - **Stage 1: Library Quality + CLI Polish** — COMPLETE (tasks 1.1-1.7)
+- **Stage 2: Spec Conformance** — COMPLETE (tasks 2.1-2.7)
 - Source: ~11K LOC, 12 files (+ cli.zig, 3 examples), 115 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 544ms (ReleaseSafe, CLI)
 - vs wasmtime JIT: 58ms (9.4x gap — interpreter vs JIT)
 - Spec test pass rate: 30,647/30,686 (99.9%) — 151 files, 28K skipped
+- CI: GitHub Actions (ubuntu + macOS, zig build test + spec tests)
 
 ## Strategic Position
 
@@ -28,41 +30,44 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 
 ## Task Queue
 
-Stage 2: Spec Conformance
+Stage 3: JIT + Optimization (ARM64)
 
-1. [x] 2.1: Download spec test suite + convert .wast to JSON with wast2json
-2. [x] 2.2: Wast test runner (Python) + initial pass rate: 80.0%
-3. [x] 2.3: spectest host module + multi-value loops + fixes → 99.9%
-4. [x] 2.5: Fix spec test failures — 99.9% achieved (target >95%)
-5. [x] 2.6: assert_invalid/malformed in runner (+132 tests, skip if undetected)
-6. [ ] 2.7: CI pipeline (GitHub Actions)
-
-Stage 3 (planned): JIT (ARM64) + Optimization
+1. [ ] 3.1: Profiling infrastructure — opcode frequency + function call counters
+2. [ ] 3.2: Benchmark suite expansion — add nbody, binary-trees, sieve Wasm benchmarks
+3. [ ] 3.3: Profile hot paths — analyze benchmark profiles, document bottleneck patterns
+4. [ ] 3.4: Register IR design — D## decision for IR representation
+5. [ ] 3.5: Register IR implementation — stack-to-register conversion pass
+6. [ ] 3.6: Register IR validation — benchmark, target 2-3x speedup over stack interpreter
+7. [ ] 3.7: ARM64 codegen design — D## decision for JIT architecture
+8. [ ] 3.8: ARM64 basic block codegen — arithmetic + control flow
+9. [ ] 3.9: ARM64 function-level JIT — compile entire hot functions
+10. [ ] 3.10: Tiered execution — interpreter → JIT with hot function detection
 
 ## Current Task
 
-2.7: CI pipeline (GitHub Actions).
+3.1: Profiling infrastructure.
 
-Set up GitHub Actions workflow for:
-- `zig build test` on push/PR
-- Spec test runner (`python3 test/spec/run_spec.py`)
-- Optional: cross-platform (Linux + macOS)
+Add instrumentation to the interpreter to collect:
+- Opcode execution frequency (per-opcode counter)
+- Function call counts (which exports/internal functions are hot)
+- Basic block execution counts (optional, for later JIT decisions)
+
+Implementation approach:
+- Add `--profile` flag to CLI
+- Counters in Vm struct (conditional compilation or runtime flag)
+- Print profile summary after execution
+- Output format: sorted by frequency, top-N opcodes/functions
 
 ## Previous Task
 
-2.6: assert_invalid/malformed validation support (+132 tests).
-2.3: spectest host module + multi-value loops + fixes → 99.9%.
+2.7: CI pipeline (GitHub Actions) — COMPLETE.
+Set up ubuntu + macOS matrix, zig 0.15.2, unit tests + spec tests.
 
-Key fixes across 2.3-2.6:
-- spectest.wasm host module (print funcs, memory, table, globals)
-- Multi-value typed loops: correct param arity for br + op_stack_base
-- table.fill pre-check bounds, table.grow 1M resource limit
-- WasmValType: funcref/externref, externref values in test runner
-- Validation test support (132 passing, undetected cases skipped)
-
-Remaining 39 failures (all non-core):
-- memory64 proposal (table_size64, memory_grow64): 38
-- names (batch protocol special chars): 1
+Stage 2 achievements:
+- Spec test pass rate: 30,647/30,686 (99.9%)
+- spectest host module, multi-value typed loops, table fixes
+- assert_invalid/malformed validation support (+132 tests)
+- CI pipeline with cross-platform testing
 
 ## Known Issues
 
@@ -100,3 +105,5 @@ Session resume: read this file → follow references below.
 - Workflow instructions: CW `.claude/CLAUDE.md` → "zwasm Development" section
 - Session memory: CW MEMORY.md "zwasm Project" section
 - **Design principle**: zwasm serves the Zig ecosystem, not CW specifically
+- **Stage 3 approach**: Incremental JIT — profile first, register IR, then ARM64 codegen
+- Benchmark baseline: fib(35) 544ms interpreter vs 58ms wasmtime JIT (9.4x gap)
