@@ -1,6 +1,6 @@
 # zwasm Benchmark History
 # Tracks zwasm performance across optimization tasks.
-# All times in milliseconds (hyperfine mean).
+# All times in milliseconds with 1 decimal place (hyperfine mean).
 env:
   cpu: Apple M4 Pro
   ram: 48 GB
@@ -8,24 +8,46 @@ env:
   tool: hyperfine
 entries:
   - id: "3.6"
-    date: "2026-02-10"
+    date: "2026-02-11"
     reason: "Baseline with all shootout (excl ed25519)"
     commit: "634f6e0"
     build: ReleaseSafe
     results:
-      fib: {time_ms: 452}
-      tak: {time_ms: 42}
-      sieve: {time_ms: 44}
-      nbody: {time_ms: 160}
-      nqueens: {time_ms: 4}
-      tgo_fib: {time_ms: 380}
-      tgo_tak: {time_ms: 33}
-      tgo_arith: {time_ms: 2}
-      tgo_sieve: {time_ms: 35}
-      tgo_fib_loop: {time_ms: 0}
-      tgo_gcd: {time_ms: 1}
-      st_fib2: {time_ms: 16399}
-      st_sieve: {time_ms: 6156}
-      st_nestedloop: {time_ms: 5}
-      st_ackermann: {time_ms: 22}
-      st_matrix: {time_ms: 2768}
+      fib: {time_ms: 430.2}
+      tak: {time_ms: 40.1}
+      sieve: {time_ms: 41.4}
+      nbody: {time_ms: 133.3}
+      nqueens: {time_ms: 3.6}
+      tgo_fib: {time_ms: 364.4}
+      tgo_tak: {time_ms: 34.3}
+      tgo_arith: {time_ms: 1.6}
+      tgo_sieve: {time_ms: 36.4}
+      tgo_fib_loop: {time_ms: 2.0}
+      tgo_gcd: {time_ms: 0.8}
+      st_fib2: {time_ms: 15889.8}
+      st_sieve: {time_ms: 6058.9}
+      st_nestedloop: {time_ms: 3.9}
+      st_ackermann: {time_ms: 21.8}
+      st_matrix: {time_ms: 2724.5}
+  - id: "3.9"
+    date: "2026-02-11"
+    reason: "ARM64 function-level JIT: division, memory, rotation, CLZ/CTZ, select, sign-ext"
+    commit: "cb82f94"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 338.8}
+      tak: {time_ms: 40.8}
+      sieve: {time_ms: 42.3}
+      nbody: {time_ms: 139.0}
+      nqueens: {time_ms: 2.1}
+      tgo_fib: {time_ms: 168.2}
+      tgo_tak: {time_ms: 30.1}
+      tgo_arith: {time_ms: 1.3}
+      tgo_sieve: {time_ms: 38.0}
+      tgo_fib_loop: {time_ms: 1.5}
+      tgo_gcd: {time_ms: 1.6}
+      st_fib2: {time_ms: 15844.3}
+      st_sieve: {time_ms: 6045.0}
+      st_nestedloop: {time_ms: 3.8}
+      st_ackermann: {time_ms: 21.5}
+      st_matrix: {time_ms: 2748.9}

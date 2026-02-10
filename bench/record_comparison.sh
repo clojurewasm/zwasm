@@ -233,14 +233,14 @@ for entry in "${BENCHMARKS[@]}"; do
 import json
 with open('$json_file') as f:
     data = json.load(f)
-print(round(data['results'][0]['mean'] * 1000))
+print(round(data['results'][0]['mean'] * 1000, 1))
 ")
 
     # Memory: peak RSS (single run)
     mem_bytes=$(measure_memory "$cmd")
     mem_mb=$(python3 -c "print(round(${mem_bytes:-0} / 1048576, 1))")
 
-    printf "  %-10s %6s ms  %6s MB\n" "$rt" "$time_ms" "$mem_mb"
+    printf "  %-10s %8s ms  %6s MB\n" "$rt" "$time_ms" "$mem_mb"
 
     cat >> "$OUTPUT" << BENCHEOF
     $rt: {time_ms: $time_ms, mem_mb: $mem_mb}

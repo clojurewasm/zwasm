@@ -168,16 +168,16 @@ for entry in "${BENCHMARKS[@]}"; do
     "$bench_cmd" \
     >/dev/null 2>&1
 
-  # Parse mean time from JSON
+  # Parse mean time from JSON (1 decimal place for sub-ms precision)
   time_ms=$(python3 -c "
 import json
 with open('$json_file') as f:
     data = json.load(f)
 r = data['results'][0]
-print(round(r['mean'] * 1000))
+print(round(r['mean'] * 1000, 1))
 ")
 
-  printf "%6s ms\n" "$time_ms"
+  printf "%8s ms\n" "$time_ms"
   BENCH_RESULTS["$name"]="$time_ms"
 done
 
@@ -192,7 +192,7 @@ if [[ ! -f "$HISTORY_FILE" ]]; then
   cat > "$HISTORY_FILE" << 'INITEOF'
 # zwasm Benchmark History
 # Tracks zwasm performance across optimization tasks.
-# All times in milliseconds (hyperfine mean).
+# All times in milliseconds with 1 decimal place (hyperfine mean).
 env:
   cpu: Apple M4 Pro
   ram: 48 GB
