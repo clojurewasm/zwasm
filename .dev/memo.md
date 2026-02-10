@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- **Stage 0: Extraction** — task 0.1 complete (dependency audit)
+- **Stage 0: Extraction** — tasks 0.1-0.2 complete (audit + API design)
 - Opcode coverage: 225 core + 236 SIMD = 461 (from CW src/wasm/)
 - WASI syscalls: ~25 (from CW)
 - Spec test pass rate: TBD (no wast runner yet)
@@ -20,7 +20,7 @@ Position: "wasm3 spiritual successor in Zig" — not competing with wasmtime on 
 Stage 0: API Design & Extraction
 
 1. [x] 0.1: CW dependency audit — identify all CW-specific imports in src/wasm/
-2. [ ] 0.2: Design public API (Engine/Module/Instance pattern)
+2. [x] 0.2: Design public API (Engine/Module/Instance pattern)
 3. [ ] 0.3: Extract source files from CW src/wasm/ → zwasm src/
 4. [ ] 0.4: Remove CW dependencies (Value, GC, Env references)
 5. [ ] 0.5: build.zig + build.zig.zon setup
@@ -30,11 +30,18 @@ Stage 0: API Design & Extraction
 
 ## Current Task
 
-0.2: Design public API (Engine/Module/Instance pattern).
-Define zwasm-native types to replace CW Value in the public interface.
-Key: imports map, host functions, return values need zwasm-native representations.
+0.3: Extract source files from CW src/wasm/ → zwasm src/.
+Copy the 10 clean files as-is. For types.zig, extract only the pure Wasm parts
+(WasmModule, WasmFn struct without Value methods, WasmValType, ExportInfo,
+buildExportInfo, buildCachedFns). Replace Value-based imports with D103 ImportEntry.
 
 ## Previous Task
+
+0.2: API design — COMPLETE. D103 recorded. Key decisions:
+- u64 raw interface (WasmModule.invoke unchanged)
+- Struct-based imports: ImportEntry/ImportSource/HostFnEntry (replaces Value maps)
+- types.zig split: pure Wasm layer → zwasm, CW bridge → stays in CW
+- HostFn callback signature unchanged (*anyopaque, usize)
 
 0.1: CW dependency audit — COMPLETE. Results:
 
