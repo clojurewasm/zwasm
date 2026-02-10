@@ -25,6 +25,8 @@ const instance_mod = @import("instance.zig");
 const Instance = instance_mod.Instance;
 const predecode_mod = @import("predecode.zig");
 const PreInstr = predecode_mod.PreInstr;
+const regalloc_mod = @import("regalloc.zig");
+const RegInstr = regalloc_mod.RegInstr;
 
 pub const WasmError = error{
     Trap,
@@ -234,6 +236,8 @@ pub const Profile = struct {
     }
 };
 
+const REG_STACK_SIZE = 4096; // register file storage for register IR (32KB)
+
 pub const Vm = struct {
     op_stack: [OPERAND_STACK_SIZE]u128,
     op_ptr: usize,
@@ -241,6 +245,8 @@ pub const Vm = struct {
     frame_ptr: usize,
     label_stack: [LABEL_STACK_SIZE]Label,
     label_ptr: usize,
+    reg_stack: [REG_STACK_SIZE]u64,
+    reg_ptr: usize,
     alloc: Allocator,
     current_instance: ?*Instance = null,
     current_branch_table: ?*BranchTable = null,
@@ -254,6 +260,8 @@ pub const Vm = struct {
             .frame_ptr = 0,
             .label_stack = undefined,
             .label_ptr = 0,
+            .reg_stack = undefined,
+            .reg_ptr = 0,
             .alloc = alloc,
         };
     }
@@ -263,6 +271,7 @@ pub const Vm = struct {
         self.op_ptr = 0;
         self.frame_ptr = 0;
         self.label_ptr = 0;
+        self.reg_ptr = 0;
         self.current_instance = null;
         self.current_branch_table = null;
     }
@@ -305,17 +314,53 @@ pub const Vm = struct {
             .wasm_function => |*wf| {
                 const base = self.op_ptr;
 
-                // Push args as locals
-                for (args) |arg| try self.push(arg);
-
-                // Zero-initialize locals
-                for (0..wf.locals_count) |_| try self.push(0);
-
                 // Lazy IR predecoding (try IR first, fall back to branch table)
                 if (wf.ir == null and !wf.ir_failed) {
                     wf.ir = predecode_mod.predecode(self.alloc, wf.code) catch null;
                     if (wf.ir == null) wf.ir_failed = true;
                 }
+
+                const inst: *Instance = @ptrCast(@alignCast(wf.instance));
+
+                // Try register IR conversion (requires predecoded IR)
+                // Skip for: multi-value return, profiling (profile counts stack opcodes)
+                if (wf.ir != null and wf.reg_ir == null and !wf.reg_ir_failed and
+                    func_ptr.results.len <= 1 and self.profile == null)
+                {
+                    const resolver = regalloc_mod.ParamResolver{
+                        .ctx = @ptrCast(inst),
+                        .resolve_fn = struct {
+                            fn resolve(ctx: *anyopaque, func_idx: u32) ?regalloc_mod.FuncTypeInfo {
+                                const i: *Instance = @ptrCast(@alignCast(ctx));
+                                const fp = i.getFuncPtr(func_idx) catch return null;
+                                return .{
+                                    .param_count = @intCast(fp.params.len),
+                                    .result_count = @intCast(fp.results.len),
+                                };
+                            }
+                        }.resolve,
+                    };
+                    wf.reg_ir = regalloc_mod.convert(
+                        self.alloc,
+                        wf.ir.?.code,
+                        wf.ir.?.pool64,
+                        @intCast(func_ptr.params.len),
+                        @intCast(wf.locals_count),
+                        resolver,
+                    ) catch null;
+                    if (wf.reg_ir == null) wf.reg_ir_failed = true;
+                }
+
+                if (wf.reg_ir) |reg| {
+                    // Register IR path: register file instead of operand stack
+                    if (self.profile) |p| p.call_count += 1;
+                    try self.executeRegIR(reg, wf.ir.?.pool64, inst, func_ptr, args, results);
+                    return;
+                }
+
+                // Stack-based paths: push args and locals to operand stack
+                for (args) |arg| try self.push(arg);
+                for (0..wf.locals_count) |_| try self.push(0);
 
                 // Push frame
                 try self.pushFrame(.{
@@ -327,8 +372,6 @@ pub const Vm = struct {
                     .return_reader = Reader.init(&.{}),
                     .instance = @ptrCast(@alignCast(wf.instance)),
                 });
-
-                const inst: *Instance = @ptrCast(@alignCast(wf.instance));
 
                 if (wf.ir) |ir| {
                     // IR path: fixed-width dispatch
@@ -1904,6 +1947,513 @@ pub const Vm = struct {
             },
             .forward, .loop_start => unreachable, // never in IR path
         }
+    }
+
+    // ================================================================
+    // Register IR execution (D104)
+    // ================================================================
+
+    fn executeRegIR(
+        self: *Vm,
+        reg: *regalloc_mod.RegFunc,
+        pool64: []const u64,
+        instance: *Instance,
+        func_ptr: *store_mod.Function,
+        args: []const u64,
+        results: []u64,
+    ) WasmError!void {
+        // Register file — allocated from Vm's reg_stack (heap, cache-friendly)
+        const base = self.reg_ptr;
+        const needed: usize = reg.reg_count;
+        if (base + needed > REG_STACK_SIZE) return error.Trap;
+        const regs = self.reg_stack[base..base + needed];
+        self.reg_ptr = base + needed;
+        defer self.reg_ptr = base;
+
+        // Copy args to registers (r0..rN = params)
+        for (args, 0..) |arg, i| regs[i] = arg;
+        // Zero-initialize remaining locals
+        for (args.len..reg.local_count) |i| regs[i] = 0;
+
+        const code = reg.code;
+        const code_len: u32 = @intCast(code.len);
+        const cached_mem: ?*WasmMemory = instance.getMemory(0) catch null;
+        var pc: u32 = 0;
+
+        while (pc < code_len) {
+            const instr = code[pc];
+            pc += 1;
+
+            if (self.profile) |p| {
+                p.total_instrs += 1;
+            }
+
+            switch (instr.op) {
+                // ---- Register ops ----
+                regalloc_mod.OP_MOV => regs[instr.rd] = regs[instr.rs1],
+
+                regalloc_mod.OP_CONST32 => regs[instr.rd] = instr.operand,
+
+                regalloc_mod.OP_CONST64 => regs[instr.rd] = pool64[instr.operand],
+
+                // ---- Control flow ----
+                regalloc_mod.OP_BR => pc = instr.operand,
+
+                regalloc_mod.OP_BR_IF => {
+                    if (regs[instr.rd] != 0) pc = instr.operand;
+                },
+
+                regalloc_mod.OP_BR_IF_NOT => {
+                    if (regs[instr.rd] == 0) pc = instr.operand;
+                },
+
+                regalloc_mod.OP_RETURN => {
+                    if (results.len > 0) results[0] = regs[instr.rd];
+                    return;
+                },
+
+                regalloc_mod.OP_RETURN_VOID => return,
+
+                // ---- Call ----
+                regalloc_mod.OP_CALL => {
+                    const func_idx = instr.operand;
+                    const data = code[pc];
+                    pc += 1;
+                    // Skip second data word if present (for >4 args)
+                    const callee_fn = instance.getFuncPtr(func_idx) catch return error.Trap;
+                    const n_args = callee_fn.params.len;
+
+                    // Collect args from register file via data word
+                    var call_args: [8]u64 = undefined;
+                    if (n_args > 0) call_args[0] = regs[data.rd];
+                    if (n_args > 1) call_args[1] = regs[data.rs1];
+                    if (n_args > 2) call_args[2] = regs[@as(u8, @truncate(data.operand))];
+                    if (n_args > 3) call_args[3] = regs[@as(u8, @truncate(data.operand >> 8))];
+                    if (n_args > 4) {
+                        const data2 = code[pc];
+                        pc += 1;
+                        if (n_args > 4) call_args[4] = regs[data2.rd];
+                        if (n_args > 5) call_args[5] = regs[data2.rs1];
+                        if (n_args > 6) call_args[6] = regs[@as(u8, @truncate(data2.operand))];
+                        if (n_args > 7) call_args[7] = regs[@as(u8, @truncate(data2.operand >> 8))];
+                    }
+
+                    var call_results: [1]u64 = .{0};
+                    const n_results = callee_fn.results.len;
+                    try self.callFunction(instance, callee_fn, call_args[0..n_args], call_results[0..n_results]);
+                    if (n_results > 0) regs[instr.rd] = call_results[0];
+                },
+
+                regalloc_mod.OP_NOP => {}, // data word, skip
+
+                // ---- i32 arithmetic ----
+                0x6A => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) +% @as(u32, @truncate(regs[instr.rs2()])),
+                0x6B => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) -% @as(u32, @truncate(regs[instr.rs2()])),
+                0x6C => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) *% @as(u32, @truncate(regs[instr.rs2()])),
+                0x6D => { // i32.div_s
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()])));
+                    if (b == 0) return error.DivisionByZero;
+                    if (a == std.math.minInt(i32) and b == -1) return error.IntegerOverflow;
+                    regs[instr.rd] = @as(u32, @bitCast(@divTrunc(a, b)));
+                },
+                0x6E => { // i32.div_u
+                    const b: u32 = @truncate(regs[instr.rs2()]);
+                    if (b == 0) return error.DivisionByZero;
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) / b;
+                },
+                0x6F => { // i32.rem_s
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()])));
+                    if (b == 0) return error.DivisionByZero;
+                    if (a == std.math.minInt(i32) and b == -1)
+                        regs[instr.rd] = 0
+                    else
+                        regs[instr.rd] = @as(u32, @bitCast(@rem(a, b)));
+                },
+                0x70 => { // i32.rem_u
+                    const b: u32 = @truncate(regs[instr.rs2()]);
+                    if (b == 0) return error.DivisionByZero;
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) % b;
+                },
+                0x71 => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) & @as(u32, @truncate(regs[instr.rs2()])),
+                0x72 => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) | @as(u32, @truncate(regs[instr.rs2()])),
+                0x73 => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) ^ @as(u32, @truncate(regs[instr.rs2()])),
+                0x74 => { // i32.shl
+                    const shift: u5 = @truncate(regs[instr.rs2()]);
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) << shift;
+                },
+                0x75 => { // i32.shr_s
+                    const shift: u5 = @truncate(regs[instr.rs2()]);
+                    const val: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    regs[instr.rd] = @as(u32, @bitCast(val >> shift));
+                },
+
+                // ---- i32 comparison ----
+                0x45 => regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) == 0), // i32.eqz
+                0x46 => regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) == @as(u32, @truncate(regs[instr.rs2()]))),
+                0x47 => regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) != @as(u32, @truncate(regs[instr.rs2()]))),
+                0x48 => { // i32.lt_s
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()])));
+                    regs[instr.rd] = @intFromBool(a < b);
+                },
+                0x49 => regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) < @as(u32, @truncate(regs[instr.rs2()]))), // lt_u
+                0x4A => { // i32.gt_s
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()])));
+                    regs[instr.rd] = @intFromBool(a > b);
+                },
+                0x4B => regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) > @as(u32, @truncate(regs[instr.rs2()]))), // gt_u
+                0x4C => { // i32.le_s
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()])));
+                    regs[instr.rd] = @intFromBool(a <= b);
+                },
+                0x4D => regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) <= @as(u32, @truncate(regs[instr.rs2()]))), // le_u
+                0x4E => { // i32.ge_s
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()])));
+                    regs[instr.rd] = @intFromBool(a >= b);
+                },
+                0x4F => regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) >= @as(u32, @truncate(regs[instr.rs2()]))), // ge_u
+
+                // ---- i32 unary ----
+                0x67 => regs[instr.rd] = @clz(@as(u32, @truncate(regs[instr.rs1]))), // i32.clz
+                0x68 => regs[instr.rd] = @ctz(@as(u32, @truncate(regs[instr.rs1]))), // i32.ctz
+                0x69 => regs[instr.rd] = @popCount(@as(u32, @truncate(regs[instr.rs1]))), // i32.popcnt
+                0x76 => { // i32.shr_u
+                    const shift: u5 = @truncate(regs[instr.rs2()]);
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) >> shift;
+                },
+                0x77 => { // i32.rotl
+                    regs[instr.rd] = std.math.rotl(u32, @truncate(regs[instr.rs1]), @as(u32, @truncate(regs[instr.rs2()])));
+                },
+                0x78 => { // i32.rotr
+                    regs[instr.rd] = std.math.rotr(u32, @truncate(regs[instr.rs1]), @as(u32, @truncate(regs[instr.rs2()])));
+                },
+
+                // ---- i64 arithmetic ----
+                0x7C => regs[instr.rd] = regs[instr.rs1] +% regs[instr.rs2()], // i64.add
+                0x7D => regs[instr.rd] = regs[instr.rs1] -% regs[instr.rs2()], // i64.sub
+                0x7E => regs[instr.rd] = regs[instr.rs1] *% regs[instr.rs2()], // i64.mul
+                0x7F => { // i64.div_s
+                    const a: i64 = @bitCast(regs[instr.rs1]);
+                    const b: i64 = @bitCast(regs[instr.rs2()]);
+                    if (b == 0) return error.DivisionByZero;
+                    if (a == std.math.minInt(i64) and b == -1) return error.IntegerOverflow;
+                    regs[instr.rd] = @bitCast(@divTrunc(a, b));
+                },
+                0x80 => { // i64.div_u
+                    const b = regs[instr.rs2()];
+                    if (b == 0) return error.DivisionByZero;
+                    regs[instr.rd] = regs[instr.rs1] / b;
+                },
+                0x81 => { // i64.rem_s
+                    const a: i64 = @bitCast(regs[instr.rs1]);
+                    const b: i64 = @bitCast(regs[instr.rs2()]);
+                    if (b == 0) return error.DivisionByZero;
+                    if (a == std.math.minInt(i64) and b == -1) regs[instr.rd] = 0 else regs[instr.rd] = @bitCast(@rem(a, b));
+                },
+                0x82 => { // i64.rem_u
+                    const b = regs[instr.rs2()];
+                    if (b == 0) return error.DivisionByZero;
+                    regs[instr.rd] = regs[instr.rs1] % b;
+                },
+                0x83 => regs[instr.rd] = regs[instr.rs1] & regs[instr.rs2()], // i64.and
+                0x84 => regs[instr.rd] = regs[instr.rs1] | regs[instr.rs2()], // i64.or
+                0x85 => regs[instr.rd] = regs[instr.rs1] ^ regs[instr.rs2()], // i64.xor
+                0x86 => { // i64.shl
+                    const shift: u6 = @truncate(regs[instr.rs2()]);
+                    regs[instr.rd] = regs[instr.rs1] << shift;
+                },
+                0x87 => { // i64.shr_s
+                    const shift: u6 = @truncate(regs[instr.rs2()]);
+                    const val: i64 = @bitCast(regs[instr.rs1]);
+                    regs[instr.rd] = @bitCast(val >> shift);
+                },
+                0x88 => { // i64.shr_u
+                    const shift: u6 = @truncate(regs[instr.rs2()]);
+                    regs[instr.rd] = regs[instr.rs1] >> shift;
+                },
+                0x89 => regs[instr.rd] = std.math.rotl(u64, regs[instr.rs1], regs[instr.rs2()]), // i64.rotl
+                0x8A => regs[instr.rd] = std.math.rotr(u64, regs[instr.rs1], regs[instr.rs2()]), // i64.rotr
+
+                // ---- i64 comparison ----
+                0x50 => regs[instr.rd] = @intFromBool(regs[instr.rs1] == 0), // i64.eqz
+                0x51 => regs[instr.rd] = @intFromBool(regs[instr.rs1] == regs[instr.rs2()]), // i64.eq
+                0x52 => regs[instr.rd] = @intFromBool(regs[instr.rs1] != regs[instr.rs2()]), // i64.ne
+                0x53 => { const a: i64 = @bitCast(regs[instr.rs1]); const b: i64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a < b); }, // i64.lt_s
+                0x54 => regs[instr.rd] = @intFromBool(regs[instr.rs1] < regs[instr.rs2()]), // i64.lt_u
+                0x55 => { const a: i64 = @bitCast(regs[instr.rs1]); const b: i64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a > b); }, // i64.gt_s
+                0x56 => regs[instr.rd] = @intFromBool(regs[instr.rs1] > regs[instr.rs2()]), // i64.gt_u
+                0x57 => { const a: i64 = @bitCast(regs[instr.rs1]); const b: i64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a <= b); }, // i64.le_s
+                0x58 => regs[instr.rd] = @intFromBool(regs[instr.rs1] <= regs[instr.rs2()]), // i64.le_u
+                0x59 => { const a: i64 = @bitCast(regs[instr.rs1]); const b: i64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a >= b); }, // i64.ge_s
+                0x5A => regs[instr.rd] = @intFromBool(regs[instr.rs1] >= regs[instr.rs2()]), // i64.ge_u
+
+                // ---- i64 unary ----
+                0x79 => regs[instr.rd] = @clz(regs[instr.rs1]), // i64.clz
+                0x7A => regs[instr.rd] = @ctz(regs[instr.rs1]), // i64.ctz
+                0x7B => regs[instr.rd] = @popCount(regs[instr.rs1]), // i64.popcnt
+
+                // ---- f64 arithmetic ----
+                0xA0 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @bitCast(a + b); }, // f64.add
+                0xA1 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @bitCast(a - b); }, // f64.sub
+                0xA2 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @bitCast(a * b); }, // f64.mul
+                0xA3 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @bitCast(a / b); }, // f64.div
+                0xA4 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @bitCast(wasmMin(f64, a, b)); }, // f64.min
+                0xA5 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @bitCast(wasmMax(f64, a, b)); }, // f64.max
+                0xA6 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @bitCast(math.copysign(a, b)); }, // f64.copysign
+
+                // ---- f64 comparison ----
+                0x61 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a == b); }, // f64.eq
+                0x62 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a != b); }, // f64.ne
+                0x63 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a < b); }, // f64.lt
+                0x64 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a > b); }, // f64.gt
+                0x65 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a <= b); }, // f64.le
+                0x66 => { const a: f64 = @bitCast(regs[instr.rs1]); const b: f64 = @bitCast(regs[instr.rs2()]); regs[instr.rd] = @intFromBool(a >= b); }, // f64.ge
+
+                // ---- f64 unary ----
+                0x99 => { const v: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(@abs(v)); }, // f64.abs
+                0x9A => { const v: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(-v); }, // f64.neg
+                0x9B => { const v: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(@ceil(v)); }, // f64.ceil
+                0x9C => { const v: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(@floor(v)); }, // f64.floor
+                0x9D => { const v: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(@trunc(v)); }, // f64.trunc
+                0x9E => { const v: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(wasmNearest(f64, v)); }, // f64.nearest
+                0x9F => { const v: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(@sqrt(v)); }, // f64.sqrt
+
+                // ---- f32 arithmetic ----
+                0x92 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @as(u32, @bitCast(a + b)); },
+                0x93 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @as(u32, @bitCast(a - b)); },
+                0x94 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @as(u32, @bitCast(a * b)); },
+                0x95 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @as(u32, @bitCast(a / b)); },
+                0x96 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @as(u32, @bitCast(wasmMin(f32, a, b))); },
+                0x97 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @as(u32, @bitCast(wasmMax(f32, a, b))); },
+                0x98 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @as(u32, @bitCast(math.copysign(a, b))); },
+
+                // ---- f32 comparison ----
+                0x5B => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @intFromBool(a == b); },
+                0x5C => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @intFromBool(a != b); },
+                0x5D => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @intFromBool(a < b); },
+                0x5E => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @intFromBool(a > b); },
+                0x5F => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @intFromBool(a <= b); },
+                0x60 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); const b: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs2()]))); regs[instr.rd] = @intFromBool(a >= b); },
+
+                // ---- f32 unary ----
+                0x8B => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(@abs(v))); },
+                0x8C => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(-v)); },
+                0x8D => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(@ceil(v))); },
+                0x8E => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(@floor(v))); },
+                0x8F => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(@trunc(v))); },
+                0x90 => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(wasmNearest(f32, v))); },
+                0x91 => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(@sqrt(v))); },
+
+                // ---- Conversions ----
+                0xA7 => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])), // i32.wrap_i64
+                0xA8 => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); if (math.isNan(v) or math.isInf(v)) return error.InvalidConversion; const i: i32 = @intFromFloat(v); regs[instr.rd] = @as(u32, @bitCast(i)); }, // i32.trunc_f32_s
+                0xA9 => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); if (math.isNan(v) or math.isInf(v)) return error.InvalidConversion; const u: u32 = @intFromFloat(v); regs[instr.rd] = u; }, // i32.trunc_f32_u
+                0xAA => { const v: f64 = @bitCast(regs[instr.rs1]); if (math.isNan(v) or math.isInf(v)) return error.InvalidConversion; const i: i32 = @intFromFloat(v); regs[instr.rd] = @as(u32, @bitCast(i)); }, // i32.trunc_f64_s
+                0xAB => { const v: f64 = @bitCast(regs[instr.rs1]); if (math.isNan(v) or math.isInf(v)) return error.InvalidConversion; const u: u32 = @intFromFloat(v); regs[instr.rd] = u; }, // i32.trunc_f64_u
+                0xAC => regs[instr.rd] = @bitCast(@as(i64, @as(i32, @bitCast(@as(u32, @truncate(regs[instr.rs1])))))), // i64.extend_i32_s
+                0xAD => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])), // i64.extend_i32_u
+                0xAE => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); if (math.isNan(v) or math.isInf(v)) return error.InvalidConversion; const i: i64 = @intFromFloat(v); regs[instr.rd] = @bitCast(i); }, // i64.trunc_f32_s
+                0xAF => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); if (math.isNan(v) or math.isInf(v)) return error.InvalidConversion; const u: u64 = @intFromFloat(v); regs[instr.rd] = u; }, // i64.trunc_f32_u
+                0xB0 => { const v: f64 = @bitCast(regs[instr.rs1]); if (math.isNan(v) or math.isInf(v)) return error.InvalidConversion; const i: i64 = @intFromFloat(v); regs[instr.rd] = @bitCast(i); }, // i64.trunc_f64_s
+                0xB1 => { const v: f64 = @bitCast(regs[instr.rs1]); if (math.isNan(v) or math.isInf(v)) return error.InvalidConversion; const u: u64 = @intFromFloat(v); regs[instr.rd] = u; }, // i64.trunc_f64_u
+                0xB2 => { const v: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(@as(f32, @floatFromInt(v)))); }, // f32.convert_i32_s
+                0xB3 => { const v: u32 = @truncate(regs[instr.rs1]); regs[instr.rd] = @as(u32, @bitCast(@as(f32, @floatFromInt(v)))); }, // f32.convert_i32_u
+                0xB4 => { const v: i64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @as(u32, @bitCast(@as(f32, @floatFromInt(v)))); }, // f32.convert_i64_s
+                0xB5 => { const v: u64 = regs[instr.rs1]; regs[instr.rd] = @as(u32, @bitCast(@as(f32, @floatFromInt(v)))); }, // f32.convert_i64_u
+                0xB6 => { const v: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @as(u32, @bitCast(@as(f32, @floatCast(v)))); }, // f32.demote_f64
+                0xB7 => { const v: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @bitCast(@as(f64, @floatFromInt(v))); }, // f64.convert_i32_s
+                0xB8 => { const v: u32 = @truncate(regs[instr.rs1]); regs[instr.rd] = @bitCast(@as(f64, @floatFromInt(v))); }, // f64.convert_i32_u
+                0xB9 => { const v: i64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(@as(f64, @floatFromInt(v))); }, // f64.convert_i64_s
+                0xBA => { const v: u64 = regs[instr.rs1]; regs[instr.rd] = @bitCast(@as(f64, @floatFromInt(v))); }, // f64.convert_i64_u
+                0xBB => { const v: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @bitCast(@as(f64, @floatCast(v))); }, // f64.promote_f32
+                0xBC => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])), // i32.reinterpret_f32
+                0xBD => regs[instr.rd] = regs[instr.rs1], // i64.reinterpret_f64
+                0xBE => regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])), // f32.reinterpret_i32
+                0xBF => regs[instr.rd] = regs[instr.rs1], // f64.reinterpret_i64
+
+                // ---- Sign extension (Wasm 2.0) ----
+                0xC0 => { const v: i8 = @bitCast(@as(u8, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(@as(i32, v))); }, // i32.extend8_s
+                0xC1 => { const v: i16 = @bitCast(@as(u16, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(@as(i32, v))); }, // i32.extend16_s
+                0xC2 => { const v: i8 = @bitCast(@as(u8, @truncate(regs[instr.rs1]))); regs[instr.rd] = @bitCast(@as(i64, v)); }, // i64.extend8_s
+                0xC3 => { const v: i16 = @bitCast(@as(u16, @truncate(regs[instr.rs1]))); regs[instr.rd] = @bitCast(@as(i64, v)); }, // i64.extend16_s
+                0xC4 => { const v: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @bitCast(@as(i64, v)); }, // i64.extend32_s
+
+                // ---- Memory load ----
+                // rd = dest, rs1 = base addr reg, operand = offset
+                0x28 => { // i32.load
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    regs[instr.rd] = m.read(u32, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x29 => { // i64.load
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    regs[instr.rd] = m.read(u64, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x2A => { // f32.load
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val = m.read(f32, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                    regs[instr.rd] = @as(u32, @bitCast(val));
+                },
+                0x2B => { // f64.load
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val = m.read(f64, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                    regs[instr.rd] = @bitCast(val);
+                },
+                0x2C => { // i32.load8_s
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val = m.read(i8, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                    regs[instr.rd] = @as(u32, @bitCast(@as(i32, val)));
+                },
+                0x2D => { // i32.load8_u
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    regs[instr.rd] = m.read(u8, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x2E => { // i32.load16_s
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val = m.read(i16, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                    regs[instr.rd] = @as(u32, @bitCast(@as(i32, val)));
+                },
+                0x2F => { // i32.load16_u
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    regs[instr.rd] = m.read(u16, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x30 => { // i64.load8_s
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val = m.read(i8, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                    regs[instr.rd] = @bitCast(@as(i64, val));
+                },
+                0x31 => { // i64.load8_u
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    regs[instr.rd] = m.read(u8, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x32 => { // i64.load16_s
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val = m.read(i16, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                    regs[instr.rd] = @bitCast(@as(i64, val));
+                },
+                0x33 => { // i64.load16_u
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    regs[instr.rd] = m.read(u16, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x34 => { // i64.load32_s
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val = m.read(i32, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                    regs[instr.rd] = @bitCast(@as(i64, val));
+                },
+                0x35 => { // i64.load32_u
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    regs[instr.rd] = m.read(u32, instr.operand, addr) catch return error.OutOfBoundsMemoryAccess;
+                },
+
+                // ---- Memory store ----
+                // rd = value reg, rs1 = base addr reg, operand = offset
+                0x36 => { // i32.store
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val: u32 = @truncate(regs[instr.rd]);
+                    m.write(u32, instr.operand, addr, val) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x37 => { // i64.store
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    m.write(u64, instr.operand, addr, regs[instr.rd]) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x38 => { // f32.store
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val: f32 = @bitCast(@as(u32, @truncate(regs[instr.rd])));
+                    m.write(f32, instr.operand, addr, val) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x39 => { // f64.store
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val: f64 = @bitCast(regs[instr.rd]);
+                    m.write(f64, instr.operand, addr, val) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x3A => { // i32.store8
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val: u8 = @truncate(regs[instr.rd]);
+                    m.write(u8, instr.operand, addr, val) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x3B => { // i32.store16
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val: u16 = @truncate(regs[instr.rd]);
+                    m.write(u16, instr.operand, addr, val) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x3C => { // i64.store8
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val: u8 = @truncate(regs[instr.rd]);
+                    m.write(u8, instr.operand, addr, val) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x3D => { // i64.store16
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val: u16 = @truncate(regs[instr.rd]);
+                    m.write(u16, instr.operand, addr, val) catch return error.OutOfBoundsMemoryAccess;
+                },
+                0x3E => { // i64.store32
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const addr: u32 = @truncate(regs[instr.rs1]);
+                    const val: u32 = @truncate(regs[instr.rd]);
+                    m.write(u32, instr.operand, addr, val) catch return error.OutOfBoundsMemoryAccess;
+                },
+
+                // ---- Memory size/grow ----
+                0x3F => { // memory.size
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    regs[instr.rd] = @intCast(m.size());
+                },
+                0x40 => { // memory.grow
+                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const pages: u32 = @truncate(regs[instr.rs1]);
+                    const prev = m.grow(pages) catch {
+                        regs[instr.rd] = @bitCast(@as(i64, -1));
+                        continue;
+                    };
+                    regs[instr.rd] = @intCast(prev);
+                },
+
+                // ---- Select ----
+                0x1B => { // select: rd = cond ? val1 : val2
+                    const val2: u8 = @truncate(instr.operand);
+                    const cond: u8 = @truncate(instr.operand >> 8);
+                    regs[instr.rd] = if (regs[cond] != 0) regs[instr.rs1] else regs[val2];
+                },
+
+                // ---- Drop ----
+                0x1A => {}, // no-op in register IR
+
+                // ---- Unreachable ----
+                0x00 => return error.Unreachable,
+
+                // ---- Unsupported opcode in register IR — shouldn't happen ----
+                else => return error.Trap,
+            }
+        }
+
+        // Fell off the end without return — void return
+        _ = func_ptr;
     }
 
     // ================================================================

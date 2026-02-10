@@ -49,10 +49,15 @@ pub const WasmFunction = struct {
     ir: ?*predecode_mod.IrFunc = null,
     /// True if predecoding was attempted and failed (avoid retrying).
     ir_failed: bool = false,
+    /// Register IR (lazy: converted from predecoded IR on first call).
+    reg_ir: ?*regalloc_mod.RegFunc = null,
+    /// True if register IR conversion was attempted and failed.
+    reg_ir_failed: bool = false,
 };
 
 const vm_mod = @import("vm.zig");
 const predecode_mod = @import("predecode.zig");
+const regalloc_mod = @import("regalloc.zig");
 
 /// Host function callback signature.
 /// Takes a pointer to the VM and a context value.
@@ -226,6 +231,11 @@ pub const Store = struct {
                 if (f.subtype.wasm_function.ir) |ir| {
                     ir.deinit();
                     self.alloc.destroy(ir);
+                }
+                if (f.subtype.wasm_function.reg_ir) |reg| {
+                    const alloc = reg.alloc;
+                    reg.deinit();
+                    alloc.destroy(reg);
                 }
             }
         }

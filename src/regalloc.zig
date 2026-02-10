@@ -1,0 +1,874 @@
+// Copyright (c) 2026 zwasm contributors. Licensed under the MIT License.
+// See LICENSE at the root of this distribution.
+
+//! Register IR — converts stack-based PreInstr to register-based RegInstr.
+//! Design: D104 in .dev/decisions.md.
+//!
+//! Strategy: single-pass abstract interpretation of the Wasm operand stack.
+//! Wasm locals map to fixed registers r0..rN. Stack temporaries get
+//! sequential virtual registers rN+1, rN+2, ...
+//! `local.get` is eliminated (becomes a register reference, no instruction).
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const predecode = @import("predecode.zig");
+const PreInstr = predecode.PreInstr;
+
+/// 8-byte 3-address register instruction (same size as PreInstr).
+pub const RegInstr = extern struct {
+    op: u16, // instruction type (reuses Wasm opcodes + extensions)
+    rd: u8, // destination register
+    rs1: u8, // source register 1
+    operand: u32, // rs2 (low byte) | immediate | branch target | pool index
+
+    pub fn rs2(self: RegInstr) u8 {
+        return @truncate(self.operand);
+    }
+};
+
+comptime {
+    std.debug.assert(@sizeOf(RegInstr) == 8);
+}
+
+/// Register IR for a single function.
+pub const RegFunc = struct {
+    code: []RegInstr,
+    pool64: []u64, // shared with PreInstr pool (i64/f64 constants)
+    reg_count: u16, // total registers needed (locals + max temps)
+    local_count: u16, // number of Wasm locals (params + locals)
+    alloc: Allocator,
+
+    pub fn deinit(self: *RegFunc) void {
+        self.alloc.free(self.code);
+        // pool64 is shared from IrFunc, not freed here
+    }
+};
+
+// ---- Register IR opcodes ----
+// Reuse Wasm opcodes where possible. New opcodes for register-specific ops.
+
+/// mov rd, rs1 — register copy (replaces local.set when src != dst)
+pub const OP_MOV: u16 = 0xF0;
+/// const32 rd, imm — load 32-bit immediate into register
+pub const OP_CONST32: u16 = 0xF1;
+/// const64 rd, pool_idx — load 64-bit value from pool
+pub const OP_CONST64: u16 = 0xF2;
+/// br target_pc — unconditional branch (operand = target PC)
+pub const OP_BR: u16 = 0xF3;
+/// br_if rd, target_pc — branch if rd != 0 (operand = target PC)
+pub const OP_BR_IF: u16 = 0xF4;
+/// br_if_not rd, target_pc — branch if rd == 0
+pub const OP_BR_IF_NOT: u16 = 0xF5;
+/// return rd — return value from register rd
+pub const OP_RETURN: u16 = 0xF6;
+/// return_void — return with no value
+pub const OP_RETURN_VOID: u16 = 0xF7;
+/// call func_idx — call function, args in sequential regs from rs1, rd = result reg
+pub const OP_CALL: u16 = 0xF8;
+/// nop — no operation (placeholder for eliminated instructions)
+pub const OP_NOP: u16 = 0xF9;
+/// Block end marker — used to track block boundaries during execution.
+/// operand = end PC (for branch unwinding).
+pub const OP_BLOCK_END: u16 = 0xFA;
+
+/// Function type info needed during conversion for call instructions.
+pub const FuncTypeInfo = struct {
+    param_count: u16,
+    result_count: u16,
+};
+
+/// Resolves function index to type info (param/result counts).
+/// Returns null if the function index is invalid.
+pub const ParamResolver = struct {
+    ctx: *anyopaque,
+    resolve_fn: *const fn (*anyopaque, u32) ?FuncTypeInfo,
+};
+
+/// Conversion error.
+pub const ConvertError = error{
+    OutOfMemory,
+    Unsupported,
+    InvalidIR,
+};
+
+/// Block tracking during conversion.
+const BlockInfo = struct {
+    kind: enum { block, loop, @"if" },
+    /// PC of block start in RegInstr output (for loops: branch target)
+    start_pc: u32,
+    /// Virtual stack depth at block entry (for branch unwinding)
+    stack_base: u16,
+    /// Block result arity
+    arity: u16,
+    /// Register for block result (if arity == 1)
+    result_reg: u8,
+    /// For forward branches: list of PCs that need patching with end PC.
+    /// We use a simple approach: patch slots embedded in RegInstr.operand.
+    patches: std.ArrayList(u32),
+};
+
+/// Convert PreInstr[] to RegInstr[].
+/// Returns null if conversion fails (unsupported opcodes).
+pub fn convert(
+    alloc: Allocator,
+    ir_code: []const PreInstr,
+    pool64: []const u64,
+    param_count: u16,
+    local_count: u16,
+    resolver: ?ParamResolver,
+) ConvertError!?*RegFunc {
+    const total_locals = param_count + local_count;
+
+    // Bail on unsupported features
+    // Multi-value return (>1) not supported in register IR yet.
+    // We don't know our own result count here, but the executor handles it.
+    // For functions with >1 results, the caller should not use register IR.
+
+    var code: std.ArrayList(RegInstr) = .empty;
+    errdefer code.deinit(alloc);
+    var block_stack: std.ArrayList(BlockInfo) = .empty;
+    defer {
+        for (block_stack.items) |*b| b.patches.deinit(alloc);
+        block_stack.deinit(alloc);
+    }
+
+    // Virtual register stack: tracks which register holds each stack slot.
+    var vstack: std.ArrayList(u8) = .empty;
+    defer vstack.deinit(alloc);
+
+    var next_reg: u16 = total_locals; // next available temp register
+    var max_reg: u16 = total_locals; // high water mark
+    var unreachable_depth: u32 = 0; // >0 = inside dead code
+
+    var pc: usize = 0;
+    while (pc < ir_code.len) {
+        const instr = ir_code[pc];
+        pc += 1;
+
+        // Dead code elimination: after return/br/unreachable, skip until matching end/else
+        if (unreachable_depth > 0) {
+            switch (instr.opcode) {
+                0x02, 0x03 => unreachable_depth += 1, // block, loop — increase nesting
+                0x04 => { // if — increase nesting, skip IF_DATA word
+                    unreachable_depth += 1;
+                    if (pc < ir_code.len) pc += 1;
+                },
+                0x05 => { // else
+                    if (unreachable_depth == 1) {
+                        // The else branch is reachable if the block itself is reachable
+                        unreachable_depth = 0;
+                        // Reset vstack to block entry state
+                        if (block_stack.items.len > 0) {
+                            const block = &block_stack.items[block_stack.items.len - 1];
+                            vstack.shrinkRetainingCapacity(block.stack_base);
+                        }
+                        // Process this as normal else (fall through to main switch)
+                    } else {
+                        continue;
+                    }
+                },
+                0x0B => { // end
+                    unreachable_depth -= 1;
+                    if (unreachable_depth == 0) {
+                        // This end closes the block that contains the dead code.
+                        // Process it normally (fall through to main switch).
+                    } else continue;
+                },
+                else => continue,
+            }
+            // Only else/end at depth 1→0 fall through here
+            if (unreachable_depth > 0) continue;
+        }
+
+        switch (instr.opcode) {
+            // ---- Eliminated: local.get just references the register ----
+            0x20 => { // local.get
+                const local_idx: u8 = @intCast(instr.operand);
+                try vstack.append(alloc, local_idx);
+            },
+
+            // ---- local.set: move value to local register ----
+            0x21 => { // local.set
+                const src = vstack.pop().?;
+                const dst: u8 = @intCast(instr.operand);
+                if (src != dst) {
+                    try code.append(alloc, .{ .op = OP_MOV, .rd = dst, .rs1 = src, .operand = 0 });
+                }
+            },
+
+            // ---- local.tee: copy value to local, keep on stack ----
+            0x22 => { // local.tee
+                const src = vstack.items[vstack.items.len - 1]; // peek
+                const dst: u8 = @intCast(instr.operand);
+                if (src != dst) {
+                    try code.append(alloc, .{ .op = OP_MOV, .rd = dst, .rs1 = src, .operand = 0 });
+                }
+                // Replace stack top with dst register (now aliased)
+                vstack.items[vstack.items.len - 1] = dst;
+            },
+
+            // ---- Constants ----
+            0x41 => { // i32.const
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST32, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                try vstack.append(alloc, rd);
+            },
+            0x42 => { // i64.const (pool index in operand)
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST64, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                try vstack.append(alloc, rd);
+            },
+            0x43 => { // f32.const (bits in operand)
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST32, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                try vstack.append(alloc, rd);
+            },
+            0x44 => { // f64.const (pool index in operand)
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST64, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Binary i32 arithmetic ----
+            0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0x70, 0x71, 0x72, 0x73, // add..rotr
+            0x74, 0x75, 0x76, 0x77, 0x78, // shl, shr_s, shr_u, rotl, rotr
+            => {
+                const rs2 = vstack.pop().?;
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Binary i32 comparison ----
+            0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F => {
+                const rs2 = vstack.pop().?;
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Unary i32 ----
+            0x45 => { // i32.eqz
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            0x67, 0x68, 0x69 => { // i32.clz, ctz, popcnt
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Binary i64 arithmetic ----
+            0x7C, 0x7D, 0x7E, 0x7F, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, // add..rotr
+            0x86, 0x87, 0x88, 0x89, 0x8A, // shl, shr_s, shr_u, rotl, rotr
+            => {
+                const rs2 = vstack.pop().?;
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Binary i64 comparison ----
+            0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A => {
+                const rs2 = vstack.pop().?;
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Unary i64 ----
+            0x50 => { // i64.eqz
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            0x79, 0x7A, 0x7B => { // i64.clz, ctz, popcnt
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Binary f64 arithmetic ----
+            0xA0, 0xA1, 0xA2, 0xA3, // f64.add, sub, mul, div
+            0xA4, 0xA5, // f64.min, max
+            0xA6, // f64.copysign
+            => {
+                const rs2 = vstack.pop().?;
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Binary f64 comparison ----
+            0x61, 0x62, 0x63, 0x64, 0x65, 0x66 => {
+                const rs2 = vstack.pop().?;
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Unary f64 ----
+            0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F => { // abs, neg, ceil, floor, trunc, nearest, sqrt
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Binary f32 arithmetic ----
+            0x92, 0x93, 0x94, 0x95, // f32.add, sub, mul, div
+            0x96, 0x97, // f32.min, max
+            0x98, // f32.copysign
+            => {
+                const rs2 = vstack.pop().?;
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Binary f32 comparison ----
+            0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60 => {
+                const rs2 = vstack.pop().?;
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Unary f32 ----
+            0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91 => {
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Conversions (unary) ----
+            0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, // i32/i64 wrap/trunc
+            0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, // f32/f64 convert
+            0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, // reinterpret, extend
+            0xC0, 0xC1, 0xC2, 0xC3, 0xC4, // extend8/16/32
+            => {
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Memory load (base addr on stack + offset in operand) ----
+            0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, // i32/i64/f32/f64 loads
+            0x30, 0x31, 0x32, 0x33, 0x34, 0x35, // sign-extending loads
+            => {
+                const rs1 = vstack.pop().?; // base address
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = instr.operand });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Memory store (base addr + value on stack, offset in operand) ----
+            0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E => {
+                const val = vstack.pop().?; // value to store
+                const base = vstack.pop().?; // base address
+                // Store: no destination register. Use rd=val, rs1=base
+                try code.append(alloc, .{ .op = instr.opcode, .rd = val, .rs1 = base, .operand = instr.operand });
+            },
+
+            // ---- Control flow ----
+            0x02 => { // block
+                if (instr.extra & predecode.ARITY_TYPE_INDEX_FLAG != 0) return null;
+                const arity: u16 = instr.extra;
+
+                const result_reg = if (arity > 0) allocTemp(&next_reg, &max_reg) else 0;
+                const block_pc: u32 = @intCast(code.items.len);
+
+                try block_stack.append(alloc, .{
+                    .kind = .block,
+                    .start_pc = block_pc,
+                    .stack_base = @intCast(vstack.items.len),
+                    .arity = arity,
+                    .result_reg = result_reg,
+                    .patches = .empty,
+                });
+            },
+
+            0x03 => { // loop
+                const arity: u16 = if (instr.extra & predecode.ARITY_TYPE_INDEX_FLAG != 0)
+                    return null
+                else
+                    instr.extra;
+
+                const result_reg = if (arity > 0) allocTemp(&next_reg, &max_reg) else 0;
+                const loop_pc: u32 = @intCast(code.items.len);
+
+                try block_stack.append(alloc, .{
+                    .kind = .loop,
+                    .start_pc = loop_pc,
+                    .stack_base = @intCast(vstack.items.len),
+                    .arity = arity,
+                    .result_reg = result_reg,
+                    .patches = .empty,
+                });
+            },
+
+            0x04 => { // if
+                const arity: u16 = if (instr.extra & predecode.ARITY_TYPE_INDEX_FLAG != 0)
+                    return null
+                else
+                    instr.extra;
+
+                // Read the IF_DATA word
+                if (pc >= ir_code.len) return null;
+                const data = ir_code[pc];
+                pc += 1;
+                _ = data; // has_else and end_pc, we handle structurally
+
+                const cond = vstack.pop().?;
+                const result_reg = if (arity > 0) allocTemp(&next_reg, &max_reg) else 0;
+                const br_pos: u32 = @intCast(code.items.len);
+
+                // Emit branch-if-not (false branch jumps to else/end)
+                try code.append(alloc, .{ .op = OP_BR_IF_NOT, .rd = cond, .rs1 = 0, .operand = 0 }); // patched later
+
+                var patches: std.ArrayList(u32) = .empty;
+                try patches.append(alloc, br_pos); // patch this with else/end PC
+
+                try block_stack.append(alloc, .{
+                    .kind = .@"if",
+                    .start_pc = br_pos,
+                    .stack_base = @intCast(vstack.items.len),
+                    .arity = arity,
+                    .result_reg = result_reg,
+                    .patches = patches,
+                });
+            },
+
+            0x05 => { // else
+                if (block_stack.items.len == 0) return null;
+                const block = &block_stack.items[block_stack.items.len - 1];
+
+                // True branch: if arity > 0, move result to block's result register
+                if (block.arity > 0 and vstack.items.len > block.stack_base) {
+                    const val = vstack.pop().?;
+                    if (val != block.result_reg) {
+                        try code.append(alloc, .{ .op = OP_MOV, .rd = block.result_reg, .rs1 = val, .operand = 0 });
+                    }
+                }
+
+                // Emit jump to end (patched later)
+                const jump_pos: u32 = @intCast(code.items.len);
+                try code.append(alloc, .{ .op = OP_BR, .rd = 0, .rs1 = 0, .operand = 0 });
+                try block.patches.append(alloc, jump_pos);
+
+                // Patch the if-condition branch to here (else start)
+                const else_pc: u32 = @intCast(code.items.len);
+                // First patch entry is the if-condition branch
+                if (block.patches.items.len > 0) {
+                    code.items[block.patches.items[0]].operand = else_pc;
+                    // Remove the if-patch, keep the jump-to-end patch
+                    _ = block.patches.orderedRemove(0);
+                }
+
+                // Reset virtual stack to block entry state
+                vstack.shrinkRetainingCapacity(block.stack_base);
+            },
+
+            0x0B => { // end
+                if (block_stack.items.len == 0) {
+                    // Function-level end: return
+                    if (vstack.items.len > 0) {
+                        const val = vstack.pop().?;
+                        try code.append(alloc, .{ .op = OP_RETURN, .rd = val, .rs1 = 0, .operand = 0 });
+                    } else {
+                        try code.append(alloc, .{ .op = OP_RETURN_VOID, .rd = 0, .rs1 = 0, .operand = 0 });
+                    }
+                    break; // Done
+                }
+
+                var block = block_stack.pop().?;
+                defer block.patches.deinit(alloc);
+
+                // If arity > 0 and we have a value, move to result register
+                if (block.arity > 0 and vstack.items.len > block.stack_base) {
+                    const val = vstack.pop().?;
+                    if (val != block.result_reg) {
+                        try code.append(alloc, .{ .op = OP_MOV, .rd = block.result_reg, .rs1 = val, .operand = 0 });
+                    }
+                }
+
+                const end_pc: u32 = @intCast(code.items.len);
+
+                // Patch all forward branches to this end position
+                for (block.patches.items) |patch_pc| {
+                    code.items[patch_pc].operand = end_pc;
+                }
+
+                // Reset virtual stack and push result register if arity > 0
+                vstack.shrinkRetainingCapacity(block.stack_base);
+                if (block.arity > 0) {
+                    try vstack.append(alloc, block.result_reg);
+                }
+            },
+
+            // ---- Branch ----
+            0x0C => { // br (unconditional)
+                const depth = instr.operand;
+                if (depth >= block_stack.items.len) return null;
+                const target_idx = block_stack.items.len - 1 - depth;
+                const target = &block_stack.items[target_idx];
+
+                // For loops: branch to start. For blocks: branch to end (patched).
+                if (target.kind == .loop) {
+                    // Move arity values if needed (loop consumes no values typically)
+                    try code.append(alloc, .{ .op = OP_BR, .rd = 0, .rs1 = 0, .operand = target.start_pc });
+                } else {
+                    // Forward branch — need to move arity values and patch
+                    if (target.arity > 0 and vstack.items.len > 0) {
+                        const val = vstack.items[vstack.items.len - 1];
+                        if (val != target.result_reg) {
+                            try code.append(alloc, .{ .op = OP_MOV, .rd = target.result_reg, .rs1 = val, .operand = 0 });
+                        }
+                    }
+                    const br_pos: u32 = @intCast(code.items.len);
+                    try code.append(alloc, .{ .op = OP_BR, .rd = 0, .rs1 = 0, .operand = 0 });
+                    try target.patches.append(alloc, br_pos);
+                }
+                unreachable_depth = 1; // subsequent code is dead
+            },
+
+            0x0D => { // br_if
+                const depth = instr.operand;
+                const cond = vstack.pop().?;
+                if (depth >= block_stack.items.len) return null;
+                const target_idx = block_stack.items.len - 1 - depth;
+                const target = &block_stack.items[target_idx];
+
+                if (target.kind == .loop) {
+                    try code.append(alloc, .{ .op = OP_BR_IF, .rd = cond, .rs1 = 0, .operand = target.start_pc });
+                } else {
+                    // Move arity value to target's result register before conditional branch.
+                    // If branch not taken, the move is wasted but harmless (result_reg
+                    // will be overwritten at block end). Value stays on vstack for non-taken path.
+                    if (target.arity > 0 and vstack.items.len > 0) {
+                        const val = vstack.items[vstack.items.len - 1]; // peek
+                        if (val != target.result_reg) {
+                            try code.append(alloc, .{ .op = OP_MOV, .rd = target.result_reg, .rs1 = val, .operand = 0 });
+                        }
+                    }
+                    const br_pos: u32 = @intCast(code.items.len);
+                    try code.append(alloc, .{ .op = OP_BR_IF, .rd = cond, .rs1 = 0, .operand = 0 });
+                    try target.patches.append(alloc, br_pos);
+                }
+            },
+
+            // ---- Call ----
+            0x10 => { // call
+                const func_idx = instr.operand;
+
+                // Resolve callee type info (param count + result count)
+                const res = resolver orelse return null;
+                const type_info = res.resolve_fn(res.ctx, func_idx) orelse return null;
+                const n_args: usize = type_info.param_count;
+                const n_results: usize = type_info.result_count;
+                if (n_args > 8 or n_results > 1) return null; // bail on complex signatures
+                if (vstack.items.len < n_args) return null; // stack underflow
+
+                const rd = if (n_results > 0) allocTemp(&next_reg, &max_reg) else 0;
+
+                try code.append(alloc, .{ .op = OP_CALL, .rd = rd, .rs1 = @intCast(n_args), .operand = func_idx });
+
+                // Pack arg registers into data words (up to 4 per word)
+                var arg_regs: [8]u8 = .{0} ** 8;
+                const arg_start = vstack.items.len - n_args;
+                for (0..n_args) |i| {
+                    arg_regs[i] = vstack.items[arg_start + i];
+                }
+                try code.append(alloc, .{
+                    .op = OP_NOP,
+                    .rd = arg_regs[0],
+                    .rs1 = arg_regs[1],
+                    .operand = @as(u32, arg_regs[2]) | (@as(u32, arg_regs[3]) << 8),
+                });
+                if (n_args > 4) {
+                    try code.append(alloc, .{
+                        .op = OP_NOP,
+                        .rd = arg_regs[4],
+                        .rs1 = arg_regs[5],
+                        .operand = @as(u32, arg_regs[6]) | (@as(u32, arg_regs[7]) << 8),
+                    });
+                }
+
+                // Pop only the arg count from virtual stack
+                vstack.shrinkRetainingCapacity(vstack.items.len - n_args);
+                if (n_results > 0) try vstack.append(alloc, rd);
+            },
+
+            // ---- Return ----
+            0x0F => { // return
+                if (vstack.items.len > 0) {
+                    const val = vstack.pop().?;
+                    try code.append(alloc, .{ .op = OP_RETURN, .rd = val, .rs1 = 0, .operand = 0 });
+                } else {
+                    try code.append(alloc, .{ .op = OP_RETURN_VOID, .rd = 0, .rs1 = 0, .operand = 0 });
+                }
+                unreachable_depth = 1; // subsequent code is dead
+            },
+
+            // ---- Drop ----
+            0x1A => { // drop
+                _ = vstack.pop();
+            },
+
+            // ---- Select ----
+            0x1B => { // select
+                const cond = vstack.pop().?;
+                const val2 = vstack.pop().?;
+                const val1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                // select rd, val1, val2, cond: rd = cond ? val1 : val2
+                // Encode: rd=rd, rs1=val1, operand low=val2, operand byte1=cond
+                try code.append(alloc, .{
+                    .op = 0x1B,
+                    .rd = rd,
+                    .rs1 = val1,
+                    .operand = @as(u32, val2) | (@as(u32, cond) << 8),
+                });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Memory size/grow ----
+            0x3F => { // memory.size
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x3F, .rd = rd, .rs1 = 0, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            0x40 => { // memory.grow
+                const rs1 = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x40, .rd = rd, .rs1 = rs1, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+
+            // ---- Nop ----
+            0x01 => {}, // nop — skip
+
+            // ---- Unreachable ----
+            0x00 => {
+                try code.append(alloc, .{ .op = 0x00, .rd = 0, .rs1 = 0, .operand = 0 });
+                unreachable_depth = 1; // subsequent code is dead
+            },
+
+            // ---- Superinstructions (decompose to register ops) ----
+            // These are peephole-fused sequences from predecode. We decompose them
+            // into register references since local.get is free in register IR.
+            // Format: extra = local A index, operand = local B index or constant.
+            // Each super-instr consumed 1-2 trailing PreInstrs; skip them.
+
+            predecode.OP_LOCAL_GET_GET => {
+                // local.get A + local.get B → push both register refs
+                try vstack.append(alloc, @intCast(instr.extra));
+                try vstack.append(alloc, @intCast(instr.operand));
+                pc += 1; // skip consumed local.get
+            },
+            predecode.OP_LOCAL_GET_CONST => {
+                // local.get A + i32.const C
+                try vstack.append(alloc, @intCast(instr.extra));
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST32, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                try vstack.append(alloc, rd);
+                pc += 1; // skip consumed i32.const
+            },
+            predecode.OP_LOCALS_ADD => {
+                // local.get A + local.get B + i32.add
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x6A, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) });
+                try vstack.append(alloc, rd);
+                pc += 2; // skip consumed local.get + i32.add
+            },
+            predecode.OP_LOCALS_SUB => {
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x6B, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) });
+                try vstack.append(alloc, rd);
+                pc += 2;
+            },
+            predecode.OP_LOCAL_CONST_ADD => {
+                // local.get A + i32.const C + i32.add → add rd, rA, const_reg
+                const const_rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x6A, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd });
+                try vstack.append(alloc, rd);
+                pc += 2;
+            },
+            predecode.OP_LOCAL_CONST_SUB => {
+                const const_rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x6B, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd });
+                try vstack.append(alloc, rd);
+                pc += 2;
+            },
+            predecode.OP_LOCAL_CONST_LT_S => {
+                const const_rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x48, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd }); // i32.lt_s
+                try vstack.append(alloc, rd);
+                pc += 2;
+            },
+            predecode.OP_LOCAL_CONST_GE_S => {
+                const const_rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x4E, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd }); // i32.ge_s
+                try vstack.append(alloc, rd);
+                pc += 2;
+            },
+            predecode.OP_LOCAL_CONST_LT_U => {
+                const const_rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x49, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd }); // i32.lt_u
+                try vstack.append(alloc, rd);
+                pc += 2;
+            },
+            predecode.OP_LOCALS_GT_S => {
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x4A, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) }); // i32.gt_s
+                try vstack.append(alloc, rd);
+                pc += 2;
+            },
+            predecode.OP_LOCALS_LE_S => {
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x4C, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) }); // i32.le_s
+                try vstack.append(alloc, rd);
+                pc += 2;
+            },
+
+            // ---- Anything else: bail ----
+            else => return null,
+        }
+    }
+
+    // If we fell through (no end instruction), add return
+    if (code.items.len == 0 or code.items[code.items.len - 1].op != OP_RETURN and
+        code.items[code.items.len - 1].op != OP_RETURN_VOID)
+    {
+        try code.append(alloc, .{ .op = OP_RETURN_VOID, .rd = 0, .rs1 = 0, .operand = 0 });
+    }
+
+    const result = try alloc.create(RegFunc);
+    result.* = .{
+        .code = try code.toOwnedSlice(alloc),
+        .pool64 = @constCast(pool64), // shared reference
+        .reg_count = max_reg,
+        .local_count = total_locals,
+        .alloc = alloc,
+    };
+    return result;
+}
+
+fn allocTemp(next_reg: *u16, max_reg: *u16) u8 {
+    const reg: u8 = @intCast(next_reg.*);
+    next_reg.* += 1;
+    if (next_reg.* > max_reg.*) max_reg.* = next_reg.*;
+    return reg;
+}
+
+// ---- Tests ----
+
+const testing = std.testing;
+
+test "RegInstr size is 8 bytes" {
+    try testing.expectEqual(8, @sizeOf(RegInstr));
+}
+
+test "convert — simple i32.add(local.get 0, local.get 1)" {
+    // Wasm: local.get 0, local.get 1, i32.add, end
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0
+        .{ .opcode = 0x20, .extra = 0, .operand = 1 }, // local.get 1
+        .{ .opcode = 0x6A, .extra = 0, .operand = 0 }, // i32.add
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 2, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    // Expected: add r2, r0, r1 (locals are r0,r1; temp is r2)
+    //           return r2
+    try testing.expectEqual(2, code.len);
+    try testing.expectEqual(@as(u16, 0x6A), code[0].op); // i32.add
+    try testing.expectEqual(@as(u8, 2), code[0].rd); // r2 (temp)
+    try testing.expectEqual(@as(u8, 0), code[0].rs1); // r0 (local 0)
+    try testing.expectEqual(@as(u8, 1), code[0].rs2()); // r1 (local 1)
+    try testing.expectEqual(OP_RETURN, code[1].op);
+    try testing.expectEqual(@as(u8, 2), code[1].rd); // return r2
+}
+
+test "convert — local.get eliminates to register reference" {
+    // Wasm: local.get 0, end (return a local)
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 },
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 },
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 1, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    // Just: return r0 (local.get 0 was eliminated)
+    try testing.expectEqual(1, code.len);
+    try testing.expectEqual(OP_RETURN, code[0].op);
+    try testing.expectEqual(@as(u8, 0), code[0].rd);
+}
+
+test "convert — i32.const + local.set" {
+    // Wasm: i32.const 42, local.set 0, end
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x41, .extra = 0, .operand = 42 },
+        .{ .opcode = 0x21, .extra = 0, .operand = 0 },
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 },
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 0, 1, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    // const32 r1, 42 (r0 is local 0, r1 is first temp)
+    // mov r0, r1
+    // return_void
+    try testing.expectEqual(3, code.len);
+    try testing.expectEqual(OP_CONST32, code[0].op);
+    try testing.expectEqual(@as(u32, 42), code[0].operand);
+    try testing.expectEqual(OP_MOV, code[1].op);
+    try testing.expectEqual(@as(u8, 0), code[1].rd);
+    try testing.expectEqual(OP_RETURN_VOID, code[2].op);
+}
