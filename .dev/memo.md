@@ -34,7 +34,7 @@ Stage 1: Library Quality + CLI Polish
 3. [x] 1.3: Public API doc comments (types.zig comprehensive documentation)
 4. [x] 1.4: CLI `zwasm run` WASI args/env/preopen support
 5. [x] 1.5: CLI exit code propagation from WASI modules
-6. [ ] 1.6: Example programs (examples/ directory with standalone .zig files)
+6. [x] 1.6: Example programs (examples/ directory with standalone .zig files)
 7. [ ] 1.7: `zwasm inspect --json` machine-readable output
 
 Stage 2 (planned): Spec Conformance + wast test runner
@@ -42,12 +42,12 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-1.6: Example programs — create examples/ directory with standalone .zig files
-demonstrating library usage (basic load/invoke, WASI, multi-module).
+1.7: `zwasm inspect --json` machine-readable output option.
 
 ## Previous Task
 
-1.5: Exit code propagation — getWasiExitCode() API + CLI std.process.exit().
+1.6: Example programs — 3 examples (basic, memory, inspect) in examples/.
+All build and run correctly from repo root.
 
 ## Known Issues
 

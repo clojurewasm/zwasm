@@ -32,6 +32,26 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(cli);
 
+    // Example executables
+    const examples = [_]struct { name: []const u8, src: []const u8 }{
+        .{ .name = "example_basic", .src = "examples/basic.zig" },
+        .{ .name = "example_memory", .src = "examples/memory.zig" },
+        .{ .name = "example_inspect", .src = "examples/inspect.zig" },
+    };
+    for (examples) |ex| {
+        const ex_mod = b.createModule(.{
+            .root_source_file = b.path(ex.src),
+            .target = target,
+            .optimize = optimize,
+        });
+        ex_mod.addImport("zwasm", mod);
+        const ex_exe = b.addExecutable(.{
+            .name = ex.name,
+            .root_module = ex_mod,
+        });
+        b.installArtifact(ex_exe);
+    }
+
     // Benchmark executable
     const bench_mod = b.createModule(.{
         .root_source_file = b.path("bench/fib_bench.zig"),
