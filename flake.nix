@@ -54,7 +54,6 @@
 
             # Wasm runtimes (benchmark comparison targets)
             wasmtime
-            wasmer
 
             # JS/Wasm runtimes
             bun
@@ -74,6 +73,8 @@
             gnused
             coreutils
             python3
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.wasmer  # nixpkgs wasmer build broken on x86_64-linux
           ];
 
           shellHook = ''
