@@ -28,26 +28,26 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 
 ## Task Queue
 
-Stage 1: Library Quality + CLI Polish
+Stage 2: Spec Conformance
 
-1. [x] 1.1: build.zig.zon (package metadata for Zig package manager)
-2. [x] 1.2: Structured error types (W3 — already resolved, no EvalError remains)
-3. [x] 1.3: Public API doc comments (types.zig comprehensive documentation)
-4. [x] 1.4: CLI `zwasm run` WASI args/env/preopen support
-5. [x] 1.5: CLI exit code propagation from WASI modules
-6. [x] 1.6: Example programs (examples/ directory with standalone .zig files)
-7. [x] 1.7: `zwasm inspect --json` machine-readable output
+1. [ ] 2.1: Download spec test suite + convert .wast to JSON with wast2json
+2. [ ] 2.2: Wast test runner — JSON parser + assert_return + assert_trap
+3. [ ] 2.3: spectest host module (memory, table, globals, print functions)
+4. [ ] 2.4: Run MVP spec tests, measure initial pass rate
+5. [ ] 2.5: Fix spec test failures (iterate until >95%)
+6. [ ] 2.6: assert_invalid + assert_malformed support
+7. [ ] 2.7: CI pipeline (GitHub Actions)
 
-Stage 2 (planned): Spec Conformance + wast test runner
 Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-Stage 1 COMPLETE. Plan Stage 2 task queue (Spec Conformance).
+2.1: Download spec test suite and convert all .wast files to JSON + .wasm
+using wast2json. Store in test/spec/ directory.
 
 ## Previous Task
 
-1.7: `zwasm inspect --json` — machine-readable JSON output for tooling integration.
+Stage 1 complete (tasks 1.1-1.7).
 
 ## Known Issues
 
