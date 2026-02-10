@@ -150,3 +150,95 @@ pub const HostFnEntry = struct {
 ```
 
 ---
+
+## D104: Register IR — Stack-to-Register Conversion
+
+**Decision**: Add a register-based IR tier between predecoded stack IR and JIT.
+Convert stack-based PreInstr to register-based RegInstr at function load time.
+
+### Problem
+
+Profiling (task 3.3) shows stack traffic (local.get/set) = 30-50% of all instructions.
+The operand stack is in memory (u128 array), so every push/pop is a memory access.
+Register IR eliminates the operand stack by mapping values to virtual registers.
+
+### Instruction Format: 8-byte 3-address
+
+```zig
+pub const RegInstr = extern struct {
+    op: u16,       // instruction type
+    rd: u8,        // destination register
+    rs1: u8,       // source register 1
+    operand: u32,  // rs2 (low byte) | immediate | branch target | pool index
+};
+comptime { assert(@sizeOf(RegInstr) == 8); }
+```
+
+Same size as PreInstr — no cache penalty. Fields:
+- `rd`: destination register for result
+- `rs1`: first source register
+- `operand`: polymorphic — rs2 packed in bits [7:0], or full 32-bit immediate
+
+### Register Allocation
+
+**Strategy**: Abstract interpretation of the Wasm operand stack.
+
+1. Wasm locals → fixed registers `r0..r(N-1)` where N = param_count + local_count
+2. Stack temporaries → sequential registers `rN, rN+1, ...` allocated during conversion
+3. Total register count = N + max_stack_depth (known from Wasm validation)
+4. Values stored in `u64[]` register file (one per function frame)
+
+**Conversion**: Single pass over PreInstr[], maintaining a virtual stack of register indices:
+- `local.get X` → push `rX` onto virtual stack (no instruction emitted!)
+- `local.set X` → pop `rSrc` from virtual stack, emit `mov rX, rSrc`
+- `i32.add` → pop `rB`, pop `rA`, allocate `rD`, emit `add rD, rA, rB`, push `rD`
+- `i32.const C` → allocate `rD`, emit `const rD, C`, push `rD`
+
+### Control Flow
+
+Basic blocks with direct PC targets (same as current IR):
+- `block`/`loop`/`if`: Push onto block stack with result register info
+- `br depth`: Copy arity values to target block's result registers, jump
+- `end`: Pop block, no instruction if block has 0 arity
+
+Branch targets are still absolute RegInstr indices (like PreInstr).
+Label stack is replaced by a simpler block info stack (result register + target PC).
+
+### Function Calls
+
+- Caller: place args in sequential registers starting from a chosen base
+- Callee: receives args as its first N registers (natural mapping)
+- Return value: in r0 of the called frame
+- Operand stack still used for cross-frame value passing (invoke interface)
+
+### Integration Path
+
+```
+Wasm bytecode
+  ↓ predecode.zig (existing)
+PreInstr[] (stack-based fixed-width IR)
+  ↓ regalloc.zig (NEW — task 3.5)
+RegInstr[] + register file metadata
+  ↓ vm.zig:executeRegIR() (NEW — task 3.5)
+Execution with virtual register file
+```
+
+Fallback: functions that fail register conversion use existing executeIR().
+SIMD, multi-value returns > 1, very large functions can fall back.
+
+### Expected Impact
+
+- **fib**: 2-3x speedup (stack traffic 31% → 0%, plus implicit control flow)
+- **sieve**: 1.5-2x (less stack traffic, already loop-optimized)
+- **nbody**: 1.5-2x (memory ops dominate, but i32.const offset folding helps)
+- **Overall**: Register IR is the foundation for JIT — same IR feeds ARM64 codegen
+
+### Alternatives Considered
+
+1. **Superinstruction expansion only**: +10-20% max, doesn't eliminate stack
+2. **Direct bytecode→register**: Skips predecode, but loses superinstruction fusion
+3. **12-byte instructions with 3 explicit registers**: Cleaner but 50% cache penalty
+4. **Threaded code**: Platform-specific, doesn't help with JIT path
+
+**Chose**: 8-byte 3-address with rs2 packed in operand. Same cache footprint as
+existing IR, natural upgrade path to JIT (RegInstr → ARM64 instructions 1:1).

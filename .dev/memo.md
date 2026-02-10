@@ -36,7 +36,7 @@ Stage 3: JIT + Optimization (ARM64)
 2. [x] 3.2: Benchmark suite expansion — tak, sieve, nbody + updated scripts
 3. [x] 3.3: Profile hot paths — analyzed, documented in .dev/profile-analysis.md
 4. [x] 3.3b: TinyGo benchmark port — CW TinyGo wasm to zwasm, update scripts
-5. [ ] 3.4: Register IR design — D## decision for IR representation
+5. [x] 3.4: Register IR design — D104 decision for IR representation
 6. [ ] 3.5: Register IR implementation — stack-to-register conversion pass
 7. [ ] 3.6: Register IR validation — benchmark, target 2-3x speedup over stack interpreter
 8. [ ] 3.7: ARM64 codegen design — D## decision for JIT architecture
@@ -46,16 +46,24 @@ Stage 3: JIT + Optimization (ARM64)
 
 ## Current Task
 
-3.4: Register IR design — D## decision for IR representation.
+3.5: Register IR implementation — stack-to-register conversion pass.
 
-Design the register-based intermediate representation:
-- Virtual register mapping (locals → regs, stack temps → regs)
-- IR instruction format (3-address vs 2-address)
-- Control flow representation (basic blocks, branch targets)
-- Integration with existing predecoded IR path
-- Key insight from profiling: stack traffic (30-50% of instrs) is the #1 target
+Implement the register-based IR designed in D104:
+1. Create `src/regalloc.zig` — RegInstr type + PreInstr→RegInstr converter
+2. Add `executeRegIR()` to vm.zig — register-file-based execution loop
+3. Integration: hot functions auto-convert at first call
+4. Start with core opcodes: arithmetic, locals, control flow, constants
+5. Test: fib(35) must produce correct result and be measurably faster
 
 ## Previous Task
+
+3.4: Register IR design — COMPLETE (D104).
+- 8-byte 3-address format: RegInstr { op: u16, rd: u8, rs1: u8, operand: u32 }
+- Register allocation: locals→fixed regs, stack temps→sequential regs
+- Conversion: single pass over PreInstr with abstract stack of register indices
+- local.get eliminated (zero-cost register reference)
+- Integration: regalloc.zig (converter) + vm.zig:executeRegIR() (executor)
+- Fallback: functions that fail conversion use existing executeIR()
 
 3.3b: TinyGo benchmark port — COMPLETE.
 - 4 TinyGo benchmarks: fib, tak, arith, sieve (source in bench/tinygo/, wasm in bench/wasm/tgo_*.wasm)
