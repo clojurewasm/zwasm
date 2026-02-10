@@ -73,6 +73,7 @@ fn printUsage(w: *std.Io.Writer) void {
         \\Run options:
         \\  --invoke <func>     Call <func> instead of _start
         \\  --batch             Batch mode: read invocations from stdin
+        \\  --link name=file    Link a module as import source (repeatable)
         \\  --dir <path>        Preopen a host directory (repeatable)
         \\  --env KEY=VALUE     Set a WASI environment variable (repeatable)
         \\
@@ -96,6 +97,10 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     defer env_vals.deinit(allocator);
     var preopen_paths: std.ArrayList([]const u8) = .empty;
     defer preopen_paths.deinit(allocator);
+    var link_names: std.ArrayList([]const u8) = .empty;
+    defer link_names.deinit(allocator);
+    var link_paths: std.ArrayList([]const u8) = .empty;
+    defer link_paths.deinit(allocator);
 
     // Parse options
     var i: usize = 0;
@@ -133,6 +138,21 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 try stderr.flush();
                 return false;
             }
+        } else if (std.mem.eql(u8, args[i], "--link")) {
+            i += 1;
+            if (i >= args.len) {
+                try stderr.print("error: --link requires name=path.wasm\n", .{});
+                try stderr.flush();
+                return false;
+            }
+            if (std.mem.indexOfScalar(u8, args[i], '=')) |eq_pos| {
+                try link_names.append(allocator, args[i][0..eq_pos]);
+                try link_paths.append(allocator, args[i][eq_pos + 1 ..]);
+            } else {
+                try stderr.print("error: --link value must be name=path.wasm\n", .{});
+                try stderr.flush();
+                return false;
+            }
         } else if (args[i].len > 0 and args[i][0] == '-') {
             try stderr.print("error: unknown option '{s}'\n", .{args[i]});
             try stderr.flush();
@@ -157,17 +177,59 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     };
     defer allocator.free(wasm_bytes);
 
+    // Load linked modules
+    var linked_modules: std.ArrayList(*types.WasmModule) = .empty;
+    defer {
+        for (linked_modules.items) |lm| lm.deinit();
+        linked_modules.deinit(allocator);
+    }
+    // Keep wasm bytes alive as long as the modules reference them
+    var linked_bytes: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (linked_bytes.items) |bytes| allocator.free(bytes);
+        linked_bytes.deinit(allocator);
+    }
+    var import_entries: std.ArrayList(types.ImportEntry) = .empty;
+    defer import_entries.deinit(allocator);
+
+    for (link_names.items, link_paths.items) |name, lpath| {
+        const link_bytes = readFile(allocator, lpath) catch |err| {
+            try stderr.print("error: cannot read linked module '{s}': {s}\n", .{ lpath, @errorName(err) });
+            try stderr.flush();
+            return false;
+        };
+        const lm = types.WasmModule.load(allocator, link_bytes) catch |err| {
+            allocator.free(link_bytes);
+            try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, @errorName(err) });
+            try stderr.flush();
+            return false;
+        };
+        try linked_bytes.append(allocator, link_bytes);
+        try linked_modules.append(allocator, lm);
+        try import_entries.append(allocator, .{
+            .module = name,
+            .source = .{ .wasm_module = lm },
+        });
+    }
+
     if (batch_mode) {
-        return cmdBatch(allocator, wasm_bytes, stdout, stderr);
+        return cmdBatch(allocator, wasm_bytes, import_entries.items, stdout, stderr);
     }
 
     if (invoke_name) |func_name| {
         // Invoke a specific function with u64 args
-        var module = types.WasmModule.load(allocator, wasm_bytes) catch |err| {
-            try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
-            try stderr.flush();
-            return false;
-        };
+        var module = if (import_entries.items.len > 0)
+            types.WasmModule.loadWithImports(allocator, wasm_bytes, import_entries.items) catch |err| {
+                try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
+                try stderr.flush();
+                return false;
+            }
+        else
+            types.WasmModule.load(allocator, wasm_bytes) catch |err| {
+                try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
+                try stderr.flush();
+                return false;
+            };
         defer module.deinit();
 
         // Parse function arguments as u64
@@ -496,13 +558,20 @@ fn printInspectJson(module: *const module_mod.Module, file_path: []const u8, siz
 /// Batch mode: read invocations from stdin, one per line.
 /// Protocol: "invoke <func> [arg1 arg2 ...]"
 /// Output: "ok [val1 val2 ...]" or "error <message>"
-fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
+fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types.ImportEntry, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
     _ = stderr;
-    var module = types.WasmModule.load(allocator, wasm_bytes) catch |err| {
-        try stdout.print("error load {s}\n", .{@errorName(err)});
-        try stdout.flush();
-        return false;
-    };
+    var module = if (imports.len > 0)
+        types.WasmModule.loadWithImports(allocator, wasm_bytes, imports) catch |err| {
+            try stdout.print("error load {s}\n", .{@errorName(err)});
+            try stdout.flush();
+            return false;
+        }
+    else
+        types.WasmModule.load(allocator, wasm_bytes) catch |err| {
+            try stdout.print("error load {s}\n", .{@errorName(err)});
+            try stdout.flush();
+            return false;
+        };
     defer module.deinit();
 
     const stdin = std.fs.File.stdin();

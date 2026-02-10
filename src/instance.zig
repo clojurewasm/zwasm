@@ -241,7 +241,7 @@ pub const Instance = struct {
     }
 
     fn applyActiveElements(self: *Instance) !void {
-        for (self.module.elements.items) |elem_seg| {
+        for (self.module.elements.items, 0..) |elem_seg, seg_idx| {
             switch (elem_seg.mode) {
                 .active => |active| {
                     const offset = try evalInitExpr(active.offset_expr, self);
@@ -281,6 +281,11 @@ pub const Instance = struct {
                             }
                         },
                     }
+                    // Per spec: active element segments are dropped after application
+                    if (seg_idx < self.elemaddrs.items.len) {
+                        const e = self.store.getElem(self.elemaddrs.items[seg_idx]) catch continue;
+                        e.dropped = true;
+                    }
                 },
                 .passive, .declarative => {},
             }
@@ -288,12 +293,17 @@ pub const Instance = struct {
     }
 
     fn applyActiveData(self: *Instance) !void {
-        for (self.module.datas.items) |data_seg| {
+        for (self.module.datas.items, 0..) |data_seg, seg_idx| {
             switch (data_seg.mode) {
                 .active => |active| {
                     const offset = try evalInitExpr(active.offset_expr, self);
                     const m = try self.getMemory(active.mem_idx);
                     try m.copy(@truncate(offset), data_seg.data);
+                    // Per spec: active data segments are dropped after application
+                    if (seg_idx < self.dataaddrs.items.len) {
+                        const d = self.store.getData(self.dataaddrs.items[seg_idx]) catch continue;
+                        d.dropped = true;
+                    }
                 },
                 .passive => {},
             }

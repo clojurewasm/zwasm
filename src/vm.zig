@@ -2464,14 +2464,47 @@ pub const Vm = struct {
                 const d = try instance.store.getData(instance.dataaddrs.items[instr.operand]);
                 d.dropped = true;
             },
-            0x0E => { // table.fill
+            0x0C => { // table.init
                 const n = @as(u32, @bitCast(self.popI32()));
-                const val = self.pop();
-                const start = @as(u32, @bitCast(self.popI32()));
-                const t = try instance.store.getTable(instr.operand);
-                const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
+                const src = @as(u32, @bitCast(self.popI32()));
+                const dst = @as(u32, @bitCast(self.popI32()));
+                if (instr.operand >= instance.elemaddrs.items.len) return error.Trap;
+                const e = try instance.store.getElem(instance.elemaddrs.items[instr.operand]);
+                const t = try instance.getTable(instr.extra);
+                const elem_len: u64 = if (e.dropped) 0 else e.data.len;
+                if (@as(u64, src) + n > elem_len or @as(u64, dst) + n > t.size())
+                    return error.OutOfBoundsMemoryAccess;
                 for (0..n) |i| {
-                    t.set(start + @as(u32, @intCast(i)), ref_val) catch return error.OutOfBoundsMemoryAccess;
+                    const val = e.data[src + @as(u32, @intCast(i))];
+                    const ref: ?usize = if (val == 0) null else @intCast(val - 1);
+                    t.set(dst + @as(u32, @intCast(i)), ref) catch return error.OutOfBoundsMemoryAccess;
+                }
+            },
+            0x0D => { // elem.drop
+                if (instr.operand >= instance.elemaddrs.items.len) return error.Trap;
+                const e = try instance.store.getElem(instance.elemaddrs.items[instr.operand]);
+                e.dropped = true;
+            },
+            0x0E => { // table.copy
+                const n = @as(u32, @bitCast(self.popI32()));
+                const src = @as(u32, @bitCast(self.popI32()));
+                const dst = @as(u32, @bitCast(self.popI32()));
+                const dst_t = try instance.getTable(instr.extra);
+                const src_t = try instance.getTable(instr.operand);
+                if (@as(u64, src) + n > src_t.size() or @as(u64, dst) + n > dst_t.size())
+                    return error.OutOfBoundsMemoryAccess;
+                if (dst <= src) {
+                    for (0..n) |i| {
+                        const val = src_t.get(src + @as(u32, @intCast(i))) catch return error.OutOfBoundsMemoryAccess;
+                        dst_t.set(dst + @as(u32, @intCast(i)), val) catch return error.OutOfBoundsMemoryAccess;
+                    }
+                } else {
+                    var idx: u32 = n;
+                    while (idx > 0) {
+                        idx -= 1;
+                        const val = src_t.get(src + idx) catch return error.OutOfBoundsMemoryAccess;
+                        dst_t.set(dst + idx, val) catch return error.OutOfBoundsMemoryAccess;
+                    }
                 }
             },
             0x0F => { // table.grow
@@ -2489,48 +2522,15 @@ pub const Vm = struct {
                 const t = try instance.store.getTable(instr.operand);
                 try self.pushI32(@bitCast(t.size()));
             },
-            0x0C => { // table.copy
+            0x11 => { // table.fill
                 const n = @as(u32, @bitCast(self.popI32()));
-                const src = @as(u32, @bitCast(self.popI32()));
-                const dst = @as(u32, @bitCast(self.popI32()));
-                const dst_t = try instance.getTable(instr.operand);
-                const src_t = try instance.getTable(instr.extra);
-                if (@as(u64, src) + n > src_t.size() or @as(u64, dst) + n > dst_t.size())
-                    return error.OutOfBoundsMemoryAccess;
-                if (dst <= src) {
-                    for (0..n) |i| {
-                        const val = src_t.get(src + @as(u32, @intCast(i))) catch return error.OutOfBoundsMemoryAccess;
-                        dst_t.set(dst + @as(u32, @intCast(i)), val) catch return error.OutOfBoundsMemoryAccess;
-                    }
-                } else {
-                    var idx: u32 = n;
-                    while (idx > 0) {
-                        idx -= 1;
-                        const val = src_t.get(src + idx) catch return error.OutOfBoundsMemoryAccess;
-                        dst_t.set(dst + idx, val) catch return error.OutOfBoundsMemoryAccess;
-                    }
-                }
-            },
-            0x0D => { // table.init
-                const n = @as(u32, @bitCast(self.popI32()));
-                const src = @as(u32, @bitCast(self.popI32()));
-                const dst = @as(u32, @bitCast(self.popI32()));
-                if (instr.operand >= instance.elemaddrs.items.len) return error.Trap;
-                const e = try instance.store.getElem(instance.elemaddrs.items[instr.operand]);
-                const t = try instance.getTable(instr.extra);
-                const elem_len: u64 = if (e.dropped) 0 else e.data.len;
-                if (@as(u64, src) + n > elem_len or @as(u64, dst) + n > t.size())
-                    return error.OutOfBoundsMemoryAccess;
+                const val = self.pop();
+                const start = @as(u32, @bitCast(self.popI32()));
+                const t = try instance.store.getTable(instr.operand);
+                const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 for (0..n) |i| {
-                    const val = e.data[src + @as(u32, @intCast(i))];
-                    const ref: ?usize = if (val == 0) null else @intCast(val - 1);
-                    t.set(dst + @as(u32, @intCast(i)), ref) catch return error.OutOfBoundsMemoryAccess;
+                    t.set(start + @as(u32, @intCast(i)), ref_val) catch return error.OutOfBoundsMemoryAccess;
                 }
-            },
-            0x11 => { // elem.drop
-                if (instr.operand >= instance.elemaddrs.items.len) return error.Trap;
-                const e = try instance.store.getElem(instance.elemaddrs.items[instr.operand]);
-                e.dropped = true;
             },
             else => return error.Trap,
         }

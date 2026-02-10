@@ -326,27 +326,32 @@ fn predecodeMisc(alloc: Allocator, code: *std.ArrayList(PreInstr), reader: *Read
             const data_idx = reader.readU32() catch return false;
             try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = data_idx });
         },
-        // table.copy (dst + src)
+        // table.init 0x0C (elem_idx + table_idx)
         0x0C => {
-            const dst = reader.readU32() catch return false;
-            const src = reader.readU32() catch return false;
-            try code.append(alloc, .{ .opcode = ir_op, .extra = @intCast(dst), .operand = src });
-        },
-        // table.init (elem_idx + table_idx)
-        0x0D => {
             const elem_idx = reader.readU32() catch return false;
             const table_idx = reader.readU32() catch return false;
             try code.append(alloc, .{ .opcode = ir_op, .extra = @intCast(table_idx), .operand = elem_idx });
         },
-        // table.fill, table.grow, table.size (table_idx)
-        0x0E, 0x0F, 0x10 => {
+        // elem.drop 0x0D (elem_idx)
+        0x0D => {
+            const elem_idx = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = elem_idx });
+        },
+        // table.copy 0x0E (dst_table + src_table)
+        0x0E => {
+            const dst = reader.readU32() catch return false;
+            const src = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = @intCast(dst), .operand = src });
+        },
+        // table.grow 0x0F, table.size 0x10 (table_idx)
+        0x0F, 0x10 => {
             const table_idx = reader.readU32() catch return false;
             try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = table_idx });
         },
-        // elem.drop
+        // table.fill 0x11 (table_idx)
         0x11 => {
-            const elem_idx = reader.readU32() catch return false;
-            try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = elem_idx });
+            const table_idx = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = table_idx });
         },
         else => try emit0(alloc, code, ir_op),
     }

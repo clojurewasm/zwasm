@@ -58,9 +58,12 @@ def is_nan_u64(val, vtype):
     return False
 
 
-def run_invoke_single(wasm_path, func_name, args):
+def run_invoke_single(wasm_path, func_name, args, linked_modules=None):
     """Run zwasm --invoke in a single process. Fallback for batch failures."""
-    cmd = [ZWASM, "run", "--invoke", func_name, wasm_path]
+    cmd = [ZWASM, "run", "--invoke", func_name]
+    for name, path in (linked_modules or {}).items():
+        cmd.extend(["--link", f"{name}={path}"])
+    cmd.append(wasm_path)
     for a in args:
         cmd.append(str(a))
     try:
@@ -81,15 +84,20 @@ def run_invoke_single(wasm_path, func_name, args):
 class BatchRunner:
     """Manages a zwasm --batch subprocess for stateful invocations."""
 
-    def __init__(self, wasm_path):
+    def __init__(self, wasm_path, linked_modules=None):
         self.wasm_path = wasm_path
+        self.linked_modules = linked_modules or {}
         self.proc = None
         self.needs_state = False  # True if actions have been executed
         self._start()
 
     def _start(self):
+        cmd = [ZWASM, "run", "--batch"]
+        for name, path in self.linked_modules.items():
+            cmd.extend(["--link", f"{name}={path}"])
+        cmd.append(self.wasm_path)
         self.proc = subprocess.Popen(
-            [ZWASM, "run", "--batch", self.wasm_path],
+            cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -106,11 +114,11 @@ class BatchRunner:
         if self._has_problematic_name(func_name):
             if self.needs_state:
                 return (False, "stateful+problematic name")
-            return run_invoke_single(self.wasm_path, func_name, args)
+            return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
 
         if self.proc is None or self.proc.poll() is not None:
             if not self.needs_state:
-                return run_invoke_single(self.wasm_path, func_name, args)
+                return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
             return (False, "process not running")
 
         # Length-prefixed function name to handle special characters
@@ -136,7 +144,7 @@ class BatchRunner:
             if not response:
                 # Process may have died — try fallback
                 if not self.needs_state:
-                    return run_invoke_single(self.wasm_path, func_name, args)
+                    return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
                 return (False, "no response")
             if response.startswith("ok"):
                 parts = response.split()
@@ -150,7 +158,7 @@ class BatchRunner:
             self._cleanup_proc()
             self.proc = None
             if not self.needs_state:
-                return run_invoke_single(self.wasm_path, func_name, args)
+                return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
             return (False, str(e))
 
     def _cleanup_proc(self):
@@ -191,6 +199,9 @@ def run_test_file(json_path, verbose=False):
     failed = 0
     skipped = 0
 
+    # Multi-module support: registered_modules maps name -> wasm_path
+    registered_modules = {}
+
     for cmd in data.get("commands", []):
         cmd_type = cmd["type"]
         line = cmd.get("line", 0)
@@ -205,13 +216,16 @@ def run_test_file(json_path, verbose=False):
             if wasm_file:
                 current_wasm = os.path.join(test_dir, wasm_file)
                 try:
-                    runner = BatchRunner(current_wasm)
+                    runner = BatchRunner(current_wasm, registered_modules)
                 except Exception:
                     current_wasm = None
             continue
 
         if cmd_type == "register":
-            skipped += 1
+            # Register current module under the given name for imports
+            reg_name = cmd.get("as", "")
+            if current_wasm and reg_name:
+                registered_modules[reg_name] = current_wasm
             continue
 
         if cmd_type == "action":
