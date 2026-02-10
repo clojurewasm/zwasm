@@ -104,6 +104,44 @@ Key gaps: shootout 23-33x slower (not JIT'd), nbody 6.2x (no f64 JIT).
 - Superinstruction expansion (profile-guided)
 - x86_64 JIT backend
 - Component Model / WASI P2
+- Capability-based security hardening (see below)
+
+## Future: Sandbox & Security Hardening
+
+Wasm's core value proposition is **sandboxed execution** — untrusted code runs in
+an isolated environment with no ambient authority. The runtime must uphold this
+guarantee. Currently zwasm provides basic isolation (linear memory bounds, no raw
+host pointers) but lacks explicit capability control for WASI.
+
+### Current state
+- Linear memory is bounds-checked (interpreter and JIT)
+- Filesystem access requires explicit `--dir` preopen (no ambient FS access)
+- stdin/stdout/stderr are always available (common convention, matches wasmtime)
+- No network, no process spawn, no signal handling
+- WASI syscalls are all-or-nothing: if WASI is linked, all implemented syscalls
+  are available to the module
+
+### What needs to change
+- **Deny-by-default WASI**: Modules should get zero WASI capabilities unless the
+  embedder (CLI or library caller) explicitly grants them. Even stdio should be
+  opt-in for library usage (CLI can default to granting stdio for usability).
+- **Fine-grained capability flags**: `--allow-read`, `--allow-write`,
+  `--allow-env`, `--allow-clock`, etc. A module requesting `fd_write` on a
+  path it wasn't granted should get `EACCES`, not a host panic.
+- **Import validation**: Reject unknown or denied imports at instantiation time
+  rather than trapping at call time. Fail fast, fail loud.
+- **Resource limits**: Memory ceiling, execution timeout (fuel/gas metering),
+  stack depth limits — all configurable by the embedder.
+- **JIT W^X enforcement**: JIT code pages should be mapped W^X (write XOR
+  execute). Currently mmap'd as RWX for simplicity; production use requires
+  toggling between writable-not-executable and executable-not-writable.
+- **Audit trail**: Optional logging of all WASI syscalls for security review.
+
+### Priority
+This is not urgent while zwasm is pre-release and used only by trusted code
+(ClojureWasm dog fooding). It becomes critical before any public release where
+users might run untrusted Wasm modules. Plan as a dedicated stage after
+performance work stabilizes.
 
 ## Benchmark Targets
 
