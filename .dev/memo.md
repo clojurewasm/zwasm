@@ -30,7 +30,7 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 Stage 1: Library Quality + CLI Polish
 
 1. [x] 1.1: build.zig.zon (package metadata for Zig package manager)
-2. [ ] 1.2: Structured error types (W3 — replace opaque EvalError)
+2. [x] 1.2: Structured error types (W3 — already resolved, no EvalError remains)
 3. [ ] 1.3: Public API doc comments (types.zig comprehensive documentation)
 4. [ ] 1.4: CLI `zwasm run` WASI args/env/preopen support
 5. [ ] 1.5: CLI exit code propagation from WASI modules
@@ -42,12 +42,13 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-1.2: Structured error types (W3 — replace opaque EvalError).
-Design zwasm-specific error types replacing CW's EvalError coupling.
+1.3: Public API doc comments — comprehensive documentation for types.zig.
+All public types, functions, and fields get doc comments.
 
 ## Previous Task
 
-1.1: build.zig.zon created with package metadata (v0.1.0, Zig 0.15.2+).
+1.2: W3 checked — no EvalError remains. Zig inferred error sets are appropriate.
+1.1: build.zig.zon created (v0.1.0, Zig 0.15.2+).
 
 ## Known Issues
 
