@@ -27,10 +27,16 @@ echo "Building zwasm (ReleaseSafe)..."
 zig build -Doptimize=ReleaseSafe
 
 BENCHMARKS=(
+  # Layer 1: Hand-written WAT
   "fib:src/testdata/02_fibonacci.wasm:fib:35"
   "tak:bench/wasm/tak.wasm:tak:24 16 8"
   "sieve:bench/wasm/sieve.wasm:sieve:1000000"
   "nbody:bench/wasm/nbody.wasm:run:1000000"
+  # Layer 2: TinyGo compiler output
+  "tgo_fib:bench/wasm/tgo_fib.wasm:fib:35"
+  "tgo_tak:bench/wasm/tgo_tak.wasm:tak:24 16 8"
+  "tgo_arith:bench/wasm/tgo_arith.wasm:arith_loop:100000000"
+  "tgo_sieve:bench/wasm/tgo_sieve.wasm:sieve:1000000"
 )
 
 for entry in "${BENCHMARKS[@]}"; do

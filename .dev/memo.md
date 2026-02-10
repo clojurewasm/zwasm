@@ -35,13 +35,14 @@ Stage 3: JIT + Optimization (ARM64)
 1. [x] 3.1: Profiling infrastructure — opcode frequency + function call counters
 2. [x] 3.2: Benchmark suite expansion — tak, sieve, nbody + updated scripts
 3. [x] 3.3: Profile hot paths — analyzed, documented in .dev/profile-analysis.md
-4. [ ] 3.4: Register IR design — D## decision for IR representation
-5. [ ] 3.5: Register IR implementation — stack-to-register conversion pass
-6. [ ] 3.6: Register IR validation — benchmark, target 2-3x speedup over stack interpreter
-7. [ ] 3.7: ARM64 codegen design — D## decision for JIT architecture
-8. [ ] 3.8: ARM64 basic block codegen — arithmetic + control flow
-9. [ ] 3.9: ARM64 function-level JIT — compile entire hot functions
-10. [ ] 3.10: Tiered execution — interpreter → JIT with hot function detection
+4. [x] 3.3b: TinyGo benchmark port — CW TinyGo wasm to zwasm, update scripts
+5. [ ] 3.4: Register IR design — D## decision for IR representation
+6. [ ] 3.5: Register IR implementation — stack-to-register conversion pass
+7. [ ] 3.6: Register IR validation — benchmark, target 2-3x speedup over stack interpreter
+8. [ ] 3.7: ARM64 codegen design — D## decision for JIT architecture
+9. [ ] 3.8: ARM64 basic block codegen — arithmetic + control flow
+10. [ ] 3.9: ARM64 function-level JIT — compile entire hot functions
+11. [ ] 3.10: Tiered execution — interpreter → JIT with hot function detection
 
 ## Current Task
 
@@ -55,6 +56,14 @@ Design the register-based intermediate representation:
 - Key insight from profiling: stack traffic (30-50% of instrs) is the #1 target
 
 ## Previous Task
+
+3.3b: TinyGo benchmark port — COMPLETE.
+- 4 TinyGo benchmarks: fib, tak, arith, sieve (source in bench/tinygo/, wasm in bench/wasm/tgo_*.wasm)
+- Build script: `bash bench/tinygo/build.sh`
+- CLI: --invoke now auto-retries with WASI when ImportNotFound
+- Profile fix: multi-byte opcodes (0xFC+) no longer panic, use misc_counts
+- Bench strategy documented in `.dev/bench-strategy.md`
+- Interesting: TinyGo output often faster than hand-written WAT (better opcode mix for interpreter)
 
 3.3: Profile hot paths — COMPLETE.
 Key findings (see `.dev/profile-analysis.md`):
@@ -87,6 +96,8 @@ Session resume: read this file → follow references below.
 | Decisions          | `.dev/decisions.md`                               |
 | Deferred items     | `.dev/checklist.md` (W## items)                   |
 | Spec coverage      | `.dev/spec-support.md`                            |
+| Bench strategy     | `.dev/bench-strategy.md`                          |
+| Profile analysis   | `.dev/profile-analysis.md`                        |
 | Wasm spec refs     | `.dev/references/wasm-spec.md`                    |
 
 ### External references

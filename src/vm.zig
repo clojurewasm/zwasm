@@ -1920,7 +1920,10 @@ pub const Vm = struct {
             pc += 1;
 
             if (self.profile) |p| {
-                p.opcode_counts[instr.opcode] += 1;
+                if (instr.opcode < 256)
+                    p.opcode_counts[instr.opcode] += 1
+                else if (instr.opcode >= 0xFC00 and instr.opcode < 0xFC00 + 32)
+                    p.misc_counts[instr.opcode - 0xFC00] += 1;
                 p.total_instrs += 1;
             }
 

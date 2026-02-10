@@ -222,19 +222,35 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     }
 
     if (invoke_name) |func_name| {
-        // Invoke a specific function with u64 args
-        var module = if (import_entries.items.len > 0)
-            types.WasmModule.loadWithImports(allocator, wasm_bytes, import_entries.items) catch |err| {
-                try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
-                try stderr.flush();
-                return false;
+        // Invoke a specific function with u64 args.
+        // Try plain load first; if it fails with ImportNotFound, retry with WASI
+        // (TinyGo and other compiler-generated modules often import WASI).
+        const module = load_blk: {
+            if (import_entries.items.len > 0) {
+                break :load_blk types.WasmModule.loadWithImports(allocator, wasm_bytes, import_entries.items) catch |err| {
+                    try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
+                    try stderr.flush();
+                    return false;
+                };
             }
-        else
-            types.WasmModule.load(allocator, wasm_bytes) catch |err| {
+            break :load_blk types.WasmModule.load(allocator, wasm_bytes) catch |err| {
+                if (err == error.ImportNotFound) {
+                    break :load_blk types.WasmModule.loadWasiWithOptions(allocator, wasm_bytes, .{
+                        .args = &.{},
+                        .env_keys = &.{},
+                        .env_vals = &.{},
+                        .preopen_paths = &.{},
+                    }) catch |err2| {
+                        try stderr.print("error: failed to load module: {s}\n", .{@errorName(err2)});
+                        try stderr.flush();
+                        return false;
+                    };
+                }
                 try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
                 try stderr.flush();
                 return false;
             };
+        };
         defer module.deinit();
 
         // Enable profiling if requested
