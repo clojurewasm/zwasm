@@ -48,7 +48,10 @@ pub const JitCode = struct {
 };
 
 /// Hot function call threshold — JIT after this many calls.
-pub const HOT_THRESHOLD: u32 = 100;
+pub const HOT_THRESHOLD: u32 = 10;
+
+/// Back-edge threshold — JIT after this many loop iterations in a single call.
+pub const BACK_EDGE_THRESHOLD: u32 = 1000;
 
 // ================================================================
 // ARM64 instruction encoding

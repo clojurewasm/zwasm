@@ -10,8 +10,8 @@ Session handover document. Read at session start.
 - Source: ~14K LOC, 14 files (+ cli.zig, 3 examples), 130 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
-- Benchmark: fib(35) = 339ms, tgo_fib(35) = 168ms (ReleaseSafe, CLI, JIT)
-- vs wasmtime JIT: 52ms fib / 29ms tgo_fib (6.5x / 5.9x gap)
+- Benchmark: fib(35) = 331ms, sieve(1M) = 5.8ms (ReleaseSafe, CLI, JIT)
+- vs wasmtime JIT: 52ms fib / 7ms sieve (6.4x / 0.8x gap — sieve beats wasmtime!)
 - Benchmarks: 3 layers — 5 WAT, 6 TinyGo, 5 shootout (sub-ms precision)
 - Spec test pass rate: 30,648/30,686 (99.9%) — 151 files, 28K skipped
 - CI: GitHub Actions (ubuntu + macOS, zig build test + spec tests)
@@ -33,27 +33,22 @@ Stage 3: JIT + Optimization (ARM64)
 8. [x] 3.7: ARM64 codegen design — D105 decision for JIT architecture
 9. [x] 3.8: ARM64 basic block codegen — arithmetic + control flow
 10. [x] 3.9: ARM64 function-level JIT — compile entire hot functions
-11. [ ] 3.10: Tiered execution — interpreter → JIT with hot function detection
+11. [x] 3.10: Tiered execution — interpreter → JIT with hot function detection
 
 ## Current Task
 
-3.10: Tiered execution — interpreter → JIT with hot function detection.
+(Stage 3 task queue complete — planning next stage)
 
 ## Previous Task
 
-3.9: ARM64 function-level JIT — COMPLETE.
-Key context for 3.10:
-- `src/jit.zig` (~1900 LOC): ARM64 code emission with full opcode coverage
-- Register mapping: x22-x26 (r0-r4 callee-saved), x9-x15 (r5-r11 caller-saved)
-  x27=MEM_BASE, x28=MEM_SIZE, x8=SCRATCH, x16=SCRATCH2 (12 phys regs)
-- Division with trap handling (div-by-zero, INT_MIN/-1 overflow)
-- Memory load/store: inline bounds check + 14 opcodes (0x28-0x3E)
-- jitGetMemInfo helper: returns base+size via C ABI, called at entry + after calls
-- Additional ops: rotation, CLZ/CTZ, select (CSEL), sign-ext, reinterpret
-- Calling convention: fn(regs, vm, instance) callconv(.c) u64
-- Hot threshold: 100 calls. Integration: WasmFunction.jit_code / Vm.callFunction
-- JIT debugging doc: `.dev/jit-debugging.md`
-- Benchmark scripts use sub-ms precision (1 decimal place)
+3.10: Tiered execution — COMPLETE.
+Key changes:
+- Back-edge counting in executeRegIR: BACK_EDGE_THRESHOLD=1000, loop iterations trigger JIT
+- JitRestart signal: JIT compiles mid-execution, callFunction re-executes via JIT
+- HOT_THRESHOLD lowered 100→10 (call-count threshold)
+- sieve: 42→5.8ms (7.3x speedup), single-call functions now JIT'd
+- Architecture: 4-tier (bytecode → stack IR → register IR → ARM64 JIT)
+  with two JIT triggers: call count (10) + back-edge counting (1000)
 
 ## Known Bugs
 

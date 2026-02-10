@@ -51,3 +51,25 @@ entries:
       st_nestedloop: {time_ms: 3.8}
       st_ackermann: {time_ms: 21.5}
       st_matrix: {time_ms: 2748.9}
+  - id: "3.10"
+    date: "2026-02-11"
+    reason: "Tiered execution: back-edge counting + lower call threshold"
+    commit: "2e9fb74"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 331.0}
+      tak: {time_ms: 39.8}
+      sieve: {time_ms: 5.8}
+      nbody: {time_ms: 137.5}
+      nqueens: {time_ms: 2.5}
+      tgo_fib: {time_ms: 179.1}
+      tgo_tak: {time_ms: 32.3}
+      tgo_arith: {time_ms: 1.5}
+      tgo_sieve: {time_ms: 37.3}
+      tgo_fib_loop: {time_ms: 0.9}
+      tgo_gcd: {time_ms: 1.8}
+      st_fib2: {time_ms: 15942.6}
+      st_sieve: {time_ms: 6114.5}
+      st_nestedloop: {time_ms: 4.0}
+      st_ackermann: {time_ms: 22.1}
+      st_matrix: {time_ms: 2726.9}

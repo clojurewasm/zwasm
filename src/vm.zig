@@ -64,6 +64,9 @@ pub const WasmError = error{
     FileNotFound,
     ElemIndexOutOfBounds,
     DataIndexOutOfBounds,
+    /// Internal signal: back-edge counting triggered JIT compilation mid-execution.
+    /// callFunction catches this and re-executes the function via JIT.
+    JitRestart,
 };
 
 const OPERAND_STACK_SIZE = 4096;
@@ -374,7 +377,16 @@ pub const Vm = struct {
                     }
 
                     // Register IR path: register file instead of operand stack
-                    try self.executeRegIR(reg, wf.ir.?.pool64, inst, func_ptr, args, results);
+                    // Back-edge counting may trigger JitRestart → re-execute via JIT
+                    self.executeRegIR(reg, wf.ir.?.pool64, inst, func_ptr, args, results) catch |err| {
+                        if (err == error.JitRestart) {
+                            if (wf.jit_code) |jc| {
+                                try self.executeJIT(jc, reg, inst, func_ptr, args, results);
+                                return;
+                            }
+                        }
+                        return err;
+                    };
                     return;
                 }
 
@@ -2019,6 +2031,23 @@ pub const Vm = struct {
     // Register IR execution (D104)
     // ================================================================
 
+    /// Back-edge JIT trigger: count loop iterations, compile on threshold.
+    /// Returns JitRestart if compilation succeeds (caller should re-execute via JIT).
+    inline fn checkBackEdgeJit(
+        count: *u32,
+        wf: *store_mod.WasmFunction,
+        alloc: Allocator,
+        reg: *regalloc_mod.RegFunc,
+        pool64: []const u64,
+    ) WasmError!void {
+        count.* += 1;
+        if (count.* == jit_mod.BACK_EDGE_THRESHOLD) {
+            wf.jit_code = jit_mod.compileFunction(alloc, reg, pool64);
+            if (wf.jit_code != null) return error.JitRestart;
+            wf.jit_failed = true;
+        }
+    }
+
     fn executeRegIR(
         self: *Vm,
         reg: *regalloc_mod.RegFunc,
@@ -2046,6 +2075,15 @@ pub const Vm = struct {
         const cached_mem: ?*WasmMemory = instance.getMemory(0) catch null;
         var pc: u32 = 0;
 
+        // Back-edge counting for JIT hot loop detection (ARM64 only)
+        var back_edge_count: u32 = 0;
+        const wf: ?*store_mod.WasmFunction = if (func_ptr.subtype == .wasm_function)
+            &func_ptr.subtype.wasm_function
+        else
+            null;
+        const jit_eligible = builtin.cpu.arch == .aarch64 and self.profile == null and
+            wf != null and wf.?.jit_code == null and !wf.?.jit_failed;
+
         while (pc < code_len) {
             const instr = code[pc];
             pc += 1;
@@ -2065,14 +2103,26 @@ pub const Vm = struct {
                 regalloc_mod.OP_CONST64 => regs[instr.rd] = pool64[instr.operand],
 
                 // ---- Control flow ----
-                regalloc_mod.OP_BR => pc = instr.operand,
+                regalloc_mod.OP_BR => {
+                    if (jit_eligible and instr.operand < pc)
+                        try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64);
+                    pc = instr.operand;
+                },
 
                 regalloc_mod.OP_BR_IF => {
-                    if (regs[instr.rd] != 0) pc = instr.operand;
+                    if (regs[instr.rd] != 0) {
+                        if (jit_eligible and instr.operand < pc)
+                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64);
+                        pc = instr.operand;
+                    }
                 },
 
                 regalloc_mod.OP_BR_IF_NOT => {
-                    if (regs[instr.rd] == 0) pc = instr.operand;
+                    if (regs[instr.rd] == 0) {
+                        if (jit_eligible and instr.operand < pc)
+                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64);
+                        pc = instr.operand;
+                    }
                 },
 
                 regalloc_mod.OP_RETURN => {
@@ -2587,7 +2637,6 @@ pub const Vm = struct {
         }
 
         // Fell off the end without return — void return
-        _ = func_ptr;
     }
 
     // ================================================================
@@ -4877,6 +4926,65 @@ test "Profile — fib(10) opcode counting" {
     // In register IR: i32.add (0x6A) or i32.sub (0x6B) or their fused forms (0xD0/0xD1)
     try testing.expect(profile.opcode_counts[0x6A] > 0 or profile.opcode_counts[0x6B] > 0 or
         profile.opcode_counts[0xD0] > 0 or profile.opcode_counts[0xD1] > 0);
+}
+
+test "Tiered — back-edge counting triggers JIT for single-call loop function" {
+    if (builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+
+    // sieve(100) is called once but has a hot inner loop.
+    // Back-edge counting should trigger JIT mid-execution and restart via JIT.
+    const wasm = blk: {
+        const prefixes = [_][]const u8{ "bench/wasm/", "../bench/wasm/" };
+        for (prefixes) |prefix| {
+            const path = try std.fmt.allocPrint(testing.allocator, "{s}sieve.wasm", .{prefix});
+            defer testing.allocator.free(path);
+            const file = std.fs.cwd().openFile(path, .{}) catch continue;
+            defer file.close();
+            const stat = try file.stat();
+            const data = try testing.allocator.alloc(u8, stat.size);
+            const read = try file.readAll(data);
+            break :blk data[0..read];
+        }
+        return error.SkipZigTest; // sieve.wasm not found
+    };
+    defer testing.allocator.free(wasm);
+
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+
+    // Get the function pointer to check JIT state
+    const func_addr = inst.getExportFunc("sieve") orelse return error.FunctionIndexOutOfBounds;
+    const func_ptr = try inst.store.getFunctionPtr(func_addr);
+
+    const wf = &func_ptr.subtype.wasm_function;
+
+    // Before: no JIT code, call_count = 0
+    try testing.expect(wf.jit_code == null);
+    try testing.expectEqual(@as(u32, 0), wf.call_count);
+
+    // Single call — sieve(10000) has enough loop iterations to trigger back-edge JIT
+    var args = [_]u64{10000};
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "sieve", &args, &results);
+
+    // sieve(10000) should return 1229 (primes up to 10000)
+    try testing.expectEqual(@as(u64, 1229), results[0]);
+
+    // reg_ir should have been created (lazy conversion)
+    try testing.expect(wf.reg_ir != null);
+
+    // After single call: JIT should have been triggered by back-edge counting
+    try testing.expect(wf.jit_code != null);
 }
 
 test "Profile — disabled by default (no overhead)" {
