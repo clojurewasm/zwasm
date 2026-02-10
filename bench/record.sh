@@ -27,21 +27,30 @@ BENCH_FILTER=""
 RUNS=5
 WARMUP=2
 
-# --- Benchmark definitions: name:wasm:function:args ---
+# --- Benchmark definitions: name:wasm:function:args:type ---
 # Keep in sync with run_bench.sh
+# type: invoke (--invoke func args) or wasi (_start entry point)
 BENCHMARKS=(
-  "fib:src/testdata/02_fibonacci.wasm:fib:35"
-  "tak:bench/wasm/tak.wasm:tak:24 16 8"
-  "sieve:bench/wasm/sieve.wasm:sieve:1000000"
-  "nbody:bench/wasm/nbody.wasm:run:1000000"
-  "nqueens:src/testdata/25_nqueens.wasm:nqueens:8"
-  "tgo_fib:bench/wasm/tgo_fib.wasm:fib:35"
-  "tgo_tak:bench/wasm/tgo_tak.wasm:tak:24 16 8"
-  "tgo_arith:bench/wasm/tgo_arith.wasm:arith_loop:100000000"
-  "tgo_sieve:bench/wasm/tgo_sieve.wasm:sieve:1000000"
+  "fib:src/testdata/02_fibonacci.wasm:fib:35:invoke"
+  "tak:bench/wasm/tak.wasm:tak:24 16 8:invoke"
+  "sieve:bench/wasm/sieve.wasm:sieve:1000000:invoke"
+  "nbody:bench/wasm/nbody.wasm:run:1000000:invoke"
+  "nqueens:src/testdata/25_nqueens.wasm:nqueens:8:invoke"
+  "tgo_fib:bench/wasm/tgo_fib.wasm:fib:35:invoke"
+  "tgo_tak:bench/wasm/tgo_tak.wasm:tak:24 16 8:invoke"
+  "tgo_arith:bench/wasm/tgo_arith.wasm:arith_loop:100000000:invoke"
+  "tgo_sieve:bench/wasm/tgo_sieve.wasm:sieve:1000000:invoke"
+  "tgo_fib_loop:bench/wasm/tgo_fib_loop.wasm:fib_loop:25:invoke"
+  "tgo_gcd:bench/wasm/tgo_gcd.wasm:gcd:12345 67890:invoke"
+  "st_fib2:bench/wasm/shootout/shootout-fib2.wasm::_start:wasi"
+  "st_sieve:bench/wasm/shootout/shootout-sieve.wasm::_start:wasi"
+  "st_nestedloop:bench/wasm/shootout/shootout-nestedloop.wasm::_start:wasi"
+  "st_ackermann:bench/wasm/shootout/shootout-ackermann.wasm::_start:wasi"
+  "st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
+  "st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
 )
 
-BENCH_ORDER=(fib tak sieve nbody nqueens tgo_fib tgo_tak tgo_arith tgo_sieve)
+BENCH_ORDER=(fib tak sieve nbody nqueens tgo_fib tgo_tak tgo_arith tgo_sieve tgo_fib_loop tgo_gcd st_fib2 st_sieve st_nestedloop st_ackermann st_ed25519 st_matrix)
 
 # --- Parse arguments ---
 for arg in "$@"; do
@@ -127,7 +136,7 @@ trap "rm -rf $TMPDIR_BENCH" EXIT
 declare -A BENCH_RESULTS  # bench_name -> time_ms
 
 for entry in "${BENCHMARKS[@]}"; do
-  IFS=: read -r name wasm func bench_args <<< "$entry"
+  IFS=: read -r name wasm func bench_args kind <<< "$entry"
 
   if [[ -n "$BENCH_FILTER" && "$name" != "$BENCH_FILTER" ]]; then
     continue
@@ -143,13 +152,19 @@ for entry in "${BENCHMARKS[@]}"; do
 
   json_file="$TMPDIR_BENCH/${name}.json"
 
-  # Build hyperfine command
+  # Build command based on type
+  if [[ "$kind" == "invoke" ]]; then
+    bench_cmd="$ZWASM run --invoke $func $wasm_path $bench_args"
+  else
+    bench_cmd="$ZWASM run $wasm_path"
+  fi
+
   # shellcheck disable=SC2086
   hyperfine \
     --warmup "$WARMUP" \
     --runs "$RUNS" \
     --export-json "$json_file" \
-    "$ZWASM run --invoke $func $wasm_path $bench_args" \
+    "$bench_cmd" \
     >/dev/null 2>&1
 
   # Parse mean time from JSON

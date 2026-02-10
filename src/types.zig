@@ -164,6 +164,29 @@ pub const WasmModule = struct {
         return loadCore(allocator, wasm_bytes, false, imports);
     }
 
+    /// Load with combined WASI + import support. Used by CLI for --link + WASI fallback.
+    pub fn loadWasiWithImports(allocator: Allocator, wasm_bytes: []const u8, imports: ?[]const ImportEntry, opts: WasiOptions) !*WasmModule {
+        const self = try loadCore(allocator, wasm_bytes, true, imports);
+        errdefer self.deinit();
+
+        if (self.wasi_ctx) |*wc| {
+            if (opts.args.len > 0) wc.setArgs(opts.args);
+
+            const count = @min(opts.env_keys.len, opts.env_vals.len);
+            for (0..count) |i| {
+                try wc.addEnv(opts.env_keys[i], opts.env_vals[i]);
+            }
+
+            for (opts.preopen_paths, 0..) |path, ii| {
+                const fd: i32 = @intCast(3 + ii);
+                const host_fd = std.posix.open(path, .{ .ACCMODE = .RDONLY }, 0) catch continue;
+                try wc.addPreopen(fd, path, host_fd);
+            }
+        }
+
+        return self;
+    }
+
     fn loadCore(allocator: Allocator, wasm_bytes: []const u8, wasi: bool, imports: ?[]const ImportEntry) !*WasmModule {
         const self = try allocator.create(WasmModule);
         errdefer allocator.destroy(self);

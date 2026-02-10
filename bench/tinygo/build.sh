@@ -2,6 +2,12 @@
 # Build all TinyGo benchmarks to wasm.
 # Requires: tinygo (brew install tinygo or nix)
 # Usage: bash bench/tinygo/build.sh
+#
+# Sources:
+#   arith.go, fib.go, tak.go, sieve.go — original for zwasm benchmarks
+#   fib_loop.go, gcd.go — ported from ClojureWasm bench/tinygo/
+#
+# Build flags: -gc=leaking -scheduler=none minimizes wasm size (~9KB vs ~22KB)
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -13,12 +19,14 @@ build_one() {
   shift 2
   local out="${OUTDIR}/tgo_${name}.wasm"
   echo -n "  $name -> tgo_${name}.wasm ... "
-  tinygo build -o "$out" -target=wasi -no-debug -opt=2 "$@" "$src"
+  tinygo build -o "$out" -target=wasi -no-debug -gc=leaking -scheduler=none -opt=2 "$@" "$src"
   echo "$(wc -c < "$out" | tr -d ' ') bytes"
 }
 
 build_one arith arith.go
 build_one fib fib.go
+build_one fib_loop fib_loop.go
+build_one gcd gcd.go
 build_one tak tak.go
 # sieve needs more initial memory for 1M elements
 build_one sieve sieve.go -ldflags "-extldflags --initial-memory=2097152"

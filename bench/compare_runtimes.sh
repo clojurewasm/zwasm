@@ -6,12 +6,13 @@
 #   bash bench/compare_runtimes.sh --quick                      # Single run
 #   bash bench/compare_runtimes.sh --bench=fib                  # Specific benchmark
 #   bash bench/compare_runtimes.sh --rt=zwasm,wasmtime          # Specific runtimes
-#   bash bench/compare_runtimes.sh --rt=zwasm,wasmtime,wasmer   # Mix & match
+#   bash bench/compare_runtimes.sh --rt=zwasm,wasmtime,wasmer,bun,node
 #
 # Supported runtimes: zwasm, wasmtime, wasmer, bun, node
 #
-# Note: bun/node use bench/run_wasm.mjs wrapper and only work with
-# pure-Wasm modules (no WASI imports). TinyGo benchmarks may be skipped.
+# Benchmark types:
+#   invoke  — calls exported function via --invoke (WAT / TinyGo)
+#   wasi    — runs _start entry point (shootout / WASI programs)
 
 set -euo pipefail
 
@@ -21,7 +22,7 @@ cd "$PROJECT_ROOT"
 
 QUICK=0
 BENCH=""
-RUNTIMES="zwasm,wasmtime"  # default
+RUNTIMES="zwasm,wasmtime"
 
 for arg in "$@"; do
   case "$arg" in
@@ -32,23 +33,27 @@ for arg in "$@"; do
       echo "Usage: bash bench/compare_runtimes.sh [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --rt=RT1,RT2,...  Runtimes to compare (default: zwasm,wasmtime)"
+      echo "  --rt=RT1,RT2,...  Runtimes (default: zwasm,wasmtime)"
       echo "                    Available: zwasm, wasmtime, wasmer, bun, node"
-      echo "  --bench=NAME      Specific benchmark (e.g. fib, sieve, tgo_fib)"
+      echo "  --bench=NAME      Specific benchmark"
       echo "  --quick           Single run, no warmup"
-      echo "  -h, --help        Show this help"
+      echo ""
+      echo "Benchmarks:"
+      echo "  Layer 1 (WAT):     fib, tak, sieve, nbody, nqueens"
+      echo "  Layer 2 (TinyGo):  tgo_fib, tgo_tak, tgo_arith, tgo_sieve,"
+      echo "                     tgo_fib_loop, tgo_gcd"
+      echo "  Layer 3 (Shootout): st_fib2, st_sieve, st_nestedloop,"
+      echo "                      st_ackermann, st_ed25519, st_matrix"
       exit 0
       ;;
   esac
 done
 
-# Parse runtime list
 IFS=',' read -ra RT_LIST <<< "$RUNTIMES"
 
-# Validate runtimes are available
 for rt in "${RT_LIST[@]}"; do
   case "$rt" in
-    zwasm)    ;; # built below
+    zwasm)    ;;
     wasmtime) command -v wasmtime &>/dev/null || { echo "error: wasmtime not found"; exit 1; } ;;
     wasmer)   command -v wasmer   &>/dev/null || { echo "error: wasmer not found"; exit 1; } ;;
     bun)      command -v bun      &>/dev/null || { echo "error: bun not found"; exit 1; } ;;
@@ -57,7 +62,6 @@ for rt in "${RT_LIST[@]}"; do
   esac
 done
 
-# Build zwasm if needed
 for rt in "${RT_LIST[@]}"; do
   if [[ "$rt" == "zwasm" ]]; then
     echo "Building zwasm (ReleaseSafe)..."
@@ -66,7 +70,6 @@ for rt in "${RT_LIST[@]}"; do
   fi
 done
 
-# Print runtime versions
 echo ""
 echo "Runtimes:"
 for rt in "${RT_LIST[@]}"; do
@@ -79,17 +82,29 @@ for rt in "${RT_LIST[@]}"; do
   esac
 done
 
-# Benchmark definitions
+# Benchmark format: name:wasm:func:args:type
+# type: invoke (--invoke func args) or wasi (_start entry point)
 BENCHMARKS=(
-  "fib:src/testdata/02_fibonacci.wasm:fib:35:pure"
-  "tak:bench/wasm/tak.wasm:tak:24 16 8:pure"
-  "sieve:bench/wasm/sieve.wasm:sieve:1000000:pure"
-  "nbody:bench/wasm/nbody.wasm:run:1000000:pure"
-  "nqueens:src/testdata/25_nqueens.wasm:nqueens:8:pure"
-  "tgo_fib:bench/wasm/tgo_fib.wasm:fib:35:wasi"
-  "tgo_tak:bench/wasm/tgo_tak.wasm:tak:24 16 8:wasi"
-  "tgo_arith:bench/wasm/tgo_arith.wasm:arith_loop:100000000:wasi"
-  "tgo_sieve:bench/wasm/tgo_sieve.wasm:sieve:1000000:wasi"
+  # Layer 1: WAT hand-written
+  "fib:src/testdata/02_fibonacci.wasm:fib:35:invoke"
+  "tak:bench/wasm/tak.wasm:tak:24 16 8:invoke"
+  "sieve:bench/wasm/sieve.wasm:sieve:1000000:invoke"
+  "nbody:bench/wasm/nbody.wasm:run:1000000:invoke"
+  "nqueens:src/testdata/25_nqueens.wasm:nqueens:8:invoke"
+  # Layer 2: TinyGo
+  "tgo_fib:bench/wasm/tgo_fib.wasm:fib:35:invoke"
+  "tgo_tak:bench/wasm/tgo_tak.wasm:tak:24 16 8:invoke"
+  "tgo_arith:bench/wasm/tgo_arith.wasm:arith_loop:100000000:invoke"
+  "tgo_sieve:bench/wasm/tgo_sieve.wasm:sieve:1000000:invoke"
+  "tgo_fib_loop:bench/wasm/tgo_fib_loop.wasm:fib_loop:25:invoke"
+  "tgo_gcd:bench/wasm/tgo_gcd.wasm:gcd:12345 67890:invoke"
+  # Layer 3: Sightglass shootout (WASI _start)
+  "st_fib2:bench/wasm/shootout/shootout-fib2.wasm::_start:wasi"
+  "st_sieve:bench/wasm/shootout/shootout-sieve.wasm::_start:wasi"
+  "st_nestedloop:bench/wasm/shootout/shootout-nestedloop.wasm::_start:wasi"
+  "st_ackermann:bench/wasm/shootout/shootout-ackermann.wasm::_start:wasi"
+  "st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
+  "st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
 )
 
 RUNS=3
@@ -98,6 +113,32 @@ if [[ $QUICK -eq 1 ]]; then
   RUNS=1
   WARMUP=0
 fi
+
+# Build command for a runtime+benchmark combination
+build_cmd() {
+  local rt="$1" wasm="$2" func="$3" bench_args="$4" kind="$5"
+
+  case "$kind" in
+    invoke)
+      case "$rt" in
+        zwasm)    echo "./zig-out/bin/zwasm run --invoke $func $wasm $bench_args" ;;
+        wasmtime) echo "wasmtime run --invoke $func $wasm $bench_args" ;;
+        wasmer)   echo "wasmer run $wasm -i $func $bench_args" ;;
+        bun)      echo "bun bench/run_wasm.mjs $wasm $func $bench_args" ;;
+        node)     echo "node bench/run_wasm.mjs $wasm $func $bench_args" ;;
+      esac
+      ;;
+    wasi)
+      case "$rt" in
+        zwasm)    echo "./zig-out/bin/zwasm run $wasm" ;;
+        wasmtime) echo "wasmtime $wasm" ;;
+        wasmer)   echo "wasmer $wasm" ;;
+        bun)      echo "bun bench/run_wasm_wasi.mjs $wasm" ;;
+        node)     echo "node bench/run_wasm_wasi.mjs $wasm" ;;
+      esac
+      ;;
+  esac
+}
 
 for entry in "${BENCHMARKS[@]}"; do
   IFS=: read -r name wasm func bench_args kind <<< "$entry"
@@ -114,51 +155,22 @@ for entry in "${BENCHMARKS[@]}"; do
   echo ""
   echo "=== $name ($kind) ==="
 
-  # Build command list for hyperfine
   cmds=()
   cmd_names=()
 
   for rt in "${RT_LIST[@]}"; do
-    # bun/node can only run pure-wasm (no WASI)
-    if [[ "$kind" == "wasi" && ("$rt" == "bun" || "$rt" == "node") ]]; then
-      continue
+    cmd=$(build_cmd "$rt" "$wasm" "$func" "$bench_args" "$kind")
+    if [[ -n "$cmd" ]]; then
+      cmds+=("$cmd")
+      cmd_names+=("$rt")
     fi
-
-    case "$rt" in
-      zwasm)
-        # shellcheck disable=SC2086
-        cmds+=("./zig-out/bin/zwasm run --invoke $func $wasm $bench_args")
-        cmd_names+=("zwasm")
-        ;;
-      wasmtime)
-        # shellcheck disable=SC2086
-        cmds+=("wasmtime run --invoke $func $wasm $bench_args")
-        cmd_names+=("wasmtime")
-        ;;
-      wasmer)
-        # shellcheck disable=SC2086
-        cmds+=("wasmer run $wasm -i $func $bench_args")
-        cmd_names+=("wasmer")
-        ;;
-      bun)
-        # shellcheck disable=SC2086
-        cmds+=("bun bench/run_wasm.mjs $wasm $func $bench_args")
-        cmd_names+=("bun")
-        ;;
-      node)
-        # shellcheck disable=SC2086
-        cmds+=("node bench/run_wasm.mjs $wasm $func $bench_args")
-        cmd_names+=("node")
-        ;;
-    esac
   done
 
   if [[ ${#cmds[@]} -lt 1 ]]; then
-    echo "  (no compatible runtimes for this benchmark)"
+    echo "  (no compatible runtimes)"
     continue
   fi
 
-  # Build hyperfine arguments
   hyp_args=(--runs "$RUNS" --warmup "$WARMUP")
   for i in "${!cmds[@]}"; do
     hyp_args+=(--command-name "${cmd_names[$i]}")

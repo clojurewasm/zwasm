@@ -221,26 +221,42 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         return cmdBatch(allocator, wasm_bytes, import_entries.items, stdout, stderr);
     }
 
+    const imports_slice: ?[]const types.ImportEntry = if (import_entries.items.len > 0)
+        import_entries.items
+    else
+        null;
+
     if (invoke_name) |func_name| {
         // Invoke a specific function with u64 args.
-        // Try plain load first; if it fails with ImportNotFound, retry with WASI
-        // (TinyGo and other compiler-generated modules often import WASI).
+        // Try plain load first; if it fails with ImportNotFound, retry with WASI.
+        // When --link is used, also pass imports. Combine with WASI on fallback.
+        const wasi_opts: types.WasiOptions = .{
+            .args = &.{},
+            .env_keys = env_keys.items,
+            .env_vals = env_vals.items,
+            .preopen_paths = preopen_paths.items,
+        };
+
         const module = load_blk: {
-            if (import_entries.items.len > 0) {
-                break :load_blk types.WasmModule.loadWithImports(allocator, wasm_bytes, import_entries.items) catch |err| {
+            if (imports_slice != null) {
+                // With --link: try imports only, then imports + WASI
+                break :load_blk types.WasmModule.loadWithImports(allocator, wasm_bytes, imports_slice.?) catch |err| {
+                    if (err == error.ImportNotFound) {
+                        break :load_blk types.WasmModule.loadWasiWithImports(allocator, wasm_bytes, imports_slice, wasi_opts) catch |err2| {
+                            try stderr.print("error: failed to load module: {s}\n", .{@errorName(err2)});
+                            try stderr.flush();
+                            return false;
+                        };
+                    }
                     try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
                     try stderr.flush();
                     return false;
                 };
             }
+            // No --link: try plain, then WASI
             break :load_blk types.WasmModule.load(allocator, wasm_bytes) catch |err| {
                 if (err == error.ImportNotFound) {
-                    break :load_blk types.WasmModule.loadWasiWithOptions(allocator, wasm_bytes, .{
-                        .args = &.{},
-                        .env_keys = &.{},
-                        .env_vals = &.{},
-                        .preopen_paths = &.{},
-                    }) catch |err2| {
+                    break :load_blk types.WasmModule.loadWasiWithOptions(allocator, wasm_bytes, wasi_opts) catch |err2| {
                         try stderr.print("error: failed to load module: {s}\n", .{@errorName(err2)});
                         try stderr.flush();
                         return false;
@@ -318,13 +334,14 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             try wasi_args_list.append(allocator, @ptrCast(a));
         }
 
-        // Run as WASI module (_start)
-        var module = types.WasmModule.loadWasiWithOptions(allocator, wasm_bytes, .{
+        // Run as WASI module (_start), with --link imports if provided
+        const wasi_opts2: types.WasiOptions = .{
             .args = wasi_args_list.items,
             .env_keys = env_keys.items,
             .env_vals = env_vals.items,
             .preopen_paths = preopen_paths.items,
-        }) catch |err| {
+        };
+        var module = types.WasmModule.loadWasiWithImports(allocator, wasm_bytes, imports_slice, wasi_opts2) catch |err| {
             try stderr.print("error: failed to load WASI module: {s}\n", .{@errorName(err)});
             try stderr.flush();
             return false;
