@@ -108,6 +108,14 @@ pub const OP_SHLI32: u16 = 0xDC;
 pub const OP_LT_U_I32: u16 = 0xDD;
 /// ge_u_i32 rd, rs1, imm32: regs[rd] = ((u32)regs[rs1] >= imm32) ? 1 : 0
 pub const OP_GE_U_I32: u16 = 0xDE;
+/// br_table rd, count: switch on regs[rd], followed by count+1 target entries
+pub const OP_BR_TABLE: u16 = 0xDF;
+/// call_indirect rd, rs1(elem_idx), type_idx: indirect call via table lookup
+pub const OP_CALL_INDIRECT: u16 = 0xE0;
+/// memory_fill rd(dst), rs1(val), rs2(n): fill memory[dst..dst+n] with val
+pub const OP_MEMORY_FILL: u16 = 0xE1;
+/// memory_copy rd(dst), rs1(src), rs2(n): copy memory[src..src+n] to [dst..dst+n]
+pub const OP_MEMORY_COPY: u16 = 0xE2;
 
 /// Function type info needed during conversion for call instructions.
 pub const FuncTypeInfo = struct {
@@ -823,6 +831,209 @@ pub fn convert(
                 pc += 2;
             },
 
+            // ---- br_table ----
+            0x0E => {
+                const count = instr.operand;
+                const idx_reg = vstack.pop().?;
+
+                // Pre-scan: check if any target has arity > 0
+                var has_arity = false;
+                var unique_result_reg: ?u8 = null;
+                var arity_val: u8 = 0;
+                for (0..count + 1) |entry_i| {
+                    if (pc + entry_i >= ir_code.len) return null;
+                    const entry = ir_code[pc + entry_i];
+                    const depth = entry.operand;
+                    if (depth >= block_stack.items.len) return null;
+                    const target_idx = block_stack.items.len - 1 - depth;
+                    const target = &block_stack.items[target_idx];
+                    if (target.kind != .loop and target.arity > 0) {
+                        has_arity = true;
+                        if (vstack.items.len > 0) {
+                            arity_val = vstack.items[vstack.items.len - 1];
+                        }
+                        if (unique_result_reg == null) {
+                            unique_result_reg = target.result_reg;
+                        } else if (unique_result_reg.? != target.result_reg) {
+                            // Different result regs — need per-target trampolines
+                            unique_result_reg = null;
+                            break;
+                        }
+                    }
+                }
+
+                // If all targets share the same result_reg (or no arity), simple path.
+                // Otherwise, emit per-target MOV+BR trampolines.
+                if (has_arity and unique_result_reg == null) {
+                    // Multiple different result regs — emit trampolines
+                    // Emit: OP_BR_TABLE idx_reg, count
+                    try code.append(alloc, .{ .op = OP_BR_TABLE, .rd = idx_reg, .rs1 = 0, .operand = count });
+
+                    // Reserve entry slots (will be patched to trampoline PCs)
+                    const entries_start: u32 = @intCast(code.items.len);
+                    for (0..count + 1) |_| {
+                        try code.append(alloc, .{ .op = OP_NOP, .rd = 0, .rs1 = 0, .operand = 0 });
+                    }
+
+                    // Emit per-target trampolines: MOV result_reg, val; BR target
+                    for (0..count + 1) |entry_i| {
+                        const entry = ir_code[pc + entry_i];
+                        const depth = entry.operand;
+                        const target_idx = block_stack.items.len - 1 - depth;
+                        const target = &block_stack.items[target_idx];
+
+                        const tramp_pc: u32 = @intCast(code.items.len);
+                        code.items[entries_start + @as(u32, @intCast(entry_i))].operand = tramp_pc;
+
+                        if (target.kind == .loop) {
+                            try code.append(alloc, .{ .op = OP_BR, .rd = 0, .rs1 = 0, .operand = target.start_pc });
+                        } else {
+                            if (target.arity > 0 and vstack.items.len > 0 and arity_val != target.result_reg) {
+                                try code.append(alloc, .{ .op = OP_MOV, .rd = target.result_reg, .rs1 = arity_val, .operand = 0 });
+                            }
+                            const br_pos: u32 = @intCast(code.items.len);
+                            try code.append(alloc, .{ .op = OP_BR, .rd = 0, .rs1 = 0, .operand = 0 });
+                            try target.patches.append(alloc, br_pos);
+                        }
+                    }
+                } else {
+                    // Simple path: emit MOV if all targets share the same result_reg
+                    if (has_arity and unique_result_reg != null and vstack.items.len > 0) {
+                        if (arity_val != unique_result_reg.?) {
+                            try code.append(alloc, .{ .op = OP_MOV, .rd = unique_result_reg.?, .rs1 = arity_val, .operand = 0 });
+                        }
+                    }
+
+                    // Emit: OP_BR_TABLE idx_reg, count
+                    try code.append(alloc, .{ .op = OP_BR_TABLE, .rd = idx_reg, .rs1 = 0, .operand = count });
+
+                    // Emit count+1 target entries
+                    for (0..count + 1) |entry_i| {
+                        if (pc + entry_i >= ir_code.len) return null;
+                        const entry = ir_code[pc + entry_i];
+                        const depth = entry.operand;
+                        if (depth >= block_stack.items.len) return null;
+                        const target_idx = block_stack.items.len - 1 - depth;
+                        const target = &block_stack.items[target_idx];
+
+                        if (target.kind == .loop) {
+                            try code.append(alloc, .{ .op = OP_NOP, .rd = 0, .rs1 = 0, .operand = target.start_pc });
+                        } else {
+                            const entry_pc: u32 = @intCast(code.items.len);
+                            try code.append(alloc, .{ .op = OP_NOP, .rd = 0, .rs1 = 0, .operand = 0 }); // patched later
+                            try target.patches.append(alloc, entry_pc);
+                        }
+                    }
+                }
+                pc += count + 1; // skip br_table entries in source
+                unreachable_depth = 1;
+            },
+
+            // ---- call_indirect ----
+            0x11 => {
+                const type_idx = instr.operand;
+                const table_idx: u8 = @intCast(instr.extra);
+
+                // Need to know param/result count from type_idx.
+                // For now, use the resolver to check all function types.
+                // call_indirect pops: args... elem_idx
+                // The elem_idx is on top of the stack.
+                const elem_idx_reg = vstack.pop().?;
+
+                // We need param_count and result_count from the module types.
+                // These are encoded in type_idx which refers to a module type.
+                // For now, we pass type_idx and table_idx to the runtime handler.
+                // The runtime handler resolves the actual function and checks the type.
+                // We need to know n_args to pop the right number of values from vstack.
+                // Use resolver to get type info: resolve type_idx as if it were a func_idx.
+                // Actually, resolver resolves func_idx, not type_idx. We need a different approach.
+                // For call_indirect, the module embeds the type. We bail if we can't determine
+                // the param count. Pass type_idx to runtime; runtime checks params match.
+                // WORKAROUND: scan the existing functions to find one with this type_idx.
+                // Better: just bail for now if resolver is unavailable.
+                _ = type_idx;
+                _ = table_idx;
+                _ = elem_idx_reg;
+                // TODO: implement call_indirect in register IR
+                return null;
+            },
+
+            // ---- Bulk memory operations ----
+            predecode.MISC_BASE | 0x0B => { // memory.fill
+                if (vstack.items.len < 3) return null;
+                const n_reg = vstack.pop().?;
+                const val_reg = vstack.pop().?;
+                const dst_reg = vstack.pop().?;
+                try code.append(alloc, .{
+                    .op = OP_MEMORY_FILL,
+                    .rd = dst_reg,
+                    .rs1 = val_reg,
+                    .operand = n_reg,
+                });
+            },
+            predecode.MISC_BASE | 0x0A => { // memory.copy
+                if (vstack.items.len < 3) return null;
+                const n_reg = vstack.pop().?;
+                const src_reg = vstack.pop().?;
+                const dst_reg = vstack.pop().?;
+                try code.append(alloc, .{
+                    .op = OP_MEMORY_COPY,
+                    .rd = dst_reg,
+                    .rs1 = src_reg,
+                    .operand = n_reg,
+                });
+            },
+
+            // ---- Truncation saturating (misc prefix) ----
+            predecode.MISC_BASE | 0x00 => { // i32.trunc_sat_f32_s
+                const src = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x00, .rd = rd, .rs1 = src, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            predecode.MISC_BASE | 0x01 => { // i32.trunc_sat_f32_u
+                const src = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x01, .rd = rd, .rs1 = src, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            predecode.MISC_BASE | 0x02 => { // i32.trunc_sat_f64_s
+                const src = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x02, .rd = rd, .rs1 = src, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            predecode.MISC_BASE | 0x03 => { // i32.trunc_sat_f64_u
+                const src = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x03, .rd = rd, .rs1 = src, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            predecode.MISC_BASE | 0x04 => { // i64.trunc_sat_f32_s
+                const src = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x04, .rd = rd, .rs1 = src, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            predecode.MISC_BASE | 0x05 => { // i64.trunc_sat_f32_u
+                const src = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x05, .rd = rd, .rs1 = src, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            predecode.MISC_BASE | 0x06 => { // i64.trunc_sat_f64_s
+                const src = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x06, .rd = rd, .rs1 = src, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+            predecode.MISC_BASE | 0x07 => { // i64.trunc_sat_f64_u
+                const src = vstack.pop().?;
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x07, .rd = rd, .rs1 = src, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+
             // ---- Anything else: bail ----
             else => return null,
         }
@@ -1168,4 +1379,66 @@ test "convert — graceful fallback when temp registers overflow u8" {
     ir[7] = .{ .opcode = 0x0B, .extra = 0, .operand = 0 }; // end
     const result = try convert(testing.allocator, &ir, &.{}, 250, 0, null);
     try testing.expect(result == null);
+}
+
+test "convert — br_table with arity-0 targets" {
+    // Wasm: (block $a (block $b (local.get 0) (br_table 0 1 1)))
+    // br_table count=2 → case 0→depth 0($b), case 1→depth 1($a), default→depth 1($a)
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x02, .extra = 0, .operand = 0 }, // block $a (arity 0)
+        .{ .opcode = 0x02, .extra = 0, .operand = 0 }, // block $b (arity 0)
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0 (index)
+        .{ .opcode = 0x0E, .extra = 0, .operand = 2 }, // br_table count=2
+        .{ .opcode = 0x00, .extra = 0, .operand = 0 }, // entry 0: depth 0 ($b)
+        .{ .opcode = 0x00, .extra = 0, .operand = 1 }, // entry 1: depth 1 ($a)
+        .{ .opcode = 0x00, .extra = 0, .operand = 1 }, // default:  depth 1 ($a)
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end $b
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end $a
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end func
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 1, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    // Should emit: OP_BR_TABLE (rd=r0, operand=2), 3 NOP entries, OP_RETURN
+    try testing.expect(code.len >= 5); // BR_TABLE + 3 entries + RETURN
+    try testing.expectEqual(OP_BR_TABLE, code[0].op);
+    try testing.expectEqual(@as(u8, 0), code[0].rd); // idx_reg = r0 (param 0)
+    try testing.expectEqual(@as(u32, 2), code[0].operand); // count
+    // 3 entry NOPs follow
+    try testing.expectEqual(OP_NOP, code[1].op);
+    try testing.expectEqual(OP_NOP, code[2].op);
+    try testing.expectEqual(OP_NOP, code[3].op);
+}
+
+test "convert — memory.fill emits OP_MEMORY_FILL" {
+    // Wasm: local.get 0, local.get 1, local.get 2, memory.fill
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0 (dst)
+        .{ .opcode = 0x20, .extra = 0, .operand = 1 }, // local.get 1 (val)
+        .{ .opcode = 0x20, .extra = 0, .operand = 2 }, // local.get 2 (n)
+        .{ .opcode = predecode.MISC_BASE | 0x0B, .extra = 0, .operand = 0 }, // memory.fill
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 3, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    try testing.expect(code.len >= 2); // MEMORY_FILL + RETURN
+    try testing.expectEqual(OP_MEMORY_FILL, code[0].op);
+    try testing.expectEqual(@as(u8, 0), code[0].rd); // dst = r0
+    try testing.expectEqual(@as(u8, 1), code[0].rs1); // val = r1
+    try testing.expectEqual(@as(u8, 2), code[0].rs2()); // n = r2
 }

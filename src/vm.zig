@@ -2630,6 +2630,44 @@ pub const Vm = struct {
                     regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) >= instr.operand);
                 },
 
+                // ---- br_table ----
+                regalloc_mod.OP_BR_TABLE => {
+                    const count = instr.operand;
+                    const idx = @as(u32, @truncate(regs[instr.rd]));
+                    const target_entry = if (idx < count) idx else count; // default is last
+                    const target_pc = code[pc + target_entry].operand;
+                    if (jit_eligible and target_pc < pc)
+                        try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count);
+                    pc = target_pc;
+                    continue;
+                },
+
+                // ---- Bulk memory operations ----
+                regalloc_mod.OP_MEMORY_FILL => {
+                    const dst = @as(u32, @truncate(regs[instr.rd]));
+                    const val = @as(u8, @truncate(regs[instr.rs1]));
+                    const n = @as(u32, @truncate(regs[instr.rs2()]));
+                    const m = try instance.getMemory(0);
+                    try m.fill(dst, n, val);
+                },
+                regalloc_mod.OP_MEMORY_COPY => {
+                    const dst = @as(u32, @truncate(regs[instr.rd]));
+                    const src = @as(u32, @truncate(regs[instr.rs1]));
+                    const n = @as(u32, @truncate(regs[instr.rs2()]));
+                    const m = try instance.getMemory(0);
+                    try m.copyWithin(dst, src, n);
+                },
+
+                // ---- Truncation saturating (misc prefix) ----
+                predecode_mod.MISC_BASE | 0x00 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @as(u32, @bitCast(truncSatClamp(i32, f32, a))); },
+                predecode_mod.MISC_BASE | 0x01 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = truncSatClamp(u32, f32, a); },
+                predecode_mod.MISC_BASE | 0x02 => { const a: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @as(u32, @bitCast(truncSatClamp(i32, f64, a))); },
+                predecode_mod.MISC_BASE | 0x03 => { const a: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = truncSatClamp(u32, f64, a); },
+                predecode_mod.MISC_BASE | 0x04 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = @bitCast(truncSatClamp(i64, f32, a)); },
+                predecode_mod.MISC_BASE | 0x05 => { const a: f32 = @bitCast(@as(u32, @truncate(regs[instr.rs1]))); regs[instr.rd] = truncSatClamp(u64, f32, a); },
+                predecode_mod.MISC_BASE | 0x06 => { const a: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(truncSatClamp(i64, f64, a)); },
+                predecode_mod.MISC_BASE | 0x07 => { const a: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = truncSatClamp(u64, f64, a); },
+
                 // ---- Unreachable ----
                 0x00 => return error.Unreachable,
 
