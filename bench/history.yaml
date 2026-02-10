@@ -139,3 +139,25 @@ entries:
       st_nestedloop: {time_ms: 4.7}
       st_ackermann: {time_ms: 21.4}
       st_matrix: {time_ms: 2725.1}
+  - id: "3.14"
+    date: "2026-02-11"
+    reason: "Spill-only-needed: caller-saved + arg vregs only"
+    commit: "6db9491"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 103.0}
+      tak: {time_ms: 12.2}
+      sieve: {time_ms: 5.4}
+      nbody: {time_ms: 131.7}
+      nqueens: {time_ms: 2.4}
+      tgo_fib: {time_ms: 64.1}
+      tgo_tak: {time_ms: 9.1}
+      tgo_arith: {time_ms: 1.7}
+      tgo_sieve: {time_ms: 35.7}
+      tgo_fib_loop: {time_ms: 2.9}
+      tgo_gcd: {time_ms: 1.4}
+      st_fib2: {time_ms: 15560.7}
+      st_sieve: {time_ms: 6104.6}
+      st_nestedloop: {time_ms: 3.4}
+      st_ackermann: {time_ms: 20.2}
+      st_matrix: {time_ms: 2730.1}

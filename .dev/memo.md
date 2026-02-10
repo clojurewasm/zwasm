@@ -10,8 +10,8 @@ Session handover document. Read at session start.
 - Source: ~14K LOC, 14 files (+ cli.zig, 3 examples), 132 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
-- Benchmark: fib(35) = 119ms, sieve(1M) = 5.3ms (ReleaseSafe, CLI, JIT)
-- vs wasmtime JIT: 52ms fib / 7ms sieve (2.3x / 0.8x gap — sieve beats wasmtime!)
+- Benchmark: fib(35) = 103ms, sieve(1M) = 5.4ms (ReleaseSafe, CLI, JIT)
+- vs wasmtime JIT: 52ms fib / 7ms sieve (2.0x / 0.8x gap — sieve beats wasmtime!)
 - Benchmarks: 3 layers — 5 WAT, 6 TinyGo, 5 shootout (sub-ms precision)
 - Spec test pass rate: 30,648/30,686 (99.9%) — 151 files, 28K skipped
 - CI: GitHub Actions (ubuntu + macOS, zig build test + spec tests)
@@ -21,6 +21,7 @@ Session handover document. Read at session start.
 - **JIT call fast path**: JIT-to-JIT direct calls bypass callFunction dispatch
 - **JIT code quality**: direct dest reg, selective reload, shared error epilogue
 - **Inline self-call**: direct BL for self-recursive calls, cached &vm.reg_ptr in x27
+- **Smart spill**: only spill caller-saved + arg vregs; direct physical reg arg copy
 
 ## Task Queue
 
@@ -40,22 +41,22 @@ Stage 3: JIT + Optimization (ARM64)
 12. [x] 3.11: JIT call optimization — fast path for JIT-to-JIT calls
 13. [x] 3.12: JIT code quality — instruction scheduling, constant folding
 14. [x] 3.13: Inline self-call — eliminate trampoline for self-recursive calls
-15. [ ] 3.14: Spill-only-needed — only spill arg + caller-saved registers
+15. [x] 3.14: Spill-only-needed — only spill arg + caller-saved registers
 
 ## Current Task
 
-3.14: Spill-only-needed — only spill arg + caller-saved registers.
+Stage 3 complete — fib 103ms (2.0x wasmtime), meets exit criteria.
+Next: plan Stage 4 or new optimization targets.
 
 ## Previous Task
 
-3.13: Inline self-call — COMPLETE.
+3.14: Spill-only-needed — COMPLETE.
 Key changes:
-- Detect self-recursive calls (OP_CALL func_idx == self) and emit direct BL
-- Cache &vm.reg_ptr in x27 (callee-saved) during prologue for non-memory functions
-- Inline callee frame setup: reg_ptr advance/restore, arg copy, zero-init
-- Direct BL to instruction 0 (backward branch) instead of BLR through trampoline
-- fib: 224→119ms (-47%), tak: 24→14ms (-42%), tgo_fib: 132→72ms (-45%)
-- vs wasmtime: fib 2.3x (was 4.3x)
+- Replace spillAll with spillCallerSaved (only r5-r11, not callee-saved r0-r4)
+- Direct physical reg→callee frame arg copy (skip spill+load round-trip)
+- Trampoline path: spill caller-saved + callee-saved arg vregs only
+- fib: 119→103ms (-13%), tak: 14→12ms (-14%), tgo_fib: 72→64ms (-11%)
+- vs wasmtime: fib 2.0x (was 2.3x)
 
 ## Known Bugs
 

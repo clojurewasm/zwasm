@@ -667,10 +667,11 @@ pub const Compiler = struct {
         return vregToPhys(vreg) orelse SCRATCH;
     }
 
-    /// Store all live virtual regs to memory (before function calls).
-    fn spillAll(self: *Compiler) void {
+    /// Spill only caller-saved virtual regs (r5-r11 → x9-x15) to memory.
+    /// Callee-saved regs (r0-r4 → x22-x26) are preserved by the callee.
+    fn spillCallerSaved(self: *Compiler) void {
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
-        for (0..max) |i| {
+        for (5..max) |i| {
             const vreg: u8 = @intCast(i);
             if (vregToPhys(vreg)) |phys| {
                 self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
@@ -678,13 +679,12 @@ pub const Compiler = struct {
         }
     }
 
-    /// Reload all virtual regs from memory (after function calls).
-    fn reloadAll(self: *Compiler) void {
-        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
-        for (0..max) |i| {
-            const vreg: u8 = @intCast(i);
+    /// Spill a single vreg if it's callee-saved (r0-r4). No-op for caller-saved vregs
+    /// (already spilled by spillCallerSaved) or unmapped vregs (always in memory).
+    fn spillVregIfCalleeSaved(self: *Compiler, vreg: u8) void {
+        if (vreg < 5) {
             if (vregToPhys(vreg)) |phys| {
-                self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
+                self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
             }
         }
     }
@@ -932,6 +932,7 @@ pub const Compiler = struct {
             // --- Function call ---
             regalloc_mod.OP_CALL => {
                 const func_idx = instr.operand;
+                const n_args: u16 = @intCast(instr.rs1);
                 const data = ir[pc.*];
                 pc.* += 1;
                 // Skip second data word if present
@@ -941,7 +942,7 @@ pub const Compiler = struct {
                     data2 = ir[pc.*];
                     pc.* += 1;
                 }
-                self.emitCall(instr.rd, func_idx, data, if (has_data2) data2 else null);
+                self.emitCall(instr.rd, func_idx, n_args, data, if (has_data2) data2 else null);
             },
             regalloc_mod.OP_NOP => {}, // data word, already consumed
             regalloc_mod.OP_BLOCK_END => {}, // no-op in JIT
@@ -1543,7 +1544,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn emitCall(self: *Compiler, rd: u8, func_idx: u32, data: RegInstr, data2: ?RegInstr) void {
+    fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr) void {
         // Self-call optimization: direct BL instead of trampoline (non-memory only).
         // Memory functions use x27 for MEM_BASE, so can't cache &vm.reg_ptr there.
         if (func_idx == self.self_func_idx and !self.has_memory) {
@@ -1551,8 +1552,21 @@ pub const Compiler = struct {
             return;
         }
 
-        // 1. Spill all virtual regs to memory
-        self.spillAll();
+        // 1. Spill caller-saved regs + arg vregs needed by trampoline
+        self.spillCallerSaved();
+        // Trampoline reads args from regs[] — spill callee-saved arg vregs
+        if (n_args > 0) self.spillVregIfCalleeSaved(data.rd);
+        if (n_args > 1) self.spillVregIfCalleeSaved(data.rs1);
+        if (n_args > 2) self.spillVregIfCalleeSaved(@truncate(data.operand));
+        if (n_args > 3) self.spillVregIfCalleeSaved(@truncate(data.operand >> 8));
+        if (n_args > 4) {
+            if (data2) |d2| {
+                if (n_args > 4) self.spillVregIfCalleeSaved(d2.rd);
+                if (n_args > 5) self.spillVregIfCalleeSaved(d2.rs1);
+                if (n_args > 6) self.spillVregIfCalleeSaved(@truncate(d2.operand));
+                if (n_args > 7) self.spillVregIfCalleeSaved(@truncate(d2.operand >> 8));
+            }
+        }
 
         // 2. Set up trampoline args (C calling convention):
         //    x0 = vm, x1 = instance, x2 = regs, w3 = func_idx,
@@ -1613,8 +1627,8 @@ pub const Compiler = struct {
         const needed: u32 = @as(u32, self.reg_count) + 2;
         const needed_bytes: u32 = needed * 8;
 
-        // 1. Spill all virtual regs to memory
-        self.spillAll();
+        // 1. Spill only caller-saved regs (callee-saved preserved by callee's prologue)
+        self.spillCallerSaved();
 
         // 2. Advance vm.reg_ptr and check overflow (using cached REG_PTR_ADDR in x27)
         self.emit(a64.ldr64(SCRATCH2, REG_PTR_ADDR, 0)); // x16 = vm.reg_ptr
@@ -1642,46 +1656,18 @@ pub const Compiler = struct {
             self.emit(a64.add64(0, REGS_PTR, 0));
         }
 
-        // 4. Copy args from our regs to callee regs
+        // 4. Copy args directly from physical regs to callee frame (no spill+load)
         const n_args = self.param_count;
-        if (n_args > 0) {
-            self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, data.rd) * 8));
-            self.emit(a64.str64(SCRATCH2, 0, 0));
-        }
-        if (n_args > 1) {
-            self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, data.rs1) * 8));
-            self.emit(a64.str64(SCRATCH2, 0, 8));
-        }
-        if (n_args > 2) {
-            const arg2: u8 = @truncate(data.operand);
-            self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, arg2) * 8));
-            self.emit(a64.str64(SCRATCH2, 0, 16));
-        }
-        if (n_args > 3) {
-            const arg3: u8 = @truncate(data.operand >> 8);
-            self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, arg3) * 8));
-            self.emit(a64.str64(SCRATCH2, 0, 24));
-        }
+        if (n_args > 0) self.emitArgCopyDirect(0, data.rd, 0);
+        if (n_args > 1) self.emitArgCopyDirect(0, data.rs1, 8);
+        if (n_args > 2) self.emitArgCopyDirect(0, @truncate(data.operand), 16);
+        if (n_args > 3) self.emitArgCopyDirect(0, @truncate(data.operand >> 8), 24);
         if (n_args > 4) {
             if (data2) |d2| {
-                if (n_args > 4) {
-                    self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, d2.rd) * 8));
-                    self.emit(a64.str64(SCRATCH2, 0, 32));
-                }
-                if (n_args > 5) {
-                    self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, d2.rs1) * 8));
-                    self.emit(a64.str64(SCRATCH2, 0, 40));
-                }
-                if (n_args > 6) {
-                    const arg6: u8 = @truncate(d2.operand);
-                    self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, arg6) * 8));
-                    self.emit(a64.str64(SCRATCH2, 0, 48));
-                }
-                if (n_args > 7) {
-                    const arg7: u8 = @truncate(d2.operand >> 8);
-                    self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, arg7) * 8));
-                    self.emit(a64.str64(SCRATCH2, 0, 56));
-                }
+                if (n_args > 4) self.emitArgCopyDirect(0, d2.rd, 32);
+                if (n_args > 5) self.emitArgCopyDirect(0, d2.rs1, 40);
+                if (n_args > 6) self.emitArgCopyDirect(0, @truncate(d2.operand), 48);
+                if (n_args > 7) self.emitArgCopyDirect(0, @truncate(d2.operand >> 8), 56);
             }
         }
 
@@ -1743,6 +1729,17 @@ pub const Compiler = struct {
         // 13. Reload memory cache (memory may have grown during call)
         if (self.has_memory) {
             self.emitLoadMemCache();
+        }
+    }
+
+    /// Copy a single arg directly from physical register to callee frame.
+    /// Uses physical reg if available, otherwise loads from memory via SCRATCH2.
+    fn emitArgCopyDirect(self: *Compiler, callee_base: u5, src_vreg: u8, offset: u16) void {
+        if (vregToPhys(src_vreg)) |phys| {
+            self.emit(a64.str64(phys, callee_base, offset));
+        } else {
+            self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, src_vreg) * 8));
+            self.emit(a64.str64(SCRATCH2, callee_base, offset));
         }
     }
 
