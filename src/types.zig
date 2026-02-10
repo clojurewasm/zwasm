@@ -276,6 +276,13 @@ pub const WasmModule = struct {
         return null;
     }
 
+    /// Get the WASI exit code, if the module called proc_exit().
+    /// Returns null if the module is not WASI or proc_exit was not called.
+    pub fn getWasiExitCode(self: *const WasmModule) ?u32 {
+        const wc = self.wasi_ctx orelse return null;
+        return wc.exit_code;
+    }
+
     /// Lookup a cached WasmFn by export name.
     pub fn getExportFn(self: *const WasmModule, name: []const u8) ?*const WasmFn {
         for (self.cached_fns) |*wf| {

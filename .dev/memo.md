@@ -33,7 +33,7 @@ Stage 1: Library Quality + CLI Polish
 2. [x] 1.2: Structured error types (W3 — already resolved, no EvalError remains)
 3. [x] 1.3: Public API doc comments (types.zig comprehensive documentation)
 4. [x] 1.4: CLI `zwasm run` WASI args/env/preopen support
-5. [ ] 1.5: CLI exit code propagation from WASI modules
+5. [x] 1.5: CLI exit code propagation from WASI modules
 6. [ ] 1.6: Example programs (examples/ directory with standalone .zig files)
 7. [ ] 1.7: `zwasm inspect --json` machine-readable output
 
@@ -42,14 +42,12 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-1.5: CLI exit code propagation from WASI modules.
-When a WASI module calls proc_exit(N), zwasm should exit with code N.
+1.6: Example programs — create examples/ directory with standalone .zig files
+demonstrating library usage (basic load/invoke, WASI, multi-module).
 
 ## Previous Task
 
-1.4: WASI args/env/preopen support added.
-- WasiOptions struct + loadWasiWithOptions in types.zig
-- CLI: --dir, --env options. WASI args passed from command line.
+1.5: Exit code propagation — getWasiExitCode() API + CLI std.process.exit().
 
 ## Known Issues
 

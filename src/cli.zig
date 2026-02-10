@@ -224,10 +224,20 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         var no_args = [_]u64{};
         var no_results = [_]u64{};
         module.invoke("_start", &no_args, &no_results) catch |err| {
+            // proc_exit triggers a Trap — check if exit_code was set
+            if (module.getWasiExitCode()) |code| {
+                if (code != 0) std.process.exit(@truncate(code));
+                return;
+            }
             try stderr.print("error: _start failed: {s}\n", .{@errorName(err)});
             try stderr.flush();
             return;
         };
+
+        // Normal completion — check for explicit exit code
+        if (module.getWasiExitCode()) |code| {
+            if (code != 0) std.process.exit(@truncate(code));
+        }
     }
 }
 
