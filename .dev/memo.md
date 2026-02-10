@@ -30,7 +30,9 @@ Stage 0: API Design & Extraction
 
 ## Current Task
 
-(Not started — infrastructure setup in progress)
+0.1: CW dependency audit — identify all CW-specific imports in src/wasm/.
+Scan every file in CW `src/wasm/*.zig`, list imports that reference CW modules
+(value.zig, gc, env, error, etc.). Output: dependency map for extraction.
 
 ## Previous Task
 
