@@ -747,7 +747,7 @@ pub const Compiler = struct {
         } else if (self.reg_ptr_offset > 0) {
             // Cache &vm.reg_ptr in x27 for inline self-calls (non-memory functions).
             // This avoids recomputing the large offset on every self-call.
-            self.emitLoadRegPtrAddrToX27();
+            self.emitLoadRegPtrAddr(REG_PTR_ADDR);
         }
     }
 
@@ -1545,9 +1545,10 @@ pub const Compiler = struct {
     }
 
     fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr) void {
-        // Self-call optimization: direct BL instead of trampoline (non-memory only).
-        // Memory functions use x27 for MEM_BASE, so can't cache &vm.reg_ptr there.
-        if (func_idx == self.self_func_idx and !self.has_memory) {
+        // Self-call optimization: direct BL instead of trampoline.
+        // Non-memory: uses cached &vm.reg_ptr in x27.
+        // Memory: recomputes &vm.reg_ptr into SCRATCH each time.
+        if (func_idx == self.self_func_idx) {
             self.emitInlineSelfCall(rd, data, data2);
             return;
         }
@@ -1623,6 +1624,8 @@ pub const Compiler = struct {
 
     /// Inline self-call: direct BL to function entry, bypassing trampoline.
     /// Manages reg_ptr and callee frame setup inline for maximum performance.
+    /// Non-memory functions use cached REG_PTR_ADDR (x27) for &vm.reg_ptr.
+    /// Memory functions recompute &vm.reg_ptr into SCRATCH each time.
     fn emitInlineSelfCall(self: *Compiler, rd: u8, data: RegInstr, data2: ?RegInstr) void {
         const needed: u32 = @as(u32, self.reg_count) + 2;
         const needed_bytes: u32 = needed * 8;
@@ -1630,8 +1633,14 @@ pub const Compiler = struct {
         // 1. Spill only caller-saved regs (callee-saved preserved by callee's prologue)
         self.spillCallerSaved();
 
-        // 2. Advance vm.reg_ptr and check overflow (using cached REG_PTR_ADDR in x27)
-        self.emit(a64.ldr64(SCRATCH2, REG_PTR_ADDR, 0)); // x16 = vm.reg_ptr
+        // 2. Advance vm.reg_ptr and check overflow.
+        //    Non-memory: use cached REG_PTR_ADDR (x27).
+        //    Memory: compute &vm.reg_ptr into SCRATCH (x8) since x27 = MEM_BASE.
+        const rp_reg: u5 = if (self.has_memory) blk: {
+            self.emitLoadRegPtrAddr(SCRATCH);
+            break :blk SCRATCH;
+        } else REG_PTR_ADDR;
+        self.emit(a64.ldr64(SCRATCH2, rp_reg, 0)); // x16 = vm.reg_ptr
         if (needed <= 0xFFF) {
             self.emit(a64.addImm64(SCRATCH2, SCRATCH2, @intCast(needed)));
         } else {
@@ -1643,7 +1652,7 @@ pub const Compiler = struct {
         self.emit(a64.cmp64(SCRATCH2, 0));
         self.emitCondError(.hi, 2); // StackOverflow if new > max
         // Store new reg_ptr
-        self.emit(a64.str64(SCRATCH2, REG_PTR_ADDR, 0));
+        self.emit(a64.str64(SCRATCH2, rp_reg, 0));
 
         // 3. Compute callee REGS_PTR: x0 = REGS_PTR + needed*8
         if (needed_bytes <= 0xFFF) {
@@ -1689,15 +1698,16 @@ pub const Compiler = struct {
         // 8. After return: callee-saved regs (x19-x28) restored by callee's epilogue.
         //    x0 = error code (0 = success).
 
-        // 9. Restore vm.reg_ptr (using cached REG_PTR_ADDR)
-        self.emit(a64.ldr64(SCRATCH2, REG_PTR_ADDR, 0));
+        // 9. Restore vm.reg_ptr (recompute address for memory functions)
+        if (self.has_memory) self.emitLoadRegPtrAddr(SCRATCH);
+        self.emit(a64.ldr64(SCRATCH2, rp_reg, 0));
         if (needed <= 0xFFF) {
             self.emit(a64.subImm64(SCRATCH2, SCRATCH2, @intCast(needed)));
         } else {
             self.emit(a64.movz64(1, @truncate(needed), 0));
             self.emit(a64.sub64(SCRATCH2, SCRATCH2, 1));
         }
-        self.emit(a64.str64(SCRATCH2, REG_PTR_ADDR, 0));
+        self.emit(a64.str64(SCRATCH2, rp_reg, 0));
 
         // 10. Check error — branch to shared error epilogue
         const error_branch = self.currentIdx();
@@ -1743,17 +1753,17 @@ pub const Compiler = struct {
         }
     }
 
-    /// Emit code to load &vm.reg_ptr into REG_PTR_ADDR (x27), once in prologue.
-    fn emitLoadRegPtrAddrToX27(self: *Compiler) void {
+    /// Emit code to compute &vm.reg_ptr (VM_PTR + offset) into dst register.
+    fn emitLoadRegPtrAddr(self: *Compiler, dst: u5) void {
         const offset = self.reg_ptr_offset;
         if (offset <= 0xFFF) {
-            self.emit(a64.addImm64(REG_PTR_ADDR, VM_PTR, @intCast(offset)));
+            self.emit(a64.addImm64(dst, VM_PTR, @intCast(offset)));
         } else {
-            self.emit(a64.movz64(REG_PTR_ADDR, @truncate(offset), 0));
+            self.emit(a64.movz64(dst, @truncate(offset), 0));
             if (offset > 0xFFFF) {
-                self.emit(a64.movk64(REG_PTR_ADDR, @truncate(offset >> 16), 1));
+                self.emit(a64.movk64(dst, @truncate(offset >> 16), 1));
             }
-            self.emit(a64.add64(REG_PTR_ADDR, VM_PTR, REG_PTR_ADDR));
+            self.emit(a64.add64(dst, VM_PTR, dst));
         }
     }
 

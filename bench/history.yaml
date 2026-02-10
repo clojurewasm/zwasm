@@ -161,3 +161,25 @@ entries:
       st_nestedloop: {time_ms: 3.4}
       st_ackermann: {time_ms: 20.2}
       st_matrix: {time_ms: 2730.1}
+  - id: "4.3"
+    date: "2026-02-11"
+    reason: "Inline self-call for memory functions"
+    commit: "a3722b1"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 102.7}
+      tak: {time_ms: 11.3}
+      sieve: {time_ms: 5.4}
+      nbody: {time_ms: 134.2}
+      nqueens: {time_ms: 1.8}
+      tgo_fib: {time_ms: 63.3}
+      tgo_tak: {time_ms: 9.8}
+      tgo_arith: {time_ms: 1.7}
+      tgo_sieve: {time_ms: 36.9}
+      tgo_fib_loop: {time_ms: 1.8}
+      tgo_gcd: {time_ms: 1.8}
+      st_fib2: {time_ms: 15739.0}
+      st_sieve: {time_ms: 6061.7}
+      st_nestedloop: {time_ms: 3.6}
+      st_ackermann: {time_ms: 21.8}
+      st_matrix: {time_ms: 2743.4}

@@ -29,19 +29,21 @@ Stage 4: Polish & Robustness
 
 1. [x] 4.1: Fix fib_loop TinyGo bug — regalloc aliasing in local.tee
 2. [x] 4.2: Fix regalloc u8 overflow — graceful fallback to stack IR
-3. [ ] 4.3: Inline self-call for memory functions — use alternate reg for &vm.reg_ptr
+3. [x] 4.3: Inline self-call for memory functions — recompute reg_ptr addr via SCRATCH
 4. [ ] 4.4: Cross-runtime benchmark update — record comparison vs wasmtime/wasmer/bun/node
 
 ## Current Task
 
-4.3: Inline self-call for memory functions — use alternate reg for &vm.reg_ptr.
+4.4: Cross-runtime benchmark update — record comparison vs wasmtime/wasmer/bun/node.
 
 ## Previous Task
 
-4.2: Fix regalloc u8 overflow — COMPLETE.
-Two overflow paths: (1) total_locals > 255 → early null return, (2) temp registers
-exceed u8 → allocTemp uses @truncate, max_reg > 255 check after loop returns null.
-Both fall back gracefully to stack IR interpretation.
+4.3: Inline self-call for memory functions — COMPLETE.
+Generalized emitLoadRegPtrAddr to accept any dest register. For memory functions,
+&vm.reg_ptr is computed into SCRATCH (x8) before and after BL, since x27 is
+reserved for MEM_BASE. Non-memory path unchanged (uses cached x27).
+Performance impact minimal (~1% on tgo_fib) since the 6 extra instructions are
+small compared to the memory access overhead.
 
 ## Known Bugs
 
