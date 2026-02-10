@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- **Stage 0: Extraction** — tasks 0.1-0.3 complete (audit + API + extraction)
+- **Stage 0: Extraction** — tasks 0.1-0.7 complete
 - Opcode coverage: 225 core + 236 SIMD = 461 (from CW src/wasm/)
 - WASI syscalls: ~25 (from CW)
 - Spec test pass rate: TBD (no wast runner yet)
@@ -22,17 +22,17 @@ Stage 0: API Design & Extraction
 1. [x] 0.1: CW dependency audit — identify all CW-specific imports in src/wasm/
 2. [x] 0.2: Design public API (Engine/Module/Instance pattern)
 3. [x] 0.3: Extract source files from CW src/wasm/ → zwasm src/
-4. [ ] 0.4: Remove CW dependencies (Value, GC, Env references)
-5. [ ] 0.5: build.zig + build.zig.zon setup
-6. [ ] 0.6: Basic test suite (load module, call function, memory ops)
-7. [ ] 0.7: First benchmark (fib wasm, compare with CW embedded)
+4. [x] 0.4: Remove CW dependencies (Value, GC, Env references) — already clean
+5. [x] 0.5: build.zig + build.zig.zon setup — build.zig done (zon in Stage 1)
+6. [x] 0.6: Basic test suite — 115 tests from CW, all pass
+7. [x] 0.7: First benchmark — fib(35) = 586ms (ReleaseSafe, standalone)
 8. [ ] 0.8: CW integration — use zwasm as dependency via build.zig.zon
 
 ## Current Task
 
-0.4: Remove CW dependencies — verify no remaining CW imports.
-Tasks 0.3 already handled types.zig (D103 ImportEntry). Verify no
-Value/GC/Env/EvalError references remain in any zwasm source file.
+0.8: CW integration — use zwasm as dependency via build.zig.zon.
+This is the final Stage 0 task. Make CW consume zwasm as a Zig
+package dependency, replacing its internal src/wasm/ with zwasm imports.
 
 ## Previous Task
 
