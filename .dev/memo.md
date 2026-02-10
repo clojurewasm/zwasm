@@ -27,26 +27,27 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 
 ## Task Queue
 
-Stage 0.9: Independence & CLI (direction correction)
+Stage 1: Library Quality + CLI Polish
 
-1. [x] 0.9.1: Fix license headers (EPL→MIT) and remove CW references from source
-2. [x] 0.9.2: CLI tool (`zwasm run`, `zwasm inspect`, `zwasm validate`)
-3. [x] 0.9.3: wasmtime comparison benchmark (hyperfine zwasm vs wasmtime)
-4. [x] 0.9.4: Update roadmap for independent library + JIT optimization track
+1. [ ] 1.1: build.zig.zon (package metadata for Zig package manager)
+2. [ ] 1.2: Structured error types (W3 — replace opaque EvalError)
+3. [ ] 1.3: Public API doc comments (types.zig comprehensive documentation)
+4. [ ] 1.4: CLI `zwasm run` WASI args/env/preopen support
+5. [ ] 1.5: CLI exit code propagation from WASI modules
+6. [ ] 1.6: Example programs (examples/ directory with standalone .zig files)
+7. [ ] 1.7: `zwasm inspect --json` machine-readable output
 
-Stage 1 (planned): Library Quality + CLI Polish
 Stage 2 (planned): Spec Conformance + wast test runner
 Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-Stage 0.9 COMPLETE. Plan Stage 1 task queue.
+1.1: Create build.zig.zon with package metadata for Zig package manager.
+This makes zwasm installable as a dependency via `zig fetch`.
 
 ## Previous Task
 
-0.9.4: Roadmap updated for independent library + JIT optimization track.
-- Removed CW-centric language, added benchmark targets table
-- Stage 3 split into 5 sub-stages (profiling, register IR, ARM64 JIT, super-ops, advanced)
+Stage 0.9 completed: independence + CLI + wasmtime benchmark + roadmap update.
 
 ## Known Issues
 
