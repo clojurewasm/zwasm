@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- **Stage 0: Extraction** — tasks 0.1-0.2 complete (audit + API design)
+- **Stage 0: Extraction** — tasks 0.1-0.3 complete (audit + API + extraction)
 - Opcode coverage: 225 core + 236 SIMD = 461 (from CW src/wasm/)
 - WASI syscalls: ~25 (from CW)
 - Spec test pass rate: TBD (no wast runner yet)
@@ -21,7 +21,7 @@ Stage 0: API Design & Extraction
 
 1. [x] 0.1: CW dependency audit — identify all CW-specific imports in src/wasm/
 2. [x] 0.2: Design public API (Engine/Module/Instance pattern)
-3. [ ] 0.3: Extract source files from CW src/wasm/ → zwasm src/
+3. [x] 0.3: Extract source files from CW src/wasm/ → zwasm src/
 4. [ ] 0.4: Remove CW dependencies (Value, GC, Env references)
 5. [ ] 0.5: build.zig + build.zig.zon setup
 6. [ ] 0.6: Basic test suite (load module, call function, memory ops)
@@ -30,12 +30,20 @@ Stage 0: API Design & Extraction
 
 ## Current Task
 
-0.3: Extract source files from CW src/wasm/ → zwasm src/.
-Copy the 10 clean files as-is. For types.zig, extract only the pure Wasm parts
-(WasmModule, WasmFn struct without Value methods, WasmValType, ExportInfo,
-buildExportInfo, buildCachedFns). Replace Value-based imports with D103 ImportEntry.
+0.4: Remove CW dependencies — verify no remaining CW imports.
+Tasks 0.3 already handled types.zig (D103 ImportEntry). Verify no
+Value/GC/Env/EvalError references remain in any zwasm source file.
 
 ## Previous Task
+
+0.3: Source extraction — COMPLETE. 11 files extracted (10,398 LOC).
+- 10 clean files copied as-is from CW src/wasm/
+- types.zig: rewrote with D103 ImportEntry (no CW Value dependency)
+- builtins.zig: NOT extracted (CW bridge — stays in CW)
+- testdata/ copied including conformance tests
+- readTestFile path: added "src/testdata/" prefix in module/vm/wasi/instance
+- build.zig: addModule("zwasm") + addTest with root_module
+- All tests pass (115/115)
 
 0.2: API design — COMPLETE. D103 recorded. Key decisions:
 - u64 raw interface (WasmModule.invoke unchanged)

@@ -1,0 +1,606 @@
+// Copyright (c) 2026 ClojureWasm Contributors. All rights reserved.
+// Licensed under the MIT License. See LICENSE at the root of this distribution.
+
+//! Wasm module and function types — the primary public API of zwasm.
+//!
+//! Provides WasmModule (load, invoke, memory access) and WasmFn (bound export)
+//! types. All external interfaces use raw u64 values matching the Wasm spec.
+//! Embedders (e.g., ClojureWasm) wrap u64 in their own type system.
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const wit_parser = @import("wit_parser.zig");
+
+// Internal Wasm runtime modules
+const rt = struct {
+    const store_mod = @import("store.zig");
+    const module_mod = @import("module.zig");
+    const instance_mod = @import("instance.zig");
+    const vm_mod = @import("vm.zig");
+    const wasi = @import("wasi.zig");
+    const opcode = @import("opcode.zig");
+};
+
+// ============================================================
+// Public types
+// ============================================================
+
+/// Wasm value types.
+pub const WasmValType = enum {
+    i32,
+    i64,
+    f32,
+    f64,
+
+    pub fn fromRuntime(vt: rt.opcode.ValType) ?WasmValType {
+        return switch (vt) {
+            .i32 => .i32,
+            .i64 => .i64,
+            .f32 => .f32,
+            .f64 => .f64,
+            else => null,
+        };
+    }
+};
+
+/// Export function signature — extracted from Wasm binary at load time.
+pub const ExportInfo = struct {
+    name: []const u8,
+    param_types: []const WasmValType,
+    result_types: []const WasmValType,
+};
+
+/// Host function callback type.
+/// Called by the Wasm VM when an imported host function is invoked.
+/// ctx_ptr: opaque pointer to the VM instance.
+/// context_id: embedder-defined context for identifying the host function.
+pub const HostFn = rt.store_mod.HostFn;
+
+/// A single host function entry for import registration.
+pub const HostFnEntry = struct {
+    name: []const u8,
+    callback: HostFn,
+    context: usize,
+};
+
+/// Source of imported functions for a given module name.
+pub const ImportSource = union(enum) {
+    /// Import functions from another WasmModule's exports.
+    wasm_module: *WasmModule,
+    /// Import host (native) callback functions.
+    host_fns: []const HostFnEntry,
+};
+
+/// A single import entry: maps a Wasm import module name to a source.
+pub const ImportEntry = struct {
+    module: []const u8,
+    source: ImportSource,
+};
+
+// ============================================================
+// WasmModule — loaded and instantiated Wasm module
+// ============================================================
+
+/// A loaded and instantiated Wasm module.
+/// Heap-allocated because Instance holds internal pointers — the
+/// struct must not move after instantiation.
+pub const WasmModule = struct {
+    allocator: Allocator,
+    store: rt.store_mod.Store,
+    module: rt.module_mod.Module,
+    instance: rt.instance_mod.Instance,
+    wasi_ctx: ?rt.wasi.WasiContext = null,
+    export_fns: []const ExportInfo = &[_]ExportInfo{},
+    /// Pre-generated WasmFn instances for name lookup dispatch.
+    cached_fns: []WasmFn = &[_]WasmFn{},
+    /// WIT function signatures (set via setWitInfo).
+    wit_funcs: []const wit_parser.WitFunc = &[_]wit_parser.WitFunc{},
+    /// Cached VM instance — reused across invoke() calls to avoid stack reallocation.
+    vm: *rt.vm_mod.Vm = undefined,
+
+    /// Load a Wasm module from binary bytes, decode, and instantiate.
+    pub fn load(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
+        return loadCore(allocator, wasm_bytes, false, null);
+    }
+
+    /// Load a WASI module — registers wasi_snapshot_preview1 imports.
+    pub fn loadWasi(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
+        return loadCore(allocator, wasm_bytes, true, null);
+    }
+
+    /// Load with imports from other modules or host functions.
+    pub fn loadWithImports(allocator: Allocator, wasm_bytes: []const u8, imports: []const ImportEntry) !*WasmModule {
+        return loadCore(allocator, wasm_bytes, false, imports);
+    }
+
+    fn loadCore(allocator: Allocator, wasm_bytes: []const u8, wasi: bool, imports: ?[]const ImportEntry) !*WasmModule {
+        const self = try allocator.create(WasmModule);
+        errdefer allocator.destroy(self);
+
+        self.allocator = allocator;
+        self.store = rt.store_mod.Store.init(allocator);
+        errdefer self.store.deinit();
+
+        self.module = rt.module_mod.Module.init(allocator, wasm_bytes);
+        errdefer self.module.deinit();
+        try self.module.decode();
+
+        if (wasi) {
+            try rt.wasi.registerAll(&self.store, &self.module);
+            self.wasi_ctx = rt.wasi.WasiContext.init(allocator);
+        } else {
+            self.wasi_ctx = null;
+        }
+        errdefer if (self.wasi_ctx) |*wc| wc.deinit();
+
+        if (imports) |import_entries| {
+            try registerImports(&self.store, &self.module, import_entries, allocator);
+        }
+
+        self.instance = rt.instance_mod.Instance.init(allocator, &self.store, &self.module);
+        errdefer self.instance.deinit();
+        if (self.wasi_ctx) |*wc| self.instance.wasi = wc;
+        try self.instance.instantiate();
+
+        self.export_fns = buildExportInfo(allocator, &self.module) catch &[_]ExportInfo{};
+        self.cached_fns = buildCachedFns(allocator, self) catch &[_]WasmFn{};
+        self.wit_funcs = &[_]wit_parser.WitFunc{};
+
+        self.vm = try allocator.create(rt.vm_mod.Vm);
+        self.vm.* = rt.vm_mod.Vm.init(allocator);
+
+        return self;
+    }
+
+    pub fn deinit(self: *WasmModule) void {
+        const allocator = self.allocator;
+        if (self.cached_fns.len > 0) allocator.free(self.cached_fns);
+        for (self.export_fns) |ei| {
+            allocator.free(ei.param_types);
+            allocator.free(ei.result_types);
+        }
+        if (self.export_fns.len > 0) allocator.free(self.export_fns);
+        allocator.destroy(self.vm);
+        self.instance.deinit();
+        if (self.wasi_ctx) |*wc| wc.deinit();
+        self.module.deinit();
+        self.store.deinit();
+        allocator.destroy(self);
+    }
+
+    /// Invoke an exported function by name.
+    /// Args and results are passed as u64 arrays.
+    pub fn invoke(self: *WasmModule, name: []const u8, args: []u64, results: []u64) !void {
+        self.vm.reset();
+        try self.vm.invoke(&self.instance, name, args, results);
+    }
+
+    /// Read bytes from linear memory at the given offset.
+    pub fn memoryRead(self: *WasmModule, allocator: Allocator, offset: u32, length: u32) ![]const u8 {
+        const mem = try self.instance.getMemory(0);
+        const mem_bytes = mem.memory();
+        const end = @as(u64, offset) + @as(u64, length);
+        if (end > mem_bytes.len) return error.OutOfBoundsMemoryAccess;
+        const result = try allocator.alloc(u8, length);
+        @memcpy(result, mem_bytes[offset..][0..length]);
+        return result;
+    }
+
+    /// Write bytes to linear memory at the given offset.
+    pub fn memoryWrite(self: *WasmModule, offset: u32, data: []const u8) !void {
+        const mem = try self.instance.getMemory(0);
+        const mem_bytes = mem.memory();
+        const end = @as(u64, offset) + @as(u64, data.len);
+        if (end > mem_bytes.len) return error.OutOfBoundsMemoryAccess;
+        @memcpy(mem_bytes[offset..][0..data.len], data);
+    }
+
+    /// Attach WIT info parsed from a .wit file.
+    pub fn setWitInfo(self: *WasmModule, funcs: []const wit_parser.WitFunc) void {
+        self.wit_funcs = funcs;
+        for (self.cached_fns) |*cf| {
+            for (funcs) |wf| {
+                if (std.mem.eql(u8, cf.name, wf.name)) {
+                    cf.wit_params = wf.params;
+                    cf.wit_result = wf.result;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Get WIT function info by name.
+    pub fn getWitFunc(self: *const WasmModule, name: []const u8) ?wit_parser.WitFunc {
+        for (self.wit_funcs) |wf| {
+            if (std.mem.eql(u8, wf.name, name)) return wf;
+        }
+        return null;
+    }
+
+    /// Lookup export function info by name.
+    pub fn getExportInfo(self: *const WasmModule, name: []const u8) ?ExportInfo {
+        for (self.export_fns) |ei| {
+            if (std.mem.eql(u8, ei.name, name)) return ei;
+        }
+        return null;
+    }
+
+    /// Lookup a cached WasmFn by export name.
+    pub fn getExportFn(self: *const WasmModule, name: []const u8) ?*const WasmFn {
+        for (self.cached_fns) |*wf| {
+            if (std.mem.eql(u8, wf.name, name)) return wf;
+        }
+        return null;
+    }
+};
+
+// ============================================================
+// WasmFn — bound Wasm function (module + export name + signature)
+// ============================================================
+
+/// A bound Wasm function — module ref + export name + signature.
+/// Callable via the raw u64 invoke interface.
+pub const WasmFn = struct {
+    module: *WasmModule,
+    name: []const u8,
+    param_types: []const WasmValType,
+    result_types: []const WasmValType,
+    /// WIT-level parameter types (null = no WIT info, use raw core types).
+    wit_params: ?[]const wit_parser.WitParam = null,
+    /// WIT-level result type (null = no WIT info).
+    wit_result: ?wit_parser.WitType = null,
+
+    /// Invoke this function with raw u64 arguments.
+    pub fn invokeRaw(self: *const WasmFn, args: []u64, results: []u64) !void {
+        try self.module.invoke(self.name, args, results);
+    }
+
+    fn cabiRealloc(self: *const WasmFn, size: u32) !u32 {
+        var realloc_args = [_]u64{ 0, 0, 1, size };
+        var realloc_results = [_]u64{0};
+        self.module.invoke("cabi_realloc", &realloc_args, &realloc_results) catch
+            return error.WasmAllocError;
+        return @truncate(realloc_results[0]);
+    }
+};
+
+// ============================================================
+// Import registration (D103: struct-based, no CW Value)
+// ============================================================
+
+/// Register all import entries (wasm module links + host functions).
+fn registerImports(
+    store: *rt.store_mod.Store,
+    module: *const rt.module_mod.Module,
+    imports: []const ImportEntry,
+    allocator: Allocator,
+) !void {
+    _ = allocator;
+    for (module.imports.items) |imp| {
+        if (imp.kind != .func) continue;
+        if (std.mem.eql(u8, imp.module, "wasi_snapshot_preview1")) continue;
+
+        // Find the matching import entry
+        const entry = findImportEntry(imports, imp.module) orelse continue;
+
+        switch (entry.source) {
+            .wasm_module => |src_module| {
+                // Copy exported function from source module's store
+                const export_addr = src_module.instance.getExportFunc(imp.name) orelse
+                    return error.ImportNotFound;
+
+                var src_func = src_module.store.getFunction(export_addr) catch
+                    return error.ImportNotFound;
+                // Reset cached pointers to avoid double-free across stores
+                if (src_func.subtype == .wasm_function) {
+                    src_func.subtype.wasm_function.branch_table = null;
+                    src_func.subtype.wasm_function.ir = null;
+                    src_func.subtype.wasm_function.ir_failed = false;
+                }
+                const addr = store.addFunction(src_func) catch
+                    return error.WasmInstantiateError;
+                store.addExport(imp.module, imp.name, .func, addr) catch
+                    return error.WasmInstantiateError;
+            },
+            .host_fns => |host_fns| {
+                // Register host callback function
+                const host_entry = findHostFn(host_fns, imp.name) orelse continue;
+
+                if (imp.index >= module.types.items.len) continue;
+                const functype = module.types.items[imp.index];
+
+                store.exposeHostFunction(
+                    imp.module,
+                    imp.name,
+                    host_entry.callback,
+                    host_entry.context,
+                    functype.params,
+                    functype.results,
+                ) catch return error.WasmInstantiateError;
+            },
+        }
+    }
+}
+
+fn findImportEntry(imports: []const ImportEntry, module_name: []const u8) ?ImportEntry {
+    for (imports) |entry| {
+        if (std.mem.eql(u8, entry.module, module_name)) return entry;
+    }
+    return null;
+}
+
+fn findHostFn(host_fns: []const HostFnEntry, func_name: []const u8) ?HostFnEntry {
+    for (host_fns) |entry| {
+        if (std.mem.eql(u8, entry.name, func_name)) return entry;
+    }
+    return null;
+}
+
+// ============================================================
+// Internal helpers
+// ============================================================
+
+/// Build export function info by introspecting the Wasm binary's exports + types.
+fn buildExportInfo(allocator: Allocator, module: *const rt.module_mod.Module) ![]const ExportInfo {
+    var func_count: usize = 0;
+    for (module.exports.items) |exp| {
+        if (exp.kind == .func) func_count += 1;
+    }
+    if (func_count == 0) return &[_]ExportInfo{};
+
+    const infos = try allocator.alloc(ExportInfo, func_count);
+    errdefer allocator.free(infos);
+
+    var idx: usize = 0;
+    for (module.exports.items) |exp| {
+        if (exp.kind != .func) continue;
+
+        const functype = module.getFuncType(exp.index) orelse continue;
+
+        const params = try allocator.alloc(WasmValType, functype.params.len);
+        errdefer allocator.free(params);
+        var valid = true;
+        for (functype.params, 0..) |p, i| {
+            params[i] = WasmValType.fromRuntime(p) orelse {
+                valid = false;
+                break;
+            };
+        }
+        if (!valid) {
+            allocator.free(params);
+            continue;
+        }
+
+        const results = try allocator.alloc(WasmValType, functype.results.len);
+        errdefer allocator.free(results);
+        for (functype.results, 0..) |r, i| {
+            results[i] = WasmValType.fromRuntime(r) orelse {
+                valid = false;
+                break;
+            };
+        }
+        if (!valid) {
+            allocator.free(params);
+            allocator.free(results);
+            continue;
+        }
+
+        infos[idx] = .{
+            .name = exp.name,
+            .param_types = params,
+            .result_types = results,
+        };
+        idx += 1;
+    }
+
+    if (idx < func_count) {
+        if (idx == 0) {
+            allocator.free(infos);
+            return &[_]ExportInfo{};
+        }
+        const trimmed = try allocator.alloc(ExportInfo, idx);
+        @memcpy(trimmed, infos[0..idx]);
+        allocator.free(infos);
+        return trimmed;
+    }
+
+    return infos;
+}
+
+/// Pre-generate WasmFn instances for all exports.
+fn buildCachedFns(allocator: Allocator, wasm_mod: *WasmModule) ![]WasmFn {
+    const exports = wasm_mod.export_fns;
+    if (exports.len == 0) return &[_]WasmFn{};
+
+    const fns = try allocator.alloc(WasmFn, exports.len);
+    for (exports, 0..) |ei, i| {
+        fns[i] = .{
+            .module = wasm_mod,
+            .name = ei.name,
+            .param_types = ei.param_types,
+            .result_types = ei.result_types,
+        };
+    }
+    return fns;
+}
+
+// ============================================================
+// Tests
+// ============================================================
+
+const testing = std.testing;
+
+test "smoke test — load and call add(3, 4)" {
+    const wasm_bytes = @embedFile("testdata/01_add.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    var args = [_]u64{ 3, 4 };
+    var results = [_]u64{0};
+    try wasm_mod.invoke("add", &args, &results);
+
+    try testing.expectEqual(@as(u64, 7), results[0]);
+}
+
+test "smoke test — fibonacci(10) = 55" {
+    const wasm_bytes = @embedFile("testdata/02_fibonacci.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    var args = [_]u64{10};
+    var results = [_]u64{0};
+    try wasm_mod.invoke("fib", &args, &results);
+
+    try testing.expectEqual(@as(u64, 55), results[0]);
+}
+
+test "memory read/write round-trip" {
+    const wasm_bytes = @embedFile("testdata/03_memory.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    try wasm_mod.memoryWrite(0, "Hello");
+    const read_back = try wasm_mod.memoryRead(testing.allocator, 0, 5);
+    defer testing.allocator.free(read_back);
+    try testing.expectEqualStrings("Hello", read_back);
+
+    try wasm_mod.memoryWrite(1024, "Wasm");
+    const read2 = try wasm_mod.memoryRead(testing.allocator, 1024, 4);
+    defer testing.allocator.free(read2);
+    try testing.expectEqualStrings("Wasm", read2);
+}
+
+test "memory write then call store/load" {
+    const wasm_bytes = @embedFile("testdata/03_memory.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    var store_args = [_]u64{ 0, 42 };
+    var store_results = [_]u64{};
+    try wasm_mod.invoke("store", &store_args, &store_results);
+
+    var load_args = [_]u64{0};
+    var load_results = [_]u64{0};
+    try wasm_mod.invoke("load", &load_args, &load_results);
+    try testing.expectEqual(@as(u64, 42), load_results[0]);
+
+    const raw = try wasm_mod.memoryRead(testing.allocator, 0, 4);
+    defer testing.allocator.free(raw);
+    const value = std.mem.readInt(u32, raw[0..4], .little);
+    try testing.expectEqual(@as(u32, 42), value);
+}
+
+test "buildExportInfo — add module exports" {
+    const wasm_bytes = @embedFile("testdata/01_add.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    try testing.expect(wasm_mod.export_fns.len > 0);
+    const add_info = wasm_mod.getExportInfo("add");
+    try testing.expect(add_info != null);
+    const info = add_info.?;
+    try testing.expectEqual(@as(usize, 2), info.param_types.len);
+    try testing.expectEqual(WasmValType.i32, info.param_types[0]);
+    try testing.expectEqual(WasmValType.i32, info.param_types[1]);
+    try testing.expectEqual(@as(usize, 1), info.result_types.len);
+    try testing.expectEqual(WasmValType.i32, info.result_types[0]);
+}
+
+test "buildExportInfo — fibonacci module exports" {
+    const wasm_bytes = @embedFile("testdata/02_fibonacci.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    const fib_info = wasm_mod.getExportInfo("fib");
+    try testing.expect(fib_info != null);
+    const info = fib_info.?;
+    try testing.expectEqual(@as(usize, 1), info.param_types.len);
+    try testing.expectEqual(WasmValType.i32, info.param_types[0]);
+    try testing.expectEqual(@as(usize, 1), info.result_types.len);
+    try testing.expectEqual(WasmValType.i32, info.result_types[0]);
+}
+
+test "buildExportInfo — memory module exports" {
+    const wasm_bytes = @embedFile("testdata/03_memory.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    const store_info = wasm_mod.getExportInfo("store");
+    try testing.expect(store_info != null);
+    try testing.expectEqual(@as(usize, 2), store_info.?.param_types.len);
+    try testing.expectEqual(@as(usize, 0), store_info.?.result_types.len);
+
+    const load_info = wasm_mod.getExportInfo("load");
+    try testing.expect(load_info != null);
+    try testing.expectEqual(@as(usize, 1), load_info.?.param_types.len);
+    try testing.expectEqual(@as(usize, 1), load_info.?.result_types.len);
+}
+
+test "getExportInfo — nonexistent name returns null" {
+    const wasm_bytes = @embedFile("testdata/01_add.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    try testing.expect(wasm_mod.getExportInfo("nonexistent") == null);
+}
+
+// Multi-module linking tests (using ImportEntry, not CW Value maps)
+
+test "multi-module — two modules, function import" {
+    // math_mod exports "add" and "mul"
+    const math_bytes = @embedFile("testdata/20_math_export.wasm");
+    var math_mod = try WasmModule.load(testing.allocator, math_bytes);
+    defer math_mod.deinit();
+
+    // Verify math module works standalone
+    var add_args = [_]u64{ 3, 4 };
+    var add_results = [_]u64{0};
+    try math_mod.invoke("add", &add_args, &add_results);
+    try testing.expectEqual(@as(u64, 7), add_results[0]);
+
+    // app_mod imports "add" and "mul" from "math", exports "add_and_mul"
+    const app_bytes = @embedFile("testdata/21_app_import.wasm");
+    var app_mod = try WasmModule.loadWithImports(testing.allocator, app_bytes, &.{
+        .{ .module = "math", .source = .{ .wasm_module = math_mod } },
+    });
+    defer app_mod.deinit();
+
+    // add_and_mul(3, 4, 5) = (3 + 4) * 5 = 35
+    var args = [_]u64{ 3, 4, 5 };
+    var results = [_]u64{0};
+    try app_mod.invoke("add_and_mul", &args, &results);
+    try testing.expectEqual(@as(u64, 35), results[0]);
+}
+
+test "multi-module — three module chain" {
+    // base exports "double"
+    const base_bytes = @embedFile("testdata/22_base.wasm");
+    var base_mod = try WasmModule.load(testing.allocator, base_bytes);
+    defer base_mod.deinit();
+
+    // mid imports "double" from "base", exports "quadruple"
+    const mid_bytes = @embedFile("testdata/23_mid.wasm");
+    var mid_mod = try WasmModule.loadWithImports(testing.allocator, mid_bytes, &.{
+        .{ .module = "base", .source = .{ .wasm_module = base_mod } },
+    });
+    defer mid_mod.deinit();
+
+    // Verify mid: quadruple(5) = 20
+    var mid_args = [_]u64{5};
+    var mid_results = [_]u64{0};
+    try mid_mod.invoke("quadruple", &mid_args, &mid_results);
+    try testing.expectEqual(@as(u64, 20), mid_results[0]);
+
+    // top imports "quadruple" from "mid", exports "octuple"
+    const top_bytes = @embedFile("testdata/24_top.wasm");
+    var top_mod = try WasmModule.loadWithImports(testing.allocator, top_bytes, &.{
+        .{ .module = "mid", .source = .{ .wasm_module = mid_mod } },
+    });
+    defer top_mod.deinit();
+
+    // octuple(3) = 3 * 8 = 24
+    var top_args = [_]u64{3};
+    var top_results = [_]u64{0};
+    try top_mod.invoke("octuple", &top_args, &top_results);
+    try testing.expectEqual(@as(u64, 24), top_results[0]);
+}
