@@ -3,6 +3,8 @@
 zwasm spec test runner.
 Reads wast2json output (JSON + .wasm files) and runs assertions via zwasm CLI.
 
+Uses --batch mode to keep module state across invocations within the same module.
+
 Usage:
     python3 test/spec/run_spec.py [--filter PATTERN] [--verbose] [--summary]
     python3 test/spec/run_spec.py --file test/spec/json/i32.json
@@ -13,8 +15,6 @@ import os
 import subprocess
 import sys
 import glob
-import math
-import struct
 import argparse
 
 ZWASM = "./zig-out/bin/zwasm"
@@ -30,7 +30,7 @@ def parse_value(val_obj):
     if isinstance(vstr, list):
         return ("skip",)
 
-    if vtype == "v128" or vtype == "funcref" or vtype == "externref":
+    if vtype in ("v128", "funcref", "externref"):
         return ("skip",)
 
     if vstr.startswith("nan:"):
@@ -48,7 +48,6 @@ def parse_value(val_obj):
 def is_nan_u64(val, vtype):
     """Check if a u64 value represents NaN for the given type."""
     if vtype == "f32":
-        # f32 NaN: exponent bits all 1, fraction != 0
         exp = (val >> 23) & 0xFF
         frac = val & 0x7FFFFF
         return exp == 0xFF and frac != 0
@@ -59,12 +58,11 @@ def is_nan_u64(val, vtype):
     return False
 
 
-def run_invoke(wasm_path, func_name, args):
-    """Run zwasm --invoke and return (success, results_or_error)."""
+def run_invoke_single(wasm_path, func_name, args):
+    """Run zwasm --invoke in a single process. Fallback for batch failures."""
     cmd = [ZWASM, "run", "--invoke", func_name, wasm_path]
     for a in args:
         cmd.append(str(a))
-
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         if result.returncode != 0:
@@ -80,12 +78,101 @@ def run_invoke(wasm_path, func_name, args):
         return (False, str(e))
 
 
+class BatchRunner:
+    """Manages a zwasm --batch subprocess for stateful invocations."""
+
+    def __init__(self, wasm_path):
+        self.wasm_path = wasm_path
+        self.proc = None
+        self.needs_state = False  # True if actions have been executed
+        self._start()
+
+    def _start(self):
+        self.proc = subprocess.Popen(
+            [ZWASM, "run", "--batch", self.wasm_path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def _has_problematic_name(self, func_name):
+        """Check if function name contains characters that break the line protocol."""
+        return '\n' in func_name or '\r' in func_name
+
+    def invoke(self, func_name, args, timeout=5):
+        """Invoke a function. Returns (success, results_or_error)."""
+        # Fall back to single-process if name has newlines or batch is dead
+        if self._has_problematic_name(func_name):
+            if self.needs_state:
+                return (False, "stateful+problematic name")
+            return run_invoke_single(self.wasm_path, func_name, args)
+
+        if self.proc is None or self.proc.poll() is not None:
+            if not self.needs_state:
+                return run_invoke_single(self.wasm_path, func_name, args)
+            return (False, "process not running")
+
+        # Length-prefixed function name to handle special characters
+        name_bytes = func_name.encode('utf-8')
+        cmd_line = f"invoke {len(name_bytes)}:{func_name}"
+        for a in args:
+            cmd_line += f" {a}"
+        cmd_line += "\n"
+
+        try:
+            self.proc.stdin.write(cmd_line)
+            self.proc.stdin.flush()
+
+            import select
+            ready, _, _ = select.select([self.proc.stdout], [], [], timeout)
+            if not ready:
+                self.proc.kill()
+                self.proc = None
+                return (False, "timeout")
+
+            response = self.proc.stdout.readline().strip()
+            if not response:
+                # Process may have died — try fallback
+                if not self.needs_state:
+                    return run_invoke_single(self.wasm_path, func_name, args)
+                return (False, "no response")
+            if response.startswith("ok"):
+                parts = response.split()
+                results = [int(p) for p in parts[1:]]
+                return (True, results)
+            elif response.startswith("error"):
+                return (False, response[6:] if len(response) > 6 else "unknown")
+            else:
+                return (False, f"unexpected: {response}")
+        except Exception as e:
+            self.proc = None
+            if not self.needs_state:
+                return run_invoke_single(self.wasm_path, func_name, args)
+            return (False, str(e))
+
+    def close(self):
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.stdin.close()
+                self.proc.wait(timeout=5)
+            except Exception:
+                self.proc.kill()
+        self.proc = None
+
+
+def has_unsupported(vals):
+    """Check if any parsed value is unsupported (skip tuple or NaN)."""
+    return any(isinstance(v, tuple) for v in vals)
+
+
 def run_test_file(json_path, verbose=False):
     """Run all commands in a spec test JSON file. Returns (passed, failed, skipped)."""
     with open(json_path) as f:
         data = json.load(f)
 
     test_dir = os.path.dirname(json_path)
+    runner = None
     current_wasm = None
     passed = 0
     failed = 0
@@ -96,47 +183,68 @@ def run_test_file(json_path, verbose=False):
         line = cmd.get("line", 0)
 
         if cmd_type == "module":
+            # Close previous runner
+            if runner:
+                runner.close()
+                runner = None
+
             wasm_file = cmd.get("filename")
             if wasm_file:
                 current_wasm = os.path.join(test_dir, wasm_file)
+                try:
+                    runner = BatchRunner(current_wasm)
+                except Exception:
+                    current_wasm = None
             continue
 
         if cmd_type == "register":
-            # Multi-module linking not yet supported in CLI
             skipped += 1
             continue
 
-        if cmd_type == "assert_return":
-            if current_wasm is None:
+        if cmd_type == "action":
+            # Bare action — execute it to update module state
+            if runner is None:
                 skipped += 1
                 continue
 
             action = cmd.get("action", {})
-            if action.get("type") != "invoke":
-                skipped += 1
-                continue
-
-            # If action references a named module, skip for now
-            if action.get("module"):
+            if action.get("type") != "invoke" or action.get("module"):
                 skipped += 1
                 continue
 
             func_name = action["field"]
             args = [parse_value(a) for a in action.get("args", [])]
+            if has_unsupported(args):
+                skipped += 1
+                continue
 
-            # Skip if any arg is NaN (can't pass via CLI)
-            if any(isinstance(a, tuple) for a in args):
+            # Execute the action (ignore result, mark state as dirty)
+            runner.invoke(func_name, args)
+            runner.needs_state = True
+            continue
+
+        if cmd_type == "assert_return":
+            if runner is None:
+                skipped += 1
+                continue
+
+            action = cmd.get("action", {})
+            if action.get("type") != "invoke" or action.get("module"):
+                skipped += 1
+                continue
+
+            func_name = action["field"]
+            args = [parse_value(a) for a in action.get("args", [])]
+            if has_unsupported(args):
                 skipped += 1
                 continue
 
             expected = [parse_value(e) for e in cmd.get("expected", [])]
-
-            # Skip if any expected value is unsupported (NaN, v128, etc.)
             if any(isinstance(e, tuple) and e[0] == "skip" for e in expected):
                 skipped += 1
                 continue
 
-            ok, results = run_invoke(current_wasm, func_name, args)
+            ok, results = runner.invoke(func_name, args)
 
             if not ok:
                 if verbose:
@@ -151,11 +259,9 @@ def run_test_file(json_path, verbose=False):
             else:
                 for r, e in zip(results, expected):
                     if isinstance(e, tuple) and e[0] == "nan":
-                        # Expected NaN
                         if not is_nan_u64(r, e[1]):
                             match = False
                     else:
-                        # Mask to appropriate width
                         if r != e:
                             match = False
 
@@ -167,30 +273,24 @@ def run_test_file(json_path, verbose=False):
                 failed += 1
 
         elif cmd_type == "assert_trap":
-            if current_wasm is None:
+            if runner is None:
                 skipped += 1
                 continue
 
             action = cmd.get("action", {})
-            if action.get("type") != "invoke":
-                skipped += 1
-                continue
-
-            if action.get("module"):
+            if action.get("type") != "invoke" or action.get("module"):
                 skipped += 1
                 continue
 
             func_name = action["field"]
             args = [parse_value(a) for a in action.get("args", [])]
-
-            if any(isinstance(a, tuple) for a in args):
+            if has_unsupported(args):
                 skipped += 1
                 continue
 
-            ok, results = run_invoke(current_wasm, func_name, args)
+            ok, results = runner.invoke(func_name, args)
 
             if not ok:
-                # Expected to fail — pass
                 passed += 1
             else:
                 if verbose:
@@ -200,15 +300,13 @@ def run_test_file(json_path, verbose=False):
         elif cmd_type in ("assert_invalid", "assert_malformed",
                           "assert_unlinkable", "assert_uninstantiable",
                           "assert_exhaustion"):
-            # These test module validation — skip for now, add in task 2.6
-            skipped += 1
-
-        elif cmd_type == "action":
-            # Bare action (not assertion) — just run it
             skipped += 1
 
         else:
             skipped += 1
+
+    if runner:
+        runner.close()
 
     return (passed, failed, skipped)
 

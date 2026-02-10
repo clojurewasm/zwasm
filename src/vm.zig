@@ -2924,13 +2924,24 @@ fn wasmMax(comptime T: type, a: T, b: T) T {
 }
 
 /// Truncate float to int, returning null for NaN/overflow (trapping version).
+/// Uses power-of-2 bounds which are exactly representable in all float types.
 fn truncSat(comptime I: type, comptime F: type, val: F) ?I {
     if (math.isNan(val)) return null;
     if (math.isInf(val)) return null;
     const trunc_val = @trunc(val);
-    const min_val: F = @floatFromInt(math.minInt(I));
-    const max_val: F = @floatFromInt(math.maxInt(I));
-    if (trunc_val < min_val or trunc_val > max_val) return null;
+    const info = @typeInfo(I).int;
+    // Upper bound: 2^(N-1) for signed, 2^N for unsigned (exact power of 2)
+    const upper: F = comptime blk: {
+        const exp = if (info.signedness == .signed) info.bits - 1 else info.bits;
+        var r: F = 1.0;
+        for (0..exp) |_| r *= 2.0;
+        break :blk r;
+    };
+    if (info.signedness == .signed) {
+        if (trunc_val >= upper or trunc_val < -upper) return null;
+    } else {
+        if (trunc_val >= upper or trunc_val < 0.0) return null;
+    }
     return @intFromFloat(trunc_val);
 }
 
@@ -2938,10 +2949,20 @@ fn truncSat(comptime I: type, comptime F: type, val: F) ?I {
 fn truncSatClamp(comptime I: type, comptime F: type, val: F) I {
     if (math.isNan(val)) return 0;
     const trunc_val = @trunc(val);
-    const min_val: F = @floatFromInt(math.minInt(I));
-    const max_val: F = @floatFromInt(math.maxInt(I));
-    if (trunc_val <= min_val) return math.minInt(I);
-    if (trunc_val >= max_val) return math.maxInt(I);
+    const info = @typeInfo(I).int;
+    const upper: F = comptime blk: {
+        const exp = if (info.signedness == .signed) info.bits - 1 else info.bits;
+        var r: F = 1.0;
+        for (0..exp) |_| r *= 2.0;
+        break :blk r;
+    };
+    if (info.signedness == .signed) {
+        if (trunc_val >= upper) return math.maxInt(I);
+        if (trunc_val < -upper) return math.minInt(I);
+    } else {
+        if (trunc_val >= upper) return math.maxInt(I);
+        if (trunc_val < 0.0) return 0;
+    }
     return @intFromFloat(trunc_val);
 }
 

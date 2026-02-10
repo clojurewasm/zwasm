@@ -65,13 +65,14 @@ fn printUsage(w: *std.Io.Writer) void {
         \\
         \\Usage:
         \\  zwasm run [options] <file.wasm> [args...]
-        \\  zwasm inspect <file.wasm>
+        \\  zwasm inspect [--json] <file.wasm>
         \\  zwasm validate <file.wasm>
         \\  zwasm version
         \\  zwasm help
         \\
         \\Run options:
         \\  --invoke <func>     Call <func> instead of _start
+        \\  --batch             Batch mode: read invocations from stdin
         \\  --dir <path>        Preopen a host directory (repeatable)
         \\  --env KEY=VALUE     Set a WASI environment variable (repeatable)
         \\
@@ -86,6 +87,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     var invoke_name: ?[]const u8 = null;
     var wasm_path: ?[]const u8 = null;
     var func_args_start: usize = 0;
+    var batch_mode = false;
 
     // Collected options
     var env_keys: std.ArrayList([]const u8) = .empty;
@@ -98,7 +100,9 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     // Parse options
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--invoke")) {
+        if (std.mem.eql(u8, args[i], "--batch")) {
+            batch_mode = true;
+        } else if (std.mem.eql(u8, args[i], "--invoke")) {
             i += 1;
             if (i >= args.len) {
                 try stderr.print("error: --invoke requires a function name\n", .{});
@@ -152,6 +156,10 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         return false;
     };
     defer allocator.free(wasm_bytes);
+
+    if (batch_mode) {
+        return cmdBatch(allocator, wasm_bytes, stdout, stderr);
+    }
 
     if (invoke_name) |func_name| {
         // Invoke a specific function with u64 args
@@ -469,6 +477,119 @@ fn printInspectJson(module: *const module_mod.Module, file_path: []const u8, siz
     });
 
     try w.print("}}\n", .{});
+}
+
+// ============================================================
+// zwasm run --batch
+// ============================================================
+
+/// Batch mode: read invocations from stdin, one per line.
+/// Protocol: "invoke <func> [arg1 arg2 ...]"
+/// Output: "ok [val1 val2 ...]" or "error <message>"
+fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
+    _ = stderr;
+    var module = types.WasmModule.load(allocator, wasm_bytes) catch |err| {
+        try stdout.print("error load {s}\n", .{@errorName(err)});
+        try stdout.flush();
+        return false;
+    };
+    defer module.deinit();
+
+    const stdin = std.fs.File.stdin();
+    var read_buf: [8192]u8 = undefined;
+    var reader = stdin.reader(&read_buf);
+    const r = &reader.interface;
+
+    // Reusable buffers for args/results
+    var arg_buf: [64]u64 = undefined;
+    var result_buf: [64]u64 = undefined;
+
+    while (true) {
+        const line = r.takeDelimiter('\n') catch |err| switch (err) {
+            error.StreamTooLong => continue,
+            else => break,
+        } orelse break;
+
+        // Skip empty lines
+        if (line.len == 0) continue;
+
+        // Parse: "invoke <len>:<func> [arg1 arg2 ...]"
+        // Function name is length-prefixed to handle special characters.
+        if (!std.mem.startsWith(u8, line, "invoke ")) {
+            try stdout.print("error unknown command\n", .{});
+            try stdout.flush();
+            continue;
+        }
+
+        const rest = line["invoke ".len..];
+        // Parse length prefix: "<len>:<func_name> [args...]"
+        const colon_pos = std.mem.indexOfScalar(u8, rest, ':') orelse {
+            try stdout.print("error missing length prefix\n", .{});
+            try stdout.flush();
+            continue;
+        };
+        const name_len = std.fmt.parseInt(usize, rest[0..colon_pos], 10) catch {
+            try stdout.print("error invalid length\n", .{});
+            try stdout.flush();
+            continue;
+        };
+        const name_start = colon_pos + 1;
+        if (name_start + name_len > rest.len) {
+            try stdout.print("error name too long\n", .{});
+            try stdout.flush();
+            continue;
+        }
+        const func_name = rest[name_start .. name_start + name_len];
+        const args_start = name_start + name_len;
+
+        // Parse arguments (space-separated after name)
+        var arg_count: usize = 0;
+        var arg_err = false;
+        if (args_start < rest.len) {
+            var parts = std.mem.splitScalar(u8, rest[args_start..], ' ');
+            while (parts.next()) |part| {
+                if (part.len == 0) continue;
+                if (arg_count >= arg_buf.len) {
+                    arg_err = true;
+                    break;
+                }
+                arg_buf[arg_count] = std.fmt.parseInt(u64, part, 10) catch {
+                    arg_err = true;
+                    break;
+                };
+                arg_count += 1;
+            }
+        }
+        if (arg_err) {
+            try stdout.print("error invalid arguments\n", .{});
+            try stdout.flush();
+            continue;
+        }
+
+        // Determine result count from export
+        var result_count: usize = 1;
+        if (module.getExportInfo(func_name)) |info| {
+            result_count = info.result_types.len;
+        }
+        if (result_count > result_buf.len) result_count = result_buf.len;
+
+        @memset(result_buf[0..result_count], 0);
+
+        module.invoke(func_name, arg_buf[0..arg_count], result_buf[0..result_count]) catch |err| {
+            try stdout.print("error {s}\n", .{@errorName(err)});
+            try stdout.flush();
+            continue;
+        };
+
+        // Output: "ok [val1 val2 ...]"
+        try stdout.print("ok", .{});
+        for (result_buf[0..result_count]) |val| {
+            try stdout.print(" {d}", .{val});
+        }
+        try stdout.print("\n", .{});
+        try stdout.flush();
+    }
+    return true;
 }
 
 // ============================================================

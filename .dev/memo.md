@@ -11,7 +11,7 @@ Session handover document. Read at session start.
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 544ms (ReleaseSafe, CLI)
 - vs wasmtime JIT: 58ms (9.4x gap — interpreter vs JIT)
-- Spec test pass rate: 28,660/30,383 (94.3%) — 151 files, 28K skipped
+- Spec test pass rate: 29,175/30,383 (96.0%) — 151 files, 28K skipped
 
 ## Strategic Position
 
@@ -41,14 +41,23 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-2.5: Fix spec test failures — analyze failure categories and fix systematically.
+2.5: Fix spec test failures — 96.0% achieved. Remaining: multi-module (1070),
+small runtime bugs (138).
 
-Initial pass rate: 24,314/30,383 (80.0%). Top failure categories:
-- table_copy/table_init: ~4,478 failures (table operations)
-- memory_trap: ~342 failures (OOB trap detection)
-- memory_copy/fill/init: ~650 failures (bulk memory ops)
-- traps/unreachable: ~90 failures (trap handling)
-- conversions: 61 failures (trunc edge cases)
+Fixes applied:
+- CLI exit code propagation for trap detection
+- Batch mode for stateful multi-invocation tests
+- truncSat overflow bounds (power-of-2 exact bounds)
+- Length-prefixed batch protocol for Unicode function names
+- Fallback to single-process for problematic function names
+
+Remaining failure categories:
+- table_copy/init (multi-module linking): ~1070
+- memory_init (multi-module): ~40
+- bulk ops (multi-module): ~23
+- f32/f64 (3 each): NaN canonicalization
+- fac-ssa: infinite loop (VM bug)
+- Various small: ~32
 
 ## Previous Task
 
