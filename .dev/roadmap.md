@@ -3,6 +3,10 @@
 Independent Zig-native WebAssembly runtime — library and CLI tool.
 Benchmark target: **wasmtime**. Optimization target: ARM64 Mac first.
 
+**Strategic Position**: zwasm is an independent Zig Wasm runtime — library AND CLI.
+NOT a ClojureWasm subproject. Design for the Zig ecosystem.
+Two delivery modes: `@import("zwasm")` library + `zwasm` CLI (like wasmtime).
+
 ## Stage 0: Extraction & Independence (COMPLETE)
 
 **Goal**: Standalone library + CLI, independent of ClojureWasm.
@@ -15,7 +19,7 @@ Benchmark target: **wasmtime**. Optimization target: ARM64 Mac first.
 - [x] CLI tool: `zwasm run`, `zwasm inspect`, `zwasm validate`
 - [x] wasmtime comparison benchmark (544ms vs 58ms, 9.4x gap on fib(35))
 
-## Stage 1: Library Quality + CLI Polish
+## Stage 1: Library Quality + CLI Polish (COMPLETE)
 
 **Goal**: Usable standalone Zig library + production CLI comparable to wasmtime basics.
 
@@ -32,7 +36,7 @@ Benchmark target: **wasmtime**. Optimization target: ARM64 Mac first.
 **Exit criteria**: External Zig project can `@import("zwasm")` and run wasm modules.
 `zwasm run hello.wasm` works like `wasmtime run hello.wasm` for basic WASI programs.
 
-## Stage 2: Spec Conformance
+## Stage 2: Spec Conformance (COMPLETE)
 
 **Goal**: WebAssembly spec test suite passing, publishable conformance numbers.
 
@@ -47,36 +51,28 @@ Benchmark target: **wasmtime**. Optimization target: ARM64 Mac first.
 
 ## Stage 3: JIT + Optimization (ARM64)
 
-**Goal**: Close the 9.4x performance gap with wasmtime via JIT compilation.
+**Goal**: Close the performance gap with wasmtime via JIT compilation.
+Approach: incremental JIT — profile first, register IR, then ARM64 codegen.
 
-Approach: incremental JIT — start with hot functions, fall back to interpreter.
+### Completed
+- 3.1: Profiling infrastructure (opcode frequency + function call counters)
+- 3.2: Benchmark suite expansion (3 layers: WAT, TinyGo, shootout)
+- 3.3: Profile hot paths (documented in .dev/profile-analysis.md)
+- 3.3b: TinyGo benchmark port
+- 3.4: Register IR design (D104)
+- 3.5: Register IR implementation (stack-to-register conversion)
+- 3.6: Register IR validation + peephole optimization
+- 3.7: ARM64 codegen design (D105)
+- 3.8: ARM64 basic block codegen (i32/i64 arithmetic + control flow)
 
-### 3.1 Profiling Infrastructure
-- Opcode frequency counters (identify hot paths)
-- Function call counters (identify hot functions)
-- Benchmark suite expansion (fib, tak, sieve, nbody, binary-trees)
+### Remaining
+- 3.9: Function-level JIT (compile entire hot functions)
+- 3.10: Tiered execution (interpreter → JIT with hot function detection)
 
-### 3.2 Register IR
-- Convert stack-based Wasm to register-based IR
-- Reduce stack traffic (biggest interpreter overhead)
-- Validate: fib(35) should be 2-3x faster with register IR alone
-
-### 3.3 ARM64 JIT (Mac)
-- ARM64 code generation for basic blocks
-- Function-level JIT (compile entire functions)
-- Tiered: interpreter → baseline JIT → optimizing JIT
-- Target: close to wasmtime single-pass tier (2-3x gap acceptable)
-
-### 3.4 Superinstruction Expansion
-- Profile-guided superinstruction generation
-- Beyond current 11 fused ops
-- Combine with register IR for maximum interpreter speedup
-
-### 3.5 Advanced Optimization
-- WASI Preview 2 (component model basics)
-- Component Model support
+### Future
+- Superinstruction expansion (profile-guided)
 - x86_64 JIT backend
-- Parallel compilation (compile modules on background threads)
+- Component Model / WASI P2
 
 **Exit criteria**: fib(35) within 2x of wasmtime JIT. ARM64 JIT stable.
 
@@ -84,7 +80,7 @@ Approach: incremental JIT — start with hot functions, fall back to interpreter
 
 | Milestone          | fib(35) target | vs wasmtime |
 |--------------------|----------------|-------------|
-| Stage 0 (current)  | 544ms          | 9.4x slower |
+| Stage 0 (baseline) | 544ms          | 9.4x slower |
 | Stage 2 + reg IR   | ~200ms         | ~3.5x       |
 | Stage 3 baseline   | ~120ms         | ~2x         |
 | Stage 3 optimized  | ~80ms          | ~1.4x       |

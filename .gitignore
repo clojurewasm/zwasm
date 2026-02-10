@@ -21,3 +21,8 @@ test/spec/json/
 
 # Private
 private/
+
+# Clojure
+.lsp/
+.cpcache/
+.clj-kondo

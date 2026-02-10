@@ -15,8 +15,6 @@ Prefix: W## (to distinguish from CW's F## items).
 |------|-------------------------------------|------------|---------------------------------------|
 | W1   | table.copy cross-table support      | CW F136    | Currently stub in CW                  |
 | W2   | table.init implementation           | CW F137    | Currently stub in CW                  |
-| ~~W3~~| ~~Error type design~~ RESOLVED      | Extraction | No EvalError remains; Zig inferred error sets are appropriate |
 | W4   | WASI fd_readdir implementation      | CW gap     | WASI P1 completion (Stage 2)          |
 | W5   | WASI sock_* family                  | CW gap     | WASI P1 completion (Stage 2)          |
-| ~~W6~~| ~~Wast test runner~~ RESOLVED       | New        | Stage 2 spec conformance (30,647/30,686 = 99.9%) |
 | W7   | Component Model basics              | New        | Stage 3                               |

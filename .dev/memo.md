@@ -18,19 +18,6 @@ Session handover document. Read at session start.
 - **Register IR**: lazy conversion at first call, fallback to stack IR on failure
 - **ARM64 JIT**: basic block codegen for i32/i64 arithmetic + control flow + function calls
 
-## Strategic Position
-
-**zwasm is an independent Zig WebAssembly runtime — library AND CLI tool.**
-
-- NOT a ClojureWasm subproject. CW is just one potential consumer.
-- Two delivery modes: `@import("zwasm")` library + `zwasm` CLI (like wasmtime)
-- Benchmark target: **wasmtime** (measure gap, close it with JIT)
-- Optimization target: ARM64 Mac first, x86_64 later
-- Position: smallest, fastest Zig-native Wasm runtime
-
-**IMPORTANT**: Do NOT make design decisions based on CW's needs.
-Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
-
 ## Task Queue
 
 Stage 3: JIT + Optimization (ARM64)
@@ -49,15 +36,8 @@ Stage 3: JIT + Optimization (ARM64)
 
 ## Current Task
 
-3.9: ARM64 function-level JIT — compile entire hot functions.
-
-Extend JIT to handle more opcodes:
-1. Memory load/store (i32.load, i32.store, etc.)
-2. Global get/set
-3. Division, remainder, clz, ctz, popcnt
-4. f32/f64 floating point operations
-5. Memory size/grow
-6. Benchmark: measure JIT speedup vs register IR interpreter
+Claude Code infrastructure setup — COMPLETE.
+Next: resume 3.9 JIT task.
 
 ## Previous Task
 
@@ -75,45 +55,13 @@ Extend JIT to handle more opcodes:
 - 6 new tests: encoding, vreg mapping, const return, i32 add, branch, fib smoke
 - JIT debugging doc: `.dev/jit-debugging.md`
 
-## Known Issues
+## Known Bugs
 
-- **fib_loop TinyGo execution bug**: zwasm returns 196608 for fib_loop(25), correct is 75025
-- **regalloc u8 overflow**: Complex WASI programs with >255 virtual registers cause panic
+See MEMORY.md § Active Bugs
 
-## Reference Chain
+## References
 
-Session resume: read this file → follow references below.
-
-### zwasm documents
-
-| Topic              | Location                                          |
-|--------------------|---------------------------------------------------|
-| Roadmap            | `.dev/roadmap.md`                                 |
-| Decisions          | `.dev/decisions.md`                               |
-| Deferred items     | `.dev/checklist.md` (W## items)                   |
-| Spec coverage      | `.dev/spec-support.md`                            |
-| Bench strategy     | `.dev/bench-strategy.md`                          |
-| Profile analysis   | `.dev/profile-analysis.md`                        |
-| JIT debugging      | `.dev/jit-debugging.md`                           |
-| Wasm spec refs     | `.dev/references/wasm-spec.md`                    |
-
-### External references
-
-| Source                | Location                                                      | Purpose                      |
-|-----------------------|---------------------------------------------------------------|------------------------------|
-| wasmtime              | `/Users/shota.508/Documents/OSS/wasmtime/`                    | Performance target, API ref  |
-| WasmResearch docs     | `/Users/shota.508/Documents/MyProducts/WasmResearch/docs/`    | Spec analysis, proposals     |
-| zware reference impl  | `/Users/shota.508/Documents/OSS/zware/`                       | Alt Zig Wasm impl            |
-| Zig tips              | `/Users/shota.508/Documents/MyProducts/ClojureWasm/.claude/references/zig-tips.md` | Zig 0.15.2 pitfalls |
-| Wasm spec tests       | https://github.com/WebAssembly/spec/tree/main/test/core       | Conformance target           |
-
-## Handover Notes
-
-- zwasm is an independent Zig Wasm runtime (library + CLI)
-- Originated from ClojureWasm src/wasm/ extraction, but now fully independent
-- Repo: `clojurewasm/zwasm` (private)
-- Workflow instructions: CW `.claude/CLAUDE.md` → "zwasm Development" section
-- Session memory: CW MEMORY.md "zwasm Project" section
-- **Design principle**: zwasm serves the Zig ecosystem, not CW specifically
-- **Stage 3 approach**: Incremental JIT — profile first, register IR, then ARM64 codegen
-- Benchmark baseline: fib(35) 544ms interpreter vs 58ms wasmtime JIT (9.4x gap)
+.dev/ docs: roadmap.md, decisions.md, checklist.md, spec-support.md,
+bench-strategy.md, profile-analysis.md, jit-debugging.md, references/wasm-spec.md
+External: wasmtime (~/Documents/OSS/wasmtime/), zware (~/Documents/OSS/zware/)
+Zig tips: .claude/references/zig-tips.md
