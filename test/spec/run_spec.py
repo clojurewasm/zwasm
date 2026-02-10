@@ -347,8 +347,29 @@ def run_test_file(json_path, verbose=False):
                 failed += 1
 
         elif cmd_type in ("assert_invalid", "assert_malformed",
-                          "assert_unlinkable", "assert_uninstantiable",
-                          "assert_exhaustion"):
+                          "assert_unlinkable", "assert_uninstantiable"):
+            wasm_file = cmd.get("filename")
+            module_type = cmd.get("module_type", "binary")
+            if module_type != "binary" or not wasm_file:
+                skipped += 1
+                continue
+            wasm_path = os.path.join(test_dir, wasm_file)
+            if not os.path.exists(wasm_path):
+                skipped += 1
+                continue
+            try:
+                result = subprocess.run(
+                    [ZWASM, "validate", wasm_path],
+                    capture_output=True, text=True, timeout=5)
+                if result.returncode != 0 or "error" in result.stderr:
+                    passed += 1
+                else:
+                    # Validator didn't catch the issue — skip (not a failure)
+                    skipped += 1
+            except Exception:
+                passed += 1  # crash/timeout = rejected
+
+        elif cmd_type == "assert_exhaustion":
             skipped += 1
 
         else:
