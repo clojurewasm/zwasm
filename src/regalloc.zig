@@ -230,6 +230,14 @@ pub fn convert(
                 const src = vstack.pop().?;
                 const dst: u8 = @intCast(instr.operand);
                 if (src != dst) {
+                    // Detach stale vstack references to dst before overwriting
+                    for (vstack.items) |*entry| {
+                        if (entry.* == dst) {
+                            const tmp = allocTemp(&next_reg, &max_reg);
+                            try code.append(alloc, .{ .op = OP_MOV, .rd = tmp, .rs1 = dst, .operand = 0 });
+                            entry.* = tmp;
+                        }
+                    }
                     try code.append(alloc, .{ .op = OP_MOV, .rd = dst, .rs1 = src, .operand = 0 });
                 }
             },
@@ -239,9 +247,17 @@ pub fn convert(
                 const src = vstack.items[vstack.items.len - 1]; // peek
                 const dst: u8 = @intCast(instr.operand);
                 if (src != dst) {
+                    // Detach stale vstack references to dst before overwriting (exclude top)
+                    for (vstack.items[0 .. vstack.items.len - 1]) |*entry| {
+                        if (entry.* == dst) {
+                            const tmp = allocTemp(&next_reg, &max_reg);
+                            try code.append(alloc, .{ .op = OP_MOV, .rd = tmp, .rs1 = dst, .operand = 0 });
+                            entry.* = tmp;
+                        }
+                    }
                     try code.append(alloc, .{ .op = OP_MOV, .rd = dst, .rs1 = src, .operand = 0 });
                 }
-                // Replace stack top with dst register (now aliased)
+                // Replace stack top with dst register
                 vstack.items[vstack.items.len - 1] = dst;
             },
 
@@ -1077,4 +1093,52 @@ test "convert — i32.const + local.set" {
     try testing.expectEqual(OP_MOV, code[1].op);
     try testing.expectEqual(@as(u8, 0), code[1].rd);
     try testing.expectEqual(OP_RETURN_VOID, code[2].op);
+}
+
+test "convert — local.tee aliasing: stale vstack reference" {
+    // Regression test for TinyGo fib_loop bug.
+    // Wasm pattern from the unrolled loop:
+    //   local.get 1       ; push b (r1)
+    //   local.get 0       ; push a (r0)
+    //   local.get 1       ; push b (r1)
+    //   i32.add           ; a + b → temp
+    //   local.tee 0       ; local0 = temp (overwrite r0)
+    //   i32.add           ; (original b) + temp
+    //   end
+    //
+    // Bug: after local.tee 0 modifies r0, the first local.get 1 result
+    // (still r1) is fine, but when local.tee modifies a register that's
+    // already on the vstack, the old reference becomes stale.
+    //
+    // More precisely: local.get 1 pushes r1, then later local.tee 1
+    // would overwrite r1, corrupting the earlier stack entry.
+    // Here we test: local.get 0, local.tee 0 overwrites r0 while r0
+    // is still on the stack from an earlier push.
+    const ir = [_]PreInstr{
+        // local.get 0, local.get 1, local.get 0, i32.add, local.tee 0, i32.add, end
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0 → push r0 (old value)
+        .{ .opcode = 0x20, .extra = 0, .operand = 1 }, // local.get 1
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0
+        .{ .opcode = 0x6A, .extra = 0, .operand = 0 }, // i32.add (r1 + r0 = temp)
+        .{ .opcode = 0x22, .extra = 0, .operand = 0 }, // local.tee 0 (r0 = temp; stale ref!)
+        .{ .opcode = 0x6A, .extra = 0, .operand = 0 }, // i32.add (old_r0 + new_r0)
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 2, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    // The second i32.add must use the OLD value of local 0, not the new value.
+    // If aliasing is broken, both operands of the final add would be the same register.
+    // Correct: the first local.get 0 should be detached to a temp before local.tee 0.
+    const last_add = code[code.len - 2]; // second-to-last is the final add (before return)
+    try testing.expectEqual(@as(u16, 0x6A), last_add.op);
+    // The two operands must be DIFFERENT registers (old r0 value vs new r0 value)
+    try testing.expect(last_add.rs1 != last_add.rs2());
 }

@@ -27,20 +27,21 @@ Session handover document. Read at session start.
 
 Stage 4: Polish & Robustness
 
-1. [ ] 4.1: Fix fib_loop TinyGo bug — returns 196608 instead of 75025
+1. [x] 4.1: Fix fib_loop TinyGo bug — regalloc aliasing in local.tee
 2. [ ] 4.2: Fix regalloc u8 overflow — >255 virtual registers → graceful fallback
 3. [ ] 4.3: Inline self-call for memory functions — use alternate reg for &vm.reg_ptr
 4. [ ] 4.4: Cross-runtime benchmark update — record comparison vs wasmtime/wasmer/bun/node
 
 ## Current Task
 
-4.1: Fix fib_loop TinyGo bug — returns 196608 instead of 75025.
-Investigation needed: run tgo_fib_loop, check interpreter vs JIT output.
+4.2: Fix regalloc u8 overflow — >255 virtual registers → graceful fallback.
 
 ## Previous Task
 
-3.14: Spill-only-needed — COMPLETE. Stage 3 EXIT CRITERIA MET.
-fib: 103ms (2.0x wasmtime). tak: 12ms. tgo_fib: 64ms.
+4.1: Fix fib_loop TinyGo bug — COMPLETE.
+Root cause: regalloc local.tee aliasing — vstack entries referencing a local register
+become stale when local.set/local.tee overwrites it. Fix: detach stale references
+to fresh temp registers before overwriting. fib_loop(25) now returns 75025 correctly.
 
 ## Known Bugs
 
