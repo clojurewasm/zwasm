@@ -28,20 +28,20 @@ Session handover document. Read at session start.
 Stage 4: Polish & Robustness
 
 1. [x] 4.1: Fix fib_loop TinyGo bug — regalloc aliasing in local.tee
-2. [ ] 4.2: Fix regalloc u8 overflow — >255 virtual registers → graceful fallback
+2. [x] 4.2: Fix regalloc u8 overflow — graceful fallback to stack IR
 3. [ ] 4.3: Inline self-call for memory functions — use alternate reg for &vm.reg_ptr
 4. [ ] 4.4: Cross-runtime benchmark update — record comparison vs wasmtime/wasmer/bun/node
 
 ## Current Task
 
-4.2: Fix regalloc u8 overflow — >255 virtual registers → graceful fallback.
+4.3: Inline self-call for memory functions — use alternate reg for &vm.reg_ptr.
 
 ## Previous Task
 
-4.1: Fix fib_loop TinyGo bug — COMPLETE.
-Root cause: regalloc local.tee aliasing — vstack entries referencing a local register
-become stale when local.set/local.tee overwrites it. Fix: detach stale references
-to fresh temp registers before overwriting. fib_loop(25) now returns 75025 correctly.
+4.2: Fix regalloc u8 overflow — COMPLETE.
+Two overflow paths: (1) total_locals > 255 → early null return, (2) temp registers
+exceed u8 → allocTemp uses @truncate, max_reg > 255 check after loop returns null.
+Both fall back gracefully to stack IR interpretation.
 
 ## Known Bugs
 

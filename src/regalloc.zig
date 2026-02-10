@@ -157,7 +157,9 @@ pub fn convert(
 ) ConvertError!?*RegFunc {
     const total_locals = param_count + local_count;
 
-    // Bail on unsupported features
+    // Bail if locals exceed u8 register range (RegInstr fields are u8)
+    if (total_locals > 255) return null;
+
     // Multi-value return (>1) not supported in register IR yet.
     // We don't know our own result count here, but the executor handles it.
     // For functions with >1 results, the caller should not use register IR.
@@ -843,6 +845,12 @@ pub fn convert(
     const compacted_len = compactCode(code.items);
     code.shrinkRetainingCapacity(compacted_len);
 
+    // Bail if temp registers exceeded u8 range
+    if (max_reg > 255) {
+        code.deinit(alloc);
+        return null;
+    }
+
     const result = try alloc.create(RegFunc);
     result.* = .{
         .code = try code.toOwnedSlice(alloc),
@@ -1002,10 +1010,10 @@ fn compactCodeProper(code_slice: []RegInstr) void {
 }
 
 fn allocTemp(next_reg: *u16, max_reg: *u16) u8 {
-    const reg: u8 = @intCast(next_reg.*);
+    const reg = next_reg.*;
     next_reg.* += 1;
     if (next_reg.* > max_reg.*) max_reg.* = next_reg.*;
-    return reg;
+    return @truncate(reg); // wraps on overflow; checked via max_reg > 255 after loop
 }
 
 // ---- Tests ----
@@ -1141,4 +1149,23 @@ test "convert — local.tee aliasing: stale vstack reference" {
     try testing.expectEqual(@as(u16, 0x6A), last_add.op);
     // The two operands must be DIFFERENT registers (old r0 value vs new r0 value)
     try testing.expect(last_add.rs1 != last_add.rs2());
+}
+
+test "convert — graceful fallback when locals exceed u8 range" {
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+    const result = try convert(testing.allocator, &ir, &.{}, 200, 100, null);
+    try testing.expect(result == null);
+}
+
+test "convert — graceful fallback when temp registers overflow u8" {
+    // 250 params + 7 i32.const temps → reg 256 overflows u8
+    var ir: [8]PreInstr = undefined;
+    for (0..7) |i| {
+        ir[i] = .{ .opcode = 0x41, .extra = 0, .operand = @intCast(i) }; // i32.const
+    }
+    ir[7] = .{ .opcode = 0x0B, .extra = 0, .operand = 0 }; // end
+    const result = try convert(testing.allocator, &ir, &.{}, 250, 0, null);
+    try testing.expect(result == null);
 }
