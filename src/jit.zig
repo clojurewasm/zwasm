@@ -481,13 +481,14 @@ const a64 = struct {
     const Cond = enum(u4) {
         eq = 0b0000, // equal
         ne = 0b0001, // not equal
-        hs = 0b0010, // unsigned >=
-        lo = 0b0011, // unsigned <
+        hs = 0b0010, // unsigned >= / carry set
+        lo = 0b0011, // unsigned < / carry clear
+        mi = 0b0100, // minus / negative (N=1) — used for FP less-than
         hi = 0b1000, // unsigned >
-        ls = 0b1001, // unsigned <=
-        ge = 0b1010, // signed >=
+        ls = 0b1001, // unsigned <= / FP less-or-equal
+        ge = 0b1010, // signed >= / FP greater-or-equal
         lt = 0b1011, // signed <
-        gt = 0b1100, // signed >
+        gt = 0b1100, // signed > / FP greater-than
         le = 0b1101, // signed <=
 
         fn invert(self: Cond) Cond {
@@ -529,6 +530,140 @@ const a64 = struct {
     fn nop() u32 {
         return 0xD503201F;
     }
+
+    // --- Floating-point (double-precision, f64) ---
+
+    /// FMOV Dd, Xn — move 64-bit GPR to FP register.
+    fn fmovToFp64(dd: u5, xn: u5) u32 {
+        return 0x9E670000 | (@as(u32, xn) << 5) | dd;
+    }
+
+    /// FMOV Xd, Dn — move FP register to 64-bit GPR.
+    fn fmovToGp64(xd: u5, dn: u5) u32 {
+        return 0x9E660000 | (@as(u32, dn) << 5) | xd;
+    }
+
+    /// FADD Dd, Dn, Dm (f64)
+    fn fadd64(dd: u5, dn: u5, dm: u5) u32 {
+        return 0x1E602800 | (@as(u32, dm) << 16) | (@as(u32, dn) << 5) | dd;
+    }
+
+    /// FSUB Dd, Dn, Dm (f64)
+    fn fsub64(dd: u5, dn: u5, dm: u5) u32 {
+        return 0x1E603800 | (@as(u32, dm) << 16) | (@as(u32, dn) << 5) | dd;
+    }
+
+    /// FMUL Dd, Dn, Dm (f64)
+    fn fmul64(dd: u5, dn: u5, dm: u5) u32 {
+        return 0x1E600800 | (@as(u32, dm) << 16) | (@as(u32, dn) << 5) | dd;
+    }
+
+    /// FDIV Dd, Dn, Dm (f64)
+    fn fdiv64(dd: u5, dn: u5, dm: u5) u32 {
+        return 0x1E601800 | (@as(u32, dm) << 16) | (@as(u32, dn) << 5) | dd;
+    }
+
+    /// FSQRT Dd, Dn (f64)
+    fn fsqrt64(dd: u5, dn: u5) u32 {
+        return 0x1E61C000 | (@as(u32, dn) << 5) | dd;
+    }
+
+    /// FABS Dd, Dn (f64)
+    fn fabs64(dd: u5, dn: u5) u32 {
+        return 0x1E60C000 | (@as(u32, dn) << 5) | dd;
+    }
+
+    /// FNEG Dd, Dn (f64)
+    fn fneg64(dd: u5, dn: u5) u32 {
+        return 0x1E614000 | (@as(u32, dn) << 5) | dd;
+    }
+
+    /// FMIN Dd, Dn, Dm (f64) — IEEE 754 minimum
+    fn fmin64(dd: u5, dn: u5, dm: u5) u32 {
+        return 0x1E605800 | (@as(u32, dm) << 16) | (@as(u32, dn) << 5) | dd;
+    }
+
+    /// FMAX Dd, Dn, Dm (f64) — IEEE 754 maximum
+    fn fmax64(dd: u5, dn: u5, dm: u5) u32 {
+        return 0x1E604800 | (@as(u32, dm) << 16) | (@as(u32, dn) << 5) | dd;
+    }
+
+    /// FCMP Dn, Dm (f64) — compare, sets NZCV flags.
+    fn fcmp64(dn: u5, dm: u5) u32 {
+        return 0x1E602000 | (@as(u32, dm) << 16) | (@as(u32, dn) << 5);
+    }
+
+    /// FCVT Sd, Dn — convert f64 to f32 (double to single)
+    fn fcvt_s_d(sd: u5, dn: u5) u32 {
+        return 0x1E624000 | (@as(u32, dn) << 5) | sd;
+    }
+
+    /// FCVT Dd, Sn — convert f32 to f64 (single to double)
+    fn fcvt_d_s(dd: u5, sn: u5) u32 {
+        return 0x1E22C000 | (@as(u32, sn) << 5) | dd;
+    }
+
+    /// FMOV Sd, Wn — move 32-bit GPR to single FP register.
+    fn fmovToFp32(sd: u5, wn: u5) u32 {
+        return 0x1E270000 | (@as(u32, wn) << 5) | sd;
+    }
+
+    /// FMOV Wd, Sn — move single FP register to 32-bit GPR.
+    fn fmovToGp32(wd: u5, sn: u5) u32 {
+        return 0x1E260000 | (@as(u32, sn) << 5) | wd;
+    }
+
+    // --- Floating-point (single-precision, f32) ---
+
+    /// FADD Sd, Sn, Sm (f32)
+    fn fadd32(sd: u5, sn: u5, sm: u5) u32 {
+        return 0x1E202800 | (@as(u32, sm) << 16) | (@as(u32, sn) << 5) | sd;
+    }
+
+    /// FSUB Sd, Sn, Sm (f32)
+    fn fsub32(sd: u5, sn: u5, sm: u5) u32 {
+        return 0x1E203800 | (@as(u32, sm) << 16) | (@as(u32, sn) << 5) | sd;
+    }
+
+    /// FMUL Sd, Sn, Sm (f32)
+    fn fmul32(sd: u5, sn: u5, sm: u5) u32 {
+        return 0x1E200800 | (@as(u32, sm) << 16) | (@as(u32, sn) << 5) | sd;
+    }
+
+    /// FDIV Sd, Sn, Sm (f32)
+    fn fdiv32(sd: u5, sn: u5, sm: u5) u32 {
+        return 0x1E201800 | (@as(u32, sm) << 16) | (@as(u32, sn) << 5) | sd;
+    }
+
+    /// FSQRT Sd, Sn (f32)
+    fn fsqrt32(sd: u5, sn: u5) u32 {
+        return 0x1E21C000 | (@as(u32, sn) << 5) | sd;
+    }
+
+    /// FABS Sd, Sn (f32)
+    fn fabs32(sd: u5, sn: u5) u32 {
+        return 0x1E20C000 | (@as(u32, sn) << 5) | sd;
+    }
+
+    /// FNEG Sd, Sn (f32)
+    fn fneg32(sd: u5, sn: u5) u32 {
+        return 0x1E214000 | (@as(u32, sn) << 5) | sd;
+    }
+
+    /// FMIN Sd, Sn, Sm (f32)
+    fn fmin32(sd: u5, sn: u5, sm: u5) u32 {
+        return 0x1E205800 | (@as(u32, sm) << 16) | (@as(u32, sn) << 5) | sd;
+    }
+
+    /// FMAX Sd, Sn, Sm (f32)
+    fn fmax32(sd: u5, sn: u5, sm: u5) u32 {
+        return 0x1E204800 | (@as(u32, sm) << 16) | (@as(u32, sn) << 5) | sd;
+    }
+
+    /// FCMP Sn, Sm (f32)
+    fn fcmp32(sn: u5, sm: u5) u32 {
+        return 0x1E202000 | (@as(u32, sm) << 16) | (@as(u32, sn) << 5);
+    }
 };
 
 // ================================================================
@@ -562,6 +697,11 @@ const MEM_BASE: u5 = 27; // x27 — linear memory base pointer
 const MEM_SIZE: u5 = 28; // x28 — linear memory size in bytes
 /// Cached &vm.reg_ptr for functions with self-calls (reuses x27 when !has_memory).
 const REG_PTR_ADDR: u5 = 27; // x27 — &vm.reg_ptr (non-memory functions only)
+
+/// Scratch FP registers for floating-point operations.
+/// d0 and d1 are caller-saved volatile FP regs on ARM64.
+const FP_SCRATCH0: u5 = 0; // d0
+const FP_SCRATCH1: u5 = 1; // d1
 
 // ================================================================
 // JIT Compiler
@@ -1108,6 +1248,53 @@ pub const Compiler = struct {
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
                 self.storeVreg(instr.rd, src); // 64-bit copy
             },
+
+            // --- f64 binary arithmetic ---
+            0xA0, 0xA1, 0xA2, 0xA3 => self.emitFpBinop64(instr),
+            // --- f64 unary ops ---
+            0x9F => self.emitFpUnop64(a64.fsqrt64, instr), // f64.sqrt
+            0x99 => self.emitFpUnop64(a64.fabs64, instr),  // f64.abs
+            0x9A => self.emitFpUnop64(a64.fneg64, instr),  // f64.neg
+            // --- f64 min/max ---
+            0xA4 => self.emitFpBinopDirect64(a64.fmin64, instr), // f64.min
+            0xA5 => self.emitFpBinopDirect64(a64.fmax64, instr), // f64.max
+            // --- f64 comparisons (NaN-safe: mi/ls not lt/le) ---
+            0x61 => self.emitFpCmp64(.eq, instr), // f64.eq
+            0x62 => self.emitFpCmp64(.ne, instr), // f64.ne
+            0x63 => self.emitFpCmp64(.mi, instr), // f64.lt  (MI: N=1, false for NaN)
+            0x64 => self.emitFpCmp64(.gt, instr), // f64.gt  (GT: Z=0∧N=V, false for NaN)
+            0x65 => self.emitFpCmp64(.ls, instr), // f64.le  (LS: C=0∨Z=1, false for NaN)
+            0x66 => self.emitFpCmp64(.ge, instr), // f64.ge  (GE: N=V, false for NaN)
+
+            // --- f32 binary arithmetic ---
+            0x92, 0x93, 0x94, 0x95 => self.emitFpBinop32(instr),
+            // --- f32 unary ops ---
+            0x91 => self.emitFpUnop32(a64.fsqrt32, instr), // f32.sqrt
+            0x8B => self.emitFpUnop32(a64.fabs32, instr),  // f32.abs
+            0x8C => self.emitFpUnop32(a64.fneg32, instr),  // f32.neg
+            // --- f32 min/max ---
+            0x96 => self.emitFpBinopDirect32(a64.fmin32, instr), // f32.min
+            0x97 => self.emitFpBinopDirect32(a64.fmax32, instr), // f32.max
+            // --- f32 comparisons (NaN-safe: mi/ls not lt/le) ---
+            0x5B => self.emitFpCmp32(.eq, instr), // f32.eq
+            0x5C => self.emitFpCmp32(.ne, instr), // f32.ne
+            0x5D => self.emitFpCmp32(.mi, instr), // f32.lt
+            0x5E => self.emitFpCmp32(.gt, instr), // f32.gt
+            0x5F => self.emitFpCmp32(.ls, instr), // f32.le
+            0x60 => self.emitFpCmp32(.ge, instr), // f32.ge
+
+            // --- f64 conversions ---
+            0xB7 => self.emitFpConvert_f64_i32_s(instr),  // f64.convert_i32_s
+            0xB8 => self.emitFpConvert_f64_i32_u(instr),  // f64.convert_i32_u
+            0xB9 => self.emitFpConvert_f64_i64_s(instr),  // f64.convert_i64_s
+            0xBA => self.emitFpConvert_f64_i64_u(instr),  // f64.convert_i64_u
+            0xBB => self.emitFpPromote(instr),             // f64.promote_f32
+            // --- f32 conversions ---
+            0xB2 => self.emitFpConvert_f32_i32_s(instr),  // f32.convert_i32_s
+            0xB3 => self.emitFpConvert_f32_i32_u(instr),  // f32.convert_i32_u
+            0xB4 => self.emitFpConvert_f32_i64_s(instr),  // f32.convert_i64_s
+            0xB5 => self.emitFpConvert_f32_i64_u(instr),  // f32.convert_i64_u
+            0xB6 => self.emitFpDemote(instr),              // f32.demote_f64
 
             // --- Sign extension (Wasm 2.0) ---
             0xC0 => { // i32.extend8_s — SXTB Wd, Wn
@@ -1765,6 +1952,219 @@ pub const Compiler = struct {
             }
             self.emit(a64.add64(dst, VM_PTR, dst));
         }
+    }
+
+    // --- Floating-point emitters (f64) ---
+
+    /// f64 binary: add/sub/mul/div. GPR→FPR, compute, FPR→GPR.
+    fn emitFpBinop64(self: *Compiler, instr: RegInstr) void {
+        const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        self.emit(a64.fmovToFp64(FP_SCRATCH0, rs1));
+        self.emit(a64.fmovToFp64(FP_SCRATCH1, rs2));
+        const enc: u32 = switch (instr.op) {
+            0xA0 => a64.fadd64(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1),
+            0xA1 => a64.fsub64(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1),
+            0xA2 => a64.fmul64(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1),
+            0xA3 => a64.fdiv64(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1),
+            else => unreachable,
+        };
+        self.emit(enc);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f64 binary with direct FP instruction (min/max).
+    fn emitFpBinopDirect64(self: *Compiler, fpOp: fn (u5, u5, u5) u32, instr: RegInstr) void {
+        const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        self.emit(a64.fmovToFp64(FP_SCRATCH0, rs1));
+        self.emit(a64.fmovToFp64(FP_SCRATCH1, rs2));
+        self.emit(fpOp(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1));
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f64 unary (sqrt/abs/neg). GPR→FPR, compute, FPR→GPR.
+    fn emitFpUnop64(self: *Compiler, fpOp: fn (u5, u5) u32, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
+        self.emit(fpOp(FP_SCRATCH0, FP_SCRATCH0));
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f64 comparison: FCMP + CSET.
+    fn emitFpCmp64(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
+        const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        self.emit(a64.fmovToFp64(FP_SCRATCH0, rs1));
+        self.emit(a64.fmovToFp64(FP_SCRATCH1, rs2));
+        self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+        const d = destReg(instr.rd);
+        // For FP comparisons: eq/ne use eq/ne; lt uses MI; le uses LS; gt uses GT; ge uses GE.
+        self.emit(a64.cset32(d, cond));
+        self.storeVreg(instr.rd, d);
+    }
+
+    // --- Floating-point emitters (f32) ---
+
+    /// f32 binary: add/sub/mul/div. GPR→FPR, compute, FPR→GPR.
+    fn emitFpBinop32(self: *Compiler, instr: RegInstr) void {
+        const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        self.emit(a64.fmovToFp32(FP_SCRATCH0, rs1));
+        self.emit(a64.fmovToFp32(FP_SCRATCH1, rs2));
+        const enc: u32 = switch (instr.op) {
+            0x92 => a64.fadd32(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1),
+            0x93 => a64.fsub32(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1),
+            0x94 => a64.fmul32(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1),
+            0x95 => a64.fdiv32(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1),
+            else => unreachable,
+        };
+        self.emit(enc);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f32 binary with direct FP instruction (min/max).
+    fn emitFpBinopDirect32(self: *Compiler, fpOp: fn (u5, u5, u5) u32, instr: RegInstr) void {
+        const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        self.emit(a64.fmovToFp32(FP_SCRATCH0, rs1));
+        self.emit(a64.fmovToFp32(FP_SCRATCH1, rs2));
+        self.emit(fpOp(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1));
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f32 unary (sqrt/abs/neg).
+    fn emitFpUnop32(self: *Compiler, fpOp: fn (u5, u5) u32, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
+        self.emit(fpOp(FP_SCRATCH0, FP_SCRATCH0));
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f32 comparison: FCMP + CSET.
+    fn emitFpCmp32(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
+        const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        self.emit(a64.fmovToFp32(FP_SCRATCH0, rs1));
+        self.emit(a64.fmovToFp32(FP_SCRATCH1, rs2));
+        self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH1));
+        const d = destReg(instr.rd);
+        self.emit(a64.cset32(d, cond));
+        self.storeVreg(instr.rd, d);
+    }
+
+    // --- Floating-point conversion emitters ---
+
+    /// f64.convert_i32_s: SCVTF Dd, Wn
+    fn emitFpConvert_f64_i32_s(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        // SCVTF Dd, Wn: 0x1E620000
+        self.emit(0x1E620000 | (@as(u32, src) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f64.convert_i32_u: UCVTF Dd, Wn
+    fn emitFpConvert_f64_i32_u(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        // UCVTF Dd, Wn: 0x1E630000
+        self.emit(0x1E630000 | (@as(u32, src) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f64.convert_i64_s: SCVTF Dd, Xn
+    fn emitFpConvert_f64_i64_s(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        // SCVTF Dd, Xn: 0x9E620000
+        self.emit(0x9E620000 | (@as(u32, src) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f64.convert_i64_u: UCVTF Dd, Xn
+    fn emitFpConvert_f64_i64_u(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        // UCVTF Dd, Xn: 0x9E630000
+        self.emit(0x9E630000 | (@as(u32, src) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f64.promote_f32: FCVT Dd, Sn
+    fn emitFpPromote(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
+        self.emit(a64.fcvt_d_s(FP_SCRATCH0, FP_SCRATCH0));
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f32.convert_i32_s: SCVTF Sd, Wn
+    fn emitFpConvert_f32_i32_s(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        // SCVTF Sd, Wn: 0x1E220000
+        self.emit(0x1E220000 | (@as(u32, src) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f32.convert_i32_u: UCVTF Sd, Wn
+    fn emitFpConvert_f32_i32_u(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        // UCVTF Sd, Wn: 0x1E230000
+        self.emit(0x1E230000 | (@as(u32, src) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f32.convert_i64_s: SCVTF Sd, Xn
+    fn emitFpConvert_f32_i64_s(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        // SCVTF Sd, Xn: 0x9E220000
+        self.emit(0x9E220000 | (@as(u32, src) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f32.convert_i64_u: UCVTF Sd, Xn
+    fn emitFpConvert_f32_i64_u(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        // UCVTF Sd, Xn: 0x9E230000
+        self.emit(0x9E230000 | (@as(u32, src) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f32.demote_f64: FCVT Sd, Dn
+    fn emitFpDemote(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
+        self.emit(a64.fcvt_s_d(FP_SCRATCH0, FP_SCRATCH0));
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
     }
 
     // --- Error stub emission ---

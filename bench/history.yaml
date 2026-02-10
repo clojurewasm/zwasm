@@ -205,3 +205,25 @@ entries:
       st_nestedloop: {time_ms: 4.4}
       st_ackermann: {time_ms: 6.0}
       st_matrix: {time_ms: 2723.2}
+  - id: "5.3"
+    date: "2026-02-11"
+    reason: "f64 ARM64 JIT codegen"
+    commit: "24b3820"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 103.3}
+      tak: {time_ms: 12.2}
+      sieve: {time_ms: 5.0}
+      nbody: {time_ms: 59.7}
+      nqueens: {time_ms: 3.0}
+      tgo_fib: {time_ms: 64.4}
+      tgo_tak: {time_ms: 10.6}
+      tgo_arith: {time_ms: 1.8}
+      tgo_sieve: {time_ms: 20.7}
+      tgo_fib_loop: {time_ms: 1.9}
+      tgo_gcd: {time_ms: 1.9}
+      st_fib2: {time_ms: 1755.8}
+      st_sieve: {time_ms: 6011.5}
+      st_nestedloop: {time_ms: 4.1}
+      st_ackermann: {time_ms: 6.6}
+      st_matrix: {time_ms: 2718.6}
