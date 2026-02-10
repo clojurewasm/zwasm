@@ -34,7 +34,7 @@ Stage 3: JIT + Optimization (ARM64)
 
 1. [x] 3.1: Profiling infrastructure — opcode frequency + function call counters
 2. [x] 3.2: Benchmark suite expansion — tak, sieve, nbody + updated scripts
-3. [ ] 3.3: Profile hot paths — analyze benchmark profiles, document bottleneck patterns
+3. [x] 3.3: Profile hot paths — analyzed, documented in .dev/profile-analysis.md
 4. [ ] 3.4: Register IR design — D## decision for IR representation
 5. [ ] 3.5: Register IR implementation — stack-to-register conversion pass
 6. [ ] 3.6: Register IR validation — benchmark, target 2-3x speedup over stack interpreter
@@ -45,19 +45,24 @@ Stage 3: JIT + Optimization (ARM64)
 
 ## Current Task
 
-3.3: Profile hot paths — analyze benchmark profiles, document bottleneck patterns.
+3.4: Register IR design — D## decision for IR representation.
 
-Run all benchmarks with --profile, analyze opcode distribution, identify:
-- Which opcodes dominate each workload category
-- Stack traffic patterns (local.get/set frequency)
-- Call overhead (function call % of total)
-- Memory access patterns (load/store frequency)
-Document findings for register IR design decisions.
+Design the register-based intermediate representation:
+- Virtual register mapping (locals → regs, stack temps → regs)
+- IR instruction format (3-address vs 2-address)
+- Control flow representation (basic blocks, branch targets)
+- Integration with existing predecoded IR path
+- Key insight from profiling: stack traffic (30-50% of instrs) is the #1 target
 
 ## Previous Task
 
-3.2: Benchmark suite expansion — COMPLETE.
-3.1: Profiling infrastructure — COMPLETE.
+3.3: Profile hot paths — COMPLETE.
+Key findings (see `.dev/profile-analysis.md`):
+- Stack traffic (local.get/set) = 30-50% of all instructions — #1 target
+- Control flow overhead = 30-40% in recursive benchmarks
+- Float ops = 28% in nbody — need good f64 register allocation
+- Memory access = 13-25% in memory-heavy workloads
+- Baseline: fib(35) 568ms, sieve(1M) 49ms, nbody(1M) 195ms
 - `Profile` struct in vm.zig: opcode_counts[256], misc_counts[32], call_count, total_instrs
 - Zero overhead when disabled (null pointer check, default)
 - `--profile` CLI flag for `zwasm run`
