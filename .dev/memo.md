@@ -38,22 +38,17 @@ st_fib2: 1754ms (2.6x wasmtime). st_ackermann: 6ms (beats wasmtime). nbody: 60ms
 1. [x] 5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass
 2. [x] 5.2: Close remaining gaps (st_sieve/matrix regIR opcode coverage)
 3. [x] 5.3: f64/f32 ARM64 JIT — nbody 133→60ms (2.2x speedup)
-4. [ ] 5.4: Re-record cross-runtime benchmarks
+4. [x] 5.4: Re-record cross-runtime benchmarks
 
 ## Current Task
 
-5.4: Re-record cross-runtime benchmarks after Stage 5 improvements.
+Stage 5 complete. Planning Stage 6.
 
 ## Previous Task
 
-5.3: f64/f32 ARM64 JIT — COMPLETE.
-Added full f64/f32 JIT codegen: arithmetic (add/sub/mul/div), unary (sqrt/abs/neg),
-min/max, comparisons (NaN-safe: MI/LS conditions for lt/le), conversions
-(i32/i64↔f64/f32, promote/demote). Strategy: GPR↔FPR via FMOV, compute in
-d0/d1 scratch FP regs. nbody: 133ms → 60ms (2.2x speedup), gap vs wasmtime
-reduced from 6.2x to 2.7x.
-Key remaining gap: st_sieve/st_matrix still use regIR interpreter (no JIT for
-memory load/store with bounds check, br_table). Need JIT expansion for these.
+5.4: Re-record cross-runtime benchmarks — COMPLETE.
+JIT'd: sieve 0.8x, nqueens 0.5x, tak 1.3x, fib 2.2x, nbody 2.7x.
+Non-JIT'd gaps: st_sieve 30x, st_matrix 31x (need memory/br_table JIT).
 
 ## Known Bugs
 

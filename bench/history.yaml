@@ -227,3 +227,25 @@ entries:
       st_nestedloop: {time_ms: 4.1}
       st_ackermann: {time_ms: 6.6}
       st_matrix: {time_ms: 2718.6}
+  - id: "5.4"
+    date: "2026-02-11"
+    reason: "Stage 5 final — f64 JIT, regIR expansion"
+    commit: "4dbb26e"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 115.8}
+      tak: {time_ms: 12.3}
+      sieve: {time_ms: 5.5}
+      nbody: {time_ms: 66.2}
+      nqueens: {time_ms: 2.0}
+      tgo_fib: {time_ms: 69.2}
+      tgo_tak: {time_ms: 11.0}
+      tgo_arith: {time_ms: 2.0}
+      tgo_sieve: {time_ms: 22.3}
+      tgo_fib_loop: {time_ms: 1.8}
+      tgo_gcd: {time_ms: 2.1}
+      st_fib2: {time_ms: 1954.4}
+      st_sieve: {time_ms: 6586.3}
+      st_nestedloop: {time_ms: 5.1}
+      st_ackermann: {time_ms: 8.6}
+      st_matrix: {time_ms: 2921.5}

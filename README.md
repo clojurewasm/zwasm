@@ -28,13 +28,13 @@ zwasm was extracted from [ClojureWasm](https://github.com/clojurewasm/ClojureWas
 
 Some benchmarks already match or beat wasmtime. JIT coverage expansion is ongoing.
 
-| Benchmark     | zwasm   | wasmtime | Ratio   |
-|---------------|--------:|---------:|--------:|
-| sieve(1M)     | 5ms     | 6ms      | **0.8x** |
-| nqueens(8)    | 2ms     | 5ms      | **0.4x** |
-| tak(24,16,8)  | 11ms    | 10ms     | 1.1x    |
-| fib(35)       | 104ms   | 51ms     | 2.0x    |
-| nbody(1M)     | 60ms    | 22ms     | 2.7x    |
+| Benchmark     | zwasm   | wasmtime | Ratio    |
+|---------------|--------:|---------:|---------:|
+| sieve(1M)     | 6ms     | 7ms      | **0.8x** |
+| nqueens(8)    | 2ms     | 5ms      | **0.5x** |
+| tak(24,16,8)  | 14ms    | 11ms     | 1.3x     |
+| fib(35)       | 117ms   | 54ms     | 2.2x     |
+| nbody(1M)     | 64ms    | 24ms     | 2.7x     |
 
 ## Usage
 
