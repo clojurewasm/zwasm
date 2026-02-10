@@ -227,8 +227,11 @@ for entry in "${BENCHMARKS[@]}"; do
     cmd=$(build_cmd "$rt" "$wasm" "$func" "$bench_args" "$kind")
     json_file="$TMPDIR_BENCH/${name}_${rt}.json"
 
-    # Speed: hyperfine
-    hyperfine --warmup "$WARMUP" --runs "$RUNS" --export-json "$json_file" "$cmd" >/dev/null 2>&1
+    # Speed: hyperfine (skip runtime if it fails)
+    if ! hyperfine --warmup "$WARMUP" --runs "$RUNS" --export-json "$json_file" "$cmd" >/dev/null 2>&1; then
+      printf "  %-10s   FAILED\n" "$rt"
+      continue
+    fi
     time_ms=$(python3 -c "
 import json
 with open('$json_file') as f:

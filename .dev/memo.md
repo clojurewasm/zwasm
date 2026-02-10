@@ -30,20 +30,20 @@ Stage 4: Polish & Robustness
 1. [x] 4.1: Fix fib_loop TinyGo bug — regalloc aliasing in local.tee
 2. [x] 4.2: Fix regalloc u8 overflow — graceful fallback to stack IR
 3. [x] 4.3: Inline self-call for memory functions — recompute reg_ptr addr via SCRATCH
-4. [ ] 4.4: Cross-runtime benchmark update — record comparison vs wasmtime/wasmer/bun/node
+4. [x] 4.4: Cross-runtime benchmark update — recorded comparison vs 5 runtimes
 
 ## Current Task
 
-4.4: Cross-runtime benchmark update — record comparison vs wasmtime/wasmer/bun/node.
+(none — Stage 4 task queue empty)
 
 ## Previous Task
 
-4.3: Inline self-call for memory functions — COMPLETE.
-Generalized emitLoadRegPtrAddr to accept any dest register. For memory functions,
-&vm.reg_ptr is computed into SCRATCH (x8) before and after BL, since x27 is
-reserved for MEM_BASE. Non-memory path unchanged (uses cached x27).
-Performance impact minimal (~1% on tgo_fib) since the 6 extra instructions are
-small compared to the memory access overhead.
+4.4: Cross-runtime benchmark update — COMPLETE.
+Fixed record_comparison.sh to handle runtime failures gracefully.
+Recorded comparison vs wasmtime/wasmer/bun/node (wasmer 5.0.4 fails TinyGo --invoke).
+Key results: fib 104ms (2.0x wasmtime), sieve 5ms (beats wasmtime 6ms),
+nqueens 2ms (beats all), tak 11ms (1.1x wasmtime).
+Memory: zwasm 2-3MB vs wasmtime 12MB / bun 32MB / node 43MB.
 
 ## Known Bugs
 
