@@ -11,7 +11,7 @@ Session handover document. Read at session start.
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 544ms (ReleaseSafe, CLI)
 - vs wasmtime JIT: 58ms (9.4x gap — interpreter vs JIT)
-- Spec test pass rate: 24,314/30,383 (80.0%) — 151 files, 28K skipped
+- Spec test pass rate: 28,660/30,383 (94.3%) — 151 files, 28K skipped
 
 ## Strategic Position
 

@@ -40,7 +40,9 @@ pub fn main() !void {
     const command = args[1];
 
     if (std.mem.eql(u8, command, "run")) {
-        try cmdRun(allocator, args[2..], stdout, stderr);
+        const ok = try cmdRun(allocator, args[2..], stdout, stderr);
+        try stdout.flush();
+        if (!ok) std.process.exit(1);
     } else if (std.mem.eql(u8, command, "inspect")) {
         try cmdInspect(allocator, args[2..], stdout, stderr);
     } else if (std.mem.eql(u8, command, "validate")) {
@@ -80,7 +82,7 @@ fn printUsage(w: *std.Io.Writer) void {
 // zwasm run
 // ============================================================
 
-fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !void {
+fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
     var invoke_name: ?[]const u8 = null;
     var wasm_path: ?[]const u8 = null;
     var func_args_start: usize = 0;
@@ -101,7 +103,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             if (i >= args.len) {
                 try stderr.print("error: --invoke requires a function name\n", .{});
                 try stderr.flush();
-                return;
+                return false;
             }
             invoke_name = args[i];
         } else if (std.mem.eql(u8, args[i], "--dir")) {
@@ -109,7 +111,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             if (i >= args.len) {
                 try stderr.print("error: --dir requires a path\n", .{});
                 try stderr.flush();
-                return;
+                return false;
             }
             try preopen_paths.append(allocator, args[i]);
         } else if (std.mem.eql(u8, args[i], "--env")) {
@@ -117,7 +119,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             if (i >= args.len) {
                 try stderr.print("error: --env requires KEY=VALUE\n", .{});
                 try stderr.flush();
-                return;
+                return false;
             }
             if (std.mem.indexOfScalar(u8, args[i], '=')) |eq_pos| {
                 try env_keys.append(allocator, args[i][0..eq_pos]);
@@ -125,12 +127,12 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             } else {
                 try stderr.print("error: --env value must be KEY=VALUE, got '{s}'\n", .{args[i]});
                 try stderr.flush();
-                return;
+                return false;
             }
         } else if (args[i].len > 0 and args[i][0] == '-') {
             try stderr.print("error: unknown option '{s}'\n", .{args[i]});
             try stderr.flush();
-            return;
+            return false;
         } else {
             wasm_path = args[i];
             func_args_start = i + 1;
@@ -141,13 +143,13 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     const path = wasm_path orelse {
         try stderr.print("error: no wasm file specified\n", .{});
         try stderr.flush();
-        return;
+        return false;
     };
 
     const wasm_bytes = readFile(allocator, path) catch |err| {
         try stderr.print("error: cannot read '{s}': {s}\n", .{ path, @errorName(err) });
         try stderr.flush();
-        return;
+        return false;
     };
     defer allocator.free(wasm_bytes);
 
@@ -156,7 +158,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         var module = types.WasmModule.load(allocator, wasm_bytes) catch |err| {
             try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
             try stderr.flush();
-            return;
+            return false;
         };
         defer module.deinit();
 
@@ -169,7 +171,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             wasm_args[idx] = std.fmt.parseInt(u64, arg, 10) catch {
                 try stderr.print("error: invalid argument '{s}' (expected integer)\n", .{arg});
                 try stderr.flush();
-                return;
+                return false;
             };
         }
 
@@ -186,7 +188,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         module.invoke(func_name, wasm_args, results) catch |err| {
             try stderr.print("error: invoke '{s}' failed: {s}\n", .{ func_name, @errorName(err) });
             try stderr.flush();
-            return;
+            return false;
         };
 
         // Print results
@@ -217,7 +219,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         }) catch |err| {
             try stderr.print("error: failed to load WASI module: {s}\n", .{@errorName(err)});
             try stderr.flush();
-            return;
+            return false;
         };
         defer module.deinit();
 
@@ -227,11 +229,11 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             // proc_exit triggers a Trap — check if exit_code was set
             if (module.getWasiExitCode()) |code| {
                 if (code != 0) std.process.exit(@truncate(code));
-                return;
+                return true;
             }
             try stderr.print("error: _start failed: {s}\n", .{@errorName(err)});
             try stderr.flush();
-            return;
+            return false;
         };
 
         // Normal completion — check for explicit exit code
@@ -239,6 +241,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             if (code != 0) std.process.exit(@truncate(code));
         }
     }
+    return true;
 }
 
 // ============================================================
