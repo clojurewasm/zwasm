@@ -8,7 +8,8 @@ Session handover document. Read at session start.
 - Source: 10,398 LOC, 11 files, 115 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
-- Benchmark baseline: fib(35) = 586ms (ReleaseSafe, standalone)
+- Benchmark: fib(35) = 544ms (ReleaseSafe, CLI)
+- vs wasmtime JIT: 58ms (9.4x gap — interpreter vs JIT)
 - Spec test pass rate: TBD (no wast runner yet)
 
 ## Strategic Position
@@ -30,7 +31,7 @@ Stage 0.9: Independence & CLI (direction correction)
 
 1. [x] 0.9.1: Fix license headers (EPL→MIT) and remove CW references from source
 2. [x] 0.9.2: CLI tool (`zwasm run`, `zwasm inspect`, `zwasm validate`)
-3. [ ] 0.9.3: wasmtime comparison benchmark (hyperfine zwasm vs wasmtime)
+3. [x] 0.9.3: wasmtime comparison benchmark (hyperfine zwasm vs wasmtime)
 4. [ ] 0.9.4: Update roadmap for independent library + JIT optimization track
 
 Stage 1 (planned): Library Quality + CLI Polish
@@ -39,18 +40,20 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-0.9.3: wasmtime comparison benchmark — hyperfine zwasm vs wasmtime on fib(35).
-Establish the performance gap for optimization planning.
+0.9.4: Update roadmap for independent library + JIT optimization track.
+Revise .dev/roadmap.md to reflect the independent positioning and add
+JIT/optimization stages.
 
 ## Previous Task
 
-0.9.2: CLI tool implemented — `zwasm run`, `zwasm inspect`, `zwasm validate`.
-- src/cli.zig: argument parsing, WASI support, function signatures in inspect
-- All 3 commands tested on fib + wasi_hello modules
+0.9.3: wasmtime comparison benchmark established.
+- bench/compare_wasmtime.sh: hyperfine zwasm vs wasmtime
+- Result: zwasm 544ms vs wasmtime 58ms (9.4x gap on fib(35))
+- Gap is expected (interpreter vs JIT) — closing it is the JIT goal
 
 ## Known Issues
 
-- No wasmtime comparison benchmark yet
+- None currently open
 
 ## Reference Chain
 
