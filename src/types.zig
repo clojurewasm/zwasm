@@ -388,6 +388,9 @@ fn registerImports(
                     src_func.subtype.wasm_function.ir_failed = false;
                     src_func.subtype.wasm_function.reg_ir = null;
                     src_func.subtype.wasm_function.reg_ir_failed = false;
+                    src_func.subtype.wasm_function.jit_code = null;
+                    src_func.subtype.wasm_function.jit_failed = false;
+                    src_func.subtype.wasm_function.call_count = 0;
                 }
                 const addr = store.addFunction(src_func) catch
                     return error.WasmInstantiateError;

@@ -8,6 +8,7 @@
 //! Cross-compile friendly: no .always_tail, pure switch dispatch.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
@@ -27,6 +28,7 @@ const predecode_mod = @import("predecode.zig");
 const PreInstr = predecode_mod.PreInstr;
 const regalloc_mod = @import("regalloc.zig");
 const RegInstr = regalloc_mod.RegInstr;
+pub const jit_mod = @import("jit.zig");
 
 pub const WasmError = error{
     Trap,
@@ -302,7 +304,7 @@ pub const Vm = struct {
     }
 
     /// Call a function (wasm or host) with given args, writing results.
-    fn callFunction(
+    pub fn callFunction(
         self: *Vm,
         instance: *Instance,
         func_ptr: *store_mod.Function,
@@ -352,6 +354,25 @@ pub const Vm = struct {
                 }
 
                 if (wf.reg_ir) |reg| {
+                    // JIT compilation: check hot threshold (skip when profiling)
+                    if (builtin.cpu.arch == .aarch64 and self.profile == null and
+                        wf.jit_code == null and !wf.jit_failed)
+                    {
+                        wf.call_count += 1;
+                        if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
+                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64);
+                            if (wf.jit_code == null) wf.jit_failed = true;
+                        }
+                    }
+
+                    // JIT path: execute native code (skip when profiling)
+                    if (self.profile == null) {
+                        if (wf.jit_code) |jc| {
+                            try self.executeJIT(jc, reg, inst, func_ptr, args, results);
+                            return;
+                        }
+                    }
+
                     // Register IR path: register file instead of operand stack
                     try self.executeRegIR(reg, wf.ir.?.pool64, inst, func_ptr, args, results);
                     return;
@@ -1946,6 +1967,51 @@ pub const Vm = struct {
             },
             .forward, .loop_start => unreachable, // never in IR path
         }
+    }
+
+    // ================================================================
+    // JIT execution (D105)
+    // ================================================================
+
+    fn executeJIT(
+        self: *Vm,
+        jc: *jit_mod.JitCode,
+        reg: *regalloc_mod.RegFunc,
+        instance: *Instance,
+        func_ptr: *store_mod.Function,
+        args: []const u64,
+        results: []u64,
+    ) WasmError!void {
+        _ = func_ptr;
+        // Set up register file on Vm's reg_stack
+        const base = self.reg_ptr;
+        const needed: usize = reg.reg_count;
+        if (base + needed > REG_STACK_SIZE) return error.Trap;
+        const regs = self.reg_stack[base .. base + needed];
+        self.reg_ptr = base + needed;
+        defer self.reg_ptr = base;
+
+        // Copy args to registers
+        for (args, 0..) |arg, i| regs[i] = arg;
+        for (args.len..reg.local_count) |i| regs[i] = 0;
+
+        // Call JIT-compiled function
+        const err_code = jc.entry(regs.ptr, @ptrCast(self), @ptrCast(instance));
+
+        if (err_code != 0) {
+            return switch (err_code) {
+                1 => error.Trap,
+                2 => error.StackOverflow,
+                3 => error.DivisionByZero,
+                4 => error.IntegerOverflow,
+                5 => error.Unreachable,
+                6 => error.OutOfBoundsMemoryAccess,
+                else => error.Trap,
+            };
+        }
+
+        // Result is in regs[0]
+        if (results.len > 0) results[0] = regs[0];
     }
 
     // ================================================================

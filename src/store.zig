@@ -53,11 +53,18 @@ pub const WasmFunction = struct {
     reg_ir: ?*regalloc_mod.RegFunc = null,
     /// True if register IR conversion was attempted and failed.
     reg_ir_failed: bool = false,
+    /// JIT-compiled native code (lazy: compiled after hot threshold).
+    jit_code: ?*jit_mod.JitCode = null,
+    /// True if JIT compilation was attempted and failed.
+    jit_failed: bool = false,
+    /// Call count for hot function detection.
+    call_count: u32 = 0,
 };
 
 const vm_mod = @import("vm.zig");
 const predecode_mod = @import("predecode.zig");
 const regalloc_mod = @import("regalloc.zig");
+const jit_mod = @import("jit.zig");
 
 /// Host function callback signature.
 /// Takes a pointer to the VM and a context value.
@@ -236,6 +243,9 @@ pub const Store = struct {
                     const alloc = reg.alloc;
                     reg.deinit();
                     alloc.destroy(reg);
+                }
+                if (f.subtype.wasm_function.jit_code) |jc| {
+                    jc.deinit(self.alloc);
                 }
             }
         }

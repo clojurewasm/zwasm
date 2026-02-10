@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - **Stage 0: Extraction & Independence** — COMPLETE (tasks 0.1-0.7, 0.9.1-0.9.4)
 - **Stage 1: Library Quality + CLI Polish** — COMPLETE (tasks 1.1-1.7)
 - **Stage 2: Spec Conformance** — COMPLETE (tasks 2.1-2.7)
-- Source: ~12K LOC, 13 files (+ cli.zig, 3 examples), 121 tests all pass
+- Source: ~13K LOC, 14 files (+ cli.zig, 3 examples), 127 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 443ms (ReleaseSafe, CLI, register IR + fusion)
@@ -16,6 +16,7 @@ Session handover document. Read at session start.
 - Spec test pass rate: 30,648/30,686 (99.9%) — 151 files, 28K skipped
 - CI: GitHub Actions (ubuntu + macOS, zig build test + spec tests)
 - **Register IR**: lazy conversion at first call, fallback to stack IR on failure
+- **ARM64 JIT**: basic block codegen for i32/i64 arithmetic + control flow + function calls
 
 ## Strategic Position
 
@@ -42,45 +43,37 @@ Stage 3: JIT + Optimization (ARM64)
 6. [x] 3.5: Register IR implementation — stack-to-register conversion pass
 7. [x] 3.6: Register IR validation — benchmark + peephole optimization
 8. [x] 3.7: ARM64 codegen design — D105 decision for JIT architecture
-9. [ ] 3.8: ARM64 basic block codegen — arithmetic + control flow
+9. [x] 3.8: ARM64 basic block codegen — arithmetic + control flow
 10. [ ] 3.9: ARM64 function-level JIT — compile entire hot functions
 11. [ ] 3.10: Tiered execution — interpreter → JIT with hot function detection
 
 ## Current Task
 
-3.8: ARM64 basic block codegen — arithmetic + control flow.
+3.9: ARM64 function-level JIT — compile entire hot functions.
 
-Implement `src/jit.zig` with ARM64 code emission:
-1. ARM64 instruction encoding helpers (add, sub, cmp, b, ret, etc.)
-2. mmap executable buffer management (macOS MAP_JIT + W^X)
-3. RegInstr→ARM64 compilation for core i32/i64 arithmetic + control flow
-4. JIT function calling convention: fn(regs: *[N]u64, instance: *Instance)
-5. Integration point: WasmFunction.jit_code field, Vm.callFunction dispatch
+Extend JIT to handle more opcodes:
+1. Memory load/store (i32.load, i32.store, etc.)
+2. Global get/set
+3. Division, remainder, clz, ctz, popcnt
+4. f32/f64 floating point operations
+5. Memory size/grow
+6. Benchmark: measure JIT speedup vs register IR interpreter
 
 ## Previous Task
 
-3.7: ARM64 codegen design — COMPLETE.
-- D105: Function-level JIT, direct ARM64 emission, tiered execution
-- Register mapping: x0-x7 args, x8-x15 temps, x19-x28 locals
-- Calling convention: fn(regs, instance) → regs[0] = return value
+3.8: ARM64 basic block codegen — COMPLETE.
+- `src/jit.zig` (~1400 LOC): ARM64 code emission, mmap W^X, icache flush
+- Compiler: RegInstr→ARM64 compilation for i32/i64 arithmetic, comparisons, control flow
+- Call trampoline: JIT→interpreter function calls via C calling convention
+- Register mapping: x22-x28 (callee-saved r0-r6), x9-x15 (caller-saved r7-r13)
+- Calling convention: fn(regs, vm, instance) callconv(.c) u64
 - Hot threshold: 100 calls (configurable)
-- Initial scope: i32/i64 arithmetic + control flow only
-- Immediate-operand fusion: 15 fused opcodes (OP_ADDI32, OP_SUBI32, OP_LE_S_I32, etc.)
-- NOP compaction with branch target adjustment
-- Profiling enabled for register IR execution
-- global.get/set support added
-- Instruction count: 209M vs 238M stack IR for fib(35) = 12% fewer
-- Benchmarks: fib 1.23x, sieve 1.14x, nbody 1.44x faster than baseline
-- Finding: 2-3x requires JIT — interpreted register IR bottlenecked by switch dispatch
-- MOV+RETURN fusion attempted but unsafe (block result regs written from multiple paths)
-
-3.5: Register IR implementation — COMPLETE.
-- `src/regalloc.zig` (~1000 LOC): PreInstr→RegInstr converter + peephole passes
-- `executeRegIR()` in vm.zig (~550 LOC): register-file-based execution loop
-- Lazy conversion: first call triggers conversion, cached on WasmFunction
-- Fallback: functions that fail conversion use existing executeIR()
-- Heap-allocated register file: `reg_stack[4096]u64` in Vm struct
-- Dead code elimination: unreachable_depth tracking
+- Integration: WasmFunction.jit_code field, Vm.callFunction dispatch
+- Profiling-aware: skip JIT when profile is active
+- Cross-module safe: reset JIT state on function import copy
+- Bugs fixed: CSET Rn encoding (W0→WZR), pc_map indexing (iteration→PC)
+- 6 new tests: encoding, vreg mapping, const return, i32 add, branch, fib smoke
+- JIT debugging doc: `.dev/jit-debugging.md`
 
 ## Known Issues
 
@@ -101,6 +94,7 @@ Session resume: read this file → follow references below.
 | Spec coverage      | `.dev/spec-support.md`                            |
 | Bench strategy     | `.dev/bench-strategy.md`                          |
 | Profile analysis   | `.dev/profile-analysis.md`                        |
+| JIT debugging      | `.dev/jit-debugging.md`                           |
 | Wasm spec refs     | `.dev/references/wasm-spec.md`                    |
 
 ### External references
