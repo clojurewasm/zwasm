@@ -91,6 +91,17 @@ pub const ImportEntry = struct {
     source: ImportSource,
 };
 
+/// Options for configuring WASI modules.
+pub const WasiOptions = struct {
+    /// Command-line arguments passed to the WASI module.
+    args: []const [:0]const u8 = &.{},
+    /// Environment variables as key-value string pairs.
+    env_keys: []const []const u8 = &.{},
+    env_vals: []const []const u8 = &.{},
+    /// Preopened directories. Each entry maps a WASI fd to a host path.
+    preopen_paths: []const []const u8 = &.{},
+};
+
 // ============================================================
 // WasmModule — loaded and instantiated Wasm module
 // ============================================================
@@ -120,6 +131,29 @@ pub const WasmModule = struct {
     /// Load a WASI module — registers wasi_snapshot_preview1 imports.
     pub fn loadWasi(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
         return loadCore(allocator, wasm_bytes, true, null);
+    }
+
+    /// Load a WASI module with custom args, env, and preopened directories.
+    pub fn loadWasiWithOptions(allocator: Allocator, wasm_bytes: []const u8, opts: WasiOptions) !*WasmModule {
+        const self = try loadCore(allocator, wasm_bytes, true, null);
+        errdefer self.deinit();
+
+        if (self.wasi_ctx) |*wc| {
+            if (opts.args.len > 0) wc.setArgs(opts.args);
+
+            const count = @min(opts.env_keys.len, opts.env_vals.len);
+            for (0..count) |i| {
+                try wc.addEnv(opts.env_keys[i], opts.env_vals[i]);
+            }
+
+            for (opts.preopen_paths, 0..) |path, i| {
+                const fd: i32 = @intCast(3 + i);
+                const host_fd = std.posix.open(path, .{ .ACCMODE = .RDONLY }, 0) catch continue;
+                try wc.addPreopen(fd, path, host_fd);
+            }
+        }
+
+        return self;
     }
 
     /// Load with imports from other modules or host functions.

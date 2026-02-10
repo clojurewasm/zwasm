@@ -62,17 +62,16 @@ fn printUsage(w: *std.Io.Writer) void {
         \\zwasm — Zig WebAssembly Runtime
         \\
         \\Usage:
-        \\  zwasm run <file.wasm> [args...]          Run a WASI module
-        \\  zwasm run --invoke <func> <file.wasm> [args...]
-        \\                                           Call a specific export function
-        \\  zwasm inspect <file.wasm>                Show module exports, imports, memory
-        \\  zwasm validate <file.wasm>               Validate a Wasm binary
-        \\  zwasm version                            Show version
-        \\  zwasm help                               Show this help
+        \\  zwasm run [options] <file.wasm> [args...]
+        \\  zwasm inspect <file.wasm>
+        \\  zwasm validate <file.wasm>
+        \\  zwasm version
+        \\  zwasm help
         \\
         \\Run options:
-        \\  --invoke <func>   Call <func> instead of _start. Arguments are
-        \\                    passed as u64 integers (e.g., 35 for i32/i64).
+        \\  --invoke <func>     Call <func> instead of _start
+        \\  --dir <path>        Preopen a host directory (repeatable)
+        \\  --env KEY=VALUE     Set a WASI environment variable (repeatable)
         \\
     , .{}) catch {};
 }
@@ -86,6 +85,14 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     var wasm_path: ?[]const u8 = null;
     var func_args_start: usize = 0;
 
+    // Collected options
+    var env_keys: std.ArrayList([]const u8) = .empty;
+    defer env_keys.deinit(allocator);
+    var env_vals: std.ArrayList([]const u8) = .empty;
+    defer env_vals.deinit(allocator);
+    var preopen_paths: std.ArrayList([]const u8) = .empty;
+    defer preopen_paths.deinit(allocator);
+
     // Parse options
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -97,6 +104,29 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 return;
             }
             invoke_name = args[i];
+        } else if (std.mem.eql(u8, args[i], "--dir")) {
+            i += 1;
+            if (i >= args.len) {
+                try stderr.print("error: --dir requires a path\n", .{});
+                try stderr.flush();
+                return;
+            }
+            try preopen_paths.append(allocator, args[i]);
+        } else if (std.mem.eql(u8, args[i], "--env")) {
+            i += 1;
+            if (i >= args.len) {
+                try stderr.print("error: --env requires KEY=VALUE\n", .{});
+                try stderr.flush();
+                return;
+            }
+            if (std.mem.indexOfScalar(u8, args[i], '=')) |eq_pos| {
+                try env_keys.append(allocator, args[i][0..eq_pos]);
+                try env_vals.append(allocator, args[i][eq_pos + 1 ..]);
+            } else {
+                try stderr.print("error: --env value must be KEY=VALUE, got '{s}'\n", .{args[i]});
+                try stderr.flush();
+                return;
+            }
         } else if (args[i].len > 0 and args[i][0] == '-') {
             try stderr.print("error: unknown option '{s}'\n", .{args[i]});
             try stderr.flush();
@@ -167,8 +197,24 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         if (results.len > 0) try stdout.print("\n", .{});
         try stdout.flush();
     } else {
+        // Build WASI args: [wasm_path] ++ remaining args
+        const wasi_str_args = args[func_args_start..];
+        var wasi_args_list: std.ArrayList([:0]const u8) = .empty;
+        defer wasi_args_list.deinit(allocator);
+
+        // First arg is the program name (wasm path)
+        try wasi_args_list.append(allocator, @ptrCast(path));
+        for (wasi_str_args) |a| {
+            try wasi_args_list.append(allocator, @ptrCast(a));
+        }
+
         // Run as WASI module (_start)
-        var module = types.WasmModule.loadWasi(allocator, wasm_bytes) catch |err| {
+        var module = types.WasmModule.loadWasiWithOptions(allocator, wasm_bytes, .{
+            .args = wasi_args_list.items,
+            .env_keys = env_keys.items,
+            .env_vals = env_vals.items,
+            .preopen_paths = preopen_paths.items,
+        }) catch |err| {
             try stderr.print("error: failed to load WASI module: {s}\n", .{@errorName(err)});
             try stderr.flush();
             return;
