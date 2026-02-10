@@ -11,7 +11,7 @@ Session handover document. Read at session start.
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 544ms (ReleaseSafe, CLI)
 - vs wasmtime JIT: 58ms (9.4x gap — interpreter vs JIT)
-- Spec test pass rate: TBD (no wast runner yet)
+- Spec test pass rate: 24,314/30,383 (80.0%) — 151 files, 28K skipped
 
 ## Strategic Position
 
@@ -31,24 +31,30 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 Stage 2: Spec Conformance
 
 1. [x] 2.1: Download spec test suite + convert .wast to JSON with wast2json
-2. [ ] 2.2: Wast test runner — JSON parser + assert_return + assert_trap
+2. [x] 2.2: Wast test runner (Python) + initial pass rate: 80.0%
 3. [ ] 2.3: spectest host module (memory, table, globals, print functions)
-4. [ ] 2.4: Run MVP spec tests, measure initial pass rate
-5. [ ] 2.5: Fix spec test failures (iterate until >95%)
-6. [ ] 2.6: assert_invalid + assert_malformed support
-7. [ ] 2.7: CI pipeline (GitHub Actions)
+4. [ ] 2.5: Fix spec test failures (iterate until >95%)
+5. [ ] 2.6: assert_invalid + assert_malformed support
+6. [ ] 2.7: CI pipeline (GitHub Actions)
 
 Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-2.2: Wast test runner — parse JSON commands and execute assert_return/assert_trap.
-Design: test/spec/runner.zig as a standalone executable.
+2.5: Fix spec test failures — analyze failure categories and fix systematically.
+
+Initial pass rate: 24,314/30,383 (80.0%). Top failure categories:
+- table_copy/table_init: ~4,478 failures (table operations)
+- memory_trap: ~342 failures (OOB trap detection)
+- memory_copy/fill/init: ~650 failures (bulk memory ops)
+- traps/unreachable: ~90 failures (trap handling)
+- conversions: 61 failures (trunc edge cases)
 
 ## Previous Task
 
-2.1: Spec test suite converted — 151 JSON files, 4311 wasm binaries.
-Script: test/spec/convert.sh (uses wast2json from WABT).
+2.2: Wast test runner — Python-based (test/spec/run_spec.py).
+Parses wast2json JSON, runs assert_return/assert_trap via CLI --invoke.
+Initial result: 80.0% pass rate across 151 test files.
 
 ## Known Issues
 
