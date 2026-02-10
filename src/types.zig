@@ -25,22 +25,25 @@ const rt = struct {
 // Public types
 // ============================================================
 
-/// WebAssembly numeric value types exposed through the public API.
-/// These correspond to the four core Wasm numeric types.
+/// WebAssembly value types exposed through the public API.
 pub const WasmValType = enum {
     i32,
     i64,
     f32,
     f64,
+    funcref,
+    externref,
 
     /// Convert an internal runtime ValType to a public WasmValType.
-    /// Returns null for non-numeric types (funcref, externref, v128).
+    /// Returns null for unsupported types (v128).
     pub fn fromRuntime(vt: rt.opcode.ValType) ?WasmValType {
         return switch (vt) {
             .i32 => .i32,
             .i64 => .i64,
             .f32 => .f32,
             .f64 => .f64,
+            .funcref => .funcref,
+            .externref => .externref,
             else => null,
         };
     }

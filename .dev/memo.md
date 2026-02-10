@@ -11,7 +11,7 @@ Session handover document. Read at session start.
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 544ms (ReleaseSafe, CLI)
 - vs wasmtime JIT: 58ms (9.4x gap — interpreter vs JIT)
-- Spec test pass rate: 29,338/30,383 (96.6%) — 151 files, 28K skipped
+- Spec test pass rate: 30,332/30,383 (99.8%) — 151 files, 28K skipped
 
 ## Strategic Position
 
@@ -33,7 +33,7 @@ Stage 2: Spec Conformance
 1. [x] 2.1: Download spec test suite + convert .wast to JSON with wast2json
 2. [x] 2.2: Wast test runner (Python) + initial pass rate: 80.0%
 3. [ ] 2.3: spectest host module (memory, table, globals, print functions)
-4. [ ] 2.5: Fix spec test failures (iterate until >95%)
+4. [x] 2.5: Fix spec test failures — 99.8% achieved (target >95%)
 5. [ ] 2.6: assert_invalid + assert_malformed support
 6. [ ] 2.7: CI pipeline (GitHub Actions)
 
@@ -41,40 +41,35 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-2.5: Fix spec test failures — 96.6% achieved (29,338/30,383).
+2.3: spectest host module — provide spectest imports (memory, table, globals, print functions).
 
-Fixes applied:
-- CLI exit code propagation for trap detection
-- Batch mode for stateful multi-invocation tests
-- truncSat overflow bounds (power-of-2 exact bounds)
-- Length-prefixed batch protocol for Unicode function names
-- Fallback to single-process for problematic function names
-- roundToEven -0.0 sign preservation (f32/f64 nearest)
-- Start function execution on module load
-- i32/f32 result truncation in CLI output (endianness fix)
-- call_indirect full type comparison (not just length)
-- Ref null convention: stack uses addr+1, 0=null (table_get/set/grow/fill)
-- ref.func pushes store address (not module index)
-- table.init + table.copy implementation
-- memory.init/data.drop via instance dataaddrs
-- Elem/Data store population during instantiation
-- Dropped segments: effective length 0 (n=0 succeeds per spec)
-- BrokenPipeError cleanup in test runner
+The Wasm spec test suite expects a "spectest" module with specific exports:
+- `memory`: 1-page memory (min=1, max=2)
+- `table`: 10-element funcref table (min=10, max=20)
+- `global_i32`: i32 global = 666
+- `global_i64`: i64 global = 666
+- `global_f32`: f32 global = 666.6
+- `global_f64`: f64 global = 666.6
+- `print`, `print_i32`, `print_i64`, `print_f32`, `print_f64`, `print_f32_f64`, `print_i32_f32`: no-op functions
 
-Remaining failure categories:
-- table_copy/init (multi-module linking): ~982
-- table_size64 (memory64 proposal): 36
-- bulk ops (multi-module/table state): ~12
-- fac (timeout/infinite loop): 1
-- table_get/set (externref test runner limitation): ~4
-- names (special chars): 2
-- memory_grow64 (memory64 proposal): 2
+This will fix the 3 func_ptrs failures and any other tests requiring spectest imports.
 
 ## Previous Task
 
-2.2: Wast test runner — Python-based (test/spec/run_spec.py).
-Parses wast2json JSON, runs assert_return/assert_trap via CLI --invoke.
-Initial result: 80.0% pass rate across 151 test files.
+2.5: Fix spec test failures — 99.8% achieved (30,332/30,383, target >95%).
+
+Key fixes in final iteration:
+- Multi-module linking (`--link name=path.wasm` CLI flag + test runner support)
+- Wasm bytes lifetime fix (keep linked module bytes alive)
+- IR predecoder misc opcode mapping fix (0x0C-0x11 were swapped)
+- Active element/data segments dropped after instantiation (per spec)
+
+Remaining 51 failures:
+- memory64 proposal (table_size64, memory_grow64): 40
+- spectest host module needed (func_ptrs): 3
+- externref/timeout: 5
+- names (special chars): 2
+- fac (timeout): 1
 
 ## Known Issues
 

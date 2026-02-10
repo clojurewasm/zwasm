@@ -397,12 +397,13 @@ pub const Vm = struct {
                     });
                 },
                 .loop => {
-                    _ = try readBlockType(reader);
-                    // Loop branches back to the loop header
+                    const bt = try readBlockType(reader);
+                    // Loop branch arity = params count (values passed back on br)
+                    const param_arity = blockTypeParamArity(bt, instance);
                     const loop_reader = reader.*;
                     try self.pushLabel(.{
-                        .arity = 0, // loop branch takes 0 results
-                        .op_stack_base = self.op_ptr,
+                        .arity = param_arity,
+                        .op_stack_base = self.op_ptr - param_arity,
                         .target = .{ .loop_start = loop_reader },
                     });
                 },
@@ -908,6 +909,9 @@ pub const Vm = struct {
                 const val = self.pop();
                 const start = @as(u32, @bitCast(self.popI32()));
                 const t = try instance.store.getTable(table_idx);
+                // Bounds check first (spec: trap if i + n > table.size)
+                if (@as(u64, start) + n > t.size())
+                    return error.OutOfBoundsMemoryAccess;
                 // Stack convention: 0 = null ref, addr+1 = valid ref
                 const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 for (0..n) |i| {
@@ -1833,7 +1837,7 @@ pub const Vm = struct {
                 self.label_ptr -= (depth + 1);
                 try self.pushLabel(.{
                     .arity = loop_label.arity,
-                    .op_stack_base = self.op_ptr,
+                    .op_stack_base = self.op_ptr - loop_label.arity,
                     .target = .{ .loop_start = r },
                 });
                 reader.* = r;
@@ -1865,7 +1869,7 @@ pub const Vm = struct {
                 self.label_ptr -= (depth + 1);
                 try self.pushLabel(.{
                     .arity = loop_label.arity,
-                    .op_stack_base = self.op_ptr,
+                    .op_stack_base = self.op_ptr - loop_label.arity,
                     .target = .{ .ir_loop_start = target_pc },
                 });
                 pc.* = target_pc;
@@ -1900,9 +1904,11 @@ pub const Vm = struct {
                     });
                 },
                 0x03 => { // loop
+                    // Loop branch arity = params count (values passed back on br)
+                    const param_arity = resolveParamArityIR(instr.extra, instance);
                     try self.pushLabel(.{
-                        .arity = 0,
-                        .op_stack_base = self.op_ptr,
+                        .arity = param_arity,
+                        .op_stack_base = self.op_ptr - param_arity,
                         .target = .{ .ir_loop_start = instr.operand },
                     });
                 },
@@ -2527,6 +2533,9 @@ pub const Vm = struct {
                 const val = self.pop();
                 const start = @as(u32, @bitCast(self.popI32()));
                 const t = try instance.store.getTable(instr.operand);
+                // Bounds check first (spec: trap if i + n > table.size)
+                if (@as(u64, start) + n > t.size())
+                    return error.OutOfBoundsMemoryAccess;
                 const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 for (0..n) |i| {
                     t.set(start + @as(u32, @intCast(i)), ref_val) catch return error.OutOfBoundsMemoryAccess;
@@ -2801,6 +2810,16 @@ fn resolveArityIR(extra: u16, instance: *Instance) usize {
     return extra;
 }
 
+fn resolveParamArityIR(extra: u16, instance: *Instance) usize {
+    if (extra & predecode_mod.ARITY_TYPE_INDEX_FLAG != 0) {
+        const idx = extra & ~predecode_mod.ARITY_TYPE_INDEX_FLAG;
+        if (idx < instance.module.types.items.len)
+            return instance.module.types.items[idx].params.len;
+        return 0;
+    }
+    return 0; // simple blocktypes have 0 params
+}
+
 fn asU64(comptime T: type, val: T) u64 {
     return switch (@typeInfo(T)) {
         .int => |info| if (info.signedness == .signed) @bitCast(@as(i64, val)) else @as(u64, val),
@@ -2831,6 +2850,17 @@ fn blockTypeArity(bt: opcode.BlockType, instance: *Instance) usize {
         .type_index => |idx| blk: {
             if (idx < instance.module.types.items.len)
                 break :blk instance.module.types.items[idx].results.len;
+            break :blk 0;
+        },
+    };
+}
+
+fn blockTypeParamArity(bt: opcode.BlockType, instance: *Instance) usize {
+    return switch (bt) {
+        .empty, .val_type => 0,
+        .type_index => |idx| blk: {
+            if (idx < instance.module.types.items.len)
+                break :blk instance.module.types.items[idx].params.len;
             break :blk 0;
         },
     };

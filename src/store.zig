@@ -114,6 +114,8 @@ pub const Table = struct {
         if (self.max) |mx| {
             if (new_size > mx) return error.OutOfBounds;
         }
+        // Implementation limit: cap table size to prevent resource exhaustion
+        if (new_size > 1024 * 1024) return error.OutOfBounds;
         _ = try self.data.resize(self.alloc, @intCast(new_size));
         @memset(self.data.items[old_size..], init_val);
         return old_size;

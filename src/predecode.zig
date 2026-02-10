@@ -98,9 +98,9 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
                 try block_stack.append(alloc, .{ .kind = .block, .ir_pos = pos });
             },
             0x03 => { // loop
-                _ = readBlockTypeEncoded(&reader) catch return error.InvalidWasm;
+                const arity_enc = readBlockTypeEncoded(&reader) catch return error.InvalidWasm;
                 const pos: u32 = @intCast(code.items.len);
-                try code.append(alloc, .{ .opcode = 0x03, .extra = 0, .operand = pos + 1 });
+                try code.append(alloc, .{ .opcode = 0x03, .extra = arity_enc, .operand = pos + 1 });
                 try block_stack.append(alloc, .{ .kind = .loop, .ir_pos = pos });
             },
             0x04 => { // if

@@ -19,6 +19,7 @@ import argparse
 
 ZWASM = "./zig-out/bin/zwasm"
 SPEC_DIR = "test/spec/json"
+SPECTEST_WASM = "test/spec/spectest.wasm"
 
 
 def parse_value(val_obj):
@@ -30,8 +31,16 @@ def parse_value(val_obj):
     if isinstance(vstr, list):
         return ("skip",)
 
-    if vtype in ("v128", "funcref", "externref"):
+    if vtype == "v128":
         return ("skip",)
+
+    # Reference types: null = 0, non-null values passed as raw integers
+    if vtype in ("funcref", "externref"):
+        if vstr == "null":
+            return 0  # ref.null = 0 on the stack
+        # Non-null: pass raw integer value
+        v = int(vstr)
+        return v & 0xFFFFFFFFFFFFFFFF
 
     if vstr.startswith("nan:"):
         return ("nan", vtype)
@@ -187,6 +196,15 @@ def has_unsupported(vals):
     return any(isinstance(v, tuple) for v in vals)
 
 
+def needs_spectest(wasm_path):
+    """Check if a wasm file imports from the 'spectest' module."""
+    try:
+        with open(wasm_path, 'rb') as f:
+            return b'spectest' in f.read()
+    except Exception:
+        return False
+
+
 def run_test_file(json_path, verbose=False):
     """Run all commands in a spec test JSON file. Returns (passed, failed, skipped)."""
     with open(json_path) as f:
@@ -215,8 +233,12 @@ def run_test_file(json_path, verbose=False):
             wasm_file = cmd.get("filename")
             if wasm_file:
                 current_wasm = os.path.join(test_dir, wasm_file)
+                # Auto-link spectest host module if needed
+                link_mods = dict(registered_modules)
+                if "spectest" not in link_mods and needs_spectest(current_wasm):
+                    link_mods["spectest"] = SPECTEST_WASM
                 try:
-                    runner = BatchRunner(current_wasm, registered_modules)
+                    runner = BatchRunner(current_wasm, link_mods)
                 except Exception:
                     current_wasm = None
             continue
