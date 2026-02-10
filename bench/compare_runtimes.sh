@@ -43,7 +43,7 @@ for arg in "$@"; do
       echo "  Layer 2 (TinyGo):  tgo_fib, tgo_tak, tgo_arith, tgo_sieve,"
       echo "                     tgo_fib_loop, tgo_gcd"
       echo "  Layer 3 (Shootout): st_fib2, st_sieve, st_nestedloop,"
-      echo "                      st_ackermann, st_ed25519, st_matrix"
+      echo "                      st_ackermann, st_matrix"
       exit 0
       ;;
   esac
@@ -103,7 +103,8 @@ BENCHMARKS=(
   "st_sieve:bench/wasm/shootout/shootout-sieve.wasm::_start:wasi"
   "st_nestedloop:bench/wasm/shootout/shootout-nestedloop.wasm::_start:wasi"
   "st_ackermann:bench/wasm/shootout/shootout-ackermann.wasm::_start:wasi"
-  "st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
+  # ed25519 excluded (crypto, very slow on interpreter)
+  #"st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
   "st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
 )
 

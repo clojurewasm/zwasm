@@ -9,20 +9,23 @@ env:
 entries:
   - id: "3.6"
     date: "2026-02-10"
-    reason: "Baseline with shootout + TinyGo additions"
-    commit: "c3665c6"
+    reason: "Baseline with all shootout (excl ed25519)"
+    commit: "634f6e0"
     build: ReleaseSafe
     results:
-      fib: {time_ms: 463}
+      fib: {time_ms: 452}
       tak: {time_ms: 42}
       sieve: {time_ms: 44}
-      nbody: {time_ms: 150}
-      nqueens: {time_ms: 3}
-      tgo_fib: {time_ms: 383}
-      tgo_tak: {time_ms: 32}
+      nbody: {time_ms: 160}
+      nqueens: {time_ms: 4}
+      tgo_fib: {time_ms: 380}
+      tgo_tak: {time_ms: 33}
       tgo_arith: {time_ms: 2}
-      tgo_sieve: {time_ms: 37}
-      tgo_fib_loop: {time_ms: 5}
-      tgo_gcd: {time_ms: 3}
-      st_nestedloop: {time_ms: 4}
-      st_ackermann: {time_ms: 20}
+      tgo_sieve: {time_ms: 35}
+      tgo_fib_loop: {time_ms: 0}
+      tgo_gcd: {time_ms: 1}
+      st_fib2: {time_ms: 16399}
+      st_sieve: {time_ms: 6156}
+      st_nestedloop: {time_ms: 5}
+      st_ackermann: {time_ms: 22}
+      st_matrix: {time_ms: 2768}

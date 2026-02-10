@@ -47,7 +47,8 @@ BENCHMARKS=(
   "st_sieve:bench/wasm/shootout/shootout-sieve.wasm::_start:wasi"
   "st_nestedloop:bench/wasm/shootout/shootout-nestedloop.wasm::_start:wasi"
   "st_ackermann:bench/wasm/shootout/shootout-ackermann.wasm::_start:wasi"
-  "st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
+  # ed25519 excluded (crypto, very slow on interpreter)
+  #"st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
   "st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
 )
 

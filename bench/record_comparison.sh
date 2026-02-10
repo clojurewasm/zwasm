@@ -152,13 +152,13 @@ BENCHMARKS=(
   "tgo_fib_loop:bench/wasm/tgo_fib_loop.wasm:fib_loop:25:invoke"
   "tgo_gcd:bench/wasm/tgo_gcd.wasm:gcd:12345 67890:invoke"
   # Layer 3: Sightglass shootout (WASI _start)
-  # Heavy shootout benchmarks temporarily commented out (slow on interpreter)
-  #"st_fib2:bench/wasm/shootout/shootout-fib2.wasm::_start:wasi"
-  #"st_sieve:bench/wasm/shootout/shootout-sieve.wasm::_start:wasi"
+  "st_fib2:bench/wasm/shootout/shootout-fib2.wasm::_start:wasi"
+  "st_sieve:bench/wasm/shootout/shootout-sieve.wasm::_start:wasi"
   "st_nestedloop:bench/wasm/shootout/shootout-nestedloop.wasm::_start:wasi"
   "st_ackermann:bench/wasm/shootout/shootout-ackermann.wasm::_start:wasi"
+  # ed25519 excluded (crypto, very slow on interpreter)
   #"st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
-  #"st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
+  "st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
 )
 
 TMPDIR_BENCH=$(mktemp -d)
