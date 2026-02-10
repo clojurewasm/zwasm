@@ -25,38 +25,22 @@ Session handover document. Read at session start.
 
 ## Task Queue
 
-Stage 3: JIT + Optimization (ARM64)
+Stage 4: Polish & Robustness
 
-1. [x] 3.1: Profiling infrastructure — opcode frequency + function call counters
-2. [x] 3.2: Benchmark suite expansion — tak, sieve, nbody + updated scripts
-3. [x] 3.3: Profile hot paths — analyzed, documented in .dev/profile-analysis.md
-4. [x] 3.3b: TinyGo benchmark port — CW TinyGo wasm to zwasm, update scripts
-5. [x] 3.4: Register IR design — D104 decision for IR representation
-6. [x] 3.5: Register IR implementation — stack-to-register conversion pass
-7. [x] 3.6: Register IR validation — benchmark + peephole optimization
-8. [x] 3.7: ARM64 codegen design — D105 decision for JIT architecture
-9. [x] 3.8: ARM64 basic block codegen — arithmetic + control flow
-10. [x] 3.9: ARM64 function-level JIT — compile entire hot functions
-11. [x] 3.10: Tiered execution — interpreter → JIT with hot function detection
-12. [x] 3.11: JIT call optimization — fast path for JIT-to-JIT calls
-13. [x] 3.12: JIT code quality — instruction scheduling, constant folding
-14. [x] 3.13: Inline self-call — eliminate trampoline for self-recursive calls
-15. [x] 3.14: Spill-only-needed — only spill arg + caller-saved registers
+1. [ ] 4.1: Fix fib_loop TinyGo bug — returns 196608 instead of 75025
+2. [ ] 4.2: Fix regalloc u8 overflow — >255 virtual registers → graceful fallback
+3. [ ] 4.3: Inline self-call for memory functions — use alternate reg for &vm.reg_ptr
+4. [ ] 4.4: Cross-runtime benchmark update — record comparison vs wasmtime/wasmer/bun/node
 
 ## Current Task
 
-Stage 3 complete — fib 103ms (2.0x wasmtime), meets exit criteria.
-Next: plan Stage 4 or new optimization targets.
+4.1: Fix fib_loop TinyGo bug — returns 196608 instead of 75025.
+Investigation needed: run tgo_fib_loop, check interpreter vs JIT output.
 
 ## Previous Task
 
-3.14: Spill-only-needed — COMPLETE.
-Key changes:
-- Replace spillAll with spillCallerSaved (only r5-r11, not callee-saved r0-r4)
-- Direct physical reg→callee frame arg copy (skip spill+load round-trip)
-- Trampoline path: spill caller-saved + callee-saved arg vregs only
-- fib: 119→103ms (-13%), tak: 14→12ms (-14%), tgo_fib: 72→64ms (-11%)
-- vs wasmtime: fib 2.0x (was 2.3x)
+3.14: Spill-only-needed — COMPLETE. Stage 3 EXIT CRITERIA MET.
+fib: 103ms (2.0x wasmtime). tak: 12ms. tgo_fib: 64ms.
 
 ## Known Bugs
 

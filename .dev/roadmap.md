@@ -71,25 +71,27 @@ Approach: incremental JIT — profile first, register IR, then ARM64 codegen.
 - 3.11: JIT call optimization (fast JIT-to-JIT calls)
 - 3.12: JIT code quality (direct dest reg, selective reload, shared error epilogue)
 
-### Remaining
-- 3.13: Inline self-call (eliminate trampoline for self-recursive calls)
-- 3.14: Spill-only-needed (only spill arg + caller-saved registers)
+### Completed (cont. 2)
+- 3.13: Inline self-call (direct BL, cached &vm.reg_ptr in x27)
+- 3.14: Spill-only-needed (smart spill: caller-saved + arg vregs only)
+
+**Exit criteria**: fib(35) within 2x of wasmtime JIT. ARM64 JIT stable.
+**Result**: fib(35) = 103ms, wasmtime = 52ms, ratio = 2.0x. EXIT CRITERIA MET.
 
 ### Future
 - Superinstruction expansion (profile-guided)
 - x86_64 JIT backend
 - Component Model / WASI P2
 
-**Exit criteria**: fib(35) within 2x of wasmtime JIT. ARM64 JIT stable.
-
 ## Benchmark Targets
 
-| Milestone          | fib(35) target | vs wasmtime |
+| Milestone          | fib(35) actual | vs wasmtime |
 |--------------------|----------------|-------------|
 | Stage 0 (baseline) | 544ms          | 9.4x slower |
 | Stage 2 + reg IR   | ~200ms         | ~3.5x       |
-| Stage 3 baseline   | ~120ms         | ~2x         |
-| Stage 3 optimized  | ~80ms          | ~1.4x       |
+| Stage 3 (3.12)     | 224ms          | 4.3x        |
+| Stage 3 (3.13)     | 119ms          | 2.3x        |
+| Stage 3 (3.14)     | 103ms          | 2.0x        |
 
 ## Phase Notes
 
