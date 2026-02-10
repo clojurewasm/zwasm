@@ -71,6 +71,10 @@ Approach: incremental JIT — profile first, register IR, then ARM64 codegen.
 - 3.11: JIT call optimization (fast JIT-to-JIT calls)
 - 3.12: JIT code quality (direct dest reg, selective reload, shared error epilogue)
 
+### Remaining
+- 3.13: Inline self-call (eliminate trampoline for self-recursive calls)
+- 3.14: Spill-only-needed (only spill arg + caller-saved registers)
+
 ### Future
 - Superinstruction expansion (profile-guided)
 - x86_64 JIT backend

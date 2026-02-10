@@ -10,8 +10,8 @@ Session handover document. Read at session start.
 - Source: ~14K LOC, 14 files (+ cli.zig, 3 examples), 132 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
-- Benchmark: fib(35) = 224ms, sieve(1M) = 4.8ms (ReleaseSafe, CLI, JIT)
-- vs wasmtime JIT: 52ms fib / 7ms sieve (4.3x / 0.7x gap — sieve beats wasmtime!)
+- Benchmark: fib(35) = 119ms, sieve(1M) = 5.3ms (ReleaseSafe, CLI, JIT)
+- vs wasmtime JIT: 52ms fib / 7ms sieve (2.3x / 0.8x gap — sieve beats wasmtime!)
 - Benchmarks: 3 layers — 5 WAT, 6 TinyGo, 5 shootout (sub-ms precision)
 - Spec test pass rate: 30,648/30,686 (99.9%) — 151 files, 28K skipped
 - CI: GitHub Actions (ubuntu + macOS, zig build test + spec tests)
@@ -20,6 +20,7 @@ Session handover document. Read at session start.
   division/remainder (traps), memory load/store (14 ops), rotation, CLZ/CTZ, select, sign-ext
 - **JIT call fast path**: JIT-to-JIT direct calls bypass callFunction dispatch
 - **JIT code quality**: direct dest reg, selective reload, shared error epilogue
+- **Inline self-call**: direct BL for self-recursive calls, cached &vm.reg_ptr in x27
 
 ## Task Queue
 
@@ -38,20 +39,23 @@ Stage 3: JIT + Optimization (ARM64)
 11. [x] 3.10: Tiered execution — interpreter → JIT with hot function detection
 12. [x] 3.11: JIT call optimization — fast path for JIT-to-JIT calls
 13. [x] 3.12: JIT code quality — instruction scheduling, constant folding
+14. [x] 3.13: Inline self-call — eliminate trampoline for self-recursive calls
+15. [ ] 3.14: Spill-only-needed — only spill arg + caller-saved registers
 
 ## Current Task
 
-Stage 3 complete — Task Queue empty. Plan next steps.
+3.14: Spill-only-needed — only spill arg + caller-saved registers.
 
 ## Previous Task
 
-3.12: JIT code quality — COMPLETE.
+3.13: Inline self-call — COMPLETE.
 Key changes:
-- Direct destination register: emit ARM64 ops directly to physical regs, skip SCRATCH→MOV
-- Selective reload: only reload caller-saved + result reg after calls (callee-saved preserved)
-- Shared error epilogue: error stubs at function end → smaller code, better i-cache
-- fib: 234→224ms (-5%), sieve: 5.7→4.8ms (-16%), nqueens: 2.4→1.6ms (-33%)
-- vs wasmtime: fib 4.3x (was 4.5x)
+- Detect self-recursive calls (OP_CALL func_idx == self) and emit direct BL
+- Cache &vm.reg_ptr in x27 (callee-saved) during prologue for non-memory functions
+- Inline callee frame setup: reg_ptr advance/restore, arg copy, zero-init
+- Direct BL to instruction 0 (backward branch) instead of BLR through trampoline
+- fib: 224→119ms (-47%), tak: 24→14ms (-42%), tgo_fib: 132→72ms (-45%)
+- vs wasmtime: fib 2.3x (was 4.3x)
 
 ## Known Bugs
 

@@ -137,6 +137,7 @@ pub const Instance = struct {
     }
 
     fn instantiateFunctions(self: *Instance) !void {
+        const num_imports: u32 = @intCast(self.funcaddrs.items.len);
         for (self.module.functions.items, 0..) |func_def, i| {
             if (i >= self.module.codes.items.len) return error.FunctionCodeMismatch;
             const code = self.module.codes.items[i];
@@ -152,6 +153,7 @@ pub const Instance = struct {
                     .locals_count = code.locals_count,
                     .code = code.body,
                     .instance = @ptrCast(self),
+                    .func_idx = num_imports + @as(u32, @intCast(i)),
                 } },
             });
             try self.funcaddrs.append(self.alloc, addr);

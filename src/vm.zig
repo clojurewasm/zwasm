@@ -363,7 +363,7 @@ pub const Vm = struct {
                     {
                         wf.call_count += 1;
                         if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
-                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64);
+                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(func_ptr.params.len));
                             if (wf.jit_code == null) wf.jit_failed = true;
                         }
                     }
@@ -2039,10 +2039,11 @@ pub const Vm = struct {
         alloc: Allocator,
         reg: *regalloc_mod.RegFunc,
         pool64: []const u64,
+        param_count: u16,
     ) WasmError!void {
         count.* += 1;
         if (count.* == jit_mod.BACK_EDGE_THRESHOLD) {
-            wf.jit_code = jit_mod.compileFunction(alloc, reg, pool64);
+            wf.jit_code = jit_mod.compileFunction(alloc, reg, pool64, wf.func_idx, param_count);
             if (wf.jit_code != null) return error.JitRestart;
             wf.jit_failed = true;
         }
@@ -2083,6 +2084,7 @@ pub const Vm = struct {
             null;
         const jit_eligible = builtin.cpu.arch == .aarch64 and self.profile == null and
             wf != null and wf.?.jit_code == null and !wf.?.jit_failed;
+        const jit_param_count: u16 = @intCast(func_ptr.params.len);
 
         while (pc < code_len) {
             const instr = code[pc];
@@ -2105,14 +2107,14 @@ pub const Vm = struct {
                 // ---- Control flow ----
                 regalloc_mod.OP_BR => {
                     if (jit_eligible and instr.operand < pc)
-                        try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64);
+                        try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count);
                     pc = instr.operand;
                 },
 
                 regalloc_mod.OP_BR_IF => {
                     if (regs[instr.rd] != 0) {
                         if (jit_eligible and instr.operand < pc)
-                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64);
+                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count);
                         pc = instr.operand;
                     }
                 },
@@ -2120,7 +2122,7 @@ pub const Vm = struct {
                 regalloc_mod.OP_BR_IF_NOT => {
                     if (regs[instr.rd] == 0) {
                         if (jit_eligible and instr.operand < pc)
-                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64);
+                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count);
                         pc = instr.operand;
                     }
                 },

@@ -43,6 +43,8 @@ pub const WasmFunction = struct {
     locals_count: usize,
     code: []const u8,
     instance: *Instance,
+    /// Module-level function index (imports + code section index).
+    func_idx: u32 = 0,
     /// Pre-computed branch targets (lazy: null until first call).
     branch_table: ?*vm_mod.BranchTable = null,
     /// Predecoded IR (lazy: null until first call, stays null if predecode fails).

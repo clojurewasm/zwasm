@@ -560,6 +560,8 @@ const INST_PTR: u5 = 21; // x21
 /// Memory cache (callee-saved, preserved across calls).
 const MEM_BASE: u5 = 27; // x27 — linear memory base pointer
 const MEM_SIZE: u5 = 28; // x28 — linear memory size in bytes
+/// Cached &vm.reg_ptr for functions with self-calls (reuses x27 when !has_memory).
+const REG_PTR_ADDR: u5 = 27; // x27 — &vm.reg_ptr (non-memory functions only)
 
 // ================================================================
 // JIT Compiler
@@ -580,6 +582,9 @@ pub const Compiler = struct {
     mem_info_addr: u64,
     pool64: []const u64,
     has_memory: bool,
+    self_func_idx: u32,
+    param_count: u16,
+    reg_ptr_offset: u32,
 
     const Patch = struct {
         arm64_idx: u32, // index in code array
@@ -609,6 +614,9 @@ pub const Compiler = struct {
             .mem_info_addr = 0,
             .pool64 = &.{},
             .has_memory = false,
+            .self_func_idx = 0,
+            .param_count = 0,
+            .reg_ptr_offset = 0,
         };
     }
 
@@ -736,6 +744,10 @@ pub const Compiler = struct {
         // Load memory cache if function uses memory
         if (self.has_memory) {
             self.emitLoadMemCache();
+        } else if (self.reg_ptr_offset > 0) {
+            // Cache &vm.reg_ptr in x27 for inline self-calls (non-memory functions).
+            // This avoids recomputing the large offset on every self-call.
+            self.emitLoadRegPtrAddrToX27();
         }
     }
 
@@ -805,6 +817,9 @@ pub const Compiler = struct {
         pool64: []const u64,
         trampoline_addr: u64,
         mem_info_addr: u64,
+        self_func_idx: u32,
+        param_count: u16,
+        reg_ptr_offset: u32,
     ) ?*JitCode {
         if (builtin.cpu.arch != .aarch64) return null;
 
@@ -813,6 +828,9 @@ pub const Compiler = struct {
         self.trampoline_addr = trampoline_addr;
         self.mem_info_addr = mem_info_addr;
         self.pool64 = pool64;
+        self.self_func_idx = self_func_idx;
+        self.param_count = param_count;
+        self.reg_ptr_offset = reg_ptr_offset;
 
         // Scan IR for memory opcodes
         self.has_memory = scanForMemoryOps(reg_func.code);
@@ -1526,6 +1544,13 @@ pub const Compiler = struct {
     }
 
     fn emitCall(self: *Compiler, rd: u8, func_idx: u32, data: RegInstr, data2: ?RegInstr) void {
+        // Self-call optimization: direct BL instead of trampoline (non-memory only).
+        // Memory functions use x27 for MEM_BASE, so can't cache &vm.reg_ptr there.
+        if (func_idx == self.self_func_idx and !self.has_memory) {
+            self.emitInlineSelfCall(rd, data, data2);
+            return;
+        }
+
         // 1. Spill all virtual regs to memory
         self.spillAll();
 
@@ -1579,6 +1604,159 @@ pub const Compiler = struct {
         // 6. Reload memory cache (memory may have grown during call)
         if (self.has_memory) {
             self.emitLoadMemCache();
+        }
+    }
+
+    /// Inline self-call: direct BL to function entry, bypassing trampoline.
+    /// Manages reg_ptr and callee frame setup inline for maximum performance.
+    fn emitInlineSelfCall(self: *Compiler, rd: u8, data: RegInstr, data2: ?RegInstr) void {
+        const needed: u32 = @as(u32, self.reg_count) + 2;
+        const needed_bytes: u32 = needed * 8;
+
+        // 1. Spill all virtual regs to memory
+        self.spillAll();
+
+        // 2. Advance vm.reg_ptr and check overflow (using cached REG_PTR_ADDR in x27)
+        self.emit(a64.ldr64(SCRATCH2, REG_PTR_ADDR, 0)); // x16 = vm.reg_ptr
+        if (needed <= 0xFFF) {
+            self.emit(a64.addImm64(SCRATCH2, SCRATCH2, @intCast(needed)));
+        } else {
+            self.emit(a64.movz64(0, @truncate(needed), 0));
+            self.emit(a64.add64(SCRATCH2, SCRATCH2, 0));
+        }
+        // Check: new reg_ptr > REG_STACK_SIZE → stack overflow
+        self.emit(a64.movz64(0, vm_mod.REG_STACK_SIZE, 0));
+        self.emit(a64.cmp64(SCRATCH2, 0));
+        self.emitCondError(.hi, 2); // StackOverflow if new > max
+        // Store new reg_ptr
+        self.emit(a64.str64(SCRATCH2, REG_PTR_ADDR, 0));
+
+        // 3. Compute callee REGS_PTR: x0 = REGS_PTR + needed*8
+        if (needed_bytes <= 0xFFF) {
+            self.emit(a64.addImm64(0, REGS_PTR, @intCast(needed_bytes)));
+        } else {
+            self.emit(a64.movz64(0, @truncate(needed_bytes), 0));
+            if (needed_bytes > 0xFFFF) {
+                self.emit(a64.movk64(0, @truncate(needed_bytes >> 16), 1));
+            }
+            self.emit(a64.add64(0, REGS_PTR, 0));
+        }
+
+        // 4. Copy args from our regs to callee regs
+        const n_args = self.param_count;
+        if (n_args > 0) {
+            self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, data.rd) * 8));
+            self.emit(a64.str64(SCRATCH2, 0, 0));
+        }
+        if (n_args > 1) {
+            self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, data.rs1) * 8));
+            self.emit(a64.str64(SCRATCH2, 0, 8));
+        }
+        if (n_args > 2) {
+            const arg2: u8 = @truncate(data.operand);
+            self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, arg2) * 8));
+            self.emit(a64.str64(SCRATCH2, 0, 16));
+        }
+        if (n_args > 3) {
+            const arg3: u8 = @truncate(data.operand >> 8);
+            self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, arg3) * 8));
+            self.emit(a64.str64(SCRATCH2, 0, 24));
+        }
+        if (n_args > 4) {
+            if (data2) |d2| {
+                if (n_args > 4) {
+                    self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, d2.rd) * 8));
+                    self.emit(a64.str64(SCRATCH2, 0, 32));
+                }
+                if (n_args > 5) {
+                    self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, d2.rs1) * 8));
+                    self.emit(a64.str64(SCRATCH2, 0, 40));
+                }
+                if (n_args > 6) {
+                    const arg6: u8 = @truncate(d2.operand);
+                    self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, arg6) * 8));
+                    self.emit(a64.str64(SCRATCH2, 0, 48));
+                }
+                if (n_args > 7) {
+                    const arg7: u8 = @truncate(d2.operand >> 8);
+                    self.emit(a64.ldr64(SCRATCH2, REGS_PTR, @as(u16, arg7) * 8));
+                    self.emit(a64.str64(SCRATCH2, 0, 56));
+                }
+            }
+        }
+
+        // 5. Zero-init remaining locals (params..local_count)
+        for (n_args..self.local_count) |i| {
+            const offset: u16 = @intCast(i * 8);
+            self.emit(a64.str64(31, 0, offset)); // XZR → callee regs[i]
+        }
+
+        // 6. Set up BL args: x0 = callee regs (already), x1 = vm, x2 = instance
+        self.emit(a64.mov64(1, VM_PTR));
+        self.emit(a64.mov64(2, INST_PTR));
+
+        // 7. BL to self (backward branch to instruction 0)
+        const bl_idx = self.currentIdx();
+        const bl_offset: i26 = -@as(i26, @intCast(bl_idx));
+        self.emit(a64.bl(bl_offset));
+
+        // 8. After return: callee-saved regs (x19-x28) restored by callee's epilogue.
+        //    x0 = error code (0 = success).
+
+        // 9. Restore vm.reg_ptr (using cached REG_PTR_ADDR)
+        self.emit(a64.ldr64(SCRATCH2, REG_PTR_ADDR, 0));
+        if (needed <= 0xFFF) {
+            self.emit(a64.subImm64(SCRATCH2, SCRATCH2, @intCast(needed)));
+        } else {
+            self.emit(a64.movz64(1, @truncate(needed), 0));
+            self.emit(a64.sub64(SCRATCH2, SCRATCH2, 1));
+        }
+        self.emit(a64.str64(SCRATCH2, REG_PTR_ADDR, 0));
+
+        // 10. Check error — branch to shared error epilogue
+        const error_branch = self.currentIdx();
+        self.emit(a64.cbnz64(0, 0));
+        self.error_stubs.append(self.alloc, .{
+            .branch_idx = error_branch,
+            .error_code = 0,
+            .kind = .cbnz64,
+            .cond = .eq,
+        }) catch {};
+
+        // 11. Copy result from callee regs[0] to our regs[rd]
+        if (needed_bytes <= 0xFFF) {
+            self.emit(a64.ldr64(SCRATCH, REGS_PTR, @intCast(needed_bytes)));
+        } else {
+            self.emit(a64.movz64(SCRATCH, @truncate(needed_bytes), 0));
+            if (needed_bytes > 0xFFFF) {
+                self.emit(a64.movk64(SCRATCH, @truncate(needed_bytes >> 16), 1));
+            }
+            self.emit(a64.add64(SCRATCH, REGS_PTR, SCRATCH));
+            self.emit(a64.ldr64(SCRATCH, SCRATCH, 0));
+        }
+        self.emit(a64.str64(SCRATCH, REGS_PTR, @as(u16, rd) * 8));
+
+        // 12. Reload caller-saved regs + result register
+        self.reloadCallerSaved();
+        if (rd <= 4) self.reloadVreg(rd);
+
+        // 13. Reload memory cache (memory may have grown during call)
+        if (self.has_memory) {
+            self.emitLoadMemCache();
+        }
+    }
+
+    /// Emit code to load &vm.reg_ptr into REG_PTR_ADDR (x27), once in prologue.
+    fn emitLoadRegPtrAddrToX27(self: *Compiler) void {
+        const offset = self.reg_ptr_offset;
+        if (offset <= 0xFFF) {
+            self.emit(a64.addImm64(REG_PTR_ADDR, VM_PTR, @intCast(offset)));
+        } else {
+            self.emit(a64.movz64(REG_PTR_ADDR, @truncate(offset), 0));
+            if (offset > 0xFFFF) {
+                self.emit(a64.movk64(REG_PTR_ADDR, @truncate(offset >> 16), 1));
+            }
+            self.emit(a64.add64(REG_PTR_ADDR, VM_PTR, REG_PTR_ADDR));
         }
     }
 
@@ -1827,20 +2005,25 @@ pub fn jitGetMemInfo(instance_opaque: *anyopaque, out: [*]u64) callconv(.c) void
 
 /// Attempt to JIT-compile a register IR function.
 /// Returns null if compilation fails (unsupported opcodes, etc.).
+/// self_func_idx: module-level function index for inline self-call optimization.
+/// param_count: number of parameters for the function.
 pub fn compileFunction(
     alloc: Allocator,
     reg_func: *RegFunc,
     pool64: []const u64,
+    self_func_idx: u32,
+    param_count: u16,
 ) ?*JitCode {
     if (builtin.cpu.arch != .aarch64) return null;
 
     const trampoline_addr = @intFromPtr(&jitCallTrampoline);
     const mem_info_addr = @intFromPtr(&jitGetMemInfo);
+    const reg_ptr_offset: u32 = @intCast(@offsetOf(vm_mod.Vm, "reg_ptr"));
 
     var compiler = Compiler.init(alloc);
     defer compiler.deinit();
 
-    return compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr);
+    return compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr, self_func_idx, param_count, reg_ptr_offset);
 }
 
 // ================================================================
@@ -1929,7 +2112,7 @@ test "compile and execute constant return" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -1961,7 +2144,7 @@ test "compile and execute i32 add" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -1998,7 +2181,7 @@ test "compile and execute branch (LE_S + BR_IF_NOT)" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -2044,7 +2227,7 @@ test "compile and execute i32 division" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -2091,7 +2274,7 @@ test "compile and execute i32 remainder" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -2159,7 +2342,7 @@ test "compile and execute memory load/store" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -2223,7 +2406,7 @@ test "compile and execute memory store then load" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
