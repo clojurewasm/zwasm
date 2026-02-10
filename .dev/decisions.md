@@ -11,10 +11,22 @@ Shares D## numbering with ClojureWasm (start from D100 to avoid conflicts).
 
 **Decision**: Extract CW `src/wasm/` as standalone library rather than rewriting.
 
+**Background**: ClojureWasm (Clojure's Zig reimplementation) needed Wasm FFI, but
+the Wasm processing code embedded within CW was becoming a performance bottleneck.
+Optimizing it in-place would mean developing a runtime within a runtime — the Wasm
+subsystem has its own IR, JIT, interpreter, and optimization concerns that are
+orthogonal to the Clojure language implementation. Extracting it as a separate
+project keeps both codebases clean, allows independent optimization, and produces
+a reusable library for the broader Zig ecosystem. CW remains the primary dog
+fooding target: improvements to zwasm directly accelerate CW's Wasm FFI.
+
 **Rationale**:
 - 11K LOC of battle-tested code (461 opcodes, SIMD, predecoded IR)
 - CW has been using this code in production since Phase 35W (D84)
 - Rewriting would lose optimizations (superinstructions, VM reuse, sidetable)
+- Separate project avoids "runtime within runtime" complexity
+- Independent optimization cadence (JIT, regalloc, benchmarks)
+- Reusable as a standalone library and CLI tool
 
 **Constraints**:
 - Must remove all CW dependencies (Value, GC, Env, EvalError)
