@@ -21,6 +21,7 @@ test/spec/json/
 
 # Private
 private/
+.dev/ubuntu-x86_64.md
 
 # Clojure
 .lsp/

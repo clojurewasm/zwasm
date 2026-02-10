@@ -63,5 +63,6 @@ See MEMORY.md § Active Bugs
 
 .dev/ docs: roadmap.md, decisions.md, checklist.md, spec-support.md,
 bench-strategy.md, profile-analysis.md, jit-debugging.md, references/wasm-spec.md
+Ubuntu x86_64: .dev/ubuntu-x86_64.md (gitignored — SSH commands, tools, JIT debug)
 External: wasmtime (~/Documents/OSS/wasmtime/), zware (~/Documents/OSS/zware/)
 Zig tips: .claude/references/zig-tips.md

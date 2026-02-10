@@ -68,6 +68,7 @@
 
             # Wasm build tools
             tinygo
+            wabt  # wast2json, wat2wasm, wasm2wat (spec test conversion)
 
             # Utilities
             gnused
@@ -77,14 +78,7 @@
             pkgs.wasmer  # nixpkgs wasmer build broken on x86_64-linux
           ];
 
-          shellHook = ''
-            echo "zwasm dev environment"
-            echo "  Zig:      $(zig version 2>/dev/null || echo 'loading...')"
-            echo "  wasmtime: $(wasmtime --version 2>/dev/null || echo 'N/A')"
-            echo "  wasmer:   $(wasmer --version 2>/dev/null || echo 'N/A')"
-            echo "  Bun:      $(bun --version 2>/dev/null || echo 'N/A')"
-            echo "  Node.js:  $(node --version 2>/dev/null || echo 'N/A')"
-          '';
+          shellHook = '''';  # silent — avoid noise in SSH/direnv
         };
       }
     );
