@@ -39,7 +39,7 @@ Stage 3: JIT + Optimization (ARM64)
 4. [x] 3.3b: TinyGo benchmark port — CW TinyGo wasm to zwasm, update scripts
 5. [x] 3.4: Register IR design — D104 decision for IR representation
 6. [x] 3.5: Register IR implementation — stack-to-register conversion pass
-7. [ ] 3.6: Register IR validation — benchmark, target 2-3x speedup over stack interpreter
+7. [x] 3.6: Register IR validation — benchmark + peephole optimization
 8. [ ] 3.7: ARM64 codegen design — D## decision for JIT architecture
 9. [ ] 3.8: ARM64 basic block codegen — arithmetic + control flow
 10. [ ] 3.9: ARM64 function-level JIT — compile entire hot functions
@@ -47,28 +47,34 @@ Stage 3: JIT + Optimization (ARM64)
 
 ## Current Task
 
-3.6: Register IR validation — benchmark, target 2-3x speedup over stack interpreter.
+3.7: ARM64 codegen design — D## decision for JIT architecture.
 
-Current register IR results (1.01-1.18x) are below target. Investigate bottlenecks:
-1. Profile register IR execution to identify overhead sources
-2. Expand opcode coverage (more functions converted = more benefit)
-3. Optimize function call path for register IR functions
-4. Consider specialized register IR paths for hot patterns
-5. Target: fib 2x, nbody 2-3x improvement over stack interpreter
+Design the ARM64 JIT code generator:
+1. Choose compilation unit: basic block vs function-level
+2. ABI: register mapping, calling convention for JIT→interpreter transitions
+3. Code emission strategy: direct machine code buffer
+4. Integration: how JIT functions interact with interpreted functions
+5. Tiered execution: when to JIT (call count threshold)
 
 ## Previous Task
 
+3.6: Register IR validation — COMPLETE.
+- Immediate-operand fusion: 15 fused opcodes (OP_ADDI32, OP_SUBI32, OP_LE_S_I32, etc.)
+- NOP compaction with branch target adjustment
+- Profiling enabled for register IR execution
+- global.get/set support added
+- Instruction count: 209M vs 238M stack IR for fib(35) = 12% fewer
+- Benchmarks: fib 1.23x, sieve 1.14x, nbody 1.44x faster than baseline
+- Finding: 2-3x requires JIT — interpreted register IR bottlenecked by switch dispatch
+- MOV+RETURN fusion attempted but unsafe (block result regs written from multiple paths)
+
 3.5: Register IR implementation — COMPLETE.
-- `src/regalloc.zig` (~850 LOC): PreInstr→RegInstr single-pass converter
-- `executeRegIR()` in vm.zig (~500 LOC): register-file-based execution loop
+- `src/regalloc.zig` (~1000 LOC): PreInstr→RegInstr converter + peephole passes
+- `executeRegIR()` in vm.zig (~550 LOC): register-file-based execution loop
 - Lazy conversion: first call triggers conversion, cached on WasmFunction
 - Fallback: functions that fail conversion use existing executeIR()
-- Heap-allocated register file: `reg_stack[4096]u64` in Vm struct (avoids stack overflow)
-- Dead code elimination: unreachable_depth tracking after return/br/unreachable
-- 121 unit tests pass, spec tests 30,648/30,686 (no regression, +1 improvement)
-- Benchmarks: fib 1.01x, sieve 1.04x, nbody 1.18x faster
-- Key bugs fixed: f32/f64 trunc type swap, shr_s/shr_u swap, NaN propagation,
-  loop result_reg allocation, dead code vstack underflow
+- Heap-allocated register file: `reg_stack[4096]u64` in Vm struct
+- Dead code elimination: unreachable_depth tracking
 
 ## Known Issues
 
