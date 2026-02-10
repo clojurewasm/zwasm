@@ -29,7 +29,7 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 
 Stage 1: Library Quality + CLI Polish
 
-1. [ ] 1.1: build.zig.zon (package metadata for Zig package manager)
+1. [x] 1.1: build.zig.zon (package metadata for Zig package manager)
 2. [ ] 1.2: Structured error types (W3 — replace opaque EvalError)
 3. [ ] 1.3: Public API doc comments (types.zig comprehensive documentation)
 4. [ ] 1.4: CLI `zwasm run` WASI args/env/preopen support
@@ -42,12 +42,12 @@ Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-1.1: Create build.zig.zon with package metadata for Zig package manager.
-This makes zwasm installable as a dependency via `zig fetch`.
+1.2: Structured error types (W3 — replace opaque EvalError).
+Design zwasm-specific error types replacing CW's EvalError coupling.
 
 ## Previous Task
 
-Stage 0.9 completed: independence + CLI + wasmtime benchmark + roadmap update.
+1.1: build.zig.zon created with package metadata (v0.1.0, Zig 0.15.2+).
 
 ## Known Issues
 
