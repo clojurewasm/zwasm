@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build
+        run: zig build
+
+      - name: Run unit tests
+        run: zig build test
+
+      - name: Install wabt (wast2json)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y wabt
+
+      - name: Install wabt (macOS)
+        if: runner.os == 'macOS'
+        run: brew install wabt
+
+      - name: Run spec tests
+        run: python3 test/spec/run_spec.py --summary
