@@ -5,7 +5,8 @@ Session handover document. Read at session start.
 ## Current State
 
 - **Stage 0: Extraction & Independence** — COMPLETE (tasks 0.1-0.7, 0.9.1-0.9.4)
-- Source: 10,398 LOC, 11 files, 115 tests all pass
+- **Stage 1: Library Quality + CLI Polish** — COMPLETE (tasks 1.1-1.7)
+- Source: ~11K LOC, 12 files (+ cli.zig, 3 examples), 115 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
 - Benchmark: fib(35) = 544ms (ReleaseSafe, CLI)
@@ -35,19 +36,18 @@ Stage 1: Library Quality + CLI Polish
 4. [x] 1.4: CLI `zwasm run` WASI args/env/preopen support
 5. [x] 1.5: CLI exit code propagation from WASI modules
 6. [x] 1.6: Example programs (examples/ directory with standalone .zig files)
-7. [ ] 1.7: `zwasm inspect --json` machine-readable output
+7. [x] 1.7: `zwasm inspect --json` machine-readable output
 
 Stage 2 (planned): Spec Conformance + wast test runner
 Stage 3 (planned): JIT (ARM64) + Optimization
 
 ## Current Task
 
-1.7: `zwasm inspect --json` machine-readable output option.
+Stage 1 COMPLETE. Plan Stage 2 task queue (Spec Conformance).
 
 ## Previous Task
 
-1.6: Example programs — 3 examples (basic, memory, inspect) in examples/.
-All build and run correctly from repo root.
+1.7: `zwasm inspect --json` — machine-readable JSON output for tooling integration.
 
 ## Known Issues
 

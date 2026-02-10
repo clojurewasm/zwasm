@@ -246,15 +246,24 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
 // ============================================================
 
 fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !void {
-    if (args.len < 1) {
+    var json_mode = false;
+    var path: ?[]const u8 = null;
+
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--json")) {
+            json_mode = true;
+        } else if (arg.len > 0 and arg[0] != '-') {
+            path = arg;
+        }
+    }
+
+    const file_path = path orelse {
         try stderr.print("error: no wasm file specified\n", .{});
         try stderr.flush();
         return;
-    }
-
-    const path = args[0];
-    const wasm_bytes = readFile(allocator, path) catch |err| {
-        try stderr.print("error: cannot read '{s}': {s}\n", .{ path, @errorName(err) });
+    };
+    const wasm_bytes = readFile(allocator, file_path) catch |err| {
+        try stderr.print("error: cannot read '{s}': {s}\n", .{ file_path, @errorName(err) });
         try stderr.flush();
         return;
     };
@@ -268,7 +277,13 @@ fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
         return;
     };
 
-    try stdout.print("Module: {s}\n", .{path});
+    if (json_mode) {
+        try printInspectJson(&module, file_path, wasm_bytes.len, stdout);
+        try stdout.flush();
+        return;
+    }
+
+    try stdout.print("Module: {s}\n", .{file_path});
     try stdout.print("Size:   {d} bytes\n\n", .{wasm_bytes.len});
 
     // Exports
@@ -375,6 +390,82 @@ fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
     });
 
     try stdout.flush();
+}
+
+fn printInspectJson(module: *const module_mod.Module, file_path: []const u8, size: usize, w: *std.Io.Writer) !void {
+    try w.print("{{\"module\":\"{s}\",\"size\":{d}", .{ file_path, size });
+
+    // Exports
+    try w.print(",\"exports\":[", .{});
+    for (module.exports.items, 0..) |exp, i| {
+        if (i > 0) try w.print(",", .{});
+        const kind_str = switch (exp.kind) {
+            .func => "func",
+            .table => "table",
+            .memory => "memory",
+            .global => "global",
+        };
+        try w.print("{{\"name\":\"{s}\",\"kind\":\"{s}\"", .{ exp.name, kind_str });
+        if (exp.kind == .func) {
+            if (module.getFuncType(exp.index)) |ft| {
+                try w.print(",\"params\":[", .{});
+                for (ft.params, 0..) |p, pi| {
+                    if (pi > 0) try w.print(",", .{});
+                    try w.print("\"{s}\"", .{valTypeName(p)});
+                }
+                try w.print("],\"results\":[", .{});
+                for (ft.results, 0..) |r, ri| {
+                    if (ri > 0) try w.print(",", .{});
+                    try w.print("\"{s}\"", .{valTypeName(r)});
+                }
+                try w.print("]", .{});
+            }
+        }
+        try w.print("}}", .{});
+    }
+    try w.print("]", .{});
+
+    // Imports
+    try w.print(",\"imports\":[", .{});
+    for (module.imports.items, 0..) |imp, i| {
+        if (i > 0) try w.print(",", .{});
+        const kind_str = switch (imp.kind) {
+            .func => "func",
+            .table => "table",
+            .memory => "memory",
+            .global => "global",
+        };
+        try w.print("{{\"module\":\"{s}\",\"name\":\"{s}\",\"kind\":\"{s}\"", .{ imp.module, imp.name, kind_str });
+        if (imp.kind == .func and imp.index < module.types.items.len) {
+            const ft = module.types.items[imp.index];
+            try w.print(",\"params\":[", .{});
+            for (ft.params, 0..) |p, pi| {
+                if (pi > 0) try w.print(",", .{});
+                try w.print("\"{s}\"", .{valTypeName(p)});
+            }
+            try w.print("],\"results\":[", .{});
+            for (ft.results, 0..) |r, ri| {
+                if (ri > 0) try w.print(",", .{});
+                try w.print("\"{s}\"", .{valTypeName(r)});
+            }
+            try w.print("]", .{});
+        }
+        try w.print("}}", .{});
+    }
+    try w.print("]", .{});
+
+    // Summary
+    try w.print(",\"functions_defined\":{d},\"functions_imported\":{d}", .{
+        module.functions.items.len,
+        module.num_imported_funcs,
+    });
+    try w.print(",\"memories\":{d},\"tables\":{d},\"globals\":{d}", .{
+        module.memories.items.len + module.num_imported_memories,
+        module.tables.items.len,
+        module.globals.items.len,
+    });
+
+    try w.print("}}\n", .{});
 }
 
 // ============================================================
