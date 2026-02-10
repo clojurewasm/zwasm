@@ -10,8 +10,8 @@ Session handover document. Read at session start.
 - Source: ~12K LOC, 13 files (+ cli.zig, 3 examples), 121 tests all pass
 - Opcode coverage: 225 core + 236 SIMD = 461
 - WASI syscalls: ~27
-- Benchmark: fib(35) = 539ms (ReleaseSafe, CLI, register IR)
-- vs wasmtime JIT: 58ms (9.3x gap — interpreter vs JIT)
+- Benchmark: fib(35) = 443ms (ReleaseSafe, CLI, register IR + fusion)
+- vs wasmtime JIT: 58ms (7.6x gap — interpreter vs JIT)
 - Spec test pass rate: 30,648/30,686 (99.9%) — 151 files, 28K skipped
 - CI: GitHub Actions (ubuntu + macOS, zig build test + spec tests)
 - **Register IR**: lazy conversion at first call, fallback to stack IR on failure

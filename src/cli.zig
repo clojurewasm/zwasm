@@ -381,6 +381,7 @@ fn printProfile(profile: *const vm_mod.Profile, w: *std.Io.Writer) void {
     }
 
     // Sort by count descending (simple insertion sort, max 256 entries)
+    if (n == 0) return;
     for (1..n) |i| {
         var j = i;
         while (j > 0 and entries[j].count > entries[j - 1].count) {

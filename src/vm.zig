@@ -323,9 +323,9 @@ pub const Vm = struct {
                 const inst: *Instance = @ptrCast(@alignCast(wf.instance));
 
                 // Try register IR conversion (requires predecoded IR)
-                // Skip for: multi-value return, profiling (profile counts stack opcodes)
+                // Skip for: multi-value return
                 if (wf.ir != null and wf.reg_ir == null and !wf.reg_ir_failed and
-                    func_ptr.results.len <= 1 and self.profile == null)
+                    func_ptr.results.len <= 1)
                 {
                     const resolver = regalloc_mod.ParamResolver{
                         .ctx = @ptrCast(inst),
@@ -353,7 +353,6 @@ pub const Vm = struct {
 
                 if (wf.reg_ir) |reg| {
                     // Register IR path: register file instead of operand stack
-                    if (self.profile) |p| p.call_count += 1;
                     try self.executeRegIR(reg, wf.ir.?.pool64, inst, func_ptr, args, results);
                     return;
                 }
@@ -1985,6 +1984,8 @@ pub const Vm = struct {
             pc += 1;
 
             if (self.profile) |p| {
+                if (instr.op < 256)
+                    p.opcode_counts[@as(u8, @truncate(instr.op))] += 1;
                 p.total_instrs += 1;
             }
 
@@ -2443,6 +2444,72 @@ pub const Vm = struct {
 
                 // ---- Drop ----
                 0x1A => {}, // no-op in register IR
+
+                // ---- Global get/set ----
+                0x23 => { // global.get
+                    const g = try instance.getGlobal(instr.operand);
+                    regs[instr.rd] = g.value;
+                },
+                0x24 => { // global.set
+                    const g = try instance.getGlobal(instr.operand);
+                    g.value = regs[instr.rd];
+                },
+
+                // ---- Immediate-operand fused instructions ----
+                regalloc_mod.OP_ADDI32 => {
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) +% instr.operand;
+                },
+                regalloc_mod.OP_SUBI32 => {
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) -% instr.operand;
+                },
+                regalloc_mod.OP_MULI32 => {
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) *% instr.operand;
+                },
+                regalloc_mod.OP_ANDI32 => {
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) & instr.operand;
+                },
+                regalloc_mod.OP_ORI32 => {
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) | instr.operand;
+                },
+                regalloc_mod.OP_XORI32 => {
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) ^ instr.operand;
+                },
+                regalloc_mod.OP_SHLI32 => {
+                    const shift: u5 = @truncate(instr.operand);
+                    regs[instr.rd] = @as(u32, @truncate(regs[instr.rs1])) << shift;
+                },
+                regalloc_mod.OP_EQ_I32 => {
+                    regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) == instr.operand);
+                },
+                regalloc_mod.OP_NE_I32 => {
+                    regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) != instr.operand);
+                },
+                regalloc_mod.OP_LT_S_I32 => {
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(instr.operand);
+                    regs[instr.rd] = @intFromBool(a < b);
+                },
+                regalloc_mod.OP_LT_U_I32 => {
+                    regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) < instr.operand);
+                },
+                regalloc_mod.OP_GT_S_I32 => {
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(instr.operand);
+                    regs[instr.rd] = @intFromBool(a > b);
+                },
+                regalloc_mod.OP_LE_S_I32 => {
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(instr.operand);
+                    regs[instr.rd] = @intFromBool(a <= b);
+                },
+                regalloc_mod.OP_GE_S_I32 => {
+                    const a: i32 = @bitCast(@as(u32, @truncate(regs[instr.rs1])));
+                    const b: i32 = @bitCast(instr.operand);
+                    regs[instr.rd] = @intFromBool(a >= b);
+                },
+                regalloc_mod.OP_GE_U_I32 => {
+                    regs[instr.rd] = @intFromBool(@as(u32, @truncate(regs[instr.rs1])) >= instr.operand);
+                },
 
                 // ---- Unreachable ----
                 0x00 => return error.Unreachable,
@@ -4740,10 +4807,9 @@ test "Profile — fib(10) opcode counting" {
     try testing.expect(profile.total_instrs > 0);
     try testing.expect(profile.call_count > 0); // fib is recursive
 
-    // local.get (0x20) should be the most frequent opcode in fib
-    try testing.expect(profile.opcode_counts[0x20] > 0);
-    // i32.sub (0x6B) or i32.add (0x6A) should be used
-    try testing.expect(profile.opcode_counts[0x6A] > 0 or profile.opcode_counts[0x6B] > 0);
+    // In register IR: i32.add (0x6A) or i32.sub (0x6B) or their fused forms (0xD0/0xD1)
+    try testing.expect(profile.opcode_counts[0x6A] > 0 or profile.opcode_counts[0x6B] > 0 or
+        profile.opcode_counts[0xD0] > 0 or profile.opcode_counts[0xD1] > 0);
 }
 
 test "Profile — disabled by default (no overhead)" {

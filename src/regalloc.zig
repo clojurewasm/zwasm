@@ -70,6 +70,44 @@ pub const OP_NOP: u16 = 0xF9;
 /// Block end marker — used to track block boundaries during execution.
 /// operand = end PC (for branch unwinding).
 pub const OP_BLOCK_END: u16 = 0xFA;
+/// Deleted instruction marker — used by peephole to mark instructions for removal.
+/// Distinct from OP_NOP which may carry data (e.g., call arg registers).
+pub const OP_DELETED: u16 = 0xFB;
+
+// ---- Immediate-operand fused instructions ----
+// Pattern: CONST32 + binop → single instruction with immediate in operand field.
+// Format: { op, rd, rs1, operand=imm32 }
+
+/// addi32 rd, rs1, imm32: regs[rd] = (u32)regs[rs1] +% imm32
+pub const OP_ADDI32: u16 = 0xD0;
+/// subi32 rd, rs1, imm32: regs[rd] = (u32)regs[rs1] -% imm32
+pub const OP_SUBI32: u16 = 0xD1;
+/// le_s_i32 rd, rs1, imm32: regs[rd] = ((i32)regs[rs1] <= (i32)imm32) ? 1 : 0
+pub const OP_LE_S_I32: u16 = 0xD2;
+/// ge_s_i32 rd, rs1, imm32: regs[rd] = ((i32)regs[rs1] >= (i32)imm32) ? 1 : 0
+pub const OP_GE_S_I32: u16 = 0xD3;
+/// lt_s_i32 rd, rs1, imm32: regs[rd] = ((i32)regs[rs1] < (i32)imm32) ? 1 : 0
+pub const OP_LT_S_I32: u16 = 0xD4;
+/// gt_s_i32 rd, rs1, imm32: regs[rd] = ((i32)regs[rs1] > (i32)imm32) ? 1 : 0
+pub const OP_GT_S_I32: u16 = 0xD5;
+/// eq_i32 rd, rs1, imm32: regs[rd] = ((u32)regs[rs1] == imm32) ? 1 : 0
+pub const OP_EQ_I32: u16 = 0xD6;
+/// ne_i32 rd, rs1, imm32: regs[rd] = ((u32)regs[rs1] != imm32) ? 1 : 0
+pub const OP_NE_I32: u16 = 0xD7;
+/// muli32 rd, rs1, imm32: regs[rd] = (u32)regs[rs1] *% imm32
+pub const OP_MULI32: u16 = 0xD8;
+/// andi32 rd, rs1, imm32: regs[rd] = (u32)regs[rs1] & imm32
+pub const OP_ANDI32: u16 = 0xD9;
+/// ori32 rd, rs1, imm32: regs[rd] = (u32)regs[rs1] | imm32
+pub const OP_ORI32: u16 = 0xDA;
+/// xori32 rd, rs1, imm32: regs[rd] = (u32)regs[rs1] ^ imm32
+pub const OP_XORI32: u16 = 0xDB;
+/// shli32 rd, rs1, imm32: regs[rd] = (u32)regs[rs1] << @truncate(imm32)
+pub const OP_SHLI32: u16 = 0xDC;
+/// lt_u_i32 rd, rs1, imm32: regs[rd] = ((u32)regs[rs1] < imm32) ? 1 : 0
+pub const OP_LT_U_I32: u16 = 0xDD;
+/// ge_u_i32 rd, rs1, imm32: regs[rd] = ((u32)regs[rs1] >= imm32) ? 1 : 0
+pub const OP_GE_U_I32: u16 = 0xDE;
 
 /// Function type info needed during conversion for call instructions.
 pub const FuncTypeInfo = struct {
@@ -660,6 +698,17 @@ pub fn convert(
                 try vstack.append(alloc, rd);
             },
 
+            // ---- Global get/set ----
+            0x23 => { // global.get
+                const rd = allocTemp(&next_reg, &max_reg);
+                try code.append(alloc, .{ .op = 0x23, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                try vstack.append(alloc, rd);
+            },
+            0x24 => { // global.set
+                const src = vstack.pop().?;
+                try code.append(alloc, .{ .op = 0x24, .rd = src, .rs1 = 0, .operand = instr.operand });
+            },
+
             // ---- Nop ----
             0x01 => {}, // nop — skip
 
@@ -768,6 +817,16 @@ pub fn convert(
         try code.append(alloc, .{ .op = OP_RETURN_VOID, .rd = 0, .rs1 = 0, .operand = 0 });
     }
 
+    // ---- Peephole: fuse CONST32 + binop → immediate-operand instruction ----
+    fuseConstBinop(code.items);
+
+    // Note: MOV+RETURN fusion is NOT safe because block result registers
+    // can be written from multiple paths (br, br_if, fallthrough).
+
+    // ---- Compact: remove DELETED instructions and adjust branch targets ----
+    const compacted_len = compactCode(code.items);
+    code.shrinkRetainingCapacity(compacted_len);
+
     const result = try alloc.create(RegFunc);
     result.* = .{
         .code = try code.toOwnedSlice(alloc),
@@ -777,6 +836,153 @@ pub fn convert(
         .alloc = alloc,
     };
     return result;
+}
+
+/// Peephole optimization: fuse CONST32 + binop into immediate-operand instructions.
+/// Pattern: CONST32 rd=T, imm  followed by  BINOP rd=R, rs1=A, rs2=T
+///       → BINOP_IMM rd=R, rs1=A, operand=imm  +  NOP
+/// Only fuses when the const register T is used as rs2 (second operand) of the binop.
+fn fuseConstBinop(code: []RegInstr) void {
+    if (code.len < 2) return;
+    for (0..code.len - 1) |i| {
+        const c = code[i];
+        if (c.op != OP_CONST32) continue;
+        const const_reg = c.rd;
+        const imm = c.operand;
+
+        const b = code[i + 1];
+        // Check if the binop uses const_reg as rs2 (operand field for binary ops)
+        const rs2: u8 = @truncate(b.operand);
+        if (rs2 != const_reg) continue;
+
+        const fused_op: ?u16 = switch (b.op) {
+            0x6A => OP_ADDI32, // i32.add
+            0x6B => OP_SUBI32, // i32.sub
+            0x6C => OP_MULI32, // i32.mul
+            0x71 => OP_ANDI32, // i32.and
+            0x72 => OP_ORI32, // i32.or
+            0x73 => OP_XORI32, // i32.xor
+            0x74 => OP_SHLI32, // i32.shl
+            0x46 => OP_EQ_I32, // i32.eq
+            0x47 => OP_NE_I32, // i32.ne
+            0x48 => OP_LT_S_I32, // i32.lt_s
+            0x49 => OP_LT_U_I32, // i32.lt_u
+            0x4A => OP_GT_S_I32, // i32.gt_s
+            0x4C => OP_LE_S_I32, // i32.le_s
+            0x4E => OP_GE_S_I32, // i32.ge_s
+            0x4F => OP_GE_U_I32, // i32.ge_u
+            else => null,
+        };
+
+        if (fused_op) |op| {
+            // Replace CONST32 with DELETED, replace binop with fused instruction
+            code[i] = .{ .op = OP_DELETED, .rd = 0, .rs1 = 0, .operand = 0 };
+            code[i + 1] = .{ .op = op, .rd = b.rd, .rs1 = b.rs1, .operand = imm };
+        }
+    }
+}
+
+/// Compact code by removing NOP instructions and adjusting branch targets.
+/// Two passes: (1) fix branch targets while original layout intact, (2) compact.
+/// Returns the new length (number of non-NOP instructions).
+fn compactCode(code: []RegInstr) usize {
+    const len = code.len;
+    if (len == 0) return 0;
+
+    // Quick check: any DELETED markers?
+    var has_deleted = false;
+    for (code) |instr| {
+        if (instr.op == OP_DELETED) {
+            has_deleted = true;
+            break;
+        }
+    }
+    if (!has_deleted) return len;
+
+    // Pass 1: Fix branch targets BEFORE compaction (original layout still intact).
+    // new_pc(target) = target - count_deleted_in(0..target)
+    for (code) |*instr| {
+        switch (instr.op) {
+            OP_BR, OP_BR_IF, OP_BR_IF_NOT, OP_BLOCK_END => {
+                const old_target = instr.operand;
+                var deleted_before: u32 = 0;
+                const limit = @min(old_target, @as(u32, @intCast(len)));
+                for (0..limit) |j| {
+                    if (code[j].op == OP_DELETED) deleted_before += 1;
+                }
+                instr.operand = old_target - deleted_before;
+            },
+            else => {},
+        }
+    }
+
+    // Pass 2: Compact (remove DELETED, shift left)
+    var write: usize = 0;
+    for (0..len) |read| {
+        if (code[read].op != OP_DELETED) {
+            code[write] = code[read];
+            write += 1;
+        }
+    }
+    return write;
+}
+
+fn compactCodeProper(code_slice: []RegInstr) void {
+    const len = code_slice.len;
+    if (len == 0) return;
+
+    // Step 1: Build prefix NOP count (for remap: new_pc = old_pc - prefix_nops[old_pc])
+    // We scan the original code and count NOPs.
+    // Use the NOP instruction slots to store the remap info? No, let's just
+    // compute on-the-fly.
+
+    // Count NOPs
+    var total_nops: usize = 0;
+    for (code_slice) |instr| {
+        if (instr.op == OP_NOP) total_nops += 1;
+    }
+    if (total_nops == 0) return;
+
+    // Step 2: Fix branch targets BEFORE compaction (while original layout intact).
+    // For each branch instruction, its operand is a target old_pc.
+    // We need: new_pc(target) = target - count_nops_in(0..target)
+    for (code_slice) |*instr| {
+        switch (instr.op) {
+            OP_BR, OP_BR_IF, OP_BR_IF_NOT => {
+                const old_target = instr.operand;
+                var nops_before: u32 = 0;
+                const limit = @min(old_target, @as(u32, @intCast(len)));
+                for (0..limit) |j| {
+                    if (code_slice[j].op == OP_NOP) nops_before += 1;
+                }
+                instr.operand = old_target - nops_before;
+            },
+            OP_BLOCK_END => {
+                const old_target = instr.operand;
+                var nops_before: u32 = 0;
+                const limit = @min(old_target, @as(u32, @intCast(len)));
+                for (0..limit) |j| {
+                    if (code_slice[j].op == OP_NOP) nops_before += 1;
+                }
+                instr.operand = old_target - nops_before;
+            },
+            else => {},
+        }
+    }
+
+    // Step 3: Compact (remove NOPs)
+    var write: usize = 0;
+    for (0..len) |read| {
+        if (code_slice[read].op != OP_NOP) {
+            code_slice[write] = code_slice[read];
+            write += 1;
+        }
+    }
+
+    // Fill tail with NOPs (won't be executed since code_len uses the RegFunc.code slice length)
+    for (write..len) |i| {
+        code_slice[i] = .{ .op = OP_NOP, .rd = 0, .rs1 = 0, .operand = 0 };
+    }
 }
 
 fn allocTemp(next_reg: *u16, max_reg: *u16) u8 {
