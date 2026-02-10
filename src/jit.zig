@@ -1655,6 +1655,31 @@ pub fn jitCallTrampoline(
         if (n_args > 7) call_args[7] = regs[@as(u8, @truncate(data2.operand >> 8))];
     }
 
+    // Fast path: if callee is already JIT-compiled, call directly (skip callFunction)
+    if (func_ptr.subtype == .wasm_function) {
+        const wf = &func_ptr.subtype.wasm_function;
+        if (wf.jit_code) |jc| {
+            if (wf.reg_ir) |reg| {
+                const base = vm.reg_ptr;
+                const needed: usize = reg.reg_count + 2;
+                if (base + needed > vm_mod.REG_STACK_SIZE) return 2; // StackOverflow
+                const callee_regs = vm.reg_stack[base .. base + needed];
+                vm.reg_ptr = base + needed;
+
+                for (call_args[0..n_args], 0..) |arg, i| callee_regs[i] = arg;
+                for (n_args..reg.local_count) |i| callee_regs[i] = 0;
+
+                const err = jc.entry(callee_regs.ptr, vm_opaque, instance_opaque);
+                vm.reg_ptr = base;
+                if (err != 0) return err;
+
+                if (n_results > 0) regs[result_reg] = callee_regs[0];
+                return 0;
+            }
+        }
+    }
+
+    // Slow path: full callFunction (interpreter dispatch)
     var call_results: [1]u64 = .{0};
     vm.callFunction(instance, func_ptr, call_args[0..n_args], call_results[0..@min(n_results, 1)]) catch |e| {
         return wasmErrorToCode(e);

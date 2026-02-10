@@ -73,3 +73,25 @@ entries:
       st_nestedloop: {time_ms: 4.0}
       st_ackermann: {time_ms: 22.1}
       st_matrix: {time_ms: 2726.9}
+  - id: "3.11"
+    date: "2026-02-11"
+    reason: "JIT call optimization: fast JIT-to-JIT path"
+    commit: "d6fecb7"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 234.4}
+      tak: {time_ms: 25.7}
+      sieve: {time_ms: 5.7}
+      nbody: {time_ms: 135.7}
+      nqueens: {time_ms: 2.4}
+      tgo_fib: {time_ms: 132.4}
+      tgo_tak: {time_ms: 19.6}
+      tgo_arith: {time_ms: 1.5}
+      tgo_sieve: {time_ms: 37.6}
+      tgo_fib_loop: {time_ms: 2.3}
+      tgo_gcd: {time_ms: 1.9}
+      st_fib2: {time_ms: 15780.2}
+      st_sieve: {time_ms: 6091.5}
+      st_nestedloop: {time_ms: 4.4}
+      st_ackermann: {time_ms: 22.0}
+      st_matrix: {time_ms: 2733.4}

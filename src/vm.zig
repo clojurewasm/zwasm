@@ -241,7 +241,7 @@ pub const Profile = struct {
     }
 };
 
-const REG_STACK_SIZE = 4096; // register file storage for register IR (32KB)
+pub const REG_STACK_SIZE = 4096; // register file storage for register IR (32KB)
 
 pub const Vm = struct {
     op_stack: [OPERAND_STACK_SIZE]u128,
@@ -4985,6 +4985,39 @@ test "Tiered — back-edge counting triggers JIT for single-call loop function" 
 
     // After single call: JIT should have been triggered by back-edge counting
     try testing.expect(wf.jit_code != null);
+}
+
+test "Tiered — JIT-to-JIT fast path for recursive calls" {
+    if (builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+
+    // fib(20) = 6765, involves ~21891 recursive calls.
+    // With HOT_THRESHOLD=10, JIT kicks in early. The fast JIT-to-JIT path
+    // should handle most of the recursive calls without going through callFunction.
+    const wasm = try readTestFile(testing.allocator, "02_fibonacci.wasm");
+    defer testing.allocator.free(wasm);
+
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+
+    var args = [_]u64{20};
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "fib", &args, &results);
+    try testing.expectEqual(@as(u64, 6765), results[0]);
+
+    // Verify fib was JIT compiled
+    const func_addr = inst.getExportFunc("fib") orelse return error.FunctionIndexOutOfBounds;
+    const func_ptr = try inst.store.getFunctionPtr(func_addr);
+    try testing.expect(func_ptr.subtype.wasm_function.jit_code != null);
 }
 
 test "Profile — disabled by default (no overhead)" {
