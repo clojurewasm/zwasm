@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- **Stage 0: Extraction** — not yet started
+- **Stage 0: Extraction** — task 0.1 complete (dependency audit)
 - Opcode coverage: 225 core + 236 SIMD = 461 (from CW src/wasm/)
 - WASI syscalls: ~25 (from CW)
 - Spec test pass rate: TBD (no wast runner yet)
@@ -19,7 +19,7 @@ Position: "wasm3 spiritual successor in Zig" — not competing with wasmtime on 
 
 Stage 0: API Design & Extraction
 
-1. [ ] 0.1: CW dependency audit — identify all CW-specific imports in src/wasm/
+1. [x] 0.1: CW dependency audit — identify all CW-specific imports in src/wasm/
 2. [ ] 0.2: Design public API (Engine/Module/Instance pattern)
 3. [ ] 0.3: Extract source files from CW src/wasm/ → zwasm src/
 4. [ ] 0.4: Remove CW dependencies (Value, GC, Env references)
@@ -30,13 +30,55 @@ Stage 0: API Design & Extraction
 
 ## Current Task
 
-0.1: CW dependency audit — identify all CW-specific imports in src/wasm/.
-Scan every file in CW `src/wasm/*.zig`, list imports that reference CW modules
-(value.zig, gc, env, error, etc.). Output: dependency map for extraction.
+0.2: Design public API (Engine/Module/Instance pattern).
+Define zwasm-native types to replace CW Value in the public interface.
+Key: imports map, host functions, return values need zwasm-native representations.
 
 ## Previous Task
 
-(None)
+0.1: CW dependency audit — COMPLETE. Results:
+
+### Dependency Map (11,183 LOC total)
+
+**Clean files (0 CW deps) — extract as-is (10 files, 9,780 LOC)**:
+
+| File           | LOC  | Internal deps                                |
+|----------------|------|----------------------------------------------|
+| opcode.zig     | 822  | std                                          |
+| leb128.zig     | 282  | std                                          |
+| predecode.zig  | 452  | std, leb128                                  |
+| wit_parser.zig | 451  | std                                          |
+| memory.zig     | 320  | std                                          |
+| store.zig      | 528  | std, memory, opcode, vm, predecode           |
+| instance.zig   | 473  | std, leb128, opcode, store, wasi, memory, module |
+| module.zig     | 931  | std, leb128, opcode                          |
+| wasi.zig       | 1548 | std, vm, memory, store, module, instance, opcode |
+| vm.zig         | 3973 | std, leb128, opcode, store, memory, module, instance, predecode |
+
+**CW-dependent (1 file, 891 LOC) — types.zig**:
+
+| Import                      | Lines    | Usage                                       |
+|-----------------------------|----------|---------------------------------------------|
+| `../runtime/value.zig`      | L316     | valueToWasm, wasmToValue, Value params      |
+| `../runtime/bootstrap.zig`  | L350     | callFnVal (host function callbacks)         |
+| `../runtime/collections.zig`| L726+    | PersistentArrayMap (imports map, tests only) |
+
+CW Value used in: WasmFn.call(), loadWithImports(), lookupImportFn(),
+lookupImportSource(), valueToWasm(), wasmToValue(), HostContext, host callbacks.
+Also in tests for building import maps.
+
+**CW-only — do NOT extract (1 file, 512 LOC)**:
+
+| File         | LOC | Deps                                    |
+|--------------|-----|-----------------------------------------|
+| builtins.zig | 512 | Value, var.zig, error.zig, collections  |
+
+### Extraction Strategy
+
+1. types.zig needs refactoring: split into zwasm-pure + CW bridge
+2. Value-dependent functions become the "host callback" interface
+3. Import maps: replace CW PersistentArrayMap with zwasm-native lookup
+4. builtins.zig stays in CW (bridge layer)
 
 ## Known Issues
 
