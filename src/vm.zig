@@ -241,7 +241,7 @@ pub const Profile = struct {
     }
 };
 
-pub const REG_STACK_SIZE = 4096; // register file storage for register IR (32KB)
+pub const REG_STACK_SIZE = 32768; // register file storage for register IR (256KB)
 
 pub const Vm = struct {
     op_stack: [OPERAND_STACK_SIZE]u128,
@@ -3136,13 +3136,77 @@ pub const Vm = struct {
                 const param_count = func_ptr.params.len;
                 const locals_start = self.op_ptr - param_count;
 
-                for (0..wf.locals_count) |_| try self.push(0);
-
                 // Lazy IR predecoding (try IR first, fall back to branch table)
                 if (wf.ir == null and !wf.ir_failed) {
                     wf.ir = predecode_mod.predecode(self.alloc, wf.code) catch null;
                     if (wf.ir == null) wf.ir_failed = true;
                 }
+
+                // Trigger regIR conversion for callees of stack-IR functions.
+                // Without this, callees are stuck in the slow stack interpreter
+                // forever (shootout 23-33x slowdown root cause).
+                if (wf.ir != null and wf.reg_ir == null and !wf.reg_ir_failed and
+                    func_ptr.results.len <= 1)
+                {
+                    const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
+                    const resolver = regalloc_mod.ParamResolver{
+                        .ctx = @ptrCast(callee_inst),
+                        .resolve_fn = struct {
+                            fn resolve(ctx: *anyopaque, func_idx: u32) ?regalloc_mod.FuncTypeInfo {
+                                const i: *Instance = @ptrCast(@alignCast(ctx));
+                                const fp = i.getFuncPtr(func_idx) catch return null;
+                                return .{
+                                    .param_count = @intCast(fp.params.len),
+                                    .result_count = @intCast(fp.results.len),
+                                };
+                            }
+                        }.resolve,
+                    };
+                    wf.reg_ir = regalloc_mod.convert(
+                        self.alloc,
+                        wf.ir.?.code,
+                        wf.ir.?.pool64,
+                        @intCast(func_ptr.params.len),
+                        @intCast(wf.locals_count),
+                        resolver,
+                    ) catch null;
+                    if (wf.reg_ir == null) wf.reg_ir_failed = true;
+                }
+
+                // JIT compilation + fast execution for hot callees.
+                // Only redirect to JIT (not regIR) to avoid Zig stack overflow
+                // on deeply recursive functions like Ackermann.
+                if (wf.reg_ir) |reg| {
+                    if (builtin.cpu.arch == .aarch64 and self.profile == null and
+                        wf.jit_code == null and !wf.jit_failed)
+                    {
+                        wf.call_count += 1;
+                        if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
+                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(func_ptr.params.len));
+                            if (wf.jit_code == null) wf.jit_failed = true;
+                        }
+                    }
+
+                    if (self.profile == null) {
+                        if (wf.jit_code) |jc| {
+                            // JIT fast path: extract args, execute native code
+                            if (param_count <= 16) {
+                                var arg_buf: [16]u64 = undefined;
+                                for (0..param_count) |i| {
+                                    arg_buf[i] = @truncate(self.op_stack[locals_start + i]);
+                                }
+                                self.op_ptr = locals_start;
+                                var call_results: [1]u64 = .{0};
+                                const n_results = func_ptr.results.len;
+                                try self.executeJIT(jc, reg, instance, func_ptr, arg_buf[0..param_count], call_results[0..n_results]);
+                                if (n_results > 0) try self.push(call_results[0]);
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                for (0..wf.locals_count) |_| try self.push(0);
 
                 const saved_bt = self.current_branch_table;
 

@@ -23,28 +23,36 @@ Session handover document. Read at session start.
 - **JIT code quality**: direct dest reg, selective reload, shared error epilogue
 - **Inline self-call**: direct BL for self-recursive calls, cached &vm.reg_ptr in x27
 - **Smart spill**: only spill caller-saved + arg vregs; direct physical reg arg copy
+- **doCallDirectIR fast path**: regIR/JIT for callees of stack-IR functions (task 5.1)
 
 ## Task Queue
 
 Stage 5: JIT Coverage Expansion
 
-Performance gaps: shootout 23-33x, nbody 6.2x slower than wasmtime.
-Root causes: functions not getting JIT'd, missing f64 JIT, interpreter overhead.
+Performance gaps: st_sieve 32x, st_matrix 31x, nbody 6.2x slower than wasmtime.
+Root causes: missing JIT opcode coverage (st_sieve/matrix), missing f64 JIT (nbody).
+st_fib2 fixed: 1754ms → 2.6x wasmtime (was 23.6x). st_ackermann: 6ms (beats wasmtime).
 
-1. [ ] 5.1: Profile shootout benchmarks — identify JIT coverage gaps
-2. [ ] 5.2: Close identified gaps (based on 5.1 findings)
+1. [x] 5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass
+2. [ ] 5.2: Close remaining gaps (st_sieve/matrix opcode coverage)
 3. [ ] 5.3: f64 ARM64 JIT — codegen for f64 operations (key gap for nbody)
 4. [ ] 5.4: Re-record cross-runtime benchmarks
 
 ## Current Task
 
-5.1: Profile shootout benchmarks — identify why 23-33x slower than wasmtime.
+5.2: Close remaining shootout gaps — st_sieve (32x) and st_matrix (31x) still
+use stack interpreter for hot functions. Profile to find which opcodes are missing
+from JIT coverage, then implement them.
 
 ## Previous Task
 
-4.4: Cross-runtime benchmark update — COMPLETE.
-Key results: fib 104ms (2.0x wasmtime), sieve 5ms (beats wasmtime 6ms).
-Memory: zwasm 2-3MB vs wasmtime 12-43MB.
+5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass — COMPLETE.
+Root cause: doCallDirectIR completely bypassed regIR/JIT paths. Callees of
+stack-IR functions were stuck in the slow interpreter forever.
+Fix: trigger regIR conversion + JIT compilation in doCallDirectIR, redirect
+JIT-ready functions to executeJIT. Also increased REG_STACK_SIZE 4096→32768
+to support deep recursion via regIR path.
+Results: st_fib2 9x faster (15746→1754ms), st_ackermann 3.3x faster (20→6ms).
 
 ## Known Bugs
 

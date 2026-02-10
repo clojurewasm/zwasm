@@ -183,3 +183,25 @@ entries:
       st_nestedloop: {time_ms: 3.6}
       st_ackermann: {time_ms: 21.8}
       st_matrix: {time_ms: 2743.4}
+  - id: "5.1"
+    date: "2026-02-11"
+    reason: "doCallDirectIR regIR/JIT fast path for shootout callees"
+    commit: "f5cc138"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 103.2}
+      tak: {time_ms: 3.4}
+      sieve: {time_ms: 5.4}
+      nbody: {time_ms: 134.5}
+      nqueens: {time_ms: 1.6}
+      tgo_fib: {time_ms: 63.5}
+      tgo_tak: {time_ms: 9.3}
+      tgo_arith: {time_ms: 1.8}
+      tgo_sieve: {time_ms: 36.7}
+      tgo_fib_loop: {time_ms: 2.7}
+      tgo_gcd: {time_ms: 2.4}
+      st_fib2: {time_ms: 1754.2}
+      st_sieve: {time_ms: 6028.1}
+      st_nestedloop: {time_ms: 4.4}
+      st_ackermann: {time_ms: 6.0}
+      st_matrix: {time_ms: 2723.2}
