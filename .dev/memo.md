@@ -40,25 +40,30 @@ Stage 3: JIT + Optimization (ARM64)
 5. [x] 3.4: Register IR design — D104 decision for IR representation
 6. [x] 3.5: Register IR implementation — stack-to-register conversion pass
 7. [x] 3.6: Register IR validation — benchmark + peephole optimization
-8. [ ] 3.7: ARM64 codegen design — D## decision for JIT architecture
+8. [x] 3.7: ARM64 codegen design — D105 decision for JIT architecture
 9. [ ] 3.8: ARM64 basic block codegen — arithmetic + control flow
 10. [ ] 3.9: ARM64 function-level JIT — compile entire hot functions
 11. [ ] 3.10: Tiered execution — interpreter → JIT with hot function detection
 
 ## Current Task
 
-3.7: ARM64 codegen design — D## decision for JIT architecture.
+3.8: ARM64 basic block codegen — arithmetic + control flow.
 
-Design the ARM64 JIT code generator:
-1. Choose compilation unit: basic block vs function-level
-2. ABI: register mapping, calling convention for JIT→interpreter transitions
-3. Code emission strategy: direct machine code buffer
-4. Integration: how JIT functions interact with interpreted functions
-5. Tiered execution: when to JIT (call count threshold)
+Implement `src/jit.zig` with ARM64 code emission:
+1. ARM64 instruction encoding helpers (add, sub, cmp, b, ret, etc.)
+2. mmap executable buffer management (macOS MAP_JIT + W^X)
+3. RegInstr→ARM64 compilation for core i32/i64 arithmetic + control flow
+4. JIT function calling convention: fn(regs: *[N]u64, instance: *Instance)
+5. Integration point: WasmFunction.jit_code field, Vm.callFunction dispatch
 
 ## Previous Task
 
-3.6: Register IR validation — COMPLETE.
+3.7: ARM64 codegen design — COMPLETE.
+- D105: Function-level JIT, direct ARM64 emission, tiered execution
+- Register mapping: x0-x7 args, x8-x15 temps, x19-x28 locals
+- Calling convention: fn(regs, instance) → regs[0] = return value
+- Hot threshold: 100 calls (configurable)
+- Initial scope: i32/i64 arithmetic + control flow only
 - Immediate-operand fusion: 15 fused opcodes (OP_ADDI32, OP_SUBI32, OP_LE_S_I32, etc.)
 - NOP compaction with branch target adjustment
 - Profiling enabled for register IR execution

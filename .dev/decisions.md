@@ -242,3 +242,115 @@ SIMD, multi-value returns > 1, very large functions can fall back.
 
 **Chose**: 8-byte 3-address with rs2 packed in operand. Same cache footprint as
 existing IR, natural upgrade path to JIT (RegInstr → ARM64 instructions 1:1).
+
+---
+
+## D105: ARM64 JIT — Function-Level Codegen Architecture
+
+**Decision**: Compile hot functions from RegInstr to ARM64 machine code using
+direct code emission. Function-level compilation, no external codegen libraries.
+
+### Motivation
+
+Register IR validation (task 3.6) shows interpreted register IR achieves
+1.2-1.4x speedup over stack IR. The switch dispatch overhead (~8ns/dispatch)
+is the bottleneck. JIT compilation eliminates dispatch entirely.
+
+Target: 3-5x over interpreted register IR (i.e., fib 443ms → ~100ms).
+
+### Tiered Execution Model
+
+```
+Tier 0: Bytecode (decode)        — cold startup
+Tier 1: Predecoded IR (PreInstr) — after first call
+Tier 2: Register IR (RegInstr)   — after first call (if convertible)
+Tier 3: ARM64 JIT                — after N calls (hot functions)
+```
+
+Hot function threshold: 100 calls (configurable). Counter on WasmFunction.
+
+### Code Emission Strategy
+
+**Direct ARM64 instruction encoding** in a `jit.zig` module:
+- ARM64 fixed-width 32-bit instructions
+- Emit to mmap'd executable buffer
+- Per-function code buffer, freed on function unload
+- macOS: MAP_JIT + pthread_jit_write_protect_np (W^X)
+- Linux: mmap(PROT_READ|PROT_EXEC) + mprotect dance
+
+No external libraries. The ARM64 ISA is regular enough for direct emission.
+
+### Register Mapping
+
+ARM64 has 31 GP registers. Allocation strategy:
+
+| ARM64 reg | Purpose                               |
+|-----------|---------------------------------------|
+| x0-x7    | Wasm function args + return value      |
+| x8-x15   | Wasm temporaries (caller-saved)        |
+| x16-x17  | Scratch (IP0/IP1, linker use)          |
+| x18      | Platform reserved (macOS)              |
+| x19-x28  | Wasm locals (callee-saved, preserved)  |
+| x29      | Frame pointer (FP)                     |
+| x30      | Link register (LR)                     |
+| SP       | Stack pointer                          |
+
+Float registers: d0-d7 for args/return, d8-d15 callee-saved, d16-d31 temps.
+
+**Mapping rule**: First 20 virtual registers → physical registers directly.
+Virtual registers > 20 spill to stack frame.
+
+For fib (5 virtual registers): all fit in physical registers, zero spills.
+
+### Calling Convention
+
+JIT function signature: `fn(regs: *[N]u64, instance: *Instance) WasmError!void`
+
+- `regs[0..param_count]` = arguments (pre-filled by caller)
+- `regs[0]` = return value (written by callee)
+- `instance` for memory/global/table access
+
+**JIT→JIT call**: Through Vm.callFunction (same path as interpreted).
+Direct call optimization deferred to later task.
+
+**JIT→Interpreter fallback**: Vm.callFunction handles both — checks
+`jit_code` first, then `reg_ir`, then `ir`.
+
+### Memory Access
+
+Wasm linear memory via `Instance.getMemory(0)` cached in a register:
+- x20 = memory base pointer (callee-saved, loaded at function entry)
+- Bounds check: inline compare + trap branch
+- Memory growth: reload base pointer after any call (memory may move)
+
+### Code Layout (per function)
+
+```
+[prologue]        — save callee-saved regs, load instance/memory ptrs
+[body]            — compiled RegInstr sequence
+[epilogue]        — restore regs, return
+[trap handlers]   — out-of-line error paths
+```
+
+### Initial Scope (task 3.8)
+
+Compile only core i32/i64 arithmetic + control flow:
+- Constants, arithmetic, comparisons, shifts
+- Branches (br, br_if, loop)
+- Function calls (via Vm.callFunction trampoline)
+- Local variable access (direct register read/write)
+- Return
+
+Exclude initially: memory ops, float ops, SIMD, tables, globals.
+These fall back to register IR interpreter.
+
+### Alternatives Considered
+
+1. **Cranelift/LLVM backend**: Mature but massive deps, slow compile times
+2. **Copy-and-patch JIT**: Fast compile but limited optimization
+3. **Basic-block level JIT**: Simpler but misses function-level register allocation
+4. **Method JIT with optimization**: Too complex for initial implementation
+
+**Chose**: Simple function-level JIT with direct ARM64 emission. The register IR
+already provides a clean 3-address IR that maps naturally to ARM64 instructions.
+Start simple, optimize later.
