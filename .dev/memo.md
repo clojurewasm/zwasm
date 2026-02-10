@@ -18,7 +18,8 @@ Session handover document. Read at session start.
 - CI: GitHub Actions (ubuntu + macOS, zig build test + spec tests)
 - **Register IR**: lazy conversion at first call, fallback to stack IR on failure
 - **ARM64 JIT**: function-level codegen — arithmetic, control flow, function calls,
-  division/remainder (traps), memory load/store (14 ops), rotation, CLZ/CTZ, select, sign-ext
+  division/remainder (traps), memory load/store (14 ops), rotation, CLZ/CTZ, select, sign-ext,
+  f64/f32 arithmetic (add/sub/mul/div/sqrt/abs/neg/min/max), FP comparisons, FP conversions
 - **JIT call fast path**: JIT-to-JIT direct calls bypass callFunction dispatch
 - **JIT code quality**: direct dest reg, selective reload, shared error epilogue
 - **Inline self-call**: direct BL for self-recursive calls, cached &vm.reg_ptr in x27
@@ -30,30 +31,29 @@ Session handover document. Read at session start.
 
 Stage 5: JIT Coverage Expansion
 
-Performance gaps: st_sieve 32x, st_matrix 31x, nbody 6.2x slower than wasmtime.
-Root causes: missing JIT opcode coverage (st_sieve/matrix), missing f64 JIT (nbody).
-st_fib2 fixed: 1754ms → 2.6x wasmtime (was 23.6x). st_ackermann: 6ms (beats wasmtime).
+Performance gaps: st_sieve 32x, st_matrix 31x, nbody 2.7x slower than wasmtime.
+Root causes: regIR interpreter overhead (st_sieve/matrix — need JIT expansion for memory/br_table).
+st_fib2: 1754ms (2.6x wasmtime). st_ackermann: 6ms (beats wasmtime). nbody: 60ms (was 134ms).
 
 1. [x] 5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass
 2. [x] 5.2: Close remaining gaps (st_sieve/matrix regIR opcode coverage)
-3. [ ] 5.3: f64 ARM64 JIT — codegen for f64 operations (key gap for nbody)
+3. [x] 5.3: f64/f32 ARM64 JIT — nbody 133→60ms (2.2x speedup)
 4. [ ] 5.4: Re-record cross-runtime benchmarks
 
 ## Current Task
 
-5.3: f64 ARM64 JIT — codegen for f64 operations.
-Key gap for st_nbody (6.2x slower than wasmtime). Need f64 arithmetic,
-comparisons, conversions in ARM64 JIT codegen.
+5.4: Re-record cross-runtime benchmarks after Stage 5 improvements.
 
 ## Previous Task
 
-5.2: Close remaining shootout regIR gaps — COMPLETE.
-Added br_table (with arity trampoline for heterogeneous result_regs),
-memory.fill/copy, trunc_sat (0xFC00-0xFC07), call_indirect stub.
-Key finding: st_sieve and st_matrix now fully convert to regIR — no unsupported
-opcodes remain. The 32x/31x gap vs wasmtime is register IR interpreter overhead,
-not opcode coverage. Real fix requires expanding ARM64 JIT codegen to cover
-these functions' instruction sets (memory ops, br_table, etc.).
+5.3: f64/f32 ARM64 JIT — COMPLETE.
+Added full f64/f32 JIT codegen: arithmetic (add/sub/mul/div), unary (sqrt/abs/neg),
+min/max, comparisons (NaN-safe: MI/LS conditions for lt/le), conversions
+(i32/i64↔f64/f32, promote/demote). Strategy: GPR↔FPR via FMOV, compute in
+d0/d1 scratch FP regs. nbody: 133ms → 60ms (2.2x speedup), gap vs wasmtime
+reduced from 6.2x to 2.7x.
+Key remaining gap: st_sieve/st_matrix still use regIR interpreter (no JIT for
+memory load/store with bounds check, br_table). Need JIT expansion for these.
 
 ## Known Bugs
 
