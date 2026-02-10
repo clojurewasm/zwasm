@@ -33,7 +33,7 @@ Design for the Zig ecosystem. CW adapts to zwasm's API, not the reverse.
 Stage 3: JIT + Optimization (ARM64)
 
 1. [x] 3.1: Profiling infrastructure — opcode frequency + function call counters
-2. [ ] 3.2: Benchmark suite expansion — add nbody, binary-trees, sieve Wasm benchmarks
+2. [x] 3.2: Benchmark suite expansion — tak, sieve, nbody + updated scripts
 3. [ ] 3.3: Profile hot paths — analyze benchmark profiles, document bottleneck patterns
 4. [ ] 3.4: Register IR design — D## decision for IR representation
 5. [ ] 3.5: Register IR implementation — stack-to-register conversion pass
@@ -45,18 +45,18 @@ Stage 3: JIT + Optimization (ARM64)
 
 ## Current Task
 
-3.2: Benchmark suite expansion.
+3.3: Profile hot paths — analyze benchmark profiles, document bottleneck patterns.
 
-Add more Wasm benchmarks beyond fib:
-- nbody: N-body simulation (float-heavy, memory access)
-- binary-trees: Allocation-heavy tree manipulation
-- sieve: Eratosthenes sieve (memory, loops)
-- tak: Takeuchi function (recursive calls, integer)
-
-These are needed to profile diverse workloads before register IR design.
+Run all benchmarks with --profile, analyze opcode distribution, identify:
+- Which opcodes dominate each workload category
+- Stack traffic patterns (local.get/set frequency)
+- Call overhead (function call % of total)
+- Memory access patterns (load/store frequency)
+Document findings for register IR design decisions.
 
 ## Previous Task
 
+3.2: Benchmark suite expansion — COMPLETE.
 3.1: Profiling infrastructure — COMPLETE.
 - `Profile` struct in vm.zig: opcode_counts[256], misc_counts[32], call_count, total_instrs
 - Zero overhead when disabled (null pointer check, default)

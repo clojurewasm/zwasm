@@ -1,32 +1,62 @@
 #!/bin/bash
 # zwasm vs wasmtime comparison benchmark
-# Usage: bash bench/compare_wasmtime.sh [--quick]
+# Usage:
+#   bash bench/compare_wasmtime.sh              # All benchmarks (3 runs + 1 warmup)
+#   bash bench/compare_wasmtime.sh --quick      # Single run
+#   bash bench/compare_wasmtime.sh --bench=fib  # Specific benchmark
 
-set -e
+set -euo pipefail
 cd "$(dirname "$0")/.."
 
-QUICK=false
-if [ "$1" = "--quick" ]; then
-    QUICK=true
+QUICK=0
+BENCH=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --quick) QUICK=1 ;;
+    --bench=*) BENCH="${arg#--bench=}" ;;
+  esac
+done
+
+if ! command -v wasmtime &>/dev/null; then
+  echo "error: wasmtime not found in PATH"
+  exit 1
 fi
 
 echo "Building zwasm (ReleaseSafe)..."
 zig build -Doptimize=ReleaseSafe
 
-echo ""
-echo "=== zwasm vs wasmtime: fib(35) ==="
-echo ""
+BENCHMARKS=(
+  "fib:src/testdata/02_fibonacci.wasm:fib:35"
+  "tak:bench/wasm/tak.wasm:tak:24 16 8"
+  "sieve:bench/wasm/sieve.wasm:sieve:1000000"
+  "nbody:bench/wasm/nbody.wasm:run:1000000"
+)
 
-WASM_FILE="src/testdata/02_fibonacci.wasm"
+for entry in "${BENCHMARKS[@]}"; do
+  IFS=: read -r name wasm func bench_args <<< "$entry"
 
-if [ "$QUICK" = true ]; then
-    hyperfine --warmup 1 --runs 1 \
-        "./zig-out/bin/zwasm run --invoke fib $WASM_FILE 35" \
-        "wasmtime run --invoke fib $WASM_FILE 35"
-else
-    hyperfine --warmup 2 --runs 5 \
-        --command-name "zwasm (interpreter)" \
-        --command-name "wasmtime (JIT)" \
-        "./zig-out/bin/zwasm run --invoke fib $WASM_FILE 35" \
-        "wasmtime run --invoke fib $WASM_FILE 35"
-fi
+  if [[ -n "$BENCH" && "$name" != "$BENCH" ]]; then
+    continue
+  fi
+
+  if [[ ! -f "$wasm" ]]; then
+    echo "SKIP $name: $wasm not found"
+    continue
+  fi
+
+  echo ""
+  echo "=== $name ==="
+  zwasm_cmd="./zig-out/bin/zwasm run --invoke $func $wasm $bench_args"
+  wt_cmd="wasmtime run --invoke $func $wasm $bench_args"
+
+  if [[ $QUICK -eq 1 ]]; then
+    hyperfine --runs 1 --warmup 0 \
+      --command-name "zwasm" --command-name "wasmtime" \
+      "$zwasm_cmd" "$wt_cmd"
+  else
+    hyperfine --runs 3 --warmup 1 \
+      --command-name "zwasm" --command-name "wasmtime" \
+      "$zwasm_cmd" "$wt_cmd"
+  fi
+done

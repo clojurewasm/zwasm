@@ -1,22 +1,67 @@
 #!/bin/bash
-# zwasm benchmark script
-# Usage: bash bench/run_bench.sh [--quick]
+# zwasm benchmark runner — uses hyperfine for reliable measurements.
+# Usage:
+#   bash bench/run_bench.sh              # Run all benchmarks (3 runs + 1 warmup)
+#   bash bench/run_bench.sh --quick      # Single run, no warmup
+#   bash bench/run_bench.sh --bench=fib  # Run specific benchmark
+#   bash bench/run_bench.sh --profile    # Show execution profiles
 
-set -e
+set -euo pipefail
 cd "$(dirname "$0")/.."
 
-QUICK=false
-if [ "$1" = "--quick" ]; then
-    QUICK=true
-fi
+ZWASM=./zig-out/bin/zwasm
+QUICK=0
+BENCH=""
+PROFILE=0
 
-echo "Building zwasm (ReleaseSafe)..."
+for arg in "$@"; do
+  case "$arg" in
+    --quick) QUICK=1 ;;
+    --bench=*) BENCH="${arg#--bench=}" ;;
+    --profile) PROFILE=1 ;;
+  esac
+done
+
+# Build ReleaseSafe
+echo "Building (ReleaseSafe)..."
 zig build -Doptimize=ReleaseSafe
 
-echo ""
-echo "=== zwasm fib(35) benchmark ==="
-if [ "$QUICK" = true ]; then
-    hyperfine --warmup 1 --runs 1 './zig-out/bin/fib_bench 35'
-else
-    hyperfine --warmup 2 --runs 5 './zig-out/bin/fib_bench 35'
-fi
+# Benchmark definitions: name:wasm:function:args
+BENCHMARKS=(
+  "fib:src/testdata/02_fibonacci.wasm:fib:35"
+  "tak:bench/wasm/tak.wasm:tak:24 16 8"
+  "sieve:bench/wasm/sieve.wasm:sieve:1000000"
+  "nbody:bench/wasm/nbody.wasm:run:1000000"
+  "nqueens:src/testdata/25_nqueens.wasm:nqueens:8"
+)
+
+for entry in "${BENCHMARKS[@]}"; do
+  IFS=: read -r name wasm func bench_args <<< "$entry"
+
+  if [[ -n "$BENCH" && "$name" != "$BENCH" ]]; then
+    continue
+  fi
+
+  if [[ ! -f "$wasm" ]]; then
+    echo "SKIP $name: $wasm not found"
+    continue
+  fi
+
+  if [[ $PROFILE -eq 1 ]]; then
+    echo "=== Profile: $name ==="
+    # shellcheck disable=SC2086
+    $ZWASM run --profile --invoke "$func" "$wasm" $bench_args
+    echo
+    continue
+  fi
+
+  echo "=== $name ==="
+  cmd="$ZWASM run --invoke $func $wasm $bench_args"
+
+  if [[ $QUICK -eq 1 ]]; then
+    hyperfine --runs 1 --warmup 0 "$cmd"
+  else
+    hyperfine --runs 3 --warmup 1 "$cmd"
+  fi
+  echo
+done
