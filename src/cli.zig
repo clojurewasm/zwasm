@@ -889,25 +889,52 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
         }
 
         const rest = line["invoke ".len..];
-        // Parse length prefix: "<len>:<func_name> [args...]"
-        const colon_pos = std.mem.indexOfScalar(u8, rest, ':') orelse {
-            try stdout.print("error missing length prefix\n", .{});
-            try stdout.flush();
-            continue;
-        };
-        const name_len = std.fmt.parseInt(usize, rest[0..colon_pos], 10) catch {
-            try stdout.print("error invalid length\n", .{});
-            try stdout.flush();
-            continue;
-        };
-        const name_start = colon_pos + 1;
-        if (name_start + name_len > rest.len) {
-            try stdout.print("error name too long\n", .{});
-            try stdout.flush();
-            continue;
+
+        // Two protocols:
+        // 1. Length-prefixed: "invoke <len>:<func_name> [args...]"
+        // 2. Hex-encoded:    "invoke hex:<hex_name> [args...]" (for names with \0, \n, \r)
+        var hex_decode_buf: [512]u8 = undefined;
+        var func_name: []const u8 = undefined;
+        var args_start: usize = undefined;
+
+        if (std.mem.startsWith(u8, rest, "hex:")) {
+            // Hex-encoded: find end of hex name (space or end of line)
+            const hex_start = 4; // after "hex:"
+            const hex_end = std.mem.indexOfScalar(u8, rest[hex_start..], ' ') orelse (rest.len - hex_start);
+            const hex_str = rest[hex_start .. hex_start + hex_end];
+            if (hex_str.len % 2 != 0 or hex_str.len / 2 > hex_decode_buf.len) {
+                try stdout.print("error invalid hex name\n", .{});
+                try stdout.flush();
+                continue;
+            }
+            const decoded = std.fmt.hexToBytes(&hex_decode_buf, hex_str) catch {
+                try stdout.print("error invalid hex name\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            func_name = decoded;
+            args_start = hex_start + hex_end;
+        } else {
+            // Length-prefixed: "<len>:<func_name> [args...]"
+            const colon_pos = std.mem.indexOfScalar(u8, rest, ':') orelse {
+                try stdout.print("error missing length prefix\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            const name_len = std.fmt.parseInt(usize, rest[0..colon_pos], 10) catch {
+                try stdout.print("error invalid length\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            const name_start = colon_pos + 1;
+            if (name_start + name_len > rest.len) {
+                try stdout.print("error name too long\n", .{});
+                try stdout.flush();
+                continue;
+            }
+            func_name = rest[name_start .. name_start + name_len];
+            args_start = name_start + name_len;
         }
-        const func_name = rest[name_start .. name_start + name_len];
-        const args_start = name_start + name_len;
 
         // Parse arguments (space-separated after name)
         var arg_count: usize = 0;

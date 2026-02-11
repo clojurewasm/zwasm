@@ -116,24 +116,24 @@ class BatchRunner:
 
     def _has_problematic_name(self, func_name):
         """Check if function name contains characters that break the line protocol."""
-        return '\n' in func_name or '\r' in func_name
+        return '\x00' in func_name or '\n' in func_name or '\r' in func_name
 
     def invoke(self, func_name, args, timeout=5):
         """Invoke a function. Returns (success, results_or_error)."""
-        # Fall back to single-process if name has newlines or batch is dead
-        if self._has_problematic_name(func_name):
-            if self.needs_state:
-                return (False, "stateful+problematic name")
-            return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
-
         if self.proc is None or self.proc.poll() is not None:
             if not self.needs_state:
-                return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
+                if not self._has_problematic_name(func_name):
+                    return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
+                return (False, "problematic name + no batch")
             return (False, "process not running")
 
-        # Length-prefixed function name to handle special characters
+        # Hex-encode function name if it contains bytes that break the line protocol
         name_bytes = func_name.encode('utf-8')
-        cmd_line = f"invoke {len(name_bytes)}:{func_name}"
+        if self._has_problematic_name(func_name):
+            hex_name = name_bytes.hex()
+            cmd_line = f"invoke hex:{hex_name}"
+        else:
+            cmd_line = f"invoke {len(name_bytes)}:{func_name}"
         for a in args:
             cmd_line += f" {a}"
         cmd_line += "\n"

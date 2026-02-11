@@ -1086,7 +1086,11 @@ pub const Compiler = struct {
 
     fn scanForMemoryOps(ir: []const RegInstr) bool {
         for (ir) |instr| {
-            if (instr.op >= 0x28 and instr.op <= 0x3E) return true;
+            // 0x28-0x3E: load/store, 0x3F: memory.size, 0x40: memory.grow
+            if (instr.op >= 0x28 and instr.op <= 0x40) return true;
+            // Bulk memory ops also use linear memory
+            if (instr.op == regalloc_mod.OP_MEMORY_FILL or
+                instr.op == regalloc_mod.OP_MEMORY_COPY) return true;
         }
         return false;
     }
