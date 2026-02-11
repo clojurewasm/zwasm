@@ -30,11 +30,11 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 | W16  | wast2json NaN literal syntax                | 0     | simd/canonicalize-nan.wast uses NaN syntax wast2json 1.0.39 can't parse. No upgrade available. | Blocked on wabt release. File skipped in conversion. |
 | W17  | .wat file support (native WAT parser)       | 0     | issue11563.wat (GC+exceptions) and issue12170.wat (SIMD smoke test) currently skipped. | Implement native WAT parser as future stage (see roadmap.md "WAT Parser & Build-time Feature Flags"). Build-time optional (`-Dwat=false`). Resolves .wat test files and adds `zwasm run file.wat` + `WasmModule.loadFromWat()` API. |
 
-## Wasm proposals (future stages)
+## Wasm proposals (assigned to stages)
 
-| ID   | Item                                        | Scope | E2E Files Blocked                    | Notes                                    |
-|------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
-| W13  | Exception handling (exnref)                 | Large | issue11561.wast                      | Wasm 3.0. try_table, throw, throw_ref, exnref, tag section. See proposals.yaml#exception_handling, .dev/references/proposals/exception-handling.md |
-| W14  | Wide arithmetic (i64.add128 etc.)           | Medium| wide-arithmetic.wast                 | Phase 3. 4 opcodes: i64.add128, i64.sub128, i64.mul_wide_s/u. See proposals.yaml#wide_arithmetic |
-| W15  | Custom page sizes                           | Small | memory-combos.wast                   | Phase 3. Non-64KB page sizes. See proposals.yaml#custom_page_sizes |
-| W18  | Memory64 table operations                   | Medium| table_size64 (36), memory_grow64 (1) | 64-bit table limits, i64 table.size/grow. Part of memory64 proposal. |
+| ID   | Item                          | Stage | E2E Blocked              | Notes                                    |
+|------|-------------------------------|-------|--------------------------|------------------------------------------|
+| W18  | Memory64 table operations     | 7     | table_size64(36), memory_grow64(1) | 64-bit table limits, i64 table.size/grow |
+| W13  | Exception handling (exnref)   | 8     | issue11561.wast          | tag section, try_table, throw, throw_ref |
+| W14  | Wide arithmetic (i128)        | 9     | wide-arithmetic.wast     | 4 opcodes: add128, sub128, mul_wide_s/u  |
+| W15  | Custom page sizes             | 10    | memory-combos.wast       | Non-64KB page sizes in memory type       |

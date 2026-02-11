@@ -17,69 +17,79 @@ Session handover document. Read at session start.
 - **main = stable**: CW depends on main via GitHub URL (v0.2.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
 
+## Completed Stages
+
+Stages 0-6, 5E, 5F — all COMPLETE. See `roadmap.md` for details.
+Key results: Spec 30,666/30,703 (99.9%), E2E 180/181, 20/21 bench < 2x wasmtime.
+
 ## Task Queue
 
-Stage 5E: E2E Test Porting & Compliance (correctness phase before optimization)
+**Execution order: C1 → C2 → C3 → C4 → D → B → A**
+(Memory64 tables → Exception handling → Wide arithmetic → Custom page sizes
+→ Security → WAT parser → x86_64 JIT)
 
-1. [x] 5E.1: Infrastructure — compliance.yaml, e2e scripts, run_spec.py --dir
-2. [x] 5E.2: Batch 1 — Core MVP & Traps (25 files, 78/87 pass)
-3. [x] 5E.3: Batch 2 — Float & Reference Types (15 files, all pass)
-4. [x] 5E.4: Batch 3 — Programs & Regressions (14 files, all pass)
-5. [x] 5E.5: Batch 4 — SIMD (14 files, all pass)
-6. [x] 5E.6: Final compliance update
+Stage 7: Memory64 Table Operations (W18)
 
-Stage 5 (resumed after 5E): JIT Coverage Expansion
+Target: Fix 37 spec failures (table_size64 ×36, memory_grow64 ×1).
 
-**Target: ALL benchmarks within 2x of wasmtime (ideal: 1x).**
+1. [ ] 7.1: Table type addrtype decoding (module.zig, limits flag 0x04-0x07)
+2. [ ] 7.2: table.size/grow i64 variants (vm.zig)
+3. [ ] 7.3: Table instruction validation for i64 indices (predecode.zig)
+4. [ ] 7.4: Spec test verification + compliance update
 
-Final results (5.7, hyperfine 3-run, zwasm vs wasmtime):
-20/21 benchmarks within 2x. 9 benchmarks FASTER than wasmtime.
-Only st_matrix (3.1x) exceeds 2x — needs Stage 6 liveness regalloc.
-Worst ratios: st_matrix 3.1x, st_fib2 1.95x, tgo_mfr 1.69x, fib 1.72x.
-Best wins: tgo_arith 0.30x, tgo_gcd 0.33x, tgo_fib_loop 0.33x, nqueens 0.38x.
+Stage 8: Exception Handling (W13)
 
-1. [x] 5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass
-2. [x] 5.2: Close remaining gaps (st_sieve/matrix regIR opcode coverage)
-3. [x] 5.3: f64/f32 ARM64 JIT — nbody 133→60ms (2.2x speedup)
-4. [x] 5.4: Re-record cross-runtime benchmarks
-5. [x] 5.5: JIT memory ops + call_indirect + popcnt + reload ordering fix
-6. [x] 5.6: Profile and optimize remaining gaps
-7. [x] 5.7: Re-record benchmarks, verify exit criteria
+Target: tag section, try_table, throw, throw_ref, exnref.
 
-Stage 5F: E2E & Spec Compliance Completion
+1. [ ] 8.1: Tag section parsing + exnref type (module.zig, opcode.zig)
+2. [ ] 8.2: throw / throw_ref instructions (vm.zig)
+3. [ ] 8.3: try_table + catch clauses (vm.zig, predecode.zig)
+4. [ ] 8.4: Exception propagation across call stack
+5. [ ] 8.5: Spec test verification + compliance update
+6. [ ] 8.6: JIT exception awareness (fallback or landing pads)
 
-Remaining failures:
-- E2E: 3 failures (table_copy_on_imported_tables ×2, partial-init-table-segment ×1)
-- Spec: 40 failures (table_size64 ×36, memory_grow64 ×1, memory_trap ×1,
-  memory_trap64 ×1, names ×1)
+Stage 9: Wide Arithmetic (W14)
 
-1. [x] 5F.1: Fix memory_trap + names spec failures (3 spec fixes: 30663→30666)
-2. [x] 5F.2: Fix W9 transitive import chains (2 E2E failures → 0)
-W10 (partial-init-table-segment, 1 E2E failure): Deferred — requires
-store-independent funcref design. Shared table entries point to importing
-module's store which is freed on instantiation failure.
+Target: 4 opcodes — i64.add128, sub128, mul_wide_s/u.
 
-memory64 table ops (37 spec failures): Deferred — proposal-level feature.
-Needs 64-bit table limit decoding, i64 table.size/grow. See checklist W18.
+1. [ ] 9.1: Opcode decoding + validation
+2. [ ] 9.2: Instruction handlers (multi-value i128)
+3. [ ] 9.3: Spec test verification
 
-Target: E2E 181/181 (100%), Spec ≥30,701/30,703 (99.99%).
+Stage 10: Custom Page Sizes (W15)
 
-Stage 6: Bug Fixes & Stability
+Target: Non-64KB page sizes in memory type.
 
-1. [x] 6.1: Fix JIT prologue caller-saved register corruption (mfr i64 bug)
-2. [x] 6.2: Investigate remaining active bugs (#3, #4 — closed, unreproducible)
-3. [x] 6.3: Update checklist (W9 resolved, active bugs cleaned up)
+1. [ ] 10.1: Memory type page_size field decoding
+2. [ ] 10.2: memory.size/grow adjusted for page_size
+3. [ ] 10.3: Spec test verification
+
+Stage 11: Security Hardening
+
+Target: Deny-by-default WASI, capability flags, W^X, resource limits.
+
+(Task breakdown TBD at stage start — requires design investigation.)
+
+Stage 12: WAT Parser & Feature Flags (W17)
+
+Target: `zwasm run file.wat`, build-time `-Dwat=false`.
+
+(Task breakdown TBD at stage start.)
+
+Stage 13: x86_64 JIT Backend
+
+Target: x86_64 codegen, CI on ubuntu.
+
+(Task breakdown TBD at stage start.)
 
 ## Current Task
 
-Stage 6 complete. All active bugs resolved or closed.
+Stage 7.1: Table type addrtype decoding — add i64 addrtype support to table
+type parsing in module.zig. Read memory64 proposal spec first.
 
 ## Previous Task
 
-6: Fixed JIT emitPrologue loading vregs before BLR call to jitGetMemInfo,
-which trashed caller-saved regs (x2-x7, x9-x15). Moved vreg loading after
-the BLR. mfr benchmark now produces correct results. Closed bugs #3, #4
-(unreproducible, original code not committed). Updated checklist (W9 resolved).
+6: Fixed JIT emitPrologue BLR ordering, closed remaining bugs, updated checklist.
 
 ## Known Bugs
 

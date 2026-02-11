@@ -265,7 +265,7 @@ wasm_3.0:
       intoCharCodeArray, equals, etc. Skip.
 
   memory64:
-    status: todo
+    status: partial                # Memory load/store/size/grow already work; tables pending
     opcodes: 0                    # No new opcodes — extends existing with i64 addresses
     new_types:
       - "addrtype (i32|i64)"     # Address type qualifier for memory/table
@@ -275,7 +275,7 @@ wasm_3.0:
     repo: memory64
     spec_doc: proposals/memory64/Overview.md
     summary: .dev/references/proposals/memory64.md
-    checklist_id: null
+    checklist_id: W18             # Table operations portion — Stage 7
     test_files:
       - test/core/memory64.wast
       - test/core/float_memory64.wast

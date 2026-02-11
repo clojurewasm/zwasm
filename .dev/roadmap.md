@@ -115,11 +115,9 @@ Only st_matrix (3.1x) exceeds threshold — requires liveness-based regalloc (fu
 **Exit criteria**: ALL benchmarks within 2x of wasmtime (ideal: 1x).
 **Status**: 20/21 met. st_matrix deferred to future liveness regalloc work.
 
-### Future
+### Future (Stage 5)
 - Superinstruction expansion (profile-guided)
-- x86_64 JIT backend
-- Component Model / WASI P2
-- Capability-based security hardening (see below)
+- Liveness-based regalloc (st_matrix 3.1x gap)
 
 ## Stage 5F: E2E Compliance Completion (COMPLETE)
 
@@ -136,73 +134,208 @@ Only st_matrix (3.1x) exceeds threshold — requires liveness-based regalloc (fu
 **Result**: Spec 30,663→30,666 (99.9%). E2E 178→180/181 (99.4%).
 Remaining failures require architectural changes (W10) or new proposals (W18).
 
-## Future: WAT Parser & Build-time Feature Flags
+## Stage 6: Bug Fixes & Stability (COMPLETE)
+
+**Goal**: Fix active JIT bugs discovered during benchmark porting.
+
+- 6.1: Fix JIT prologue caller-saved register corruption (mfr i64 bug)
+- 6.2: Investigate remaining active bugs (#3, #4 — closed, unreproducible)
+- 6.3: Update checklist (W9 resolved, active bugs cleaned up)
+
+**Result**: All active bugs resolved or closed. JIT stable.
+
+## Stage 7: Memory64 Table Operations (W18)
+
+**Goal**: Complete memory64 proposal table support. Fix 37 spec failures.
+
+Extends existing memory64 support (i64 addresses for load/store/memory.size/grow
+already work) to tables. Checklist W18.
+
+### Scope
+- 64-bit table limit decoding (limits flag bytes 0x04-0x07)
+- `table.size` returns i64 when table has i64 addrtype
+- `table.grow` takes i64 delta when table has i64 addrtype
+- Update validation for i64 table indices in table.get/set/fill/copy/init
+- Binary format: addrtype field in table type
+
+### Key files
+- `src/module.zig`: Table type decoding (addrtype), limit decoding
+- `src/vm.zig`: table.size/grow/get/set/fill/copy/init instruction handlers
+- `src/opcode.zig`: May need new memarg variants
+- `src/predecode.zig`: Table instruction validation
+
+### References
+- Spec: `~/Documents/OSS/WebAssembly/memory64/proposals/memory64/Overview.md`
+- Tests: `test/spec/json/table_size64.json` (36 failures), `memory_grow64.json` (1)
+- proposals.yaml: `wasm_3.0.memory64`
+- wasmtime impl: `~/Documents/OSS/wasmtime/`
+
+### Exit criteria
+- Spec: 30,666 → ≥30,703 (37 new passes)
+- E2E: no regression
+- CW: no regression
+
+## Stage 8: Exception Handling (W13)
+
+**Goal**: Implement Wasm 3.0 exception handling (exnref).
+
+The largest remaining Wasm 3.0 proposal not yet implemented.
+New section (tag), new types (exnref), and structured control flow (try_table).
+
+### Scope
+- **Tag section** (section 13): Declare exception tags with type signatures
+- **Instructions**: `throw` (0x08), `throw_ref` (0x0a), `try_table` (0x1f)
+- **Catch clauses**: catch, catch_ref, catch_all, catch_all_ref
+- **Type**: exnref (ref null exn) — exception reference
+- **Propagation**: Exceptions unwind the call stack until caught by try_table
+- **Traps are NOT caught**: Only thrown exceptions, not runtime traps
+- **JIT**: Exception-aware codegen (landing pads, or fallback to interpreter)
+
+### Key files
+- `src/module.zig`: Tag section parsing, exnref type
+- `src/vm.zig`: throw/throw_ref/try_table instruction handlers
+- `src/opcode.zig`: New opcodes (0x08, 0x0a, 0x1f)
+- `src/predecode.zig`: Validation for new control flow
+- `src/jit.zig`: Exception handling in JIT (may initially fall back to interpreter)
+
+### References
+- Spec: `~/Documents/OSS/WebAssembly/exception-handling/proposals/exception-handling/`
+- Summary: `.dev/references/proposals/exception-handling.md`
+- proposals.yaml: `wasm_3.0.exception_handling`
+- E2E blocked: `issue11561.wast`
+
+### Exit criteria
+- All exception handling spec tests pass
+- E2E: issue11561.wast passes
+- No regression on existing tests/benchmarks
+- CW: no regression
+
+## Stage 9: Wide Arithmetic (W14)
+
+**Goal**: Implement i128 wide arithmetic operations (4 opcodes).
+
+Small, self-contained proposal. Phase 3.
+
+### Scope
+- `i64.add128`: (i64, i64, i64, i64) → (i64, i64) — 128-bit addition
+- `i64.sub128`: (i64, i64, i64, i64) → (i64, i64) — 128-bit subtraction
+- `i64.mul_wide_s`: (i64, i64) → (i64, i64) — signed widening multiply
+- `i64.mul_wide_u`: (i64, i64) → (i64, i64) — unsigned widening multiply
+
+### Key files
+- `src/vm.zig`: Instruction handlers (multi-value return via stack)
+- `src/opcode.zig`: New opcodes
+- `src/predecode.zig`: Validation
+
+### References
+- proposals.yaml: `in_progress.wide_arithmetic`
+- E2E blocked: `wide-arithmetic.wast`
+
+### Exit criteria
+- wide-arithmetic.wast spec tests pass
+- No regression
+- CW: no regression
+
+## Stage 10: Custom Page Sizes (W15)
+
+**Goal**: Support non-64KB memory page sizes.
+
+Small proposal. Phase 3. Allows memories with 1-byte page granularity.
+
+### Scope
+- Memory type gains optional `page_size` field (default 65536)
+- `memory.size` / `memory.grow` scale by page_size
+- Validation: page_size must be power of 2, max 65536
+- Binary format: encoded in limits
+
+### Key files
+- `src/module.zig`: Memory type decoding (page_size field)
+- `src/vm.zig`: memory.size/grow adjusted for page_size
+
+### References
+- proposals.yaml: `in_progress.custom_page_sizes`
+- E2E blocked: `memory-combos.wast`
+
+### Exit criteria
+- memory-combos.wast passes
+- No regression
+- CW: no regression
+
+## Stage 11: Security Hardening
+
+**Goal**: Production-ready sandboxing for untrusted Wasm modules.
+
+### Scope
+- **Deny-by-default WASI**: Zero capabilities unless explicitly granted.
+  CLI defaults: stdio granted. Library: nothing granted.
+- **Fine-grained capability flags**: `--allow-read`, `--allow-write`,
+  `--allow-env`, `--allow-clock`, etc. Denied → EACCES, not panic.
+- **Import validation**: Reject unknown/denied imports at instantiation.
+- **Resource limits**: Memory ceiling, fuel/gas metering, stack depth.
+- **JIT W^X enforcement**: Separate write and execute phases for JIT pages.
+- **Audit trail**: Optional WASI syscall logging.
+
+### Key files
+- `src/wasi.zig`: Capability checking per syscall
+- `src/vm.zig`: Resource limit enforcement (fuel counter)
+- `src/jit.zig`: W^X mmap toggle
+- `src/cli.zig`: --allow-* flags
+- `src/module.zig`: Import validation at instantiation
+
+### Exit criteria
+- All existing tests pass (capabilities granted in test harness)
+- New tests for deny scenarios
+- CW: no regression (CW grants all needed capabilities)
+- Benchmark: no significant regression with capabilities granted
+
+## Stage 12: WAT Parser & Build-time Feature Flags (W17)
 
 **Goal**: Native .wat (WebAssembly Text Format) support with optional inclusion.
 
-WAT is the official text format of the Wasm spec. wasmtime and wasmer both
-support `run file.wat` natively. zwasm should too.
-
-### Design
-
+### Scope
 - **WAT → wasm in-memory conversion**: Parse .wat S-expressions, emit binary
   wasm bytes, feed to existing `WasmModule.load()`. No temp files.
-- **Build-time feature flag**: `zig build -Dwat=false` excludes the WAT parser
-  from the binary. Library users who only load .wasm don't pay the size cost.
+- **Build-time feature flag**: `zig build -Dwat=false` excludes the WAT parser.
+  First use case for feature flag pattern (extends to WASI, JIT, SIMD).
 - **API**: `WasmModule.loadFromWat(alloc, wat_source)` for library users.
   CLI auto-detects `.wat` extension and converts transparently.
-- **First use case for feature flag pattern**: Same mechanism extends to
-  WASI, JIT, SIMD — library consumers choose what to bundle.
-
-### Scope
-
 - S-expression parser + wasm binary encoder (~2-4K LOC estimated)
 - Abbreviations: inline exports, type use, etc.
 - Numeric literals: hex, float, NaN patterns
 - Requires D## architectural decision for feature flag system
 
-### Priority
+### Exit criteria
+- `zwasm run file.wat` works
+- `WasmModule.loadFromWat()` API works
+- .wat e2e test files (issue11563.wat, issue12170.wat) run
+- W17 resolved
+- CW: no regression
 
-After Stage 5 (JIT optimization) completes. Not performance-critical —
-primarily for CLI debugging, test authoring, and library convenience.
-Resolves W17 (skipped .wat e2e test files).
+## Stage 13: x86_64 JIT Backend
 
-## Future: Sandbox & Security Hardening
+**Goal**: Port ARM64 JIT to x86_64 for Linux server deployment.
 
-Wasm's core value proposition is **sandboxed execution** — untrusted code runs in
-an isolated environment with no ambient authority. The runtime must uphold this
-guarantee. Currently zwasm provides basic isolation (linear memory bounds, no raw
-host pointers) but lacks explicit capability control for WASI.
+### Scope
+- x86_64 code emitter (parallel to existing ARM64 a64.zig)
+- Register mapping for x86_64 calling convention (System V AMD64 ABI)
+- Same register IR — only codegen differs
+- CI validation on ubuntu x86_64
+- Reference: `.dev/ubuntu-x86_64.md`
 
-### Current state
-- Linear memory is bounds-checked (interpreter and JIT)
-- Filesystem access requires explicit `--dir` preopen (no ambient FS access)
-- stdin/stdout/stderr are always available (common convention, matches wasmtime)
-- No network, no process spawn, no signal handling
-- WASI syscalls are all-or-nothing: if WASI is linked, all implemented syscalls
-  are available to the module
+### Exit criteria
+- All benchmarks run on x86_64 with JIT
+- Performance within 2x of wasmtime on x86_64
+- CI green on both ARM64 and x86_64
+- CW: no regression
 
-### What needs to change
-- **Deny-by-default WASI**: Modules should get zero WASI capabilities unless the
-  embedder (CLI or library caller) explicitly grants them. Even stdio should be
-  opt-in for library usage (CLI can default to granting stdio for usability).
-- **Fine-grained capability flags**: `--allow-read`, `--allow-write`,
-  `--allow-env`, `--allow-clock`, etc. A module requesting `fd_write` on a
-  path it wasn't granted should get `EACCES`, not a host panic.
-- **Import validation**: Reject unknown or denied imports at instantiation time
-  rather than trapping at call time. Fail fast, fail loud.
-- **Resource limits**: Memory ceiling, execution timeout (fuel/gas metering),
-  stack depth limits — all configurable by the embedder.
-- **JIT W^X enforcement**: JIT code pages should be mapped W^X (write XOR
-  execute). Currently mmap'd as RWX for simplicity; production use requires
-  toggling between writable-not-executable and executable-not-writable.
-- **Audit trail**: Optional logging of all WASI syscalls for security review.
+## Future
 
-### Priority
-This is not urgent while zwasm is pre-release and used only by trusted code
-(ClojureWasm dog fooding). It becomes critical before any public release where
-users might run untrusted Wasm modules. Plan as a dedicated stage after
-performance work stabilizes.
+- Superinstruction expansion (profile-guided)
+- Liveness-based regalloc (st_matrix 3.1x gap)
+- Component Model / WASI P2 (W7)
+- GC proposal (very_high complexity, ~3000 LOC)
+- Relaxed SIMD, Multi-memory, Function references
+- Threads (shared memory, atomics)
 
 ## Benchmark Targets
 
