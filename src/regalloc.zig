@@ -282,7 +282,12 @@ pub fn convert(
             },
             0x42 => { // i64.const (pool index in operand)
                 const rd = allocTemp(&next_reg, &max_reg);
-                try code.append(alloc, .{ .op = OP_CONST64, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                const pool_val = if (instr.operand < pool64.len) pool64[instr.operand] else 0;
+                if (pool_val <= std.math.maxInt(u32)) {
+                    try code.append(alloc, .{ .op = OP_CONST32, .rd = rd, .rs1 = 0, .operand = @truncate(pool_val) });
+                } else {
+                    try code.append(alloc, .{ .op = OP_CONST64, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                }
                 try vstack.append(alloc, rd);
             },
             0x43 => { // f32.const (bits in operand)
