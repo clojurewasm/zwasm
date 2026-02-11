@@ -6,7 +6,7 @@ Session handover document. Read at session start.
 
 - Stages 0-2, 4 — COMPLETE
 - Source: ~15K LOC, 16 files, 155 tests all pass
-- Opcode: 225 core + 236 SIMD = 461, WASI: ~27
+- Opcode: 230 core + 236 SIMD = 466, WASI: ~27
 - Spec: 30,703/30,703 (100%), E2E: 180/181 (99.4%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
@@ -41,12 +41,12 @@ Stage 8: Exception Handling (W13)
 
 Target: tag section, try_table, throw, throw_ref, exnref.
 
-1. [ ] 8.1: Tag section parsing + exnref type (module.zig, opcode.zig)
-2. [ ] 8.2: throw / throw_ref instructions (vm.zig)
-3. [ ] 8.3: try_table + catch clauses (vm.zig, predecode.zig)
-4. [ ] 8.4: Exception propagation across call stack
-5. [ ] 8.5: Spec test verification + compliance update
-6. [ ] 8.6: JIT exception awareness (fallback or landing pads)
+1. [x] 8.1: Tag section parsing + exnref type (module.zig, opcode.zig)
+2. [x] 8.2: throw / throw_ref instructions (vm.zig)
+3. [x] 8.3: try_table + catch clauses (vm.zig, predecode.zig)
+4. [x] 8.4: Exception propagation across call stack
+5. [x] 8.5: Spec test verification + compliance update
+6. [x] 8.6: JIT exception awareness (fallback or landing pads)
 
 Stage 9: Wide Arithmetic (W14)
 
@@ -84,12 +84,12 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Merge Stage 7 to main (Merge Gate), then start Stage 8.
+Stage 8 complete. Merge to main, then Stage 9: Wide Arithmetic.
 
 ## Previous Task
 
-7.4: Updated compliance.yaml, proposals.yaml, checklist.md, spec-support.md.
-Memory64 complete: 252 spec tests pass, W18 resolved. Stage 7 DONE.
+8.6: JIT exception awareness — added WasmException error code (7) to JIT trampoline
+wasmErrorToCode/executeJIT roundtrip. Exceptions now propagate correctly through JIT calls.
 
 ## Known Bugs
 

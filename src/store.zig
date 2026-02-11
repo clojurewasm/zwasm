@@ -200,6 +200,19 @@ pub const Data = struct {
 /// Import/export descriptor tag (matches opcode.ExternalKind).
 pub const Tag = opcode.ExternalKind;
 
+/// Runtime exception tag — holds the type signature for throw/catch matching.
+pub const WasmTag = struct {
+    type_idx: u32,
+    tag_id: u64, // globally unique identity for cross-module matching
+
+    var next_id: u64 = 0;
+    pub fn nextId() u64 {
+        const id = next_id;
+        next_id += 1;
+        return id;
+    }
+};
+
 /// An import-export binding in the store.
 const ImportExport = struct {
     module: []const u8,
@@ -215,6 +228,7 @@ pub const Store = struct {
     memories: ArrayList(WasmMemory),
     tables: ArrayList(Table),
     globals: ArrayList(Global),
+    tags: ArrayList(WasmTag),
     elems: ArrayList(Elem),
     datas: ArrayList(Data),
     imports: ArrayList(ImportExport),
@@ -226,6 +240,7 @@ pub const Store = struct {
             .memories = .empty,
             .tables = .empty,
             .globals = .empty,
+            .tags = .empty,
             .elems = .empty,
             .datas = .empty,
             .imports = .empty,
@@ -261,6 +276,7 @@ pub const Store = struct {
         self.memories.deinit(self.alloc);
         self.tables.deinit(self.alloc);
         self.globals.deinit(self.alloc);
+        self.tags.deinit(self.alloc);
         self.elems.deinit(self.alloc);
         self.datas.deinit(self.alloc);
         self.imports.deinit(self.alloc);
@@ -348,6 +364,19 @@ pub const Store = struct {
         const ptr = try self.globals.addOne(self.alloc);
         ptr.* = global;
         return self.globals.items.len - 1;
+    }
+
+    pub fn addTag(self: *Store, type_idx: u32) !usize {
+        const ptr = try self.tags.addOne(self.alloc);
+        ptr.* = .{ .type_idx = type_idx, .tag_id = WasmTag.nextId() };
+        return self.tags.items.len - 1;
+    }
+
+    /// Add a tag preserving its original tag_id (for cross-module imports).
+    pub fn addTagWithId(self: *Store, type_idx: u32, tag_id: u64) !usize {
+        const ptr = try self.tags.addOne(self.alloc);
+        ptr.* = .{ .type_idx = type_idx, .tag_id = tag_id };
+        return self.tags.items.len - 1;
     }
 
     pub fn addElem(self: *Store, reftype: opcode.RefType, count: u32) !usize {

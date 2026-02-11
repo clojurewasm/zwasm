@@ -104,8 +104,9 @@ wasm_core:
     note: "Not implemented. See proposals.yaml#function_references"
   exception_handling:
     version: "3.0"
-    status: skip
-    note: "Not implemented. E2E: issue11561.wast skipped (W13). See proposals.yaml#exception_handling"
+    status: pass
+    spec_tests: {total: 38, pass: 38, fail: 0}
+    note: "throw, try_table, catch, catch_all, catch_ref, catch_all_ref. throw_ref stub. E2E: issue11561.wast skipped (needs exnref values)."
   gc:
     version: "3.0"
     status: skip

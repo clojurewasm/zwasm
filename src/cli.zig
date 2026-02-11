@@ -677,6 +677,7 @@ fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
                 .table => "table",
                 .memory => "memory",
                 .global => "global",
+                .tag => "tag",
             };
             try stdout.print("  {s} {s}", .{ kind_str, exp.name });
 
@@ -709,6 +710,7 @@ fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
                 .table => "table",
                 .memory => "memory",
                 .global => "global",
+                .tag => "tag",
             };
             try stdout.print("  {s} {s}::{s}", .{ kind_str, imp.module, imp.name });
             if (imp.kind == .func and imp.index < module.types.items.len) {
@@ -786,6 +788,7 @@ fn printInspectJson(module: *const module_mod.Module, file_path: []const u8, siz
             .table => "table",
             .memory => "memory",
             .global => "global",
+            .tag => "tag",
         };
         try w.print("{{\"name\":\"{s}\",\"kind\":\"{s}\"", .{ exp.name, kind_str });
         if (exp.kind == .func) {
@@ -816,6 +819,7 @@ fn printInspectJson(module: *const module_mod.Module, file_path: []const u8, siz
             .table => "table",
             .memory => "memory",
             .global => "global",
+            .tag => "tag",
         };
         try w.print("{{\"module\":\"{s}\",\"name\":\"{s}\",\"kind\":\"{s}\"", .{ imp.module, imp.name, kind_str });
         if (imp.kind == .func and imp.index < module.types.items.len) {
@@ -1056,6 +1060,7 @@ fn valTypeName(vt: opcode.ValType) []const u8 {
         .v128 => "v128",
         .funcref => "funcref",
         .externref => "externref",
+        .exnref => "exnref",
     };
 }
 

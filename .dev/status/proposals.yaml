@@ -206,7 +206,7 @@ wasm_3.0:
       for code layout optimization.
 
   exception_handling:
-    status: todo
+    status: complete
     opcodes: 3                    # try_table (0x1f), throw (0x08), throw_ref (0x0a)
                                   # Plus 4 catch clause forms (catch, catch_ref,
                                   # catch_all, catch_all_ref) as sub-opcodes

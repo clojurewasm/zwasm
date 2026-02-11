@@ -3147,6 +3147,7 @@ fn wasmErrorToCode(err: vm_mod.WasmError) u64 {
         error.IntegerOverflow => 4,
         error.Unreachable => 5,
         error.OutOfBoundsMemoryAccess => 6,
+        error.WasmException => 7,
         else => 1, // generic trap
     };
 }
@@ -3729,5 +3730,21 @@ test "const-addr memory load elides bounds check" {
 
     // Optimized version should have fewer instructions (bounds checks elided)
     try testing.expect(jit_opt.code_len < jit_noopt.code_len);
+}
+
+test "wasmErrorToCode maps WasmException to distinct code" {
+    // WasmException must not collapse to generic trap (code 1).
+    // Code 7 allows JIT callers to propagate exceptions correctly.
+    const code = wasmErrorToCode(error.WasmException);
+    try testing.expect(code != 1); // must NOT be generic trap
+    try testing.expectEqual(@as(u64, 7), code);
+
+    // Verify all specific error codes are distinct
+    try testing.expectEqual(@as(u64, 1), wasmErrorToCode(error.Trap));
+    try testing.expectEqual(@as(u64, 2), wasmErrorToCode(error.StackOverflow));
+    try testing.expectEqual(@as(u64, 3), wasmErrorToCode(error.DivisionByZero));
+    try testing.expectEqual(@as(u64, 4), wasmErrorToCode(error.IntegerOverflow));
+    try testing.expectEqual(@as(u64, 5), wasmErrorToCode(error.Unreachable));
+    try testing.expectEqual(@as(u64, 6), wasmErrorToCode(error.OutOfBoundsMemoryAccess));
 }
 
