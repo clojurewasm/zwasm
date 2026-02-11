@@ -34,7 +34,7 @@ Target: Fix 37 spec failures (table_size64 ×36, memory_grow64 ×1).
 
 1. [x] 7.1: Table type addrtype decoding (module.zig, limits flag 0x04-0x07)
 2. [x] 7.2: table.size/grow i64 variants (vm.zig)
-3. [ ] 7.3: Table instruction validation for i64 indices (predecode.zig)
+3. [x] 7.3: Table instruction validation for i64 indices (call_indirect table64)
 4. [ ] 7.4: Spec test verification + compliance update
 
 Stage 8: Exception Handling (W13)
@@ -84,12 +84,12 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 7.3: Table instruction validation for i64 indices (predecode.zig).
+Stage 7.4: Spec test verification + compliance update.
 
 ## Previous Task
 
-7.2: Added is_64 to Table struct. All table ops (get/set/size/grow/fill/copy/init)
-now pop/push i64 for table64 in both stack interpreter and regIR paths.
+7.3: Fixed call_indirect to pop i64 table index for table64 tables.
+No separate predecode validation needed (type correctness in interpreter).
 
 ## Known Bugs
 

@@ -644,8 +644,8 @@ pub const Vm = struct {
                 .call_indirect => {
                     const type_idx = try reader.readU32();
                     const table_idx = try reader.readU32();
-                    const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(table_idx);
+                    const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
 
@@ -2867,8 +2867,8 @@ pub const Vm = struct {
                 0x11 => { // call_indirect
                     const type_idx = instr.operand;
                     const table_idx = instr.extra;
-                    const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(table_idx);
+                    const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
                     if (type_idx < instance.module.types.items.len) {
