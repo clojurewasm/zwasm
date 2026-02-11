@@ -36,6 +36,6 @@ Prefix: W## (to distinguish from CW's F## items).
 
 | ID   | Item                                        | Scope | E2E Files Blocked                    | Notes                                    |
 |------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
-| W13  | Exception handling (exnref)                 | Large | issue11561.wast                      | Wasm 3.0 proposal. Requires new opcodes: try, catch, throw, rethrow. Reference: wasm-spec exception-handling proposal. |
-| W14  | Wide arithmetic (i64.add128 etc.)           | Medium| wide-arithmetic.wast                 | Newer proposal. 3 new opcodes: i64.add128, i64.sub128, i64.mul_wide_s/u. Straightforward to implement once the proposal stabilizes. |
-| W15  | Custom page sizes                           | Small | memory-combos.wast                   | Allows non-64KB page sizes. Requires changes to memory allocation and grow logic. |
+| W13  | Exception handling (exnref)                 | Large | issue11561.wast                      | Wasm 3.0. try_table, throw, throw_ref, exnref, tag section. See proposals.yaml#exception_handling, .dev/references/proposals/exception-handling.md |
+| W14  | Wide arithmetic (i64.add128 etc.)           | Medium| wide-arithmetic.wast                 | Phase 3. 4 opcodes: i64.add128, i64.sub128, i64.mul_wide_s/u. See proposals.yaml#wide_arithmetic |
+| W15  | Custom page sizes                           | Small | memory-combos.wast                   | Phase 3. Non-64KB page sizes. See proposals.yaml#custom_page_sizes |

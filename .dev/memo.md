@@ -60,6 +60,8 @@ See MEMORY.md § Active Bugs
 
 .dev/ docs: roadmap.md, decisions.md, checklist.md, spec-support.md,
 bench-strategy.md, profile-analysis.md, jit-debugging.md, references/wasm-spec.md
+Proposals: .dev/status/proposals.yaml, .dev/references/proposals/, .dev/references/repo-catalog.yaml
 Ubuntu x86_64: .dev/ubuntu-x86_64.md (gitignored — SSH commands, tools, JIT debug)
 External: wasmtime (~/Documents/OSS/wasmtime/), zware (~/Documents/OSS/zware/)
+Spec repos: ~/Documents/OSS/WebAssembly/ (16 repos — see repo-catalog.yaml)
 Zig tips: .claude/references/zig-tips.md

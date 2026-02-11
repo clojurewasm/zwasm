@@ -89,35 +89,55 @@ wasm_core:
     spec_tests: {total: 257, pass: 257, fail: 0}
     note: "236/236 opcodes. 257 non-v128-value assertions pass. ~24K v128 assertions skipped (CLI protocol cannot pass v128 values). Files: 48 simd_* spec tests."
 
-  # === Wasm 3.0 (in-progress proposals) ===
+  # === Wasm 3.0 (finished proposals — see .dev/status/proposals.yaml for details) ===
   tail_calls:
     version: "3.0"
     status: skip
-    note: "Not implemented. E2E: tail-call/*.wast skipped."
+    note: "Not implemented. E2E: tail-call/*.wast skipped. See proposals.yaml#tail_call"
+  extended_const:
+    version: "3.0"
+    status: skip
+    note: "Not implemented. See proposals.yaml#extended_const"
+  function_references:
+    version: "3.0"
+    status: skip
+    note: "Not implemented. See proposals.yaml#function_references"
   exception_handling:
     version: "3.0"
     status: skip
-    note: "Not implemented. E2E: issue11561.wast skipped (W13)."
+    note: "Not implemented. E2E: issue11561.wast skipped (W13). See proposals.yaml#exception_handling"
   gc:
     version: "3.0"
     status: skip
-    note: "Not implemented. E2E: gc/*.wast skipped."
+    note: "Not implemented. E2E: gc/*.wast skipped. See proposals.yaml#gc"
+  multi_memory:
+    version: "3.0"
+    status: skip
+    note: "Not implemented. See proposals.yaml#multi_memory"
+  relaxed_simd:
+    version: "3.0"
+    status: skip
+    note: "Not implemented. See proposals.yaml#relaxed_simd"
+  branch_hinting:
+    version: "3.0"
+    status: skip
+    note: "Not implemented. See proposals.yaml#branch_hinting"
   memory64:
     version: "3.0"
     status: skip
-    note: "Not implemented. Spec: memory_grow64(1f), memory_trap64(1f), table_size64(36f)."
+    note: "Not implemented. Spec: memory_grow64(1f), memory_trap64(1f), table_size64(36f). See proposals.yaml#memory64"
   threads:
     version: "3.0"
     status: skip
-    note: "Not implemented. E2E: threads/*.wast skipped."
+    note: "Not implemented. E2E: threads/*.wast skipped. See proposals.yaml#threads (Phase 4, not ratified)"
   wide_arithmetic:
     version: "3.0"
     status: skip
-    note: "Not implemented. i64.add128/sub128/mul_wide. E2E: wide-arithmetic.wast skipped (W14)."
+    note: "Not implemented. i64.add128/sub128/mul_wide. E2E: wide-arithmetic.wast skipped (W14)"
   custom_page_sizes:
     version: "3.0"
     status: skip
-    note: "Not implemented. E2E: memory-combos.wast skipped (W15)."
+    note: "Not implemented. E2E: memory-combos.wast skipped (W15)"
   component_model:
     version: "3.0"
     status: skip

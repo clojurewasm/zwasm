@@ -13,6 +13,50 @@ Quick reference for spec URLs and cross-project knowledge sources.
 | Proposals overview      | https://github.com/WebAssembly/proposals                 |
 | Spec test suite         | https://github.com/WebAssembly/spec/tree/main/test/core  |
 
+## Wasm 3.0 Proposals
+
+Wasm 3.0 was ratified in batches: 2024-07-10 (8 proposals) and 2025-07-23 (3 proposals).
+
+### Metadata & Indexes
+
+| Resource | Path |
+|----------|------|
+| Proposal catalog (YAML) | `.dev/status/proposals.yaml` |
+| Repository index (YAML) | `.dev/references/repo-catalog.yaml` |
+| Implementation summaries | `.dev/references/proposals/*.md` |
+| Spec repos (local clones) | `~/Documents/OSS/WebAssembly/` |
+
+### Finished Proposals (Wasm 3.0)
+
+| Proposal | Complexity | Opcodes | Summary |
+|----------|-----------|---------|---------|
+| Tail Call | medium | 2 | proposals/tail-call.md |
+| Extended Const | trivial | 0 | proposals/extended-const.md |
+| Function References | high | 5 | proposals/function-references.md |
+| GC | very_high | ~32 | proposals/gc.md |
+| Multiple Memories | medium | 0 | proposals/multi-memory.md |
+| Relaxed SIMD | high | 20 | proposals/relaxed-simd.md |
+| Branch Hinting | trivial | 0 | proposals/branch-hinting.md |
+| Exception Handling | high | 3 | proposals/exception-handling.md |
+| JS String Builtins | skip | 0 | proposals/js-string-builtins.md |
+| Memory64 | high | 0 | proposals/memory64.md |
+| Custom Annotations | skip | 0 | (text format only) |
+
+### In-Progress (reference only)
+
+| Proposal | Phase | Summary |
+|----------|-------|---------|
+| Threads | 4 | proposals/threads.md |
+
+### Reference Workflow
+
+```
+proposals.yaml  →  select next proposal
+proposals/X.md  →  implementation guide for X
+repo-catalog.yaml → find spec repo path
+~/Documents/OSS/WebAssembly/[repo]/ → read official spec & tests
+```
+
 ## Cross-Project References
 
 ### WasmResearch (local analysis docs)
