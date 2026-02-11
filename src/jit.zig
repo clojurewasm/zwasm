@@ -768,6 +768,10 @@ pub const Compiler = struct {
     /// Which vreg's f64 value is currently in FP_SCRATCH0 (D0).
     /// Used to skip redundant FMOV int→FP in consecutive f64 operations.
     fp_scratch0_vreg: ?u8,
+    /// True when vm_ptr is cached in x20 (only when reg_count <= 12 and has self-calls).
+    vm_ptr_cached: bool,
+    /// True when inst_ptr is cached in x21 (only when reg_count <= 13 and has self-calls).
+    inst_ptr_cached: bool,
 
     const Patch = struct {
         arm64_idx: u32, // index in code array
@@ -812,6 +816,8 @@ pub const Compiler = struct {
             .written_vregs = 0,
             .scratch_vreg = null,
             .fp_scratch0_vreg = null,
+            .vm_ptr_cached = false,
+            .inst_ptr_cached = false,
         };
     }
 
@@ -933,6 +939,23 @@ pub const Compiler = struct {
         }
     }
 
+    /// Reload caller-saved regs, optionally skipping one vreg (result of inline call).
+    fn reloadCallerSavedExcept(self: *Compiler, skip_vreg: ?u8) void {
+        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        if (max <= 5) return;
+        for (5..max) |i| {
+            const vreg: u8 = @intCast(i);
+            if (vreg == 12 or vreg == 13) continue;
+            if (skip_vreg) |sv| {
+                if (vreg == sv) continue;
+            }
+            if (vreg < 128 and (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg)))) == 0) continue;
+            if (vregToPhys(vreg)) |phys| {
+                self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
+            }
+        }
+    }
+
     /// Reload a single virtual register from memory.
     fn reloadVreg(self: *Compiler, vreg: u8) void {
         if (vregToPhys(vreg)) |phys| {
@@ -979,6 +1002,17 @@ pub const Compiler = struct {
             // Cache &vm.reg_ptr in x27 for inline self-calls (non-memory functions).
             // This avoids recomputing the large offset on every self-call.
             self.emitLoadRegPtrAddr(REG_PTR_ADDR);
+            // Cache REG_STACK_SIZE in x28 (avoids MOV immediate per call).
+            self.emit(a64.movz64(28, vm_mod.REG_STACK_SIZE, 0));
+            // Cache vm_ptr/inst_ptr in callee-saved regs when vreg slots are unused.
+            if (self.reg_count <= 12) {
+                self.emitLoadVmPtr(20); // x20 = vm_ptr
+                self.vm_ptr_cached = true;
+            }
+            if (self.reg_count <= 13) {
+                self.emitLoadInstPtr(21); // x21 = inst_ptr
+                self.inst_ptr_cached = true;
+            }
         }
     }
 
@@ -2329,8 +2363,13 @@ pub const Compiler = struct {
             self.emit(a64.add64(SCRATCH2, SCRATCH2, 0));
         }
         // Check: new reg_ptr > REG_STACK_SIZE → stack overflow
-        self.emit(a64.movz64(0, vm_mod.REG_STACK_SIZE, 0));
-        self.emit(a64.cmp64(SCRATCH2, 0));
+        if (!self.has_memory and self.reg_ptr_offset > 0) {
+            // REG_STACK_SIZE cached in x28 (loaded in prologue)
+            self.emit(a64.cmp64(SCRATCH2, 28));
+        } else {
+            self.emit(a64.movz64(0, vm_mod.REG_STACK_SIZE, 0));
+            self.emit(a64.cmp64(SCRATCH2, 0));
+        }
         self.emitCondError(.hi, 2); // StackOverflow if new > max
         // Store new reg_ptr
         self.emit(a64.str64(SCRATCH2, rp_reg, 0));
@@ -2368,8 +2407,16 @@ pub const Compiler = struct {
         }
 
         // 6. Set up BL args: x0 = callee regs (already), x1 = vm, x2 = instance
-        self.emitLoadVmPtr(1);
-        self.emitLoadInstPtr(2);
+        if (self.vm_ptr_cached) {
+            self.emit(a64.mov64(1, 20)); // x1 = x20 (cached vm_ptr)
+        } else {
+            self.emitLoadVmPtr(1);
+        }
+        if (self.inst_ptr_cached) {
+            self.emit(a64.mov64(2, 21)); // x2 = x21 (cached inst_ptr)
+        } else {
+            self.emitLoadInstPtr(2);
+        }
 
         // 7. BL to self (backward branch to instruction 0)
         const bl_idx = self.currentIdx();
@@ -2400,30 +2447,48 @@ pub const Compiler = struct {
             .cond = .eq,
         }) catch {};
 
-        // 11. Copy result from callee regs[0] to our regs[rd]
-        //     Skip for void functions (result_count == 0) — copying garbage
-        //     from callee regs[0] would corrupt the caller's register.
-        if (self.result_count > 0) {
-            if (needed_bytes <= 0xFFF) {
-                self.emit(a64.ldr64(SCRATCH, REGS_PTR, @intCast(needed_bytes)));
-            } else {
-                self.emit(a64.movz64(SCRATCH, @truncate(needed_bytes), 0));
-                if (needed_bytes > 0xFFFF) {
-                    self.emit(a64.movk64(SCRATCH, @truncate(needed_bytes >> 16), 1));
-                }
-                self.emit(a64.add64(SCRATCH, REGS_PTR, SCRATCH));
-                self.emit(a64.ldr64(SCRATCH, SCRATCH, 0));
-            }
-            self.emit(a64.str64(SCRATCH, REGS_PTR, @as(u16, rd) * 8));
+        // 11-12. Copy result and reload caller-saved regs.
+        //     For callee-saved rd: load result directly into physical reg before reload.
+        //     For caller-saved rd: reload others first, then load result directly.
+        //     For memory-backed rd: store to memory (no physical reg).
+        const rd_phys = if (self.result_count > 0) vregToPhys(rd) else null;
+        const rd_callee_saved = if (rd_phys) |p| (p >= 19 and p <= 28) else false;
+
+        if (self.result_count > 0 and rd_callee_saved) {
+            // Callee-saved: load directly, survives reloadCallerSaved
+            self.emitLoadCalleeResult(rd_phys.?, needed_bytes);
         }
 
-        // 12. Reload caller-saved regs + result register
-        self.reloadCallerSaved();
-        if (self.result_count > 0) self.reloadVreg(rd);
+        self.reloadCallerSavedExcept(if (rd_phys != null and !rd_callee_saved) rd else null);
+
+        if (self.result_count > 0 and !rd_callee_saved) {
+            if (rd_phys) |phys| {
+                // Caller-saved: load directly after reload (skipped in reload above)
+                self.emitLoadCalleeResult(phys, needed_bytes);
+            } else {
+                // Memory-backed: must go through SCRATCH → memory
+                self.emitLoadCalleeResult(SCRATCH, needed_bytes);
+                self.emit(a64.str64(SCRATCH, REGS_PTR, @as(u16, rd) * 8));
+            }
+        }
 
         // 13. Reload memory cache (memory may have grown during call)
         if (self.has_memory) {
             self.emitLoadMemCache();
+        }
+    }
+
+    /// Load callee result (regs[0] at callee frame) into a target register.
+    fn emitLoadCalleeResult(self: *Compiler, target: u5, needed_bytes: u32) void {
+        if (needed_bytes <= 0xFFF) {
+            self.emit(a64.ldr64(target, REGS_PTR, @intCast(needed_bytes)));
+        } else {
+            self.emit(a64.movz64(target, @truncate(needed_bytes), 0));
+            if (needed_bytes > 0xFFFF) {
+                self.emit(a64.movk64(target, @truncate(needed_bytes >> 16), 1));
+            }
+            self.emit(a64.add64(target, REGS_PTR, target));
+            self.emit(a64.ldr64(target, target, 0));
         }
     }
 
