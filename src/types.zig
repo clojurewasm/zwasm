@@ -25,6 +25,11 @@ const rt = struct {
 // Public types
 // ============================================================
 
+/// The Wasm virtual machine type. Exposed for host function callbacks.
+/// The ctx_ptr in HostFn callbacks is a `*Vm` — recover via @ptrCast(@alignCast(ctx_ptr)).
+/// Provides pushOperand/popOperand for stack access from host functions.
+pub const Vm = rt.vm_mod.Vm;
+
 /// WebAssembly value types exposed through the public API.
 pub const WasmValType = enum {
     i32,
