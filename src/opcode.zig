@@ -41,9 +41,11 @@ pub const ExternalKind = enum(u8) {
 };
 
 /// Limits encoding (memories and tables).
+/// Supports both i32 (flags 0x00-0x03) and i64 (flags 0x04-0x07) address types.
 pub const Limits = struct {
-    min: u32,
-    max: ?u32,
+    min: u64,
+    max: ?u64,
+    is_64: bool = false, // true = i64 addrtype (memory64/table64)
 };
 
 /// Wasm MVP opcodes (single byte, 0x00-0xd2).

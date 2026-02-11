@@ -196,6 +196,7 @@ pub const Instance = struct {
                 tab_def.reftype,
                 tab_def.limits.min,
                 tab_def.limits.max,
+                tab_def.limits.is_64,
             );
             try self.tableaddrs.append(self.alloc, addr);
         }

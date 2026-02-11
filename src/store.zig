@@ -85,6 +85,7 @@ pub const Table = struct {
     min: u32,
     max: ?u32,
     reftype: opcode.RefType,
+    is_64: bool = false, // true = table64 (i64 addrtype)
     shared: bool = false, // true = borrowed from another module, skip deinit
 
     pub fn init(alloc: mem.Allocator, reftype: opcode.RefType, min: u32, max: ?u32) !Table {
@@ -310,9 +311,12 @@ pub const Store = struct {
         return self.functions.items.len - 1;
     }
 
-    pub fn addMemory(self: *Store, min: u32, max: ?u32) !usize {
+    pub fn addMemory(self: *Store, min: u64, max: ?u64) !usize {
         const ptr = try self.memories.addOne(self.alloc);
-        ptr.* = WasmMemory.init(self.alloc, min, max);
+        // Memory sizes are capped well below u32 max by implementation limits.
+        const min32: u32 = @intCast(min);
+        const max32: ?u32 = if (max) |m| @intCast(m) else null;
+        ptr.* = WasmMemory.init(self.alloc, min32, max32);
         return self.memories.items.len - 1;
     }
 
@@ -323,9 +327,13 @@ pub const Store = struct {
         return self.memories.items.len - 1;
     }
 
-    pub fn addTable(self: *Store, reftype: opcode.RefType, min: u32, max: ?u32) !usize {
+    pub fn addTable(self: *Store, reftype: opcode.RefType, min: u64, max: ?u64, is_64: bool) !usize {
         const ptr = try self.tables.addOne(self.alloc);
-        ptr.* = try Table.init(self.alloc, reftype, min, max);
+        // Table sizes are capped at 1M by implementation limits.
+        const min32: u32 = @intCast(min);
+        const max32: ?u32 = if (max) |m| @intCast(m) else null;
+        ptr.* = try Table.init(self.alloc, reftype, min32, max32);
+        ptr.is_64 = is_64;
         return self.tables.items.len - 1;
     }
 
@@ -442,7 +450,7 @@ test "Store — addTable and getTable" {
     var store = Store.init(testing.allocator);
     defer store.deinit();
 
-    const addr = try store.addTable(.funcref, 4, 16);
+    const addr = try store.addTable(.funcref, 4, 16, false);
     const t = try store.getTable(addr);
     try testing.expectEqual(@as(u32, 4), t.size());
     try testing.expectEqual(@as(u32, 16), t.max.?);

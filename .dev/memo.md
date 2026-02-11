@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4 — COMPLETE
 - Source: ~15K LOC, 16 files, 155 tests all pass
 - Opcode: 225 core + 236 SIMD = 461, WASI: ~27
-- Spec: 30,666/30,703 (99.9%), E2E: 180/181 (99.4%), CI: ubuntu + macOS
+- Spec: 30,703/30,703 (100%), E2E: 180/181 (99.4%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -19,8 +19,8 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-6, 5E, 5F — all COMPLETE. See `roadmap.md` for details.
-Key results: Spec 30,666/30,703 (99.9%), E2E 180/181, 20/21 bench < 2x wasmtime.
+Stages 0-7, 5E, 5F — all COMPLETE. See `roadmap.md` for details.
+Key results: Spec 30,703/30,703 (100%), E2E 180/181, 20/21 bench < 2x wasmtime.
 
 ## Task Queue
 
@@ -32,10 +32,10 @@ Stage 7: Memory64 Table Operations (W18)
 
 Target: Fix 37 spec failures (table_size64 ×36, memory_grow64 ×1).
 
-1. [ ] 7.1: Table type addrtype decoding (module.zig, limits flag 0x04-0x07)
-2. [ ] 7.2: table.size/grow i64 variants (vm.zig)
-3. [ ] 7.3: Table instruction validation for i64 indices (predecode.zig)
-4. [ ] 7.4: Spec test verification + compliance update
+1. [x] 7.1: Table type addrtype decoding (module.zig, limits flag 0x04-0x07)
+2. [x] 7.2: table.size/grow i64 variants (vm.zig)
+3. [x] 7.3: Table instruction validation for i64 indices (call_indirect table64)
+4. [x] 7.4: Spec test verification + compliance update
 
 Stage 8: Exception Handling (W13)
 
@@ -84,12 +84,12 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 7.1: Table type addrtype decoding — add i64 addrtype support to table
-type parsing in module.zig. Read memory64 proposal spec first.
+Merge Stage 7 to main (Merge Gate), then start Stage 8.
 
 ## Previous Task
 
-6: Fixed JIT emitPrologue BLR ordering, closed remaining bugs, updated checklist.
+7.4: Updated compliance.yaml, proposals.yaml, checklist.md, spec-support.md.
+Memory64 complete: 252 spec tests pass, W18 resolved. Stage 7 DONE.
 
 ## Known Bugs
 

@@ -688,10 +688,19 @@ fn readGlobalImportDef(reader: *Reader) !GlobalDef {
 }
 
 fn readLimits(reader: *Reader) !opcode.Limits {
-    const has_max = try reader.readByte();
-    const min = try reader.readU32();
-    const max: ?u32 = if (has_max == 1) try reader.readU32() else null;
-    return .{ .min = min, .max = max };
+    const flags = try reader.readByte();
+    const is_64 = (flags & 0x04) != 0;
+    const has_max = (flags & 0x01) != 0;
+    // flags & 0x02 = shared (threads proposal) — ignored for now
+    if (is_64) {
+        const min = try reader.readU64();
+        const max: ?u64 = if (has_max) try reader.readU64() else null;
+        return .{ .min = min, .max = max, .is_64 = true };
+    } else {
+        const min = try reader.readU32();
+        const max: ?u32 = if (has_max) try reader.readU32() else null;
+        return .{ .min = min, .max = if (max) |m| m else null };
+    }
 }
 
 /// Skip over an init expression (reads until `end` opcode 0x0B).
@@ -924,4 +933,38 @@ test "Module — too short" {
     var mod = Module.init(testing.allocator, &short);
     defer mod.deinit();
     try testing.expectError(error.InvalidWasm, mod.decode());
+}
+
+test "readLimits — i64 addrtype (memory64 table64)" {
+    // Flag 0x04 = i64 addr, min only
+    var bytes_04 = [_]u8{ 0x04, 0x03 }; // min=3
+    var r04 = Reader.init(&bytes_04);
+    const lim04 = try readLimits(&r04);
+    try testing.expect(lim04.is_64);
+    try testing.expectEqual(@as(u64, 3), lim04.min);
+    try testing.expectEqual(@as(?u64, null), lim04.max);
+
+    // Flag 0x05 = i64 addr, min+max
+    var bytes_05 = [_]u8{ 0x05, 0x03, 0x08 }; // min=3, max=8
+    var r05 = Reader.init(&bytes_05);
+    const lim05 = try readLimits(&r05);
+    try testing.expect(lim05.is_64);
+    try testing.expectEqual(@as(u64, 3), lim05.min);
+    try testing.expectEqual(@as(?u64, 8), lim05.max);
+
+    // Flag 0x00 = i32 addr, min only (backwards compat)
+    var bytes_00 = [_]u8{ 0x00, 0x05 }; // min=5
+    var r00 = Reader.init(&bytes_00);
+    const lim00 = try readLimits(&r00);
+    try testing.expect(!lim00.is_64);
+    try testing.expectEqual(@as(u64, 5), lim00.min);
+    try testing.expectEqual(@as(?u64, null), lim00.max);
+
+    // Flag 0x01 = i32 addr, min+max
+    var bytes_01 = [_]u8{ 0x01, 0x01, 0x0A }; // min=1, max=10
+    var r01 = Reader.init(&bytes_01);
+    const lim01 = try readLimits(&r01);
+    try testing.expect(!lim01.is_64);
+    try testing.expectEqual(@as(u64, 1), lim01.min);
+    try testing.expectEqual(@as(?u64, 10), lim01.max);
 }

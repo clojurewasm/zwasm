@@ -6,8 +6,8 @@ Per-opcode details live in code (`src/opcode.zig` enum).
 Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
-- Spec: `python3 test/spec/run_spec.py --summary` (30,001/30,686 = 97.8%)
-- E2E: `bash test/e2e/run_e2e.sh --summary` (169/179 = 94.4%, 68 files)
+- Spec: `python3 test/spec/run_spec.py --summary` (30,703/30,703 = 100%)
+- E2E: `bash test/e2e/run_e2e.sh --summary` (180/181 = 99.4%, 68 files)
 
 ## Opcode Coverage Summary
 
@@ -20,6 +20,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Reference types       | 5           | 5     | ref.null, ref.is_null, etc.   |
 | Multi-value           | Yes         | -     | Multiple return values         |
 | SIMD (v128)           | 236         | 236   | Full SIMD coverage            |
+| Memory64 (table64)    | 0*          | 0*      | Extends existing ops with i64|
 | **Total opcodes**     | **435**     | **437** | 99.5% (2 stubs)            |
 
 ## WASI Preview 1
@@ -48,6 +49,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Reference types       | Complete     | externref, funcref                  |
 | Multi-value           | Complete     | Multiple returns                   |
 | SIMD                  | Complete     | All 236 v128 opcodes               |
+| Memory64              | Complete     | Wasm 3.0 — table64 + i64 addressing |
 | Tail calls            | Not started  | Wasm 3.0                           |
 | Exception handling    | Not started  | Wasm 3.0 (W13)                     |
 | Wide arithmetic       | Not started  | Wasm 3.0 (W14)                     |
@@ -58,12 +60,10 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 ## E2E Test Status
 
-68 wasmtime misc_testsuite files ported. 10 remaining failures, 6 skipped files.
+68 wasmtime misc_testsuite files ported. 1 remaining failure, 6 skipped files.
 
 | Category                  | Status                   | Checklist         |
 |---------------------------|--------------------------|-------------------|
-| Cross-module type canon.  | 5 failures               | W8                |
-| Cross-module table remap  | 4 failures               | W9                |
 | assert_uninstantiable     | 1 failure                | W10               |
 | wast2json NaN syntax      | 1 file skipped           | W16               |
 | .wat file support         | 2 files skipped          | W17               |
