@@ -34,6 +34,7 @@ pub const Instance = struct {
     globaladdrs: ArrayList(usize),
     elemaddrs: ArrayList(usize),
     dataaddrs: ArrayList(usize),
+    tagaddrs: ArrayList(usize),
 
     // WASI context (optional, set before instantiate for WASI modules)
     wasi: ?*WasiContext = null,
@@ -49,6 +50,7 @@ pub const Instance = struct {
             .globaladdrs = .empty,
             .elemaddrs = .empty,
             .dataaddrs = .empty,
+            .tagaddrs = .empty,
         };
     }
 
@@ -59,6 +61,7 @@ pub const Instance = struct {
         self.globaladdrs.deinit(self.alloc);
         self.elemaddrs.deinit(self.alloc);
         self.dataaddrs.deinit(self.alloc);
+        self.tagaddrs.deinit(self.alloc);
     }
 
     pub fn instantiate(self: *Instance) !void {
@@ -69,6 +72,7 @@ pub const Instance = struct {
         try self.instantiateMemories();
         try self.instantiateTables();
         try self.instantiateGlobals();
+        try self.instantiateTags();
         try self.instantiateElems();
         try self.instantiateData();
         try self.applyActiveElements();
@@ -141,6 +145,12 @@ pub const Instance = struct {
         return self.globaladdrs.items[idx];
     }
 
+    pub fn getExportTagAddr(self: *const Instance, name: []const u8) ?usize {
+        const idx = self.module.getExport(name, .tag) orelse return null;
+        if (idx >= self.tagaddrs.items.len) return null;
+        return self.tagaddrs.items[idx];
+    }
+
     // ---- Instantiation steps ----
 
     fn resolveImports(self: *Instance) !void {
@@ -153,6 +163,7 @@ pub const Instance = struct {
                 .memory => try self.memaddrs.append(self.alloc, handle),
                 .table => try self.tableaddrs.append(self.alloc, handle),
                 .global => try self.globaladdrs.append(self.alloc, handle),
+                .tag => try self.tagaddrs.append(self.alloc, handle),
             }
         }
     }
@@ -211,6 +222,13 @@ pub const Instance = struct {
                 .mutability = @enumFromInt(glob_def.mutability),
             });
             try self.globaladdrs.append(self.alloc, addr);
+        }
+    }
+
+    fn instantiateTags(self: *Instance) !void {
+        for (self.module.tags.items) |tag_def| {
+            const addr = try self.store.addTag(tag_def.type_idx);
+            try self.tagaddrs.append(self.alloc, addr);
         }
     }
 

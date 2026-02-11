@@ -184,6 +184,20 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
             .global_get, .global_set, .ref_func, .table_get, .table_set,
             => _ = reader.readU32() catch break,
             .call_indirect => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; },
+            .throw => _ = reader.readU32() catch break, // tag index
+            .throw_ref => {},
+            .try_table => {
+                // blocktype + catch clause vector
+                _ = readBlockType(&reader) catch break;
+                const n_catches = reader.readU32() catch break;
+                for (0..n_catches) |_| {
+                    _ = reader.readByte() catch break; // catch kind
+                    const catch_kind = reader.bytes[reader.pos - 1];
+                    if (catch_kind == 0x00 or catch_kind == 0x01) _ = reader.readU32() catch break; // tag index
+                    _ = reader.readU32() catch break; // label index
+                }
+                try stack.append(alloc, .{ .kind = .block, .offset = reader.pos });
+            },
             .select_t => { const n = reader.readU32() catch break; for (0..n) |_| _ = reader.readByte() catch break; },
             .i32_const => _ = reader.readI32() catch break,
             .i64_const => _ = reader.readI64() catch break,
@@ -659,6 +673,9 @@ pub const Vm = struct {
 
                     try self.doCallDirect(instance, func_ptr, reader);
                 },
+
+                // ---- Exception handling (stub — full impl in 8.2-8.3) ----
+                .throw, .throw_ref, .try_table => return error.Trap,
 
                 // ---- Parametric ----
                 .drop => _ = self.pop(),
@@ -3878,6 +3895,18 @@ fn skipToEnd(reader: *Reader) !void {
             .global_get, .global_set, .ref_func, .table_get, .table_set,
             => _ = try reader.readU32(),
             .call_indirect => { _ = try reader.readU32(); _ = try reader.readU32(); },
+            .throw => _ = try reader.readU32(),
+            .throw_ref => {},
+            .try_table => {
+                _ = try readBlockType(reader);
+                const n_catches = try reader.readU32();
+                for (0..n_catches) |_| {
+                    const catch_kind = try reader.readByte();
+                    if (catch_kind == 0x00 or catch_kind == 0x01) _ = try reader.readU32();
+                    _ = try reader.readU32();
+                }
+                depth += 1;
+            },
             .select_t => { const n = try reader.readU32(); for (0..n) |_| _ = try reader.readByte(); },
             .i32_const => _ = try reader.readI32(),
             .i64_const => _ = try reader.readI64(),
@@ -3948,6 +3977,18 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
             .global_get, .global_set, .ref_func, .table_get, .table_set,
             => _ = try reader.readU32(),
             .call_indirect => { _ = try reader.readU32(); _ = try reader.readU32(); },
+            .throw => _ = try reader.readU32(),
+            .throw_ref => {},
+            .try_table => {
+                _ = try readBlockType(reader);
+                const n_catches = try reader.readU32();
+                for (0..n_catches) |_| {
+                    const catch_kind = try reader.readByte();
+                    if (catch_kind == 0x00 or catch_kind == 0x01) _ = try reader.readU32();
+                    _ = try reader.readU32();
+                }
+                depth += 1;
+            },
             .select_t => { const n = try reader.readU32(); for (0..n) |_| _ = try reader.readByte(); },
             .i32_const => _ = try reader.readI32(),
             .i64_const => _ = try reader.readI64(),

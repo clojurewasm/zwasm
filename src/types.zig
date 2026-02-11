@@ -500,6 +500,16 @@ fn registerImports(
                         store.addExport(imp.module, imp.name, .global, addr) catch
                             return error.WasmInstantiateError;
                     },
+                    .tag => {
+                        // Copy tag from source module
+                        const src_addr = src_module.instance.getExportTagAddr(imp.name) orelse
+                            return error.ImportNotFound;
+                        const src_tag = src_module.store.tags.items[src_addr];
+                        const addr = store.addTag(src_tag.type_idx) catch
+                            return error.WasmInstantiateError;
+                        store.addExport(imp.module, imp.name, .tag, addr) catch
+                            return error.WasmInstantiateError;
+                    },
                 }
             },
             .host_fns => |host_fns| {

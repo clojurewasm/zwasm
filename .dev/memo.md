@@ -41,7 +41,7 @@ Stage 8: Exception Handling (W13)
 
 Target: tag section, try_table, throw, throw_ref, exnref.
 
-1. [ ] 8.1: Tag section parsing + exnref type (module.zig, opcode.zig)
+1. [x] 8.1: Tag section parsing + exnref type (module.zig, opcode.zig)
 2. [ ] 8.2: throw / throw_ref instructions (vm.zig)
 3. [ ] 8.3: try_table + catch clauses (vm.zig, predecode.zig)
 4. [ ] 8.4: Exception propagation across call stack
@@ -84,12 +84,12 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Merge Stage 7 to main (Merge Gate), then start Stage 8.
+8.2: throw / throw_ref instructions (vm.zig).
 
 ## Previous Task
 
-7.4: Updated compliance.yaml, proposals.yaml, checklist.md, spec-support.md.
-Memory64 complete: 252 spec tests pass, W18 resolved. Stage 7 DONE.
+8.1: Added tag section (ID 13) parsing, exnref type, throw/throw_ref/try_table
+opcodes, tag import/export, WasmTag in store, tagaddrs in instance.
 
 ## Known Bugs
 

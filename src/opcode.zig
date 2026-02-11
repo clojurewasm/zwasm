@@ -17,6 +17,7 @@ pub const ValType = enum(u8) {
     v128 = 0x7B, // SIMD — Phase 36
     funcref = 0x70,
     externref = 0x6F,
+    exnref = 0x69, // Exception handling — (ref null exn)
 };
 
 /// Block type encoding in Wasm binary.
@@ -38,6 +39,7 @@ pub const ExternalKind = enum(u8) {
     table = 0x01,
     memory = 0x02,
     global = 0x03,
+    tag = 0x04,
 };
 
 /// Limits encoding (memories and tables).
@@ -57,6 +59,9 @@ pub const Opcode = enum(u8) {
     loop = 0x03,
     @"if" = 0x04,
     @"else" = 0x05,
+    // Exception handling (Wasm 3.0)
+    throw = 0x08,
+    throw_ref = 0x0a,
     end = 0x0B,
     br = 0x0C,
     br_if = 0x0D,
@@ -69,6 +74,8 @@ pub const Opcode = enum(u8) {
     drop = 0x1A,
     select = 0x1B,
     select_t = 0x1C,
+    // Exception handling (Wasm 3.0)
+    try_table = 0x1F,
 
     // Variable access
     local_get = 0x20,
@@ -629,6 +636,7 @@ pub const Section = enum(u8) {
     code = 10,
     data = 11,
     data_count = 12,
+    tag = 13,
 
     _,
 };
@@ -670,6 +678,7 @@ test "Opcode — unknown byte produces non-named variant" {
     // Should not match any named variant
     const is_known = switch (op) {
         .@"unreachable", .nop, .block, .loop, .@"if", .@"else", .end => true,
+        .throw, .throw_ref, .try_table => true,
         .br, .br_if, .br_table, .@"return", .call, .call_indirect => true,
         .drop, .select, .select_t => true,
         .local_get, .local_set, .local_tee, .global_get, .global_set => true,

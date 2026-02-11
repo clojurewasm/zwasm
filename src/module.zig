@@ -69,6 +69,11 @@ pub const GlobalDef = struct {
     init_expr: []const u8, // raw bytecode of init expression
 };
 
+/// Tag definition (exception handling proposal).
+pub const TagDef = struct {
+    type_idx: u32,
+};
+
 /// Local variable definition within a code body.
 pub const LocalEntry = struct {
     count: u32,
@@ -127,6 +132,7 @@ pub const Module = struct {
     tables: ArrayList(TableDef),
     memories: ArrayList(MemoryDef),
     globals: ArrayList(GlobalDef),
+    tags: ArrayList(TagDef),
     exports: ArrayList(Export),
     start: ?u32,
     elements: ArrayList(ElementSegment),
@@ -139,6 +145,7 @@ pub const Module = struct {
     num_imported_tables: u32,
     num_imported_memories: u32,
     num_imported_globals: u32,
+    num_imported_tags: u32,
 
     pub fn init(alloc: Allocator, wasm_bin: []const u8) Module {
         return .{
@@ -151,6 +158,7 @@ pub const Module = struct {
             .tables = .empty,
             .memories = .empty,
             .globals = .empty,
+            .tags = .empty,
             .exports = .empty,
             .start = null,
             .elements = .empty,
@@ -161,6 +169,7 @@ pub const Module = struct {
             .num_imported_tables = 0,
             .num_imported_memories = 0,
             .num_imported_globals = 0,
+            .num_imported_tags = 0,
         };
     }
 
@@ -178,6 +187,8 @@ pub const Module = struct {
 
         for (self.globals.items) |g| _ = g; // init_expr is a slice into wasm_bin
         self.globals.deinit(self.alloc);
+
+        self.tags.deinit(self.alloc);
 
         self.exports.deinit(self.alloc);
 
@@ -237,6 +248,7 @@ pub const Module = struct {
             .code => try self.decodeCodeSection(&sub),
             .data => try self.decodeDataSection(&sub),
             .data_count => try self.decodeDataCountSection(&sub),
+            .tag => try self.decodeTagSection(&sub),
             _ => {}, // skip unknown sections
         }
     }
@@ -303,6 +315,12 @@ pub const Module = struct {
                     imp.global_type = try readGlobalImportDef(reader);
                     self.num_imported_globals += 1;
                 },
+                .tag => {
+                    const attr = try reader.readByte();
+                    if (attr != 0) return error.InvalidWasm; // only exception attribute
+                    imp.index = try reader.readU32();
+                    self.num_imported_tags += 1;
+                },
             }
 
             try self.imports.append(self.alloc, imp);
@@ -352,6 +370,18 @@ pub const Module = struct {
                 .mutability = mutability,
                 .init_expr = reader.bytes[init_start..init_end],
             });
+        }
+    }
+
+    // ---- Section 13: Tag (exception handling) ----
+    fn decodeTagSection(self: *Module, reader: *Reader) !void {
+        const count = try reader.readU32();
+        try self.tags.ensureTotalCapacity(self.alloc, count);
+        for (0..count) |_| {
+            const attr = try reader.readByte();
+            if (attr != 0) return error.InvalidWasm; // only exception attribute
+            const type_idx = try reader.readU32();
+            try self.tags.append(self.alloc, .{ .type_idx = type_idx });
         }
     }
 
@@ -967,4 +997,32 @@ test "readLimits — i64 addrtype (memory64 table64)" {
     try testing.expect(!lim01.is_64);
     try testing.expectEqual(@as(u64, 1), lim01.min);
     try testing.expectEqual(@as(?u64, 10), lim01.max);
+}
+
+test "Module — tag section parsing" {
+    // Build a minimal wasm module with:
+    // - type section: one functype (param i32, result empty)
+    // - tag section (13): one tag with attribute=0, type_idx=0
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x01, 0x00, 0x00, 0x00, // version
+        // Type section (ID=1): 1 type, functype(i32)->(empty)
+        0x01, 0x05, // section id=1, size=5
+        0x01, // count=1
+        0x60, // functype
+        0x01, 0x7F, // params: [i32]
+        0x00, // results: []
+        // Tag section (ID=13): 1 tag
+        0x0D, 0x03, // section id=13, size=3
+        0x01, // count=1
+        0x00, // attribute=0 (exception)
+        0x00, // type_idx=0
+    };
+
+    var m = Module.init(testing.allocator, &wasm);
+    defer m.deinit();
+    try m.decode();
+
+    try testing.expectEqual(@as(usize, 1), m.tags.items.len);
+    try testing.expectEqual(@as(u32, 0), m.tags.items[0].type_idx);
 }
