@@ -55,10 +55,15 @@ Lazy load: roadmap.md, decisions.md, checklist.md, bench-strategy.md (only when 
 - Spec tests: `bash test/spec/run.sh` (when changing interpreter or opcodes)
 - `jit.zig` modified → `.claude/rules/jit-check.md` auto-loads
 - `bench/`, `vm.zig`, `regalloc.zig` modified → `.claude/rules/bench-check.md` auto-loads
-- **Investigation**: When debugging spec or designing, check reference impls:
+- **Investigation**: Check reference impls when debugging, designing, OR optimizing:
   - wasmtime: `~/Documents/OSS/wasmtime/` (JIT patterns, cranelift)
   - zware: `~/Documents/OSS/zware/` (Zig idioms, API patterns)
   - WasmResearch: `~/Documents/MyProducts/WasmResearch/docs/` (spec analysis)
+- **Optimization profiling**: When a benchmark has a performance gap vs wasmtime,
+  read the corresponding cranelift codegen to understand what optimizations they apply.
+  Key paths in wasmtime: `cranelift/codegen/src/isa/aarch64/` (ARM64 lowering),
+  `cranelift/codegen/src/opts/` (optimization rules).
+  The goal is parity (1x), not just "close enough" — study what they emit.
 
 **4. Complete** (per task)
 
@@ -150,5 +155,8 @@ Minimize context consumption to extend session life:
 ## Benchmarks
 
 Benchmark discipline: `.claude/rules/bench-check.md` (auto-loads on bench/jit/vm edits).
+**YAML-first**: Before running benchmarks, check `bench/history.yaml` and
+`bench/runtime_comparison.yaml` for existing data. Fresh runs are only needed
+after code changes — commit gate handles recording automatically.
 Zig tips: `.claude/references/zig-tips.md` — check before writing Zig code.
 Reference index: `.dev/memo.md` § References

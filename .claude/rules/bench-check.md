@@ -13,6 +13,22 @@ paths:
 **Always use ReleaseSafe for benchmarks.** All scripts auto-build ReleaseSafe.
 All measurement uses hyperfine (warmup + multiple runs). Never trust single-run.
 
+## YAML-First: Check Before Running
+
+Before running fresh benchmarks, check existing data:
+
+```bash
+# Latest zwasm-only results
+yq '.entries[-1]' bench/history.yaml
+# Cross-runtime comparison (check date/commit for staleness)
+yq '.benchmarks.st_matrix' bench/runtime_comparison.yaml
+# Compare two entries
+yq '.entries[] | select(.id == "5.5") | .results' bench/history.yaml
+```
+
+Fresh benchmark runs are only needed AFTER code changes.
+The commit gate records automatically — no need to pre-run at session start.
+
 ## When to Record
 
 | Scenario                         | What to record                    | Command                              |

@@ -78,8 +78,9 @@ Approach: incremental JIT — profile first, register IR, then ARM64 codegen.
 **Exit criteria**: fib(35) within 2x of wasmtime JIT. ARM64 JIT stable.
 **Result**: fib(35) = 103ms, wasmtime = 52ms, ratio = 2.0x. EXIT CRITERIA MET.
 
-**Performance target**: All benchmarks within 3x of wasmtime (ideal: 2x).
+**Performance target**: All benchmarks within 2x of wasmtime (ideal: 1x).
 This is an ongoing commitment — keep optimizing until every benchmark meets this bar.
+wasmtime source is available locally — study cranelift codegen to close gaps.
 
 ## Stage 4: Polish & Robustness (COMPLETE)
 
@@ -92,7 +93,7 @@ This is an ongoing commitment — keep optimizing until every benchmark meets th
 
 ## Stage 5: JIT Coverage Expansion (IN PROGRESS)
 
-**Goal**: All benchmarks within 3x of wasmtime (ideal: 2x).
+**Goal**: All benchmarks within 2x of wasmtime (ideal: 1x).
 This is the primary optimization stage — keep adding JIT features until the target is met.
 
 ### Completed
@@ -102,18 +103,19 @@ This is the primary optimization stage — keep adding JIT features until the ta
 - 5.4: Re-record cross-runtime benchmarks
 - 5.5: JIT memory ops + call_indirect + popcnt + reload ordering fix
 
-### Current gaps (vs wasmtime)
-- st_sieve: ~30x — now JIT'd but still slow, needs profiling
-- st_matrix: ~32x — now JIT'd but still slow, needs profiling
-- st_fib2: 2.6x — close to target, needs profiling
-- fib: 2.0x — at target
-- nbody: 2.7x — at target
+### Current gaps (vs wasmtime, from bench YAML at 5.5)
+- st_matrix: ~3.8x — biggest remaining gap, needs profiling
+- st_fib2: ~2.3x — close but above 2x target
+- nbody: ~2.4x — needs improvement
+- fib: ~2.0x — at compromise target, not at ideal
+- st_sieve: ~2.1x — close to compromise target
+- st_nestedloop, st_ackermann: ≤1.1x — at parity
 
 ### Remaining tasks
 - 5.6: Profile and optimize remaining gaps
 - 5.7: Re-record benchmarks, verify exit criteria
 
-**Exit criteria**: ALL benchmarks within 3x of wasmtime (ideal: 2x).
+**Exit criteria**: ALL benchmarks within 2x of wasmtime (ideal: 1x).
 
 ### Future
 - Superinstruction expansion (profile-guided)
