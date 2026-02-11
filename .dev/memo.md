@@ -14,7 +14,7 @@ Session handover document. Read at session start.
 - Embedder API: Vm type, inspectImportFunctions, WasmModule.loadWithImports
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
-- **main = stable**: CW depends on main via GitHub URL (v0.1.0 tag).
+- **main = stable**: CW depends on main via GitHub URL (v0.2.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
 
 ## Task Queue
@@ -46,15 +46,28 @@ Best wins: tgo_arith 0.30x, tgo_gcd 0.33x, tgo_fib_loop 0.33x, nqueens 0.38x.
 6. [x] 5.6: Profile and optimize remaining gaps
 7. [x] 5.7: Re-record benchmarks, verify exit criteria
 
+Stage 5F: E2E & Spec Compliance Completion
+
+Remaining failures:
+- E2E: 3 failures (table_copy_on_imported_tables ×2, partial-init-table-segment ×1)
+- Spec: 40 failures (table_size64 ×36, memory_grow64 ×1, memory_trap ×1,
+  memory_trap64 ×1, names ×1)
+
+1. [ ] 5F.1: Fix memory_trap + names spec failures (2 spec fixes)
+2. [ ] 5F.2: Fix W9 transitive import chains (2 E2E failures)
+3. [ ] 5F.3: Fix W10 partial-init-table-segment side effects (1 E2E failure)
+4. [ ] 5F.4: Implement memory64 table operations (36+2 spec failures)
+
+Target: E2E 181/181 (100%), Spec ≥30,701/30,703 (99.99%).
+
 ## Current Task
 
-Stage 5 complete. Plan next stage.
+5F.1: Fix memory_trap + names spec failures
 
 ## Previous Task
 
-5.7 complete: Re-recorded cross-runtime benchmarks (hyperfine 3-run).
-20/21 within 2x of wasmtime. st_fib2 improved 2.1x→1.95x (now passes).
-Only st_matrix (3.1x) remains — needs liveness-based regalloc (Stage 6).
+5.7 + Stage 5 merge: Re-recorded benchmarks, verified 20/21 within 2x.
+Merged to main, tagged v0.2.0, updated CW dependency.
 
 ## Known Bugs
 
