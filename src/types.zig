@@ -419,12 +419,10 @@ fn registerImports(
                         var src_table = src_table_ptr.*;
                         src_table.shared = true;
                         // Remap function references: copy referenced functions to target store
+                        // Table entries use ?usize: null=empty, Some(addr)=valid func address
                         for (src_table.data.items) |*tbl_entry| {
                             if (tbl_entry.*) |src_func_ref| {
-                                // Table entries use convention: null = empty, ref+1 = valid
-                                if (src_func_ref == 0) continue;
-                                const src_func_addr = src_func_ref - 1;
-                                var func = src_module.store.getFunction(src_func_addr) catch continue;
+                                var func = src_module.store.getFunction(src_func_ref) catch continue;
                                 if (func.subtype == .wasm_function) {
                                     func.subtype.wasm_function.branch_table = null;
                                     func.subtype.wasm_function.ir = null;
@@ -436,7 +434,7 @@ fn registerImports(
                                     func.subtype.wasm_function.call_count = 0;
                                 }
                                 const new_addr = store.addFunction(func) catch continue;
-                                tbl_entry.* = new_addr + 1;
+                                tbl_entry.* = new_addr;
                             }
                         }
                         const addr = store.addExistingTable(src_table) catch
