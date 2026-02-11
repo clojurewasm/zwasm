@@ -276,3 +276,30 @@ entries:
       st_nestedloop: {time_ms: 5.0}
       st_ackermann: {time_ms: 3.2}
       st_matrix: {time_ms: 361.6}
+  - id: "5.6"
+    date: "2026-02-12"
+    reason: "Reg reuse, 14 phys regs, const-addr elision, write-tracked spills"
+    commit: "093c524"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 98.4}
+      tak: {time_ms: 13.2}
+      sieve: {time_ms: 5.2}
+      nbody: {time_ms: 51.7}
+      nqueens: {time_ms: 2.8}
+      tgo_fib: {time_ms: 54.6}
+      tgo_tak: {time_ms: 10.5}
+      tgo_arith: {time_ms: 2.5}
+      tgo_sieve: {time_ms: 4.7}
+      tgo_fib_loop: {time_ms: 2.5}
+      tgo_gcd: {time_ms: 2.5}
+      tgo_nqueens: {time_ms: 45.2}
+      tgo_mfr: {time_ms: 100.6}
+      tgo_list: {time_ms: 122.6}
+      tgo_rwork: {time_ms: 16.9}
+      tgo_strops: {time_ms: 38.2}
+      st_fib2: {time_ms: 1398.0}
+      st_sieve: {time_ms: 237.0}
+      st_nestedloop: {time_ms: 6.7}
+      st_ackermann: {time_ms: 9.6}
+      st_matrix: {time_ms: 323.7}

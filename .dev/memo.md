@@ -32,10 +32,10 @@ Stage 5 (resumed after 5E): JIT Coverage Expansion
 
 **Target: ALL benchmarks within 2x of wasmtime (ideal: 1x).**
 
-Current results (task 5.5, from bench/history.yaml):
-st_sieve 462ms, st_matrix 355ms, st_fib2 1738ms, fib 105ms, nbody 58ms.
-Gaps vs wasmtime (from bench/runtime_comparison.yaml):
-st_matrix ~3.8x, st_fib2 ~2.3x, nbody ~2.4x, fib ~2.0x, st_sieve ~2.1x.
+Current results (task 5.6, from bench/history.yaml):
+st_sieve 237ms, st_matrix 324ms, st_fib2 1398ms, fib 98ms, nbody 52ms.
+Gaps vs wasmtime (from bench/runtime_comparison.yaml, wasmtime numbers from 5.4):
+st_matrix ~3.7x, st_fib2 ~2.0x, nbody ~2.3x, fib ~1.7x, st_sieve ~1.1x.
 st_nestedloop and st_ackermann at parity (≤1.1x).
 
 1. [x] 5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass
@@ -43,7 +43,7 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 3. [x] 5.3: f64/f32 ARM64 JIT — nbody 133→60ms (2.2x speedup)
 4. [x] 5.4: Re-record cross-runtime benchmarks
 5. [x] 5.5: JIT memory ops + call_indirect + popcnt + reload ordering fix
-6. [ ] 5.6: Profile and optimize remaining gaps
+6. [~] 5.6: Profile and optimize remaining gaps (in progress)
 7. [ ] 5.7: Re-record benchmarks, verify exit criteria
 
 ## Current Task
@@ -52,10 +52,10 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 
 ## Previous Task
 
-Sub-tasks C+D+E: Physical register expansion (12→14), const-addr bounds
-check elision (35% code reduction), write-tracked spill optimization
-(skip spilling uninitialized caller-saved regs). fib 103→98ms, st_fib2
-1.47→1.40s. Trace improvements: back-edge JIT, JitRestart, --profile.
+5.6 sub-tasks A-E: Register reuse, 14 phys regs, const-addr bounds check
+elision (35% code reduction), write-tracked spill (skip uninitialized regs),
+trace diagnostics. Key results: st_sieve 471→237ms (2x), st_fib2 1796→1398ms,
+nbody 59→52ms, tgo_strops 76→38ms, fib 110→98ms.
 
 ## Known Bugs
 
