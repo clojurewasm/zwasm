@@ -327,12 +327,12 @@ pub const Store = struct {
         return self.functions.items.len - 1;
     }
 
-    pub fn addMemory(self: *Store, min: u64, max: ?u64) !usize {
+    pub fn addMemory(self: *Store, min: u64, max: ?u64, page_size: u32) !usize {
         const ptr = try self.memories.addOne(self.alloc);
         // Memory sizes are capped well below u32 max by implementation limits.
         const min32: u32 = @intCast(min);
         const max32: ?u32 = if (max) |m| @intCast(m) else null;
-        ptr.* = WasmMemory.init(self.alloc, min32, max32);
+        ptr.* = WasmMemory.initWithPageSize(self.alloc, min32, max32, page_size);
         return self.memories.items.len - 1;
     }
 
@@ -469,7 +469,7 @@ test "Store — addMemory and getMemory" {
     var store = Store.init(testing.allocator);
     defer store.deinit();
 
-    const addr = try store.addMemory(1, 10);
+    const addr = try store.addMemory(1, 10, 65536);
     const m = try store.getMemory(addr);
     try testing.expectEqual(@as(u32, 1), m.min);
     try testing.expectEqual(@as(u32, 10), m.max.?);

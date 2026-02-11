@@ -16,6 +16,7 @@ pub const Memory = struct {
     alloc: mem.Allocator,
     min: u32,
     max: ?u32,
+    page_size: u32 = PAGE_SIZE, // custom page sizes proposal: 1 or 65536
     data: std.ArrayList(u8),
     shared: bool = false, // true = borrowed from another module, skip deinit
 
@@ -24,6 +25,16 @@ pub const Memory = struct {
             .alloc = alloc,
             .min = min,
             .max = max,
+            .data = .empty,
+        };
+    }
+
+    pub fn initWithPageSize(alloc: mem.Allocator, min: u32, max: ?u32, page_size: u32) Memory {
+        return .{
+            .alloc = alloc,
+            .min = min,
+            .max = max,
+            .page_size = page_size,
             .data = .empty,
         };
     }
@@ -41,7 +52,8 @@ pub const Memory = struct {
 
     /// Current size in pages.
     pub fn size(self: *const Memory) u32 {
-        return @truncate(self.data.items.len / PAGE_SIZE);
+        if (self.page_size == 0) return 0;
+        return @truncate(self.data.items.len / self.page_size);
     }
 
     /// Current size in bytes.
@@ -51,13 +63,16 @@ pub const Memory = struct {
 
     /// Grow memory by num_pages. Returns old size in pages, or error if exceeds max.
     pub fn grow(self: *Memory, num_pages: u32) !u32 {
-        const effective_max = @min(self.max orelse MAX_PAGES, MAX_PAGES);
-        if (self.size() + num_pages > effective_max)
+        // Max total bytes = 4 GiB; derive max pages from page_size
+        const max_bytes: u64 = @as(u64, MAX_PAGES) * PAGE_SIZE;
+        const max_pages: u64 = max_bytes / self.page_size;
+        const effective_max: u64 = @min(self.max orelse max_pages, max_pages);
+        if (@as(u64, self.size()) + num_pages > effective_max)
             return error.OutOfBoundsMemoryAccess;
 
         const old_size = self.size();
         const old_bytes = self.data.items.len;
-        const new_bytes = @as(usize, PAGE_SIZE) * num_pages;
+        const new_bytes = @as(usize, self.page_size) * num_pages;
         _ = try self.data.resize(self.alloc, old_bytes + new_bytes);
         @memset(self.data.items[old_bytes..][0..new_bytes], 0);
         return old_size;

@@ -3220,7 +3220,7 @@ pub fn jitMemCopy(instance_opaque: *anyopaque, dst: u32, src: u32, n: u32) callc
 /// Get minimum guaranteed memory bytes from an Instance (for bounds check elision).
 pub fn getMinMemoryBytes(instance: *Instance) u32 {
     const mem = instance.getMemory(0) catch return 0;
-    return mem.min * 65536;
+    return mem.min * mem.page_size;
 }
 
 /// param_count: number of parameters for the function.
@@ -3548,7 +3548,7 @@ test "compile and execute memory load/store" {
     // Set up a Store with one memory page (64KB)
     var store = store_mod.Store.init(alloc);
     defer store.deinit();
-    const mem_idx = try store.addMemory(1, null);
+    const mem_idx = try store.addMemory(1, null, 65536);
     const mem = try store.getMemory(mem_idx);
     try mem.allocateInitial();
 
@@ -3622,7 +3622,7 @@ test "compile and execute memory store then load" {
 
     var store = store_mod.Store.init(alloc);
     defer store.deinit();
-    const mem_idx = try store.addMemory(1, null);
+    const mem_idx = try store.addMemory(1, null, 65536);
     const mem = try store.getMemory(mem_idx);
     try mem.allocateInitial();
 
@@ -3674,7 +3674,7 @@ test "const-addr memory load elides bounds check" {
 
     var store = store_mod.Store.init(alloc);
     defer store.deinit();
-    const mem_idx = try store.addMemory(1, null);
+    const mem_idx = try store.addMemory(1, null, 65536);
     const mem = try store.getMemory(mem_idx);
     try mem.allocateInitial();
 

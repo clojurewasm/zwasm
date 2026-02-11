@@ -201,3 +201,4 @@ echo "--- Custom proposal generators ---"
 if [ -f "$WAST_DIR/wide-arithmetic.wast" ]; then
     python3 test/e2e/gen_wide_arithmetic.py && echo "OK: wide-arithmetic" || echo "FAIL: wide-arithmetic"
 fi
+python3 test/e2e/gen_custom_page_sizes.py && echo "OK: custom-page-sizes" || echo "FAIL: custom-page-sizes"

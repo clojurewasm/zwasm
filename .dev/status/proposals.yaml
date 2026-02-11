@@ -329,7 +329,7 @@ in_progress:
     note: "Complete. 4 opcodes under 0xFC prefix (sub 0x13-0x16). 99/99 e2e tests."
 
   custom_page_sizes:
-    status: todo
+    status: complete
     phase: 3
     opcodes: 0
     new_types: []
@@ -338,6 +338,6 @@ in_progress:
     dependencies: []
     repo: null
     spec_doc: null
-    summary: null
+    summary: "Complete. page_size field in Limits (1 or 65536). 18/18 e2e tests."
     checklist_id: W15
     note: "Non-64KB page sizes. Affects memory allocation and grow logic."
