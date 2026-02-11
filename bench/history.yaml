@@ -330,3 +330,30 @@ entries:
       st_nestedloop: {time_ms: 6.9}
       st_ackermann: {time_ms: 9.2}
       st_matrix: {time_ms: 287.7}
+  - id: "7.1"
+    date: "2026-02-12"
+    reason: "Stage 7 start: limits i64 decoding"
+    commit: "b80674c"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 95.2}
+      tak: {time_ms: 11.7}
+      sieve: {time_ms: 3.9}
+      nbody: {time_ms: 37.6}
+      nqueens: {time_ms: 2.6}
+      tgo_fib: {time_ms: 52.6}
+      tgo_tak: {time_ms: 9.4}
+      tgo_arith: {time_ms: 1.9}
+      tgo_sieve: {time_ms: 3.5}
+      tgo_fib_loop: {time_ms: 1.7}
+      tgo_gcd: {time_ms: 2.0}
+      tgo_nqueens: {time_ms: 45.8}
+      tgo_mfr: {time_ms: 62.7}
+      tgo_list: {time_ms: 67.5}
+      tgo_rwork: {time_ms: 9.0}
+      tgo_strops: {time_ms: 37.5}
+      st_fib2: {time_ms: 1373.0}
+      st_sieve: {time_ms: 236.4}
+      st_nestedloop: {time_ms: 3.8}
+      st_ackermann: {time_ms: 7.7}
+      st_matrix: {time_ms: 285.2}

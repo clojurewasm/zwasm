@@ -6,8 +6,8 @@ Per-opcode details live in code (`src/opcode.zig` enum).
 Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
-- Spec: `python3 test/spec/run_spec.py --summary` (30,001/30,686 = 97.8%)
-- E2E: `bash test/e2e/run_e2e.sh --summary` (169/179 = 94.4%, 68 files)
+- Spec: `python3 test/spec/run_spec.py --summary` (30,703/30,703 = 100%)
+- E2E: `bash test/e2e/run_e2e.sh --summary` (180/181 = 99.4%)
 
 ## Opcode Coverage Summary
 
