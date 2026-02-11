@@ -3,6 +3,9 @@
 Feature coverage tracking. Per-opcode details live in code (`src/opcode.zig` enum).
 Update this file when implementing new opcode categories or WASI syscalls.
 
+**Machine-readable compliance data**: `.dev/status/compliance.yaml`
+**E2E tests**: `bash test/e2e/run_e2e.sh --summary` (68 wasmtime misc_testsuite files)
+
 ## Opcode Coverage Summary
 
 | Category              | Implemented | Total | Notes                         |

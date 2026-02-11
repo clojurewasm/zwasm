@@ -18,3 +18,5 @@ Prefix: W## (to distinguish from CW's F## items).
 | W4   | WASI fd_readdir implementation      | CW gap     | WASI P1 completion (Stage 2)          |
 | W5   | WASI sock_* family                  | CW gap     | WASI P1 completion (Stage 2)          |
 | W7   | Component Model basics              | New        | Stage 3                               |
+| W8   | Cross-module type signature matching | E2E 5E     | call_indirect across modules (5 fails) |
+| W9   | Cross-module table func ref remap   | E2E 5E     | table_copy_on_imported_tables (4 fails)|

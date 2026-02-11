@@ -4,6 +4,10 @@
 # status: pass | partial | fail | skip | todo
 # spec_tests: from test/spec/ (official WebAssembly spec testsuite)
 # e2e_tests: from test/e2e/ (wasmtime misc_testsuite port)
+#
+# Last updated: 2026-02-11
+# Spec: 30,001/30,686 (97.8%)
+# E2E:  169/179 (94.4%), 68 files
 
 wasm_core:
   # === Wasm 1.0 (MVP) ===
@@ -139,5 +143,85 @@ wasi_preview1:
   poll_oneoff: {status: todo}
 
 e2e_wasmtime:
-  # Per-file tracking. Updated by test runner.
-  # Will be populated after running test/e2e/run_e2e.sh
+  # Batch 1: Core MVP & Traps
+  add.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  br-table-fuzzbug.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  call_indirect.wast: {status: partial, assertions: 13, pass: 8, fail: 5, note: "cross-module type signature mismatch"}
+  control-flow.wast: {status: pass, assertions: 14, pass: 14, fail: 0}
+  div-rem.wast: {status: pass, assertions: 4, pass: 4, fail: 0}
+  elem-ref-null.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  elem_drop.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  empty.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  export-large-signature.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  func-400-params.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  imported-memory-copy.wast: {status: pass, assertions: 7, pass: 7, fail: 0}
+  linking-errors.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  many-results.wast: {status: pass, assertions: 2, pass: 2, fail: 0}
+  many-return-values.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  memory-copy.wast: {status: pass, assertions: 7, pass: 7, fail: 0}
+  misc_traps.wast: {status: pass, assertions: 12, pass: 12, fail: 0}
+  mul16-negative.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  no-panic.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  no-panic-on-invalid.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  partial-init-memory-segment.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simple-unreachable.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  stack_overflow.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  table_copy.wast: {status: pass, assertions: 7, pass: 7, fail: 0}
+  table_copy_on_imported_tables.wast: {status: partial, assertions: 14, pass: 10, fail: 4, note: "cross-module table copy edge cases"}
+  table_grow_with_funcref.wast: {status: pass, assertions: 3, pass: 3, fail: 0}
+
+  # Batch 2: Float & Reference Types
+  bit-and-conditions.wast: {status: pass, assertions: 29, pass: 29, fail: 0}
+  externref-id-function.wast: {status: pass, assertions: 2, pass: 2, fail: 0}
+  externref-segment.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  externref-table-dropped-segment-issue-8281.wast: {status: pass, assertions: 3, pass: 3, fail: 0}
+  f64-copysign.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  float-round-doesnt-load-too-much.wast: {status: pass, assertions: 4, pass: 4, fail: 0}
+  int-to-float-splat.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  many_table_gets_lead_to_gc.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  mutable_externref_globals.wast: {status: pass, assertions: 3, pass: 3, fail: 0}
+  no-mixup-stack-maps.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  no-opt-panic-dividing-by-zero.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  partial-init-table-segment.wast: {status: partial, assertions: 2, pass: 1, fail: 1, note: "test runner limitation: assert_uninstantiable side effects"}
+  rs2wasm-add-func.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simple_ref_is_null.wast: {status: pass, assertions: 4, pass: 4, fail: 0}
+  sink-float-but-dont-trap.wast: {status: pass, assertions: 6, pass: 6, fail: 0}
+
+  # Batch 3: Programs & Regressions
+  embenchen_fannkuch.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  embenchen_fasta.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  embenchen_ifs.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  embenchen_primes.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  fib.wast: {status: pass, assertions: 22, pass: 22, fail: 0}
+  issue1809.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  issue4840.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  issue4857.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  issue4890.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  issue6562.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  issue694.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  issue11748.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  issue12318.wast: {status: pass, assertions: 2, pass: 2, fail: 0}
+  rust_fannkuch.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+
+  # Batch 4: SIMD
+  simd/almost-extmul.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simd/cvt-from-uint.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simd/edge-of-memory.wast: {status: pass, assertions: 4, pass: 4, fail: 0}
+  simd/interesting-float-splat.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simd/issue4807.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simd/issue6725-no-egraph-panic.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simd/issue_3173_select_v128.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simd/issue_3327_bnot_lowering.wast: {status: pass, assertions: 2, pass: 2, fail: 0}
+  simd/load_splat_out_of_bounds.wast: {status: pass, assertions: 2, pass: 2, fail: 0}
+  simd/replace-lane-preserve.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  simd/spillslot-size-fuzzbug.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
+  simd/sse-cannot-fold-unaligned-loads.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simd/unaligned-load.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  simd/v128-select.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+
+  # Skipped (unsupported proposals or tooling issues)
+  # wide-arithmetic.wast: i64.add128/sub128 (newer proposal)
+  # memory-combos.wast: custom page sizes
+  # issue11561.wast: exception handling (exnref)
+  # simd/canonicalize-nan.wast: nan literal syntax unsupported by wast2json 1.0.39
+  # .wat files: issue11563.wat, issue12170.wat (not supported by run_spec.py)

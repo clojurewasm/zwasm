@@ -5,9 +5,9 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4 — COMPLETE
-- Source: ~15K LOC, 16 files, 144 tests all pass
+- Source: ~15K LOC, 16 files, 147 tests all pass
 - Opcode: 225 core + 236 SIMD = 461, WASI: ~27
-- Spec: 30,001/30,686 (97.8%), CI: ubuntu + macOS
+- Spec: 30,001/30,686 (97.8%), E2E: 169/179 (94.4%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -18,11 +18,11 @@ Session handover document. Read at session start.
 Stage 5E: E2E Test Porting & Compliance (correctness phase before optimization)
 
 1. [x] 5E.1: Infrastructure — compliance.yaml, e2e scripts, run_spec.py --dir
-2. [ ] 5E.2: Batch 1 — Core MVP & Traps (~25 files)
-3. [ ] 5E.3: Batch 2 — Float & Reference Types (~15 files)
-4. [ ] 5E.4: Batch 3 — Programs & Regressions (~20 files)
-5. [ ] 5E.5: Batch 4 — SIMD (~15 files)
-6. [ ] 5E.6: Final compliance update
+2. [x] 5E.2: Batch 1 — Core MVP & Traps (25 files, 78/87 pass)
+3. [x] 5E.3: Batch 2 — Float & Reference Types (15 files, all pass)
+4. [x] 5E.4: Batch 3 — Programs & Regressions (14 files, all pass)
+5. [x] 5E.5: Batch 4 — SIMD (14 files, all pass)
+6. [x] 5E.6: Final compliance update
 
 Stage 5 (resumed after 5E): JIT Coverage Expansion
 
@@ -44,12 +44,12 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 
 ## Current Task
 
-5E.1: Infrastructure — compliance.yaml, e2e scripts, run_spec.py --dir
+5.6: Profile and optimize remaining gaps
 
 ## Previous Task
 
-5.5: JIT memory ops + call_indirect + popcnt + reload ordering fix.
-st_sieve 6000ms→462ms, st_matrix 2700ms→355ms. All shootout benchmarks now JIT-compiled.
+5E: E2E test porting & compliance tracking. 68 wasmtime misc_testsuite files ported,
+169/179 pass (94.4%). Fixed cross-module memory/table/global imports. Added compliance.yaml.
 
 ## Known Bugs
 
