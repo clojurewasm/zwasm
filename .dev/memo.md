@@ -32,30 +32,30 @@ Stage 5 (resumed after 5E): JIT Coverage Expansion
 
 **Target: ALL benchmarks within 2x of wasmtime (ideal: 1x).**
 
-Current results (task 5.6, from bench/history.yaml):
-st_sieve 237ms, st_matrix 324ms, st_fib2 1398ms, fib 98ms, nbody 52ms.
-Gaps vs wasmtime (from bench/runtime_comparison.yaml, wasmtime numbers from 5.4):
-st_matrix ~3.7x, st_fib2 ~2.0x, nbody ~2.3x, fib ~1.7x, st_sieve ~1.1x.
-st_nestedloop and st_ackermann at parity (≤1.1x).
+Current results (task 5.6 final, hyperfine verified):
+st_sieve 238ms, st_matrix 290ms, st_fib2 1382ms, fib 96ms, nbody 40ms.
+Gaps vs wasmtime: st_matrix 3.3x, st_fib2 2.1x, fib 1.9x, nbody 1.8x.
+st_sieve (1.1x), st_nestedloop (~1.0x), st_ackermann (~1.0x) at parity.
 
 1. [x] 5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass
 2. [x] 5.2: Close remaining gaps (st_sieve/matrix regIR opcode coverage)
 3. [x] 5.3: f64/f32 ARM64 JIT — nbody 133→60ms (2.2x speedup)
 4. [x] 5.4: Re-record cross-runtime benchmarks
 5. [x] 5.5: JIT memory ops + call_indirect + popcnt + reload ordering fix
-6. [~] 5.6: Profile and optimize remaining gaps (in progress)
+6. [x] 5.6: Profile and optimize remaining gaps
 7. [ ] 5.7: Re-record benchmarks, verify exit criteria
 
 ## Current Task
 
-5.6: Profile and optimize remaining gaps — continue with remaining sub-tasks
+5.7: Re-record benchmarks, verify exit criteria
 
 ## Previous Task
 
-5.6 sub-tasks A-E: Register reuse, 14 phys regs, const-addr bounds check
-elision (35% code reduction), write-tracked spill (skip uninitialized regs),
-trace diagnostics. Key results: st_sieve 471→237ms (2x), st_fib2 1796→1398ms,
-nbody 59→52ms, tgo_strops 76→38ms, fib 110→98ms.
+5.6 complete: 4 sub-tasks (d54598a, a0241d7, be29f88, 60ab84e).
+SCRATCH/FP register caches, inline self-call opts, peephole opts.
+Key results: nbody 53→40ms (1.8x), fib 99→96ms (1.9x), st_fib2 1418→1382ms (2.1x).
+5/7 shootout benchmarks within 2x. Remaining over 2x: st_matrix (3.3x regalloc),
+st_fib2 (2.1x call overhead) — both need architectural changes for Stage 6.
 
 ## Known Bugs
 
