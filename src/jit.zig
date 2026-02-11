@@ -1003,16 +1003,10 @@ pub const Compiler = struct {
         self.emit(a64.str64(1, REGS_PTR, @intCast((@as(u32, self.reg_count) + 2) * 8)));
         self.emit(a64.str64(2, REGS_PTR, @intCast((@as(u32, self.reg_count) + 3) * 8)));
 
-        // Load virtual registers from regs[] into physical registers
-        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
-        for (0..max) |i| {
-            const vreg: u8 = @intCast(i);
-            if (vregToPhys(vreg)) |phys| {
-                self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
-            }
-        }
-
-        // Load memory cache if function uses memory
+        // Load memory cache BEFORE loading virtual registers.
+        // emitLoadMemCache() calls jitGetMemInfo via BLR, which trashes all
+        // caller-saved registers (x0-x18). Loading vregs after ensures their
+        // values in x2-x7, x9-x15 are not corrupted by the call.
         if (self.has_memory) {
             self.emitLoadMemCache();
         } else if (self.reg_ptr_offset > 0) {
@@ -1029,6 +1023,16 @@ pub const Compiler = struct {
             if (self.reg_count <= 13) {
                 self.emitLoadInstPtr(21); // x21 = inst_ptr
                 self.inst_ptr_cached = true;
+            }
+        }
+
+        // Load virtual registers from regs[] into physical registers.
+        // Must be AFTER emitLoadMemCache() which calls BLR (trashes x0-x18).
+        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        for (0..max) |i| {
+            const vreg: u8 = @intCast(i);
+            if (vregToPhys(vreg)) |phys| {
+                self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
             }
         }
     }

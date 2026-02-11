@@ -64,15 +64,21 @@ Needs 64-bit table limit decoding, i64 table.size/grow. See checklist W18.
 
 Target: E2E 181/181 (100%), Spec ≥30,701/30,703 (99.99%).
 
+Stage 6: Bug Fixes & Stability
+
+1. [x] 6.1: Fix JIT prologue caller-saved register corruption (mfr i64 bug)
+2. [ ] 6.2: Investigate remaining active bugs (#3 array pointer, #4 regir hang)
+3. [ ] 6.3: Update checklist (resolve W9, clean up active bugs)
+
 ## Current Task
 
-Stage 5F complete. Plan next stage.
+6.2: Investigate remaining active bugs.
 
 ## Previous Task
 
-5F: Fixed JIT has_memory for memory.size/grow, hex-encoded batch names,
-transitive import chains. W10/memory64 tables deferred.
-Spec: 30,663→30,666 (99.9%). E2E: 178→180/181 (99.4%).
+6.1: Fixed JIT emitPrologue loading vregs before BLR call to jitGetMemInfo,
+which trashed caller-saved regs (x2-x7, x9-x15). Moved vreg loading after
+the BLR. mfr benchmark now produces correct results for all iteration counts.
 
 ## Known Bugs
 
