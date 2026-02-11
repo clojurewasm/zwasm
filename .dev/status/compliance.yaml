@@ -15,10 +15,12 @@ wasm_core:
     version: "1.0"
     status: pass
     spec_tests: {total: 461, pass: 461, fail: 0}
+    note: "i32, int_exprs (partial)"
   mvp_i64:
     version: "1.0"
     status: pass
     spec_tests: {total: 416, pass: 416, fail: 0}
+    note: "i64"
   mvp_f32:
     version: "1.0"
     status: pass
@@ -32,75 +34,90 @@ wasm_core:
   mvp_control_flow:
     version: "1.0"
     status: pass
-    spec_tests: {}
-    note: "block, br, call, call_indirect, if, loop, return, select, unreachable, nop"
+    spec_tests: {total: 956, pass: 955, fail: 1}
+    note: "block(52), br(76), call(70), call_indirect(131p/1f), if(124), loop(77), return(63), unreachable(63), nop(83), fac(6), forward(4), labels(25), left-to-right(95), switch(26), unwind(49), start(6), stack(5)"
   mvp_memory:
     version: "1.0"
     status: pass
-    spec_tests: {}
-    note: "memory_size, memory_grow, memory_trap, memory_redundancy"
+    spec_tests: {total: 649, pass: 648, fail: 1}
+    note: "address(255), load(37), store(9), memory_size(36), memory_trap(179p/1f), memory_redundancy(4), endianness(68), float_memory(60)"
   mvp_table:
     version: "1.0"
     status: partial
-    spec_tests: {}
-    note: "table_copy has 262 failures (W1 table.copy cross-table)"
+    spec_tests: {total: 27, pass: 27, fail: 0}
+    note: "func_ptrs(27). table_copy(262 fail) counted under bulk_memory (W1)"
   mvp_globals:
     version: "1.0"
     status: pass
-    spec_tests: {}
+    spec_tests: {total: 38, pass: 38, fail: 0}
+    note: "local_get(19), local_set(19). Global vars tested implicitly via other tests."
   mvp_conversions:
     version: "1.0"
     status: pass
-    spec_tests: {}
+    spec_tests: {total: 1482, pass: 1482, fail: 0}
+    note: "conversions(593), float_exprs(819), float_misc(470 — shared with f32/f64)"
 
   # === Wasm 2.0 (finalized proposals) ===
   sign_extension:
     version: "2.0"
     status: pass
-    spec_tests: {}
-    note: "7/7 opcodes"
+    spec_tests: {total: 0, pass: 0, fail: 0}
+    note: "7/7 opcodes. Tested inline within i32/i64 spec tests, no separate file."
   nontrapping_fptoint:
     version: "2.0"
     status: pass
-    spec_tests: {}
-    note: "8/8 opcodes"
+    spec_tests: {total: 0, pass: 0, fail: 0}
+    note: "8/8 opcodes. Tested inline within conversions spec tests, no separate file."
   bulk_memory:
     version: "2.0"
     status: partial
-    spec_tests: {}
-    note: "table.copy/init stubbed (W1, W2)"
+    spec_tests: {total: 6875, pass: 6565, fail: 310}
+    note: "bulk(66), memory_copy(4338), memory_fill(20), memory_init(140), table_copy(1387p/262f W1), table_init(614p/48f W2). 310 failures are all table.copy/init cross-table stubs."
   reference_types:
     version: "2.0"
     status: pass
-    spec_tests: {}
-    note: "5/5 opcodes — ref.null, ref.is_null, ref.func, table.get, table.set"
+    spec_tests: {total: 149, pass: 149, fail: 0}
+    note: "table_fill(35), table_get(9), table_set(18), table_grow(38), table_size(36), data1(13)"
   multi_value:
     version: "2.0"
     status: pass
-    spec_tests: {}
+    spec_tests: {total: 0, pass: 0, fail: 0}
+    note: "No dedicated spec test file. Covered by e2e many-results.wast, many-return-values.wast."
   simd_v128:
     version: "2.0"
     status: pass
-    spec_tests: {}
-    note: "236/236 opcodes. CLI protocol limits v128 value assertions."
+    spec_tests: {total: 257, pass: 257, fail: 0}
+    note: "236/236 opcodes. 257 non-v128-value assertions pass. ~24K v128 assertions skipped (CLI protocol cannot pass v128 values). Files: 48 simd_* spec tests."
 
   # === Wasm 3.0 (in-progress proposals) ===
   tail_calls:
     version: "3.0"
     status: skip
-    note: "Not implemented — roadmap Stage 2+"
+    note: "Not implemented. E2E: tail-call/*.wast skipped."
   exception_handling:
     version: "3.0"
     status: skip
+    note: "Not implemented. E2E: issue11561.wast skipped (W13)."
   gc:
     version: "3.0"
     status: skip
+    note: "Not implemented. E2E: gc/*.wast skipped."
   memory64:
     version: "3.0"
     status: skip
+    note: "Not implemented. Spec: memory_grow64(1f), memory_trap64(1f), table_size64(36f)."
   threads:
     version: "3.0"
     status: skip
+    note: "Not implemented. E2E: threads/*.wast skipped."
+  wide_arithmetic:
+    version: "3.0"
+    status: skip
+    note: "Not implemented. i64.add128/sub128/mul_wide. E2E: wide-arithmetic.wast skipped (W14)."
+  custom_page_sizes:
+    version: "3.0"
+    status: skip
+    note: "Not implemented. E2E: memory-combos.wast skipped (W15)."
   component_model:
     version: "3.0"
     status: skip
@@ -143,10 +160,14 @@ wasi_preview1:
   poll_oneoff: {status: todo}
 
 e2e_wasmtime:
+  # Total: 68 files converted, 169/179 assertions pass (94.4%)
+  # Remaining failures: W8 (5), W9 (4), W10 (1)
+  # Skipped files: 6 (W13, W14, W15, W16, W17)
+
   # Batch 1: Core MVP & Traps
   add.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
   br-table-fuzzbug.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
-  call_indirect.wast: {status: partial, assertions: 13, pass: 8, fail: 5, note: "cross-module type signature mismatch"}
+  call_indirect.wast: {status: partial, assertions: 13, pass: 8, fail: 5, note: "W8: cross-module type signature mismatch"}
   control-flow.wast: {status: pass, assertions: 14, pass: 14, fail: 0}
   div-rem.wast: {status: pass, assertions: 4, pass: 4, fail: 0}
   elem-ref-null.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
@@ -167,7 +188,7 @@ e2e_wasmtime:
   simple-unreachable.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
   stack_overflow.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
   table_copy.wast: {status: pass, assertions: 7, pass: 7, fail: 0}
-  table_copy_on_imported_tables.wast: {status: partial, assertions: 14, pass: 10, fail: 4, note: "cross-module table copy edge cases"}
+  table_copy_on_imported_tables.wast: {status: partial, assertions: 14, pass: 10, fail: 4, note: "W9: cross-module table func ref remap edge cases"}
   table_grow_with_funcref.wast: {status: pass, assertions: 3, pass: 3, fail: 0}
 
   # Batch 2: Float & Reference Types
@@ -182,7 +203,7 @@ e2e_wasmtime:
   mutable_externref_globals.wast: {status: pass, assertions: 3, pass: 3, fail: 0}
   no-mixup-stack-maps.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
   no-opt-panic-dividing-by-zero.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
-  partial-init-table-segment.wast: {status: partial, assertions: 2, pass: 1, fail: 1, note: "test runner limitation: assert_uninstantiable side effects"}
+  partial-init-table-segment.wast: {status: partial, assertions: 2, pass: 1, fail: 1, note: "W10: assert_uninstantiable side effects not tracked"}
   rs2wasm-add-func.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
   simple_ref_is_null.wast: {status: pass, assertions: 4, pass: 4, fail: 0}
   sink-float-but-dont-trap.wast: {status: pass, assertions: 6, pass: 6, fail: 0}
@@ -219,9 +240,10 @@ e2e_wasmtime:
   simd/unaligned-load.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
   simd/v128-select.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
 
-  # Skipped (unsupported proposals or tooling issues)
-  # wide-arithmetic.wast: i64.add128/sub128 (newer proposal)
-  # memory-combos.wast: custom page sizes
-  # issue11561.wast: exception handling (exnref)
-  # simd/canonicalize-nan.wast: nan literal syntax unsupported by wast2json 1.0.39
-  # .wat files: issue11563.wat, issue12170.wat (not supported by run_spec.py)
+  # Skipped (6 files — unsupported proposals or tooling limitations)
+  # wide-arithmetic.wast: W14 — wide arithmetic proposal (i64.add128/sub128)
+  # memory-combos.wast: W15 — custom page sizes proposal
+  # issue11561.wast: W13 — exception handling (exnref)
+  # simd/canonicalize-nan.wast: W16 — wast2json 1.0.39 NaN literal syntax
+  # issue11563.wat: W17 — .wat file support needed in test runner
+  # issue12170.wat: W17 — .wat file support needed in test runner
