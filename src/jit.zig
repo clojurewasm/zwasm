@@ -497,6 +497,23 @@ const a64 = struct {
         fn invert(self: Cond) Cond {
             return @enumFromInt(@intFromEnum(self) ^ 1);
         }
+
+        /// Swap operand order: a op b → b op a (e.g., GT → LT, GE → LE)
+        fn swap(self: Cond) Cond {
+            return switch (self) {
+                .eq => .eq,
+                .ne => .ne,
+                .hi => .lo,
+                .lo => .hi,
+                .hs => .ls,
+                .ls => .hs,
+                .gt => .lt,
+                .lt => .gt,
+                .ge => .le,
+                .le => .ge,
+                .mi => .mi,
+            };
+        }
     };
 
     /// Load a 64-bit immediate into register using MOVZ + MOVK sequence.
@@ -1736,8 +1753,35 @@ pub const Compiler = struct {
     }
 
     fn emitCmp32(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
+        const rs2_vreg = instr.rs2();
+        // Use CMP-immediate when rs2 is a known small constant
+        if (rs2_vreg < 128) {
+            if (self.known_consts[rs2_vreg]) |c| {
+                if (c <= 0xFFF) {
+                    const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+                    const d = destReg(instr.rd);
+                    self.emit(a64.cmpImm32(rs1, @intCast(c)));
+                    self.emit(a64.cset32(d, cond));
+                    self.storeVreg(instr.rd, d);
+                    return;
+                }
+            }
+        }
+        // Also check if rs1 is a known constant (swap operands, invert condition)
+        if (instr.rs1 < 128) {
+            if (self.known_consts[instr.rs1]) |c| {
+                if (c <= 0xFFF) {
+                    const rs2 = self.getOrLoad(rs2_vreg, SCRATCH);
+                    const d = destReg(instr.rd);
+                    self.emit(a64.cmpImm32(rs2, @intCast(c)));
+                    self.emit(a64.cset32(d, cond.swap()));
+                    self.storeVreg(instr.rd, d);
+                    return;
+                }
+            }
+        }
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
-        const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const rs2 = self.getOrLoad(rs2_vreg, SCRATCH2);
         const d = destReg(instr.rd);
         self.emit(a64.cmp32(rs1, rs2));
         self.emit(a64.cset32(d, cond));
@@ -1779,6 +1823,14 @@ pub const Compiler = struct {
                 .sub => a64.subImm32(d, rs1, @intCast(imm)),
             };
             self.emit(enc);
+        } else if (op == .add and imm >= 0xFFFFF001) {
+            // Large add is really a small sub: add rs1, -N → sub rs1, N
+            const neg: u12 = @intCast(0 -% imm);
+            self.emit(a64.subImm32(d, rs1, neg));
+        } else if (op == .sub and imm >= 0xFFFFF001) {
+            // Large sub is really a small add: sub rs1, -N → add rs1, N
+            const neg: u12 = @intCast(0 -% imm);
+            self.emit(a64.addImm32(d, rs1, neg));
         } else {
             self.emit(a64.movz32(SCRATCH2, @truncate(imm), 0));
             if (imm > 0xFFFF)
