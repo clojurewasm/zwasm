@@ -418,6 +418,7 @@ pub const Vm = struct {
                     self.executeRegIR(reg, wf.ir.?.pool64, inst, func_ptr, args, results) catch |err| {
                         if (err == error.JitRestart) {
                             if (wf.jit_code) |jc| {
+                                if (self.trace) |tc| trace_mod.traceJitRestart(tc, wf.func_idx);
                                 try self.executeJIT(jc, reg, inst, func_ptr, args, results);
                                 return;
                             }
@@ -2084,7 +2085,7 @@ pub const Vm = struct {
         if (count.* == jit_mod.BACK_EDGE_THRESHOLD) {
             wf.jit_code = jit_mod.compileFunction(alloc, reg, pool64, wf.func_idx, param_count, result_count, trace);
             if (wf.jit_code != null) {
-                if (trace) |tc| trace_mod.traceJitCompile(tc, wf.func_idx, @intCast(reg.code.len), @intCast(wf.jit_code.?.buf.len));
+                if (trace) |tc| trace_mod.traceJitBackEdge(tc, wf.func_idx, @intCast(reg.code.len), @intCast(wf.jit_code.?.buf.len));
                 return error.JitRestart;
             }
             wf.jit_failed = true;

@@ -96,6 +96,16 @@ pub fn traceMemGrow(tc: *const TraceConfig, old_pages: u32, delta: u32, result: 
     stderrPrint("[trace:mem] memory.grow: {d} pages + {d} delta -> result={d}\n", .{ old_pages, delta, result });
 }
 
+pub fn traceJitBackEdge(tc: *const TraceConfig, func_idx: u32, ir_count: u32, code_size: u32) void {
+    if (!tc.isEnabled(.jit)) return;
+    stderrPrint("[trace:jit] func#{d}: back-edge JIT compiled {d} IR instrs -> {d} bytes\n", .{ func_idx, ir_count, code_size });
+}
+
+pub fn traceJitRestart(tc: *const TraceConfig, func_idx: u32) void {
+    if (!tc.isEnabled(.exec)) return;
+    stderrPrint("[trace:exec] func#{d}: jit (back-edge restart)\n", .{func_idx});
+}
+
 pub fn traceCall(tc: *const TraceConfig, caller_idx: u32, callee_idx: u32) void {
     if (!tc.isEnabled(.call)) return;
     stderrPrint("[trace:call] func#{d} -> func#{d}\n", .{ caller_idx, callee_idx });

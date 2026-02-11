@@ -290,9 +290,13 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         };
         defer module.deinit();
 
-        // Enable profiling if requested
+        // Enable profiling if requested (note: disables JIT for accurate opcode counting)
         var profile = vm_mod.Profile.init();
-        if (profile_mode) module.vm.profile = &profile;
+        if (profile_mode) {
+            module.vm.profile = &profile;
+            try stderr.print("[note] --profile disables JIT for accurate opcode counting\n", .{});
+            try stderr.flush();
+        }
 
         // Enable tracing if requested
         var trace_config = trace_mod.TraceConfig{
