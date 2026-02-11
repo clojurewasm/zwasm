@@ -74,8 +74,7 @@
             gnused
             coreutils
             python3
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            pkgs.wasmer  # nixpkgs wasmer build broken on x86_64-linux
+            wasmer
           ];
 
           shellHook = '''';  # silent — avoid noise in SSH/direnv
