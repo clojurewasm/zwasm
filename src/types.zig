@@ -831,3 +831,31 @@ test "multi-module — memory import" {
     try consumer.invoke("read_byte", &args4, &res4);
     try testing.expectEqual(@as(u64, 111), res4[0]);
 }
+
+test "nqueens(8) = 92 — regir only (JIT disabled)" {
+    const wasm_bytes = @embedFile("testdata/25_nqueens.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    // Enable profiling to disable JIT (JIT is skipped when profile != null)
+    var profile = rt.vm_mod.Profile.init();
+    wasm_mod.vm.profile = &profile;
+
+    var args = [_]u64{8};
+    var results = [_]u64{0};
+    try wasm_mod.invoke("nqueens", &args, &results);
+
+    try testing.expectEqual(@as(u64, 92), results[0]);
+}
+
+test "nqueens(8) = 92 — with JIT" {
+    const wasm_bytes = @embedFile("testdata/25_nqueens.wasm");
+    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    var args = [_]u64{8};
+    var results = [_]u64{0};
+    try wasm_mod.invoke("nqueens", &args, &results);
+
+    try testing.expectEqual(@as(u64, 92), results[0]);
+}

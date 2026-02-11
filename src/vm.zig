@@ -393,7 +393,7 @@ pub const Vm = struct {
                     {
                         wf.call_count += 1;
                         if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
-                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(func_ptr.params.len), self.trace);
+                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(func_ptr.params.len), @intCast(func_ptr.results.len), self.trace);
                             if (wf.jit_code == null) {
                                 wf.jit_failed = true;
                                 if (self.trace) |tc| trace_mod.traceJitBail(tc, wf.func_idx, "compilation failed");
@@ -2077,11 +2077,12 @@ pub const Vm = struct {
         reg: *regalloc_mod.RegFunc,
         pool64: []const u64,
         param_count: u16,
+        result_count: u16,
         trace: ?*trace_mod.TraceConfig,
     ) WasmError!void {
         count.* += 1;
         if (count.* == jit_mod.BACK_EDGE_THRESHOLD) {
-            wf.jit_code = jit_mod.compileFunction(alloc, reg, pool64, wf.func_idx, param_count, trace);
+            wf.jit_code = jit_mod.compileFunction(alloc, reg, pool64, wf.func_idx, param_count, result_count, trace);
             if (wf.jit_code != null) {
                 if (trace) |tc| trace_mod.traceJitCompile(tc, wf.func_idx, @intCast(reg.code.len), @intCast(wf.jit_code.?.buf.len));
                 return error.JitRestart;
@@ -2127,6 +2128,7 @@ pub const Vm = struct {
         const jit_eligible = builtin.cpu.arch == .aarch64 and self.profile == null and
             wf != null and wf.?.jit_code == null and !wf.?.jit_failed;
         const jit_param_count: u16 = @intCast(func_ptr.params.len);
+        const jit_result_count: u16 = @intCast(func_ptr.results.len);
 
         while (pc < code_len) {
             const instr = code[pc];
@@ -2149,14 +2151,14 @@ pub const Vm = struct {
                 // ---- Control flow ----
                 regalloc_mod.OP_BR => {
                     if (jit_eligible and instr.operand < pc)
-                        try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count, self.trace);
+                        try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count, jit_result_count, self.trace);
                     pc = instr.operand;
                 },
 
                 regalloc_mod.OP_BR_IF => {
                     if (regs[instr.rd] != 0) {
                         if (jit_eligible and instr.operand < pc)
-                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count, self.trace);
+                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count, jit_result_count, self.trace);
                         pc = instr.operand;
                     }
                 },
@@ -2164,7 +2166,7 @@ pub const Vm = struct {
                 regalloc_mod.OP_BR_IF_NOT => {
                     if (regs[instr.rd] == 0) {
                         if (jit_eligible and instr.operand < pc)
-                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count, self.trace);
+                            try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count, jit_result_count, self.trace);
                         pc = instr.operand;
                     }
                 },
@@ -2719,7 +2721,7 @@ pub const Vm = struct {
                     const target_entry = if (idx < count) idx else count; // default is last
                     const target_pc = code[pc + target_entry].operand;
                     if (jit_eligible and target_pc < pc)
-                        try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count, self.trace);
+                        try checkBackEdgeJit(&back_edge_count, wf.?, self.alloc, reg, pool64, jit_param_count, jit_result_count, self.trace);
                     pc = target_pc;
                     continue;
                 },
@@ -3318,7 +3320,7 @@ pub const Vm = struct {
                     {
                         wf.call_count += 1;
                         if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
-                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(func_ptr.params.len), self.trace);
+                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(func_ptr.params.len), @intCast(func_ptr.results.len), self.trace);
                             if (wf.jit_code == null) {
                                 wf.jit_failed = true;
                                 if (self.trace) |tc| trace_mod.traceJitBail(tc, wf.func_idx, "compilation failed");

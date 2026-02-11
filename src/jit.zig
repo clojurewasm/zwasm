@@ -750,6 +750,7 @@ pub const Compiler = struct {
     has_memory: bool,
     self_func_idx: u32,
     param_count: u16,
+    result_count: u16,
     reg_ptr_offset: u32,
 
     const Patch = struct {
@@ -788,6 +789,7 @@ pub const Compiler = struct {
             .has_memory = false,
             .self_func_idx = 0,
             .param_count = 0,
+            .result_count = 0,
             .reg_ptr_offset = 0,
         };
     }
@@ -999,6 +1001,7 @@ pub const Compiler = struct {
         call_indirect_addr: u64,
         self_func_idx: u32,
         param_count: u16,
+        result_count: u16,
         reg_ptr_offset: u32,
     ) ?*JitCode {
         if (builtin.cpu.arch != .aarch64) return null;
@@ -1016,6 +1019,7 @@ pub const Compiler = struct {
         self.pool64 = pool64;
         self.self_func_idx = self_func_idx;
         self.param_count = param_count;
+        self.result_count = result_count;
         self.reg_ptr_offset = reg_ptr_offset;
 
         // Scan IR for memory opcodes
@@ -2184,21 +2188,25 @@ pub const Compiler = struct {
         }) catch {};
 
         // 11. Copy result from callee regs[0] to our regs[rd]
-        if (needed_bytes <= 0xFFF) {
-            self.emit(a64.ldr64(SCRATCH, REGS_PTR, @intCast(needed_bytes)));
-        } else {
-            self.emit(a64.movz64(SCRATCH, @truncate(needed_bytes), 0));
-            if (needed_bytes > 0xFFFF) {
-                self.emit(a64.movk64(SCRATCH, @truncate(needed_bytes >> 16), 1));
+        //     Skip for void functions (result_count == 0) — copying garbage
+        //     from callee regs[0] would corrupt the caller's register.
+        if (self.result_count > 0) {
+            if (needed_bytes <= 0xFFF) {
+                self.emit(a64.ldr64(SCRATCH, REGS_PTR, @intCast(needed_bytes)));
+            } else {
+                self.emit(a64.movz64(SCRATCH, @truncate(needed_bytes), 0));
+                if (needed_bytes > 0xFFFF) {
+                    self.emit(a64.movk64(SCRATCH, @truncate(needed_bytes >> 16), 1));
+                }
+                self.emit(a64.add64(SCRATCH, REGS_PTR, SCRATCH));
+                self.emit(a64.ldr64(SCRATCH, SCRATCH, 0));
             }
-            self.emit(a64.add64(SCRATCH, REGS_PTR, SCRATCH));
-            self.emit(a64.ldr64(SCRATCH, SCRATCH, 0));
+            self.emit(a64.str64(SCRATCH, REGS_PTR, @as(u16, rd) * 8));
         }
-        self.emit(a64.str64(SCRATCH, REGS_PTR, @as(u16, rd) * 8));
 
         // 12. Reload caller-saved regs + result register
         self.reloadCallerSaved();
-        if (rd <= 4) self.reloadVreg(rd);
+        if (self.result_count > 0 and rd <= 4) self.reloadVreg(rd);
 
         // 13. Reload memory cache (memory may have grown during call)
         if (self.has_memory) {
@@ -2820,6 +2828,7 @@ pub fn compileFunction(
     pool64: []const u64,
     self_func_idx: u32,
     param_count: u16,
+    result_count: u16,
     trace: ?*trace_mod.TraceConfig,
 ) ?*JitCode {
     if (builtin.cpu.arch != .aarch64) return null;
@@ -2840,7 +2849,7 @@ pub fn compileFunction(
     if (trace) |tc| {
         if (tc.dump_jit_func) |dump_idx| {
             if (dump_idx == self_func_idx) {
-                const result = compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr, global_get_addr, global_set_addr, mem_grow_addr, mem_fill_addr, mem_copy_addr, call_indirect_addr, self_func_idx, param_count, reg_ptr_offset);
+                const result = compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr, global_get_addr, global_set_addr, mem_grow_addr, mem_fill_addr, mem_copy_addr, call_indirect_addr, self_func_idx, param_count, result_count, reg_ptr_offset);
                 trace_mod.dumpJitCode(alloc, compiler.code.items, compiler.pc_map.items, self_func_idx);
                 tc.dump_jit_func = null;
                 compiler.deinit();
@@ -2850,7 +2859,7 @@ pub fn compileFunction(
     }
 
     defer compiler.deinit();
-    return compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr, global_get_addr, global_set_addr, mem_grow_addr, mem_fill_addr, mem_copy_addr, call_indirect_addr, self_func_idx, param_count, reg_ptr_offset);
+    return compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr, global_get_addr, global_set_addr, mem_grow_addr, mem_fill_addr, mem_copy_addr, call_indirect_addr, self_func_idx, param_count, result_count, reg_ptr_offset);
 }
 
 // ================================================================
@@ -2939,7 +2948,7 @@ test "compile and execute constant return" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -2971,7 +2980,7 @@ test "compile and execute i32 add" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3008,7 +3017,7 @@ test "compile and execute branch (LE_S + BR_IF_NOT)" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3054,7 +3063,7 @@ test "compile and execute i32 division" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3101,7 +3110,7 @@ test "compile and execute i32 remainder" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3169,7 +3178,7 @@ test "compile and execute memory load/store" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3233,7 +3242,7 @@ test "compile and execute memory store then load" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
