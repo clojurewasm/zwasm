@@ -50,6 +50,14 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 
 5.6: Profile and optimize remaining gaps
 
+**Sub-task A: Copy propagation in regalloc**
+Problem: regIR generates many redundant MOV instructions (~24% of all instrs).
+Pattern: `op rTEMP = ...; mov rLOCAL = rTEMP` → fold to `op rLOCAL = ...`.
+Approach: O(n) post-pass in regalloc.zig convert(). For each adjacent pair,
+if code[i+1] is MOV, code[i].rd == code[i+1].rs1, and code[i].rd >= local_count
+(temp, used once), fold: set code[i].rd = code[i+1].rd, delete code[i+1].
+Key files: src/regalloc.zig
+
 ## Previous Task
 
 JIT void self-call fix: emitInlineSelfCall unconditionally copied callee result,

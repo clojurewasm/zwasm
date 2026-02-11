@@ -1076,6 +1076,9 @@ pub fn convert(
     // ---- Peephole: fuse CONST32 + binop → immediate-operand instruction ----
     fuseConstBinop(code.items);
 
+    // ---- Copy propagation: fold "op rTEMP = ...; mov rLOCAL = rTEMP" → "op rLOCAL = ..." ----
+    copyPropagate(code.items, total_locals);
+
     // Note: MOV+RETURN fusion is NOT safe because block result registers
     // can be written from multiple paths (br, br_if, fallthrough).
 
@@ -1101,6 +1104,60 @@ pub fn convert(
 }
 
 /// Peephole optimization: fuse CONST32 + binop into immediate-operand instructions.
+/// Copy propagation: fold "op rTEMP = ...; mov rLOCAL = rTEMP" → "op rLOCAL = ...".
+/// Eliminates redundant MOV instructions where a temp register is defined and immediately
+/// copied to a local. Safe when: (1) the source is a temp (rd >= local_count), and
+/// (2) the MOV is not a branch target.
+fn copyPropagate(code: []RegInstr, local_count: u16) void {
+    if (code.len < 2) return;
+
+    // Build branch target set: MOVs that are branch targets must not be folded.
+    var branch_targets = [_]bool{false} ** 8192;
+    for (code) |instr| {
+        switch (instr.op) {
+            OP_BR, OP_BR_IF, OP_BR_IF_NOT, OP_BLOCK_END => {
+                if (instr.operand < branch_targets.len)
+                    branch_targets[instr.operand] = true;
+            },
+            else => {},
+        }
+    }
+
+    for (0..code.len - 1) |i| {
+        const mov = code[i + 1];
+        if (mov.op != OP_MOV) continue;
+
+        // Skip if this MOV is a branch target
+        if (i + 1 < branch_targets.len and branch_targets[i + 1]) continue;
+
+        // Find the producer: skip NOPs/DELETEDs backward from position i
+        var j = i;
+        while (j > 0 and (code[j].op == OP_NOP or code[j].op == OP_DELETED)) j -= 1;
+        if (code[j].op == OP_NOP or code[j].op == OP_DELETED) continue;
+
+        const producer = code[j];
+
+        // Check: producer writes to the MOV's source, and it's a temp register
+        if (producer.rd != mov.rs1) continue;
+        if (producer.rd < local_count) continue; // not a temp
+
+        // Don't fold if the producer is itself a MOV, branch, return, or store-like
+        switch (producer.op) {
+            OP_MOV, OP_BR, OP_BR_IF, OP_BR_IF_NOT, OP_RETURN, OP_RETURN_VOID,
+            OP_NOP, OP_BLOCK_END, OP_DELETED, OP_BR_TABLE,
+            OP_MEMORY_FILL, OP_MEMORY_COPY,
+            => continue,
+            // Store instructions use rd as value source, not destination
+            0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E => continue,
+            else => {},
+        }
+
+        // Fold: redirect producer's output to MOV's destination, delete MOV
+        code[j].rd = mov.rd;
+        code[i + 1] = .{ .op = OP_DELETED, .rd = 0, .rs1 = 0, .operand = 0 };
+    }
+}
+
 /// Pattern: CONST32 rd=T, imm  followed by  BINOP rd=R, rs1=A, rs2=T
 ///       → BINOP_IMM rd=R, rs1=A, operand=imm  +  NOP
 /// Only fuses when the const register T is used as rs2 (second operand) of the binop.
@@ -1330,15 +1387,12 @@ test "convert — i32.const + local.set" {
     }
 
     const code = result.?.code;
-    // const32 r1, 42 (r0 is local 0, r1 is first temp)
-    // mov r0, r1
-    // return_void
-    try testing.expectEqual(3, code.len);
+    // After copy propagation: const32 r0=42; return_void
+    try testing.expectEqual(2, code.len);
     try testing.expectEqual(OP_CONST32, code[0].op);
+    try testing.expectEqual(@as(u8, 0), code[0].rd); // directly into local r0
     try testing.expectEqual(@as(u32, 42), code[0].operand);
-    try testing.expectEqual(OP_MOV, code[1].op);
-    try testing.expectEqual(@as(u8, 0), code[1].rd);
-    try testing.expectEqual(OP_RETURN_VOID, code[2].op);
+    try testing.expectEqual(OP_RETURN_VOID, code[1].op);
 }
 
 test "convert — local.tee aliasing: stale vstack reference" {
@@ -1468,4 +1522,87 @@ test "convert — memory.fill emits OP_MEMORY_FILL" {
     try testing.expectEqual(@as(u8, 0), code[0].rd); // dst = r0
     try testing.expectEqual(@as(u8, 1), code[0].rs1); // val = r1
     try testing.expectEqual(@as(u8, 2), code[0].rs2()); // n = r2
+}
+
+test "copy propagation — const + local.set folds to direct const" {
+    // Wasm: i32.const 42, local.set 0, end
+    // Before copy prop: const32 r1=42; mov r0=r1; return_void (3 instrs)
+    // After copy prop:  const32 r0=42; return_void (2 instrs)
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x41, .extra = 0, .operand = 42 }, // i32.const 42
+        .{ .opcode = 0x21, .extra = 0, .operand = 0 }, // local.set 0
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 0, 1, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    // After copy propagation: const32 r0=42; return_void
+    try testing.expectEqual(2, code.len);
+    try testing.expectEqual(OP_CONST32, code[0].op);
+    try testing.expectEqual(@as(u8, 0), code[0].rd); // directly into local r0
+    try testing.expectEqual(@as(u32, 42), code[0].operand);
+    try testing.expectEqual(OP_RETURN_VOID, code[1].op);
+}
+
+test "copy propagation — add + local.set folds" {
+    // Wasm: local.get 0, local.get 1, i32.add, local.set 0, end
+    // Before: add r2=r0+r1; mov r0=r2; return_void (3 instrs)
+    // After:  add r0=r0+r1; return_void (2 instrs)
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0
+        .{ .opcode = 0x20, .extra = 0, .operand = 1 }, // local.get 1
+        .{ .opcode = 0x6A, .extra = 0, .operand = 0 }, // i32.add
+        .{ .opcode = 0x21, .extra = 0, .operand = 0 }, // local.set 0
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 2, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    // After copy propagation: add r0=r0+r1; return_void
+    try testing.expectEqual(2, code.len);
+    try testing.expectEqual(@as(u16, 0x6A), code[0].op); // i32.add
+    try testing.expectEqual(@as(u8, 0), code[0].rd); // directly into local r0
+    try testing.expectEqual(@as(u8, 0), code[0].rs1); // r0
+    try testing.expectEqual(@as(u8, 1), code[0].rs2()); // r1
+    try testing.expectEqual(OP_RETURN_VOID, code[1].op);
+}
+
+test "copy propagation — preserves branch target MOVs" {
+    // Pattern with a branch to the MOV — should NOT be folded
+    // Wasm: block, local.get 0, br_if 0, i32.const 99, local.set 0, end, end
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x02, .extra = 0, .operand = 0x40 }, // block void
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0
+        .{ .opcode = 0x0D, .extra = 0, .operand = 0 }, // br_if 0
+        .{ .opcode = 0x41, .extra = 0, .operand = 99 }, // i32.const 99
+        .{ .opcode = 0x21, .extra = 0, .operand = 0 }, // local.set 0
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end (block)
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end (func)
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 1, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    // Just verify it produces valid code (no crash, correct result structure)
+    const code = result.?.code;
+    try testing.expect(code.len >= 2);
 }

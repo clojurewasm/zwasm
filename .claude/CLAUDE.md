@@ -33,7 +33,7 @@ Breaking main breaks CW for all users.
 - **Commit freely to feature branches**: one task = one commit rule still applies
 - **Merge to main only after**:
   1. `zig build test` passes (zwasm)
-  2. `bash test/spec/run.sh` passes (if interpreter/opcodes changed)
+  2. `python3 test/spec/run_spec.py --summary` passes (if interpreter/opcodes changed)
   3. CW verification: `cd ~/ClojureWasm && zig build test && bash test/e2e/run_e2e.sh`
      (update CW's build.zig.zon hash to point at the feature branch HEAD first)
   4. `bash bench/run_bench.sh --quick` shows no regression
@@ -73,7 +73,7 @@ Lazy load: roadmap.md, decisions.md, checklist.md, bench-strategy.md (only when 
 
 - TDD cycle: Red → Green → Refactor
 - Run tests: `zig build test`
-- Spec tests: `bash test/spec/run.sh` (when changing interpreter or opcodes)
+- Spec tests: `python3 test/spec/run_spec.py --summary` (when changing interpreter or opcodes)
 - `jit.zig` modified → `.claude/rules/jit-check.md` auto-loads
 - `bench/`, `vm.zig`, `regalloc.zig` modified → `.claude/rules/bench-check.md` auto-loads
 - **Investigation**: Check reference impls when debugging, designing, OR optimizing:
@@ -130,7 +130,7 @@ Run before every commit:
 
 0. **TDD**: Test written/updated BEFORE production code in this commit
 1. **Tests**: `zig build test` passes
-2. **Spec tests**: `bash test/spec/run.sh` — REQUIRED when modifying
+2. **Spec tests**: `python3 test/spec/run_spec.py --summary` — REQUIRED when modifying
    vm.zig, predecode.zig, regalloc.zig, opcode.zig, module.zig, wasi.zig
 3. **Benchmarks**: REQUIRED for optimization/JIT tasks.
    Quick check: `bash bench/run_bench.sh --quick`
