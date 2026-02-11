@@ -1,0 +1,34 @@
+# Debug Trace Rules
+
+Auto-load paths: `src/jit.zig`, `src/vm.zig`, `src/regalloc.zig`
+
+## Available CLI Tools
+
+```bash
+# Trace categories (comma-separated): jit, regir, exec, mem, call
+zwasm run --trace=jit,exec --invoke func module.wasm args...
+
+# Dump RegIR for a specific function index (one-shot)
+zwasm run --dump-regir=N --invoke func module.wasm args...
+
+# Dump JIT disassembly for a specific function (one-shot)
+zwasm run --dump-jit=N --invoke func module.wasm args...
+
+# Combine all
+zwasm run --trace=jit,regir,exec --dump-regir=5 --dump-jit=5 --invoke func module.wasm args...
+```
+
+## Debugging Workflows
+
+| Symptom                  | First step                        | Then                              |
+|--------------------------|-----------------------------------|-----------------------------------|
+| **Wrong result**         | `--trace=exec --dump-regir=N`     | Check RegIR correctness           |
+| **JIT bail**             | `--trace=jit`                     | Check unsupported opcode          |
+| **JIT wrong result**     | `--dump-jit=N`                    | Disassemble, compare with RegIR   |
+| **Performance gap**      | `--trace=exec`                    | Verify JIT tier for hot functions  |
+| **Memory corruption**    | `--trace=mem`                     | Check grow/fill/copy params       |
+
+## Key Rule
+
+**Use these CLI tools instead of inserting `std.debug.print` statements.**
+The trace infrastructure is zero-cost when disabled (single null check per call).

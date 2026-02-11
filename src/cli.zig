@@ -15,6 +15,7 @@ const types = @import("types.zig");
 const module_mod = @import("module.zig");
 const opcode = @import("opcode.zig");
 const vm_mod = @import("vm.zig");
+const trace_mod = vm_mod.trace_mod;
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -78,6 +79,9 @@ fn printUsage(w: *std.Io.Writer) void {
         \\  --dir <path>        Preopen a host directory (repeatable)
         \\  --env KEY=VALUE     Set a WASI environment variable (repeatable)
         \\  --profile           Print execution profile (opcode frequency, call counts)
+        \\  --trace=CATS        Trace categories: jit,regir,exec,mem,call (comma-separated)
+        \\  --dump-regir=N      Dump RegIR for function index N
+        \\  --dump-jit=N        Dump JIT disassembly for function index N
         \\
     , .{}) catch {};
 }
@@ -92,6 +96,9 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     var func_args_start: usize = 0;
     var batch_mode = false;
     var profile_mode = false;
+    var trace_categories: u8 = 0;
+    var dump_regir_func: ?u32 = null;
+    var dump_jit_func: ?u32 = null;
 
     // Collected options
     var env_keys: std.ArrayList([]const u8) = .empty;
@@ -158,6 +165,20 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 try stderr.flush();
                 return false;
             }
+        } else if (std.mem.startsWith(u8, args[i], "--trace=")) {
+            trace_categories = trace_mod.parseCategories(args[i]["--trace=".len..]);
+        } else if (std.mem.startsWith(u8, args[i], "--dump-regir=")) {
+            dump_regir_func = std.fmt.parseInt(u32, args[i]["--dump-regir=".len..], 10) catch {
+                try stderr.print("error: --dump-regir requires a function index (u32)\n", .{});
+                try stderr.flush();
+                return false;
+            };
+        } else if (std.mem.startsWith(u8, args[i], "--dump-jit=")) {
+            dump_jit_func = std.fmt.parseInt(u32, args[i]["--dump-jit=".len..], 10) catch {
+                try stderr.print("error: --dump-jit requires a function index (u32)\n", .{});
+                try stderr.flush();
+                return false;
+            };
         } else if (args[i].len > 0 and args[i][0] == '-') {
             try stderr.print("error: unknown option '{s}'\n", .{args[i]});
             try stderr.flush();
@@ -273,6 +294,16 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         var profile = vm_mod.Profile.init();
         if (profile_mode) module.vm.profile = &profile;
 
+        // Enable tracing if requested
+        var trace_config = trace_mod.TraceConfig{
+            .categories = trace_categories,
+            .dump_regir_func = dump_regir_func,
+            .dump_jit_func = dump_jit_func,
+        };
+        if (trace_categories != 0 or dump_regir_func != null or dump_jit_func != null) {
+            module.vm.trace = &trace_config;
+        }
+
         // Parse function arguments as u64
         const func_args_slice = args[func_args_start..];
         const wasm_args = try allocator.alloc(u64, func_args_slice.len);
@@ -351,6 +382,16 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         // Enable profiling if requested
         var wasi_profile = vm_mod.Profile.init();
         if (profile_mode) module.vm.profile = &wasi_profile;
+
+        // Enable tracing if requested
+        var wasi_trace_config = trace_mod.TraceConfig{
+            .categories = trace_categories,
+            .dump_regir_func = dump_regir_func,
+            .dump_jit_func = dump_jit_func,
+        };
+        if (trace_categories != 0 or dump_regir_func != null or dump_jit_func != null) {
+            module.vm.trace = &wasi_trace_config;
+        }
 
         var no_args = [_]u64{};
         var no_results = [_]u64{};

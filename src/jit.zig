@@ -31,6 +31,7 @@ const store_mod = @import("store.zig");
 const Instance = @import("instance.zig").Instance;
 const ValType = @import("opcode.zig").ValType;
 const WasmMemory = @import("memory.zig").Memory;
+const trace_mod = @import("trace.zig");
 
 /// JIT-compiled function pointer type.
 /// Args: regs_ptr, vm_ptr, instance_ptr.
@@ -2817,6 +2818,7 @@ pub fn compileFunction(
     pool64: []const u64,
     self_func_idx: u32,
     param_count: u16,
+    trace: ?*trace_mod.TraceConfig,
 ) ?*JitCode {
     if (builtin.cpu.arch != .aarch64) return null;
 
@@ -2831,8 +2833,21 @@ pub fn compileFunction(
     const reg_ptr_offset: u32 = @intCast(@offsetOf(vm_mod.Vm, "reg_ptr"));
 
     var compiler = Compiler.init(alloc);
-    defer compiler.deinit();
 
+    // Dump JIT code before deinit (pc_map still alive, one-shot)
+    if (trace) |tc| {
+        if (tc.dump_jit_func) |dump_idx| {
+            if (dump_idx == self_func_idx) {
+                const result = compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr, global_get_addr, global_set_addr, mem_grow_addr, mem_fill_addr, mem_copy_addr, call_indirect_addr, self_func_idx, param_count, reg_ptr_offset);
+                trace_mod.dumpJitCode(alloc, compiler.code.items, compiler.pc_map.items, self_func_idx);
+                tc.dump_jit_func = null;
+                compiler.deinit();
+                return result;
+            }
+        }
+    }
+
+    defer compiler.deinit();
     return compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr, global_get_addr, global_set_addr, mem_grow_addr, mem_fill_addr, mem_copy_addr, call_indirect_addr, self_func_idx, param_count, reg_ptr_offset);
 }
 
@@ -2922,7 +2937,7 @@ test "compile and execute constant return" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -2954,7 +2969,7 @@ test "compile and execute i32 add" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -2991,7 +3006,7 @@ test "compile and execute branch (LE_S + BR_IF_NOT)" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3037,7 +3052,7 @@ test "compile and execute i32 division" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3084,7 +3099,7 @@ test "compile and execute i32 remainder" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3152,7 +3167,7 @@ test "compile and execute memory load/store" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3216,7 +3231,7 @@ test "compile and execute memory store then load" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, null) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
