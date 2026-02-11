@@ -1,6 +1,12 @@
-# Benchmark Check Rules
+---
+paths:
+  - "bench/**/*"
+  - "src/jit.zig"
+  - "src/vm.zig"
+  - "src/regalloc.zig"
+---
 
-Auto-load paths: `bench/`, `src/jit.zig`, `src/vm.zig`, `src/regalloc.zig`
+# Benchmark Check Rules
 
 ## Core Principle
 

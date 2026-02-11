@@ -1,6 +1,9 @@
-# JIT Check Rules
+---
+paths:
+  - "src/jit.zig"
+---
 
-Auto-load paths: `src/jit.zig`
+# JIT Check Rules
 
 ## Before committing JIT changes
 

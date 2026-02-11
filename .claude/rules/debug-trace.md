@@ -1,6 +1,11 @@
-# Debug Trace Rules
+---
+paths:
+  - "src/jit.zig"
+  - "src/vm.zig"
+  - "src/regalloc.zig"
+---
 
-Auto-load paths: `src/jit.zig`, `src/vm.zig`, `src/regalloc.zig`
+# Debug Trace Rules
 
 ## Available CLI Tools
 
