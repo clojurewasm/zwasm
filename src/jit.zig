@@ -42,6 +42,7 @@ pub const JitFn = *const fn ([*]u64, *anyopaque, *anyopaque) callconv(.c) u64;
 pub const JitCode = struct {
     buf: []align(std.heap.page_size_min) u8,
     entry: JitFn,
+    code_len: u32,
 
     pub fn deinit(self: *JitCode, alloc: Allocator) void {
         std.posix.munmap(self.buf);
@@ -754,6 +755,10 @@ pub const Compiler = struct {
     param_count: u16,
     result_count: u16,
     reg_ptr_offset: u32,
+    min_memory_bytes: u32,
+    /// Track known constant values per vreg for bounds check elision.
+    /// Index = vreg number, null = unknown. Max 128 vregs tracked.
+    known_consts: [128]?u32,
 
     const Patch = struct {
         arm64_idx: u32, // index in code array
@@ -793,6 +798,8 @@ pub const Compiler = struct {
             .param_count = 0,
             .result_count = 0,
             .reg_ptr_offset = 0,
+            .min_memory_bytes = 0,
+            .known_consts = .{null} ** 128,
         };
     }
 
@@ -1000,6 +1007,59 @@ pub const Compiler = struct {
         return false;
     }
 
+    /// Pre-scan IR to find all branch targets (PCs that can be jumped to).
+    fn scanBranchTargets(self: *Compiler, ir: []const RegInstr) ?[]bool {
+        const targets = self.alloc.alloc(bool, ir.len) catch return null;
+        @memset(targets, false);
+        var scan_pc: u32 = 0;
+        while (scan_pc < ir.len) {
+            const instr = ir[scan_pc];
+            scan_pc += 1;
+            switch (instr.op) {
+                regalloc_mod.OP_BR => {
+                    // operand = target PC
+                    if (instr.operand < ir.len) targets[instr.operand] = true;
+                },
+                regalloc_mod.OP_BR_IF, regalloc_mod.OP_BR_IF_NOT => {
+                    // operand = target PC
+                    if (instr.operand < ir.len) targets[instr.operand] = true;
+                },
+                regalloc_mod.OP_BR_TABLE => {
+                    // Next N+1 entries are NOP placeholders with targets in operand
+                    const count = instr.operand;
+                    var i: u32 = 0;
+                    while (i < count + 1 and scan_pc < ir.len) : (i += 1) {
+                        const entry = ir[scan_pc];
+                        scan_pc += 1;
+                        if (entry.operand < ir.len) targets[entry.operand] = true;
+                    }
+                },
+                regalloc_mod.OP_BLOCK_END => {
+                    // Block end is a merge point
+                    targets[scan_pc - 1] = true;
+                },
+                else => {},
+            }
+        }
+        return targets;
+    }
+
+    fn isControlFlowOp(_: *const Compiler, op: u16) bool {
+        return switch (op) {
+            regalloc_mod.OP_BR,
+            regalloc_mod.OP_BR_IF,
+            regalloc_mod.OP_BR_IF_NOT,
+            regalloc_mod.OP_BR_TABLE,
+            regalloc_mod.OP_BLOCK_END,
+            regalloc_mod.OP_CALL,
+            regalloc_mod.OP_CALL_INDIRECT,
+            regalloc_mod.OP_RETURN,
+            regalloc_mod.OP_RETURN_VOID,
+            => true,
+            else => false,
+        };
+    }
+
     // --- Main compilation ---
 
     pub fn compile(
@@ -1048,13 +1108,34 @@ pub const Compiler = struct {
         // Pre-allocate pc_map indexed by RegInstr PC (not loop iteration)
         self.pc_map.appendNTimes(self.alloc, 0, ir.len + 1) catch return null;
 
+        // Pre-scan: find branch targets for known_consts invalidation
+        const branch_targets = self.scanBranchTargets(ir) orelse return null;
+        defer self.alloc.free(branch_targets);
+
         while (pc < ir.len) {
             // Record ARM64 code offset at actual RegInstr PC
             self.pc_map.items[pc] = self.currentIdx();
             const instr = ir[pc];
+
+            // Clear all known_consts at branch targets (merge points)
+            if (pc < branch_targets.len and branch_targets[pc]) {
+                self.known_consts = .{null} ** 128;
+            }
+
             pc += 1;
 
             if (!self.compileInstr(instr, ir, &pc)) return null;
+
+            // Track known constants for bounds check elision
+            if (instr.op == regalloc_mod.OP_CONST32) {
+                if (instr.rd < 128) self.known_consts[instr.rd] = instr.operand;
+            } else if (self.isControlFlowOp(instr.op)) {
+                // After branches/calls, clear all — next basic block starts fresh
+                self.known_consts = .{null} ** 128;
+            } else if (instr.rd < 128) {
+                // Non-const write to rd invalidates that vreg's known const
+                self.known_consts[instr.rd] = null;
+            }
         }
         // Trailing entry for end-of-function
         self.pc_map.items[ir.len] = self.currentIdx();
@@ -1744,9 +1825,38 @@ pub const Compiler = struct {
     const LoadKind = enum { w32, x64, u8, s8_32, s8_64, u16, s16_32, s16_64, s32_64 };
     const StoreKind = enum { w32, x64, b8, h16 };
 
+    /// Check if a memory access with known const address can skip bounds check.
+    fn isConstAddrSafe(self: *const Compiler, addr_vreg: u8, offset: u32, access_size: u32) ?u32 {
+        if (self.min_memory_bytes == 0) return null;
+        if (addr_vreg >= 128) return null;
+        const base_addr = self.known_consts[addr_vreg] orelse return null;
+        const effective = @as(u64, base_addr) + offset + access_size;
+        if (effective <= self.min_memory_bytes) return base_addr + offset;
+        return null;
+    }
+
     /// Emit inline memory load with bounds check.
     /// RegInstr encoding: rd=dest, rs1=base_addr, operand=static_offset
     fn emitMemLoad(self: *Compiler, instr: RegInstr, kind: LoadKind, access_size: u32) void {
+        // Fast path: const-addr with guaranteed in-bounds → skip bounds check
+        if (self.isConstAddrSafe(instr.rs1, instr.operand, access_size)) |eff_addr| {
+            self.emitLoadImm(SCRATCH, eff_addr);
+            const load_instr: u32 = switch (kind) {
+                .w32 => a64.ldr32Reg(SCRATCH, MEM_BASE, SCRATCH),
+                .x64 => a64.ldr64Reg(SCRATCH, MEM_BASE, SCRATCH),
+                .u8 => a64.ldrbReg(SCRATCH, MEM_BASE, SCRATCH),
+                .s8_32 => a64.ldrsbReg(SCRATCH, MEM_BASE, SCRATCH),
+                .s8_64 => a64.ldrsb64Reg(SCRATCH, MEM_BASE, SCRATCH),
+                .u16 => a64.ldrhReg(SCRATCH, MEM_BASE, SCRATCH),
+                .s16_32 => a64.ldrshReg(SCRATCH, MEM_BASE, SCRATCH),
+                .s16_64 => a64.ldrsh64Reg(SCRATCH, MEM_BASE, SCRATCH),
+                .s32_64 => a64.ldrswReg(SCRATCH, MEM_BASE, SCRATCH),
+            };
+            self.emit(load_instr);
+            self.storeVreg(instr.rd, SCRATCH);
+            return;
+        }
+
         // 1. Compute effective address: SCRATCH = zero_extend(addr) + offset
         const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(a64.uxtw(SCRATCH, addr_reg)); // zero-extend 32→64
@@ -1781,6 +1891,20 @@ pub const Compiler = struct {
     /// Emit inline memory store with bounds check.
     /// RegInstr encoding: rd=value, rs1=base_addr, operand=static_offset
     fn emitMemStore(self: *Compiler, instr: RegInstr, kind: StoreKind, access_size: u32) void {
+        // Fast path: const-addr with guaranteed in-bounds → skip bounds check
+        if (self.isConstAddrSafe(instr.rs1, instr.operand, access_size)) |eff_addr| {
+            self.emitLoadImm(SCRATCH, eff_addr);
+            const val_reg = self.getOrLoad(instr.rd, SCRATCH2);
+            const store_instr: u32 = switch (kind) {
+                .w32 => a64.str32Reg(val_reg, MEM_BASE, SCRATCH),
+                .x64 => a64.str64Reg(val_reg, MEM_BASE, SCRATCH),
+                .b8 => a64.strbReg(val_reg, MEM_BASE, SCRATCH),
+                .h16 => a64.strhReg(val_reg, MEM_BASE, SCRATCH),
+            };
+            self.emit(store_instr);
+            return;
+        }
+
         // 1. Compute effective address
         const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(a64.uxtw(SCRATCH, addr_reg));
@@ -1806,6 +1930,14 @@ pub const Compiler = struct {
             .h16 => a64.strhReg(val_reg, MEM_BASE, SCRATCH),
         };
         self.emit(store_instr);
+    }
+
+    /// Emit MOV Xd, #imm32 (1-2 instructions).
+    fn emitLoadImm(self: *Compiler, rd: u5, value: u32) void {
+        self.emit(a64.movz64(rd, @truncate(value), 0));
+        if (value > 0xFFFF) {
+            self.emit(a64.movk64(rd, @truncate(value >> 16), 1));
+        }
     }
 
     /// Emit ADD Xd, Xd, #offset (handles large offsets).
@@ -2593,6 +2725,7 @@ pub const Compiler = struct {
         jit_code.* = .{
             .buf = aligned_buf,
             .entry = @ptrCast(@alignCast(aligned_buf.ptr)),
+            .code_len = @intCast(self.code.items.len),
         };
         return jit_code;
     }
@@ -2839,6 +2972,12 @@ pub fn jitMemCopy(instance_opaque: *anyopaque, dst: u32, src: u32, n: u32) callc
 /// Attempt to JIT-compile a register IR function.
 /// Returns null if compilation fails (unsupported opcodes, etc.).
 /// self_func_idx: module-level function index for inline self-call optimization.
+/// Get minimum guaranteed memory bytes from an Instance (for bounds check elision).
+pub fn getMinMemoryBytes(instance: *Instance) u32 {
+    const mem = instance.getMemory(0) catch return 0;
+    return mem.min * 65536;
+}
+
 /// param_count: number of parameters for the function.
 pub fn compileFunction(
     alloc: Allocator,
@@ -2848,6 +2987,7 @@ pub fn compileFunction(
     param_count: u16,
     result_count: u16,
     trace: ?*trace_mod.TraceConfig,
+    min_memory_bytes: u32,
 ) ?*JitCode {
     if (builtin.cpu.arch != .aarch64) return null;
 
@@ -2862,6 +3002,7 @@ pub fn compileFunction(
     const reg_ptr_offset: u32 = @intCast(@offsetOf(vm_mod.Vm, "reg_ptr"));
 
     var compiler = Compiler.init(alloc);
+    compiler.min_memory_bytes = min_memory_bytes;
 
     // Dump JIT code before deinit (pc_map still alive, one-shot)
     if (trace) |tc| {
@@ -2969,7 +3110,7 @@ test "compile and execute constant return" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3001,7 +3142,7 @@ test "compile and execute i32 add" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3038,7 +3179,7 @@ test "compile and execute branch (LE_S + BR_IF_NOT)" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3084,7 +3225,7 @@ test "compile and execute i32 division" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3131,7 +3272,7 @@ test "compile and execute i32 remainder" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3199,7 +3340,7 @@ test "compile and execute memory load/store" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3263,7 +3404,7 @@ test "compile and execute memory store then load" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3276,5 +3417,70 @@ test "compile and execute memory store then load" {
     // Verify memory was actually written
     const val = try mem.read(u32, 0, 0);
     try testing.expectEqual(@as(u32, 99), val);
+}
+
+test "const-addr memory load elides bounds check" {
+    if (builtin.cpu.arch != .aarch64) return;
+
+    const alloc = testing.allocator;
+
+    var store = store_mod.Store.init(alloc);
+    defer store.deinit();
+    const mem_idx = try store.addMemory(1, null);
+    const mem = try store.getMemory(mem_idx);
+    try mem.allocateInitial();
+
+    // Write test values at const addresses
+    try mem.write(u32, 0, 0, 111);
+    try mem.write(u32, 100, 0, 222);
+
+    const module_mod = @import("module.zig");
+    var dummy_module = module_mod.Module.init(alloc, &.{});
+    var inst = Instance.init(alloc, &store, &dummy_module);
+    defer inst.deinit();
+    try inst.memaddrs.append(alloc, mem_idx);
+
+    // Function: two const-addr loads, add results, return
+    // r0 = const 0, r1 = load [r0+0], r2 = const 100, r3 = load [r2+0]
+    // r4 = r1 + r3, return r4
+    var code = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 0, .rs1 = 0, .operand = 0 },
+        .{ .op = 0x28, .rd = 1, .rs1 = 0, .operand = 0 }, // i32.load [r0+0]
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 2, .rs1 = 0, .operand = 100 },
+        .{ .op = 0x28, .rd = 3, .rs1 = 2, .operand = 0 }, // i32.load [r2+0]
+        .{ .op = 0x6A, .rd = 4, .rs1 = 1, .operand = 3 }, // i32.add r4 = r1 + r3
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 4, .rs1 = 0, .operand = 0 },
+    };
+    var reg_func = RegFunc{
+        .code = &code,
+        .pool64 = &.{},
+        .reg_count = 5,
+        .local_count = 0,
+        .alloc = alloc,
+    };
+
+    // Compile with min_memory_bytes = 65536 (1 page, all const addrs safe)
+    const jit_opt = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 65536) orelse
+        return error.CompilationFailed;
+    defer jit_opt.deinit(alloc);
+
+    // Compile without optimization (min_memory_bytes = 0)
+    const jit_noopt = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+        return error.CompilationFailed;
+    defer jit_noopt.deinit(alloc);
+
+    // Both should produce correct result
+    var regs1: [9]u64 = .{0} ** 9;
+    const r1 = jit_opt.entry(&regs1, undefined, @ptrCast(&inst));
+    try testing.expectEqual(@as(u64, 0), r1);
+    try testing.expectEqual(@as(u64, 333), regs1[0]); // 111 + 222
+
+    var regs2: [9]u64 = .{0} ** 9;
+    const r2 = jit_noopt.entry(&regs2, undefined, @ptrCast(&inst));
+    try testing.expectEqual(@as(u64, 0), r2);
+    try testing.expectEqual(@as(u64, 333), regs2[0]);
+
+    // Optimized version should have fewer instructions (bounds checks elided)
+    try testing.expect(jit_opt.code_len < jit_noopt.code_len);
 }
 

@@ -5,7 +5,7 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4 — COMPLETE
-- Source: ~15K LOC, 16 files, 154 tests all pass
+- Source: ~15K LOC, 16 files, 155 tests all pass
 - Opcode: 225 core + 236 SIMD = 461, WASI: ~27
 - Spec: 30,663/30,703 (99.9%), E2E: 178/181 (98.3%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
@@ -52,11 +52,10 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 
 ## Previous Task
 
-Sub-task C: Expand JIT physical register count (MAX_PHYS_REGS 12→14).
-Repurposed x20/x21 (formerly VM_PTR/INST_PTR) as vregs 12-13 (callee-saved).
-VM and instance pointers moved to memory slots regs[reg_count+2..+3].
-Fixed spillVregIfCalleeSaved to handle all callee-saved vregs (not just 0-4).
-fib 105→97ms (8%), nbody 58→50ms (13%).
+Sub-tasks C+D: Expanded JIT physical registers (12→14), added const-addr
+bounds check elision. 35% code size reduction for memory-heavy functions
+(nbody: 550→358 ARM64 instrs), ~5% runtime improvement.
+Trace improvements: back-edge JIT trace, JitRestart trace, --profile warning.
 
 ## Known Bugs
 
