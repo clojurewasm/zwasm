@@ -128,6 +128,9 @@ pub const FuncTypeInfo = struct {
 pub const ParamResolver = struct {
     ctx: *anyopaque,
     resolve_fn: *const fn (*anyopaque, u32) ?FuncTypeInfo,
+    /// Resolves type index to type info (for call_indirect).
+    /// Optional — if null, call_indirect bails out.
+    resolve_type_fn: ?*const fn (*anyopaque, u32) ?FuncTypeInfo = null,
 };
 
 /// Conversion error.
@@ -934,28 +937,52 @@ pub fn convert(
                 const type_idx = instr.operand;
                 const table_idx: u8 = @intCast(instr.extra);
 
-                // Need to know param/result count from type_idx.
-                // For now, use the resolver to check all function types.
-                // call_indirect pops: args... elem_idx
-                // The elem_idx is on top of the stack.
-                const elem_idx_reg = vstack.pop().?;
+                // Resolve type to get param/result counts
+                const res = resolver orelse return null;
+                const resolve_type = res.resolve_type_fn orelse return null;
+                const type_info = resolve_type(res.ctx, type_idx) orelse return null;
+                const n_args: usize = type_info.param_count;
+                const n_results: usize = type_info.result_count;
+                if (n_args > 8 or n_results > 1) return null;
 
-                // We need param_count and result_count from the module types.
-                // These are encoded in type_idx which refers to a module type.
-                // For now, we pass type_idx and table_idx to the runtime handler.
-                // The runtime handler resolves the actual function and checks the type.
-                // We need to know n_args to pop the right number of values from vstack.
-                // Use resolver to get type info: resolve type_idx as if it were a func_idx.
-                // Actually, resolver resolves func_idx, not type_idx. We need a different approach.
-                // For call_indirect, the module embeds the type. We bail if we can't determine
-                // the param count. Pass type_idx to runtime; runtime checks params match.
-                // WORKAROUND: scan the existing functions to find one with this type_idx.
-                // Better: just bail for now if resolver is unavailable.
-                _ = type_idx;
-                _ = table_idx;
-                _ = elem_idx_reg;
-                // TODO: implement call_indirect in register IR
-                return null;
+                // Stack: [args...] elem_idx  (elem_idx on top)
+                const elem_idx_reg = vstack.pop().?;
+                if (vstack.items.len < n_args) return null;
+
+                const rd = if (n_results > 0) allocTemp(&next_reg, &max_reg) else 0;
+
+                // OP_CALL_INDIRECT: rd=result, rs1=elem_idx_reg,
+                // operand=type_idx, table_idx packed in high bits
+                try code.append(alloc, .{
+                    .op = OP_CALL_INDIRECT,
+                    .rd = rd,
+                    .rs1 = elem_idx_reg,
+                    .operand = type_idx | (@as(u32, table_idx) << 24),
+                });
+
+                // Pack arg registers (same layout as OP_CALL)
+                var arg_regs: [8]u8 = .{0} ** 8;
+                const arg_start = vstack.items.len - n_args;
+                for (0..n_args) |i| {
+                    arg_regs[i] = vstack.items[arg_start + i];
+                }
+                try code.append(alloc, .{
+                    .op = OP_NOP,
+                    .rd = arg_regs[0],
+                    .rs1 = arg_regs[1],
+                    .operand = @as(u32, arg_regs[2]) | (@as(u32, arg_regs[3]) << 8),
+                });
+                if (n_args > 4) {
+                    try code.append(alloc, .{
+                        .op = OP_NOP,
+                        .rd = arg_regs[4],
+                        .rs1 = arg_regs[5],
+                        .operand = @as(u32, arg_regs[6]) | (@as(u32, arg_regs[7]) << 8),
+                    });
+                }
+
+                vstack.shrinkRetainingCapacity(vstack.items.len - n_args);
+                if (n_results > 0) try vstack.append(alloc, rd);
             },
 
             // ---- Bulk memory operations ----

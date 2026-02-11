@@ -78,6 +78,9 @@ Approach: incremental JIT — profile first, register IR, then ARM64 codegen.
 **Exit criteria**: fib(35) within 2x of wasmtime JIT. ARM64 JIT stable.
 **Result**: fib(35) = 103ms, wasmtime = 52ms, ratio = 2.0x. EXIT CRITERIA MET.
 
+**Performance target**: All benchmarks within 3x of wasmtime (ideal: 2x).
+This is an ongoing commitment — keep optimizing until every benchmark meets this bar.
+
 ## Stage 4: Polish & Robustness (COMPLETE)
 
 **Goal**: Fix known bugs and polish the runtime.
@@ -87,18 +90,30 @@ Approach: incremental JIT — profile first, register IR, then ARM64 codegen.
 - 4.3: Inline self-call for memory functions (recompute addr via SCRATCH)
 - 4.4: Cross-runtime benchmark update (5 runtimes comparison)
 
-## Stage 5: JIT Coverage Expansion
+## Stage 5: JIT Coverage Expansion (IN PROGRESS)
 
-**Goal**: Close the remaining performance gaps with wasmtime.
-Key gaps: shootout 23-33x slower (not JIT'd), nbody 6.2x (no f64 JIT).
+**Goal**: All benchmarks within 3x of wasmtime (ideal: 2x).
+This is the primary optimization stage — keep adding JIT features until the target is met.
 
-### Tasks
-- 5.1: Profile shootout benchmarks — identify JIT coverage gaps
-- 5.2: Close identified gaps (JIT threshold, opcode coverage)
-- 5.3: f64 ARM64 JIT — codegen for f64 operations
+### Completed
+- 5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass
+- 5.2: Close remaining gaps (regIR opcode coverage)
+- 5.3: f64/f32 ARM64 JIT — nbody 133→60ms
 - 5.4: Re-record cross-runtime benchmarks
+- 5.5: JIT memory ops + call_indirect + popcnt + reload ordering fix
 
-**Exit criteria**: Shootout benchmarks within 5x of wasmtime. nbody within 3x.
+### Current gaps (vs wasmtime)
+- st_sieve: ~30x — now JIT'd but still slow, needs profiling
+- st_matrix: ~32x — now JIT'd but still slow, needs profiling
+- st_fib2: 2.6x — close to target, needs profiling
+- fib: 2.0x — at target
+- nbody: 2.7x — at target
+
+### Remaining tasks
+- 5.6: Profile and optimize remaining gaps
+- 5.7: Re-record benchmarks, verify exit criteria
+
+**Exit criteria**: ALL benchmarks within 3x of wasmtime (ideal: 2x).
 
 ### Future
 - Superinstruction expansion (profile-guided)

@@ -344,6 +344,17 @@ pub const Vm = struct {
                                 };
                             }
                         }.resolve,
+                        .resolve_type_fn = struct {
+                            fn resolve(ctx: *anyopaque, type_idx: u32) ?regalloc_mod.FuncTypeInfo {
+                                const i: *Instance = @ptrCast(@alignCast(ctx));
+                                if (type_idx >= i.module.types.items.len) return null;
+                                const t = i.module.types.items[type_idx];
+                                return .{
+                                    .param_count = @intCast(t.params.len),
+                                    .result_count = @intCast(t.results.len),
+                                };
+                            }
+                        }.resolve,
                     };
                     wf.reg_ir = regalloc_mod.convert(
                         self.alloc,
@@ -353,7 +364,9 @@ pub const Vm = struct {
                         @intCast(wf.locals_count),
                         resolver,
                     ) catch null;
-                    if (wf.reg_ir == null) wf.reg_ir_failed = true;
+                    if (wf.reg_ir == null) {
+                        wf.reg_ir_failed = true;
+                    }
                 }
 
                 if (wf.reg_ir) |reg| {
@@ -2164,6 +2177,46 @@ pub const Vm = struct {
                     if (n_results > 0) regs[instr.rd] = call_results[0];
                 },
 
+                regalloc_mod.OP_CALL_INDIRECT => {
+                    const type_idx = instr.operand & 0xFFFFFF;
+                    const table_idx: u8 = @truncate(instr.operand >> 24);
+                    const elem_idx: u32 = @truncate(regs[instr.rs1]);
+                    const data = code[pc];
+                    pc += 1;
+
+                    const t = try instance.getTable(table_idx);
+                    const func_addr = try t.lookup(elem_idx);
+                    const callee_fn = try instance.store.getFunctionPtr(func_addr);
+
+                    // Type check
+                    if (type_idx < instance.module.types.items.len) {
+                        const expected = instance.module.types.items[type_idx];
+                        if (!std.mem.eql(ValType, expected.params, callee_fn.params) or
+                            !std.mem.eql(ValType, expected.results, callee_fn.results))
+                            return error.MismatchedSignatures;
+                    }
+
+                    const n_args = callee_fn.params.len;
+                    var call_args: [8]u64 = undefined;
+                    if (n_args > 0) call_args[0] = regs[data.rd];
+                    if (n_args > 1) call_args[1] = regs[data.rs1];
+                    if (n_args > 2) call_args[2] = regs[@as(u8, @truncate(data.operand))];
+                    if (n_args > 3) call_args[3] = regs[@as(u8, @truncate(data.operand >> 8))];
+                    if (n_args > 4) {
+                        const data2 = code[pc];
+                        pc += 1;
+                        if (n_args > 4) call_args[4] = regs[data2.rd];
+                        if (n_args > 5) call_args[5] = regs[data2.rs1];
+                        if (n_args > 6) call_args[6] = regs[@as(u8, @truncate(data2.operand))];
+                        if (n_args > 7) call_args[7] = regs[@as(u8, @truncate(data2.operand >> 8))];
+                    }
+
+                    var call_results: [1]u64 = .{0};
+                    const n_results = callee_fn.results.len;
+                    try self.callFunction(instance, callee_fn, call_args[0..n_args], call_results[0..n_results]);
+                    if (n_results > 0) regs[instr.rd] = call_results[0];
+                },
+
                 regalloc_mod.OP_NOP => {}, // data word, skip
 
                 // ---- i32 arithmetic ----
@@ -3196,6 +3249,17 @@ pub const Vm = struct {
                                 return .{
                                     .param_count = @intCast(fp.params.len),
                                     .result_count = @intCast(fp.results.len),
+                                };
+                            }
+                        }.resolve,
+                        .resolve_type_fn = struct {
+                            fn resolve(ctx: *anyopaque, type_idx: u32) ?regalloc_mod.FuncTypeInfo {
+                                const i: *Instance = @ptrCast(@alignCast(ctx));
+                                if (type_idx >= i.module.types.items.len) return null;
+                                const t = i.module.types.items[type_idx];
+                                return .{
+                                    .param_count = @intCast(t.params.len),
+                                    .result_count = @intCast(t.results.len),
                                 };
                             }
                         }.resolve,

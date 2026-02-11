@@ -29,6 +29,7 @@ const RegInstr = regalloc_mod.RegInstr;
 const RegFunc = regalloc_mod.RegFunc;
 const store_mod = @import("store.zig");
 const Instance = @import("instance.zig").Instance;
+const ValType = @import("opcode.zig").ValType;
 const WasmMemory = @import("memory.zig").Memory;
 
 /// JIT-compiled function pointer type.
@@ -531,6 +532,24 @@ const a64 = struct {
         return 0xD503201F;
     }
 
+    /// UBFM Xd, Xn, #immr, #imms — unsigned bitfield move (used for LSR)
+    /// LSR Xd, Xn, #shift  ≡  UBFM Xd, Xn, #shift, #63
+    fn lsr64Imm(xd: u5, xn: u5, shift: u6) u32 {
+        return 0xD340FC00 | (@as(u32, shift) << 16) | (@as(u32, xn) << 5) | xd;
+    }
+
+    // --- NEON/AdvSIMD (for popcnt) ---
+
+    /// CNT V<d>.8B, V<n>.8B — count set bits per byte (8-bit lanes)
+    fn cntV8b(vd: u5, vn: u5) u32 {
+        return 0x0E205800 | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// ADDV Bd, V<n>.8B — add across vector (sum all bytes into scalar)
+    fn addvB(vd: u5, vn: u5) u32 {
+        return 0x0E31B800 | (@as(u32, vn) << 5) | vd;
+    }
+
     // --- Floating-point (double-precision, f64) ---
 
     /// FMOV Dd, Xn — move 64-bit GPR to FP register.
@@ -720,6 +739,12 @@ pub const Compiler = struct {
     local_count: u16,
     trampoline_addr: u64,
     mem_info_addr: u64,
+    global_get_addr: u64,
+    global_set_addr: u64,
+    mem_grow_addr: u64,
+    mem_fill_addr: u64,
+    mem_copy_addr: u64,
+    call_indirect_addr: u64,
     pool64: []const u64,
     has_memory: bool,
     self_func_idx: u32,
@@ -752,6 +777,12 @@ pub const Compiler = struct {
             .local_count = 0,
             .trampoline_addr = 0,
             .mem_info_addr = 0,
+            .global_get_addr = 0,
+            .global_set_addr = 0,
+            .mem_grow_addr = 0,
+            .mem_fill_addr = 0,
+            .mem_copy_addr = 0,
+            .call_indirect_addr = 0,
             .pool64 = &.{},
             .has_memory = false,
             .self_func_idx = 0,
@@ -957,6 +988,12 @@ pub const Compiler = struct {
         pool64: []const u64,
         trampoline_addr: u64,
         mem_info_addr: u64,
+        global_get_addr: u64,
+        global_set_addr: u64,
+        mem_grow_addr: u64,
+        mem_fill_addr: u64,
+        mem_copy_addr: u64,
+        call_indirect_addr: u64,
         self_func_idx: u32,
         param_count: u16,
         reg_ptr_offset: u32,
@@ -967,6 +1004,12 @@ pub const Compiler = struct {
         self.local_count = reg_func.local_count;
         self.trampoline_addr = trampoline_addr;
         self.mem_info_addr = mem_info_addr;
+        self.global_get_addr = global_get_addr;
+        self.global_set_addr = global_set_addr;
+        self.mem_grow_addr = mem_grow_addr;
+        self.mem_fill_addr = mem_fill_addr;
+        self.mem_copy_addr = mem_copy_addr;
+        self.call_indirect_addr = call_indirect_addr;
         self.pool64 = pool64;
         self.self_func_idx = self_func_idx;
         self.param_count = param_count;
@@ -1084,6 +1127,17 @@ pub const Compiler = struct {
                 }
                 self.emitCall(instr.rd, func_idx, n_args, data, if (has_data2) data2 else null);
             },
+            regalloc_mod.OP_CALL_INDIRECT => {
+                const data = ir[pc.*];
+                pc.* += 1;
+                const has_data2 = (pc.* < ir.len and ir[pc.*].op == regalloc_mod.OP_NOP);
+                var data2: RegInstr = undefined;
+                if (has_data2) {
+                    data2 = ir[pc.*];
+                    pc.* += 1;
+                }
+                self.emitCallIndirect(instr, data, if (has_data2) data2 else null);
+            },
             regalloc_mod.OP_NOP => {}, // data word, already consumed
             regalloc_mod.OP_BLOCK_END => {}, // no-op in JIT
             regalloc_mod.OP_DELETED => {}, // no-op
@@ -1130,10 +1184,7 @@ pub const Compiler = struct {
                 self.emit(a64.clz32(d, d));
                 self.storeVreg(instr.rd, d);
             },
-            0x69 => { // i32.popcnt — no single ARM64 instruction; use FPCNT trick or loop
-                // For now, bail out (popcnt is rare)
-                return false;
-            },
+            0x69 => self.emitPopcnt32(instr), // i32.popcnt
 
             // --- i32 comparison ---
             0x45 => { // i32.eqz
@@ -1196,7 +1247,7 @@ pub const Compiler = struct {
                 self.emit(a64.clz64(d, d));
                 self.storeVreg(instr.rd, d);
             },
-            0x7B => return false, // i64.popcnt — bail
+            0x7B => self.emitPopcnt64(instr), // i64.popcnt
 
             // --- i64 comparison ---
             0x50 => { // i64.eqz
@@ -1427,6 +1478,25 @@ pub const Compiler = struct {
             0x00 => {
                 self.emitErrorReturn(1); // Trap
             },
+
+            // --- Global get/set ---
+            0x23 => self.emitGlobalGet(instr), // global.get
+            0x24 => self.emitGlobalSet(instr), // global.set
+
+            // --- Memory size/grow ---
+            0x3F => { // memory.size: rd = memory pages
+                // MEM_SIZE (x28) = memory size in bytes.  pages = bytes >> 16 (PAGE_SIZE=65536)
+                const d = destReg(instr.rd);
+                self.emit(a64.lsr64Imm(d, MEM_SIZE, 16));
+                self.storeVreg(instr.rd, d);
+            },
+            0x40 => { // memory.grow: rd = old_pages | -1
+                self.emitMemGrow(instr);
+            },
+
+            // --- Bulk memory: fill/copy ---
+            regalloc_mod.OP_MEMORY_FILL => self.emitMemFill(instr),
+            regalloc_mod.OP_MEMORY_COPY => self.emitMemCopy(instr),
 
             // Unsupported opcode — bail out, function can't be JIT compiled
             else => return false,
@@ -1731,6 +1801,133 @@ pub const Compiler = struct {
         }
     }
 
+    // --- Global ops emitters ---
+
+    /// global.get: call jitGlobalGet(instance, idx) → u64
+    fn emitGlobalGet(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // Args: x0 = instance, w1 = global_idx
+        self.emit(a64.mov64(0, INST_PTR));
+        self.emit(a64.movz32(1, @truncate(instr.operand), 0));
+        // Call jitGlobalGet
+        const addr_instrs = a64.loadImm64(SCRATCH, self.global_get_addr);
+        for (addr_instrs) |inst| self.emit(inst);
+        self.emit(a64.blr(SCRATCH));
+        // Reload caller-saved FIRST (x0 is untouched), then write result
+        self.reloadCallerSaved();
+        const d = destReg(instr.rd);
+        self.emit(a64.mov64(d, 0));
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// global.set: call jitGlobalSet(instance, idx, val)
+    fn emitGlobalSet(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // Args: x0 = instance, w1 = global_idx, x2 = value
+        self.emit(a64.mov64(0, INST_PTR));
+        self.emit(a64.movz32(1, @truncate(instr.operand), 0));
+        const val_reg = self.getOrLoad(instr.rd, SCRATCH);
+        self.emit(a64.mov64(2, val_reg));
+        // Call jitGlobalSet
+        const addr_instrs = a64.loadImm64(SCRATCH, self.global_set_addr);
+        for (addr_instrs) |inst| self.emit(inst);
+        self.emit(a64.blr(SCRATCH));
+        self.reloadCallerSaved();
+    }
+
+    // --- Memory ops emitters ---
+
+    /// memory.grow: call jitMemGrow(instance, pages) → old_pages or -1
+    /// Then reload mem cache since memory may have grown.
+    fn emitMemGrow(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // Args: x0 = instance, x1 = pages (from rs1 vreg, truncated to 32-bit)
+        self.emit(a64.mov64(0, INST_PTR));
+        const pages_reg = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emit(a64.mov32(1, pages_reg)); // zero-extend to w1
+        // Call jitMemGrow
+        const addr_instrs = a64.loadImm64(SCRATCH, self.mem_grow_addr);
+        for (addr_instrs) |inst| self.emit(inst);
+        self.emit(a64.blr(SCRATCH));
+        // Result in w0 (u32): old_pages or 0xFFFFFFFF
+        // Store result to regs[rd] in memory immediately (before x0 is clobbered)
+        self.emit(a64.str64(0, REGS_PTR, @as(u16, instr.rd) * 8));
+        // Reload memory cache FIRST (BLR clobbers x0-x15)
+        if (self.has_memory) {
+            self.emitLoadMemCache();
+        }
+        // Reload caller-saved regs AFTER all BLRs (regs[rd] has result from str above)
+        self.reloadCallerSaved();
+        if (instr.rd <= 4) self.reloadVreg(instr.rd);
+    }
+
+    /// memory.fill: call jitMemFill(instance, dst, val, n)
+    fn emitMemFill(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // Args: x0 = instance, w1 = dst (rd), w2 = val (rs1), w3 = n (rs2)
+        self.emit(a64.mov64(0, INST_PTR));
+        const dst_reg = self.getOrLoad(instr.rd, SCRATCH);
+        self.emit(a64.mov32(1, dst_reg));
+        const val_reg = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emit(a64.mov32(2, val_reg));
+        const n_reg = self.getOrLoad(instr.rs2(), SCRATCH);
+        self.emit(a64.mov32(3, n_reg));
+        // Call jitMemFill
+        const addr_instrs = a64.loadImm64(SCRATCH, self.mem_fill_addr);
+        for (addr_instrs) |inst| self.emit(inst);
+        self.emit(a64.blr(SCRATCH));
+        // Check error (w0 != 0 → OOB)
+        self.emit(a64.cmpImm32(0, 0));
+        self.emitCondError(.ne, 6); // OutOfBoundsMemoryAccess
+        self.reloadCallerSaved();
+    }
+
+    /// memory.copy: call jitMemCopy(instance, dst, src, n)
+    fn emitMemCopy(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // Args: x0 = instance, w1 = dst (rd), w2 = src (rs1), w3 = n (rs2)
+        self.emit(a64.mov64(0, INST_PTR));
+        const dst_reg = self.getOrLoad(instr.rd, SCRATCH);
+        self.emit(a64.mov32(1, dst_reg));
+        const src_reg = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emit(a64.mov32(2, src_reg));
+        const n_reg = self.getOrLoad(instr.rs2(), SCRATCH);
+        self.emit(a64.mov32(3, n_reg));
+        // Call jitMemCopy
+        const addr_instrs = a64.loadImm64(SCRATCH, self.mem_copy_addr);
+        for (addr_instrs) |inst| self.emit(inst);
+        self.emit(a64.blr(SCRATCH));
+        // Check error
+        self.emit(a64.cmpImm32(0, 0));
+        self.emitCondError(.ne, 6);
+        self.reloadCallerSaved();
+    }
+
+    /// i32.popcnt: count set bits in a 32-bit value
+    /// Software implementation: Hamming weight via bit manipulation
+    fn emitPopcnt32(self: *Compiler, instr: RegInstr) void {
+        // Use FMOV + CNT + ADDV on ARM64 NEON
+        // FMOV S0, Wn; CNT V0.8B, V0.8B; ADDV B0, V0.8B; FMOV Wd, S0
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToFp32(FP_SCRATCH0, src)); // FMOV S0, Wn
+        self.emit(a64.cntV8b(FP_SCRATCH0, FP_SCRATCH0)); // CNT V0.8B, V0.8B
+        self.emit(a64.addvB(FP_SCRATCH0, FP_SCRATCH0)); // ADDV B0, V0.8B
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0)); // FMOV Wd, S0
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// i64.popcnt: count set bits in a 64-bit value
+    fn emitPopcnt64(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToFp64(FP_SCRATCH0, src)); // FMOV D0, Xn
+        self.emit(a64.cntV8b(FP_SCRATCH0, FP_SCRATCH0)); // CNT V0.8B, V0.8B
+        self.emit(a64.addvB(FP_SCRATCH0, FP_SCRATCH0)); // ADDV B0, V0.8B
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0)); // FMOV Wd, S0 (result fits in 32 bits)
+        self.storeVreg(instr.rd, d);
+    }
+
     fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr) void {
         // Self-call optimization: direct BL instead of trampoline.
         // Non-memory: uses cached &vm.reg_ptr in x27.
@@ -1799,14 +1996,91 @@ pub const Compiler = struct {
             .cond = .eq, // unused
         }) catch {};
 
-        // 5. Reload caller-saved regs + result register (callee-saved preserved by BLR)
-        self.reloadCallerSaved();
-        if (rd <= 4) self.reloadVreg(rd); // callee-saved result needs explicit reload
-
-        // 6. Reload memory cache (memory may have grown during call)
+        // 5. Reload memory cache FIRST (BLR clobbers x0-x15)
+        //    Trampoline already wrote result to regs[rd], so it survives this BLR.
         if (self.has_memory) {
             self.emitLoadMemCache();
         }
+
+        // 6. Reload caller-saved regs AFTER all BLRs, then callee-saved result
+        self.reloadCallerSaved();
+        if (rd <= 4) self.reloadVreg(rd); // callee-saved result needs explicit reload
+    }
+
+    /// Emit call_indirect: table lookup + type check + function call via trampoline.
+    /// instr: rd=result_reg, rs1=elem_idx_reg, operand=type_idx|(table_idx<<24)
+    fn emitCallIndirect(self: *Compiler, instr: RegInstr, data: RegInstr, data2: ?RegInstr) void {
+        // 1. Spill caller-saved regs + arg vregs
+        self.spillCallerSaved();
+        self.spillVregIfCalleeSaved(data.rd);
+        self.spillVregIfCalleeSaved(data.rs1);
+        self.spillVregIfCalleeSaved(@truncate(data.operand));
+        self.spillVregIfCalleeSaved(@truncate(data.operand >> 8));
+        if (data2) |d2| {
+            self.spillVregIfCalleeSaved(d2.rd);
+            self.spillVregIfCalleeSaved(d2.rs1);
+            self.spillVregIfCalleeSaved(@truncate(d2.operand));
+            self.spillVregIfCalleeSaved(@truncate(d2.operand >> 8));
+        }
+        // Also spill the elem_idx vreg
+        self.spillVregIfCalleeSaved(instr.rs1);
+
+        // 2. Set up trampoline args (C calling convention, 8 args):
+        //    x0=vm, x1=instance, x2=regs, w3=type_idx_table_idx,
+        //    w4=result_reg, x5=data_word, x6=data2_word, w7=elem_idx
+        self.emit(a64.mov64(0, VM_PTR));
+        self.emit(a64.mov64(1, INST_PTR));
+        self.emit(a64.mov64(2, REGS_PTR));
+        // w3 = type_idx | (table_idx << 24) from instr.operand
+        const type_idx_table_idx = instr.operand;
+        if (type_idx_table_idx <= 0xFFFF) {
+            self.emit(a64.movz32(3, @truncate(type_idx_table_idx), 0));
+        } else {
+            self.emit(a64.movz32(3, @truncate(type_idx_table_idx), 0));
+            self.emit(a64.movk64(3, @truncate(type_idx_table_idx >> 16), 1));
+        }
+        // w4 = result_reg
+        self.emit(a64.movz32(4, @as(u16, instr.rd), 0));
+        // x5 = data word
+        const data_u64: u64 = @bitCast(data);
+        const d_instrs = a64.loadImm64(5, data_u64);
+        for (d_instrs) |inst| self.emit(inst);
+        // x6 = data2 word
+        if (data2) |d2| {
+            const d2_u64: u64 = @bitCast(d2);
+            const d2_instrs = a64.loadImm64(6, d2_u64);
+            for (d2_instrs) |inst| self.emit(inst);
+        } else {
+            self.emit(a64.movz64(6, 0, 0));
+        }
+        // w7 = elem_idx (load from regs[instr.rs1])
+        self.emit(a64.ldr64(7, REGS_PTR, @as(u12, instr.rs1) * 8));
+        // Truncate to 32 bits (elem_idx is u32)
+
+        // 3. Load call_indirect trampoline address and call
+        const t_instrs = a64.loadImm64(SCRATCH, self.call_indirect_addr);
+        for (t_instrs) |inst| self.emit(inst);
+        self.emit(a64.blr(SCRATCH));
+
+        // 4. Check error
+        const error_branch = self.currentIdx();
+        self.emit(a64.cbnz64(0, 0));
+        self.error_stubs.append(self.alloc, .{
+            .branch_idx = error_branch,
+            .error_code = 0,
+            .kind = .cbnz64,
+            .cond = .eq,
+        }) catch {};
+
+        // 5. Reload memory cache FIRST (BLR clobbers x0-x15)
+        //    Trampoline already wrote result to regs[rd], so it survives this BLR.
+        if (self.has_memory) {
+            self.emitLoadMemCache();
+        }
+
+        // 6. Reload caller-saved regs AFTER all BLRs, then callee-saved result
+        self.reloadCallerSaved();
+        if (instr.rd <= 4) self.reloadVreg(instr.rd);
     }
 
     /// Inline self-call: direct BL to function entry, bypassing trampoline.
@@ -2376,6 +2650,89 @@ pub fn jitCallTrampoline(
     return 0;
 }
 
+/// JIT trampoline for call_indirect: table lookup + type check + callFunction.
+pub fn jitCallIndirectTrampoline(
+    vm_opaque: *anyopaque,
+    instance_opaque: *anyopaque,
+    regs: [*]u64,
+    type_idx_table_idx: u32,
+    result_reg: u32,
+    data_raw: u64,
+    data2_raw: u64,
+    elem_idx: u32,
+) callconv(.c) u64 {
+    const vm: *vm_mod.Vm = @ptrCast(@alignCast(vm_opaque));
+    const instance: *Instance = @ptrCast(@alignCast(instance_opaque));
+
+    const type_idx = type_idx_table_idx & 0xFFFFFF;
+    const table_idx: u8 = @truncate(type_idx_table_idx >> 24);
+
+    // Table lookup
+    const t = instance.getTable(table_idx) catch return 1;
+    const func_addr = t.lookup(elem_idx) catch {
+        return 6; // OutOfBoundsMemoryAccess
+    };
+    const func_ptr = instance.store.getFunctionPtr(func_addr) catch return 1;
+
+    // Type check
+    if (type_idx < instance.module.types.items.len) {
+        const expected = instance.module.types.items[type_idx];
+        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
+            !std.mem.eql(ValType, expected.results, func_ptr.results))
+            return 1; // MismatchedSignatures → Trap
+    }
+
+    const n_args = func_ptr.params.len;
+    const n_results = func_ptr.results.len;
+
+    // Collect args from register file
+    const data: RegInstr = @bitCast(data_raw);
+    var call_args: [8]u64 = undefined;
+    if (n_args > 0) call_args[0] = regs[data.rd];
+    if (n_args > 1) call_args[1] = regs[data.rs1];
+    if (n_args > 2) call_args[2] = regs[@as(u8, @truncate(data.operand))];
+    if (n_args > 3) call_args[3] = regs[@as(u8, @truncate(data.operand >> 8))];
+    if (n_args > 4 and data2_raw != 0) {
+        const data2: RegInstr = @bitCast(@as([8]u8, @bitCast(data2_raw)));
+        if (n_args > 4) call_args[4] = regs[data2.rd];
+        if (n_args > 5) call_args[5] = regs[data2.rs1];
+        if (n_args > 6) call_args[6] = regs[@as(u8, @truncate(data2.operand))];
+        if (n_args > 7) call_args[7] = regs[@as(u8, @truncate(data2.operand >> 8))];
+    }
+
+    // Fast path: JIT-compiled callee
+    if (func_ptr.subtype == .wasm_function) {
+        const wf = &func_ptr.subtype.wasm_function;
+        if (wf.jit_code) |jc| {
+            if (wf.reg_ir) |reg| {
+                const base = vm.reg_ptr;
+                const needed: usize = reg.reg_count + 2;
+                if (base + needed > vm_mod.REG_STACK_SIZE) return 2;
+                const callee_regs = vm.reg_stack[base .. base + needed];
+                vm.reg_ptr = base + needed;
+
+                for (call_args[0..n_args], 0..) |arg, i| callee_regs[i] = arg;
+                for (n_args..reg.local_count) |i| callee_regs[i] = 0;
+
+                const err = jc.entry(callee_regs.ptr, vm_opaque, instance_opaque);
+                vm.reg_ptr = base;
+                if (err != 0) return err;
+
+                if (n_results > 0) regs[result_reg] = callee_regs[0];
+                return 0;
+            }
+        }
+    }
+
+    // Slow path: full callFunction
+    var call_results: [1]u64 = .{0};
+    vm.callFunction(instance, func_ptr, call_args[0..n_args], call_results[0..@min(n_results, 1)]) catch |e| {
+        return wasmErrorToCode(e);
+    };
+    if (n_results > 0) regs[result_reg] = call_results[0];
+    return 0;
+}
+
 fn wasmErrorToCode(err: vm_mod.WasmError) u64 {
     return switch (err) {
         error.Trap => 1,
@@ -2406,6 +2763,46 @@ pub fn jitGetMemInfo(instance_opaque: *anyopaque, out: [*]u64) callconv(.c) void
     out[1] = m.data.items.len;
 }
 
+/// JIT helper: global.get — read a global variable's value.
+pub fn jitGlobalGet(instance_opaque: *anyopaque, idx: u32) callconv(.c) u64 {
+    const instance: *Instance = @ptrCast(@alignCast(instance_opaque));
+    const g = instance.getGlobal(idx) catch return 0;
+    return g.value;
+}
+
+/// JIT helper: global.set — write a value to a global variable.
+pub fn jitGlobalSet(instance_opaque: *anyopaque, idx: u32, val: u64) callconv(.c) void {
+    const instance: *Instance = @ptrCast(@alignCast(instance_opaque));
+    const g = instance.getGlobal(idx) catch return;
+    g.value = val;
+}
+
+/// JIT helper: memory.grow — grow linear memory by n pages.
+/// Returns old size in pages on success, or 0xFFFFFFFF (-1 as u32) on failure.
+pub fn jitMemGrow(instance_opaque: *anyopaque, pages: u32) callconv(.c) u32 {
+    const instance: *Instance = @ptrCast(@alignCast(instance_opaque));
+    const m = instance.getMemory(0) catch return 0xFFFFFFFF;
+    return m.grow(pages) catch 0xFFFFFFFF;
+}
+
+/// JIT helper: memory.fill — fill memory[dst..dst+n] with val.
+/// Returns 0 on success, 1 on out-of-bounds.
+pub fn jitMemFill(instance_opaque: *anyopaque, dst: u32, val: u32, n: u32) callconv(.c) u32 {
+    const instance: *Instance = @ptrCast(@alignCast(instance_opaque));
+    const m = instance.getMemory(0) catch return 1;
+    m.fill(dst, n, @truncate(val)) catch return 1;
+    return 0;
+}
+
+/// JIT helper: memory.copy — copy memory[src..src+n] to memory[dst..dst+n].
+/// Returns 0 on success, 1 on out-of-bounds.
+pub fn jitMemCopy(instance_opaque: *anyopaque, dst: u32, src: u32, n: u32) callconv(.c) u32 {
+    const instance: *Instance = @ptrCast(@alignCast(instance_opaque));
+    const m = instance.getMemory(0) catch return 1;
+    m.copyWithin(dst, src, n) catch return 1;
+    return 0;
+}
+
 // ================================================================
 // Public API
 // ================================================================
@@ -2425,12 +2822,18 @@ pub fn compileFunction(
 
     const trampoline_addr = @intFromPtr(&jitCallTrampoline);
     const mem_info_addr = @intFromPtr(&jitGetMemInfo);
+    const global_get_addr = @intFromPtr(&jitGlobalGet);
+    const global_set_addr = @intFromPtr(&jitGlobalSet);
+    const mem_grow_addr = @intFromPtr(&jitMemGrow);
+    const mem_fill_addr = @intFromPtr(&jitMemFill);
+    const mem_copy_addr = @intFromPtr(&jitMemCopy);
+    const call_indirect_addr = @intFromPtr(&jitCallIndirectTrampoline);
     const reg_ptr_offset: u32 = @intCast(@offsetOf(vm_mod.Vm, "reg_ptr"));
 
     var compiler = Compiler.init(alloc);
     defer compiler.deinit();
 
-    return compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr, self_func_idx, param_count, reg_ptr_offset);
+    return compiler.compile(reg_func, pool64, trampoline_addr, mem_info_addr, global_get_addr, global_set_addr, mem_grow_addr, mem_fill_addr, mem_copy_addr, call_indirect_addr, self_func_idx, param_count, reg_ptr_offset);
 }
 
 // ================================================================
