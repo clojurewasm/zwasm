@@ -27,3 +27,7 @@ issue11561.wast
 # Requires newer proposals (wide-arithmetic, custom page sizes)
 wide-arithmetic.wast
 memory-combos.wast
+
+# .wat files (no wast2json support, no assertions)
+issue11563.wat
+issue12170.wat
