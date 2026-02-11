@@ -290,6 +290,10 @@ def run_test_file(json_path, verbose=False):
                 continue
 
             expected = [parse_value(e) for e in cmd.get("expected", [])]
+            # Support "either" assertions (result can be any of the listed values)
+            either = cmd.get("either")
+            if either:
+                expected = [parse_value(e) for e in either]
             if any(isinstance(e, tuple) and e[0] == "skip" for e in expected):
                 skipped += 1
                 continue
@@ -303,17 +307,22 @@ def run_test_file(json_path, verbose=False):
                 continue
 
             # Compare results
-            match = True
-            if len(results) != len(expected):
-                match = False
+            if either:
+                # "either" = result must match any ONE of the listed alternatives
+                match = len(results) == 1 and any(results[0] == e for e in expected
+                                                   if not isinstance(e, tuple))
             else:
-                for r, e in zip(results, expected):
-                    if isinstance(e, tuple) and e[0] == "nan":
-                        if not is_nan_u64(r, e[1]):
-                            match = False
-                    else:
-                        if r != e:
-                            match = False
+                match = True
+                if len(results) != len(expected):
+                    match = False
+                else:
+                    for r, e in zip(results, expected):
+                        if isinstance(e, tuple) and e[0] == "nan":
+                            if not is_nan_u64(r, e[1]):
+                                match = False
+                        else:
+                            if r != e:
+                                match = False
 
             if match:
                 passed += 1

@@ -22,6 +22,7 @@ winch/
 many-results-with-exceptions.wast
 stack-args-exceptions.wast
 traps-skip-catch-all.wast
+issue11561.wast
 
 # Requires newer proposals (wide-arithmetic, custom page sizes)
 wide-arithmetic.wast
