@@ -99,6 +99,48 @@ pub const ImportEntry = struct {
     source: ImportSource,
 };
 
+/// Metadata for an imported function, extracted from the Wasm binary's import section.
+/// Returned by `inspectImportFunctions()` for embedder pre-analysis.
+pub const ImportFuncInfo = struct {
+    module: []const u8,
+    name: []const u8,
+    param_count: u32,
+    result_count: u32,
+};
+
+/// Decode a Wasm binary and return metadata for all imported functions.
+/// Useful for embedders that need param/result counts before instantiation
+/// (e.g., to set up host function trampolines).
+/// The returned slices reference `wasm_bytes` — caller must keep it alive.
+pub fn inspectImportFunctions(allocator: Allocator, wasm_bytes: []const u8) ![]const ImportFuncInfo {
+    var module = rt.module_mod.Module.init(allocator, wasm_bytes);
+    defer module.deinit();
+    try module.decode();
+
+    var count: usize = 0;
+    for (module.imports.items) |imp| {
+        if (imp.kind == .func) count += 1;
+    }
+    if (count == 0) return &[_]ImportFuncInfo{};
+
+    const result = try allocator.alloc(ImportFuncInfo, count);
+    var idx: usize = 0;
+    for (module.imports.items) |imp| {
+        if (imp.kind != .func) continue;
+        if (imp.index >= module.types.items.len) continue;
+        const functype = module.types.items[imp.index];
+        result[idx] = .{
+            .module = imp.module,
+            .name = imp.name,
+            .param_count = @intCast(functype.params.len),
+            .result_count = @intCast(functype.results.len),
+        };
+        idx += 1;
+    }
+    if (idx < count) return result[0..idx];
+    return result;
+}
+
 /// Options for configuring WASI modules.
 pub const WasiOptions = struct {
     /// Command-line arguments passed to the WASI module.
