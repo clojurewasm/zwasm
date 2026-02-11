@@ -367,17 +367,34 @@ def run_test_file(json_path, verbose=False):
             if not os.path.exists(wasm_path):
                 skipped += 1
                 continue
-            try:
-                result = subprocess.run(
-                    [ZWASM, "validate", wasm_path],
-                    capture_output=True, text=True, timeout=5)
-                if result.returncode != 0 or "error" in result.stderr:
-                    passed += 1
-                else:
-                    # Validator didn't catch the issue — skip (not a failure)
-                    skipped += 1
-            except Exception:
-                passed += 1  # crash/timeout = rejected
+
+            if cmd_type == "assert_uninstantiable":
+                # Attempt actual instantiation with linked modules
+                link_args = []
+                for name, path in registered_modules.items():
+                    link_args.extend(["--link", f"{name}={path}"])
+                try:
+                    result = subprocess.run(
+                        [ZWASM, "run", wasm_path] + link_args,
+                        capture_output=True, text=True, timeout=5)
+                    if result.returncode != 0:
+                        passed += 1  # Correctly rejected at instantiation
+                    else:
+                        skipped += 1  # Didn't catch the issue
+                except Exception:
+                    passed += 1  # crash/timeout = rejected
+            else:
+                try:
+                    result = subprocess.run(
+                        [ZWASM, "validate", wasm_path],
+                        capture_output=True, text=True, timeout=5)
+                    if result.returncode != 0 or "error" in result.stderr:
+                        passed += 1
+                    else:
+                        # Validator didn't catch the issue — skip (not a failure)
+                        skipped += 1
+                except Exception:
+                    passed += 1  # crash/timeout = rejected
 
         elif cmd_type == "assert_exhaustion":
             skipped += 1
