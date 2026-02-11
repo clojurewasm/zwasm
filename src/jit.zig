@@ -693,16 +693,18 @@ const a64 = struct {
 /// Map virtual register index to ARM64 physical register.
 /// r0-r4 → x22-x26 (callee-saved)
 /// r5-r11 → x9-x15 (caller-saved)
-/// r12+ → memory (via regs_ptr at x19)
+/// r12-r13 → x20-x21 (callee-saved, VM/INST ptrs moved to memory)
+/// r14+ → memory (via regs_ptr at x19)
 /// x27/x28 reserved for memory base/size cache.
 fn vregToPhys(vreg: u8) ?u5 {
     if (vreg <= 4) return @intCast(vreg + 22); // x22-x26
     if (vreg <= 11) return @intCast(vreg - 5 + 9); // x9-x15
+    if (vreg <= 13) return @intCast(vreg - 12 + 20); // x20-x21
     return null; // spill to memory
 }
 
 /// Maximum virtual registers mappable to physical registers.
-const MAX_PHYS_REGS: u8 = 12; // 5 callee-saved + 7 caller-saved
+const MAX_PHYS_REGS: u8 = 14; // 5 callee-saved + 7 caller-saved + 2 callee-saved
 
 /// Scratch register for temporaries.
 const SCRATCH: u5 = 8; // x8
@@ -710,8 +712,8 @@ const SCRATCH: u5 = 8; // x8
 const SCRATCH2: u5 = 16; // x16 (IP0)
 /// Registers saved in prologue.
 const REGS_PTR: u5 = 19; // x19
-const VM_PTR: u5 = 20; // x20
-const INST_PTR: u5 = 21; // x21
+// VM_PTR and INST_PTR stored in regs[reg_count+2] and regs[reg_count+3].
+// x20 and x21 are now used for vreg 12-13 (callee-saved).
 /// Memory cache (callee-saved, preserved across calls).
 const MEM_BASE: u5 = 27; // x27 — linear memory base pointer
 const MEM_SIZE: u5 = 28; // x28 — linear memory size in bytes
@@ -841,10 +843,21 @@ pub const Compiler = struct {
         return vregToPhys(vreg) orelse SCRATCH;
     }
 
+    /// Load VM pointer from memory slot into dst register.
+    fn emitLoadVmPtr(self: *Compiler, dst: u5) void {
+        self.emit(a64.ldr64(dst, REGS_PTR, @intCast((@as(u32, self.reg_count) + 2) * 8)));
+    }
+
+    /// Load instance pointer from memory slot into dst register.
+    fn emitLoadInstPtr(self: *Compiler, dst: u5) void {
+        self.emit(a64.ldr64(dst, REGS_PTR, @intCast((@as(u32, self.reg_count) + 3) * 8)));
+    }
+
     /// Spill only caller-saved virtual regs (r5-r11 → x9-x15) to memory.
-    /// Callee-saved regs (r0-r4 → x22-x26) are preserved by the callee.
+    /// Callee-saved regs (r0-r4 → x22-x26, r12-r13 → x20-x21) are preserved.
     fn spillCallerSaved(self: *Compiler) void {
-        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        // Only spill r5-r11 (caller-saved range); r12-r13 are callee-saved
+        const max: u8 = @intCast(@min(self.reg_count, 12));
         if (max <= 5) return;
         for (5..max) |i| {
             const vreg: u8 = @intCast(i);
@@ -857,8 +870,10 @@ pub const Compiler = struct {
     /// Spill a single vreg if it's callee-saved (r0-r4). No-op for caller-saved vregs
     /// (already spilled by spillCallerSaved) or unmapped vregs (always in memory).
     fn spillVregIfCalleeSaved(self: *Compiler, vreg: u8) void {
-        if (vreg < 5) {
-            if (vregToPhys(vreg)) |phys| {
+        if (vregToPhys(vreg)) |phys| {
+            // Spill if vreg is in a callee-saved register (not spilled by spillCallerSaved).
+            // Caller-saved range x9-x15 is already handled by spillCallerSaved.
+            if (phys < 9 or phys > 15) {
                 self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
             }
         }
@@ -867,7 +882,7 @@ pub const Compiler = struct {
     /// Reload only caller-saved virtual regs from memory (after function calls).
     /// Callee-saved regs (r0-r4 → x22-x26) are preserved across BLR.
     fn reloadCallerSaved(self: *Compiler) void {
-        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        const max: u8 = @intCast(@min(self.reg_count, 12)); // r5-r11 only (caller-saved)
         if (max <= 5) return;
         // r5-r11 (vreg 5..11) → x9-x15 (caller-saved, may be clobbered)
         for (5..max) |i| {
@@ -902,11 +917,11 @@ pub const Compiler = struct {
         // stp x27, x28, [sp, #-16]!
         self.emit(a64.stpPre(27, 28, 31, -2));
 
-        // Save args to callee-saved regs
-        // x0 = regs, x1 = vm, x2 = instance
+        // Save args: x0 = regs (→ callee-saved x19), x1 = vm, x2 = instance (→ memory slots)
         self.emit(a64.mov64(REGS_PTR, 0)); // x19 = regs
-        self.emit(a64.mov64(VM_PTR, 1)); // x20 = vm
-        self.emit(a64.mov64(INST_PTR, 2)); // x21 = instance
+        // Store VM and instance pointers to regs[reg_count+2] and [reg_count+3]
+        self.emit(a64.str64(1, REGS_PTR, @intCast((@as(u32, self.reg_count) + 2) * 8)));
+        self.emit(a64.str64(2, REGS_PTR, @intCast((@as(u32, self.reg_count) + 3) * 8)));
 
         // Load virtual registers from regs[] into physical registers
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
@@ -931,7 +946,7 @@ pub const Compiler = struct {
     fn emitLoadMemCache(self: *Compiler) void {
         // jitGetMemInfo(instance, out) — out = &regs[reg_count]
         // x0 = instance, x1 = &regs[reg_count]
-        self.emit(a64.mov64(0, INST_PTR));
+        self.emitLoadInstPtr(0);
         self.emit(a64.addImm64(1, REGS_PTR, @as(u12, @intCast(self.reg_count)) * 8));
         // Load jitGetMemInfo address into scratch and call
         const addr_instrs = a64.loadImm64(SCRATCH, self.mem_info_addr);
@@ -1814,7 +1829,7 @@ pub const Compiler = struct {
     fn emitGlobalGet(self: *Compiler, instr: RegInstr) void {
         self.spillCallerSaved();
         // Args: x0 = instance, w1 = global_idx
-        self.emit(a64.mov64(0, INST_PTR));
+        self.emitLoadInstPtr(0);
         self.emit(a64.movz32(1, @truncate(instr.operand), 0));
         // Call jitGlobalGet
         const addr_instrs = a64.loadImm64(SCRATCH, self.global_get_addr);
@@ -1831,7 +1846,7 @@ pub const Compiler = struct {
     fn emitGlobalSet(self: *Compiler, instr: RegInstr) void {
         self.spillCallerSaved();
         // Args: x0 = instance, w1 = global_idx, x2 = value
-        self.emit(a64.mov64(0, INST_PTR));
+        self.emitLoadInstPtr(0);
         self.emit(a64.movz32(1, @truncate(instr.operand), 0));
         const val_reg = self.getOrLoad(instr.rd, SCRATCH);
         self.emit(a64.mov64(2, val_reg));
@@ -1849,7 +1864,7 @@ pub const Compiler = struct {
     fn emitMemGrow(self: *Compiler, instr: RegInstr) void {
         self.spillCallerSaved();
         // Args: x0 = instance, x1 = pages (from rs1 vreg, truncated to 32-bit)
-        self.emit(a64.mov64(0, INST_PTR));
+        self.emitLoadInstPtr(0);
         const pages_reg = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(a64.mov32(1, pages_reg)); // zero-extend to w1
         // Call jitMemGrow
@@ -1872,7 +1887,7 @@ pub const Compiler = struct {
     fn emitMemFill(self: *Compiler, instr: RegInstr) void {
         self.spillCallerSaved();
         // Args: x0 = instance, w1 = dst (rd), w2 = val (rs1), w3 = n (rs2)
-        self.emit(a64.mov64(0, INST_PTR));
+        self.emitLoadInstPtr(0);
         const dst_reg = self.getOrLoad(instr.rd, SCRATCH);
         self.emit(a64.mov32(1, dst_reg));
         const val_reg = self.getOrLoad(instr.rs1, SCRATCH);
@@ -1893,7 +1908,7 @@ pub const Compiler = struct {
     fn emitMemCopy(self: *Compiler, instr: RegInstr) void {
         self.spillCallerSaved();
         // Args: x0 = instance, w1 = dst (rd), w2 = src (rs1), w3 = n (rs2)
-        self.emit(a64.mov64(0, INST_PTR));
+        self.emitLoadInstPtr(0);
         const dst_reg = self.getOrLoad(instr.rd, SCRATCH);
         self.emit(a64.mov32(1, dst_reg));
         const src_reg = self.getOrLoad(instr.rs1, SCRATCH);
@@ -1963,8 +1978,8 @@ pub const Compiler = struct {
         // 2. Set up trampoline args (C calling convention):
         //    x0 = vm, x1 = instance, x2 = regs, w3 = func_idx,
         //    w4 = rd (result reg), x5 = data_word, x6 = data2_word
-        self.emit(a64.mov64(0, VM_PTR));
-        self.emit(a64.mov64(1, INST_PTR));
+        self.emitLoadVmPtr(0);
+        self.emitLoadInstPtr(1);
         self.emit(a64.mov64(2, REGS_PTR));
         // Load func_idx into w3
         if (func_idx <= 0xFFFF) {
@@ -2035,8 +2050,8 @@ pub const Compiler = struct {
         // 2. Set up trampoline args (C calling convention, 8 args):
         //    x0=vm, x1=instance, x2=regs, w3=type_idx_table_idx,
         //    w4=result_reg, x5=data_word, x6=data2_word, w7=elem_idx
-        self.emit(a64.mov64(0, VM_PTR));
-        self.emit(a64.mov64(1, INST_PTR));
+        self.emitLoadVmPtr(0);
+        self.emitLoadInstPtr(1);
         self.emit(a64.mov64(2, REGS_PTR));
         // w3 = type_idx | (table_idx << 24) from instr.operand
         const type_idx_table_idx = instr.operand;
@@ -2095,7 +2110,7 @@ pub const Compiler = struct {
     /// Non-memory functions use cached REG_PTR_ADDR (x27) for &vm.reg_ptr.
     /// Memory functions recompute &vm.reg_ptr into SCRATCH each time.
     fn emitInlineSelfCall(self: *Compiler, rd: u8, data: RegInstr, data2: ?RegInstr) void {
-        const needed: u32 = @as(u32, self.reg_count) + 2;
+        const needed: u32 = @as(u32, self.reg_count) + 4;
         const needed_bytes: u32 = needed * 8;
 
         // 1. Spill only caller-saved regs (callee-saved preserved by callee's prologue)
@@ -2155,8 +2170,8 @@ pub const Compiler = struct {
         }
 
         // 6. Set up BL args: x0 = callee regs (already), x1 = vm, x2 = instance
-        self.emit(a64.mov64(1, VM_PTR));
-        self.emit(a64.mov64(2, INST_PTR));
+        self.emitLoadVmPtr(1);
+        self.emitLoadInstPtr(2);
 
         // 7. BL to self (backward branch to instruction 0)
         const bl_idx = self.currentIdx();
@@ -2228,14 +2243,17 @@ pub const Compiler = struct {
     /// Emit code to compute &vm.reg_ptr (VM_PTR + offset) into dst register.
     fn emitLoadRegPtrAddr(self: *Compiler, dst: u5) void {
         const offset = self.reg_ptr_offset;
+        // Load VM pointer from memory into dst first
+        self.emitLoadVmPtr(dst);
         if (offset <= 0xFFF) {
-            self.emit(a64.addImm64(dst, VM_PTR, @intCast(offset)));
+            self.emit(a64.addImm64(dst, dst, @intCast(offset)));
         } else {
-            self.emit(a64.movz64(dst, @truncate(offset), 0));
+            const tmp = if (dst == SCRATCH) SCRATCH2 else SCRATCH;
+            self.emit(a64.movz64(tmp, @truncate(offset), 0));
             if (offset > 0xFFFF) {
-                self.emit(a64.movk64(dst, @truncate(offset >> 16), 1));
+                self.emit(a64.movk64(tmp, @truncate(offset >> 16), 1));
             }
-            self.emit(a64.add64(dst, VM_PTR, dst));
+            self.emit(a64.add64(dst, dst, tmp));
         }
     }
 
@@ -2631,7 +2649,7 @@ pub fn jitCallTrampoline(
         if (wf.jit_code) |jc| {
             if (wf.reg_ir) |reg| {
                 const base = vm.reg_ptr;
-                const needed: usize = reg.reg_count + 2;
+                const needed: usize = reg.reg_count + 4; // +4: mem cache + VM/inst ptrs
                 if (base + needed > vm_mod.REG_STACK_SIZE) return 2; // StackOverflow
                 const callee_regs = vm.reg_stack[base .. base + needed];
                 vm.reg_ptr = base + needed;
@@ -2717,7 +2735,7 @@ pub fn jitCallIndirectTrampoline(
         if (wf.jit_code) |jc| {
             if (wf.reg_ir) |reg| {
                 const base = vm.reg_ptr;
-                const needed: usize = reg.reg_count + 2;
+                const needed: usize = reg.reg_count + 4; // +4: mem cache + VM/inst ptrs
                 if (base + needed > vm_mod.REG_STACK_SIZE) return 2;
                 const callee_regs = vm.reg_stack[base .. base + needed];
                 vm.reg_ptr = base + needed;
@@ -2927,8 +2945,11 @@ test "virtual register mapping" {
     // r5-r11 → x9-x15 (caller-saved)
     try testing.expectEqual(@as(u5, 9), vregToPhys(5).?);
     try testing.expectEqual(@as(u5, 15), vregToPhys(11).?);
-    // r12+ → null (spill)
-    try testing.expectEqual(@as(?u5, null), vregToPhys(12));
+    // r12-r13 → x20-x21 (callee-saved, repurposed from VM/INST ptrs)
+    try testing.expectEqual(@as(u5, 20), vregToPhys(12).?);
+    try testing.expectEqual(@as(u5, 21), vregToPhys(13).?);
+    // r14+ → null (spill)
+    try testing.expectEqual(@as(?u5, null), vregToPhys(14));
 }
 
 test "compile and execute constant return" {
@@ -2952,8 +2973,8 @@ test "compile and execute constant return" {
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
-    // Execute: regs[0] should become 42
-    var regs: [4]u64 = .{ 0, 0, 0, 0 };
+    // Execute: regs[0] should become 42 (needs reg_count+4 slots)
+    var regs: [5]u64 = .{ 0, 0, 0, 0, 0 };
     const result = jit_code.entry(&regs, undefined, undefined);
     try testing.expectEqual(@as(u64, 0), result); // success
     try testing.expectEqual(@as(u64, 42), regs[0]); // result
@@ -2984,7 +3005,7 @@ test "compile and execute i32 add" {
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
-    var regs: [4]u64 = .{ 10, 32, 0, 0 };
+    var regs: [7]u64 = .{ 10, 32, 0, 0, 0, 0, 0 };
     const result = jit_code.entry(&regs, undefined, undefined);
     try testing.expectEqual(@as(u64, 0), result);
     try testing.expectEqual(@as(u64, 42), regs[0]); // 10 + 32 = 42
@@ -3023,7 +3044,7 @@ test "compile and execute branch (LE_S + BR_IF_NOT)" {
 
     // n=0: 0 <= 1 is true → return 100
     {
-        var regs: [4]u64 = .{ 0, 0, 0, 0 };
+        var regs: [7]u64 = .{ 0, 0, 0, 0, 0, 0, 0 };
         const result = jit_code.entry(&regs, undefined, undefined);
         try testing.expectEqual(@as(u64, 0), result);
         try testing.expectEqual(@as(u64, 100), regs[0]);
@@ -3031,7 +3052,7 @@ test "compile and execute branch (LE_S + BR_IF_NOT)" {
 
     // n=1: 1 <= 1 is true → return 100
     {
-        var regs: [4]u64 = .{ 1, 0, 0, 0 };
+        var regs: [7]u64 = .{ 1, 0, 0, 0, 0, 0, 0 };
         const result = jit_code.entry(&regs, undefined, undefined);
         try testing.expectEqual(@as(u64, 0), result);
         try testing.expectEqual(@as(u64, 100), regs[0]);
@@ -3039,7 +3060,7 @@ test "compile and execute branch (LE_S + BR_IF_NOT)" {
 
     // n=10: 10 <= 1 is false → return 200
     {
-        var regs: [4]u64 = .{ 10, 0, 0, 0 };
+        var regs: [7]u64 = .{ 10, 0, 0, 0, 0, 0, 0 };
         const result = jit_code.entry(&regs, undefined, undefined);
         try testing.expectEqual(@as(u64, 0), result);
         try testing.expectEqual(@as(u64, 200), regs[0]);
@@ -3069,7 +3090,7 @@ test "compile and execute i32 division" {
 
     // 10 / 3 = 3
     {
-        var regs: [4]u64 = .{ 10, 3, 0, 0 };
+        var regs: [7]u64 = .{ 10, 3, 0, 0, 0, 0, 0 };
         const result = jit_code.entry(&regs, undefined, undefined);
         try testing.expectEqual(@as(u64, 0), result);
         try testing.expectEqual(@as(u64, 3), regs[0]);
@@ -3077,7 +3098,7 @@ test "compile and execute i32 division" {
 
     // Division by zero → error code 3
     {
-        var regs: [4]u64 = .{ 10, 0, 0, 0 };
+        var regs: [7]u64 = .{ 10, 0, 0, 0, 0, 0, 0 };
         const result = jit_code.entry(&regs, undefined, undefined);
         try testing.expectEqual(@as(u64, 3), result); // DivisionByZero
     }
@@ -3085,7 +3106,7 @@ test "compile and execute i32 division" {
     // -7 / 2 = -3 (signed)
     {
         const neg7: u32 = @bitCast(@as(i32, -7));
-        var regs: [4]u64 = .{ neg7, 2, 0, 0 };
+        var regs: [7]u64 = .{ neg7, 2, 0, 0, 0, 0, 0 };
         const result = jit_code.entry(&regs, undefined, undefined);
         try testing.expectEqual(@as(u64, 0), result);
         const expected: u32 = @bitCast(@as(i32, -3));
@@ -3116,7 +3137,7 @@ test "compile and execute i32 remainder" {
 
     // 10 % 3 = 1
     {
-        var regs: [4]u64 = .{ 10, 3, 0, 0 };
+        var regs: [7]u64 = .{ 10, 3, 0, 0, 0, 0, 0 };
         const result = jit_code.entry(&regs, undefined, undefined);
         try testing.expectEqual(@as(u64, 0), result);
         try testing.expectEqual(@as(u64, 1), regs[0]);
@@ -3124,7 +3145,7 @@ test "compile and execute i32 remainder" {
 
     // Division by zero → error code 3
     {
-        var regs: [4]u64 = .{ 10, 0, 0, 0 };
+        var regs: [7]u64 = .{ 10, 0, 0, 0, 0, 0, 0 };
         const result = jit_code.entry(&regs, undefined, undefined);
         try testing.expectEqual(@as(u64, 3), result); // DivisionByZero
     }
@@ -3183,15 +3204,15 @@ test "compile and execute memory load/store" {
     defer jit_code.deinit(alloc);
 
     // Execute: load from addr=0, offset=16 → should read 42
-    // regs needs +2 extra for memory cache
-    var regs: [4]u64 = .{ 0, 0, 0, 0 };
+    // regs needs +4 extra for memory cache + VM/instance pointers
+    var regs: [6]u64 = .{ 0, 0, 0, 0, 0, 0 };
     const result = jit_code.entry(&regs, undefined, @ptrCast(&inst));
     try testing.expectEqual(@as(u64, 0), result); // success
     try testing.expectEqual(@as(u64, 42), regs[0]); // loaded value
 
     // Execute: load from addr=84, offset=16 → addr+offset=100 → 0xDEADBEEF
     {
-        var regs2: [4]u64 = .{ 84, 0, 0, 0 };
+        var regs2: [6]u64 = .{ 84, 0, 0, 0, 0, 0 };
         const result2 = jit_code.entry(&regs2, undefined, @ptrCast(&inst));
         try testing.expectEqual(@as(u64, 0), result2);
         try testing.expectEqual(@as(u64, 0xDEADBEEF), regs2[0]);
@@ -3199,7 +3220,7 @@ test "compile and execute memory load/store" {
 
     // Out of bounds: addr=65535, offset=16 → 65551 > 65536
     {
-        var regs3: [4]u64 = .{ 65535, 0, 0, 0 };
+        var regs3: [6]u64 = .{ 65535, 0, 0, 0, 0, 0 };
         const result3 = jit_code.entry(&regs3, undefined, @ptrCast(&inst));
         try testing.expectEqual(@as(u64, 6), result3); // OutOfBoundsMemoryAccess
     }
@@ -3247,7 +3268,7 @@ test "compile and execute memory store then load" {
     defer jit_code.deinit(alloc);
 
     // Store 99, then load it back
-    var regs: [5]u64 = .{ 99, 0, 0, 0, 0 };
+    var regs: [7]u64 = .{ 99, 0, 0, 0, 0, 0, 0 };
     const result = jit_code.entry(&regs, undefined, @ptrCast(&inst));
     try testing.expectEqual(@as(u64, 0), result);
     try testing.expectEqual(@as(u64, 99), regs[0]);

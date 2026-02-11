@@ -2033,9 +2033,9 @@ pub const Vm = struct {
     ) WasmError!void {
         _ = func_ptr;
         // Set up register file on Vm's reg_stack
-        // Reserve +2 slots for JIT memory cache (mem_base, mem_size)
+        // Reserve +4 slots: +2 for JIT memory cache, +2 for VM/instance pointers
         const base = self.reg_ptr;
-        const needed: usize = reg.reg_count + 2;
+        const needed: usize = reg.reg_count + 4;
         if (base + needed > REG_STACK_SIZE) return error.Trap;
         const regs = self.reg_stack[base .. base + needed];
         self.reg_ptr = base + needed;
