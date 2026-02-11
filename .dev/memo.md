@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4 — COMPLETE
 - Source: ~15K LOC, 16 files, 147 tests all pass
 - Opcode: 225 core + 236 SIMD = 461, WASI: ~27
-- Spec: 30,001/30,686 (97.8%), E2E: 169/179 (94.4%), CI: ubuntu + macOS
+- Spec: 30,665/30,703 (99.9%), E2E: 178/181 (98.3%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -48,8 +48,9 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 
 ## Previous Task
 
-5E: E2E test porting & compliance tracking. 68 wasmtime misc_testsuite files ported,
-169/179 pass (94.4%). Fixed cross-module memory/table/global imports. Added compliance.yaml.
+5F: E2E compliance completion. Fixed table import remap off-by-one (+7 e2e),
+JIT spillCallerSaved crash (+262 spec), assert_uninstantiable detection (+19 spec).
+Spec: 97.8%→99.9%, E2E: 94.4%→98.3%.
 
 ## Known Bugs
 

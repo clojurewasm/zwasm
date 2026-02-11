@@ -13,7 +13,6 @@ Prefix: W## (to distinguish from CW's F## items).
 
 | ID   | Item                                | Source     | Trigger                               |
 |------|-------------------------------------|------------|---------------------------------------|
-| W1   | table.copy cross-table support      | CW F136    | Currently stub in CW                  |
 | W2   | table.init implementation           | CW F137    | Currently stub in CW                  |
 | W4   | WASI fd_readdir implementation      | CW gap     | WASI P1 completion (Stage 2)          |
 | W5   | WASI sock_* family                  | CW gap     | WASI P1 completion (Stage 2)          |
@@ -23,16 +22,15 @@ Prefix: W## (to distinguish from CW's F## items).
 
 | ID   | Item                                        | Fails | Root Cause                           | Resolution Approach                      |
 |------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
-| W8   | Cross-module type signature matching        | 5     | call_indirect across modules uses module-local type indices; imported function's type index doesn't match the calling module's type table | Implement type canonicalization: when importing a function, remap its type index to the equivalent entry in the importing module's type table. Compare type signatures structurally (param types + return types), not by index. See wasmtime `wasmtime-environ/src/module.rs` for reference. |
-| W9   | Cross-module table func ref remap           | 4     | When copying a table between modules, function references are remapped but some edge cases fail: (a) null refs in non-zero positions, (b) functions with mismatched type indices, (c) table.copy where source and dest are different imported tables | Fix edge cases in `types.zig registerImports()` table sharing logic. Need to handle: null-but-non-zero entries, type index remapping for copied functions, and multi-hop import chains (A imports from B which imports from C). |
+| W9   | Transitive import chains in --link          | 2     | Module $o imports table from $n which itself imports from $m. --link loads each linked module independently without resolving its own imports, so $n fails to load when used as a link target. | Support chained imports: when loading a linked module, also pass other linked modules as its import sources. Low priority — only affects 3+ module chains. |
 
 ## Test infrastructure (from E2E 5E)
 
 | ID   | Item                                        | Fails | Root Cause                           | Resolution Approach                      |
 |------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
-| W10  | assert_uninstantiable side effect tracking  | 1     | partial-init-table-segment.wast: first instantiation succeeds but has side effects on a shared table. Second module's assert_uninstantiable should see these side effects but our test runner creates independent batch processes per module. | Extend run_spec.py BatchRunner to support multi-module state within a single test file. When a new module command appears after assert_uninstantiable, preserve the table/memory state from the previous instantiation. Alternative: handle assert_uninstantiable as actual instantiation attempt (not just validation). |
-| W16  | wast2json NaN literal syntax                | 1     | simd/canonicalize-nan.wast uses NaN literal syntax (`nan:0x200000`) that wast2json 1.0.39 cannot parse | Upgrade to wast2json >= 1.0.40 (if available) or write a custom NaN literal pre-processor that converts the syntax before wast2json. Check wabt releases for fix. |
-| W17  | .wat file support in test runner            | 2     | issue11563.wat and issue12170.wat are raw WAT files, not WAST. run_spec.py only handles wast2json output (JSON + .wasm). | Add .wat support to run_spec.py: detect .wat files, compile with wat2wasm, run the resulting .wasm directly (no assertions — just verify it loads and runs without crash). |
+| W10  | Cross-process table side effects            | 1     | partial-init-table-segment.wast: failed instantiation should modify shared table, but each module runs in separate process. assert_uninstantiable detection fixed (5F.4), but side effect not visible. | Needs single-process multi-module protocol. Low priority — only 1 assertion affected. |
+| W16  | wast2json NaN literal syntax                | 0     | simd/canonicalize-nan.wast uses NaN syntax wast2json 1.0.39 can't parse. No upgrade available. | Blocked on wabt release. File skipped in conversion. |
+| W17  | .wat file support in test runner            | 0     | issue11563.wat (GC+exceptions) and issue12170.wat (SIMD smoke test) added to skip.txt. | Both require unimplemented proposals or have no assertions. |
 
 ## Wasm proposals (future stages)
 
