@@ -7,6 +7,11 @@ Benchmark target: **wasmtime**. Optimization target: ARM64 Mac first.
 NOT a ClojureWasm subproject. Design for the Zig ecosystem.
 Two delivery modes: `@import("zwasm")` library + `zwasm` CLI (like wasmtime).
 
+**Library Consumer Guarantee**: ClojureWasm depends on zwasm main via GitHub URL.
+The main branch must always keep CW fully functional (tests, e2e, benchmarks).
+All development happens on feature branches; merge to main requires CW verification.
+See `.claude/CLAUDE.md` § Branch Policy and Merge Gate Checklist.
+
 ## Stage 0: Extraction & Independence (COMPLETE)
 
 **Goal**: Standalone library + CLI, independent of ClojureWasm.

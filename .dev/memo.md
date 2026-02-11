@@ -14,6 +14,8 @@ Session handover document. Read at session start.
 - Embedder API: Vm type, inspectImportFunctions, WasmModule.loadWithImports
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
+- **main = stable**: CW depends on main via GitHub URL (v0.1.0 tag).
+  All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
 
 ## Task Queue
 

@@ -24,6 +24,24 @@ Zig 0.15.2. Memo: `.dev/memo.md`. Roadmap: `.dev/roadmap.md`.
   Bug fixes and one-time migrations do NOT need D## entries.
 - **Update `.dev/checklist.md`** when deferred items are resolved or added.
 
+## Branch Policy
+
+**main = stable release branch.** ClojureWasm depends on zwasm main via GitHub URL.
+Breaking main breaks CW for all users.
+
+- **All development on feature branches**: `git checkout -b <stage>/<task>` (e.g. `5/5.6-matrix-opt`)
+- **Commit freely to feature branches**: one task = one commit rule still applies
+- **Merge to main only after**:
+  1. `zig build test` passes (zwasm)
+  2. `bash test/spec/run.sh` passes (if interpreter/opcodes changed)
+  3. CW verification: `cd ~/ClojureWasm && zig build test && bash test/e2e/run_e2e.sh`
+     (update CW's build.zig.zon hash to point at the feature branch HEAD first)
+  4. `bash bench/run_bench.sh --quick` shows no regression
+- **Tag after milestones**: `git tag v0.X.Y` after merging significant features.
+  Update CW's build.zig.zon hash to the new tag.
+- **Orient step**: At session start, check if you're on main or a feature branch.
+  If on main with pending work, create a feature branch first.
+
 ## Autonomous Workflow
 
 **Default mode: Continuous autonomous execution.**
@@ -34,8 +52,11 @@ After session resume, continue automatically from where you left off.
 **1. Orient** (every iteration / session start)
 
 ```bash
-git log --oneline -3 && git status --short
+git log --oneline -3 && git status --short && git branch --show-current
 ```
+
+**Branch check**: If on `main` and about to start new work, create a feature branch first.
+See Branch Policy above.
 
 Read `.dev/memo.md` → look at `## Current Task`:
 - **Has design details** → skip Plan, go straight to Execute
@@ -118,6 +139,16 @@ Run before every commit:
 5. **checklist.md**: Resolve/add W## items
 6. **spec-support.md**: Update when implementing opcodes or WASI syscalls
 7. **memo.md**: Update per Complete step 1 format above
+
+### Merge Gate Checklist (feature branch → main)
+
+Run before merging to main (in addition to commit gate):
+
+1. **CW build**: `cd ~/ClojureWasm && zig build test` — compiles and passes
+2. **CW e2e**: `bash test/e2e/run_e2e.sh` — all e2e tests pass
+3. **CW portability**: `bash test/portability/run_compat.sh` — all pass
+4. **Tag**: `git tag v0.X.Y` if milestone warrants a version bump
+5. **CW hash update**: After tagging, update CW's `build.zig.zon` hash to new tag
 
 ### Stage Completion
 
