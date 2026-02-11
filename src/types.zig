@@ -501,11 +501,11 @@ fn registerImports(
                             return error.WasmInstantiateError;
                     },
                     .tag => {
-                        // Copy tag from source module
+                        // Copy tag preserving its identity (tag_id) for cross-module matching
                         const src_addr = src_module.instance.getExportTagAddr(imp.name) orelse
                             return error.ImportNotFound;
                         const src_tag = src_module.store.tags.items[src_addr];
-                        const addr = store.addTag(src_tag.type_idx) catch
+                        const addr = store.addTagWithId(src_tag.type_idx, src_tag.tag_id) catch
                             return error.WasmInstantiateError;
                         store.addExport(imp.module, imp.name, .tag, addr) catch
                             return error.WasmInstantiateError;

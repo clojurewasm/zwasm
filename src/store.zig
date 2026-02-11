@@ -203,6 +203,14 @@ pub const Tag = opcode.ExternalKind;
 /// Runtime exception tag — holds the type signature for throw/catch matching.
 pub const WasmTag = struct {
     type_idx: u32,
+    tag_id: u64, // globally unique identity for cross-module matching
+
+    var next_id: u64 = 0;
+    pub fn nextId() u64 {
+        const id = next_id;
+        next_id += 1;
+        return id;
+    }
 };
 
 /// An import-export binding in the store.
@@ -360,7 +368,14 @@ pub const Store = struct {
 
     pub fn addTag(self: *Store, type_idx: u32) !usize {
         const ptr = try self.tags.addOne(self.alloc);
-        ptr.* = .{ .type_idx = type_idx };
+        ptr.* = .{ .type_idx = type_idx, .tag_id = WasmTag.nextId() };
+        return self.tags.items.len - 1;
+    }
+
+    /// Add a tag preserving its original tag_id (for cross-module imports).
+    pub fn addTagWithId(self: *Store, type_idx: u32, tag_id: u64) !usize {
+        const ptr = try self.tags.addOne(self.alloc);
+        ptr.* = .{ .type_idx = type_idx, .tag_id = tag_id };
         return self.tags.items.len - 1;
     }
 

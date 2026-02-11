@@ -103,6 +103,12 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
                 try code.append(alloc, .{ .opcode = 0x03, .extra = arity_enc, .operand = pos + 1 });
                 try block_stack.append(alloc, .{ .kind = .loop, .ir_pos = pos });
             },
+            // Exception handling / tail call — bail to bytecode interpreter
+            0x08, 0x0A, 0x12, 0x13, 0x1F => {
+                code.deinit(alloc);
+                pool64.deinit(alloc);
+                return null;
+            },
             0x04 => { // if
                 const arity_enc = readBlockTypeEncoded(&reader) catch return error.InvalidWasm;
                 const pos: u32 = @intCast(code.items.len);

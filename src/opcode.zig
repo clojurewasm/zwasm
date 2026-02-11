@@ -69,6 +69,9 @@ pub const Opcode = enum(u8) {
     @"return" = 0x0F,
     call = 0x10,
     call_indirect = 0x11,
+    // Tail call proposal
+    return_call = 0x12,
+    return_call_indirect = 0x13,
 
     // Parametric
     drop = 0x1A,
@@ -679,7 +682,7 @@ test "Opcode — unknown byte produces non-named variant" {
     const is_known = switch (op) {
         .@"unreachable", .nop, .block, .loop, .@"if", .@"else", .end => true,
         .throw, .throw_ref, .try_table => true,
-        .br, .br_if, .br_table, .@"return", .call, .call_indirect => true,
+        .br, .br_if, .br_table, .@"return", .call, .call_indirect, .return_call, .return_call_indirect => true,
         .drop, .select, .select_t => true,
         .local_get, .local_set, .local_tee, .global_get, .global_set => true,
         .table_get, .table_set => true,

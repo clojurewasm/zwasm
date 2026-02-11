@@ -68,6 +68,8 @@ pub const WasmError = error{
     /// Internal signal: back-edge counting triggered JIT compilation mid-execution.
     /// callFunction catches this and re-executes the function via JIT.
     JitRestart,
+    /// Wasm exception thrown via `throw`/`throw_ref` — not caught by any try_table.
+    WasmException,
 };
 
 const OPERAND_STACK_SIZE = 4096;
@@ -84,10 +86,21 @@ const Frame = struct {
     instance: *Instance,
 };
 
+const MAX_CATCH_CLAUSES = 8;
+
+const CatchClause = struct {
+    kind: u8, // 0x00=catch, 0x01=catch_ref, 0x02=catch_all, 0x03=catch_all_ref
+    tag_id: u64, // for catch/catch_ref: globally unique tag identity
+    label_depth: u32, // relative label depth to branch to when matched
+};
+
 const Label = struct {
     arity: usize,
     op_stack_base: usize,
     target: LabelTarget,
+    // Exception handling: catch clauses for try_table labels
+    catch_count: u8 = 0,
+    catches: [MAX_CATCH_CLAUSES]CatchClause = undefined,
 };
 
 const LabelTarget = union(enum) {
@@ -180,10 +193,10 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
                 const count = reader.readU32() catch break;
                 for (0..count + 1) |_| _ = reader.readU32() catch break;
             },
-            .call, .local_get, .local_set, .local_tee,
+            .call, .return_call, .local_get, .local_set, .local_tee,
             .global_get, .global_set, .ref_func, .table_get, .table_set,
             => _ = reader.readU32() catch break,
-            .call_indirect => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; },
+            .call_indirect, .return_call_indirect => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; },
             .throw => _ = reader.readU32() catch break, // tag index
             .throw_ref => {},
             .try_table => {
@@ -256,6 +269,16 @@ pub const Profile = struct {
     }
 };
 
+/// Maximum exception payload values (16 should cover all practical cases).
+const MAX_EXCEPTION_VALUES = 16;
+
+/// In-flight exception data stored in VM during exception propagation.
+const PendingException = struct {
+    tag_id: u64, // globally unique tag identity
+    values: [MAX_EXCEPTION_VALUES]u64,
+    value_count: usize,
+};
+
 pub const REG_STACK_SIZE = 32768; // register file storage for register IR (256KB)
 
 pub const Vm = struct {
@@ -270,6 +293,7 @@ pub const Vm = struct {
     alloc: Allocator,
     current_instance: ?*Instance = null,
     current_branch_table: ?*BranchTable = null,
+    pending_exception: ?PendingException = null,
     profile: ?*Profile = null,
     trace: ?*trace_mod.TraceConfig = null,
 
@@ -295,6 +319,7 @@ pub const Vm = struct {
         self.reg_ptr = 0;
         self.current_instance = null;
         self.current_branch_table = null;
+        self.pending_exception = null;
     }
 
     /// Invoke an exported function by name.
@@ -653,7 +678,11 @@ pub const Vm = struct {
                 .@"return" => return,
                 .call => {
                     const func_idx = try reader.readU32();
-                    try self.doCall(instance, func_idx, reader);
+                    self.doCall(instance, func_idx, reader) catch |err| {
+                        if (err == error.WasmException and self.handleException(reader, instance))
+                            continue;
+                        return err;
+                    };
                 },
                 .call_indirect => {
                     const type_idx = try reader.readU32();
@@ -671,11 +700,97 @@ pub const Vm = struct {
                             return error.MismatchedSignatures;
                     }
 
-                    try self.doCallDirect(instance, func_ptr, reader);
+                    self.doCallDirect(instance, func_ptr, reader) catch |err| {
+                        if (err == error.WasmException and self.handleException(reader, instance))
+                            continue;
+                        return err;
+                    };
                 },
 
-                // ---- Exception handling (stub — full impl in 8.2-8.3) ----
-                .throw, .throw_ref, .try_table => return error.Trap,
+                // ---- Tail call (stub — trap for now) ----
+                .return_call => {
+                    _ = try reader.readU32(); // func_idx
+                    return error.Trap;
+                },
+                .return_call_indirect => {
+                    _ = try reader.readU32(); // type_idx
+                    _ = try reader.readU32(); // table_idx
+                    return error.Trap;
+                },
+
+                // ---- Exception handling ----
+                .throw => {
+                    const tag_idx = try reader.readU32();
+                    if (tag_idx >= instance.tagaddrs.items.len)
+                        return error.Trap;
+                    const tag_addr = instance.tagaddrs.items[tag_idx];
+                    const tag = instance.store.tags.items[tag_addr];
+                    const ft = instance.module.types.items[tag.type_idx];
+                    const param_count = ft.params.len;
+                    if (param_count > MAX_EXCEPTION_VALUES) return error.Trap;
+
+                    var exc = PendingException{
+                        .tag_id = tag.tag_id,
+                        .values = undefined,
+                        .value_count = param_count,
+                    };
+                    // Pop values in reverse (stack order → first param at index 0)
+                    var i: usize = param_count;
+                    while (i > 0) {
+                        i -= 1;
+                        exc.values[i] = self.popU64();
+                    }
+                    self.pending_exception = exc;
+                    // Try to handle in current function first
+                    if (self.handleException(reader, instance)) continue;
+                    return error.WasmException;
+                },
+                .throw_ref => {
+                    // TODO: implement in 8.4 (needs exnref value representation)
+                    return error.Trap;
+                },
+                .try_table => {
+                    const bt = try readBlockType(reader);
+                    const result_arity = blockTypeArity(bt, instance);
+                    // Read catch clauses
+                    const n_catches = try reader.readU32();
+                    if (n_catches > MAX_CATCH_CLAUSES) return error.Trap;
+                    var catches: [MAX_CATCH_CLAUSES]CatchClause = undefined;
+                    for (0..n_catches) |ci| {
+                        const kind = try reader.readByte();
+                        var tid: u64 = 0;
+                        if (kind == 0x00 or kind == 0x01) {
+                            const tidx = try reader.readU32();
+                            if (tidx >= instance.tagaddrs.items.len) return error.Trap;
+                            const tag_addr = instance.tagaddrs.items[tidx];
+                            tid = instance.store.tags.items[tag_addr].tag_id;
+                        }
+                        const label_depth = try reader.readU32();
+                        catches[ci] = .{ .kind = kind, .tag_id = tid, .label_depth = label_depth };
+                    }
+                    // Push label like block, but with catch clause info
+                    const body_start = reader.pos;
+                    var end_reader: Reader = undefined;
+                    if (self.current_branch_table) |cbt| {
+                        if (cbt.end_targets.get(body_start)) |end_pos| {
+                            end_reader = .{ .bytes = reader.bytes, .pos = end_pos };
+                        } else {
+                            end_reader = reader.*;
+                            try skipToEnd(&end_reader);
+                        }
+                    } else {
+                        end_reader = reader.*;
+                        try skipToEnd(&end_reader);
+                    }
+                    var label = Label{
+                        .arity = result_arity,
+                        .op_stack_base = self.op_ptr,
+                        .target = .{ .forward = end_reader },
+                    };
+                    label.catch_count = @intCast(n_catches);
+                    label.catches = catches;
+                    try self.pushLabel(label);
+                },
 
                 // ---- Parametric ----
                 .drop => _ = self.pop(),
@@ -1939,7 +2054,15 @@ pub const Vm = struct {
                 });
 
                 const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
-                try self.execute(&body_reader, callee_inst);
+                self.execute(&body_reader, callee_inst) catch |err| {
+                    // On any error, unwind callee frame before propagating
+                    const frame = self.popFrame();
+                    self.label_ptr = frame.label_stack_base;
+                    self.op_ptr = frame.op_stack_base;
+                    self.current_branch_table = saved_bt;
+                    reader.* = frame.return_reader;
+                    return err;
+                };
 
                 // Move results to correct position
                 const frame = self.popFrame();
@@ -3395,7 +3518,13 @@ pub const Vm = struct {
                         .op_stack_base = self.op_ptr,
                         .target = .{ .ir_forward = @intCast(ir.code.len) },
                     });
-                    try self.executeIR(ir.code, ir.pool64, callee_inst);
+                    self.executeIR(ir.code, ir.pool64, callee_inst) catch |err| {
+                        const f = self.popFrame();
+                        self.label_ptr = f.label_stack_base;
+                        self.op_ptr = f.op_stack_base;
+                        self.current_branch_table = saved_bt;
+                        return err;
+                    };
                 } else {
                     // Fallback to old path
                     if (wf.branch_table == null) {
@@ -3409,7 +3538,13 @@ pub const Vm = struct {
                         .op_stack_base = self.op_ptr,
                         .target = .{ .forward = body_reader },
                     });
-                    try self.execute(&body_reader, callee_inst);
+                    self.execute(&body_reader, callee_inst) catch |err| {
+                        const f = self.popFrame();
+                        self.label_ptr = f.label_stack_base;
+                        self.op_ptr = f.op_stack_base;
+                        self.current_branch_table = saved_bt;
+                        return err;
+                    };
                 }
 
                 const frame = self.popFrame();
@@ -3799,6 +3934,78 @@ pub const Vm = struct {
     fn peekLabel(self: *Vm, depth: u32) Label {
         return self.label_stack[self.label_ptr - 1 - depth];
     }
+
+    /// Search the current function's label stack for a try_table with a matching
+    /// catch clause for the pending exception. If found, unwind to the catch
+    /// target and return true (caller should continue execution). If not found,
+    /// return false (caller should propagate the exception).
+    fn handleException(self: *Vm, reader: *Reader, _: *Instance) bool {
+        const exc = self.pending_exception orelse return false;
+        const frame = self.peekFrame();
+        const label_base = frame.label_stack_base;
+
+        // Search labels from innermost to outermost in current frame
+        var scan = self.label_ptr;
+        while (scan > label_base) {
+            scan -= 1;
+            const label = self.label_stack[scan];
+            if (label.catch_count == 0) continue;
+
+            // This is a try_table label — check catch clauses
+            for (label.catches[0..label.catch_count]) |clause| {
+                const matched = switch (clause.kind) {
+                    0x00, 0x01 => clause.tag_id == exc.tag_id, // catch / catch_ref
+                    0x02, 0x03 => true, // catch_all / catch_all_ref
+                    else => false,
+                };
+                if (!matched) continue;
+
+                // Match found! The catch clause's label_depth is relative to
+                // the try_table's enclosing scope (before the try_table pushes
+                // its own label). So depth 0 = the block enclosing the try_table.
+                if (scan < label_base + 1 + clause.label_depth) continue;
+                const target_label_idx = scan - 1 - clause.label_depth;
+
+                const target_label = self.label_stack[target_label_idx];
+
+                // Unwind operand stack to target label's base
+                self.op_ptr = target_label.op_stack_base;
+
+                // Push exception payload values
+                if (clause.kind == 0x00 or clause.kind == 0x01) {
+                    // catch/catch_ref: push tag parameter values
+                    for (0..exc.value_count) |vi| {
+                        self.op_stack[self.op_ptr] = @as(u128, exc.values[vi]);
+                        self.op_ptr += 1;
+                    }
+                }
+                // catch_ref/catch_all_ref: also push exnref
+                if (clause.kind == 0x01 or clause.kind == 0x03) {
+                    // TODO: push actual exnref value (for now push a non-null sentinel)
+                    self.op_stack[self.op_ptr] = 1; // placeholder exnref
+                    self.op_ptr += 1;
+                }
+
+                // Branch to the target label and consume it (like br)
+                switch (target_label.target) {
+                    .forward => |r| {
+                        reader.* = r;
+                        self.label_ptr = target_label_idx;
+                    },
+                    .loop_start => |r| {
+                        reader.* = r;
+                        // For loops: keep the loop label for re-entry
+                        self.label_ptr = target_label_idx + 1;
+                    },
+                    .ir_forward, .ir_loop_start => {},
+                }
+
+                self.pending_exception = null;
+                return true;
+            }
+        }
+        return false; // no matching catch found in this frame
+    }
 };
 
 // ============================================================
@@ -3891,10 +4098,10 @@ fn skipToEnd(reader: *Reader) !void {
                 const count = try reader.readU32();
                 for (0..count + 1) |_| _ = try reader.readU32();
             },
-            .call, .local_get, .local_set, .local_tee,
+            .call, .return_call, .local_get, .local_set, .local_tee,
             .global_get, .global_set, .ref_func, .table_get, .table_set,
             => _ = try reader.readU32(),
-            .call_indirect => { _ = try reader.readU32(); _ = try reader.readU32(); },
+            .call_indirect, .return_call_indirect => { _ = try reader.readU32(); _ = try reader.readU32(); },
             .throw => _ = try reader.readU32(),
             .throw_ref => {},
             .try_table => {
@@ -3973,10 +4180,10 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
                 const count = try reader.readU32();
                 for (0..count + 1) |_| _ = try reader.readU32();
             },
-            .call, .local_get, .local_set, .local_tee,
+            .call, .return_call, .local_get, .local_set, .local_tee,
             .global_get, .global_set, .ref_func, .table_get, .table_set,
             => _ = try reader.readU32(),
-            .call_indirect => { _ = try reader.readU32(); _ = try reader.readU32(); },
+            .call_indirect, .return_call_indirect => { _ = try reader.readU32(); _ = try reader.readU32(); },
             .throw => _ = try reader.readU32(),
             .throw_ref => {},
             .try_table => {
@@ -5301,4 +5508,145 @@ test "Profile — disabled by default (no overhead)" {
     var results = [_]u64{0};
     try vm.invoke(&inst, "add", &args, &results);
     try testing.expectEqual(@as(u64, 7), results[0]);
+}
+
+test "Exception — simple throw and catch" {
+    // Module: 2 types, 1 tag(type=0), 1 func(type=1 -> i32):
+    //   block void
+    //     try_table (result i32) (catch tag=0 label=0)
+    //       throw tag=0
+    //       i32.const 42  (dead code)
+    //     end
+    //     return
+    //   end
+    //   i32.const 23
+    //   end
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        // Type section (id=1)
+        0x01, 0x08,
+        0x02, // 2 types
+        0x60, 0x00, 0x00, // type[0]: () -> ()
+        0x60, 0x00, 0x01, 0x7f, // type[1]: () -> (i32)
+        // Function section (id=3)
+        0x03, 0x02, 0x01, 0x01, // 1 function, type index 1
+        // Tag section (id=13)
+        0x0d, 0x03, 0x01, 0x00, 0x00, // 1 tag, attr=0, type_idx=0
+        // Export section (id=7)
+        0x07, 0x08, 0x01, // 1 export
+        0x04, 0x74, 0x65, 0x73, 0x74, // name "test"
+        0x00, 0x00, // func export, index 0
+        // Code section (id=10)
+        0x0a, 0x15, 0x01, // 1 body
+        0x13, // body size = 19 bytes
+        0x00, // 0 locals
+        // block void
+        0x02, 0x40,
+        // try_table (result i32) 1 catch: kind=0x00, tag=0, label=0
+        0x1f, 0x7f, 0x01, 0x00, 0x00, 0x00,
+        // throw tag=0
+        0x08, 0x00,
+        // i32.const 42 (dead code for type validation)
+        0x41, 0x2a,
+        // end (try_table)
+        0x0b,
+        // return
+        0x0f,
+        // end (block)
+        0x0b,
+        // i32.const 23
+        0x41, 0x17,
+        // end (function)
+        0x0b,
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "test", &.{}, &results);
+    try testing.expectEqual(@as(u64, 23), results[0]);
+}
+
+test "Exception — cross-function throw with i32 param" {
+    // Module: tag $e(i32), func $do_throw(i32) { throw $e(local.get 0) },
+    //         func "test"(i32)(i32) {
+    //           block (result i32) {
+    //             try_table (result i32) (catch $e label=0) {
+    //               call $do_throw(local.get 0)
+    //               i32.const 0
+    //             }
+    //             return
+    //           }
+    //         }
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        // Type section (id=1)
+        0x01, 0x0d,
+        0x03, // 3 types
+        0x60, 0x01, 0x7f, 0x00, // type[0]: (i32) -> ()  [tag type + $do_throw]
+        0x60, 0x01, 0x7f, 0x01, 0x7f, // type[1]: (i32) -> (i32)  ["test"]
+        0x60, 0x00, 0x00, // type[2]: () -> ()
+        // Function section (id=3)
+        0x03, 0x03, 0x02, 0x00, 0x01, // 2 functions: type 0, type 1
+        // Tag section (id=13)
+        0x0d, 0x03, 0x01, 0x00, 0x00, // 1 tag, attr=0, type_idx=0 (i32)->()
+        // Export section (id=7)
+        0x07, 0x08, 0x01, // 1 export
+        0x04, 0x74, 0x65, 0x73, 0x74, // name "test"
+        0x00, 0x01, // func export, index 1
+        // Code section (id=10, size=28)
+        0x0a, 0x1c, 0x02, // 2 bodies
+        // Body 0: $do_throw — size=6
+        0x06, 0x00, // size=6, 0 locals
+        0x20, 0x00, // local.get 0
+        0x08, 0x00, // throw tag=0
+        0x0b, // end
+        // Body 1: "test" — size=19
+        0x13, 0x00, // size=19, 0 locals
+        // block (result i32)
+        0x02, 0x7f,
+        // try_table (result i32) 1 catch: kind=0x00, tag=0, label=0
+        0x1f, 0x7f, 0x01, 0x00, 0x00, 0x00,
+        // local.get 0
+        0x20, 0x00,
+        // call $do_throw (func 0)
+        0x10, 0x00,
+        // i32.const 0 (dead code)
+        0x41, 0x00,
+        // end (try_table)
+        0x0b,
+        // return
+        0x0f,
+        // end (block)
+        0x0b,
+        // end (function)
+        0x0b,
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    var args = [_]u64{42};
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "test", &args, &results);
+    try testing.expectEqual(@as(u64, 42), results[0]);
 }

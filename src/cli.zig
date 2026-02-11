@@ -1060,6 +1060,7 @@ fn valTypeName(vt: opcode.ValType) []const u8 {
         .v128 => "v128",
         .funcref => "funcref",
         .externref => "externref",
+        .exnref => "exnref",
     };
 }
 
