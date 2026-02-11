@@ -1,0 +1,150 @@
+# WebAssembly Spec Repository Catalog
+# Path: ~/Documents/OSS/WebAssembly/
+# Last updated: 2026-02-11
+#
+# Usage: Look up a repo when you need to read the official spec or tests
+# for a specific proposal. Each repo is a fork of WebAssembly/spec with
+# the proposal merged into document/core/ and test/core/.
+
+repositories:
+
+  # === Core Spec ===
+
+  spec:
+    purpose: "Core spec (MVP + 2.0), official test suite, reference interpreter"
+    key_paths:
+      - document/core/          # Spec source (RST)
+      - test/core/              # Official spec test suite (.wast)
+      - interpreter/            # OCaml reference interpreter
+      - spectec/                # Spec-as-code (SpecTec DSL)
+    use_when: "MVP/2.0 semantics questions, spec test reference, validation rules"
+
+  # === Wasm 3.0 Proposals (finished) ===
+
+  tail-call:
+    purpose: "Tail call proposal: return_call, return_call_indirect"
+    key_paths:
+      - proposals/tail-call/Overview.md
+      - test/core/return_call.wast
+      - test/core/return_call_indirect.wast
+    use_when: "Implementing tail call instructions, stack frame reuse"
+    wasm_version: "3.0"
+
+  function-references:
+    purpose: "Typed function references: call_ref, ref.as_non_null, br_on_null"
+    key_paths:
+      - proposals/function-references/Overview.md
+      - test/core/                # 106 test files with func-ref extensions
+    use_when: "Implementing typed refs, call_ref, local init tracking"
+    wasm_version: "3.0"
+    note: "Prerequisite for GC proposal"
+
+  gc:
+    purpose: "GC proposal: struct, array, i31ref, subtyping, casts"
+    key_paths:
+      - proposals/gc/Overview.md
+      - proposals/gc/MVP.md       # MVP subset (what engines actually ship)
+      - test/core/                # 109 test files including gc/ subdirectory
+    use_when: "Implementing GC types, struct/array ops, type hierarchy, casts"
+    wasm_version: "3.0"
+    note: "Largest proposal. Depends on function-references."
+
+  multi-memory:
+    purpose: "Multiple memories: memidx on all memory instructions"
+    key_paths:
+      - proposals/multi-memory/Overview.md
+      - test/core/multi-memory/   # 37 dedicated test files
+    use_when: "Adding memidx to load/store/memory.size/grow/copy/fill/init"
+    wasm_version: "3.0"
+
+  relaxed-simd:
+    purpose: "Relaxed SIMD: 20 non-deterministic SIMD operations"
+    key_paths:
+      - proposals/relaxed-simd/Overview.md
+      - test/core/relaxed-simd/   # 7 test files
+    use_when: "Implementing relaxed swizzle, trunc, FMA, laneselect, min/max"
+    wasm_version: "3.0"
+    note: "Non-deterministic results. Maps well to ARM64 NEON."
+
+  exception-handling:
+    purpose: "Exception handling: try_table, throw, throw_ref, exnref, tags"
+    key_paths:
+      - proposals/exception-handling/Overview.md
+      - test/core/tag.wast
+      - test/core/throw.wast
+      - test/core/throw_ref.wast
+      - test/core/try_table.wast
+    use_when: "Implementing exceptions, tag section, try_table control flow"
+    wasm_version: "3.0"
+
+  memory64:
+    purpose: "Memory64 + table64: i64 addresses, extended limits, addrtype"
+    key_paths:
+      - proposals/memory64/Overview.md
+      - proposals/extended-const/Overview.md    # Also in this repo
+      - proposals/branch-hinting/Overview.md    # Also in this repo
+      - proposals/annotations/Overview.md       # Also in this repo
+      - test/core/memory64.wast
+      - test/core/float_memory64.wast
+    use_when: "Implementing 64-bit memory, extended-const, branch-hinting"
+    wasm_version: "3.0"
+    note: "Multi-proposal repo. Contains extended-const + branch-hinting + annotations too."
+
+  # === In-Progress Proposals ===
+
+  threads:
+    purpose: "Shared memory, atomics, wait/notify, fence"
+    key_paths:
+      - proposals/threads/Overview.md
+      - test/core/threads/        # 13 test files
+    use_when: "Implementing atomic ops, shared memory, wait/notify"
+    wasm_version: null            # Phase 4 but not yet in a ratified version
+    note: "68 atomic opcodes. Requires threading model decision."
+
+  # === Ecosystem & Tooling ===
+
+  proposals:
+    purpose: "Meta-repo: proposal index, finished/active/inactive lists"
+    key_paths:
+      - finished-proposals.md
+      - README.md                 # Active proposals with phase status
+      - inactive-proposals.md
+    use_when: "Checking proposal phase status, finding new proposals"
+
+  WASI:
+    purpose: "WASI spec: Preview 1 (legacy) and Preview 2 (component model)"
+    key_paths:
+      - legacy/preview1/docs.md   # WASI P1 syscall documentation
+      - wasip2/                    # WASI P2 (component model based)
+    use_when: "WASI syscall semantics, adding new WASI functions"
+
+  component-model:
+    purpose: "Component Model spec: WIT, canonical ABI, linking"
+    key_paths:
+      - design/                   # High-level design docs
+      - spec/                     # Formal spec
+    use_when: "Component Model implementation (W7)"
+
+  design:
+    purpose: "Original Wasm design documents, MVP spec, future features"
+    key_paths:
+      - MVP.md
+      - FutureFeatures.md
+      - BinaryEncoding.md
+    use_when: "Historical context, MVP design rationale"
+
+  tool-conventions:
+    purpose: "Tool conventions: linking, debugging, C ABI, EH scheme"
+    key_paths:
+      - Linking.md
+      - DynamicLinking.md
+      - EHScheme.md
+      - Debugging.md
+    use_when: "Toolchain interop, linking conventions, DWARF debug info"
+
+  wabt:
+    purpose: "WebAssembly Binary Toolkit: wast2json, wasm2wat, wat2wasm"
+    key_paths:
+      - src/                      # C++ source
+      - test/                     # Test suite
+    use_when: "wast2json issues (W16), binary format questions, test conversion"
