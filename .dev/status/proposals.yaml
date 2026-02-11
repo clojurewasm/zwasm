@@ -1,0 +1,343 @@
+# Wasm Proposal Catalog — zwasm
+# Source: github.com/WebAssembly/proposals/finished-proposals.md
+# Last updated: 2026-02-11
+#
+# Schema:
+#   status: complete | partial | todo | skip
+#   opcodes: number of NEW opcodes (0 = extends existing instructions)
+#   new_types: new type constructs introduced
+#   complexity: trivial | low | medium | high | very_high
+#   estimated_loc: rough LOC estimate for zwasm implementation
+#   dependencies: other proposals required first
+#   repo: local repo name under ~/Documents/OSS/WebAssembly/
+#   spec_doc: path to Overview.md within repo
+#   summary: path to zwasm summary file
+#   checklist_id: W## cross-ref in checklist.md (null if none)
+#   note: implementation-relevant notes
+
+metadata:
+  spec_repos: ~/Documents/OSS/WebAssembly/
+  last_sync: "2026-02-11"
+  wasm_3_0_ratified: "2024-07-10"  # WG vote date for first batch
+  wasm_3_0_batch_2: "2025-07-23"   # exception-handling, js-string-builtins, memory64
+
+# ============================================================
+# Wasm 2.0 (implemented) — summary only
+# ============================================================
+wasm_2.0:
+  sign_extension:
+    status: complete
+    opcodes: 7
+    complexity: trivial
+  nontrapping_fptoint:
+    status: complete
+    opcodes: 8
+    complexity: trivial
+  bulk_memory:
+    status: partial
+    opcodes: 9
+    complexity: low
+    blockers: ["W2: table.init edge cases"]
+  reference_types:
+    status: complete
+    opcodes: 5
+    complexity: low
+  multi_value:
+    status: complete
+    opcodes: 0
+    complexity: medium
+  fixed_width_simd:
+    status: complete
+    opcodes: 236
+    complexity: high
+
+# ============================================================
+# Wasm 3.0 (finished proposals) — detailed metadata
+# ============================================================
+wasm_3.0:
+
+  tail_call:
+    status: todo
+    opcodes: 2                    # return_call (0x12), return_call_indirect (0x13)
+    new_types: []
+    complexity: medium
+    estimated_loc: 200
+    dependencies: []
+    repo: tail-call
+    spec_doc: proposals/tail-call/Overview.md
+    summary: .dev/references/proposals/tail-call.md
+    checklist_id: null
+    test_files:
+      - test/core/return_call.wast
+      - test/core/return_call_indirect.wast
+    note: >
+      Stack frame reuse semantics. Both instructions are stack-polymorphic.
+      Cross-module tail calls guaranteed. JIT needs tail-call-aware codegen
+      (reuse caller frame instead of push). function-references adds
+      return_call_ref later.
+
+  extended_const:
+    status: todo
+    opcodes: 0                    # No new opcodes — extends constant expressions
+    new_types: []
+    complexity: trivial
+    estimated_loc: 50
+    dependencies: []
+    repo: null                    # In memory64 repo: proposals/extended-const/
+    spec_doc: proposals/extended-const/Overview.md  # (in memory64 repo)
+    summary: .dev/references/proposals/extended-const.md
+    checklist_id: null
+    test_files: []                # Tests embedded in existing global/data init tests
+    note: >
+      Adds i32.add/sub/mul and i64.add/sub/mul to constant expressions.
+      Used in global initializers and data segment offsets. Trivial — just
+      allow these existing opcodes in validation of const exprs.
+
+  function_references:
+    status: todo
+    opcodes: 5                    # call_ref (0x14), return_call_ref (0x15),
+                                  # ref.as_non_null (0xd4), br_on_null (0xd5),
+                                  # br_on_non_null (0xd6)
+    new_types:
+      - "(ref null? heaptype)"    # Generalized reference types
+    complexity: high
+    estimated_loc: 800
+    dependencies: [reference_types]
+    repo: function-references
+    spec_doc: proposals/function-references/Overview.md
+    summary: .dev/references/proposals/function-references.md
+    checklist_id: null
+    test_files:
+      - test/core/  # 106 test files (full suite with func-ref extensions)
+    note: >
+      Prerequisite for GC. Typed function references (ref $t), call_ref for
+      direct typed dispatch (no table lookup). Local initialization tracking
+      for non-defaultable types. Table initializer expressions required for
+      non-nullable ref tables. return_call_ref requires tail_call.
+
+  gc:
+    status: todo
+    opcodes: 26                   # struct.new/new_default/get/get_s/get_u/set (6),
+                                  # array.new/new_default/new_fixed/new_data/new_elem/
+                                  # get/get_s/get_u/set/len/fill/copy/init_data/init_elem (14),
+                                  # ref.test/ref.cast (null variants) (4),
+                                  # br_on_cast/br_on_cast_fail (2),
+                                  # any.convert_extern/extern.convert_any (2),
+                                  # ref.i31/i31.get_s/i31.get_u (3),
+                                  # ref.eq (1) — total ~32 counting variants
+    new_types:
+      - "struct"                  # Heterogeneous fields, static index
+      - "array"                   # Homogeneous elements, dynamic index
+      - "i31ref"                  # Tagged 31-bit integer (unboxed)
+      - "anyref/eqref/structref/arrayref"  # Abstract heap types
+      - "i8/i16"                  # Packed storage types
+      - "(rec ...)"               # Recursive type groups
+    complexity: very_high
+    estimated_loc: 3000
+    dependencies: [function_references, reference_types]
+    repo: gc
+    spec_doc: proposals/gc/Overview.md  # Also: proposals/gc/MVP.md
+    summary: .dev/references/proposals/gc.md
+    checklist_id: null
+    test_files:
+      - test/core/  # 109 test files including gc/ subdirectory
+    note: >
+      Largest proposal. Struct/array heap objects with GC. Subtyping with
+      depth+width rules. Recursive type groups. Cast instructions
+      (ref.test, ref.cast, br_on_cast). i31ref for unboxed small ints.
+      Requires actual garbage collector implementation. Consider
+      reference-counting or tracing GC strategy.
+
+  multi_memory:
+    status: todo
+    opcodes: 0                    # No new opcodes — adds memidx to existing instructions
+    new_types: []
+    complexity: medium
+    estimated_loc: 400
+    dependencies: [bulk_memory]
+    repo: multi-memory
+    spec_doc: proposals/multi-memory/Overview.md
+    summary: .dev/references/proposals/multi-memory.md
+    checklist_id: null
+    test_files:
+      - test/core/multi-memory/  # 37 dedicated test files
+    note: >
+      Removes single-memory restriction. All load/store/memory.size/grow/copy/
+      fill/init get memidx immediate (default 0 for backward compat). Binary
+      format uses memarg bit 6 for memidx encoding. SIMD load/store also
+      extended. Symmetric with multi-table from reference_types.
+
+  relaxed_simd:
+    status: todo
+    opcodes: 20                   # All under 0xfd prefix (0x100-0x113)
+    new_types: []
+    complexity: high
+    estimated_loc: 600
+    dependencies: [fixed_width_simd]
+    repo: relaxed-simd
+    spec_doc: proposals/relaxed-simd/Overview.md
+    summary: .dev/references/proposals/relaxed-simd.md
+    checklist_id: null
+    test_files:
+      - test/core/relaxed-simd/  # 7 test files
+    note: >
+      Implementation-defined SIMD operations for hardware-native performance.
+      Non-deterministic results (NaN handling, out-of-range, FMA rounding).
+      Categories: relaxed swizzle, relaxed trunc, FMA, laneselect,
+      min/max, Q15 multiply, dot products. ARM64 NEON maps directly for
+      most ops.
+
+  branch_hinting:
+    status: todo
+    opcodes: 0                    # Custom section only, no new opcodes
+    new_types: []
+    complexity: trivial
+    estimated_loc: 80
+    dependencies: []
+    repo: null                    # In memory64 repo: proposals/branch-hinting/
+    spec_doc: proposals/branch-hinting/Overview.md  # (in memory64 repo)
+    summary: .dev/references/proposals/branch-hinting.md
+    checklist_id: null
+    test_files: []
+    note: >
+      Custom section "metadata.code.branch_hint" with likely/unlikely hints
+      for br_if and if instructions. No semantic change — hints are advisory.
+      Parse custom section, store per-instruction hint, use in JIT codegen
+      for code layout optimization.
+
+  exception_handling:
+    status: todo
+    opcodes: 3                    # try_table (0x1f), throw (0x08), throw_ref (0x0a)
+                                  # Plus 4 catch clause forms (catch, catch_ref,
+                                  # catch_all, catch_all_ref) as sub-opcodes
+    new_types:
+      - "exnref"                  # Exception reference type (ref null exn)
+      - "tag"                     # Tag type (section 13) for exception signatures
+    complexity: high
+    estimated_loc: 800
+    dependencies: []
+    repo: exception-handling
+    spec_doc: proposals/exception-handling/Overview.md
+    summary: .dev/references/proposals/exception-handling.md
+    checklist_id: W13
+    test_files:
+      - test/core/tag.wast
+      - test/core/throw.wast
+      - test/core/throw_ref.wast
+      - test/core/try_table.wast
+    note: >
+      New Tag section (section 13, between Memory and Global). try_table is
+      structured control with catch clauses that branch to labels. throw/
+      throw_ref are stack-polymorphic. Exception propagation up call stack.
+      Traps are NOT caught. JIT needs exception-aware codegen (landing pads).
+
+  annotations:
+    status: skip
+    opcodes: 0
+    new_types: []
+    complexity: trivial
+    estimated_loc: 0
+    dependencies: []
+    repo: null                    # In memory64 repo: proposals/annotations/
+    spec_doc: proposals/annotations/Overview.md
+    summary: null
+    checklist_id: null
+    note: >
+      Text format only (custom annotation syntax @id "..."). No binary format
+      change. Not relevant for zwasm runtime — only affects WAT parser.
+      Skip unless WAT parser is implemented (see W17).
+
+  js_string_builtins:
+    status: skip
+    opcodes: 0
+    new_types: []
+    complexity: low
+    estimated_loc: 0
+    dependencies: []
+    repo: null                    # Not cloned locally
+    spec_doc: null
+    summary: .dev/references/proposals/js-string-builtins.md
+    checklist_id: null
+    note: >
+      JS-specific proposal for efficient string operations between Wasm and
+      JS host. Not applicable to standalone runtimes like zwasm. Defines
+      import namespace "wasm:js-string" with builtins like fromCharCodeArray,
+      intoCharCodeArray, equals, etc. Skip.
+
+  memory64:
+    status: todo
+    opcodes: 0                    # No new opcodes — extends existing with i64 addresses
+    new_types:
+      - "addrtype (i32|i64)"     # Address type qualifier for memory/table
+    complexity: high
+    estimated_loc: 600
+    dependencies: []
+    repo: memory64
+    spec_doc: proposals/memory64/Overview.md
+    summary: .dev/references/proposals/memory64.md
+    checklist_id: null
+    test_files:
+      - test/core/memory64.wast
+      - test/core/float_memory64.wast
+    note: >
+      All memory instructions accept i64 addresses when memory has i64
+      addrtype. Limits become u64. memarg.offset becomes u64. Also extends
+      tables (table64). Binary encoding uses limits flag bytes 0x04-0x07
+      for i64 variants. Pervasive change — touches all memory access paths.
+
+# ============================================================
+# Not yet Wasm 3.0 — included for reference
+# ============================================================
+in_progress:
+
+  threads:
+    status: todo
+    phase: 4                      # Phase 4 but not yet ratified into spec version
+    opcodes: 68                   # 4 control (notify/wait32/wait64/fence) +
+                                  # 7 loads + 7 stores + 42 RMW (7 ops × 6 widths) +
+                                  # 7 cmpxchg = ~67-68 total
+    new_types:
+      - "shared memory"           # Limits flag bit for shared
+    complexity: very_high
+    estimated_loc: 1500
+    dependencies: []
+    repo: threads
+    spec_doc: proposals/threads/Overview.md
+    summary: .dev/references/proposals/threads.md
+    checklist_id: null
+    test_files:
+      - test/core/threads/  # 13 test files
+    note: >
+      Shared linear memory with atomic operations. All atomics require
+      natural alignment (misalignment traps). wait/notify for blocking
+      synchronization. Requires threading model in host runtime. Phase 4
+      but not yet in a ratified spec version. Very complex for single-
+      threaded runtime — may implement atomics without actual threading.
+
+  wide_arithmetic:
+    status: todo
+    phase: 3
+    opcodes: 4                    # i64.add128, i64.sub128, i64.mul_wide_s, i64.mul_wide_u
+    new_types: []
+    complexity: low
+    estimated_loc: 100
+    dependencies: []
+    repo: null
+    spec_doc: null
+    summary: null
+    checklist_id: W14
+    note: "Newer proposal. Straightforward i128 operations."
+
+  custom_page_sizes:
+    status: todo
+    phase: 3
+    opcodes: 0
+    new_types: []
+    complexity: low
+    estimated_loc: 100
+    dependencies: []
+    repo: null
+    spec_doc: null
+    summary: null
+    checklist_id: W15
+    note: "Non-64KB page sizes. Affects memory allocation and grow logic."
