@@ -762,6 +762,9 @@ pub const Compiler = struct {
     known_consts: [128]?u32,
     /// Bitset of vregs that have been written to (for spill optimization).
     written_vregs: u128,
+    /// Which memory-backed vreg's value is currently in SCRATCH (x8).
+    /// Valid only at instruction boundaries — used to skip redundant loads.
+    scratch_vreg: ?u8,
 
     const Patch = struct {
         arm64_idx: u32, // index in code array
@@ -804,6 +807,7 @@ pub const Compiler = struct {
             .min_memory_bytes = 0,
             .known_consts = .{null} ** 128,
             .written_vregs = 0,
+            .scratch_vreg = null,
         };
     }
 
@@ -836,14 +840,30 @@ pub const Compiler = struct {
     fn storeVreg(self: *Compiler, vreg: u8, src: u5) void {
         if (vregToPhys(vreg)) |phys| {
             if (phys != src) self.emit(a64.mov64(phys, src));
+            // SCRATCH may have been reused as temp — invalidate stale cache
+            if (src == SCRATCH) self.scratch_vreg = null;
         } else {
             self.emit(a64.str64(src, REGS_PTR, @as(u16, vreg) * 8));
+            // Update scratch cache
+            if (src == SCRATCH) {
+                self.scratch_vreg = vreg; // SCRATCH still holds this vreg's value
+            } else if (self.scratch_vreg) |cached| {
+                // Another reg overwrote this memory slot — invalidate stale cache
+                if (cached == vreg) self.scratch_vreg = null;
+            }
         }
     }
 
     /// Get the physical register for a vreg, or load to scratch.
     fn getOrLoad(self: *Compiler, vreg: u8, scratch: u5) u5 {
         if (vregToPhys(vreg)) |phys| return phys;
+        // Check scratch register cache — skip redundant load if value already in SCRATCH
+        if (scratch == SCRATCH) {
+            if (self.scratch_vreg) |cached| {
+                if (cached == vreg) return SCRATCH;
+            }
+            self.scratch_vreg = vreg;
+        }
         self.emit(a64.ldr64(scratch, REGS_PTR, @as(u16, vreg) * 8));
         return scratch;
     }
@@ -1131,9 +1151,10 @@ pub const Compiler = struct {
             self.pc_map.items[pc] = self.currentIdx();
             const instr = ir[pc];
 
-            // Clear all known_consts at branch targets (merge points)
+            // Clear caches at branch targets (merge points)
             if (pc < branch_targets.len and branch_targets[pc]) {
                 self.known_consts = .{null} ** 128;
+                self.scratch_vreg = null;
             }
 
             pc += 1;
@@ -1146,6 +1167,7 @@ pub const Compiler = struct {
             } else if (self.isControlFlowOp(instr.op)) {
                 // After branches/calls, clear all — next basic block starts fresh
                 self.known_consts = .{null} ** 128;
+                self.scratch_vreg = null;
             } else if (instr.rd < 128) {
                 // Non-const write to rd invalidates that vreg's known const
                 self.known_consts[instr.rd] = null;
@@ -1924,6 +1946,7 @@ pub const Compiler = struct {
                 .h16 => a64.strhReg(val_reg, MEM_BASE, SCRATCH),
             };
             self.emit(store_instr);
+            self.scratch_vreg = null;
             return;
         }
 
@@ -1952,6 +1975,8 @@ pub const Compiler = struct {
             .h16 => a64.strhReg(val_reg, MEM_BASE, SCRATCH),
         };
         self.emit(store_instr);
+        // SCRATCH holds effective address, not a vreg value — invalidate cache
+        self.scratch_vreg = null;
     }
 
     /// Emit MOV Xd, #imm32 (1-2 instructions).
@@ -1994,6 +2019,8 @@ pub const Compiler = struct {
         const d = destReg(instr.rd);
         self.emit(a64.mov64(d, 0));
         self.storeVreg(instr.rd, d);
+        // BLR clobbered SCRATCH — if rd was physical, storeVreg didn't update cache
+        if (d != SCRATCH) self.scratch_vreg = null;
     }
 
     /// global.set: call jitGlobalSet(instance, idx, val)
@@ -2009,6 +2036,7 @@ pub const Compiler = struct {
         for (addr_instrs) |inst| self.emit(inst);
         self.emit(a64.blr(SCRATCH));
         self.reloadCallerSaved();
+        self.scratch_vreg = null; // BLR clobbered SCRATCH
     }
 
     // --- Memory ops emitters ---
@@ -2035,6 +2063,7 @@ pub const Compiler = struct {
         // Reload caller-saved regs AFTER all BLRs (regs[rd] has result from str above)
         self.reloadCallerSaved();
         if (instr.rd <= 4) self.reloadVreg(instr.rd);
+        self.scratch_vreg = null; // BLR clobbered SCRATCH
     }
 
     /// memory.fill: call jitMemFill(instance, dst, val, n)
@@ -2056,6 +2085,7 @@ pub const Compiler = struct {
         self.emit(a64.cmpImm32(0, 0));
         self.emitCondError(.ne, 6); // OutOfBoundsMemoryAccess
         self.reloadCallerSaved();
+        self.scratch_vreg = null; // BLR clobbered SCRATCH
     }
 
     /// memory.copy: call jitMemCopy(instance, dst, src, n)
@@ -2077,6 +2107,7 @@ pub const Compiler = struct {
         self.emit(a64.cmpImm32(0, 0));
         self.emitCondError(.ne, 6);
         self.reloadCallerSaved();
+        self.scratch_vreg = null; // BLR clobbered SCRATCH
     }
 
     /// i32.popcnt: count set bits in a 32-bit value
