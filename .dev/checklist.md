@@ -20,9 +20,7 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Cross-module linking (from E2E 5E)
 
-| ID   | Item                                        | Fails | Root Cause                           | Resolution Approach                      |
-|------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
-| W9   | Transitive import chains in --link          | 2     | Module $o imports table from $n which itself imports from $m. --link loads each linked module independently without resolving its own imports, so $n fails to load when used as a link target. | Support chained imports: when loading a linked module, also pass other linked modules as its import sources. Low priority — only affects 3+ module chains. |
+Resolved: W9 (transitive import chains) fixed in 5F.2.
 
 ## Test infrastructure (from E2E 5E)
 

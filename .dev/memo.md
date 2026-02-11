@@ -67,18 +67,19 @@ Target: E2E 181/181 (100%), Spec ≥30,701/30,703 (99.99%).
 Stage 6: Bug Fixes & Stability
 
 1. [x] 6.1: Fix JIT prologue caller-saved register corruption (mfr i64 bug)
-2. [ ] 6.2: Investigate remaining active bugs (#3 array pointer, #4 regir hang)
-3. [ ] 6.3: Update checklist (resolve W9, clean up active bugs)
+2. [x] 6.2: Investigate remaining active bugs (#3, #4 — closed, unreproducible)
+3. [x] 6.3: Update checklist (W9 resolved, active bugs cleaned up)
 
 ## Current Task
 
-6.2: Investigate remaining active bugs.
+Stage 6 complete. All active bugs resolved or closed.
 
 ## Previous Task
 
-6.1: Fixed JIT emitPrologue loading vregs before BLR call to jitGetMemInfo,
+6: Fixed JIT emitPrologue loading vregs before BLR call to jitGetMemInfo,
 which trashed caller-saved regs (x2-x7, x9-x15). Moved vreg loading after
-the BLR. mfr benchmark now produces correct results for all iteration counts.
+the BLR. mfr benchmark now produces correct results. Closed bugs #3, #4
+(unreproducible, original code not committed). Updated checklist (W9 resolved).
 
 ## Known Bugs
 
