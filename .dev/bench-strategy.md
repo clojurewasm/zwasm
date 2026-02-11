@@ -25,14 +25,19 @@ TinyGo source compiled to wasm — tests realistic compiler output patterns
 Source: `bench/tinygo/` (Go source files)
 Compiled: `bench/wasm/tgo_*.wasm`
 
-| Name          | Source                      | Notes                     |
-|---------------|-----------------------------|---------------------------|
-| tgo_fib       | bench/tinygo/fib.go         | Recursive fib, same as L1 |
-| tgo_tak       | bench/tinygo/tak.go         | Takeuchi function         |
-| tgo_arith     | bench/tinygo/arith.go       | i64 sum loop              |
-| tgo_sieve     | bench/tinygo/sieve.go       | Sieve with unsafe.Pointer |
-| tgo_fib_loop  | bench/tinygo/fib_loop.go    | Iterative fibonacci       |
-| tgo_gcd       | bench/tinygo/gcd.go         | Euclidean GCD             |
+| Name          | Source                      | Notes                        |
+|---------------|-----------------------------|------------------------------|
+| tgo_fib       | bench/tinygo/fib.go         | Recursive fib, same as L1    |
+| tgo_tak       | bench/tinygo/tak.go         | Takeuchi function            |
+| tgo_arith     | bench/tinygo/arith.go       | i64 sum loop                 |
+| tgo_sieve     | bench/tinygo/sieve.go       | Sieve with unsafe.Pointer    |
+| tgo_fib_loop  | bench/tinygo/fib_loop.go    | Iterative fibonacci          |
+| tgo_gcd       | bench/tinygo/gcd.go         | Euclidean GCD                |
+| tgo_nqueens   | bench/tinygo/nqueens.go     | Iterative backtracking + mem |
+| tgo_mfr       | bench/tinygo/mfr.go         | Array map/filter/reduce i64  |
+| tgo_list      | bench/tinygo/list_build.go  | Linked list alloc + traverse |
+| tgo_rwork     | bench/tinygo/real_work.go   | Struct array filter + sum    |
+| tgo_strops    | bench/tinygo/string_ops.go  | Division loops (digit count) |
 
 ### Build instructions
 

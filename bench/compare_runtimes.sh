@@ -41,7 +41,8 @@ for arg in "$@"; do
       echo "Benchmarks:"
       echo "  Layer 1 (WAT):     fib, tak, sieve, nbody, nqueens"
       echo "  Layer 2 (TinyGo):  tgo_fib, tgo_tak, tgo_arith, tgo_sieve,"
-      echo "                     tgo_fib_loop, tgo_gcd"
+      echo "                     tgo_fib_loop, tgo_gcd, tgo_nqueens,"
+      echo "                     tgo_mfr, tgo_list, tgo_rwork, tgo_strops"
       echo "  Layer 3 (Shootout): st_fib2, st_sieve, st_nestedloop,"
       echo "                      st_ackermann, st_matrix"
       exit 0
@@ -98,6 +99,11 @@ BENCHMARKS=(
   "tgo_sieve:bench/wasm/tgo_sieve.wasm:sieve:1000000:invoke"
   "tgo_fib_loop:bench/wasm/tgo_fib_loop.wasm:fib_loop:25:invoke"
   "tgo_gcd:bench/wasm/tgo_gcd.wasm:gcd:12345 67890:invoke"
+  "tgo_nqueens:bench/wasm/tgo_nqueens.wasm:nqueens:1000:invoke"
+  "tgo_mfr:bench/wasm/tgo_mfr.wasm:mfr:100000:invoke"
+  "tgo_list:bench/wasm/tgo_list_build.wasm:list_build:100000:invoke"
+  "tgo_rwork:bench/wasm/tgo_real_work.wasm:real_work:2000000:invoke"
+  "tgo_strops:bench/wasm/tgo_string_ops.wasm:string_ops:10000000:invoke"
   # Layer 3: Sightglass shootout (WASI _start)
   "st_fib2:bench/wasm/shootout/shootout-fib2.wasm::_start:wasi"
   "st_sieve:bench/wasm/shootout/shootout-sieve.wasm::_start:wasi"
