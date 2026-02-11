@@ -267,6 +267,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .env_keys = env_keys.items,
             .env_vals = env_vals.items,
             .preopen_paths = preopen_paths.items,
+            .caps = types.Capabilities.cli_default,
         };
 
         const module = load_blk: {
@@ -386,6 +387,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .env_keys = env_keys.items,
             .env_vals = env_vals.items,
             .preopen_paths = preopen_paths.items,
+            .caps = types.Capabilities.cli_default,
         };
         var module = types.WasmModule.loadWasiWithImports(allocator, wasm_bytes, imports_slice, wasi_opts2) catch |err| {
             try stderr.print("error: failed to load WASI module: {s}\n", .{@errorName(err)});
