@@ -1244,6 +1244,47 @@ pub const Vm = struct {
                 const e = try instance.store.getElem(instance.elemaddrs.items[elem_idx]);
                 e.dropped = true;
             },
+            // Wide arithmetic (i128 ops)
+            .i64_add128 => {
+                const rhs_hi: u64 = @bitCast(self.popI64());
+                const rhs_lo: u64 = @bitCast(self.popI64());
+                const lhs_hi: u64 = @bitCast(self.popI64());
+                const lhs_lo: u64 = @bitCast(self.popI64());
+                const lo = lhs_lo +% rhs_lo;
+                const carry: u64 = if (lo < lhs_lo) 1 else 0;
+                const hi = lhs_hi +% rhs_hi +% carry;
+                try self.pushI64(@bitCast(lo));
+                try self.pushI64(@bitCast(hi));
+            },
+            .i64_sub128 => {
+                const rhs_hi: u64 = @bitCast(self.popI64());
+                const rhs_lo: u64 = @bitCast(self.popI64());
+                const lhs_hi: u64 = @bitCast(self.popI64());
+                const lhs_lo: u64 = @bitCast(self.popI64());
+                const lo = lhs_lo -% rhs_lo;
+                const borrow: u64 = if (lhs_lo < rhs_lo) 1 else 0;
+                const hi = lhs_hi -% rhs_hi -% borrow;
+                try self.pushI64(@bitCast(lo));
+                try self.pushI64(@bitCast(hi));
+            },
+            .i64_mul_wide_s => {
+                const b: i64 = self.popI64();
+                const a: i64 = self.popI64();
+                const result: i128 = @as(i128, a) * @as(i128, b);
+                const lo: u64 = @truncate(@as(u128, @bitCast(result)));
+                const hi: u64 = @truncate(@as(u128, @bitCast(result)) >> 64);
+                try self.pushI64(@bitCast(lo));
+                try self.pushI64(@bitCast(hi));
+            },
+            .i64_mul_wide_u => {
+                const b: u64 = @bitCast(self.popI64());
+                const a: u64 = @bitCast(self.popI64());
+                const result: u128 = @as(u128, a) * @as(u128, b);
+                const lo: u64 = @truncate(result);
+                const hi: u64 = @truncate(result >> 64);
+                try self.pushI64(@bitCast(lo));
+                try self.pushI64(@bitCast(hi));
+            },
             _ => return error.Trap,
         }
     }
@@ -3684,6 +3725,47 @@ pub const Vm = struct {
                     t.set(start + @as(u32, @intCast(i)), ref_val) catch return error.OutOfBoundsMemoryAccess;
                 }
             },
+            // Wide arithmetic (i128 ops)
+            0x13 => { // i64.add128
+                const rhs_hi: u64 = @bitCast(self.popI64());
+                const rhs_lo: u64 = @bitCast(self.popI64());
+                const lhs_hi: u64 = @bitCast(self.popI64());
+                const lhs_lo: u64 = @bitCast(self.popI64());
+                const lo = lhs_lo +% rhs_lo;
+                const carry: u64 = if (lo < lhs_lo) 1 else 0;
+                const hi = lhs_hi +% rhs_hi +% carry;
+                try self.pushI64(@bitCast(lo));
+                try self.pushI64(@bitCast(hi));
+            },
+            0x14 => { // i64.sub128
+                const rhs_hi: u64 = @bitCast(self.popI64());
+                const rhs_lo: u64 = @bitCast(self.popI64());
+                const lhs_hi: u64 = @bitCast(self.popI64());
+                const lhs_lo: u64 = @bitCast(self.popI64());
+                const lo = lhs_lo -% rhs_lo;
+                const borrow: u64 = if (lhs_lo < rhs_lo) 1 else 0;
+                const hi = lhs_hi -% rhs_hi -% borrow;
+                try self.pushI64(@bitCast(lo));
+                try self.pushI64(@bitCast(hi));
+            },
+            0x15 => { // i64.mul_wide_s
+                const b: i64 = self.popI64();
+                const a: i64 = self.popI64();
+                const result: i128 = @as(i128, a) * @as(i128, b);
+                const lo: u64 = @truncate(@as(u128, @bitCast(result)));
+                const hi: u64 = @truncate(@as(u128, @bitCast(result)) >> 64);
+                try self.pushI64(@bitCast(lo));
+                try self.pushI64(@bitCast(hi));
+            },
+            0x16 => { // i64.mul_wide_u
+                const b: u64 = @bitCast(self.popI64());
+                const a: u64 = @bitCast(self.popI64());
+                const result: u128 = @as(u128, a) * @as(u128, b);
+                const lo: u64 = @truncate(result);
+                const hi: u64 = @truncate(result >> 64);
+                try self.pushI64(@bitCast(lo));
+                try self.pushI64(@bitCast(hi));
+            },
             else => return error.Trap,
         }
     }
@@ -5650,4 +5732,50 @@ test "Exception — cross-function throw with i32 param" {
     var results = [_]u64{0};
     try vm.invoke(&inst, "test", &args, &results);
     try testing.expectEqual(@as(u64, 42), results[0]);
+}
+
+test "Wide arithmetic — i64.add128" {
+    // Module: func "test"(i64 i64 i64 i64)(i64 i64) {
+    //   local.get 0; local.get 1; local.get 2; local.get 3; i64.add128
+    // }
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        // Type section: (i64 i64 i64 i64) -> (i64 i64)
+        0x01, 0x0a, 0x01, 0x60, 0x04, 0x7e, 0x7e, 0x7e, 0x7e, 0x02, 0x7e, 0x7e,
+        // Function section: 1 func, type 0
+        0x03, 0x02, 0x01, 0x00,
+        // Export section: "test" -> func 0
+        0x07, 0x08, 0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00, 0x00,
+        // Code section: local.get 0-3, i64.add128 (0xFC 0x13), end
+        0x0a, 0x0e, 0x01, 0x0c, 0x00,
+        0x20, 0x00, 0x20, 0x01, 0x20, 0x02, 0x20, 0x03,
+        0xfc, 0x13, 0x0b,
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+
+    // Test: 1 + 0 = 1 (lo=1, hi=0, lo=0, hi=0)
+    var args1 = [_]u64{ 1, 0, 0, 0 };
+    var results1 = [_]u64{ 0, 0 };
+    try vm.invoke(&inst, "test", &args1, &results1);
+    try testing.expectEqual(@as(u64, 1), results1[0]); // lo
+    try testing.expectEqual(@as(u64, 0), results1[1]); // hi
+
+    // Test: carry: lo=0xFFFFFFFFFFFFFFFF + lo=1 = (0, 1)
+    var args2 = [_]u64{ 0xFFFFFFFFFFFFFFFF, 0, 1, 0 };
+    var results2 = [_]u64{ 0, 0 };
+    try vm.invoke(&inst, "test", &args2, &results2);
+    try testing.expectEqual(@as(u64, 0), results2[0]); // lo
+    try testing.expectEqual(@as(u64, 1), results2[1]); // hi
 }

@@ -21,7 +21,8 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Multi-value           | Yes         | -     | Multiple return values         |
 | SIMD (v128)           | 236         | 236   | Full SIMD coverage            |
 | Memory64 (table64)    | 0*          | 0*      | Extends existing ops with i64|
-| **Total opcodes**     | **435**     | **437** | 99.5% (2 stubs)            |
+| Wide arithmetic       | 4           | 4     | add128, sub128, mul_wide_s/u  |
+| **Total opcodes**     | **439**     | **441** | 99.5% (2 stubs)            |
 
 ## WASI Preview 1
 
@@ -52,7 +53,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Memory64              | Complete     | Wasm 3.0 — table64 + i64 addressing |
 | Tail calls            | Stub         | return_call/return_call_indirect trap |
 | Exception handling    | Complete     | throw, try_table, catch clauses    |
-| Wide arithmetic       | Not started  | Wasm 3.0 (W14)                     |
+| Wide arithmetic       | Complete     | 4 opcodes, 99/99 e2e (W14)         |
 | Custom page sizes     | Not started  | Wasm 3.0 (W15)                     |
 | GC                    | Not started  | Wasm 3.0                           |
 | Component Model       | Not started  | Wasm 3.0 (W7)                      |
@@ -60,7 +61,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 ## E2E Test Status
 
-68 wasmtime misc_testsuite files ported. 1 remaining failure, 6 skipped files.
+69 wasmtime misc_testsuite files ported. 1 remaining failure, 5 skipped files.
 
 | Category                  | Status                   | Checklist         |
 |---------------------------|--------------------------|-------------------|
@@ -68,7 +69,6 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | wast2json NaN syntax      | 1 file skipped           | W16               |
 | .wat file support         | 2 files skipped          | W17               |
 | Exception handling        | 1 file skipped           | W13               |
-| Wide arithmetic           | 1 file skipped           | W14               |
 | Custom page sizes         | 1 file skipped           | W15               |
 
 Resolution plan: Stage 5F in roadmap.md. Full details in checklist.md.

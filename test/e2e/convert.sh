@@ -194,3 +194,10 @@ echo ""
 echo "Copied: $COPIED, Converted: $CONVERTED, Skipped: $SKIPPED, Failed: $FAILED"
 echo "WAST dir: $WAST_DIR/"
 echo "JSON dir: $JSON_DIR/"
+
+# Custom generators for proposals that wast2json cannot handle
+echo ""
+echo "--- Custom proposal generators ---"
+if [ -f "$WAST_DIR/wide-arithmetic.wast" ]; then
+    python3 test/e2e/gen_wide_arithmetic.py && echo "OK: wide-arithmetic" || echo "FAIL: wide-arithmetic"
+fi
