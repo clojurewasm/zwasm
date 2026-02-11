@@ -700,8 +700,8 @@ pub const Vm = struct {
                 // ---- Table access ----
                 .table_get => {
                     const table_idx = try reader.readU32();
-                    const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(table_idx);
+                    const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const val = t.get(elem_idx) catch return error.OutOfBoundsMemoryAccess;
                     // Stack convention: addr+1 for valid refs, 0 for null
                     try self.push(if (val) |v| @as(u64, @intCast(v)) + 1 else 0);
@@ -709,8 +709,8 @@ pub const Vm = struct {
                 .table_set => {
                     const table_idx = try reader.readU32();
                     const val = self.pop();
-                    const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(table_idx);
+                    const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     // Stack convention: 0 = null, addr+1 = valid ref
                     const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                     t.set(elem_idx, ref_val) catch return error.OutOfBoundsMemoryAccess;
@@ -1027,28 +1027,28 @@ pub const Vm = struct {
             },
             .table_grow => {
                 const table_idx = try reader.readU32();
-                const n = @as(u32, @bitCast(self.popI32()));
-                const val = self.pop();
                 const t = try instance.store.getTable(table_idx);
+                const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                const val = self.pop();
                 // Stack convention: 0 = null ref, addr+1 = valid ref
                 const init_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 const old = t.grow(n, init_val) catch {
-                    try self.pushI32(-1);
+                    if (t.is_64) try self.pushI64(-1) else try self.pushI32(-1);
                     return;
                 };
-                try self.pushI32(@bitCast(old));
+                if (t.is_64) try self.pushI64(@intCast(old)) else try self.pushI32(@bitCast(old));
             },
             .table_size => {
                 const table_idx = try reader.readU32();
                 const t = try instance.store.getTable(table_idx);
-                try self.pushI32(@bitCast(t.size()));
+                if (t.is_64) try self.pushI64(@intCast(t.size())) else try self.pushI32(@bitCast(t.size()));
             },
             .table_fill => {
                 const table_idx = try reader.readU32();
-                const n = @as(u32, @bitCast(self.popI32()));
-                const val = self.pop();
-                const start = @as(u32, @bitCast(self.popI32()));
                 const t = try instance.store.getTable(table_idx);
+                const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                const val = self.pop();
+                const start: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 // Bounds check first (spec: trap if i + n > table.size)
                 if (@as(u64, start) + n > t.size())
                     return error.OutOfBoundsMemoryAccess;
@@ -1061,11 +1061,13 @@ pub const Vm = struct {
             .table_copy => {
                 const dst_table_idx = try reader.readU32();
                 const src_table_idx = try reader.readU32();
-                const n = @as(u32, @bitCast(self.popI32()));
-                const src = @as(u32, @bitCast(self.popI32()));
-                const dst = @as(u32, @bitCast(self.popI32()));
                 const dst_t = try instance.getTable(dst_table_idx);
                 const src_t = try instance.getTable(src_table_idx);
+                // aN = min(aD, aS): if either table is i64, n is i64
+                const n_64 = dst_t.is_64 or src_t.is_64;
+                const n: u32 = if (n_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                const src: u32 = if (src_t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                const dst: u32 = if (dst_t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 // Bounds check
                 if (@as(u64, src) + n > src_t.size() or @as(u64, dst) + n > dst_t.size())
                     return error.OutOfBoundsMemoryAccess;
@@ -1089,7 +1091,8 @@ pub const Vm = struct {
                 const table_idx = try reader.readU32();
                 const n = @as(u32, @bitCast(self.popI32()));
                 const src = @as(u32, @bitCast(self.popI32()));
-                const dst = @as(u32, @bitCast(self.popI32()));
+                const t_for_addr = try instance.getTable(table_idx);
+                const dst: u32 = if (t_for_addr.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 if (elem_idx >= instance.elemaddrs.items.len) return error.Trap;
                 const e = try instance.store.getElem(instance.elemaddrs.items[elem_idx]);
                 const t = try instance.getTable(table_idx);
@@ -2910,15 +2913,15 @@ pub const Vm = struct {
 
                 // ---- Table access ----
                 0x25 => { // table_get
-                    const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(instr.operand);
+                    const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const val = t.get(elem_idx) catch return error.OutOfBoundsMemoryAccess;
                     try self.push(if (val) |v| @as(u64, @intCast(v)) + 1 else 0);
                 },
                 0x26 => { // table_set
                     const val = self.pop();
-                    const elem_idx = @as(u32, @bitCast(self.popI32()));
                     const t = try instance.getTable(instr.operand);
+                    const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                     t.set(elem_idx, ref_val) catch return error.OutOfBoundsMemoryAccess;
                 },
@@ -3459,10 +3462,10 @@ pub const Vm = struct {
             0x0C => { // table.init
                 const n = @as(u32, @bitCast(self.popI32()));
                 const src = @as(u32, @bitCast(self.popI32()));
-                const dst = @as(u32, @bitCast(self.popI32()));
+                const t = try instance.getTable(instr.extra);
+                const dst: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 if (instr.operand >= instance.elemaddrs.items.len) return error.Trap;
                 const e = try instance.store.getElem(instance.elemaddrs.items[instr.operand]);
-                const t = try instance.getTable(instr.extra);
                 const elem_len: u64 = if (e.dropped) 0 else e.data.len;
                 if (@as(u64, src) + n > elem_len or @as(u64, dst) + n > t.size())
                     return error.OutOfBoundsMemoryAccess;
@@ -3478,11 +3481,12 @@ pub const Vm = struct {
                 e.dropped = true;
             },
             0x0E => { // table.copy
-                const n = @as(u32, @bitCast(self.popI32()));
-                const src = @as(u32, @bitCast(self.popI32()));
-                const dst = @as(u32, @bitCast(self.popI32()));
                 const dst_t = try instance.getTable(instr.extra);
                 const src_t = try instance.getTable(instr.operand);
+                const n_64 = dst_t.is_64 or src_t.is_64;
+                const n: u32 = if (n_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                const src: u32 = if (src_t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                const dst: u32 = if (dst_t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 if (@as(u64, src) + n > src_t.size() or @as(u64, dst) + n > dst_t.size())
                     return error.OutOfBoundsMemoryAccess;
                 if (dst <= src) {
@@ -3500,25 +3504,25 @@ pub const Vm = struct {
                 }
             },
             0x0F => { // table.grow
-                const n = @as(u32, @bitCast(self.popI32()));
-                const val = self.pop();
                 const t = try instance.store.getTable(instr.operand);
+                const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                const val = self.pop();
                 const init_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 const old = t.grow(n, init_val) catch {
-                    try self.pushI32(-1);
+                    if (t.is_64) try self.pushI64(-1) else try self.pushI32(-1);
                     return;
                 };
-                try self.pushI32(@bitCast(old));
+                if (t.is_64) try self.pushI64(@intCast(old)) else try self.pushI32(@bitCast(old));
             },
             0x10 => { // table.size
                 const t = try instance.store.getTable(instr.operand);
-                try self.pushI32(@bitCast(t.size()));
+                if (t.is_64) try self.pushI64(@intCast(t.size())) else try self.pushI32(@bitCast(t.size()));
             },
             0x11 => { // table.fill
-                const n = @as(u32, @bitCast(self.popI32()));
-                const val = self.pop();
-                const start = @as(u32, @bitCast(self.popI32()));
                 const t = try instance.store.getTable(instr.operand);
+                const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                const val = self.pop();
+                const start: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 // Bounds check first (spec: trap if i + n > table.size)
                 if (@as(u64, start) + n > t.size())
                     return error.OutOfBoundsMemoryAccess;

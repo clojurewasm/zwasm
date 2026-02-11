@@ -33,7 +33,7 @@ Stage 7: Memory64 Table Operations (W18)
 Target: Fix 37 spec failures (table_size64 ×36, memory_grow64 ×1).
 
 1. [x] 7.1: Table type addrtype decoding (module.zig, limits flag 0x04-0x07)
-2. [ ] 7.2: table.size/grow i64 variants (vm.zig)
+2. [x] 7.2: table.size/grow i64 variants (vm.zig)
 3. [ ] 7.3: Table instruction validation for i64 indices (predecode.zig)
 4. [ ] 7.4: Spec test verification + compliance update
 
@@ -84,12 +84,12 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 7.2: table.size/grow i64 variants in vm.zig.
+Stage 7.3: Table instruction validation for i64 indices (predecode.zig).
 
 ## Previous Task
 
-7.1: Extended Limits to u64 with is_64 flag. readLimits handles flags 0x04-0x07.
-Spec: 30,666→30,703 (100%). All 37 table_size64+memory_grow64 failures fixed.
+7.2: Added is_64 to Table struct. All table ops (get/set/size/grow/fill/copy/init)
+now pop/push i64 for table64 in both stack interpreter and regIR paths.
 
 ## Known Bugs
 
