@@ -315,7 +315,7 @@ in_progress:
       threaded runtime — may implement atomics without actual threading.
 
   wide_arithmetic:
-    status: todo
+    status: complete
     phase: 3
     opcodes: 4                    # i64.add128, i64.sub128, i64.mul_wide_s, i64.mul_wide_u
     new_types: []
@@ -326,7 +326,7 @@ in_progress:
     spec_doc: null
     summary: null
     checklist_id: W14
-    note: "Newer proposal. Straightforward i128 operations."
+    note: "Complete. 4 opcodes under 0xFC prefix (sub 0x13-0x16). 99/99 e2e tests."
 
   custom_page_sizes:
     status: todo

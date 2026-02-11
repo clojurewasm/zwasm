@@ -36,5 +36,5 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 |------|-------------------------------|-------|--------------------------|------------------------------------------|
 | ~~W18~~ | ~~Memory64 table operations~~ | ~~7~~ | ~~RESOLVED~~ | Completed in Stage 7. All 252 memory64 spec tests pass. |
 | ~~W13~~ | ~~Exception handling~~ | ~~8~~ | ~~RESOLVED~~ | throw, try_table, catch clauses done. throw_ref stub. 38/38 spec. |
-| W14  | Wide arithmetic (i128)        | 9     | wide-arithmetic.wast     | 4 opcodes: add128, sub128, mul_wide_s/u  |
+| ~~W14~~ | ~~Wide arithmetic (i128)~~ | ~~9~~ | ~~RESOLVED~~ | Completed in Stage 9. 4 opcodes, 99/99 e2e tests. |
 | W15  | Custom page sizes             | 10    | memory-combos.wast       | Non-64KB page sizes in memory type       |

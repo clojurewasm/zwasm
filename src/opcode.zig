@@ -314,6 +314,12 @@ pub const MiscOpcode = enum(u32) {
     table_size = 0x10,
     table_fill = 0x11,
 
+    // Wide arithmetic (Wasm 3.0 proposal)
+    i64_add128 = 0x13,
+    i64_sub128 = 0x14,
+    i64_mul_wide_s = 0x15,
+    i64_mul_wide_u = 0x16,
+
     _,
 };
 
@@ -742,6 +748,10 @@ test "MiscOpcode — correct values" {
     try std.testing.expectEqual(@as(u32, 0x0A), @intFromEnum(MiscOpcode.memory_copy));
     try std.testing.expectEqual(@as(u32, 0x0B), @intFromEnum(MiscOpcode.memory_fill));
     try std.testing.expectEqual(@as(u32, 0x11), @intFromEnum(MiscOpcode.table_fill));
+    try std.testing.expectEqual(@as(u32, 0x13), @intFromEnum(MiscOpcode.i64_add128));
+    try std.testing.expectEqual(@as(u32, 0x14), @intFromEnum(MiscOpcode.i64_sub128));
+    try std.testing.expectEqual(@as(u32, 0x15), @intFromEnum(MiscOpcode.i64_mul_wide_s));
+    try std.testing.expectEqual(@as(u32, 0x16), @intFromEnum(MiscOpcode.i64_mul_wide_u));
 }
 
 test "ValType — correct encodings" {

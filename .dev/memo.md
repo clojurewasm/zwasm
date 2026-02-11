@@ -4,10 +4,10 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4 — COMPLETE
-- Source: ~15K LOC, 16 files, 155 tests all pass
-- Opcode: 230 core + 236 SIMD = 466, WASI: ~27
-- Spec: 30,703/30,703 (100%), E2E: 180/181 (99.4%), CI: ubuntu + macOS
+- Stages 0-2, 4, 7-9 — COMPLETE
+- Source: ~15K LOC, 16 files, 162 tests all pass
+- Opcode: 234 core + 236 SIMD = 470, WASI: ~27
+- Spec: 30,703/30,703 (100%), E2E: 279/280 (99.6%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -52,9 +52,9 @@ Stage 9: Wide Arithmetic (W14)
 
 Target: 4 opcodes — i64.add128, sub128, mul_wide_s/u.
 
-1. [ ] 9.1: Opcode decoding + validation
-2. [ ] 9.2: Instruction handlers (multi-value i128)
-3. [ ] 9.3: Spec test verification
+1. [x] 9.1: Opcode decoding + validation
+2. [x] 9.2: Instruction handlers (multi-value i128)
+3. [x] 9.3: Spec test verification
 
 Stage 10: Custom Page Sizes (W15)
 
@@ -84,12 +84,12 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 8 complete. Merge to main, then Stage 9: Wide Arithmetic.
+Stage 9 complete. Merge to main, then Stage 10: Custom Page Sizes.
 
 ## Previous Task
 
-8.6: JIT exception awareness — added WasmException error code (7) to JIT trampoline
-wasmErrorToCode/executeJIT roundtrip. Exceptions now propagate correctly through JIT calls.
+Stage 9 complete. Wide arithmetic: 4 opcodes (add128, sub128, mul_wide_s/u) under 0xFC prefix.
+99/99 e2e tests. Both bytecode and IR paths implemented.
 
 ## Known Bugs
 
