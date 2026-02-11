@@ -39,3 +39,4 @@ Prefix: W## (to distinguish from CW's F## items).
 | W13  | Exception handling (exnref)                 | Large | issue11561.wast                      | Wasm 3.0. try_table, throw, throw_ref, exnref, tag section. See proposals.yaml#exception_handling, .dev/references/proposals/exception-handling.md |
 | W14  | Wide arithmetic (i64.add128 etc.)           | Medium| wide-arithmetic.wast                 | Phase 3. 4 opcodes: i64.add128, i64.sub128, i64.mul_wide_s/u. See proposals.yaml#wide_arithmetic |
 | W15  | Custom page sizes                           | Small | memory-combos.wast                   | Phase 3. Non-64KB page sizes. See proposals.yaml#custom_page_sizes |
+| W18  | Memory64 table operations                   | Medium| table_size64 (36), memory_grow64 (1) | 64-bit table limits, i64 table.size/grow. Part of memory64 proposal. |

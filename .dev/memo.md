@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4 — COMPLETE
 - Source: ~15K LOC, 16 files, 155 tests all pass
 - Opcode: 225 core + 236 SIMD = 461, WASI: ~27
-- Spec: 30,663/30,703 (99.9%), E2E: 178/181 (98.3%), CI: ubuntu + macOS
+- Spec: 30,666/30,703 (99.9%), E2E: 180/181 (99.4%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -53,21 +53,26 @@ Remaining failures:
 - Spec: 40 failures (table_size64 ×36, memory_grow64 ×1, memory_trap ×1,
   memory_trap64 ×1, names ×1)
 
-1. [ ] 5F.1: Fix memory_trap + names spec failures (2 spec fixes)
-2. [ ] 5F.2: Fix W9 transitive import chains (2 E2E failures)
-3. [ ] 5F.3: Fix W10 partial-init-table-segment side effects (1 E2E failure)
-4. [ ] 5F.4: Implement memory64 table operations (36+2 spec failures)
+1. [x] 5F.1: Fix memory_trap + names spec failures (3 spec fixes: 30663→30666)
+2. [x] 5F.2: Fix W9 transitive import chains (2 E2E failures → 0)
+W10 (partial-init-table-segment, 1 E2E failure): Deferred — requires
+store-independent funcref design. Shared table entries point to importing
+module's store which is freed on instantiation failure.
+
+memory64 table ops (37 spec failures): Deferred — proposal-level feature.
+Needs 64-bit table limit decoding, i64 table.size/grow. See checklist W18.
 
 Target: E2E 181/181 (100%), Spec ≥30,701/30,703 (99.99%).
 
 ## Current Task
 
-5F.1: Fix memory_trap + names spec failures
+Stage 5F complete. Plan next stage.
 
 ## Previous Task
 
-5.7 + Stage 5 merge: Re-recorded benchmarks, verified 20/21 within 2x.
-Merged to main, tagged v0.2.0, updated CW dependency.
+5F: Fixed JIT has_memory for memory.size/grow, hex-encoded batch names,
+transitive import chains. W10/memory64 tables deferred.
+Spec: 30,663→30,666 (99.9%). E2E: 178→180/181 (99.4%).
 
 ## Known Bugs
 
