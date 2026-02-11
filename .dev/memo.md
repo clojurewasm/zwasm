@@ -5,13 +5,15 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4 — COMPLETE
-- Source: ~15K LOC, 16 files, 147 tests all pass
+- Source: ~15K LOC, 16 files, 148 tests all pass
 - Opcode: 225 core + 236 SIMD = 461, WASI: ~27
 - Spec: 30,665/30,703 (99.9%), E2E: 178/181 (98.3%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
+- Embedder API: Vm type, inspectImportFunctions, WasmModule.loadWithImports
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
+- Library consumer: ClojureWasm (uses zwasm as zig dependency)
 
 ## Task Queue
 
@@ -48,9 +50,9 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 
 ## Previous Task
 
-5F: E2E compliance completion. Fixed table import remap off-by-one (+7 e2e),
-JIT spillCallerSaved crash (+262 spec), assert_uninstantiable detection (+19 spec).
-Spec: 97.8%→99.9%, E2E: 94.4%→98.3%.
+JIT void self-call fix: emitInlineSelfCall unconditionally copied callee result,
+corrupting caller regs for void functions. nqueens(8) now returns 92 (was 0).
+Added result_count plumbing through compileFunction chain.
 
 ## Known Bugs
 
