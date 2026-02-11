@@ -224,12 +224,23 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             try stderr.flush();
             return false;
         };
-        const lm = types.WasmModule.load(allocator, link_bytes) catch |err| {
-            allocator.free(link_bytes);
-            try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, @errorName(err) });
-            try stderr.flush();
-            return false;
-        };
+        // Load with already-loaded linked modules as imports (transitive chains)
+        const lm = if (import_entries.items.len > 0)
+            types.WasmModule.loadWithImports(allocator, link_bytes, import_entries.items) catch
+                // Retry without imports if the linked module doesn't need them
+                types.WasmModule.load(allocator, link_bytes) catch |err| {
+                    allocator.free(link_bytes);
+                    try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, @errorName(err) });
+                    try stderr.flush();
+                    return false;
+                }
+        else
+            types.WasmModule.load(allocator, link_bytes) catch |err| {
+                allocator.free(link_bytes);
+                try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, @errorName(err) });
+                try stderr.flush();
+                return false;
+            };
         try linked_bytes.append(allocator, link_bytes);
         try linked_modules.append(allocator, lm);
         try import_entries.append(allocator, .{
