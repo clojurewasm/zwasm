@@ -863,9 +863,9 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
     var reader = stdin.reader(&read_buf);
     const r = &reader.interface;
 
-    // Reusable buffers for args/results
-    var arg_buf: [64]u64 = undefined;
-    var result_buf: [64]u64 = undefined;
+    // Reusable buffers for args/results (400+ params needed for func-400-params test)
+    var arg_buf: [512]u64 = undefined;
+    var result_buf: [512]u64 = undefined;
 
     while (true) {
         const line = r.takeDelimiter('\n') catch |err| switch (err) {

@@ -17,6 +17,7 @@ pub const Memory = struct {
     min: u32,
     max: ?u32,
     data: std.ArrayList(u8),
+    shared: bool = false, // true = borrowed from another module, skip deinit
 
     pub fn init(alloc: mem.Allocator, min: u32, max: ?u32) Memory {
         return .{
@@ -28,7 +29,7 @@ pub const Memory = struct {
     }
 
     pub fn deinit(self: *Memory) void {
-        self.data.deinit(self.alloc);
+        if (!self.shared) self.data.deinit(self.alloc);
     }
 
     /// Allocate initial pages (called during instantiation).

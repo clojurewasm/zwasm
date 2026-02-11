@@ -367,7 +367,6 @@ fn registerImports(
 ) !void {
     _ = allocator;
     for (module.imports.items) |imp| {
-        if (imp.kind != .func) continue;
         if (std.mem.eql(u8, imp.module, "wasi_snapshot_preview1")) continue;
 
         // Find the matching import entry
@@ -375,29 +374,91 @@ fn registerImports(
 
         switch (entry.source) {
             .wasm_module => |src_module| {
-                // Copy exported function from source module's store
-                const export_addr = src_module.instance.getExportFunc(imp.name) orelse
-                    return error.ImportNotFound;
+                switch (imp.kind) {
+                    .func => {
+                        // Copy exported function from source module's store
+                        const export_addr = src_module.instance.getExportFunc(imp.name) orelse
+                            return error.ImportNotFound;
 
-                var src_func = src_module.store.getFunction(export_addr) catch
-                    return error.ImportNotFound;
-                // Reset cached pointers to avoid double-free across stores
-                if (src_func.subtype == .wasm_function) {
-                    src_func.subtype.wasm_function.branch_table = null;
-                    src_func.subtype.wasm_function.ir = null;
-                    src_func.subtype.wasm_function.ir_failed = false;
-                    src_func.subtype.wasm_function.reg_ir = null;
-                    src_func.subtype.wasm_function.reg_ir_failed = false;
-                    src_func.subtype.wasm_function.jit_code = null;
-                    src_func.subtype.wasm_function.jit_failed = false;
-                    src_func.subtype.wasm_function.call_count = 0;
+                        var src_func = src_module.store.getFunction(export_addr) catch
+                            return error.ImportNotFound;
+                        // Reset cached pointers to avoid double-free across stores
+                        if (src_func.subtype == .wasm_function) {
+                            src_func.subtype.wasm_function.branch_table = null;
+                            src_func.subtype.wasm_function.ir = null;
+                            src_func.subtype.wasm_function.ir_failed = false;
+                            src_func.subtype.wasm_function.reg_ir = null;
+                            src_func.subtype.wasm_function.reg_ir_failed = false;
+                            src_func.subtype.wasm_function.jit_code = null;
+                            src_func.subtype.wasm_function.jit_failed = false;
+                            src_func.subtype.wasm_function.call_count = 0;
+                        }
+                        const addr = store.addFunction(src_func) catch
+                            return error.WasmInstantiateError;
+                        store.addExport(imp.module, imp.name, .func, addr) catch
+                            return error.WasmInstantiateError;
+                    },
+                    .memory => {
+                        // Share memory from source module (copy struct, mark as borrowed)
+                        const src_addr = src_module.instance.getExportMemAddr(imp.name) orelse
+                            return error.ImportNotFound;
+                        var src_mem = (src_module.store.getMemory(src_addr) catch
+                            return error.ImportNotFound).*;
+                        src_mem.shared = true;
+                        const addr = store.addExistingMemory(src_mem) catch
+                            return error.WasmInstantiateError;
+                        store.addExport(imp.module, imp.name, .memory, addr) catch
+                            return error.WasmInstantiateError;
+                    },
+                    .table => {
+                        // Share table from source module: copy struct and remap function refs
+                        const src_addr = src_module.instance.getExportTableAddr(imp.name) orelse
+                            return error.ImportNotFound;
+                        const src_table_ptr = src_module.store.getTable(src_addr) catch
+                            return error.ImportNotFound;
+                        var src_table = src_table_ptr.*;
+                        src_table.shared = true;
+                        // Remap function references: copy referenced functions to target store
+                        for (src_table.data.items) |*tbl_entry| {
+                            if (tbl_entry.*) |src_func_ref| {
+                                // Table entries use convention: null = empty, ref+1 = valid
+                                if (src_func_ref == 0) continue;
+                                const src_func_addr = src_func_ref - 1;
+                                var func = src_module.store.getFunction(src_func_addr) catch continue;
+                                if (func.subtype == .wasm_function) {
+                                    func.subtype.wasm_function.branch_table = null;
+                                    func.subtype.wasm_function.ir = null;
+                                    func.subtype.wasm_function.ir_failed = false;
+                                    func.subtype.wasm_function.reg_ir = null;
+                                    func.subtype.wasm_function.reg_ir_failed = false;
+                                    func.subtype.wasm_function.jit_code = null;
+                                    func.subtype.wasm_function.jit_failed = false;
+                                    func.subtype.wasm_function.call_count = 0;
+                                }
+                                const new_addr = store.addFunction(func) catch continue;
+                                tbl_entry.* = new_addr + 1;
+                            }
+                        }
+                        const addr = store.addExistingTable(src_table) catch
+                            return error.WasmInstantiateError;
+                        store.addExport(imp.module, imp.name, .table, addr) catch
+                            return error.WasmInstantiateError;
+                    },
+                    .global => {
+                        // Copy global from source module
+                        const src_addr = src_module.instance.getExportGlobalAddr(imp.name) orelse
+                            return error.ImportNotFound;
+                        const src_global = (src_module.store.getGlobal(src_addr) catch
+                            return error.ImportNotFound).*;
+                        const addr = store.addGlobal(src_global) catch
+                            return error.WasmInstantiateError;
+                        store.addExport(imp.module, imp.name, .global, addr) catch
+                            return error.WasmInstantiateError;
+                    },
                 }
-                const addr = store.addFunction(src_func) catch
-                    return error.WasmInstantiateError;
-                store.addExport(imp.module, imp.name, .func, addr) catch
-                    return error.WasmInstantiateError;
             },
             .host_fns => |host_fns| {
+                if (imp.kind != .func) continue;
                 // Register host callback function
                 const host_entry = findHostFn(host_fns, imp.name) orelse continue;
 
@@ -698,4 +759,30 @@ test "multi-module — three module chain" {
     var top_results = [_]u64{0};
     try top_mod.invoke("octuple", &top_args, &top_results);
     try testing.expectEqual(@as(u64, 24), top_results[0]);
+}
+
+test "multi-module — memory import" {
+    // provider exports memory with "hello" at offset 0
+    const provider_bytes = @embedFile("testdata/26_mem_export.wasm");
+    var provider = try WasmModule.load(testing.allocator, provider_bytes);
+    defer provider.deinit();
+
+    // consumer imports memory from "provider", exports read_byte(offset) -> u8
+    const consumer_bytes = @embedFile("testdata/27_mem_import.wasm");
+    var consumer = try WasmModule.loadWithImports(testing.allocator, consumer_bytes, &.{
+        .{ .module = "provider", .source = .{ .wasm_module = provider } },
+    });
+    defer consumer.deinit();
+
+    // read_byte(0) = 'h' = 104
+    var args0 = [_]u64{0};
+    var res0 = [_]u64{0};
+    try consumer.invoke("read_byte", &args0, &res0);
+    try testing.expectEqual(@as(u64, 104), res0[0]);
+
+    // read_byte(4) = 'o' = 111
+    var args4 = [_]u64{4};
+    var res4 = [_]u64{0};
+    try consumer.invoke("read_byte", &args4, &res4);
+    try testing.expectEqual(@as(u64, 111), res4[0]);
 }

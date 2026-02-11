@@ -85,6 +85,7 @@ pub const Table = struct {
     min: u32,
     max: ?u32,
     reftype: opcode.RefType,
+    shared: bool = false, // true = borrowed from another module, skip deinit
 
     pub fn init(alloc: mem.Allocator, reftype: opcode.RefType, min: u32, max: ?u32) !Table {
         var t = Table{
@@ -100,7 +101,7 @@ pub const Table = struct {
     }
 
     pub fn deinit(self: *Table) void {
-        self.data.deinit(self.alloc);
+        if (!self.shared) self.data.deinit(self.alloc);
     }
 
     pub fn lookup(self: *Table, index: u32) !usize {
@@ -315,9 +316,23 @@ pub const Store = struct {
         return self.memories.items.len - 1;
     }
 
+    /// Add an already-initialized memory (for cross-module sharing).
+    pub fn addExistingMemory(self: *Store, memory: WasmMemory) !usize {
+        const ptr = try self.memories.addOne(self.alloc);
+        ptr.* = memory;
+        return self.memories.items.len - 1;
+    }
+
     pub fn addTable(self: *Store, reftype: opcode.RefType, min: u32, max: ?u32) !usize {
         const ptr = try self.tables.addOne(self.alloc);
         ptr.* = try Table.init(self.alloc, reftype, min, max);
+        return self.tables.items.len - 1;
+    }
+
+    /// Add an already-initialized table (for cross-module sharing).
+    pub fn addExistingTable(self: *Store, table: Table) !usize {
+        const ptr = try self.tables.addOne(self.alloc);
+        ptr.* = table;
         return self.tables.items.len - 1;
     }
 

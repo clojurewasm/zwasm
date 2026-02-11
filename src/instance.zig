@@ -120,6 +120,27 @@ pub const Instance = struct {
         return self.store.getMemory(self.memaddrs.items[idx]) catch null;
     }
 
+    /// Find an exported memory's store address by name.
+    pub fn getExportMemAddr(self: *const Instance, name: []const u8) ?usize {
+        const idx = self.module.getExport(name, .memory) orelse return null;
+        if (idx >= self.memaddrs.items.len) return null;
+        return self.memaddrs.items[idx];
+    }
+
+    /// Find an exported table's store address by name.
+    pub fn getExportTableAddr(self: *const Instance, name: []const u8) ?usize {
+        const idx = self.module.getExport(name, .table) orelse return null;
+        if (idx >= self.tableaddrs.items.len) return null;
+        return self.tableaddrs.items[idx];
+    }
+
+    /// Find an exported global's store address by name.
+    pub fn getExportGlobalAddr(self: *const Instance, name: []const u8) ?usize {
+        const idx = self.module.getExport(name, .global) orelse return null;
+        if (idx >= self.globaladdrs.items.len) return null;
+        return self.globaladdrs.items[idx];
+    }
+
     // ---- Instantiation steps ----
 
     fn resolveImports(self: *Instance) !void {
