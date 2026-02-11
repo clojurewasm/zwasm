@@ -34,7 +34,7 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 
 | ID   | Item                          | Stage | E2E Blocked              | Notes                                    |
 |------|-------------------------------|-------|--------------------------|------------------------------------------|
-| W18  | Memory64 table operations     | 7     | table_size64(36), memory_grow64(1) | 64-bit table limits, i64 table.size/grow |
+| ~~W18~~ | ~~Memory64 table operations~~ | ~~7~~ | ~~RESOLVED~~ | Completed in Stage 7. All 252 memory64 spec tests pass. |
 | W13  | Exception handling (exnref)   | 8     | issue11561.wast          | tag section, try_table, throw, throw_ref |
 | W14  | Wide arithmetic (i128)        | 9     | wide-arithmetic.wast     | 4 opcodes: add128, sub128, mul_wide_s/u  |
 | W15  | Custom page sizes             | 10    | memory-combos.wast       | Non-64KB page sizes in memory type       |

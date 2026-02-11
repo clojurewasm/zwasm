@@ -357,3 +357,30 @@ entries:
       st_nestedloop: {time_ms: 3.8}
       st_ackermann: {time_ms: 7.7}
       st_matrix: {time_ms: 285.2}
+  - id: "7.4"
+    date: "2026-02-12"
+    reason: "Stage 7 complete: memory64 table operations"
+    commit: "b081800"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 94.1}
+      tak: {time_ms: 10.9}
+      sieve: {time_ms: 3.7}
+      nbody: {time_ms: 35.5}
+      nqueens: {time_ms: 1.6}
+      tgo_fib: {time_ms: 52.4}
+      tgo_tak: {time_ms: 9.0}
+      tgo_arith: {time_ms: 3.0}
+      tgo_sieve: {time_ms: 2.4}
+      tgo_fib_loop: {time_ms: 1.8}
+      tgo_gcd: {time_ms: 1.7}
+      tgo_nqueens: {time_ms: 46.0}
+      tgo_mfr: {time_ms: 62.4}
+      tgo_list: {time_ms: 67.7}
+      tgo_rwork: {time_ms: 8.5}
+      tgo_strops: {time_ms: 34.3}
+      st_fib2: {time_ms: 1350.6}
+      st_sieve: {time_ms: 226.0}
+      st_nestedloop: {time_ms: 3.6}
+      st_ackermann: {time_ms: 6.6}
+      st_matrix: {time_ms: 282.0}

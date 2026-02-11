@@ -5,9 +5,9 @@
 # spec_tests: from test/spec/ (official WebAssembly spec testsuite)
 # e2e_tests: from test/e2e/ (wasmtime misc_testsuite port)
 #
-# Last updated: 2026-02-11
-# Spec: 30,665/30,703 (99.9%)
-# E2E:  178/181 (98.3%), 68 files
+# Last updated: 2026-02-12
+# Spec: 30,703/30,703 (100%)
+# E2E:  180/181 (99.4%), 68 files
 
 wasm_core:
   # === Wasm 1.0 (MVP) ===
@@ -34,13 +34,13 @@ wasm_core:
   mvp_control_flow:
     version: "1.0"
     status: pass
-    spec_tests: {total: 956, pass: 955, fail: 1}
-    note: "block(52), br(76), call(70), call_indirect(131p/1f), if(124), loop(77), return(63), unreachable(63), nop(83), fac(6), forward(4), labels(25), left-to-right(95), switch(26), unwind(49), start(6), stack(5)"
+    spec_tests: {total: 956, pass: 956, fail: 0}
+    note: "block(52), br(76), call(70), call_indirect(132), if(124), loop(77), return(63), unreachable(63), nop(83), fac(6), forward(4), labels(25), left-to-right(95), switch(26), unwind(49), start(6), stack(5)"
   mvp_memory:
     version: "1.0"
     status: pass
-    spec_tests: {total: 649, pass: 648, fail: 1}
-    note: "address(255), load(37), store(9), memory_size(36), memory_trap(179p/1f), memory_redundancy(4), endianness(68), float_memory(60)"
+    spec_tests: {total: 649, pass: 649, fail: 0}
+    note: "address(255), load(37), store(9), memory_size(36), memory_trap(180), memory_redundancy(4), endianness(68), float_memory(60)"
   mvp_table:
     version: "1.0"
     status: pass
@@ -124,8 +124,9 @@ wasm_core:
     note: "Not implemented. See proposals.yaml#branch_hinting"
   memory64:
     version: "3.0"
-    status: skip
-    note: "Not implemented. Spec: memory_grow64(1f), memory_trap64(1f), table_size64(36f). See proposals.yaml#memory64"
+    status: pass
+    spec_tests: {total: 252, pass: 252, fail: 0}
+    note: "Table64 + memory64 addressing. table_size64(36), memory_grow64(45), memory_trap64(170), call_indirect64(1). See proposals.yaml#memory64"
   threads:
     version: "3.0"
     status: skip
@@ -180,8 +181,8 @@ wasi_preview1:
   poll_oneoff: {status: todo}
 
 e2e_wasmtime:
-  # Total: 68 files converted, 178/181 assertions pass (98.3%)
-  # Remaining failures: W9 (2, transitive imports), W10 (1, cross-process side effects)
+  # Total: 68 files converted, 180/181 assertions pass (99.4%)
+  # Remaining failures: W10 (1, cross-process side effects)
   # Skipped files: 6 (W13, W14, W15, W16, W17)
 
   # Batch 1: Core MVP & Traps

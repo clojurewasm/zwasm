@@ -265,7 +265,7 @@ wasm_3.0:
       intoCharCodeArray, equals, etc. Skip.
 
   memory64:
-    status: partial                # Memory load/store/size/grow already work; tables pending
+    status: complete               # All memory64 + table64 operations implemented (Stage 7)
     opcodes: 0                    # No new opcodes — extends existing with i64 addresses
     new_types:
       - "addrtype (i32|i64)"     # Address type qualifier for memory/table

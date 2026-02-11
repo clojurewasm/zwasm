@@ -19,8 +19,8 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-6, 5E, 5F — all COMPLETE. See `roadmap.md` for details.
-Key results: Spec 30,666/30,703 (99.9%), E2E 180/181, 20/21 bench < 2x wasmtime.
+Stages 0-7, 5E, 5F — all COMPLETE. See `roadmap.md` for details.
+Key results: Spec 30,703/30,703 (100%), E2E 180/181, 20/21 bench < 2x wasmtime.
 
 ## Task Queue
 
@@ -35,7 +35,7 @@ Target: Fix 37 spec failures (table_size64 ×36, memory_grow64 ×1).
 1. [x] 7.1: Table type addrtype decoding (module.zig, limits flag 0x04-0x07)
 2. [x] 7.2: table.size/grow i64 variants (vm.zig)
 3. [x] 7.3: Table instruction validation for i64 indices (call_indirect table64)
-4. [ ] 7.4: Spec test verification + compliance update
+4. [x] 7.4: Spec test verification + compliance update
 
 Stage 8: Exception Handling (W13)
 
@@ -84,12 +84,12 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 7.4: Spec test verification + compliance update.
+Merge Stage 7 to main (Merge Gate), then start Stage 8.
 
 ## Previous Task
 
-7.3: Fixed call_indirect to pop i64 table index for table64 tables.
-No separate predecode validation needed (type correctness in interpreter).
+7.4: Updated compliance.yaml, proposals.yaml, checklist.md, spec-support.md.
+Memory64 complete: 252 spec tests pass, W18 resolved. Stage 7 DONE.
 
 ## Known Bugs
 
