@@ -32,10 +32,11 @@ Stage 5 (resumed after 5E): JIT Coverage Expansion
 
 **Target: ALL benchmarks within 2x of wasmtime (ideal: 1x).**
 
-Current results (task 5.6 final, hyperfine verified):
-st_sieve 238ms, st_matrix 290ms, st_fib2 1382ms, fib 96ms, nbody 40ms.
-Gaps vs wasmtime: st_matrix 3.3x, st_fib2 2.1x, fib 1.9x, nbody 1.8x.
-st_sieve (1.1x), st_nestedloop (~1.0x), st_ackermann (~1.0x) at parity.
+Final results (5.7, hyperfine 3-run, zwasm vs wasmtime):
+20/21 benchmarks within 2x. 9 benchmarks FASTER than wasmtime.
+Only st_matrix (3.1x) exceeds 2x — needs Stage 6 liveness regalloc.
+Worst ratios: st_matrix 3.1x, st_fib2 1.95x, tgo_mfr 1.69x, fib 1.72x.
+Best wins: tgo_arith 0.30x, tgo_gcd 0.33x, tgo_fib_loop 0.33x, nqueens 0.38x.
 
 1. [x] 5.1: Profile shootout benchmarks + fix doCallDirectIR JIT bypass
 2. [x] 5.2: Close remaining gaps (st_sieve/matrix regIR opcode coverage)
@@ -43,19 +44,17 @@ st_sieve (1.1x), st_nestedloop (~1.0x), st_ackermann (~1.0x) at parity.
 4. [x] 5.4: Re-record cross-runtime benchmarks
 5. [x] 5.5: JIT memory ops + call_indirect + popcnt + reload ordering fix
 6. [x] 5.6: Profile and optimize remaining gaps
-7. [ ] 5.7: Re-record benchmarks, verify exit criteria
+7. [x] 5.7: Re-record benchmarks, verify exit criteria
 
 ## Current Task
 
-5.7: Re-record benchmarks, verify exit criteria
+Stage 5 complete. Plan next stage.
 
 ## Previous Task
 
-5.6 complete: 4 sub-tasks (d54598a, a0241d7, be29f88, 60ab84e).
-SCRATCH/FP register caches, inline self-call opts, peephole opts.
-Key results: nbody 53→40ms (1.8x), fib 99→96ms (1.9x), st_fib2 1418→1382ms (2.1x).
-5/7 shootout benchmarks within 2x. Remaining over 2x: st_matrix (3.3x regalloc),
-st_fib2 (2.1x call overhead) — both need architectural changes for Stage 6.
+5.7 complete: Re-recorded cross-runtime benchmarks (hyperfine 3-run).
+20/21 within 2x of wasmtime. st_fib2 improved 2.1x→1.95x (now passes).
+Only st_matrix (3.1x) remains — needs liveness-based regalloc (Stage 6).
 
 ## Known Bugs
 

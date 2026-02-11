@@ -303,3 +303,30 @@ entries:
       st_nestedloop: {time_ms: 6.7}
       st_ackermann: {time_ms: 9.6}
       st_matrix: {time_ms: 323.7}
+  - id: "5.6-final"
+    date: "2026-02-12"
+    reason: "SCRATCH/FP caches, inline call opts, peephole"
+    commit: "6e9568a"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 97.2}
+      tak: {time_ms: 14.0}
+      sieve: {time_ms: 5.0}
+      nbody: {time_ms: 39.7}
+      nqueens: {time_ms: 3.6}
+      tgo_fib: {time_ms: 53.2}
+      tgo_tak: {time_ms: 9.9}
+      tgo_arith: {time_ms: 2.8}
+      tgo_sieve: {time_ms: 5.4}
+      tgo_fib_loop: {time_ms: 2.4}
+      tgo_gcd: {time_ms: 2.6}
+      tgo_nqueens: {time_ms: 46.1}
+      tgo_mfr: {time_ms: 63.7}
+      tgo_list: {time_ms: 70.3}
+      tgo_rwork: {time_ms: 14.1}
+      tgo_strops: {time_ms: 39.2}
+      st_fib2: {time_ms: 1380.3}
+      st_sieve: {time_ms: 239.7}
+      st_nestedloop: {time_ms: 6.9}
+      st_ackermann: {time_ms: 9.2}
+      st_matrix: {time_ms: 287.7}
