@@ -15,7 +15,16 @@ Session handover document. Read at session start.
 
 ## Task Queue
 
-Stage 5: JIT Coverage Expansion
+Stage 5E: E2E Test Porting & Compliance (correctness phase before optimization)
+
+1. [x] 5E.1: Infrastructure — compliance.yaml, e2e scripts, run_spec.py --dir
+2. [ ] 5E.2: Batch 1 — Core MVP & Traps (~25 files)
+3. [ ] 5E.3: Batch 2 — Float & Reference Types (~15 files)
+4. [ ] 5E.4: Batch 3 — Programs & Regressions (~20 files)
+5. [ ] 5E.5: Batch 4 — SIMD (~15 files)
+6. [ ] 5E.6: Final compliance update
+
+Stage 5 (resumed after 5E): JIT Coverage Expansion
 
 **Target: ALL benchmarks within 2x of wasmtime (ideal: 1x).**
 
@@ -35,7 +44,7 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 
 ## Current Task
 
-5.6: Profile and optimize remaining gaps
+5E.1: Infrastructure — compliance.yaml, e2e scripts, run_spec.py --dir
 
 ## Previous Task
 

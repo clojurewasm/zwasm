@@ -1,0 +1,143 @@
+# zwasm Wasm/WASI Compliance Status
+# Machine-readable tracking. Updated each iteration.
+#
+# status: pass | partial | fail | skip | todo
+# spec_tests: from test/spec/ (official WebAssembly spec testsuite)
+# e2e_tests: from test/e2e/ (wasmtime misc_testsuite port)
+
+wasm_core:
+  # === Wasm 1.0 (MVP) ===
+  mvp_i32:
+    version: "1.0"
+    status: pass
+    spec_tests: {total: 461, pass: 461, fail: 0}
+  mvp_i64:
+    version: "1.0"
+    status: pass
+    spec_tests: {total: 416, pass: 416, fail: 0}
+  mvp_f32:
+    version: "1.0"
+    status: pass
+    spec_tests: {total: 2536, pass: 2536, fail: 0}
+    note: "f32, f32_bitwise, f32_cmp"
+  mvp_f64:
+    version: "1.0"
+    status: pass
+    spec_tests: {total: 2535, pass: 2535, fail: 0}
+    note: "f64, f64_bitwise, f64_cmp"
+  mvp_control_flow:
+    version: "1.0"
+    status: pass
+    spec_tests: {}
+    note: "block, br, call, call_indirect, if, loop, return, select, unreachable, nop"
+  mvp_memory:
+    version: "1.0"
+    status: pass
+    spec_tests: {}
+    note: "memory_size, memory_grow, memory_trap, memory_redundancy"
+  mvp_table:
+    version: "1.0"
+    status: partial
+    spec_tests: {}
+    note: "table_copy has 262 failures (W1 table.copy cross-table)"
+  mvp_globals:
+    version: "1.0"
+    status: pass
+    spec_tests: {}
+  mvp_conversions:
+    version: "1.0"
+    status: pass
+    spec_tests: {}
+
+  # === Wasm 2.0 (finalized proposals) ===
+  sign_extension:
+    version: "2.0"
+    status: pass
+    spec_tests: {}
+    note: "7/7 opcodes"
+  nontrapping_fptoint:
+    version: "2.0"
+    status: pass
+    spec_tests: {}
+    note: "8/8 opcodes"
+  bulk_memory:
+    version: "2.0"
+    status: partial
+    spec_tests: {}
+    note: "table.copy/init stubbed (W1, W2)"
+  reference_types:
+    version: "2.0"
+    status: pass
+    spec_tests: {}
+    note: "5/5 opcodes — ref.null, ref.is_null, ref.func, table.get, table.set"
+  multi_value:
+    version: "2.0"
+    status: pass
+    spec_tests: {}
+  simd_v128:
+    version: "2.0"
+    status: pass
+    spec_tests: {}
+    note: "236/236 opcodes. CLI protocol limits v128 value assertions."
+
+  # === Wasm 3.0 (in-progress proposals) ===
+  tail_calls:
+    version: "3.0"
+    status: skip
+    note: "Not implemented — roadmap Stage 2+"
+  exception_handling:
+    version: "3.0"
+    status: skip
+  gc:
+    version: "3.0"
+    status: skip
+  memory64:
+    version: "3.0"
+    status: skip
+  threads:
+    version: "3.0"
+    status: skip
+  component_model:
+    version: "3.0"
+    status: skip
+    note: "W7"
+
+wasi_preview1:
+  args_get: {status: pass}
+  args_sizes_get: {status: pass}
+  environ_get: {status: pass}
+  environ_sizes_get: {status: pass}
+  clock_time_get: {status: pass}
+  clock_res_get: {status: pass}
+  fd_write: {status: pass}
+  fd_read: {status: pass}
+  fd_close: {status: pass}
+  fd_seek: {status: pass}
+  fd_tell: {status: pass}
+  fd_prestat_get: {status: pass}
+  fd_prestat_dir_name: {status: pass}
+  fd_fdstat_get: {status: pass}
+  fd_fdstat_set_flags: {status: pass}
+  fd_filestat_get: {status: pass}
+  fd_readdir: {status: todo, note: "W4"}
+  fd_renumber: {status: todo, note: "W4"}
+  path_open: {status: pass}
+  path_filestat_get: {status: pass}
+  path_create_directory: {status: pass}
+  path_remove_directory: {status: pass}
+  path_rename: {status: pass}
+  path_unlink_file: {status: pass}
+  path_readlink: {status: todo}
+  path_symlink: {status: todo}
+  proc_exit: {status: pass}
+  proc_raise: {status: pass}
+  random_get: {status: pass}
+  sock_accept: {status: skip, note: "W5 — not planned"}
+  sock_recv: {status: skip, note: "W5"}
+  sock_send: {status: skip, note: "W5"}
+  sock_shutdown: {status: skip, note: "W5"}
+  poll_oneoff: {status: todo}
+
+e2e_wasmtime:
+  # Per-file tracking. Updated by test runner.
+  # Will be populated after running test/e2e/run_e2e.sh

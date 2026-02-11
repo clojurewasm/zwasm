@@ -1,0 +1,28 @@
+# Files/directories to skip from wasmtime misc_testsuite
+# Reasons: unimplemented proposals, wasmtime-specific tests
+#
+# Format: one entry per line, directories end with /
+
+# Unimplemented proposals
+gc/
+threads/
+memory64/
+tail-call/
+component-model/
+component-model-threading/
+multi-memory/
+custom-page-sizes/
+shared-everything-threads/
+function-references/
+
+# Wasmtime JIT-specific
+winch/
+
+# Requires exception handling
+many-results-with-exceptions.wast
+stack-args-exceptions.wast
+traps-skip-catch-all.wast
+
+# Requires newer proposals (wide-arithmetic, custom page sizes)
+wide-arithmetic.wast
+memory-combos.wast

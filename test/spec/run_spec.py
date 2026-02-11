@@ -8,6 +8,7 @@ Uses --batch mode to keep module state across invocations within the same module
 Usage:
     python3 test/spec/run_spec.py [--filter PATTERN] [--verbose] [--summary]
     python3 test/spec/run_spec.py --file test/spec/json/i32.json
+    python3 test/spec/run_spec.py --dir test/e2e/json/ --summary
 """
 
 import json
@@ -385,16 +386,19 @@ def main():
     parser = argparse.ArgumentParser(description="zwasm spec test runner")
     parser.add_argument("--file", help="Run a single test file")
     parser.add_argument("--filter", help="Glob pattern for test names (e.g., 'i32*')")
+    parser.add_argument("--dir", help="Directory containing JSON test files (default: test/spec/json)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show individual failures")
     parser.add_argument("--summary", action="store_true", help="Show per-file summary")
     args = parser.parse_args()
 
+    test_dir = args.dir if args.dir else SPEC_DIR
+
     if args.file:
         json_files = [args.file]
     elif args.filter:
-        json_files = sorted(glob.glob(os.path.join(SPEC_DIR, f"{args.filter}.json")))
+        json_files = sorted(glob.glob(os.path.join(test_dir, f"{args.filter}.json")))
     else:
-        json_files = sorted(glob.glob(os.path.join(SPEC_DIR, "*.json")))
+        json_files = sorted(glob.glob(os.path.join(test_dir, "*.json")))
 
     if not json_files:
         print("No test files found")
