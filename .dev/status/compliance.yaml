@@ -245,5 +245,5 @@ e2e_wasmtime:
   # memory-combos.wast: W15 — custom page sizes proposal
   # issue11561.wast: W13 — exception handling (exnref)
   # simd/canonicalize-nan.wast: W16 — wast2json 1.0.39 NaN literal syntax
-  # issue11563.wat: W17 — requires GC + exceptions + function-references (skipped)
-  # issue12170.wat: W17 — .wat smoke test, no assertions (skipped)
+  # issue11563.wat: W17 — requires GC + exceptions (skipped; WAT parser planned as future stage)
+  # issue12170.wat: W17 — SIMD smoke test (skipped; WAT parser planned as future stage)

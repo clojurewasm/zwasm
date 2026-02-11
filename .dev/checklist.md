@@ -30,7 +30,7 @@ Prefix: W## (to distinguish from CW's F## items).
 |------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
 | W10  | Cross-process table side effects            | 1     | partial-init-table-segment.wast: failed instantiation should modify shared table, but each module runs in separate process. assert_uninstantiable detection fixed (5F.4), but side effect not visible. | Needs single-process multi-module protocol. Low priority — only 1 assertion affected. |
 | W16  | wast2json NaN literal syntax                | 0     | simd/canonicalize-nan.wast uses NaN syntax wast2json 1.0.39 can't parse. No upgrade available. | Blocked on wabt release. File skipped in conversion. |
-| W17  | .wat file support in test runner            | 0     | issue11563.wat (GC+exceptions) and issue12170.wat (SIMD smoke test) added to skip.txt. | Both require unimplemented proposals or have no assertions. |
+| W17  | .wat file support (native WAT parser)       | 0     | issue11563.wat (GC+exceptions) and issue12170.wat (SIMD smoke test) currently skipped. | Implement native WAT parser as future stage (see roadmap.md "WAT Parser & Build-time Feature Flags"). Build-time optional (`-Dwat=false`). Resolves .wat test files and adds `zwasm run file.wat` + `WasmModule.loadFromWat()` API. |
 
 ## Wasm proposals (future stages)
 

@@ -168,6 +168,37 @@ excluded with rationale.
 - table_copy/table_init spec tests: 0 failures (W1, W2 resolved)
 - Skipped files reduced to only those requiring unimplemented Wasm 3.0 proposals
 
+## Future: WAT Parser & Build-time Feature Flags
+
+**Goal**: Native .wat (WebAssembly Text Format) support with optional inclusion.
+
+WAT is the official text format of the Wasm spec. wasmtime and wasmer both
+support `run file.wat` natively. zwasm should too.
+
+### Design
+
+- **WAT → wasm in-memory conversion**: Parse .wat S-expressions, emit binary
+  wasm bytes, feed to existing `WasmModule.load()`. No temp files.
+- **Build-time feature flag**: `zig build -Dwat=false` excludes the WAT parser
+  from the binary. Library users who only load .wasm don't pay the size cost.
+- **API**: `WasmModule.loadFromWat(alloc, wat_source)` for library users.
+  CLI auto-detects `.wat` extension and converts transparently.
+- **First use case for feature flag pattern**: Same mechanism extends to
+  WASI, JIT, SIMD — library consumers choose what to bundle.
+
+### Scope
+
+- S-expression parser + wasm binary encoder (~2-4K LOC estimated)
+- Abbreviations: inline exports, type use, etc.
+- Numeric literals: hex, float, NaN patterns
+- Requires D## architectural decision for feature flag system
+
+### Priority
+
+After Stage 5 (JIT optimization) completes. Not performance-critical —
+primarily for CLI debugging, test authoring, and library convenience.
+Resolves W17 (skipped .wat e2e test files).
+
 ## Future: Sandbox & Security Hardening
 
 Wasm's core value proposition is **sandboxed execution** — untrusted code runs in
