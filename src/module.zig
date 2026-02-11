@@ -721,16 +721,31 @@ fn readLimits(reader: *Reader) !opcode.Limits {
     const flags = try reader.readByte();
     const is_64 = (flags & 0x04) != 0;
     const has_max = (flags & 0x01) != 0;
+    const has_page_size = (flags & 0x08) != 0;
     // flags & 0x02 = shared (threads proposal) — ignored for now
+
+    // Read min/max first, then page_size exponent (per binary encoding order)
+    var min: u64 = undefined;
+    var max: ?u64 = null;
     if (is_64) {
-        const min = try reader.readU64();
-        const max: ?u64 = if (has_max) try reader.readU64() else null;
-        return .{ .min = min, .max = max, .is_64 = true };
+        min = try reader.readU64();
+        max = if (has_max) try reader.readU64() else null;
     } else {
-        const min = try reader.readU32();
-        const max: ?u32 = if (has_max) try reader.readU32() else null;
-        return .{ .min = min, .max = if (max) |m| m else null };
+        min = try reader.readU32();
+        const max32: ?u32 = if (has_max) try reader.readU32() else null;
+        max = if (max32) |m| m else null;
     }
+
+    var page_size: u32 = 65536;
+    if (has_page_size) {
+        const p = try reader.readU32();
+        // page_size = 2^p; spec only allows p=0 (size=1) or p=16 (size=65536)
+        if (p > 16) return error.InvalidWasm;
+        page_size = @as(u32, 1) << @intCast(p);
+        if (page_size != 1 and page_size != 65536) return error.InvalidWasm;
+    }
+
+    return .{ .min = min, .max = max, .is_64 = is_64, .page_size = page_size };
 }
 
 /// Skip over an init expression (reads until `end` opcode 0x0B).
@@ -997,6 +1012,34 @@ test "readLimits — i64 addrtype (memory64 table64)" {
     try testing.expect(!lim01.is_64);
     try testing.expectEqual(@as(u64, 1), lim01.min);
     try testing.expectEqual(@as(?u64, 10), lim01.max);
+}
+
+test "readLimits — custom page sizes" {
+    // Flag 0x08 = custom page size, min only, page_exp=0 (2^0=1)
+    var bytes_08 = [_]u8{ 0x08, 0x0a, 0x00 }; // min=10, page_size=1
+    var r08 = Reader.init(&bytes_08);
+    const lim08 = try readLimits(&r08);
+    try testing.expectEqual(@as(u64, 10), lim08.min);
+    try testing.expectEqual(@as(?u64, null), lim08.max);
+    try testing.expectEqual(@as(u32, 1), lim08.page_size);
+
+    // Flag 0x09 = custom page size + has_max, page_exp=16 (2^16=65536)
+    var bytes_09 = [_]u8{ 0x09, 0x01, 0x0a, 0x10 }; // min=1, max=10, page_size=65536
+    var r09 = Reader.init(&bytes_09);
+    const lim09 = try readLimits(&r09);
+    try testing.expectEqual(@as(u64, 1), lim09.min);
+    try testing.expectEqual(@as(?u64, 10), lim09.max);
+    try testing.expectEqual(@as(u32, 65536), lim09.page_size);
+
+    // Invalid page size: 2^1=2 (not 1 or 65536)
+    var bytes_bad = [_]u8{ 0x08, 0x00, 0x01 }; // min=0, page_exp=1 (2^1=2)
+    var r_bad = Reader.init(&bytes_bad);
+    try testing.expectError(error.InvalidWasm, readLimits(&r_bad));
+
+    // Invalid page size: 2^17 > 65536
+    var bytes_big = [_]u8{ 0x08, 0x00, 0x11 }; // min=0, page_exp=17
+    var r_big = Reader.init(&bytes_big);
+    try testing.expectError(error.InvalidWasm, readLimits(&r_big));
 }
 
 test "Module — tag section parsing" {

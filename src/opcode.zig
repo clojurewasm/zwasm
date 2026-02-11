@@ -48,6 +48,7 @@ pub const Limits = struct {
     min: u64,
     max: ?u64,
     is_64: bool = false, // true = i64 addrtype (memory64/table64)
+    page_size: u32 = 65536, // custom page sizes proposal: 1 or 65536
 };
 
 /// Wasm MVP opcodes (single byte, 0x00-0xd2).

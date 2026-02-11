@@ -138,8 +138,8 @@ wasm_core:
     note: "Not implemented. i64.add128/sub128/mul_wide. E2E: wide-arithmetic.wast skipped (W14)"
   custom_page_sizes:
     version: "3.0"
-    status: skip
-    note: "Not implemented. E2E: memory-combos.wast skipped (W15)"
+    status: pass
+    note: "Complete. page_size 1 or 65536. E2E: 18/18 custom-page-sizes tests."
   component_model:
     version: "3.0"
     status: skip
@@ -182,9 +182,9 @@ wasi_preview1:
   poll_oneoff: {status: todo}
 
 e2e_wasmtime:
-  # Total: 68 files converted, 180/181 assertions pass (99.4%)
+  # Total: 70 files, 297/298 assertions pass (99.7%)
   # Remaining failures: W10 (1, cross-process side effects)
-  # Skipped files: 6 (W13, W14, W15, W16, W17)
+  # Skipped files: 4 (W16, W17)
 
   # Batch 1: Core MVP & Traps
   add.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
@@ -262,10 +262,12 @@ e2e_wasmtime:
   simd/unaligned-load.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
   simd/v128-select.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
 
-  # Skipped (6 files — unsupported proposals or tooling limitations)
-  # wide-arithmetic.wast: W14 — wide arithmetic proposal (i64.add128/sub128)
-  # memory-combos.wast: W15 — custom page sizes proposal
-  # issue11561.wast: W13 — exception handling (exnref)
+  # Custom generators (wast2json can't parse these proposals)
+  wide-arithmetic.wast: {status: pass, assertions: 99, pass: 99, fail: 0}
+  custom-page-sizes: {status: pass, assertions: 18, pass: 18, fail: 0}
+
+  # Skipped (4 files — unsupported proposals or tooling limitations)
+  # memory-combos.wast: requires multi-memory + threads + custom page sizes
   # simd/canonicalize-nan.wast: W16 — wast2json 1.0.39 NaN literal syntax
   # issue11563.wat: W17 — requires GC + exceptions (skipped; WAT parser planned as future stage)
   # issue12170.wat: W17 — SIMD smoke test (skipped; WAT parser planned as future stage)

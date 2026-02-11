@@ -194,7 +194,7 @@ pub const Instance = struct {
 
     fn instantiateMemories(self: *Instance) !void {
         for (self.module.memories.items) |mem_def| {
-            const addr = try self.store.addMemory(mem_def.limits.min, mem_def.limits.max);
+            const addr = try self.store.addMemory(mem_def.limits.min, mem_def.limits.max, mem_def.limits.page_size);
             const m = try self.store.getMemory(addr);
             try m.allocateInitial();
             try self.memaddrs.append(self.alloc, addr);

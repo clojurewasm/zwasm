@@ -5779,3 +5779,65 @@ test "Wide arithmetic — i64.add128" {
     try testing.expectEqual(@as(u64, 0), results2[0]); // lo
     try testing.expectEqual(@as(u64, 1), results2[1]); // hi
 }
+
+test "Custom page sizes — memory with page_size=1" {
+    // Module: memory (page_size=1, min=0), funcs: size, grow, load, store
+    // Matches wasmtime custom-page-sizes.wast test pattern.
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0f, 0x03, 0x60, 0x00, 0x01, 0x7f, 0x60,
+        0x01, 0x7f, 0x01, 0x7f, 0x60, 0x02, 0x7f, 0x7f, 0x00, 0x03, 0x05, 0x04, 0x00, 0x01, 0x01, 0x02,
+        0x05, 0x04, 0x01, 0x08, 0x00, 0x00, 0x07, 0x1e, 0x04, 0x04, 0x73, 0x69, 0x7a, 0x65, 0x00, 0x00,
+        0x04, 0x67, 0x72, 0x6f, 0x77, 0x00, 0x01, 0x04, 0x6c, 0x6f, 0x61, 0x64, 0x00, 0x02, 0x05, 0x73,
+        0x74, 0x6f, 0x72, 0x65, 0x00, 0x03, 0x0a, 0x1f, 0x04, 0x04, 0x00, 0x3f, 0x00, 0x0b, 0x06, 0x00,
+        0x20, 0x00, 0x40, 0x00, 0x0b, 0x07, 0x00, 0x20, 0x00, 0x2d, 0x00, 0x00, 0x0b, 0x09, 0x00, 0x20,
+        0x00, 0x20, 0x01, 0x3a, 0x00, 0x00, 0x0b,
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm_inst = Vm.init(testing.allocator);
+    var r = [_]u64{0};
+
+    // Initial size = 0 (no pages)
+    try vm_inst.invoke(&inst, "size", &.{}, &r);
+    try testing.expectEqual(@as(u64, 0), r[0]);
+
+    // Load from 0 should trap (no memory)
+    var a0 = [_]u64{0};
+    try testing.expectError(error.OutOfBoundsMemoryAccess,
+        vm_inst.invoke(&inst, "load", &a0, &r));
+
+    // Grow by 65536 bytes (= 65536 pages with page_size=1)
+    var a_grow = [_]u64{65536};
+    try vm_inst.invoke(&inst, "grow", &a_grow, &r);
+    try testing.expectEqual(@as(u64, 0), r[0]); // old size = 0
+
+    // Size should now be 65536
+    try vm_inst.invoke(&inst, "size", &.{}, &r);
+    try testing.expectEqual(@as(u64, 65536), r[0]);
+
+    // Load last byte should succeed
+    var a_last = [_]u64{65535};
+    try vm_inst.invoke(&inst, "load", &a_last, &r);
+    try testing.expectEqual(@as(u64, 0), r[0]);
+
+    // Store + load roundtrip
+    var a_store = [_]u64{ 65535, 42 };
+    try vm_inst.invoke(&inst, "store", &a_store, &.{});
+    try vm_inst.invoke(&inst, "load", &a_last, &r);
+    try testing.expectEqual(@as(u64, 42), r[0]);
+
+    // Load one past end should trap
+    var a_oob = [_]u64{65536};
+    try testing.expectError(error.OutOfBoundsMemoryAccess,
+        vm_inst.invoke(&inst, "load", &a_oob, &r));
+}

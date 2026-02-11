@@ -54,21 +54,20 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Tail calls            | Stub         | return_call/return_call_indirect trap |
 | Exception handling    | Complete     | throw, try_table, catch clauses    |
 | Wide arithmetic       | Complete     | 4 opcodes, 99/99 e2e (W14)         |
-| Custom page sizes     | Not started  | Wasm 3.0 (W15)                     |
+| Custom page sizes     | Complete     | page_size 1 or 65536, 18/18 e2e (W15) |
 | GC                    | Not started  | Wasm 3.0                           |
 | Component Model       | Not started  | Wasm 3.0 (W7)                      |
 | WASI Preview 2        | Not started  | Wasm 3.0                           |
 
 ## E2E Test Status
 
-69 wasmtime misc_testsuite files ported. 1 remaining failure, 5 skipped files.
+70 wasmtime misc_testsuite files ported. 297/298 assertions pass (99.7%). 4 skipped files.
 
 | Category                  | Status                   | Checklist         |
 |---------------------------|--------------------------|-------------------|
 | assert_uninstantiable     | 1 failure                | W10               |
 | wast2json NaN syntax      | 1 file skipped           | W16               |
 | .wat file support         | 2 files skipped          | W17               |
-| Exception handling        | 1 file skipped           | W13               |
-| Custom page sizes         | 1 file skipped           | W15               |
+| memory-combos.wast        | 1 file skipped           | multi-memory      |
 
 Resolution plan: Stage 5F in roadmap.md. Full details in checklist.md.

@@ -4,10 +4,10 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-9 — COMPLETE
-- Source: ~15K LOC, 16 files, 162 tests all pass
+- Stages 0-2, 4, 7-10 — COMPLETE
+- Source: ~15K LOC, 16 files, 163 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
-- Spec: 30,703/30,703 (100%), E2E: 279/280 (99.6%), CI: ubuntu + macOS
+- Spec: 30,703/30,703 (100%), E2E: 297/298 (99.7%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -60,9 +60,9 @@ Stage 10: Custom Page Sizes (W15)
 
 Target: Non-64KB page sizes in memory type.
 
-1. [ ] 10.1: Memory type page_size field decoding
-2. [ ] 10.2: memory.size/grow adjusted for page_size
-3. [ ] 10.3: Spec test verification
+1. [x] 10.1: Memory type page_size field decoding
+2. [x] 10.2: memory.size/grow adjusted for page_size
+3. [x] 10.3: Spec test verification
 
 Stage 11: Security Hardening
 
@@ -84,12 +84,11 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 9 complete. Merge to main, then Stage 10: Custom Page Sizes.
+Stage 10 complete. Preparing for merge.
 
 ## Previous Task
 
-Stage 9 complete. Wide arithmetic: 4 opcodes (add128, sub128, mul_wide_s/u) under 0xFC prefix.
-99/99 e2e tests. Both bytecode and IR paths implemented.
+Stage 10 complete. Custom page sizes: page_size 1 or 65536, 18/18 e2e tests.
 
 ## Known Bugs
 
