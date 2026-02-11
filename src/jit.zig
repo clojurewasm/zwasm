@@ -698,14 +698,15 @@ const a64 = struct {
 /// r14+ → memory (via regs_ptr at x19)
 /// x27/x28 reserved for memory base/size cache.
 fn vregToPhys(vreg: u8) ?u5 {
-    if (vreg <= 4) return @intCast(vreg + 22); // x22-x26
-    if (vreg <= 11) return @intCast(vreg - 5 + 9); // x9-x15
-    if (vreg <= 13) return @intCast(vreg - 12 + 20); // x20-x21
+    if (vreg <= 4) return @intCast(vreg + 22); // x22-x26 (callee-saved)
+    if (vreg <= 11) return @intCast(vreg - 5 + 9); // x9-x15 (caller-saved)
+    if (vreg <= 13) return @intCast(vreg - 12 + 20); // x20-x21 (callee-saved)
+    if (vreg <= 19) return @intCast(vreg - 14 + 2); // x2-x7 (caller-saved)
     return null; // spill to memory
 }
 
 /// Maximum virtual registers mappable to physical registers.
-const MAX_PHYS_REGS: u8 = 14; // 5 callee-saved + 7 caller-saved + 2 callee-saved
+const MAX_PHYS_REGS: u8 = 20; // 5 callee + 7 caller + 2 callee + 6 caller
 
 /// Scratch register for temporaries.
 const SCRATCH: u5 = 8; // x8
@@ -863,14 +864,15 @@ pub const Compiler = struct {
         self.emit(a64.ldr64(dst, REGS_PTR, @intCast((@as(u32, self.reg_count) + 3) * 8)));
     }
 
-    /// Spill only caller-saved virtual regs (r5-r11 → x9-x15) to memory.
+    /// Spill caller-saved virtual regs (r5-r11 → x9-x15, r14-r19 → x2-x7) to memory.
     /// Callee-saved regs (r0-r4 → x22-x26, r12-r13 → x20-x21) are preserved.
     fn spillCallerSaved(self: *Compiler) void {
-        // Only spill r5-r11 (caller-saved range); r12-r13 are callee-saved
-        const max: u8 = @intCast(@min(self.reg_count, 12));
+        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
         if (max <= 5) return;
         for (5..max) |i| {
             const vreg: u8 = @intCast(i);
+            // Skip callee-saved vregs 12-13 (x20-x21) — preserved across calls
+            if (vreg == 12 or vreg == 13) continue;
             // Skip unwritten vregs — they contain garbage from caller frame
             if (vreg < 128 and (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
@@ -879,26 +881,26 @@ pub const Compiler = struct {
         }
     }
 
-    /// Spill a single vreg if it's callee-saved (r0-r4). No-op for caller-saved vregs
-    /// (already spilled by spillCallerSaved) or unmapped vregs (always in memory).
+    /// Spill a single vreg if it's callee-saved (r0-r4, r12-r13). No-op for caller-saved
+    /// vregs (already spilled by spillCallerSaved) or unmapped vregs (always in memory).
     fn spillVregIfCalleeSaved(self: *Compiler, vreg: u8) void {
         if (vregToPhys(vreg)) |phys| {
-            // Spill if vreg is in a callee-saved register (not spilled by spillCallerSaved).
-            // Caller-saved range x9-x15 is already handled by spillCallerSaved.
-            if (phys < 9 or phys > 15) {
-                self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
-            }
+            // Caller-saved ranges: x9-x15 (vregs 5-11), x2-x7 (vregs 14-19)
+            if ((phys >= 9 and phys <= 15) or (phys >= 2 and phys <= 7)) return;
+            // Callee-saved: spill to make visible to trampoline
+            self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
         }
     }
 
-    /// Reload only caller-saved virtual regs from memory (after function calls).
-    /// Callee-saved regs (r0-r4 → x22-x26) are preserved across BLR.
+    /// Reload caller-saved virtual regs from memory (after function calls).
+    /// Callee-saved regs (r0-r4 → x22-x26, r12-r13 → x20-x21) are preserved across BLR.
     fn reloadCallerSaved(self: *Compiler) void {
-        const max: u8 = @intCast(@min(self.reg_count, 12)); // r5-r11 only (caller-saved)
+        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
         if (max <= 5) return;
-        // r5-r11 (vreg 5..11) → x9-x15 (caller-saved, may be clobbered)
         for (5..max) |i| {
             const vreg: u8 = @intCast(i);
+            // Skip callee-saved vregs 12-13 (x20-x21) — preserved across calls
+            if (vreg == 12 or vreg == 13) continue;
             // Skip unwritten vregs — they were never initialized
             if (vreg < 128 and (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
@@ -3109,8 +3111,11 @@ test "virtual register mapping" {
     // r12-r13 → x20-x21 (callee-saved, repurposed from VM/INST ptrs)
     try testing.expectEqual(@as(u5, 20), vregToPhys(12).?);
     try testing.expectEqual(@as(u5, 21), vregToPhys(13).?);
-    // r14+ → null (spill)
-    try testing.expectEqual(@as(?u5, null), vregToPhys(14));
+    // r14-r19 → x2-x7 (caller-saved)
+    try testing.expectEqual(@as(u5, 2), vregToPhys(14).?);
+    try testing.expectEqual(@as(u5, 7), vregToPhys(19).?);
+    // r20+ → null (spill)
+    try testing.expectEqual(@as(?u5, null), vregToPhys(20));
 }
 
 test "compile and execute constant return" {
