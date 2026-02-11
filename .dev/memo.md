@@ -5,9 +5,9 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4 — COMPLETE
-- Source: ~15K LOC, 16 files, 148 tests all pass
+- Source: ~15K LOC, 16 files, 151 tests all pass
 - Opcode: 225 core + 236 SIMD = 461, WASI: ~27
-- Spec: 30,665/30,703 (99.9%), E2E: 178/181 (98.3%), CI: ubuntu + macOS
+- Spec: 30,663/30,703 (99.9%), E2E: 178/181 (98.3%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -50,19 +50,11 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 
 5.6: Profile and optimize remaining gaps
 
-**Sub-task A: Copy propagation in regalloc**
-Problem: regIR generates many redundant MOV instructions (~24% of all instrs).
-Pattern: `op rTEMP = ...; mov rLOCAL = rTEMP` → fold to `op rLOCAL = ...`.
-Approach: O(n) post-pass in regalloc.zig convert(). For each adjacent pair,
-if code[i+1] is MOV, code[i].rd == code[i+1].rs1, and code[i].rd >= local_count
-(temp, used once), fold: set code[i].rd = code[i+1].rd, delete code[i+1].
-Key files: src/regalloc.zig
-
 ## Previous Task
 
-JIT void self-call fix: emitInlineSelfCall unconditionally copied callee result,
-corrupting caller regs for void functions. nqueens(8) now returns 92 (was 0).
-Added result_count plumbing through compileFunction chain.
+Register reuse (TempAlloc free list) + compactCode br_table NOP target fix.
+st_sieve 462→238ms, st_fib2 1738→1371ms, st_matrix 355→321ms.
+switch spec test: 10 failures → 0 (compactCode fix).
 
 ## Known Bugs
 

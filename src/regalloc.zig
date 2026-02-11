@@ -156,6 +156,57 @@ const BlockInfo = struct {
     patches: std.ArrayList(u32),
 };
 
+/// Temp register allocator with free list for register reuse.
+/// When stack temps are consumed (popped from vstack), their indices are recycled
+/// for future allocations, keeping max_reg low and avoiding >255 bailout.
+const TempAlloc = struct {
+    next_reg: u16,
+    max_reg: u16,
+    free_count: u16 = 0,
+    free_regs: [256]u8 = undefined,
+    total_locals: u16,
+
+    fn init(total_locals: u16) TempAlloc {
+        return .{
+            .next_reg = total_locals,
+            .max_reg = total_locals,
+            .total_locals = total_locals,
+        };
+    }
+
+    fn alloc(self: *TempAlloc) u8 {
+        if (self.free_count > 0) {
+            self.free_count -= 1;
+            return self.free_regs[self.free_count];
+        }
+        const reg = self.next_reg;
+        self.next_reg += 1;
+        if (self.next_reg > self.max_reg) self.max_reg = self.next_reg;
+        return @truncate(reg);
+    }
+
+    fn free(self: *TempAlloc, reg: u8) void {
+        if (reg < self.total_locals) return;
+        if (self.free_count < 256) {
+            self.free_regs[self.free_count] = reg;
+            self.free_count += 1;
+        }
+    }
+
+    /// Pop from vstack and free if temp register.
+    fn popFree(self: *TempAlloc, vs: *std.ArrayList(u8)) ?u8 {
+        const reg = vs.pop() orelse return null;
+        self.free(reg);
+        return reg;
+    }
+
+    /// Shrink vstack and free discarded temp registers.
+    fn shrinkFree(self: *TempAlloc, vs: *std.ArrayList(u8), new_len: usize) void {
+        for (vs.items[new_len..]) |reg| self.free(reg);
+        vs.shrinkRetainingCapacity(new_len);
+    }
+};
+
 /// Convert PreInstr[] to RegInstr[].
 /// Returns null if conversion fails (unsupported opcodes).
 pub fn convert(
@@ -187,8 +238,7 @@ pub fn convert(
     var vstack: std.ArrayList(u8) = .empty;
     defer vstack.deinit(alloc);
 
-    var next_reg: u16 = total_locals; // next available temp register
-    var max_reg: u16 = total_locals; // high water mark
+    var temps = TempAlloc.init(total_locals);
     var unreachable_depth: u32 = 0; // >0 = inside dead code
 
     var pc: usize = 0;
@@ -211,7 +261,7 @@ pub fn convert(
                         // Reset vstack to block entry state
                         if (block_stack.items.len > 0) {
                             const block = &block_stack.items[block_stack.items.len - 1];
-                            vstack.shrinkRetainingCapacity(block.stack_base);
+                            temps.shrinkFree(&vstack, block.stack_base);
                         }
                         // Process this as normal else (fall through to main switch)
                     } else {
@@ -240,13 +290,13 @@ pub fn convert(
 
             // ---- local.set: move value to local register ----
             0x21 => { // local.set
-                const src = vstack.pop().?;
+                const src = temps.popFree(&vstack).?;
                 const dst: u8 = @intCast(instr.operand);
                 if (src != dst) {
                     // Detach stale vstack references to dst before overwriting
                     for (vstack.items) |*entry| {
                         if (entry.* == dst) {
-                            const tmp = allocTemp(&next_reg, &max_reg);
+                            const tmp = temps.alloc();
                             try code.append(alloc, .{ .op = OP_MOV, .rd = tmp, .rs1 = dst, .operand = 0 });
                             entry.* = tmp;
                         }
@@ -263,25 +313,26 @@ pub fn convert(
                     // Detach stale vstack references to dst before overwriting (exclude top)
                     for (vstack.items[0 .. vstack.items.len - 1]) |*entry| {
                         if (entry.* == dst) {
-                            const tmp = allocTemp(&next_reg, &max_reg);
+                            const tmp = temps.alloc();
                             try code.append(alloc, .{ .op = OP_MOV, .rd = tmp, .rs1 = dst, .operand = 0 });
                             entry.* = tmp;
                         }
                     }
                     try code.append(alloc, .{ .op = OP_MOV, .rd = dst, .rs1 = src, .operand = 0 });
                 }
-                // Replace stack top with dst register
+                // Replace stack top with dst register; free old src if temp
                 vstack.items[vstack.items.len - 1] = dst;
+                temps.free(src);
             },
 
             // ---- Constants ----
             0x41 => { // i32.const
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = rd, .rs1 = 0, .operand = instr.operand });
                 try vstack.append(alloc, rd);
             },
             0x42 => { // i64.const (pool index in operand)
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 const pool_val = if (instr.operand < pool64.len) pool64[instr.operand] else 0;
                 if (pool_val <= std.math.maxInt(u32)) {
                     try code.append(alloc, .{ .op = OP_CONST32, .rd = rd, .rs1 = 0, .operand = @truncate(pool_val) });
@@ -291,12 +342,12 @@ pub fn convert(
                 try vstack.append(alloc, rd);
             },
             0x43 => { // f32.const (bits in operand)
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = rd, .rs1 = 0, .operand = instr.operand });
                 try vstack.append(alloc, rd);
             },
             0x44 => { // f64.const (pool index in operand)
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST64, .rd = rd, .rs1 = 0, .operand = instr.operand });
                 try vstack.append(alloc, rd);
             },
@@ -305,32 +356,32 @@ pub fn convert(
             0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0x70, 0x71, 0x72, 0x73, // add..rotr
             0x74, 0x75, 0x76, 0x77, 0x78, // shl, shr_s, shr_u, rotl, rotr
             => {
-                const rs2 = vstack.pop().?;
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs2 = temps.popFree(&vstack).?;
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Binary i32 comparison ----
             0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F => {
-                const rs2 = vstack.pop().?;
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs2 = temps.popFree(&vstack).?;
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Unary i32 ----
             0x45 => { // i32.eqz
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             0x67, 0x68, 0x69 => { // i32.clz, ctz, popcnt
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
@@ -339,32 +390,32 @@ pub fn convert(
             0x7C, 0x7D, 0x7E, 0x7F, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, // add..rotr
             0x86, 0x87, 0x88, 0x89, 0x8A, // shl, shr_s, shr_u, rotl, rotr
             => {
-                const rs2 = vstack.pop().?;
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs2 = temps.popFree(&vstack).?;
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Binary i64 comparison ----
             0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A => {
-                const rs2 = vstack.pop().?;
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs2 = temps.popFree(&vstack).?;
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Unary i64 ----
             0x50 => { // i64.eqz
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             0x79, 0x7A, 0x7B => { // i64.clz, ctz, popcnt
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
@@ -374,26 +425,26 @@ pub fn convert(
             0xA4, 0xA5, // f64.min, max
             0xA6, // f64.copysign
             => {
-                const rs2 = vstack.pop().?;
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs2 = temps.popFree(&vstack).?;
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Binary f64 comparison ----
             0x61, 0x62, 0x63, 0x64, 0x65, 0x66 => {
-                const rs2 = vstack.pop().?;
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs2 = temps.popFree(&vstack).?;
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Unary f64 ----
             0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F => { // abs, neg, ceil, floor, trunc, nearest, sqrt
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
@@ -403,26 +454,26 @@ pub fn convert(
             0x96, 0x97, // f32.min, max
             0x98, // f32.copysign
             => {
-                const rs2 = vstack.pop().?;
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs2 = temps.popFree(&vstack).?;
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Binary f32 comparison ----
             0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60 => {
-                const rs2 = vstack.pop().?;
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs2 = temps.popFree(&vstack).?;
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Unary f32 ----
             0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91 => {
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
@@ -433,8 +484,8 @@ pub fn convert(
             0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, // reinterpret, extend
             0xC0, 0xC1, 0xC2, 0xC3, 0xC4, // extend8/16/32
             => {
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
@@ -443,16 +494,16 @@ pub fn convert(
             0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, // i32/i64/f32/f64 loads
             0x30, 0x31, 0x32, 0x33, 0x34, 0x35, // sign-extending loads
             => {
-                const rs1 = vstack.pop().?; // base address
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs1 = temps.popFree(&vstack).?; // base address
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = instr.operand });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Memory store (base addr + value on stack, offset in operand) ----
             0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E => {
-                const val = vstack.pop().?; // value to store
-                const base = vstack.pop().?; // base address
+                const val = temps.popFree(&vstack).?; // value to store
+                const base = temps.popFree(&vstack).?; // base address
                 // Store: no destination register. Use rd=val, rs1=base
                 try code.append(alloc, .{ .op = instr.opcode, .rd = val, .rs1 = base, .operand = instr.operand });
             },
@@ -462,7 +513,7 @@ pub fn convert(
                 if (instr.extra & predecode.ARITY_TYPE_INDEX_FLAG != 0) return null;
                 const arity: u16 = instr.extra;
 
-                const result_reg = if (arity > 0) allocTemp(&next_reg, &max_reg) else 0;
+                const result_reg = if (arity > 0) temps.alloc() else 0;
                 const block_pc: u32 = @intCast(code.items.len);
 
                 try block_stack.append(alloc, .{
@@ -481,7 +532,7 @@ pub fn convert(
                 else
                     instr.extra;
 
-                const result_reg = if (arity > 0) allocTemp(&next_reg, &max_reg) else 0;
+                const result_reg = if (arity > 0) temps.alloc() else 0;
                 const loop_pc: u32 = @intCast(code.items.len);
 
                 try block_stack.append(alloc, .{
@@ -506,8 +557,8 @@ pub fn convert(
                 pc += 1;
                 _ = data; // has_else and end_pc, we handle structurally
 
-                const cond = vstack.pop().?;
-                const result_reg = if (arity > 0) allocTemp(&next_reg, &max_reg) else 0;
+                const cond = temps.popFree(&vstack).?;
+                const result_reg = if (arity > 0) temps.alloc() else 0;
                 const br_pos: u32 = @intCast(code.items.len);
 
                 // Emit branch-if-not (false branch jumps to else/end)
@@ -532,7 +583,7 @@ pub fn convert(
 
                 // True branch: if arity > 0, move result to block's result register
                 if (block.arity > 0 and vstack.items.len > block.stack_base) {
-                    const val = vstack.pop().?;
+                    const val = temps.popFree(&vstack).?;
                     if (val != block.result_reg) {
                         try code.append(alloc, .{ .op = OP_MOV, .rd = block.result_reg, .rs1 = val, .operand = 0 });
                     }
@@ -553,14 +604,14 @@ pub fn convert(
                 }
 
                 // Reset virtual stack to block entry state
-                vstack.shrinkRetainingCapacity(block.stack_base);
+                temps.shrinkFree(&vstack, block.stack_base);
             },
 
             0x0B => { // end
                 if (block_stack.items.len == 0) {
                     // Function-level end: return
                     if (vstack.items.len > 0) {
-                        const val = vstack.pop().?;
+                        const val = temps.popFree(&vstack).?;
                         try code.append(alloc, .{ .op = OP_RETURN, .rd = val, .rs1 = 0, .operand = 0 });
                     } else {
                         try code.append(alloc, .{ .op = OP_RETURN_VOID, .rd = 0, .rs1 = 0, .operand = 0 });
@@ -573,7 +624,7 @@ pub fn convert(
 
                 // If arity > 0 and we have a value, move to result register
                 if (block.arity > 0 and vstack.items.len > block.stack_base) {
-                    const val = vstack.pop().?;
+                    const val = temps.popFree(&vstack).?;
                     if (val != block.result_reg) {
                         try code.append(alloc, .{ .op = OP_MOV, .rd = block.result_reg, .rs1 = val, .operand = 0 });
                     }
@@ -587,7 +638,7 @@ pub fn convert(
                 }
 
                 // Reset virtual stack and push result register if arity > 0
-                vstack.shrinkRetainingCapacity(block.stack_base);
+                temps.shrinkFree(&vstack, block.stack_base);
                 if (block.arity > 0) {
                     try vstack.append(alloc, block.result_reg);
                 }
@@ -621,7 +672,7 @@ pub fn convert(
 
             0x0D => { // br_if
                 const depth = instr.operand;
-                const cond = vstack.pop().?;
+                const cond = temps.popFree(&vstack).?;
                 if (depth >= block_stack.items.len) return null;
                 const target_idx = block_stack.items.len - 1 - depth;
                 const target = &block_stack.items[target_idx];
@@ -656,7 +707,7 @@ pub fn convert(
                 if (n_args > 8 or n_results > 1) return null; // bail on complex signatures
                 if (vstack.items.len < n_args) return null; // stack underflow
 
-                const rd = if (n_results > 0) allocTemp(&next_reg, &max_reg) else 0;
+                const rd = if (n_results > 0) temps.alloc() else 0;
 
                 try code.append(alloc, .{ .op = OP_CALL, .rd = rd, .rs1 = @intCast(n_args), .operand = func_idx });
 
@@ -682,14 +733,14 @@ pub fn convert(
                 }
 
                 // Pop only the arg count from virtual stack
-                vstack.shrinkRetainingCapacity(vstack.items.len - n_args);
+                temps.shrinkFree(&vstack, vstack.items.len - n_args);
                 if (n_results > 0) try vstack.append(alloc, rd);
             },
 
             // ---- Return ----
             0x0F => { // return
                 if (vstack.items.len > 0) {
-                    const val = vstack.pop().?;
+                    const val = temps.popFree(&vstack).?;
                     try code.append(alloc, .{ .op = OP_RETURN, .rd = val, .rs1 = 0, .operand = 0 });
                 } else {
                     try code.append(alloc, .{ .op = OP_RETURN_VOID, .rd = 0, .rs1 = 0, .operand = 0 });
@@ -699,15 +750,15 @@ pub fn convert(
 
             // ---- Drop ----
             0x1A => { // drop
-                _ = vstack.pop();
+                _ = temps.popFree(&vstack);
             },
 
             // ---- Select ----
             0x1B => { // select
-                const cond = vstack.pop().?;
-                const val2 = vstack.pop().?;
-                const val1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const cond = temps.popFree(&vstack).?;
+                const val2 = temps.popFree(&vstack).?;
+                const val1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 // select rd, val1, val2, cond: rd = cond ? val1 : val2
                 // Encode: rd=rd, rs1=val1, operand low=val2, operand byte1=cond
                 try code.append(alloc, .{
@@ -721,25 +772,25 @@ pub fn convert(
 
             // ---- Memory size/grow ----
             0x3F => { // memory.size
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x3F, .rd = rd, .rs1 = 0, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             0x40 => { // memory.grow
-                const rs1 = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rs1 = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x40, .rd = rd, .rs1 = rs1, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
 
             // ---- Global get/set ----
             0x23 => { // global.get
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x23, .rd = rd, .rs1 = 0, .operand = instr.operand });
                 try vstack.append(alloc, rd);
             },
             0x24 => { // global.set
-                const src = vstack.pop().?;
+                const src = temps.popFree(&vstack).?;
                 try code.append(alloc, .{ .op = 0x24, .rd = src, .rs1 = 0, .operand = instr.operand });
             },
 
@@ -767,73 +818,73 @@ pub fn convert(
             predecode.OP_LOCAL_GET_CONST => {
                 // local.get A + i32.const C
                 try vstack.append(alloc, @intCast(instr.extra));
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = rd, .rs1 = 0, .operand = instr.operand });
                 try vstack.append(alloc, rd);
                 pc += 1; // skip consumed i32.const
             },
             predecode.OP_LOCALS_ADD => {
                 // local.get A + local.get B + i32.add
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x6A, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) });
                 try vstack.append(alloc, rd);
                 pc += 2; // skip consumed local.get + i32.add
             },
             predecode.OP_LOCALS_SUB => {
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x6B, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) });
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
             predecode.OP_LOCAL_CONST_ADD => {
                 // local.get A + i32.const C + i32.add → add rd, rA, const_reg
-                const const_rd = allocTemp(&next_reg, &max_reg);
+                const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x6A, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd });
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
             predecode.OP_LOCAL_CONST_SUB => {
-                const const_rd = allocTemp(&next_reg, &max_reg);
+                const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x6B, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd });
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
             predecode.OP_LOCAL_CONST_LT_S => {
-                const const_rd = allocTemp(&next_reg, &max_reg);
+                const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x48, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd }); // i32.lt_s
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
             predecode.OP_LOCAL_CONST_GE_S => {
-                const const_rd = allocTemp(&next_reg, &max_reg);
+                const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x4E, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd }); // i32.ge_s
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
             predecode.OP_LOCAL_CONST_LT_U => {
-                const const_rd = allocTemp(&next_reg, &max_reg);
+                const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x49, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd }); // i32.lt_u
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
             predecode.OP_LOCALS_GT_S => {
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x4A, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) }); // i32.gt_s
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
             predecode.OP_LOCALS_LE_S => {
-                const rd = allocTemp(&next_reg, &max_reg);
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x4C, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) }); // i32.le_s
                 try vstack.append(alloc, rd);
                 pc += 2;
@@ -842,7 +893,7 @@ pub fn convert(
             // ---- br_table ----
             0x0E => {
                 const count = instr.operand;
-                const idx_reg = vstack.pop().?;
+                const idx_reg = temps.popFree(&vstack).?;
 
                 // Pre-scan: check if any target has arity > 0
                 var has_arity = false;
@@ -951,10 +1002,10 @@ pub fn convert(
                 if (n_args > 8 or n_results > 1) return null;
 
                 // Stack: [args...] elem_idx  (elem_idx on top)
-                const elem_idx_reg = vstack.pop().?;
+                const elem_idx_reg = temps.popFree(&vstack).?;
                 if (vstack.items.len < n_args) return null;
 
-                const rd = if (n_results > 0) allocTemp(&next_reg, &max_reg) else 0;
+                const rd = if (n_results > 0) temps.alloc() else 0;
 
                 // OP_CALL_INDIRECT: rd=result, rs1=elem_idx_reg,
                 // operand=type_idx, table_idx packed in high bits
@@ -986,16 +1037,16 @@ pub fn convert(
                     });
                 }
 
-                vstack.shrinkRetainingCapacity(vstack.items.len - n_args);
+                temps.shrinkFree(&vstack, vstack.items.len - n_args);
                 if (n_results > 0) try vstack.append(alloc, rd);
             },
 
             // ---- Bulk memory operations ----
             predecode.MISC_BASE | 0x0B => { // memory.fill
                 if (vstack.items.len < 3) return null;
-                const n_reg = vstack.pop().?;
-                const val_reg = vstack.pop().?;
-                const dst_reg = vstack.pop().?;
+                const n_reg = temps.popFree(&vstack).?;
+                const val_reg = temps.popFree(&vstack).?;
+                const dst_reg = temps.popFree(&vstack).?;
                 try code.append(alloc, .{
                     .op = OP_MEMORY_FILL,
                     .rd = dst_reg,
@@ -1005,9 +1056,9 @@ pub fn convert(
             },
             predecode.MISC_BASE | 0x0A => { // memory.copy
                 if (vstack.items.len < 3) return null;
-                const n_reg = vstack.pop().?;
-                const src_reg = vstack.pop().?;
-                const dst_reg = vstack.pop().?;
+                const n_reg = temps.popFree(&vstack).?;
+                const src_reg = temps.popFree(&vstack).?;
+                const dst_reg = temps.popFree(&vstack).?;
                 try code.append(alloc, .{
                     .op = OP_MEMORY_COPY,
                     .rd = dst_reg,
@@ -1018,50 +1069,50 @@ pub fn convert(
 
             // ---- Truncation saturating (misc prefix) ----
             predecode.MISC_BASE | 0x00 => { // i32.trunc_sat_f32_s
-                const src = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x00, .rd = rd, .rs1 = src, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             predecode.MISC_BASE | 0x01 => { // i32.trunc_sat_f32_u
-                const src = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x01, .rd = rd, .rs1 = src, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             predecode.MISC_BASE | 0x02 => { // i32.trunc_sat_f64_s
-                const src = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x02, .rd = rd, .rs1 = src, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             predecode.MISC_BASE | 0x03 => { // i32.trunc_sat_f64_u
-                const src = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x03, .rd = rd, .rs1 = src, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             predecode.MISC_BASE | 0x04 => { // i64.trunc_sat_f32_s
-                const src = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x04, .rd = rd, .rs1 = src, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             predecode.MISC_BASE | 0x05 => { // i64.trunc_sat_f32_u
-                const src = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x05, .rd = rd, .rs1 = src, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             predecode.MISC_BASE | 0x06 => { // i64.trunc_sat_f64_s
-                const src = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x06, .rd = rd, .rs1 = src, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             predecode.MISC_BASE | 0x07 => { // i64.trunc_sat_f64_u
-                const src = vstack.pop().?;
-                const rd = allocTemp(&next_reg, &max_reg);
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
                 try code.append(alloc, .{ .op = predecode.MISC_BASE | 0x07, .rd = rd, .rs1 = src, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
@@ -1092,7 +1143,7 @@ pub fn convert(
     code.shrinkRetainingCapacity(compacted_len);
 
     // Bail if temp registers exceeded u8 range
-    if (max_reg > 255) {
+    if (temps.max_reg > 255) {
         code.deinit(alloc);
         return null;
     }
@@ -1101,7 +1152,7 @@ pub fn convert(
     result.* = .{
         .code = try code.toOwnedSlice(alloc),
         .pool64 = @constCast(pool64), // shared reference
-        .reg_count = max_reg,
+        .reg_count = temps.max_reg,
         .local_count = total_locals,
         .alloc = alloc,
     };
@@ -1225,7 +1276,7 @@ fn compactCode(code: []RegInstr) usize {
 
     // Pass 1: Fix branch targets BEFORE compaction (original layout still intact).
     // new_pc(target) = target - count_deleted_in(0..target)
-    for (code) |*instr| {
+    for (code, 0..) |*instr, idx| {
         switch (instr.op) {
             OP_BR, OP_BR_IF, OP_BR_IF_NOT, OP_BLOCK_END => {
                 const old_target = instr.operand;
@@ -1235,6 +1286,22 @@ fn compactCode(code: []RegInstr) usize {
                     if (code[j].op == OP_DELETED) deleted_before += 1;
                 }
                 instr.operand = old_target - deleted_before;
+            },
+            OP_BR_TABLE => {
+                // Adjust operands of the following count+1 NOP entries (br_table jump targets)
+                const count = instr.operand;
+                var k: usize = 1;
+                while (k <= count + 1 and idx + k < len) : (k += 1) {
+                    const entry = &code[idx + k];
+                    if (entry.op != OP_NOP) break;
+                    const old_target = entry.operand;
+                    var deleted_before: u32 = 0;
+                    const limit = @min(old_target, @as(u32, @intCast(len)));
+                    for (0..limit) |j| {
+                        if (code[j].op == OP_DELETED) deleted_before += 1;
+                    }
+                    entry.operand = old_target - deleted_before;
+                }
             },
             else => {},
         }
@@ -1307,13 +1374,6 @@ fn compactCodeProper(code_slice: []RegInstr) void {
     for (write..len) |i| {
         code_slice[i] = .{ .op = OP_NOP, .rd = 0, .rs1 = 0, .operand = 0 };
     }
-}
-
-fn allocTemp(next_reg: *u16, max_reg: *u16) u8 {
-    const reg = next_reg.*;
-    next_reg.* += 1;
-    if (next_reg.* > max_reg.*) max_reg.* = next_reg.*;
-    return @truncate(reg); // wraps on overflow; checked via max_reg > 255 after loop
 }
 
 // ---- Tests ----
@@ -1610,4 +1670,108 @@ test "copy propagation — preserves branch target MOVs" {
     // Just verify it produces valid code (no crash, correct result structure)
     const code = result.?.code;
     try testing.expect(code.len >= 2);
+}
+
+test "convert — temp register reuse reduces reg_count" {
+    // 0 params, 0 locals → total_locals = 0, temps start at r0.
+    // Pattern: (i32.const 1) (i32.const 2) i32.add (i32.const 3) (i32.const 4) i32.add i32.add
+    // Without reuse: 7 temp regs (r0..r6).
+    // With reuse: max 3 temp regs (r0, r1, r2 recycled).
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x41, .extra = 0, .operand = 1 }, // i32.const 1
+        .{ .opcode = 0x41, .extra = 0, .operand = 2 }, // i32.const 2
+        .{ .opcode = 0x6A, .extra = 0, .operand = 0 }, // i32.add
+        .{ .opcode = 0x41, .extra = 0, .operand = 3 }, // i32.const 3
+        .{ .opcode = 0x41, .extra = 0, .operand = 4 }, // i32.const 4
+        .{ .opcode = 0x6A, .extra = 0, .operand = 0 }, // i32.add
+        .{ .opcode = 0x6A, .extra = 0, .operand = 0 }, // i32.add
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 0, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    // With register reuse, should need at most 3 temp registers (not 7)
+    try testing.expect(result.?.reg_count <= 3);
+}
+
+test "convert — temp reuse rescues >255 reg bailout" {
+    // 250 params + 7 i32.const, each immediately consumed by drop.
+    // Without reuse: 257 regs → bail (null).
+    // With reuse: temps recycled, max stays well under 256 → succeeds.
+    var ir: [15]PreInstr = undefined;
+    for (0..7) |i| {
+        ir[i * 2] = .{ .opcode = 0x41, .extra = 0, .operand = @intCast(i) }; // i32.const
+        ir[i * 2 + 1] = .{ .opcode = 0x1A, .extra = 0, .operand = 0 }; // drop
+    }
+    ir[14] = .{ .opcode = 0x0B, .extra = 0, .operand = 0 }; // end
+    const result = try convert(testing.allocator, &ir, &.{}, 250, 0, null);
+    // With reuse, drop frees the temp immediately → only 1 temp needed, max = 251
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+    try testing.expect(result.?.reg_count <= 252); // 250 locals + small number of temps
+}
+
+test "compactCode — br_table NOP targets adjusted on DELETED removal" {
+    // Regression: copy propagation creates DELETED instructions, but compactCode
+    // didn't adjust br_table NOP entry operands (target PCs), causing jumps to
+    // wrong addresses.
+    //
+    // Pattern: i32.const 42, local.set 0, block $a, block $b, local.get 0,
+    //          br_table 0 1, end $b, end $a, end
+    // Copy propagation folds const+MOV into CONST32 r0 + DELETED.
+    // The br_table NOP entries must have their target PCs adjusted.
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x41, .extra = 0, .operand = 42 }, // i32.const 42
+        .{ .opcode = 0x21, .extra = 0, .operand = 0 }, // local.set 0
+        .{ .opcode = 0x02, .extra = 0, .operand = 0 }, // block $a (arity 0)
+        .{ .opcode = 0x02, .extra = 0, .operand = 0 }, // block $b (arity 0)
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0
+        .{ .opcode = 0x0E, .extra = 0, .operand = 1 }, // br_table count=1
+        .{ .opcode = 0x00, .extra = 0, .operand = 0 }, // entry 0: depth 0 ($b)
+        .{ .opcode = 0x00, .extra = 0, .operand = 1 }, // default:  depth 1 ($a)
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end $b
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end $a
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end func
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 1, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    // Find the BR_TABLE instruction
+    var br_table_idx: ?usize = null;
+    for (code, 0..) |instr, i| {
+        if (instr.op == OP_BR_TABLE) {
+            br_table_idx = i;
+            break;
+        }
+    }
+    try testing.expect(br_table_idx != null);
+    const bt = br_table_idx.?;
+
+    // Both NOP entry targets must point within the code bounds
+    const entry0 = code[bt + 1]; // entry 0: depth 0 ($b)
+    const entry1 = code[bt + 2]; // default: depth 1 ($a)
+    try testing.expectEqual(OP_NOP, entry0.op);
+    try testing.expectEqual(OP_NOP, entry1.op);
+    try testing.expect(entry0.operand < code.len); // target must be in bounds
+    try testing.expect(entry1.operand < code.len); // target must be in bounds
+    // The two targets should be different (entry 0→$b end, default→$a end)
+    // $a's end is >= $b's end since $a contains $b
+    try testing.expect(entry1.operand >= entry0.operand);
 }

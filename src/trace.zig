@@ -346,7 +346,10 @@ pub fn dumpRegIR(w: *std.Io.Writer, reg_func: *const RegFunc, pool64: []const u6
             regalloc_mod.OP_RETURN => {
                 w.print("r{d}", .{instr.rd}) catch {};
             },
-            regalloc_mod.OP_RETURN_VOID, regalloc_mod.OP_NOP, regalloc_mod.OP_DELETED => {},
+            regalloc_mod.OP_RETURN_VOID, regalloc_mod.OP_DELETED => {},
+            regalloc_mod.OP_NOP => {
+                if (instr.operand != 0) w.print("-> pc={d}", .{instr.operand}) catch {};
+            },
             regalloc_mod.OP_CALL => {
                 w.print("r{d} = func#{d}(r{d}..)", .{ instr.rd, instr.operand, instr.rs1 }) catch {};
             },
