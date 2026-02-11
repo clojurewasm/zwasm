@@ -843,6 +843,7 @@ pub const Compiler = struct {
     /// Callee-saved regs (r0-r4 → x22-x26) are preserved by the callee.
     fn spillCallerSaved(self: *Compiler) void {
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        if (max <= 5) return;
         for (5..max) |i| {
             const vreg: u8 = @intCast(i);
             if (vregToPhys(vreg)) |phys| {
@@ -865,6 +866,7 @@ pub const Compiler = struct {
     /// Callee-saved regs (r0-r4 → x22-x26) are preserved across BLR.
     fn reloadCallerSaved(self: *Compiler) void {
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        if (max <= 5) return;
         // r5-r11 (vreg 5..11) → x9-x15 (caller-saved, may be clobbered)
         for (5..max) |i| {
             const vreg: u8 = @intCast(i);
