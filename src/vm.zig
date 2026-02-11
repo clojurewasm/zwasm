@@ -2200,6 +2200,7 @@ pub const Vm = struct {
                 4 => error.IntegerOverflow,
                 5 => error.Unreachable,
                 6 => error.OutOfBoundsMemoryAccess,
+                7 => error.WasmException,
                 else => error.Trap,
             };
         }

@@ -46,7 +46,7 @@ Target: tag section, try_table, throw, throw_ref, exnref.
 3. [x] 8.3: try_table + catch clauses (vm.zig, predecode.zig)
 4. [x] 8.4: Exception propagation across call stack
 5. [x] 8.5: Spec test verification + compliance update
-6. [ ] 8.6: JIT exception awareness (fallback or landing pads)
+6. [x] 8.6: JIT exception awareness (fallback or landing pads)
 
 Stage 9: Wide Arithmetic (W14)
 
@@ -84,12 +84,12 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-8.6: JIT exception awareness (fallback or landing pads).
+Stage 8 complete. Merge to main, then Stage 9: Wide Arithmetic.
 
 ## Previous Task
 
-8.5: Updated compliance.yaml, proposals.yaml, spec-support.md, checklist.md for
-exception handling completion. 38/38 spec tests, W13 resolved.
+8.6: JIT exception awareness — added WasmException error code (7) to JIT trampoline
+wasmErrorToCode/executeJIT roundtrip. Exceptions now propagate correctly through JIT calls.
 
 ## Known Bugs
 
