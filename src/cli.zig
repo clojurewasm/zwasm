@@ -79,6 +79,11 @@ fn printUsage(w: *std.Io.Writer) void {
         \\  --dir <path>        Preopen a host directory (repeatable)
         \\  --env KEY=VALUE     Set a WASI environment variable (repeatable)
         \\  --profile           Print execution profile (opcode frequency, call counts)
+        \\  --allow-read        Grant filesystem read capability
+        \\  --allow-write       Grant filesystem write capability
+        \\  --allow-env         Grant environment variable access
+        \\  --allow-path        Grant path operations (open, mkdir, unlink, etc.)
+        \\  --allow-all         Grant all WASI capabilities
         \\  --trace=CATS        Trace categories: jit,regir,exec,mem,call (comma-separated)
         \\  --dump-regir=N      Dump RegIR for function index N
         \\  --dump-jit=N        Dump JIT disassembly for function index N
@@ -111,6 +116,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     defer link_names.deinit(allocator);
     var link_paths: std.ArrayList([]const u8) = .empty;
     defer link_paths.deinit(allocator);
+    var caps = types.Capabilities.cli_default;
 
     // Parse options
     var i: usize = 0;
@@ -179,6 +185,16 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 try stderr.flush();
                 return false;
             };
+        } else if (std.mem.eql(u8, args[i], "--allow-read")) {
+            caps.allow_read = true;
+        } else if (std.mem.eql(u8, args[i], "--allow-write")) {
+            caps.allow_write = true;
+        } else if (std.mem.eql(u8, args[i], "--allow-env")) {
+            caps.allow_env = true;
+        } else if (std.mem.eql(u8, args[i], "--allow-path")) {
+            caps.allow_path = true;
+        } else if (std.mem.eql(u8, args[i], "--allow-all")) {
+            caps = types.Capabilities.all;
         } else if (args[i].len > 0 and args[i][0] == '-') {
             try stderr.print("error: unknown option '{s}'\n", .{args[i]});
             try stderr.flush();
@@ -267,7 +283,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .env_keys = env_keys.items,
             .env_vals = env_vals.items,
             .preopen_paths = preopen_paths.items,
-            .caps = types.Capabilities.cli_default,
+            .caps = caps,
         };
 
         const module = load_blk: {
@@ -387,7 +403,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .env_keys = env_keys.items,
             .env_vals = env_vals.items,
             .preopen_paths = preopen_paths.items,
-            .caps = types.Capabilities.cli_default,
+            .caps = caps,
         };
         var module = types.WasmModule.loadWasiWithImports(allocator, wasm_bytes, imports_slice, wasi_opts2) catch |err| {
             try stderr.print("error: failed to load WASI module: {s}\n", .{@errorName(err)});

@@ -70,7 +70,7 @@ Target: Deny-by-default WASI, capability flags, resource limits.
 Note: W^X already done (JIT finalize: mmap RW → mprotect RX).
 
 1. [x] 11.1: Capabilities struct + deny-by-default WASI
-2. [ ] 11.2: CLI --allow-* flags
+2. [x] 11.2: CLI --allow-* flags
 3. [ ] 11.3: Resource limits (memory ceiling, fuel metering)
 4. [ ] 11.4: Import validation at instantiation
 
@@ -88,11 +88,11 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-11.2: CLI --allow-* flags.
+11.3: Resource limits (memory ceiling, fuel metering).
 
 ## Previous Task
 
-11.1 complete. Capabilities struct, deny-by-default WASI, per-function checks, API backwards-compatible.
+11.2 complete. CLI --allow-read/write/env/path/all flags parsed and applied to WasiOptions.caps.
 
 ## Known Bugs
 
