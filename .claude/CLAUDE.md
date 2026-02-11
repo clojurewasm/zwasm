@@ -31,23 +31,22 @@ After session resume, continue automatically from where you left off.
 
 ### Loop: Orient → Plan → Execute → Commit → Repeat
 
-**1. Orient** (every iteration)
+**1. Orient** (every iteration / session start)
 
 ```bash
 git log --oneline -3 && git status --short
 ```
 
-Read: `.dev/memo.md` (current state, task queue, handover notes)
-Do NOT read other .dev/ files unless the current task requires them.
-Lazy load: roadmap.md (stage planning), decisions.md (arch context),
-checklist.md (deferred items), bench-strategy.md (bench design).
+Read `.dev/memo.md` → look at `## Current Task`:
+- **Has design details** → skip Plan, go straight to Execute
+- **Title only or empty** → go to Plan
+
+Lazy load: roadmap.md, decisions.md, checklist.md, bench-strategy.md (only when needed).
 
 **2. Plan**
 
-1. Move current `## Current Task` content → `## Previous Task` (overwrite previous)
-2. Write new task design in `## Current Task`
-   Include key architectural context from the old Previous Task if the new task builds on it.
-3. Check `roadmap.md` and `.dev/checklist.md` for context
+1. Write task design in `## Current Task` (approach, key files)
+2. Check `roadmap.md` and `.dev/checklist.md` for context
 
 **3. Execute**
 
@@ -63,10 +62,13 @@ checklist.md (deferred items), bench-strategy.md (bench design).
 
 **4. Complete** (per task)
 
-1. Run **Commit Gate Checklist** (below)
-2. Single git commit
-3. Update memo.md: advance Current State and Task Queue
-4. **Immediately loop back to Orient** — do NOT stop, do NOT summarize,
+1. Run **Commit Gate Checklist** (below) — memo.md update is part of the gate:
+   - Mark task `[x]` in Task Queue
+   - `## Previous Task` ← one-line completed summary
+   - `## Current Task` ← next task title only (no design yet — Orient decides)
+   - Update `## Current State` only if metrics changed (LOC, test count, etc.)
+2. Single git commit (code + memo in same commit)
+3. **Immediately loop back to Orient** — do NOT stop, do NOT summarize,
    do NOT ask for confirmation. The next task starts now.
 
 ### No-Workaround Rule
@@ -110,7 +112,7 @@ Run before every commit:
 4. **decisions.md**: D## entry for architectural decisions (D100+)
 5. **checklist.md**: Resolve/add W## items
 6. **spec-support.md**: Update when implementing opcodes or WASI syscalls
-7. **memo.md**: Advance Current Task, update Task Queue
+7. **memo.md**: Update per Complete step 1 format above
 
 ### Stage Completion
 
@@ -133,6 +135,17 @@ zig build test -- "X"  # Specific test only
 ./zig-out/bin/zwasm run file.wasm          # Run wasm module
 ./zig-out/bin/zwasm run file.wasm -- args  # With arguments
 ```
+
+## Context Efficiency
+
+Minimize context consumption to extend session life:
+
+- **Read with offset/limit**: Never read an entire large file. Use `offset` and `limit`
+  to read only the function or section you need.
+- **LSP first, Read second**: Use `xref-find-references`, `imenu-list-symbols`, or
+  `xref-find-apropos` to locate the exact line range, then Read that range only.
+- **Grep for discovery**: Use the Grep tool to find relevant lines before reading files.
+  A Grep result with context (`-C`) is far cheaper than reading a whole file.
 
 ## Benchmarks
 
