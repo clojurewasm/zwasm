@@ -52,10 +52,10 @@ st_nestedloop and st_ackermann at parity (≤1.1x).
 
 ## Previous Task
 
-Sub-tasks C+D: Expanded JIT physical registers (12→14), added const-addr
-bounds check elision. 35% code size reduction for memory-heavy functions
-(nbody: 550→358 ARM64 instrs), ~5% runtime improvement.
-Trace improvements: back-edge JIT trace, JitRestart trace, --profile warning.
+Sub-tasks C+D+E: Physical register expansion (12→14), const-addr bounds
+check elision (35% code reduction), write-tracked spill optimization
+(skip spilling uninitialized caller-saved regs). fib 103→98ms, st_fib2
+1.47→1.40s. Trace improvements: back-edge JIT, JitRestart, --profile.
 
 ## Known Bugs
 

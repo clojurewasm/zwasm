@@ -759,6 +759,8 @@ pub const Compiler = struct {
     /// Track known constant values per vreg for bounds check elision.
     /// Index = vreg number, null = unknown. Max 128 vregs tracked.
     known_consts: [128]?u32,
+    /// Bitset of vregs that have been written to (for spill optimization).
+    written_vregs: u128,
 
     const Patch = struct {
         arm64_idx: u32, // index in code array
@@ -800,6 +802,7 @@ pub const Compiler = struct {
             .reg_ptr_offset = 0,
             .min_memory_bytes = 0,
             .known_consts = .{null} ** 128,
+            .written_vregs = 0,
         };
     }
 
@@ -868,6 +871,8 @@ pub const Compiler = struct {
         if (max <= 5) return;
         for (5..max) |i| {
             const vreg: u8 = @intCast(i);
+            // Skip unwritten vregs — they contain garbage from caller frame
+            if (vreg < 128 and (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
                 self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
             }
@@ -894,6 +899,8 @@ pub const Compiler = struct {
         // r5-r11 (vreg 5..11) → x9-x15 (caller-saved, may be clobbered)
         for (5..max) |i| {
             const vreg: u8 = @intCast(i);
+            // Skip unwritten vregs — they were never initialized
+            if (vreg < 128 and (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
                 self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
             }
@@ -1112,6 +1119,11 @@ pub const Compiler = struct {
         const branch_targets = self.scanBranchTargets(ir) orelse return null;
         defer self.alloc.free(branch_targets);
 
+        // Mark params as written (they're initialized by the caller)
+        for (0..self.param_count) |i| {
+            if (i < 128) self.written_vregs |= @as(u128, 1) << @as(u7, @intCast(i));
+        }
+
         while (pc < ir.len) {
             // Record ARM64 code offset at actual RegInstr PC
             self.pc_map.items[pc] = self.currentIdx();
@@ -1135,6 +1147,14 @@ pub const Compiler = struct {
             } else if (instr.rd < 128) {
                 // Non-const write to rd invalidates that vreg's known const
                 self.known_consts[instr.rd] = null;
+            }
+            // Track written vregs for spill optimization
+            // Include CALL/CALL_INDIRECT results — they write to rd and must be spilled
+            if (instr.rd < 128) {
+                const op = instr.op;
+                if (!self.isControlFlowOp(op) or op == regalloc_mod.OP_CALL or op == regalloc_mod.OP_CALL_INDIRECT) {
+                    self.written_vregs |= @as(u128, 1) << @as(u7, @intCast(instr.rd));
+                }
             }
         }
         // Trailing entry for end-of-function
@@ -2156,9 +2176,9 @@ pub const Compiler = struct {
             self.emitLoadMemCache();
         }
 
-        // 6. Reload caller-saved regs AFTER all BLRs, then callee-saved result
+        // 6. Reload caller-saved regs AFTER all BLRs, then result register
         self.reloadCallerSaved();
-        if (rd <= 4) self.reloadVreg(rd); // callee-saved result needs explicit reload
+        self.reloadVreg(rd);
     }
 
     /// Emit call_indirect: table lookup + type check + function call via trampoline.
@@ -2232,9 +2252,9 @@ pub const Compiler = struct {
             self.emitLoadMemCache();
         }
 
-        // 6. Reload caller-saved regs AFTER all BLRs, then callee-saved result
+        // 6. Reload caller-saved regs AFTER all BLRs, then result register
         self.reloadCallerSaved();
-        if (instr.rd <= 4) self.reloadVreg(instr.rd);
+        self.reloadVreg(instr.rd);
     }
 
     /// Inline self-call: direct BL to function entry, bypassing trampoline.
@@ -2353,7 +2373,7 @@ pub const Compiler = struct {
 
         // 12. Reload caller-saved regs + result register
         self.reloadCallerSaved();
-        if (self.result_count > 0 and rd <= 4) self.reloadVreg(rd);
+        if (self.result_count > 0) self.reloadVreg(rd);
 
         // 13. Reload memory cache (memory may have grown during call)
         if (self.has_memory) {
