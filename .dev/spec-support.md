@@ -50,8 +50,8 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Multi-value           | Complete     | Multiple returns                   |
 | SIMD                  | Complete     | All 236 v128 opcodes               |
 | Memory64              | Complete     | Wasm 3.0 — table64 + i64 addressing |
-| Tail calls            | Not started  | Wasm 3.0                           |
-| Exception handling    | Not started  | Wasm 3.0 (W13)                     |
+| Tail calls            | Stub         | return_call/return_call_indirect trap |
+| Exception handling    | Complete     | throw, try_table, catch clauses    |
 | Wide arithmetic       | Not started  | Wasm 3.0 (W14)                     |
 | Custom page sizes     | Not started  | Wasm 3.0 (W15)                     |
 | GC                    | Not started  | Wasm 3.0                           |

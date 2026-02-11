@@ -6,7 +6,7 @@ Session handover document. Read at session start.
 
 - Stages 0-2, 4 — COMPLETE
 - Source: ~15K LOC, 16 files, 155 tests all pass
-- Opcode: 225 core + 236 SIMD = 461, WASI: ~27
+- Opcode: 230 core + 236 SIMD = 466, WASI: ~27
 - Spec: 30,703/30,703 (100%), E2E: 180/181 (99.4%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
@@ -45,7 +45,7 @@ Target: tag section, try_table, throw, throw_ref, exnref.
 2. [x] 8.2: throw / throw_ref instructions (vm.zig)
 3. [x] 8.3: try_table + catch clauses (vm.zig, predecode.zig)
 4. [x] 8.4: Exception propagation across call stack
-5. [ ] 8.5: Spec test verification + compliance update
+5. [x] 8.5: Spec test verification + compliance update
 6. [ ] 8.6: JIT exception awareness (fallback or landing pads)
 
 Stage 9: Wide Arithmetic (W14)
@@ -84,13 +84,12 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-8.5: Spec test verification + compliance update.
+8.6: JIT exception awareness (fallback or landing pads).
 
 ## Previous Task
 
-8.2-8.4: Implemented throw, try_table, catch clauses, cross-function exception
-propagation. Tag identity via unique tag_id for cross-module matching. Predecode
-bails on exception opcodes (bytecode fallback). Exception spec tests 38/38 pass.
+8.5: Updated compliance.yaml, proposals.yaml, spec-support.md, checklist.md for
+exception handling completion. 38/38 spec tests, W13 resolved.
 
 ## Known Bugs
 
