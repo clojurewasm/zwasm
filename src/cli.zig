@@ -4,10 +4,10 @@
 //! zwasm CLI — run, inspect, and validate WebAssembly modules.
 //!
 //! Usage:
-//!   zwasm run <file.wasm> [args...]
-//!   zwasm run --invoke <func> <file.wasm> [i32:N ...]
-//!   zwasm inspect <file.wasm>
-//!   zwasm validate <file.wasm>
+//!   zwasm run <file.wasm|.wat> [args...]
+//!   zwasm run --invoke <func> <file.wasm|.wat> [i32:N ...]
+//!   zwasm inspect <file.wasm|.wat>
+//!   zwasm validate <file.wasm|.wat>
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -16,6 +16,8 @@ const module_mod = @import("module.zig");
 const opcode = @import("opcode.zig");
 const vm_mod = @import("vm.zig");
 const trace_mod = vm_mod.trace_mod;
+const wat = @import("wat.zig");
+const build_options = @import("build_options");
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -66,9 +68,9 @@ fn printUsage(w: *std.Io.Writer) void {
         \\zwasm — Zig WebAssembly Runtime
         \\
         \\Usage:
-        \\  zwasm run [options] <file.wasm> [args...]
-        \\  zwasm inspect [--json] <file.wasm>
-        \\  zwasm validate <file.wasm>
+        \\  zwasm run [options] <file.wasm|.wat> [args...]
+        \\  zwasm inspect [--json] <file.wasm|.wat>
+        \\  zwasm validate <file.wasm|.wat>
         \\  zwasm version
         \\  zwasm help
         \\
@@ -240,7 +242,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         return false;
     };
 
-    const wasm_bytes = readFile(allocator, path) catch |err| {
+    const wasm_bytes = readWasmFile(allocator, path) catch |err| {
         try stderr.print("error: cannot read '{s}': {s}\n", .{ path, @errorName(err) });
         try stderr.flush();
         return false;
@@ -698,7 +700,7 @@ fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
         try stderr.flush();
         return;
     };
-    const wasm_bytes = readFile(allocator, file_path) catch |err| {
+    const wasm_bytes = readWasmFile(allocator, file_path) catch |err| {
         try stderr.print("error: cannot read '{s}': {s}\n", .{ file_path, @errorName(err) });
         try stderr.flush();
         return;
@@ -1077,7 +1079,7 @@ fn cmdValidate(allocator: Allocator, args: []const []const u8, stdout: *std.Io.W
     }
 
     const path = args[0];
-    const wasm_bytes = readFile(allocator, path) catch |err| {
+    const wasm_bytes = readWasmFile(allocator, path) catch |err| {
         try stderr.print("error: cannot read '{s}': {s}\n", .{ path, @errorName(err) });
         try stderr.flush();
         return;
@@ -1125,4 +1127,20 @@ fn readFile(allocator: Allocator, path: []const u8) ![]const u8 {
     const data = try allocator.alloc(u8, stat.size);
     const read = try file.readAll(data);
     return data[0..read];
+}
+
+fn isWatFile(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, ".wat");
+}
+
+/// Read a file and convert WAT to wasm binary if needed.
+/// Returns wasm bytes owned by caller.
+fn readWasmFile(allocator: Allocator, path: []const u8) ![]const u8 {
+    const file_bytes = try readFile(allocator, path);
+    if (isWatFile(path)) {
+        defer allocator.free(file_bytes);
+        if (!build_options.enable_wat) return error.WatNotEnabled;
+        return wat.watToWasm(allocator, file_bytes);
+    }
+    return file_bytes;
 }

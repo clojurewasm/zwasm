@@ -84,7 +84,7 @@ Target: `zwasm run file.wat`, build-time `-Dwat=false`.
 4. [x] 12.4: WAT parser — instructions (all opcodes, folded S-expr form)
 5. [x] 12.5: Wasm binary encoder (emit valid .wasm from parsed AST)
 6. [x] 12.6: WAT abbreviations (inline exports, type use, etc.)
-7. [ ] 12.7: API + CLI integration (loadFromWat, auto-detect .wat)
+7. [x] 12.7: API + CLI integration (loadFromWat, auto-detect .wat)
 8. [ ] 12.8: E2E verification (issue11563.wat, issue12170.wat)
 
 Stage 13: x86_64 JIT Backend
@@ -95,11 +95,11 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-12.7: API + CLI integration (loadFromWat, auto-detect .wat)
+12.8: E2E verification (issue11563.wat, issue12170.wat)
 
 ## Previous Task
 
-12.6 complete. Named local/global/label resolution in encoder, inline exports on table/global, round-trip tests for named locals and named globals.
+12.7 complete. CLI auto-detect .wat extension, readWasmFile helper, run/inspect/validate all accept .wat files. Tested with conformance WATs (i32_arith, sieve, block).
 
 ## Known Bugs
 
