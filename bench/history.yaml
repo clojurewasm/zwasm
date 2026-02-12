@@ -411,3 +411,57 @@ entries:
       st_nestedloop: {time_ms: 5.6}
       st_ackermann: {time_ms: 5.8}
       st_matrix: {time_ms: 286.3}
+  - id: "stage13-complete"
+    date: "2026-02-12"
+    reason: "Stage 13 complete"
+    commit: "76c0540"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 97.0}
+      tak: {time_ms: 13.3}
+      sieve: {time_ms: 4.8}
+      nbody: {time_ms: 38.9}
+      nqueens: {time_ms: 0.7}
+      tgo_fib: {time_ms: 42.0}
+      tgo_tak: {time_ms: 8.1}
+      tgo_arith: {time_ms: 34.9}
+      tgo_sieve: {time_ms: 10.4}
+      tgo_fib_loop: {time_ms: 0.0}
+      tgo_gcd: {time_ms: 1.7}
+      tgo_nqueens: {time_ms: 47.8}
+      tgo_mfr: {time_ms: 65.6}
+      tgo_list: {time_ms: 84.6}
+      tgo_rwork: {time_ms: 12.1}
+      tgo_strops: {time_ms: 39.8}
+      st_fib2: {time_ms: 1397.4}
+      st_sieve: {time_ms: 235.1}
+      st_nestedloop: {time_ms: 9.0}
+      st_ackermann: {time_ms: 7.8}
+      st_matrix: {time_ms: 284.9}
+  - id: "stage14-complete"
+    date: "2026-02-12"
+    reason: "Stage 14 complete"
+    commit: "ece72a9"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 96.9}
+      tak: {time_ms: 12.4}
+      sieve: {time_ms: 4.8}
+      nbody: {time_ms: 38.2}
+      nqueens: {time_ms: 1.8}
+      tgo_fib: {time_ms: 52.5}
+      tgo_tak: {time_ms: 10.8}
+      tgo_arith: {time_ms: 3.1}
+      tgo_sieve: {time_ms: 3.1}
+      tgo_fib_loop: {time_ms: 1.7}
+      tgo_gcd: {time_ms: 1.7}
+      tgo_nqueens: {time_ms: 45.7}
+      tgo_mfr: {time_ms: 67.8}
+      tgo_list: {time_ms: 65.9}
+      tgo_rwork: {time_ms: 11.4}
+      tgo_strops: {time_ms: 38.4}
+      st_fib2: {time_ms: 1424.3}
+      st_sieve: {time_ms: 239.8}
+      st_nestedloop: {time_ms: 5.6}
+      st_ackermann: {time_ms: 8.3}
+      st_matrix: {time_ms: 290.0}

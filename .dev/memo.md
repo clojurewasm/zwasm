@@ -15,7 +15,7 @@ Session handover document. Read at session start.
 - WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
-- **main = stable**: CW depends on main via GitHub URL (v0.7.0 tag).
+- **main = stable**: CW depends on main via GitHub URL (v0.10.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
 
 ## Completed Stages
@@ -59,7 +59,10 @@ Stage 15: Wasm 3.0 — Multi-memory
 Target: Multiple memories per module (~400 LOC).
 All load/store/memory.* get memidx immediate. Binary format: memarg bit 6.
 
-(Task breakdown TBD.)
+1. [ ] 15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init
+2. [ ] 15.2: Bytecode interpreter — memidx plumbing in load/store/memory ops
+3. [ ] 15.3: Predecode IR — memidx encoding in PreInstr + executeIR dispatch
+4. [ ] 15.4: Spec tests + cleanup
 
 Stage 16: Wasm 3.0 — Relaxed SIMD
 
@@ -84,7 +87,14 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-Stage 14 complete. Proceeding to merge gate → Stage 15.
+15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init.
+
+Key points:
+- memarg bit 6 of alignment field: if set, memidx u32 follows after offset
+- memory.size/grow: current readByte() → readU32() for memidx
+- memory.fill/copy/init: readByte() → readU32() for memidx
+- validateBodyEnd: handle multi-memory encoding
+- No single-memory restriction in code (already ArrayList)
 
 ## Previous Task
 
