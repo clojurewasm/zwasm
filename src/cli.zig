@@ -50,7 +50,9 @@ pub fn main() !void {
     } else if (std.mem.eql(u8, command, "inspect")) {
         try cmdInspect(allocator, args[2..], stdout, stderr);
     } else if (std.mem.eql(u8, command, "validate")) {
-        try cmdValidate(allocator, args[2..], stdout, stderr);
+        const ok = try cmdValidate(allocator, args[2..], stdout, stderr);
+        try stdout.flush();
+        if (!ok) std.process.exit(1);
     } else if (std.mem.eql(u8, command, "help") or std.mem.eql(u8, command, "--help") or std.mem.eql(u8, command, "-h")) {
         printUsage(stdout);
     } else if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "version")) {
@@ -1140,27 +1142,27 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
 // zwasm validate
 // ============================================================
 
-fn cmdValidate(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !void {
+fn cmdValidate(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
     if (args.len < 1) {
         try stderr.print("error: no wasm file specified\n", .{});
         try stderr.flush();
-        return;
+        return false;
     }
 
     const path = args[0];
     const wasm_bytes = readWasmFile(allocator, path) catch |err| {
-        try stderr.print("error: cannot read '{s}': {s}\n", .{ path, @errorName(err) });
+        try stderr.print("error: validation failed: {s}: {s}\n", .{ path, @errorName(err) });
         try stderr.flush();
-        return;
+        return false;
     };
     defer allocator.free(wasm_bytes);
 
     var module = module_mod.Module.init(allocator, wasm_bytes);
     defer module.deinit();
     module.decode() catch |err| {
-        try stderr.print("error: validation failed: {s}\n", .{@errorName(err)});
+        try stderr.print("error: validation failed: {s}: {s}\n", .{ path, @errorName(err) });
         try stderr.flush();
-        return;
+        return false;
     };
 
     try stdout.print("{s}: valid ({d} bytes, {d} functions, {d} exports)\n", .{
@@ -1170,6 +1172,7 @@ fn cmdValidate(allocator: Allocator, args: []const []const u8, stdout: *std.Io.W
         module.exports.items.len,
     });
     try stdout.flush();
+    return true;
 }
 
 // ============================================================

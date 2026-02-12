@@ -582,7 +582,7 @@ def run_test_file(json_path, verbose=False):
                           "assert_unlinkable", "assert_uninstantiable"):
             wasm_file = cmd.get("filename")
             module_type = cmd.get("module_type", "binary")
-            if module_type != "binary" or not wasm_file:
+            if not wasm_file or module_type not in ("binary", "text"):
                 skipped += 1
                 continue
             wasm_path = os.path.join(test_dir, wasm_file)
