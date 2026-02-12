@@ -168,7 +168,7 @@ wasm_3.0:
       extended. Symmetric with multi-table from reference_types.
 
   relaxed_simd:
-    status: todo
+    status: complete
     opcodes: 20                   # All under 0xfd prefix (0x100-0x113)
     new_types: []
     complexity: high

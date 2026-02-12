@@ -50,17 +50,18 @@ pub const WasmValType = enum {
     i64,
     f32,
     f64,
+    v128,
     funcref,
     externref,
 
     /// Convert an internal runtime ValType to a public WasmValType.
-    /// Returns null for unsupported types (v128).
     pub fn fromRuntime(vt: rt.opcode.ValType) ?WasmValType {
         return switch (vt) {
             .i32 => .i32,
             .i64 => .i64,
             .f32 => .f32,
             .f64 => .f64,
+            .v128 => .v128,
             .funcref => .funcref,
             .externref => .externref,
             else => null,

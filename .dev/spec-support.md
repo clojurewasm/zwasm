@@ -51,6 +51,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Reference types       | Complete     | externref, funcref                  |
 | Multi-value           | Complete     | Multiple returns                   |
 | SIMD                  | Complete     | All 236 v128 opcodes               |
+| Relaxed SIMD          | Complete     | 20 opcodes (0x100-0x113), 85/85 spec |
 | Memory64              | Complete     | Wasm 3.0 — table64 + i64 addressing |
 | Tail calls            | Complete     | return_call + return_call_indirect    |
 | Extended const        | Complete     | i32/i64 add/sub/mul in const exprs |

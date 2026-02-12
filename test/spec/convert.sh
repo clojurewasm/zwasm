@@ -34,7 +34,7 @@ for wast in "$TESTSUITE"/*.wast; do
         continue
     fi
 
-    if wast2json --enable-tail-call --enable-multi-memory "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
+    if wast2json --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
         CONVERTED=$((CONVERTED + 1))
     else
         echo "WARN: failed to convert $name.wast"
@@ -47,7 +47,21 @@ MMDIR="$TESTSUITE/multi-memory"
 if [ -d "$MMDIR" ]; then
     for wast in "$MMDIR"/*.wast; do
         name=$(basename "$wast" .wast)
-        if wast2json --enable-tail-call --enable-multi-memory "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
+        if wast2json --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
+            CONVERTED=$((CONVERTED + 1))
+        else
+            echo "WARN: failed to convert $name.wast"
+            FAILED=$((FAILED + 1))
+        fi
+    done
+fi
+
+# Relaxed SIMD proposal tests (in subdirectory)
+RSDIR="$TESTSUITE/relaxed-simd"
+if [ -d "$RSDIR" ]; then
+    for wast in "$RSDIR"/*.wast; do
+        name=$(basename "$wast" .wast)
+        if wast2json --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
             CONVERTED=$((CONVERTED + 1))
         else
             echo "WARN: failed to convert $name.wast"

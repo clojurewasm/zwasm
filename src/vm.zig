@@ -382,10 +382,18 @@ pub const Vm = struct {
 
                 const inst: *Instance = @ptrCast(@alignCast(wf.instance));
 
+                // Check if function has v128 params (skip regir/jit for top-level v128 calls)
+                const has_v128_params = blk: {
+                    for (func_ptr.params) |pt| {
+                        if (pt == .v128) break :blk true;
+                    }
+                    break :blk false;
+                };
+
                 // Try register IR conversion (requires predecoded IR)
-                // Skip for: multi-value return
+                // Skip for: multi-value return, v128 params (args array size mismatch)
                 if (wf.ir != null and wf.reg_ir == null and !wf.reg_ir_failed and
-                    func_ptr.results.len <= 1)
+                    func_ptr.results.len <= 1 and !has_v128_params)
                 {
                     const resolver = regalloc_mod.ParamResolver{
                         .ctx = @ptrCast(inst),
@@ -427,7 +435,9 @@ pub const Vm = struct {
                     }
                 }
 
-                if (wf.reg_ir) |reg| {
+                if (has_v128_params) {
+                    // Skip RegIR/JIT for v128 params — fall through to stack path
+                } else if (wf.reg_ir) |reg| {
                     // Dump RegIR if requested (one-shot)
                     if (self.trace) |tc| {
                         if (tc.dump_regir_func) |dump_idx| {
@@ -484,13 +494,30 @@ pub const Vm = struct {
                 }
 
                 // Stack-based paths: push args and locals to operand stack
-                for (args) |arg| try self.push(arg);
+                // v128 params consume 2 u64 slots in the args array
+                {
+                    var arg_idx: usize = 0;
+                    for (func_ptr.params) |ptype| {
+                        if (ptype == .v128 and arg_idx + 1 < args.len) {
+                            const lo: u128 = args[arg_idx];
+                            const hi: u128 = args[arg_idx + 1];
+                            try self.pushV128(lo | (hi << 64));
+                            arg_idx += 2;
+                        } else if (arg_idx < args.len) {
+                            try self.push(args[arg_idx]);
+                            arg_idx += 1;
+                        } else {
+                            try self.push(0);
+                        }
+                    }
+                }
+                const param_slots = func_ptr.params.len;
                 for (0..wf.locals_count) |_| try self.push(0);
 
                 // Push frame
                 try self.pushFrame(.{
                     .locals_start = base,
-                    .locals_count = args.len + wf.locals_count,
+                    .locals_count = param_slots + wf.locals_count,
                     .return_arity = func_ptr.results.len,
                     .op_stack_base = base,
                     .label_stack_base = self.label_ptr,
@@ -502,7 +529,7 @@ pub const Vm = struct {
                     // IR path: fixed-width dispatch
                     try self.pushLabel(.{
                         .arity = func_ptr.results.len,
-                        .op_stack_base = base + args.len + wf.locals_count,
+                        .op_stack_base = base + param_slots + wf.locals_count,
                         .target = .{ .ir_forward = @intCast(ir.code.len) },
                     });
                     try self.executeIR(ir.code, ir.pool64, inst);
@@ -516,7 +543,7 @@ pub const Vm = struct {
                     var body_reader = Reader.init(wf.code);
                     try self.pushLabel(.{
                         .arity = func_ptr.results.len,
-                        .op_stack_base = base + args.len + wf.locals_count,
+                        .op_stack_base = base + param_slots + wf.locals_count,
                         .target = .{ .forward = body_reader },
                     });
                     try self.execute(&body_reader, inst);
@@ -575,9 +602,23 @@ pub const Vm = struct {
                     }
                 }
 
-                // Copy results
-                const result_start = self.op_ptr - results.len;
-                for (results, 0..) |*r, i| r.* = @truncate(self.op_stack[result_start + i]);
+                // Copy results (v128 uses 2 u64 slots in results array)
+                const result_slots = func_ptr.results.len; // wasm-level result count
+                const result_start = self.op_ptr - result_slots;
+                {
+                    var result_idx: usize = 0;
+                    for (func_ptr.results, 0..) |rtype, slot| {
+                        if (rtype == .v128) {
+                            const v: u128 = self.op_stack[result_start + slot];
+                            if (result_idx < results.len) results[result_idx] = @truncate(v);
+                            if (result_idx + 1 < results.len) results[result_idx + 1] = @truncate(v >> 64);
+                            result_idx += 2;
+                        } else {
+                            if (result_idx < results.len) results[result_idx] = @truncate(self.op_stack[result_start + slot]);
+                            result_idx += 1;
+                        }
+                    }
+                }
                 self.op_ptr = base;
             },
             .host_function => |hf| {
@@ -900,9 +941,13 @@ pub const Vm = struct {
                 .select, .select_t => {
                     if (op == .select_t) _ = try reader.readU32(); // skip type count + types
                     const cond = self.popI32();
-                    const val2 = self.pop();
-                    const val1 = self.pop();
-                    try self.push(if (cond != 0) val1 else val2);
+                    // Use u128 ops to preserve v128 upper bits
+                    self.op_ptr -= 1;
+                    const val2 = self.op_stack[self.op_ptr];
+                    self.op_ptr -= 1;
+                    const val1 = self.op_stack[self.op_ptr];
+                    self.op_stack[self.op_ptr] = if (cond != 0) val1 else val2;
+                    self.op_ptr += 1;
                 },
 
                 // ---- Variable access ----
@@ -2070,7 +2115,9 @@ pub const Vm = struct {
                 var r: [8]i16 = undefined;
                 inline for (0..8) |i| {
                     const prod: i32 = @as(i32, a[i]) * @as(i32, b[i]);
-                    r[i] = @intCast(@as(i32, @truncate((prod + 0x4000) >> 15)));
+                    const shifted: i32 = @truncate((prod + 0x4000) >> 15);
+                    // Saturate: overflow (INT16_MIN * INT16_MIN) returns INT16_MAX
+                    r[i] = if (shifted > 32767) 32767 else @intCast(shifted);
                 }
                 try self.pushV128(@bitCast(r));
             },
@@ -2398,19 +2445,20 @@ pub const Vm = struct {
         const label = self.peekLabel(depth);
         const arity = label.arity;
 
-        // Save results from top of stack
-        var results: [16]u64 = undefined;
+        // Save results from top of stack (u128 to preserve v128 values)
+        var results: [16]u128 = undefined;
         var i: usize = arity;
         while (i > 0) {
             i -= 1;
-            results[i] = self.pop();
+            self.op_ptr -= 1;
+            results[i] = self.op_stack[self.op_ptr];
         }
 
         // Unwind operand stack to label base
         self.op_ptr = label.op_stack_base;
 
         // Push results back
-        for (0..arity) |j| try self.push(results[j]);
+        for (0..arity) |j| try self.pushV128(results[j]);
 
         // Set reader to target and pop labels
         switch (label.target) {
@@ -2439,14 +2487,16 @@ pub const Vm = struct {
         const label = self.peekLabel(depth);
         const arity = label.arity;
 
-        var results: [16]u64 = undefined;
+        // u128 to preserve v128 values during branch unwind
+        var results: [16]u128 = undefined;
         var i: usize = arity;
         while (i > 0) {
             i -= 1;
-            results[i] = self.pop();
+            self.op_ptr -= 1;
+            results[i] = self.op_stack[self.op_ptr];
         }
         self.op_ptr = label.op_stack_base;
-        for (0..arity) |j| try self.push(results[j]);
+        for (0..arity) |j| try self.pushV128(results[j]);
 
         switch (label.target) {
             .ir_forward => |target_pc| {
@@ -3381,11 +3431,14 @@ pub const Vm = struct {
 
                 // ---- Parametric ----
                 0x1A => _ = self.pop(), // drop
-                0x1B => { // select
+                0x1B => { // select (u128 to preserve v128)
                     const cond = self.popI32();
-                    const val2 = self.pop();
-                    const val1 = self.pop();
-                    try self.push(if (cond != 0) val1 else val2);
+                    self.op_ptr -= 1;
+                    const val2 = self.op_stack[self.op_ptr];
+                    self.op_ptr -= 1;
+                    const val1 = self.op_stack[self.op_ptr];
+                    self.op_stack[self.op_ptr] = if (cond != 0) val1 else val2;
+                    self.op_ptr += 1;
                 },
 
                 // ---- Variable access ----

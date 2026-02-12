@@ -6,8 +6,8 @@ Session handover document. Read at session start.
 
 - Stages 0-2, 4, 7-15 — COMPLETE
 - Source: ~28K LOC, 17 files, 229 tests all pass
-- Opcode: 236 core + 236 SIMD = 472, WASI: ~27
-- Spec: 32,236/32,236 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
+- Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
+- Spec: 56,265/56,399 (99.8%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -93,15 +93,8 @@ Stage 16: Wasm 3.0 — Relaxed SIMD
 Target: 20 non-deterministic SIMD ops (~600 LOC).
 ARM64 NEON native mapping. Implementation-defined results.
 
-1. [ ] 16.1: Opcode + decode + validate — add 20 opcodes to SimdOpcode (0x100-0x113),
-   decode in module.zig, validate arity (2-op or 3-op), predecode IR stubs
-2. [ ] 16.2: Relaxed swizzle + trunc (5 opcodes) — i8x16.relaxed_swizzle,
-   i32x4.relaxed_trunc_f32x4_s/u, i32x4.relaxed_trunc_f64x2_s/u_zero
-3. [ ] 16.3: FMA + laneselect (8 opcodes) — f32x4/f64x2.relaxed_madd/nmadd,
-   i8x16/i16x8/i32x4/i64x2.relaxed_laneselect
-4. [ ] 16.4: Min/max + Q15 + dot (7 opcodes) — f32x4/f64x2.relaxed_min/max,
-   i16x8.relaxed_q15mulr_s, i16x8.dot_i8x16_i7x16_s, i32x4.dot_i8x16_i7x16_add_s
-5. [ ] 16.5: Spec tests + cleanup — convert relaxed-simd spec tests, run, fix
+1. [x] 16.1: Opcode + interpreter — add 20 opcodes (0x100-0x113) with full vm.zig implementation
+2. [x] 16.2: Spec tests + v128 invoke support — 85/85 relaxed SIMD pass, v128 batch protocol, select/branch v128 fix
 
 Stage 17: Wasm 3.0 — Function References
 
@@ -119,22 +112,21 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-Stage 16.1: Add 20 relaxed SIMD opcodes to SimdOpcode, decode/validate in module.zig,
-predecode IR stubs in predecode.zig, dispatch stubs in vm.zig.
+Stage 16 complete — merge gate checklist.
 
 ## Previous Task
 
-Stage 13B complete and merged to main. Fixed FRINTP encoding bug post-merge.
+Stage 16.2: Spec tests + v128 invoke support — 85/85 relaxed SIMD pass, v128 batch protocol, select/branch v128 fix.
 
 ## Wasm 3.0 Coverage
 
-Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory (6/10 finished proposals).
-NOT implemented: function_references, gc, relaxed_simd (3 proposals).
+Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory, relaxed_simd (7/10 finished proposals).
+NOT implemented: function_references, gc (2 proposals).
 GC requires function_references first.
 
 ## Known Bugs
 
-None. All spec tests pass (32236/32236). No JIT FP bail opcodes remaining on x86_64 or ARM64.
+None. Spec tests: 56265/56399 (99.8%). 134 pre-existing SIMD failures (store_lane unimplemented, v128 globals InvalidWasm).
 
 ## References
 

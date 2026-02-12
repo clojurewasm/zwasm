@@ -23,16 +23,56 @@ SPEC_DIR = "test/spec/json"
 SPECTEST_WASM = "test/spec/spectest.wasm"
 
 
+def v128_lanes_to_u64_pair(lane_type, lanes):
+    """Convert v128 lane values to (lo_u64, hi_u64) pair."""
+    if lane_type in ("i32", "f32"):
+        # 4 x 32-bit lanes
+        vals = [int(v) & 0xFFFFFFFF for v in lanes]
+        lo = vals[0] | (vals[1] << 32)
+        hi = vals[2] | (vals[3] << 32)
+    elif lane_type in ("i64", "f64"):
+        # 2 x 64-bit lanes
+        vals = [int(v) & 0xFFFFFFFFFFFFFFFF for v in lanes]
+        lo = vals[0]
+        hi = vals[1]
+    elif lane_type in ("i8",):
+        # 16 x 8-bit lanes
+        vals = [int(v) & 0xFF for v in lanes]
+        lo = sum(vals[i] << (i * 8) for i in range(8))
+        hi = sum(vals[i] << ((i - 8) * 8) for i in range(8, 16))
+    elif lane_type in ("i16",):
+        # 8 x 16-bit lanes
+        vals = [int(v) & 0xFFFF for v in lanes]
+        lo = sum(vals[i] << (i * 16) for i in range(4))
+        hi = sum(vals[i] << ((i - 4) * 16) for i in range(4, 8))
+    else:
+        return None
+    return (lo & 0xFFFFFFFFFFFFFFFF, hi & 0xFFFFFFFFFFFFFFFF)
+
+
+def v128_has_nan(lane_type, lanes):
+    """Check if any v128 lane is a NaN value."""
+    return any(isinstance(v, str) and v.startswith("nan:") for v in lanes)
+
+
 def parse_value(val_obj):
-    """Parse a JSON value object to u64. Returns ("skip",) for unsupported types."""
+    """Parse a JSON value object to u64 or v128 tuple. Returns ("skip",) for unsupported types."""
     vtype = val_obj["type"]
     vstr = val_obj["value"]
 
-    # v128 (SIMD) values are lists — can't pass via CLI
-    if isinstance(vstr, list):
-        return ("skip",)
-
     if vtype == "v128":
+        lane_type = val_obj.get("lane_type", "i32")
+        if not isinstance(vstr, list):
+            return ("skip",)
+        # Check for NaN lanes
+        if v128_has_nan(lane_type, vstr):
+            return ("v128_nan", lane_type, vstr)
+        pair = v128_lanes_to_u64_pair(lane_type, vstr)
+        if pair is None:
+            return ("skip",)
+        return ("v128", pair[0], pair[1])
+
+    if isinstance(vstr, list):
         return ("skip",)
 
     # Reference types: null = 0, non-null values passed as raw integers
@@ -66,6 +106,110 @@ def is_nan_u64(val, vtype):
         frac = val & 0xFFFFFFFFFFFFF
         return exp == 0x7FF and frac != 0
     return False
+
+
+def match_v128_nan(actual_lo, actual_hi, lane_type, lanes):
+    """Check if v128 result matches expected lanes, allowing NaN wildcards."""
+    if lane_type in ("i32", "f32"):
+        actual_lanes = [
+            actual_lo & 0xFFFFFFFF,
+            (actual_lo >> 32) & 0xFFFFFFFF,
+            actual_hi & 0xFFFFFFFF,
+            (actual_hi >> 32) & 0xFFFFFFFF,
+        ]
+        for a, e in zip(actual_lanes, lanes):
+            if isinstance(e, str) and e.startswith("nan:"):
+                if not is_nan_u64(a, "f32"):
+                    return False
+            else:
+                if a != (int(e) & 0xFFFFFFFF):
+                    return False
+    elif lane_type in ("i64", "f64"):
+        actual_lanes = [actual_lo, actual_hi]
+        for a, e in zip(actual_lanes, lanes):
+            if isinstance(e, str) and e.startswith("nan:"):
+                if not is_nan_u64(a, "f64"):
+                    return False
+            else:
+                if a != (int(e) & 0xFFFFFFFFFFFFFFFF):
+                    return False
+    elif lane_type == "i16":
+        actual_lanes = []
+        for i in range(4):
+            actual_lanes.append((actual_lo >> (i * 16)) & 0xFFFF)
+        for i in range(4):
+            actual_lanes.append((actual_hi >> (i * 16)) & 0xFFFF)
+        for a, e in zip(actual_lanes, lanes):
+            if a != (int(e) & 0xFFFF):
+                return False
+    elif lane_type == "i8":
+        actual_lanes = []
+        for i in range(8):
+            actual_lanes.append((actual_lo >> (i * 8)) & 0xFF)
+        for i in range(8):
+            actual_lanes.append((actual_hi >> (i * 8)) & 0xFF)
+        for a, e in zip(actual_lanes, lanes):
+            if a != (int(e) & 0xFF):
+                return False
+    else:
+        return False
+    return True
+
+
+def match_result(results, expected):
+    """Check if results list matches a single expected value (possibly v128)."""
+    if isinstance(expected, tuple):
+        if expected[0] == "v128":
+            # v128 result = 2 u64 values in results
+            if len(results) < 2:
+                return False
+            return results[0] == expected[1] and results[1] == expected[2]
+        elif expected[0] == "v128_nan":
+            # v128 with NaN lanes
+            if len(results) < 2:
+                return False
+            return match_v128_nan(results[0], results[1], expected[1], expected[2])
+        elif expected[0] == "nan":
+            if len(results) < 1:
+                return False
+            return is_nan_u64(results[0], expected[1])
+        return False
+    # Plain u64 comparison
+    return len(results) == 1 and results[0] == expected
+
+
+def match_results(results, expected_list):
+    """Check if results list matches a list of expected values."""
+    ridx = 0
+    for e in expected_list:
+        if isinstance(e, tuple):
+            if e[0] == "v128":
+                if ridx + 1 >= len(results):
+                    return False
+                if results[ridx] != e[1] or results[ridx + 1] != e[2]:
+                    return False
+                ridx += 2
+            elif e[0] == "v128_nan":
+                if ridx + 1 >= len(results):
+                    return False
+                if not match_v128_nan(results[ridx], results[ridx + 1], e[1], e[2]):
+                    return False
+                ridx += 2
+            elif e[0] == "nan":
+                if ridx >= len(results):
+                    return False
+                if not is_nan_u64(results[ridx], e[1]):
+                    return False
+                ridx += 1
+            else:
+                return False
+        else:
+            if ridx >= len(results):
+                return False
+            if results[ridx] != e:
+                return False
+            ridx += 1
+    return ridx == len(results)
 
 
 def run_invoke_single(wasm_path, func_name, args, linked_modules=None):
@@ -120,12 +264,17 @@ class BatchRunner:
 
     def invoke(self, func_name, args, timeout=5):
         """Invoke a function. Returns (success, results_or_error)."""
+        has_v128 = any(isinstance(a, tuple) and a[0] == "v128" for a in args)
         if self.proc is None or self.proc.poll() is not None:
-            if not self.needs_state:
+            if not self.needs_state and not has_v128:
                 if not self._has_problematic_name(func_name):
                     return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
                 return (False, "problematic name + no batch")
-            return (False, "process not running")
+            if self.proc is None or self.proc.poll() is not None:
+                # Restart batch process if needed
+                self._start()
+                if self.proc is None or self.proc.poll() is not None:
+                    return (False, "process not running")
 
         # Hex-encode function name if it contains bytes that break the line protocol
         name_bytes = func_name.encode('utf-8')
@@ -135,7 +284,10 @@ class BatchRunner:
         else:
             cmd_line = f"invoke {len(name_bytes)}:{func_name}"
         for a in args:
-            cmd_line += f" {a}"
+            if isinstance(a, tuple) and a[0] == "v128":
+                cmd_line += f" v128:{a[1]}:{a[2]}"
+            else:
+                cmd_line += f" {a}"
         cmd_line += "\n"
 
         try:
@@ -152,8 +304,8 @@ class BatchRunner:
 
             response = self.proc.stdout.readline().strip()
             if not response:
-                # Process may have died — try fallback
-                if not self.needs_state:
+                # Process may have died — try fallback (only for non-v128 args)
+                if not self.needs_state and not has_v128:
                     return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
                 return (False, "no response")
             if response.startswith("ok"):
@@ -167,7 +319,7 @@ class BatchRunner:
         except Exception as e:
             self._cleanup_proc()
             self.proc = None
-            if not self.needs_state:
+            if not self.needs_state and not has_v128:
                 return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
             return (False, str(e))
 
@@ -193,8 +345,16 @@ class BatchRunner:
 
 
 def has_unsupported(vals):
-    """Check if any parsed value is unsupported (skip tuple or NaN)."""
-    return any(isinstance(v, tuple) for v in vals)
+    """Check if any parsed value is unsupported."""
+    for v in vals:
+        if isinstance(v, tuple):
+            if v[0] == "skip":
+                return True
+            if v[0] == "nan":
+                return True  # NaN args can't be passed via CLI
+            if v[0] == "v128_nan":
+                return True  # v128 with NaN lanes can't be passed as args
+    return False
 
 
 def needs_spectest(wasm_path):
@@ -290,11 +450,19 @@ def run_test_file(json_path, verbose=False):
                 continue
 
             expected = [parse_value(e) for e in cmd.get("expected", [])]
-            # Support "either" assertions (result can be any of the listed values)
-            either = cmd.get("either")
-            if either:
-                expected = [parse_value(e) for e in either]
-            if any(isinstance(e, tuple) and e[0] == "skip" for e in expected):
+            # Support "either" assertions: each entry is a complete result set
+            either_raw = cmd.get("either")
+            either_sets = None
+            if either_raw:
+                either_sets = []
+                for alt in either_raw:
+                    parsed = parse_value(alt)
+                    either_sets.append(parsed)
+                # Check if any alternative is unsupported
+                if any(isinstance(e, tuple) and e[0] == "skip" for e in either_sets):
+                    skipped += 1
+                    continue
+            elif any(isinstance(e, tuple) and e[0] == "skip" for e in expected):
                 skipped += 1
                 continue
 
@@ -307,22 +475,11 @@ def run_test_file(json_path, verbose=False):
                 continue
 
             # Compare results
-            if either:
-                # "either" = result must match any ONE of the listed alternatives
-                match = len(results) == 1 and any(results[0] == e for e in expected
-                                                   if not isinstance(e, tuple))
+            if either_sets is not None:
+                # "either" = result must match any ONE alternative
+                match = any(match_result(results, alt) for alt in either_sets)
             else:
-                match = True
-                if len(results) != len(expected):
-                    match = False
-                else:
-                    for r, e in zip(results, expected):
-                        if isinstance(e, tuple) and e[0] == "nan":
-                            if not is_nan_u64(r, e[1]):
-                                match = False
-                        else:
-                            if r != e:
-                                match = False
+                match = match_results(results, expected)
 
             if match:
                 passed += 1

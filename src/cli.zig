@@ -1008,6 +1008,7 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
         }
 
         // Parse arguments (space-separated after name)
+        // v128 args use "v128:lo:hi" format (2 u64 slots)
         var arg_count: usize = 0;
         var arg_err = false;
         if (args_start < rest.len) {
@@ -1018,11 +1019,31 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
                     arg_err = true;
                     break;
                 }
-                arg_buf[arg_count] = std.fmt.parseInt(u64, part, 10) catch {
-                    arg_err = true;
-                    break;
-                };
-                arg_count += 1;
+                if (std.mem.startsWith(u8, part, "v128:")) {
+                    // v128:lo:hi — split into two u64 slots
+                    const v128_data = part["v128:".len..];
+                    const colon = std.mem.indexOfScalar(u8, v128_data, ':') orelse {
+                        arg_err = true;
+                        break;
+                    };
+                    arg_buf[arg_count] = std.fmt.parseInt(u64, v128_data[0..colon], 10) catch {
+                        arg_err = true;
+                        break;
+                    };
+                    arg_count += 1;
+                    if (arg_count >= arg_buf.len) { arg_err = true; break; }
+                    arg_buf[arg_count] = std.fmt.parseInt(u64, v128_data[colon + 1 ..], 10) catch {
+                        arg_err = true;
+                        break;
+                    };
+                    arg_count += 1;
+                } else {
+                    arg_buf[arg_count] = std.fmt.parseInt(u64, part, 10) catch {
+                        arg_err = true;
+                        break;
+                    };
+                    arg_count += 1;
+                }
             }
         }
         if (arg_err) {
@@ -1031,11 +1052,14 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
             continue;
         }
 
-        // Determine result count and types from export
+        // Determine result count — v128 results use 2 u64 slots
         var result_count: usize = 1;
         const batch_export_info = module.getExportInfo(func_name);
         if (batch_export_info) |info| {
-            result_count = info.result_types.len;
+            result_count = 0;
+            for (info.result_types) |rt| {
+                result_count += if (rt == .v128) 2 else 1;
+            }
         }
         if (result_count > result_buf.len) result_count = result_buf.len;
 
@@ -1049,17 +1073,26 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
 
         // Output: "ok [val1 val2 ...]" (truncate 32-bit types to u32)
         try stdout.print("ok", .{});
-        for (result_buf[0..result_count], 0..) |val, ridx| {
-            const out_val = if (batch_export_info) |info| blk: {
-                if (ridx < info.result_types.len) {
-                    break :blk switch (info.result_types[ridx]) {
-                        .i32, .f32 => val & 0xFFFFFFFF,
-                        else => val,
+        if (batch_export_info) |info| {
+            var ridx: usize = 0;
+            for (info.result_types) |rt| {
+                if (rt == .v128) {
+                    // v128: output as two u64 values
+                    try stdout.print(" {d} {d}", .{ result_buf[ridx], result_buf[ridx + 1] });
+                    ridx += 2;
+                } else {
+                    const out_val = switch (rt) {
+                        .i32, .f32 => result_buf[ridx] & 0xFFFFFFFF,
+                        else => result_buf[ridx],
                     };
+                    try stdout.print(" {d}", .{out_val});
+                    ridx += 1;
                 }
-                break :blk val;
-            } else val;
-            try stdout.print(" {d}", .{out_val});
+            }
+        } else {
+            for (result_buf[0..result_count]) |val| {
+                try stdout.print(" {d}", .{val});
+            }
         }
         try stdout.print("\n", .{});
         try stdout.flush();
