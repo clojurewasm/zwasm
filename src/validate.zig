@@ -31,6 +31,7 @@ const ControlFrame = struct {
     end_types: []const ValType,
     height: usize, // operand stack height at frame entry
     unreachable_flag: bool,
+    init_snapshot: ?[]bool, // local init state at block entry (null = no non-defaultable locals)
 };
 
 const FrameKind = enum { block, loop, @"if", @"else" };
@@ -40,6 +41,7 @@ pub const ValidateError = error{
     InvalidAlignment,
     InvalidLaneIndex,
     UnknownLocal,
+    UninitializedLocal,
     UnknownGlobal,
     UnknownFunction,
     UnknownType,
@@ -66,6 +68,9 @@ const Validator = struct {
     module: *const Module,
     // Local types for current function (params + locals)
     local_types: std.ArrayList(ValType),
+    // Local initialization tracking (function-references proposal)
+    local_inits: std.ArrayList(bool),
+    has_non_defaultable: bool, // fast path: skip init tracking if all locals are defaultable
     alloc: Allocator,
 
     fn init(alloc: Allocator, mod: *const Module) Validator {
@@ -74,14 +79,21 @@ const Validator = struct {
             .ctrl_stack = .empty,
             .module = mod,
             .local_types = .empty,
+            .local_inits = .empty,
+            .has_non_defaultable = false,
             .alloc = alloc,
         };
     }
 
     fn deinit(self: *Validator) void {
         self.op_stack.deinit(self.alloc);
+        // Free any remaining init snapshots in control frames
+        for (self.ctrl_stack.items) |frame| {
+            if (frame.init_snapshot) |s| self.alloc.free(s);
+        }
         self.ctrl_stack.deinit(self.alloc);
         self.local_types.deinit(self.alloc);
+        self.local_inits.deinit(self.alloc);
     }
 
     // ---- Operand stack ----
@@ -137,12 +149,17 @@ const Validator = struct {
     // ---- Control stack ----
 
     fn pushCtrl(self: *Validator, kind: FrameKind, in_types: []const ValType, out_types: []const ValType) !void {
+        const snapshot = if (self.has_non_defaultable)
+            try self.alloc.dupe(bool, self.local_inits.items)
+        else
+            null;
         try self.ctrl_stack.append(self.alloc, .{
             .kind = kind,
             .start_types = in_types,
             .end_types = out_types,
             .height = self.op_stack.items.len,
             .unreachable_flag = false,
+            .init_snapshot = snapshot,
         });
     }
 
@@ -153,6 +170,11 @@ const Validator = struct {
         try self.popExpectingTypes(frame.end_types);
         if (self.op_stack.items.len != frame.height) return error.TypeMismatch;
         _ = self.ctrl_stack.pop();
+        // Restore local init state from snapshot (block-scoped init doesn't leak)
+        if (frame.init_snapshot) |snapshot| {
+            @memcpy(self.local_inits.items, snapshot);
+            self.alloc.free(snapshot);
+        }
         return frame;
     }
 
@@ -272,17 +294,27 @@ const Validator = struct {
 
         // Build local types: params + declared locals
         self.local_types.clearRetainingCapacity();
+        self.local_inits.clearRetainingCapacity();
+        self.has_non_defaultable = false;
         for (func_type.params) |p| {
             try self.local_types.append(self.alloc, p);
+            try self.local_inits.append(self.alloc, true); // params are always initialized
         }
         for (code.locals) |local_decl| {
+            const defaultable = local_decl.valtype.isDefaultable();
+            if (!defaultable) self.has_non_defaultable = true;
             for (0..local_decl.count) |_| {
                 try self.local_types.append(self.alloc, local_decl.valtype);
+                try self.local_inits.append(self.alloc, defaultable);
             }
         }
 
         // Clear stacks
         self.op_stack.clearRetainingCapacity();
+        // Free any remaining init snapshots from previous function
+        for (self.ctrl_stack.items) |frame| {
+            if (frame.init_snapshot) |s| self.alloc.free(s);
+        }
         self.ctrl_stack.clearRetainingCapacity();
 
         // Push initial control frame for the function body
@@ -525,12 +557,16 @@ const Validator = struct {
             .local_get => {
                 const idx = try reader.readU32();
                 if (idx >= self.local_types.items.len) return error.UnknownLocal;
+                // Non-defaultable locals must be initialized before use
+                if (self.has_non_defaultable and !self.local_inits.items[idx])
+                    return error.UninitializedLocal;
                 try self.pushVal(self.local_types.items[idx]);
             },
             .local_set => {
                 const idx = try reader.readU32();
                 if (idx >= self.local_types.items.len) return error.UnknownLocal;
                 _ = try self.popExpecting(self.local_types.items[idx]);
+                if (self.has_non_defaultable) self.local_inits.items[idx] = true;
             },
             .local_tee => {
                 const idx = try reader.readU32();
@@ -538,6 +574,7 @@ const Validator = struct {
                 const vt = self.local_types.items[idx];
                 _ = try self.popExpecting(vt);
                 try self.pushVal(vt);
+                if (self.has_non_defaultable) self.local_inits.items[idx] = true;
             },
 
             // ---- Globals ----

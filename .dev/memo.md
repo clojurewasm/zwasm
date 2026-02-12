@@ -109,7 +109,7 @@ Type system: ValType tagged union (ref/ref_null with heap type index).
 2. [x] 17.2: Decode new ref type encoding (0x63/0x64 + heap type)
 3. [x] 17.3: New instructions — call_ref, return_call_ref, ref.as_non_null
 4. [x] 17.4: New instructions — br_on_null, br_on_non_null
-5. [ ] 17.5: Validation — local initialization tracking for non-defaultable types
+5. [x] 17.5: Validation — local initialization tracking for non-defaultable types
 6. [ ] 17.6: Table initialization with const expr, ref.func type precision
 7. [ ] 17.7: Spec tests + proposals.yaml update
 
@@ -136,11 +136,11 @@ Task Queue:
 
 ## Current Task
 
-17.5: Validation — local initialization tracking for non-defaultable types
+17.6: Table initialization with const expr, ref.func type precision
 
 ## Previous Task
 
-17.4: br_on_null (0xD5), br_on_non_null (0xD6) — conditional branch on ref nullability.
+17.5: Local init tracking — non-defaultable (ref $t) locals must be set before get. Block-scoped: init state restored at block end via snapshot/restore in ControlFrame.
 
 ## Wasm 3.0 Coverage
 
