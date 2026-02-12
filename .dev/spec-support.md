@@ -7,7 +7,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
 - Spec: `python3 test/spec/run_spec.py --summary` (30,704/30,704 = 100%)
-- E2E: `bash test/e2e/run_e2e.sh --summary` (297/298 = 99.7%, 70 files)
+- E2E: `bash test/e2e/run_e2e.sh --summary` (355/356 = 99.7%, 70 files, Zig runner)
 
 ## Opcode Coverage Summary
 
@@ -62,7 +62,9 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 ## E2E Test Status
 
-70 wasmtime misc_testsuite files ported. 297/298 assertions pass (99.7%). 4 skipped files.
+70 wasmtime misc_testsuite files ported. 355/356 assertions pass (99.7%, Zig runner with shared Store).
+1 failure: no-panic-on-invalid (decoder accepts a malformed binary — pre-existing limitation).
+Previously failing partial-init-table-segment now passes (bounds pre-check fix + shared Store).
 
 | Category                  | Status                   | Checklist         |
 |---------------------------|--------------------------|-------------------|

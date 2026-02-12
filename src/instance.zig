@@ -303,6 +303,17 @@ pub const Instance = struct {
                     const table_idx = active.table_idx;
                     const t = try self.getTable(table_idx);
 
+                    // Pre-check: offset + count must fit within table size.
+                    // Per spec, if out-of-bounds, no elements are written (no partial init).
+                    const count: u64 = switch (elem_seg.init) {
+                        .func_indices => |indices| @intCast(indices.len),
+                        .expressions => |exprs| @intCast(exprs.len),
+                    };
+                    const end = @as(u64, @truncate(offset)) + count;
+                    if (end > t.data.items.len) {
+                        return error.ElementSegmentDoesNotFit;
+                    }
+
                     switch (elem_seg.init) {
                         .func_indices => |indices| {
                             for (indices, 0..) |func_idx, i| {

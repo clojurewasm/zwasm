@@ -60,6 +60,19 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(ex_exe);
     }
 
+    // E2E test runner executable
+    const e2e_mod = b.createModule(.{
+        .root_source_file = b.path("test/e2e/e2e_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    e2e_mod.addImport("zwasm", mod);
+    const e2e = b.addExecutable(.{
+        .name = "e2e_runner",
+        .root_module = e2e_mod,
+    });
+    b.installArtifact(e2e);
+
     // Benchmark executable
     const bench_mod = b.createModule(.{
         .root_source_file = b.path("bench/fib_bench.zig"),

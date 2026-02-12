@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-12 — COMPLETE
 - Source: ~17K LOC, 17 files, 209 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
-- Spec: 30,704/30,704 (100%), E2E: 297/298 (99.7%), CI: ubuntu + macOS
+- Spec: 30,704/30,704 (100%), E2E: 355/356 (99.7%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -21,7 +21,7 @@ Session handover document. Read at session start.
 ## Completed Stages
 
 Stages 0-7, 5E, 5F, 8-12 — all COMPLETE. See `roadmap.md` for details.
-Key results: Spec 30,704/30,704 (100%), E2E 297/298, 20/21 bench < 2x wasmtime.
+Key results: Spec 30,704/30,704 (100%), E2E 355/356 (Zig runner), 20/21 bench < 2x wasmtime.
 
 ## Task Queue
 

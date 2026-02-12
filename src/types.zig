@@ -23,6 +23,19 @@ const rt = struct {
 };
 
 // ============================================================
+// Internal runtime types (for advanced embedders / test runners)
+// ============================================================
+
+/// Re-exports of internal runtime types for direct Store/Module/Instance access.
+/// Used by the E2E test runner for shared-Store cross-module testing.
+pub const runtime = struct {
+    pub const Store = rt.store_mod.Store;
+    pub const Module = rt.module_mod.Module;
+    pub const Instance = rt.instance_mod.Instance;
+    pub const VmImpl = rt.vm_mod.Vm;
+};
+
+// ============================================================
 // Public types
 // ============================================================
 
