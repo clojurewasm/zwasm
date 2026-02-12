@@ -2074,6 +2074,16 @@ pub const Compiler = struct {
 
         // x86_64 has coherent I/D caches — no icache flush needed.
 
+        // DEBUG: dump JIT binary for disassembly
+        if (builtin.cpu.arch == .x86_64) {
+            const dump_file = std.fs.cwd().createFile("/tmp/jit_dump.bin", .{}) catch null;
+            if (dump_file) |f| {
+                f.writeAll(self.code.items) catch {};
+                f.close();
+                std.debug.print("=== x86_64 JIT: dumped {d} bytes to /tmp/jit_dump.bin ===\n", .{code_size});
+            }
+        }
+
         const jit_code = self.alloc.create(JitCode) catch {
             std.posix.munmap(aligned_buf);
             return null;
@@ -2129,6 +2139,14 @@ pub const Compiler = struct {
 
         const ir = reg_func.code;
         var pc: u32 = 0;
+
+        // DEBUG: dump RegIR for x86_64 JIT compilation
+        if (builtin.cpu.arch == .x86_64) {
+            std.debug.print("=== x86_64 JIT: func#{d} ({d} regs, {d} locals, {d} params, {d} results, {d} instrs, mem={}) ===\n", .{ self_func_idx, self.reg_count, self.local_count, self.param_count, self.result_count, ir.len, self.has_memory });
+            for (ir, 0..) |instr, i| {
+                std.debug.print("  [{d:3}] op=0x{X:0>2} rd={d} rs1={d} operand={d}\n", .{ i, instr.op, instr.rd, instr.rs1, instr.operand });
+            }
+        }
 
         self.pc_map.appendNTimes(self.alloc, 0, ir.len + 1) catch return null;
 
