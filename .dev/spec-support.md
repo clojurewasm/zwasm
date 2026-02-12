@@ -61,8 +61,8 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Custom page sizes     | Complete     | page_size 1 or 65536, 18/18 e2e    |
 | Multi-memory          | Complete     | Multiple memories, memarg bit 6     |
 | WAT parser            | Complete     | v128/SIMD, named locals/globals     |
-| Relaxed SIMD          | Not started  | Wasm 3.0                           |
-| Function references   | Not started  | Wasm 3.0                           |
+| Relaxed SIMD          | Complete     | 20 opcodes, 85/85 spec tests       |
+| Function references   | Complete     | 5 opcodes, 104/106 spec tests      |
 | GC                    | Not started  | Wasm 3.0                           |
 | Component Model       | Not started  | Wasm 3.0 (W7)                      |
 | WASI Preview 2        | Not started  | Wasm 3.0                           |

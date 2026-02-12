@@ -144,9 +144,9 @@ Task Queue:
 
 ## Wasm 3.0 Coverage
 
-Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory, relaxed_simd (7/10 finished proposals).
-NOT implemented: function_references, gc (2 proposals).
-GC requires function_references first.
+Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory, relaxed_simd, function_references (8/10 finished proposals).
+NOT implemented: gc (1 proposal).
+GC requires function_references (done).
 
 ## Known Bugs
 

@@ -94,7 +94,7 @@ wasm_3.0:
       allow these existing opcodes in validation of const exprs.
 
   function_references:
-    status: todo
+    status: complete
     opcodes: 5                    # call_ref (0x14), return_call_ref (0x15),
                                   # ref.as_non_null (0xd4), br_on_null (0xd5),
                                   # br_on_non_null (0xd6)
@@ -108,12 +108,17 @@ wasm_3.0:
     summary: .dev/references/proposals/function-references.md
     checklist_id: null
     test_files:
-      - test/core/  # 106 test files (full suite with func-ref extensions)
+      - test/core/call_ref.wast
+      - test/core/return_call_ref.wast
+      - test/core/ref_as_non_null.wast
+      - test/core/br_on_null.wast
+      - test/core/br_on_non_null.wast
+      - test/core/local_init.wast
     note: >
       Prerequisite for GC. Typed function references (ref $t), call_ref for
       direct typed dispatch (no table lookup). Local initialization tracking
-      for non-defaultable types. Table initializer expressions required for
-      non-nullable ref tables. return_call_ref requires tail_call.
+      for non-defaultable types. ValType refactored to tagged union with
+      ref_type/ref_null_type variants. Spec tests: 104/106 pass (2 skips).
 
   gc:
     status: todo
