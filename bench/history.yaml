@@ -465,3 +465,30 @@ entries:
       st_nestedloop: {time_ms: 5.6}
       st_ackermann: {time_ms: 8.3}
       st_matrix: {time_ms: 290.0}
+  - id: "stage15-baseline"
+    date: "2026-02-12"
+    reason: "Stage 15 baseline (multi-memory)"
+    commit: "c886849"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 93.9}
+      tak: {time_ms: 11.3}
+      sieve: {time_ms: 4.8}
+      nbody: {time_ms: 34.7}
+      nqueens: {time_ms: 3.5}
+      tgo_fib: {time_ms: 51.6}
+      tgo_tak: {time_ms: 9.1}
+      tgo_arith: {time_ms: 1.7}
+      tgo_sieve: {time_ms: 4.4}
+      tgo_fib_loop: {time_ms: 1.5}
+      tgo_gcd: {time_ms: 1.7}
+      tgo_nqueens: {time_ms: 44.7}
+      tgo_mfr: {time_ms: 61.7}
+      tgo_list: {time_ms: 67.5}
+      tgo_rwork: {time_ms: 7.4}
+      tgo_strops: {time_ms: 36.0}
+      st_fib2: {time_ms: 1359.4}
+      st_sieve: {time_ms: 231.6}
+      st_nestedloop: {time_ms: 3.9}
+      st_ackermann: {time_ms: 7.4}
+      st_matrix: {time_ms: 285.5}

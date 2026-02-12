@@ -477,7 +477,10 @@ test "predecode return_call does not bail" {
     };
     const ir = try predecode(testing.allocator, &bytecode);
     try testing.expect(ir != null);
-    defer ir.?.deinit();
+    defer {
+        ir.?.deinit();
+        testing.allocator.destroy(ir.?);
+    }
     // Should have 2 instructions: return_call + end
     try testing.expectEqual(@as(usize, 2), ir.?.code.len);
     try testing.expectEqual(@as(u16, 0x12), ir.?.code[0].opcode);
@@ -492,7 +495,10 @@ test "predecode return_call_indirect does not bail" {
     };
     const ir = try predecode(testing.allocator, &bytecode);
     try testing.expect(ir != null);
-    defer ir.?.deinit();
+    defer {
+        ir.?.deinit();
+        testing.allocator.destroy(ir.?);
+    }
     try testing.expectEqual(@as(usize, 2), ir.?.code.len);
     try testing.expectEqual(@as(u16, 0x13), ir.?.code[0].opcode);
     try testing.expectEqual(@as(u32, 0), ir.?.code[0].operand);

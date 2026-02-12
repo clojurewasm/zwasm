@@ -224,15 +224,19 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
             .i32_store, .i64_store, .f32_store, .f64_store,
             .i32_store8, .i32_store16,
             .i64_store8, .i64_store16, .i64_store32,
-            => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; },
+            => {
+                const align_flags = reader.readU32() catch break;
+                _ = reader.readU32() catch break; // offset
+                if (align_flags & 0x40 != 0) _ = reader.readU32() catch break; // memidx
+            },
             .memory_size, .memory_grow => _ = reader.readU32() catch break,
             .ref_null => _ = reader.readByte() catch break,
             .misc_prefix => {
                 const sub = reader.readU32() catch break;
                 switch (sub) {
-                    0x0A => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; },
-                    0x0B => _ = reader.readU32() catch break,
-                    0x08 => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; },
+                    0x0A => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; }, // memory.copy
+                    0x0B => _ = reader.readU32() catch break, // memory.fill
+                    0x08 => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; }, // memory.init
                     0x09 => _ = reader.readU32() catch break,
                     0x0C => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; },
                     0x0D => _ = reader.readU32() catch break,
@@ -4415,7 +4419,11 @@ fn skipToEnd(reader: *Reader) !void {
             .i32_store, .i64_store, .f32_store, .f64_store,
             .i32_store8, .i32_store16,
             .i64_store8, .i64_store16, .i64_store32,
-            => { _ = try reader.readU32(); _ = try reader.readU32(); },
+            => {
+                const align_flags = try reader.readU32();
+                _ = try reader.readU32(); // offset
+                if (align_flags & 0x40 != 0) _ = try reader.readU32(); // memidx
+            },
             .memory_size, .memory_grow => _ = try reader.readU32(),
             .ref_null => _ = try reader.readByte(),
             .misc_prefix => {
@@ -4497,7 +4505,11 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
             .i32_store, .i64_store, .f32_store, .f64_store,
             .i32_store8, .i32_store16,
             .i64_store8, .i64_store16, .i64_store32,
-            => { _ = try reader.readU32(); _ = try reader.readU32(); },
+            => {
+                const align_flags = try reader.readU32();
+                _ = try reader.readU32(); // offset
+                if (align_flags & 0x40 != 0) _ = try reader.readU32(); // memidx
+            },
             .memory_size, .memory_grow => _ = try reader.readU32(),
             .ref_null => _ = try reader.readByte(),
             .misc_prefix => {
@@ -4527,10 +4539,11 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
 fn skipSimdImmediates(reader: *Reader) !void {
     const sub = try reader.readU32();
     switch (sub) {
-        // Memory ops: memarg (align u32 + offset u32)
+        // Memory ops: memarg (align u32 + offset u32 [+ memidx u32])
         0x00...0x0B, 0x5C, 0x5D => {
-            _ = try reader.readU32(); // align
+            const align_flags = try reader.readU32();
             _ = try reader.readU32(); // offset
+            if (align_flags & 0x40 != 0) _ = try reader.readU32(); // memidx
         },
         // v128.const: 16 raw bytes
         0x0C => _ = try reader.readBytes(16),
@@ -4538,10 +4551,11 @@ fn skipSimdImmediates(reader: *Reader) !void {
         0x0D => _ = try reader.readBytes(16),
         // Extract/replace lane: 1 byte lane index
         0x15...0x22 => _ = try reader.readByte(),
-        // Lane load/store: memarg + 1 byte lane index
+        // Lane load/store: memarg + 1 byte lane index [+ memidx u32]
         0x54...0x5B => {
-            _ = try reader.readU32(); // align
+            const align_flags = try reader.readU32();
             _ = try reader.readU32(); // offset
+            if (align_flags & 0x40 != 0) _ = try reader.readU32(); // memidx
             _ = try reader.readByte(); // lane
         },
         // All other ops: no immediates

@@ -59,7 +59,7 @@ Stage 15: Wasm 3.0 — Multi-memory
 Target: Multiple memories per module (~400 LOC).
 All load/store/memory.* get memidx immediate. Binary format: memarg bit 6.
 
-1. [ ] 15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init
+1. [x] 15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init
 2. [ ] 15.2: Bytecode interpreter — memidx plumbing in load/store/memory ops
 3. [ ] 15.3: Predecode IR — memidx encoding in PreInstr + executeIR dispatch
 4. [ ] 15.4: Spec tests + cleanup
@@ -87,16 +87,11 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init.
-
-Key points:
-- memarg bit 6 of alignment field: if set, memidx u32 follows after offset
-- memory.size/grow: current readByte() → readU32() for memidx
-- memory.fill/copy/init: readByte() → readU32() for memidx
-- validateBodyEnd: handle multi-memory encoding
-- No single-memory restriction in code (already ArrayList)
+15.2: Bytecode interpreter — memidx plumbing in load/store/memory ops.
 
 ## Previous Task
+
+15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init (30,801/30,801).
 
 14.5: Tail call — predecode/regir support + spec tests (30,801/30,801).
 

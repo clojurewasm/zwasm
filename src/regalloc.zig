@@ -227,7 +227,8 @@ pub fn convert(
     // For functions with >1 results, the caller should not use register IR.
 
     var code: std.ArrayList(RegInstr) = .empty;
-    errdefer code.deinit(alloc);
+    var code_transferred = false;
+    defer if (!code_transferred) code.deinit(alloc);
     var block_stack: std.ArrayList(BlockInfo) = .empty;
     defer {
         for (block_stack.items) |*b| b.patches.deinit(alloc);
@@ -1143,14 +1144,13 @@ pub fn convert(
     code.shrinkRetainingCapacity(compacted_len);
 
     // Bail if temp registers exceeded u8 range
-    if (temps.max_reg > 255) {
-        code.deinit(alloc);
-        return null;
-    }
+    if (temps.max_reg > 255) return null;
 
     const result = try alloc.create(RegFunc);
+    const owned_code = try code.toOwnedSlice(alloc);
+    code_transferred = true;
     result.* = .{
-        .code = try code.toOwnedSlice(alloc),
+        .code = owned_code,
         .pool64 = @constCast(pool64), // shared reference
         .reg_count = temps.max_reg,
         .local_count = total_locals,
