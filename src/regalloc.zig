@@ -1214,6 +1214,19 @@ fn copyPropagate(code: []RegInstr, local_count: u16) void {
             else => {},
         }
 
+        // Don't fold if the old temp register is still referenced as a source
+        // elsewhere. E.g., block-end MOV may also read from the same temp.
+        const old_reg = producer.rd;
+        var still_used = false;
+        for (code[i + 2 ..]) |later| {
+            if (later.op == OP_DELETED or later.op == OP_NOP) continue;
+            if (later.rs1 == old_reg or later.rs2() == old_reg) {
+                still_used = true;
+                break;
+            }
+        }
+        if (still_used) continue;
+
         // Fold: redirect producer's output to MOV's destination, delete MOV
         code[j].rd = mov.rd;
         code[i + 1] = .{ .op = OP_DELETED, .rd = 0, .rs1 = 0, .operand = 0 };
@@ -1676,6 +1689,44 @@ test "copy propagation — preserves branch target MOVs" {
     // Just verify it produces valid code (no crash, correct result structure)
     const code = result.?.code;
     try testing.expect(code.len >= 2);
+}
+
+test "copy propagation — does not fold when temp used by block-end MOV" {
+    // Pattern: block i32, call void, call void, i32.const 11, local.get 0, br_if 0, end, end
+    // The const+MOV pair (for br_if taken path) should NOT be folded because
+    // the same temp register is also referenced by the block-end MOV.
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x02, .extra = 1, .operand = 0 }, // block i32 (arity=1)
+        .{ .opcode = 0x41, .extra = 0, .operand = 11 }, // i32.const 11
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0
+        .{ .opcode = 0x0D, .extra = 0, .operand = 0 }, // br_if 0
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end (block)
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end (func)
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 1, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    // Verify the const writes to the temp register (r2), NOT to the result register (r1).
+    // The block-end MOV must copy r2→r1, and both MOVs must reference valid r2.
+    const code = result.?.code;
+    var found_const = false;
+    var const_rd: u8 = 0;
+    for (code) |instr| {
+        if (instr.op == OP_CONST32 and instr.operand == 11) {
+            found_const = true;
+            const_rd = instr.rd;
+        }
+    }
+    try testing.expect(found_const);
+    // The const must write to r2 (temp), not r1 (result_reg).
+    // If copy propagation incorrectly folded, const_rd would be 1.
+    try testing.expectEqual(@as(u8, 2), const_rd);
 }
 
 test "convert — temp register reuse reduces reg_count" {

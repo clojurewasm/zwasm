@@ -2371,6 +2371,7 @@ pub const Vm = struct {
                 5 => error.Unreachable,
                 6 => error.OutOfBoundsMemoryAccess,
                 7 => error.WasmException,
+                8 => error.InvalidConversion,
                 else => error.Trap,
             };
         }

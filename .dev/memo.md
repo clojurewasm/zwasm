@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-15 — COMPLETE
 - Source: ~28K LOC, 17 files, 229 tests all pass
 - Opcode: 236 core + 236 SIMD = 472, WASI: ~27
-- Spec: 32,231/32,236 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
+- Spec: 32,236/32,236 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -64,6 +64,30 @@ All load/store/memory.* get memidx immediate. Binary format: memarg bit 6.
 3. [x] 15.3: Predecode IR — memidx encoding in PreInstr + executeIR dispatch
 4. [x] 15.4: Spec tests + cleanup
 
+Stage 13B: Spec Test Fixes + JIT FP Completion
+
+Target: Fix all 5 pre-existing spec test failures, implement all 24 bailed FP
+opcodes on x86_64, implement 18 shared missing FP opcodes on ARM64.
+Remove --allow-failures workaround from CI → zero tolerance.
+
+Group A: Spec test failures (interpreter level, 5 failures → 0)
+1. [x] A1: spectest.wasm — add missing print_f64_f64 export (fixes imports:85,86)
+2. [x] A2: br_if false path — fix copy propagation fold (fixes br_if:393)
+3. [x] A3: elem declarative segment — drop at instantiation (fixes elem:360)
+4. [x] A4: elem imported funcref global — resolve store addr + remap (fixes elem:700)
+
+Group B: x86_64-only JIT FP (6 opcodes, ARM64 already handles these)
+5. [x] B1: f32/f64 min/max — branch-free NaN-propagating sequences (4 opcodes)
+6. [x] B2: f32/f64.convert_i64_u — sign-bit branch + shift trick (2 opcodes)
+
+Group C: Shared JIT FP (28 opcodes total, both x86_64 and ARM64)
+7. [x] C1: f32/f64 copysign — ANDPS/ANDNPS/ORPS (x86), AND/ORR (ARM64)
+8. [x] C2: f32/f64 ceil/floor/trunc/nearest — ROUNDSS/SD (x86), FRINTP/M/Z/N (ARM64)
+9. [x] C3: i32/i64.trunc_f32/f64_s/u — NaN+boundary check + CVTT (x86), FCMP+FCVTZS/U (ARM64)
+
+Group D: CI cleanup
+10. [x] D1: Remove --allow-failures from CI
+
 Stage 16: Wasm 3.0 — Relaxed SIMD
 
 Target: 20 non-deterministic SIMD ops (~600 LOC).
@@ -87,13 +111,13 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-Stage 15 complete. Next: Stage 16 (Relaxed SIMD).
+Stage 13B complete. Merge to main pending (merge gate checklist).
 
 ## Previous Task
 
-15.4: Fix memarg encoding order (memidx before offset), add all multi-memory spec tests (32,231/32,236).
-
-14.5: Tail call — predecode/regir support + spec tests (30,801/30,801).
+Stage 13B: Fixed all 5 spec test failures (32236/32236 100%), implemented 34 JIT FP opcodes
+(x86: min/max/convert_i64_u/copysign/rounding/trunc, ARM64: copysign/rounding/trunc),
+removed --allow-failures from CI.
 
 ## Wasm 3.0 Coverage
 
@@ -103,7 +127,7 @@ GC requires function_references first.
 
 ## Known Bugs
 
-None.
+None. All spec tests pass (32236/32236). No JIT FP bail opcodes remaining on x86_64 or ARM64.
 
 ## References
 

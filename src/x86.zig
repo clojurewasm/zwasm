@@ -817,9 +817,20 @@ const Enc = struct {
     // --- SSE2 floating-point ---
 
     /// MOVQ xmm, r64: 66 REX.W 0F 6E /r  (GPR → XMM)
+    /// MOVD xmm, r32: 66 0F 6E /r (move 32-bit int to XMM low 32 bits)
+    fn movdToXmm(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
+        buf.append(alloc, 0x66) catch {};
+        var r: u8 = 0x40;
+        if (xmm >= 8) r |= 0x04; // REX.R
+        if (gpr.isExt()) r |= 0x01; // REX.B
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x6E }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+    }
+
+    /// MOVQ xmm, r64: 66 REX.W 0F 6E /r (move 64-bit int to XMM low 64 bits)
     fn movqToXmm(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
         buf.append(alloc, 0x66) catch {};
-        // REX.W + REX.B if gpr is extended, REX.R if xmm >= 8
         var r: u8 = 0x48; // REX.W
         if (gpr.isExt()) r |= 0x01; // REX.B
         if (xmm >= 8) r |= 0x04; // REX.R
@@ -889,6 +900,21 @@ const Enc = struct {
     fn xorpd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0x66, 0x0F, 0x57, dst, src); }
     /// ANDPD xmm, xmm: 66 0F 54 /r (bitwise AND for abs)
     fn andpd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0x66, 0x0F, 0x54, dst, src); }
+
+    /// No-prefix SSE ops (MOVAPS, ORPS, XORPS, ANDPS) — 0F xx /r
+    fn sseOpNp(buf: *std.ArrayList(u8), alloc: Allocator, op: u8, dst: u4, src: u4) void {
+        if (dst >= 8 or src >= 8) {
+            var r: u8 = 0x40;
+            if (dst >= 8) r |= 0x04;
+            if (src >= 8) r |= 0x01;
+            buf.append(alloc, r) catch {};
+        }
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, op }) catch {};
+        buf.append(alloc, modrm(3, @truncate(dst), @truncate(src))) catch {};
+    }
+    fn movaps(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOpNp(buf, alloc, 0x28, dst, src); }
+    fn orps(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOpNp(buf, alloc, 0x56, dst, src); }
+    fn xorps(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOpNp(buf, alloc, 0x57, dst, src); }
 
     /// CVTSI2SD xmm, r64: F2 REX.W 0F 2A /r (signed i64 → f64)
     fn cvtsi2sd64(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
@@ -995,8 +1021,8 @@ const Cond = enum(u4) {
     a = 0x7, // above (unsigned >)
     s = 0x8, // sign (negative)
     ns = 0x9, // not sign
-    // p = 0xA, // parity (not needed)
-    // np = 0xB,
+    p = 0xA, // parity (NaN for UCOMISS/UCOMISD)
+    np = 0xB, // not parity
     l = 0xC, // less (signed <)
     ge = 0xD, // greater or equal (signed >=)
     le = 0xE, // less or equal (signed <=)
@@ -1705,6 +1731,7 @@ pub const Compiler = struct {
 
     const XMM0: u4 = 0;
     const XMM1: u4 = 1;
+    const XMM2: u4 = 2;
 
     /// Load FP value from vreg (GPR or memory) into XMM register.
     fn loadFpToXmm(self: *Compiler, xmm: u4, vreg: u8) void {
@@ -1802,20 +1829,50 @@ pub const Compiler = struct {
 
     /// Emit f64 min/max (direct binary op).
     fn emitFpMinMax64(self: *Compiler, instr: RegInstr) bool {
-        // TODO: x86 MINSD/MAXSD don't propagate NaN per Wasm spec.
-        // Bail to interpreter until proper NaN handling is implemented.
-        _ = self;
-        _ = instr;
-        return false;
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        if (instr.op == 0xA4) {
+            // f64.min: NaN propagation via OR, -0 propagation via OR
+            Enc.movaps(&self.code, self.alloc, XMM2, XMM0);
+            Enc.minsd(&self.code, self.alloc, XMM2, XMM1);
+            Enc.minsd(&self.code, self.alloc, XMM1, XMM0);
+            Enc.orps(&self.code, self.alloc, XMM2, XMM1);
+            self.storeFpFromXmm(instr.rd, XMM2);
+        } else {
+            // f64.max: NaN propagation via xor+or+sub, +0 selection via sub
+            Enc.movaps(&self.code, self.alloc, XMM2, XMM0);
+            Enc.maxsd(&self.code, self.alloc, XMM2, XMM1);
+            Enc.maxsd(&self.code, self.alloc, XMM1, XMM0);
+            Enc.xorps(&self.code, self.alloc, XMM2, XMM1);
+            Enc.orps(&self.code, self.alloc, XMM1, XMM2);
+            Enc.subsd(&self.code, self.alloc, XMM1, XMM2);
+            self.storeFpFromXmm(instr.rd, XMM1);
+        }
+        return true;
     }
 
     /// Emit f32 min/max.
     fn emitFpMinMax32(self: *Compiler, instr: RegInstr) bool {
-        // TODO: x86 MINSS/MAXSS don't propagate NaN per Wasm spec.
-        // Bail to interpreter until proper NaN handling is implemented.
-        _ = self;
-        _ = instr;
-        return false;
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        if (instr.op == 0x96) {
+            // f32.min: NaN propagation via OR, -0 propagation via OR
+            Enc.movaps(&self.code, self.alloc, XMM2, XMM0);
+            Enc.minss(&self.code, self.alloc, XMM2, XMM1);
+            Enc.minss(&self.code, self.alloc, XMM1, XMM0);
+            Enc.orps(&self.code, self.alloc, XMM2, XMM1);
+            self.storeFpFromXmm(instr.rd, XMM2);
+        } else {
+            // f32.max: NaN propagation via xor+or+sub, +0 selection via sub
+            Enc.movaps(&self.code, self.alloc, XMM2, XMM0);
+            Enc.maxss(&self.code, self.alloc, XMM2, XMM1);
+            Enc.maxss(&self.code, self.alloc, XMM1, XMM0);
+            Enc.xorps(&self.code, self.alloc, XMM2, XMM1);
+            Enc.orps(&self.code, self.alloc, XMM1, XMM2);
+            Enc.subss(&self.code, self.alloc, XMM1, XMM2);
+            self.storeFpFromXmm(instr.rd, XMM1);
+        }
+        return true;
     }
 
     /// Emit f64 comparison: result = 0 or 1.
@@ -1935,6 +1992,218 @@ pub const Compiler = struct {
         self.storeVreg(instr.rd, SCRATCH);
     }
 
+    /// Emit i32.trunc from f32/f64 (signed/unsigned).
+    /// Strategy: NaN check → CVTT to i64 → range check → store lower 32 bits.
+    /// Using i64 conversion avoids edge cases with the indefinite value for i32 range.
+    fn emitTruncToI32(self: *Compiler, instr: RegInstr, is_f64: bool, signed: bool) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        // NaN check
+        if (is_f64) {
+            Enc.ucomisd(&self.code, self.alloc, XMM0, XMM0);
+        } else {
+            Enc.ucomiss(&self.code, self.alloc, XMM0, XMM0);
+        }
+        self.emitCondError(.p, 8); // JP → InvalidConversion (NaN)
+        // Convert to i64 (handles full i32/u32 range without ambiguity)
+        if (is_f64) {
+            Enc.cvttsd2si64(&self.code, self.alloc, SCRATCH, XMM0);
+        } else {
+            Enc.cvttss2si64(&self.code, self.alloc, SCRATCH, XMM0);
+        }
+        // Range check
+        if (signed) {
+            // i32 range: [-2147483648, 2147483647]
+            // Check result < -2^31: load -2^31 into SCRATCH2, CMP
+            self.emitLoadImm64(SCRATCH2, @bitCast(@as(i64, -2147483648)));
+            Enc.cmpRegReg(&self.code, self.alloc, SCRATCH, SCRATCH2);
+            self.emitCondError(.l, 8); // JL → overflow
+            self.emitLoadImm64(SCRATCH2, @bitCast(@as(i64, 2147483647)));
+            Enc.cmpRegReg(&self.code, self.alloc, SCRATCH, SCRATCH2);
+            self.emitCondError(.g, 8); // JG → overflow
+        } else {
+            // u32 range: [0, 4294967295]
+            // Check result < 0
+            Enc.testRegReg(&self.code, self.alloc, SCRATCH, SCRATCH);
+            self.emitCondError(.s, 8); // JS → negative = overflow
+            self.emitLoadImm64(SCRATCH2, 4294967295);
+            Enc.cmpRegReg(&self.code, self.alloc, SCRATCH, SCRATCH2);
+            self.emitCondError(.a, 8); // JA → too large
+        }
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitTruncF32ToI32(self: *Compiler, instr: RegInstr, signed: bool) void {
+        self.emitTruncToI32(instr, false, signed);
+    }
+
+    fn emitTruncF64ToI32(self: *Compiler, instr: RegInstr, signed: bool) void {
+        self.emitTruncToI32(instr, true, signed);
+    }
+
+    /// Emit i64.trunc from f32/f64 (signed/unsigned).
+    /// For signed: CVTT to i64 directly, check indefinite value.
+    /// For unsigned: need two-stage conversion for values >= 2^63.
+    fn emitTruncToI64(self: *Compiler, instr: RegInstr, is_f64: bool, signed: bool) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        // NaN check
+        if (is_f64) {
+            Enc.ucomisd(&self.code, self.alloc, XMM0, XMM0);
+        } else {
+            Enc.ucomiss(&self.code, self.alloc, XMM0, XMM0);
+        }
+        self.emitCondError(.p, 8); // JP → InvalidConversion (NaN)
+
+        if (signed) {
+            // Signed i64: CVTT returns indefinite (0x8000000000000000) on overflow
+            if (is_f64) {
+                Enc.cvttsd2si64(&self.code, self.alloc, SCRATCH, XMM0);
+            } else {
+                Enc.cvttss2si64(&self.code, self.alloc, SCRATCH, XMM0);
+            }
+            // Check for indefinite: if result == MIN_I64 and float wasn't exactly MIN_I64
+            // Simpler: compare float against valid range boundaries
+            // Use: if result == 0x8000000000000000, check if float was in range
+            // Load indefinite into SCRATCH2 and compare
+            self.emitLoadImm64(SCRATCH2, 0x8000000000000000);
+            Enc.cmpRegReg(&self.code, self.alloc, SCRATCH, SCRATCH2);
+            // If not equal to indefinite, result is valid
+            const jne_ok = Enc.jccRel32(&self.code, self.alloc, .ne);
+            // Result is indefinite — check if original float was exactly -2^63
+            // Load -2^63 as float and compare
+            if (is_f64) {
+                // -2^63 as f64 = 0xC3E0000000000000
+                self.emitLoadImm64(SCRATCH2, 0xC3E0000000000000);
+                Enc.movqToXmm(&self.code, self.alloc, XMM1, SCRATCH2);
+                Enc.ucomisd(&self.code, self.alloc, XMM0, XMM1);
+            } else {
+                // -2^63 as f32 = 0xDF000000
+                self.emitLoadImm32(SCRATCH2, 0xDF000000);
+                Enc.movdToXmm(&self.code, self.alloc, XMM1, SCRATCH2);
+                Enc.ucomiss(&self.code, self.alloc, XMM0, XMM1);
+            }
+            // If float == -2^63 exactly (ZF=1, PF=0), result is valid MIN_I64
+            // If not equal, it's an overflow
+            self.emitCondError(.ne, 8); // overflow
+            self.emitCondError(.p, 8); // shouldn't happen (already checked NaN) but safe
+            Enc.patchRel32(self.code.items, jne_ok, self.currentOffset());
+        } else {
+            // Unsigned i64: values can be up to 2^64-1
+            // Check negative (but -0.0 should give 0)
+            // Strategy: if float < 2^63 (fits in signed), convert directly
+            //           if float >= 2^63, subtract 2^63, convert, add 2^63 as int
+            //           if float < 0 (not -0), trap
+
+            // Load 2^63 as float into XMM1
+            if (is_f64) {
+                self.emitLoadImm64(SCRATCH2, 0x43E0000000000000); // 2^63 as f64
+                Enc.movqToXmm(&self.code, self.alloc, XMM1, SCRATCH2);
+                Enc.ucomisd(&self.code, self.alloc, XMM0, XMM1);
+            } else {
+                self.emitLoadImm32(SCRATCH2, 0x5F000000); // 2^63 as f32
+                Enc.movdToXmm(&self.code, self.alloc, XMM1, SCRATCH2);
+                Enc.ucomiss(&self.code, self.alloc, XMM0, XMM1);
+            }
+            // CF=0 and ZF=0 means float >= 2^63 (above)
+            // CF=1 means float < 2^63 (below)
+            // If below 2^63 (CF=1), go to small path
+            const jb_small = Enc.jccRel32(&self.code, self.alloc, .b);
+
+            // Large path: float >= 2^63
+            // Subtract 2^63 from float
+            if (is_f64) {
+                Enc.subsd(&self.code, self.alloc, XMM0, XMM1);
+                Enc.cvttsd2si64(&self.code, self.alloc, SCRATCH, XMM0);
+            } else {
+                Enc.subss(&self.code, self.alloc, XMM0, XMM1);
+                Enc.cvttss2si64(&self.code, self.alloc, SCRATCH, XMM0);
+            }
+            // Check for overflow (indefinite after subtraction)
+            Enc.testRegReg(&self.code, self.alloc, SCRATCH, SCRATCH);
+            self.emitCondError(.s, 8); // if negative (indefinite), overflow
+            // Add 2^63 as integer
+            self.emitLoadImm64(SCRATCH2, 0x8000000000000000);
+            Enc.addRegReg(&self.code, self.alloc, SCRATCH, SCRATCH2);
+            const jmp_done = Enc.jmpRel32(&self.code, self.alloc);
+
+            // Small path: float < 2^63
+            Enc.patchRel32(self.code.items, jb_small, self.currentOffset());
+            // Check negative: if float < -0.0 → trap
+            // -0.0 should give 0, so we need: truncate first, then check
+            if (is_f64) {
+                Enc.cvttsd2si64(&self.code, self.alloc, SCRATCH, XMM0);
+            } else {
+                Enc.cvttss2si64(&self.code, self.alloc, SCRATCH, XMM0);
+            }
+            // If result < 0 and wasn't -0.0 → overflow
+            Enc.testRegReg(&self.code, self.alloc, SCRATCH, SCRATCH);
+            const jns_ok = Enc.jccRel32(&self.code, self.alloc, .ns);
+            // Result is negative. Check if it's exactly 0 (from -0.0 or very small negative)
+            // Actually CVTT of -0.0 returns 0, and CVTT of -0.5 returns 0 (truncate toward zero)
+            // So if result < 0, it means the float was < -1.0 → trap
+            // But result is i64, so negative means the float was very negative → trap
+            self.emitCondError(.s, 8); // always taken since we just tested and it was negative
+            Enc.patchRel32(self.code.items, jns_ok, self.currentOffset());
+            Enc.patchRel32(self.code.items, jmp_done, self.currentOffset());
+        }
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitTruncF32ToI64(self: *Compiler, instr: RegInstr, signed: bool) void {
+        self.emitTruncToI64(instr, false, signed);
+    }
+
+    fn emitTruncF64ToI64(self: *Compiler, instr: RegInstr, signed: bool) void {
+        self.emitTruncToI64(instr, true, signed);
+    }
+
+    /// Emit unsigned i64 → f64/f32 conversion.
+    /// x86 has no unsigned i64→float instruction, so we branch on the sign bit:
+    /// - If < 2^63: direct signed conversion (value is the same)
+    /// - If >= 2^63: (value >> 1 | value & 1) as signed, then double
+    fn emitConvertI64uToFp(self: *Compiler, instr: RegInstr, is_f64: bool) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        if (src != SCRATCH) Enc.movRegReg(&self.code, self.alloc, SCRATCH, src);
+        // TEST SCRATCH, SCRATCH — set SF if bit 63 is set
+        Enc.testRegReg(&self.code, self.alloc, SCRATCH, SCRATCH);
+        const js_patch = Enc.jccRel32(&self.code, self.alloc, .s);
+        // Small path: value < 2^63, signed conversion is correct
+        if (is_f64) {
+            Enc.cvtsi2sd64(&self.code, self.alloc, XMM0, SCRATCH);
+        } else {
+            Enc.cvtsi2ss64(&self.code, self.alloc, XMM0, SCRATCH);
+        }
+        const jmp_done = Enc.jmpRel32(&self.code, self.alloc);
+        // Large path: value >= 2^63
+        Enc.patchRel32(self.code.items, js_patch, self.currentOffset());
+        // SCRATCH2 = SCRATCH (save original for low bit)
+        Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
+        // SHR SCRATCH, 1: REX.W D1 /5 reg
+        self.code.append(self.alloc, Enc.rexW1(SCRATCH)) catch {};
+        self.code.append(self.alloc, 0xD1) catch {};
+        self.code.append(self.alloc, Enc.modrm(3, 5, SCRATCH.low3())) catch {};
+        // AND SCRATCH2 with 1: load 1, AND with saved value
+        // Use: AND SCRATCH2, SCRATCH (scratch2 still = original)
+        // Then: MOV SCRATCH2, 1; AND SCRATCH2, original
+        // Simplest: SCRATCH2 has original. Use AND r64, imm8 (REX.W 83 /4 ib)
+        self.code.append(self.alloc, Enc.rexW1(SCRATCH2)) catch {};
+        self.code.append(self.alloc, 0x83) catch {};
+        self.code.append(self.alloc, Enc.modrm(3, 4, SCRATCH2.low3())) catch {};
+        self.code.append(self.alloc, 1) catch {}; // imm8 = 1
+        // OR SCRATCH, SCRATCH2: (value >> 1) | (value & 1)
+        Enc.orRegReg(&self.code, self.alloc, SCRATCH, SCRATCH2);
+        // Convert (fits in signed i63)
+        if (is_f64) {
+            Enc.cvtsi2sd64(&self.code, self.alloc, XMM0, SCRATCH);
+            Enc.addsd(&self.code, self.alloc, XMM0, XMM0); // double
+        } else {
+            Enc.cvtsi2ss64(&self.code, self.alloc, XMM0, SCRATCH);
+            Enc.addss(&self.code, self.alloc, XMM0, XMM0); // double
+        }
+        // Done
+        Enc.patchRel32(self.code.items, jmp_done, self.currentOffset());
+        self.storeFpFromXmm(instr.rd, XMM0);
+    }
+
     /// Emit FP conversion operations.
     fn emitFpConvert(self: *Compiler, op: u16, instr: RegInstr) bool {
         switch (op) {
@@ -1958,10 +2227,10 @@ pub const Compiler = struct {
                 Enc.cvtsi2sd64(&self.code, self.alloc, XMM0, src);
                 self.storeFpFromXmm(instr.rd, XMM0);
             },
-            // f64.convert_i64_u (0xBA) — needs unsigned handling
-            0xBA => {
-                return false;
-            },
+            // f64.convert_i64_u (0xBA) — unsigned i64 → f64
+            0xBA => self.emitConvertI64uToFp(instr, true),
+            // f32.convert_i64_u (0xB5)
+            0xB5 => self.emitConvertI64uToFp(instr, false),
             // f32.convert_i32_s (0xB2)
             0xB2 => {
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
@@ -1981,10 +2250,15 @@ pub const Compiler = struct {
                 Enc.cvtsi2ss64(&self.code, self.alloc, XMM0, src);
                 self.storeFpFromXmm(instr.rd, XMM0);
             },
-            // f32.convert_i64_u (0xB5) — bail
-            0xB5 => return false,
-            // i32/i64.trunc_f32/f64_s/u — bail (need trap checking for NaN/overflow)
-            0xAA, 0xAB, 0xA8, 0xA9, 0xB0, 0xB1, 0xAE, 0xAF => return false,
+            // i32/i64.trunc_f32/f64_s/u — NaN check + CVTT + overflow check
+            0xA8 => self.emitTruncF32ToI32(instr, true),   // i32.trunc_f32_s
+            0xA9 => self.emitTruncF32ToI32(instr, false),  // i32.trunc_f32_u
+            0xAA => self.emitTruncF64ToI32(instr, true),   // i32.trunc_f64_s
+            0xAB => self.emitTruncF64ToI32(instr, false),  // i32.trunc_f64_u
+            0xAE => self.emitTruncF32ToI64(instr, true),   // i64.trunc_f32_s
+            0xAF => self.emitTruncF32ToI64(instr, false),  // i64.trunc_f32_u
+            0xB0 => self.emitTruncF64ToI64(instr, true),   // i64.trunc_f64_s
+            0xB1 => self.emitTruncF64ToI64(instr, false),  // i64.trunc_f64_u
             // f64.promote_f32 (0xBB)
             0xBB => {
                 self.loadFpToXmm(XMM0, instr.rs1);
@@ -1997,12 +2271,67 @@ pub const Compiler = struct {
                 Enc.cvtsd2ss(&self.code, self.alloc, XMM0, XMM0);
                 self.storeFpFromXmm(instr.rd, XMM0);
             },
-            // f32/f64 copysign (0x98, 0xA6) — bail for now (complex bit manipulation)
-            0x98, 0xA6 => return false,
-            // f64.ceil/floor/trunc/nearest (0x9B-0x9E) — need SSE4.1 ROUNDSD, bail
-            0x9B, 0x9C, 0x9D, 0x9E => return false,
-            // f32.ceil/floor/trunc/nearest (0x8D-0x90) — need SSE4.1 ROUNDSS, bail
-            0x8D, 0x8E, 0x8F, 0x90 => return false,
+            // f32.copysign (0x98): result = (rs1 & 0x7FFFFFFF) | (rs2 & 0x80000000)
+            0x98 => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                self.loadFpToXmm(XMM1, instr.rs2());
+                self.emitLoadImm64(SCRATCH, 0x7FFFFFFF);
+                Enc.movqToXmm(&self.code, self.alloc, XMM2, SCRATCH);
+                // ANDPS XMM0, XMM2: a & abs_mask
+                Enc.sseOpNp(&self.code, self.alloc, 0x54, XMM0, XMM2);
+                // ANDNPS XMM2, XMM1: (~abs_mask) & b = sign of b
+                Enc.sseOpNp(&self.code, self.alloc, 0x55, XMM2, XMM1);
+                Enc.orps(&self.code, self.alloc, XMM0, XMM2);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f64.copysign (0xA6)
+            0xA6 => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                self.loadFpToXmm(XMM1, instr.rs2());
+                self.emitLoadImm64(SCRATCH, 0x7FFFFFFFFFFFFFFF);
+                Enc.movqToXmm(&self.code, self.alloc, XMM2, SCRATCH);
+                Enc.andpd(&self.code, self.alloc, XMM0, XMM2); // a & abs_mask
+                // ANDNPD XMM2, XMM1: (~abs_mask) & b = sign of b
+                Enc.sseOp(&self.code, self.alloc, 0x66, 0x0F, 0x55, XMM2, XMM1);
+                Enc.orps(&self.code, self.alloc, XMM0, XMM2);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f64.ceil/floor/trunc/nearest (0x9B-0x9E) — SSE4.1 ROUNDSD
+            0x9B, 0x9C, 0x9D, 0x9E => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                const mode: u8 = switch (op) {
+                    0x9B => 0x0A, // ceil: round up + inexact suppressed
+                    0x9C => 0x09, // floor: round down + inexact suppressed
+                    0x9D => 0x0B, // trunc: round toward zero + inexact suppressed
+                    0x9E => 0x08, // nearest: round to nearest even + inexact suppressed
+                    else => unreachable,
+                };
+                // ROUNDSD XMM0, XMM0, imm8: 66 0F 3A 0B /r ib
+                self.code.appendSlice(self.alloc, &[_]u8{
+                    0x66, 0x0F, 0x3A, 0x0B,
+                    Enc.modrm(3, XMM0, XMM0),
+                    mode,
+                }) catch {};
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f32.ceil/floor/trunc/nearest (0x8D-0x90) — SSE4.1 ROUNDSS
+            0x8D, 0x8E, 0x8F, 0x90 => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                const mode: u8 = switch (op) {
+                    0x8D => 0x0A, // ceil
+                    0x8E => 0x09, // floor
+                    0x8F => 0x0B, // trunc
+                    0x90 => 0x08, // nearest
+                    else => unreachable,
+                };
+                // ROUNDSS XMM0, XMM0, imm8: 66 0F 3A 0A /r ib
+                self.code.appendSlice(self.alloc, &[_]u8{
+                    0x66, 0x0F, 0x3A, 0x0A,
+                    Enc.modrm(3, XMM0, XMM0),
+                    mode,
+                }) catch {};
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
             else => return false,
         }
         return true;

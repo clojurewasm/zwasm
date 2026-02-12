@@ -492,6 +492,8 @@ const a64 = struct {
         hs = 0b0010, // unsigned >= / carry set
         lo = 0b0011, // unsigned < / carry clear
         mi = 0b0100, // minus / negative (N=1) — used for FP less-than
+        vs = 0b0110, // overflow set (FP unordered / NaN)
+        vc = 0b0111, // overflow clear
         hi = 0b1000, // unsigned >
         ls = 0b1001, // unsigned <= / FP less-or-equal
         ge = 0b1010, // signed >= / FP greater-or-equal
@@ -517,6 +519,8 @@ const a64 = struct {
                 .ge => .le,
                 .le => .ge,
                 .mi => .mi,
+                .vs => .vs,
+                .vc => .vc,
             };
         }
     };
@@ -707,6 +711,24 @@ const a64 = struct {
     fn fcmp32(sn: u5, sm: u5) u32 {
         return 0x1E202000 | (@as(u32, sm) << 16) | (@as(u32, sn) << 5);
     }
+
+    // --- Float-to-integer truncation (FCVTZS/FCVTZU) ---
+    /// FCVTZS Wd, Dn (f64 → i32 signed)
+    fn fcvtzs_w_d(wd: u5, dn: u5) u32 { return 0x1E780000 | (@as(u32, dn) << 5) | wd; }
+    /// FCVTZU Wd, Dn (f64 → u32)
+    fn fcvtzu_w_d(wd: u5, dn: u5) u32 { return 0x1E790000 | (@as(u32, dn) << 5) | wd; }
+    /// FCVTZS Xd, Dn (f64 → i64 signed)
+    fn fcvtzs_x_d(xd: u5, dn: u5) u32 { return 0x9E780000 | (@as(u32, dn) << 5) | xd; }
+    /// FCVTZU Xd, Dn (f64 → u64)
+    fn fcvtzu_x_d(xd: u5, dn: u5) u32 { return 0x9E790000 | (@as(u32, dn) << 5) | xd; }
+    /// FCVTZS Wd, Sn (f32 → i32 signed)
+    fn fcvtzs_w_s(wd: u5, sn: u5) u32 { return 0x1E380000 | (@as(u32, sn) << 5) | wd; }
+    /// FCVTZU Wd, Sn (f32 → u32)
+    fn fcvtzu_w_s(wd: u5, sn: u5) u32 { return 0x1E390000 | (@as(u32, sn) << 5) | wd; }
+    /// FCVTZS Xd, Sn (f32 → i64 signed)
+    fn fcvtzs_x_s(xd: u5, sn: u5) u32 { return 0x9E380000 | (@as(u32, sn) << 5) | xd; }
+    /// FCVTZU Xd, Sn (f32 → u64)
+    fn fcvtzu_x_s(xd: u5, sn: u5) u32 { return 0x9E390000 | (@as(u32, sn) << 5) | xd; }
 };
 
 // ================================================================
@@ -1563,6 +1585,28 @@ pub const Compiler = struct {
             0xB4 => self.emitFpConvert_f32_i64_s(instr),  // f32.convert_i64_s
             0xB5 => self.emitFpConvert_f32_i64_u(instr),  // f32.convert_i64_u
             0xB6 => self.emitFpDemote(instr),              // f32.demote_f64
+            // --- f32/f64 copysign ---
+            0x98 => self.emitFpCopysign32(instr),
+            0xA6 => self.emitFpCopysign64(instr),
+            // --- f64 rounding ---
+            0x9B => self.emitFpRound64(0x1E674000, instr), // f64.ceil: FRINTP Dd, Dn
+            0x9C => self.emitFpRound64(0x1E654000, instr), // f64.floor: FRINTM Dd, Dn
+            0x9D => self.emitFpRound64(0x1E65C000, instr), // f64.trunc: FRINTZ Dd, Dn
+            0x9E => self.emitFpRound64(0x1E644000, instr), // f64.nearest: FRINTN Dd, Dn
+            // --- f32 rounding ---
+            0x8D => self.emitFpRound32(0x1E264000, instr), // f32.ceil: FRINTP Sd, Sn
+            0x8E => self.emitFpRound32(0x1E254000, instr), // f32.floor: FRINTM Sd, Sn
+            0x8F => self.emitFpRound32(0x1E25C000, instr), // f32.trunc: FRINTZ Sd, Sn
+            0x90 => self.emitFpRound32(0x1E244000, instr), // f32.nearest: FRINTN Sd, Sn
+            // --- float to int truncation ---
+            0xA8 => self.emitTruncToI32(instr, false, true),   // i32.trunc_f32_s
+            0xA9 => self.emitTruncToI32(instr, false, false),  // i32.trunc_f32_u
+            0xAA => self.emitTruncToI32(instr, true, true),    // i32.trunc_f64_s
+            0xAB => self.emitTruncToI32(instr, true, false),   // i32.trunc_f64_u
+            0xAE => self.emitTruncToI64(instr, false, true),   // i64.trunc_f32_s
+            0xAF => self.emitTruncToI64(instr, false, false),  // i64.trunc_f32_u
+            0xB0 => self.emitTruncToI64(instr, true, true),    // i64.trunc_f64_s
+            0xB1 => self.emitTruncToI64(instr, true, false),   // i64.trunc_f64_u
 
             // --- Sign extension (Wasm 2.0) ---
             0xC0 => { // i32.extend8_s — SXTB Wd, Wn
@@ -2848,6 +2892,236 @@ pub const Compiler = struct {
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
+        self.fp_scratch0_vreg = null;
+    }
+
+    // --- Copysign ---
+
+    /// f32.copysign: result = (rs1 & 0x7FFFFFFF) | (rs2 & 0x80000000)
+    fn emitFpCopysign32(self: *Compiler, instr: RegInstr) void {
+        const a = self.getOrLoad(instr.rs1, SCRATCH);
+        const b_reg = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
+        // Load 0x7FFFFFFF into a temp
+        self.emit(a64.movz64(SCRATCH, 0xFFFF, 0));
+        self.emit(a64.movk64(SCRATCH, 0x7FFF, 1));
+        self.emit(a64.and32(d, a, SCRATCH)); // d = a & 0x7FFFFFFF
+        // Load 0x80000000 into temp
+        self.emit(a64.movz64(SCRATCH, 0, 0));
+        self.emit(a64.movk64(SCRATCH, 0x8000, 1));
+        self.emit(a64.and32(SCRATCH, b_reg, SCRATCH)); // scratch = b & 0x80000000
+        self.emit(a64.orr32(d, d, SCRATCH)); // d = abs(a) | sign(b)
+        self.storeVreg(instr.rd, d);
+    }
+
+    /// f64.copysign: result = (rs1 & 0x7FFF...) | (rs2 & 0x8000...)
+    fn emitFpCopysign64(self: *Compiler, instr: RegInstr) void {
+        const a = self.getOrLoad(instr.rs1, SCRATCH);
+        const b_reg = self.getOrLoad(instr.rs2(), SCRATCH2);
+        const d = destReg(instr.rd);
+        // Load 0x7FFFFFFFFFFFFFFF (abs mask)
+        for (a64.loadImm64(SCRATCH, 0x7FFFFFFFFFFFFFFF)) |inst| self.emit(inst);
+        self.emit(a64.and64(d, a, SCRATCH)); // d = a & abs_mask
+        // Sign of b: shift right by 63, shift left by 63 (or load sign_mask)
+        for (a64.loadImm64(SCRATCH, 0x8000000000000000)) |inst| self.emit(inst);
+        self.emit(a64.and64(SCRATCH, b_reg, SCRATCH)); // scratch = b & sign_mask
+        self.emit(a64.orr64(d, d, SCRATCH)); // d = abs(a) | sign(b)
+        self.storeVreg(instr.rd, d);
+    }
+
+    // --- Rounding ---
+
+    fn emitFpRound64(self: *Compiler, encoding: u32, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
+        self.emit(encoding | (@as(u32, FP_SCRATCH0) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+        self.fp_scratch0_vreg = null;
+    }
+
+    fn emitFpRound32(self: *Compiler, encoding: u32, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
+        self.emit(encoding | (@as(u32, FP_SCRATCH0) << 5) | FP_SCRATCH0);
+        const d = destReg(instr.rd);
+        self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
+        self.storeVreg(instr.rd, d);
+        self.fp_scratch0_vreg = null;
+    }
+
+    // --- Float-to-integer truncation ---
+
+    /// i32.trunc_f32/f64_s/u: NaN check + boundary check + FCVTZS/FCVTZU
+    fn emitTruncToI32(self: *Compiler, instr: RegInstr, is_f64: bool, signed: bool) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        // Move to FP register for comparison
+        if (is_f64) {
+            self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
+            self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH0)); // NaN check
+        } else {
+            self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
+            self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH0));
+        }
+        self.emitCondError(.vs, 8); // NaN → InvalidConversion
+
+        // Boundary check: load min/max boundary as float, compare
+        if (signed) {
+            // i32 signed: valid if -2147483649.0 < float < 2147483648.0
+            if (is_f64) {
+                // -2147483649.0 as f64 = 0xC1E0000000200000
+                for (a64.loadImm64(SCRATCH2, 0xC1E0000000200000)) |inst| self.emit(inst);
+                self.emit(a64.fmovToFp64(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ls, 8); // float <= -2147483649.0 → overflow
+                // 2147483648.0 as f64 = 0x41E0000000000000
+                for (a64.loadImm64(SCRATCH2, 0x41E0000000000000)) |inst| self.emit(inst);
+                self.emit(a64.fmovToFp64(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ge, 8); // float >= 2147483648.0 → overflow
+            } else {
+                // -2147483904.0 as f32 = 0xCF000001 (just below -2^31)
+                self.emitLoadImm(SCRATCH2, 0xCF000001);
+                self.emit(a64.fmovToFp32(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ls, 8); // overflow
+                // 2147483648.0 as f32 = 0x4F000000
+                self.emitLoadImm(SCRATCH2, 0x4F000000);
+                self.emit(a64.fmovToFp32(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ge, 8); // overflow
+            }
+            // Convert
+            const d = destReg(instr.rd);
+            if (is_f64) {
+                self.emit(a64.fcvtzs_w_d(d, FP_SCRATCH0));
+            } else {
+                self.emit(a64.fcvtzs_w_s(d, FP_SCRATCH0));
+            }
+            self.storeVreg(instr.rd, d);
+        } else {
+            // u32: valid if -1.0 < float < 4294967296.0
+            if (is_f64) {
+                // -1.0 as f64 = 0xBFF0000000000000
+                for (a64.loadImm64(SCRATCH2, 0xBFF0000000000000)) |inst| self.emit(inst);
+                self.emit(a64.fmovToFp64(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ls, 8); // float <= -1.0 → overflow
+                // 4294967296.0 as f64 = 0x41F0000000000000
+                for (a64.loadImm64(SCRATCH2, 0x41F0000000000000)) |inst| self.emit(inst);
+                self.emit(a64.fmovToFp64(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ge, 8); // overflow
+            } else {
+                // -1.0 as f32 = 0xBF800000
+                self.emitLoadImm(SCRATCH2, 0xBF800000);
+                self.emit(a64.fmovToFp32(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ls, 8);
+                // 4294967296.0 as f32 = 0x4F800000
+                self.emitLoadImm(SCRATCH2, 0x4F800000);
+                self.emit(a64.fmovToFp32(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ge, 8);
+            }
+            const d = destReg(instr.rd);
+            if (is_f64) {
+                self.emit(a64.fcvtzu_w_d(d, FP_SCRATCH0));
+            } else {
+                self.emit(a64.fcvtzu_w_s(d, FP_SCRATCH0));
+            }
+            self.storeVreg(instr.rd, d);
+        }
+        self.fp_scratch0_vreg = null;
+    }
+
+    /// i64.trunc_f32/f64_s/u: NaN check + boundary check + FCVTZS/FCVTZU
+    fn emitTruncToI64(self: *Compiler, instr: RegInstr, is_f64: bool, signed: bool) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        if (is_f64) {
+            self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
+            self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH0));
+        } else {
+            self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
+            self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH0));
+        }
+        self.emitCondError(.vs, 8); // NaN → InvalidConversion
+
+        if (signed) {
+            // i64 signed: valid if -9223372036854777856.0 < float < 9223372036854775808.0
+            if (is_f64) {
+                // -9223372036854775809.0 as f64 = 0xC3E0000000000000 (= -2^63 exactly, but we
+                // need strictly less, so check <= -2^63 - 1. However -2^63 is valid for i64.
+                // -2^63 as f64 = 0xC3E0000000000000. This is exactly representable.
+                // Valid range: [-2^63, 2^63-1]. Since 2^63 as f64 = 0x43E0000000000000,
+                // we check: float >= 2^63 → overflow, float < -2^63 → overflow
+                // But float == -2^63 is valid (it truncates to -2^63 = i64 min)
+                for (a64.loadImm64(SCRATCH2, 0x43E0000000000000)) |inst| self.emit(inst); // 2^63
+                self.emit(a64.fmovToFp64(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ge, 8); // float >= 2^63 → overflow
+                // Check float < -2^63 - 1 (which is not exactly representable in f64)
+                // -2^63 - 1 rounds to -2^63 in f64, so we need: float < -2^63 is overflow
+                // But -2^63 IS valid! So: strictly < -2^63 → overflow
+                // Next representable f64 below -2^63 is -9223372036854777856.0 = 0xC3E0000000000001
+                for (a64.loadImm64(SCRATCH2, 0xC3E0000000000001)) |inst| self.emit(inst);
+                self.emit(a64.fmovToFp64(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ls, 8); // float <= next_below(-2^63) → overflow
+            } else {
+                // 2^63 as f32 = 0x5F000000
+                self.emitLoadImm(SCRATCH2, 0x5F000000);
+                self.emit(a64.fmovToFp32(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ge, 8);
+                // -2^63 as f32 = 0xDF000000. This is exactly -2^63. Valid.
+                // Next f32 below -2^63 is 0xDF000001
+                self.emitLoadImm(SCRATCH2, 0xDF000001);
+                self.emit(a64.fmovToFp32(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ls, 8);
+            }
+            const d = destReg(instr.rd);
+            if (is_f64) {
+                self.emit(a64.fcvtzs_x_d(d, FP_SCRATCH0));
+            } else {
+                self.emit(a64.fcvtzs_x_s(d, FP_SCRATCH0));
+            }
+            self.storeVreg(instr.rd, d);
+        } else {
+            // u64: valid if -1.0 < float < 2^64
+            if (is_f64) {
+                // -1.0 as f64 = 0xBFF0000000000000
+                for (a64.loadImm64(SCRATCH2, 0xBFF0000000000000)) |inst| self.emit(inst);
+                self.emit(a64.fmovToFp64(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ls, 8);
+                // 2^64 as f64 = 0x43F0000000000000
+                for (a64.loadImm64(SCRATCH2, 0x43F0000000000000)) |inst| self.emit(inst);
+                self.emit(a64.fmovToFp64(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ge, 8);
+            } else {
+                // -1.0 as f32 = 0xBF800000
+                self.emitLoadImm(SCRATCH2, 0xBF800000);
+                self.emit(a64.fmovToFp32(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ls, 8);
+                // 2^64 as f32 = 0x5F800000
+                self.emitLoadImm(SCRATCH2, 0x5F800000);
+                self.emit(a64.fmovToFp32(FP_SCRATCH1, SCRATCH2));
+                self.emit(a64.fcmp32(FP_SCRATCH0, FP_SCRATCH1));
+                self.emitCondError(.ge, 8);
+            }
+            const d = destReg(instr.rd);
+            if (is_f64) {
+                self.emit(a64.fcvtzu_x_d(d, FP_SCRATCH0));
+            } else {
+                self.emit(a64.fcvtzu_x_s(d, FP_SCRATCH0));
+            }
+            self.storeVreg(instr.rd, d);
+        }
         self.fp_scratch0_vreg = null;
     }
 
