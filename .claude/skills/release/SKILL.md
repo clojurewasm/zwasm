@@ -22,11 +22,16 @@ Never tag or push until all prior phases pass.
 
 ## Phase 2: zwasm Verification (Ubuntu x86_64 via SSH)
 
+See `.dev/ubuntu-x86_64.md` for SSH connection and command patterns (`nix develop`).
+
 1. Push `main` to remote: `git push origin main`
-2. SSH to Ubuntu box (see `.dev/ubuntu-x86_64.md` for connection info)
-3. `git pull && zig build test` — all tests pass on x86_64
-4. `python3 test/spec/run_spec.py --summary` — spec tests pass
-5. `bash bench/run_bench.sh` — benchmarks, no extreme regression
+2. SSH pull with submodules: `git pull --recurse-submodules` (+ `git submodule update --init` if first time)
+3. Convert spec tests: `bash test/spec/convert.sh` (uses submodule at `test/spec/testsuite/`)
+4. `zig build test` — all tests pass on x86_64
+5. `python3 test/spec/run_spec.py --summary` — spec tests pass
+6. `bash bench/run_bench.sh` — benchmarks, no extreme regression
+
+If Ubuntu reveals failures not seen on Mac, **fix the root cause** before proceeding.
 
 ## Phase 3: ClojureWasm Verification (relative path build)
 
