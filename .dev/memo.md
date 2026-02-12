@@ -5,7 +5,7 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4, 7-11 — COMPLETE
-- Source: ~15K LOC, 16 files, 168 tests all pass
+- Source: ~15K LOC, 17 files, 169 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
 - Spec: 30,704/30,704 (100%), E2E: 297/298 (99.7%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
@@ -78,7 +78,14 @@ Stage 12: WAT Parser & Feature Flags (W17)
 
 Target: `zwasm run file.wat`, build-time `-Dwat=false`.
 
-(Task breakdown TBD at stage start.)
+1. [x] 12.1: Build-time feature flag system (-Dwat option in build.zig)
+2. [ ] 12.2: WAT S-expression tokenizer (lexer for WAT syntax)
+3. [ ] 12.3: WAT parser — module structure (module, func, memory, table, global, import, export)
+4. [ ] 12.4: WAT parser — instructions (all opcodes, folded S-expr form)
+5. [ ] 12.5: Wasm binary encoder (emit valid .wasm from parsed AST)
+6. [ ] 12.6: WAT abbreviations (inline exports, type use, etc.)
+7. [ ] 12.7: API + CLI integration (loadFromWat, auto-detect .wat)
+8. [ ] 12.8: E2E verification (issue11563.wat, issue12170.wat)
 
 Stage 13: x86_64 JIT Backend
 
@@ -88,11 +95,11 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 12 planning.
+12.2: WAT S-expression tokenizer.
 
 ## Previous Task
 
-Stage 11 complete (v0.7.0). Security hardening: deny-by-default WASI, CLI --allow-*, resource limits, import validation.
+12.1 complete. -Dwat build option, build_options.enable_wat, wat.zig stub, loadFromWat API, D106.
 
 ## Known Bugs
 

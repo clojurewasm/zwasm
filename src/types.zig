@@ -19,6 +19,7 @@ const rt = struct {
     const vm_mod = @import("vm.zig");
     const wasi = @import("wasi.zig");
     const opcode = @import("opcode.zig");
+    const wat = @import("wat.zig");
 };
 
 // ============================================================
@@ -180,6 +181,14 @@ pub const WasmModule = struct {
 
     /// Load a Wasm module from binary bytes, decode, and instantiate.
     pub fn load(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
+        return loadCore(allocator, wasm_bytes, false, null);
+    }
+
+    /// Load a module from WAT (WebAssembly Text Format) source.
+    /// Requires `-Dwat=true` (default). Returns error.WatNotEnabled if disabled.
+    pub fn loadFromWat(allocator: Allocator, wat_source: []const u8) !*WasmModule {
+        const wasm_bytes = try rt.wat.watToWasm(allocator, wat_source);
+        defer allocator.free(wasm_bytes);
         return loadCore(allocator, wasm_bytes, false, null);
     }
 
