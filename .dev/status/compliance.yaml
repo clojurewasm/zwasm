@@ -6,7 +6,7 @@
 # e2e_tests: from test/e2e/ (wasmtime misc_testsuite port)
 #
 # Last updated: 2026-02-12
-# Spec: 30,703/30,703 (100%)
+# Spec: 30,715/30,715 (100%)
 # E2E:  279/280 (99.6%), 69 files
 
 wasm_core:
@@ -182,8 +182,8 @@ wasi_preview1:
   poll_oneoff: {status: todo}
 
 e2e_wasmtime:
-  # Total: 70 files, 297/298 assertions pass (99.7%)
-  # Remaining failures: W10 (1, cross-process side effects)
+  # Total: 70 files, 356/356 assertions pass (100%)
+  # Zig runner with shared Store. All previously failing tests fixed.
   # Skipped files: 4 (W16, W17)
 
   # Batch 1: Core MVP & Traps
@@ -205,7 +205,7 @@ e2e_wasmtime:
   misc_traps.wast: {status: pass, assertions: 12, pass: 12, fail: 0}
   mul16-negative.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
   no-panic.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
-  no-panic-on-invalid.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
+  no-panic-on-invalid.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
   partial-init-memory-segment.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
   simple-unreachable.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
   stack_overflow.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
@@ -225,7 +225,7 @@ e2e_wasmtime:
   mutable_externref_globals.wast: {status: pass, assertions: 3, pass: 3, fail: 0}
   no-mixup-stack-maps.wast: {status: pass, assertions: 1, pass: 1, fail: 0}
   no-opt-panic-dividing-by-zero.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
-  partial-init-table-segment.wast: {status: partial, assertions: 3, pass: 2, fail: 1, note: "W10: cross-process table side effects from failed instantiation"}
+  partial-init-table-segment.wast: {status: pass, assertions: 3, pass: 3, fail: 0}
   rs2wasm-add-func.wast: {status: pass, assertions: 0, pass: 0, fail: 0}
   simple_ref_is_null.wast: {status: pass, assertions: 4, pass: 4, fail: 0}
   sink-float-but-dont-trap.wast: {status: pass, assertions: 6, pass: 6, fail: 0}

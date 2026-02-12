@@ -5,7 +5,7 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4, 7-12 — COMPLETE
-- Source: ~17K LOC, 17 files, 209 tests all pass
+- Source: ~24K LOC, 16 files, 209 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
 - Spec: 30,715/30,715 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
@@ -21,7 +21,7 @@ Session handover document. Read at session start.
 ## Completed Stages
 
 Stages 0-7, 5E, 5F, 8-12 — all COMPLETE. See `roadmap.md` for details.
-Key results: Spec 30,704/30,704 (100%), E2E 355/356 (Zig runner), 20/21 bench < 2x wasmtime.
+Key results: Spec 30,715/30,715 (100%), E2E 356/356 (100%, Zig runner), 20/21 bench < 2x wasmtime.
 
 ## Task Queue
 

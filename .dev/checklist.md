@@ -26,7 +26,7 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 
 | ID   | Item                                        | Fails | Root Cause                           | Resolution Approach                      |
 |------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
-| W10  | Cross-process table side effects            | 1     | partial-init-table-segment.wast: failed instantiation should modify shared table, but each module runs in separate process. assert_uninstantiable detection fixed (5F.4), but side effect not visible. | Needs single-process multi-module protocol. Low priority — only 1 assertion affected. |
+| ~~W10~~ | ~~Cross-process table side effects~~ | ~~0~~ | ~~RESOLVED~~ | Fixed by Zig E2E runner with shared Store. partial-init-table-segment 3/3 pass. |
 | W16  | wast2json NaN literal syntax                | 0     | simd/canonicalize-nan.wast uses NaN syntax wast2json 1.0.39 can't parse. No upgrade available. | Blocked on wabt release. File skipped in conversion. |
 | ~~W17~~ | ~~.wat file support (native WAT parser)~~ | ~~0~~ | ~~RESOLVED (Stage 12)~~ | Completed. WAT parser with v128/SIMD, named locals/globals/labels, build-time optional. issue12170.wat validates OK. issue11563.wat out of scope (multi-module + GC). |
 
