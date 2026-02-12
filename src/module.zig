@@ -260,7 +260,9 @@ pub const Module = struct {
         // Tag section (13, exception handling) has flexible placement — only check no duplicates
         if (section_id != 0 and section_id != 13) {
             const order = sectionOrder(section_id);
-            if (order <= last_section_id.*) return error.MalformedModule;
+            if (order <= last_section_id.*) {
+                return error.MalformedModule;
+            }
             last_section_id.* = order;
         }
 
@@ -280,11 +282,15 @@ pub const Module = struct {
             .data => try self.decodeDataSection(&sub),
             .data_count => try self.decodeDataCountSection(&sub),
             .tag => try self.decodeTagSection(&sub),
-            _ => return error.MalformedModule, // unknown section id
+            _ => {
+                return error.MalformedModule;
+            },
         }
 
         // Verify section consumed exactly the declared size (custom sections may have trailing data)
-        if (section != .custom and sub.hasMore()) return error.MalformedModule;
+        if (section != .custom and sub.hasMore()) {
+            return error.MalformedModule;
+        }
     }
 
     // ---- Section 1: Type ----
@@ -689,7 +695,7 @@ pub const Module = struct {
                     const count = try r.readU32();
                     for (0..count + 1) |_| _ = try r.readU32();
                 },
-                0x10, 0x12 => _ = try r.readU32(), // call, return_call
+                0x10, 0x12, 0x14, 0x15 => _ = try r.readU32(), // call, return_call, call_ref, return_call_ref
                 0x11, 0x13 => { _ = try r.readU32(); _ = try r.readU32(); }, // call_indirect, return_call_indirect
                 0x08 => _ = try r.readU32(), // throw
                 0x1C => { const n = try r.readU32(); for (0..n) |_| _ = try r.readByte(); }, // select_t
@@ -697,6 +703,7 @@ pub const Module = struct {
                 0x23, 0x24 => _ = try r.readU32(), // global.get/set
                 0x25, 0x26 => _ = try r.readU32(), // table.get/set
                 0xD2 => _ = try r.readU32(), // ref.func
+                0xD5, 0xD6 => _ = try r.readU32(), // br_on_null, br_on_non_null
                 0x41 => _ = try r.readI32(), // i32.const
                 0x42 => _ = try r.readI64(), // i64.const
                 0x43 => r.pos += 4, // f32.const
@@ -707,7 +714,7 @@ pub const Module = struct {
                     _ = try r.readU32(); // offset
                 },
                 0x3F, 0x40 => _ = try r.readU32(), // memory.size/grow (memidx)
-                0xD0 => _ = try r.readByte(), // ref.null
+                0xD0 => _ = try r.readI33(), // ref.null (heap type, S33 LEB128)
                 0xFC => { // misc prefix
                     const sub = try r.readU32();
                     switch (sub) {

@@ -20,7 +20,7 @@ OUTDIR="test/spec/json"
 mkdir -p "$OUTDIR"
 
 # MVP core tests (skip GC, memory64, exception-handling, threads, etc.)
-SKIP_PATTERNS="gc|array|struct|extern|tag|exception|memory64|address64|align64|binary_leb128_64|annotations|ref_|any_|i31|sub_|type_|table_copy_mixed|table_get_mixed|elem_mixed|br_on_|extern_|rec_|try_|throw_|rethrow_"
+SKIP_PATTERNS="gc|array|struct|extern|tag|exception|memory64|address64|align64|binary_leb128_64|annotations|ref_cast|ref_eq|ref_test|any_|i31|sub_|type_|table_copy_mixed|table_get_mixed|elem_mixed|br_on_cast|extern_|rec_|try_|throw_|rethrow_"
 
 CONVERTED=0
 SKIPPED=0

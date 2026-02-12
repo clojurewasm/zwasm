@@ -261,14 +261,21 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
             0x45...0xC4 => try emit0(alloc, &code, @intCast(byte)),
 
             // -- Reference types --
-            0xD0 => { // ref_null
-                _ = reader.readByte() catch return error.InvalidWasm;
+            0xD0 => { // ref_null (heap type as S33 LEB128)
+                _ = reader.readI33() catch return error.InvalidWasm;
                 try emit0(alloc, &code, 0xD0);
             },
             0xD1 => try emit0(alloc, &code, 0xD1), // ref_is_null
             0xD2 => { // ref_func
                 const idx = reader.readU32() catch return error.InvalidWasm;
                 try code.append(alloc, .{ .opcode = 0xD2, .extra = 0, .operand = idx });
+            },
+
+            // -- Function references (bail to bytecode interpreter) --
+            0x14, 0x15, 0xD4, 0xD5, 0xD6 => {
+                code.deinit(alloc);
+                pool64.deinit(alloc);
+                return null;
             },
 
             // -- Misc prefix (0xFC) --
@@ -313,6 +320,12 @@ fn readBlockTypeEncoded(reader: *Reader) !u16 {
     if (byte >= 0x6F and byte <= 0x7F) {
         reader.pos += 1;
         return 1;
+    }
+    // ref type encoding: 0x63 = (ref null ht), 0x64 = (ref ht)
+    if (byte == 0x63 or byte == 0x64) {
+        reader.pos += 1; // consume 0x63/0x64
+        _ = try reader.readI33(); // consume heap type
+        return 1; // single ref type result
     }
     const idx = try reader.readI33();
     return ARITY_TYPE_INDEX_FLAG | @as(u16, @intCast(@as(u32, @intCast(idx))));

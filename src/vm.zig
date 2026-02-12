@@ -231,7 +231,7 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
                 _ = reader.readU32() catch break; // offset
             },
             .memory_size, .memory_grow => _ = reader.readU32() catch break,
-            .ref_null => _ = reader.readByte() catch break,
+            .ref_null => _ = reader.readI33() catch break,
             .misc_prefix => {
                 const sub = reader.readU32() catch break;
                 switch (sub) {
@@ -1259,7 +1259,7 @@ pub const Vm = struct {
                 .i64_extend32_s => { const a = self.popI64(); try self.pushI64(@as(i64, @as(i32, @truncate(a)))); },
 
                 // ---- Reference types ----
-                .ref_null => { _ = try reader.readByte(); try self.push(0); },
+                .ref_null => { _ = try reader.readI33(); try self.push(0); },
                 .ref_is_null => { const a = self.pop(); try self.pushI32(b2i(a == 0)); },
                 .ref_func => {
                     const idx = try reader.readU32();
@@ -4617,6 +4617,12 @@ fn readBlockType(reader: *Reader) !opcode.BlockType {
         reader.pos += 1;
         return .{ .val_type = ValType.fromByte(byte) orelse return error.InvalidWasm };
     }
+    // ref type encoding: 0x63 = (ref null ht), 0x64 = (ref ht)
+    if (byte == 0x63 or byte == 0x64) {
+        reader.pos += 1;
+        _ = try reader.readI33(); // consume heap type
+        return .{ .val_type = .funcref }; // treat as funcref for arity purposes
+    }
     // Otherwise it's a type index (s33)
     const idx = try reader.readI33();
     return .{ .type_index = @intCast(idx) };
@@ -4698,7 +4704,7 @@ fn skipToEnd(reader: *Reader) !void {
                 _ = try reader.readU32(); // offset
             },
             .memory_size, .memory_grow => _ = try reader.readU32(),
-            .ref_null => _ = try reader.readByte(),
+            .ref_null => _ = try reader.readI33(),
             .misc_prefix => {
                 const sub = try reader.readU32();
                 switch (sub) {
@@ -4785,7 +4791,7 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
                 _ = try reader.readU32(); // offset
             },
             .memory_size, .memory_grow => _ = try reader.readU32(),
-            .ref_null => _ = try reader.readByte(),
+            .ref_null => _ = try reader.readI33(),
             .misc_prefix => {
                 const sub = try reader.readU32();
                 switch (sub) {

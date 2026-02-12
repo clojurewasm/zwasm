@@ -492,6 +492,48 @@ const Validator = struct {
                 self.setUnreachable();
             },
 
+            // ---- Function references ----
+            .call_ref => {
+                const type_idx = try reader.readU32();
+                if (type_idx >= self.module.types.items.len) return error.UnknownType;
+                _ = try self.popExpecting(.funcref); // pop nullable typed ref (treat as funcref)
+                const ft = self.module.types.items[type_idx];
+                try self.popExpectingTypes(ft.params);
+                try self.pushTypes(ft.results);
+            },
+            .return_call_ref => {
+                const type_idx = try reader.readU32();
+                if (type_idx >= self.module.types.items.len) return error.UnknownType;
+                _ = try self.popExpecting(.funcref);
+                const ft = self.module.types.items[type_idx];
+                const caller_results = self.ctrl_stack.items[0].end_types;
+                if (ft.results.len != caller_results.len) return error.TypeMismatch;
+                for (ft.results, caller_results) |a, b| {
+                    if (!a.eql(b)) return error.TypeMismatch;
+                }
+                try self.popExpectingTypes(ft.params);
+                self.setUnreachable();
+            },
+            .ref_as_non_null => {
+                _ = try self.popExpecting(.funcref); // pop nullable ref
+                try self.pushVal(.funcref); // push non-nullable (simplified)
+            },
+            .br_on_null => {
+                const depth = try reader.readU32();
+                if (depth >= self.ctrl_stack.items.len) return error.UnknownLabel;
+                _ = try self.popExpecting(.funcref); // pop nullable ref
+                // if null: branch (label types already validated by branchTo path)
+                // if non-null: push non-null ref back
+                try self.pushVal(.funcref);
+            },
+            .br_on_non_null => {
+                const depth = try reader.readU32();
+                if (depth >= self.ctrl_stack.items.len) return error.UnknownLabel;
+                _ = try self.popExpecting(.funcref);
+                // if non-null: push ref and branch
+                // if null: drop and continue
+            },
+
             // ---- Exception handling ----
             .throw => {
                 const tag_idx = try reader.readU32();

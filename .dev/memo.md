@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-15 — COMPLETE
 - Source: ~28K LOC, 17 files, 229 tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
-- Spec: 60,759/60,797 Mac (99.9%), 5 expected skips, E2E: 356/356, CI: ubuntu + macOS
+- Spec: 60,863/60,896 Mac (99.9%), 7 skips, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -110,7 +110,7 @@ Type system: ValType tagged union (ref/ref_null with heap type index).
 3. [x] 17.3: New instructions — call_ref, return_call_ref, ref.as_non_null
 4. [x] 17.4: New instructions — br_on_null, br_on_non_null
 5. [x] 17.5: Validation — local initialization tracking for non-defaultable types
-6. [ ] 17.6: Table initialization with const expr, ref.func type precision
+6. [x] 17.6: Fix module loading, predecode, block type for typed refs
 7. [ ] 17.7: Spec tests + proposals.yaml update
 
 Stage 18: Wasm 3.0 — GC
@@ -136,11 +136,11 @@ Task Queue:
 
 ## Current Task
 
-17.6: Table initialization with const expr, ref.func type precision
+17.7: Spec tests + proposals.yaml update
 
 ## Previous Task
 
-17.5: Local init tracking — non-defaultable (ref $t) locals must be set before get. Block-scoped: init state restored at block end via snapshot/restore in ControlFrame.
+17.6: Fixed module body scanner (validateBodyEnd), predecode bail, readBlockType for typed ref types (0x63/0x64). All 6 func-ref spec tests pass: call_ref 30, return_call_ref 45, ref_as_non_null 5, br_on_null 7, br_on_non_null 9, local_init 8. Total 60,863/60,896.
 
 ## Wasm 3.0 Coverage
 
@@ -150,7 +150,7 @@ GC requires function_references first.
 
 ## Known Bugs
 
-None. Mac 60,759/60,797 (99.9%), 5 expected skips, 33 multi-module linking failures.
+None. Mac 60,863/60,896 (99.9%), 7 skips, 33 multi-module linking failures.
 
 ## References
 
