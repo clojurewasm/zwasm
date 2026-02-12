@@ -74,6 +74,13 @@ pub const TagDef = struct {
     type_idx: u32,
 };
 
+/// Branch hint from metadata.code.branch_hint custom section (Wasm 3.0).
+pub const BranchHint = struct {
+    func_idx: u32,
+    byte_offset: u32,
+    hint: u8, // 0 = likely NOT taken, 1 = likely taken
+};
+
 /// Local variable definition within a code body.
 pub const LocalEntry = struct {
     count: u32,
@@ -139,6 +146,7 @@ pub const Module = struct {
     codes: ArrayList(Code),
     datas: ArrayList(DataSegment),
     data_count: ?u32,
+    branch_hints: ArrayList(BranchHint),
 
     // Derived counts
     num_imported_funcs: u32,
@@ -165,6 +173,7 @@ pub const Module = struct {
             .codes = .empty,
             .datas = .empty,
             .data_count = null,
+            .branch_hints = .empty,
             .num_imported_funcs = 0,
             .num_imported_tables = 0,
             .num_imported_memories = 0,
@@ -204,6 +213,7 @@ pub const Module = struct {
         self.codes.deinit(self.alloc);
 
         self.datas.deinit(self.alloc);
+        self.branch_hints.deinit(self.alloc);
     }
 
     pub fn decode(self: *Module) !void {
@@ -235,7 +245,7 @@ pub const Module = struct {
 
         const section: opcode.Section = @enumFromInt(section_id);
         switch (section) {
-            .custom => {}, // skip custom sections
+            .custom => try self.decodeCustomSection(&sub),
             .type => try self.decodeTypeSection(&sub),
             .import => try self.decodeImportSection(&sub),
             .function => try self.decodeFunctionSection(&sub),
@@ -805,6 +815,40 @@ pub const Module = struct {
             return self.types.items[type_idx];
         }
     }
+
+    // ---- Custom sections ----
+
+    fn decodeCustomSection(self: *Module, reader: *Reader) !void {
+        const name_len = try reader.readU32();
+        const name = try reader.readBytes(name_len);
+        if (mem.eql(u8, name, "metadata.code.branch_hint")) {
+            try self.decodeBranchHints(reader);
+        }
+        // All other custom sections are silently ignored.
+    }
+
+    /// Parse metadata.code.branch_hint custom section (Wasm 3.0).
+    fn decodeBranchHints(self: *Module, reader: *Reader) !void {
+        const num_funcs = try reader.readU32();
+        for (0..num_funcs) |_| {
+            const func_idx = try reader.readU32();
+            const num_hints = try reader.readU32();
+            for (0..num_hints) |_| {
+                const byte_offset = try reader.readU32();
+                const size = try reader.readU32();
+                if (size != 1) {
+                    _ = try reader.readBytes(size);
+                    continue;
+                }
+                const hint = try reader.readByte();
+                try self.branch_hints.append(self.alloc, .{
+                    .func_idx = func_idx,
+                    .byte_offset = byte_offset,
+                    .hint = hint,
+                });
+            }
+        }
+    }
 };
 
 // ============================================================
@@ -1183,4 +1227,34 @@ test "Module — tag section parsing" {
 
     try testing.expectEqual(@as(usize, 1), m.tags.items.len);
     try testing.expectEqual(@as(u32, 0), m.tags.items[0].type_idx);
+}
+
+test "Module — branch hint custom section" {
+    // Minimal wasm with custom section "metadata.code.branch_hint"
+    const custom_section = [_]u8{
+        0x00, // section_id = custom
+        32, // section_size (LEB128) = 32 bytes
+        25, // name_len = 25
+    } ++ "metadata.code.branch_hint".* ++ [_]u8{
+        0x01, // num_funcs = 1
+        0x00, // func_idx = 0
+        0x01, // num_hints = 1
+        0x05, // byte_offset = 5
+        0x01, // size = 1
+        0x01, // value = 1 (likely taken)
+    };
+
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x01, 0x00, 0x00, 0x00, // version
+    } ++ custom_section;
+
+    var m = Module.init(testing.allocator, &wasm);
+    defer m.deinit();
+    try m.decode();
+
+    try testing.expectEqual(@as(usize, 1), m.branch_hints.items.len);
+    try testing.expectEqual(@as(u32, 0), m.branch_hints.items[0].func_idx);
+    try testing.expectEqual(@as(u32, 5), m.branch_hints.items[0].byte_offset);
+    try testing.expectEqual(@as(u8, 1), m.branch_hints.items[0].hint);
 }

@@ -188,7 +188,7 @@ wasm_3.0:
       most ops.
 
   branch_hinting:
-    status: todo
+    status: complete
     opcodes: 0                    # Custom section only, no new opcodes
     new_types: []
     complexity: trivial

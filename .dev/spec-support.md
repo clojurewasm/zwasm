@@ -53,6 +53,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Memory64              | Complete     | Wasm 3.0 — table64 + i64 addressing |
 | Tail calls            | Stub         | return_call/return_call_indirect trap |
 | Extended const        | Complete     | i32/i64 add/sub/mul in const exprs |
+| Branch hinting        | Complete     | metadata.code.branch_hint section  |
 | Exception handling    | Complete     | throw, try_table, catch clauses    |
 | Wide arithmetic       | Complete     | 4 opcodes, 99/99 e2e (W14)         |
 | Custom page sizes     | Complete     | page_size 1 or 65536, 18/18 e2e (W15) |
