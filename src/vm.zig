@@ -226,8 +226,8 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
             .i64_store8, .i64_store16, .i64_store32,
             => {
                 const align_flags = reader.readU32() catch break;
-                _ = reader.readU32() catch break; // offset
                 if (align_flags & 0x40 != 0) _ = reader.readU32() catch break; // memidx
+                _ = reader.readU32() catch break; // offset
             },
             .memory_size, .memory_grow => _ = reader.readU32() catch break,
             .ref_null => _ = reader.readByte() catch break,
@@ -4096,8 +4096,8 @@ pub const Vm = struct {
     /// Handles multi-memory: bit 6 of alignment signals memidx follows.
     fn readMemarg(reader: *Reader, instance: *Instance) !struct { offset: u32, mem: *WasmMemory } {
         const align_flags = try reader.readU32();
-        const offset = try reader.readU32();
         const memidx: u16 = if (align_flags & 0x40 != 0) @intCast(try reader.readU32()) else 0;
+        const offset = try reader.readU32();
         const m = instance.getMemory(memidx) catch return error.OutOfBoundsMemoryAccess;
         return .{ .offset = offset, .mem = m };
     }
@@ -4427,8 +4427,8 @@ fn skipToEnd(reader: *Reader) !void {
             .i64_store8, .i64_store16, .i64_store32,
             => {
                 const align_flags = try reader.readU32();
-                _ = try reader.readU32(); // offset
                 if (align_flags & 0x40 != 0) _ = try reader.readU32(); // memidx
+                _ = try reader.readU32(); // offset
             },
             .memory_size, .memory_grow => _ = try reader.readU32(),
             .ref_null => _ = try reader.readByte(),
@@ -4513,8 +4513,8 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
             .i64_store8, .i64_store16, .i64_store32,
             => {
                 const align_flags = try reader.readU32();
-                _ = try reader.readU32(); // offset
                 if (align_flags & 0x40 != 0) _ = try reader.readU32(); // memidx
+                _ = try reader.readU32(); // offset
             },
             .memory_size, .memory_grow => _ = try reader.readU32(),
             .ref_null => _ = try reader.readByte(),
@@ -4545,11 +4545,11 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
 fn skipSimdImmediates(reader: *Reader) !void {
     const sub = try reader.readU32();
     switch (sub) {
-        // Memory ops: memarg (align u32 + offset u32 [+ memidx u32])
+        // Memory ops: memarg (align u32 [+ memidx u32] + offset u32)
         0x00...0x0B, 0x5C, 0x5D => {
             const align_flags = try reader.readU32();
-            _ = try reader.readU32(); // offset
             if (align_flags & 0x40 != 0) _ = try reader.readU32(); // memidx
+            _ = try reader.readU32(); // offset
         },
         // v128.const: 16 raw bytes
         0x0C => _ = try reader.readBytes(16),
@@ -4557,11 +4557,11 @@ fn skipSimdImmediates(reader: *Reader) !void {
         0x0D => _ = try reader.readBytes(16),
         // Extract/replace lane: 1 byte lane index
         0x15...0x22 => _ = try reader.readByte(),
-        // Lane load/store: memarg + 1 byte lane index [+ memidx u32]
+        // Lane load/store: memarg (align u32 [+ memidx u32] + offset u32) + 1 byte lane index
         0x54...0x5B => {
             const align_flags = try reader.readU32();
-            _ = try reader.readU32(); // offset
             if (align_flags & 0x40 != 0) _ = try reader.readU32(); // memidx
+            _ = try reader.readU32(); // offset
             _ = try reader.readByte(); // lane
         },
         // All other ops: no immediates
@@ -6129,7 +6129,7 @@ test "Multi-memory — store/load on memory 1" {
         0x00, // 0 locals
         0x41, 0x00, // i32.const 0
         0x41, 0x2A, // i32.const 42
-        0x36, 0x40, 0x00, 0x01, // i32.store align=0|0x40 offset=0 memidx=1
+        0x36, 0x40, 0x01, 0x00, // i32.store align=0|0x40 memidx=1 offset=0
         0x0B, // end
         // Body 1: load0 — i32.const 0, i32.load mem=0, end
         0x07, // body size (7 bytes)

@@ -216,14 +216,14 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
                 try code.append(alloc, .{ .opcode = @intCast(byte), .extra = 0, .operand = idx });
             },
 
-            // -- Memory load/store (alignment + offset [+ memidx]) --
+            // -- Memory load/store (alignment [+ memidx] + offset) --
             0x28...0x3E => {
                 const align_val = reader.readU32() catch return error.InvalidWasm;
-                const offset = reader.readU32() catch return error.InvalidWasm;
                 const memidx: u16 = if (align_val & 0x40 != 0)
                     @intCast(reader.readU32() catch return error.InvalidWasm)
                 else
                     0;
+                const offset = reader.readU32() catch return error.InvalidWasm;
                 try code.append(alloc, .{ .opcode = @intCast(byte), .extra = memidx, .operand = offset });
             },
 

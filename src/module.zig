@@ -671,8 +671,8 @@ pub const Module = struct {
                 0x44 => r.pos += 8, // f64.const
                 0x28...0x3E => { // memory load/store
                     const align_flags = try r.readU32();
-                    _ = try r.readU32(); // offset
                     if (align_flags & 0x40 != 0) _ = try r.readU32(); // memidx (multi-memory)
+                    _ = try r.readU32(); // offset
                 },
                 0x3F, 0x40 => _ = try r.readU32(), // memory.size/grow (memidx)
                 0xD0 => _ = try r.readByte(), // ref.null

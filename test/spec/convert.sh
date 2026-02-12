@@ -13,7 +13,7 @@ OUTDIR="test/spec/json"
 mkdir -p "$OUTDIR"
 
 # MVP core tests (skip GC, memory64, exception-handling, threads, etc.)
-SKIP_PATTERNS="gc|array|struct|extern|tag|exception|memory64|address64|align64|binary_leb128_64|annotations|ref_|any_|i31|sub_|type_|table_copy_mixed|table_get_mixed|elem_mixed|br_on_|extern_|multi_memory|rec_|try_|throw_|rethrow_"
+SKIP_PATTERNS="gc|array|struct|extern|tag|exception|memory64|address64|align64|binary_leb128_64|annotations|ref_|any_|i31|sub_|type_|table_copy_mixed|table_get_mixed|elem_mixed|br_on_|extern_|rec_|try_|throw_|rethrow_"
 
 CONVERTED=0
 SKIPPED=0
@@ -34,13 +34,27 @@ for wast in "$TESTSUITE"/*.wast; do
         continue
     fi
 
-    if wast2json --enable-tail-call "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
+    if wast2json --enable-tail-call --enable-multi-memory "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
         CONVERTED=$((CONVERTED + 1))
     else
         echo "WARN: failed to convert $name.wast"
         FAILED=$((FAILED + 1))
     fi
 done
+
+# Multi-memory proposal tests (in subdirectory)
+MMDIR="$TESTSUITE/multi-memory"
+if [ -d "$MMDIR" ]; then
+    for wast in "$MMDIR"/*.wast; do
+        name=$(basename "$wast" .wast)
+        if wast2json --enable-tail-call --enable-multi-memory "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
+            CONVERTED=$((CONVERTED + 1))
+        else
+            echo "WARN: failed to convert $name.wast"
+            FAILED=$((FAILED + 1))
+        fi
+    done
+fi
 
 echo ""
 echo "Converted: $CONVERTED, Skipped: $SKIPPED, Failed: $FAILED"

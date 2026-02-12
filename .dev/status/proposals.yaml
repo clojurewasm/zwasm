@@ -149,7 +149,7 @@ wasm_3.0:
       reference-counting or tracing GC strategy.
 
   multi_memory:
-    status: todo
+    status: complete
     opcodes: 0                    # No new opcodes — adds memidx to existing instructions
     new_types: []
     complexity: medium
