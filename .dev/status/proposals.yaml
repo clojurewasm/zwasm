@@ -57,7 +57,7 @@ wasm_2.0:
 wasm_3.0:
 
   tail_call:
-    status: partial
+    status: complete
     opcodes: 2                    # return_call (0x12), return_call_indirect (0x13)
     new_types: []
     complexity: medium

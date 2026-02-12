@@ -6,7 +6,7 @@ Per-opcode details live in code (`src/opcode.zig` enum).
 Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
-- Spec: `python3 test/spec/run_spec.py --summary` (30,715/30,715 = 100%)
+- Spec: `python3 test/spec/run_spec.py --summary` (30,801/30,801 = 100%)
 - E2E: `bash test/e2e/run_e2e.sh --summary` (356/356 = 100%, 70 files, Zig runner)
 
 ## Opcode Coverage Summary
@@ -51,7 +51,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Multi-value           | Complete     | Multiple returns                   |
 | SIMD                  | Complete     | All 236 v128 opcodes               |
 | Memory64              | Complete     | Wasm 3.0 — table64 + i64 addressing |
-| Tail calls            | Partial      | return_call + return_call_indirect    |
+| Tail calls            | Complete     | return_call + return_call_indirect    |
 | Extended const        | Complete     | i32/i64 add/sub/mul in const exprs |
 | Branch hinting        | Complete     | metadata.code.branch_hint section  |
 | Exception handling    | Complete     | throw, try_table, catch clauses    |

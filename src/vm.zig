@@ -3211,6 +3211,41 @@ pub const Vm = struct {
                     }
                     try self.doCallDirectIR(instance, func_ptr);
                 },
+                0x12 => { // return_call
+                    const func_ptr = try instance.getFuncPtr(instr.operand);
+                    const n_args = func_ptr.params.len;
+                    var i: usize = n_args;
+                    while (i > 0) {
+                        i -= 1;
+                        self.tail_call_args[i] = self.pop();
+                    }
+                    self.tail_call_arg_count = n_args;
+                    self.tail_call_func = func_ptr;
+                    return;
+                },
+                0x13 => { // return_call_indirect
+                    const type_idx = instr.operand;
+                    const table_idx = instr.extra;
+                    const t = try instance.getTable(table_idx);
+                    const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                    const func_addr = try t.lookup(elem_idx);
+                    const func_ptr = try instance.store.getFunctionPtr(func_addr);
+                    if (type_idx < instance.module.types.items.len) {
+                        const expected = instance.module.types.items[type_idx];
+                        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
+                            !std.mem.eql(ValType, expected.results, func_ptr.results))
+                            return error.MismatchedSignatures;
+                    }
+                    const n_args = func_ptr.params.len;
+                    var i: usize = n_args;
+                    while (i > 0) {
+                        i -= 1;
+                        self.tail_call_args[i] = self.pop();
+                    }
+                    self.tail_call_arg_count = n_args;
+                    self.tail_call_func = func_ptr;
+                    return;
+                },
 
                 // ---- Parametric ----
                 0x1A => _ = self.pop(), // drop
@@ -3596,172 +3631,186 @@ pub const Vm = struct {
         try self.doCallDirectIR(instance, func_ptr);
     }
 
-    fn doCallDirectIR(self: *Vm, instance: *Instance, func_ptr: *store_mod.Function) WasmError!void {
-        if (self.profile) |p| p.call_count += 1;
-        switch (func_ptr.subtype) {
-            .wasm_function => |*wf| {
-                const param_count = func_ptr.params.len;
-                const locals_start = self.op_ptr - param_count;
+    fn doCallDirectIR(self: *Vm, instance: *Instance, initial_fp: *store_mod.Function) WasmError!void {
+        var current_fp = initial_fp;
+        while (true) {
+            if (self.profile) |p| p.call_count += 1;
+            switch (current_fp.subtype) {
+                .wasm_function => |*wf| {
+                    const param_count = current_fp.params.len;
+                    const locals_start = self.op_ptr - param_count;
 
-                // Lazy IR predecoding (try IR first, fall back to branch table)
-                if (wf.ir == null and !wf.ir_failed) {
-                    wf.ir = predecode_mod.predecode(self.alloc, wf.code) catch null;
-                    if (wf.ir == null) wf.ir_failed = true;
-                }
-
-                // Trigger regIR conversion for callees of stack-IR functions.
-                // Without this, callees are stuck in the slow stack interpreter
-                // forever (shootout 23-33x slowdown root cause).
-                if (wf.ir != null and wf.reg_ir == null and !wf.reg_ir_failed and
-                    func_ptr.results.len <= 1)
-                {
-                    const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
-                    const resolver = regalloc_mod.ParamResolver{
-                        .ctx = @ptrCast(callee_inst),
-                        .resolve_fn = struct {
-                            fn resolve(ctx: *anyopaque, func_idx: u32) ?regalloc_mod.FuncTypeInfo {
-                                const i: *Instance = @ptrCast(@alignCast(ctx));
-                                const fp = i.getFuncPtr(func_idx) catch return null;
-                                return .{
-                                    .param_count = @intCast(fp.params.len),
-                                    .result_count = @intCast(fp.results.len),
-                                };
-                            }
-                        }.resolve,
-                        .resolve_type_fn = struct {
-                            fn resolve(ctx: *anyopaque, type_idx: u32) ?regalloc_mod.FuncTypeInfo {
-                                const i: *Instance = @ptrCast(@alignCast(ctx));
-                                if (type_idx >= i.module.types.items.len) return null;
-                                const t = i.module.types.items[type_idx];
-                                return .{
-                                    .param_count = @intCast(t.params.len),
-                                    .result_count = @intCast(t.results.len),
-                                };
-                            }
-                        }.resolve,
-                    };
-                    wf.reg_ir = regalloc_mod.convert(
-                        self.alloc,
-                        wf.ir.?.code,
-                        wf.ir.?.pool64,
-                        @intCast(func_ptr.params.len),
-                        @intCast(wf.locals_count),
-                        resolver,
-                    ) catch null;
-                    if (wf.reg_ir == null) {
-                        wf.reg_ir_failed = true;
-                        if (self.trace) |tc| trace_mod.traceRegirBail(tc, wf.func_idx, "conversion failed");
-                    } else {
-                        if (self.trace) |tc| trace_mod.traceRegirConvert(tc, wf.func_idx, @intCast(wf.ir.?.code.len), @intCast(wf.reg_ir.?.code.len), wf.reg_ir.?.reg_count);
+                    // Lazy IR predecoding (try IR first, fall back to branch table)
+                    if (wf.ir == null and !wf.ir_failed) {
+                        wf.ir = predecode_mod.predecode(self.alloc, wf.code) catch null;
+                        if (wf.ir == null) wf.ir_failed = true;
                     }
-                }
 
-                // JIT compilation + fast execution for hot callees.
-                // Only redirect to JIT (not regIR) to avoid Zig stack overflow
-                // on deeply recursive functions like Ackermann.
-                if (wf.reg_ir) |reg| {
-                    if (builtin.cpu.arch == .aarch64 and self.profile == null and
-                        wf.jit_code == null and !wf.jit_failed)
+                    // Trigger regIR conversion for callees of stack-IR functions.
+                    if (wf.ir != null and wf.reg_ir == null and !wf.reg_ir_failed and
+                        current_fp.results.len <= 1)
                     {
-                        wf.call_count += 1;
-                        if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
-                            const jit_inst: *Instance = @ptrCast(@alignCast(wf.instance));
-                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(func_ptr.params.len), @intCast(func_ptr.results.len), self.trace, jit_mod.getMinMemoryBytes(jit_inst));
-                            if (wf.jit_code == null) {
-                                wf.jit_failed = true;
-                                if (self.trace) |tc| trace_mod.traceJitBail(tc, wf.func_idx, "compilation failed");
-                            } else {
-                                if (self.trace) |tc| trace_mod.traceJitCompile(tc, wf.func_idx, @intCast(reg.code.len), @intCast(wf.jit_code.?.buf.len));
-                            }
-                        }
-                    }
-
-                    if (self.profile == null) {
-                        if (wf.jit_code) |jc| {
-                            // JIT fast path: extract args, execute native code
-                            if (param_count <= 16) {
-                                var arg_buf: [16]u64 = undefined;
-                                for (0..param_count) |i| {
-                                    arg_buf[i] = @truncate(self.op_stack[locals_start + i]);
+                        const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
+                        const resolver = regalloc_mod.ParamResolver{
+                            .ctx = @ptrCast(callee_inst),
+                            .resolve_fn = struct {
+                                fn resolve(ctx: *anyopaque, func_idx: u32) ?regalloc_mod.FuncTypeInfo {
+                                    const i: *Instance = @ptrCast(@alignCast(ctx));
+                                    const fp = i.getFuncPtr(func_idx) catch return null;
+                                    return .{
+                                        .param_count = @intCast(fp.params.len),
+                                        .result_count = @intCast(fp.results.len),
+                                    };
                                 }
-                                self.op_ptr = locals_start;
-                                var call_results: [1]u64 = .{0};
-                                const n_results = func_ptr.results.len;
-                                try self.executeJIT(jc, reg, instance, func_ptr, arg_buf[0..param_count], call_results[0..n_results]);
-                                if (n_results > 0) try self.push(call_results[0]);
-                                return;
+                            }.resolve,
+                            .resolve_type_fn = struct {
+                                fn resolve(ctx: *anyopaque, type_idx: u32) ?regalloc_mod.FuncTypeInfo {
+                                    const i: *Instance = @ptrCast(@alignCast(ctx));
+                                    if (type_idx >= i.module.types.items.len) return null;
+                                    const t = i.module.types.items[type_idx];
+                                    return .{
+                                        .param_count = @intCast(t.params.len),
+                                        .result_count = @intCast(t.results.len),
+                                    };
+                                }
+                            }.resolve,
+                        };
+                        wf.reg_ir = regalloc_mod.convert(
+                            self.alloc,
+                            wf.ir.?.code,
+                            wf.ir.?.pool64,
+                            @intCast(current_fp.params.len),
+                            @intCast(wf.locals_count),
+                            resolver,
+                        ) catch null;
+                        if (wf.reg_ir == null) {
+                            wf.reg_ir_failed = true;
+                            if (self.trace) |tc| trace_mod.traceRegirBail(tc, wf.func_idx, "conversion failed");
+                        } else {
+                            if (self.trace) |tc| trace_mod.traceRegirConvert(tc, wf.func_idx, @intCast(wf.ir.?.code.len), @intCast(wf.reg_ir.?.code.len), wf.reg_ir.?.reg_count);
+                        }
+                    }
+
+                    // JIT compilation + fast execution for hot callees.
+                    if (wf.reg_ir) |reg| {
+                        if (builtin.cpu.arch == .aarch64 and self.profile == null and
+                            wf.jit_code == null and !wf.jit_failed)
+                        {
+                            wf.call_count += 1;
+                            if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
+                                const jit_inst: *Instance = @ptrCast(@alignCast(wf.instance));
+                                wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(current_fp.params.len), @intCast(current_fp.results.len), self.trace, jit_mod.getMinMemoryBytes(jit_inst));
+                                if (wf.jit_code == null) {
+                                    wf.jit_failed = true;
+                                    if (self.trace) |tc| trace_mod.traceJitBail(tc, wf.func_idx, "compilation failed");
+                                } else {
+                                    if (self.trace) |tc| trace_mod.traceJitCompile(tc, wf.func_idx, @intCast(reg.code.len), @intCast(wf.jit_code.?.buf.len));
+                                }
+                            }
+                        }
+
+                        if (self.profile == null) {
+                            if (wf.jit_code) |jc| {
+                                if (param_count <= 16) {
+                                    var arg_buf: [16]u64 = undefined;
+                                    for (0..param_count) |i| {
+                                        arg_buf[i] = @truncate(self.op_stack[locals_start + i]);
+                                    }
+                                    self.op_ptr = locals_start;
+                                    var call_results: [1]u64 = .{0};
+                                    const n_results = current_fp.results.len;
+                                    try self.executeJIT(jc, reg, instance, current_fp, arg_buf[0..param_count], call_results[0..n_results]);
+                                    if (n_results > 0) try self.push(call_results[0]);
+                                    return;
+                                }
                             }
                         }
                     }
-                }
 
-                for (0..wf.locals_count) |_| try self.push(0);
+                    for (0..wf.locals_count) |_| try self.push(0);
 
-                const saved_bt = self.current_branch_table;
+                    const saved_bt = self.current_branch_table;
 
-                try self.pushFrame(.{
-                    .locals_start = locals_start,
-                    .locals_count = param_count + wf.locals_count,
-                    .return_arity = func_ptr.results.len,
-                    .op_stack_base = locals_start,
-                    .label_stack_base = self.label_ptr,
-                    .return_reader = Reader.init(&.{}),
-                    .instance = instance,
-                });
-
-                const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
-
-                if (wf.ir) |ir| {
-                    try self.pushLabel(.{
-                        .arity = func_ptr.results.len,
-                        .op_stack_base = self.op_ptr,
-                        .target = .{ .ir_forward = @intCast(ir.code.len) },
+                    try self.pushFrame(.{
+                        .locals_start = locals_start,
+                        .locals_count = param_count + wf.locals_count,
+                        .return_arity = current_fp.results.len,
+                        .op_stack_base = locals_start,
+                        .label_stack_base = self.label_ptr,
+                        .return_reader = Reader.init(&.{}),
+                        .instance = instance,
                     });
-                    self.executeIR(ir.code, ir.pool64, callee_inst) catch |err| {
-                        const f = self.popFrame();
-                        self.label_ptr = f.label_stack_base;
-                        self.op_ptr = f.op_stack_base;
-                        self.current_branch_table = saved_bt;
-                        return err;
-                    };
-                } else {
-                    // Fallback to old path
-                    if (wf.branch_table == null) {
-                        wf.branch_table = computeBranchTable(self.alloc, wf.code) catch null;
-                    }
-                    self.current_branch_table = wf.branch_table;
 
-                    var body_reader = Reader.init(wf.code);
-                    try self.pushLabel(.{
-                        .arity = func_ptr.results.len,
-                        .op_stack_base = self.op_ptr,
-                        .target = .{ .forward = body_reader },
-                    });
-                    self.execute(&body_reader, callee_inst) catch |err| {
-                        const f = self.popFrame();
-                        self.label_ptr = f.label_stack_base;
-                        self.op_ptr = f.op_stack_base;
-                        self.current_branch_table = saved_bt;
-                        return err;
-                    };
-                }
+                    const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
 
-                const frame = self.popFrame();
-                self.label_ptr = frame.label_stack_base;
-                self.current_branch_table = saved_bt;
-                const n = frame.return_arity;
-                if (n > 0) {
-                    const src_start = self.op_ptr - n;
-                    for (0..n) |i| {
-                        self.op_stack[frame.op_stack_base + i] = self.op_stack[src_start + i];
+                    if (wf.ir) |ir| {
+                        try self.pushLabel(.{
+                            .arity = current_fp.results.len,
+                            .op_stack_base = self.op_ptr,
+                            .target = .{ .ir_forward = @intCast(ir.code.len) },
+                        });
+                        self.executeIR(ir.code, ir.pool64, callee_inst) catch |err| {
+                            const f = self.popFrame();
+                            self.label_ptr = f.label_stack_base;
+                            self.op_ptr = f.op_stack_base;
+                            self.current_branch_table = saved_bt;
+                            return err;
+                        };
+                    } else {
+                        if (wf.branch_table == null) {
+                            wf.branch_table = computeBranchTable(self.alloc, wf.code) catch null;
+                        }
+                        self.current_branch_table = wf.branch_table;
+
+                        var body_reader = Reader.init(wf.code);
+                        try self.pushLabel(.{
+                            .arity = current_fp.results.len,
+                            .op_stack_base = self.op_ptr,
+                            .target = .{ .forward = body_reader },
+                        });
+                        self.execute(&body_reader, callee_inst) catch |err| {
+                            const f = self.popFrame();
+                            self.label_ptr = f.label_stack_base;
+                            self.op_ptr = f.op_stack_base;
+                            self.current_branch_table = saved_bt;
+                            return err;
+                        };
                     }
-                }
-                self.op_ptr = frame.op_stack_base + n;
-            },
-            .host_function => |hf| {
-                self.current_instance = instance;
-                hf.func(@ptrCast(self), hf.context) catch return error.Trap;
-            },
+
+                    // Tail call: executeIR/execute set tail_call_func, reuse frame
+                    if (self.tail_call_func) |next_fp| {
+                        const frame = self.popFrame();
+                        self.label_ptr = frame.label_stack_base;
+                        self.current_branch_table = saved_bt;
+                        self.op_ptr = frame.op_stack_base;
+
+                        for (0..self.tail_call_arg_count) |i| {
+                            try self.push(self.tail_call_args[i]);
+                        }
+                        self.tail_call_func = null;
+                        current_fp = next_fp;
+                        continue;
+                    }
+
+                    // Normal return: move results to correct position
+                    const frame = self.popFrame();
+                    self.label_ptr = frame.label_stack_base;
+                    self.current_branch_table = saved_bt;
+                    const n = frame.return_arity;
+                    if (n > 0) {
+                        const src_start = self.op_ptr - n;
+                        for (0..n) |i| {
+                            self.op_stack[frame.op_stack_base + i] = self.op_stack[src_start + i];
+                        }
+                    }
+                    self.op_ptr = frame.op_stack_base + n;
+                },
+                .host_function => |hf| {
+                    self.current_instance = instance;
+                    hf.func(@ptrCast(self), hf.context) catch return error.Trap;
+                },
+            }
+            return;
         }
     }
 

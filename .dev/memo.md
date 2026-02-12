@@ -4,10 +4,10 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-12 — COMPLETE
-- Source: ~24K LOC, 16 files, 209 tests all pass
-- Opcode: 234 core + 236 SIMD = 470, WASI: ~27
-- Spec: 30,715/30,715 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
+- Stages 0-2, 4, 7-14 — COMPLETE
+- Source: ~24K LOC, 16 files, 211 tests all pass
+- Opcode: 236 core + 236 SIMD = 472, WASI: ~27
+- Spec: 30,801/30,801 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -52,7 +52,7 @@ Three small proposals batched together (~330 LOC total).
 2. [x] 14.2: Branch hinting (custom section parsing, store per-function hints)
 3. [x] 14.3: Tail call — return_call (0x12) bytecode interpreter
 4. [x] 14.4: Tail call — return_call_indirect (0x13) bytecode interpreter
-5. [ ] 14.5: Tail call — predecode/regir support + spec tests
+5. [x] 14.5: Tail call — predecode/regir support + spec tests
 
 Stage 15: Wasm 3.0 — Multi-memory
 
@@ -84,17 +84,17 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-14.5: Tail call — predecode/regir support + spec tests.
+Stage 14 complete. Proceeding to merge gate → Stage 15.
 
 ## Previous Task
 
-14.3+14.4: Tail call — return_call + return_call_indirect bytecode interpreter.
+14.5: Tail call — predecode/regir support + spec tests (30,801/30,801).
 
 ## Wasm 3.0 Coverage
 
-Implemented: memory64, exception_handling (2/10 finished proposals).
-NOT implemented: tail_call, extended_const, function_references, gc, multi_memory,
-relaxed_simd, branch_hinting (7 proposals, see proposals.yaml).
+Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting (5/10 finished proposals).
+NOT implemented: function_references, gc, multi_memory,
+relaxed_simd (4 proposals, see proposals.yaml).
 GC requires function_references first. Stages 9-10 (wide_arithmetic, custom_page_sizes)
 are Phase 3, not yet ratified as Wasm 3.0.
 
