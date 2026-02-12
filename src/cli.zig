@@ -84,6 +84,8 @@ fn printUsage(w: *std.Io.Writer) void {
         \\  --allow-env         Grant environment variable access
         \\  --allow-path        Grant path operations (open, mkdir, unlink, etc.)
         \\  --allow-all         Grant all WASI capabilities
+        \\  --max-memory <N>    Memory ceiling in bytes (limits memory.grow)
+        \\  --fuel <N>          Instruction fuel limit (traps when exhausted)
         \\  --trace=CATS        Trace categories: jit,regir,exec,mem,call (comma-separated)
         \\  --dump-regir=N      Dump RegIR for function index N
         \\  --dump-jit=N        Dump JIT disassembly for function index N
@@ -117,6 +119,8 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     var link_paths: std.ArrayList([]const u8) = .empty;
     defer link_paths.deinit(allocator);
     var caps = types.Capabilities.cli_default;
+    var max_memory_bytes: ?u64 = null;
+    var fuel: ?u64 = null;
 
     // Parse options
     var i: usize = 0;
@@ -195,6 +199,30 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             caps.allow_path = true;
         } else if (std.mem.eql(u8, args[i], "--allow-all")) {
             caps = types.Capabilities.all;
+        } else if (std.mem.eql(u8, args[i], "--max-memory")) {
+            i += 1;
+            if (i >= args.len) {
+                try stderr.print("error: --max-memory requires a byte count\n", .{});
+                try stderr.flush();
+                return false;
+            }
+            max_memory_bytes = std.fmt.parseInt(u64, args[i], 10) catch {
+                try stderr.print("error: --max-memory requires a valid number\n", .{});
+                try stderr.flush();
+                return false;
+            };
+        } else if (std.mem.eql(u8, args[i], "--fuel")) {
+            i += 1;
+            if (i >= args.len) {
+                try stderr.print("error: --fuel requires an instruction count\n", .{});
+                try stderr.flush();
+                return false;
+            }
+            fuel = std.fmt.parseInt(u64, args[i], 10) catch {
+                try stderr.print("error: --fuel requires a valid number\n", .{});
+                try stderr.flush();
+                return false;
+            };
         } else if (args[i].len > 0 and args[i][0] == '-') {
             try stderr.print("error: unknown option '{s}'\n", .{args[i]});
             try stderr.flush();
@@ -336,6 +364,10 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             module.vm.trace = &trace_config;
         }
 
+        // Apply resource limits
+        module.vm.max_memory_bytes = max_memory_bytes;
+        module.vm.fuel = fuel;
+
         // Parse function arguments as u64
         const func_args_slice = args[func_args_start..];
         const wasm_args = try allocator.alloc(u64, func_args_slice.len);
@@ -425,6 +457,10 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         if (trace_categories != 0 or dump_regir_func != null or dump_jit_func != null) {
             module.vm.trace = &wasi_trace_config;
         }
+
+        // Apply resource limits
+        module.vm.max_memory_bytes = max_memory_bytes;
+        module.vm.fuel = fuel;
 
         var no_args = [_]u64{};
         var no_results = [_]u64{};
