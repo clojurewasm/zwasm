@@ -34,11 +34,8 @@ Breaking main breaks CW for all users.
 - **Merge to main only after**:
   1. `zig build test` passes (zwasm)
   2. `python3 test/spec/run_spec.py --summary` passes (if interpreter/opcodes changed)
-  3. CW verification: `cd ~/ClojureWasm && zig build test && bash test/e2e/run_e2e.sh`
-     (update CW's build.zig.zon hash to point at the feature branch HEAD first)
-  4. `bash bench/run_bench.sh --quick` shows no regression
-- **Tag after milestones**: `git tag v0.X.Y` after merging significant features.
-  Update CW's build.zig.zon hash to the new tag.
+  3. `bash bench/run_bench.sh --quick` shows no regression
+- **Tag + CW release**: Manual process, see `/release` command (`.claude/commands/release.md`).
 - **Orient step**: At session start, check if you're on main or a feature branch.
   If on main with pending work, create a feature branch first.
 
@@ -166,11 +163,11 @@ Proposal implementations modify core interpreter/decoder, so extra vigilance:
 
 Run before merging to main (in addition to commit gate):
 
-1. **CW build**: `cd ~/ClojureWasm && zig build test` — compiles and passes
-2. **CW e2e**: `bash test/e2e/run_e2e.sh` — all e2e tests pass
-3. **CW portability**: `bash test/portability/run_compat.sh` — all pass
-4. **Tag**: `git tag v0.X.Y` if milestone warrants a version bump
-5. **CW hash update**: After tagging, update CW's `build.zig.zon` hash to new tag
+1. `zig build test` passes
+2. `python3 test/spec/run_spec.py --summary` passes (if opcodes/interpreter changed)
+3. `bash bench/run_bench.sh --quick` — no performance regression
+
+Tag creation and CW release are manual — use `/release` when instructed.
 
 ### Stage Completion
 
