@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-12 — COMPLETE
 - Source: ~17K LOC, 17 files, 209 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
-- Spec: 30,704/30,704 (100%), E2E: 355/356 (99.7%, Zig runner), CI: ubuntu + macOS
+- Spec: 30,715/30,715 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -100,7 +100,7 @@ Stage 12 complete. Merge gate in progress.
 
 ## Previous Task
 
-12.8 complete. Added v128/SIMD WAT support (v128.const, all 236 SIMD opcodes via SimdOpcode enum). issue12170.wat validates OK. issue11563.wat out of scope (multi-module format + GC proposal).
+Fix no-panic-on-invalid: added validateBodyEnd to detect trailing bytes after top-level end opcode. Fixed SIMD immediate skipping (lane load/store need memarg + lane_index). E2E 356/356 (100%), spec 30,715/30,715.
 
 ## Known Bugs
 

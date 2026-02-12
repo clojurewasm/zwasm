@@ -590,12 +590,123 @@ pub const Module = struct {
             // Remaining bytes are the function body (includes trailing `end`)
             const body = body_reader.bytes[body_reader.pos..];
 
+            // Validate: top-level `end` must be the last byte (no trailing bytes)
+            try validateBodyEnd(body);
+
             try self.codes.append(self.alloc, .{
                 .locals = locals,
                 .body = body,
                 .locals_count = locals_count,
             });
         }
+    }
+
+    fn skipBlockType(r: *Reader) !void {
+        if (!r.hasMore()) return error.MalformedModule;
+        const byte = r.bytes[r.pos];
+        if (byte == 0x40 or (byte >= 0x6F and byte <= 0x7F)) {
+            r.pos += 1;
+        } else {
+            _ = try r.readI33();
+        }
+    }
+
+    /// Validate that the function body ends with its top-level `end` opcode
+    /// and has no trailing bytes. Scans opcodes tracking block depth.
+    fn validateBodyEnd(body: []const u8) !void {
+        var r = Reader.init(body);
+        var depth: u32 = 1; // function body is an implicit block
+
+        while (r.hasMore()) {
+            const byte = try r.readByte();
+            switch (byte) {
+                0x02, 0x03, 0x04 => { // block, loop, if
+                    try skipBlockType(&r);
+                    depth += 1;
+                },
+                0x1F => { // try_table
+                    try skipBlockType(&r);
+                    const n = try r.readU32();
+                    for (0..n) |_| {
+                        const kind = try r.readByte();
+                        if (kind == 0x00 or kind == 0x01) _ = try r.readU32();
+                        _ = try r.readU32();
+                    }
+                    depth += 1;
+                },
+                0x0B => { // end
+                    depth -= 1;
+                    if (depth == 0) {
+                        if (r.hasMore()) return error.MalformedModule;
+                        return;
+                    }
+                },
+                // Skip immediates for all other opcodes
+                0x0C, 0x0D => _ = try r.readU32(), // br, br_if
+                0x0E => { // br_table
+                    const count = try r.readU32();
+                    for (0..count + 1) |_| _ = try r.readU32();
+                },
+                0x10, 0x12 => _ = try r.readU32(), // call, return_call
+                0x11, 0x13 => { _ = try r.readU32(); _ = try r.readU32(); }, // call_indirect, return_call_indirect
+                0x08 => _ = try r.readU32(), // throw
+                0x1C => { const n = try r.readU32(); for (0..n) |_| _ = try r.readByte(); }, // select_t
+                0x20, 0x21, 0x22 => _ = try r.readU32(), // local.get/set/tee
+                0x23, 0x24 => _ = try r.readU32(), // global.get/set
+                0x25, 0x26 => _ = try r.readU32(), // table.get/set
+                0xD2 => _ = try r.readU32(), // ref.func
+                0x41 => _ = try r.readI32(), // i32.const
+                0x42 => _ = try r.readI64(), // i64.const
+                0x43 => r.pos += 4, // f32.const
+                0x44 => r.pos += 8, // f64.const
+                0x28...0x3E => { _ = try r.readU32(); _ = try r.readU32(); }, // memory load/store
+                0x3F, 0x40 => _ = try r.readByte(), // memory.size/grow
+                0xD0 => _ = try r.readByte(), // ref.null
+                0xFC => { // misc prefix
+                    const sub = try r.readU32();
+                    switch (sub) {
+                        0...7 => {}, // trunc_sat
+                        8 => { _ = try r.readU32(); _ = try r.readByte(); }, // memory.init
+                        9 => _ = try r.readU32(), // data.drop
+                        10 => { _ = try r.readByte(); _ = try r.readByte(); }, // memory.copy
+                        11 => _ = try r.readByte(), // memory.fill
+                        12 => { _ = try r.readU32(); _ = try r.readU32(); }, // table.init
+                        13 => _ = try r.readU32(), // elem.drop
+                        14 => { _ = try r.readU32(); _ = try r.readU32(); }, // table.copy
+                        15 => _ = try r.readU32(), // table.grow
+                        16 => _ = try r.readU32(), // table.size
+                        17 => _ = try r.readU32(), // table.fill
+                        else => {},
+                    }
+                },
+                0xFD => { // simd prefix
+                    const sub = try r.readU32();
+                    if (sub <= 11 or sub == 92 or sub == 93) {
+                        // v128.load/store variants (0-11), load32/64_zero (92-93) — memarg
+                        _ = try r.readU32();
+                        _ = try r.readU32();
+                    } else if (sub >= 84 and sub <= 91) {
+                        // v128.load*_lane (84-87), v128.store*_lane (88-91) — memarg + lane_index
+                        _ = try r.readU32();
+                        _ = try r.readU32();
+                        _ = try r.readByte();
+                    } else if (sub == 12) {
+                        r.pos += 16; // v128.const
+                    } else if (sub == 13) {
+                        r.pos += 16; // i8x16.shuffle
+                    } else if (sub >= 21 and sub <= 34) {
+                        _ = try r.readByte(); // extract/replace lane index
+                    }
+                    // All other SIMD ops have no immediates
+                },
+                0xFE => { // wide arithmetic prefix
+                    _ = try r.readU32();
+                },
+                else => {}, // opcodes with no immediates
+            }
+        }
+        // Reached end of body without function-level end
+        return error.MalformedModule;
     }
 
     // ---- Section 11: Data ----

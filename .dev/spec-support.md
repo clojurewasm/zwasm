@@ -6,8 +6,8 @@ Per-opcode details live in code (`src/opcode.zig` enum).
 Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
-- Spec: `python3 test/spec/run_spec.py --summary` (30,704/30,704 = 100%)
-- E2E: `bash test/e2e/run_e2e.sh --summary` (355/356 = 99.7%, 70 files, Zig runner)
+- Spec: `python3 test/spec/run_spec.py --summary` (30,715/30,715 = 100%)
+- E2E: `bash test/e2e/run_e2e.sh --summary` (356/356 = 100%, 70 files, Zig runner)
 
 ## Opcode Coverage Summary
 
@@ -62,13 +62,12 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 ## E2E Test Status
 
-70 wasmtime misc_testsuite files ported. 355/356 assertions pass (99.7%, Zig runner with shared Store).
-1 failure: no-panic-on-invalid (decoder accepts a malformed binary — pre-existing limitation).
+70 wasmtime misc_testsuite files ported. 356/356 assertions pass (100%, Zig runner with shared Store).
 Previously failing partial-init-table-segment now passes (bounds pre-check fix + shared Store).
+Previously failing no-panic-on-invalid now passes (validateBodyEnd trailing bytes detection).
 
 | Category                  | Status                   | Checklist         |
 |---------------------------|--------------------------|-------------------|
-| assert_uninstantiable     | 1 failure                | W10               |
 | wast2json NaN syntax      | 1 file skipped           | W16               |
 | .wat files                | 2 files skipped          | W17 (partial)     |
 | memory-combos.wast        | 1 file skipped           | multi-memory      |
