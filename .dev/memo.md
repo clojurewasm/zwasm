@@ -37,7 +37,7 @@ Target: x86_64 codegen, CI on ubuntu.
 Architecture: separate x86.zig (encoder + Compiler), dispatch from jit.zig.
 ARM64 code untouched (zero regression). Trampolines/helpers shared via import.
 
-1. [ ] 13.1: x86_64 instruction encoder (src/x86.zig) + arch dispatch skeleton
+1. [x] 13.1: x86_64 instruction encoder (src/x86.zig) + arch dispatch skeleton
 2. [ ] 13.2: Prologue/epilogue + integer arithmetic (fib works)
 3. [ ] 13.3: Comparison + control flow (branching, loops, br_table)
 4. [ ] 13.4: Memory operations + globals + function calls
@@ -85,25 +85,17 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-13.1: x86_64 instruction encoder + architecture dispatch skeleton.
+13.2: Comparison + control flow for x86_64 JIT.
 
-Approach:
-- Create src/x86.zig with x86_64 encoding utilities + Compiler struct
-- x86.zig is self-contained: encoder + Compiler (parallel to jit.zig's a64 + Compiler)
-- In jit.zig compileFunction(), add: if x86_64 → delegate to x86.compileFunction()
-- Trampolines/helpers in jit.zig are already pub — x86.zig imports them
-- ARM64 code completely untouched (zero regression risk)
+Goal: Implement i32/i64 comparisons (eq/ne/lt_s/lt_u/gt_s/gt_u/le_s/le_u/ge_s/ge_u),
+      eqz, branching (BR, BR_IF, BR_IF_NOT, BR_TABLE), loop control.
+      This makes fib benchmark work on x86_64.
 
-x86_64 register mapping (System V AMD64 ABI):
-  R12: regs_ptr (callee-saved) — like ARM64 x19
-  R13: mem_base (callee-saved) — like ARM64 x27
-  R14: mem_size (callee-saved) — like ARM64 x28
-  RBX, RBP, R15: vregs r0-r2 (callee-saved)
-  RCX, RDI, RSI, RDX, R8, R9, R10, R11: vregs r3-r10 (caller-saved)
-  RAX: scratch + return value
-  Total: 11 physical vregs (vs ARM64 20), rest spill to memory via R12
+Key: x86 uses CMP + SETcc + MOVZX pattern (vs ARM64 CMP + CSET).
+     Shifts need CL register (special handling when shift amount in other reg).
+     Branch patching: rel32 relative to end of Jcc instruction.
 
-Key files: src/x86.zig (new), src/jit.zig (dispatch only).
+Key files: src/x86.zig (Compiler.compileInstr + helpers).
 
 ## Previous Task
 

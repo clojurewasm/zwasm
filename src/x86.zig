@@ -1054,116 +1054,180 @@ pub const Compiler = struct {
 
     /// Compile a single RegInstr. Returns false if unsupported (bail out).
     fn compileInstr(self: *Compiler, instr: RegInstr, ir: []const RegInstr, pc: *u32) bool {
-        _ = ir;
-        _ = pc;
         switch (instr.op) {
+            // --- Register ops ---
             regalloc_mod.OP_MOV => {
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
                 self.storeVreg(instr.rd, src);
             },
-            regalloc_mod.OP_CONST32 => {
-                const val = instr.operand;
-                if (vregToPhys(instr.rd)) |phys| {
-                    if (val == 0) {
-                        Enc.xorRegReg32(&self.code, self.alloc, phys, phys);
-                    } else {
-                        Enc.movImm32(&self.code, self.alloc, phys, val);
-                    }
-                } else {
-                    if (val == 0) {
-                        Enc.xorRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH);
-                    } else {
-                        Enc.movImm32(&self.code, self.alloc, SCRATCH, val);
-                    }
-                    self.storeVreg(instr.rd, SCRATCH);
-                }
-            },
+            regalloc_mod.OP_CONST32 => self.emitConst32(instr),
             regalloc_mod.OP_CONST64 => {
-                const pool_idx = instr.operand;
-                if (pool_idx < self.pool64.len) {
-                    const val = self.pool64[pool_idx];
-                    if (vregToPhys(instr.rd)) |phys| {
-                        if (val == 0) {
-                            Enc.xorRegReg32(&self.code, self.alloc, phys, phys);
-                        } else if (val <= std.math.maxInt(u32)) {
-                            Enc.movImm32(&self.code, self.alloc, phys, @intCast(val));
-                        } else {
-                            Enc.movImm64(&self.code, self.alloc, phys, val);
-                        }
-                    } else {
-                        if (val == 0) {
-                            Enc.xorRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH);
-                        } else if (val <= std.math.maxInt(u32)) {
-                            Enc.movImm32(&self.code, self.alloc, SCRATCH, @intCast(val));
-                        } else {
-                            Enc.movImm64(&self.code, self.alloc, SCRATCH, val);
-                        }
-                        self.storeVreg(instr.rd, SCRATCH);
-                    }
-                } else return false;
+                if (!self.emitConst64(instr)) return false;
+            },
+
+            // --- Control flow ---
+            regalloc_mod.OP_BR => {
+                const patch_off = Enc.jmpRel32(&self.code, self.alloc);
+                self.patches.append(self.alloc, .{
+                    .rel32_offset = patch_off,
+                    .target_pc = instr.operand,
+                    .kind = .jmp,
+                }) catch return false;
+            },
+            regalloc_mod.OP_BR_IF => {
+                // Branch if rd != 0
+                const cond_reg = self.getOrLoad(instr.rd, SCRATCH);
+                Enc.testRegReg(&self.code, self.alloc, cond_reg, cond_reg);
+                const patch_off = Enc.jccRel32(&self.code, self.alloc, .ne);
+                self.patches.append(self.alloc, .{
+                    .rel32_offset = patch_off,
+                    .target_pc = instr.operand,
+                    .kind = .jcc,
+                }) catch return false;
+            },
+            regalloc_mod.OP_BR_IF_NOT => {
+                const cond_reg = self.getOrLoad(instr.rd, SCRATCH);
+                Enc.testRegReg(&self.code, self.alloc, cond_reg, cond_reg);
+                const patch_off = Enc.jccRel32(&self.code, self.alloc, .e);
+                self.patches.append(self.alloc, .{
+                    .rel32_offset = patch_off,
+                    .target_pc = instr.operand,
+                    .kind = .jcc,
+                }) catch return false;
             },
             regalloc_mod.OP_RETURN => {
-                // Store result to regs[0] if needed
                 if (self.result_count > 0) {
                     const src = self.getOrLoad(instr.rd, SCRATCH);
-                    // Ensure result is in regs[0]
                     if (instr.rd != 0) {
                         Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, 0, src);
-                    } else if (vregToPhys(0)) |phys| {
-                        // r0 is in physical reg — will be stored in epilogue
-                        _ = phys;
                     }
                 }
                 self.emitEpilogue();
             },
-            // i32.add (0x6A)
-            0x6A => {
-                self.emitBinop32(instr, .add);
+            regalloc_mod.OP_RETURN_VOID => self.emitEpilogue(),
+            regalloc_mod.OP_NOP, regalloc_mod.OP_BLOCK_END, regalloc_mod.OP_DELETED => {},
+
+            // --- Function calls (consume extra data words) ---
+            regalloc_mod.OP_CALL => {
+                _ = ir;
+                _ = pc;
+                return false; // TODO: task 13.4
             },
-            // i32.sub (0x6B)
-            0x6B => {
-                self.emitBinop32(instr, .sub);
+            regalloc_mod.OP_CALL_INDIRECT => {
+                _ = ir;
+                _ = pc;
+                return false; // TODO: task 13.4
             },
-            // i32.mul (0x6C)
-            0x6C => {
-                self.emitBinop32(instr, .mul);
+
+            // --- i32 arithmetic ---
+            0x6A => self.emitBinop32(instr, .add),
+            0x6B => self.emitBinop32(instr, .sub),
+            0x6C => self.emitBinop32(instr, .mul),
+            0x6D => self.emitDiv32(instr, true, false),  // i32.div_s
+            0x6E => self.emitDiv32(instr, false, false),  // i32.div_u
+            0x6F => self.emitDiv32(instr, true, true),   // i32.rem_s
+            0x70 => self.emitDiv32(instr, false, true),   // i32.rem_u
+            0x71 => self.emitBinop32(instr, .@"and"),
+            0x72 => self.emitBinop32(instr, .@"or"),
+            0x73 => self.emitBinop32(instr, .xor),
+            0x74 => self.emitShift32(instr, .shl),   // i32.shl
+            0x75 => self.emitShift32(instr, .sar),   // i32.shr_s
+            0x76 => self.emitShift32(instr, .shr),   // i32.shr_u
+            0x77 => self.emitShift32(instr, .rol),   // i32.rotl
+            0x78 => self.emitShift32(instr, .ror),   // i32.rotr
+
+            // --- i32 bit ops ---
+            0x67 => self.emitClz32(instr),   // i32.clz
+            0x68 => self.emitCtz32(instr),   // i32.ctz
+            0x69 => self.emitPopcnt32(instr), // i32.popcnt
+
+            // --- i32 comparison ---
+            0x45 => self.emitEqz32(instr),           // i32.eqz
+            0x46 => self.emitCmp32(instr, .e),        // i32.eq
+            0x47 => self.emitCmp32(instr, .ne),       // i32.ne
+            0x48 => self.emitCmp32(instr, .l),        // i32.lt_s
+            0x49 => self.emitCmp32(instr, .b),        // i32.lt_u
+            0x4A => self.emitCmp32(instr, .g),        // i32.gt_s
+            0x4B => self.emitCmp32(instr, .a),        // i32.gt_u
+            0x4C => self.emitCmp32(instr, .le),       // i32.le_s
+            0x4D => self.emitCmp32(instr, .be),       // i32.le_u
+            0x4E => self.emitCmp32(instr, .ge),       // i32.ge_s
+            0x4F => self.emitCmp32(instr, .ae),       // i32.ge_u
+
+            // --- i64 arithmetic ---
+            0x7C => self.emitBinop64(instr, .add),
+            0x7D => self.emitBinop64(instr, .sub),
+            0x7E => self.emitBinop64(instr, .mul),
+            0x7F => self.emitDiv64(instr, true, false),  // i64.div_s
+            0x80 => self.emitDiv64(instr, false, false),  // i64.div_u
+            0x81 => self.emitDiv64(instr, true, true),   // i64.rem_s
+            0x82 => self.emitDiv64(instr, false, true),   // i64.rem_u
+            0x83 => self.emitBinop64(instr, .@"and"),
+            0x84 => self.emitBinop64(instr, .@"or"),
+            0x85 => self.emitBinop64(instr, .xor),
+            0x86 => self.emitShift64(instr, .shl),   // i64.shl
+            0x87 => self.emitShift64(instr, .sar),   // i64.shr_s
+            0x88 => self.emitShift64(instr, .shr),   // i64.shr_u
+            0x89 => self.emitShift64(instr, .rol),   // i64.rotl
+            0x8A => self.emitShift64(instr, .ror),   // i64.rotr
+
+            // --- i64 bit ops ---
+            0x79 => self.emitClz64(instr),   // i64.clz
+            0x7A => self.emitCtz64(instr),   // i64.ctz
+            0x7B => self.emitPopcnt64(instr), // i64.popcnt
+
+            // --- i64 comparison ---
+            0x50 => self.emitEqz64(instr),           // i64.eqz
+            0x51 => self.emitCmp64(instr, .e),        // i64.eq
+            0x52 => self.emitCmp64(instr, .ne),       // i64.ne
+            0x53 => self.emitCmp64(instr, .l),        // i64.lt_s
+            0x54 => self.emitCmp64(instr, .b),        // i64.lt_u
+            0x55 => self.emitCmp64(instr, .g),        // i64.gt_s
+            0x56 => self.emitCmp64(instr, .a),        // i64.gt_u
+            0x57 => self.emitCmp64(instr, .le),       // i64.le_s
+            0x58 => self.emitCmp64(instr, .be),       // i64.le_u
+            0x59 => self.emitCmp64(instr, .ge),       // i64.ge_s
+            0x5A => self.emitCmp64(instr, .ae),       // i64.ge_u
+
+            // --- Conversions ---
+            0xA7 => { // i32.wrap_i64: just truncate (MOV r32, r32 zero-extends)
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                const rd = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.movRegReg32(&self.code, self.alloc, rd, src);
+                if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
             },
-            // i32.and (0x71)
-            0x71 => {
-                self.emitBinop32(instr, .@"and");
+            0xAC => { // i64.extend_i32_s: MOVSXD
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                const rd = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.movsxd(&self.code, self.alloc, rd, src);
+                if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
             },
-            // i32.or (0x72)
-            0x72 => {
-                self.emitBinop32(instr, .@"or");
+            0xAD => { // i64.extend_i32_u: MOV r32, r32 (zero-extends)
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                const rd = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.movRegReg32(&self.code, self.alloc, rd, src);
+                if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
             },
-            // i32.xor (0x73)
-            0x73 => {
-                self.emitBinop32(instr, .xor);
+
+            // --- Reinterpret (bit-preserving) ---
+            0xBC, 0xBE => { // i32.reinterpret_f32, f32.reinterpret_i32
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                const rd = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.movRegReg32(&self.code, self.alloc, rd, src);
+                if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
             },
-            // i64.add (0x7C)
-            0x7C => {
-                self.emitBinop64(instr, .add);
+            0xBD, 0xBF => { // i64.reinterpret_f64, f64.reinterpret_i64
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                self.storeVreg(instr.rd, src);
             },
-            // i64.sub (0x7D)
-            0x7D => {
-                self.emitBinop64(instr, .sub);
-            },
-            // i64.mul (0x7E)
-            0x7E => {
-                self.emitBinop64(instr, .mul);
-            },
-            // i64.and (0x83)
-            0x83 => {
-                self.emitBinop64(instr, .@"and");
-            },
-            // i64.or (0x84)
-            0x84 => {
-                self.emitBinop64(instr, .@"or");
-            },
-            // i64.xor (0x85)
-            0x85 => {
-                self.emitBinop64(instr, .xor);
-            },
+
+            // --- Sign extension (Wasm 2.0) ---
+            0xC0 => self.emitSignExt(instr, 8, false),  // i32.extend8_s
+            0xC1 => self.emitSignExt(instr, 16, false),  // i32.extend16_s
+            0xC2 => self.emitSignExt(instr, 8, true),  // i64.extend8_s
+            0xC3 => self.emitSignExt(instr, 16, true),  // i64.extend16_s
+            0xC4 => self.emitSignExt(instr, 32, true),  // i64.extend32_s
+
             else => return false, // Unsupported — bail out to interpreter
         }
         return true;
@@ -1220,6 +1284,368 @@ pub const Compiler = struct {
         if (vregToPhys(instr.rd) == null) {
             self.storeVreg(instr.rd, SCRATCH);
         }
+    }
+
+    // --- Const helpers ---
+
+    fn emitConst32(self: *Compiler, instr: RegInstr) void {
+        const val = instr.operand;
+        if (vregToPhys(instr.rd)) |phys| {
+            if (val == 0) Enc.xorRegReg32(&self.code, self.alloc, phys, phys)
+            else Enc.movImm32(&self.code, self.alloc, phys, val);
+        } else {
+            if (val == 0) Enc.xorRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH)
+            else Enc.movImm32(&self.code, self.alloc, SCRATCH, val);
+            self.storeVreg(instr.rd, SCRATCH);
+        }
+    }
+
+    fn emitConst64(self: *Compiler, instr: RegInstr) bool {
+        const pool_idx = instr.operand;
+        if (pool_idx >= self.pool64.len) return false;
+        const val = self.pool64[pool_idx];
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        if (val == 0) {
+            Enc.xorRegReg32(&self.code, self.alloc, rd, rd);
+        } else if (val <= std.math.maxInt(u32)) {
+            Enc.movImm32(&self.code, self.alloc, rd, @intCast(val));
+        } else {
+            Enc.movImm64(&self.code, self.alloc, rd, val);
+        }
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+        return true;
+    }
+
+    // --- Comparison helpers ---
+    // Pattern: CMP r1, r2 → SETcc AL → MOVZX EAX, AL → store to rd
+
+    fn emitCmp32(self: *Compiler, instr: RegInstr, cc: Cond) void {
+        const rs2: u8 = @truncate(instr.operand);
+        const r1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const r2 = self.getOrLoad(rs2, SCRATCH2);
+        Enc.cmpRegReg32(&self.code, self.alloc, r1, r2);
+        Enc.setcc(&self.code, self.alloc, cc, .rax);
+        Enc.movzxByte(&self.code, self.alloc, .rax, .rax);
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitCmp64(self: *Compiler, instr: RegInstr, cc: Cond) void {
+        const rs2: u8 = @truncate(instr.operand);
+        const r1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const r2 = self.getOrLoad(rs2, SCRATCH2);
+        Enc.cmpRegReg(&self.code, self.alloc, r1, r2);
+        Enc.setcc(&self.code, self.alloc, cc, .rax);
+        Enc.movzxByte(&self.code, self.alloc, .rax, .rax);
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitEqz32(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        Enc.testRegReg(&self.code, self.alloc, src, src);
+        Enc.setcc(&self.code, self.alloc, .e, .rax);
+        Enc.movzxByte(&self.code, self.alloc, .rax, .rax);
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitEqz64(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        Enc.testRegReg(&self.code, self.alloc, src, src);
+        Enc.setcc(&self.code, self.alloc, .e, .rax);
+        Enc.movzxByte(&self.code, self.alloc, .rax, .rax);
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    // --- Shift helpers ---
+    // x86 shifts require count in CL. RCX = vreg 3.
+
+    const ShiftOp = enum { shl, shr, sar, rol, ror };
+
+    fn emitShift32(self: *Compiler, instr: RegInstr, op: ShiftOp) void {
+        const rs2: u8 = @truncate(instr.operand);
+        const r1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+
+        // Move r1 to rd (destructive)
+        if (rd != r1) Enc.movRegReg32(&self.code, self.alloc, rd, r1);
+
+        // Get shift amount into CL
+        self.moveShiftCountToCl(rs2, rd);
+
+        switch (op) {
+            .shl => Enc.shlCl32(&self.code, self.alloc, rd),
+            .shr => Enc.shrCl32(&self.code, self.alloc, rd),
+            .sar => Enc.sarCl32(&self.code, self.alloc, rd),
+            .rol => {
+                // ROL r/m32, CL: D3 /0 (no REX.W = 32-bit)
+                if (rd.isExt()) self.code.append(self.alloc, Enc.rex(false, false, false, true)) catch {};
+                self.code.append(self.alloc, 0xD3) catch {};
+                self.code.append(self.alloc, Enc.modrm(0b11, 0, rd.low3())) catch {};
+            },
+            .ror => Enc.rorCl32(&self.code, self.alloc, rd),
+        }
+
+        self.restoreCl(rs2);
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitShift64(self: *Compiler, instr: RegInstr, op: ShiftOp) void {
+        const rs2: u8 = @truncate(instr.operand);
+        const r1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+
+        if (rd != r1) Enc.movRegReg(&self.code, self.alloc, rd, r1);
+
+        self.moveShiftCountToCl(rs2, rd);
+
+        switch (op) {
+            .shl => Enc.shlCl(&self.code, self.alloc, rd),
+            .shr => Enc.shrCl(&self.code, self.alloc, rd),
+            .sar => Enc.sarCl(&self.code, self.alloc, rd),
+            .rol => Enc.rolCl(&self.code, self.alloc, rd),
+            .ror => Enc.rorCl(&self.code, self.alloc, rd),
+        }
+
+        self.restoreCl(rs2);
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    /// Move shift amount (vreg rs2) into CL. Save RCX if needed.
+    fn moveShiftCountToCl(self: *Compiler, rs2: u8, rd: Reg) void {
+        _ = rd;
+        const shift_reg = self.getOrLoad(rs2, SCRATCH2);
+        if (shift_reg != .rcx) {
+            // Save RCX if it holds a live vreg (vreg 3 maps to RCX)
+            if (vregToPhys(3) != null and 3 < self.reg_count) {
+                Enc.push(&self.code, self.alloc, .rcx);
+            }
+            Enc.movRegReg(&self.code, self.alloc, .rcx, shift_reg);
+        }
+    }
+
+    fn restoreCl(self: *Compiler, rs2: u8) void {
+        const shift_reg = vregToPhys(rs2) orelse return;
+        if (shift_reg != .rcx) {
+            if (vregToPhys(3) != null and 3 < self.reg_count) {
+                Enc.pop(&self.code, self.alloc, .rcx);
+            }
+        }
+    }
+
+    // --- Division helpers ---
+    // x86 uses RAX/RDX for division. RAX = SCRATCH, RDX = vreg 6.
+
+    fn emitDiv32(self: *Compiler, instr: RegInstr, signed: bool, is_rem: bool) void {
+        const rs2: u8 = @truncate(instr.operand);
+        const r1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const divisor = self.getOrLoad(rs2, SCRATCH2);
+
+        // Save RDX if it holds a live vreg (vreg 6)
+        const rdx_live = vregToPhys(6) != null and 6 < self.reg_count;
+        if (rdx_live) Enc.push(&self.code, self.alloc, .rdx);
+
+        // Move dividend to EAX
+        if (r1 != .rax) Enc.movRegReg32(&self.code, self.alloc, .rax, r1);
+
+        // Sign/zero-extend EAX to EDX:EAX
+        if (signed) {
+            Enc.cdq(&self.code, self.alloc);
+            // Ensure divisor is not in RAX or RDX
+            if (divisor == .rax or divisor == .rdx) {
+                Enc.movRegReg(&self.code, self.alloc, SCRATCH2, divisor);
+                Enc.idivReg32(&self.code, self.alloc, SCRATCH2);
+            } else {
+                Enc.idivReg32(&self.code, self.alloc, divisor);
+            }
+        } else {
+            Enc.xorRegReg32(&self.code, self.alloc, .rdx, .rdx);
+            if (divisor == .rax or divisor == .rdx) {
+                Enc.movRegReg(&self.code, self.alloc, SCRATCH2, divisor);
+                Enc.divReg32(&self.code, self.alloc, SCRATCH2);
+            } else {
+                Enc.divReg32(&self.code, self.alloc, divisor);
+            }
+        }
+
+        // Result: quotient in EAX, remainder in EDX
+        const result_reg: Reg = if (is_rem) .rdx else .rax;
+        self.storeVreg(instr.rd, result_reg);
+
+        if (rdx_live) Enc.pop(&self.code, self.alloc, .rdx);
+    }
+
+    fn emitDiv64(self: *Compiler, instr: RegInstr, signed: bool, is_rem: bool) void {
+        const rs2: u8 = @truncate(instr.operand);
+        const r1 = self.getOrLoad(instr.rs1, SCRATCH);
+        const divisor = self.getOrLoad(rs2, SCRATCH2);
+
+        const rdx_live = vregToPhys(6) != null and 6 < self.reg_count;
+        if (rdx_live) Enc.push(&self.code, self.alloc, .rdx);
+
+        if (r1 != .rax) Enc.movRegReg(&self.code, self.alloc, .rax, r1);
+
+        if (signed) {
+            Enc.cqo(&self.code, self.alloc);
+            if (divisor == .rax or divisor == .rdx) {
+                Enc.movRegReg(&self.code, self.alloc, SCRATCH2, divisor);
+                Enc.idivReg(&self.code, self.alloc, SCRATCH2);
+            } else {
+                Enc.idivReg(&self.code, self.alloc, divisor);
+            }
+        } else {
+            Enc.xorRegReg32(&self.code, self.alloc, .rdx, .rdx);
+            if (divisor == .rax or divisor == .rdx) {
+                Enc.movRegReg(&self.code, self.alloc, SCRATCH2, divisor);
+                Enc.divReg(&self.code, self.alloc, SCRATCH2);
+            } else {
+                Enc.divReg(&self.code, self.alloc, divisor);
+            }
+        }
+
+        const result_reg: Reg = if (is_rem) .rdx else .rax;
+        self.storeVreg(instr.rd, result_reg);
+
+        if (rdx_live) Enc.pop(&self.code, self.alloc, .rdx);
+    }
+
+    // --- Bit manipulation helpers ---
+
+    fn emitClz32(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        // LZCNT if available, but for portability use BSR + XOR trick
+        // BSR rd, src → rd = bit index of highest set bit (undefined if 0)
+        // CLZ = 31 - BSR result. Handle zero: CLZ(0) = 32.
+        // Use: MOV rd, 32; BSR tmp, src; CMOVNE rd, (31-tmp)
+        // Simpler: XOR rd, rd; BSR SCRATCH2, src; JZ done; XOR rd, 31; SUB rd, SCRATCH2; ... too complex
+        // Actually, just use LZCNT (BMI1) — most x86_64 CPUs since Haswell support it.
+        Enc.lzcnt(&self.code, self.alloc, rd, src);
+        // LZCNT operates on 32-bit for r32 variant — but our Enc.lzcnt uses REX.W (64-bit).
+        // For 32-bit CLZ, we need 32-bit LZCNT. Quick fix: zero-extend src first.
+        // Actually, Enc.lzcnt is 64-bit. For i32.clz we need 64-bit LZCNT then subtract 32.
+        // LZCNT64(zero-extended 32-bit value) = 32 + CLZ32(value)
+        // So: subtract 32 from result.
+        Enc.subImm32(&self.code, self.alloc, rd, 32);
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitClz64(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        Enc.lzcnt(&self.code, self.alloc, rd, src);
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitCtz32(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        // TZCNT is 64-bit in our encoding. For i32.ctz of a zero-extended 32-bit value:
+        // if value is 0, TZCNT64 = 64, but i32.ctz(0) = 32.
+        // We need to OR with (1 << 32) to cap at 32.
+        // Simpler: use 32-bit TZCNT. But our Enc.tzcnt emits REX.W.
+        // Workaround: TZCNT64 then MIN(result, 32).
+        // Or just emit 32-bit TZCNT manually (F3 [REX] 0F BC).
+        // For now, use TZCNT64 and cap.
+        Enc.tzcnt(&self.code, self.alloc, rd, src);
+        // If src was zero-extended (upper 32 bits = 0), TZCNT64 = 32 when all low 32 are 0.
+        // Actually, TZCNT counts from LSB. If low 32 bits are 0 and upper 32 are also 0
+        // (which they are for a zero-extended i32), TZCNT64 = 64.
+        // We need to cap at 32. Use CMP + CMOV.
+        Enc.cmpImm8(&self.code, self.alloc, rd, 32);
+        // If rd > 32 (can only be 64), set to 32
+        Enc.movImm32(&self.code, self.alloc, SCRATCH2, 32);
+        // CMOVA rd, SCRATCH2 — not trivially available in our encoder. Use branch:
+        // JBE skip; MOV rd, 32; skip:
+        const patch = Enc.jccRel32(&self.code, self.alloc, .be);
+        if (rd != SCRATCH2) Enc.movRegReg(&self.code, self.alloc, rd, SCRATCH2);
+        Enc.patchRel32(self.code.items, patch, self.currentOffset());
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitCtz64(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        Enc.tzcnt(&self.code, self.alloc, rd, src);
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitPopcnt32(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        // POPCNT64 on a zero-extended 32-bit value gives correct 32-bit popcount.
+        Enc.popcnt(&self.code, self.alloc, rd, src);
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    fn emitPopcnt64(self: *Compiler, instr: RegInstr) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        Enc.popcnt(&self.code, self.alloc, rd, src);
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    // --- Sign extension helpers ---
+
+    fn emitSignExt(self: *Compiler, instr: RegInstr, bits: u8, is64: bool) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        // MOVSX r64/r32, r8/r16/r32
+        switch (bits) {
+            8 => {
+                // MOVSX r, r8: 0F BE /r (32-bit) or REX.W 0F BE (64-bit)
+                if (is64) {
+                    self.emitMovsxByte64(rd, src);
+                } else {
+                    self.emitMovsxByte32(rd, src);
+                }
+            },
+            16 => {
+                // MOVSX r, r16: 0F BF /r (32-bit) or REX.W 0F BF (64-bit)
+                if (is64) {
+                    self.emitMovsxWord64(rd, src);
+                } else {
+                    self.emitMovsxWord32(rd, src);
+                }
+            },
+            32 => {
+                // MOVSXD r64, r32: REX.W 63 /r
+                Enc.movsxd(&self.code, self.alloc, rd, src);
+            },
+            else => {},
+        }
+        if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    // Inline MOVSX byte/word encoding (not in Enc to keep it simple)
+    fn emitMovsxByte32(self: *Compiler, dst: Reg, src: Reg) void {
+        if (dst.isExt() or src.isExt() or @intFromEnum(src) >= 4) {
+            self.code.append(self.alloc, Enc.rex(false, dst.isExt(), false, src.isExt())) catch {};
+        }
+        self.code.append(self.alloc, 0x0F) catch {};
+        self.code.append(self.alloc, 0xBE) catch {};
+        self.code.append(self.alloc, Enc.modrmReg(dst, src)) catch {};
+    }
+
+    fn emitMovsxByte64(self: *Compiler, dst: Reg, src: Reg) void {
+        self.code.append(self.alloc, Enc.rexW(dst, src)) catch {};
+        self.code.append(self.alloc, 0x0F) catch {};
+        self.code.append(self.alloc, 0xBE) catch {};
+        self.code.append(self.alloc, Enc.modrmReg(dst, src)) catch {};
+    }
+
+    fn emitMovsxWord32(self: *Compiler, dst: Reg, src: Reg) void {
+        if (dst.isExt() or src.isExt()) {
+            self.code.append(self.alloc, Enc.rex(false, dst.isExt(), false, src.isExt())) catch {};
+        }
+        self.code.append(self.alloc, 0x0F) catch {};
+        self.code.append(self.alloc, 0xBF) catch {};
+        self.code.append(self.alloc, Enc.modrmReg(dst, src)) catch {};
+    }
+
+    fn emitMovsxWord64(self: *Compiler, dst: Reg, src: Reg) void {
+        self.code.append(self.alloc, Enc.rexW(dst, src)) catch {};
+        self.code.append(self.alloc, 0x0F) catch {};
+        self.code.append(self.alloc, 0xBF) catch {};
+        self.code.append(self.alloc, Enc.modrmReg(dst, src)) catch {};
     }
 };
 
@@ -1427,4 +1853,87 @@ test "x86_64 compile and execute i32 add" {
     const result = jit_code.entry(&regs, undefined, undefined);
     try testing.expectEqual(@as(u64, 0), result);
     try testing.expectEqual(@as(u64, 42), regs[0]); // 10 + 32 = 42, stored to regs[0] via epilogue
+}
+
+test "x86_64 compile and execute branch (LE_S + BR_IF_NOT)" {
+    if (builtin.cpu.arch != .x86_64) return;
+
+    const alloc = testing.allocator;
+    // Equivalent to: if (r0 <= r1) return r0; else return r1;
+    // 0: i32.le_s r2, r0, r1   (0x4C)
+    // 1: BR_IF_NOT r2, pc=3    (skip to else)
+    // 2: RETURN r0
+    // 3: RETURN r1
+    var code = [_]RegInstr{
+        .{ .op = 0x4C, .rd = 2, .rs1 = 0, .operand = 1 }, // i32.le_s r2, r0, r1
+        .{ .op = regalloc_mod.OP_BR_IF_NOT, .rd = 2, .rs1 = 0, .operand = 3 }, // branch if !le_s
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 }, // return r0
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 }, // return r1
+    };
+    var reg_func = RegFunc{
+        .code = &code,
+        .pool64 = &.{},
+        .reg_count = 3,
+        .local_count = 2,
+        .alloc = alloc,
+    };
+
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0) orelse
+        return error.CompilationFailed;
+    defer jit_code.deinit(alloc);
+
+    // Case 1: 5 <= 10 → return 5
+    var regs1: [7]u64 = .{ 5, 10, 0, 0, 0, 0, 0 };
+    try testing.expectEqual(@as(u64, 0), jit_code.entry(&regs1, undefined, undefined));
+    try testing.expectEqual(@as(u64, 5), regs1[0]);
+
+    // Case 2: 10 <= 5 → false, return 5 (r1)
+    var regs2: [7]u64 = .{ 10, 5, 0, 0, 0, 0, 0 };
+    try testing.expectEqual(@as(u64, 0), jit_code.entry(&regs2, undefined, undefined));
+    try testing.expectEqual(@as(u64, 5), regs2[0]);
+}
+
+test "x86_64 compile and execute loop (simple counter)" {
+    if (builtin.cpu.arch != .x86_64) return;
+
+    const alloc = testing.allocator;
+    // Count from r0 down to 0, accumulate in r1
+    // r0 = n, r1 = 0 (accumulator), r2 = 1 (const)
+    // 0: CONST32 r1, 0
+    // 1: CONST32 r2, 1
+    // loop:
+    // 2: i32.eqz r3, r0          (0x45)
+    // 3: BR_IF r3, pc=7           (if r0==0, exit)
+    // 4: i32.add r1, r1, r2       (0x6A)
+    // 5: i32.sub r0, r0, r2       (0x6B)
+    // 6: BR pc=2                   (loop back)
+    // 7: MOV r0, r1               (return accumulator)
+    // 8: RETURN r0
+    var code = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 0 },
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 2, .rs1 = 0, .operand = 1 },
+        .{ .op = 0x45, .rd = 3, .rs1 = 0, .operand = 0 }, // i32.eqz r3, r0
+        .{ .op = regalloc_mod.OP_BR_IF, .rd = 3, .rs1 = 0, .operand = 7 },
+        .{ .op = 0x6A, .rd = 1, .rs1 = 1, .operand = 2 }, // i32.add r1, r1, r2
+        .{ .op = 0x6B, .rd = 0, .rs1 = 0, .operand = 2 }, // i32.sub r0, r0, r2
+        .{ .op = regalloc_mod.OP_BR, .rd = 0, .rs1 = 0, .operand = 2 },
+        .{ .op = regalloc_mod.OP_MOV, .rd = 0, .rs1 = 1, .operand = 0 },
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 },
+    };
+    var reg_func = RegFunc{
+        .code = &code,
+        .pool64 = &.{},
+        .reg_count = 4,
+        .local_count = 1,
+        .alloc = alloc,
+    };
+
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 1, 1, null, 0) orelse
+        return error.CompilationFailed;
+    defer jit_code.deinit(alloc);
+
+    // count(10) = 10
+    var regs: [8]u64 = .{ 10, 0, 0, 0, 0, 0, 0, 0 };
+    try testing.expectEqual(@as(u64, 0), jit_code.entry(&regs, undefined, undefined));
+    try testing.expectEqual(@as(u64, 10), regs[0]);
 }
