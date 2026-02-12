@@ -103,11 +103,21 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
                 try code.append(alloc, .{ .opcode = 0x03, .extra = arity_enc, .operand = pos + 1 });
                 try block_stack.append(alloc, .{ .kind = .loop, .ir_pos = pos });
             },
-            // Exception handling / tail call — bail to bytecode interpreter
-            0x08, 0x0A, 0x12, 0x13, 0x1F => {
+            // Exception handling — bail to bytecode interpreter
+            0x08, 0x0A, 0x1F => {
                 code.deinit(alloc);
                 pool64.deinit(alloc);
                 return null;
+            },
+            // Tail call
+            0x12 => { // return_call
+                const idx = reader.readU32() catch return error.InvalidWasm;
+                try code.append(alloc, .{ .opcode = 0x12, .extra = 0, .operand = idx });
+            },
+            0x13 => { // return_call_indirect
+                const type_idx = reader.readU32() catch return error.InvalidWasm;
+                const table_idx = reader.readU32() catch return error.InvalidWasm;
+                try code.append(alloc, .{ .opcode = 0x13, .extra = @intCast(table_idx), .operand = type_idx });
             },
             0x04 => { // if
                 const arity_enc = readBlockTypeEncoded(&reader) catch return error.InvalidWasm;
@@ -455,4 +465,36 @@ pub fn resolveArity(extra: u16, types: anytype) usize {
         return 0;
     }
     return extra;
+}
+
+const testing = std.testing;
+
+test "predecode return_call does not bail" {
+    // Function body: return_call func_idx=0, end
+    const bytecode = [_]u8{
+        0x12, 0x00, // return_call 0
+        0x0B, // end
+    };
+    const ir = try predecode(testing.allocator, &bytecode);
+    try testing.expect(ir != null);
+    defer ir.?.deinit();
+    // Should have 2 instructions: return_call + end
+    try testing.expectEqual(@as(usize, 2), ir.?.code.len);
+    try testing.expectEqual(@as(u16, 0x12), ir.?.code[0].opcode);
+    try testing.expectEqual(@as(u32, 0), ir.?.code[0].operand);
+}
+
+test "predecode return_call_indirect does not bail" {
+    // Function body: return_call_indirect type_idx=0 table_idx=0, end
+    const bytecode = [_]u8{
+        0x13, 0x00, 0x00, // return_call_indirect type=0 table=0
+        0x0B, // end
+    };
+    const ir = try predecode(testing.allocator, &bytecode);
+    try testing.expect(ir != null);
+    defer ir.?.deinit();
+    try testing.expectEqual(@as(usize, 2), ir.?.code.len);
+    try testing.expectEqual(@as(u16, 0x13), ir.?.code[0].opcode);
+    try testing.expectEqual(@as(u32, 0), ir.?.code[0].operand);
+    try testing.expectEqual(@as(u16, 0), ir.?.code[0].extra);
 }
