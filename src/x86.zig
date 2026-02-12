@@ -106,6 +106,11 @@ const Enc = struct {
         return rex(true, false, false, rm.isExt());
     }
 
+    /// REX prefix for reg-reg operation (no W bit, for 32-bit ops).
+    fn rexRR(reg: Reg, rm: Reg) u8 {
+        return rex(false, reg.isExt(), false, rm.isExt());
+    }
+
     // --- ModR/M ---
 
     /// ModR/M byte: mod(2) | reg(3) | rm(3).
@@ -632,21 +637,24 @@ const Enc = struct {
     /// Handles the R13/RBP special case: when base.low3()==5 (RBP/R13),
     /// mod=00 encodes as [disp32 + index] instead. Use mod=01 + disp8=0.
     fn emitSibAddr(buf: *std.ArrayList(u8), alloc: Allocator, reg_field: u3, base: Reg, index: Reg) void {
+        const rf: u8 = reg_field;
+        const il: u8 = index.low3();
+        const bl: u8 = base.low3();
         if (base.low3() == 5) {
             // mod=01, rm=100 (SIB), disp8=0
-            buf.append(alloc, 0x44 | (reg_field << 3)) catch {};
-            buf.append(alloc, (index.low3() << 3) | base.low3()) catch {};
+            buf.append(alloc, 0x44 | (rf << 3)) catch {};
+            buf.append(alloc, (il << 3) | bl) catch {};
             buf.append(alloc, 0x00) catch {}; // disp8 = 0
         } else {
             // mod=00, rm=100 (SIB)
-            buf.append(alloc, (reg_field << 3) | 0x04) catch {};
-            buf.append(alloc, (index.low3() << 3) | base.low3()) catch {};
+            buf.append(alloc, (rf << 3) | 0x04) catch {};
+            buf.append(alloc, (il << 3) | bl) catch {};
         }
     }
 
     /// MOV r32, [base + index*1] (32-bit load)
     fn loadBaseIdx32(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        const r = rex(dst, base) | (if (index.isExt()) @as(u8, 0x42) else 0);
+        const r = rexRR(dst, base) | (if (index.isExt()) @as(u8, 0x42) else 0);
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.append(alloc, 0x8B) catch {};
         emitSibAddr(buf, alloc, dst.low3(), base, index);
@@ -663,7 +671,7 @@ const Enc = struct {
 
     /// MOVZX r32, byte [base + index*1] (zero-extend byte to 32-bit)
     fn loadBaseIdxU8(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        var r = rex(dst, base);
+        var r = rexRR(dst, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xB6 }) catch {};
@@ -672,7 +680,7 @@ const Enc = struct {
 
     /// MOVSX r32, byte [base + index*1] (sign-extend byte to 32-bit)
     fn loadBaseIdxS8_32(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        var r = rex(dst, base);
+        var r = rexRR(dst, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xBE }) catch {};
@@ -690,7 +698,7 @@ const Enc = struct {
 
     /// MOVZX r32, word [base + index*1] (zero-extend 16-bit to 32-bit)
     fn loadBaseIdxU16(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        var r = rex(dst, base);
+        var r = rexRR(dst, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xB7 }) catch {};
@@ -699,7 +707,7 @@ const Enc = struct {
 
     /// MOVSX r32, word [base + index*1] (sign-extend 16-bit to 32-bit)
     fn loadBaseIdxS16_32(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        var r = rex(dst, base);
+        var r = rexRR(dst, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xBF }) catch {};
@@ -726,7 +734,7 @@ const Enc = struct {
 
     /// MOV [base + index*1], r32 (32-bit store)
     fn storeBaseIdx32(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
-        var r = rex(src, base);
+        var r = rexRR(src, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.append(alloc, 0x89) catch {};
@@ -744,7 +752,7 @@ const Enc = struct {
 
     /// MOV byte [base + index*1], r8 (8-bit store)
     fn storeBaseIdx8(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
-        var r = rex(src, base);
+        var r = rexRR(src, base);
         if (index.isExt()) r |= 0x02;
         // Always emit REX for byte stores to ensure uniform register encoding
         if (r == 0x40) r = 0x40;
@@ -756,7 +764,7 @@ const Enc = struct {
     /// MOV word [base + index*1], r16 (16-bit store)
     fn storeBaseIdx16(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
         buf.append(alloc, 0x66) catch {};
-        var r = rex(src, base);
+        var r = rexRR(src, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.append(alloc, 0x89) catch {};
@@ -772,7 +780,7 @@ const Enc = struct {
 
     /// TEST r32, r32 (32-bit)
     fn testRegReg32(buf: *std.ArrayList(u8), alloc: Allocator, r1: Reg, r2: Reg) void {
-        const r = rex(r2, r1);
+        const r = rexRR(r2, r1);
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.append(alloc, 0x85) catch {};
         buf.append(alloc, modrmReg(r2, r1)) catch {};
@@ -896,7 +904,7 @@ const Enc = struct {
     /// CVTSI2SD xmm, r32: F2 0F 2A /r (signed i32 → f64)
     fn cvtsi2sd32(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
         buf.append(alloc, 0xF2) catch {};
-        var r = rex(.rax, gpr); // minimal REX if gpr extended
+        var r = rexRR(.rax, gpr); // minimal REX if gpr extended
         if (xmm >= 8) r |= 0x04;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2A }) catch {};
@@ -906,7 +914,7 @@ const Enc = struct {
     /// CVTSI2SS xmm, r32: F3 0F 2A /r (signed i32 → f32)
     fn cvtsi2ss32(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
         buf.append(alloc, 0xF3) catch {};
-        var r = rex(.rax, gpr);
+        var r = rexRR(.rax, gpr);
         if (xmm >= 8) r |= 0x04;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2A }) catch {};
@@ -938,7 +946,7 @@ const Enc = struct {
     /// CVTTSD2SI r32, xmm: F2 0F 2C /r (f64 → signed i32, truncating)
     fn cvttsd2si32(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4) void {
         buf.append(alloc, 0xF2) catch {};
-        var r = rex(gpr, .rax);
+        var r = rexRR(gpr, .rax);
         if (xmm >= 8) r |= 0x01;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2C }) catch {};
@@ -948,7 +956,7 @@ const Enc = struct {
     /// CVTTSS2SI r32, xmm: F3 0F 2C /r (f32 → signed i32, truncating)
     fn cvttss2si32(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4) void {
         buf.append(alloc, 0xF3) catch {};
-        var r = rex(gpr, .rax);
+        var r = rexRR(gpr, .rax);
         if (xmm >= 8) r |= 0x01;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2C }) catch {};
@@ -1161,7 +1169,7 @@ pub const Compiler = struct {
         if (max <= FIRST_CALLER_SAVED_VREG) return;
         for (FIRST_CALLER_SAVED_VREG..max) |i| {
             const vreg: u8 = @intCast(i);
-            if (self.written_vregs & (@as(u128, 1) << @as(u7, vreg)) != 0) {
+            if (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg))) != 0) {
                 if (vregToPhys(vreg)) |phys| {
                     const disp: i32 = @as(i32, vreg) * 8;
                     Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
@@ -1231,7 +1239,7 @@ pub const Compiler = struct {
         const max_vreg = @min(self.reg_count, MAX_PHYS_REGS);
         for (0..max_vreg) |i| {
             const vreg: u8 = @intCast(i);
-            if (self.written_vregs & (@as(u128, 1) << @as(u7, vreg)) != 0) {
+            if (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg))) != 0) {
                 if (vregToPhys(vreg)) |phys| {
                     const disp: i32 = @as(i32, vreg) * 8;
                     Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
@@ -1269,8 +1277,7 @@ pub const Compiler = struct {
     /// Emit conditional error: if condition is true, branch forward to error stub.
     fn emitCondError(self: *Compiler, cond: Cond, error_code: u16) void {
         // Jcc rel32 (6 bytes: 0F 8x cd cd cd cd)
-        const rel32_off = self.currentOffset() + 2; // offset of the rel32 in code
-        Enc.jccRel32(&self.code, self.alloc, cond, 0); // placeholder
+        const rel32_off = Enc.jccRel32(&self.code, self.alloc, cond);
         self.error_stubs.append(self.alloc, .{
             .rel32_offset = rel32_off,
             .error_code = error_code,
@@ -1521,8 +1528,7 @@ pub const Compiler = struct {
 
         // 5. Check error (RAX != 0 → error)
         Enc.testRegReg(&self.code, self.alloc, .rax, .rax);
-        const rel32_off = self.currentOffset() + 2;
-        Enc.jccRel32(&self.code, self.alloc, .ne, 0); // JNE error
+        const rel32_off = Enc.jccRel32(&self.code, self.alloc, .ne); // JNE error
         self.error_stubs.append(self.alloc, .{
             .rel32_offset = rel32_off,
             .error_code = 0, // RAX already has error code
@@ -1589,8 +1595,7 @@ pub const Compiler = struct {
 
         // 5. Check error
         Enc.testRegReg(&self.code, self.alloc, .rax, .rax);
-        const rel32_off = self.currentOffset() + 2;
-        Enc.jccRel32(&self.code, self.alloc, .ne, 0);
+        const rel32_off = Enc.jccRel32(&self.code, self.alloc, .ne);
         self.error_stubs.append(self.alloc, .{
             .rel32_offset = rel32_off,
             .error_code = 0,
