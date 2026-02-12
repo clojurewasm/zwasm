@@ -296,8 +296,10 @@ pub const Module = struct {
         for (0..count) |_| {
             const mod_len = try reader.readU32();
             const mod_name = try reader.readBytes(mod_len);
+            if (!std.unicode.utf8ValidateSlice(mod_name)) return error.MalformedUtf8;
             const name_len = try reader.readU32();
             const name = try reader.readBytes(name_len);
+            if (!std.unicode.utf8ValidateSlice(name)) return error.MalformedUtf8;
             const kind_byte = try reader.readByte();
             const kind: opcode.ExternalKind = @enumFromInt(kind_byte);
 
@@ -402,6 +404,7 @@ pub const Module = struct {
         for (0..count) |_| {
             const name_len = try reader.readU32();
             const name = try reader.readBytes(name_len);
+            if (!std.unicode.utf8ValidateSlice(name)) return error.MalformedUtf8;
             const kind: opcode.ExternalKind = @enumFromInt(try reader.readByte());
             const index = try reader.readU32();
             try self.exports.append(self.alloc, .{ .name = name, .kind = kind, .index = index });
@@ -827,6 +830,7 @@ pub const Module = struct {
     fn decodeCustomSection(self: *Module, reader: *Reader) !void {
         const name_len = try reader.readU32();
         const name = try reader.readBytes(name_len);
+        if (!std.unicode.utf8ValidateSlice(name)) return error.MalformedUtf8;
         if (mem.eql(u8, name, "metadata.code.branch_hint")) {
             try self.decodeBranchHints(reader);
         }
