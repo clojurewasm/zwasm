@@ -322,14 +322,104 @@ W17 resolved. issue11563.wat out of scope (multi-module format + GC proposal).
 - CI green on both ARM64 and x86_64
 - CW: no regression
 
+## Stage 14: Wasm 3.0 — Trivial Proposals
+
+**Goal**: Knock out three small Wasm 3.0 proposals in one stage.
+
+### Scope
+- **extended_const** (trivial, ~50 LOC): Allow i32/i64 add/sub/mul in constant expressions
+  (global initializers, data segment offsets). No new opcodes.
+- **branch_hinting** (trivial, ~80 LOC): Parse custom section `metadata.code.branch_hint`.
+  Advisory likely/unlikely hints for br_if/if. No semantic change.
+- **tail_call** (medium, ~200 LOC): `return_call` (0x12), `return_call_indirect` (0x13).
+  Stack frame reuse semantics. JIT needs tail-call-aware codegen.
+
+### Exit criteria
+- Spec tests pass for all three proposals
+- No regression on existing tests/benchmarks
+- CW: no regression
+
+## Stage 15: Wasm 3.0 — Multi-memory
+
+**Goal**: Support multiple memories per module.
+
+### Scope
+- Remove single-memory restriction
+- All load/store/memory.size/grow/copy/fill/init get memidx immediate
+- Binary format: memarg bit 6 for memidx encoding (default 0 for backward compat)
+- SIMD load/store also extended
+- ~400 LOC estimated
+
+### Exit criteria
+- multi-memory spec tests pass (37 test files)
+- No regression
+- CW: no regression
+
+## Stage 16: Wasm 3.0 — Relaxed SIMD
+
+**Goal**: Non-deterministic SIMD operations for hardware-native performance.
+
+### Scope
+- 20 opcodes under 0xfd prefix (0x100-0x113)
+- Categories: relaxed swizzle, relaxed trunc, FMA, laneselect, min/max,
+  Q15 multiply, dot products
+- Implementation-defined results (NaN handling, out-of-range, FMA rounding)
+- ARM64 NEON maps directly for most ops
+- ~600 LOC estimated
+
+### Exit criteria
+- relaxed-simd spec tests pass (7 test files)
+- No regression
+- CW: no regression
+
+## Stage 17: Wasm 3.0 — Function References
+
+**Goal**: Typed function references — prerequisite for GC.
+
+### Scope
+- 5 opcodes: call_ref (0x14), return_call_ref (0x15), ref.as_non_null (0xd4),
+  br_on_null (0xd5), br_on_non_null (0xd6)
+- Generalized reference types: `(ref null? heaptype)`
+- Local initialization tracking for non-defaultable types
+- Table initializer expressions for non-nullable ref tables
+- return_call_ref requires tail_call (Stage 14)
+- ~800 LOC estimated
+
+### Dependencies
+- Stage 14 (tail_call for return_call_ref)
+
+### Exit criteria
+- function-references spec tests pass (106 test files)
+- No regression
+- CW: no regression
+
+## Stage 18: Wasm 3.0 — GC
+
+**Goal**: Struct/array heap objects with garbage collection — the largest proposal.
+
+### Scope
+- ~32 opcodes: struct.new/get/set, array.new/get/set/len/fill/copy,
+  ref.test/ref.cast, br_on_cast, i31ref, any/extern convert
+- New types: struct, array, i31ref, anyref/eqref/structref/arrayref,
+  packed i8/i16, recursive type groups (rec)
+- Subtyping with depth+width rules
+- Actual garbage collector implementation required
+- ~3000 LOC estimated
+
+### Dependencies
+- Stage 17 (function_references)
+
+### Exit criteria
+- GC spec tests pass (109 test files)
+- No regression
+- CW: no regression
+
 ## Future
 
 - Superinstruction expansion (profile-guided)
 - Liveness-based regalloc (st_matrix 3.1x gap)
 - Component Model / WASI P2 (W7)
-- GC proposal (very_high complexity, ~3000 LOC)
-- Relaxed SIMD, Multi-memory, Function references
-- Threads (shared memory, atomics)
+- Threads (shared memory, atomics — very_high, ~1500 LOC)
 
 ## Benchmark Targets
 

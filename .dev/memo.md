@@ -25,86 +25,101 @@ Key results: Spec 30,715/30,715 (100%), E2E 356/356 (100%, Zig runner), 20/21 be
 
 ## Task Queue
 
-**Execution order: C1 → C2 → C3 → C4 → D → B → A**
-(Memory64 tables → Exception handling → Wide arithmetic → Custom page sizes
-→ Security → WAT parser → x86_64 JIT)
+**Execution order: 13 → 14 → 15 → 16 → 17 → 18**
+(x86_64 JIT → Wasm 3.0 trivial → multi-memory → relaxed SIMD
+→ function references → GC)
 
-Stage 7: Memory64 Table Operations (W18)
-
-Target: Fix 37 spec failures (table_size64 ×36, memory_grow64 ×1).
-
-1. [x] 7.1: Table type addrtype decoding (module.zig, limits flag 0x04-0x07)
-2. [x] 7.2: table.size/grow i64 variants (vm.zig)
-3. [x] 7.3: Table instruction validation for i64 indices (call_indirect table64)
-4. [x] 7.4: Spec test verification + compliance update
-
-Stage 8: Exception Handling (W13)
-
-Target: tag section, try_table, throw, throw_ref, exnref.
-
-1. [x] 8.1: Tag section parsing + exnref type (module.zig, opcode.zig)
-2. [x] 8.2: throw / throw_ref instructions (vm.zig)
-3. [x] 8.3: try_table + catch clauses (vm.zig, predecode.zig)
-4. [x] 8.4: Exception propagation across call stack
-5. [x] 8.5: Spec test verification + compliance update
-6. [x] 8.6: JIT exception awareness (fallback or landing pads)
-
-Stage 9: Wide Arithmetic (W14)
-
-Target: 4 opcodes — i64.add128, sub128, mul_wide_s/u.
-
-1. [x] 9.1: Opcode decoding + validation
-2. [x] 9.2: Instruction handlers (multi-value i128)
-3. [x] 9.3: Spec test verification
-
-Stage 10: Custom Page Sizes (W15)
-
-Target: Non-64KB page sizes in memory type.
-
-1. [x] 10.1: Memory type page_size field decoding
-2. [x] 10.2: memory.size/grow adjusted for page_size
-3. [x] 10.3: Spec test verification
-
-Stage 11: Security Hardening
-
-Target: Deny-by-default WASI, capability flags, resource limits.
-Note: W^X already done (JIT finalize: mmap RW → mprotect RX).
-
-1. [x] 11.1: Capabilities struct + deny-by-default WASI
-2. [x] 11.2: CLI --allow-* flags
-3. [x] 11.3: Resource limits (memory ceiling, fuel metering)
-4. [x] 11.4: Import validation at instantiation
-
-Stage 12: WAT Parser & Feature Flags (W17)
-
-Target: `zwasm run file.wat`, build-time `-Dwat=false`.
-
-1. [x] 12.1: Build-time feature flag system (-Dwat option in build.zig)
-2. [x] 12.2: WAT S-expression tokenizer (lexer for WAT syntax)
-3. [x] 12.3: WAT parser — module structure (module, func, memory, table, global, import, export)
-4. [x] 12.4: WAT parser — instructions (all opcodes, folded S-expr form)
-5. [x] 12.5: Wasm binary encoder (emit valid .wasm from parsed AST)
-6. [x] 12.6: WAT abbreviations (inline exports, type use, etc.)
-7. [x] 12.7: API + CLI integration (loadFromWat, auto-detect .wat)
-8. [x] 12.8: E2E verification (issue11563.wat, issue12170.wat)
+Stages 7-12: ALL COMPLETE (see roadmap.md for details).
 
 Stage 13: x86_64 JIT Backend
 
 Target: x86_64 codegen, CI on ubuntu.
+Architecture: separate x86.zig (encoder + Compiler), dispatch from jit.zig.
+ARM64 code untouched (zero regression). Trampolines/helpers shared via import.
 
-(Task breakdown TBD at stage start.)
+1. [ ] 13.1: x86_64 instruction encoder (src/x86.zig) + arch dispatch skeleton
+2. [ ] 13.2: Prologue/epilogue + integer arithmetic (fib works)
+3. [ ] 13.3: Comparison + control flow (branching, loops, br_table)
+4. [ ] 13.4: Memory operations + globals + function calls
+5. [ ] 13.5: Floating-point SSE2 (f64/f32 arithmetic + conversions)
+6. [ ] 13.6: Ubuntu verification + benchmarks + CI
+
+Stage 14: Wasm 3.0 — Trivial Proposals
+
+Target: extended_const, branch_hinting, tail_call.
+Three small proposals batched together (~330 LOC total).
+
+- extended_const: allow i32/i64 add/sub/mul in const exprs (trivial, ~50 LOC)
+- branch_hinting: custom section parsing, advisory hints (trivial, ~80 LOC)
+- tail_call: return_call, return_call_indirect (medium, ~200 LOC)
+
+(Task breakdown TBD.)
+
+Stage 15: Wasm 3.0 — Multi-memory
+
+Target: Multiple memories per module (~400 LOC).
+All load/store/memory.* get memidx immediate. Binary format: memarg bit 6.
+
+(Task breakdown TBD.)
+
+Stage 16: Wasm 3.0 — Relaxed SIMD
+
+Target: 20 non-deterministic SIMD ops (~600 LOC).
+ARM64 NEON native mapping. Implementation-defined results.
+
+(Task breakdown TBD.)
+
+Stage 17: Wasm 3.0 — Function References
+
+Target: Typed function references, call_ref (~800 LOC).
+Prerequisite for GC. Generalized ref types, local init tracking.
+
+(Task breakdown TBD.)
+
+Stage 18: Wasm 3.0 — GC
+
+Target: Struct/array heap objects, garbage collector (~3000 LOC).
+Largest proposal. Depends on Stage 17 (function_references).
+
+(Task breakdown TBD.)
 
 ## Current Task
 
-Stage 12 complete. Merge gate in progress.
+13.1: x86_64 instruction encoder + architecture dispatch skeleton.
+
+Approach:
+- Create src/x86.zig with x86_64 encoding utilities + Compiler struct
+- x86.zig is self-contained: encoder + Compiler (parallel to jit.zig's a64 + Compiler)
+- In jit.zig compileFunction(), add: if x86_64 → delegate to x86.compileFunction()
+- Trampolines/helpers in jit.zig are already pub — x86.zig imports them
+- ARM64 code completely untouched (zero regression risk)
+
+x86_64 register mapping (System V AMD64 ABI):
+  R12: regs_ptr (callee-saved) — like ARM64 x19
+  R13: mem_base (callee-saved) — like ARM64 x27
+  R14: mem_size (callee-saved) — like ARM64 x28
+  RBX, RBP, R15: vregs r0-r2 (callee-saved)
+  RCX, RDI, RSI, RDX, R8, R9, R10, R11: vregs r3-r10 (caller-saved)
+  RAX: scratch + return value
+  Total: 11 physical vregs (vs ARM64 20), rest spill to memory via R12
+
+Key files: src/x86.zig (new), src/jit.zig (dispatch only).
 
 ## Previous Task
 
-Fix no-panic-on-invalid: added validateBodyEnd to detect trailing bytes after top-level end opcode. Fixed SIMD immediate skipping (lane load/store need memarg + lane_index). E2E 356/356 (100%), spec 30,715/30,715.
+Stage 12 complete. Merged to main (bd706af). WAT parser, Zig E2E runner, validateBodyEnd.
+
+## Wasm 3.0 Coverage
+
+Implemented: memory64, exception_handling (2/10 finished proposals).
+NOT implemented: tail_call, extended_const, function_references, gc, multi_memory,
+relaxed_simd, branch_hinting (7 proposals, see proposals.yaml).
+GC requires function_references first. Stages 9-10 (wide_arithmetic, custom_page_sizes)
+are Phase 3, not yet ratified as Wasm 3.0.
 
 ## Known Bugs
 
-See MEMORY.md § Active Bugs
+None.
 
 ## References
 
