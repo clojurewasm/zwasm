@@ -3362,8 +3362,8 @@ pub fn jitCallIndirectTrampoline(
     // Type check
     if (type_idx < instance.module.types.items.len) {
         const expected = instance.module.types.items[type_idx];
-        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
-            !std.mem.eql(ValType, expected.results, func_ptr.results))
+        if (!ValType.sliceEql(expected.params, func_ptr.params) or
+            !ValType.sliceEql(expected.results, func_ptr.results))
             return 1; // MismatchedSignatures → Trap
     }
 

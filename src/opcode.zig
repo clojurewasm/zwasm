@@ -9,15 +9,85 @@
 const std = @import("std");
 
 /// Wasm MVP value types as encoded in the binary format.
-pub const ValType = enum(u8) {
-    i32 = 0x7F,
-    i64 = 0x7E,
-    f32 = 0x7D,
-    f64 = 0x7C,
-    v128 = 0x7B, // SIMD — Phase 36
-    funcref = 0x70,
-    externref = 0x6F,
-    exnref = 0x69, // Exception handling — (ref null exn)
+pub const ValType = union(enum) {
+    i32,
+    i64,
+    f32,
+    f64,
+    v128, // SIMD
+    funcref, // (ref null func)
+    externref, // (ref null extern)
+    exnref, // (ref null exn)
+    // Typed function references (function-references proposal)
+    ref_type: u32, // (ref $t) — non-nullable, payload = type index
+    ref_null_type: u32, // (ref null $t) — nullable, payload = type index
+
+    /// Decode ValType from a single-byte binary encoding (MVP types).
+    pub fn fromByte(byte: u8) ?ValType {
+        return switch (byte) {
+            0x7F => .i32,
+            0x7E => .i64,
+            0x7D => .f32,
+            0x7C => .f64,
+            0x7B => .v128,
+            0x70 => .funcref,
+            0x6F => .externref,
+            0x69 => .exnref,
+            else => null,
+        };
+    }
+
+    /// Encode ValType to single-byte binary (panics for typed refs).
+    pub fn toByte(self: ValType) u8 {
+        return switch (self) {
+            .i32 => 0x7F,
+            .i64 => 0x7E,
+            .f32 => 0x7D,
+            .f64 => 0x7C,
+            .v128 => 0x7B,
+            .funcref => 0x70,
+            .externref => 0x6F,
+            .exnref => 0x69,
+            .ref_type, .ref_null_type => unreachable,
+        };
+    }
+
+    /// Check if this type is a reference type (funcref, externref, exnref, or typed ref).
+    pub fn isRef(self: ValType) bool {
+        return switch (self) {
+            .funcref, .externref, .exnref, .ref_type, .ref_null_type => true,
+            else => false,
+        };
+    }
+
+    /// Check if this type is defaultable (can have an implicit zero/null value).
+    pub fn isDefaultable(self: ValType) bool {
+        return switch (self) {
+            .ref_type => false, // non-nullable refs are not defaultable
+            else => true,
+        };
+    }
+
+    /// Equality comparison.
+    pub fn eql(a: ValType, b: ValType) bool {
+        const tag_a: @typeInfo(ValType).@"union".tag_type.? = a;
+        const tag_b: @typeInfo(ValType).@"union".tag_type.? = b;
+        if (tag_a != tag_b) return false;
+        return switch (a) {
+            .i32, .i64, .f32, .f64, .v128, .funcref, .externref, .exnref => true,
+            .ref_type => |idx| idx == b.ref_type,
+            .ref_null_type => |idx| idx == b.ref_null_type,
+        };
+    }
+
+    /// Slice equality comparison (replaces std.mem.eql for ValType slices).
+    pub fn sliceEql(a: []const ValType, b: []const ValType) bool {
+        if (a.len != b.len) return false;
+        for (a, b) |va, vb| {
+            if (!va.eql(vb)) return false;
+        }
+        return true;
+    }
 };
 
 /// Block type encoding in Wasm binary.
@@ -777,14 +847,34 @@ test "MiscOpcode — correct values" {
     try std.testing.expectEqual(@as(u32, 0x16), @intFromEnum(MiscOpcode.i64_mul_wide_u));
 }
 
-test "ValType — correct encodings" {
-    try std.testing.expectEqual(@as(u8, 0x7F), @intFromEnum(ValType.i32));
-    try std.testing.expectEqual(@as(u8, 0x7E), @intFromEnum(ValType.i64));
-    try std.testing.expectEqual(@as(u8, 0x7D), @intFromEnum(ValType.f32));
-    try std.testing.expectEqual(@as(u8, 0x7C), @intFromEnum(ValType.f64));
-    try std.testing.expectEqual(@as(u8, 0x7B), @intFromEnum(ValType.v128));
-    try std.testing.expectEqual(@as(u8, 0x70), @intFromEnum(ValType.funcref));
-    try std.testing.expectEqual(@as(u8, 0x6F), @intFromEnum(ValType.externref));
+test "ValType — round-trip encoding" {
+    const vt_i32: ValType = .i32;
+    const vt_i64: ValType = .i64;
+    const vt_f32: ValType = .f32;
+    const vt_f64: ValType = .f64;
+    const vt_v128: ValType = .v128;
+    const vt_funcref: ValType = .funcref;
+    const vt_externref: ValType = .externref;
+
+    try std.testing.expectEqual(@as(u8, 0x7F), vt_i32.toByte());
+    try std.testing.expectEqual(@as(u8, 0x7E), vt_i64.toByte());
+    try std.testing.expectEqual(@as(u8, 0x7D), vt_f32.toByte());
+    try std.testing.expectEqual(@as(u8, 0x7C), vt_f64.toByte());
+    try std.testing.expectEqual(@as(u8, 0x7B), vt_v128.toByte());
+    try std.testing.expectEqual(@as(u8, 0x70), vt_funcref.toByte());
+    try std.testing.expectEqual(@as(u8, 0x6F), vt_externref.toByte());
+
+    // Round-trip: fromByte -> toByte
+    try std.testing.expect(vt_i32.eql(ValType.fromByte(0x7F).?));
+    try std.testing.expect(vt_funcref.eql(ValType.fromByte(0x70).?));
+    try std.testing.expect(ValType.fromByte(0xE3) == null); // typed ref needs multi-byte
+
+    // Equality
+    try std.testing.expect(vt_i32.eql(.i32));
+    try std.testing.expect(!vt_i32.eql(.i64));
+    try std.testing.expect((ValType{ .ref_type = 3 }).eql(.{ .ref_type = 3 }));
+    try std.testing.expect(!(ValType{ .ref_type = 3 }).eql(.{ .ref_type = 4 }));
+    try std.testing.expect(!(ValType{ .ref_type = 3 }).eql(.{ .ref_null_type = 3 }));
 }
 
 test "Section — correct IDs" {

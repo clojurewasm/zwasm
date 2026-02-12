@@ -813,8 +813,8 @@ pub const Vm = struct {
                     // Type check: compare param/result types, not just lengths
                     if (type_idx < instance.module.types.items.len) {
                         const expected = instance.module.types.items[type_idx];
-                        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
-                            !std.mem.eql(ValType, expected.results, func_ptr.results))
+                        if (!ValType.sliceEql( expected.params, func_ptr.params) or
+                            !ValType.sliceEql( expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
 
@@ -850,8 +850,8 @@ pub const Vm = struct {
                     // Type check
                     if (type_idx < instance.module.types.items.len) {
                         const expected = instance.module.types.items[type_idx];
-                        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
-                            !std.mem.eql(ValType, expected.results, func_ptr.results))
+                        if (!ValType.sliceEql( expected.params, func_ptr.params) or
+                            !ValType.sliceEql( expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
                     const n_args = func_ptr.params.len;
@@ -2737,8 +2737,8 @@ pub const Vm = struct {
                     // Type check
                     if (type_idx < instance.module.types.items.len) {
                         const expected = instance.module.types.items[type_idx];
-                        if (!std.mem.eql(ValType, expected.params, callee_fn.params) or
-                            !std.mem.eql(ValType, expected.results, callee_fn.results))
+                        if (!ValType.sliceEql( expected.params, callee_fn.params) or
+                            !ValType.sliceEql( expected.results, callee_fn.results))
                             return error.MismatchedSignatures;
                     }
 
@@ -3394,8 +3394,8 @@ pub const Vm = struct {
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
                     if (type_idx < instance.module.types.items.len) {
                         const expected = instance.module.types.items[type_idx];
-                        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
-                            !std.mem.eql(ValType, expected.results, func_ptr.results))
+                        if (!ValType.sliceEql( expected.params, func_ptr.params) or
+                            !ValType.sliceEql( expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
                     try self.doCallDirectIR(instance, func_ptr);
@@ -3421,8 +3421,8 @@ pub const Vm = struct {
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
                     if (type_idx < instance.module.types.items.len) {
                         const expected = instance.module.types.items[type_idx];
-                        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
-                            !std.mem.eql(ValType, expected.results, func_ptr.results))
+                        if (!ValType.sliceEql( expected.params, func_ptr.params) or
+                            !ValType.sliceEql( expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
                     const n_args = func_ptr.params.len;
@@ -4549,7 +4549,7 @@ fn readBlockType(reader: *Reader) !opcode.BlockType {
     // Check if it's a valtype (0x7F..0x70)
     if (byte >= 0x6F and byte <= 0x7F) {
         reader.pos += 1;
-        return .{ .val_type = @enumFromInt(byte) };
+        return .{ .val_type = ValType.fromByte(byte) orelse return error.InvalidWasm };
     }
     // Otherwise it's a type index (s33)
     const idx = try reader.readI33();

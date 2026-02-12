@@ -108,7 +108,7 @@ const Validator = struct {
         switch (actual) {
             .unknown => return actual,
             .known => |vt| {
-                if (vt != expected) return error.TypeMismatch;
+                if (!vt.eql(expected)) return error.TypeMismatch;
                 return actual;
             },
         }
@@ -203,6 +203,7 @@ const Validator = struct {
             .funcref => &single_funcref,
             .externref => &single_externref,
             .exnref => &single_exnref,
+            .ref_type, .ref_null_type => &single_funcref, // temporary: treat typed refs as funcref for now
         };
     }
 
@@ -213,7 +214,7 @@ const Validator = struct {
             return .{ .params = &.{}, .results = &.{} };
         }
         // Single value type
-        const vt: ?ValType = std.meta.intToEnum(ValType, byte) catch null;
+        const vt: ?ValType = ValType.fromByte(byte);
         if (vt) |v| {
             return .{ .params = &.{}, .results = singleTypeSlice(v) };
         }
@@ -418,7 +419,7 @@ const Validator = struct {
                 if (type_idx >= self.module.types.items.len) return error.UnknownType;
                 const total_tables = self.module.num_imported_tables + self.module.tables.items.len;
                 if (table_idx >= total_tables) return error.UnknownTable;
-                if (self.getTableRefType(table_idx) != .funcref) return error.TypeMismatch;
+                if (!self.getTableRefType(table_idx).eql(.funcref)) return error.TypeMismatch;
                 try self.popI32(); // table index
                 const ft = self.module.types.items[type_idx];
                 try self.popExpectingTypes(ft.params);
@@ -434,7 +435,7 @@ const Validator = struct {
                 const caller_results = self.ctrl_stack.items[0].end_types;
                 if (ft.results.len != caller_results.len) return error.TypeMismatch;
                 for (ft.results, caller_results) |a, b| {
-                    if (a != b) return error.TypeMismatch;
+                    if (!a.eql(b)) return error.TypeMismatch;
                 }
                 try self.popExpectingTypes(ft.params);
                 self.setUnreachable();
@@ -446,14 +447,14 @@ const Validator = struct {
                 if (type_idx >= self.module.types.items.len) return error.UnknownType;
                 const total_tables = self.module.num_imported_tables + @as(u32, @intCast(self.module.tables.items.len));
                 if (table_idx >= total_tables) return error.UnknownTable;
-                if (self.getTableRefType(table_idx) != .funcref) return error.TypeMismatch;
+                if (!self.getTableRefType(table_idx).eql(.funcref)) return error.TypeMismatch;
                 try self.popI32();
                 const ft = self.module.types.items[type_idx];
                 // return_call_indirect: callee's results must match caller's results
                 const caller_results = self.ctrl_stack.items[0].end_types;
                 if (ft.results.len != caller_results.len) return error.TypeMismatch;
                 for (ft.results, caller_results) |a, b| {
-                    if (a != b) return error.TypeMismatch;
+                    if (!a.eql(b)) return error.TypeMismatch;
                 }
                 try self.popExpectingTypes(ft.params);
                 self.setUnreachable();
@@ -500,9 +501,9 @@ const Validator = struct {
                         switch (t2) {
                             .unknown => try self.pushVal(vt1),
                             .known => |vt2| {
-                                if (vt1 != vt2) return error.TypeMismatch;
+                                if (!vt1.eql(vt2)) return error.TypeMismatch;
                                 // select (without type) only works on numeric types
-                                if (vt1 == .funcref or vt1 == .externref or vt1 == .v128) return error.TypeMismatch;
+                                if (vt1.eql(.funcref) or vt1.eql(.externref) or vt1.eql(.v128)) return error.TypeMismatch;
                                 try self.pushVal(vt1);
                             },
                         }
@@ -513,7 +514,7 @@ const Validator = struct {
             .select_t => {
                 const count = try reader.readU32();
                 if (count != 1) return error.InvalidResultArity;
-                const vt: ValType = @enumFromInt(try reader.readByte());
+                const vt: ValType = ValType.fromByte(try reader.readByte()) orelse return error.TypeMismatch;
                 try self.popI32();
                 _ = try self.popExpecting(vt);
                 _ = try self.popExpecting(vt);
@@ -700,7 +701,7 @@ const Validator = struct {
             // ---- Reference types ----
             .ref_null => {
                 const reftype = try reader.readByte();
-                const vt: ValType = @enumFromInt(reftype);
+                const vt: ValType = ValType.fromByte(reftype) orelse return error.TypeMismatch;
                 try self.pushVal(vt);
             },
             .ref_is_null => {
@@ -829,7 +830,8 @@ const Validator = struct {
                 // Check element type matches table type
                 const seg = self.module.elements.items[elem_idx];
                 const seg_ref: ValType = if (seg.reftype == .funcref) .funcref else .externref;
-                if (seg_ref != self.getTableRefType(table_idx)) return error.TypeMismatch;
+                const table_vt = self.getTableRefType(table_idx);
+                if (!seg_ref.eql(table_vt)) return error.TypeMismatch;
                 try self.popI32(); try self.popI32(); try self.popI32();
             },
             // elem.drop
@@ -1322,26 +1324,26 @@ fn validateDataSegments(mod: *const Module) ValidateError!void {
             .active => |a| {
                 if (a.mem_idx >= total_memories) return error.UnknownMemory;
                 // Determine expected type: i64 for memory64, i32 for memory32
-                const expected_type = blk: {
+                const expected_type: ValType = blk: {
                     if (a.mem_idx < mod.num_imported_memories) {
                         // Check imported memory for memory64
                         var import_mem_idx: u32 = 0;
                         for (mod.imports.items) |imp| {
                             if (imp.kind == .memory) {
                                 if (import_mem_idx == a.mem_idx) {
-                                    const md = imp.memory_type orelse break :blk ValType.i32;
-                                    break :blk if (md.limits.is_64) ValType.i64 else ValType.i32;
+                                    const md = imp.memory_type orelse break :blk .i32;
+                                    break :blk if (md.limits.is_64) .i64 else .i32;
                                 }
                                 import_mem_idx += 1;
                             }
                         }
-                        break :blk ValType.i32;
+                        break :blk .i32;
                     }
                     const def_idx = a.mem_idx - mod.num_imported_memories;
                     if (def_idx < mod.memories.items.len) {
-                        break :blk if (mod.memories.items[def_idx].limits.is_64) ValType.i64 else ValType.i32;
+                        break :blk if (mod.memories.items[def_idx].limits.is_64) .i64 else .i32;
                     }
-                    break :blk ValType.i32;
+                    break :blk .i32;
                 };
                 try validateTypedConstExpr(mod, a.offset_expr, expected_type, total_globals);
             },
@@ -1362,7 +1364,7 @@ fn validateElementSegments(mod: *const Module) ValidateError!void {
                 if (a.table_idx >= total_tables) return error.UnknownTable;
                 // Element segment reftype must match table element type
                 const table_ref = getTableRefType(mod, a.table_idx) orelse return error.UnknownTable;
-                if (seg_ref != table_ref) return error.TypeMismatch;
+                if (!seg_ref.eql(table_ref)) return error.TypeMismatch;
                 try validateTypedConstExpr(mod, a.offset_expr, .i32, total_globals);
             },
         }
@@ -1402,22 +1404,22 @@ fn validateTypedConstExpr(mod: *const Module, expr: []const u8, expected_type: V
         switch (byte) {
             0x41 => { // i32.const
                 _ = reader.readI32() catch return;
-                if (expected_type != .i32) return error.TypeMismatch;
+                if (!expected_type.eql(.i32)) return error.TypeMismatch;
                 stack_depth += 1;
             },
             0x42 => { // i64.const
                 _ = reader.readI64() catch return;
-                if (expected_type != .i64) return error.TypeMismatch;
+                if (!expected_type.eql(.i64)) return error.TypeMismatch;
                 stack_depth += 1;
             },
             0x43 => { // f32.const
                 _ = reader.readBytes(4) catch return;
-                if (expected_type != .f32) return error.TypeMismatch;
+                if (!expected_type.eql(.f32)) return error.TypeMismatch;
                 stack_depth += 1;
             },
             0x44 => { // f64.const
                 _ = reader.readBytes(8) catch return;
-                if (expected_type != .f64) return error.TypeMismatch;
+                if (!expected_type.eql(.f64)) return error.TypeMismatch;
                 stack_depth += 1;
             },
             0x23 => { // global.get
@@ -1427,36 +1429,36 @@ fn validateTypedConstExpr(mod: *const Module, expr: []const u8, expected_type: V
                 const gt = getGlobalInfo(mod, idx) orelse return error.UnknownGlobal;
                 if (gt.mutability != 0) return error.ConstantExprRequired;
                 // Check type matches expected
-                if (gt.valtype != expected_type) return error.TypeMismatch;
+                if (!gt.valtype.eql(expected_type)) return error.TypeMismatch;
                 stack_depth += 1;
             },
             0xD0 => { // ref.null
                 _ = reader.readByte() catch return;
-                if (expected_type != .funcref and expected_type != .externref and expected_type != .exnref) return error.TypeMismatch;
+                if (!expected_type.eql(.funcref) and !expected_type.eql(.externref) and !expected_type.eql(.exnref)) return error.TypeMismatch;
                 stack_depth += 1;
             },
             0xD2 => { // ref.func
                 const idx = reader.readU32() catch return;
                 const total_funcs = mod.num_imported_funcs + mod.functions.items.len;
                 if (idx >= total_funcs) return error.UnknownFunction;
-                if (expected_type != .funcref) return error.TypeMismatch;
+                if (!expected_type.eql(.funcref)) return error.TypeMismatch;
                 stack_depth += 1;
             },
             0xFD => { // v128.const
                 const sub_op = reader.readU32() catch return;
                 if (sub_op == 12) {
                     _ = reader.readBytes(16) catch return;
-                    if (expected_type != .v128) return error.TypeMismatch;
+                    if (!expected_type.eql(.v128)) return error.TypeMismatch;
                     stack_depth += 1;
                 }
             },
             // extended_const: i32/i64 arithmetic (pop 2, push 1 = net -1)
             0x6A, 0x6B, 0x6C => { // i32.add, i32.sub, i32.mul
-                if (expected_type != .i32) return error.TypeMismatch;
+                if (!expected_type.eql(.i32)) return error.TypeMismatch;
                 stack_depth -= 1; // net: pop 2, push 1
             },
             0x7C, 0x7D, 0x7E => { // i64.add, i64.sub, i64.mul
-                if (expected_type != .i64) return error.TypeMismatch;
+                if (!expected_type.eql(.i64)) return error.TypeMismatch;
                 stack_depth -= 1;
             },
             0x0B => { // end
@@ -1478,15 +1480,15 @@ fn validateRefConstExpr(mod: *const Module, expr: []const u8, expected_ref: ValT
         switch (byte) {
             0xD0 => { // ref.null
                 const rt = reader.readByte() catch return;
-                const elem_type: ValType = @enumFromInt(rt);
-                if (elem_type != expected_ref) return error.TypeMismatch;
+                const elem_type: ValType = ValType.fromByte(rt) orelse return error.TypeMismatch;
+                if (!elem_type.eql(expected_ref)) return error.TypeMismatch;
                 stack_depth += 1;
             },
             0xD2 => { // ref.func
                 const idx = reader.readU32() catch return;
                 const total_funcs = mod.num_imported_funcs + mod.functions.items.len;
                 if (idx >= total_funcs) return error.UnknownFunction;
-                if (expected_ref != .funcref) return error.TypeMismatch;
+                if (!expected_ref.eql(.funcref)) return error.TypeMismatch;
                 stack_depth += 1;
             },
             0x23 => { // global.get

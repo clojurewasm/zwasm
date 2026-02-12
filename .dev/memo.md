@@ -105,7 +105,7 @@ New opcodes: call_ref (0x14), return_call_ref (0x15),
 ref.as_non_null (0xD4), br_on_null (0xD5), br_on_non_null (0xD6).
 Type system: ValType tagged union (ref/ref_null with heap type index).
 
-1. [ ] 17.1: ValType tagged union + codebase-wide compilation fix
+1. [x] 17.1: ValType tagged union + codebase-wide compilation fix
 2. [ ] 17.2: Decode new ref type encoding (0xE3/0xE4 + heap type)
 3. [ ] 17.3: New instructions — call_ref, return_call_ref, ref.as_non_null
 4. [ ] 17.4: New instructions — br_on_null, br_on_non_null
@@ -136,14 +136,11 @@ Task Queue:
 
 ## Current Task
 
-17.1: ValType tagged union. Change ValType from enum(u8) to tagged union adding
-ref_type(u32) and ref_null_type(u32) variants for typed function references.
-Fix all compilation errors across codebase (~176 ValType usages in 13 files).
-Key files: opcode.zig, module.zig, validate.zig, vm.zig, store.zig, wat.zig.
+17.2: Decode new ref type encoding (0xE3/0xE4 + heap type)
 
 ## Previous Task
 
-Stage 16V complete. validate.zig ~1585 LOC (full type checker + section validation). Multi-module batch protocol extension (invoke_on/get_on). 4,416 skips → 5. 39 → 33 multi-module failures.
+17.1: ValType tagged union — changed from enum(u8) to union(enum) with ref_type/ref_null_type variants. Fixed all compilation errors across opcode.zig, module.zig, validate.zig, vm.zig, instance.zig, jit.zig, cli.zig.
 
 ## Wasm 3.0 Coverage
 

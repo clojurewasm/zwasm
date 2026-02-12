@@ -300,13 +300,13 @@ pub const Module = struct {
             const param_count = try reader.readU32();
             const params = try self.alloc.alloc(ValType, param_count);
             errdefer self.alloc.free(params);
-            for (params) |*p| p.* = @enumFromInt(try reader.readByte());
+            for (params) |*p| p.* = ValType.fromByte(try reader.readByte()) orelse return error.InvalidValType;
 
             // Results
             const result_count = try reader.readU32();
             const results = try self.alloc.alloc(ValType, result_count);
             errdefer self.alloc.free(results);
-            for (results) |*r| r.* = @enumFromInt(try reader.readByte());
+            for (results) |*r| r.* = ValType.fromByte(try reader.readByte()) orelse return error.InvalidValType;
 
             try self.types.append(self.alloc, .{ .params = params, .results = results });
         }
@@ -395,7 +395,7 @@ pub const Module = struct {
         const count = try reader.readU32();
         try self.globals.ensureTotalCapacity(self.alloc, count);
         for (0..count) |_| {
-            const valtype: ValType = @enumFromInt(try reader.readByte());
+            const valtype: ValType = ValType.fromByte(try reader.readByte()) orelse return error.InvalidValType;
             const mutability = try reader.readByte();
             if (mutability > 1) return error.MalformedModule;
             const init_start = reader.pos;
@@ -625,7 +625,7 @@ pub const Module = struct {
             var locals_count: u32 = 0;
             for (locals) |*le| {
                 le.count = try body_reader.readU32();
-                le.valtype = @enumFromInt(try body_reader.readByte());
+                le.valtype = ValType.fromByte(try body_reader.readByte()) orelse return error.InvalidValType;
                 locals_count += le.count;
             }
 
@@ -934,7 +934,7 @@ fn sectionOrder(section_id: u8) u8 {
 }
 
 fn readGlobalImportDef(reader: *Reader) !GlobalDef {
-    const valtype: ValType = @enumFromInt(try reader.readByte());
+    const valtype: ValType = ValType.fromByte(try reader.readByte()) orelse return error.InvalidValType;
     const mutability = try reader.readByte();
     if (mutability > 1) return error.MalformedModule;
     return .{ .valtype = valtype, .mutability = mutability, .init_expr = &.{} };

@@ -165,8 +165,8 @@ pub const Instance = struct {
                         const expected = self.module.types.items[imp.index];
                         const func = self.store.getFunction(handle) catch
                             return error.ImportNotFound;
-                        if (!std.mem.eql(opcode.ValType, func.params, expected.params) or
-                            !std.mem.eql(opcode.ValType, func.results, expected.results))
+                        if (!opcode.ValType.sliceEql(func.params, expected.params) or
+                            !opcode.ValType.sliceEql(func.results, expected.results))
                         {
                             return error.ImportTypeMismatch;
                         }

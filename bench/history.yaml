@@ -573,3 +573,30 @@ entries:
       st_nestedloop: {time_ms: 5.1}
       st_ackermann: {time_ms: 6.4}
       st_matrix: {time_ms: 283.2}
+  - id: "16v"
+    date: "2026-02-13"
+    reason: "Stage 16V complete: spec validation coverage"
+    commit: "2c1011f"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 88.4}
+      tak: {time_ms: 11.2}
+      sieve: {time_ms: 4.1}
+      nbody: {time_ms: 42.8}
+      nqueens: {time_ms: 2.7}
+      tgo_fib: {time_ms: 51.7}
+      tgo_tak: {time_ms: 9.7}
+      tgo_arith: {time_ms: 2.0}
+      tgo_sieve: {time_ms: 2.5}
+      tgo_fib_loop: {time_ms: 2.1}
+      tgo_gcd: {time_ms: 1.8}
+      tgo_nqueens: {time_ms: 47.5}
+      tgo_mfr: {time_ms: 68.1}
+      tgo_list: {time_ms: 56.9}
+      tgo_rwork: {time_ms: 7.2}
+      tgo_strops: {time_ms: 35.6}
+      st_fib2: {time_ms: 1300.9}
+      st_sieve: {time_ms: 221.5}
+      st_nestedloop: {time_ms: 4.2}
+      st_ackermann: {time_ms: 6.4}
+      st_matrix: {time_ms: 275.4}
