@@ -93,7 +93,15 @@ Stage 16: Wasm 3.0 — Relaxed SIMD
 Target: 20 non-deterministic SIMD ops (~600 LOC).
 ARM64 NEON native mapping. Implementation-defined results.
 
-(Task breakdown TBD.)
+1. [ ] 16.1: Opcode + decode + validate — add 20 opcodes to SimdOpcode (0x100-0x113),
+   decode in module.zig, validate arity (2-op or 3-op), predecode IR stubs
+2. [ ] 16.2: Relaxed swizzle + trunc (5 opcodes) — i8x16.relaxed_swizzle,
+   i32x4.relaxed_trunc_f32x4_s/u, i32x4.relaxed_trunc_f64x2_s/u_zero
+3. [ ] 16.3: FMA + laneselect (8 opcodes) — f32x4/f64x2.relaxed_madd/nmadd,
+   i8x16/i16x8/i32x4/i64x2.relaxed_laneselect
+4. [ ] 16.4: Min/max + Q15 + dot (7 opcodes) — f32x4/f64x2.relaxed_min/max,
+   i16x8.relaxed_q15mulr_s, i16x8.dot_i8x16_i7x16_s, i32x4.dot_i8x16_i7x16_add_s
+5. [ ] 16.5: Spec tests + cleanup — convert relaxed-simd spec tests, run, fix
 
 Stage 17: Wasm 3.0 — Function References
 
@@ -111,13 +119,12 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-Stage 13B complete. Merge to main pending (merge gate checklist).
+Stage 16.1: Add 20 relaxed SIMD opcodes to SimdOpcode, decode/validate in module.zig,
+predecode IR stubs in predecode.zig, dispatch stubs in vm.zig.
 
 ## Previous Task
 
-Stage 13B: Fixed all 5 spec test failures (32236/32236 100%), implemented 34 JIT FP opcodes
-(x86: min/max/convert_i64_u/copysign/rounding/trunc, ARM64: copysign/rounding/trunc),
-removed --allow-failures from CI.
+Stage 13B complete and merged to main. Fixed FRINTP encoding bug post-merge.
 
 ## Wasm 3.0 Coverage
 

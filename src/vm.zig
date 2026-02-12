@@ -1970,6 +1970,141 @@ pub const Vm = struct {
                 try self.pushV128(@bitCast(r));
             },
 
+            // ---- Relaxed SIMD (Wasm 3.0) ----
+            .i8x16_relaxed_swizzle => {
+                const indices: @Vector(16, u8) = @bitCast(self.popV128());
+                const vec: [16]u8 = @bitCast(self.popV128());
+                var result: [16]u8 = undefined;
+                for (0..16) |i| {
+                    const idx = indices[i];
+                    result[i] = if (idx < 16) vec[idx] else 0;
+                }
+                try self.pushV128(@bitCast(@as(@Vector(16, u8), result)));
+            },
+            .i32x4_relaxed_trunc_f32x4_s => {
+                const a: [4]f32 = @bitCast(self.popV128());
+                var r: [4]i32 = undefined;
+                inline for (0..4) |i| r[i] = truncSatClamp(i32, f32, a[i]);
+                try self.pushV128(@bitCast(r));
+            },
+            .i32x4_relaxed_trunc_f32x4_u => {
+                const a: [4]f32 = @bitCast(self.popV128());
+                var r: [4]u32 = undefined;
+                inline for (0..4) |i| r[i] = truncSatClamp(u32, f32, a[i]);
+                try self.pushV128(@bitCast(r));
+            },
+            .i32x4_relaxed_trunc_f64x2_s_zero => {
+                const a: [2]f64 = @bitCast(self.popV128());
+                var r: [4]i32 = .{ 0, 0, 0, 0 };
+                inline for (0..2) |i| r[i] = truncSatClamp(i32, f64, a[i]);
+                try self.pushV128(@bitCast(r));
+            },
+            .i32x4_relaxed_trunc_f64x2_u_zero => {
+                const a: [2]f64 = @bitCast(self.popV128());
+                var r: [4]u32 = .{ 0, 0, 0, 0 };
+                inline for (0..2) |i| r[i] = truncSatClamp(u32, f64, a[i]);
+                try self.pushV128(@bitCast(r));
+            },
+            .f32x4_relaxed_madd => {
+                const c: [4]f32 = @bitCast(self.popV128());
+                const b: [4]f32 = @bitCast(self.popV128());
+                const a: [4]f32 = @bitCast(self.popV128());
+                var r: [4]f32 = undefined;
+                inline for (0..4) |i| r[i] = @mulAdd(f32, a[i], b[i], c[i]);
+                try self.pushV128(@bitCast(r));
+            },
+            .f32x4_relaxed_nmadd => {
+                const c: [4]f32 = @bitCast(self.popV128());
+                const b: [4]f32 = @bitCast(self.popV128());
+                const a: [4]f32 = @bitCast(self.popV128());
+                var r: [4]f32 = undefined;
+                inline for (0..4) |i| r[i] = @mulAdd(f32, -a[i], b[i], c[i]);
+                try self.pushV128(@bitCast(r));
+            },
+            .f64x2_relaxed_madd => {
+                const c: [2]f64 = @bitCast(self.popV128());
+                const b: [2]f64 = @bitCast(self.popV128());
+                const a: [2]f64 = @bitCast(self.popV128());
+                var r: [2]f64 = undefined;
+                inline for (0..2) |i| r[i] = @mulAdd(f64, a[i], b[i], c[i]);
+                try self.pushV128(@bitCast(r));
+            },
+            .f64x2_relaxed_nmadd => {
+                const c: [2]f64 = @bitCast(self.popV128());
+                const b: [2]f64 = @bitCast(self.popV128());
+                const a: [2]f64 = @bitCast(self.popV128());
+                var r: [2]f64 = undefined;
+                inline for (0..2) |i| r[i] = @mulAdd(f64, -a[i], b[i], c[i]);
+                try self.pushV128(@bitCast(r));
+            },
+            .i8x16_relaxed_laneselect, .i16x8_relaxed_laneselect, .i32x4_relaxed_laneselect, .i64x2_relaxed_laneselect => {
+                // Bitselect: for each bit, pick from a (if mask bit=1) or b (if mask bit=0)
+                const m: u128 = self.popV128();
+                const b: u128 = self.popV128();
+                const a: u128 = self.popV128();
+                try self.pushV128((a & m) | (b & ~m));
+            },
+            .f32x4_relaxed_min => {
+                const b: @Vector(4, f32) = @bitCast(self.popV128());
+                const a: @Vector(4, f32) = @bitCast(self.popV128());
+                try self.pushV128(@bitCast(@min(a, b)));
+            },
+            .f32x4_relaxed_max => {
+                const b: @Vector(4, f32) = @bitCast(self.popV128());
+                const a: @Vector(4, f32) = @bitCast(self.popV128());
+                try self.pushV128(@bitCast(@max(a, b)));
+            },
+            .f64x2_relaxed_min => {
+                const b: @Vector(2, f64) = @bitCast(self.popV128());
+                const a: @Vector(2, f64) = @bitCast(self.popV128());
+                try self.pushV128(@bitCast(@min(a, b)));
+            },
+            .f64x2_relaxed_max => {
+                const b: @Vector(2, f64) = @bitCast(self.popV128());
+                const a: @Vector(2, f64) = @bitCast(self.popV128());
+                try self.pushV128(@bitCast(@max(a, b)));
+            },
+            .i16x8_relaxed_q15mulr_s => {
+                const b: [8]i16 = @bitCast(self.popV128());
+                const a: [8]i16 = @bitCast(self.popV128());
+                var r: [8]i16 = undefined;
+                inline for (0..8) |i| {
+                    const prod: i32 = @as(i32, a[i]) * @as(i32, b[i]);
+                    r[i] = @intCast(@as(i32, @truncate((prod + 0x4000) >> 15)));
+                }
+                try self.pushV128(@bitCast(r));
+            },
+            .i16x8_relaxed_dot_i8x16_i7x16_s => {
+                const b_raw: [16]u8 = @bitCast(self.popV128());
+                const a_raw: [16]i8 = @bitCast(self.popV128());
+                var r: [8]i16 = undefined;
+                inline for (0..8) |i| {
+                    const a0: i16 = a_raw[i * 2];
+                    const a1: i16 = a_raw[i * 2 + 1];
+                    // Treat b as signed (implementation-defined for high bit set)
+                    const b0: i16 = @as(i16, @as(i8, @bitCast(b_raw[i * 2])));
+                    const b1: i16 = @as(i16, @as(i8, @bitCast(b_raw[i * 2 + 1])));
+                    r[i] = @truncate(a0 * b0 + a1 * b1);
+                }
+                try self.pushV128(@bitCast(r));
+            },
+            .i32x4_relaxed_dot_i8x16_i7x16_add_s => {
+                const c: [4]i32 = @bitCast(self.popV128());
+                const b_raw: [16]u8 = @bitCast(self.popV128());
+                const a_raw: [16]i8 = @bitCast(self.popV128());
+                var r: [4]i32 = undefined;
+                inline for (0..4) |i| {
+                    var sum: i32 = 0;
+                    inline for (0..4) |j| {
+                        const a_val: i32 = a_raw[i * 4 + j];
+                        const b_val: i32 = @as(i32, @as(i8, @bitCast(b_raw[i * 4 + j])));
+                        sum += a_val * b_val;
+                    }
+                    r[i] = sum + c[i];
+                }
+                try self.pushV128(@bitCast(r));
+            },
+
             _ => return error.Trap,
         }
     }
