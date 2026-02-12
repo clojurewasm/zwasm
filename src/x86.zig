@@ -1942,7 +1942,7 @@ pub const Compiler = struct {
     }
 
     /// Emit FP conversion operations.
-    fn emitFpConvert(self: *Compiler, op: u16, instr: RegInstr) void {
+    fn emitFpConvert(self: *Compiler, op: u16, instr: RegInstr) bool {
         switch (op) {
             // f64.convert_i32_s (0xB7)
             0xB7 => {
@@ -1966,9 +1966,7 @@ pub const Compiler = struct {
             },
             // f64.convert_i64_u (0xBA) — needs unsigned handling
             0xBA => {
-                // For unsigned i64→f64, simple CVTSI2SD is wrong for values > i64_max.
-                // Bail out for now (interpreter handles it).
-                return; // TODO: proper u64→f64 conversion
+                return false;
             },
             // f32.convert_i32_s (0xB2)
             0xB2 => {
@@ -1990,7 +1988,7 @@ pub const Compiler = struct {
                 self.storeFpFromXmm(instr.rd, XMM0);
             },
             // f32.convert_i64_u (0xB5) — bail
-            0xB5 => return,
+            0xB5 => return false,
             // i32.trunc_f64_s (0xAA)
             0xAA => {
                 self.loadFpToXmm(XMM0, instr.rs1);
@@ -1998,7 +1996,7 @@ pub const Compiler = struct {
                 self.storeVreg(instr.rd, SCRATCH);
             },
             // i32.trunc_f64_u (0xAB) — bail for now
-            0xAB => return,
+            0xAB => return false,
             // i64.trunc_f64_s (0xB0)
             0xB0 => {
                 self.loadFpToXmm(XMM0, instr.rs1);
@@ -2006,7 +2004,7 @@ pub const Compiler = struct {
                 self.storeVreg(instr.rd, SCRATCH);
             },
             // i64.trunc_f64_u (0xB1) — bail
-            0xB1 => return,
+            0xB1 => return false,
             // i32.trunc_f32_s (0xA8)
             0xA8 => {
                 self.loadFpToXmm(XMM0, instr.rs1);
@@ -2014,7 +2012,7 @@ pub const Compiler = struct {
                 self.storeVreg(instr.rd, SCRATCH);
             },
             // i32.trunc_f32_u (0xA9) — bail
-            0xA9 => return,
+            0xA9 => return false,
             // i64.trunc_f32_s (0xAE)
             0xAE => {
                 self.loadFpToXmm(XMM0, instr.rs1);
@@ -2022,7 +2020,7 @@ pub const Compiler = struct {
                 self.storeVreg(instr.rd, SCRATCH);
             },
             // i64.trunc_f32_u (0xAF) — bail
-            0xAF => return,
+            0xAF => return false,
             // f64.promote_f32 (0xBB)
             0xBB => {
                 self.loadFpToXmm(XMM0, instr.rs1);
@@ -2035,14 +2033,15 @@ pub const Compiler = struct {
                 Enc.cvtsd2ss(&self.code, self.alloc, XMM0, XMM0);
                 self.storeFpFromXmm(instr.rd, XMM0);
             },
-            // f32/f64 copysign (0x98, 0x8A) — bail for now (complex bit manipulation)
-            0x98, 0x8A => return,
+            // f32/f64 copysign (0x98, 0xA6) — bail for now (complex bit manipulation)
+            0x98, 0xA6 => return false,
             // f64.ceil/floor/trunc/nearest (0x9B-0x9E) — need SSE4.1 ROUNDSD, bail
-            0x9B, 0x9C, 0x9D, 0x9E => return,
+            0x9B, 0x9C, 0x9D, 0x9E => return false,
             // f32.ceil/floor/trunc/nearest (0x8D-0x90) — need SSE4.1 ROUNDSS, bail
-            0x8D, 0x8E, 0x8F, 0x90 => return,
-            else => return,
+            0x8D, 0x8E, 0x8F, 0x90 => return false,
+            else => return false,
         }
+        return true;
     }
 
     // --- Finalization ---
@@ -2304,7 +2303,9 @@ pub const Compiler = struct {
             0x98, 0xA6,             // f32.copysign, f64.copysign
             0x9B, 0x9C, 0x9D, 0x9E, // f64.ceil/floor/trunc/nearest
             0x8D, 0x8E, 0x8F, 0x90, // f32.ceil/floor/trunc/nearest
-            => self.emitFpConvert(instr.op, instr),
+            => {
+                if (!self.emitFpConvert(instr.op, instr)) return false;
+            },
 
             // --- i32 arithmetic ---
             0x6A => self.emitBinop32(instr, .add),
