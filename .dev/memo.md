@@ -5,7 +5,7 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4, 7-11 — COMPLETE
-- Source: ~16K LOC, 17 files, 193 tests all pass
+- Source: ~16K LOC, 17 files, 206 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
 - Spec: 30,704/30,704 (100%), E2E: 297/298 (99.7%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
@@ -82,7 +82,7 @@ Target: `zwasm run file.wat`, build-time `-Dwat=false`.
 2. [x] 12.2: WAT S-expression tokenizer (lexer for WAT syntax)
 3. [x] 12.3: WAT parser — module structure (module, func, memory, table, global, import, export)
 4. [x] 12.4: WAT parser — instructions (all opcodes, folded S-expr form)
-5. [ ] 12.5: Wasm binary encoder (emit valid .wasm from parsed AST)
+5. [x] 12.5: Wasm binary encoder (emit valid .wasm from parsed AST)
 6. [ ] 12.6: WAT abbreviations (inline exports, type use, etc.)
 7. [ ] 12.7: API + CLI integration (loadFromWat, auto-detect .wat)
 8. [ ] 12.8: E2E verification (issue11563.wat, issue12170.wat)
@@ -95,12 +95,11 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-12.5: Wasm binary encoder.
+12.6: WAT abbreviations (inline exports, type use, etc.)
 
 ## Previous Task
 
-12.4 complete. WatInstr tagged union (simple/index_op/const/mem_op/block_op/if_op/br_table/call_indirect),
-folded S-expr unfolding, parseInstrList/parseFoldedInstr/parsePlainInstr, number literal parsing, 10 tests.
+12.5 complete. Binary encoder: encode(), LEB128, instrOpcode (150+ mappings), section emitters (type/import/function/table/memory/global/export/start/code), label stack for named br/br_if, folded memarg fix, owned_wasm_bytes lifetime. 4 round-trip tests + 6 encoder tests.
 
 ## Known Bugs
 
