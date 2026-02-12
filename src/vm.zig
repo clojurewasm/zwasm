@@ -196,6 +196,7 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
             },
             .call, .return_call, .local_get, .local_set, .local_tee,
             .global_get, .global_set, .ref_func, .table_get, .table_set,
+            .call_ref, .return_call_ref,
             => _ = reader.readU32() catch break,
             .call_indirect, .return_call_indirect => { _ = reader.readU32() catch break; _ = reader.readU32() catch break; },
             .throw => _ = reader.readU32() catch break, // tag index
@@ -1250,6 +1251,53 @@ pub const Vm = struct {
                     } else {
                         return error.FunctionIndexOutOfBounds;
                     }
+                },
+                .ref_as_non_null => {
+                    const val = self.pop();
+                    if (val == 0) return error.Trap; // null ref
+                    try self.push(val);
+                },
+                .call_ref => {
+                    const type_idx = try reader.readU32();
+                    const ref_val = self.pop();
+                    if (ref_val == 0) return error.Trap; // null ref
+                    const func_addr = ref_val - 1;
+                    const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
+                    // Type check
+                    if (type_idx < instance.module.types.items.len) {
+                        const expected = instance.module.types.items[type_idx];
+                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
+                            !ValType.sliceEql(expected.results, func_ptr.results))
+                            return error.MismatchedSignatures;
+                    }
+                    self.doCallDirect(instance, func_ptr, reader) catch |err| {
+                        if (err == error.WasmException and self.handleException(reader, instance))
+                            continue;
+                        return err;
+                    };
+                },
+                .return_call_ref => {
+                    const type_idx = try reader.readU32();
+                    const ref_val = self.pop();
+                    if (ref_val == 0) return error.Trap; // null ref
+                    const func_addr = ref_val - 1;
+                    const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
+                    // Type check
+                    if (type_idx < instance.module.types.items.len) {
+                        const expected = instance.module.types.items[type_idx];
+                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
+                            !ValType.sliceEql(expected.results, func_ptr.results))
+                            return error.MismatchedSignatures;
+                    }
+                    const n_args = func_ptr.params.len;
+                    var i: usize = n_args;
+                    while (i > 0) {
+                        i -= 1;
+                        self.tail_call_args[i] = self.pop();
+                    }
+                    self.tail_call_arg_count = n_args;
+                    self.tail_call_func = func_ptr;
+                    return;
                 },
 
                 // ---- 0xFC prefix (misc) ----
@@ -4599,6 +4647,7 @@ fn skipToEnd(reader: *Reader) !void {
             },
             .call, .return_call, .local_get, .local_set, .local_tee,
             .global_get, .global_set, .ref_func, .table_get, .table_set,
+            .call_ref, .return_call_ref,
             => _ = try reader.readU32(),
             .call_indirect, .return_call_indirect => { _ = try reader.readU32(); _ = try reader.readU32(); },
             .throw => _ = try reader.readU32(),
@@ -4685,6 +4734,7 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
             },
             .call, .return_call, .local_get, .local_set, .local_tee,
             .global_get, .global_set, .ref_func, .table_get, .table_set,
+            .call_ref, .return_call_ref,
             => _ = try reader.readU32(),
             .call_indirect, .return_call_indirect => { _ = try reader.readU32(); _ = try reader.readU32(); },
             .throw => _ = try reader.readU32(),

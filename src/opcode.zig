@@ -187,6 +187,9 @@ pub const Opcode = enum(u8) {
     // Tail call proposal
     return_call = 0x12,
     return_call_indirect = 0x13,
+    // Function references proposal
+    call_ref = 0x14,
+    return_call_ref = 0x15,
 
     // Parametric
     drop = 0x1A,
@@ -395,6 +398,8 @@ pub const Opcode = enum(u8) {
     ref_null = 0xD0,
     ref_is_null = 0xD1,
     ref_func = 0xD2,
+    // Function references proposal
+    ref_as_non_null = 0xD4,
 
     // Multi-byte prefix
     misc_prefix = 0xFC,
@@ -825,7 +830,7 @@ test "Opcode — unknown byte produces non-named variant" {
     const is_known = switch (op) {
         .@"unreachable", .nop, .block, .loop, .@"if", .@"else", .end => true,
         .throw, .throw_ref, .try_table => true,
-        .br, .br_if, .br_table, .@"return", .call, .call_indirect, .return_call, .return_call_indirect => true,
+        .br, .br_if, .br_table, .@"return", .call, .call_indirect, .return_call, .return_call_indirect, .call_ref, .return_call_ref => true,
         .drop, .select, .select_t => true,
         .local_get, .local_set, .local_tee, .global_get, .global_set => true,
         .table_get, .table_set => true,
@@ -872,7 +877,7 @@ test "Opcode — unknown byte produces non-named variant" {
         .f32_reinterpret_i32, .f64_reinterpret_i64 => true,
         .i32_extend8_s, .i32_extend16_s => true,
         .i64_extend8_s, .i64_extend16_s, .i64_extend32_s => true,
-        .ref_null, .ref_is_null, .ref_func => true,
+        .ref_null, .ref_is_null, .ref_func, .ref_as_non_null => true,
         .misc_prefix, .simd_prefix => true,
         _ => false,
     };
