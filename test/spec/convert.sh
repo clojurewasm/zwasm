@@ -1,13 +1,20 @@
 #!/bin/bash
 # Convert WebAssembly spec .wast files to JSON + .wasm using wast2json.
-# Usage: bash test/spec/convert.sh /path/to/testsuite
+# Usage: bash test/spec/convert.sh [/path/to/testsuite]
 #
+# Defaults to the git submodule at test/spec/testsuite.
 # Produces: test/spec/json/<testname>.json + test/spec/json/<testname>.N.wasm
 
 set -e
 cd "$(dirname "$0")/../.."
 
-TESTSUITE="${1:-/tmp/wasm-testsuite}"
+TESTSUITE="${1:-test/spec/testsuite}"
+
+if [ ! -d "$TESTSUITE" ] || [ -z "$(ls "$TESTSUITE"/*.wast 2>/dev/null)" ]; then
+    echo "Testsuite not found at $TESTSUITE"
+    echo "Run: git submodule update --init"
+    exit 1
+fi
 OUTDIR="test/spec/json"
 
 mkdir -p "$OUTDIR"

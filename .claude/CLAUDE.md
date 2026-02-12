@@ -163,9 +163,19 @@ Proposal implementations modify core interpreter/decoder, so extra vigilance:
 
 Run before merging to main (in addition to commit gate):
 
+**Local (Mac):**
 1. `zig build test` passes
 2. `python3 test/spec/run_spec.py --summary` passes (if opcodes/interpreter changed)
 3. `bash bench/run_bench.sh --quick` — no performance regression
+
+**Ubuntu x86_64 (SSH):** (see `.dev/ubuntu-x86_64.md` for connection)
+4. Push branch, pull on Ubuntu
+5. `zig build test` passes
+6. `python3 test/spec/run_spec.py --summary` — spec tests pass
+7. `bash bench/run_bench.sh --quick` — no extreme regression
+
+If Ubuntu tests reveal failures not seen on Mac, **fix the root cause** before merging.
+Do not merge with known new regressions on either platform.
 
 Tag creation and CW release are manual — use `/release` when instructed.
 
