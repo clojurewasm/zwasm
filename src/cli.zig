@@ -299,7 +299,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     }
 
     if (batch_mode) {
-        return cmdBatch(allocator, wasm_bytes, import_entries.items, stdout, stderr);
+        return cmdBatch(allocator, wasm_bytes, import_entries.items, link_names.items, linked_modules.items, stdout, stderr);
     }
 
     const imports_slice: ?[]const types.ImportEntry = if (import_entries.items.len > 0)
@@ -933,7 +933,7 @@ fn printInspectJson(module: *const module_mod.Module, file_path: []const u8, siz
 /// Batch mode: read invocations from stdin, one per line.
 /// Protocol: "invoke <func> [arg1 arg2 ...]"
 /// Output: "ok [val1 val2 ...]" or "error <message>"
-fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types.ImportEntry, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
+fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types.ImportEntry, link_names: []const []const u8, linked_modules: []const *types.WasmModule, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
     _ = stderr;
     var module = if (imports.len > 0)
         types.WasmModule.loadWithImports(allocator, wasm_bytes, imports) catch |err| {
@@ -967,17 +967,49 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
         // Skip empty lines
         if (line.len == 0) continue;
 
-        // Parse: "invoke <len>:<func> [arg1 arg2 ...]" or "get <len>:<name>"
-        // Function name is length-prefixed to handle special characters.
-        const is_get = std.mem.startsWith(u8, line, "get ");
-        if (!std.mem.startsWith(u8, line, "invoke ") and !is_get) {
+        // Parse command: invoke, get, invoke_on, get_on
+        const is_invoke_on = std.mem.startsWith(u8, line, "invoke_on ");
+        const is_get_on = std.mem.startsWith(u8, line, "get_on ");
+        const is_get = !is_get_on and std.mem.startsWith(u8, line, "get ");
+        const is_invoke = !is_invoke_on and std.mem.startsWith(u8, line, "invoke ");
+        if (!is_invoke and !is_get and !is_invoke_on and !is_get_on) {
             try stdout.print("error unknown command\n", .{});
             try stdout.flush();
             continue;
         }
 
-        const prefix_len: usize = if (is_get) "get ".len else "invoke ".len;
-        const rest = line[prefix_len..];
+        // For invoke_on/get_on, find the target linked module
+        var target_module: *types.WasmModule = module;
+        var rest: []const u8 = undefined;
+        if (is_invoke_on or is_get_on) {
+            const prefix_len2: usize = if (is_invoke_on) "invoke_on ".len else "get_on ".len;
+            const after_cmd = line[prefix_len2..];
+            // Module name is space-delimited (simple names, no special chars)
+            const space_pos = std.mem.indexOfScalar(u8, after_cmd, ' ') orelse {
+                try stdout.print("error missing function name\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            const mod_name = after_cmd[0..space_pos];
+            rest = after_cmd[space_pos + 1 ..];
+            // Find linked module
+            var found = false;
+            for (link_names, linked_modules) |ln, lm| {
+                if (std.mem.eql(u8, ln, mod_name)) {
+                    target_module = lm;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                try stdout.print("error module not found\n", .{});
+                try stdout.flush();
+                continue;
+            }
+        } else {
+            const prefix_len2: usize = if (is_get) "get ".len else "invoke ".len;
+            rest = line[prefix_len2..];
+        }
 
         // Two protocols:
         // 1. Length-prefixed: "invoke <len>:<func_name> [args...]"
@@ -1070,14 +1102,14 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
             continue;
         }
 
-        // Handle "get" command: read exported global value
-        if (is_get) {
-            const global_addr = module.instance.getExportGlobalAddr(func_name) orelse {
+        // Handle "get"/"get_on" command: read exported global value
+        if (is_get or is_get_on) {
+            const global_addr = target_module.instance.getExportGlobalAddr(func_name) orelse {
                 try stdout.print("error global not found\n", .{});
                 try stdout.flush();
                 continue;
             };
-            const g = module.store.getGlobal(global_addr) catch {
+            const g = target_module.store.getGlobal(global_addr) catch {
                 try stdout.print("error bad global\n", .{});
                 try stdout.flush();
                 continue;
@@ -1093,7 +1125,7 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
 
         // Determine result count — v128 results use 2 u64 slots
         var result_count: usize = 1;
-        const batch_export_info = module.getExportInfo(func_name);
+        const batch_export_info = target_module.getExportInfo(func_name);
         if (batch_export_info) |info| {
             result_count = 0;
             for (info.result_types) |rt| {
@@ -1104,7 +1136,7 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
 
         @memset(result_buf[0..result_count], 0);
 
-        module.invoke(func_name, arg_buf[0..arg_count], result_buf[0..result_count]) catch |err| {
+        target_module.invoke(func_name, arg_buf[0..arg_count], result_buf[0..result_count]) catch |err| {
             try stdout.print("error {s}\n", .{@errorName(err)});
             try stdout.flush();
             continue;

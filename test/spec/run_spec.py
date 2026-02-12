@@ -323,6 +323,86 @@ class BatchRunner:
                 return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
             return (False, str(e))
 
+    def invoke_on(self, mod_name, func_name, args, timeout=5):
+        """Invoke a function on a linked module. Returns (success, results_or_error)."""
+        if self.proc is None or self.proc.poll() is not None:
+            self._start()
+            if self.proc is None or self.proc.poll() is not None:
+                return (False, "process not running")
+
+        name_bytes = func_name.encode('utf-8')
+        cmd_line = f"invoke_on {mod_name} {len(name_bytes)}:{func_name}"
+        for a in args:
+            if isinstance(a, tuple) and a[0] == "v128":
+                cmd_line += f" v128:{a[1]}:{a[2]}"
+            else:
+                cmd_line += f" {a}"
+        cmd_line += "\n"
+
+        try:
+            self.proc.stdin.write(cmd_line)
+            self.proc.stdin.flush()
+
+            import select
+            ready, _, _ = select.select([self.proc.stdout], [], [], timeout)
+            if not ready:
+                self.proc.kill()
+                self._cleanup_proc()
+                self.proc = None
+                return (False, "timeout")
+
+            response = self.proc.stdout.readline().strip()
+            if not response:
+                return (False, "no response")
+            if response.startswith("ok"):
+                parts = response.split()
+                results = [int(p) for p in parts[1:]]
+                return (True, results)
+            elif response.startswith("error"):
+                return (False, response[6:] if len(response) > 6 else "unknown")
+            else:
+                return (False, f"unexpected: {response}")
+        except Exception as e:
+            self._cleanup_proc()
+            self.proc = None
+            return (False, str(e))
+
+    def get_on_global(self, mod_name, global_name, timeout=5):
+        """Get an exported global from a linked module. Returns (success, results_or_error)."""
+        if self.proc is None or self.proc.poll() is not None:
+            return (False, "process not running")
+
+        name_bytes = global_name.encode('utf-8')
+        cmd_line = f"get_on {mod_name} {len(name_bytes)}:{global_name}\n"
+
+        try:
+            self.proc.stdin.write(cmd_line)
+            self.proc.stdin.flush()
+
+            import select
+            ready, _, _ = select.select([self.proc.stdout], [], [], timeout)
+            if not ready:
+                self.proc.kill()
+                self._cleanup_proc()
+                self.proc = None
+                return (False, "timeout")
+
+            response = self.proc.stdout.readline().strip()
+            if not response:
+                return (False, "no response")
+            if response.startswith("ok"):
+                parts = response.split()
+                results = [int(p) for p in parts[1:]]
+                return (True, results)
+            elif response.startswith("error"):
+                return (False, response[6:] if len(response) > 6 else "unknown")
+            else:
+                return (False, f"unexpected: {response}")
+        except Exception as e:
+            self._cleanup_proc()
+            self.proc = None
+            return (False, str(e))
+
     def get_global(self, global_name, timeout=5):
         """Get an exported global value. Returns (success, results_or_error)."""
         if self.proc is None or self.proc.poll() is not None:
@@ -402,6 +482,23 @@ def needs_spectest(wasm_path):
         return False
 
 
+def _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner):
+    """Resolve which runner and invocation style to use for a named module action.
+    Returns (kind, runner) where kind is "invoke_on" or "direct", or None if unresolvable."""
+    if not mod_name:
+        return ("direct", runner) if runner else None
+    # Current main module
+    if mod_name == last_internal_name:
+        return ("direct", runner) if runner else None
+    # Linked module (shared state via invoke_on)
+    if mod_name in module_reg_names and runner:
+        return ("invoke_on", runner)
+    # Fallback: dedicated runner for named module
+    if mod_name in module_runners:
+        return ("direct", module_runners[mod_name])
+    return None
+
+
 def run_test_file(json_path, verbose=False):
     """Run all commands in a spec test JSON file. Returns (passed, failed, skipped)."""
     with open(json_path) as f:
@@ -416,16 +513,22 @@ def run_test_file(json_path, verbose=False):
 
     # Multi-module support: registered_modules maps name -> wasm_path (for imports)
     registered_modules = {}
-    # Named module runners: maps internal name (e.g. "$Mf") -> BatchRunner
+    # Named module registration: maps internal name (e.g. "$Mf") -> registration name (e.g. "Mf")
+    module_reg_names = {}
+    # Fallback runners for named modules not linked to current runner
     module_runners = {}
+    # Track the last loaded internal name (for register command pairing)
+    last_internal_name = None
 
     for cmd in data.get("commands", []):
         cmd_type = cmd["type"]
         line = cmd.get("line", 0)
 
         if cmd_type == "module":
-            # Don't close runner if it's saved in module_runners
-            if runner and id(runner) not in {id(r) for r in module_runners.values()}:
+            # Save current runner for named modules (fallback for non-linked invocations)
+            if runner and last_internal_name and last_internal_name not in module_runners:
+                module_runners[last_internal_name] = runner
+            elif runner:
                 runner.close()
             runner = None
 
@@ -446,10 +549,8 @@ def run_test_file(json_path, verbose=False):
                 except Exception:
                     current_wasm = None
 
-                # Track by internal name (e.g. "$Mf") for action.module lookups
-                mod_internal_name = cmd.get("name")
-                if mod_internal_name and runner:
-                    module_runners[mod_internal_name] = runner
+                # Track internal name for register command pairing
+                last_internal_name = cmd.get("name")
             continue
 
         if cmd_type == "register":
@@ -457,16 +558,15 @@ def run_test_file(json_path, verbose=False):
             reg_name = cmd.get("as", "")
             if current_wasm and reg_name:
                 registered_modules[reg_name] = current_wasm
+                # Pair internal name with registration name
+                if last_internal_name:
+                    module_reg_names[last_internal_name] = reg_name
             continue
 
         if cmd_type == "action":
             # Bare action — execute it to update module state
             action = cmd.get("action", {})
             mod_name = action.get("module")
-            target_runner = module_runners.get(mod_name) if mod_name else runner
-            if target_runner is None:
-                skipped += 1
-                continue
 
             if action.get("type") != "invoke":
                 skipped += 1
@@ -478,8 +578,16 @@ def run_test_file(json_path, verbose=False):
                 skipped += 1
                 continue
 
-            # Execute the action (ignore result, mark state as dirty)
-            target_runner.invoke(func_name, args)
+            # Route to correct module
+            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner)
+            if target is None:
+                skipped += 1
+                continue
+            target_kind, target_runner = target
+            if target_kind == "invoke_on":
+                target_runner.invoke_on(module_reg_names[mod_name], func_name, args)
+            else:
+                target_runner.invoke(func_name, args)
             target_runner.needs_state = True
             continue
 
@@ -487,14 +595,16 @@ def run_test_file(json_path, verbose=False):
             action = cmd.get("action", {})
             action_type = action.get("type")
             mod_name = action.get("module")
-            target_runner = module_runners.get(mod_name) if mod_name else runner
-            if target_runner is None:
-                skipped += 1
-                continue
 
             if action_type not in ("invoke", "get"):
                 skipped += 1
                 continue
+
+            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner)
+            if target is None:
+                skipped += 1
+                continue
+            target_kind, target_runner = target
 
             func_name = action["field"]
             either_sets = None
@@ -505,7 +615,10 @@ def run_test_file(json_path, verbose=False):
                 if any(isinstance(e, tuple) and e[0] == "skip" for e in expected):
                     skipped += 1
                     continue
-                ok, results = target_runner.get_global(func_name)
+                if target_kind == "invoke_on":
+                    ok, results = target_runner.get_on_global(module_reg_names[mod_name], func_name)
+                else:
+                    ok, results = target_runner.get_global(func_name)
             else:
                 args = [parse_value(a) for a in action.get("args", [])]
                 if has_unsupported(args):
@@ -529,7 +642,10 @@ def run_test_file(json_path, verbose=False):
                     skipped += 1
                     continue
 
-                ok, results = target_runner.invoke(func_name, args)
+                if target_kind == "invoke_on":
+                    ok, results = target_runner.invoke_on(module_reg_names[mod_name], func_name, args)
+                else:
+                    ok, results = target_runner.invoke(func_name, args)
 
             if not ok:
                 if verbose:
@@ -554,14 +670,16 @@ def run_test_file(json_path, verbose=False):
         elif cmd_type == "assert_trap":
             action = cmd.get("action", {})
             mod_name = action.get("module")
-            target_runner = module_runners.get(mod_name) if mod_name else runner
-            if target_runner is None:
-                skipped += 1
-                continue
 
             if action.get("type") != "invoke":
                 skipped += 1
                 continue
+
+            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner)
+            if target is None:
+                skipped += 1
+                continue
+            target_kind, target_runner = target
 
             func_name = action["field"]
             args = [parse_value(a) for a in action.get("args", [])]
@@ -569,7 +687,10 @@ def run_test_file(json_path, verbose=False):
                 skipped += 1
                 continue
 
-            ok, results = target_runner.invoke(func_name, args)
+            if target_kind == "invoke_on":
+                ok, results = target_runner.invoke_on(module_reg_names[mod_name], func_name, args)
+            else:
+                ok, results = target_runner.invoke(func_name, args)
 
             if not ok:
                 passed += 1
@@ -624,14 +745,16 @@ def run_test_file(json_path, verbose=False):
         elif cmd_type == "assert_exhaustion":
             action = cmd.get("action", {})
             mod_name = action.get("module")
-            target_runner = module_runners.get(mod_name) if mod_name else runner
-            if target_runner is None:
-                skipped += 1
-                continue
 
             if action.get("type") != "invoke":
                 skipped += 1
                 continue
+
+            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner)
+            if target is None:
+                skipped += 1
+                continue
+            target_kind, target_runner = target
 
             func_name = action["field"]
             args = [parse_value(a) for a in action.get("args", [])]
@@ -639,7 +762,10 @@ def run_test_file(json_path, verbose=False):
                 skipped += 1
                 continue
 
-            ok, results = target_runner.invoke(func_name, args, timeout=10)
+            if target_kind == "invoke_on":
+                ok, results = target_runner.invoke_on(module_reg_names[mod_name], func_name, args, timeout=10)
+            else:
+                ok, results = target_runner.invoke(func_name, args, timeout=10)
 
             if not ok:
                 passed += 1

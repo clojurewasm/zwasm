@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-15 — COMPLETE
 - Source: ~28K LOC, 17 files, 229 tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
-- Spec: 60,753/60,797 Mac (99.9%), 5 expected skips, E2E: 356/356, CI: ubuntu + macOS
+- Spec: 60,759/60,797 Mac (99.9%), 5 expected skips, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -117,7 +117,7 @@ Target: 4,416 skips → 0. All tests evaluated. Pass count ~60,800.
 Task Queue:
 1. [x] A1: assert_exhaustion handler (15 skips → 0)
 2. [x] A2: Global read actions / get command (1 skip → 0)
-3. [x] A3: Named module invocations (132 skips → ~93 pass, 39 fail due to shared-state limitation)
+3. [x] A3: Named module invocations (132 skips → ~99 pass, 33 fail due to shared-state limitation)
 4. [x] B1: UTF-8 validation (528 skips → 0)
 5. [x] B2: Simple structural checks (~300 skips → 0)
 6. [x] B3: Unknown index checks (~125 skips → 0)
@@ -126,12 +126,12 @@ Task Queue:
 
 ## Current Task
 
-Stage 16V complete. 5 remaining skips are expected (2 multi-memory, 2 extended_const, 1 function_references).
+Stage 16V complete. 5 expected skips, 33 multi-module shared-state failures.
 Ready for merge gate.
 
 ## Previous Task
 
-D1-D5: Full type checker (validate.zig ~1200 LOC). Operand stack + control stack validation for all opcodes. Section-level validation: imports, exports, data, elem, globals, start. 4,416 skips → 5 (99.9% reduction).
+Multi-module batch protocol extension (invoke_on/get_on commands in cli.zig, hybrid routing in run_spec.py). Recovered 6 multi-module tests (39 → 33 failures). Remaining failures: cross-module table/memory/global sharing requires true instance-level linking.
 
 ## Wasm 3.0 Coverage
 
@@ -141,7 +141,7 @@ GC requires function_references first.
 
 ## Known Bugs
 
-None. Mac 60,753/60,797 (99.9%), 5 expected skips, 39 multi-module linking failures.
+None. Mac 60,759/60,797 (99.9%), 5 expected skips, 33 multi-module linking failures.
 
 ## References
 
