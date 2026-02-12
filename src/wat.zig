@@ -1594,7 +1594,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             sec.append(arena, valTypeByte(g.global_type.valtype)) catch return error.OutOfMemory;
             sec.append(arena, if (g.global_type.mutable) @as(u8, 0x01) else @as(u8, 0x00)) catch return error.OutOfMemory;
             var g_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &g_labels) catch return error.OutOfMemory;
+            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels) catch return error.OutOfMemory;
             sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
         }
         writeSection(arena, &out, 6, sec.items) catch return error.OutOfMemory;
@@ -1619,6 +1619,24 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             all_exports.append(arena, .{
                 .name = ename,
                 .kind = .memory,
+                .index = .{ .num = @intCast(i) },
+            }) catch return error.OutOfMemory;
+        }
+    }
+    for (module.tables, 0..) |t, i| {
+        if (t.export_name) |ename| {
+            all_exports.append(arena, .{
+                .name = ename,
+                .kind = .table,
+                .index = .{ .num = @intCast(i) },
+            }) catch return error.OutOfMemory;
+        }
+    }
+    for (module.globals, 0..) |g, i| {
+        if (g.export_name) |ename| {
+            all_exports.append(arena, .{
+                .name = ename,
+                .kind = .global,
                 .index = .{ .num = @intCast(i) },
             }) catch return error.OutOfMemory;
         }
@@ -1675,8 +1693,16 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 code_body.append(arena, valTypeByte(lg.valtype)) catch return error.OutOfMemory;
             }
 
+            // Build local name map: params then locals
+            var f_local_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
+            for (f.params) |p| {
+                f_local_names.append(arena, p.name) catch return error.OutOfMemory;
+            }
+            for (f.locals) |l| {
+                f_local_names.append(arena, l.name) catch return error.OutOfMemory;
+            }
             var f_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, &f_labels) catch return error.OutOfMemory;
+            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, f_local_names.items, &f_labels) catch return error.OutOfMemory;
             code_body.append(arena, 0x0B) catch return error.OutOfMemory; // end
 
             lebEncodeU32(arena, &sec, @intCast(code_body.items.len)) catch return error.OutOfMemory;
@@ -2009,10 +2035,11 @@ fn encodeInstrList(
     mem_names: []const ?[]const u8,
     table_names: []const ?[]const u8,
     global_names: []const ?[]const u8,
+    local_names: []const ?[]const u8,
     labels: *std.ArrayListUnmanaged(?[]const u8),
 ) WatError!void {
     for (instrs) |instr| {
-        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, labels);
+        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, local_names, labels);
     }
 }
 
@@ -2043,6 +2070,7 @@ fn encodeInstr(
     mem_names: []const ?[]const u8,
     table_names: []const ?[]const u8,
     global_names: []const ?[]const u8,
+    local_names: []const ?[]const u8,
     labels: *std.ArrayListUnmanaged(?[]const u8),
 ) WatError!void {
     switch (instr) {
@@ -2070,8 +2098,11 @@ fn encodeInstr(
             else if (std.mem.eql(u8, data.op, "memory.size") or
                 std.mem.eql(u8, data.op, "memory.grow"))
                 resolveNamedIndex(data.index, mem_names) catch return error.InvalidWat
+            else if (std.mem.eql(u8, data.op, "local.get") or
+                std.mem.eql(u8, data.op, "local.set") or
+                std.mem.eql(u8, data.op, "local.tee"))
+                resolveNamedIndex(data.index, local_names) catch return error.InvalidWat
             else switch (data.index) {
-                // local.get/set/tee — numeric only
                 .num => |n| n,
                 .name => return error.InvalidWat,
             };
@@ -2113,7 +2144,7 @@ fn encodeInstr(
                 out.append(alloc, 0x40) catch return error.OutOfMemory; // empty block type
             }
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, labels) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels) catch return error.OutOfMemory;
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
         },
@@ -2125,10 +2156,10 @@ fn encodeInstr(
                 out.append(alloc, 0x40) catch return error.OutOfMemory;
             }
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, labels) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels) catch return error.OutOfMemory;
             if (data.else_body.len > 0) {
                 out.append(alloc, 0x05) catch return error.OutOfMemory; // else
-                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, labels) catch return error.OutOfMemory;
+                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels) catch return error.OutOfMemory;
             }
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end

@@ -979,3 +979,38 @@ test "WAT round-trip — loop (factorial)" {
     try wasm_mod.invoke("fac", &args, &results);
     try testing.expectEqual(@as(u64, 120), results[0]);
 }
+
+test "WAT round-trip — named locals" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (func (export "swap_sub") (param $a i32) (param $b i32) (result i32)
+        \\    (i32.sub (local.get $b) (local.get $a))
+        \\  )
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var args = [_]u64{ 3, 10 };
+    var results = [_]u64{0};
+    try wasm_mod.invoke("swap_sub", &args, &results);
+    try testing.expectEqual(@as(u64, 7), results[0]);
+}
+
+test "WAT round-trip — named globals" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (global $counter (mut i32) (i32.const 0))
+        \\  (func (export "inc") (result i32)
+        \\    (global.set $counter (i32.add (global.get $counter) (i32.const 1)))
+        \\    (global.get $counter)
+        \\  )
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var results = [_]u64{0};
+    try wasm_mod.invoke("inc", &[_]u64{}, &results);
+    try testing.expectEqual(@as(u64, 1), results[0]);
+    try wasm_mod.invoke("inc", &[_]u64{}, &results);
+    try testing.expectEqual(@as(u64, 2), results[0]);
+}
