@@ -126,12 +126,11 @@ Task Queue:
 
 ## Current Task
 
-Stage 16V complete. 5 expected skips, 33 multi-module shared-state failures.
-Ready for merge gate.
+Stage 17: Function References — task breakdown TBD. Read proposal spec first.
 
 ## Previous Task
 
-Multi-module batch protocol extension (invoke_on/get_on commands in cli.zig, hybrid routing in run_spec.py). Recovered 6 multi-module tests (39 → 33 failures). Remaining failures: cross-module table/memory/global sharing requires true instance-level linking.
+Stage 16V complete. validate.zig ~1585 LOC (full type checker + section validation). Multi-module batch protocol extension (invoke_on/get_on). 4,416 skips → 5. 39 → 33 multi-module failures.
 
 ## Wasm 3.0 Coverage
 
