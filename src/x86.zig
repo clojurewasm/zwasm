@@ -890,6 +890,21 @@ const Enc = struct {
     /// ANDPD xmm, xmm: 66 0F 54 /r (bitwise AND for abs)
     fn andpd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0x66, 0x0F, 0x54, dst, src); }
 
+    /// No-prefix SSE ops (MOVAPS, ORPS, XORPS, ANDPS) — 0F xx /r
+    fn sseOpNp(buf: *std.ArrayList(u8), alloc: Allocator, op: u8, dst: u4, src: u4) void {
+        if (dst >= 8 or src >= 8) {
+            var r: u8 = 0x40;
+            if (dst >= 8) r |= 0x04;
+            if (src >= 8) r |= 0x01;
+            buf.append(alloc, r) catch {};
+        }
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, op }) catch {};
+        buf.append(alloc, modrm(3, @truncate(dst), @truncate(src))) catch {};
+    }
+    fn movaps(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOpNp(buf, alloc, 0x28, dst, src); }
+    fn orps(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOpNp(buf, alloc, 0x56, dst, src); }
+    fn xorps(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOpNp(buf, alloc, 0x57, dst, src); }
+
     /// CVTSI2SD xmm, r64: F2 REX.W 0F 2A /r (signed i64 → f64)
     fn cvtsi2sd64(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
         buf.append(alloc, 0xF2) catch {};
@@ -1705,6 +1720,7 @@ pub const Compiler = struct {
 
     const XMM0: u4 = 0;
     const XMM1: u4 = 1;
+    const XMM2: u4 = 2;
 
     /// Load FP value from vreg (GPR or memory) into XMM register.
     fn loadFpToXmm(self: *Compiler, xmm: u4, vreg: u8) void {
@@ -1802,20 +1818,50 @@ pub const Compiler = struct {
 
     /// Emit f64 min/max (direct binary op).
     fn emitFpMinMax64(self: *Compiler, instr: RegInstr) bool {
-        // TODO: x86 MINSD/MAXSD don't propagate NaN per Wasm spec.
-        // Bail to interpreter until proper NaN handling is implemented.
-        _ = self;
-        _ = instr;
-        return false;
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        if (instr.op == 0xA4) {
+            // f64.min: NaN propagation via OR, -0 propagation via OR
+            Enc.movaps(&self.code, self.alloc, XMM2, XMM0);
+            Enc.minsd(&self.code, self.alloc, XMM2, XMM1);
+            Enc.minsd(&self.code, self.alloc, XMM1, XMM0);
+            Enc.orps(&self.code, self.alloc, XMM2, XMM1);
+            self.storeFpFromXmm(instr.rd, XMM2);
+        } else {
+            // f64.max: NaN propagation via xor+or+sub, +0 selection via sub
+            Enc.movaps(&self.code, self.alloc, XMM2, XMM0);
+            Enc.maxsd(&self.code, self.alloc, XMM2, XMM1);
+            Enc.maxsd(&self.code, self.alloc, XMM1, XMM0);
+            Enc.xorps(&self.code, self.alloc, XMM2, XMM1);
+            Enc.orps(&self.code, self.alloc, XMM1, XMM2);
+            Enc.subsd(&self.code, self.alloc, XMM1, XMM2);
+            self.storeFpFromXmm(instr.rd, XMM1);
+        }
+        return true;
     }
 
     /// Emit f32 min/max.
     fn emitFpMinMax32(self: *Compiler, instr: RegInstr) bool {
-        // TODO: x86 MINSS/MAXSS don't propagate NaN per Wasm spec.
-        // Bail to interpreter until proper NaN handling is implemented.
-        _ = self;
-        _ = instr;
-        return false;
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        if (instr.op == 0x96) {
+            // f32.min: NaN propagation via OR, -0 propagation via OR
+            Enc.movaps(&self.code, self.alloc, XMM2, XMM0);
+            Enc.minss(&self.code, self.alloc, XMM2, XMM1);
+            Enc.minss(&self.code, self.alloc, XMM1, XMM0);
+            Enc.orps(&self.code, self.alloc, XMM2, XMM1);
+            self.storeFpFromXmm(instr.rd, XMM2);
+        } else {
+            // f32.max: NaN propagation via xor+or+sub, +0 selection via sub
+            Enc.movaps(&self.code, self.alloc, XMM2, XMM0);
+            Enc.maxss(&self.code, self.alloc, XMM2, XMM1);
+            Enc.maxss(&self.code, self.alloc, XMM1, XMM0);
+            Enc.xorps(&self.code, self.alloc, XMM2, XMM1);
+            Enc.orps(&self.code, self.alloc, XMM1, XMM2);
+            Enc.subss(&self.code, self.alloc, XMM1, XMM2);
+            self.storeFpFromXmm(instr.rd, XMM1);
+        }
+        return true;
     }
 
     /// Emit f64 comparison: result = 0 or 1.
@@ -1935,6 +1981,54 @@ pub const Compiler = struct {
         self.storeVreg(instr.rd, SCRATCH);
     }
 
+    /// Emit unsigned i64 → f64/f32 conversion.
+    /// x86 has no unsigned i64→float instruction, so we branch on the sign bit:
+    /// - If < 2^63: direct signed conversion (value is the same)
+    /// - If >= 2^63: (value >> 1 | value & 1) as signed, then double
+    fn emitConvertI64uToFp(self: *Compiler, instr: RegInstr, is_f64: bool) void {
+        const src = self.getOrLoad(instr.rs1, SCRATCH);
+        if (src != SCRATCH) Enc.movRegReg(&self.code, self.alloc, SCRATCH, src);
+        // TEST SCRATCH, SCRATCH — set SF if bit 63 is set
+        Enc.testRegReg(&self.code, self.alloc, SCRATCH, SCRATCH);
+        const js_patch = Enc.jccRel32(&self.code, self.alloc, .s);
+        // Small path: value < 2^63, signed conversion is correct
+        if (is_f64) {
+            Enc.cvtsi2sd64(&self.code, self.alloc, XMM0, SCRATCH);
+        } else {
+            Enc.cvtsi2ss64(&self.code, self.alloc, XMM0, SCRATCH);
+        }
+        const jmp_done = Enc.jmpRel32(&self.code, self.alloc);
+        // Large path: value >= 2^63
+        Enc.patchRel32(self.code.items, js_patch, self.currentOffset());
+        // SCRATCH2 = SCRATCH (save original for low bit)
+        Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
+        // SHR SCRATCH, 1: REX.W D1 /5 reg
+        self.code.append(self.alloc, Enc.rexW1(SCRATCH)) catch {};
+        self.code.append(self.alloc, 0xD1) catch {};
+        self.code.append(self.alloc, Enc.modrm(3, 5, SCRATCH.low3())) catch {};
+        // AND SCRATCH2 with 1: load 1, AND with saved value
+        // Use: AND SCRATCH2, SCRATCH (scratch2 still = original)
+        // Then: MOV SCRATCH2, 1; AND SCRATCH2, original
+        // Simplest: SCRATCH2 has original. Use AND r64, imm8 (REX.W 83 /4 ib)
+        self.code.append(self.alloc, Enc.rexW1(SCRATCH2)) catch {};
+        self.code.append(self.alloc, 0x83) catch {};
+        self.code.append(self.alloc, Enc.modrm(3, 4, SCRATCH2.low3())) catch {};
+        self.code.append(self.alloc, 1) catch {}; // imm8 = 1
+        // OR SCRATCH, SCRATCH2: (value >> 1) | (value & 1)
+        Enc.orRegReg(&self.code, self.alloc, SCRATCH, SCRATCH2);
+        // Convert (fits in signed i63)
+        if (is_f64) {
+            Enc.cvtsi2sd64(&self.code, self.alloc, XMM0, SCRATCH);
+            Enc.addsd(&self.code, self.alloc, XMM0, XMM0); // double
+        } else {
+            Enc.cvtsi2ss64(&self.code, self.alloc, XMM0, SCRATCH);
+            Enc.addss(&self.code, self.alloc, XMM0, XMM0); // double
+        }
+        // Done
+        Enc.patchRel32(self.code.items, jmp_done, self.currentOffset());
+        self.storeFpFromXmm(instr.rd, XMM0);
+    }
+
     /// Emit FP conversion operations.
     fn emitFpConvert(self: *Compiler, op: u16, instr: RegInstr) bool {
         switch (op) {
@@ -1958,10 +2052,10 @@ pub const Compiler = struct {
                 Enc.cvtsi2sd64(&self.code, self.alloc, XMM0, src);
                 self.storeFpFromXmm(instr.rd, XMM0);
             },
-            // f64.convert_i64_u (0xBA) — needs unsigned handling
-            0xBA => {
-                return false;
-            },
+            // f64.convert_i64_u (0xBA) — unsigned i64 → f64
+            0xBA => self.emitConvertI64uToFp(instr, true),
+            // f32.convert_i64_u (0xB5)
+            0xB5 => self.emitConvertI64uToFp(instr, false),
             // f32.convert_i32_s (0xB2)
             0xB2 => {
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
@@ -1981,8 +2075,6 @@ pub const Compiler = struct {
                 Enc.cvtsi2ss64(&self.code, self.alloc, XMM0, src);
                 self.storeFpFromXmm(instr.rd, XMM0);
             },
-            // f32.convert_i64_u (0xB5) — bail
-            0xB5 => return false,
             // i32/i64.trunc_f32/f64_s/u — bail (need trap checking for NaN/overflow)
             0xAA, 0xAB, 0xA8, 0xA9, 0xB0, 0xB1, 0xAE, 0xAF => return false,
             // f64.promote_f32 (0xBB)
