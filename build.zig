@@ -38,6 +38,8 @@ pub fn build(b: *std.Build) void {
         .name = "zwasm",
         .root_module = cli_mod,
     });
+    // Increase stack size for deep recursion in Debug builds (e.g. mutual recursion via call_ref)
+    cli.stack_size = 64 * 1024 * 1024; // 64MB
     b.installArtifact(cli);
 
     // Example executables
