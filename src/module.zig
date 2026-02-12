@@ -927,6 +927,15 @@ fn skipInitExpr(reader: *Reader) !void {
             .i32_add, .i32_sub, .i32_mul,
             .i64_add, .i64_sub, .i64_mul,
             => {},
+            // SIMD prefix — v128.const (0xFD 0x0C) in init expressions
+            .simd_prefix => {
+                const simd_op = try reader.readU32();
+                if (simd_op == 0x0C) { // v128.const
+                    _ = try reader.readBytes(16);
+                } else {
+                    return error.InvalidWasm;
+                }
+            },
             else => return error.InvalidWasm,
         }
     }

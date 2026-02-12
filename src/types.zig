@@ -549,7 +549,7 @@ fn registerImports(
                             }
                             const new_func_addr = store.addFunction(func) catch
                                 return error.WasmInstantiateError;
-                            glob.value = @as(u64, @intCast(new_func_addr)) + 1;
+                            glob.value = @as(u128, @intCast(new_func_addr)) + 1;
                         }
                         const addr = store.addGlobal(glob) catch
                             return error.WasmInstantiateError;

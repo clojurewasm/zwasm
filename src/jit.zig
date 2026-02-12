@@ -3453,7 +3453,7 @@ pub fn jitGetMemInfo(instance_opaque: *anyopaque, out: [*]u64) callconv(.c) void
 pub fn jitGlobalGet(instance_opaque: *anyopaque, idx: u32) callconv(.c) u64 {
     const instance: *Instance = @ptrCast(@alignCast(instance_opaque));
     const g = instance.getGlobal(idx) catch return 0;
-    return g.value;
+    return @truncate(g.value);
 }
 
 /// JIT helper: global.set — write a value to a global variable.

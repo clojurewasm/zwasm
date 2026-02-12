@@ -383,17 +383,20 @@ pub const Vm = struct {
                 const inst: *Instance = @ptrCast(@alignCast(wf.instance));
 
                 // Check if function has v128 params (skip regir/jit for top-level v128 calls)
-                const has_v128_params = blk: {
+                const has_v128 = blk: {
                     for (func_ptr.params) |pt| {
                         if (pt == .v128) break :blk true;
+                    }
+                    for (func_ptr.results) |rt| {
+                        if (rt == .v128) break :blk true;
                     }
                     break :blk false;
                 };
 
                 // Try register IR conversion (requires predecoded IR)
-                // Skip for: multi-value return, v128 params (args array size mismatch)
+                // Skip for: multi-value return, v128 params/results (u64 regs can't hold v128)
                 if (wf.ir != null and wf.reg_ir == null and !wf.reg_ir_failed and
-                    func_ptr.results.len <= 1 and !has_v128_params)
+                    func_ptr.results.len <= 1 and !has_v128)
                 {
                     const resolver = regalloc_mod.ParamResolver{
                         .ctx = @ptrCast(inst),
@@ -435,7 +438,7 @@ pub const Vm = struct {
                     }
                 }
 
-                if (has_v128_params) {
+                if (has_v128) {
                     // Skip RegIR/JIT for v128 params — fall through to stack path
                 } else if (wf.reg_ir) |reg| {
                     // Dump RegIR if requested (one-shot)
@@ -969,12 +972,12 @@ pub const Vm = struct {
                 .global_get => {
                     const idx = try reader.readU32();
                     const g = try instance.getGlobal(idx);
-                    try self.push(g.value);
+                    try self.pushV128(g.value);
                 },
                 .global_set => {
                     const idx = try reader.readU32();
                     const g = try instance.getGlobal(idx);
-                    g.value = self.pop();
+                    g.value = self.popV128();
                 },
 
                 // ---- Table access ----
@@ -1877,7 +1880,11 @@ pub const Vm = struct {
                 const b: [8]i16 = @bitCast(self.popV128());
                 const a: [8]i16 = @bitCast(self.popV128());
                 var r: [4]i32 = undefined;
-                inline for (0..4) |i| r[i] = @as(i32, a[i * 2]) * @as(i32, b[i * 2]) + @as(i32, a[i * 2 + 1]) * @as(i32, b[i * 2 + 1]);
+                inline for (0..4) |i| {
+                    const p0 = @as(i32, a[i * 2]) *% @as(i32, b[i * 2]);
+                    const p1 = @as(i32, a[i * 2 + 1]) *% @as(i32, b[i * 2 + 1]);
+                    r[i] = p0 +% p1;
+                }
                 try self.pushV128(@bitCast(r));
             },
 
@@ -3166,7 +3173,7 @@ pub const Vm = struct {
                 // ---- Global get/set ----
                 0x23 => { // global.get
                     const g = try instance.getGlobal(instr.operand);
-                    regs[instr.rd] = g.value;
+                    regs[instr.rd] = @truncate(g.value);
                 },
                 0x24 => { // global.set
                     const g = try instance.getGlobal(instr.operand);
@@ -3456,11 +3463,11 @@ pub const Vm = struct {
                 },
                 0x23 => { // global_get
                     const g = try instance.getGlobal(instr.operand);
-                    try self.push(g.value);
+                    try self.pushV128(g.value);
                 },
                 0x24 => { // global_set
                     const g = try instance.getGlobal(instr.operand);
-                    g.value = self.pop();
+                    g.value = self.popV128();
                 },
 
                 // ---- Table access ----

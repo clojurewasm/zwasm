@@ -140,7 +140,7 @@ pub const Table = struct {
 
 /// A Wasm global variable.
 pub const Global = struct {
-    value: u64,
+    value: u128,
     valtype: ValType,
     mutability: Mutability,
 };
@@ -495,7 +495,7 @@ test "Store — addGlobal and getGlobal" {
         .mutability = .mutable,
     });
     const g = try store.getGlobal(addr);
-    try testing.expectEqual(@as(u64, 42), g.value);
+    try testing.expectEqual(@as(u128, 42), g.value);
     try testing.expectEqual(Mutability.mutable, g.mutability);
 }
 

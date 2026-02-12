@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-15 — COMPLETE
 - Source: ~28K LOC, 17 files, 229 tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
-- Spec: 56,265/56,399 (99.8%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
+- Spec: 56,399/56,399 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -112,11 +112,11 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-Stage 16 complete — merge gate checklist.
+Ready for Stage 17 (Function References).
 
 ## Previous Task
 
-Stage 16.2: Spec tests + v128 invoke support — 85/85 relaxed SIMD pass, v128 batch protocol, select/branch v128 fix.
+SIMD spec 100%: v128 globals, store_lane, dot product overflow, select/branch v128 preservation.
 
 ## Wasm 3.0 Coverage
 
@@ -126,7 +126,7 @@ GC requires function_references first.
 
 ## Known Bugs
 
-None. Spec tests: 56265/56399 (99.8%). 134 pre-existing SIMD failures (store_lane unimplemented, v128 globals InvalidWasm).
+None. Spec tests: 56399/56399 (100%). All SIMD tests pass including v128 globals and store_lane.
 
 ## References
 

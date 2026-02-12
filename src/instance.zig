@@ -267,7 +267,7 @@ pub const Instance = struct {
                     for (exprs, 0..) |expr, i| {
                         // evalInitExpr uses 0=null, addr+1=valid ref convention
                         const val = try evalInitExpr(expr, self);
-                        elem.set(i, @intCast(val));
+                        elem.set(i, @truncate(val));
                     }
                 },
             }
@@ -323,7 +323,7 @@ pub const Instance = struct {
                                 if (val == 0) {
                                     try t.set(dest, null);
                                 } else {
-                                    try t.set(dest, @intCast(val - 1));
+                                    try t.set(dest, @truncate(val - 1));
                                 }
                             }
                         },
@@ -367,9 +367,9 @@ pub const Instance = struct {
 
 /// Evaluate a constant init expression (i32.const, i64.const, f32.const,
 /// f64.const, global.get, ref.null, ref.func). Returns u64.
-pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u64 {
+pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u128 {
     var reader = Reader.init(expr);
-    var stack: [16]u64 = undefined;
+    var stack: [16]u128 = undefined;
     var sp: usize = 0;
     while (reader.hasMore()) {
         const byte = try reader.readByte();
@@ -378,25 +378,25 @@ pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u64 {
             .i32_const => {
                 const val = try reader.readI32();
                 if (sp >= stack.len) return error.InvalidInitExpr;
-                stack[sp] = @bitCast(@as(i64, val));
+                stack[sp] = @as(u128, @as(u64, @bitCast(@as(i64, val))));
                 sp += 1;
             },
             .i64_const => {
                 const val = try reader.readI64();
                 if (sp >= stack.len) return error.InvalidInitExpr;
-                stack[sp] = @bitCast(val);
+                stack[sp] = @as(u128, @as(u64, @bitCast(val)));
                 sp += 1;
             },
             .f32_const => {
                 const val = try reader.readF32();
                 if (sp >= stack.len) return error.InvalidInitExpr;
-                stack[sp] = @as(u64, @as(u32, @bitCast(val)));
+                stack[sp] = @as(u128, @as(u32, @bitCast(val)));
                 sp += 1;
             },
             .f64_const => {
                 const val = try reader.readF64();
                 if (sp >= stack.len) return error.InvalidInitExpr;
-                stack[sp] = @bitCast(val);
+                stack[sp] = @as(u128, @as(u64, @bitCast(val)));
                 sp += 1;
             },
             .global_get => {
@@ -417,7 +417,7 @@ pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u64 {
                 if (sp >= stack.len) return error.InvalidInitExpr;
                 // Resolve to store address + 1 (0 = null ref convention)
                 if (idx < instance.funcaddrs.items.len) {
-                    stack[sp] = @as(u64, @intCast(instance.funcaddrs.items[idx])) + 1;
+                    stack[sp] = @as(u128, @intCast(instance.funcaddrs.items[idx])) + 1;
                 } else {
                     return error.FunctionIndexOutOfBounds;
                 }
@@ -426,8 +426,8 @@ pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u64 {
             // Extended constant expressions (Wasm 3.0)
             .i32_add, .i32_sub, .i32_mul => {
                 if (sp < 2) return error.InvalidInitExpr;
-                const b: i32 = @truncate(@as(i64, @bitCast(stack[sp - 1])));
-                const a: i32 = @truncate(@as(i64, @bitCast(stack[sp - 2])));
+                const b: i32 = @truncate(@as(i64, @bitCast(@as(u64, @truncate(stack[sp - 1])))));
+                const a: i32 = @truncate(@as(i64, @bitCast(@as(u64, @truncate(stack[sp - 2])))));
                 const result: i32 = switch (op) {
                     .i32_add => a +% b,
                     .i32_sub => a -% b,
@@ -435,12 +435,12 @@ pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u64 {
                     else => unreachable,
                 };
                 sp -= 1;
-                stack[sp - 1] = @bitCast(@as(i64, result));
+                stack[sp - 1] = @as(u128, @as(u64, @bitCast(@as(i64, result))));
             },
             .i64_add, .i64_sub, .i64_mul => {
                 if (sp < 2) return error.InvalidInitExpr;
-                const b: i64 = @bitCast(stack[sp - 1]);
-                const a: i64 = @bitCast(stack[sp - 2]);
+                const b: i64 = @bitCast(@as(u64, @truncate(stack[sp - 1])));
+                const a: i64 = @bitCast(@as(u64, @truncate(stack[sp - 2])));
                 const result: i64 = switch (op) {
                     .i64_add => a +% b,
                     .i64_sub => a -% b,
@@ -448,7 +448,19 @@ pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u64 {
                     else => unreachable,
                 };
                 sp -= 1;
-                stack[sp - 1] = @bitCast(result);
+                stack[sp - 1] = @as(u128, @as(u64, @bitCast(result)));
+            },
+            // SIMD v128.const in init expressions
+            .simd_prefix => {
+                const simd_op = try reader.readU32();
+                if (simd_op == 0x0C) { // v128.const
+                    const bytes = try reader.readBytes(16);
+                    if (sp >= stack.len) return error.InvalidInitExpr;
+                    stack[sp] = std.mem.readInt(u128, bytes[0..16], .little);
+                    sp += 1;
+                } else {
+                    return error.InvalidInitExpr;
+                }
             },
             .end => {
                 if (sp == 0) return 0; // empty init expr
@@ -633,7 +645,7 @@ test "evalInitExpr — i32.const" {
     // i32.const 42, end
     const expr = [_]u8{ 0x41, 42, 0x0B };
     const val = try evalInitExpr(&expr, &inst);
-    try testing.expectEqual(@as(u64, 42), val);
+    try testing.expectEqual(@as(u128, 42), val);
 }
 
 test "evalInitExpr — i32.const negative" {
@@ -649,7 +661,7 @@ test "evalInitExpr — i32.const negative" {
     const expr = [_]u8{ 0x41, 0x7F, 0x0B };
     const val = try evalInitExpr(&expr, &inst);
     // -1 as i32 sign-extended to i64 then bitcast to u64
-    const expected: u64 = @bitCast(@as(i64, -1));
+    const expected: u128 = @as(u64, @bitCast(@as(i64, -1)));
     try testing.expectEqual(expected, val);
 }
 
@@ -665,7 +677,7 @@ test "evalInitExpr — i64.const" {
     // i64.const 100, end
     const expr = [_]u8{ 0x42, 0xE4, 0x00, 0x0B };
     const val = try evalInitExpr(&expr, &inst);
-    try testing.expectEqual(@as(u64, 100), val);
+    try testing.expectEqual(@as(u128, 100), val);
 }
 
 test "evalInitExpr — extended const i32.add" {
@@ -680,7 +692,7 @@ test "evalInitExpr — extended const i32.add" {
     // i32.const 20, i32.const 22, i32.add, end => 42
     const expr = [_]u8{ 0x41, 20, 0x41, 22, 0x6A, 0x0B };
     const val = try evalInitExpr(&expr, &inst);
-    try testing.expectEqual(@as(u64, @bitCast(@as(i64, 42))), val);
+    try testing.expectEqual(@as(u128, @as(u64, @bitCast(@as(i64, 42)))), val);
 }
 
 test "evalInitExpr — extended const i32.sub/mul" {
@@ -696,7 +708,7 @@ test "evalInitExpr — extended const i32.sub/mul" {
     // (i32.add (i32.sub (i32.mul 20 2) 2) 4) = (40 - 2) + 4 = 42
     const expr = [_]u8{ 0x41, 20, 0x41, 2, 0x6C, 0x41, 2, 0x6B, 0x41, 4, 0x6A, 0x0B };
     const val = try evalInitExpr(&expr, &inst);
-    try testing.expectEqual(@as(u64, @bitCast(@as(i64, 42))), val);
+    try testing.expectEqual(@as(u128, @as(u64, @bitCast(@as(i64, 42)))), val);
 }
 
 test "evalInitExpr — extended const i64.add" {
@@ -711,5 +723,5 @@ test "evalInitExpr — extended const i64.add" {
     // i64.const 100, i64.const 200, i64.add, end => 300
     const expr = [_]u8{ 0x42, 0xE4, 0x00, 0x42, 0xC8, 0x01, 0x7C, 0x0B };
     const val = try evalInitExpr(&expr, &inst);
-    try testing.expectEqual(@as(u64, 300), val);
+    try testing.expectEqual(@as(u128, 300), val);
 }
