@@ -226,22 +226,43 @@ pub const Module = struct {
             return error.InvalidWasm;
 
         var reader = Reader.init(self.wasm_bin[8..]);
+        var last_section_id: u8 = 0;
 
         while (reader.hasMore()) {
-            try self.decodeSection(&reader);
+            try self.decodeSection(&reader, &last_section_id);
         }
 
         // Verify function/code count consistency
         if (self.functions.items.len != self.codes.items.len)
             return error.FunctionCodeMismatch;
 
+        // Verify data count matches actual data section count
+        if (self.data_count) |dc| {
+            if (dc != self.datas.items.len) return error.MalformedModule;
+        }
+
+        // Validate start function index
+        if (self.start) |start_idx| {
+            const total_funcs = self.num_imported_funcs + self.functions.items.len;
+            if (start_idx >= total_funcs) return error.InvalidWasm;
+        }
+
         self.decoded = true;
     }
 
-    fn decodeSection(self: *Module, reader: *Reader) !void {
+    fn decodeSection(self: *Module, reader: *Reader, last_section_id: *u8) !void {
         const section_id = try reader.readByte();
         const section_size = try reader.readU32();
         var sub = try reader.subReader(section_size);
+
+        // Non-custom sections must appear in order, at most once
+        // Binary order: 1,2,3,4,5,6,7,8,9,12,10,11 (data_count before code)
+        // Tag section (13, exception handling) has flexible placement — only check no duplicates
+        if (section_id != 0 and section_id != 13) {
+            const order = sectionOrder(section_id);
+            if (order <= last_section_id.*) return error.MalformedModule;
+            last_section_id.* = order;
+        }
 
         const section: opcode.Section = @enumFromInt(section_id);
         switch (section) {
@@ -259,8 +280,11 @@ pub const Module = struct {
             .data => try self.decodeDataSection(&sub),
             .data_count => try self.decodeDataCountSection(&sub),
             .tag => try self.decodeTagSection(&sub),
-            _ => {}, // skip unknown sections
+            _ => return error.MalformedModule, // unknown section id
         }
+
+        // Verify section consumed exactly the declared size (custom sections may have trailing data)
+        if (section != .custom and sub.hasMore()) return error.MalformedModule;
     }
 
     // ---- Section 1: Type ----
@@ -373,6 +397,7 @@ pub const Module = struct {
         for (0..count) |_| {
             const valtype: ValType = @enumFromInt(try reader.readByte());
             const mutability = try reader.readByte();
+            if (mutability > 1) return error.MalformedModule;
             const init_start = reader.pos;
             try skipInitExpr(reader);
             const init_end = reader.pos;
@@ -407,6 +432,10 @@ pub const Module = struct {
             if (!std.unicode.utf8ValidateSlice(name)) return error.MalformedUtf8;
             const kind: opcode.ExternalKind = @enumFromInt(try reader.readByte());
             const index = try reader.readU32();
+            // Check for duplicate export names
+            for (self.exports.items) |existing| {
+                if (mem.eql(u8, existing.name, name)) return error.DuplicateExport;
+            }
             try self.exports.append(self.alloc, .{ .name = name, .kind = kind, .index = index });
         }
     }
@@ -873,17 +902,48 @@ fn readTableDef(reader: *Reader) !TableDef {
 
 fn readMemoryDef(reader: *Reader) !MemoryDef {
     const limits = try readLimits(reader);
+    // 32-bit memories: max 65536 pages (4 GiB)
+    if (!limits.is_64) {
+        if (limits.min > 65536) return error.InvalidWasm;
+        if (limits.max) |m| {
+            if (m > 65536) return error.InvalidWasm;
+        }
+    }
     return .{ .limits = limits };
+}
+
+/// Map section ID to binary position order.
+/// Binary order: 1,2,13,3,4,5,6,7,8,9,12,10,11 (tag after import, data_count before code).
+fn sectionOrder(section_id: u8) u8 {
+    return switch (section_id) {
+        1 => 1, // type
+        2 => 2, // import
+        13 => 3, // tag (exception handling: between import and function)
+        3 => 4, // function
+        4 => 5, // table
+        5 => 6, // memory
+        6 => 7, // global
+        7 => 8, // export
+        8 => 9, // start
+        9 => 10, // element
+        12 => 11, // data_count (before code)
+        10 => 12, // code
+        11 => 13, // data
+        else => section_id + 100, // unknown sections get high order
+    };
 }
 
 fn readGlobalImportDef(reader: *Reader) !GlobalDef {
     const valtype: ValType = @enumFromInt(try reader.readByte());
     const mutability = try reader.readByte();
+    if (mutability > 1) return error.MalformedModule;
     return .{ .valtype = valtype, .mutability = mutability, .init_expr = &.{} };
 }
 
 fn readLimits(reader: *Reader) !opcode.Limits {
     const flags = try reader.readByte();
+    // Valid flags: has_max(0x01), shared(0x02), is_64(0x04), page_size(0x08)
+    if (flags & 0xF0 != 0) return error.InvalidWasm;
     const is_64 = (flags & 0x04) != 0;
     const has_max = (flags & 0x01) != 0;
     const has_page_size = (flags & 0x08) != 0;
@@ -908,6 +968,11 @@ fn readLimits(reader: *Reader) !opcode.Limits {
         if (p > 16) return error.InvalidWasm;
         page_size = @as(u32, 1) << @intCast(p);
         if (page_size != 1 and page_size != 65536) return error.InvalidWasm;
+    }
+
+    // Validate min <= max
+    if (max) |m| {
+        if (min > m) return error.InvalidWasm;
     }
 
     return .{ .min = min, .max = max, .is_64 = is_64, .page_size = page_size };
