@@ -35,7 +35,7 @@ Breaking main breaks CW for all users.
   1. `zig build test` passes (zwasm)
   2. `python3 test/spec/run_spec.py --summary` passes (if interpreter/opcodes changed)
   3. `bash bench/run_bench.sh --quick` shows no regression
-- **Tag + CW release**: Manual process, see `/release` command (`.claude/commands/release.md`).
+- **Tag + CW release**: Manual process, use `/release` skill (`.claude/skills/release/SKILL.md`).
 - **Orient step**: At session start, check if you're on main or a feature branch.
   If on main with pending work, create a feature branch first.
 

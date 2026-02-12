@@ -1,7 +1,17 @@
+---
+name: release
+description: Full release process for tagging zwasm and updating ClojureWasm downstream
+disable-model-invocation: true
+---
+
 # Release: zwasm + ClojureWasm
 
-Full release process for tagging zwasm and updating ClojureWasm downstream.
-Only run when explicitly instructed by the user.
+Full release process. Only run when explicitly instructed by the user.
+Version argument: `/release v0.13.0`
+
+**Failure policy**: Stop at the failed phase, report to user.
+Fix the issue (new commit on zwasm or CW), then re-run from the failed phase.
+Never tag or push until all prior phases pass.
 
 ## Phase 1: zwasm Verification (Mac)
 
@@ -18,13 +28,7 @@ Only run when explicitly instructed by the user.
 4. `python3 test/spec/run_spec.py --summary` — spec tests pass
 5. `bash bench/run_bench.sh` — benchmarks, no extreme regression
 
-## Phase 3: zwasm Tag + Push
-
-1. Record full benchmark: `bash bench/record.sh --id=vX.Y.Z --reason="Release vX.Y.Z"`
-2. Tag: `git tag vX.Y.Z`
-3. Push: `git push origin main --tags`
-
-## Phase 4: ClojureWasm Update (relative path build)
+## Phase 3: ClojureWasm Verification (relative path build)
 
 1. `cd ~/ClojureWasm`
 2. Ensure `build.zig.zon` uses relative path to local zwasm (for testing)
@@ -33,11 +37,17 @@ Only run when explicitly instructed by the user.
 5. `bash test/portability/run_compat.sh` — portability tests pass
 6. Run CW benchmarks if available, check no extreme regression
 
+## Phase 4: zwasm Tag + Push
+
+1. Record full benchmark: `bash bench/record.sh --id=$ARGUMENTS --reason="Release $ARGUMENTS"`
+2. Tag: `git tag $ARGUMENTS`
+3. Push: `git push origin main --tags`
+
 ## Phase 5: ClojureWasm Tag + Push
 
 1. Update `build.zig.zon` to reference the new zwasm tag (GitHub URL + hash)
 2. `zig build test` — verify it still works with the tagged version
 3. Record CW benchmark history if applicable
-4. Commit: `git commit -am "Update zwasm to vX.Y.Z"`
-5. Tag: `git tag vX.Y.Z` (CW version, may differ from zwasm version)
+4. Commit: `git commit -am "Update zwasm to $ARGUMENTS"`
+5. Tag CW (version may differ from zwasm)
 6. Push: `git push origin main --tags`

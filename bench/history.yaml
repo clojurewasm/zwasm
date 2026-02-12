@@ -519,3 +519,30 @@ entries:
       st_nestedloop: {time_ms: 4.0}
       st_ackermann: {time_ms: 6.8}
       st_matrix: {time_ms: 287.9}
+  - id: "stage16"
+    date: "2026-02-12"
+    reason: "Stage 16 relaxed SIMD complete"
+    commit: "5054aee"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 95.9}
+      tak: {time_ms: 11.7}
+      sieve: {time_ms: 4.8}
+      nbody: {time_ms: 43.6}
+      nqueens: {time_ms: 3.7}
+      tgo_fib: {time_ms: 52.8}
+      tgo_tak: {time_ms: 10.0}
+      tgo_arith: {time_ms: 1.1}
+      tgo_sieve: {time_ms: 3.2}
+      tgo_fib_loop: {time_ms: 2.8}
+      tgo_gcd: {time_ms: 1.6}
+      tgo_nqueens: {time_ms: 46.1}
+      tgo_mfr: {time_ms: 70.7}
+      tgo_list: {time_ms: 58.9}
+      tgo_rwork: {time_ms: 8.1}
+      tgo_strops: {time_ms: 35.9}
+      st_fib2: {time_ms: 1367.9}
+      st_sieve: {time_ms: 234.9}
+      st_nestedloop: {time_ms: 4.1}
+      st_ackermann: {time_ms: 7.3}
+      st_matrix: {time_ms: 285.2}
