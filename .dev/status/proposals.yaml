@@ -77,7 +77,7 @@ wasm_3.0:
       return_call_ref later.
 
   extended_const:
-    status: todo
+    status: complete
     opcodes: 0                    # No new opcodes — extends constant expressions
     new_types: []
     complexity: trivial

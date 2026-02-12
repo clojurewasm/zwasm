@@ -873,6 +873,10 @@ fn skipInitExpr(reader: *Reader) !void {
             .global_get => _ = try reader.readU32(),
             .ref_null => _ = try reader.readByte(),
             .ref_func => _ = try reader.readU32(),
+            // Extended constant expressions (Wasm 3.0)
+            .i32_add, .i32_sub, .i32_mul,
+            .i64_add, .i64_sub, .i64_mul,
+            => {},
             else => return error.InvalidWasm,
         }
     }

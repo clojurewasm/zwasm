@@ -381,44 +381,90 @@ pub const Instance = struct {
 /// f64.const, global.get, ref.null, ref.func). Returns u64.
 pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u64 {
     var reader = Reader.init(expr);
+    var stack: [16]u64 = undefined;
+    var sp: usize = 0;
     while (reader.hasMore()) {
         const byte = try reader.readByte();
         const op: opcode.Opcode = @enumFromInt(byte);
         switch (op) {
             .i32_const => {
                 const val = try reader.readI32();
-                return @bitCast(@as(i64, val));
+                if (sp >= stack.len) return error.InvalidInitExpr;
+                stack[sp] = @bitCast(@as(i64, val));
+                sp += 1;
             },
             .i64_const => {
                 const val = try reader.readI64();
-                return @bitCast(val);
+                if (sp >= stack.len) return error.InvalidInitExpr;
+                stack[sp] = @bitCast(val);
+                sp += 1;
             },
             .f32_const => {
                 const val = try reader.readF32();
-                return @as(u64, @as(u32, @bitCast(val)));
+                if (sp >= stack.len) return error.InvalidInitExpr;
+                stack[sp] = @as(u64, @as(u32, @bitCast(val)));
+                sp += 1;
             },
             .f64_const => {
                 const val = try reader.readF64();
-                return @bitCast(val);
+                if (sp >= stack.len) return error.InvalidInitExpr;
+                stack[sp] = @bitCast(val);
+                sp += 1;
             },
             .global_get => {
                 const idx = try reader.readU32();
                 const g = try instance.getGlobal(idx);
-                return g.value;
+                if (sp >= stack.len) return error.InvalidInitExpr;
+                stack[sp] = g.value;
+                sp += 1;
             },
             .ref_null => {
                 _ = try reader.readByte(); // reftype
-                return 0; // null ref
+                if (sp >= stack.len) return error.InvalidInitExpr;
+                stack[sp] = 0; // null ref
+                sp += 1;
             },
             .ref_func => {
                 const idx = try reader.readU32();
-                return idx;
+                if (sp >= stack.len) return error.InvalidInitExpr;
+                stack[sp] = idx;
+                sp += 1;
             },
-            .end => return 0, // empty init expr
+            // Extended constant expressions (Wasm 3.0)
+            .i32_add, .i32_sub, .i32_mul => {
+                if (sp < 2) return error.InvalidInitExpr;
+                const b: i32 = @truncate(@as(i64, @bitCast(stack[sp - 1])));
+                const a: i32 = @truncate(@as(i64, @bitCast(stack[sp - 2])));
+                const result: i32 = switch (op) {
+                    .i32_add => a +% b,
+                    .i32_sub => a -% b,
+                    .i32_mul => a *% b,
+                    else => unreachable,
+                };
+                sp -= 1;
+                stack[sp - 1] = @bitCast(@as(i64, result));
+            },
+            .i64_add, .i64_sub, .i64_mul => {
+                if (sp < 2) return error.InvalidInitExpr;
+                const b: i64 = @bitCast(stack[sp - 1]);
+                const a: i64 = @bitCast(stack[sp - 2]);
+                const result: i64 = switch (op) {
+                    .i64_add => a +% b,
+                    .i64_sub => a -% b,
+                    .i64_mul => a *% b,
+                    else => unreachable,
+                };
+                sp -= 1;
+                stack[sp - 1] = @bitCast(result);
+            },
+            .end => {
+                if (sp == 0) return 0; // empty init expr
+                return stack[sp - 1];
+            },
             else => return error.InvalidInitExpr,
         }
     }
-    return 0;
+    return if (sp > 0) stack[sp - 1] else 0;
 }
 
 // ============================================================
@@ -627,4 +673,50 @@ test "evalInitExpr — i64.const" {
     const expr = [_]u8{ 0x42, 0xE4, 0x00, 0x0B };
     const val = try evalInitExpr(&expr, &inst);
     try testing.expectEqual(@as(u64, 100), val);
+}
+
+test "evalInitExpr — extended const i32.add" {
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+    const mod_bytes = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00 };
+    var mod = Module.init(testing.allocator, &mod_bytes);
+    defer mod.deinit();
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+
+    // i32.const 20, i32.const 22, i32.add, end => 42
+    const expr = [_]u8{ 0x41, 20, 0x41, 22, 0x6A, 0x0B };
+    const val = try evalInitExpr(&expr, &inst);
+    try testing.expectEqual(@as(u64, @bitCast(@as(i64, 42))), val);
+}
+
+test "evalInitExpr — extended const i32.sub/mul" {
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+    const mod_bytes = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00 };
+    var mod = Module.init(testing.allocator, &mod_bytes);
+    defer mod.deinit();
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+
+    // i32.const 20, i32.const 2, i32.mul, i32.const 2, i32.sub, i32.const 4, i32.add, end => 42
+    // (i32.add (i32.sub (i32.mul 20 2) 2) 4) = (40 - 2) + 4 = 42
+    const expr = [_]u8{ 0x41, 20, 0x41, 2, 0x6C, 0x41, 2, 0x6B, 0x41, 4, 0x6A, 0x0B };
+    const val = try evalInitExpr(&expr, &inst);
+    try testing.expectEqual(@as(u64, @bitCast(@as(i64, 42))), val);
+}
+
+test "evalInitExpr — extended const i64.add" {
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+    const mod_bytes = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00 };
+    var mod = Module.init(testing.allocator, &mod_bytes);
+    defer mod.deinit();
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+
+    // i64.const 100, i64.const 200, i64.add, end => 300
+    const expr = [_]u8{ 0x42, 0xE4, 0x00, 0x42, 0xC8, 0x01, 0x7C, 0x0B };
+    const val = try evalInitExpr(&expr, &inst);
+    try testing.expectEqual(@as(u64, 300), val);
 }

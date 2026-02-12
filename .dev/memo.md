@@ -48,7 +48,7 @@ Stage 14: Wasm 3.0 — Trivial Proposals
 Target: extended_const, branch_hinting, tail_call.
 Three small proposals batched together (~330 LOC total).
 
-1. [ ] 14.1: Extended constant expressions (i32/i64 add/sub/mul in const exprs)
+1. [x] 14.1: Extended constant expressions (i32/i64 add/sub/mul in const exprs)
 2. [ ] 14.2: Branch hinting (custom section parsing, store per-function hints)
 3. [ ] 14.3: Tail call — return_call (0x12) bytecode interpreter
 4. [ ] 14.4: Tail call — return_call_indirect (0x13) bytecode interpreter
@@ -84,16 +84,11 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-14.1: Extended constant expressions.
-
-Convert evalInitExpr (instance.zig) from single-value-return to stack-based evaluator.
-Add i32.add/sub/mul and i64.add/sub/mul support.
-Update skipInitExpr (module.zig) to accept these opcodes.
-Spec test: convert extended-const test files, run.
+14.2: Branch hinting (custom section parsing).
 
 ## Previous Task
 
-13.5: Ubuntu verification + benchmarks + CI for x86_64 JIT.
+14.1: Extended constant expressions (stack-based evalInitExpr with i32/i64 add/sub/mul).
 
 ## Wasm 3.0 Coverage
 
