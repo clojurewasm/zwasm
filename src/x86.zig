@@ -766,7 +766,7 @@ const Enc = struct {
     /// MOV r32, imm32 (zero-extending)
     fn movImm32ToReg(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, imm: u32) void {
         if (dst.isExt()) buf.append(alloc, 0x41) catch {};
-        buf.append(alloc, 0xB8 | dst.low3()) catch {};
+        buf.append(alloc, @as(u8, 0xB8) | @as(u8, dst.low3())) catch {};
         appendU32(buf, alloc, imm);
     }
 
@@ -1304,9 +1304,8 @@ pub const Compiler = struct {
                 // MOV EAX, imm32 (5 bytes) — zero extends to RAX
                 Enc.movImm32ToReg(&self.code, self.alloc, .rax, stub.error_code);
                 // JMP rel32 to shared_exit
-                const jmp_rel32_off = self.currentOffset() + 1;
-                Enc.jmpRel32(&self.code, self.alloc, 0);
-                Enc.patchRel32(self.code.items, jmp_rel32_off, shared_exit);
+                const jmp_patch_off = Enc.jmpRel32(&self.code, self.alloc);
+                Enc.patchRel32(self.code.items, jmp_patch_off, shared_exit);
                 // Patch original Jcc to point to this stub
                 Enc.patchRel32(self.code.items, stub.rel32_offset, stub_offset);
             }
@@ -2303,7 +2302,7 @@ pub const Compiler = struct {
             0xAA, 0xAB, 0xB0, 0xB1, // i32/i64.trunc_f64_s/u
             0xA8, 0xA9, 0xAE, 0xAF, // i32/i64.trunc_f32_s/u
             0xBB, 0xB6,             // f64.promote_f32, f32.demote_f64
-            0x98, 0x8A,             // f64.copysign, f32.copysign
+            0x98, 0xA6,             // f32.copysign, f64.copysign
             0x9B, 0x9C, 0x9D, 0x9E, // f64.ceil/floor/trunc/nearest
             0x8D, 0x8E, 0x8F, 0x90, // f32.ceil/floor/trunc/nearest
             => self.emitFpConvert(instr.op, instr),
