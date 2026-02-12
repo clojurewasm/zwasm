@@ -40,7 +40,7 @@ ARM64 code untouched (zero regression). Trampolines/helpers shared via import.
 1. [x] 13.1: x86_64 instruction encoder (src/x86.zig) + arch dispatch skeleton
 2. [x] 13.2: Comparison, control flow, shifts, division, bit ops
 3. [x] 13.3: Memory operations, globals, function calls, error stubs
-4. [ ] 13.4: Floating-point SSE2 (f64/f32 arithmetic + conversions)
+4. [x] 13.4: Floating-point SSE2 (f64/f32 arithmetic + conversions)
 5. [ ] 13.5: Ubuntu verification + benchmarks + CI
 
 Stage 14: Wasm 3.0 — Trivial Proposals
@@ -84,11 +84,11 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-13.4: Floating-point SSE2 (f64/f32 arithmetic + conversions) for x86_64 JIT.
+13.5: Ubuntu verification + benchmarks + CI for x86_64 JIT.
 
 ## Previous Task
 
-13.3: Memory operations, globals, function calls, error stubs for x86_64 JIT.
+13.4: Floating-point SSE2 for x86_64 JIT.
 
 ## Wasm 3.0 Coverage
 

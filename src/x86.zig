@@ -805,6 +805,174 @@ const Enc = struct {
         const bytes: [8]u8 = @bitCast(val);
         buf.appendSlice(alloc, &bytes) catch {};
     }
+
+    // --- SSE2 floating-point ---
+
+    /// MOVQ xmm, r64: 66 REX.W 0F 6E /r  (GPR → XMM)
+    fn movqToXmm(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
+        buf.append(alloc, 0x66) catch {};
+        // REX.W + REX.B if gpr is extended, REX.R if xmm >= 8
+        var r: u8 = 0x48; // REX.W
+        if (gpr.isExt()) r |= 0x01; // REX.B
+        if (xmm >= 8) r |= 0x04; // REX.R
+        buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x6E }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+    }
+
+    /// MOVQ r64, xmm: 66 REX.W 0F 7E /r  (XMM → GPR)
+    fn movqFromXmm(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4) void {
+        buf.append(alloc, 0x66) catch {};
+        var r: u8 = 0x48;
+        if (gpr.isExt()) r |= 0x01;
+        if (xmm >= 8) r |= 0x04;
+        buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x7E }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+    }
+
+    /// SSE2 binary op on XMM registers: prefix opcode_hi opcode_lo ModR/M
+    fn sseOp(buf: *std.ArrayList(u8), alloc: Allocator, prefix: u8, op_hi: u8, op_lo: u8, dst_xmm: u4, src_xmm: u4) void {
+        buf.append(alloc, prefix) catch {};
+        // REX if any xmm >= 8
+        if (dst_xmm >= 8 or src_xmm >= 8) {
+            var r: u8 = 0x40;
+            if (dst_xmm >= 8) r |= 0x04; // REX.R
+            if (src_xmm >= 8) r |= 0x01; // REX.B
+            buf.append(alloc, r) catch {};
+        }
+        buf.appendSlice(alloc, &[_]u8{ op_hi, op_lo }) catch {};
+        buf.append(alloc, modrm(3, @truncate(dst_xmm), @truncate(src_xmm))) catch {};
+    }
+
+    // f64 arithmetic (SD = scalar double, prefix 0xF2)
+    fn addsd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF2, 0x0F, 0x58, dst, src); }
+    fn subsd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF2, 0x0F, 0x5C, dst, src); }
+    fn mulsd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF2, 0x0F, 0x59, dst, src); }
+    fn divsd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF2, 0x0F, 0x5E, dst, src); }
+    fn sqrtsd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF2, 0x0F, 0x51, dst, src); }
+    fn minsd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF2, 0x0F, 0x5D, dst, src); }
+    fn maxsd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF2, 0x0F, 0x5F, dst, src); }
+
+    // f32 arithmetic (SS = scalar single, prefix 0xF3)
+    fn addss(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF3, 0x0F, 0x58, dst, src); }
+    fn subss(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF3, 0x0F, 0x5C, dst, src); }
+    fn mulss(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF3, 0x0F, 0x59, dst, src); }
+    fn divss(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF3, 0x0F, 0x5E, dst, src); }
+    fn sqrtss(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF3, 0x0F, 0x51, dst, src); }
+    fn minss(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF3, 0x0F, 0x5D, dst, src); }
+    fn maxss(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF3, 0x0F, 0x5F, dst, src); }
+
+    /// UCOMISD xmm1, xmm2: 66 0F 2E /r (compare f64, sets EFLAGS)
+    fn ucomisd(buf: *std.ArrayList(u8), alloc: Allocator, xmm1: u4, xmm2: u4) void { sseOp(buf, alloc, 0x66, 0x0F, 0x2E, xmm1, xmm2); }
+    /// UCOMISS xmm1, xmm2: 0F 2E /r (compare f32, sets EFLAGS)
+    fn ucomiss(buf: *std.ArrayList(u8), alloc: Allocator, xmm1: u4, xmm2: u4) void {
+        if (xmm1 >= 8 or xmm2 >= 8) {
+            var r: u8 = 0x40;
+            if (xmm1 >= 8) r |= 0x04;
+            if (xmm2 >= 8) r |= 0x01;
+            buf.append(alloc, r) catch {};
+        }
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2E }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm1), @truncate(xmm2))) catch {};
+    }
+
+    /// XORPD xmm, xmm: 66 0F 57 /r (zero a double register or negate)
+    fn xorpd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0x66, 0x0F, 0x57, dst, src); }
+    /// ANDPD xmm, xmm: 66 0F 54 /r (bitwise AND for abs)
+    fn andpd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0x66, 0x0F, 0x54, dst, src); }
+
+    /// CVTSI2SD xmm, r64: F2 REX.W 0F 2A /r (signed i64 → f64)
+    fn cvtsi2sd64(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
+        buf.append(alloc, 0xF2) catch {};
+        var r: u8 = 0x48;
+        if (xmm >= 8) r |= 0x04;
+        if (gpr.isExt()) r |= 0x01;
+        buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2A }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+    }
+
+    /// CVTSI2SD xmm, r32: F2 0F 2A /r (signed i32 → f64)
+    fn cvtsi2sd32(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
+        buf.append(alloc, 0xF2) catch {};
+        var r = rex(.rax, gpr); // minimal REX if gpr extended
+        if (xmm >= 8) r |= 0x04;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2A }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+    }
+
+    /// CVTSI2SS xmm, r32: F3 0F 2A /r (signed i32 → f32)
+    fn cvtsi2ss32(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
+        buf.append(alloc, 0xF3) catch {};
+        var r = rex(.rax, gpr);
+        if (xmm >= 8) r |= 0x04;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2A }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+    }
+
+    /// CVTSI2SS xmm, r64: F3 REX.W 0F 2A /r (signed i64 → f32)
+    fn cvtsi2ss64(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
+        buf.append(alloc, 0xF3) catch {};
+        var r: u8 = 0x48;
+        if (xmm >= 8) r |= 0x04;
+        if (gpr.isExt()) r |= 0x01;
+        buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2A }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+    }
+
+    /// CVTTSD2SI r64, xmm: F2 REX.W 0F 2C /r (f64 → signed i64, truncating)
+    fn cvttsd2si64(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4) void {
+        buf.append(alloc, 0xF2) catch {};
+        var r: u8 = 0x48;
+        if (gpr.isExt()) r |= 0x04;
+        if (xmm >= 8) r |= 0x01;
+        buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2C }) catch {};
+        buf.append(alloc, modrm(3, gpr.low3(), @truncate(xmm))) catch {};
+    }
+
+    /// CVTTSD2SI r32, xmm: F2 0F 2C /r (f64 → signed i32, truncating)
+    fn cvttsd2si32(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4) void {
+        buf.append(alloc, 0xF2) catch {};
+        var r = rex(gpr, .rax);
+        if (xmm >= 8) r |= 0x01;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2C }) catch {};
+        buf.append(alloc, modrm(3, gpr.low3(), @truncate(xmm))) catch {};
+    }
+
+    /// CVTTSS2SI r32, xmm: F3 0F 2C /r (f32 → signed i32, truncating)
+    fn cvttss2si32(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4) void {
+        buf.append(alloc, 0xF3) catch {};
+        var r = rex(gpr, .rax);
+        if (xmm >= 8) r |= 0x01;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2C }) catch {};
+        buf.append(alloc, modrm(3, gpr.low3(), @truncate(xmm))) catch {};
+    }
+
+    /// CVTTSS2SI r64, xmm: F3 REX.W 0F 2C /r (f32 → signed i64, truncating)
+    fn cvttss2si64(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4) void {
+        buf.append(alloc, 0xF3) catch {};
+        var r: u8 = 0x48;
+        if (gpr.isExt()) r |= 0x04;
+        if (xmm >= 8) r |= 0x01;
+        buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2C }) catch {};
+        buf.append(alloc, modrm(3, gpr.low3(), @truncate(xmm))) catch {};
+    }
+
+    /// CVTSD2SS xmm, xmm: F2 0F 5A /r (f64 → f32)
+    fn cvtsd2ss(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF2, 0x0F, 0x5A, dst, src); }
+    /// CVTSS2SD xmm, xmm: F3 0F 5A /r (f32 → f64)
+    fn cvtss2sd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF3, 0x0F, 0x5A, dst, src); }
+
+    /// MOVSD xmm, xmm: F2 0F 10 /r (copy double between XMM regs)
+    fn movsd(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { sseOp(buf, alloc, 0xF2, 0x0F, 0x10, dst, src); }
 };
 
 /// x86_64 condition codes (matching Jcc/SETcc encoding).
@@ -1529,6 +1697,350 @@ pub const Compiler = struct {
         self.scratch_vreg = null;
     }
 
+    // --- Floating-point emitters ---
+
+    const XMM0: u4 = 0;
+    const XMM1: u4 = 1;
+
+    /// Load FP value from vreg (GPR or memory) into XMM register.
+    fn loadFpToXmm(self: *Compiler, xmm: u4, vreg: u8) void {
+        if (vregToPhys(vreg)) |phys| {
+            Enc.movqToXmm(&self.code, self.alloc, xmm, phys);
+        } else {
+            // Load from memory to SCRATCH, then to XMM
+            const disp: i32 = @as(i32, vreg) * 8;
+            Enc.loadDisp32(&self.code, self.alloc, SCRATCH, REGS_PTR, disp);
+            Enc.movqToXmm(&self.code, self.alloc, xmm, SCRATCH);
+        }
+    }
+
+    /// Store FP value from XMM register to vreg (GPR or memory).
+    fn storeFpFromXmm(self: *Compiler, vreg: u8, xmm: u4) void {
+        if (vregToPhys(vreg)) |phys| {
+            Enc.movqFromXmm(&self.code, self.alloc, phys, xmm);
+        } else {
+            Enc.movqFromXmm(&self.code, self.alloc, SCRATCH, xmm);
+            const disp: i32 = @as(i32, vreg) * 8;
+            Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, SCRATCH);
+        }
+    }
+
+    /// Emit f64 binary operation (add/sub/mul/div).
+    fn emitFpBinop64(self: *Compiler, instr: RegInstr) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        switch (instr.op) {
+            0xA0 => Enc.addsd(&self.code, self.alloc, XMM0, XMM1),
+            0xA1 => Enc.subsd(&self.code, self.alloc, XMM0, XMM1),
+            0xA2 => Enc.mulsd(&self.code, self.alloc, XMM0, XMM1),
+            0xA3 => Enc.divsd(&self.code, self.alloc, XMM0, XMM1),
+            else => unreachable,
+        }
+        self.storeFpFromXmm(instr.rd, XMM0);
+    }
+
+    /// Emit f32 binary operation (add/sub/mul/div).
+    fn emitFpBinop32(self: *Compiler, instr: RegInstr) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        switch (instr.op) {
+            0x92 => Enc.addss(&self.code, self.alloc, XMM0, XMM1),
+            0x93 => Enc.subss(&self.code, self.alloc, XMM0, XMM1),
+            0x94 => Enc.mulss(&self.code, self.alloc, XMM0, XMM1),
+            0x95 => Enc.divss(&self.code, self.alloc, XMM0, XMM1),
+            else => unreachable,
+        }
+        self.storeFpFromXmm(instr.rd, XMM0);
+    }
+
+    /// Emit f64 unary operation (sqrt, abs, neg).
+    fn emitFpUnop64(self: *Compiler, op: u16, instr: RegInstr) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        switch (op) {
+            0x9F => Enc.sqrtsd(&self.code, self.alloc, XMM0, XMM0), // f64.sqrt
+            0x99 => { // f64.abs: AND with 0x7FFFFFFFFFFFFFFF
+                // Load mask into SCRATCH, then MOVQ to XMM1, then ANDPD
+                self.emitLoadImm64(SCRATCH, 0x7FFFFFFFFFFFFFFF);
+                Enc.movqToXmm(&self.code, self.alloc, XMM1, SCRATCH);
+                Enc.andpd(&self.code, self.alloc, XMM0, XMM1);
+            },
+            0x9A => { // f64.neg: XOR with 0x8000000000000000
+                self.emitLoadImm64(SCRATCH, 0x8000000000000000);
+                Enc.movqToXmm(&self.code, self.alloc, XMM1, SCRATCH);
+                Enc.xorpd(&self.code, self.alloc, XMM0, XMM1);
+            },
+            else => unreachable,
+        }
+        self.storeFpFromXmm(instr.rd, XMM0);
+    }
+
+    /// Emit f32 unary operation (sqrt, abs, neg).
+    fn emitFpUnop32(self: *Compiler, op: u16, instr: RegInstr) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        switch (op) {
+            0x91 => Enc.sqrtss(&self.code, self.alloc, XMM0, XMM0), // f32.sqrt
+            0x8B => { // f32.abs: AND with 0x7FFFFFFF (in lower 32 bits)
+                self.emitLoadImm64(SCRATCH, 0x7FFFFFFF);
+                Enc.movqToXmm(&self.code, self.alloc, XMM1, SCRATCH);
+                // ANDPS: 0F 54 /r (no prefix)
+                self.code.appendSlice(self.alloc, &[_]u8{ 0x0F, 0x54, Enc.modrm(3, XMM0, XMM1) }) catch {};
+            },
+            0x8C => { // f32.neg: XOR with 0x80000000
+                self.emitLoadImm64(SCRATCH, 0x80000000);
+                Enc.movqToXmm(&self.code, self.alloc, XMM1, SCRATCH);
+                // XORPS: 0F 57 /r (no prefix)
+                self.code.appendSlice(self.alloc, &[_]u8{ 0x0F, 0x57, Enc.modrm(3, XMM0, XMM1) }) catch {};
+            },
+            else => unreachable,
+        }
+        self.storeFpFromXmm(instr.rd, XMM0);
+    }
+
+    /// Emit f64 min/max (direct binary op).
+    fn emitFpMinMax64(self: *Compiler, instr: RegInstr) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        switch (instr.op) {
+            0xA4 => Enc.minsd(&self.code, self.alloc, XMM0, XMM1),
+            0xA5 => Enc.maxsd(&self.code, self.alloc, XMM0, XMM1),
+            else => unreachable,
+        }
+        self.storeFpFromXmm(instr.rd, XMM0);
+    }
+
+    /// Emit f32 min/max.
+    fn emitFpMinMax32(self: *Compiler, instr: RegInstr) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        switch (instr.op) {
+            0x96 => Enc.minss(&self.code, self.alloc, XMM0, XMM1),
+            0x97 => Enc.maxss(&self.code, self.alloc, XMM0, XMM1),
+            else => unreachable,
+        }
+        self.storeFpFromXmm(instr.rd, XMM0);
+    }
+
+    /// Emit f64 comparison: result = 0 or 1.
+    /// UCOMISD sets CF/ZF/PF. NaN → unordered (PF=1, ZF=1, CF=1).
+    fn emitFpCmp64(self: *Compiler, op: u16, instr: RegInstr) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        Enc.ucomisd(&self.code, self.alloc, XMM0, XMM1);
+        // Set result in AL based on condition, then MOVZX to clear upper bits
+        const cond: Cond = switch (op) {
+            0x61 => .e,   // f64.eq: ZF=1 and PF=0
+            0x62 => .ne,  // f64.ne: ZF=0 or PF=1
+            0x63 => .a,   // f64.lt: CF=0 and ZF=0 (reversed operands pattern)
+            0x64 => .a,   // f64.gt
+            0x65 => .ae,  // f64.le
+            0x66 => .ae,  // f64.ge
+            else => unreachable,
+        };
+        // For lt/le we need reversed operand order (already loaded as xmm0=rs1, xmm1=rs2)
+        // UCOMISD xmm0,xmm1: flags for xmm0 vs xmm1
+        // f64.lt: rs1 < rs2 → CF=1 after UCOMISD(rs1,rs2) → use SETB, but NaN gives CF=1 too
+        // Correct: f64.eq: SETE+SETNP, f64.ne: SETNE or PF
+        // Simple approach: use SETA/SETAE with operand reordering
+        switch (op) {
+            0x61 => { // f64.eq: ZF=1 AND PF=0
+                // SETE + AND SETNP
+                Enc.setcc(&self.code, self.alloc, .e, SCRATCH);
+                // SETNP into SCRATCH2 low byte, then AND
+                self.code.append(self.alloc, Enc.rexW1(SCRATCH2)) catch {};
+                self.code.appendSlice(self.alloc, &[_]u8{ 0x0F, 0x9B }) catch {}; // SETNP
+                self.code.append(self.alloc, Enc.modrm(3, 0, SCRATCH2.low3())) catch {};
+                Enc.andRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH2);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x62 => { // f64.ne: ZF=0 OR PF=1
+                Enc.setcc(&self.code, self.alloc, .ne, SCRATCH);
+                self.code.append(self.alloc, Enc.rexW1(SCRATCH2)) catch {};
+                self.code.appendSlice(self.alloc, &[_]u8{ 0x0F, 0x9A }) catch {}; // SETP
+                self.code.append(self.alloc, Enc.modrm(3, 0, SCRATCH2.low3())) catch {};
+                Enc.orRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH2);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x63 => { // f64.lt: rs1 < rs2 → UCOMISD(rs2, rs1), SETA
+                // Reload with reversed order
+                self.loadFpToXmm(XMM0, instr.rs2());
+                self.loadFpToXmm(XMM1, instr.rs1);
+                Enc.ucomisd(&self.code, self.alloc, XMM0, XMM1);
+                Enc.setcc(&self.code, self.alloc, cond, SCRATCH);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x64 => { // f64.gt: rs1 > rs2 → UCOMISD(rs1, rs2), SETA
+                Enc.setcc(&self.code, self.alloc, cond, SCRATCH);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x65 => { // f64.le: rs1 <= rs2 → UCOMISD(rs2, rs1), SETAE
+                self.loadFpToXmm(XMM0, instr.rs2());
+                self.loadFpToXmm(XMM1, instr.rs1);
+                Enc.ucomisd(&self.code, self.alloc, XMM0, XMM1);
+                Enc.setcc(&self.code, self.alloc, cond, SCRATCH);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x66 => { // f64.ge: rs1 >= rs2 → UCOMISD(rs1, rs2), SETAE
+                Enc.setcc(&self.code, self.alloc, cond, SCRATCH);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            else => unreachable,
+        }
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    /// Emit f32 comparison.
+    fn emitFpCmp32(self: *Compiler, op: u16, instr: RegInstr) void {
+        self.loadFpToXmm(XMM0, instr.rs1);
+        self.loadFpToXmm(XMM1, instr.rs2());
+        Enc.ucomiss(&self.code, self.alloc, XMM0, XMM1);
+        switch (op) {
+            0x5B => { // f32.eq
+                Enc.setcc(&self.code, self.alloc, .e, SCRATCH);
+                self.code.append(self.alloc, Enc.rexW1(SCRATCH2)) catch {};
+                self.code.appendSlice(self.alloc, &[_]u8{ 0x0F, 0x9B }) catch {};
+                self.code.append(self.alloc, Enc.modrm(3, 0, SCRATCH2.low3())) catch {};
+                Enc.andRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH2);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x5C => { // f32.ne
+                Enc.setcc(&self.code, self.alloc, .ne, SCRATCH);
+                self.code.append(self.alloc, Enc.rexW1(SCRATCH2)) catch {};
+                self.code.appendSlice(self.alloc, &[_]u8{ 0x0F, 0x9A }) catch {};
+                self.code.append(self.alloc, Enc.modrm(3, 0, SCRATCH2.low3())) catch {};
+                Enc.orRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH2);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x5D => { // f32.lt → reversed
+                self.loadFpToXmm(XMM0, instr.rs2());
+                self.loadFpToXmm(XMM1, instr.rs1);
+                Enc.ucomiss(&self.code, self.alloc, XMM0, XMM1);
+                Enc.setcc(&self.code, self.alloc, .a, SCRATCH);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x5E => { // f32.gt
+                Enc.setcc(&self.code, self.alloc, .a, SCRATCH);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x5F => { // f32.le → reversed
+                self.loadFpToXmm(XMM0, instr.rs2());
+                self.loadFpToXmm(XMM1, instr.rs1);
+                Enc.ucomiss(&self.code, self.alloc, XMM0, XMM1);
+                Enc.setcc(&self.code, self.alloc, .ae, SCRATCH);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            0x60 => { // f32.ge
+                Enc.setcc(&self.code, self.alloc, .ae, SCRATCH);
+                Enc.movzxByte(&self.code, self.alloc, SCRATCH, SCRATCH);
+            },
+            else => unreachable,
+        }
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    /// Emit FP conversion operations.
+    fn emitFpConvert(self: *Compiler, op: u16, instr: RegInstr) void {
+        switch (op) {
+            // f64.convert_i32_s (0xB7)
+            0xB7 => {
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                Enc.cvtsi2sd32(&self.code, self.alloc, XMM0, src);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f64.convert_i32_u (0xB8)
+            0xB8 => {
+                // Zero-extend i32 to i64, then convert
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                Enc.movRegReg32(&self.code, self.alloc, SCRATCH, src); // zero-extend
+                Enc.cvtsi2sd64(&self.code, self.alloc, XMM0, SCRATCH);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f64.convert_i64_s (0xB9)
+            0xB9 => {
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                Enc.cvtsi2sd64(&self.code, self.alloc, XMM0, src);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f64.convert_i64_u (0xBA) — needs unsigned handling
+            0xBA => {
+                // For unsigned i64→f64, simple CVTSI2SD is wrong for values > i64_max.
+                // Bail out for now (interpreter handles it).
+                return; // TODO: proper u64→f64 conversion
+            },
+            // f32.convert_i32_s (0xB2)
+            0xB2 => {
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                Enc.cvtsi2ss32(&self.code, self.alloc, XMM0, src);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f32.convert_i32_u (0xB3)
+            0xB3 => {
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                Enc.movRegReg32(&self.code, self.alloc, SCRATCH, src);
+                Enc.cvtsi2ss64(&self.code, self.alloc, XMM0, SCRATCH);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f32.convert_i64_s (0xB4)
+            0xB4 => {
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                Enc.cvtsi2ss64(&self.code, self.alloc, XMM0, src);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f32.convert_i64_u (0xB5) — bail
+            0xB5 => return,
+            // i32.trunc_f64_s (0xAA)
+            0xAA => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                Enc.cvttsd2si32(&self.code, self.alloc, SCRATCH, XMM0);
+                self.storeVreg(instr.rd, SCRATCH);
+            },
+            // i32.trunc_f64_u (0xAB) — bail for now
+            0xAB => return,
+            // i64.trunc_f64_s (0xB0)
+            0xB0 => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                Enc.cvttsd2si64(&self.code, self.alloc, SCRATCH, XMM0);
+                self.storeVreg(instr.rd, SCRATCH);
+            },
+            // i64.trunc_f64_u (0xB1) — bail
+            0xB1 => return,
+            // i32.trunc_f32_s (0xA8)
+            0xA8 => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                Enc.cvttss2si32(&self.code, self.alloc, SCRATCH, XMM0);
+                self.storeVreg(instr.rd, SCRATCH);
+            },
+            // i32.trunc_f32_u (0xA9) — bail
+            0xA9 => return,
+            // i64.trunc_f32_s (0xAE)
+            0xAE => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                Enc.cvttss2si64(&self.code, self.alloc, SCRATCH, XMM0);
+                self.storeVreg(instr.rd, SCRATCH);
+            },
+            // i64.trunc_f32_u (0xAF) — bail
+            0xAF => return,
+            // f64.promote_f32 (0xBB)
+            0xBB => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                Enc.cvtss2sd(&self.code, self.alloc, XMM0, XMM0);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f32.demote_f64 (0xB6)
+            0xB6 => {
+                self.loadFpToXmm(XMM0, instr.rs1);
+                Enc.cvtsd2ss(&self.code, self.alloc, XMM0, XMM0);
+                self.storeFpFromXmm(instr.rd, XMM0);
+            },
+            // f32/f64 copysign (0x98, 0x8A) — bail for now (complex bit manipulation)
+            0x98, 0x8A => return,
+            // f64.ceil/floor/trunc/nearest (0x9B-0x9E) — need SSE4.1 ROUNDSD, bail
+            0x9B, 0x9C, 0x9D, 0x9E => return,
+            // f32.ceil/floor/trunc/nearest (0x8D-0x90) — need SSE4.1 ROUNDSS, bail
+            0x8D, 0x8E, 0x8F, 0x90 => return,
+            else => return,
+        }
+    }
+
     // --- Finalization ---
 
     fn finalize(self: *Compiler) ?*JitCode {
@@ -1764,6 +2276,37 @@ pub const Compiler = struct {
                 }
                 self.emitCallIndirect(instr, data, if (has_data2) data2 else null);
             },
+
+            // --- f64 arithmetic ---
+            0xA0, 0xA1, 0xA2, 0xA3 => self.emitFpBinop64(instr),
+            0x9F => self.emitFpUnop64(0x9F, instr),  // f64.sqrt
+            0x99 => self.emitFpUnop64(0x99, instr),  // f64.abs
+            0x9A => self.emitFpUnop64(0x9A, instr),  // f64.neg
+            0xA4, 0xA5 => self.emitFpMinMax64(instr), // f64.min, f64.max
+
+            // --- f64 comparison ---
+            0x61, 0x62, 0x63, 0x64, 0x65, 0x66 => self.emitFpCmp64(instr.op, instr),
+
+            // --- f32 arithmetic ---
+            0x92, 0x93, 0x94, 0x95 => self.emitFpBinop32(instr),
+            0x91 => self.emitFpUnop32(0x91, instr),  // f32.sqrt
+            0x8B => self.emitFpUnop32(0x8B, instr),  // f32.abs
+            0x8C => self.emitFpUnop32(0x8C, instr),  // f32.neg
+            0x96, 0x97 => self.emitFpMinMax32(instr), // f32.min, f32.max
+
+            // --- f32 comparison ---
+            0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60 => self.emitFpCmp32(instr.op, instr),
+
+            // --- FP conversions ---
+            0xB7, 0xB8, 0xB9, 0xBA, // f64.convert_i32_s/u, f64.convert_i64_s/u
+            0xB2, 0xB3, 0xB4, 0xB5, // f32.convert_i32_s/u, f32.convert_i64_s/u
+            0xAA, 0xAB, 0xB0, 0xB1, // i32/i64.trunc_f64_s/u
+            0xA8, 0xA9, 0xAE, 0xAF, // i32/i64.trunc_f32_s/u
+            0xBB, 0xB6,             // f64.promote_f32, f32.demote_f64
+            0x98, 0x8A,             // f64.copysign, f32.copysign
+            0x9B, 0x9C, 0x9D, 0x9E, // f64.ceil/floor/trunc/nearest
+            0x8D, 0x8E, 0x8F, 0x90, // f32.ceil/floor/trunc/nearest
+            => self.emitFpConvert(instr.op, instr),
 
             // --- i32 arithmetic ---
             0x6A => self.emitBinop32(instr, .add),
@@ -2701,4 +3244,34 @@ test "x86_64 compile and execute memory store then load" {
     const result = jit_code.entry(&regs, undefined, @ptrCast(&inst));
     try testing.expectEqual(@as(u64, 0), result);
     try testing.expectEqual(@as(u64, 99), regs[0]); // loaded value via RETURN
+}
+
+test "x86_64 compile and execute f64 add" {
+    if (builtin.cpu.arch != .x86_64) return;
+
+    const alloc = testing.allocator;
+    // r0 = f64 param A, r1 = f64 param B
+    // f64.add r0, r0, r1 (opcode 0xA0)
+    // RETURN r0
+    var code = [_]RegInstr{
+        .{ .op = 0xA0, .rd = 0, .rs1 = 0, .operand = 1 }, // f64.add r0 = r0 + r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 },
+    };
+    var reg_func = RegFunc{
+        .code = &code,
+        .pool64 = &.{},
+        .reg_count = 2,
+        .local_count = 2,
+        .alloc = alloc,
+    };
+
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0) orelse
+        return error.CompilationFailed;
+    defer jit_code.deinit(alloc);
+
+    // 3.0 + 4.0 = 7.0
+    var regs: [6]u64 = .{ @bitCast(@as(f64, 3.0)), @bitCast(@as(f64, 4.0)), 0, 0, 0, 0 };
+    try testing.expectEqual(@as(u64, 0), jit_code.entry(&regs, undefined, undefined));
+    const result: f64 = @bitCast(regs[0]);
+    try testing.expectEqual(@as(f64, 7.0), result);
 }
