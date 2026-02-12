@@ -189,7 +189,7 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
                 // else: function-level end, ignore
             },
             // Skip immediates for all other opcodes
-            .br, .br_if => _ = reader.readU32() catch break,
+            .br, .br_if, .br_on_null, .br_on_non_null => _ = reader.readU32() catch break,
             .br_table => {
                 const count = reader.readU32() catch break;
                 for (0..count + 1) |_| _ = reader.readU32() catch break;
@@ -779,6 +779,24 @@ pub const Vm = struct {
                     if (cond != 0) {
                         try self.branchTo(depth, reader);
                     }
+                },
+                .br_on_null => {
+                    const depth = try reader.readU32();
+                    const ref_val = self.pop();
+                    if (ref_val == 0) {
+                        try self.branchTo(depth, reader);
+                    } else {
+                        try self.push(ref_val); // non-null: push back and continue
+                    }
+                },
+                .br_on_non_null => {
+                    const depth = try reader.readU32();
+                    const ref_val = self.pop();
+                    if (ref_val != 0) {
+                        try self.push(ref_val); // non-null: push back and branch
+                        try self.branchTo(depth, reader);
+                    }
+                    // null: drop and continue
                 },
                 .br_table => {
                     const count = try reader.readU32();
@@ -4640,7 +4658,7 @@ fn skipToEnd(reader: *Reader) !void {
             },
             .end => depth -= 1,
             .@"else" => if (depth == 1) {}, // same depth, continue
-            .br, .br_if => _ = try reader.readU32(),
+            .br, .br_if, .br_on_null, .br_on_non_null => _ = try reader.readU32(),
             .br_table => {
                 const count = try reader.readU32();
                 for (0..count + 1) |_| _ = try reader.readU32();
@@ -4727,7 +4745,7 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
                 _ = pos_before; // else_reader is set to AFTER the else opcode
                 found_else = true;
             },
-            .br, .br_if => _ = try reader.readU32(),
+            .br, .br_if, .br_on_null, .br_on_non_null => _ = try reader.readU32(),
             .br_table => {
                 const count = try reader.readU32();
                 for (0..count + 1) |_| _ = try reader.readU32();
