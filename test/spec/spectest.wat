@@ -7,7 +7,7 @@
   (func (export "print_i64") (param i64))
   (func (export "print_f32") (param f32))
   (func (export "print_f64") (param f64))
-  (func (export "print_f32_f64") (param f32 f64))
+  (func (export "print_f64_f64") (param f64 f64))
   (func (export "print_i32_f32") (param i32 f32))
 
   ;; Memory: 1 page min, 2 pages max

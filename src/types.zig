@@ -529,9 +529,28 @@ fn registerImports(
                         // Copy global from source module
                         const src_addr = src_module.instance.getExportGlobalAddr(imp.name) orelse
                             return error.ImportNotFound;
-                        const src_global = (src_module.store.getGlobal(src_addr) catch
+                        var glob = (src_module.store.getGlobal(src_addr) catch
                             return error.ImportNotFound).*;
-                        const addr = store.addGlobal(src_global) catch
+                        // Remap funcref values: copy referenced function to target store
+                        if (glob.valtype == .funcref and glob.value > 0) {
+                            const src_func_addr: usize = @intCast(glob.value - 1);
+                            var func = src_module.store.getFunction(src_func_addr) catch
+                                return error.ImportNotFound;
+                            if (func.subtype == .wasm_function) {
+                                func.subtype.wasm_function.branch_table = null;
+                                func.subtype.wasm_function.ir = null;
+                                func.subtype.wasm_function.ir_failed = false;
+                                func.subtype.wasm_function.reg_ir = null;
+                                func.subtype.wasm_function.reg_ir_failed = false;
+                                func.subtype.wasm_function.jit_code = null;
+                                func.subtype.wasm_function.jit_failed = false;
+                                func.subtype.wasm_function.call_count = 0;
+                            }
+                            const new_func_addr = store.addFunction(func) catch
+                                return error.WasmInstantiateError;
+                            glob.value = @as(u64, @intCast(new_func_addr)) + 1;
+                        }
+                        const addr = store.addGlobal(glob) catch
                             return error.WasmInstantiateError;
                         store.addExport(imp.module, imp.name, .global, addr) catch
                             return error.WasmInstantiateError;

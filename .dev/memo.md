@@ -64,6 +64,30 @@ All load/store/memory.* get memidx immediate. Binary format: memarg bit 6.
 3. [x] 15.3: Predecode IR — memidx encoding in PreInstr + executeIR dispatch
 4. [x] 15.4: Spec tests + cleanup
 
+Stage 13B: Spec Test Fixes + JIT FP Completion
+
+Target: Fix all 5 pre-existing spec test failures, implement all 24 bailed FP
+opcodes on x86_64, implement 18 shared missing FP opcodes on ARM64.
+Remove --allow-failures workaround from CI → zero tolerance.
+
+Group A: Spec test failures (interpreter level, 5 failures → 0)
+1. [ ] A1: spectest.wasm — add missing print_f64_f64 export (fixes imports:85,86)
+2. [ ] A2: br_if false path — fix stack handling (fixes br_if:393, returns 21 not 11)
+3. [ ] A3: elem declarative segment — table.init must trap (fixes elem:360)
+4. [ ] A4: elem imported funcref global — fix resolution (fixes elem:700, StackOverflow)
+
+Group B: x86_64-only JIT FP (6 opcodes, ARM64 already handles these)
+5. [ ] B1: f32/f64 min/max — NaN-propagating wrapper around MINSS/MAXSS (4 opcodes)
+6. [ ] B2: f32/f64.convert_i64_u — unsigned i64→float conversion (2 opcodes)
+
+Group C: Shared JIT FP (18 opcodes, both x86_64 and ARM64)
+7. [ ] C1: f32/f64 copysign — bit manipulation (2 opcodes, x86: ANDPS/ORPS, ARM64: BIT)
+8. [ ] C2: f32/f64 ceil/floor/trunc/nearest — rounding (8 opcodes, x86: ROUNDSS/SD, ARM64: FRINTP/M/Z/N)
+9. [ ] C3: i32/i64.trunc_f32/f64_s/u — trap-checking conversion (8 opcodes, CVTTSS2SI + NaN/overflow check)
+
+Group D: CI cleanup
+10. [ ] D1: Remove --allow-failures from CI, verify 0 failures on both platforms
+
 Stage 16: Wasm 3.0 — Relaxed SIMD
 
 Target: 20 non-deterministic SIMD ops (~600 LOC).
@@ -87,13 +111,12 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-Stage 15 complete. Next: Stage 16 (Relaxed SIMD).
+Stage 13B: Fix all pre-existing spec failures + JIT FP completion.
+Starting with A1 (spectest.wasm print_f64_f64).
 
 ## Previous Task
 
 15.4: Fix memarg encoding order (memidx before offset), add all multi-memory spec tests (32,231/32,236).
-
-14.5: Tail call — predecode/regir support + spec tests (30,801/30,801).
 
 ## Wasm 3.0 Coverage
 
@@ -103,7 +126,8 @@ GC requires function_references first.
 
 ## Known Bugs
 
-None.
+5 pre-existing spec test failures (br_if:393, elem:360, elem:700, imports:85, imports:86).
+24 x86_64 JIT FP bail opcodes (18 shared with ARM64). CI uses --allow-failures 8.
 
 ## References
 

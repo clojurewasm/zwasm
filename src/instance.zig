@@ -265,19 +265,9 @@ pub const Instance = struct {
                 },
                 .expressions => |exprs| {
                     for (exprs, 0..) |expr, i| {
-                        if (expr.len > 0 and expr[0] == @intFromEnum(opcode.Opcode.ref_null)) {
-                            elem.set(i, 0);
-                        } else if (expr.len > 0 and expr[0] == @intFromEnum(opcode.Opcode.ref_func)) {
-                            var expr_reader = Reader.init(expr);
-                            _ = try expr_reader.readByte();
-                            const func_idx = try expr_reader.readU32();
-                            if (func_idx < self.funcaddrs.items.len) {
-                                elem.set(i, @intCast(self.funcaddrs.items[func_idx] + 1));
-                            }
-                        } else {
-                            const val = try evalInitExpr(expr, self);
-                            elem.set(i, @intCast(val));
-                        }
+                        // evalInitExpr uses 0=null, addr+1=valid ref convention
+                        const val = try evalInitExpr(expr, self);
+                        elem.set(i, @intCast(val));
                     }
                 },
             }
@@ -328,21 +318,12 @@ pub const Instance = struct {
                         .expressions => |exprs| {
                             for (exprs, 0..) |expr, i| {
                                 const dest: u32 = @intCast(@as(u64, @truncate(offset)) + i);
-                                // Parse expression to distinguish ref.null from ref.func
-                                if (expr.len > 0 and expr[0] == @intFromEnum(opcode.Opcode.ref_null)) {
-                                    try t.set(dest, 0);
-                                } else if (expr.len > 0 and expr[0] == @intFromEnum(opcode.Opcode.ref_func)) {
-                                    var expr_reader = Reader.init(expr);
-                                    _ = try expr_reader.readByte(); // skip ref.func opcode
-                                    const func_idx = try expr_reader.readU32();
-                                    if (func_idx < self.funcaddrs.items.len) {
-                                        try t.set(dest, self.funcaddrs.items[func_idx]);
-                                    } else {
-                                        return error.FunctionIndexOutOfBounds;
-                                    }
+                                // evalInitExpr uses 0=null, addr+1=valid ref convention
+                                const val = try evalInitExpr(expr, self);
+                                if (val == 0) {
+                                    try t.set(dest, null);
                                 } else {
-                                    const val = try evalInitExpr(expr, self);
-                                    try t.set(dest, @intCast(val));
+                                    try t.set(dest, @intCast(val - 1));
                                 }
                             }
                         },
@@ -353,7 +334,14 @@ pub const Instance = struct {
                         e.dropped = true;
                     }
                 },
-                .passive, .declarative => {},
+                .passive => {},
+                .declarative => {
+                    // Per spec: declarative segments are dropped at instantiation
+                    if (seg_idx < self.elemaddrs.items.len) {
+                        const e = self.store.getElem(self.elemaddrs.items[seg_idx]) catch continue;
+                        e.dropped = true;
+                    }
+                },
             }
         }
     }
@@ -427,7 +415,12 @@ pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u64 {
             .ref_func => {
                 const idx = try reader.readU32();
                 if (sp >= stack.len) return error.InvalidInitExpr;
-                stack[sp] = idx;
+                // Resolve to store address + 1 (0 = null ref convention)
+                if (idx < instance.funcaddrs.items.len) {
+                    stack[sp] = @as(u64, @intCast(instance.funcaddrs.items[idx])) + 1;
+                } else {
+                    return error.FunctionIndexOutOfBounds;
+                }
                 sp += 1;
             },
             // Extended constant expressions (Wasm 3.0)
