@@ -265,6 +265,38 @@ pub const WatParam = struct {
     valtype: WatValType,
 };
 
+pub const MemArg = struct {
+    offset: u32,
+    @"align": u32,
+};
+
+pub const WatInstr = union(enum) {
+    // No immediates: i32.add, drop, nop, unreachable, return, etc.
+    simple: []const u8,
+    // Index immediate: local.get, call, br, global.get, ref.func, etc.
+    index_op: struct { op: []const u8, index: WatIndex },
+    // Constants
+    i32_const: i32,
+    i64_const: i64,
+    f32_const: f32,
+    f64_const: f64,
+    // Memory operations (load/store)
+    mem_op: struct { op: []const u8, mem_arg: MemArg },
+    // Block/loop
+    block_op: struct { op: []const u8, label: ?[]const u8, block_type: ?WatValType, body: []WatInstr },
+    // If/else
+    if_op: struct { label: ?[]const u8, block_type: ?WatValType, then_body: []WatInstr, else_body: []WatInstr },
+    // br_table
+    br_table: struct { targets: []WatIndex, default: WatIndex },
+    // call_indirect
+    call_indirect: struct { type_use: ?WatIndex, table_idx: u32 },
+    // select with type
+    select_t: []WatValType,
+    // end / else markers (for flat instruction sequences)
+    end,
+    @"else",
+};
+
 pub const WatFunc = struct {
     name: ?[]const u8,
     type_use: ?WatIndex,
@@ -272,7 +304,7 @@ pub const WatFunc = struct {
     results: []WatValType,
     locals: []WatParam,
     export_name: ?[]const u8,
-    // body: instructions — added in 12.4
+    body: []WatInstr,
 };
 
 pub const WatLimits = struct {
@@ -302,7 +334,7 @@ pub const WatGlobal = struct {
     name: ?[]const u8,
     global_type: WatGlobalType,
     export_name: ?[]const u8,
-    // init: instructions — added in 12.4
+    init: []WatInstr,
 };
 
 pub const WatImportKind = union(enum) {
@@ -605,12 +637,12 @@ pub const Parser = struct {
             }
         }
 
-        // Skip body instructions for now (12.4)
-        try self.skipToCloseParen();
+        // Parse body instructions
+        const body = try self.parseInstrList();
+        _ = try self.expect(.rparen); // close (func ...)
 
         // Handle inline export
         if (export_name != null) {
-            // func_index will be resolved later; for now use count as placeholder
             _ = exports; // inline exports handled in binary encoder
         }
 
@@ -621,6 +653,7 @@ pub const Parser = struct {
             .results = results.items,
             .locals = locals.items,
             .export_name = export_name,
+            .body = body,
         };
     }
 
@@ -732,13 +765,15 @@ pub const Parser = struct {
             global_type = .{ .valtype = try self.parseValType(), .mutable = false };
         }
 
-        // Skip init expression for now (12.4)
-        try self.skipToCloseParen();
+        // Parse init expression
+        const init_instrs = try self.parseInstrList();
+        _ = try self.expect(.rparen); // close (global ...)
 
         return .{
             .name = glob_name,
             .global_type = global_type,
             .export_name = export_name,
+            .init = init_instrs,
         };
     }
 
@@ -878,6 +913,454 @@ pub const Parser = struct {
         return .{ .min = min, .max = max };
     }
 
+    // ============================================================
+    // Instruction parsing
+    // ============================================================
+
+    /// Classify WAT instruction name into immediate category.
+    const InstrCategory = enum {
+        no_imm, // i32.add, drop, nop, unreachable, return, etc.
+        index_imm, // local.get, call, br, global.get, ref.func, etc.
+        i32_const,
+        i64_const,
+        f32_const,
+        f64_const,
+        mem_imm, // i32.load, i32.store, etc.
+        block_type, // block, loop
+        if_type, // if
+        br_table,
+        call_indirect,
+        select_t,
+    };
+
+    fn classifyInstr(name: []const u8) InstrCategory {
+        // Constants
+        if (std.mem.eql(u8, name, "i32.const")) return .i32_const;
+        if (std.mem.eql(u8, name, "i64.const")) return .i64_const;
+        if (std.mem.eql(u8, name, "f32.const")) return .f32_const;
+        if (std.mem.eql(u8, name, "f64.const")) return .f64_const;
+
+        // Control - block types
+        if (std.mem.eql(u8, name, "block")) return .block_type;
+        if (std.mem.eql(u8, name, "loop")) return .block_type;
+        if (std.mem.eql(u8, name, "if")) return .if_type;
+
+        // Special control
+        if (std.mem.eql(u8, name, "br_table")) return .br_table;
+        if (std.mem.eql(u8, name, "call_indirect")) return .call_indirect;
+        if (std.mem.eql(u8, name, "select")) return .no_imm;
+
+        // Index instructions
+        if (std.mem.eql(u8, name, "local.get") or
+            std.mem.eql(u8, name, "local.set") or
+            std.mem.eql(u8, name, "local.tee") or
+            std.mem.eql(u8, name, "global.get") or
+            std.mem.eql(u8, name, "global.set") or
+            std.mem.eql(u8, name, "call") or
+            std.mem.eql(u8, name, "br") or
+            std.mem.eql(u8, name, "br_if") or
+            std.mem.eql(u8, name, "ref.func") or
+            std.mem.eql(u8, name, "table.get") or
+            std.mem.eql(u8, name, "table.set") or
+            std.mem.eql(u8, name, "table.size") or
+            std.mem.eql(u8, name, "table.grow") or
+            std.mem.eql(u8, name, "table.fill") or
+            std.mem.eql(u8, name, "throw") or
+            std.mem.eql(u8, name, "memory.size") or
+            std.mem.eql(u8, name, "memory.grow"))
+            return .index_imm;
+
+        // Memory load/store
+        if (isMemoryOp(name)) return .mem_imm;
+
+        // Default: no immediate
+        return .no_imm;
+    }
+
+    fn isMemoryOp(name: []const u8) bool {
+        const prefixes = [_][]const u8{
+            "i32.load", "i64.load", "f32.load", "f64.load",
+            "i32.store", "i64.store", "f32.store", "f64.store",
+        };
+        for (prefixes) |prefix| {
+            if (std.mem.eql(u8, name, prefix)) return true;
+            if (name.len > prefix.len and std.mem.startsWith(u8, name, prefix)) return true;
+        }
+        return false;
+    }
+
+    /// Parse instruction list until ) or end-of-block.
+    /// Does NOT consume the closing ).
+    fn parseInstrList(self: *Parser) WatError![]WatInstr {
+        var instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+
+        while (self.current.tag != .rparen and self.current.tag != .eof) {
+            if (self.current.tag == .lparen) {
+                // Folded S-expression: (op args...)
+                try self.parseFoldedInstr(&instrs);
+            } else if (self.current.tag == .keyword) {
+                // Flat instruction
+                try self.parsePlainInstr(&instrs);
+            } else {
+                break;
+            }
+        }
+
+        return instrs.items;
+    }
+
+    /// Parse a folded S-expression instruction.
+    /// (op folded-args... plain-args...)
+    /// Unfolded: inner args first, then outer op.
+    fn parseFoldedInstr(self: *Parser, instrs: *std.ArrayListUnmanaged(WatInstr)) WatError!void {
+        _ = self.advance(); // consume (
+
+        if (self.current.tag != .keyword) return error.InvalidWat;
+        const op_name = self.advance().text;
+        const cat = classifyInstr(op_name);
+
+        switch (cat) {
+            .block_type => {
+                // (block $label? (result type)? instr*)
+                var label: ?[]const u8 = null;
+                var block_type: ?WatValType = null;
+                if (self.current.tag == .ident) label = self.advance().text;
+                if (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "result")) {
+                        _ = self.advance();
+                        block_type = try self.parseValType();
+                        _ = try self.expect(.rparen);
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                    }
+                }
+                const body = try self.parseInstrList();
+                _ = try self.expect(.rparen);
+                instrs.append(self.alloc, .{ .block_op = .{
+                    .op = op_name,
+                    .label = label,
+                    .block_type = block_type,
+                    .body = body,
+                } }) catch return error.OutOfMemory;
+            },
+            .if_type => {
+                // (if $label? (result type)? (then instr*) (else instr*)?)
+                var label: ?[]const u8 = null;
+                var block_type: ?WatValType = null;
+                if (self.current.tag == .ident) label = self.advance().text;
+                if (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "result")) {
+                        _ = self.advance();
+                        block_type = try self.parseValType();
+                        _ = try self.expect(.rparen);
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                    }
+                }
+
+                // Parse condition (folded exprs before then/else)
+                while (self.current.tag == .lparen) {
+                    // Check if next is (then or (else
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and
+                        (std.mem.eql(u8, self.current.text, "then") or
+                        std.mem.eql(u8, self.current.text, "else")))
+                    {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    }
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                    try self.parseFoldedInstr(instrs);
+                }
+
+                var then_body: []WatInstr = &.{};
+                var else_body: []WatInstr = &.{};
+
+                // (then instr*)
+                if (self.current.tag == .lparen) {
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "then")) {
+                        _ = self.advance();
+                        then_body = try self.parseInstrList();
+                        _ = try self.expect(.rparen);
+                    }
+                }
+                // (else instr*)
+                if (self.current.tag == .lparen) {
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "else")) {
+                        _ = self.advance();
+                        else_body = try self.parseInstrList();
+                        _ = try self.expect(.rparen);
+                    }
+                }
+
+                _ = try self.expect(.rparen); // close (if ...)
+
+                instrs.append(self.alloc, .{ .if_op = .{
+                    .label = label,
+                    .block_type = block_type,
+                    .then_body = then_body,
+                    .else_body = else_body,
+                } }) catch return error.OutOfMemory;
+            },
+            else => {
+                // Generic folded: (op folded-args... immediates)
+                // First parse any nested folded expressions
+                while (self.current.tag == .lparen) {
+                    try self.parseFoldedInstr(instrs);
+                }
+                // Then parse the instruction with its immediates
+                try self.emitInstr(instrs, op_name, cat);
+                _ = try self.expect(.rparen);
+            },
+        }
+    }
+
+    /// Parse a plain (non-folded) instruction.
+    fn parsePlainInstr(self: *Parser, instrs: *std.ArrayListUnmanaged(WatInstr)) WatError!void {
+        const op_name = self.advance().text;
+        const cat = classifyInstr(op_name);
+
+        switch (cat) {
+            .block_type => {
+                // block $label? (result type)? ... end
+                var label: ?[]const u8 = null;
+                var block_type: ?WatValType = null;
+                if (self.current.tag == .ident) label = self.advance().text;
+                // Check for (result type)
+                if (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "result")) {
+                        _ = self.advance();
+                        block_type = try self.parseValType();
+                        _ = try self.expect(.rparen);
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                    }
+                }
+                // inline valtype (e.g. "block i32 ...")
+                if (block_type == null and self.current.tag == .keyword) {
+                    const vt = self.tryParseValType();
+                    if (vt != null) block_type = vt;
+                }
+                const body = try self.parseBlockBody();
+                instrs.append(self.alloc, .{ .block_op = .{
+                    .op = op_name,
+                    .label = label,
+                    .block_type = block_type,
+                    .body = body,
+                } }) catch return error.OutOfMemory;
+            },
+            .if_type => {
+                var label: ?[]const u8 = null;
+                var block_type: ?WatValType = null;
+                if (self.current.tag == .ident) label = self.advance().text;
+                if (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "result")) {
+                        _ = self.advance();
+                        block_type = try self.parseValType();
+                        _ = try self.expect(.rparen);
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                    }
+                }
+                if (block_type == null and self.current.tag == .keyword) {
+                    const vt = self.tryParseValType();
+                    if (vt != null) block_type = vt;
+                }
+                // Parse then body until "else" or "end"
+                const then_body = try self.parseIfBody();
+                var else_body: []WatInstr = &.{};
+                // Check for "else"
+                if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "else")) {
+                    _ = self.advance();
+                    else_body = try self.parseBlockBody();
+                }
+                instrs.append(self.alloc, .{ .if_op = .{
+                    .label = label,
+                    .block_type = block_type,
+                    .then_body = then_body,
+                    .else_body = else_body,
+                } }) catch return error.OutOfMemory;
+            },
+            else => {
+                try self.emitInstr(instrs, op_name, cat);
+            },
+        }
+    }
+
+    /// Emit a single instruction with its immediates.
+    fn emitInstr(self: *Parser, instrs: *std.ArrayListUnmanaged(WatInstr), op_name: []const u8, cat: InstrCategory) WatError!void {
+        const instr: WatInstr = switch (cat) {
+            .no_imm => .{ .simple = op_name },
+            .index_imm => .{ .index_op = .{ .op = op_name, .index = try self.parseIndex() } },
+            .i32_const => .{ .i32_const = try self.parseI32() },
+            .i64_const => .{ .i64_const = try self.parseI64() },
+            .f32_const => .{ .f32_const = try self.parseF32() },
+            .f64_const => .{ .f64_const = try self.parseF64() },
+            .mem_imm => .{ .mem_op = .{ .op = op_name, .mem_arg = try self.parseMemArg() } },
+            .br_table => blk: {
+                var targets: std.ArrayListUnmanaged(WatIndex) = .empty;
+                while (self.current.tag == .integer or self.current.tag == .ident) {
+                    targets.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
+                }
+                if (targets.items.len == 0) return error.InvalidWat;
+                const default = targets.items[targets.items.len - 1];
+                break :blk .{ .br_table = .{
+                    .targets = targets.items[0 .. targets.items.len - 1],
+                    .default = default,
+                } };
+            },
+            .call_indirect => blk: {
+                // call_indirect (type $t)? $table?
+                var type_idx: ?WatIndex = null;
+                var table_idx: u32 = 0;
+                if (self.current.tag == .lparen) {
+                    _ = self.advance();
+                    try self.expectKeyword("type");
+                    type_idx = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                }
+                if (self.current.tag == .integer) {
+                    const text = self.advance().text;
+                    table_idx = std.fmt.parseInt(u32, text, 10) catch return error.InvalidWat;
+                }
+                break :blk .{ .call_indirect = .{ .type_use = type_idx, .table_idx = table_idx } };
+            },
+            .select_t => blk: {
+                // select (result type)
+                var types: std.ArrayListUnmanaged(WatValType) = .empty;
+                if (self.current.tag == .lparen) {
+                    _ = self.advance();
+                    try self.expectKeyword("result");
+                    while (self.current.tag == .keyword) {
+                        types.append(self.alloc, try self.parseValType()) catch return error.OutOfMemory;
+                    }
+                    _ = try self.expect(.rparen);
+                }
+                break :blk .{ .select_t = types.items };
+            },
+            .block_type, .if_type => unreachable, // handled in caller
+        };
+        instrs.append(self.alloc, instr) catch return error.OutOfMemory;
+    }
+
+    /// Parse flat block body until "end" keyword.
+    fn parseBlockBody(self: *Parser) WatError![]WatInstr {
+        var instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+        while (self.current.tag != .eof) {
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "end")) {
+                _ = self.advance();
+                break;
+            }
+            if (self.current.tag == .lparen) {
+                try self.parseFoldedInstr(&instrs);
+            } else if (self.current.tag == .keyword) {
+                try self.parsePlainInstr(&instrs);
+            } else {
+                break;
+            }
+        }
+        return instrs.items;
+    }
+
+    /// Parse flat if body until "else" or "end" keyword.
+    fn parseIfBody(self: *Parser) WatError![]WatInstr {
+        var instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+        while (self.current.tag != .eof) {
+            if (self.current.tag == .keyword and
+                (std.mem.eql(u8, self.current.text, "end") or
+                std.mem.eql(u8, self.current.text, "else")))
+            {
+                if (std.mem.eql(u8, self.current.text, "end")) {
+                    _ = self.advance();
+                }
+                break;
+            }
+            if (self.current.tag == .lparen) {
+                try self.parseFoldedInstr(&instrs);
+            } else if (self.current.tag == .keyword) {
+                try self.parsePlainInstr(&instrs);
+            } else {
+                break;
+            }
+        }
+        return instrs.items;
+    }
+
+    fn tryParseValType(self: *Parser) ?WatValType {
+        if (self.current.tag != .keyword) return null;
+        if (std.mem.eql(u8, self.current.text, "i32")) { _ = self.advance(); return .i32; }
+        if (std.mem.eql(u8, self.current.text, "i64")) { _ = self.advance(); return .i64; }
+        if (std.mem.eql(u8, self.current.text, "f32")) { _ = self.advance(); return .f32; }
+        if (std.mem.eql(u8, self.current.text, "f64")) { _ = self.advance(); return .f64; }
+        return null;
+    }
+
+    fn parseI32(self: *Parser) WatError!i32 {
+        if (self.current.tag != .integer) return error.InvalidWat;
+        const text = self.advance().text;
+        return parseIntLiteral(i32, text) catch return error.InvalidWat;
+    }
+
+    fn parseI64(self: *Parser) WatError!i64 {
+        if (self.current.tag != .integer) return error.InvalidWat;
+        const text = self.advance().text;
+        return parseIntLiteral(i64, text) catch return error.InvalidWat;
+    }
+
+    fn parseF32(self: *Parser) WatError!f32 {
+        if (self.current.tag != .float and self.current.tag != .integer) return error.InvalidWat;
+        const text = self.advance().text;
+        return parseFloatLiteral(f32, text) catch return error.InvalidWat;
+    }
+
+    fn parseF64(self: *Parser) WatError!f64 {
+        if (self.current.tag != .float and self.current.tag != .integer) return error.InvalidWat;
+        const text = self.advance().text;
+        return parseFloatLiteral(f64, text) catch return error.InvalidWat;
+    }
+
+    fn parseMemArg(self: *Parser) WatError!MemArg {
+        var offset: u32 = 0;
+        var alignment: u32 = 0;
+        // Parse offset=N and align=N in any order
+        while (self.current.tag == .keyword) {
+            if (std.mem.startsWith(u8, self.current.text, "offset=")) {
+                const val_text = self.current.text["offset=".len..];
+                offset = parseIntLiteral(u32, val_text) catch return error.InvalidWat;
+                _ = self.advance();
+            } else if (std.mem.startsWith(u8, self.current.text, "align=")) {
+                const val_text = self.current.text["align=".len..];
+                alignment = parseIntLiteral(u32, val_text) catch return error.InvalidWat;
+                _ = self.advance();
+            } else {
+                break;
+            }
+        }
+        return .{ .offset = offset, .@"align" = alignment };
+    }
+
     fn skipSExpr(self: *Parser) WatError!void {
         // Already consumed opening ( and keyword — skip until matching )
         var depth: usize = 1;
@@ -913,6 +1396,81 @@ pub const Parser = struct {
         return text;
     }
 };
+
+// ============================================================
+// Number literal parsing
+// ============================================================
+
+/// Parse WAT integer literal: decimal, hex (0x), with optional sign and underscores.
+fn parseIntLiteral(comptime T: type, text: []const u8) !T {
+    var s = text;
+    var negative = false;
+    if (s.len > 0 and s[0] == '-') {
+        negative = true;
+        s = s[1..];
+    } else if (s.len > 0 and s[0] == '+') {
+        s = s[1..];
+    }
+
+    // Remove underscores
+    var buf: [64]u8 = undefined;
+    var len: usize = 0;
+    for (s) |c| {
+        if (c != '_') {
+            if (len >= buf.len) return error.Overflow;
+            buf[len] = c;
+            len += 1;
+        }
+    }
+    const clean = buf[0..len];
+
+    if (clean.len >= 2 and clean[0] == '0' and (clean[1] == 'x' or clean[1] == 'X')) {
+        // Hex
+        const hex = clean[2..];
+        if (@typeInfo(T).int.signedness == .signed) {
+            const U = std.meta.Int(.unsigned, @typeInfo(T).int.bits);
+            const val = std.fmt.parseInt(U, hex, 16) catch return error.Overflow;
+            const result: T = @bitCast(val);
+            return if (negative) -%result else result;
+        } else {
+            return std.fmt.parseInt(T, hex, 16) catch return error.Overflow;
+        }
+    }
+
+    // Decimal
+    if (@typeInfo(T).int.signedness == .signed) {
+        const val = std.fmt.parseInt(T, clean, 10) catch return error.Overflow;
+        return if (negative) -val else val;
+    } else {
+        return std.fmt.parseInt(T, clean, 10) catch return error.Overflow;
+    }
+}
+
+/// Parse WAT float literal: decimal, hex float, nan, inf.
+fn parseFloatLiteral(comptime T: type, text: []const u8) !T {
+    // Handle special values
+    if (std.mem.eql(u8, text, "nan")) return std.math.nan(T);
+    if (std.mem.eql(u8, text, "+nan") or std.mem.eql(u8, text, "-nan")) return std.math.nan(T);
+    if (std.mem.eql(u8, text, "inf") or std.mem.eql(u8, text, "+inf")) return std.math.inf(T);
+    if (std.mem.eql(u8, text, "-inf")) return -std.math.inf(T);
+
+    // Handle nan:0xN canonical NaN payload
+    if (std.mem.startsWith(u8, text, "nan:0x")) return std.math.nan(T);
+
+    // Remove underscores
+    var buf: [128]u8 = undefined;
+    var len: usize = 0;
+    for (text) |c| {
+        if (c != '_') {
+            if (len >= buf.len) return error.Overflow;
+            buf[len] = c;
+            len += 1;
+        }
+    }
+    const clean = buf[0..len];
+
+    return std.fmt.parseFloat(T, clean) catch return error.Overflow;
+}
 
 // ============================================================
 // Tests
@@ -1163,4 +1721,185 @@ test "WAT parser — multiple sections" {
     try testing.expectEqual(@as(usize, 1), mod.memories.len);
     try testing.expectEqual(@as(usize, 1), mod.functions.len);
     try testing.expectEqual(@as(usize, 2), mod.exports.len);
+}
+
+// ============================================================
+// Instruction Parser Tests
+// ============================================================
+
+test "WAT parser — func with i32.add body" {
+    var parser = Parser.init(testing.allocator,
+        \\(module
+        \\  (func $add (param i32 i32) (result i32)
+        \\    local.get 0
+        \\    local.get 1
+        \\    i32.add
+        \\  )
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.functions.len);
+    const body = mod.functions[0].body;
+    try testing.expectEqual(@as(usize, 3), body.len);
+    // local.get 0
+    try testing.expectEqualStrings("local.get", body[0].index_op.op);
+    try testing.expectEqual(@as(u32, 0), body[0].index_op.index.num);
+    // local.get 1
+    try testing.expectEqual(@as(u32, 1), body[1].index_op.index.num);
+    // i32.add
+    try testing.expectEqualStrings("i32.add", body[2].simple);
+}
+
+test "WAT parser — i32.const instruction" {
+    var parser = Parser.init(testing.allocator,
+        \\(module
+        \\  (func (result i32)
+        \\    i32.const 42
+        \\  )
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const body = mod.functions[0].body;
+    try testing.expectEqual(@as(usize, 1), body.len);
+    try testing.expectEqual(@as(i32, 42), body[0].i32_const);
+}
+
+test "WAT parser — folded S-expression" {
+    var parser = Parser.init(testing.allocator,
+        \\(module
+        \\  (func $add (param i32 i32) (result i32)
+        \\    (i32.add (local.get 0) (local.get 1))
+        \\  )
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const body = mod.functions[0].body;
+    // Unfolded: local.get 0, local.get 1, i32.add
+    try testing.expectEqual(@as(usize, 3), body.len);
+    try testing.expectEqualStrings("local.get", body[0].index_op.op);
+    try testing.expectEqual(@as(u32, 0), body[0].index_op.index.num);
+    try testing.expectEqualStrings("local.get", body[1].index_op.op);
+    try testing.expectEqual(@as(u32, 1), body[1].index_op.index.num);
+    try testing.expectEqualStrings("i32.add", body[2].simple);
+}
+
+test "WAT parser — nested folded expressions" {
+    var parser = Parser.init(testing.allocator,
+        \\(module
+        \\  (func (result i32)
+        \\    (i32.add (i32.const 1) (i32.mul (i32.const 2) (i32.const 3)))
+        \\  )
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const body = mod.functions[0].body;
+    // Unfolded: i32.const 1, i32.const 2, i32.const 3, i32.mul, i32.add
+    try testing.expectEqual(@as(usize, 5), body.len);
+    try testing.expectEqual(@as(i32, 1), body[0].i32_const);
+    try testing.expectEqual(@as(i32, 2), body[1].i32_const);
+    try testing.expectEqual(@as(i32, 3), body[2].i32_const);
+    try testing.expectEqualStrings("i32.mul", body[3].simple);
+    try testing.expectEqualStrings("i32.add", body[4].simple);
+}
+
+test "WAT parser — block instruction" {
+    var parser = Parser.init(testing.allocator,
+        \\(module
+        \\  (func
+        \\    (block $outer
+        \\      (br 0)
+        \\    )
+        \\  )
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const body = mod.functions[0].body;
+    try testing.expectEqual(@as(usize, 1), body.len);
+    const blk = body[0].block_op;
+    try testing.expectEqualStrings("block", blk.op);
+    try testing.expectEqualStrings("$outer", blk.label.?);
+    try testing.expectEqual(@as(usize, 1), blk.body.len);
+}
+
+test "WAT parser — if/then/else" {
+    var parser = Parser.init(testing.allocator,
+        \\(module
+        \\  (func (param i32) (result i32)
+        \\    (if (result i32) (local.get 0)
+        \\      (then (i32.const 1))
+        \\      (else (i32.const 0))
+        \\    )
+        \\  )
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const body = mod.functions[0].body;
+    // Condition (local.get 0) is unfolded before the if
+    try testing.expectEqual(@as(usize, 2), body.len);
+    try testing.expectEqualStrings("local.get", body[0].index_op.op);
+    const if_op = body[1].if_op;
+    try testing.expectEqual(WatValType.i32, if_op.block_type.?);
+    try testing.expectEqual(@as(usize, 1), if_op.then_body.len);
+    try testing.expectEqual(@as(usize, 1), if_op.else_body.len);
+}
+
+test "WAT parser — global with init" {
+    var parser = Parser.init(testing.allocator,
+        \\(module
+        \\  (global $g i32 (i32.const 42))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.globals.len);
+    try testing.expect(!mod.globals[0].global_type.mutable);
+    try testing.expectEqual(@as(usize, 1), mod.globals[0].init.len);
+    try testing.expectEqual(@as(i32, 42), mod.globals[0].init[0].i32_const);
+}
+
+test "WAT parser — memory load/store" {
+    var parser = Parser.init(testing.allocator,
+        \\(module
+        \\  (func (param i32)
+        \\    (i32.store offset=4 align=4 (i32.const 0) (local.get 0))
+        \\  )
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const body = mod.functions[0].body;
+    // Unfolded: i32.const 0, local.get 0, i32.store
+    try testing.expectEqual(@as(usize, 3), body.len);
+    try testing.expectEqual(@as(i32, 0), body[0].i32_const);
+    try testing.expectEqualStrings("local.get", body[1].index_op.op);
+    const store = body[2].mem_op;
+    try testing.expectEqualStrings("i32.store", store.op);
+    try testing.expectEqual(@as(u32, 4), store.mem_arg.offset);
+    try testing.expectEqual(@as(u32, 4), store.mem_arg.@"align");
+}
+
+test "WAT parser — loop with br_if" {
+    var parser = Parser.init(testing.allocator,
+        \\(module
+        \\  (func (param i32)
+        \\    (loop $L
+        \\      (br_if 0 (local.get 0))
+        \\    )
+        \\  )
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const body = mod.functions[0].body;
+    try testing.expectEqual(@as(usize, 1), body.len);
+    const lp = body[0].block_op;
+    try testing.expectEqualStrings("loop", lp.op);
+    try testing.expectEqualStrings("$L", lp.label.?);
+    // Loop body: local.get 0, br_if 0
+    try testing.expectEqual(@as(usize, 2), lp.body.len);
+}
+
+test "WAT parser — number literals" {
+    try testing.expectEqual(@as(i32, 42), try parseIntLiteral(i32, "42"));
+    try testing.expectEqual(@as(i32, -1), try parseIntLiteral(i32, "-1"));
+    try testing.expectEqual(@as(i32, 255), try parseIntLiteral(i32, "0xFF"));
+    try testing.expectEqual(@as(i32, 1000), try parseIntLiteral(i32, "1_000"));
+    try testing.expectEqual(@as(i64, 0x7FFFFFFFFFFFFFFF), try parseIntLiteral(i64, "0x7FFFFFFFFFFFFFFF"));
 }
