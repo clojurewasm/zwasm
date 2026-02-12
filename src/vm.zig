@@ -300,6 +300,13 @@ pub const Vm = struct {
     max_memory_bytes: ?u64 = null,
     fuel: ?u64 = null,
 
+    // Tail call support: when return_call is executed, the callee's func_ptr
+    // is stored here and execute() returns normally. doCallDirect() then
+    // loops to re-enter the new callee instead of returning.
+    tail_call_func: ?*store_mod.Function = null,
+    tail_call_args: [16]u64 = undefined,
+    tail_call_arg_count: usize = 0,
+
     pub fn init(alloc: Allocator) Vm {
         return .{
             .op_stack = undefined,
@@ -509,6 +516,59 @@ pub const Vm = struct {
                     try self.execute(&body_reader, inst);
                 }
 
+                // Tail call loop: if execute() set tail_call_func, reuse frame
+                while (self.tail_call_func) |next_fp| {
+                    // Unwind current frame
+                    const frame = self.popFrame();
+                    self.label_ptr = frame.label_stack_base;
+                    self.op_ptr = base;
+
+                    // Push tail call args as new params
+                    for (0..self.tail_call_arg_count) |i| {
+                        try self.push(self.tail_call_args[i]);
+                    }
+
+                    self.tail_call_func = null;
+                    const next_wf = &next_fp.subtype.wasm_function;
+                    const next_inst: *Instance = @ptrCast(@alignCast(next_wf.instance));
+
+                    // Zero-initialize callee locals
+                    for (0..next_wf.locals_count) |_| try self.push(0);
+
+                    // Push new frame
+                    try self.pushFrame(.{
+                        .locals_start = base,
+                        .locals_count = next_fp.params.len + next_wf.locals_count,
+                        .return_arity = next_fp.results.len,
+                        .op_stack_base = base,
+                        .label_stack_base = self.label_ptr,
+                        .return_reader = Reader.init(&.{}),
+                        .instance = next_inst,
+                    });
+
+                    if (next_wf.ir) |ir| {
+                        try self.pushLabel(.{
+                            .arity = next_fp.results.len,
+                            .op_stack_base = base + next_fp.params.len + next_wf.locals_count,
+                            .target = .{ .ir_forward = @intCast(ir.code.len) },
+                        });
+                        try self.executeIR(ir.code, ir.pool64, next_inst);
+                    } else {
+                        if (next_wf.branch_table == null) {
+                            next_wf.branch_table = computeBranchTable(self.alloc, next_wf.code) catch null;
+                        }
+                        self.current_branch_table = next_wf.branch_table;
+
+                        var body_reader = Reader.init(next_wf.code);
+                        try self.pushLabel(.{
+                            .arity = next_fp.results.len,
+                            .op_stack_base = base + next_fp.params.len + next_wf.locals_count,
+                            .target = .{ .forward = body_reader },
+                        });
+                        try self.execute(&body_reader, next_inst);
+                    }
+                }
+
                 // Copy results
                 const result_start = self.op_ptr - results.len;
                 for (results, 0..) |*r, i| r.* = @truncate(self.op_stack[result_start + i]);
@@ -715,15 +775,44 @@ pub const Vm = struct {
                     };
                 },
 
-                // ---- Tail call (stub — trap for now) ----
+                // ---- Tail call ----
                 .return_call => {
-                    _ = try reader.readU32(); // func_idx
-                    return error.Trap;
+                    const func_idx = try reader.readU32();
+                    const func_ptr = try instance.getFuncPtr(func_idx);
+                    const n_args = func_ptr.params.len;
+                    // Save args from stack (in reverse, then restore order)
+                    var i: usize = n_args;
+                    while (i > 0) {
+                        i -= 1;
+                        self.tail_call_args[i] = self.pop();
+                    }
+                    self.tail_call_arg_count = n_args;
+                    self.tail_call_func = func_ptr;
+                    return; // exit execute(), doCallDirect will loop
                 },
                 .return_call_indirect => {
-                    _ = try reader.readU32(); // type_idx
-                    _ = try reader.readU32(); // table_idx
-                    return error.Trap;
+                    const type_idx = try reader.readU32();
+                    const table_idx = try reader.readU32();
+                    const t = try instance.getTable(table_idx);
+                    const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
+                    const func_addr = try t.lookup(elem_idx);
+                    const func_ptr = try instance.store.getFunctionPtr(func_addr);
+                    // Type check
+                    if (type_idx < instance.module.types.items.len) {
+                        const expected = instance.module.types.items[type_idx];
+                        if (!std.mem.eql(ValType, expected.params, func_ptr.params) or
+                            !std.mem.eql(ValType, expected.results, func_ptr.results))
+                            return error.MismatchedSignatures;
+                    }
+                    const n_args = func_ptr.params.len;
+                    var i: usize = n_args;
+                    while (i > 0) {
+                        i -= 1;
+                        self.tail_call_args[i] = self.pop();
+                    }
+                    self.tail_call_arg_count = n_args;
+                    self.tail_call_func = func_ptr;
+                    return;
                 },
 
                 // ---- Exception handling ----
@@ -2077,68 +2166,96 @@ pub const Vm = struct {
     }
 
     fn doCallDirect(self: *Vm, instance: *Instance, func_ptr: *store_mod.Function, reader: *Reader) WasmError!void {
-        if (self.profile) |p| p.call_count += 1;
-        switch (func_ptr.subtype) {
-            .wasm_function => |*wf| {
-                const param_count = func_ptr.params.len;
-                const locals_start = self.op_ptr - param_count;
+        var current_fp = func_ptr;
+        var current_inst = instance;
 
-                // Zero-initialize locals
-                for (0..wf.locals_count) |_| try self.push(0);
+        while (true) {
+            if (self.profile) |p| p.call_count += 1;
+            switch (current_fp.subtype) {
+                .wasm_function => |*wf| {
+                    const param_count = current_fp.params.len;
+                    const locals_start = self.op_ptr - param_count;
 
-                // Lazy branch table computation
-                if (wf.branch_table == null) {
-                    wf.branch_table = computeBranchTable(self.alloc, wf.code) catch null;
-                }
-                const saved_bt = self.current_branch_table;
-                self.current_branch_table = wf.branch_table;
+                    // Zero-initialize locals
+                    for (0..wf.locals_count) |_| try self.push(0);
 
-                try self.pushFrame(.{
-                    .locals_start = locals_start,
-                    .locals_count = param_count + wf.locals_count,
-                    .return_arity = func_ptr.results.len,
-                    .op_stack_base = locals_start,
-                    .label_stack_base = self.label_ptr,
-                    .return_reader = reader.*,
-                    .instance = instance,
-                });
+                    // Lazy branch table computation
+                    if (wf.branch_table == null) {
+                        wf.branch_table = computeBranchTable(self.alloc, wf.code) catch null;
+                    }
+                    const saved_bt = self.current_branch_table;
+                    self.current_branch_table = wf.branch_table;
 
-                var body_reader = Reader.init(wf.code);
-                try self.pushLabel(.{
-                    .arity = func_ptr.results.len,
-                    .op_stack_base = self.op_ptr,
-                    .target = .{ .forward = body_reader },
-                });
+                    try self.pushFrame(.{
+                        .locals_start = locals_start,
+                        .locals_count = param_count + wf.locals_count,
+                        .return_arity = current_fp.results.len,
+                        .op_stack_base = locals_start,
+                        .label_stack_base = self.label_ptr,
+                        .return_reader = reader.*,
+                        .instance = current_inst,
+                    });
 
-                const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
-                self.execute(&body_reader, callee_inst) catch |err| {
-                    // On any error, unwind callee frame before propagating
+                    var body_reader = Reader.init(wf.code);
+                    try self.pushLabel(.{
+                        .arity = current_fp.results.len,
+                        .op_stack_base = self.op_ptr,
+                        .target = .{ .forward = body_reader },
+                    });
+
+                    const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
+                    self.execute(&body_reader, callee_inst) catch |err| {
+                        // On any error, unwind callee frame before propagating
+                        const frame = self.popFrame();
+                        self.label_ptr = frame.label_stack_base;
+                        self.op_ptr = frame.op_stack_base;
+                        self.current_branch_table = saved_bt;
+                        reader.* = frame.return_reader;
+                        return err;
+                    };
+
+                    // Check for tail call: execute() returned with tail_call_func set
+                    if (self.tail_call_func) |next_fp| {
+                        // Unwind current frame (like return)
+                        const frame = self.popFrame();
+                        self.label_ptr = frame.label_stack_base;
+                        self.current_branch_table = saved_bt;
+                        self.op_ptr = frame.op_stack_base;
+                        reader.* = frame.return_reader;
+
+                        // Push tail call args back onto stack
+                        for (0..self.tail_call_arg_count) |i| {
+                            try self.push(self.tail_call_args[i]);
+                        }
+
+                        // Clear tail call state and loop
+                        self.tail_call_func = null;
+                        current_fp = next_fp;
+                        current_inst = callee_inst;
+                        continue;
+                    }
+
+                    // Normal return: move results to correct position
                     const frame = self.popFrame();
                     self.label_ptr = frame.label_stack_base;
-                    self.op_ptr = frame.op_stack_base;
                     self.current_branch_table = saved_bt;
-                    reader.* = frame.return_reader;
-                    return err;
-                };
-
-                // Move results to correct position
-                const frame = self.popFrame();
-                self.label_ptr = frame.label_stack_base;
-                self.current_branch_table = saved_bt;
-                const n = frame.return_arity;
-                if (n > 0) {
-                    const src_start = self.op_ptr - n;
-                    for (0..n) |i| {
-                        self.op_stack[frame.op_stack_base + i] = self.op_stack[src_start + i];
+                    const n = frame.return_arity;
+                    if (n > 0) {
+                        const src_start = self.op_ptr - n;
+                        for (0..n) |i| {
+                            self.op_stack[frame.op_stack_base + i] = self.op_stack[src_start + i];
+                        }
                     }
-                }
-                self.op_ptr = frame.op_stack_base + n;
-                reader.* = frame.return_reader;
-            },
-            .host_function => |hf| {
-                self.current_instance = instance;
-                hf.func(@ptrCast(self), hf.context) catch return error.Trap;
-            },
+                    self.op_ptr = frame.op_stack_base + n;
+                    reader.* = frame.return_reader;
+                    return;
+                },
+                .host_function => |hf| {
+                    self.current_instance = current_inst;
+                    hf.func(@ptrCast(self), hf.context) catch return error.Trap;
+                    return;
+                },
+            }
         }
     }
 

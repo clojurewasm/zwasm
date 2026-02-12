@@ -1027,3 +1027,63 @@ test "WAT round-trip — named globals" {
     try wasm_mod.invoke("inc", &[_]u64{}, &results);
     try testing.expectEqual(@as(u64, 2), results[0]);
 }
+
+test "WAT round-trip — return_call simple" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (func $get42 (result i32)
+        \\    i32.const 42
+        \\  )
+        \\  (func $call42 (result i32)
+        \\    return_call $get42
+        \\  )
+        \\  (export "call42" (func $call42))
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var results = [_]u64{0};
+    try wasm_mod.invoke("call42", &[_]u64{}, &results);
+    try testing.expectEqual(@as(u64, @bitCast(@as(i64, 42))), results[0]);
+}
+
+test "WAT round-trip — return_call mutual recursion" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (func $even (param i32) (result i32)
+        \\    local.get 0
+        \\    i32.eqz
+        \\    if (result i32)
+        \\      i32.const 1
+        \\    else
+        \\      local.get 0
+        \\      i32.const 1
+        \\      i32.sub
+        \\      return_call $odd
+        \\    end
+        \\  )
+        \\  (func $odd (param i32) (result i32)
+        \\    local.get 0
+        \\    i32.eqz
+        \\    if (result i32)
+        \\      i32.const 0
+        \\    else
+        \\      local.get 0
+        \\      i32.const 1
+        \\      i32.sub
+        \\      return_call $even
+        \\    end
+        \\  )
+        \\  (export "even" (func $even))
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var results = [_]u64{0};
+    var args4 = [_]u64{4};
+    try wasm_mod.invoke("even", &args4, &results);
+    try testing.expectEqual(@as(u64, 1), results[0]);
+    var args5 = [_]u64{5};
+    try wasm_mod.invoke("even", &args5, &results);
+    try testing.expectEqual(@as(u64, 0), results[0]);
+}

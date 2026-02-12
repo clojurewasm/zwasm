@@ -51,7 +51,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Multi-value           | Complete     | Multiple returns                   |
 | SIMD                  | Complete     | All 236 v128 opcodes               |
 | Memory64              | Complete     | Wasm 3.0 — table64 + i64 addressing |
-| Tail calls            | Stub         | return_call/return_call_indirect trap |
+| Tail calls            | Partial      | return_call + return_call_indirect    |
 | Extended const        | Complete     | i32/i64 add/sub/mul in const exprs |
 | Branch hinting        | Complete     | metadata.code.branch_hint section  |
 | Exception handling    | Complete     | throw, try_table, catch clauses    |

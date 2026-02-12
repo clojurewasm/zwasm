@@ -50,8 +50,8 @@ Three small proposals batched together (~330 LOC total).
 
 1. [x] 14.1: Extended constant expressions (i32/i64 add/sub/mul in const exprs)
 2. [x] 14.2: Branch hinting (custom section parsing, store per-function hints)
-3. [ ] 14.3: Tail call — return_call (0x12) bytecode interpreter
-4. [ ] 14.4: Tail call — return_call_indirect (0x13) bytecode interpreter
+3. [x] 14.3: Tail call — return_call (0x12) bytecode interpreter
+4. [x] 14.4: Tail call — return_call_indirect (0x13) bytecode interpreter
 5. [ ] 14.5: Tail call — predecode/regir support + spec tests
 
 Stage 15: Wasm 3.0 — Multi-memory
@@ -84,11 +84,11 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-14.3: Tail call — return_call (0x12) bytecode interpreter.
+14.5: Tail call — predecode/regir support + spec tests.
 
 ## Previous Task
 
-14.2: Branch hinting (custom section metadata.code.branch_hint parsing).
+14.3+14.4: Tail call — return_call + return_call_indirect bytecode interpreter.
 
 ## Wasm 3.0 Coverage
 

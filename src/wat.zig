@@ -958,6 +958,7 @@ pub const Parser = struct {
         // Special control
         if (std.mem.eql(u8, name, "br_table")) return .br_table;
         if (std.mem.eql(u8, name, "call_indirect")) return .call_indirect;
+        if (std.mem.eql(u8, name, "return_call_indirect")) return .call_indirect;
         if (std.mem.eql(u8, name, "select")) return .no_imm;
 
         // Index instructions
@@ -967,6 +968,7 @@ pub const Parser = struct {
             std.mem.eql(u8, name, "global.get") or
             std.mem.eql(u8, name, "global.set") or
             std.mem.eql(u8, name, "call") or
+            std.mem.eql(u8, name, "return_call") or
             std.mem.eql(u8, name, "br") or
             std.mem.eql(u8, name, "br_if") or
             std.mem.eql(u8, name, "ref.func") or
@@ -1916,6 +1918,8 @@ fn instrOpcode(name: []const u8) ?u8 {
         .{ "return", 0x0F },
         .{ "call", 0x10 },
         .{ "call_indirect", 0x11 },
+        .{ "return_call", 0x12 },
+        .{ "return_call_indirect", 0x13 },
         .{ "drop", 0x1A },
         .{ "select", 0x1B },
         .{ "local_get", 0x20 },
