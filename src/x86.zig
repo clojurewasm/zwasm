@@ -1234,16 +1234,16 @@ pub const Compiler = struct {
         }
     }
 
-    fn emitEpilogue(self: *Compiler) void {
-        // Store virtual registers back to regs array
-        const max_vreg = @min(self.reg_count, MAX_PHYS_REGS);
-        for (0..max_vreg) |i| {
-            const vreg: u8 = @intCast(i);
-            if (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg))) != 0) {
-                if (vregToPhys(vreg)) |phys| {
-                    const disp: i32 = @as(i32, vreg) * 8;
-                    Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
-                }
+    fn emitEpilogue(self: *Compiler, result_vreg: ?u8) void {
+        // Store result to regs[0] if needed
+        if (result_vreg) |rv| {
+            if (vregToPhys(rv)) |phys| {
+                Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, 0, phys);
+            } else {
+                // Spilled vreg: load from memory slot, then store to regs[0]
+                const disp: i32 = @as(i32, rv) * 8;
+                Enc.loadDisp32(&self.code, self.alloc, SCRATCH, REGS_PTR, disp);
+                Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, 0, SCRATCH);
             }
         }
 
@@ -2207,15 +2207,9 @@ pub const Compiler = struct {
                 }) catch return false;
             },
             regalloc_mod.OP_RETURN => {
-                if (self.result_count > 0) {
-                    const src = self.getOrLoad(instr.rd, SCRATCH);
-                    if (instr.rd != 0) {
-                        Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, 0, src);
-                    }
-                }
-                self.emitEpilogue();
+                self.emitEpilogue(if (self.result_count > 0) instr.rd else null);
             },
-            regalloc_mod.OP_RETURN_VOID => self.emitEpilogue(),
+            regalloc_mod.OP_RETURN_VOID => self.emitEpilogue(null),
             regalloc_mod.OP_NOP, regalloc_mod.OP_BLOCK_END, regalloc_mod.OP_DELETED => {},
 
             // --- Global ops ---
