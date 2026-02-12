@@ -50,6 +50,11 @@ pub const JitCode = struct {
     }
 };
 
+/// Returns true if JIT compilation is supported on the current CPU architecture.
+pub fn jitSupported() bool {
+    return builtin.cpu.arch == .aarch64 or builtin.cpu.arch == .x86_64;
+}
+
 /// Hot function call threshold — JIT after this many calls.
 pub const HOT_THRESHOLD: u32 = 10;
 

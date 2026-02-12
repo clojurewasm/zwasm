@@ -441,17 +441,19 @@ pub const Vm = struct {
                     }
 
                     // JIT compilation: check hot threshold (skip when profiling)
-                    if (builtin.cpu.arch == .aarch64 and self.profile == null and
-                        wf.jit_code == null and !wf.jit_failed)
-                    {
-                        wf.call_count += 1;
-                        if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
-                            wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(func_ptr.params.len), @intCast(func_ptr.results.len), self.trace, jit_mod.getMinMemoryBytes(inst));
-                            if (wf.jit_code == null) {
-                                wf.jit_failed = true;
-                                if (self.trace) |tc| trace_mod.traceJitBail(tc, wf.func_idx, "compilation failed");
-                            } else {
-                                if (self.trace) |tc| trace_mod.traceJitCompile(tc, wf.func_idx, @intCast(reg.code.len), @intCast(wf.jit_code.?.buf.len));
+                    if (comptime jit_mod.jitSupported()) {
+                        if (self.profile == null and
+                            wf.jit_code == null and !wf.jit_failed)
+                        {
+                            wf.call_count += 1;
+                            if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
+                                wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(func_ptr.params.len), @intCast(func_ptr.results.len), self.trace, jit_mod.getMinMemoryBytes(inst));
+                                if (wf.jit_code == null) {
+                                    wf.jit_failed = true;
+                                    if (self.trace) |tc| trace_mod.traceJitBail(tc, wf.func_idx, "compilation failed");
+                                } else {
+                                    if (self.trace) |tc| trace_mod.traceJitCompile(tc, wf.func_idx, @intCast(reg.code.len), @intCast(wf.jit_code.?.buf.len));
+                                }
                             }
                         }
                     }
@@ -2439,8 +2441,8 @@ pub const Vm = struct {
             &func_ptr.subtype.wasm_function
         else
             null;
-        const jit_eligible = builtin.cpu.arch == .aarch64 and self.profile == null and
-            wf != null and wf.?.jit_code == null and !wf.?.jit_failed;
+        const jit_eligible = if (!comptime jit_mod.jitSupported()) false else
+            self.profile == null and wf != null and wf.?.jit_code == null and !wf.?.jit_failed;
         const jit_param_count: u16 = @intCast(func_ptr.params.len);
         const jit_result_count: u16 = @intCast(func_ptr.results.len);
         const jit_min_mem_bytes: u32 = jit_mod.getMinMemoryBytes(instance);
@@ -3687,18 +3689,20 @@ pub const Vm = struct {
 
                     // JIT compilation + fast execution for hot callees.
                     if (wf.reg_ir) |reg| {
-                        if (builtin.cpu.arch == .aarch64 and self.profile == null and
-                            wf.jit_code == null and !wf.jit_failed)
-                        {
-                            wf.call_count += 1;
-                            if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
-                                const jit_inst: *Instance = @ptrCast(@alignCast(wf.instance));
-                                wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(current_fp.params.len), @intCast(current_fp.results.len), self.trace, jit_mod.getMinMemoryBytes(jit_inst));
-                                if (wf.jit_code == null) {
-                                    wf.jit_failed = true;
-                                    if (self.trace) |tc| trace_mod.traceJitBail(tc, wf.func_idx, "compilation failed");
-                                } else {
-                                    if (self.trace) |tc| trace_mod.traceJitCompile(tc, wf.func_idx, @intCast(reg.code.len), @intCast(wf.jit_code.?.buf.len));
+                        if (comptime jit_mod.jitSupported()) {
+                            if (self.profile == null and
+                                wf.jit_code == null and !wf.jit_failed)
+                            {
+                                wf.call_count += 1;
+                                if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
+                                    const jit_inst: *Instance = @ptrCast(@alignCast(wf.instance));
+                                    wf.jit_code = jit_mod.compileFunction(self.alloc, reg, wf.ir.?.pool64, wf.func_idx, @intCast(current_fp.params.len), @intCast(current_fp.results.len), self.trace, jit_mod.getMinMemoryBytes(jit_inst));
+                                    if (wf.jit_code == null) {
+                                        wf.jit_failed = true;
+                                        if (self.trace) |tc| trace_mod.traceJitBail(tc, wf.func_idx, "compilation failed");
+                                    } else {
+                                        if (self.trace) |tc| trace_mod.traceJitCompile(tc, wf.func_idx, @intCast(reg.code.len), @intCast(wf.jit_code.?.buf.len));
+                                    }
                                 }
                             }
                         }
