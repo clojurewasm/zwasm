@@ -415,6 +415,8 @@ def main():
     parser.add_argument("--dir", help="Directory containing JSON test files (default: test/spec/json)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show individual failures")
     parser.add_argument("--summary", action="store_true", help="Show per-file summary")
+    parser.add_argument("--allow-failures", type=int, default=0,
+                        help="Exit 0 if failures <= N (for known/pre-existing failures)")
     args = parser.parse_args()
 
     test_dir = args.dir if args.dir else SPEC_DIR
@@ -467,7 +469,7 @@ def main():
         for name, p, f, s in failing[:15]:
             print(f"  {name}: {f} failures ({p} passed)")
 
-    sys.exit(1 if total_failed > 0 else 0)
+    sys.exit(1 if total_failed > args.allow_failures else 0)
 
 
 if __name__ == "__main__":

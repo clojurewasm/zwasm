@@ -106,6 +106,11 @@ const Enc = struct {
         return rex(true, false, false, rm.isExt());
     }
 
+    /// REX prefix for reg-reg operation (no W bit, for 32-bit ops).
+    fn rexRR(reg: Reg, rm: Reg) u8 {
+        return rex(false, reg.isExt(), false, rm.isExt());
+    }
+
     // --- ModR/M ---
 
     /// ModR/M byte: mod(2) | reg(3) | rm(3).
@@ -632,21 +637,24 @@ const Enc = struct {
     /// Handles the R13/RBP special case: when base.low3()==5 (RBP/R13),
     /// mod=00 encodes as [disp32 + index] instead. Use mod=01 + disp8=0.
     fn emitSibAddr(buf: *std.ArrayList(u8), alloc: Allocator, reg_field: u3, base: Reg, index: Reg) void {
+        const rf: u8 = reg_field;
+        const il: u8 = index.low3();
+        const bl: u8 = base.low3();
         if (base.low3() == 5) {
             // mod=01, rm=100 (SIB), disp8=0
-            buf.append(alloc, 0x44 | (reg_field << 3)) catch {};
-            buf.append(alloc, (index.low3() << 3) | base.low3()) catch {};
+            buf.append(alloc, 0x44 | (rf << 3)) catch {};
+            buf.append(alloc, (il << 3) | bl) catch {};
             buf.append(alloc, 0x00) catch {}; // disp8 = 0
         } else {
             // mod=00, rm=100 (SIB)
-            buf.append(alloc, (reg_field << 3) | 0x04) catch {};
-            buf.append(alloc, (index.low3() << 3) | base.low3()) catch {};
+            buf.append(alloc, (rf << 3) | 0x04) catch {};
+            buf.append(alloc, (il << 3) | bl) catch {};
         }
     }
 
     /// MOV r32, [base + index*1] (32-bit load)
     fn loadBaseIdx32(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        const r = rex(dst, base) | (if (index.isExt()) @as(u8, 0x42) else 0);
+        const r = rexRR(dst, base) | (if (index.isExt()) @as(u8, 0x42) else 0);
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.append(alloc, 0x8B) catch {};
         emitSibAddr(buf, alloc, dst.low3(), base, index);
@@ -663,7 +671,7 @@ const Enc = struct {
 
     /// MOVZX r32, byte [base + index*1] (zero-extend byte to 32-bit)
     fn loadBaseIdxU8(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        var r = rex(dst, base);
+        var r = rexRR(dst, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xB6 }) catch {};
@@ -672,7 +680,7 @@ const Enc = struct {
 
     /// MOVSX r32, byte [base + index*1] (sign-extend byte to 32-bit)
     fn loadBaseIdxS8_32(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        var r = rex(dst, base);
+        var r = rexRR(dst, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xBE }) catch {};
@@ -690,7 +698,7 @@ const Enc = struct {
 
     /// MOVZX r32, word [base + index*1] (zero-extend 16-bit to 32-bit)
     fn loadBaseIdxU16(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        var r = rex(dst, base);
+        var r = rexRR(dst, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xB7 }) catch {};
@@ -699,7 +707,7 @@ const Enc = struct {
 
     /// MOVSX r32, word [base + index*1] (sign-extend 16-bit to 32-bit)
     fn loadBaseIdxS16_32(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
-        var r = rex(dst, base);
+        var r = rexRR(dst, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xBF }) catch {};
@@ -726,7 +734,7 @@ const Enc = struct {
 
     /// MOV [base + index*1], r32 (32-bit store)
     fn storeBaseIdx32(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
-        var r = rex(src, base);
+        var r = rexRR(src, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.append(alloc, 0x89) catch {};
@@ -744,7 +752,7 @@ const Enc = struct {
 
     /// MOV byte [base + index*1], r8 (8-bit store)
     fn storeBaseIdx8(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
-        var r = rex(src, base);
+        var r = rexRR(src, base);
         if (index.isExt()) r |= 0x02;
         // Always emit REX for byte stores to ensure uniform register encoding
         if (r == 0x40) r = 0x40;
@@ -756,7 +764,7 @@ const Enc = struct {
     /// MOV word [base + index*1], r16 (16-bit store)
     fn storeBaseIdx16(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
         buf.append(alloc, 0x66) catch {};
-        var r = rex(src, base);
+        var r = rexRR(src, base);
         if (index.isExt()) r |= 0x02;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.append(alloc, 0x89) catch {};
@@ -766,13 +774,13 @@ const Enc = struct {
     /// MOV r32, imm32 (zero-extending)
     fn movImm32ToReg(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, imm: u32) void {
         if (dst.isExt()) buf.append(alloc, 0x41) catch {};
-        buf.append(alloc, 0xB8 | dst.low3()) catch {};
+        buf.append(alloc, @as(u8, 0xB8) | @as(u8, dst.low3())) catch {};
         appendU32(buf, alloc, imm);
     }
 
     /// TEST r32, r32 (32-bit)
     fn testRegReg32(buf: *std.ArrayList(u8), alloc: Allocator, r1: Reg, r2: Reg) void {
-        const r = rex(r2, r1);
+        const r = rexRR(r2, r1);
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.append(alloc, 0x85) catch {};
         buf.append(alloc, modrmReg(r2, r1)) catch {};
@@ -896,7 +904,7 @@ const Enc = struct {
     /// CVTSI2SD xmm, r32: F2 0F 2A /r (signed i32 → f64)
     fn cvtsi2sd32(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
         buf.append(alloc, 0xF2) catch {};
-        var r = rex(.rax, gpr); // minimal REX if gpr extended
+        var r = rexRR(.rax, gpr); // minimal REX if gpr extended
         if (xmm >= 8) r |= 0x04;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2A }) catch {};
@@ -906,7 +914,7 @@ const Enc = struct {
     /// CVTSI2SS xmm, r32: F3 0F 2A /r (signed i32 → f32)
     fn cvtsi2ss32(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
         buf.append(alloc, 0xF3) catch {};
-        var r = rex(.rax, gpr);
+        var r = rexRR(.rax, gpr);
         if (xmm >= 8) r |= 0x04;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2A }) catch {};
@@ -938,7 +946,7 @@ const Enc = struct {
     /// CVTTSD2SI r32, xmm: F2 0F 2C /r (f64 → signed i32, truncating)
     fn cvttsd2si32(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4) void {
         buf.append(alloc, 0xF2) catch {};
-        var r = rex(gpr, .rax);
+        var r = rexRR(gpr, .rax);
         if (xmm >= 8) r |= 0x01;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2C }) catch {};
@@ -948,7 +956,7 @@ const Enc = struct {
     /// CVTTSS2SI r32, xmm: F3 0F 2C /r (f32 → signed i32, truncating)
     fn cvttss2si32(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4) void {
         buf.append(alloc, 0xF3) catch {};
-        var r = rex(gpr, .rax);
+        var r = rexRR(gpr, .rax);
         if (xmm >= 8) r |= 0x01;
         if (r != 0x40) buf.append(alloc, r) catch {};
         buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x2C }) catch {};
@@ -1161,7 +1169,7 @@ pub const Compiler = struct {
         if (max <= FIRST_CALLER_SAVED_VREG) return;
         for (FIRST_CALLER_SAVED_VREG..max) |i| {
             const vreg: u8 = @intCast(i);
-            if (self.written_vregs & (@as(u128, 1) << @as(u7, vreg)) != 0) {
+            if (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg))) != 0) {
                 if (vregToPhys(vreg)) |phys| {
                     const disp: i32 = @as(i32, vreg) * 8;
                     Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
@@ -1226,16 +1234,16 @@ pub const Compiler = struct {
         }
     }
 
-    fn emitEpilogue(self: *Compiler) void {
-        // Store virtual registers back to regs array
-        const max_vreg = @min(self.reg_count, MAX_PHYS_REGS);
-        for (0..max_vreg) |i| {
-            const vreg: u8 = @intCast(i);
-            if (self.written_vregs & (@as(u128, 1) << @as(u7, vreg)) != 0) {
-                if (vregToPhys(vreg)) |phys| {
-                    const disp: i32 = @as(i32, vreg) * 8;
-                    Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
-                }
+    fn emitEpilogue(self: *Compiler, result_vreg: ?u8) void {
+        // Store result to regs[0] if needed
+        if (result_vreg) |rv| {
+            if (vregToPhys(rv)) |phys| {
+                Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, 0, phys);
+            } else {
+                // Spilled vreg: load from memory slot, then store to regs[0]
+                const disp: i32 = @as(i32, rv) * 8;
+                Enc.loadDisp32(&self.code, self.alloc, SCRATCH, REGS_PTR, disp);
+                Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, 0, SCRATCH);
             }
         }
 
@@ -1269,8 +1277,7 @@ pub const Compiler = struct {
     /// Emit conditional error: if condition is true, branch forward to error stub.
     fn emitCondError(self: *Compiler, cond: Cond, error_code: u16) void {
         // Jcc rel32 (6 bytes: 0F 8x cd cd cd cd)
-        const rel32_off = self.currentOffset() + 2; // offset of the rel32 in code
-        Enc.jccRel32(&self.code, self.alloc, cond, 0); // placeholder
+        const rel32_off = Enc.jccRel32(&self.code, self.alloc, cond);
         self.error_stubs.append(self.alloc, .{
             .rel32_offset = rel32_off,
             .error_code = error_code,
@@ -1304,9 +1311,8 @@ pub const Compiler = struct {
                 // MOV EAX, imm32 (5 bytes) — zero extends to RAX
                 Enc.movImm32ToReg(&self.code, self.alloc, .rax, stub.error_code);
                 // JMP rel32 to shared_exit
-                const jmp_rel32_off = self.currentOffset() + 1;
-                Enc.jmpRel32(&self.code, self.alloc, 0);
-                Enc.patchRel32(self.code.items, jmp_rel32_off, shared_exit);
+                const jmp_patch_off = Enc.jmpRel32(&self.code, self.alloc);
+                Enc.patchRel32(self.code.items, jmp_patch_off, shared_exit);
                 // Patch original Jcc to point to this stub
                 Enc.patchRel32(self.code.items, stub.rel32_offset, stub_offset);
             }
@@ -1522,8 +1528,7 @@ pub const Compiler = struct {
 
         // 5. Check error (RAX != 0 → error)
         Enc.testRegReg(&self.code, self.alloc, .rax, .rax);
-        const rel32_off = self.currentOffset() + 2;
-        Enc.jccRel32(&self.code, self.alloc, .ne, 0); // JNE error
+        const rel32_off = Enc.jccRel32(&self.code, self.alloc, .ne); // JNE error
         self.error_stubs.append(self.alloc, .{
             .rel32_offset = rel32_off,
             .error_code = 0, // RAX already has error code
@@ -1590,8 +1595,7 @@ pub const Compiler = struct {
 
         // 5. Check error
         Enc.testRegReg(&self.code, self.alloc, .rax, .rax);
-        const rel32_off = self.currentOffset() + 2;
-        Enc.jccRel32(&self.code, self.alloc, .ne, 0);
+        const rel32_off = Enc.jccRel32(&self.code, self.alloc, .ne);
         self.error_stubs.append(self.alloc, .{
             .rel32_offset = rel32_off,
             .error_code = 0,
@@ -1797,27 +1801,21 @@ pub const Compiler = struct {
     }
 
     /// Emit f64 min/max (direct binary op).
-    fn emitFpMinMax64(self: *Compiler, instr: RegInstr) void {
-        self.loadFpToXmm(XMM0, instr.rs1);
-        self.loadFpToXmm(XMM1, instr.rs2());
-        switch (instr.op) {
-            0xA4 => Enc.minsd(&self.code, self.alloc, XMM0, XMM1),
-            0xA5 => Enc.maxsd(&self.code, self.alloc, XMM0, XMM1),
-            else => unreachable,
-        }
-        self.storeFpFromXmm(instr.rd, XMM0);
+    fn emitFpMinMax64(self: *Compiler, instr: RegInstr) bool {
+        // TODO: x86 MINSD/MAXSD don't propagate NaN per Wasm spec.
+        // Bail to interpreter until proper NaN handling is implemented.
+        _ = self;
+        _ = instr;
+        return false;
     }
 
     /// Emit f32 min/max.
-    fn emitFpMinMax32(self: *Compiler, instr: RegInstr) void {
-        self.loadFpToXmm(XMM0, instr.rs1);
-        self.loadFpToXmm(XMM1, instr.rs2());
-        switch (instr.op) {
-            0x96 => Enc.minss(&self.code, self.alloc, XMM0, XMM1),
-            0x97 => Enc.maxss(&self.code, self.alloc, XMM0, XMM1),
-            else => unreachable,
-        }
-        self.storeFpFromXmm(instr.rd, XMM0);
+    fn emitFpMinMax32(self: *Compiler, instr: RegInstr) bool {
+        // TODO: x86 MINSS/MAXSS don't propagate NaN per Wasm spec.
+        // Bail to interpreter until proper NaN handling is implemented.
+        _ = self;
+        _ = instr;
+        return false;
     }
 
     /// Emit f64 comparison: result = 0 or 1.
@@ -1938,7 +1936,7 @@ pub const Compiler = struct {
     }
 
     /// Emit FP conversion operations.
-    fn emitFpConvert(self: *Compiler, op: u16, instr: RegInstr) void {
+    fn emitFpConvert(self: *Compiler, op: u16, instr: RegInstr) bool {
         switch (op) {
             // f64.convert_i32_s (0xB7)
             0xB7 => {
@@ -1962,9 +1960,7 @@ pub const Compiler = struct {
             },
             // f64.convert_i64_u (0xBA) — needs unsigned handling
             0xBA => {
-                // For unsigned i64→f64, simple CVTSI2SD is wrong for values > i64_max.
-                // Bail out for now (interpreter handles it).
-                return; // TODO: proper u64→f64 conversion
+                return false;
             },
             // f32.convert_i32_s (0xB2)
             0xB2 => {
@@ -1986,39 +1982,9 @@ pub const Compiler = struct {
                 self.storeFpFromXmm(instr.rd, XMM0);
             },
             // f32.convert_i64_u (0xB5) — bail
-            0xB5 => return,
-            // i32.trunc_f64_s (0xAA)
-            0xAA => {
-                self.loadFpToXmm(XMM0, instr.rs1);
-                Enc.cvttsd2si32(&self.code, self.alloc, SCRATCH, XMM0);
-                self.storeVreg(instr.rd, SCRATCH);
-            },
-            // i32.trunc_f64_u (0xAB) — bail for now
-            0xAB => return,
-            // i64.trunc_f64_s (0xB0)
-            0xB0 => {
-                self.loadFpToXmm(XMM0, instr.rs1);
-                Enc.cvttsd2si64(&self.code, self.alloc, SCRATCH, XMM0);
-                self.storeVreg(instr.rd, SCRATCH);
-            },
-            // i64.trunc_f64_u (0xB1) — bail
-            0xB1 => return,
-            // i32.trunc_f32_s (0xA8)
-            0xA8 => {
-                self.loadFpToXmm(XMM0, instr.rs1);
-                Enc.cvttss2si32(&self.code, self.alloc, SCRATCH, XMM0);
-                self.storeVreg(instr.rd, SCRATCH);
-            },
-            // i32.trunc_f32_u (0xA9) — bail
-            0xA9 => return,
-            // i64.trunc_f32_s (0xAE)
-            0xAE => {
-                self.loadFpToXmm(XMM0, instr.rs1);
-                Enc.cvttss2si64(&self.code, self.alloc, SCRATCH, XMM0);
-                self.storeVreg(instr.rd, SCRATCH);
-            },
-            // i64.trunc_f32_u (0xAF) — bail
-            0xAF => return,
+            0xB5 => return false,
+            // i32/i64.trunc_f32/f64_s/u — bail (need trap checking for NaN/overflow)
+            0xAA, 0xAB, 0xA8, 0xA9, 0xB0, 0xB1, 0xAE, 0xAF => return false,
             // f64.promote_f32 (0xBB)
             0xBB => {
                 self.loadFpToXmm(XMM0, instr.rs1);
@@ -2031,14 +1997,15 @@ pub const Compiler = struct {
                 Enc.cvtsd2ss(&self.code, self.alloc, XMM0, XMM0);
                 self.storeFpFromXmm(instr.rd, XMM0);
             },
-            // f32/f64 copysign (0x98, 0x8A) — bail for now (complex bit manipulation)
-            0x98, 0x8A => return,
+            // f32/f64 copysign (0x98, 0xA6) — bail for now (complex bit manipulation)
+            0x98, 0xA6 => return false,
             // f64.ceil/floor/trunc/nearest (0x9B-0x9E) — need SSE4.1 ROUNDSD, bail
-            0x9B, 0x9C, 0x9D, 0x9E => return,
+            0x9B, 0x9C, 0x9D, 0x9E => return false,
             // f32.ceil/floor/trunc/nearest (0x8D-0x90) — need SSE4.1 ROUNDSS, bail
-            0x8D, 0x8E, 0x8F, 0x90 => return,
-            else => return,
+            0x8D, 0x8E, 0x8F, 0x90 => return false,
+            else => return false,
         }
+        return true;
     }
 
     // --- Finalization ---
@@ -2203,15 +2170,9 @@ pub const Compiler = struct {
                 }) catch return false;
             },
             regalloc_mod.OP_RETURN => {
-                if (self.result_count > 0) {
-                    const src = self.getOrLoad(instr.rd, SCRATCH);
-                    if (instr.rd != 0) {
-                        Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, 0, src);
-                    }
-                }
-                self.emitEpilogue();
+                self.emitEpilogue(if (self.result_count > 0) instr.rd else null);
             },
-            regalloc_mod.OP_RETURN_VOID => self.emitEpilogue(),
+            regalloc_mod.OP_RETURN_VOID => self.emitEpilogue(null),
             regalloc_mod.OP_NOP, regalloc_mod.OP_BLOCK_END, regalloc_mod.OP_DELETED => {},
 
             // --- Global ops ---
@@ -2282,7 +2243,9 @@ pub const Compiler = struct {
             0x9F => self.emitFpUnop64(0x9F, instr),  // f64.sqrt
             0x99 => self.emitFpUnop64(0x99, instr),  // f64.abs
             0x9A => self.emitFpUnop64(0x9A, instr),  // f64.neg
-            0xA4, 0xA5 => self.emitFpMinMax64(instr), // f64.min, f64.max
+            0xA4, 0xA5 => {
+                if (!self.emitFpMinMax64(instr)) return false;
+            },
 
             // --- f64 comparison ---
             0x61, 0x62, 0x63, 0x64, 0x65, 0x66 => self.emitFpCmp64(instr.op, instr),
@@ -2292,7 +2255,9 @@ pub const Compiler = struct {
             0x91 => self.emitFpUnop32(0x91, instr),  // f32.sqrt
             0x8B => self.emitFpUnop32(0x8B, instr),  // f32.abs
             0x8C => self.emitFpUnop32(0x8C, instr),  // f32.neg
-            0x96, 0x97 => self.emitFpMinMax32(instr), // f32.min, f32.max
+            0x96, 0x97 => {
+                if (!self.emitFpMinMax32(instr)) return false;
+            },
 
             // --- f32 comparison ---
             0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60 => self.emitFpCmp32(instr.op, instr),
@@ -2303,10 +2268,12 @@ pub const Compiler = struct {
             0xAA, 0xAB, 0xB0, 0xB1, // i32/i64.trunc_f64_s/u
             0xA8, 0xA9, 0xAE, 0xAF, // i32/i64.trunc_f32_s/u
             0xBB, 0xB6,             // f64.promote_f32, f32.demote_f64
-            0x98, 0x8A,             // f64.copysign, f32.copysign
+            0x98, 0xA6,             // f32.copysign, f64.copysign
             0x9B, 0x9C, 0x9D, 0x9E, // f64.ceil/floor/trunc/nearest
             0x8D, 0x8E, 0x8F, 0x90, // f32.ceil/floor/trunc/nearest
-            => self.emitFpConvert(instr.op, instr),
+            => {
+                if (!self.emitFpConvert(instr.op, instr)) return false;
+            },
 
             // --- i32 arithmetic ---
             0x6A => self.emitBinop32(instr, .add),
@@ -2432,18 +2399,43 @@ pub const Compiler = struct {
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
 
-        // If rd != r1, move r1 to rd first (x86 is destructive 2-operand)
-        if (rd != r1) {
-            Enc.movRegReg32(&self.code, self.alloc, rd, r1);
-        }
-
-        switch (op) {
-            .add => Enc.addRegReg32(&self.code, self.alloc, rd, r2),
-            .sub => Enc.subRegReg32(&self.code, self.alloc, rd, r2),
-            .mul => Enc.imulRegReg32(&self.code, self.alloc, rd, r2),
-            .@"and" => Enc.andRegReg32(&self.code, self.alloc, rd, r2),
-            .@"or" => Enc.orRegReg32(&self.code, self.alloc, rd, r2),
-            .xor => Enc.xorRegReg32(&self.code, self.alloc, rd, r2),
+        // x86 is 2-operand: OP rd, r2  means  rd = rd OP r2.
+        // We need: rd = r1 OP r2.  So MOV rd, r1 first, then OP rd, r2.
+        // Bug: if rd == r2 and rd != r1, the MOV clobbers r2 before the OP.
+        // Fix: for commutative ops, swap operands (OP rd, r1 since rd already has r2).
+        //      for SUB, use SCRATCH: MOV SCRATCH, r1; SUB SCRATCH, rd; MOV rd, SCRATCH.
+        if (rd == r2 and rd != r1) {
+            switch (op) {
+                .add, .mul, .@"and", .@"or", .xor => {
+                    // Commutative: rd already has r2, just do OP rd, r1
+                    switch (op) {
+                        .add => Enc.addRegReg32(&self.code, self.alloc, rd, r1),
+                        .mul => Enc.imulRegReg32(&self.code, self.alloc, rd, r1),
+                        .@"and" => Enc.andRegReg32(&self.code, self.alloc, rd, r1),
+                        .@"or" => Enc.orRegReg32(&self.code, self.alloc, rd, r1),
+                        .xor => Enc.xorRegReg32(&self.code, self.alloc, rd, r1),
+                        .sub => unreachable,
+                    }
+                },
+                .sub => {
+                    // Non-commutative: SCRATCH = r1 - r2, then MOV rd, SCRATCH
+                    Enc.movRegReg32(&self.code, self.alloc, SCRATCH, r1);
+                    Enc.subRegReg32(&self.code, self.alloc, SCRATCH, rd);
+                    Enc.movRegReg32(&self.code, self.alloc, rd, SCRATCH);
+                },
+            }
+        } else {
+            if (rd != r1) {
+                Enc.movRegReg32(&self.code, self.alloc, rd, r1);
+            }
+            switch (op) {
+                .add => Enc.addRegReg32(&self.code, self.alloc, rd, r2),
+                .sub => Enc.subRegReg32(&self.code, self.alloc, rd, r2),
+                .mul => Enc.imulRegReg32(&self.code, self.alloc, rd, r2),
+                .@"and" => Enc.andRegReg32(&self.code, self.alloc, rd, r2),
+                .@"or" => Enc.orRegReg32(&self.code, self.alloc, rd, r2),
+                .xor => Enc.xorRegReg32(&self.code, self.alloc, rd, r2),
+            }
         }
 
         if (vregToPhys(instr.rd) == null) {
@@ -2457,17 +2449,37 @@ pub const Compiler = struct {
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
 
-        if (rd != r1) {
-            Enc.movRegReg(&self.code, self.alloc, rd, r1);
-        }
-
-        switch (op) {
-            .add => Enc.addRegReg(&self.code, self.alloc, rd, r2),
-            .sub => Enc.subRegReg(&self.code, self.alloc, rd, r2),
-            .mul => Enc.imulRegReg(&self.code, self.alloc, rd, r2),
-            .@"and" => Enc.andRegReg(&self.code, self.alloc, rd, r2),
-            .@"or" => Enc.orRegReg(&self.code, self.alloc, rd, r2),
-            .xor => Enc.xorRegReg(&self.code, self.alloc, rd, r2),
+        // Same rd==r2 aliasing fix as emitBinop32 (see comment above).
+        if (rd == r2 and rd != r1) {
+            switch (op) {
+                .add, .mul, .@"and", .@"or", .xor => {
+                    switch (op) {
+                        .add => Enc.addRegReg(&self.code, self.alloc, rd, r1),
+                        .mul => Enc.imulRegReg(&self.code, self.alloc, rd, r1),
+                        .@"and" => Enc.andRegReg(&self.code, self.alloc, rd, r1),
+                        .@"or" => Enc.orRegReg(&self.code, self.alloc, rd, r1),
+                        .xor => Enc.xorRegReg(&self.code, self.alloc, rd, r1),
+                        .sub => unreachable,
+                    }
+                },
+                .sub => {
+                    Enc.movRegReg(&self.code, self.alloc, SCRATCH, r1);
+                    Enc.subRegReg(&self.code, self.alloc, SCRATCH, rd);
+                    Enc.movRegReg(&self.code, self.alloc, rd, SCRATCH);
+                },
+            }
+        } else {
+            if (rd != r1) {
+                Enc.movRegReg(&self.code, self.alloc, rd, r1);
+            }
+            switch (op) {
+                .add => Enc.addRegReg(&self.code, self.alloc, rd, r2),
+                .sub => Enc.subRegReg(&self.code, self.alloc, rd, r2),
+                .mul => Enc.imulRegReg(&self.code, self.alloc, rd, r2),
+                .@"and" => Enc.andRegReg(&self.code, self.alloc, rd, r2),
+                .@"or" => Enc.orRegReg(&self.code, self.alloc, rd, r2),
+                .xor => Enc.xorRegReg(&self.code, self.alloc, rd, r2),
+            }
         }
 
         if (vregToPhys(instr.rd) == null) {
@@ -2553,27 +2565,41 @@ pub const Compiler = struct {
         const rs2: u8 = @truncate(instr.operand);
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        const rs2_phys = vregToPhys(rs2);
 
-        // Move r1 to rd (destructive)
-        if (rd != r1) Enc.movRegReg32(&self.code, self.alloc, rd, r1);
+        // Check if moving r1→rd would clobber the shift amount (rd aliases rs2),
+        // or if rd is RCX (conflicts with CL for shift count).
+        const has_alias = (rd == .rcx) or
+            (rs2_phys != null and rs2_phys.? == rd and rd != r1);
 
-        // Get shift amount into CL
-        self.moveShiftCountToCl(rs2, rd);
-
-        switch (op) {
-            .shl => Enc.shlCl32(&self.code, self.alloc, rd),
-            .shr => Enc.shrCl32(&self.code, self.alloc, rd),
-            .sar => Enc.sarCl32(&self.code, self.alloc, rd),
-            .rol => {
-                // ROL r/m32, CL: D3 /0 (no REX.W = 32-bit)
-                if (rd.isExt()) self.code.append(self.alloc, Enc.rex(false, false, false, true)) catch {};
-                self.code.append(self.alloc, 0xD3) catch {};
-                self.code.append(self.alloc, Enc.modrm(0b11, 0, rd.low3())) catch {};
-            },
-            .ror => Enc.rorCl32(&self.code, self.alloc, rd),
+        if (has_alias) {
+            // Use SCRATCH (RAX) as shift destination to avoid aliasing.
+            // 1. Save value to SCRATCH
+            if (r1 != SCRATCH) Enc.movRegReg32(&self.code, self.alloc, SCRATCH, r1);
+            // 2. Load shift amount to CL
+            const shift_reg = self.getOrLoad(rs2, SCRATCH2);
+            if (shift_reg != .rcx) {
+                // Save vreg 3 (RCX) if live and NOT the output register
+                if (instr.rd != 3 and vregToPhys(3) != null and 3 < self.reg_count) {
+                    Enc.push(&self.code, self.alloc, .rcx);
+                }
+                Enc.movRegReg(&self.code, self.alloc, .rcx, shift_reg);
+            }
+            // 3. Shift SCRATCH by CL
+            self.emitShiftOp32(op, SCRATCH);
+            // 4. Move result to rd
+            if (rd != SCRATCH) Enc.movRegReg32(&self.code, self.alloc, rd, SCRATCH);
+            // 5. Restore RCX if we pushed it
+            if (shift_reg != .rcx and instr.rd != 3 and vregToPhys(3) != null and 3 < self.reg_count) {
+                Enc.pop(&self.code, self.alloc, .rcx);
+            }
+        } else {
+            if (rd != r1) Enc.movRegReg32(&self.code, self.alloc, rd, r1);
+            self.moveShiftCountToCl(rs2, rd);
+            self.emitShiftOp32(op, rd);
+            self.restoreCl(rs2);
         }
 
-        self.restoreCl(rs2);
         if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
     }
 
@@ -2581,21 +2607,59 @@ pub const Compiler = struct {
         const rs2: u8 = @truncate(instr.operand);
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
+        const rs2_phys = vregToPhys(rs2);
 
-        if (rd != r1) Enc.movRegReg(&self.code, self.alloc, rd, r1);
+        const has_alias = (rd == .rcx) or
+            (rs2_phys != null and rs2_phys.? == rd and rd != r1);
 
-        self.moveShiftCountToCl(rs2, rd);
-
-        switch (op) {
-            .shl => Enc.shlCl(&self.code, self.alloc, rd),
-            .shr => Enc.shrCl(&self.code, self.alloc, rd),
-            .sar => Enc.sarCl(&self.code, self.alloc, rd),
-            .rol => Enc.rolCl(&self.code, self.alloc, rd),
-            .ror => Enc.rorCl(&self.code, self.alloc, rd),
+        if (has_alias) {
+            if (r1 != SCRATCH) Enc.movRegReg(&self.code, self.alloc, SCRATCH, r1);
+            const shift_reg = self.getOrLoad(rs2, SCRATCH2);
+            if (shift_reg != .rcx) {
+                if (instr.rd != 3 and vregToPhys(3) != null and 3 < self.reg_count) {
+                    Enc.push(&self.code, self.alloc, .rcx);
+                }
+                Enc.movRegReg(&self.code, self.alloc, .rcx, shift_reg);
+            }
+            self.emitShiftOp64(op, SCRATCH);
+            if (rd != SCRATCH) Enc.movRegReg(&self.code, self.alloc, rd, SCRATCH);
+            if (shift_reg != .rcx and instr.rd != 3 and vregToPhys(3) != null and 3 < self.reg_count) {
+                Enc.pop(&self.code, self.alloc, .rcx);
+            }
+        } else {
+            if (rd != r1) Enc.movRegReg(&self.code, self.alloc, rd, r1);
+            self.moveShiftCountToCl(rs2, rd);
+            self.emitShiftOp64(op, rd);
+            self.restoreCl(rs2);
         }
 
-        self.restoreCl(rs2);
         if (vregToPhys(instr.rd) == null) self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    /// Emit 32-bit shift instruction on the given register.
+    fn emitShiftOp32(self: *Compiler, op: ShiftOp, dst: Reg) void {
+        switch (op) {
+            .shl => Enc.shlCl32(&self.code, self.alloc, dst),
+            .shr => Enc.shrCl32(&self.code, self.alloc, dst),
+            .sar => Enc.sarCl32(&self.code, self.alloc, dst),
+            .rol => {
+                if (dst.isExt()) self.code.append(self.alloc, Enc.rex(false, false, false, true)) catch {};
+                self.code.append(self.alloc, 0xD3) catch {};
+                self.code.append(self.alloc, Enc.modrm(0b11, 0, dst.low3())) catch {};
+            },
+            .ror => Enc.rorCl32(&self.code, self.alloc, dst),
+        }
+    }
+
+    /// Emit 64-bit shift instruction on the given register.
+    fn emitShiftOp64(self: *Compiler, op: ShiftOp, dst: Reg) void {
+        switch (op) {
+            .shl => Enc.shlCl(&self.code, self.alloc, dst),
+            .shr => Enc.shrCl(&self.code, self.alloc, dst),
+            .sar => Enc.sarCl(&self.code, self.alloc, dst),
+            .rol => Enc.rolCl(&self.code, self.alloc, dst),
+            .ror => Enc.rorCl(&self.code, self.alloc, dst),
+        }
     }
 
     /// Move shift amount (vreg rs2) into CL. Save RCX if needed.
@@ -2612,7 +2676,8 @@ pub const Compiler = struct {
     }
 
     fn restoreCl(self: *Compiler, rs2: u8) void {
-        const shift_reg = vregToPhys(rs2) orelse return;
+        // Use SCRATCH2 as fallback for spilled vregs (matching moveShiftCountToCl)
+        const shift_reg = vregToPhys(rs2) orelse SCRATCH2;
         if (shift_reg != .rcx) {
             if (vregToPhys(3) != null and 3 < self.reg_count) {
                 Enc.pop(&self.code, self.alloc, .rcx);
