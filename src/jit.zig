@@ -1088,7 +1088,7 @@ pub const Compiler = struct {
         self.emit(a64.ret_());
     }
 
-    fn scanForMemoryOps(ir: []const RegInstr) bool {
+    pub fn scanForMemoryOps(ir: []const RegInstr) bool {
         for (ir) |instr| {
             // 0x28-0x3E: load/store, 0x3F: memory.size, 0x40: memory.grow
             if (instr.op >= 0x28 and instr.op <= 0x40) return true;
@@ -3234,6 +3234,12 @@ pub fn compileFunction(
     trace: ?*trace_mod.TraceConfig,
     min_memory_bytes: u32,
 ) ?*JitCode {
+    // x86_64 dispatch — delegate to separate backend
+    if (builtin.cpu.arch == .x86_64) {
+        const x86 = @import("x86.zig");
+        return x86.compileFunction(alloc, reg_func, pool64, self_func_idx, param_count, result_count, trace, min_memory_bytes);
+    }
+
     if (builtin.cpu.arch != .aarch64) return null;
 
     const trampoline_addr = @intFromPtr(&jitCallTrampoline);
