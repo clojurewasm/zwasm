@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-10 — COMPLETE
+- Stages 0-2, 4, 7-11 — COMPLETE
 - Source: ~15K LOC, 16 files, 168 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
 - Spec: 30,704/30,704 (100%), E2E: 297/298 (99.7%), CI: ubuntu + macOS
@@ -14,13 +14,13 @@ Session handover document. Read at session start.
 - Embedder API: Vm type, inspectImportFunctions, WasmModule.loadWithImports
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
-- **main = stable**: CW depends on main via GitHub URL (v0.2.0 tag).
+- **main = stable**: CW depends on main via GitHub URL (v0.7.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
 
 ## Completed Stages
 
-Stages 0-7, 5E, 5F — all COMPLETE. See `roadmap.md` for details.
-Key results: Spec 30,703/30,703 (100%), E2E 180/181, 20/21 bench < 2x wasmtime.
+Stages 0-7, 5E, 5F, 8-11 — all COMPLETE. See `roadmap.md` for details.
+Key results: Spec 30,704/30,704 (100%), E2E 297/298, 20/21 bench < 2x wasmtime.
 
 ## Task Queue
 
@@ -88,11 +88,11 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 11 complete. Merge to main.
+Stage 12 planning.
 
 ## Previous Task
 
-11.4 complete. Import function signature validation in resolveImports, ImportTypeMismatch error.
+Stage 11 complete (v0.7.0). Security hardening: deny-by-default WASI, CLI --allow-*, resource limits, import validation.
 
 ## Known Bugs
 
