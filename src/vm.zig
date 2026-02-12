@@ -978,14 +978,14 @@ pub const Vm = struct {
 
                 // ---- Memory misc ----
                 .memory_size => {
-                    _ = try reader.readU32(); // memidx
-                    const m = try instance.getMemory(0);
+                    const memidx = try reader.readU32();
+                    const m = try instance.getMemory(@intCast(memidx));
                     try self.pushI32(@bitCast(m.size()));
                 },
                 .memory_grow => {
-                    _ = try reader.readU32(); // memidx
+                    const memidx = try reader.readU32();
                     const pages = @as(u32, @bitCast(self.popI32()));
-                    const m = try instance.getMemory(0);
+                    const m = try instance.getMemory(@intCast(memidx));
                     // Check memory ceiling before growing
                     if (self.max_memory_bytes) |ceiling| {
                         const new_bytes = m.data.items.len + @as(u64, pages) * m.page_size;
@@ -1229,29 +1229,38 @@ pub const Vm = struct {
             .i64_trunc_sat_f64_s => { const a = self.popF64(); try self.pushI64(truncSatClamp(i64, f64, a)); },
             .i64_trunc_sat_f64_u => { const a = self.popF64(); try self.pushI64(@bitCast(truncSatClamp(u64, f64, a))); },
             .memory_copy => {
-                _ = try reader.readU32(); // dst memidx
-                _ = try reader.readU32(); // src memidx
+                const dst_memidx: u16 = @intCast(try reader.readU32());
+                const src_memidx: u16 = @intCast(try reader.readU32());
                 const n = @as(u32, @bitCast(self.popI32()));
                 const src = @as(u32, @bitCast(self.popI32()));
                 const dst = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                try m.copyWithin(dst, src, n);
+                const dst_mem = try instance.getMemory(dst_memidx);
+                if (dst_memidx == src_memidx) {
+                    try dst_mem.copyWithin(dst, src, n);
+                } else {
+                    const src_mem = try instance.getMemory(src_memidx);
+                    const src_data = src_mem.memory();
+                    const dst_data = dst_mem.memory();
+                    if (@as(u64, src) + n > src_data.len or @as(u64, dst) + n > dst_data.len)
+                        return error.OutOfBoundsMemoryAccess;
+                    if (n > 0) @memcpy(dst_data[dst..][0..n], src_data[src..][0..n]);
+                }
             },
             .memory_fill => {
-                _ = try reader.readU32(); // memidx
+                const memidx: u16 = @intCast(try reader.readU32());
                 const n = @as(u32, @bitCast(self.popI32()));
                 const val = @as(u8, @truncate(@as(u32, @bitCast(self.popI32()))));
                 const dst = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
+                const m = try instance.getMemory(memidx);
                 try m.fill(dst, n, val);
             },
             .memory_init => {
                 const data_idx = try reader.readU32();
-                _ = try reader.readU32(); // memidx
+                const memidx: u16 = @intCast(try reader.readU32());
                 const n = @as(u32, @bitCast(self.popI32()));
                 const src = @as(u32, @bitCast(self.popI32()));
                 const dst = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
+                const m = try instance.getMemory(memidx);
                 if (data_idx >= instance.dataaddrs.items.len) return error.Trap;
                 const d = try instance.store.getData(instance.dataaddrs.items[data_idx]);
                 // Dropped segments have effective length 0 (spec: n=0 succeeds even if dropped)
@@ -1404,20 +1413,16 @@ pub const Vm = struct {
         switch (simd) {
             // ---- Memory operations (36.2) ----
             .v128_load => {
-                _ = try reader.readU32(); // alignment
-                const offset = try reader.readU32();
+                const ma = try readMemarg(reader, instance);
                 const base = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                const val = m.read(u128, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const val = ma.mem.read(u128, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
                 try self.pushV128(val);
             },
             .v128_store => {
-                _ = try reader.readU32(); // alignment
-                const offset = try reader.readU32();
+                const ma = try readMemarg(reader, instance);
                 const val = self.popV128();
                 const base = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                m.write(u128, offset, base, val) catch return error.OutOfBoundsMemoryAccess;
+                ma.mem.write(u128, ma.offset, base, val) catch return error.OutOfBoundsMemoryAccess;
             },
             .v128_const => {
                 // 16 raw bytes (little-endian u128)
@@ -1428,38 +1433,30 @@ pub const Vm = struct {
 
             // Splat loads
             .v128_load8_splat => {
-                _ = try reader.readU32();
-                const offset = try reader.readU32();
+                const ma = try readMemarg(reader, instance);
                 const base = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                const val = m.read(u8, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const val = ma.mem.read(u8, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const vec: @Vector(16, u8) = @splat(val);
                 try self.pushV128(@bitCast(vec));
             },
             .v128_load16_splat => {
-                _ = try reader.readU32();
-                const offset = try reader.readU32();
+                const ma = try readMemarg(reader, instance);
                 const base = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                const val = m.read(u16, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const val = ma.mem.read(u16, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const vec: @Vector(8, u16) = @splat(val);
                 try self.pushV128(@bitCast(vec));
             },
             .v128_load32_splat => {
-                _ = try reader.readU32();
-                const offset = try reader.readU32();
+                const ma = try readMemarg(reader, instance);
                 const base = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                const val = m.read(u32, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const val = ma.mem.read(u32, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const vec: @Vector(4, u32) = @splat(val);
                 try self.pushV128(@bitCast(vec));
             },
             .v128_load64_splat => {
-                _ = try reader.readU32();
-                const offset = try reader.readU32();
+                const ma = try readMemarg(reader, instance);
                 const base = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                const val = m.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const val = ma.mem.read(u64, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const vec: @Vector(2, u64) = @splat(val);
                 try self.pushV128(@bitCast(vec));
             },
@@ -1474,19 +1471,15 @@ pub const Vm = struct {
 
             // Zero-extending loads
             .v128_load32_zero => {
-                _ = try reader.readU32();
-                const offset = try reader.readU32();
+                const ma = try readMemarg(reader, instance);
                 const base = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                const val = m.read(u32, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const val = ma.mem.read(u32, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
                 try self.pushV128(@as(u128, val));
             },
             .v128_load64_zero => {
-                _ = try reader.readU32();
-                const offset = try reader.readU32();
+                const ma = try readMemarg(reader, instance);
                 const base = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                const val = m.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const val = ma.mem.read(u64, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
                 try self.pushV128(@as(u128, val));
             },
 
@@ -1988,13 +1981,12 @@ pub const Vm = struct {
         instance: *Instance,
     ) WasmError!void {
         const N = 16 / @sizeOf(WideT); // number of lanes
-        _ = try reader.readU32(); // alignment
-        const offset = try reader.readU32();
+        const ma = try readMemarg(reader, instance);
         const base = @as(u32, @bitCast(self.popI32()));
-        const m = try instance.getMemory(0);
+        const m = ma.mem;
         // Read N narrow values
         const byte_count = N * @sizeOf(NarrowT);
-        const effective = @as(u33, offset) + @as(u33, base);
+        const effective = @as(u33, ma.offset) + @as(u33, base);
         if (effective + byte_count > m.data.items.len) return error.OutOfBoundsMemoryAccess;
         var narrow: [N]NarrowT = undefined;
         for (&narrow, 0..) |*n, i| {
@@ -2017,13 +2009,12 @@ pub const Vm = struct {
         reader: *Reader,
         instance: *Instance,
     ) WasmError!void {
-        _ = try reader.readU32(); // alignment
-        const offset = try reader.readU32();
+        const ma = try readMemarg(reader, instance);
         const lane = try reader.readByte();
         var vec: @Vector(N, T) = @bitCast(self.popV128());
         const base = @as(u32, @bitCast(self.popI32()));
-        const m = try instance.getMemory(0);
-        const val = m.read(T, offset, base) catch return error.OutOfBoundsMemoryAccess;
+        const m = ma.mem;
+        const val = m.read(T, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
         vec[lane] = val;
         try self.pushV128(@bitCast(vec));
     }
@@ -2036,13 +2027,12 @@ pub const Vm = struct {
         reader: *Reader,
         instance: *Instance,
     ) WasmError!void {
-        _ = try reader.readU32(); // alignment
-        const offset = try reader.readU32();
+        const ma = try readMemarg(reader, instance);
         const lane = try reader.readByte();
         const vec: @Vector(N, T) = @bitCast(self.popV128());
         const base = @as(u32, @bitCast(self.popI32()));
-        const m = try instance.getMemory(0);
-        m.write(T, offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+        const m = ma.mem;
+        m.write(T, ma.offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
     }
 
     // SIMD helper: lane-wise comparison producing all-ones/all-zeros result
@@ -3297,41 +3287,41 @@ pub const Vm = struct {
                     t.set(elem_idx, ref_val) catch return error.OutOfBoundsMemoryAccess;
                 },
 
-                // ---- Memory load (offset pre-decoded in operand, cached memory) ----
-                0x28 => try self.memLoadCached(i32, u32, instr.operand, cached_mem),
-                0x29 => try self.memLoadCached(i64, u64, instr.operand, cached_mem),
-                0x2A => try self.memLoadFloatCached(f32, instr.operand, cached_mem),
-                0x2B => try self.memLoadFloatCached(f64, instr.operand, cached_mem),
-                0x2C => try self.memLoadCached(i8, i32, instr.operand, cached_mem),
-                0x2D => try self.memLoadCached(u8, u32, instr.operand, cached_mem),
-                0x2E => try self.memLoadCached(i16, i32, instr.operand, cached_mem),
-                0x2F => try self.memLoadCached(u16, u32, instr.operand, cached_mem),
-                0x30 => try self.memLoadCached(i8, i64, instr.operand, cached_mem),
-                0x31 => try self.memLoadCached(u8, u64, instr.operand, cached_mem),
-                0x32 => try self.memLoadCached(i16, i64, instr.operand, cached_mem),
-                0x33 => try self.memLoadCached(u16, u64, instr.operand, cached_mem),
-                0x34 => try self.memLoadCached(i32, i64, instr.operand, cached_mem),
-                0x35 => try self.memLoadCached(u32, u64, instr.operand, cached_mem),
+                // ---- Memory load (offset in operand, memidx in extra) ----
+                0x28 => try self.memLoadCached(i32, u32, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x29 => try self.memLoadCached(i64, u64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x2A => try self.memLoadFloatCached(f32, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x2B => try self.memLoadFloatCached(f64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x2C => try self.memLoadCached(i8, i32, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x2D => try self.memLoadCached(u8, u32, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x2E => try self.memLoadCached(i16, i32, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x2F => try self.memLoadCached(u16, u32, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x30 => try self.memLoadCached(i8, i64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x31 => try self.memLoadCached(u8, u64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x32 => try self.memLoadCached(i16, i64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x33 => try self.memLoadCached(u16, u64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x34 => try self.memLoadCached(i32, i64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x35 => try self.memLoadCached(u32, u64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
 
-                // ---- Memory store (cached memory) ----
-                0x36 => try self.memStoreCached(u32, instr.operand, cached_mem),
-                0x37 => try self.memStoreCached(u64, instr.operand, cached_mem),
-                0x38 => try self.memStoreFloatCached(f32, instr.operand, cached_mem),
-                0x39 => try self.memStoreFloatCached(f64, instr.operand, cached_mem),
-                0x3A => try self.memStoreCached(u8, instr.operand, cached_mem),
-                0x3B => try self.memStoreCached(u16, instr.operand, cached_mem),
-                0x3C => try self.memStoreTruncCached(u8, instr.operand, cached_mem),
-                0x3D => try self.memStoreTruncCached(u16, instr.operand, cached_mem),
-                0x3E => try self.memStoreTruncCached(u32, instr.operand, cached_mem),
+                // ---- Memory store (memidx in extra) ----
+                0x36 => try self.memStoreCached(u32, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x37 => try self.memStoreCached(u64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x38 => try self.memStoreFloatCached(f32, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x39 => try self.memStoreFloatCached(f64, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x3A => try self.memStoreCached(u8, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x3B => try self.memStoreCached(u16, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x3C => try self.memStoreTruncCached(u8, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x3D => try self.memStoreTruncCached(u16, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
+                0x3E => try self.memStoreTruncCached(u32, instr.operand, resolveMem(cached_mem, instr.extra, instance)),
 
-                // ---- Memory misc (cached memory) ----
+                // ---- Memory misc (memidx in extra) ----
                 0x3F => { // memory_size
-                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const m = resolveMem(cached_mem, instr.extra, instance) orelse return error.OutOfBoundsMemoryAccess;
                     try self.pushI32(@bitCast(m.size()));
                 },
                 0x40 => { // memory_grow
                     const pages = @as(u32, @bitCast(self.popI32()));
-                    const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    const m = resolveMem(cached_mem, instr.extra, instance) orelse return error.OutOfBoundsMemoryAccess;
                     if (self.max_memory_bytes) |ceiling| {
                         const new_bytes = m.data.items.len + @as(u64, pages) * m.page_size;
                         if (new_bytes > ceiling) {
@@ -3832,25 +3822,34 @@ pub const Vm = struct {
             0x05 => { const a = self.popF32(); try self.pushI64(@bitCast(truncSatClamp(u64, f32, a))); },
             0x06 => { const a = self.popF64(); try self.pushI64(truncSatClamp(i64, f64, a)); },
             0x07 => { const a = self.popF64(); try self.pushI64(@bitCast(truncSatClamp(u64, f64, a))); },
-            0x0A => { // memory.copy
+            0x0A => { // memory.copy (extra=dst_memidx, operand=src_memidx)
                 const n = @as(u32, @bitCast(self.popI32()));
                 const src = @as(u32, @bitCast(self.popI32()));
                 const dst = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
-                try m.copyWithin(dst, src, n);
+                const dst_mem = try instance.getMemory(instr.extra);
+                if (instr.extra == instr.operand) {
+                    try dst_mem.copyWithin(dst, src, n);
+                } else {
+                    const src_mem = try instance.getMemory(@intCast(instr.operand));
+                    const src_data = src_mem.memory();
+                    const dst_data = dst_mem.memory();
+                    if (@as(u64, src) + n > src_data.len or @as(u64, dst) + n > dst_data.len)
+                        return error.OutOfBoundsMemoryAccess;
+                    if (n > 0) @memcpy(dst_data[dst..][0..n], src_data[src..][0..n]);
+                }
             },
-            0x0B => { // memory.fill
+            0x0B => { // memory.fill (operand=memidx)
                 const n = @as(u32, @bitCast(self.popI32()));
                 const val = @as(u8, @truncate(@as(u32, @bitCast(self.popI32()))));
                 const dst = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
+                const m = try instance.getMemory(@intCast(instr.operand));
                 try m.fill(dst, n, val);
             },
-            0x08 => { // memory.init
+            0x08 => { // memory.init (extra=memidx, operand=data_idx)
                 const n = @as(u32, @bitCast(self.popI32()));
                 const src = @as(u32, @bitCast(self.popI32()));
                 const dst = @as(u32, @bitCast(self.popI32()));
-                const m = try instance.getMemory(0);
+                const m = try instance.getMemory(instr.extra);
                 if (instr.operand >= instance.dataaddrs.items.len) return error.Trap;
                 const d = try instance.store.getData(instance.dataaddrs.items[instr.operand]);
                 const data_len: u64 = if (d.dropped) 0 else d.data.len;
@@ -4030,6 +4029,15 @@ pub const Vm = struct {
     }
 
     // ================================================================
+    // Multi-memory resolution
+    // ================================================================
+
+    fn resolveMem(cached_mem: ?*WasmMemory, memidx: u16, instance: *Instance) ?*WasmMemory {
+        if (memidx == 0) return cached_mem;
+        return instance.getMemory(memidx) catch null;
+    }
+
+    // ================================================================
     // Cached-memory IR helpers (avoid triple-indirection per load/store)
     // ================================================================
 
@@ -4084,14 +4092,20 @@ pub const Vm = struct {
     // Memory helpers
     // ================================================================
 
-    fn memLoad(self: *Vm, comptime LoadT: type, comptime ResultT: type, reader: *Reader, instance: *Instance) WasmError!void {
-        _ = try reader.readU32(); // alignment (ignored for correctness)
+    /// Read memarg from bytecode stream, returning offset and resolved memory.
+    /// Handles multi-memory: bit 6 of alignment signals memidx follows.
+    fn readMemarg(reader: *Reader, instance: *Instance) !struct { offset: u32, mem: *WasmMemory } {
+        const align_flags = try reader.readU32();
         const offset = try reader.readU32();
+        const memidx: u16 = if (align_flags & 0x40 != 0) @intCast(try reader.readU32()) else 0;
+        const m = instance.getMemory(memidx) catch return error.OutOfBoundsMemoryAccess;
+        return .{ .offset = offset, .mem = m };
+    }
+
+    fn memLoad(self: *Vm, comptime LoadT: type, comptime ResultT: type, reader: *Reader, instance: *Instance) WasmError!void {
+        const ma = try readMemarg(reader, instance);
         const base = @as(u32, @bitCast(self.popI32()));
-        const m = try instance.getMemory(0);
-        const val = m.read(LoadT, offset, base) catch return error.OutOfBoundsMemoryAccess;
-        // Sign/zero extend to ResultT then push.
-        // Same-size: bitCast (e.g. i32→u32). Different-size: intCast (e.g. i8→i32 sign-ext).
+        const val = ma.mem.read(LoadT, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
         const result: ResultT = if (@bitSizeOf(LoadT) == @bitSizeOf(ResultT))
             @bitCast(val)
         else
@@ -4100,11 +4114,9 @@ pub const Vm = struct {
     }
 
     fn memLoadFloat(self: *Vm, comptime T: type, reader: *Reader, instance: *Instance) WasmError!void {
-        _ = try reader.readU32(); // alignment
-        const offset = try reader.readU32();
+        const ma = try readMemarg(reader, instance);
         const base = @as(u32, @bitCast(self.popI32()));
-        const m = try instance.getMemory(0);
-        const val = m.read(T, offset, base) catch return error.OutOfBoundsMemoryAccess;
+        const val = ma.mem.read(T, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
         switch (T) {
             f32 => try self.pushF32(val),
             f64 => try self.pushF64(val),
@@ -4113,34 +4125,28 @@ pub const Vm = struct {
     }
 
     fn memStore(self: *Vm, comptime T: type, reader: *Reader, instance: *Instance) WasmError!void {
-        _ = try reader.readU32(); // alignment
-        const offset = try reader.readU32();
+        const ma = try readMemarg(reader, instance);
         const val: T = @truncate(self.pop());
         const base = @as(u32, @bitCast(self.popI32()));
-        const m = try instance.getMemory(0);
-        m.write(T, offset, base, val) catch return error.OutOfBoundsMemoryAccess;
+        ma.mem.write(T, ma.offset, base, val) catch return error.OutOfBoundsMemoryAccess;
     }
 
     fn memStoreFloat(self: *Vm, comptime T: type, reader: *Reader, instance: *Instance) WasmError!void {
-        _ = try reader.readU32(); // alignment
-        const offset = try reader.readU32();
+        const ma = try readMemarg(reader, instance);
         const val = switch (T) {
             f32 => self.popF32(),
             f64 => self.popF64(),
             else => unreachable,
         };
         const base = @as(u32, @bitCast(self.popI32()));
-        const m = try instance.getMemory(0);
-        m.write(T, offset, base, val) catch return error.OutOfBoundsMemoryAccess;
+        ma.mem.write(T, ma.offset, base, val) catch return error.OutOfBoundsMemoryAccess;
     }
 
     fn memStoreTrunc(self: *Vm, comptime StoreT: type, comptime _: type, reader: *Reader, instance: *Instance) WasmError!void {
-        _ = try reader.readU32(); // alignment
-        const offset = try reader.readU32();
+        const ma = try readMemarg(reader, instance);
         const val: StoreT = @truncate(self.pop());
         const base = @as(u32, @bitCast(self.popI32()));
-        const m = try instance.getMemory(0);
-        m.write(StoreT, offset, base, val) catch return error.OutOfBoundsMemoryAccess;
+        ma.mem.write(StoreT, ma.offset, base, val) catch return error.OutOfBoundsMemoryAccess;
     }
 
     // ================================================================
@@ -6095,6 +6101,62 @@ test "Resource limits — memory ceiling" {
     // memory_grow returns -1 on failure (i32 sign-extended to i64 in regIR)
     try testing.expect(results[0] == @as(u64, @as(u32, @bitCast(@as(i32, -1)))) or
         results[0] == @as(u64, @bitCast(@as(i64, -1))));
+}
+
+test "Multi-memory — store/load on memory 1" {
+    // Module with 2 memories and 2 functions:
+    //   func "store1": stores 42 to memory 1 at offset 0
+    //   func "load0":  loads i32 from memory 0 at offset 0 (should be 0, not 42)
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, // magic + version
+        // Section 1: Type — 2 types
+        0x01, 0x08, 0x02,
+        0x60, 0x00, 0x00, // type 0: () -> ()
+        0x60, 0x00, 0x01, 0x7F, // type 1: () -> i32
+        // Section 3: Function — 2 funcs
+        0x03, 0x03, 0x02, 0x00, 0x01,
+        // Section 5: Memory — 2 memories: min=1, min=1
+        0x05, 0x05, 0x02, 0x00, 0x01, 0x00, 0x01,
+        // Section 7: Export — "store1" -> func 0, "load0" -> func 1
+        0x07, 0x12, 0x02,
+        0x06, 's', 't', 'o', 'r', 'e', '1', 0x00, 0x00,
+        0x05, 'l', 'o', 'a', 'd', '0', 0x00, 0x01,
+        // Section 10: Code — 2 function bodies
+        0x0A, 0x14, // section id + size (20 bytes)
+        0x02, // 2 bodies
+        // Body 0: store1 — i32.const 0, i32.const 42, i32.store mem=1, end
+        0x0A, // body size (10 bytes)
+        0x00, // 0 locals
+        0x41, 0x00, // i32.const 0
+        0x41, 0x2A, // i32.const 42
+        0x36, 0x40, 0x00, 0x01, // i32.store align=0|0x40 offset=0 memidx=1
+        0x0B, // end
+        // Body 1: load0 — i32.const 0, i32.load mem=0, end
+        0x07, // body size (7 bytes)
+        0x00, // 0 locals
+        0x41, 0x00, // i32.const 0
+        0x28, 0x02, 0x00, // i32.load align=2 offset=0 (memory 0, no bit 6)
+        0x0B, // end
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    var results = [_]u64{0};
+    // Store 42 to memory 1
+    try vm.invoke(&inst, "store1", &.{}, &[_]u64{});
+    // Load from memory 0 — should be 0 (untouched)
+    try vm.invoke(&inst, "load0", &.{}, &results);
+    try testing.expectEqual(@as(u64, 0), results[0]);
 }
 
 test "Resource limits — fuel metering" {

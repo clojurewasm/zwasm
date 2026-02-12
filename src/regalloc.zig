@@ -495,6 +495,7 @@ pub fn convert(
             0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, // i32/i64/f32/f64 loads
             0x30, 0x31, 0x32, 0x33, 0x34, 0x35, // sign-extending loads
             => {
+                if (instr.extra != 0) return null; // multi-memory: bail to predecode IR
                 const rs1 = temps.popFree(&vstack).?; // base address
                 const rd = temps.alloc();
                 try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = instr.operand });
@@ -503,6 +504,7 @@ pub fn convert(
 
             // ---- Memory store (base addr + value on stack, offset in operand) ----
             0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E => {
+                if (instr.extra != 0) return null; // multi-memory: bail to predecode IR
                 const val = temps.popFree(&vstack).?; // value to store
                 const base = temps.popFree(&vstack).?; // base address
                 // Store: no destination register. Use rd=val, rs1=base
@@ -773,11 +775,13 @@ pub fn convert(
 
             // ---- Memory size/grow ----
             0x3F => { // memory.size
+                if (instr.extra != 0) return null; // multi-memory: bail to predecode IR
                 const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x3F, .rd = rd, .rs1 = 0, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
             0x40 => { // memory.grow
+                if (instr.extra != 0) return null; // multi-memory: bail to predecode IR
                 const rs1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
                 try code.append(alloc, .{ .op = 0x40, .rd = rd, .rs1 = rs1, .operand = 0 });
@@ -1044,6 +1048,7 @@ pub fn convert(
 
             // ---- Bulk memory operations ----
             predecode.MISC_BASE | 0x0B => { // memory.fill
+                if (instr.operand != 0) return null; // multi-memory: bail
                 if (vstack.items.len < 3) return null;
                 const n_reg = temps.popFree(&vstack).?;
                 const val_reg = temps.popFree(&vstack).?;
@@ -1056,6 +1061,7 @@ pub fn convert(
                 });
             },
             predecode.MISC_BASE | 0x0A => { // memory.copy
+                if (instr.extra != 0 or instr.operand != 0) return null; // multi-memory: bail
                 if (vstack.items.len < 3) return null;
                 const n_reg = temps.popFree(&vstack).?;
                 const src_reg = temps.popFree(&vstack).?;

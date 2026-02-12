@@ -60,8 +60,8 @@ Target: Multiple memories per module (~400 LOC).
 All load/store/memory.* get memidx immediate. Binary format: memarg bit 6.
 
 1. [x] 15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init
-2. [ ] 15.2: Bytecode interpreter — memidx plumbing in load/store/memory ops
-3. [ ] 15.3: Predecode IR — memidx encoding in PreInstr + executeIR dispatch
+2. [x] 15.2: Bytecode interpreter — memidx plumbing in load/store/memory ops
+3. [x] 15.3: Predecode IR — memidx encoding in PreInstr + executeIR dispatch
 4. [ ] 15.4: Spec tests + cleanup
 
 Stage 16: Wasm 3.0 — Relaxed SIMD
@@ -87,11 +87,11 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-15.2: Bytecode interpreter — memidx plumbing in load/store/memory ops.
+15.4: Spec tests + cleanup.
 
 ## Previous Task
 
-15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init (30,801/30,801).
+15.2+15.3: Interpreter + predecode multi-memory plumbing (30,801/30,801).
 
 14.5: Tail call — predecode/regir support + spec tests (30,801/30,801).
 
