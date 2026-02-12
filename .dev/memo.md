@@ -98,10 +98,20 @@ ARM64 NEON native mapping. Implementation-defined results.
 
 Stage 17: Wasm 3.0 — Function References
 
-Target: Typed function references, call_ref (~800 LOC).
+Target: Typed function references, call_ref (~1200 LOC).
 Prerequisite for GC. Generalized ref types, local init tracking.
 
-(Task breakdown TBD.)
+New opcodes: call_ref (0x14), return_call_ref (0x15),
+ref.as_non_null (0xD4), br_on_null (0xD5), br_on_non_null (0xD6).
+Type system: ValType tagged union (ref/ref_null with heap type index).
+
+1. [ ] 17.1: ValType tagged union + codebase-wide compilation fix
+2. [ ] 17.2: Decode new ref type encoding (0xE3/0xE4 + heap type)
+3. [ ] 17.3: New instructions — call_ref, return_call_ref, ref.as_non_null
+4. [ ] 17.4: New instructions — br_on_null, br_on_non_null
+5. [ ] 17.5: Validation — local initialization tracking for non-defaultable types
+6. [ ] 17.6: Table initialization with const expr, ref.func type precision
+7. [ ] 17.7: Spec tests + proposals.yaml update
 
 Stage 18: Wasm 3.0 — GC
 
@@ -126,7 +136,10 @@ Task Queue:
 
 ## Current Task
 
-Stage 17: Function References — task breakdown TBD. Read proposal spec first.
+17.1: ValType tagged union. Change ValType from enum(u8) to tagged union adding
+ref_type(u32) and ref_null_type(u32) variants for typed function references.
+Fix all compilation errors across codebase (~176 ValType usages in 13 files).
+Key files: opcode.zig, module.zig, validate.zig, vm.zig, store.zig, wat.zig.
 
 ## Previous Task
 
