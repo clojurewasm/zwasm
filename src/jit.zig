@@ -1589,12 +1589,12 @@ pub const Compiler = struct {
             0x98 => self.emitFpCopysign32(instr),
             0xA6 => self.emitFpCopysign64(instr),
             // --- f64 rounding ---
-            0x9B => self.emitFpRound64(0x1E674000, instr), // f64.ceil: FRINTP Dd, Dn
+            0x9B => self.emitFpRound64(0x1E64C000, instr), // f64.ceil: FRINTP Dd, Dn
             0x9C => self.emitFpRound64(0x1E654000, instr), // f64.floor: FRINTM Dd, Dn
             0x9D => self.emitFpRound64(0x1E65C000, instr), // f64.trunc: FRINTZ Dd, Dn
             0x9E => self.emitFpRound64(0x1E644000, instr), // f64.nearest: FRINTN Dd, Dn
             // --- f32 rounding ---
-            0x8D => self.emitFpRound32(0x1E264000, instr), // f32.ceil: FRINTP Sd, Sn
+            0x8D => self.emitFpRound32(0x1E24C000, instr), // f32.ceil: FRINTP Sd, Sn
             0x8E => self.emitFpRound32(0x1E254000, instr), // f32.floor: FRINTM Sd, Sn
             0x8F => self.emitFpRound32(0x1E25C000, instr), // f32.trunc: FRINTZ Sd, Sn
             0x90 => self.emitFpRound32(0x1E244000, instr), // f32.nearest: FRINTN Sd, Sn
