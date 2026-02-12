@@ -1227,6 +1227,10 @@ pub const Compiler = struct {
         Enc.push(&self.code, self.alloc, .r13);
         Enc.push(&self.code, self.alloc, .r14);
         Enc.push(&self.code, self.alloc, .r15);
+        // Align RSP to 16 bytes. Entry CALL pushed 8 bytes (return addr) +
+        // 6 callee-saved pushes = 56 bytes total, leaving RSP misaligned by 8.
+        // Sub 8 to restore 16-byte alignment required by System V ABI for CALLs.
+        Enc.subImm32(&self.code, self.alloc, .rsp, 8);
 
         // Move arguments to callee-saved registers
         // RDI=regs_ptr → R12, RSI=vm_ptr (save to stack), RDX=instance_ptr (save to stack)
@@ -1276,7 +1280,8 @@ pub const Compiler = struct {
         // Return success (RAX = 0)
         Enc.xorRegReg32(&self.code, self.alloc, .rax, .rax);
 
-        // Restore callee-saved registers
+        // Undo alignment padding + restore callee-saved registers
+        Enc.addImm32(&self.code, self.alloc, .rsp, 8);
         Enc.pop(&self.code, self.alloc, .r15);
         Enc.pop(&self.code, self.alloc, .r14);
         Enc.pop(&self.code, self.alloc, .r13);
@@ -1319,6 +1324,8 @@ pub const Compiler = struct {
         // Shared error epilogue: restore callee-saved, return with RAX=error_code
         const shared_exit = self.currentOffset();
         // At this point, RAX has the error code. Restore callee-saved and return.
+        // Undo alignment padding from prologue
+        Enc.addImm32(&self.code, self.alloc, .rsp, 8);
         Enc.pop(&self.code, self.alloc, .r15);
         Enc.pop(&self.code, self.alloc, .r14);
         Enc.pop(&self.code, self.alloc, .r13);
@@ -1543,14 +1550,18 @@ pub const Compiler = struct {
         } else {
             Enc.xorRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH);
         }
+        // Alignment padding: RSP is 16-aligned after prologue; one push would
+        // leave RSP at 8 mod 16, violating the ABI before CALL.
+        // Sub 8 first so that push + sub = 16 bytes, keeping RSP 16-aligned.
+        Enc.subImm32(&self.code, self.alloc, .rsp, 8);
         Enc.push(&self.code, self.alloc, SCRATCH); // 7th arg on stack
 
         // 3. CALL trampoline
         self.emitLoadImm64(SCRATCH, self.trampoline_addr);
         Enc.callReg(&self.code, self.alloc, SCRATCH);
 
-        // 4. Clean up stack (remove 7th arg)
-        Enc.addImm32(&self.code, self.alloc, .rsp, 8);
+        // 4. Clean up stack (remove 7th arg + alignment padding = 16 bytes)
+        Enc.addImm32(&self.code, self.alloc, .rsp, 16);
 
         // 5. Check error (RAX != 0 → error)
         Enc.testRegReg(&self.code, self.alloc, .rax, .rax);
