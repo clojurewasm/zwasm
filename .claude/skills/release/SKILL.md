@@ -39,9 +39,10 @@ Never tag or push until all prior phases pass.
 
 ## Phase 4: zwasm Tag + Push
 
-1. Record full benchmark: `bash bench/record.sh --id=$ARGUMENTS --reason="Release $ARGUMENTS"`
-2. Tag: `git tag $ARGUMENTS`
-3. Push: `git push origin main --tags`
+1. **Version gate**: Verify `build.zig.zon` `.version` matches the tag (e.g. tag `v0.13.0` → `.version = "0.13.0"`). If mismatched, update `.version`, commit, then proceed.
+2. Record full benchmark: `bash bench/record.sh --id=$ARGUMENTS --reason="Release $ARGUMENTS"`
+3. Tag: `git tag $ARGUMENTS`
+4. Push: `git push origin main --tags`
 
 ## Phase 5: ClojureWasm Tag + Push
 
