@@ -136,11 +136,11 @@ Task Queue:
 
 ## Current Task
 
-Stage 17 complete — merge to main, then plan Stage 18 (GC).
+Plan Stage 18 (GC) — task breakdown TBD.
 
 ## Previous Task
 
-17.7: Updated proposals.yaml (function_references: complete), spec-support.md. 8/10 Wasm 3.0 proposals done.
+Stage 17 (Function References) complete. Merged to main, Ubuntu verified (60,863/60,896 matching Mac).
 
 ## Wasm 3.0 Coverage
 
@@ -150,7 +150,8 @@ GC requires function_references (done).
 
 ## Known Bugs
 
-None. Mac 60,863/60,896 (99.9%), 7 skips, 33 multi-module linking failures.
+None. Mac 60,863/60,896 (99.9%), Ubuntu 60,863/60,896 (99.9%), 7 skips, 33 multi-module linking failures.
+Note: Ubuntu Debug build has 11 extra timeouts on tail-call recursion tests (return_call/return_call_ref count/even/odd 1M iterations). Use ReleaseSafe for spec tests on Ubuntu.
 
 ## References
 
