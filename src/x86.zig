@@ -626,6 +626,158 @@ const Enc = struct {
         appendI32(buf, alloc, disp);
     }
 
+    // --- Indexed memory access: [base + index*1] ---
+
+    /// Emit ModR/M + SIB for [base + index*1] addressing.
+    /// Handles the R13/RBP special case: when base.low3()==5 (RBP/R13),
+    /// mod=00 encodes as [disp32 + index] instead. Use mod=01 + disp8=0.
+    fn emitSibAddr(buf: *std.ArrayList(u8), alloc: Allocator, reg_field: u3, base: Reg, index: Reg) void {
+        if (base.low3() == 5) {
+            // mod=01, rm=100 (SIB), disp8=0
+            buf.append(alloc, 0x44 | (reg_field << 3)) catch {};
+            buf.append(alloc, (index.low3() << 3) | base.low3()) catch {};
+            buf.append(alloc, 0x00) catch {}; // disp8 = 0
+        } else {
+            // mod=00, rm=100 (SIB)
+            buf.append(alloc, (reg_field << 3) | 0x04) catch {};
+            buf.append(alloc, (index.low3() << 3) | base.low3()) catch {};
+        }
+    }
+
+    /// MOV r32, [base + index*1] (32-bit load)
+    fn loadBaseIdx32(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
+        const r = rex(dst, base) | (if (index.isExt()) @as(u8, 0x42) else 0);
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.append(alloc, 0x8B) catch {};
+        emitSibAddr(buf, alloc, dst.low3(), base, index);
+    }
+
+    /// MOV r64, [base + index*1] (64-bit load)
+    fn loadBaseIdx64(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
+        var r = rexW(dst, base);
+        if (index.isExt()) r |= 0x02;
+        buf.append(alloc, r) catch {};
+        buf.append(alloc, 0x8B) catch {};
+        emitSibAddr(buf, alloc, dst.low3(), base, index);
+    }
+
+    /// MOVZX r32, byte [base + index*1] (zero-extend byte to 32-bit)
+    fn loadBaseIdxU8(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
+        var r = rex(dst, base);
+        if (index.isExt()) r |= 0x02;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xB6 }) catch {};
+        emitSibAddr(buf, alloc, dst.low3(), base, index);
+    }
+
+    /// MOVSX r32, byte [base + index*1] (sign-extend byte to 32-bit)
+    fn loadBaseIdxS8_32(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
+        var r = rex(dst, base);
+        if (index.isExt()) r |= 0x02;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xBE }) catch {};
+        emitSibAddr(buf, alloc, dst.low3(), base, index);
+    }
+
+    /// MOVSX r64, byte [base + index*1] (sign-extend byte to 64-bit)
+    fn loadBaseIdxS8_64(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
+        var r = rexW(dst, base);
+        if (index.isExt()) r |= 0x02;
+        buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xBE }) catch {};
+        emitSibAddr(buf, alloc, dst.low3(), base, index);
+    }
+
+    /// MOVZX r32, word [base + index*1] (zero-extend 16-bit to 32-bit)
+    fn loadBaseIdxU16(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
+        var r = rex(dst, base);
+        if (index.isExt()) r |= 0x02;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xB7 }) catch {};
+        emitSibAddr(buf, alloc, dst.low3(), base, index);
+    }
+
+    /// MOVSX r32, word [base + index*1] (sign-extend 16-bit to 32-bit)
+    fn loadBaseIdxS16_32(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
+        var r = rex(dst, base);
+        if (index.isExt()) r |= 0x02;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xBF }) catch {};
+        emitSibAddr(buf, alloc, dst.low3(), base, index);
+    }
+
+    /// MOVSX r64, word [base + index*1] (sign-extend 16-bit to 64-bit)
+    fn loadBaseIdxS16_64(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
+        var r = rexW(dst, base);
+        if (index.isExt()) r |= 0x02;
+        buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xBF }) catch {};
+        emitSibAddr(buf, alloc, dst.low3(), base, index);
+    }
+
+    /// MOVSXD r64, dword [base + index*1] (sign-extend 32-bit to 64-bit)
+    fn loadBaseIdxS32_64(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, base: Reg, index: Reg) void {
+        var r = rexW(dst, base);
+        if (index.isExt()) r |= 0x02;
+        buf.append(alloc, r) catch {};
+        buf.append(alloc, 0x63) catch {};
+        emitSibAddr(buf, alloc, dst.low3(), base, index);
+    }
+
+    /// MOV [base + index*1], r32 (32-bit store)
+    fn storeBaseIdx32(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
+        var r = rex(src, base);
+        if (index.isExt()) r |= 0x02;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.append(alloc, 0x89) catch {};
+        emitSibAddr(buf, alloc, src.low3(), base, index);
+    }
+
+    /// MOV [base + index*1], r64 (64-bit store)
+    fn storeBaseIdx64(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
+        var r = rexW(src, base);
+        if (index.isExt()) r |= 0x02;
+        buf.append(alloc, r) catch {};
+        buf.append(alloc, 0x89) catch {};
+        emitSibAddr(buf, alloc, src.low3(), base, index);
+    }
+
+    /// MOV byte [base + index*1], r8 (8-bit store)
+    fn storeBaseIdx8(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
+        var r = rex(src, base);
+        if (index.isExt()) r |= 0x02;
+        // Always emit REX for byte stores to ensure uniform register encoding
+        if (r == 0x40) r = 0x40;
+        buf.append(alloc, r) catch {};
+        buf.append(alloc, 0x88) catch {};
+        emitSibAddr(buf, alloc, src.low3(), base, index);
+    }
+
+    /// MOV word [base + index*1], r16 (16-bit store)
+    fn storeBaseIdx16(buf: *std.ArrayList(u8), alloc: Allocator, base: Reg, index: Reg, src: Reg) void {
+        buf.append(alloc, 0x66) catch {};
+        var r = rex(src, base);
+        if (index.isExt()) r |= 0x02;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.append(alloc, 0x89) catch {};
+        emitSibAddr(buf, alloc, src.low3(), base, index);
+    }
+
+    /// MOV r32, imm32 (zero-extending)
+    fn movImm32ToReg(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, imm: u32) void {
+        if (dst.isExt()) buf.append(alloc, 0x41) catch {};
+        buf.append(alloc, 0xB8 | dst.low3()) catch {};
+        appendU32(buf, alloc, imm);
+    }
+
+    /// TEST r32, r32 (32-bit)
+    fn testRegReg32(buf: *std.ArrayList(u8), alloc: Allocator, r1: Reg, r2: Reg) void {
+        const r = rex(r2, r1);
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.append(alloc, 0x85) catch {};
+        buf.append(alloc, modrmReg(r2, r1)) catch {};
+    }
+
     /// Patch a rel32 at `patch_offset` to jump to `target_offset`.
     /// rel32 = target - (patch_offset + 4) because the offset is relative to the NEXT instruction.
     fn patchRel32(code: []u8, patch_offset: u32, target_offset: u32) void {
@@ -886,7 +1038,16 @@ pub const Compiler = struct {
         Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, vm_offset, .rsi);
         Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, inst_offset, .rdx);
 
-        // Load virtual registers from regs array into physical registers
+        // Load memory cache BEFORE loading virtual registers.
+        // emitLoadMemCache() calls jitGetMemInfo via CALL, which trashes all
+        // caller-saved registers. Loading vregs after ensures their values
+        // in RCX, RDI, RSI, RDX, R8-R11 are not corrupted by the call.
+        if (self.has_memory) {
+            self.emitLoadMemCache();
+        }
+
+        // Load virtual registers from regs array into physical registers.
+        // Must be AFTER emitLoadMemCache() which calls CALL (trashes caller-saved).
         const max_vreg = @min(self.reg_count, MAX_PHYS_REGS);
         for (0..max_vreg) |i| {
             const vreg: u8 = @intCast(i);
@@ -933,6 +1094,439 @@ pub const Compiler = struct {
                 self.currentOffset();
             Enc.patchRel32(self.code.items, patch.rel32_offset, target_offset);
         }
+    }
+
+    // --- Error handling ---
+
+    /// Emit conditional error: if condition is true, branch forward to error stub.
+    fn emitCondError(self: *Compiler, cond: Cond, error_code: u16) void {
+        // Jcc rel32 (6 bytes: 0F 8x cd cd cd cd)
+        const rel32_off = self.currentOffset() + 2; // offset of the rel32 in code
+        Enc.jccRel32(&self.code, self.alloc, cond, 0); // placeholder
+        self.error_stubs.append(self.alloc, .{
+            .rel32_offset = rel32_off,
+            .error_code = error_code,
+            .kind = .jcc_inverted,
+            .cond = cond,
+        }) catch {};
+    }
+
+    /// Emit error stubs at function end and patch forward branches.
+    fn emitErrorStubs(self: *Compiler) void {
+        if (self.error_stubs.items.len == 0) return;
+
+        // Shared error epilogue: restore callee-saved, return with RAX=error_code
+        const shared_exit = self.currentOffset();
+        // At this point, RAX has the error code. Restore callee-saved and return.
+        Enc.pop(&self.code, self.alloc, .r15);
+        Enc.pop(&self.code, self.alloc, .r14);
+        Enc.pop(&self.code, self.alloc, .r13);
+        Enc.pop(&self.code, self.alloc, .r12);
+        Enc.pop(&self.code, self.alloc, .rbp);
+        Enc.pop(&self.code, self.alloc, .rbx);
+        Enc.ret_(&self.code, self.alloc);
+
+        for (self.error_stubs.items) |stub| {
+            if (stub.error_code == 0) {
+                // Call error: RAX already has error code, patch Jcc/JNE to shared exit
+                Enc.patchRel32(self.code.items, stub.rel32_offset, shared_exit);
+            } else {
+                // Condition error: emit stub (MOV imm → RAX, JMP shared_exit)
+                const stub_offset = self.currentOffset();
+                // MOV EAX, imm32 (5 bytes) — zero extends to RAX
+                Enc.movImm32ToReg(&self.code, self.alloc, .rax, stub.error_code);
+                // JMP rel32 to shared_exit
+                const jmp_rel32_off = self.currentOffset() + 1;
+                Enc.jmpRel32(&self.code, self.alloc, 0);
+                Enc.patchRel32(self.code.items, jmp_rel32_off, shared_exit);
+                // Patch original Jcc to point to this stub
+                Enc.patchRel32(self.code.items, stub.rel32_offset, stub_offset);
+            }
+        }
+    }
+
+    // --- Pointer helpers ---
+
+    /// Load VM pointer from regs[reg_count+2] into target register.
+    fn emitLoadVmPtr(self: *Compiler, dst: Reg) void {
+        const disp: i32 = (@as(i32, self.reg_count) + 2) * 8;
+        Enc.loadDisp32(&self.code, self.alloc, dst, REGS_PTR, disp);
+    }
+
+    /// Load Instance pointer from regs[reg_count+3] into target register.
+    fn emitLoadInstPtr(self: *Compiler, dst: Reg) void {
+        const disp: i32 = (@as(i32, self.reg_count) + 3) * 8;
+        Enc.loadDisp32(&self.code, self.alloc, dst, REGS_PTR, disp);
+    }
+
+    /// Load immediate 64-bit value into register.
+    fn emitLoadImm64(self: *Compiler, dst: Reg, value: u64) void {
+        Enc.movImm64(&self.code, self.alloc, dst, value);
+    }
+
+    /// Load immediate 32-bit value into register (zero-extending).
+    fn emitLoadImm32(self: *Compiler, dst: Reg, value: u32) void {
+        if (value == 0) {
+            Enc.xorRegReg32(&self.code, self.alloc, dst, dst);
+        } else {
+            Enc.movImm32ToReg(&self.code, self.alloc, dst, value);
+        }
+    }
+
+    /// Load memory cache: call jitGetMemInfo(instance, &regs[reg_count]) then
+    /// load MEM_BASE and MEM_SIZE from the output slots.
+    fn emitLoadMemCache(self: *Compiler) void {
+        // System V ABI: RDI=arg0 (instance), RSI=arg1 (&regs[reg_count])
+        self.emitLoadInstPtr(.rdi);
+        // RSI = address of regs[reg_count] = REGS_PTR + reg_count*8
+        const out_disp: i32 = @as(i32, self.reg_count) * 8;
+        Enc.movRegReg(&self.code, self.alloc, .rsi, REGS_PTR);
+        if (out_disp > 0) {
+            Enc.addImm32(&self.code, self.alloc, .rsi, out_disp);
+        }
+        // CALL jitGetMemInfo
+        self.emitLoadImm64(SCRATCH, self.mem_info_addr);
+        Enc.callReg(&self.code, self.alloc, SCRATCH);
+        // Load results: MEM_BASE = regs[reg_count], MEM_SIZE = regs[reg_count+1]
+        Enc.loadDisp32(&self.code, self.alloc, MEM_BASE, REGS_PTR, out_disp);
+        Enc.loadDisp32(&self.code, self.alloc, MEM_SIZE, REGS_PTR, out_disp + 8);
+    }
+
+    /// Emit ADD SCRATCH, imm32 (for address computation). Handles 0 as no-op.
+    fn emitAddOffset(self: *Compiler, offset: u32) void {
+        if (offset == 0) return;
+        Enc.addImm32(&self.code, self.alloc, SCRATCH, @bitCast(offset));
+    }
+
+    // --- Memory access ---
+
+    const LoadKind = enum { w32, x64, u8, s8_32, s8_64, u16, s16_32, s16_64, s32_64 };
+    const StoreKind = enum { w32, x64, b8, h16 };
+
+    /// Emit memory load with bounds check.
+    /// RegInstr encoding: rd=dest, rs1=base_addr, operand=static_offset.
+    fn emitMemLoad(self: *Compiler, instr: RegInstr, kind: LoadKind, access_size: u32) void {
+        // 1. Compute effective address: SCRATCH = zero_extend(addr_reg, 32→64) + offset
+        const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+        // MOV SCRATCH(32-bit), addr_reg(32-bit) — zero extends to 64-bit
+        Enc.movRegReg32(&self.code, self.alloc, SCRATCH, addr_reg);
+        self.emitAddOffset(instr.operand);
+
+        // 2. Bounds check: effective + access_size <= MEM_SIZE
+        // LEA SCRATCH2, [SCRATCH + access_size]
+        Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
+        Enc.addImm32(&self.code, self.alloc, SCRATCH2, @bitCast(access_size));
+        // CMP SCRATCH2, MEM_SIZE
+        Enc.cmpRegReg(&self.code, self.alloc, SCRATCH2, MEM_SIZE);
+        // JA error (unsigned above = out of bounds)
+        self.emitCondError(.a, 6); // OutOfBoundsMemoryAccess
+
+        // 3. Load: dst = mem_base[effective]
+        switch (kind) {
+            .w32 => Enc.loadBaseIdx32(&self.code, self.alloc, SCRATCH, MEM_BASE, SCRATCH),
+            .x64 => Enc.loadBaseIdx64(&self.code, self.alloc, SCRATCH, MEM_BASE, SCRATCH),
+            .u8 => Enc.loadBaseIdxU8(&self.code, self.alloc, SCRATCH, MEM_BASE, SCRATCH),
+            .s8_32 => Enc.loadBaseIdxS8_32(&self.code, self.alloc, SCRATCH, MEM_BASE, SCRATCH),
+            .s8_64 => Enc.loadBaseIdxS8_64(&self.code, self.alloc, SCRATCH, MEM_BASE, SCRATCH),
+            .u16 => Enc.loadBaseIdxU16(&self.code, self.alloc, SCRATCH, MEM_BASE, SCRATCH),
+            .s16_32 => Enc.loadBaseIdxS16_32(&self.code, self.alloc, SCRATCH, MEM_BASE, SCRATCH),
+            .s16_64 => Enc.loadBaseIdxS16_64(&self.code, self.alloc, SCRATCH, MEM_BASE, SCRATCH),
+            .s32_64 => Enc.loadBaseIdxS32_64(&self.code, self.alloc, SCRATCH, MEM_BASE, SCRATCH),
+        }
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    /// Emit memory store with bounds check.
+    /// RegInstr encoding: rd=value, rs1=base_addr, operand=static_offset.
+    fn emitMemStore(self: *Compiler, instr: RegInstr, kind: StoreKind, access_size: u32) void {
+        // 1. Compute effective address
+        const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+        Enc.movRegReg32(&self.code, self.alloc, SCRATCH, addr_reg);
+        self.emitAddOffset(instr.operand);
+
+        // 2. Bounds check
+        Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
+        Enc.addImm32(&self.code, self.alloc, SCRATCH2, @bitCast(access_size));
+        Enc.cmpRegReg(&self.code, self.alloc, SCRATCH2, MEM_SIZE);
+        self.emitCondError(.a, 6);
+
+        // 3. Store: mem_base[effective] = value
+        // Load value into SCRATCH2 (SCRATCH has effective address)
+        const val_reg = self.getOrLoad(instr.rd, SCRATCH2);
+        switch (kind) {
+            .w32 => Enc.storeBaseIdx32(&self.code, self.alloc, MEM_BASE, SCRATCH, val_reg),
+            .x64 => Enc.storeBaseIdx64(&self.code, self.alloc, MEM_BASE, SCRATCH, val_reg),
+            .b8 => Enc.storeBaseIdx8(&self.code, self.alloc, MEM_BASE, SCRATCH, val_reg),
+            .h16 => Enc.storeBaseIdx16(&self.code, self.alloc, MEM_BASE, SCRATCH, val_reg),
+        }
+        self.scratch_vreg = null;
+    }
+
+    /// Emit memory.size: rd = memory pages (MEM_SIZE / 65536)
+    fn emitMemorySize(self: *Compiler, instr: RegInstr) void {
+        // SHR R14_copy, 16 → pages
+        Enc.movRegReg(&self.code, self.alloc, SCRATCH, MEM_SIZE);
+        // SHR RAX, 16 — need shift by immediate
+        // SHR r64, imm8: REX.W C1 /5 ib
+        self.code.append(self.alloc, Enc.rexW1(SCRATCH)) catch {};
+        self.code.append(self.alloc, 0xC1) catch {};
+        self.code.append(self.alloc, Enc.modrm(3, 5, SCRATCH.low3())) catch {};
+        self.code.append(self.alloc, 16) catch {};
+        self.storeVreg(instr.rd, SCRATCH);
+    }
+
+    // --- Global ops emitters ---
+
+    /// global.get: call jitGlobalGet(instance, idx) → u64
+    fn emitGlobalGet(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // System V ABI: RDI=instance, ESI=global_idx
+        self.emitLoadInstPtr(.rdi);
+        self.emitLoadImm32(.rsi, @truncate(instr.operand));
+        // CALL jitGlobalGet
+        self.emitLoadImm64(SCRATCH, self.global_get_addr);
+        Enc.callReg(&self.code, self.alloc, SCRATCH);
+        // Result in RAX (u64)
+        self.reloadCallerSaved();
+        self.storeVreg(instr.rd, SCRATCH); // SCRATCH = RAX = result
+    }
+
+    /// global.set: call jitGlobalSet(instance, idx, val)
+    fn emitGlobalSet(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // System V ABI: RDI=instance, ESI=global_idx, RDX=value
+        self.emitLoadInstPtr(.rdi);
+        self.emitLoadImm32(.rsi, @truncate(instr.operand));
+        const val_reg = self.getOrLoad(instr.rd, SCRATCH);
+        Enc.movRegReg(&self.code, self.alloc, .rdx, val_reg);
+        // CALL jitGlobalSet
+        self.emitLoadImm64(SCRATCH, self.global_set_addr);
+        Enc.callReg(&self.code, self.alloc, SCRATCH);
+        self.reloadCallerSaved();
+        self.scratch_vreg = null;
+    }
+
+    // --- Call emitters ---
+
+    /// Emit a function call via trampoline.
+    fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr) void {
+        // 1. Spill caller-saved regs + arg vregs
+        self.spillCallerSaved();
+        if (n_args > 0) self.spillVregIfCalleeSaved(data.rd);
+        if (n_args > 1) self.spillVregIfCalleeSaved(data.rs1);
+        if (n_args > 2) self.spillVregIfCalleeSaved(@truncate(data.operand));
+        if (n_args > 3) self.spillVregIfCalleeSaved(@truncate(data.operand >> 8));
+        if (n_args > 4) {
+            if (data2) |d2| {
+                if (n_args > 4) self.spillVregIfCalleeSaved(d2.rd);
+                if (n_args > 5) self.spillVregIfCalleeSaved(d2.rs1);
+                if (n_args > 6) self.spillVregIfCalleeSaved(@truncate(d2.operand));
+                if (n_args > 7) self.spillVregIfCalleeSaved(@truncate(d2.operand >> 8));
+            }
+        }
+
+        // 2. Set up trampoline args (System V AMD64 ABI: RDI, RSI, RDX, RCX, R8, R9):
+        //    RDI=vm, RSI=instance, RDX=regs, ECX=func_idx, R8D=rd, R9=data_word
+        //    data2 goes on the stack (7th argument)
+        self.emitLoadVmPtr(.rdi);
+        self.emitLoadInstPtr(.rsi);
+        Enc.movRegReg(&self.code, self.alloc, .rdx, REGS_PTR);
+        self.emitLoadImm32(.rcx, func_idx);
+        self.emitLoadImm32(.r8, @as(u32, rd));
+        // Pack data word as u64 into R9
+        const data_u64: u64 = @bitCast(data);
+        self.emitLoadImm64(.r9, data_u64);
+        // data2 as 7th argument: push onto stack
+        if (data2) |d2| {
+            const d2_u64: u64 = @bitCast(d2);
+            self.emitLoadImm64(SCRATCH, d2_u64);
+        } else {
+            Enc.xorRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH);
+        }
+        Enc.push(&self.code, self.alloc, SCRATCH); // 7th arg on stack
+
+        // 3. CALL trampoline
+        self.emitLoadImm64(SCRATCH, self.trampoline_addr);
+        Enc.callReg(&self.code, self.alloc, SCRATCH);
+
+        // 4. Clean up stack (remove 7th arg)
+        Enc.addImm32(&self.code, self.alloc, .rsp, 8);
+
+        // 5. Check error (RAX != 0 → error)
+        Enc.testRegReg(&self.code, self.alloc, .rax, .rax);
+        const rel32_off = self.currentOffset() + 2;
+        Enc.jccRel32(&self.code, self.alloc, .ne, 0); // JNE error
+        self.error_stubs.append(self.alloc, .{
+            .rel32_offset = rel32_off,
+            .error_code = 0, // RAX already has error code
+            .kind = .jne,
+            .cond = .ne,
+        }) catch {};
+
+        // 6. Reload memory cache (memory may have grown during call)
+        if (self.has_memory) {
+            self.emitLoadMemCache();
+        }
+
+        // 7. Reload caller-saved regs, then load result
+        self.reloadCallerSaved();
+        self.reloadVreg(rd);
+    }
+
+    /// Emit call_indirect via trampoline.
+    fn emitCallIndirect(self: *Compiler, instr: RegInstr, data: RegInstr, data2: ?RegInstr) void {
+        // 1. Spill caller-saved regs + arg vregs
+        self.spillCallerSaved();
+        self.spillVregIfCalleeSaved(data.rd);
+        self.spillVregIfCalleeSaved(data.rs1);
+        self.spillVregIfCalleeSaved(@truncate(data.operand));
+        self.spillVregIfCalleeSaved(@truncate(data.operand >> 8));
+        if (data2) |d2| {
+            self.spillVregIfCalleeSaved(d2.rd);
+            self.spillVregIfCalleeSaved(d2.rs1);
+            self.spillVregIfCalleeSaved(@truncate(d2.operand));
+            self.spillVregIfCalleeSaved(@truncate(d2.operand >> 8));
+        }
+        self.spillVregIfCalleeSaved(instr.rs1);
+
+        // 2. System V AMD64: RDI=vm, RSI=instance, RDX=regs, ECX=type_idx_table_idx,
+        //    R8D=result_reg, R9=data_word, stack[0]=data2_word, stack[1]=elem_idx
+        self.emitLoadVmPtr(.rdi);
+        self.emitLoadInstPtr(.rsi);
+        Enc.movRegReg(&self.code, self.alloc, .rdx, REGS_PTR);
+        self.emitLoadImm32(.rcx, instr.operand);
+        self.emitLoadImm32(.r8, @as(u32, instr.rd));
+        const data_u64: u64 = @bitCast(data);
+        self.emitLoadImm64(.r9, data_u64);
+
+        // Push elem_idx (8th arg) first, then data2 (7th arg) — right to left
+        // Load elem_idx from regs[instr.rs1]
+        const elem_disp: i32 = @as(i32, instr.rs1) * 8;
+        Enc.loadDisp32(&self.code, self.alloc, SCRATCH, REGS_PTR, elem_disp);
+        Enc.push(&self.code, self.alloc, SCRATCH); // 8th arg
+
+        if (data2) |d2| {
+            const d2_u64: u64 = @bitCast(d2);
+            self.emitLoadImm64(SCRATCH, d2_u64);
+        } else {
+            Enc.xorRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH);
+        }
+        Enc.push(&self.code, self.alloc, SCRATCH); // 7th arg
+
+        // 3. CALL trampoline
+        self.emitLoadImm64(SCRATCH, self.call_indirect_addr);
+        Enc.callReg(&self.code, self.alloc, SCRATCH);
+
+        // 4. Clean up stack (2 pushed args = 16 bytes)
+        Enc.addImm32(&self.code, self.alloc, .rsp, 16);
+
+        // 5. Check error
+        Enc.testRegReg(&self.code, self.alloc, .rax, .rax);
+        const rel32_off = self.currentOffset() + 2;
+        Enc.jccRel32(&self.code, self.alloc, .ne, 0);
+        self.error_stubs.append(self.alloc, .{
+            .rel32_offset = rel32_off,
+            .error_code = 0,
+            .kind = .jne,
+            .cond = .ne,
+        }) catch {};
+
+        // 6. Reload memory cache
+        if (self.has_memory) {
+            self.emitLoadMemCache();
+        }
+
+        // 7. Reload and load result
+        self.reloadCallerSaved();
+        self.reloadVreg(instr.rd);
+    }
+
+    /// Spill a single vreg if it's callee-saved (r0-r2). No-op for caller-saved.
+    fn spillVregIfCalleeSaved(self: *Compiler, vreg: u8) void {
+        if (vregToPhys(vreg)) |phys| {
+            // Caller-saved: RCX, RDI, RSI, RDX, R8-R11 → already spilled
+            // Callee-saved: RBX(r0), RBP(r1), R15(r2) → need explicit spill
+            switch (phys) {
+                .rbx, .rbp, .r15 => {
+                    const disp: i32 = @as(i32, vreg) * 8;
+                    Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
+                },
+                else => {},
+            }
+        }
+    }
+
+    /// Reload a single vreg from memory.
+    fn reloadVreg(self: *Compiler, vreg: u8) void {
+        if (vregToPhys(vreg)) |phys| {
+            const disp: i32 = @as(i32, vreg) * 8;
+            Enc.loadDisp32(&self.code, self.alloc, phys, REGS_PTR, disp);
+        }
+    }
+
+    /// Emit memory.grow via trampoline call.
+    fn emitMemGrow(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // System V: RDI=instance, RSI=pages
+        self.emitLoadInstPtr(.rdi);
+        const pages_reg = self.getOrLoad(instr.rs1, SCRATCH);
+        Enc.movRegReg32(&self.code, self.alloc, .rsi, pages_reg);
+        // CALL jitMemGrow
+        self.emitLoadImm64(SCRATCH, self.mem_grow_addr);
+        Enc.callReg(&self.code, self.alloc, SCRATCH);
+        // Result in EAX (u32): old_pages or 0xFFFFFFFF
+        // Store result to regs[rd] immediately (before RAX is clobbered)
+        const rd_disp: i32 = @as(i32, instr.rd) * 8;
+        Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, rd_disp, .rax);
+        // Reload memory cache (memory may have grown)
+        if (self.has_memory) {
+            self.emitLoadMemCache();
+        }
+        self.reloadCallerSaved();
+        self.reloadVreg(instr.rd);
+        self.scratch_vreg = null;
+    }
+
+    /// Emit memory.fill via trampoline call.
+    fn emitMemFill(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // System V: RDI=instance, ESI=dst, EDX=val, ECX=n
+        self.emitLoadInstPtr(.rdi);
+        const dst_reg = self.getOrLoad(instr.rd, SCRATCH);
+        Enc.movRegReg32(&self.code, self.alloc, .rsi, dst_reg);
+        const val_reg = self.getOrLoad(instr.rs1, SCRATCH);
+        Enc.movRegReg32(&self.code, self.alloc, .rdx, val_reg);
+        const n_reg = self.getOrLoad(instr.rs2(), SCRATCH);
+        Enc.movRegReg32(&self.code, self.alloc, .rcx, n_reg);
+        // CALL jitMemFill
+        self.emitLoadImm64(SCRATCH, self.mem_fill_addr);
+        Enc.callReg(&self.code, self.alloc, SCRATCH);
+        // Check error (EAX != 0 → OOB)
+        Enc.testRegReg32(&self.code, self.alloc, .rax, .rax);
+        self.emitCondError(.ne, 6); // OutOfBoundsMemoryAccess
+        self.reloadCallerSaved();
+        self.scratch_vreg = null;
+    }
+
+    /// Emit memory.copy via trampoline call.
+    fn emitMemCopy(self: *Compiler, instr: RegInstr) void {
+        self.spillCallerSaved();
+        // System V: RDI=instance, ESI=dst, EDX=src, ECX=n
+        self.emitLoadInstPtr(.rdi);
+        const dst_reg = self.getOrLoad(instr.rd, SCRATCH);
+        Enc.movRegReg32(&self.code, self.alloc, .rsi, dst_reg);
+        const src_reg = self.getOrLoad(instr.rs1, SCRATCH);
+        Enc.movRegReg32(&self.code, self.alloc, .rdx, src_reg);
+        const n_reg = self.getOrLoad(instr.rs2(), SCRATCH);
+        Enc.movRegReg32(&self.code, self.alloc, .rcx, n_reg);
+        // CALL jitMemCopy
+        self.emitLoadImm64(SCRATCH, self.mem_copy_addr);
+        Enc.callReg(&self.code, self.alloc, SCRATCH);
+        // Check error
+        Enc.testRegReg32(&self.code, self.alloc, .rax, .rax);
+        self.emitCondError(.ne, 6);
+        self.reloadCallerSaved();
+        self.scratch_vreg = null;
     }
 
     // --- Finalization ---
@@ -1047,6 +1641,7 @@ pub const Compiler = struct {
         }
         self.pc_map.items[ir.len] = self.currentOffset();
 
+        self.emitErrorStubs();
         self.patchBranches() catch return null;
 
         return self.finalize();
@@ -1107,16 +1702,67 @@ pub const Compiler = struct {
             regalloc_mod.OP_RETURN_VOID => self.emitEpilogue(),
             regalloc_mod.OP_NOP, regalloc_mod.OP_BLOCK_END, regalloc_mod.OP_DELETED => {},
 
+            // --- Global ops ---
+            0x23 => self.emitGlobalGet(instr), // global.get
+            0x24 => self.emitGlobalSet(instr), // global.set
+
+            // --- Memory load ---
+            0x28 => self.emitMemLoad(instr, .w32, 4),   // i32.load
+            0x29 => self.emitMemLoad(instr, .x64, 8),   // i64.load
+            0x2A => self.emitMemLoad(instr, .w32, 4),   // f32.load (same bits as i32)
+            0x2B => self.emitMemLoad(instr, .x64, 8),   // f64.load (same bits as i64)
+            0x2C => self.emitMemLoad(instr, .s8_32, 1),  // i32.load8_s
+            0x2D => self.emitMemLoad(instr, .u8, 1),    // i32.load8_u
+            0x2E => self.emitMemLoad(instr, .s16_32, 2), // i32.load16_s
+            0x2F => self.emitMemLoad(instr, .u16, 2),   // i32.load16_u
+            0x30 => self.emitMemLoad(instr, .s8_64, 1),  // i64.load8_s
+            0x31 => self.emitMemLoad(instr, .u8, 1),    // i64.load8_u
+            0x32 => self.emitMemLoad(instr, .s16_64, 2), // i64.load16_s
+            0x33 => self.emitMemLoad(instr, .u16, 2),   // i64.load16_u
+            0x34 => self.emitMemLoad(instr, .s32_64, 4), // i64.load32_s
+            0x35 => self.emitMemLoad(instr, .w32, 4),   // i64.load32_u
+
+            // --- Memory store ---
+            0x36 => self.emitMemStore(instr, .w32, 4),  // i32.store
+            0x37 => self.emitMemStore(instr, .x64, 8),  // i64.store
+            0x38 => self.emitMemStore(instr, .w32, 4),  // f32.store
+            0x39 => self.emitMemStore(instr, .x64, 8),  // f64.store
+            0x3A => self.emitMemStore(instr, .b8, 1),   // i32.store8
+            0x3B => self.emitMemStore(instr, .h16, 2),  // i32.store16
+            0x3C => self.emitMemStore(instr, .b8, 1),   // i64.store8
+            0x3D => self.emitMemStore(instr, .h16, 2),  // i64.store16
+            0x3E => self.emitMemStore(instr, .w32, 4),  // i64.store32
+
+            // --- Memory size/grow/fill/copy ---
+            0x3F => self.emitMemorySize(instr), // memory.size
+            0x40 => self.emitMemGrow(instr),     // memory.grow
+            regalloc_mod.OP_MEMORY_FILL => self.emitMemFill(instr),
+            regalloc_mod.OP_MEMORY_COPY => self.emitMemCopy(instr),
+
             // --- Function calls (consume extra data words) ---
             regalloc_mod.OP_CALL => {
-                _ = ir;
-                _ = pc;
-                return false; // TODO: task 13.4
+                const func_idx = instr.operand;
+                const n_args: u16 = @intCast(instr.rs1);
+                const data = ir[pc.*];
+                pc.* += 1;
+                const has_data2 = (pc.* < ir.len and ir[pc.*].op == regalloc_mod.OP_NOP);
+                var data2: RegInstr = undefined;
+                if (has_data2) {
+                    data2 = ir[pc.*];
+                    pc.* += 1;
+                }
+                self.emitCall(instr.rd, func_idx, n_args, data, if (has_data2) data2 else null);
             },
             regalloc_mod.OP_CALL_INDIRECT => {
-                _ = ir;
-                _ = pc;
-                return false; // TODO: task 13.4
+                const data = ir[pc.*];
+                pc.* += 1;
+                const has_data2 = (pc.* < ir.len and ir[pc.*].op == regalloc_mod.OP_NOP);
+                var data2: RegInstr = undefined;
+                if (has_data2) {
+                    data2 = ir[pc.*];
+                    pc.* += 1;
+                }
+                self.emitCallIndirect(instr, data, if (has_data2) data2 else null);
             },
 
             // --- i32 arithmetic ---
@@ -1936,4 +2582,123 @@ test "x86_64 compile and execute loop (simple counter)" {
     var regs: [8]u64 = .{ 10, 0, 0, 0, 0, 0, 0, 0 };
     try testing.expectEqual(@as(u64, 0), jit_code.entry(&regs, undefined, undefined));
     try testing.expectEqual(@as(u64, 10), regs[0]);
+}
+
+test "x86_64 compile and execute memory load" {
+    if (builtin.cpu.arch != .x86_64) return;
+
+    const alloc = testing.allocator;
+
+    // Set up a Store with one memory page (64KB)
+    var store = store_mod.Store.init(alloc);
+    defer store.deinit();
+    const mem_idx = try store.addMemory(1, null, 65536);
+    const mem = try store.getMemory(mem_idx);
+    try mem.allocateInitial();
+
+    // Pre-fill memory: write 42 at byte offset 16
+    try mem.write(u32, 16, 0, 42);
+    // Write 0xDEADBEEF at byte offset 100
+    try mem.write(u32, 100, 0, 0xDEADBEEF);
+
+    // Create a minimal Instance with memaddrs pointing to our memory.
+    const module_mod = @import("module.zig");
+    var dummy_module = module_mod.Module.init(alloc, &.{});
+    var inst = Instance.init(alloc, &store, &dummy_module);
+    defer inst.deinit();
+    try inst.memaddrs.append(alloc, mem_idx);
+
+    // Verify jitGetMemInfo works with our instance
+    var info: [2]u64 = .{ 0, 0 };
+    jit_mod.jitGetMemInfo(@ptrCast(&inst), &info);
+    try testing.expect(info[0] != 0); // base pointer
+    try testing.expectEqual(@as(u64, 64 * 1024), info[1]); // 1 page = 64KB
+
+    // Build a RegFunc that loads from memory:
+    // r0 = base addr (param), load i32 at r0+16, return result
+    var code = [_]RegInstr{
+        // [0] i32.load r1, [r0 + 16]
+        .{ .op = 0x28, .rd = 1, .rs1 = 0, .operand = 16 },
+        // [1] RETURN r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
+    };
+    var reg_func = RegFunc{
+        .code = &code,
+        .pool64 = &.{},
+        .reg_count = 2,
+        .local_count = 1,
+        .alloc = alloc,
+    };
+
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 1, 1, null, 0) orelse
+        return error.CompilationFailed;
+    defer jit_code.deinit(alloc);
+
+    // Execute: load from addr=0, offset=16 → should read 42
+    // regs needs +4 extra for memory cache + VM/instance pointers
+    var regs: [6]u64 = .{ 0, 0, 0, 0, 0, 0 };
+    const result = jit_code.entry(&regs, undefined, @ptrCast(&inst));
+    try testing.expectEqual(@as(u64, 0), result); // success
+    try testing.expectEqual(@as(u64, 42), regs[0]); // loaded value (stored at regs[0] by RETURN)
+
+    // Execute: load from addr=84, offset=16 → addr+offset=100 → 0xDEADBEEF
+    {
+        var regs2: [6]u64 = .{ 84, 0, 0, 0, 0, 0 };
+        const result2 = jit_code.entry(&regs2, undefined, @ptrCast(&inst));
+        try testing.expectEqual(@as(u64, 0), result2);
+        try testing.expectEqual(@as(u64, 0xDEADBEEF), regs2[0]);
+    }
+
+    // Out of bounds: addr=65535, offset=16 → 65551 > 65536
+    {
+        var regs3: [6]u64 = .{ 65535, 0, 0, 0, 0, 0 };
+        const result3 = jit_code.entry(&regs3, undefined, @ptrCast(&inst));
+        try testing.expectEqual(@as(u64, 6), result3); // OutOfBoundsMemoryAccess
+    }
+}
+
+test "x86_64 compile and execute memory store then load" {
+    if (builtin.cpu.arch != .x86_64) return;
+
+    const alloc = testing.allocator;
+
+    var store = store_mod.Store.init(alloc);
+    defer store.deinit();
+    const mem_idx = try store.addMemory(1, null, 65536);
+    const mem = try store.getMemory(mem_idx);
+    try mem.allocateInitial();
+
+    const module_mod = @import("module.zig");
+    var dummy_module = module_mod.Module.init(alloc, &.{});
+    var inst = Instance.init(alloc, &store, &dummy_module);
+    defer inst.deinit();
+    try inst.memaddrs.append(alloc, mem_idx);
+
+    // r0 = addr, r1 = value to store
+    // store i32 r1 at [r0+0], load i32 r2 from [r0+0], return r2
+    var code = [_]RegInstr{
+        // [0] i32.store [r0 + 0] = r1
+        .{ .op = 0x36, .rd = 1, .rs1 = 0, .operand = 0 },
+        // [1] i32.load r2, [r0 + 0]
+        .{ .op = 0x28, .rd = 2, .rs1 = 0, .operand = 0 },
+        // [2] RETURN r2
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
+    };
+    var reg_func = RegFunc{
+        .code = &code,
+        .pool64 = &.{},
+        .reg_count = 3,
+        .local_count = 1,
+        .alloc = alloc,
+    };
+
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0) orelse
+        return error.CompilationFailed;
+    defer jit_code.deinit(alloc);
+
+    // Store 99 at addr 200, then load it back
+    var regs: [7]u64 = .{ 200, 99, 0, 0, 0, 0, 0 };
+    const result = jit_code.entry(&regs, undefined, @ptrCast(&inst));
+    try testing.expectEqual(@as(u64, 0), result);
+    try testing.expectEqual(@as(u64, 99), regs[0]); // loaded value via RETURN
 }

@@ -38,11 +38,10 @@ Architecture: separate x86.zig (encoder + Compiler), dispatch from jit.zig.
 ARM64 code untouched (zero regression). Trampolines/helpers shared via import.
 
 1. [x] 13.1: x86_64 instruction encoder (src/x86.zig) + arch dispatch skeleton
-2. [ ] 13.2: Prologue/epilogue + integer arithmetic (fib works)
-3. [ ] 13.3: Comparison + control flow (branching, loops, br_table)
-4. [ ] 13.4: Memory operations + globals + function calls
-5. [ ] 13.5: Floating-point SSE2 (f64/f32 arithmetic + conversions)
-6. [ ] 13.6: Ubuntu verification + benchmarks + CI
+2. [x] 13.2: Comparison, control flow, shifts, division, bit ops
+3. [x] 13.3: Memory operations, globals, function calls, error stubs
+4. [ ] 13.4: Floating-point SSE2 (f64/f32 arithmetic + conversions)
+5. [ ] 13.5: Ubuntu verification + benchmarks + CI
 
 Stage 14: Wasm 3.0 — Trivial Proposals
 
@@ -85,21 +84,11 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-13.2: Comparison + control flow for x86_64 JIT.
-
-Goal: Implement i32/i64 comparisons (eq/ne/lt_s/lt_u/gt_s/gt_u/le_s/le_u/ge_s/ge_u),
-      eqz, branching (BR, BR_IF, BR_IF_NOT, BR_TABLE), loop control.
-      This makes fib benchmark work on x86_64.
-
-Key: x86 uses CMP + SETcc + MOVZX pattern (vs ARM64 CMP + CSET).
-     Shifts need CL register (special handling when shift amount in other reg).
-     Branch patching: rel32 relative to end of Jcc instruction.
-
-Key files: src/x86.zig (Compiler.compileInstr + helpers).
+13.4: Floating-point SSE2 (f64/f32 arithmetic + conversions) for x86_64 JIT.
 
 ## Previous Task
 
-Stage 12 complete. Merged to main (bd706af). WAT parser, Zig E2E runner, validateBodyEnd.
+13.3: Memory operations, globals, function calls, error stubs for x86_64 JIT.
 
 ## Wasm 3.0 Coverage
 
