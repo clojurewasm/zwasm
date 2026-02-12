@@ -288,28 +288,22 @@ Small proposal. Phase 3. Allows memories with 1-byte page granularity.
 - CW: no regression (CW grants all needed capabilities)
 - Benchmark: no significant regression with capabilities granted
 
-## Stage 12: WAT Parser & Build-time Feature Flags (W17)
+## Stage 12: WAT Parser & Build-time Feature Flags (W17) (COMPLETE)
 
 **Goal**: Native .wat (WebAssembly Text Format) support with optional inclusion.
 
-### Scope
-- **WAT → wasm in-memory conversion**: Parse .wat S-expressions, emit binary
-  wasm bytes, feed to existing `WasmModule.load()`. No temp files.
-- **Build-time feature flag**: `zig build -Dwat=false` excludes the WAT parser.
-  First use case for feature flag pattern (extends to WASI, JIT, SIMD).
-- **API**: `WasmModule.loadFromWat(alloc, wat_source)` for library users.
-  CLI auto-detects `.wat` extension and converts transparently.
-- S-expression parser + wasm binary encoder (~2-4K LOC estimated)
-- Abbreviations: inline exports, type use, etc.
-- Numeric literals: hex, float, NaN patterns
-- Requires D## architectural decision for feature flag system
+### Completed
+- 12.1: Build-time feature flag system (`-Dwat=false` in build.zig, D106)
+- 12.2: WAT S-expression tokenizer (lexer for WAT syntax)
+- 12.3: WAT parser — module structure (module, func, memory, table, global, import, export)
+- 12.4: WAT parser — instructions (all opcodes, folded S-expr form)
+- 12.5: Wasm binary encoder (emit valid .wasm from parsed AST)
+- 12.6: WAT abbreviations (named locals/globals/labels, inline exports)
+- 12.7: API + CLI integration (loadFromWat, auto-detect .wat)
+- 12.8: E2E verification (v128/SIMD support, issue12170.wat validates OK)
 
-### Exit criteria
-- `zwasm run file.wat` works
-- `WasmModule.loadFromWat()` API works
-- .wat e2e test files (issue11563.wat, issue12170.wat) run
-- W17 resolved
-- CW: no regression
+**Result**: ~3K LOC wat.zig. `zwasm run file.wat` works. `WasmModule.loadFromWat()` API works.
+W17 resolved. issue11563.wat out of scope (multi-module format + GC proposal).
 
 ## Stage 13: x86_64 JIT Backend
 

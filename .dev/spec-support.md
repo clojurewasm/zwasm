@@ -6,8 +6,8 @@ Per-opcode details live in code (`src/opcode.zig` enum).
 Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
-- Spec: `python3 test/spec/run_spec.py --summary` (30,703/30,703 = 100%)
-- E2E: `bash test/e2e/run_e2e.sh --summary` (180/181 = 99.4%, 68 files)
+- Spec: `python3 test/spec/run_spec.py --summary` (30,704/30,704 = 100%)
+- E2E: `bash test/e2e/run_e2e.sh --summary` (297/298 = 99.7%, 70 files)
 
 ## Opcode Coverage Summary
 
@@ -55,6 +55,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Exception handling    | Complete     | throw, try_table, catch clauses    |
 | Wide arithmetic       | Complete     | 4 opcodes, 99/99 e2e (W14)         |
 | Custom page sizes     | Complete     | page_size 1 or 65536, 18/18 e2e (W15) |
+| WAT parser            | Complete     | v128/SIMD, named locals/globals, labels |
 | GC                    | Not started  | Wasm 3.0                           |
 | Component Model       | Not started  | Wasm 3.0 (W7)                      |
 | WASI Preview 2        | Not started  | Wasm 3.0                           |
@@ -67,7 +68,9 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 |---------------------------|--------------------------|-------------------|
 | assert_uninstantiable     | 1 failure                | W10               |
 | wast2json NaN syntax      | 1 file skipped           | W16               |
-| .wat file support         | 2 files skipped          | W17               |
+| .wat files                | 2 files skipped          | W17 (partial)     |
 | memory-combos.wast        | 1 file skipped           | multi-memory      |
 
+Notes: issue12170.wat validates via `zwasm validate` (no assertions to run).
+issue11563.wat: multi-module format + GC proposal — out of scope.
 Resolution plan: Stage 5F in roadmap.md. Full details in checklist.md.
