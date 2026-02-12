@@ -964,15 +964,17 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
         // Skip empty lines
         if (line.len == 0) continue;
 
-        // Parse: "invoke <len>:<func> [arg1 arg2 ...]"
+        // Parse: "invoke <len>:<func> [arg1 arg2 ...]" or "get <len>:<name>"
         // Function name is length-prefixed to handle special characters.
-        if (!std.mem.startsWith(u8, line, "invoke ")) {
+        const is_get = std.mem.startsWith(u8, line, "get ");
+        if (!std.mem.startsWith(u8, line, "invoke ") and !is_get) {
             try stdout.print("error unknown command\n", .{});
             try stdout.flush();
             continue;
         }
 
-        const rest = line["invoke ".len..];
+        const prefix_len: usize = if (is_get) "get ".len else "invoke ".len;
+        const rest = line[prefix_len..];
 
         // Two protocols:
         // 1. Length-prefixed: "invoke <len>:<func_name> [args...]"
@@ -1061,6 +1063,27 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
         }
         if (arg_err) {
             try stdout.print("error invalid arguments\n", .{});
+            try stdout.flush();
+            continue;
+        }
+
+        // Handle "get" command: read exported global value
+        if (is_get) {
+            const global_addr = module.instance.getExportGlobalAddr(func_name) orelse {
+                try stdout.print("error global not found\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            const g = module.store.getGlobal(global_addr) catch {
+                try stdout.print("error bad global\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            const val: u64 = switch (g.valtype) {
+                .i32, .f32 => @as(u64, @truncate(g.value)) & 0xFFFFFFFF,
+                else => @truncate(g.value),
+            };
+            try stdout.print("ok {d}\n", .{val});
             try stdout.flush();
             continue;
         }

@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-15 — COMPLETE
 - Source: ~28K LOC, 17 files, 229 tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
-- Spec: 56,399/56,399 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
+- Spec: 56,383/56,383 Mac (100%), 55,644/55,644 Ubuntu (100%), E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -110,13 +110,27 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 (Task breakdown TBD.)
 
+Stage 16V: Spec Test Validation Coverage
+
+Target: 4,416 skips → 0. All tests evaluated. Pass count ~60,800.
+
+Task Queue:
+1. [x] A1: assert_exhaustion handler (15 skips → 0)
+2. [x] A2: Global read actions / get command (1 skip → 0)
+3. [x] A3: Named module invocations (132 skips → ~93 pass, 39 fail due to shared-state limitation)
+4. [ ] B1: UTF-8 validation (528 skips)
+5. [ ] B2: Simple structural checks (~300 skips)
+6. [ ] B3: Unknown index checks (~125 skips)
+7. [ ] C1: WAT validation tests (1,119 skips)
+8. [ ] D1-D5: Full type checker (~2,186 skips)
+
 ## Current Task
 
-Ready for Stage 17 (Function References).
+B1: UTF-8 validation — add validateUtf8() to module.zig, call in readName().
 
 ## Previous Task
 
-SIMD spec 100%: v128 globals, store_lane, dot product overflow, select/branch v128 preservation.
+Group A complete: runner infrastructure (assert_exhaustion, get command, named module invocations). 56,383 → 56,500 passes, 39 new failures (linking shared-state), 4,258 skips remaining.
 
 ## Wasm 3.0 Coverage
 
@@ -126,7 +140,7 @@ GC requires function_references first.
 
 ## Known Bugs
 
-None. Spec tests: 56399/56399 (100%). All SIMD tests pass including v128 globals and store_lane.
+None. Mac 56,383/56,383 (100%), Ubuntu 55,644/55,644 (100%).
 
 ## References
 

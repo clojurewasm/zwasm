@@ -323,6 +323,42 @@ class BatchRunner:
                 return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
             return (False, str(e))
 
+    def get_global(self, global_name, timeout=5):
+        """Get an exported global value. Returns (success, results_or_error)."""
+        if self.proc is None or self.proc.poll() is not None:
+            return (False, "process not running")
+
+        name_bytes = global_name.encode('utf-8')
+        cmd_line = f"get {len(name_bytes)}:{global_name}\n"
+
+        try:
+            self.proc.stdin.write(cmd_line)
+            self.proc.stdin.flush()
+
+            import select
+            ready, _, _ = select.select([self.proc.stdout], [], [], timeout)
+            if not ready:
+                self.proc.kill()
+                self._cleanup_proc()
+                self.proc = None
+                return (False, "timeout")
+
+            response = self.proc.stdout.readline().strip()
+            if not response:
+                return (False, "no response")
+            if response.startswith("ok"):
+                parts = response.split()
+                results = [int(p) for p in parts[1:]]
+                return (True, results)
+            elif response.startswith("error"):
+                return (False, response[6:] if len(response) > 6 else "unknown")
+            else:
+                return (False, f"unexpected: {response}")
+        except Exception as e:
+            self._cleanup_proc()
+            self.proc = None
+            return (False, str(e))
+
     def _cleanup_proc(self):
         """Close all pipes on the process to avoid BrokenPipeError on GC."""
         if self.proc:
@@ -378,30 +414,42 @@ def run_test_file(json_path, verbose=False):
     failed = 0
     skipped = 0
 
-    # Multi-module support: registered_modules maps name -> wasm_path
+    # Multi-module support: registered_modules maps name -> wasm_path (for imports)
     registered_modules = {}
+    # Named module runners: maps internal name (e.g. "$Mf") -> BatchRunner
+    module_runners = {}
 
     for cmd in data.get("commands", []):
         cmd_type = cmd["type"]
         line = cmd.get("line", 0)
 
         if cmd_type == "module":
-            # Close previous runner
-            if runner:
+            # Don't close runner if it's saved in module_runners
+            if runner and id(runner) not in {id(r) for r in module_runners.values()}:
                 runner.close()
-                runner = None
+            runner = None
 
             wasm_file = cmd.get("filename")
             if wasm_file:
                 current_wasm = os.path.join(test_dir, wasm_file)
-                # Auto-link spectest host module if needed
-                link_mods = dict(registered_modules)
-                if "spectest" not in link_mods and needs_spectest(current_wasm):
+                # Auto-link spectest host module: check main wasm and all linked modules
+                # spectest must be first so it's available when loading other linked modules
+                any_needs_spectest = needs_spectest(current_wasm) or any(
+                    needs_spectest(p) for p in registered_modules.values()
+                    if p != SPECTEST_WASM)
+                link_mods = {}
+                if any_needs_spectest and "spectest" not in registered_modules:
                     link_mods["spectest"] = SPECTEST_WASM
+                link_mods.update(registered_modules)
                 try:
                     runner = BatchRunner(current_wasm, link_mods)
                 except Exception:
                     current_wasm = None
+
+                # Track by internal name (e.g. "$Mf") for action.module lookups
+                mod_internal_name = cmd.get("name")
+                if mod_internal_name and runner:
+                    module_runners[mod_internal_name] = runner
             continue
 
         if cmd_type == "register":
@@ -413,12 +461,14 @@ def run_test_file(json_path, verbose=False):
 
         if cmd_type == "action":
             # Bare action — execute it to update module state
-            if runner is None:
+            action = cmd.get("action", {})
+            mod_name = action.get("module")
+            target_runner = module_runners.get(mod_name) if mod_name else runner
+            if target_runner is None:
                 skipped += 1
                 continue
 
-            action = cmd.get("action", {})
-            if action.get("type") != "invoke" or action.get("module"):
+            if action.get("type") != "invoke":
                 skipped += 1
                 continue
 
@@ -429,48 +479,61 @@ def run_test_file(json_path, verbose=False):
                 continue
 
             # Execute the action (ignore result, mark state as dirty)
-            runner.invoke(func_name, args)
-            runner.needs_state = True
+            target_runner.invoke(func_name, args)
+            target_runner.needs_state = True
             continue
 
         if cmd_type == "assert_return":
-            if runner is None:
+            action = cmd.get("action", {})
+            action_type = action.get("type")
+            mod_name = action.get("module")
+            target_runner = module_runners.get(mod_name) if mod_name else runner
+            if target_runner is None:
                 skipped += 1
                 continue
 
-            action = cmd.get("action", {})
-            if action.get("type") != "invoke" or action.get("module"):
+            if action_type not in ("invoke", "get"):
                 skipped += 1
                 continue
 
             func_name = action["field"]
-            args = [parse_value(a) for a in action.get("args", [])]
-            if has_unsupported(args):
-                skipped += 1
-                continue
-
-            expected = [parse_value(e) for e in cmd.get("expected", [])]
-            # Support "either" assertions: each entry is a complete result set
-            either_raw = cmd.get("either")
             either_sets = None
-            if either_raw:
-                either_sets = []
-                for alt in either_raw:
-                    parsed = parse_value(alt)
-                    either_sets.append(parsed)
-                # Check if any alternative is unsupported
-                if any(isinstance(e, tuple) and e[0] == "skip" for e in either_sets):
+
+            if action_type == "get":
+                # Global read action
+                expected = [parse_value(e) for e in cmd.get("expected", [])]
+                if any(isinstance(e, tuple) and e[0] == "skip" for e in expected):
                     skipped += 1
                     continue
-            elif any(isinstance(e, tuple) and e[0] == "skip" for e in expected):
-                skipped += 1
-                continue
+                ok, results = target_runner.get_global(func_name)
+            else:
+                args = [parse_value(a) for a in action.get("args", [])]
+                if has_unsupported(args):
+                    skipped += 1
+                    continue
 
-            ok, results = runner.invoke(func_name, args)
+                expected = [parse_value(e) for e in cmd.get("expected", [])]
+                # Support "either" assertions: each entry is a complete result set
+                either_raw = cmd.get("either")
+                either_sets = None
+                if either_raw:
+                    either_sets = []
+                    for alt in either_raw:
+                        parsed = parse_value(alt)
+                        either_sets.append(parsed)
+                    # Check if any alternative is unsupported
+                    if any(isinstance(e, tuple) and e[0] == "skip" for e in either_sets):
+                        skipped += 1
+                        continue
+                elif any(isinstance(e, tuple) and e[0] == "skip" for e in expected):
+                    skipped += 1
+                    continue
+
+                ok, results = target_runner.invoke(func_name, args)
 
             if not ok:
                 if verbose:
-                    print(f"  FAIL line {line}: {func_name}({args}) -> error: {results}")
+                    print(f"  FAIL line {line}: {func_name} -> error: {results}")
                 failed += 1
                 continue
 
@@ -485,16 +548,18 @@ def run_test_file(json_path, verbose=False):
                 passed += 1
             else:
                 if verbose:
-                    print(f"  FAIL line {line}: {func_name}({args}) = {results}, expected {expected}")
+                    print(f"  FAIL line {line}: {func_name} = {results}, expected {expected}")
                 failed += 1
 
         elif cmd_type == "assert_trap":
-            if runner is None:
+            action = cmd.get("action", {})
+            mod_name = action.get("module")
+            target_runner = module_runners.get(mod_name) if mod_name else runner
+            if target_runner is None:
                 skipped += 1
                 continue
 
-            action = cmd.get("action", {})
-            if action.get("type") != "invoke" or action.get("module"):
+            if action.get("type") != "invoke":
                 skipped += 1
                 continue
 
@@ -504,7 +569,7 @@ def run_test_file(json_path, verbose=False):
                 skipped += 1
                 continue
 
-            ok, results = runner.invoke(func_name, args)
+            ok, results = target_runner.invoke(func_name, args)
 
             if not ok:
                 passed += 1
@@ -554,13 +619,39 @@ def run_test_file(json_path, verbose=False):
                     passed += 1  # crash/timeout = rejected
 
         elif cmd_type == "assert_exhaustion":
-            skipped += 1
+            action = cmd.get("action", {})
+            mod_name = action.get("module")
+            target_runner = module_runners.get(mod_name) if mod_name else runner
+            if target_runner is None:
+                skipped += 1
+                continue
+
+            if action.get("type") != "invoke":
+                skipped += 1
+                continue
+
+            func_name = action["field"]
+            args = [parse_value(a) for a in action.get("args", [])]
+            if has_unsupported(args):
+                skipped += 1
+                continue
+
+            ok, results = target_runner.invoke(func_name, args, timeout=10)
+
+            if not ok:
+                passed += 1
+            else:
+                if verbose:
+                    print(f"  FAIL line {line}: {func_name} should have exhausted but returned {results}")
+                failed += 1
 
         else:
             skipped += 1
 
-    if runner:
+    if runner and id(runner) not in {id(r) for r in module_runners.values()}:
         runner.close()
+    for r in module_runners.values():
+        r.close()
 
     return (passed, failed, skipped)
 
