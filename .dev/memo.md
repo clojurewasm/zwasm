@@ -4,10 +4,10 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-14 — COMPLETE
-- Source: ~24K LOC, 16 files, 211 tests all pass
+- Stages 0-2, 4, 7-15 — COMPLETE
+- Source: ~28K LOC, 17 files, 229 tests all pass
 - Opcode: 236 core + 236 SIMD = 472, WASI: ~27
-- Spec: 30,801/30,801 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
+- Spec: 32,231/32,236 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -15,7 +15,7 @@ Session handover document. Read at session start.
 - WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
-- **main = stable**: CW depends on main via GitHub URL (v0.7.0 tag).
+- **main = stable**: CW depends on main via GitHub URL (v0.10.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
 
 ## Completed Stages
@@ -59,7 +59,10 @@ Stage 15: Wasm 3.0 — Multi-memory
 Target: Multiple memories per module (~400 LOC).
 All load/store/memory.* get memidx immediate. Binary format: memarg bit 6.
 
-(Task breakdown TBD.)
+1. [x] 15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init
+2. [x] 15.2: Bytecode interpreter — memidx plumbing in load/store/memory ops
+3. [x] 15.3: Predecode IR — memidx encoding in PreInstr + executeIR dispatch
+4. [x] 15.4: Spec tests + cleanup
 
 Stage 16: Wasm 3.0 — Relaxed SIMD
 
@@ -84,19 +87,19 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-Stage 14 complete. Proceeding to merge gate → Stage 15.
+Stage 15 complete. Next: Stage 16 (Relaxed SIMD).
 
 ## Previous Task
+
+15.4: Fix memarg encoding order (memidx before offset), add all multi-memory spec tests (32,231/32,236).
 
 14.5: Tail call — predecode/regir support + spec tests (30,801/30,801).
 
 ## Wasm 3.0 Coverage
 
-Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting (5/10 finished proposals).
-NOT implemented: function_references, gc, multi_memory,
-relaxed_simd (4 proposals, see proposals.yaml).
-GC requires function_references first. Stages 9-10 (wide_arithmetic, custom_page_sizes)
-are Phase 3, not yet ratified as Wasm 3.0.
+Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory (6/10 finished proposals).
+NOT implemented: function_references, gc, relaxed_simd (3 proposals).
+GC requires function_references first.
 
 ## Known Bugs
 

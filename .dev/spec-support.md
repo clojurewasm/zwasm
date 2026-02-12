@@ -6,7 +6,7 @@ Per-opcode details live in code (`src/opcode.zig` enum).
 Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
-- Spec: `python3 test/spec/run_spec.py --summary` (30,801/30,801 = 100%)
+- Spec: `python3 test/spec/run_spec.py --summary` (32,231/32,236, 204 files)
 - E2E: `bash test/e2e/run_e2e.sh --summary` (356/356 = 100%, 70 files, Zig runner)
 
 ## Opcode Coverage Summary
@@ -20,9 +20,10 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Reference types       | 5           | 5     | ref.null, ref.is_null, etc.   |
 | Multi-value           | Yes         | -     | Multiple return values         |
 | SIMD (v128)           | 236         | 236   | Full SIMD coverage            |
-| Memory64 (table64)    | 0*          | 0*      | Extends existing ops with i64|
+| Memory64 (table64)    | 0*          | 0*    | Extends existing ops with i64 |
 | Wide arithmetic       | 4           | 4     | add128, sub128, mul_wide_s/u  |
-| **Total opcodes**     | **439**     | **441** | 99.5% (2 stubs)            |
+| Tail calls            | 2           | 2     | return_call, return_call_indirect |
+| **Total opcodes**     | **441**     | **443** | 99.5% (2 stubs)            |
 
 ## WASI Preview 1
 
@@ -56,8 +57,11 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Branch hinting        | Complete     | metadata.code.branch_hint section  |
 | Exception handling    | Complete     | throw, try_table, catch clauses    |
 | Wide arithmetic       | Complete     | 4 opcodes, 99/99 e2e (W14)         |
-| Custom page sizes     | Complete     | page_size 1 or 65536, 18/18 e2e (W15) |
-| WAT parser            | Complete     | v128/SIMD, named locals/globals, labels |
+| Custom page sizes     | Complete     | page_size 1 or 65536, 18/18 e2e    |
+| Multi-memory          | Complete     | Multiple memories, memarg bit 6     |
+| WAT parser            | Complete     | v128/SIMD, named locals/globals     |
+| Relaxed SIMD          | Not started  | Wasm 3.0                           |
+| Function references   | Not started  | Wasm 3.0                           |
 | GC                    | Not started  | Wasm 3.0                           |
 | Component Model       | Not started  | Wasm 3.0 (W7)                      |
 | WASI Preview 2        | Not started  | Wasm 3.0                           |
@@ -65,15 +69,8 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 ## E2E Test Status
 
 70 wasmtime misc_testsuite files ported. 356/356 assertions pass (100%, Zig runner with shared Store).
-Previously failing partial-init-table-segment now passes (bounds pre-check fix + shared Store).
-Previously failing no-panic-on-invalid now passes (validateBodyEnd trailing bytes detection).
 
 | Category                  | Status                   | Checklist         |
 |---------------------------|--------------------------|-------------------|
 | wast2json NaN syntax      | 1 file skipped           | W16               |
 | .wat files                | 2 files skipped          | W17 (partial)     |
-| memory-combos.wast        | 1 file skipped           | multi-memory      |
-
-Notes: issue12170.wat validates via `zwasm validate` (no assertions to run).
-issue11563.wat: multi-module format + GC proposal — out of scope.
-Resolution plan: Stage 5F in roadmap.md. Full details in checklist.md.

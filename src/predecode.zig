@@ -216,17 +216,21 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
                 try code.append(alloc, .{ .opcode = @intCast(byte), .extra = 0, .operand = idx });
             },
 
-            // -- Memory load/store (alignment + offset) --
+            // -- Memory load/store (alignment [+ memidx] + offset) --
             0x28...0x3E => {
                 const align_val = reader.readU32() catch return error.InvalidWasm;
+                const memidx: u16 = if (align_val & 0x40 != 0)
+                    @intCast(reader.readU32() catch return error.InvalidWasm)
+                else
+                    0;
                 const offset = reader.readU32() catch return error.InvalidWasm;
-                try code.append(alloc, .{ .opcode = @intCast(byte), .extra = @intCast(align_val), .operand = offset });
+                try code.append(alloc, .{ .opcode = @intCast(byte), .extra = memidx, .operand = offset });
             },
 
-            // -- Memory misc --
+            // -- Memory misc (memidx) --
             0x3F, 0x40 => {
-                const idx = reader.readU32() catch return error.InvalidWasm;
-                try code.append(alloc, .{ .opcode = @intCast(byte), .extra = 0, .operand = idx });
+                const memidx = reader.readU32() catch return error.InvalidWasm;
+                try code.append(alloc, .{ .opcode = @intCast(byte), .extra = @intCast(memidx), .operand = 0 });
             },
 
             // -- Constants --
@@ -477,7 +481,10 @@ test "predecode return_call does not bail" {
     };
     const ir = try predecode(testing.allocator, &bytecode);
     try testing.expect(ir != null);
-    defer ir.?.deinit();
+    defer {
+        ir.?.deinit();
+        testing.allocator.destroy(ir.?);
+    }
     // Should have 2 instructions: return_call + end
     try testing.expectEqual(@as(usize, 2), ir.?.code.len);
     try testing.expectEqual(@as(u16, 0x12), ir.?.code[0].opcode);
@@ -492,7 +499,10 @@ test "predecode return_call_indirect does not bail" {
     };
     const ir = try predecode(testing.allocator, &bytecode);
     try testing.expect(ir != null);
-    defer ir.?.deinit();
+    defer {
+        ir.?.deinit();
+        testing.allocator.destroy(ir.?);
+    }
     try testing.expectEqual(@as(usize, 2), ir.?.code.len);
     try testing.expectEqual(@as(u16, 0x13), ir.?.code[0].opcode);
     try testing.expectEqual(@as(u32, 0), ir.?.code[0].operand);

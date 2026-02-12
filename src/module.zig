@@ -669,17 +669,21 @@ pub const Module = struct {
                 0x42 => _ = try r.readI64(), // i64.const
                 0x43 => r.pos += 4, // f32.const
                 0x44 => r.pos += 8, // f64.const
-                0x28...0x3E => { _ = try r.readU32(); _ = try r.readU32(); }, // memory load/store
-                0x3F, 0x40 => _ = try r.readByte(), // memory.size/grow
+                0x28...0x3E => { // memory load/store
+                    const align_flags = try r.readU32();
+                    if (align_flags & 0x40 != 0) _ = try r.readU32(); // memidx (multi-memory)
+                    _ = try r.readU32(); // offset
+                },
+                0x3F, 0x40 => _ = try r.readU32(), // memory.size/grow (memidx)
                 0xD0 => _ = try r.readByte(), // ref.null
                 0xFC => { // misc prefix
                     const sub = try r.readU32();
                     switch (sub) {
                         0...7 => {}, // trunc_sat
-                        8 => { _ = try r.readU32(); _ = try r.readByte(); }, // memory.init
+                        8 => { _ = try r.readU32(); _ = try r.readU32(); }, // memory.init (dataidx, memidx)
                         9 => _ = try r.readU32(), // data.drop
-                        10 => { _ = try r.readByte(); _ = try r.readByte(); }, // memory.copy
-                        11 => _ = try r.readByte(), // memory.fill
+                        10 => { _ = try r.readU32(); _ = try r.readU32(); }, // memory.copy (dest_memidx, src_memidx)
+                        11 => _ = try r.readU32(), // memory.fill (memidx)
                         12 => { _ = try r.readU32(); _ = try r.readU32(); }, // table.init
                         13 => _ = try r.readU32(), // elem.drop
                         14 => { _ = try r.readU32(); _ = try r.readU32(); }, // table.copy
@@ -693,12 +697,14 @@ pub const Module = struct {
                     const sub = try r.readU32();
                     if (sub <= 11 or sub == 92 or sub == 93) {
                         // v128.load/store variants (0-11), load32/64_zero (92-93) — memarg
-                        _ = try r.readU32();
-                        _ = try r.readU32();
+                        const simd_align = try r.readU32();
+                        _ = try r.readU32(); // offset
+                        if (simd_align & 0x40 != 0) _ = try r.readU32(); // memidx
                     } else if (sub >= 84 and sub <= 91) {
                         // v128.load*_lane (84-87), v128.store*_lane (88-91) — memarg + lane_index
-                        _ = try r.readU32();
-                        _ = try r.readU32();
+                        const lane_align = try r.readU32();
+                        _ = try r.readU32(); // offset
+                        if (lane_align & 0x40 != 0) _ = try r.readU32(); // memidx
                         _ = try r.readByte();
                     } else if (sub == 12) {
                         r.pos += 16; // v128.const
@@ -1257,4 +1263,25 @@ test "Module — branch hint custom section" {
     try testing.expectEqual(@as(u32, 0), m.branch_hints.items[0].func_idx);
     try testing.expectEqual(@as(u32, 5), m.branch_hints.items[0].byte_offset);
     try testing.expectEqual(@as(u8, 1), m.branch_hints.items[0].hint);
+}
+
+test "Module — multi-memory (2 memories)" {
+    // Module with 2 memories: (memory 1) (memory 2)
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x01, 0x00, 0x00, 0x00, // version
+        // Section 5: Memory (2 entries)
+        0x05, // section id
+        0x05, // section size (5 bytes)
+        0x02, // count = 2
+        0x00, 0x01, // memory 0: min=1, no max
+        0x00, 0x02, // memory 1: min=2, no max
+    };
+    var m = Module.init(testing.allocator, &wasm);
+    defer m.deinit();
+    try m.decode();
+
+    try testing.expectEqual(@as(usize, 2), m.memories.items.len);
+    try testing.expectEqual(@as(u32, 1), m.memories.items[0].limits.min);
+    try testing.expectEqual(@as(u32, 2), m.memories.items[1].limits.min);
 }

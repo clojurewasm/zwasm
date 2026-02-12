@@ -6,8 +6,8 @@
 # e2e_tests: from test/e2e/ (wasmtime misc_testsuite port)
 #
 # Last updated: 2026-02-12
-# Spec: 30,715/30,715 (100%)
-# E2E:  279/280 (99.6%), 69 files
+# Spec: 32,231/32,236 (100%) — 204 test files
+# E2E:  356/356 (100%), 70 files
 
 wasm_core:
   # === Wasm 1.0 (MVP) ===
@@ -92,12 +92,14 @@ wasm_core:
   # === Wasm 3.0 (finished proposals — see .dev/status/proposals.yaml for details) ===
   tail_calls:
     version: "3.0"
-    status: skip
-    note: "Not implemented. E2E: tail-call/*.wast skipped. See proposals.yaml#tail_call"
+    status: pass
+    spec_tests: {total: 26, pass: 26, fail: 0}
+    note: "return_call (0x12), return_call_indirect (0x13). Bytecode + predecode + regIR."
   extended_const:
     version: "3.0"
-    status: skip
-    note: "Not implemented. See proposals.yaml#extended_const"
+    status: pass
+    spec_tests: {total: 0, pass: 0, fail: 0}
+    note: "i32/i64 add/sub/mul in constant expressions. No dedicated test file."
   function_references:
     version: "3.0"
     status: skip
@@ -113,16 +115,18 @@ wasm_core:
     note: "Not implemented. E2E: gc/*.wast skipped. See proposals.yaml#gc"
   multi_memory:
     version: "3.0"
-    status: skip
-    note: "Not implemented. See proposals.yaml#multi_memory"
+    status: pass
+    spec_tests: {total: 625, pass: 625, fail: 0}
+    note: "Multiple memories per module. memarg bit 6 encoding. 41 test files."
   relaxed_simd:
     version: "3.0"
     status: skip
     note: "Not implemented. See proposals.yaml#relaxed_simd"
   branch_hinting:
     version: "3.0"
-    status: skip
-    note: "Not implemented. See proposals.yaml#branch_hinting"
+    status: pass
+    spec_tests: {total: 0, pass: 0, fail: 0}
+    note: "metadata.code.branch_hint custom section. Advisory only, no semantic change."
   memory64:
     version: "3.0"
     status: pass

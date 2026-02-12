@@ -305,55 +305,32 @@ Small proposal. Phase 3. Allows memories with 1-byte page granularity.
 **Result**: ~3K LOC wat.zig. `zwasm run file.wat` works. `WasmModule.loadFromWat()` API works.
 W17 resolved. issue11563.wat out of scope (multi-module format + GC proposal).
 
-## Stage 13: x86_64 JIT Backend
+## Stage 13: x86_64 JIT Backend (COMPLETE)
 
 **Goal**: Port ARM64 JIT to x86_64 for Linux server deployment.
 
-### Scope
-- x86_64 code emitter (parallel to existing ARM64 a64.zig)
-- Register mapping for x86_64 calling convention (System V AMD64 ABI)
-- Same register IR — only codegen differs
+- x86_64 code emitter (x86.zig), arch dispatch from jit.zig
+- System V AMD64 ABI calling convention
 - CI validation on ubuntu x86_64
-- Reference: `.dev/ubuntu-x86_64.md`
 
-### Exit criteria
-- All benchmarks run on x86_64 with JIT
-- Performance within 2x of wasmtime on x86_64
-- CI green on both ARM64 and x86_64
-- CW: no regression
+**Result**: All benchmarks run on x86_64. CI green on ARM64 + x86_64.
 
-## Stage 14: Wasm 3.0 — Trivial Proposals
+## Stage 14: Wasm 3.0 — Trivial Proposals (COMPLETE)
 
-**Goal**: Knock out three small Wasm 3.0 proposals in one stage.
+**Goal**: Three small Wasm 3.0 proposals: extended_const, branch_hinting, tail_call.
 
-### Scope
-- **extended_const** (trivial, ~50 LOC): Allow i32/i64 add/sub/mul in constant expressions
-  (global initializers, data segment offsets). No new opcodes.
-- **branch_hinting** (trivial, ~80 LOC): Parse custom section `metadata.code.branch_hint`.
-  Advisory likely/unlikely hints for br_if/if. No semantic change.
-- **tail_call** (medium, ~200 LOC): `return_call` (0x12), `return_call_indirect` (0x13).
-  Stack frame reuse semantics. JIT needs tail-call-aware codegen.
+**Result**: ~330 LOC total. return_call + return_call_indirect with stack frame reuse.
 
-### Exit criteria
-- Spec tests pass for all three proposals
-- No regression on existing tests/benchmarks
-- CW: no regression
-
-## Stage 15: Wasm 3.0 — Multi-memory
+## Stage 15: Wasm 3.0 — Multi-memory (COMPLETE)
 
 **Goal**: Support multiple memories per module.
 
-### Scope
-- Remove single-memory restriction
 - All load/store/memory.size/grow/copy/fill/init get memidx immediate
-- Binary format: memarg bit 6 for memidx encoding (default 0 for backward compat)
+- Binary format: memarg bit 6 for memidx encoding (memidx between alignment and offset)
 - SIMD load/store also extended
-- ~400 LOC estimated
+- Regalloc bails to predecode IR for memidx != 0
 
-### Exit criteria
-- multi-memory spec tests pass (37 test files)
-- No regression
-- CW: no regression
+**Result**: 41 multi-memory spec tests pass. 32,231/32,236 total.
 
 ## Stage 16: Wasm 3.0 — Relaxed SIMD
 
