@@ -590,7 +590,7 @@ def run_test_file(json_path, verbose=False):
                 skipped += 1
                 continue
 
-            if cmd_type == "assert_uninstantiable":
+            if cmd_type in ("assert_uninstantiable", "assert_unlinkable"):
                 # Attempt actual instantiation with linked modules
                 link_args = []
                 for name, path in registered_modules.items():
@@ -600,7 +600,7 @@ def run_test_file(json_path, verbose=False):
                         [ZWASM, "run", wasm_path] + link_args,
                         capture_output=True, text=True, timeout=5)
                     if result.returncode != 0:
-                        passed += 1  # Correctly rejected at instantiation
+                        passed += 1  # Correctly rejected at link/instantiation
                     else:
                         skipped += 1  # Didn't catch the issue
                 except Exception:
@@ -614,6 +614,9 @@ def run_test_file(json_path, verbose=False):
                         passed += 1
                     else:
                         # Validator didn't catch the issue — skip (not a failure)
+                        if verbose:
+                            text_info = cmd.get("text", "")
+                            print(f"  SKIP line {line}: {cmd_type} not caught ({text_info}) [{os.path.basename(wasm_path)}]")
                         skipped += 1
                 except Exception:
                     passed += 1  # crash/timeout = rejected

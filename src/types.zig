@@ -20,6 +20,7 @@ const rt = struct {
     const wasi = @import("wasi.zig");
     const opcode = @import("opcode.zig");
     const wat = @import("wat.zig");
+    const validate = @import("validate.zig");
 };
 
 // ============================================================

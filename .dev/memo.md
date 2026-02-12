@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-15 — COMPLETE
 - Source: ~28K LOC, 17 files, 229 tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
-- Spec: 56,383/56,383 Mac (100%), 55,644/55,644 Ubuntu (100%), E2E: 356/356, CI: ubuntu + macOS
+- Spec: 60,753/60,797 Mac (99.9%), 5 expected skips, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -118,19 +118,20 @@ Task Queue:
 1. [x] A1: assert_exhaustion handler (15 skips → 0)
 2. [x] A2: Global read actions / get command (1 skip → 0)
 3. [x] A3: Named module invocations (132 skips → ~93 pass, 39 fail due to shared-state limitation)
-4. [ ] B1: UTF-8 validation (528 skips)
-5. [ ] B2: Simple structural checks (~300 skips)
-6. [ ] B3: Unknown index checks (~125 skips)
-7. [ ] C1: WAT validation tests (1,119 skips)
-8. [ ] D1-D5: Full type checker (~2,186 skips)
+4. [x] B1: UTF-8 validation (528 skips → 0)
+5. [x] B2: Simple structural checks (~300 skips → 0)
+6. [x] B3: Unknown index checks (~125 skips → 0)
+7. [x] C1: WAT validation tests (1,119 skips → 0)
+8. [x] D1-D5: Full type checker + section validation (~2,186 skips → 5)
 
 ## Current Task
 
-B1: UTF-8 validation — add validateUtf8() to module.zig, call in readName().
+Stage 16V complete. 5 remaining skips are expected (2 multi-memory, 2 extended_const, 1 function_references).
+Ready for merge gate.
 
 ## Previous Task
 
-Group A complete: runner infrastructure (assert_exhaustion, get command, named module invocations). 56,383 → 56,500 passes, 39 new failures (linking shared-state), 4,258 skips remaining.
+D1-D5: Full type checker (validate.zig ~1200 LOC). Operand stack + control stack validation for all opcodes. Section-level validation: imports, exports, data, elem, globals, start. 4,416 skips → 5 (99.9% reduction).
 
 ## Wasm 3.0 Coverage
 
@@ -140,7 +141,7 @@ GC requires function_references first.
 
 ## Known Bugs
 
-None. Mac 56,383/56,383 (100%), Ubuntu 55,644/55,644 (100%).
+None. Mac 60,753/60,797 (99.9%), 5 expected skips, 39 multi-module linking failures.
 
 ## References
 

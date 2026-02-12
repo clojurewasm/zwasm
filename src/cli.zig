@@ -17,6 +17,7 @@ const opcode = @import("opcode.zig");
 const vm_mod = @import("vm.zig");
 const trace_mod = vm_mod.trace_mod;
 const wat = @import("wat.zig");
+const validate = @import("validate.zig");
 const build_options = @import("build_options");
 
 pub fn main() !void {
@@ -1160,6 +1161,12 @@ fn cmdValidate(allocator: Allocator, args: []const []const u8, stdout: *std.Io.W
     var module = module_mod.Module.init(allocator, wasm_bytes);
     defer module.deinit();
     module.decode() catch |err| {
+        try stderr.print("error: validation failed: {s}: {s}\n", .{ path, @errorName(err) });
+        try stderr.flush();
+        return false;
+    };
+
+    validate.validateModule(allocator, &module) catch |err| {
         try stderr.print("error: validation failed: {s}: {s}\n", .{ path, @errorName(err) });
         try stderr.flush();
         return false;

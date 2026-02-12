@@ -470,6 +470,7 @@ pub const Parser = struct {
                 _ = self.advance();
                 exports.append(self.alloc, try self.parseExport()) catch return error.OutOfMemory;
             } else if (std.mem.eql(u8, section, "start")) {
+                if (start != null) return error.InvalidWat; // multiple start sections
                 _ = self.advance();
                 start = try self.parseIndex();
                 _ = try self.expect(.rparen);
@@ -1437,6 +1438,8 @@ pub const Parser = struct {
             } else if (std.mem.startsWith(u8, self.current.text, "align=")) {
                 const val_text = self.current.text["align=".len..];
                 alignment = parseIntLiteral(u32, val_text) catch return error.InvalidWat;
+                // Alignment must be a power of 2 and non-zero
+                if (alignment == 0 or (alignment & (alignment - 1)) != 0) return error.InvalidWat;
                 _ = self.advance();
             } else {
                 break;
