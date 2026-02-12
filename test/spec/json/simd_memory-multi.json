@@ -1,0 +1,3 @@
+{"source_filename": "test/spec/testsuite/simd_memory-multi.wast",
+ "commands": [
+  {"type": "module", "line": 5, "filename": "simd_memory-multi.0.wasm"}]}
