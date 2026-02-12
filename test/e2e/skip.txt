@@ -27,6 +27,8 @@ issue11561.wast
 # Requires newer proposals (custom page sizes)
 memory-combos.wast
 
-# .wat files (no wast2json support, no assertions)
-issue11563.wat
+# .wat files (no wast2json assertions — validated via `zwasm validate`)
+# issue12170.wat: SIMD smoke test — validates OK, no assertions to run
 issue12170.wat
+# issue11563.wat: multi-module format (not standard single-module WAT), needs GC proposal
+issue11563.wat

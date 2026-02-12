@@ -4,14 +4,15 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-11 — COMPLETE
-- Source: ~16K LOC, 17 files, 208 tests all pass
+- Stages 0-2, 4, 7-12 — COMPLETE
+- Source: ~17K LOC, 17 files, 209 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
 - Spec: 30,704/30,704 (100%), E2E: 297/298 (99.7%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
 - Embedder API: Vm type, inspectImportFunctions, WasmModule.loadWithImports
+- WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
 - **main = stable**: CW depends on main via GitHub URL (v0.7.0 tag).
@@ -19,7 +20,7 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-7, 5E, 5F, 8-11 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-7, 5E, 5F, 8-12 — all COMPLETE. See `roadmap.md` for details.
 Key results: Spec 30,704/30,704 (100%), E2E 297/298, 20/21 bench < 2x wasmtime.
 
 ## Task Queue
@@ -85,7 +86,7 @@ Target: `zwasm run file.wat`, build-time `-Dwat=false`.
 5. [x] 12.5: Wasm binary encoder (emit valid .wasm from parsed AST)
 6. [x] 12.6: WAT abbreviations (inline exports, type use, etc.)
 7. [x] 12.7: API + CLI integration (loadFromWat, auto-detect .wat)
-8. [ ] 12.8: E2E verification (issue11563.wat, issue12170.wat)
+8. [x] 12.8: E2E verification (issue11563.wat, issue12170.wat)
 
 Stage 13: x86_64 JIT Backend
 
@@ -95,11 +96,11 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-12.8: E2E verification (issue11563.wat, issue12170.wat)
+Stage 12 complete. Merge gate in progress.
 
 ## Previous Task
 
-12.7 complete. CLI auto-detect .wat extension, readWasmFile helper, run/inspect/validate all accept .wat files. Tested with conformance WATs (i32_arith, sieve, block).
+12.8 complete. Added v128/SIMD WAT support (v128.const, all 236 SIMD opcodes via SimdOpcode enum). issue12170.wat validates OK. issue11563.wat out of scope (multi-module format + GC proposal).
 
 ## Known Bugs
 

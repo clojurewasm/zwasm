@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const build_options = @import("build_options");
+const SimdOpcode = @import("opcode.zig").SimdOpcode;
 const Allocator = std.mem.Allocator;
 
 pub const WatError = error{
@@ -253,8 +254,10 @@ pub const WatValType = enum {
     i64,
     f32,
     f64,
+    v128,
     funcref,
     externref,
+    exnref,
 };
 
 pub const WatFuncType = struct {
@@ -282,6 +285,7 @@ pub const WatInstr = union(enum) {
     i64_const: i64,
     f32_const: f32,
     f64_const: f64,
+    v128_const: [16]u8,
     // Memory operations (load/store)
     mem_op: struct { op: []const u8, mem_arg: MemArg },
     // Block/loop
@@ -509,8 +513,10 @@ pub const Parser = struct {
         if (std.mem.eql(u8, text, "i64")) return .i64;
         if (std.mem.eql(u8, text, "f32")) return .f32;
         if (std.mem.eql(u8, text, "f64")) return .f64;
+        if (std.mem.eql(u8, text, "v128")) return .v128;
         if (std.mem.eql(u8, text, "funcref")) return .funcref;
         if (std.mem.eql(u8, text, "externref")) return .externref;
+        if (std.mem.eql(u8, text, "exnref")) return .exnref;
         return error.InvalidWat;
     }
 
@@ -927,6 +933,7 @@ pub const Parser = struct {
         i64_const,
         f32_const,
         f64_const,
+        v128_const,
         mem_imm, // i32.load, i32.store, etc.
         block_type, // block, loop
         if_type, // if
@@ -941,6 +948,7 @@ pub const Parser = struct {
         if (std.mem.eql(u8, name, "i64.const")) return .i64_const;
         if (std.mem.eql(u8, name, "f32.const")) return .f32_const;
         if (std.mem.eql(u8, name, "f64.const")) return .f64_const;
+        if (std.mem.eql(u8, name, "v128.const")) return .v128_const;
 
         // Control - block types
         if (std.mem.eql(u8, name, "block")) return .block_type;
@@ -1236,6 +1244,7 @@ pub const Parser = struct {
             .i64_const => .{ .i64_const = try self.parseI64() },
             .f32_const => .{ .f32_const = try self.parseF32() },
             .f64_const => .{ .f64_const = try self.parseF64() },
+            .v128_const => .{ .v128_const = try self.parseV128Const() },
             .mem_imm => .{ .mem_op = .{ .op = op_name, .mem_arg = try self.parseMemArg() } },
             .br_table => blk: {
                 var targets: std.ArrayListUnmanaged(WatIndex) = .empty;
@@ -1332,6 +1341,7 @@ pub const Parser = struct {
         if (std.mem.eql(u8, self.current.text, "i64")) { _ = self.advance(); return .i64; }
         if (std.mem.eql(u8, self.current.text, "f32")) { _ = self.advance(); return .f32; }
         if (std.mem.eql(u8, self.current.text, "f64")) { _ = self.advance(); return .f64; }
+        if (std.mem.eql(u8, self.current.text, "v128")) { _ = self.advance(); return .v128; }
         return null;
     }
 
@@ -1357,6 +1367,60 @@ pub const Parser = struct {
         if (self.current.tag != .float and self.current.tag != .integer) return error.InvalidWat;
         const text = self.advance().text;
         return parseFloatLiteral(f64, text) catch return error.InvalidWat;
+    }
+
+    fn parseV128Const(self: *Parser) WatError![16]u8 {
+        // v128.const <shape> <values...>
+        // shape: i8x16, i16x8, i32x4, i64x2, f32x4, f64x2
+        if (self.current.tag != .keyword) return error.InvalidWat;
+        const shape = self.advance().text;
+        var bytes: [16]u8 = undefined;
+
+        if (std.mem.eql(u8, shape, "i64x2")) {
+            for (0..2) |i| {
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const val = parseIntLiteral(u64, self.advance().text) catch return error.InvalidWat;
+                const le = std.mem.toBytes(std.mem.nativeToLittle(u64, val));
+                @memcpy(bytes[i * 8 ..][0..8], &le);
+            }
+        } else if (std.mem.eql(u8, shape, "i32x4")) {
+            for (0..4) |i| {
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const val = parseIntLiteral(u32, self.advance().text) catch return error.InvalidWat;
+                const le = std.mem.toBytes(std.mem.nativeToLittle(u32, val));
+                @memcpy(bytes[i * 4 ..][0..4], &le);
+            }
+        } else if (std.mem.eql(u8, shape, "i16x8")) {
+            for (0..8) |i| {
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const val = parseIntLiteral(u16, self.advance().text) catch return error.InvalidWat;
+                const le = std.mem.toBytes(std.mem.nativeToLittle(u16, val));
+                @memcpy(bytes[i * 2 ..][0..2], &le);
+            }
+        } else if (std.mem.eql(u8, shape, "i8x16")) {
+            for (0..16) |i| {
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const val = parseIntLiteral(u8, self.advance().text) catch return error.InvalidWat;
+                bytes[i] = val;
+            }
+        } else if (std.mem.eql(u8, shape, "f64x2")) {
+            for (0..2) |i| {
+                if (self.current.tag != .float and self.current.tag != .integer) return error.InvalidWat;
+                const val = parseFloatLiteral(f64, self.advance().text) catch return error.InvalidWat;
+                const le = std.mem.toBytes(std.mem.nativeToLittle(u64, @as(u64, @bitCast(val))));
+                @memcpy(bytes[i * 8 ..][0..8], &le);
+            }
+        } else if (std.mem.eql(u8, shape, "f32x4")) {
+            for (0..4) |i| {
+                if (self.current.tag != .float and self.current.tag != .integer) return error.InvalidWat;
+                const val = parseFloatLiteral(f32, self.advance().text) catch return error.InvalidWat;
+                const le = std.mem.toBytes(std.mem.nativeToLittle(u32, @as(u32, @bitCast(val))));
+                @memcpy(bytes[i * 4 ..][0..4], &le);
+            }
+        } else {
+            return error.InvalidWat;
+        }
+        return bytes;
     }
 
     fn parseMemArg(self: *Parser) WatError!MemArg {
@@ -1722,8 +1786,10 @@ fn valTypeByte(vt: WatValType) u8 {
         .i64 => 0x7E,
         .f32 => 0x7D,
         .f64 => 0x7C,
+        .v128 => 0x7B,
         .funcref => 0x70,
         .externref => 0x6F,
+        .exnref => 0x69,
     };
 }
 
@@ -2027,6 +2093,23 @@ fn instrOpcode(name: []const u8) ?u8 {
     return null;
 }
 
+/// WAT SIMD instruction name → subopcode (after 0xFD prefix).
+/// Uses SimdOpcode enum from opcode.zig via reflection.
+fn simdInstrOpcode(name: []const u8) ?u32 {
+    var buf: [64]u8 = undefined;
+    if (name.len > buf.len) return null;
+    @memcpy(buf[0..name.len], name);
+    for (buf[0..name.len]) |*c| {
+        if (c.* == '.') c.* = '_';
+    }
+    const zig_name = buf[0..name.len];
+    const fields = @typeInfo(SimdOpcode).@"enum".fields;
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, zig_name, field.name)) return field.value;
+    }
+    return null;
+}
+
 fn encodeInstrList(
     alloc: Allocator,
     out: *std.ArrayListUnmanaged(u8),
@@ -2075,8 +2158,14 @@ fn encodeInstr(
 ) WatError!void {
     switch (instr) {
         .simple => |name| {
-            const op = instrOpcode(name) orelse return error.InvalidWat;
-            out.append(alloc, op) catch return error.OutOfMemory;
+            if (instrOpcode(name)) |op| {
+                out.append(alloc, op) catch return error.OutOfMemory;
+            } else if (simdInstrOpcode(name)) |subop| {
+                out.append(alloc, 0xFD) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else {
+                return error.InvalidWat;
+            }
         },
         .index_op => |data| {
             const op = instrOpcode(data.op) orelse return error.InvalidWat;
@@ -2125,6 +2214,11 @@ fn encodeInstr(
             out.append(alloc, 0x44) catch return error.OutOfMemory;
             const bytes = @as([8]u8, @bitCast(val));
             out.appendSlice(alloc, &bytes) catch return error.OutOfMemory;
+        },
+        .v128_const => |val| {
+            out.append(alloc, 0xFD) catch return error.OutOfMemory; // SIMD prefix
+            lebEncodeU32(alloc, out, 0x0C) catch return error.OutOfMemory; // v128.const
+            out.appendSlice(alloc, &val) catch return error.OutOfMemory;
         },
         .mem_op => |data| {
             const op = instrOpcode(data.op) orelse return error.InvalidWat;
@@ -2900,4 +2994,29 @@ test "WAT encoder — export with name resolution" {
         pos += sec_size;
     }
     try testing.expect(found_export);
+}
+
+test "WAT round-trip — v128.const SIMD" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (export "hi") (result v128)
+        \\    (local $i v128)
+        \\    v128.const i64x2 0xfa2675c080000000 0xe8a433230a7479e5
+        \\    local.set $i
+        \\    local.get $i
+        \\    local.get $i
+        \\    local.get $i
+        \\    i32x4.min_s
+        \\    i32x4.lt_s
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    // Verify it loads and runs
+    const types = @import("types.zig");
+    var module = try types.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{ 0, 0 };
+    try module.invoke("hi", &args, &results);
 }
