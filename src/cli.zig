@@ -384,10 +384,14 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         }
 
         // Determine result count and types from export info
+        // v128 results use 2 u64 slots each
         var result_count: usize = 1;
         const export_info = module.getExportInfo(func_name);
         if (export_info) |info| {
-            result_count = info.result_types.len;
+            result_count = 0;
+            for (info.result_types) |rt| {
+                result_count += if (rt == .v128) 2 else 1;
+            }
         }
 
         const results = try allocator.alloc(u64, result_count);
@@ -401,19 +405,28 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             return false;
         };
 
-        // Print results (truncate 32-bit types to u32)
-        for (results, 0..) |r, idx| {
-            if (idx > 0) try stdout.print(" ", .{});
-            const val = if (export_info) |info| blk: {
-                if (idx < info.result_types.len) {
-                    break :blk switch (info.result_types[idx]) {
-                        .i32, .f32 => r & 0xFFFFFFFF,
-                        else => r,
+        // Print results (truncate 32-bit types to u32, v128 as two u64)
+        if (export_info) |info| {
+            var ridx: usize = 0;
+            for (info.result_types, 0..) |rt, tidx| {
+                if (tidx > 0 or ridx > 0) try stdout.print(" ", .{});
+                if (rt == .v128) {
+                    try stdout.print("{d} {d}", .{ results[ridx], results[ridx + 1] });
+                    ridx += 2;
+                } else {
+                    const val = switch (rt) {
+                        .i32, .f32 => results[ridx] & 0xFFFFFFFF,
+                        else => results[ridx],
                     };
+                    try stdout.print("{d}", .{val});
+                    ridx += 1;
                 }
-                break :blk r;
-            } else r;
-            try stdout.print("{d}", .{val});
+            }
+        } else {
+            for (results, 0..) |r, idx| {
+                if (idx > 0) try stdout.print(" ", .{});
+                try stdout.print("{d}", .{r});
+            }
         }
         if (results.len > 0) try stdout.print("\n", .{});
         try stdout.flush();
