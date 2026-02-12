@@ -5,9 +5,9 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4, 7-10 — COMPLETE
-- Source: ~15K LOC, 16 files, 163 tests all pass
+- Source: ~15K LOC, 16 files, 168 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
-- Spec: 30,703/30,703 (100%), E2E: 297/298 (99.7%), CI: ubuntu + macOS
+- Spec: 30,704/30,704 (100%), E2E: 297/298 (99.7%), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -66,9 +66,13 @@ Target: Non-64KB page sizes in memory type.
 
 Stage 11: Security Hardening
 
-Target: Deny-by-default WASI, capability flags, W^X, resource limits.
+Target: Deny-by-default WASI, capability flags, resource limits.
+Note: W^X already done (JIT finalize: mmap RW → mprotect RX).
 
-(Task breakdown TBD at stage start — requires design investigation.)
+1. [x] 11.1: Capabilities struct + deny-by-default WASI
+2. [x] 11.2: CLI --allow-* flags
+3. [x] 11.3: Resource limits (memory ceiling, fuel metering)
+4. [x] 11.4: Import validation at instantiation
 
 Stage 12: WAT Parser & Feature Flags (W17)
 
@@ -84,11 +88,11 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 10 complete. Preparing for merge.
+Stage 11 complete. Merge to main.
 
 ## Previous Task
 
-Stage 10 complete. Custom page sizes: page_size 1 or 65536, 18/18 e2e tests.
+11.4 complete. Import function signature validation in resolveImports, ImportTypeMismatch error.
 
 ## Known Bugs
 

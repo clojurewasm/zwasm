@@ -159,7 +159,20 @@ pub const Instance = struct {
                 return error.ImportNotFound;
 
             switch (imp.kind) {
-                .func => try self.funcaddrs.append(self.alloc, handle),
+                .func => {
+                    // Validate function signature matches expected type
+                    if (imp.index < self.module.types.items.len) {
+                        const expected = self.module.types.items[imp.index];
+                        const func = self.store.getFunction(handle) catch
+                            return error.ImportNotFound;
+                        if (!std.mem.eql(opcode.ValType, func.params, expected.params) or
+                            !std.mem.eql(opcode.ValType, func.results, expected.results))
+                        {
+                            return error.ImportTypeMismatch;
+                        }
+                    }
+                    try self.funcaddrs.append(self.alloc, handle);
+                },
                 .memory => try self.memaddrs.append(self.alloc, handle),
                 .table => try self.tableaddrs.append(self.alloc, handle),
                 .global => try self.globaladdrs.append(self.alloc, handle),
@@ -531,6 +544,31 @@ test "Instance — missing import returns error" {
     var inst = Instance.init(testing.allocator, &store, &mod);
     defer inst.deinit();
     try testing.expectError(error.ImportNotFound, inst.instantiate());
+}
+
+test "Import validation — type mismatch" {
+    const wasm = try readTestFile(testing.allocator, "04_imports.wasm");
+    defer testing.allocator.free(wasm);
+
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    // Register print_i32 with WRONG signature: () -> (i32) instead of (i32) -> ()
+    const nop_fn = struct {
+        fn call(_: *anyopaque, _: usize) anyerror!void {}
+    }.call;
+    try store.exposeHostFunction("env", "print_i32", nop_fn, 0, &.{}, &.{.i32});
+    // Register print_str correctly: (i32, i32) -> ()
+    try store.exposeHostFunction("env", "print_str", nop_fn, 0, &.{ .i32, .i32 }, &.{});
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    // Should fail due to type mismatch on print_i32
+    try testing.expectError(error.ImportTypeMismatch, inst.instantiate());
 }
 
 test "evalInitExpr — i32.const" {

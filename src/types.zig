@@ -141,6 +141,9 @@ pub fn inspectImportFunctions(allocator: Allocator, wasm_bytes: []const u8) ![]c
     return result;
 }
 
+/// WASI capability flags for deny-by-default security.
+pub const Capabilities = rt.wasi.Capabilities;
+
 /// Options for configuring WASI modules.
 pub const WasiOptions = struct {
     /// Command-line arguments passed to the WASI module.
@@ -150,6 +153,8 @@ pub const WasiOptions = struct {
     env_vals: []const []const u8 = &.{},
     /// Preopened directories. Each entry maps a WASI fd to a host path.
     preopen_paths: []const []const u8 = &.{},
+    /// WASI capability flags. Default: all capabilities granted.
+    caps: rt.wasi.Capabilities = rt.wasi.Capabilities.all,
 };
 
 // ============================================================
@@ -189,6 +194,7 @@ pub const WasmModule = struct {
         errdefer self.deinit();
 
         if (self.wasi_ctx) |*wc| {
+            wc.caps = opts.caps;
             if (opts.args.len > 0) wc.setArgs(opts.args);
 
             const count = @min(opts.env_keys.len, opts.env_vals.len);
@@ -217,6 +223,7 @@ pub const WasmModule = struct {
         errdefer self.deinit();
 
         if (self.wasi_ctx) |*wc| {
+            wc.caps = opts.caps;
             if (opts.args.len > 0) wc.setArgs(opts.args);
 
             const count = @min(opts.env_keys.len, opts.env_vals.len);
@@ -249,6 +256,7 @@ pub const WasmModule = struct {
         if (wasi) {
             try rt.wasi.registerAll(&self.store, &self.module);
             self.wasi_ctx = rt.wasi.WasiContext.init(allocator);
+            self.wasi_ctx.?.caps = rt.wasi.Capabilities.all;
         } else {
             self.wasi_ctx = null;
         }

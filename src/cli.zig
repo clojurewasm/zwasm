@@ -79,6 +79,13 @@ fn printUsage(w: *std.Io.Writer) void {
         \\  --dir <path>        Preopen a host directory (repeatable)
         \\  --env KEY=VALUE     Set a WASI environment variable (repeatable)
         \\  --profile           Print execution profile (opcode frequency, call counts)
+        \\  --allow-read        Grant filesystem read capability
+        \\  --allow-write       Grant filesystem write capability
+        \\  --allow-env         Grant environment variable access
+        \\  --allow-path        Grant path operations (open, mkdir, unlink, etc.)
+        \\  --allow-all         Grant all WASI capabilities
+        \\  --max-memory <N>    Memory ceiling in bytes (limits memory.grow)
+        \\  --fuel <N>          Instruction fuel limit (traps when exhausted)
         \\  --trace=CATS        Trace categories: jit,regir,exec,mem,call (comma-separated)
         \\  --dump-regir=N      Dump RegIR for function index N
         \\  --dump-jit=N        Dump JIT disassembly for function index N
@@ -111,6 +118,9 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     defer link_names.deinit(allocator);
     var link_paths: std.ArrayList([]const u8) = .empty;
     defer link_paths.deinit(allocator);
+    var caps = types.Capabilities.cli_default;
+    var max_memory_bytes: ?u64 = null;
+    var fuel: ?u64 = null;
 
     // Parse options
     var i: usize = 0;
@@ -176,6 +186,40 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         } else if (std.mem.startsWith(u8, args[i], "--dump-jit=")) {
             dump_jit_func = std.fmt.parseInt(u32, args[i]["--dump-jit=".len..], 10) catch {
                 try stderr.print("error: --dump-jit requires a function index (u32)\n", .{});
+                try stderr.flush();
+                return false;
+            };
+        } else if (std.mem.eql(u8, args[i], "--allow-read")) {
+            caps.allow_read = true;
+        } else if (std.mem.eql(u8, args[i], "--allow-write")) {
+            caps.allow_write = true;
+        } else if (std.mem.eql(u8, args[i], "--allow-env")) {
+            caps.allow_env = true;
+        } else if (std.mem.eql(u8, args[i], "--allow-path")) {
+            caps.allow_path = true;
+        } else if (std.mem.eql(u8, args[i], "--allow-all")) {
+            caps = types.Capabilities.all;
+        } else if (std.mem.eql(u8, args[i], "--max-memory")) {
+            i += 1;
+            if (i >= args.len) {
+                try stderr.print("error: --max-memory requires a byte count\n", .{});
+                try stderr.flush();
+                return false;
+            }
+            max_memory_bytes = std.fmt.parseInt(u64, args[i], 10) catch {
+                try stderr.print("error: --max-memory requires a valid number\n", .{});
+                try stderr.flush();
+                return false;
+            };
+        } else if (std.mem.eql(u8, args[i], "--fuel")) {
+            i += 1;
+            if (i >= args.len) {
+                try stderr.print("error: --fuel requires an instruction count\n", .{});
+                try stderr.flush();
+                return false;
+            }
+            fuel = std.fmt.parseInt(u64, args[i], 10) catch {
+                try stderr.print("error: --fuel requires a valid number\n", .{});
                 try stderr.flush();
                 return false;
             };
@@ -267,6 +311,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .env_keys = env_keys.items,
             .env_vals = env_vals.items,
             .preopen_paths = preopen_paths.items,
+            .caps = caps,
         };
 
         const module = load_blk: {
@@ -318,6 +363,10 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         if (trace_categories != 0 or dump_regir_func != null or dump_jit_func != null) {
             module.vm.trace = &trace_config;
         }
+
+        // Apply resource limits
+        module.vm.max_memory_bytes = max_memory_bytes;
+        module.vm.fuel = fuel;
 
         // Parse function arguments as u64
         const func_args_slice = args[func_args_start..];
@@ -386,6 +435,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .env_keys = env_keys.items,
             .env_vals = env_vals.items,
             .preopen_paths = preopen_paths.items,
+            .caps = caps,
         };
         var module = types.WasmModule.loadWasiWithImports(allocator, wasm_bytes, imports_slice, wasi_opts2) catch |err| {
             try stderr.print("error: failed to load WASI module: {s}\n", .{@errorName(err)});
@@ -407,6 +457,10 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         if (trace_categories != 0 or dump_regir_func != null or dump_jit_func != null) {
             module.vm.trace = &wasi_trace_config;
         }
+
+        // Apply resource limits
+        module.vm.max_memory_bytes = max_memory_bytes;
+        module.vm.fuel = fuel;
 
         var no_args = [_]u64{};
         var no_results = [_]u64{};

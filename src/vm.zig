@@ -70,6 +70,7 @@ pub const WasmError = error{
     JitRestart,
     /// Wasm exception thrown via `throw`/`throw_ref` — not caught by any try_table.
     WasmException,
+    FuelExhausted,
 };
 
 const OPERAND_STACK_SIZE = 4096;
@@ -296,6 +297,8 @@ pub const Vm = struct {
     pending_exception: ?PendingException = null,
     profile: ?*Profile = null,
     trace: ?*trace_mod.TraceConfig = null,
+    max_memory_bytes: ?u64 = null,
+    fuel: ?u64 = null,
 
     pub fn init(alloc: Allocator) Vm {
         return .{
@@ -540,6 +543,11 @@ pub const Vm = struct {
         while (reader.hasMore()) {
             const byte = try reader.readByte();
             const op: Opcode = @enumFromInt(byte);
+
+            if (self.fuel) |*f| {
+                if (f.* == 0) return error.FuelExhausted;
+                f.* -= 1;
+            }
 
             if (self.profile) |p| {
                 p.opcode_counts[byte] += 1;
@@ -885,6 +893,14 @@ pub const Vm = struct {
                     _ = try reader.readU32(); // memidx
                     const pages = @as(u32, @bitCast(self.popI32()));
                     const m = try instance.getMemory(0);
+                    // Check memory ceiling before growing
+                    if (self.max_memory_bytes) |ceiling| {
+                        const new_bytes = m.data.items.len + @as(u64, pages) * m.page_size;
+                        if (new_bytes > ceiling) {
+                            try self.pushI32(-1);
+                            continue;
+                        }
+                    }
                     const old = m.grow(pages) catch {
                         try self.pushI32(-1);
                         continue;
@@ -2322,6 +2338,11 @@ pub const Vm = struct {
             const instr = code[pc];
             pc += 1;
 
+            if (self.fuel) |*f| {
+                if (f.* == 0) return error.FuelExhausted;
+                f.* -= 1;
+            }
+
             if (self.profile) |p| {
                 if (instr.op < 256)
                     p.opcode_counts[@as(u8, @truncate(instr.op))] += 1;
@@ -2819,6 +2840,13 @@ pub const Vm = struct {
                 0x40 => { // memory.grow
                     const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
                     const pages: u32 = @truncate(regs[instr.rs1]);
+                    if (self.max_memory_bytes) |ceiling| {
+                        const new_bytes = m.data.items.len + @as(u64, pages) * m.page_size;
+                        if (new_bytes > ceiling) {
+                            regs[instr.rd] = @bitCast(@as(i64, -1));
+                            continue;
+                        }
+                    }
                     const prev = m.grow(pages) catch {
                         regs[instr.rd] = @bitCast(@as(i64, -1));
                         continue;
@@ -2963,6 +2991,11 @@ pub const Vm = struct {
         while (pc < code_len) {
             const instr = code[pc];
             pc += 1;
+
+            if (self.fuel) |*f| {
+                if (f.* == 0) return error.FuelExhausted;
+                f.* -= 1;
+            }
 
             if (self.profile) |p| {
                 if (instr.opcode < 256)
@@ -3143,6 +3176,13 @@ pub const Vm = struct {
                 0x40 => { // memory_grow
                     const pages = @as(u32, @bitCast(self.popI32()));
                     const m = cached_mem orelse return error.OutOfBoundsMemoryAccess;
+                    if (self.max_memory_bytes) |ceiling| {
+                        const new_bytes = m.data.items.len + @as(u64, pages) * m.page_size;
+                        if (new_bytes > ceiling) {
+                            try self.pushI32(-1);
+                            continue;
+                        }
+                    }
                     const old = m.grow(pages) catch {
                         try self.pushI32(-1);
                         continue;
@@ -5840,4 +5880,64 @@ test "Custom page sizes — memory with page_size=1" {
     var a_oob = [_]u64{65536};
     try testing.expectError(error.OutOfBoundsMemoryAccess,
         vm_inst.invoke(&inst, "load", &a_oob, &r));
+}
+
+test "Resource limits — memory ceiling" {
+    // Module with 1 initial page, exports memory_grow and memory_size
+    const wasm = try readTestFile(testing.allocator, "conformance/memory_ops.wasm");
+    defer testing.allocator.free(wasm);
+
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    // Set memory ceiling to 2 pages (128 KiB)
+    vm.max_memory_bytes = 2 * 65536;
+
+    var results = [_]u64{0};
+
+    // Grow by 1 page: 1 → 2 pages, should succeed (within ceiling)
+    var args_grow1 = [_]u64{1};
+    try vm.invoke(&inst, "memory_grow", &args_grow1, &results);
+    try testing.expectEqual(@as(u64, 1), results[0]); // old size
+
+    // Grow by 1 more page: 2 → 3 pages, should fail (exceeds ceiling)
+    var args_grow2 = [_]u64{1};
+    try vm.invoke(&inst, "memory_grow", &args_grow2, &results);
+    // memory_grow returns -1 on failure (i32 sign-extended to i64 in regIR)
+    try testing.expect(results[0] == @as(u64, @as(u32, @bitCast(@as(i32, -1)))) or
+        results[0] == @as(u64, @bitCast(@as(i64, -1))));
+}
+
+test "Resource limits — fuel metering" {
+    // Module with a simple function that does some arithmetic
+    const wasm = try readTestFile(testing.allocator, "conformance/memory_ops.wasm");
+    defer testing.allocator.free(wasm);
+
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    // Set fuel to 0 — should fail immediately on first instruction
+    vm.fuel = 0;
+
+    var results = [_]u64{0};
+    // memory_size needs at least 1 instruction, should exhaust fuel
+    try testing.expectError(error.FuelExhausted, vm.invoke(&inst, "memory_size", &.{}, &results));
 }

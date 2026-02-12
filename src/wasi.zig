@@ -143,6 +143,39 @@ pub const Preopen = struct {
 };
 
 // ============================================================
+// WASI capabilities — deny-by-default security model
+// ============================================================
+
+pub const Capabilities = packed struct {
+    allow_stdio: bool = false, // fd 0-2: stdin/stdout/stderr
+    allow_read: bool = false, // fd_read, fd_pread, path_open(read)
+    allow_write: bool = false, // fd_write, fd_pwrite, path_open(write)
+    allow_env: bool = false, // environ_get, environ_sizes_get
+    allow_clock: bool = false, // clock_time_get, clock_res_get
+    allow_random: bool = false, // random_get
+    allow_proc_exit: bool = false, // proc_exit
+    allow_path: bool = false, // path_open, path_create_directory, path_remove_directory, etc.
+
+    pub const all = Capabilities{
+        .allow_stdio = true,
+        .allow_read = true,
+        .allow_write = true,
+        .allow_env = true,
+        .allow_clock = true,
+        .allow_random = true,
+        .allow_proc_exit = true,
+        .allow_path = true,
+    };
+
+    pub const cli_default = Capabilities{
+        .allow_stdio = true,
+        .allow_clock = true,
+        .allow_random = true,
+        .allow_proc_exit = true,
+    };
+};
+
+// ============================================================
 // WASI context — per-instance WASI state
 // ============================================================
 
@@ -153,6 +186,7 @@ pub const WasiContext = struct {
     preopens: std.ArrayList(Preopen),
     alloc: Allocator,
     exit_code: ?u32 = null,
+    caps: Capabilities = .{}, // deny-by-default
 
     pub fn init(alloc: Allocator) WasiContext {
         return .{
@@ -211,6 +245,12 @@ inline fn getWasi(vm: *Vm) ?*WasiContext {
 
 fn pushErrno(vm: *Vm, errno: Errno) !void {
     try vm.pushOperand(@intFromEnum(errno));
+}
+
+/// Check if a capability is granted. Returns true if allowed.
+inline fn hasCap(vm: *Vm, comptime field: std.meta.FieldEnum(Capabilities)) bool {
+    const wasi = getWasi(vm) orelse return false;
+    return @field(wasi.caps, @tagName(field));
 }
 
 // ============================================================
@@ -277,6 +317,8 @@ pub fn environ_sizes_get(ctx: *anyopaque, _: usize) anyerror!void {
     const buf_size_ptr = vm.popOperandU32();
     const count_ptr = vm.popOperandU32();
 
+    if (!hasCap(vm, .allow_env)) return pushErrno(vm, .ACCES);
+
     const wasi = getWasi(vm) orelse {
         try pushErrno(vm, .NOSYS);
         return;
@@ -300,6 +342,8 @@ pub fn environ_get(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const environ_buf_ptr = vm.popOperandU32();
     const environ_ptr = vm.popOperandU32();
+
+    if (!hasCap(vm, .allow_env)) return pushErrno(vm, .ACCES);
 
     const wasi = getWasi(vm) orelse {
         try pushErrno(vm, .NOSYS);
@@ -334,6 +378,8 @@ pub fn clock_time_get(ctx: *anyopaque, _: usize) anyerror!void {
     const time_ptr = vm.popOperandU32();
     _ = vm.popOperandI64(); // precision (ignored)
     const clock_id = vm.popOperandU32();
+
+    if (!hasCap(vm, .allow_clock)) return pushErrno(vm, .ACCES);
 
     const memory = try vm.getMemory(0);
 
@@ -491,6 +537,12 @@ pub fn fd_read(ctx: *anyopaque, _: usize) anyerror!void {
     const iovs_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
 
+    if (fd >= 0 and fd <= 2) {
+        if (!hasCap(vm, .allow_stdio)) return pushErrno(vm, .ACCES);
+    } else {
+        if (!hasCap(vm, .allow_read)) return pushErrno(vm, .ACCES);
+    }
+
     const wasi = getWasi(vm);
     const host_fd: posix.fd_t = if (wasi) |w| w.getHostFd(fd) orelse {
         try pushErrno(vm, .BADF);
@@ -530,6 +582,8 @@ pub fn fd_seek(ctx: *anyopaque, _: usize) anyerror!void {
     const whence_val = vm.popOperandU32();
     const offset = vm.popOperandI64();
     const fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_read)) return pushErrno(vm, .ACCES);
 
     const wasi = getWasi(vm);
     const host_fd: posix.fd_t = if (wasi) |w| w.getHostFd(fd) orelse {
@@ -576,6 +630,12 @@ pub fn fd_write(ctx: *anyopaque, _: usize) anyerror!void {
     const iovs_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
 
+    if (fd >= 0 and fd <= 2) {
+        if (!hasCap(vm, .allow_stdio)) return pushErrno(vm, .ACCES);
+    } else {
+        if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
+    }
+
     const wasi = getWasi(vm);
     const host_fd: posix.fd_t = if (wasi) |w| w.getHostFd(fd) orelse {
         try pushErrno(vm, .BADF);
@@ -614,6 +674,8 @@ pub fn fd_tell(ctx: *anyopaque, _: usize) anyerror!void {
     const offset_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
 
+    if (!hasCap(vm, .allow_read)) return pushErrno(vm, .ACCES);
+
     const wasi = getWasi(vm);
     const host_fd: posix.fd_t = if (wasi) |w| w.getHostFd(fd) orelse {
         try pushErrno(vm, .BADF);
@@ -645,6 +707,8 @@ pub fn fd_readdir(ctx: *anyopaque, _: usize) anyerror!void {
     _ = vm.popOperandU32(); // buf_ptr
     _ = vm.popOperandI32(); // fd
 
+    if (!hasCap(vm, .allow_read)) return pushErrno(vm, .ACCES);
+
     // Stub: return empty directory
     const memory = try vm.getMemory(0);
     try memory.write(u32, bufused_ptr, 0, 0);
@@ -659,6 +723,8 @@ pub fn path_filestat_get(ctx: *anyopaque, _: usize) anyerror!void {
     const path_ptr = vm.popOperandU32();
     _ = vm.popOperandU32(); // flags
     _ = vm.popOperandI32(); // fd
+
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
 
     _ = path_ptr;
     _ = path_len;
@@ -686,6 +752,8 @@ pub fn path_open(ctx: *anyopaque, _: usize) anyerror!void {
     _ = vm.popOperandU32(); // dirflags
     _ = vm.popOperandI32(); // fd
 
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
+
     _ = opened_fd_ptr;
 
     // Stub: filesystem access not yet implemented
@@ -696,6 +764,8 @@ pub fn path_open(ctx: *anyopaque, _: usize) anyerror!void {
 pub fn proc_exit(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const exit_code = vm.popOperandU32();
+
+    if (!hasCap(vm, .allow_proc_exit)) return pushErrno(vm, .ACCES);
 
     if (getWasi(vm)) |wasi| {
         wasi.exit_code = exit_code;
@@ -708,6 +778,8 @@ pub fn random_get(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const buf_len = vm.popOperandU32();
     const buf_ptr = vm.popOperandU32();
+
+    if (!hasCap(vm, .allow_random)) return pushErrno(vm, .ACCES);
 
     const memory = try vm.getMemory(0);
     const data = memory.memory();
@@ -724,6 +796,8 @@ pub fn clock_res_get(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const resolution_ptr = vm.popOperandU32();
     const clock_id = vm.popOperandU32();
+
+    if (!hasCap(vm, .allow_clock)) return pushErrno(vm, .ACCES);
 
     const memory = try vm.getMemory(0);
 
@@ -742,6 +816,8 @@ pub fn clock_res_get(ctx: *anyopaque, _: usize) anyerror!void {
 pub fn fd_datasync(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
 
     if (fd <= 2) {
         try pushErrno(vm, .INVAL);
@@ -768,6 +844,8 @@ pub fn fd_datasync(ctx: *anyopaque, _: usize) anyerror!void {
 pub fn fd_sync(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
 
     if (fd <= 2) {
         try pushErrno(vm, .INVAL);
@@ -796,6 +874,8 @@ pub fn path_create_directory(ctx: *anyopaque, _: usize) anyerror!void {
     const path_len = vm.popOperandU32();
     const path_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
 
     const wasi = getWasi(vm) orelse {
         try pushErrno(vm, .NOSYS);
@@ -826,6 +906,8 @@ pub fn path_remove_directory(ctx: *anyopaque, _: usize) anyerror!void {
     const path_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
 
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
+
     const wasi = getWasi(vm) orelse {
         try pushErrno(vm, .NOSYS);
         return;
@@ -854,6 +936,8 @@ pub fn path_unlink_file(ctx: *anyopaque, _: usize) anyerror!void {
     const path_len = vm.popOperandU32();
     const path_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
 
     const wasi = getWasi(vm) orelse {
         try pushErrno(vm, .NOSYS);
@@ -886,6 +970,8 @@ pub fn path_rename(ctx: *anyopaque, _: usize) anyerror!void {
     const old_path_len = vm.popOperandU32();
     const old_path_ptr = vm.popOperandU32();
     const old_fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
 
     const wasi = getWasi(vm) orelse {
         try pushErrno(vm, .NOSYS);
@@ -940,6 +1026,7 @@ pub fn fd_allocate(ctx: *anyopaque, _: usize) anyerror!void {
     _ = vm.popOperandI64(); // len
     _ = vm.popOperandI64(); // offset
     _ = vm.popOperandI32(); // fd
+    if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
     // fallocate not portable — stub as NOSYS
     try pushErrno(vm, .NOSYS);
 }
@@ -949,6 +1036,7 @@ pub fn fd_fdstat_set_flags(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     _ = vm.popOperandU32(); // flags
     _ = vm.popOperandI32(); // fd
+    if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
     // Stub — flags modification not commonly needed
     try pushErrno(vm, .SUCCESS);
 }
@@ -958,6 +1046,8 @@ pub fn fd_filestat_set_size(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const size = vm.popOperandI64();
     const fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
 
     if (fd <= 2) {
         try pushErrno(vm, .INVAL);
@@ -987,6 +1077,7 @@ pub fn fd_filestat_set_times(ctx: *anyopaque, _: usize) anyerror!void {
     _ = vm.popOperandI64(); // mtim
     _ = vm.popOperandI64(); // atim
     _ = vm.popOperandI32(); // fd
+    if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
     // Stub — timestamp modification not commonly needed
     try pushErrno(vm, .SUCCESS);
 }
@@ -999,6 +1090,8 @@ pub fn fd_pread(ctx: *anyopaque, _: usize) anyerror!void {
     const iovs_len = vm.popOperandU32();
     const iovs_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_read)) return pushErrno(vm, .ACCES);
 
     const wasi = getWasi(vm);
     const host_fd: posix.fd_t = if (wasi) |w| w.getHostFd(fd) orelse {
@@ -1042,6 +1135,8 @@ pub fn fd_pwrite(ctx: *anyopaque, _: usize) anyerror!void {
     const iovs_len = vm.popOperandU32();
     const iovs_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
 
     const wasi = getWasi(vm);
     const host_fd: posix.fd_t = if (wasi) |w| w.getHostFd(fd) orelse {
@@ -1100,6 +1195,7 @@ pub fn path_filestat_set_times(ctx: *anyopaque, _: usize) anyerror!void {
     _ = vm.popOperandU32(); // path_ptr
     _ = vm.popOperandU32(); // flags
     _ = vm.popOperandI32(); // fd
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
     // Stub — timestamp modification
     try pushErrno(vm, .SUCCESS);
 }
@@ -1113,6 +1209,7 @@ pub fn path_readlink(ctx: *anyopaque, _: usize) anyerror!void {
     const path_len = vm.popOperandU32();
     const path_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
 
     const wasi = getWasi(vm) orelse {
         try pushErrno(vm, .NOSYS);
@@ -1148,6 +1245,7 @@ pub fn path_symlink(ctx: *anyopaque, _: usize) anyerror!void {
     _ = vm.popOperandI32(); // fd
     _ = vm.popOperandU32(); // old_path_len
     _ = vm.popOperandU32(); // old_path_ptr
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
     // symlinkat not in std.posix — stub as NOSYS
     try pushErrno(vm, .NOSYS);
 }
@@ -1309,6 +1407,7 @@ test "WASI — fd_write via 07_wasi_hello.wasm" {
     // Set up WASI context
     var wasi_ctx = WasiContext.init(alloc);
     defer wasi_ctx.deinit();
+    wasi_ctx.caps = Capabilities.all;
     instance.wasi = &wasi_ctx;
 
     try instance.instantiate();
@@ -1412,6 +1511,7 @@ test "WASI — environ_sizes_get with empty environ" {
 
     var wasi_ctx = WasiContext.init(alloc);
     defer wasi_ctx.deinit();
+    wasi_ctx.caps = Capabilities.all;
     instance.wasi = &wasi_ctx;
 
     try instance.instantiate();
@@ -1454,6 +1554,7 @@ test "WASI — clock_time_get returns nonzero" {
 
     var wasi_ctx = WasiContext.init(alloc);
     defer wasi_ctx.deinit();
+    wasi_ctx.caps.allow_clock = true;
     instance.wasi = &wasi_ctx;
 
     try instance.instantiate();
@@ -1495,6 +1596,7 @@ test "WASI — random_get fills buffer" {
 
     var wasi_ctx = WasiContext.init(alloc);
     defer wasi_ctx.deinit();
+    wasi_ctx.caps = Capabilities.all;
     instance.wasi = &wasi_ctx;
 
     try instance.instantiate();
@@ -1523,6 +1625,42 @@ test "WASI — random_get fills buffer" {
         if (b != 0) { all_zero = false; break; }
     }
     try testing.expect(!all_zero);
+}
+
+test "WASI — deny-by-default capabilities" {
+    const alloc = testing.allocator;
+
+    const wasm_bytes = try readTestFile("07_wasi_hello.wasm");
+    defer alloc.free(wasm_bytes);
+
+    var module = Module.init(alloc, wasm_bytes);
+    defer module.deinit();
+    try module.decode();
+
+    var store_inst = Store.init(alloc);
+    defer store_inst.deinit();
+    try registerAll(&store_inst, &module);
+
+    var instance = instance_mod.Instance.init(alloc, &store_inst, &module);
+    defer instance.deinit();
+
+    var wasi_ctx = WasiContext.init(alloc);
+    defer wasi_ctx.deinit();
+    // Default capabilities: all denied
+    instance.wasi = &wasi_ctx;
+
+    try instance.instantiate();
+
+    var vm_inst = Vm.init(alloc);
+    vm_inst.current_instance = &instance;
+
+    // clock_time_get should return EACCES (2) when allow_clock is false
+    try vm_inst.pushOperand(0); // clock_id
+    try vm_inst.pushOperand(0); // precision
+    try vm_inst.pushOperand(300); // time_ptr
+    try clock_time_get(@ptrCast(&vm_inst), 0);
+    const errno = vm_inst.popOperand();
+    try testing.expectEqual(@as(u64, @intFromEnum(Errno.ACCES)), errno);
 }
 
 test "WASI — registerAll for wasi_hello module" {
