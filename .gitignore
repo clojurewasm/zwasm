@@ -27,6 +27,22 @@ test/e2e/wast/
 private/
 .dev/ubuntu-x86_64.md
 
+# WebAssembly spec repos (use ~/Documents/OSS/WebAssembly/ instead)
+WASI/
+component-model/
+design/
+exception-handling/
+function-references/
+gc/
+memory64/
+multi-memory/
+proposals/
+relaxed-simd/
+threads/
+tool-conventions/
+wabt/
+*.cwasm
+
 # Clojure
 .lsp/
 .cpcache/
