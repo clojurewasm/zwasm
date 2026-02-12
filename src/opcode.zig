@@ -22,6 +22,50 @@ pub const ValType = union(enum) {
     ref_type: u32, // (ref $t) — non-nullable, payload = type index
     ref_null_type: u32, // (ref null $t) — nullable, payload = type index
 
+    /// Sentinel type index values for abstract heap types in ref_type/ref_null_type.
+    pub const HEAP_FUNC: u32 = 0xFFFF_FFF0;
+    pub const HEAP_EXTERN: u32 = 0xFFFF_FFEF;
+
+    /// Read a ValType from a binary reader, handling multi-byte ref type encodings.
+    /// Supports single-byte MVP types and the function-references proposal
+    /// encoding: 0x63 ht (ref null ht), 0x64 ht (ref ht).
+    pub fn readValType(reader: anytype) !ValType {
+        const byte = try reader.readByte();
+        return switch (byte) {
+            0x7F => .i32,
+            0x7E => .i64,
+            0x7D => .f32,
+            0x7C => .f64,
+            0x7B => .v128,
+            0x70 => .funcref,
+            0x6F => .externref,
+            0x69 => .exnref,
+            0x63 => readRefType(reader, true), // (ref null ht)
+            0x64 => readRefType(reader, false), // (ref ht)
+            else => error.InvalidValType,
+        };
+    }
+
+    /// Read the heap type following a 0x63/0x64 prefix and construct a ValType.
+    fn readRefType(reader: anytype, nullable: bool) !ValType {
+        const leb128 = @import("leb128.zig");
+        _ = leb128;
+        // Heap type is encoded as S33 (signed LEB128).
+        // Negative values = abstract heap types, non-negative = type index.
+        const ht = try reader.readI33();
+        if (ht >= 0) {
+            // Concrete type index
+            const idx: u32 = @intCast(ht);
+            return if (nullable) ValType{ .ref_null_type = idx } else ValType{ .ref_type = idx };
+        }
+        // Abstract heap types
+        return switch (ht) {
+            -16 => if (nullable) .funcref else ValType{ .ref_type = HEAP_FUNC }, // func
+            -17 => if (nullable) .externref else ValType{ .ref_type = HEAP_EXTERN }, // extern
+            else => error.InvalidValType,
+        };
+    }
+
     /// Decode ValType from a single-byte binary encoding (MVP types).
     pub fn fromByte(byte: u8) ?ValType {
         return switch (byte) {
@@ -875,6 +919,59 @@ test "ValType — round-trip encoding" {
     try std.testing.expect((ValType{ .ref_type = 3 }).eql(.{ .ref_type = 3 }));
     try std.testing.expect(!(ValType{ .ref_type = 3 }).eql(.{ .ref_type = 4 }));
     try std.testing.expect(!(ValType{ .ref_type = 3 }).eql(.{ .ref_null_type = 3 }));
+}
+
+test "ValType — readValType decodes ref types" {
+    const leb128 = @import("leb128.zig");
+
+    // Single-byte MVP types
+    {
+        var r = leb128.Reader.init(&[_]u8{0x7F});
+        const vt = try ValType.readValType(&r);
+        try std.testing.expect(vt.eql(.i32));
+    }
+    {
+        var r = leb128.Reader.init(&[_]u8{0x70});
+        const vt = try ValType.readValType(&r);
+        try std.testing.expect(vt.eql(.funcref));
+    }
+
+    // (ref null $0) = 0x63 followed by type index 0
+    {
+        var r = leb128.Reader.init(&[_]u8{ 0x63, 0x00 });
+        const vt = try ValType.readValType(&r);
+        try std.testing.expect(vt.eql(.{ .ref_null_type = 0 }));
+    }
+
+    // (ref $5) = 0x64 followed by type index 5
+    {
+        var r = leb128.Reader.init(&[_]u8{ 0x64, 0x05 });
+        const vt = try ValType.readValType(&r);
+        try std.testing.expect(vt.eql(.{ .ref_type = 5 }));
+    }
+
+    // (ref null func) = 0x63 0x70 — abstract heap type func
+    {
+        var r = leb128.Reader.init(&[_]u8{ 0x63, 0x70 });
+        const vt = try ValType.readValType(&r);
+        try std.testing.expect(vt.eql(.funcref)); // canonicalized to funcref
+    }
+
+    // (ref null extern) = 0x63 0x6F — abstract heap type extern
+    {
+        var r = leb128.Reader.init(&[_]u8{ 0x63, 0x6F });
+        const vt = try ValType.readValType(&r);
+        try std.testing.expect(vt.eql(.externref)); // canonicalized to externref
+    }
+
+    // (ref func) = 0x64 0x70 — non-nullable abstract func ref
+    {
+        var r = leb128.Reader.init(&[_]u8{ 0x64, 0x70 });
+        const vt = try ValType.readValType(&r);
+        // Non-nullable func ref — stored as ref_type with sentinel
+        try std.testing.expect(vt.isRef());
+        try std.testing.expect(!vt.isDefaultable());
+    }
 }
 
 test "Section — correct IDs" {

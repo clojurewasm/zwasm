@@ -106,7 +106,7 @@ ref.as_non_null (0xD4), br_on_null (0xD5), br_on_non_null (0xD6).
 Type system: ValType tagged union (ref/ref_null with heap type index).
 
 1. [x] 17.1: ValType tagged union + codebase-wide compilation fix
-2. [ ] 17.2: Decode new ref type encoding (0xE3/0xE4 + heap type)
+2. [x] 17.2: Decode new ref type encoding (0x63/0x64 + heap type)
 3. [ ] 17.3: New instructions — call_ref, return_call_ref, ref.as_non_null
 4. [ ] 17.4: New instructions — br_on_null, br_on_non_null
 5. [ ] 17.5: Validation — local initialization tracking for non-defaultable types
@@ -136,11 +136,11 @@ Task Queue:
 
 ## Current Task
 
-17.2: Decode new ref type encoding (0xE3/0xE4 + heap type)
+17.3: New instructions — call_ref, return_call_ref, ref.as_non_null
 
 ## Previous Task
 
-17.1: ValType tagged union — changed from enum(u8) to union(enum) with ref_type/ref_null_type variants. Fixed all compilation errors across opcode.zig, module.zig, validate.zig, vm.zig, instance.zig, jit.zig, cli.zig.
+17.2: readValType() — multi-byte ref type decoding (0x63/0x64 + S33 heap type). Updated module.zig decoder to use readValType() at all 5 valtype read sites.
 
 ## Wasm 3.0 Coverage
 
