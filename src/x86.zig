@@ -2074,16 +2074,6 @@ pub const Compiler = struct {
 
         // x86_64 has coherent I/D caches — no icache flush needed.
 
-        // DEBUG: dump JIT binary for disassembly
-        if (builtin.cpu.arch == .x86_64) {
-            const dump_file = std.fs.cwd().createFile("/tmp/jit_dump.bin", .{}) catch null;
-            if (dump_file) |f| {
-                f.writeAll(self.code.items) catch {};
-                f.close();
-                std.debug.print("=== x86_64 JIT: dumped {d} bytes to /tmp/jit_dump.bin ===\n", .{code_size});
-            }
-        }
-
         const jit_code = self.alloc.create(JitCode) catch {
             std.posix.munmap(aligned_buf);
             return null;
@@ -2139,14 +2129,6 @@ pub const Compiler = struct {
 
         const ir = reg_func.code;
         var pc: u32 = 0;
-
-        // DEBUG: dump RegIR for x86_64 JIT compilation
-        if (builtin.cpu.arch == .x86_64) {
-            std.debug.print("=== x86_64 JIT: func#{d} ({d} regs, {d} locals, {d} params, {d} results, {d} instrs, mem={}) ===\n", .{ self_func_idx, self.reg_count, self.local_count, self.param_count, self.result_count, ir.len, self.has_memory });
-            for (ir, 0..) |instr, i| {
-                std.debug.print("  [{d:3}] op=0x{X:0>2} rd={d} rs1={d} operand={d}\n", .{ i, instr.op, instr.rd, instr.rs1, instr.operand });
-            }
-        }
 
         self.pc_map.appendNTimes(self.alloc, 0, ir.len + 1) catch return null;
 
@@ -2448,18 +2430,43 @@ pub const Compiler = struct {
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
 
-        // If rd != r1, move r1 to rd first (x86 is destructive 2-operand)
-        if (rd != r1) {
-            Enc.movRegReg32(&self.code, self.alloc, rd, r1);
-        }
-
-        switch (op) {
-            .add => Enc.addRegReg32(&self.code, self.alloc, rd, r2),
-            .sub => Enc.subRegReg32(&self.code, self.alloc, rd, r2),
-            .mul => Enc.imulRegReg32(&self.code, self.alloc, rd, r2),
-            .@"and" => Enc.andRegReg32(&self.code, self.alloc, rd, r2),
-            .@"or" => Enc.orRegReg32(&self.code, self.alloc, rd, r2),
-            .xor => Enc.xorRegReg32(&self.code, self.alloc, rd, r2),
+        // x86 is 2-operand: OP rd, r2  means  rd = rd OP r2.
+        // We need: rd = r1 OP r2.  So MOV rd, r1 first, then OP rd, r2.
+        // Bug: if rd == r2 and rd != r1, the MOV clobbers r2 before the OP.
+        // Fix: for commutative ops, swap operands (OP rd, r1 since rd already has r2).
+        //      for SUB, use SCRATCH: MOV SCRATCH, r1; SUB SCRATCH, rd; MOV rd, SCRATCH.
+        if (rd == r2 and rd != r1) {
+            switch (op) {
+                .add, .mul, .@"and", .@"or", .xor => {
+                    // Commutative: rd already has r2, just do OP rd, r1
+                    switch (op) {
+                        .add => Enc.addRegReg32(&self.code, self.alloc, rd, r1),
+                        .mul => Enc.imulRegReg32(&self.code, self.alloc, rd, r1),
+                        .@"and" => Enc.andRegReg32(&self.code, self.alloc, rd, r1),
+                        .@"or" => Enc.orRegReg32(&self.code, self.alloc, rd, r1),
+                        .xor => Enc.xorRegReg32(&self.code, self.alloc, rd, r1),
+                        .sub => unreachable,
+                    }
+                },
+                .sub => {
+                    // Non-commutative: SCRATCH = r1 - r2, then MOV rd, SCRATCH
+                    Enc.movRegReg32(&self.code, self.alloc, SCRATCH, r1);
+                    Enc.subRegReg32(&self.code, self.alloc, SCRATCH, rd);
+                    Enc.movRegReg32(&self.code, self.alloc, rd, SCRATCH);
+                },
+            }
+        } else {
+            if (rd != r1) {
+                Enc.movRegReg32(&self.code, self.alloc, rd, r1);
+            }
+            switch (op) {
+                .add => Enc.addRegReg32(&self.code, self.alloc, rd, r2),
+                .sub => Enc.subRegReg32(&self.code, self.alloc, rd, r2),
+                .mul => Enc.imulRegReg32(&self.code, self.alloc, rd, r2),
+                .@"and" => Enc.andRegReg32(&self.code, self.alloc, rd, r2),
+                .@"or" => Enc.orRegReg32(&self.code, self.alloc, rd, r2),
+                .xor => Enc.xorRegReg32(&self.code, self.alloc, rd, r2),
+            }
         }
 
         if (vregToPhys(instr.rd) == null) {
@@ -2473,17 +2480,37 @@ pub const Compiler = struct {
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
 
-        if (rd != r1) {
-            Enc.movRegReg(&self.code, self.alloc, rd, r1);
-        }
-
-        switch (op) {
-            .add => Enc.addRegReg(&self.code, self.alloc, rd, r2),
-            .sub => Enc.subRegReg(&self.code, self.alloc, rd, r2),
-            .mul => Enc.imulRegReg(&self.code, self.alloc, rd, r2),
-            .@"and" => Enc.andRegReg(&self.code, self.alloc, rd, r2),
-            .@"or" => Enc.orRegReg(&self.code, self.alloc, rd, r2),
-            .xor => Enc.xorRegReg(&self.code, self.alloc, rd, r2),
+        // Same rd==r2 aliasing fix as emitBinop32 (see comment above).
+        if (rd == r2 and rd != r1) {
+            switch (op) {
+                .add, .mul, .@"and", .@"or", .xor => {
+                    switch (op) {
+                        .add => Enc.addRegReg(&self.code, self.alloc, rd, r1),
+                        .mul => Enc.imulRegReg(&self.code, self.alloc, rd, r1),
+                        .@"and" => Enc.andRegReg(&self.code, self.alloc, rd, r1),
+                        .@"or" => Enc.orRegReg(&self.code, self.alloc, rd, r1),
+                        .xor => Enc.xorRegReg(&self.code, self.alloc, rd, r1),
+                        .sub => unreachable,
+                    }
+                },
+                .sub => {
+                    Enc.movRegReg(&self.code, self.alloc, SCRATCH, r1);
+                    Enc.subRegReg(&self.code, self.alloc, SCRATCH, rd);
+                    Enc.movRegReg(&self.code, self.alloc, rd, SCRATCH);
+                },
+            }
+        } else {
+            if (rd != r1) {
+                Enc.movRegReg(&self.code, self.alloc, rd, r1);
+            }
+            switch (op) {
+                .add => Enc.addRegReg(&self.code, self.alloc, rd, r2),
+                .sub => Enc.subRegReg(&self.code, self.alloc, rd, r2),
+                .mul => Enc.imulRegReg(&self.code, self.alloc, rd, r2),
+                .@"and" => Enc.andRegReg(&self.code, self.alloc, rd, r2),
+                .@"or" => Enc.orRegReg(&self.code, self.alloc, rd, r2),
+                .xor => Enc.xorRegReg(&self.code, self.alloc, rd, r2),
+            }
         }
 
         if (vregToPhys(instr.rd) == null) {
