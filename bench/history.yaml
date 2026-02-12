@@ -384,3 +384,30 @@ entries:
       st_nestedloop: {time_ms: 3.6}
       st_ackermann: {time_ms: 6.6}
       st_matrix: {time_ms: 282.0}
+  - id: "stage12-final"
+    date: "2026-02-12"
+    reason: "Stage 12 complete: WAT parser + validateBodyEnd + E2E 100%"
+    commit: "c467105"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 97.7}
+      tak: {time_ms: 13.3}
+      sieve: {time_ms: 5.3}
+      nbody: {time_ms: 39.4}
+      nqueens: {time_ms: 2.1}
+      tgo_fib: {time_ms: 51.8}
+      tgo_tak: {time_ms: 9.5}
+      tgo_arith: {time_ms: 2.3}
+      tgo_sieve: {time_ms: 3.8}
+      tgo_fib_loop: {time_ms: 2.3}
+      tgo_gcd: {time_ms: 2.3}
+      tgo_nqueens: {time_ms: 46.7}
+      tgo_mfr: {time_ms: 62.8}
+      tgo_list: {time_ms: 75.8}
+      tgo_rwork: {time_ms: 9.4}
+      tgo_strops: {time_ms: 37.4}
+      st_fib2: {time_ms: 1370.5}
+      st_sieve: {time_ms: 236.5}
+      st_nestedloop: {time_ms: 5.6}
+      st_ackermann: {time_ms: 5.8}
+      st_matrix: {time_ms: 286.3}

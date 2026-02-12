@@ -366,3 +366,19 @@ These fall back to register IR interpreter.
 **Chose**: Simple function-level JIT with direct ARM64 emission. The register IR
 already provides a clean 3-address IR that maps naturally to ARM64 instructions.
 Start simple, optimize later.
+
+---
+
+## D106: Build-time Feature Flags
+
+**Context**: WAT parser is optional — library consumers (e.g., ClojureWasm) don't
+need it but CLI users do. Need a pattern for compile-time feature exclusion.
+
+**Alternatives**:
+1. **Zig build options + `@import("build_options")`**: First-class Zig pattern
+2. **Conditional compilation via `comptime if`**: No build system integration
+3. **Separate modules per feature**: Clean but duplicates API surface
+
+**Chose**: Zig build options. `-Dwat=false` excludes WAT parser code.
+`build_options.enable_wat` checked at comptime for dead code elimination.
+Pattern extends to future flags (WASI, JIT, SIMD) when needed.

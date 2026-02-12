@@ -4,12 +4,19 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Build options
+    const enable_wat = b.option(bool, "wat", "Enable WAT text format parser (default: true)") orelse true;
+
+    const options = b.addOptions();
+    options.addOption(bool, "enable_wat", enable_wat);
+
     // Library module (for use as dependency and test root)
     const mod = b.addModule("zwasm", .{
         .root_source_file = b.path("src/types.zig"),
         .target = target,
         .optimize = optimize,
     });
+    mod.addOptions("build_options", options);
 
     // Tests
     const tests = b.addTest(.{
@@ -26,6 +33,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    cli_mod.addOptions("build_options", options);
     const cli = b.addExecutable(.{
         .name = "zwasm",
         .root_module = cli_mod,
@@ -51,6 +59,19 @@ pub fn build(b: *std.Build) void {
         });
         b.installArtifact(ex_exe);
     }
+
+    // E2E test runner executable
+    const e2e_mod = b.createModule(.{
+        .root_source_file = b.path("test/e2e/e2e_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    e2e_mod.addImport("zwasm", mod);
+    const e2e = b.addExecutable(.{
+        .name = "e2e_runner",
+        .root_module = e2e_mod,
+    });
+    b.installArtifact(e2e);
 
     // Benchmark executable
     const bench_mod = b.createModule(.{

@@ -21,7 +21,7 @@ BATCH=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --summary) SUMMARY="--summary"; shift ;;
-        --verbose|-v) VERBOSE="--verbose"; shift ;;
+        --verbose|-v) VERBOSE="-v"; shift ;;
         --convert) CONVERT=1; shift ;;
         --batch) BATCH="$2"; shift 2 ;;
         --batch=*) BATCH="${1#--batch=}"; shift ;;
@@ -49,6 +49,13 @@ if [ ! "$(ls -A "$JSON_DIR" 2>/dev/null)" ]; then
     exit 1
 fi
 
-# Run tests using run_spec.py with --dir
+# Build e2e_runner if needed
+RUNNER="./zig-out/bin/e2e_runner"
+if [ ! -f "$RUNNER" ]; then
+    echo "Building e2e_runner..."
+    zig build
+fi
+
+# Run tests using Zig E2E runner
 echo "Running e2e tests..."
-python3 test/spec/run_spec.py --dir "$JSON_DIR" $SUMMARY $VERBOSE
+$RUNNER --dir "$JSON_DIR" $SUMMARY $VERBOSE

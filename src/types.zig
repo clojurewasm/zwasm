@@ -19,6 +19,20 @@ const rt = struct {
     const vm_mod = @import("vm.zig");
     const wasi = @import("wasi.zig");
     const opcode = @import("opcode.zig");
+    const wat = @import("wat.zig");
+};
+
+// ============================================================
+// Internal runtime types (for advanced embedders / test runners)
+// ============================================================
+
+/// Re-exports of internal runtime types for direct Store/Module/Instance access.
+/// Used by the E2E test runner for shared-Store cross-module testing.
+pub const runtime = struct {
+    pub const Store = rt.store_mod.Store;
+    pub const Module = rt.module_mod.Module;
+    pub const Instance = rt.instance_mod.Instance;
+    pub const VmImpl = rt.vm_mod.Vm;
 };
 
 // ============================================================
@@ -177,10 +191,22 @@ pub const WasmModule = struct {
     wit_funcs: []const wit_parser.WitFunc = &[_]wit_parser.WitFunc{},
     /// Cached VM instance — reused across invoke() calls to avoid stack reallocation.
     vm: *rt.vm_mod.Vm = undefined,
+    /// Owned wasm bytes (from WAT conversion). Freed on deinit.
+    owned_wasm_bytes: ?[]const u8 = null,
 
     /// Load a Wasm module from binary bytes, decode, and instantiate.
     pub fn load(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
         return loadCore(allocator, wasm_bytes, false, null);
+    }
+
+    /// Load a module from WAT (WebAssembly Text Format) source.
+    /// Requires `-Dwat=true` (default). Returns error.WatNotEnabled if disabled.
+    pub fn loadFromWat(allocator: Allocator, wat_source: []const u8) !*WasmModule {
+        const wasm_bytes = try rt.wat.watToWasm(allocator, wat_source);
+        errdefer allocator.free(wasm_bytes);
+        const self = try loadCore(allocator, wasm_bytes, false, null);
+        self.owned_wasm_bytes = wasm_bytes;
+        return self;
     }
 
     /// Load a WASI module — registers wasi_snapshot_preview1 imports.
@@ -246,6 +272,7 @@ pub const WasmModule = struct {
         errdefer allocator.destroy(self);
 
         self.allocator = allocator;
+        self.owned_wasm_bytes = null;
         self.store = rt.store_mod.Store.init(allocator);
         errdefer self.store.deinit();
 
@@ -302,6 +329,7 @@ pub const WasmModule = struct {
         if (self.wasi_ctx) |*wc| wc.deinit();
         self.module.deinit();
         self.store.deinit();
+        if (self.owned_wasm_bytes) |bytes| allocator.free(bytes);
         allocator.destroy(self);
     }
 
@@ -876,4 +904,126 @@ test "nqueens(8) = 92 — with JIT" {
     try wasm_mod.invoke("nqueens", &args, &results);
 
     try testing.expectEqual(@as(u64, 92), results[0]);
+}
+
+// ============================================================
+// WAT round-trip tests
+// ============================================================
+
+test "WAT round-trip — i32.add" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (func $add (param i32 i32) (result i32)
+        \\    local.get 0
+        \\    local.get 1
+        \\    i32.add
+        \\  )
+        \\  (export "add" (func $add))
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var args = [_]u64{ 3, 4 };
+    var results = [_]u64{0};
+    try wasm_mod.invoke("add", &args, &results);
+    try testing.expectEqual(@as(u64, 7), results[0]);
+}
+
+test "WAT round-trip — i32.const" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (func (export "forty_two") (result i32)
+        \\    i32.const 42
+        \\  )
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var results = [_]u64{0};
+    try wasm_mod.invoke("forty_two", &[_]u64{}, &results);
+    try testing.expectEqual(@as(u64, 42), results[0]);
+}
+
+test "WAT round-trip — if/else" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (func (export "abs") (param i32) (result i32)
+        \\    (if (result i32) (i32.lt_s (local.get 0) (i32.const 0))
+        \\      (then (i32.sub (i32.const 0) (local.get 0)))
+        \\      (else (local.get 0))
+        \\    )
+        \\  )
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var args1 = [_]u64{@bitCast(@as(i64, -5))};
+    var results = [_]u64{0};
+    try wasm_mod.invoke("abs", &args1, &results);
+    try testing.expectEqual(@as(u64, 5), results[0]);
+
+    var args2 = [_]u64{7};
+    try wasm_mod.invoke("abs", &args2, &results);
+    try testing.expectEqual(@as(u64, 7), results[0]);
+}
+
+test "WAT round-trip — loop (factorial)" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (func (export "fac") (param i32) (result i32)
+        \\    (local i32)
+        \\    (local.set 1 (i32.const 1))
+        \\    (block $done
+        \\      (loop $loop
+        \\        (br_if $done (i32.eqz (local.get 0)))
+        \\        (local.set 1 (i32.mul (local.get 1) (local.get 0)))
+        \\        (local.set 0 (i32.sub (local.get 0) (i32.const 1)))
+        \\        (br $loop)
+        \\      )
+        \\    )
+        \\    (local.get 1)
+        \\  )
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var args = [_]u64{5};
+    var results = [_]u64{0};
+    try wasm_mod.invoke("fac", &args, &results);
+    try testing.expectEqual(@as(u64, 120), results[0]);
+}
+
+test "WAT round-trip — named locals" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (func (export "swap_sub") (param $a i32) (param $b i32) (result i32)
+        \\    (i32.sub (local.get $b) (local.get $a))
+        \\  )
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var args = [_]u64{ 3, 10 };
+    var results = [_]u64{0};
+    try wasm_mod.invoke("swap_sub", &args, &results);
+    try testing.expectEqual(@as(u64, 7), results[0]);
+}
+
+test "WAT round-trip — named globals" {
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+        \\(module
+        \\  (global $counter (mut i32) (i32.const 0))
+        \\  (func (export "inc") (result i32)
+        \\    (global.set $counter (i32.add (global.get $counter) (i32.const 1)))
+        \\    (global.get $counter)
+        \\  )
+        \\)
+    );
+    defer wasm_mod.deinit();
+
+    var results = [_]u64{0};
+    try wasm_mod.invoke("inc", &[_]u64{}, &results);
+    try testing.expectEqual(@as(u64, 1), results[0]);
+    try wasm_mod.invoke("inc", &[_]u64{}, &results);
+    try testing.expectEqual(@as(u64, 2), results[0]);
 }

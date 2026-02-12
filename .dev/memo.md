@@ -4,14 +4,15 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-11 — COMPLETE
-- Source: ~15K LOC, 16 files, 168 tests all pass
+- Stages 0-2, 4, 7-12 — COMPLETE
+- Source: ~24K LOC, 16 files, 209 tests all pass
 - Opcode: 234 core + 236 SIMD = 470, WASI: ~27
-- Spec: 30,704/30,704 (100%), E2E: 297/298 (99.7%), CI: ubuntu + macOS
+- Spec: 30,715/30,715 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
 - Embedder API: Vm type, inspectImportFunctions, WasmModule.loadWithImports
+- WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
 - **main = stable**: CW depends on main via GitHub URL (v0.7.0 tag).
@@ -19,8 +20,8 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-7, 5E, 5F, 8-11 — all COMPLETE. See `roadmap.md` for details.
-Key results: Spec 30,704/30,704 (100%), E2E 297/298, 20/21 bench < 2x wasmtime.
+Stages 0-7, 5E, 5F, 8-12 — all COMPLETE. See `roadmap.md` for details.
+Key results: Spec 30,715/30,715 (100%), E2E 356/356 (100%, Zig runner), 20/21 bench < 2x wasmtime.
 
 ## Task Queue
 
@@ -78,7 +79,14 @@ Stage 12: WAT Parser & Feature Flags (W17)
 
 Target: `zwasm run file.wat`, build-time `-Dwat=false`.
 
-(Task breakdown TBD at stage start.)
+1. [x] 12.1: Build-time feature flag system (-Dwat option in build.zig)
+2. [x] 12.2: WAT S-expression tokenizer (lexer for WAT syntax)
+3. [x] 12.3: WAT parser — module structure (module, func, memory, table, global, import, export)
+4. [x] 12.4: WAT parser — instructions (all opcodes, folded S-expr form)
+5. [x] 12.5: Wasm binary encoder (emit valid .wasm from parsed AST)
+6. [x] 12.6: WAT abbreviations (inline exports, type use, etc.)
+7. [x] 12.7: API + CLI integration (loadFromWat, auto-detect .wat)
+8. [x] 12.8: E2E verification (issue11563.wat, issue12170.wat)
 
 Stage 13: x86_64 JIT Backend
 
@@ -88,11 +96,11 @@ Target: x86_64 codegen, CI on ubuntu.
 
 ## Current Task
 
-Stage 12 planning.
+Stage 12 complete. Merge gate in progress.
 
 ## Previous Task
 
-Stage 11 complete (v0.7.0). Security hardening: deny-by-default WASI, CLI --allow-*, resource limits, import validation.
+Fix no-panic-on-invalid: added validateBodyEnd to detect trailing bytes after top-level end opcode. Fixed SIMD immediate skipping (lane load/store need memarg + lane_index). E2E 356/356 (100%), spec 30,715/30,715.
 
 ## Known Bugs
 

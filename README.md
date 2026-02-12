@@ -17,10 +17,12 @@ zwasm was extracted from [ClojureWasm](https://github.com/clojurewasm/ClojureWas
 
 ## Features
 
-- **461 opcodes**: Full MVP + SIMD (236 v128 instructions)
+- **470 opcodes**: Full MVP + SIMD (236 v128) + Exception handling + Wide arithmetic
 - **4-tier execution**: bytecode > predecoded IR > register IR > ARM64 JIT
-- **99.9% spec conformance**: 30,648/30,686 spec tests passing
+- **100% spec conformance**: 30,704/30,704 spec tests passing
+- **WAT support**: `zwasm run file.wat`, build-time optional (`-Dwat=false`)
 - **WASI Preview 1**: ~27 syscalls (fd, path, clock, environ, args, proc, random)
+- **Security**: Deny-by-default WASI, capability flags, resource limits
 - **Zero dependencies**: Pure Zig, no libc required
 - **Allocator-parameterized**: Caller controls memory allocation
 
@@ -43,6 +45,7 @@ Some benchmarks already match or beat wasmtime. JIT coverage expansion is ongoin
 ```bash
 zwasm run module.wasm              # Run a WASI module
 zwasm run module.wasm -- arg1 arg2 # With arguments
+zwasm run module.wat               # Run a WAT text module
 zwasm inspect module.wasm          # Show exports, imports, memory
 zwasm validate module.wasm         # Validate without running
 ```
@@ -67,27 +70,32 @@ Requires Zig 0.15.2.
 
 ```bash
 zig build              # Build (Debug)
-zig build test         # Run all tests (137 tests)
+zig build test         # Run all tests (209 tests)
 ./zig-out/bin/zwasm run file.wasm
 ```
 
 ## Architecture
 
 ```
- .wasm binary
-      |
-      v
- Module (decode + validate)
-      |
-      v
- Predecoded IR (fixed-width, cache-friendly)
-      |
-      v
- Register IR (stack elimination, peephole opts)
-      |                          \
-      v                           v
- RegIR Interpreter           ARM64 JIT
- (fallback)              (hot functions)
+ .wat text          .wasm binary
+      |                  |
+      v                  |
+ WAT Parser (optional)   |
+      |                  |
+      +-------->---------+
+               |
+               v
+         Module (decode + validate)
+               |
+               v
+         Predecoded IR (fixed-width, cache-friendly)
+               |
+               v
+         Register IR (stack elimination, peephole opts)
+               |                          \
+               v                           v
+         RegIR Interpreter           ARM64 JIT
+         (fallback)              (hot functions)
 ```
 
 Hot functions are detected via call counting and back-edge counting,
@@ -110,13 +118,13 @@ The spec test suite runs on every change.
 
 ## Roadmap
 
-- [x] Stage 0: Extraction from ClojureWasm
-- [x] Stage 1: Library API + CLI
-- [x] Stage 2: Spec conformance (99.9%)
-- [x] Stage 3: ARM64 JIT (fib within 2x of wasmtime)
-- [x] Stage 4: Polish + robustness
-- [ ] Stage 5: JIT coverage expansion (f64 done, memory/br_table JIT next)
-- [ ] Future: Component Model, WASI P2, x86_64 JIT
+- [x] Stage 0-4: Core runtime (extraction, library API, spec conformance, ARM64 JIT)
+- [x] Stage 5: JIT coverage (20/21 benchmarks within 2x of wasmtime)
+- [x] Stage 7-10: Wasm 3.0 proposals (memory64, exception handling, wide arithmetic, custom page sizes)
+- [x] Stage 11: Security hardening (deny-by-default WASI, capability flags, resource limits)
+- [x] Stage 12: WAT parser (`zwasm run file.wat`, build-time optional)
+- [ ] Stage 13: x86_64 JIT backend
+- [ ] Future: Component Model, WASI P2, GC
 
 ## License
 
