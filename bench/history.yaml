@@ -492,3 +492,30 @@ entries:
       st_nestedloop: {time_ms: 3.9}
       st_ackermann: {time_ms: 7.4}
       st_matrix: {time_ms: 285.5}
+  - id: "stage15-complete"
+    date: "2026-02-12"
+    reason: "Stage 15 complete (multi-memory)"
+    commit: "accb90c"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 94.3}
+      tak: {time_ms: 13.6}
+      sieve: {time_ms: 4.1}
+      nbody: {time_ms: 42.4}
+      nqueens: {time_ms: 1.8}
+      tgo_fib: {time_ms: 54.5}
+      tgo_tak: {time_ms: 8.2}
+      tgo_arith: {time_ms: 2.2}
+      tgo_sieve: {time_ms: 3.4}
+      tgo_fib_loop: {time_ms: 1.8}
+      tgo_gcd: {time_ms: 2.4}
+      tgo_nqueens: {time_ms: 45.5}
+      tgo_mfr: {time_ms: 61.8}
+      tgo_list: {time_ms: 77.1}
+      tgo_rwork: {time_ms: 8.6}
+      tgo_strops: {time_ms: 35.7}
+      st_fib2: {time_ms: 1355.1}
+      st_sieve: {time_ms: 226.5}
+      st_nestedloop: {time_ms: 4.0}
+      st_ackermann: {time_ms: 6.8}
+      st_matrix: {time_ms: 287.9}

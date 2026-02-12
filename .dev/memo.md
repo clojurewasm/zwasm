@@ -4,8 +4,8 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-14 — COMPLETE
-- Source: ~24K LOC, 16 files, 211 tests all pass
+- Stages 0-2, 4, 7-15 — COMPLETE
+- Source: ~28K LOC, 17 files, 229 tests all pass
 - Opcode: 236 core + 236 SIMD = 472, WASI: ~27
 - Spec: 32,231/32,236 (100%), E2E: 356/356 (100%, Zig runner), CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
@@ -97,11 +97,9 @@ Stage 15 complete. Next: Stage 16 (Relaxed SIMD).
 
 ## Wasm 3.0 Coverage
 
-Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting (5/10 finished proposals).
-NOT implemented: function_references, gc,
-relaxed_simd (3 proposals, see proposals.yaml).
-GC requires function_references first. Stages 9-10 (wide_arithmetic, custom_page_sizes)
-are Phase 3, not yet ratified as Wasm 3.0.
+Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory (6/10 finished proposals).
+NOT implemented: function_references, gc, relaxed_simd (3 proposals).
+GC requires function_references first.
 
 ## Known Bugs
 

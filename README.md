@@ -4,22 +4,23 @@ A small, fast WebAssembly runtime written in Zig. Library and CLI.
 
 ## Why zwasm
 
-Most Wasm runtimes are either fast but large (wasmtime ~56MB, wasmer ~110MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **under 1MB with ARM64 JIT compilation**.
+Most Wasm runtimes are either fast but large (wasmtime ~56MB, wasmer ~110MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1MB with ARM64 + x86_64 JIT compilation**.
 
-| Runtime  | Binary  | Memory | JIT     |
-|----------|--------:|-------:|---------|
-| zwasm    | 0.7MB   | ~3MB   | ARM64   |
-| wasmtime | 56MB    | ~13MB  | Cranelift |
+| Runtime  | Binary  | Memory | JIT            |
+|----------|--------:|-------:|----------------|
+| zwasm    | 1.0MB   | ~3MB   | ARM64 + x86_64 |
+| wasmtime | 56MB    | ~13MB  | Cranelift      |
 | wasmer   | 110MB   | ~25MB  | LLVM/Cranelift |
-| wasm3    | 0.3MB   | ~1MB   | None    |
+| wasm3    | 0.3MB   | ~1MB   | None           |
 
-zwasm was extracted from [ClojureWasm](https://github.com/clojurewasm/ClojureWasm) (a Zig reimplementation of Clojure) where optimizing a Wasm subsystem inside a language runtime created a "runtime within runtime" problem. Separating it produced a cleaner codebase, independent optimization, and a reusable library. ClojureWasm remains the primary dog fooding target.
+zwasm was extracted from [ClojureWasm](https://github.com/niclas-ahden/ClojureWasm) (a Zig reimplementation of Clojure) where optimizing a Wasm subsystem inside a language runtime created a "runtime within runtime" problem. Separating it produced a cleaner codebase, independent optimization, and a reusable library. ClojureWasm remains the primary consumer.
 
 ## Features
 
-- **470 opcodes**: Full MVP + SIMD (236 v128) + Exception handling + Wide arithmetic
-- **4-tier execution**: bytecode > predecoded IR > register IR > ARM64 JIT
-- **100% spec conformance**: 30,704/30,704 spec tests passing
+- **472 opcodes**: Full MVP + SIMD (236 v128) + Exception handling + Wide arithmetic
+- **4-tier execution**: bytecode > predecoded IR > register IR > ARM64/x86_64 JIT
+- **100% spec conformance**: 32,231/32,236 spec tests passing (204 test files)
+- **Wasm 3.0**: memory64, exception handling, tail calls, extended const, branch hinting, multi-memory, wide arithmetic, custom page sizes
 - **WAT support**: `zwasm run file.wat`, build-time optional (`-Dwat=false`)
 - **WASI Preview 1**: ~27 syscalls (fd, path, clock, environ, args, proc, random)
 - **Security**: Deny-by-default WASI, capability flags, resource limits
@@ -28,15 +29,15 @@ zwasm was extracted from [ClojureWasm](https://github.com/clojurewasm/ClojureWas
 
 ### Performance (vs wasmtime JIT)
 
-Some benchmarks already match or beat wasmtime. JIT coverage expansion is ongoing.
+11 of 21 benchmarks match or beat wasmtime. 20/21 within 2x.
 
 | Benchmark     | zwasm   | wasmtime | Ratio    |
 |---------------|--------:|---------:|---------:|
-| sieve(1M)     | 6ms     | 7ms      | **0.8x** |
-| nqueens(8)    | 2ms     | 5ms      | **0.5x** |
-| tak(24,16,8)  | 14ms    | 11ms     | 1.3x     |
-| fib(35)       | 117ms   | 54ms     | 2.2x     |
-| nbody(1M)     | 64ms    | 24ms     | 2.7x     |
+| sieve(1M)     | 5ms     | 8ms      | **0.6x** |
+| nqueens(8)    | 3ms     | 7ms      | **0.4x** |
+| tak(24,16,8)  | 12ms    | 12ms     | **1.0x** |
+| fib(35)       | 97ms    | 56ms     | 1.7x     |
+| nbody(1M)     | 41ms    | 25ms     | 1.6x     |
 
 ## Usage
 
@@ -70,7 +71,7 @@ Requires Zig 0.15.2.
 
 ```bash
 zig build              # Build (Debug)
-zig build test         # Run all tests (209 tests)
+zig build test         # Run all tests (229 tests)
 ./zig-out/bin/zwasm run file.wasm
 ```
 
@@ -94,13 +95,13 @@ zig build test         # Run all tests (209 tests)
          Register IR (stack elimination, peephole opts)
                |                          \
                v                           v
-         RegIR Interpreter           ARM64 JIT
+         RegIR Interpreter           ARM64/x86_64 JIT
          (fallback)              (hot functions)
 ```
 
 Hot functions are detected via call counting and back-edge counting,
-then compiled to native ARM64 code. Functions that use unsupported
-opcodes fall back to the register IR interpreter.
+then compiled to native code. Functions that use unsupported opcodes
+fall back to the register IR interpreter.
 
 ## Project Philosophy
 
@@ -110,8 +111,8 @@ aim to replace wasmtime or wasmer for general use. Instead, it targets
 environments where size and startup time matter: embedded systems, edge
 computing, CLI tools, and as an embeddable library in Zig projects.
 
-**ARM64-first.** Optimization effort focuses on Apple Silicon and ARM64 Linux.
-x86_64 JIT is a future goal but not a current priority.
+**ARM64-first, x86_64 supported.** Primary optimization on Apple Silicon and ARM64 Linux.
+x86_64 JIT also available for Linux server deployment.
 
 **Spec fidelity over expedience.** Correctness comes before performance.
 The spec test suite runs on every change.
@@ -120,11 +121,14 @@ The spec test suite runs on every change.
 
 - [x] Stage 0-4: Core runtime (extraction, library API, spec conformance, ARM64 JIT)
 - [x] Stage 5: JIT coverage (20/21 benchmarks within 2x of wasmtime)
-- [x] Stage 7-10: Wasm 3.0 proposals (memory64, exception handling, wide arithmetic, custom page sizes)
-- [x] Stage 11: Security hardening (deny-by-default WASI, capability flags, resource limits)
-- [x] Stage 12: WAT parser (`zwasm run file.wat`, build-time optional)
-- [ ] Stage 13: x86_64 JIT backend
-- [ ] Future: Component Model, WASI P2, GC
+- [x] Stage 7-12: Wasm 3.0 proposals (memory64, exception handling, wide arithmetic, custom page sizes, WAT parser)
+- [x] Stage 13: x86_64 JIT backend
+- [x] Stage 14: Wasm 3.0 trivial proposals (extended const, branch hinting, tail calls)
+- [x] Stage 15: Wasm 3.0 multi-memory
+- [ ] Stage 16: Relaxed SIMD
+- [ ] Stage 17: Function references
+- [ ] Stage 18: GC
+- [ ] Future: Component Model, WASI P2, threads
 
 ## License
 
