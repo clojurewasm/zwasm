@@ -34,5 +34,11 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install wabt
 
+      - name: Download WebAssembly spec testsuite
+        run: git clone --depth 1 https://github.com/WebAssembly/spec.git /tmp/wasm-spec
+
+      - name: Convert spec tests
+        run: bash test/spec/convert.sh /tmp/wasm-spec/test/core
+
       - name: Run spec tests
         run: python3 test/spec/run_spec.py --summary

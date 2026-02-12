@@ -41,7 +41,7 @@ ARM64 code untouched (zero regression). Trampolines/helpers shared via import.
 2. [x] 13.2: Comparison, control flow, shifts, division, bit ops
 3. [x] 13.3: Memory operations, globals, function calls, error stubs
 4. [x] 13.4: Floating-point SSE2 (f64/f32 arithmetic + conversions)
-5. [ ] 13.5: Ubuntu verification + benchmarks + CI
+5. [x] 13.5: Ubuntu verification + benchmarks + CI
 
 Stage 14: Wasm 3.0 — Trivial Proposals
 
@@ -84,11 +84,11 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 ## Current Task
 
-13.5: Ubuntu verification + benchmarks + CI for x86_64 JIT.
+Stage 13 complete. Next: Stage 14 (Wasm 3.0 Trivial Proposals) — task breakdown TBD.
 
 ## Previous Task
 
-13.4: Floating-point SSE2 for x86_64 JIT.
+13.5: Ubuntu verification + benchmarks + CI for x86_64 JIT.
 
 ## Wasm 3.0 Coverage
 
