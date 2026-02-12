@@ -600,3 +600,30 @@ entries:
       st_nestedloop: {time_ms: 4.2}
       st_ackermann: {time_ms: 6.4}
       st_matrix: {time_ms: 275.4}
+  - id: "stage17-complete"
+    date: "2026-02-13"
+    reason: "Stage 17 (Function References) complete"
+    commit: "9b7a6be"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 92.9}
+      tak: {time_ms: 11.8}
+      sieve: {time_ms: 4.7}
+      nbody: {time_ms: 42.0}
+      nqueens: {time_ms: 2.4}
+      tgo_fib: {time_ms: 50.9}
+      tgo_tak: {time_ms: 9.8}
+      tgo_arith: {time_ms: 29.6}
+      tgo_sieve: {time_ms: 4.7}
+      tgo_fib_loop: {time_ms: 1.7}
+      tgo_gcd: {time_ms: 1.6}
+      tgo_nqueens: {time_ms: 45.1}
+      tgo_mfr: {time_ms: 71.2}
+      tgo_list: {time_ms: 49.9}
+      tgo_rwork: {time_ms: 7.8}
+      tgo_strops: {time_ms: 36.2}
+      st_fib2: {time_ms: 1359.4}
+      st_sieve: {time_ms: 232.5}
+      st_nestedloop: {time_ms: 4.4}
+      st_ackermann: {time_ms: 7.4}
+      st_matrix: {time_ms: 284.4}
