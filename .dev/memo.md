@@ -111,7 +111,7 @@ Type system: ValType tagged union (ref/ref_null with heap type index).
 4. [x] 17.4: New instructions — br_on_null, br_on_non_null
 5. [x] 17.5: Validation — local initialization tracking for non-defaultable types
 6. [x] 17.6: Fix module loading, predecode, block type for typed refs
-7. [ ] 17.7: Spec tests + proposals.yaml update
+7. [x] 17.7: Spec tests + proposals.yaml update
 
 Stage 18: Wasm 3.0 — GC
 
@@ -136,11 +136,11 @@ Task Queue:
 
 ## Current Task
 
-17.7: Spec tests + proposals.yaml update
+Stage 17 complete — merge to main, then plan Stage 18 (GC).
 
 ## Previous Task
 
-17.6: Fixed module body scanner (validateBodyEnd), predecode bail, readBlockType for typed ref types (0x63/0x64). All 6 func-ref spec tests pass: call_ref 30, return_call_ref 45, ref_as_non_null 5, br_on_null 7, br_on_non_null 9, local_init 8. Total 60,863/60,896.
+17.7: Updated proposals.yaml (function_references: complete), spec-support.md. 8/10 Wasm 3.0 proposals done.
 
 ## Wasm 3.0 Coverage
 
