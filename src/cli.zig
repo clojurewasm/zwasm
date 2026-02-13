@@ -1285,7 +1285,7 @@ const features_list = [_]Feature{
     // Other proposals
     .{ .name = "Wide arithmetic", .spec_level = .phase_3, .status = .complete, .opcodes = 4 },
     .{ .name = "Custom page sizes", .spec_level = .phase_3, .status = .complete, .opcodes = 0 },
-    .{ .name = "Threads", .spec_level = .phase_4, .status = .planned, .opcodes = 68 },
+    .{ .name = "Threads", .spec_level = .phase_4, .status = .complete, .opcodes = 79 },
 };
 
 fn cmdFeatures(args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) void {

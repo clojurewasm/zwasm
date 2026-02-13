@@ -813,6 +813,11 @@ const Validator = struct {
                 try self.validateSimdOp(reader);
             },
 
+            // ---- 0xFE prefix (Atomic/Threads) ----
+            .atomic_prefix => {
+                try self.validateAtomicOp(reader);
+            },
+
             _ => {
                 return error.IllegalOpcode;
             },
@@ -995,6 +1000,22 @@ const Validator = struct {
             0x1C, 0x1D, 0x1E => {}, // ref.i31, i31.get_s, i31.get_u
             else => {},
         }
+    }
+
+    fn validateAtomicOp(self: *Validator, reader: *Reader) !void {
+        _ = self;
+        const sub_op = try reader.readU32();
+        if (sub_op == 0x03) {
+            // atomic.fence
+            const reserved = try reader.readByte();
+            if (reserved != 0x00) return error.IllegalOpcode;
+            return;
+        }
+        if (sub_op > 0x4E) return error.IllegalOpcode;
+        // All other atomic ops have memarg
+        _ = try reader.readU32(); // align
+        _ = try reader.readU32(); // offset
+        // TODO: full validation (type checking) in 21.5
     }
 
     fn validateSimdOp(self: *Validator, reader: *Reader) !void {

@@ -59,6 +59,11 @@ def parse_value(val_obj):
     """Parse a JSON value object to u64 or v128 tuple. Returns ("skip",) for unsupported types."""
     vtype = val_obj["type"]
 
+    # "either" type: result can match any of the listed alternatives
+    if vtype == "either":
+        alternatives = [parse_value(v) for v in val_obj.get("values", [])]
+        return ("either", alternatives)
+
     # GC ref types may have no "value" field: means "any non-null ref of this type"
     if "value" not in val_obj:
         return ("ref_any", vtype)
@@ -216,6 +221,17 @@ def match_results(results, expected_list):
                     return False
                 if results[ridx] == 0:
                     return False  # null doesn't match ref_any
+                ridx += 1
+            elif e[0] == "either":
+                # Result must match any one of the alternatives
+                if ridx >= len(results):
+                    return False
+                matched = any(
+                    match_results([results[ridx]], [alt])
+                    for alt in e[1]
+                )
+                if not matched:
+                    return False
                 ridx += 1
             else:
                 return False
@@ -535,8 +551,24 @@ def run_test_file(json_path, verbose=False):
     module_runners = {}
     # Track the last loaded internal name (for register command pairing)
     last_internal_name = None
+    # Track named modules' wasm paths (for thread register commands)
+    named_module_wasm = {}
 
-    for cmd in data.get("commands", []):
+    # Flatten thread blocks: run thread commands sequentially (single-threaded runtime)
+    def flatten_commands(commands):
+        result = []
+        for cmd in commands:
+            if cmd["type"] == "thread":
+                result.extend(flatten_commands(cmd.get("commands", [])))
+            elif cmd["type"] == "wait":
+                pass  # no-op for single-threaded
+            else:
+                result.append(cmd)
+        return result
+
+    all_commands = flatten_commands(data.get("commands", []))
+
+    for cmd in all_commands:
         cmd_type = cmd["type"]
         line = cmd.get("line", 0)
 
@@ -567,16 +599,22 @@ def run_test_file(json_path, verbose=False):
 
                 # Track internal name for register command pairing
                 last_internal_name = cmd.get("name")
+                if last_internal_name:
+                    named_module_wasm[last_internal_name] = current_wasm
             continue
 
         if cmd_type == "register":
-            # Register current module under the given name for imports
+            # Register module under the given name for imports
             reg_name = cmd.get("as", "")
-            if current_wasm and reg_name:
-                registered_modules[reg_name] = current_wasm
-                # Pair internal name with registration name
-                if last_internal_name:
-                    module_reg_names[last_internal_name] = reg_name
+            ref_name = cmd.get("name")  # reference to named module (e.g. in thread blocks)
+            if reg_name:
+                if ref_name and ref_name in named_module_wasm:
+                    registered_modules[reg_name] = named_module_wasm[ref_name]
+                    module_reg_names[ref_name] = reg_name
+                elif current_wasm:
+                    registered_modules[reg_name] = current_wasm
+                    if last_internal_name:
+                        module_reg_names[last_internal_name] = reg_name
             continue
 
         if cmd_type == "action":

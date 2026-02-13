@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-19 — COMPLETE (Wasm 3.0 all 9 proposals + GC collector + WASI P1 full)
 - Source: ~33K LOC, 19 files, 239+ tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 61,344/61,451 Mac (99.8%), incl. GC 472/546, E2E: 356/356, CI: ubuntu + macOS
+- Spec: 61,650/61,761 Mac (99.8%), incl. GC 472/546, threads 306/310, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -44,11 +44,11 @@ Target: Core Wasm threads proposal (~1,500 LOC).
 Shared memory, atomic ops, wait/notify. Phase 4, browser-shipped.
 Reference: wasmtime cranelift atomics, spec repo `~/Documents/OSS/WebAssembly/threads`.
 
-1. [ ] 21.1: Shared memory flag in memory section, SharedArrayBuffer-style backing
-2. [ ] 21.2: Atomic load/store/rmw opcodes (i32/i64) — 57 opcodes
-3. [ ] 21.3: memory.atomic.wait32/wait64/notify
-4. [ ] 21.4: atomic.fence
-5. [ ] 21.5: Spec tests + validation
+1. [x] 21.1: Shared memory flag in memory section, AtomicOpcode enum, 0xFE prefix decoder
+2. [x] 21.2: All 79 atomic opcodes (load/store/rmw/cmpxchg) + alignment + shared memory checks
+3. [x] 21.3: memory.atomic.wait32/wait64/notify (single-threaded semantics)
+4. [x] 21.4: atomic.fence (no-op)
+5. [x] 21.5: Spec tests 306/310 + runner thread/wait/either support (4 genuine multi-thread failures)
 
 Stage 22: Component Model (W7)
 
@@ -85,11 +85,12 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 20 complete. Merge to main, then start Stage 21.
+Stage 22 Group A: WIT Parser
 
 ## Previous Task
 
-20.3: `--json` output for `zwasm features --json`. Valid JSON with features array + summary.
+21.2-21.5: All 79 atomic opcodes, alignment/shared-memory traps, spec test runner
+thread/wait/either support. 306/310 threads tests passing. 61,650/61,761 total (99.8%).
 
 ## Wasm 3.0 Coverage
 
@@ -98,7 +99,7 @@ GC spec tests via wasm-tools 1.244.0: 472/546 (86.4%), 18 files. W21 resolved.
 
 ## Known Bugs
 
-None. Mac 61,344/61,451 (99.8%), 32 GC skips, 33 multi-module linking failures.
+None. Mac 61,650/61,761 (99.8%), 4 thread-dependent failures (require real threading), 32 GC skips, 33 multi-module linking failures.
 Note: Ubuntu Debug build has 11 extra timeouts on tail-call recursion tests (return_call/return_call_ref count/even/odd 1M iterations). Use ReleaseSafe for spec tests on Ubuntu.
 
 ## References

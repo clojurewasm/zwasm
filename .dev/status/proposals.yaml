@@ -295,11 +295,11 @@ wasm_3.0:
 in_progress:
 
   threads:
-    status: todo
+    status: complete
     phase: 4                      # Phase 4 but not yet ratified into spec version
-    opcodes: 68                   # 4 control (notify/wait32/wait64/fence) +
-                                  # 7 loads + 7 stores + 42 RMW (7 ops × 6 widths) +
-                                  # 7 cmpxchg = ~67-68 total
+    opcodes: 79                   # 4 control (notify/wait32/wait64/fence) +
+                                  # 7 loads + 7 stores + 49 RMW (7 widths × 6 ops + 7 xchg) +
+                                  # 7 cmpxchg + 5 misc = 79 total (0x00-0x4E)
     new_types:
       - "shared memory"           # Limits flag bit for shared
     complexity: very_high

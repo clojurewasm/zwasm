@@ -250,6 +250,7 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
             },
             .gc_prefix => skipGcImmediates(&reader) catch break,
             .simd_prefix => skipSimdImmediates(&reader) catch break,
+            .atomic_prefix => skipAtomicImmediates(&reader) catch break,
             else => {},
         }
         _ = pos_before;
@@ -1354,6 +1355,7 @@ pub const Vm = struct {
 
                 // ---- SIMD prefix ----
                 .simd_prefix => try self.executeSimd(reader, instance),
+                .atomic_prefix => try self.executeAtomic(reader, instance),
 
                 _ => return error.Trap,
             }
@@ -2068,6 +2070,211 @@ pub const Vm = struct {
             },
             _ => return error.Trap,
         }
+    }
+
+    fn executeAtomic(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {
+        const sub = try reader.readU32();
+        const atomic_op: opcode.AtomicOpcode = @enumFromInt(sub);
+
+        if (atomic_op == .atomic_fence) {
+            // atomic.fence — no-op for single-threaded runtime
+            const reserved = try reader.readByte();
+            if (reserved != 0x00) return error.Trap;
+            return;
+        }
+
+        // All other atomic ops have memarg (align + offset)
+        const align_flags = try reader.readU32();
+        const offset = try reader.readU32();
+        _ = align_flags; // alignment validated at decode time
+        const m = instance.getMemory(0) catch return error.OutOfBoundsMemoryAccess;
+
+        switch (atomic_op) {
+            .atomic_fence => unreachable, // handled above
+
+            // ---- Wait/Notify ----
+            .memory_atomic_notify => {
+                _ = self.popI32(); // count
+                const addr: u32 = @bitCast(self.popI32());
+                if ((addr +% offset) % 4 != 0) return error.Trap; // unaligned atomic
+                _ = m.read(u32, offset, addr) catch return error.OutOfBoundsMemoryAccess;
+                try self.pushI32(0); // 0 waiters notified
+            },
+            .memory_atomic_wait32 => {
+                _ = self.popI64(); // timeout
+                const expected: i32 = self.popI32();
+                const addr: u32 = @bitCast(self.popI32());
+                if ((addr +% offset) % 4 != 0) return error.Trap; // unaligned atomic
+                if (!m.is_shared_memory) return error.Trap; // expected shared memory
+                const loaded = m.read(i32, offset, addr) catch return error.OutOfBoundsMemoryAccess;
+                if (loaded != expected) {
+                    try self.pushI32(1); // "not-equal"
+                } else {
+                    try self.pushI32(2); // "timed-out" (single-threaded: can never be woken)
+                }
+            },
+            .memory_atomic_wait64 => {
+                _ = self.popI64(); // timeout
+                const expected: i64 = self.popI64();
+                const addr: u32 = @bitCast(self.popI32());
+                if ((addr +% offset) % 8 != 0) return error.Trap; // unaligned atomic
+                if (!m.is_shared_memory) return error.Trap; // expected shared memory
+                const loaded = m.read(i64, offset, addr) catch return error.OutOfBoundsMemoryAccess;
+                if (loaded != expected) {
+                    try self.pushI32(1); // "not-equal"
+                } else {
+                    try self.pushI32(2); // "timed-out"
+                }
+            },
+
+            // ---- Atomic loads ----
+            .i32_atomic_load => try self.atomicLoad(u32, u32, offset, m),
+            .i64_atomic_load => try self.atomicLoad(u64, u64, offset, m),
+            .i32_atomic_load8_u => try self.atomicLoad(u8, u32, offset, m),
+            .i32_atomic_load16_u => try self.atomicLoad(u16, u32, offset, m),
+            .i64_atomic_load8_u => try self.atomicLoad(u8, u64, offset, m),
+            .i64_atomic_load16_u => try self.atomicLoad(u16, u64, offset, m),
+            .i64_atomic_load32_u => try self.atomicLoad(u32, u64, offset, m),
+
+            // ---- Atomic stores ----
+            .i32_atomic_store => try self.atomicStore(u32, .i32, offset, m),
+            .i64_atomic_store => try self.atomicStore(u64, .i64, offset, m),
+            .i32_atomic_store8 => try self.atomicStore(u8, .i32, offset, m),
+            .i32_atomic_store16 => try self.atomicStore(u16, .i32, offset, m),
+            .i64_atomic_store8 => try self.atomicStore(u8, .i64, offset, m),
+            .i64_atomic_store16 => try self.atomicStore(u16, .i64, offset, m),
+            .i64_atomic_store32 => try self.atomicStore(u32, .i64, offset, m),
+
+            // ---- RMW add ----
+            .i32_atomic_rmw_add => try self.atomicRmw(u32, u32, .add, offset, m),
+            .i64_atomic_rmw_add => try self.atomicRmw(u64, u64, .add, offset, m),
+            .i32_atomic_rmw8_add_u => try self.atomicRmw(u8, u32, .add, offset, m),
+            .i32_atomic_rmw16_add_u => try self.atomicRmw(u16, u32, .add, offset, m),
+            .i64_atomic_rmw8_add_u => try self.atomicRmw(u8, u64, .add, offset, m),
+            .i64_atomic_rmw16_add_u => try self.atomicRmw(u16, u64, .add, offset, m),
+            .i64_atomic_rmw32_add_u => try self.atomicRmw(u32, u64, .add, offset, m),
+
+            // ---- RMW sub ----
+            .i32_atomic_rmw_sub => try self.atomicRmw(u32, u32, .sub, offset, m),
+            .i64_atomic_rmw_sub => try self.atomicRmw(u64, u64, .sub, offset, m),
+            .i32_atomic_rmw8_sub_u => try self.atomicRmw(u8, u32, .sub, offset, m),
+            .i32_atomic_rmw16_sub_u => try self.atomicRmw(u16, u32, .sub, offset, m),
+            .i64_atomic_rmw8_sub_u => try self.atomicRmw(u8, u64, .sub, offset, m),
+            .i64_atomic_rmw16_sub_u => try self.atomicRmw(u16, u64, .sub, offset, m),
+            .i64_atomic_rmw32_sub_u => try self.atomicRmw(u32, u64, .sub, offset, m),
+
+            // ---- RMW and ----
+            .i32_atomic_rmw_and => try self.atomicRmw(u32, u32, .@"and", offset, m),
+            .i64_atomic_rmw_and => try self.atomicRmw(u64, u64, .@"and", offset, m),
+            .i32_atomic_rmw8_and_u => try self.atomicRmw(u8, u32, .@"and", offset, m),
+            .i32_atomic_rmw16_and_u => try self.atomicRmw(u16, u32, .@"and", offset, m),
+            .i64_atomic_rmw8_and_u => try self.atomicRmw(u8, u64, .@"and", offset, m),
+            .i64_atomic_rmw16_and_u => try self.atomicRmw(u16, u64, .@"and", offset, m),
+            .i64_atomic_rmw32_and_u => try self.atomicRmw(u32, u64, .@"and", offset, m),
+
+            // ---- RMW or ----
+            .i32_atomic_rmw_or => try self.atomicRmw(u32, u32, .@"or", offset, m),
+            .i64_atomic_rmw_or => try self.atomicRmw(u64, u64, .@"or", offset, m),
+            .i32_atomic_rmw8_or_u => try self.atomicRmw(u8, u32, .@"or", offset, m),
+            .i32_atomic_rmw16_or_u => try self.atomicRmw(u16, u32, .@"or", offset, m),
+            .i64_atomic_rmw8_or_u => try self.atomicRmw(u8, u64, .@"or", offset, m),
+            .i64_atomic_rmw16_or_u => try self.atomicRmw(u16, u64, .@"or", offset, m),
+            .i64_atomic_rmw32_or_u => try self.atomicRmw(u32, u64, .@"or", offset, m),
+
+            // ---- RMW xor ----
+            .i32_atomic_rmw_xor => try self.atomicRmw(u32, u32, .xor, offset, m),
+            .i64_atomic_rmw_xor => try self.atomicRmw(u64, u64, .xor, offset, m),
+            .i32_atomic_rmw8_xor_u => try self.atomicRmw(u8, u32, .xor, offset, m),
+            .i32_atomic_rmw16_xor_u => try self.atomicRmw(u16, u32, .xor, offset, m),
+            .i64_atomic_rmw8_xor_u => try self.atomicRmw(u8, u64, .xor, offset, m),
+            .i64_atomic_rmw16_xor_u => try self.atomicRmw(u16, u64, .xor, offset, m),
+            .i64_atomic_rmw32_xor_u => try self.atomicRmw(u32, u64, .xor, offset, m),
+
+            // ---- RMW xchg ----
+            .i32_atomic_rmw_xchg => try self.atomicRmw(u32, u32, .xchg, offset, m),
+            .i64_atomic_rmw_xchg => try self.atomicRmw(u64, u64, .xchg, offset, m),
+            .i32_atomic_rmw8_xchg_u => try self.atomicRmw(u8, u32, .xchg, offset, m),
+            .i32_atomic_rmw16_xchg_u => try self.atomicRmw(u16, u32, .xchg, offset, m),
+            .i64_atomic_rmw8_xchg_u => try self.atomicRmw(u8, u64, .xchg, offset, m),
+            .i64_atomic_rmw16_xchg_u => try self.atomicRmw(u16, u64, .xchg, offset, m),
+            .i64_atomic_rmw32_xchg_u => try self.atomicRmw(u32, u64, .xchg, offset, m),
+
+            // ---- RMW cmpxchg ----
+            .i32_atomic_rmw_cmpxchg => try self.atomicCmpxchg(u32, u32, offset, m),
+            .i64_atomic_rmw_cmpxchg => try self.atomicCmpxchg(u64, u64, offset, m),
+            .i32_atomic_rmw8_cmpxchg_u => try self.atomicCmpxchg(u8, u32, offset, m),
+            .i32_atomic_rmw16_cmpxchg_u => try self.atomicCmpxchg(u16, u32, offset, m),
+            .i64_atomic_rmw8_cmpxchg_u => try self.atomicCmpxchg(u8, u64, offset, m),
+            .i64_atomic_rmw16_cmpxchg_u => try self.atomicCmpxchg(u16, u64, offset, m),
+            .i64_atomic_rmw32_cmpxchg_u => try self.atomicCmpxchg(u32, u64, offset, m),
+
+            _ => return error.Trap,
+        }
+    }
+
+    // Single-threaded atomic helpers — behave like regular ops
+
+    const RmwOp = enum { add, sub, @"and", @"or", xor, xchg };
+
+    fn atomicLoad(self: *Vm, comptime MemT: type, comptime ResultT: type, offset: u32, m: *WasmMemory) WasmError!void {
+        const addr: u32 = @bitCast(self.popI32());
+        if (@sizeOf(MemT) > 1 and (addr +% offset) % @sizeOf(MemT) != 0) return error.Trap;
+        const val = m.read(MemT, offset, addr) catch return error.OutOfBoundsMemoryAccess;
+        const result: ResultT = @intCast(val);
+        try self.push(asU64(ResultT, result));
+    }
+
+    fn atomicStore(self: *Vm, comptime MemT: type, comptime pop_type: enum { i32, i64 }, offset: u32, m: *WasmMemory) WasmError!void {
+        const val: MemT = switch (pop_type) {
+            .i32 => @truncate(@as(u32, @bitCast(self.popI32()))),
+            .i64 => @truncate(@as(u64, @bitCast(self.popI64()))),
+        };
+        const addr: u32 = @bitCast(self.popI32());
+        if (@sizeOf(MemT) > 1 and (addr +% offset) % @sizeOf(MemT) != 0) return error.Trap;
+        m.write(MemT, offset, addr, val) catch return error.OutOfBoundsMemoryAccess;
+    }
+
+    fn atomicRmw(self: *Vm, comptime MemT: type, comptime ResultT: type, comptime op: RmwOp, offset: u32, m: *WasmMemory) WasmError!void {
+        const operand: MemT = switch (ResultT) {
+            u32 => @truncate(@as(u32, @bitCast(self.popI32()))),
+            u64 => @truncate(@as(u64, @bitCast(self.popI64()))),
+            else => unreachable,
+        };
+        const addr: u32 = @bitCast(self.popI32());
+        if (@sizeOf(MemT) > 1 and (addr +% offset) % @sizeOf(MemT) != 0) return error.Trap;
+        const old = m.read(MemT, offset, addr) catch return error.OutOfBoundsMemoryAccess;
+        const new_val: MemT = switch (op) {
+            .add => old +% operand,
+            .sub => old -% operand,
+            .@"and" => old & operand,
+            .@"or" => old | operand,
+            .xor => old ^ operand,
+            .xchg => operand,
+        };
+        m.write(MemT, offset, addr, new_val) catch return error.OutOfBoundsMemoryAccess;
+        const result: ResultT = @intCast(old);
+        try self.push(asU64(ResultT, result));
+    }
+
+    fn atomicCmpxchg(self: *Vm, comptime MemT: type, comptime ResultT: type, offset: u32, m: *WasmMemory) WasmError!void {
+        const replacement: MemT = switch (ResultT) {
+            u32 => @truncate(@as(u32, @bitCast(self.popI32()))),
+            u64 => @truncate(@as(u64, @bitCast(self.popI64()))),
+            else => unreachable,
+        };
+        const expected: MemT = switch (ResultT) {
+            u32 => @truncate(@as(u32, @bitCast(self.popI32()))),
+            u64 => @truncate(@as(u64, @bitCast(self.popI64()))),
+            else => unreachable,
+        };
+        const addr: u32 = @bitCast(self.popI32());
+        if (@sizeOf(MemT) > 1 and (addr +% offset) % @sizeOf(MemT) != 0) return error.Trap;
+        const loaded = m.read(MemT, offset, addr) catch return error.OutOfBoundsMemoryAccess;
+        if (loaded == expected) {
+            m.write(MemT, offset, addr, replacement) catch return error.OutOfBoundsMemoryAccess;
+        }
+        const result: ResultT = @intCast(loaded);
+        try self.push(asU64(ResultT, result));
     }
 
     fn executeSimd(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {
@@ -5267,6 +5474,7 @@ fn skipToEnd(reader: *Reader) !void {
             },
             .gc_prefix => skipGcImmediates(reader) catch return,
             .simd_prefix => try skipSimdImmediates(reader),
+            .atomic_prefix => try skipAtomicImmediates(reader),
             else => {}, // Simple opcodes with no immediates
         }
     }
@@ -5355,6 +5563,7 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
             },
             .gc_prefix => skipGcImmediates(reader) catch return false,
             .simd_prefix => try skipSimdImmediates(reader),
+            .atomic_prefix => try skipAtomicImmediates(reader),
             else => {},
         }
     }
@@ -5435,6 +5644,18 @@ fn skipSimdImmediates(reader: *Reader) !void {
         },
         // All other ops: no immediates
         else => {},
+    }
+}
+
+fn skipAtomicImmediates(reader: *Reader) !void {
+    const sub = try reader.readU32();
+    if (sub == 0x03) {
+        // atomic.fence: reserved byte 0x00
+        _ = try reader.readByte();
+    } else {
+        // All other atomic ops: memarg (align + offset)
+        _ = try reader.readU32(); // align
+        _ = try reader.readU32(); // offset
     }
 }
 
