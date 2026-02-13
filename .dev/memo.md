@@ -70,7 +70,7 @@ Group B: Component Binary Format (~1,200 LOC)
 9. [x] B5: Nested component/module instantiation
 
 Group C: Canonical ABI (~1,500 LOC)
-10. [ ] C1: Scalar types (bool, integers, float, char)
+10. [x] C1: Scalar types (bool, integers, float, char)
 11. [ ] C2: String encoding (utf-8/utf-16/latin1+utf-16)
 12. [ ] C3: List, record, tuple, variant, enum, option, result
 13. [ ] C4: Flags, own/borrow handles
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 C1: Scalar types (bool, integers, float, char)
+Stage 22 C2: String encoding (utf-8/utf-16/latin1+utf-16)
 
 ## Previous Task
 
-B4+B5: Start section, core instance (instantiate/from_exports), component instance decoders. 3 new tests. Group B complete.
+C1: Canonical ABI scalar types — lift/lower for bool/integers/floats/char, flatType/sizeOf/alignOf. 9 tests.
 
 ## Wasm 3.0 Coverage
 
