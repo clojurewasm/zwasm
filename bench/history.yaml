@@ -681,3 +681,30 @@ entries:
       st_nestedloop: {time_ms: 4.1}
       st_ackermann: {time_ms: 6.7}
       st_matrix: {time_ms: 278.3}
+  - id: "stage22"
+    date: "2026-02-14"
+    reason: "Stage 22 complete"
+    commit: "f2a6dc0"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 96.4}
+      tak: {time_ms: 10.8}
+      sieve: {time_ms: 4.4}
+      nbody: {time_ms: 40.6}
+      nqueens: {time_ms: 3.1}
+      tgo_fib: {time_ms: 50.9}
+      tgo_tak: {time_ms: 9.1}
+      tgo_arith: {time_ms: 2.1}
+      tgo_sieve: {time_ms: 4.0}
+      tgo_fib_loop: {time_ms: 2.3}
+      tgo_gcd: {time_ms: 3.0}
+      tgo_nqueens: {time_ms: 48.0}
+      tgo_mfr: {time_ms: 74.2}
+      tgo_list: {time_ms: 61.4}
+      tgo_rwork: {time_ms: 44.8}
+      tgo_strops: {time_ms: 36.7}
+      st_fib2: {time_ms: 1371.4}
+      st_sieve: {time_ms: 239.1}
+      st_nestedloop: {time_ms: 3.8}
+      st_ackermann: {time_ms: 6.8}
+      st_matrix: {time_ms: 288.2}

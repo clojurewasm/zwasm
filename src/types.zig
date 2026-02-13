@@ -10,6 +10,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const wit_parser = @import("wit_parser.zig");
+const wit = @import("wit.zig");
+const component = @import("component.zig");
+const canon_abi = @import("canon_abi.zig");
 
 // Internal Wasm runtime modules
 const rt = struct {

@@ -4,8 +4,9 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-19 — COMPLETE (Wasm 3.0 all 9 proposals + GC collector + WASI P1 full)
-- Source: ~33K LOC, 19 files, 239+ tests all pass
+- Stages 0-2, 4, 7-19, 22 — COMPLETE (Wasm 3.0 + GC + WASI P1 + Component Model)
+- Source: ~38K LOC, 22 files, 360+ tests all pass
+- Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
 - Spec: 61,650/61,761 Mac (99.8%), incl. GC 472/546, threads 306/310, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
@@ -57,40 +58,39 @@ wasmtime is reference impl. Each group independently mergeable.
 Design: default ON, implement all wasmtime supports, minimal flags.
 
 Group A: WIT Parser (~800 LOC)
-1. [ ] A1: WIT lexer + token types
-2. [ ] A2: WIT parser — interfaces, worlds, types, functions
-3. [ ] A3: WIT resolution — use declarations, package references
-4. [ ] A4: Unit tests + wasmtime WIT corpus validation
+1. [x] A1: WIT lexer + token types
+2. [x] A2: WIT parser — interfaces, worlds, types, functions
+3. [x] A3: WIT resolution — use declarations, package references
+4. [x] A4: Unit tests + wasmtime WIT corpus validation
 
 Group B: Component Binary Format (~1,200 LOC)
-5. [ ] B1: Component section types (component, core:module, instance, alias, etc.)
-6. [ ] B2: Component type section — func types, component types, instance types
-7. [ ] B3: Canon section — lift/lower/resource ops
-8. [ ] B4: Start, import, export sections
-9. [ ] B5: Nested component/module instantiation
+5. [x] B1: Component section types (component, core:module, instance, alias, etc.)
+6. [x] B2: Component type section — func types, component types, instance types
+7. [x] B3: Canon section — lift/lower/resource ops
+8. [x] B4: Start, import, export sections
+9. [x] B5: Nested component/module instantiation
 
 Group C: Canonical ABI (~1,500 LOC)
-10. [ ] C1: Scalar types (bool, integers, float, char)
-11. [ ] C2: String encoding (utf-8/utf-16/latin1+utf-16)
-12. [ ] C3: List, record, tuple, variant, enum, option, result
-13. [ ] C4: Flags, own/borrow handles
-14. [ ] C5: Memory realloc protocol + post-return
+10. [x] C1: Scalar types (bool, integers, float, char)
+11. [x] C2: String encoding (utf-8/utf-16/latin1+utf-16)
+12. [x] C3: List, record, tuple, variant, enum, option, result
+13. [x] C4: Flags, own/borrow handles
+14. [x] C5: Memory realloc protocol + post-return
 
 Group D: Component Linker + WASI P2 (~2,000 LOC)
-15. [ ] D1: Component instantiation — resolve imports, create instances
-16. [ ] D2: Virtual adapter pattern — P1 compat shim
-17. [ ] D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
-18. [ ] D4: `zwasm run` component support (detect component vs module automatically)
-19. [ ] D5: Spec tests + integration
+15. [x] D1: Component instantiation — resolve imports, create instances
+16. [x] D2: Virtual adapter pattern — P1 compat shim
+17. [x] D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
+18. [x] D4: `zwasm run` component support (detect component vs module automatically)
+19. [x] D5: Spec tests + integration
 
 ## Current Task
 
-Stage 22 Group A: WIT Parser
+Stage 22 complete. Run merge gate checklist.
 
 ## Previous Task
 
-21.2-21.5: All 79 atomic opcodes, alignment/shared-memory traps, spec test runner
-thread/wait/either support. 306/310 threads tests passing. 61,650/61,761 total (99.8%).
+D5: Integration tests — full decode→instantiate pipeline, scalar/string/flags/handle roundtrips, WIT parse→resolve→adapter lookup. 10 new integration tests (121 CM tests total).
 
 ## Wasm 3.0 Coverage
 
