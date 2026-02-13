@@ -3832,7 +3832,7 @@ test "compile and execute memory load/store" {
     // Set up a Store with one memory page (64KB)
     var store = store_mod.Store.init(alloc);
     defer store.deinit();
-    const mem_idx = try store.addMemory(1, null, 65536);
+    const mem_idx = try store.addMemory(1, null, 65536, false);
     const mem = try store.getMemory(mem_idx);
     try mem.allocateInitial();
 
@@ -3906,7 +3906,7 @@ test "compile and execute memory store then load" {
 
     var store = store_mod.Store.init(alloc);
     defer store.deinit();
-    const mem_idx = try store.addMemory(1, null, 65536);
+    const mem_idx = try store.addMemory(1, null, 65536, false);
     const mem = try store.getMemory(mem_idx);
     try mem.allocateInitial();
 
@@ -3958,7 +3958,7 @@ test "const-addr memory load elides bounds check" {
 
     var store = store_mod.Store.init(alloc);
     defer store.deinit();
-    const mem_idx = try store.addMemory(1, null, 65536);
+    const mem_idx = try store.addMemory(1, null, 65536, false);
     const mem = try store.getMemory(mem_idx);
     try mem.allocateInitial();
 

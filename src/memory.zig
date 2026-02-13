@@ -19,6 +19,7 @@ pub const Memory = struct {
     page_size: u32 = PAGE_SIZE, // custom page sizes proposal: 1 or 65536
     data: std.ArrayList(u8),
     shared: bool = false, // true = borrowed from another module, skip deinit
+    is_shared_memory: bool = false, // threads proposal: declared with shared flag
 
     pub fn init(alloc: mem.Allocator, min: u32, max: ?u32) Memory {
         return .{
