@@ -444,9 +444,46 @@ pub const Opcode = enum(u8) {
     br_on_non_null = 0xD6,
 
     // Multi-byte prefix
+    gc_prefix = 0xFB,
     misc_prefix = 0xFC,
     simd_prefix = 0xFD,
 
+    _,
+};
+
+/// 0xFB-prefixed GC opcodes.
+pub const GcOpcode = enum(u32) {
+    struct_new = 0x00,
+    struct_new_default = 0x01,
+    struct_get = 0x02,
+    struct_get_s = 0x03,
+    struct_get_u = 0x04,
+    struct_set = 0x05,
+    array_new = 0x06,
+    array_new_default = 0x07,
+    array_new_fixed = 0x08,
+    array_new_data = 0x09,
+    array_new_elem = 0x0A,
+    array_get = 0x0B,
+    array_get_s = 0x0C,
+    array_get_u = 0x0D,
+    array_set = 0x0E,
+    array_len = 0x0F,
+    array_fill = 0x10,
+    array_copy = 0x11,
+    array_init_data = 0x12,
+    array_init_elem = 0x13,
+    ref_test = 0x14,
+    ref_test_null = 0x15,
+    ref_cast = 0x16,
+    ref_cast_null = 0x17,
+    br_on_cast = 0x18,
+    br_on_cast_fail = 0x19,
+    any_convert_extern = 0x1A,
+    extern_convert_any = 0x1B,
+    ref_i31 = 0x1C,
+    i31_get_s = 0x1D,
+    i31_get_u = 0x1E,
     _,
 };
 
@@ -920,7 +957,7 @@ test "Opcode — unknown byte produces non-named variant" {
         .i32_extend8_s, .i32_extend16_s => true,
         .i64_extend8_s, .i64_extend16_s, .i64_extend32_s => true,
         .ref_null, .ref_is_null, .ref_func, .ref_as_non_null, .br_on_null, .br_on_non_null => true,
-        .misc_prefix, .simd_prefix => true,
+        .gc_prefix, .misc_prefix, .simd_prefix => true,
         _ => false,
     };
     try std.testing.expect(!is_known);

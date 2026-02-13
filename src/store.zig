@@ -12,6 +12,8 @@ const ArrayList = std.ArrayList;
 const WasmMemory = @import("memory.zig").Memory;
 const opcode = @import("opcode.zig");
 const ValType = opcode.ValType;
+const gc_mod = @import("gc.zig");
+pub const GcHeap = gc_mod.GcHeap;
 
 /// Forward declaration — Instance defined in instance.zig.
 pub const Instance = opaque {};
@@ -232,6 +234,7 @@ pub const Store = struct {
     elems: ArrayList(Elem),
     datas: ArrayList(Data),
     imports: ArrayList(ImportExport),
+    gc_heap: GcHeap,
 
     pub fn init(alloc: mem.Allocator) Store {
         return .{
@@ -244,6 +247,7 @@ pub const Store = struct {
             .elems = .empty,
             .datas = .empty,
             .imports = .empty,
+            .gc_heap = GcHeap.init(alloc),
         };
     }
 
@@ -280,6 +284,7 @@ pub const Store = struct {
         self.elems.deinit(self.alloc);
         self.datas.deinit(self.alloc);
         self.imports.deinit(self.alloc);
+        self.gc_heap.deinit();
     }
 
     // ---- Lookup by address ----

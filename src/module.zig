@@ -879,6 +879,35 @@ pub const Module = struct {
                     }
                     // All other SIMD ops have no immediates
                 },
+                0xFB => { // GC prefix
+                    const gc_sub = try r.readU32();
+                    switch (gc_sub) {
+                        0x00, 0x01 => _ = try r.readU32(), // struct.new/new_default (typeidx)
+                        0x02, 0x03, 0x04, 0x05 => { // struct.get/get_s/get_u/set
+                            _ = try r.readU32(); // typeidx
+                            _ = try r.readU32(); // fieldidx
+                        },
+                        0x06, 0x07 => _ = try r.readU32(), // array.new/new_default (typeidx)
+                        0x08 => { _ = try r.readU32(); _ = try r.readU32(); }, // array.new_fixed (typeidx, N)
+                        0x09, 0x0A => { _ = try r.readU32(); _ = try r.readU32(); }, // array.new_data/elem
+                        0x0B, 0x0C, 0x0D, 0x0E => _ = try r.readU32(), // array.get/get_s/get_u/set
+                        0x0F => {}, // array.len (no immediates)
+                        0x10 => _ = try r.readU32(), // array.fill (typeidx)
+                        0x11 => { _ = try r.readU32(); _ = try r.readU32(); }, // array.copy
+                        0x12, 0x13 => { _ = try r.readU32(); _ = try r.readU32(); }, // array.init_data/elem
+                        0x14, 0x15 => _ = try r.readI33(), // ref.test/ref.test_null (heaptype)
+                        0x16, 0x17 => _ = try r.readI33(), // ref.cast/ref.cast_null (heaptype)
+                        0x18, 0x19 => { // br_on_cast/br_on_cast_fail
+                            _ = try r.readByte(); // flags
+                            _ = try r.readU32(); // labelidx
+                            _ = try r.readI33(); // heaptype1
+                            _ = try r.readI33(); // heaptype2
+                        },
+                        0x1A, 0x1B => {}, // any.convert_extern, extern.convert_any
+                        0x1C, 0x1D, 0x1E => {}, // ref.i31, i31.get_s, i31.get_u
+                        else => {},
+                    }
+                },
                 0xFE => { // wide arithmetic prefix
                     _ = try r.readU32();
                 },

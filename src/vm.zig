@@ -248,6 +248,7 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
                     else => {},
                 }
             },
+            .gc_prefix => skipGcImmediates(&reader) catch break,
             .simd_prefix => skipSimdImmediates(&reader) catch break,
             else => {},
         }
@@ -1313,6 +1314,9 @@ pub const Vm = struct {
                     return;
                 },
 
+                // ---- 0xFB prefix (GC) ----
+                .gc_prefix => try self.executeGc(reader, instance),
+
                 // ---- 0xFC prefix (misc) ----
                 .misc_prefix => try self.executeMisc(reader, instance),
 
@@ -1321,6 +1325,30 @@ pub const Vm = struct {
 
                 _ => return error.Trap,
             }
+        }
+    }
+
+    fn executeGc(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {
+        _ = instance;
+        const gc_mod = @import("gc.zig");
+        const sub = reader.readU32() catch return error.Trap;
+        const gc_op: opcode.GcOpcode = @enumFromInt(sub);
+        switch (gc_op) {
+            .ref_i31 => {
+                const val: i32 = @bitCast(self.popI32());
+                try self.push(gc_mod.encodeI31(val));
+            },
+            .i31_get_s => {
+                const ref_val = self.pop();
+                const result = gc_mod.decodeI31Signed(ref_val) catch return error.Trap;
+                try self.pushI32(result);
+            },
+            .i31_get_u => {
+                const ref_val = self.pop();
+                const result = gc_mod.decodeI31Unsigned(ref_val) catch return error.Trap;
+                try self.pushI32(result);
+            },
+            else => return error.Trap, // unimplemented GC opcodes
         }
     }
 
@@ -4712,6 +4740,7 @@ fn skipToEnd(reader: *Reader) !void {
                     else => {},
                 }
             },
+            .gc_prefix => skipGcImmediates(reader) catch return,
             .simd_prefix => try skipSimdImmediates(reader),
             else => {}, // Simple opcodes with no immediates
         }
@@ -4799,11 +4828,41 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
                     else => {},
                 }
             },
+            .gc_prefix => skipGcImmediates(reader) catch return false,
             .simd_prefix => try skipSimdImmediates(reader),
             else => {},
         }
     }
     return found_else;
+}
+
+/// Skip GC instruction immediates when scanning bytecode (for skipToEnd/findElseOrEnd).
+fn skipGcImmediates(reader: *Reader) !void {
+    const sub = reader.readU32() catch return;
+    switch (sub) {
+        0x00, 0x01, 0x06, 0x07 => _ = reader.readU32() catch return, // typeidx
+        0x02, 0x03, 0x04, 0x05 => { // struct.get/set: typeidx + fieldidx
+            _ = reader.readU32() catch return;
+            _ = reader.readU32() catch return;
+        },
+        0x08 => { _ = reader.readU32() catch return; _ = reader.readU32() catch return; }, // array.new_fixed
+        0x09, 0x0A => { _ = reader.readU32() catch return; _ = reader.readU32() catch return; },
+        0x0B, 0x0C, 0x0D, 0x0E => _ = reader.readU32() catch return, // array.get/set
+        0x0F => {}, // array.len
+        0x10 => _ = reader.readU32() catch return, // array.fill
+        0x11 => { _ = reader.readU32() catch return; _ = reader.readU32() catch return; }, // array.copy
+        0x12, 0x13 => { _ = reader.readU32() catch return; _ = reader.readU32() catch return; },
+        0x14, 0x15 => _ = reader.readI33() catch return, // ref.test
+        0x16, 0x17 => _ = reader.readI33() catch return, // ref.cast
+        0x18, 0x19 => { // br_on_cast
+            _ = reader.readByte() catch return;
+            _ = reader.readU32() catch return;
+            _ = reader.readI33() catch return;
+            _ = reader.readI33() catch return;
+        },
+        0x1A, 0x1B, 0x1C, 0x1D, 0x1E => {}, // no immediates
+        else => {},
+    }
 }
 
 /// Skip SIMD instruction immediates when scanning bytecode (for skipToEnd/findElseOrEnd).

@@ -5,9 +5,9 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4, 7-15 — COMPLETE
-- Source: ~28K LOC, 17 files, 229 tests all pass
+- Source: ~28K LOC, 18 files, 236 tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
-- Spec: 60,863/60,896 Mac (99.9%), 7 skips, E2E: 356/356, CI: ubuntu + macOS
+- Spec: 60,873/60,906 Mac (99.9%), 7 skips, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -120,7 +120,7 @@ Largest proposal. Depends on Stage 17 (function_references).
 
 1. [x] 18.1: CompositeType migration + abstract heap types
 2. [x] 18.2: Type section decode — rec/sub/struct/array
-3. [ ] 18.3: GC heap + i31 instructions
+3. [x] 18.3: GC heap + i31 instructions
 4. [ ] 18.4: Struct operations
 5. [ ] 18.5: Array core operations
 6. [ ] 18.6: ref.eq + extern conversion
@@ -146,11 +146,11 @@ Task Queue:
 
 ## Current Task
 
-18.3: GC heap + i31 instructions.
+18.4: Struct operations.
 
 ## Previous Task
 
-18.2: Type section decode — rec/sub/struct/array, GC test conversion in convert.sh.
+18.3: GC heap + i31 instructions — gc.zig (GcHeap, i31 helpers), store.zig integration, 0xFB prefix dispatch, ref.i31/i31.get_s/i31.get_u in vm.zig.
 
 ## Wasm 3.0 Coverage
 
@@ -160,7 +160,7 @@ GC requires function_references (done).
 
 ## Known Bugs
 
-None. Mac 60,863/60,896 (99.9%), Ubuntu 60,863/60,896 (99.9%), 7 skips, 33 multi-module linking failures.
+None. Mac 60,873/60,906 (99.9%), 7 skips, 33 multi-module linking failures.
 Note: Ubuntu Debug build has 11 extra timeouts on tail-call recursion tests (return_call/return_call_ref count/even/odd 1M iterations). Use ReleaseSafe for spec tests on Ubuntu.
 
 ## References
