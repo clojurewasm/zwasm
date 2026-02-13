@@ -442,12 +442,101 @@ A1 → A2 → A3 → B1 → C1 → C2 → C3 → C4 → D1 → D2 → D3 → D4 
 - WASI P1 35/35 functions implemented
 - No regression on existing tests/benchmarks
 
+## Stage 20: `zwasm features` CLI + Spec Compliance Metadata
+
+**Goal**: Machine-readable feature listing. Users and tools can query what's supported.
+
+- 20.1: Add `zwasm features` subcommand — prints table of supported proposals with status
+- 20.2: Spec level tags per feature (W3C Recommendation / Finalized / Preview / Not yet)
+- 20.3: `--json` output for machine consumption
+
+~200 LOC. No runtime changes.
+
+## Stage 21: Threads (Shared Memory + Atomics)
+
+**Goal**: Core Wasm threads proposal. Shared memory, atomic ops, wait/notify.
+
+Reference: wasmtime cranelift atomics, spec repo `~/Documents/OSS/WebAssembly/threads`.
+
+- 21.1: Shared memory flag in memory section, SharedArrayBuffer-style backing
+- 21.2: Atomic load/store/rmw opcodes (i32/i64) — 57 opcodes
+- 21.3: memory.atomic.wait32/wait64/notify
+- 21.4: atomic.fence
+- 21.5: Spec tests + validation
+
+~1,500 LOC. Core spec (Phase 4, browser-shipped).
+
+## Stage 22: Component Model (W7)
+
+**Goal**: Full Component Model support. WIT parsing, Canonical ABI, component linking.
+wasmtime is reference impl. Staged approach — each group is independently useful.
+
+### Design Principles
+
+- **Default ON** for W3C Recommendation and finalized proposals
+- **Implement all** that wasmtime supports — zwasm tracks spec frontier
+- **Minimal flags** — no rights/caps complexity. WASI access is binary (on/off)
+- **`zwasm features`** lists what's confirmed spec vs preview
+
+### Group A: WIT Parser (~800 LOC)
+
+WIT (WebAssembly Interface Types) IDL parser. Standalone, no runtime dependency.
+
+- A1: WIT lexer + token types
+- A2: WIT parser — interfaces, worlds, types, functions
+- A3: WIT resolution — use declarations, package references
+- A4: Unit tests + wasmtime WIT corpus validation
+
+### Group B: Component Binary Format (~1,200 LOC)
+
+Decode component-model binary sections (layered on top of core module decoder).
+
+- B1: Component section types (component, core:module, instance, alias, etc.)
+- B2: Component type section — func types, component types, instance types
+- B3: Canon section — lift/lower/resource ops
+- B4: Start, import, export sections
+- B5: Nested component/module instantiation
+
+### Group C: Canonical ABI (~1,500 LOC)
+
+Value lifting/lowering between component-level types and core Wasm linear memory.
+
+- C1: Scalar types (bool, integers, float, char)
+- C2: String encoding (utf-8/utf-16/latin1+utf-16)
+- C3: List, record, tuple, variant, enum, option, result
+- C4: Flags, own/borrow handles
+- C5: Memory realloc protocol + post-return
+
+### Group D: Component Linker + WASI P2 (~2,000 LOC)
+
+Wire components together. Implement WASI Preview 2 interfaces.
+
+- D1: Component instantiation — resolve imports, create instances
+- D2: Virtual adapter pattern — P1 compat shim
+- D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
+- D4: `zwasm run` component support (detect component vs module automatically)
+- D5: Spec tests + integration
+
+### Execution Order
+
+20 → 21 → 22A → 22B → 22C → 22D
+
+Each stage is independently mergeable. Stage 22 groups can be paused/resumed
+at group boundaries if spec changes require waiting.
+
+### Exit Criteria
+
+- `zwasm features` shows all proposals with correct status
+- Threads spec tests pass
+- Component Model: can instantiate and run wasmtime component test suite
+- WASI P2: basic filesystem/clock/random via component interfaces
+
 ## Future
 
 - Superinstruction expansion (profile-guided)
 - Liveness-based regalloc (st_matrix 3.1x gap)
-- Component Model / WASI P2 (W7)
-- Threads (shared memory, atomics — very_high, ~1500 LOC)
+- WASI P3 / async (depends on CM Stage 22)
+- GC collector upgrade (generational/Immix)
 
 ## Benchmark Targets
 

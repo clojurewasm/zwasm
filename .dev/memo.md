@@ -25,196 +25,71 @@ Key results: Spec 30,715/30,715 (100%), E2E 356/356 (100%, Zig runner), 20/21 be
 
 ## Task Queue
 
-**Execution order: 13 → 14 → 15 → 16 → 17 → 18**
-(x86_64 JIT → Wasm 3.0 trivial → multi-memory → relaxed SIMD
-→ function references → GC)
+**Execution order: 20 → 21 → 22A → 22B → 22C → 22D**
+(features CLI → threads → component model)
 
-Stages 7-12: ALL COMPLETE (see roadmap.md for details).
+Stages 7-19: ALL COMPLETE (see roadmap.md for details).
 
-Stage 13: x86_64 JIT Backend
+Stage 20: `zwasm features` CLI + Spec Compliance Metadata
 
-Target: x86_64 codegen, CI on ubuntu.
-Architecture: separate x86.zig (encoder + Compiler), dispatch from jit.zig.
-ARM64 code untouched (zero regression). Trampolines/helpers shared via import.
+Target: Machine-readable feature listing (~200 LOC). No runtime changes.
 
-1. [x] 13.1: x86_64 instruction encoder (src/x86.zig) + arch dispatch skeleton
-2. [x] 13.2: Comparison, control flow, shifts, division, bit ops
-3. [x] 13.3: Memory operations, globals, function calls, error stubs
-4. [x] 13.4: Floating-point SSE2 (f64/f32 arithmetic + conversions)
-5. [x] 13.5: Ubuntu verification + benchmarks + CI
+1. [ ] 20.1: Add `zwasm features` subcommand — prints table of supported proposals with status
+2. [ ] 20.2: Spec level tags per feature (W3C Recommendation / Finalized / Preview / Not yet)
+3. [ ] 20.3: `--json` output for machine consumption
 
-Stage 14: Wasm 3.0 — Trivial Proposals
+Stage 21: Threads (Shared Memory + Atomics)
 
-Target: extended_const, branch_hinting, tail_call.
-Three small proposals batched together (~330 LOC total).
+Target: Core Wasm threads proposal (~1,500 LOC).
+Shared memory, atomic ops, wait/notify. Phase 4, browser-shipped.
+Reference: wasmtime cranelift atomics, spec repo `~/Documents/OSS/WebAssembly/threads`.
 
-1. [x] 14.1: Extended constant expressions (i32/i64 add/sub/mul in const exprs)
-2. [x] 14.2: Branch hinting (custom section parsing, store per-function hints)
-3. [x] 14.3: Tail call — return_call (0x12) bytecode interpreter
-4. [x] 14.4: Tail call — return_call_indirect (0x13) bytecode interpreter
-5. [x] 14.5: Tail call — predecode/regir support + spec tests
+1. [ ] 21.1: Shared memory flag in memory section, SharedArrayBuffer-style backing
+2. [ ] 21.2: Atomic load/store/rmw opcodes (i32/i64) — 57 opcodes
+3. [ ] 21.3: memory.atomic.wait32/wait64/notify
+4. [ ] 21.4: atomic.fence
+5. [ ] 21.5: Spec tests + validation
 
-Stage 15: Wasm 3.0 — Multi-memory
+Stage 22: Component Model (W7)
 
-Target: Multiple memories per module (~400 LOC).
-All load/store/memory.* get memidx immediate. Binary format: memarg bit 6.
+Target: Full CM support. WIT parsing, Canonical ABI, component linking.
+wasmtime is reference impl. Each group independently mergeable.
+Design: default ON, implement all wasmtime supports, minimal flags.
 
-1. [x] 15.1: Module decoding — memarg bit 6, memidx for size/grow/fill/copy/init
-2. [x] 15.2: Bytecode interpreter — memidx plumbing in load/store/memory ops
-3. [x] 15.3: Predecode IR — memidx encoding in PreInstr + executeIR dispatch
-4. [x] 15.4: Spec tests + cleanup
+Group A: WIT Parser (~800 LOC)
+1. [ ] A1: WIT lexer + token types
+2. [ ] A2: WIT parser — interfaces, worlds, types, functions
+3. [ ] A3: WIT resolution — use declarations, package references
+4. [ ] A4: Unit tests + wasmtime WIT corpus validation
 
-Stage 13B: Spec Test Fixes + JIT FP Completion
+Group B: Component Binary Format (~1,200 LOC)
+5. [ ] B1: Component section types (component, core:module, instance, alias, etc.)
+6. [ ] B2: Component type section — func types, component types, instance types
+7. [ ] B3: Canon section — lift/lower/resource ops
+8. [ ] B4: Start, import, export sections
+9. [ ] B5: Nested component/module instantiation
 
-Target: Fix all 5 pre-existing spec test failures, implement all 24 bailed FP
-opcodes on x86_64, implement 18 shared missing FP opcodes on ARM64.
-Remove --allow-failures workaround from CI → zero tolerance.
+Group C: Canonical ABI (~1,500 LOC)
+10. [ ] C1: Scalar types (bool, integers, float, char)
+11. [ ] C2: String encoding (utf-8/utf-16/latin1+utf-16)
+12. [ ] C3: List, record, tuple, variant, enum, option, result
+13. [ ] C4: Flags, own/borrow handles
+14. [ ] C5: Memory realloc protocol + post-return
 
-Group A: Spec test failures (interpreter level, 5 failures → 0)
-1. [x] A1: spectest.wasm — add missing print_f64_f64 export (fixes imports:85,86)
-2. [x] A2: br_if false path — fix copy propagation fold (fixes br_if:393)
-3. [x] A3: elem declarative segment — drop at instantiation (fixes elem:360)
-4. [x] A4: elem imported funcref global — resolve store addr + remap (fixes elem:700)
-
-Group B: x86_64-only JIT FP (6 opcodes, ARM64 already handles these)
-5. [x] B1: f32/f64 min/max — branch-free NaN-propagating sequences (4 opcodes)
-6. [x] B2: f32/f64.convert_i64_u — sign-bit branch + shift trick (2 opcodes)
-
-Group C: Shared JIT FP (28 opcodes total, both x86_64 and ARM64)
-7. [x] C1: f32/f64 copysign — ANDPS/ANDNPS/ORPS (x86), AND/ORR (ARM64)
-8. [x] C2: f32/f64 ceil/floor/trunc/nearest — ROUNDSS/SD (x86), FRINTP/M/Z/N (ARM64)
-9. [x] C3: i32/i64.trunc_f32/f64_s/u — NaN+boundary check + CVTT (x86), FCMP+FCVTZS/U (ARM64)
-
-Group D: CI cleanup
-10. [x] D1: Remove --allow-failures from CI
-
-Stage 16: Wasm 3.0 — Relaxed SIMD
-
-Target: 20 non-deterministic SIMD ops (~600 LOC).
-ARM64 NEON native mapping. Implementation-defined results.
-
-1. [x] 16.1: Opcode + interpreter — add 20 opcodes (0x100-0x113) with full vm.zig implementation
-2. [x] 16.2: Spec tests + v128 invoke support — 85/85 relaxed SIMD pass, v128 batch protocol, select/branch v128 fix
-
-Stage 17: Wasm 3.0 — Function References
-
-Target: Typed function references, call_ref (~1200 LOC).
-Prerequisite for GC. Generalized ref types, local init tracking.
-
-New opcodes: call_ref (0x14), return_call_ref (0x15),
-ref.as_non_null (0xD4), br_on_null (0xD5), br_on_non_null (0xD6).
-Type system: ValType tagged union (ref/ref_null with heap type index).
-
-1. [x] 17.1: ValType tagged union + codebase-wide compilation fix
-2. [x] 17.2: Decode new ref type encoding (0x63/0x64 + heap type)
-3. [x] 17.3: New instructions — call_ref, return_call_ref, ref.as_non_null
-4. [x] 17.4: New instructions — br_on_null, br_on_non_null
-5. [x] 17.5: Validation — local initialization tracking for non-defaultable types
-6. [x] 17.6: Fix module loading, predecode, block type for typed refs
-7. [x] 17.7: Spec tests + proposals.yaml update
-
-Stage 18: Wasm 3.0 — GC
-
-Target: Struct/array heap objects, garbage collector (~3500 LOC).
-Largest proposal. Depends on Stage 17 (function_references).
-
-1. [x] 18.1: CompositeType migration + abstract heap types
-2. [x] 18.2: Type section decode — rec/sub/struct/array
-3. [x] 18.3: GC heap + i31 instructions
-4. [x] 18.4: Struct operations
-5. [x] 18.5: Array core operations
-6. [x] 18.6: ref.eq + extern conversion
-7. [x] 18.7: Array bulk + data/elem init
-8. [x] 18.8: Subtype checking
-9. [x] 18.9: Cast operations
-10. [x] 18.10: Validation + predecode + remaining tests
-11. [x] 18.11: Spec tests cleanup + documentation
-
-Stage 16V: Spec Test Validation Coverage
-
-Target: 4,416 skips → 0. All tests evaluated. Pass count ~60,800.
-
-Task Queue:
-1. [x] A1: assert_exhaustion handler (15 skips → 0)
-2. [x] A2: Global read actions / get command (1 skip → 0)
-3. [x] A3: Named module invocations (132 skips → ~99 pass, 33 fail due to shared-state limitation)
-4. [x] B1: UTF-8 validation (528 skips → 0)
-5. [x] B2: Simple structural checks (~300 skips → 0)
-6. [x] B3: Unknown index checks (~125 skips → 0)
-7. [x] C1: WAT validation tests (1,119 skips → 0)
-8. [x] D1-D5: Full type checker + section validation (~2,186 skips → 5)
-
-Stage 19: Post-GC Improvements
-
-Target: GC spec tests (W21), table.init修正 (W2), GC collector (W20), WASI P1全対応 (W4/W5).
-~1,490 LOC, 14 tasks. 詳細設計: `.claude/plans/groovy-sprouting-horizon.md`
-
-Group A: GC Spec Tests (wasm-tools 1.244.0で828 assertions変換)
-1. [x] A1: convert.shにwasm-tools対応
-2. [x] A2: run_spec.pyのGC ref型対応(value無しref, ref_anyマッチ)
-3. [x] A3: GC spec実行 + パスカウント記録 — 472/546 (86.4%)
-
-Group B: table.init修正 — RESOLVED
-4. [x] B1: Already fixed in cdb0c10. spec table_init 729/729 + table_init64 819/819 = 1,548/1,548 (100%)
-
-Group C: GC Collector — compact無しmark-and-sweep
-5. [x] C1: GcSlot + free list (GcObject wrapping, alloc再利用)
-6. [x] C2: Markフェーズ (ルートスキャン + BFS)
-7. [x] C3: Sweepフェーズ (未到達解放 + free list追加)
-8. [x] C4: VM統合 (threshold trigger, D115)
-
-Group D: WASI P1 Full Support (~27/35 → 35/35)
-9.  [x] D1: FdTable拡張 + path_open (最重要、250 LOC)
-10. [x] D2: fd_readdir (directory iteration)
-11. [x] D3: fd_renumber + path_symlink + path_link
-12. [x] D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
-13. [x] D5: poll_oneoff簡易版 (CLOCKのみ)
-14. [x] D6: sock_* + 残り (NOSYS stub)
+Group D: Component Linker + WASI P2 (~2,000 LOC)
+15. [ ] D1: Component instantiation — resolve imports, create instances
+16. [ ] D2: Virtual adapter pattern — P1 compat shim
+17. [ ] D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
+18. [ ] D4: `zwasm run` component support (detect component vs module automatically)
+19. [ ] D5: Spec tests + integration
 
 ## Current Task
 
-Stage 19 Group D complete. All WASI P1 functions implemented (46 entries).
+Stage 20.1: Add `zwasm features` subcommand.
 
 ## Previous Task
 
-D6: sock_* NOSYS stubs (sock_accept/recv/send/shutdown), fd_fdstat_set_rights (deprecated, SUCCESS), proc_raise (NOSYS). WASI P1 now 46/46 functions registered.
-
-## v0.1.0 Tag Replace Queue
-
-Stage 19 is paused. Tag replace takes priority.
-
-Phase 1: zwasm docs + full bench
-- [x] 1.1: Full benchmark (`bash bench/record.sh --id="v0.1.0-pre" --reason="Pre-v0.1.0 full benchmark"`)
-- [x] 1.2: Code comments + YAML cleanup (bench history tag→commit, proposals.yaml, spec-support.md)
-- [x] 1.3: Public docs overhaul (README.md: Wasm coverage table, benchmarks, usage guide with docs/usage.md)
-- [x] 1.4: Commit docs
-
-Phase 2: zwasm tag operations (do in one session)
-- [x] 2.1: Delete old v0.1.0 tag + release
-- [x] 2.2: Replace tag refs in bench history (done in 1.2)
-- [x] 2.3: Update build.zig.zon version to 0.1.0, commit, push
-- [x] 2.4: CI green (bd2c852)
-- [x] 2.5: Create new v0.1.0 tag, push
-
-Phase 3: CW dependency + docs (CW repo)
-- [x] 3.1: Switch CW build.zig.zon to zwasm v0.1.0 tar.gz
-- [x] 3.2: Full benchmark + record
-- [x] 3.3: Code comments + YAML cleanup (-alpha refs → v0.1.0)
-- [x] 3.4: Public docs overhaul
-- [x] 3.5: Commit, push, CI green
-
-Phase 4: CW tag operations (do in one session, CW repo)
-- [x] 4.1: Delete old -alpha tags + releases
-- [x] 4.2: Create CW v0.1.0 tag, push
-
-Phase 5: Cleanup old zwasm tags (zwasm repo)
-- [x] 5.1: Delete all zwasm tags except v0.1.0
-- [x] 5.2: Final verification (both repos: only v0.1.0 tag, tests pass, docs clean)
-
-## Previous Task
-
-v0.1.0 tag replace complete (2026-02-13): zwasm+CW both have only v0.1.0 tag.
-Docs overhauled, benchmarks recorded, CI green on both repos.
+Stage 19 complete. Merged to main. WASI P1 46/46, GC collector, spec 61,344/61,451.
 
 ## Wasm 3.0 Coverage
 
