@@ -158,7 +158,7 @@ Group B: table.init修正 — RESOLVED
 4. [x] B1: Already fixed in cdb0c10. spec table_init 729/729 + table_init64 819/819 = 1,548/1,548 (100%)
 
 Group C: GC Collector — compact無しmark-and-sweep
-5. [ ] C1: GcSlot + free list (GcObject wrapping, alloc再利用)
+5. [x] C1: GcSlot + free list (GcObject wrapping, alloc再利用)
 6. [ ] C2: Markフェーズ (ルートスキャン + BFS)
 7. [ ] C3: Sweepフェーズ (未到達解放 + free list追加)
 8. [ ] C4: VM統合 (threshold trigger, D115)
@@ -173,11 +173,11 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-C1: GcSlot + free list
+C2: Markフェーズ (ルートスキャン + BFS)
 
 ## Previous Task
 
-A3: GC spec 472/546 (86.4%). Fixed skipInitExpr/evalInitExpr (GC prefix + ref_null S33), readTableDef/readRefTypeGC (elem section), GC init expr eval (struct/array/i31).
+C1: GcSlot + free list. GcObject→GcSlot migration, intrusive free list, freeSlot/mark/clearMarks/sweep API.
 
 ## v0.1.0 Tag Replace Queue
 
