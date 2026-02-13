@@ -21,6 +21,7 @@ pub const WasiContext = wasi_mod.WasiContext;
 const WasmMemory = @import("memory.zig").Memory;
 const module_mod = @import("module.zig");
 const Module = module_mod.Module;
+const gc_mod = @import("gc.zig");
 
 pub const Instance = struct {
     alloc: Allocator,
@@ -101,6 +102,17 @@ pub const Instance = struct {
     pub fn getTable(self: *Instance, idx: usize) !*store_mod.Table {
         if (idx >= self.tableaddrs.items.len) return error.TableIndexOutOfBounds;
         return self.store.getTable(self.tableaddrs.items[idx]);
+    }
+
+    /// Get the number of fields for a struct type (from module type section).
+    pub fn getStructFieldCount(self: *const Instance, type_idx: u32) usize {
+        if (type_idx < self.module.types.items.len) {
+            switch (self.module.types.items[type_idx].composite) {
+                .struct_type => |st| return st.fields.len,
+                else => return 0,
+            }
+        }
+        return 0;
     }
 
     pub fn getGlobal(self: *Instance, idx: usize) !*store_mod.Global {
@@ -404,7 +416,7 @@ pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u128 {
                 sp += 1;
             },
             .ref_null => {
-                _ = try reader.readByte(); // reftype
+                _ = try reader.readI33(); // heap type (S33 LEB128)
                 if (sp >= stack.len) return error.InvalidInitExpr;
                 stack[sp] = 0; // null ref
                 sp += 1;
@@ -446,6 +458,84 @@ pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u128 {
                 };
                 sp -= 1;
                 stack[sp - 1] = @as(u128, @as(u64, @bitCast(result)));
+            },
+            // GC prefix — struct/array constructors and conversions
+            .gc_prefix => {
+                const gc_op = try reader.readU32();
+                switch (gc_op) {
+                    0x00 => { // struct.new
+                        const type_idx = try reader.readU32();
+                        const n = instance.getStructFieldCount(type_idx);
+                        if (sp < n) return error.InvalidInitExpr;
+                        var fields_buf: [32]u64 = undefined;
+                        for (0..n) |i| {
+                            fields_buf[n - 1 - i] = @truncate(stack[sp - 1 - i]);
+                        }
+                        sp -= n;
+                        const addr = instance.store.gc_heap.allocStruct(type_idx, fields_buf[0..n]) catch return error.InvalidInitExpr;
+                        if (sp >= stack.len) return error.InvalidInitExpr;
+                        stack[sp] = @as(u128, gc_mod.GcHeap.encodeRef(addr));
+                        sp += 1;
+                    },
+                    0x01 => { // struct.new_default
+                        const type_idx = try reader.readU32();
+                        const n = instance.getStructFieldCount(type_idx);
+                        var fields_buf: [32]u64 = undefined;
+                        @memset(fields_buf[0..n], 0);
+                        const addr = instance.store.gc_heap.allocStruct(type_idx, fields_buf[0..n]) catch return error.InvalidInitExpr;
+                        if (sp >= stack.len) return error.InvalidInitExpr;
+                        stack[sp] = @as(u128, gc_mod.GcHeap.encodeRef(addr));
+                        sp += 1;
+                    },
+                    0x06 => { // array.new
+                        const type_idx = try reader.readU32();
+                        if (sp < 2) return error.InvalidInitExpr;
+                        const len: u32 = @truncate(@as(u64, @truncate(stack[sp - 1])));
+                        const init_val: u64 = @truncate(stack[sp - 2]);
+                        sp -= 2;
+                        const addr = instance.store.gc_heap.allocArray(type_idx, len, init_val) catch return error.InvalidInitExpr;
+                        if (sp >= stack.len) return error.InvalidInitExpr;
+                        stack[sp] = @as(u128, gc_mod.GcHeap.encodeRef(addr));
+                        sp += 1;
+                    },
+                    0x07 => { // array.new_default
+                        const type_idx = try reader.readU32();
+                        if (sp < 1) return error.InvalidInitExpr;
+                        const len: u32 = @truncate(@as(u64, @truncate(stack[sp - 1])));
+                        sp -= 1;
+                        const addr = instance.store.gc_heap.allocArray(type_idx, len, 0) catch return error.InvalidInitExpr;
+                        if (sp >= stack.len) return error.InvalidInitExpr;
+                        stack[sp] = @as(u128, gc_mod.GcHeap.encodeRef(addr));
+                        sp += 1;
+                    },
+                    0x08 => { // array.new_fixed
+                        const type_idx = try reader.readU32();
+                        const n = try reader.readU32();
+                        if (sp < n) return error.InvalidInitExpr;
+                        var vals_buf: [256]u64 = undefined;
+                        const count: usize = @min(n, 256);
+                        for (0..count) |i| {
+                            vals_buf[count - 1 - i] = @truncate(stack[sp - 1 - i]);
+                        }
+                        sp -= count;
+                        const addr = instance.store.gc_heap.allocArrayWithValues(type_idx, vals_buf[0..count]) catch return error.InvalidInitExpr;
+                        if (sp >= stack.len) return error.InvalidInitExpr;
+                        stack[sp] = @as(u128, gc_mod.GcHeap.encodeRef(addr));
+                        sp += 1;
+                    },
+                    0x1A => { // any.convert_extern
+                        // Pass-through: extern ref value is the same as any ref
+                    },
+                    0x1B => { // extern.convert_any
+                        // Pass-through: any ref value is the same as extern ref
+                    },
+                    0x1C => { // ref.i31
+                        if (sp < 1) return error.InvalidInitExpr;
+                        const val: u32 = @truncate(@as(u64, @truncate(stack[sp - 1])));
+                        stack[sp - 1] = @as(u128, @as(u64, val & 0x7FFFFFFF) | gc_mod.I31_TAG);
+                    },
+                    else => return error.InvalidInitExpr,
+                }
             },
             // SIMD v128.const in init expressions
             .simd_prefix => {

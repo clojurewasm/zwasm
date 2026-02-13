@@ -680,7 +680,7 @@ pub const Module = struct {
             },
             5 => {
                 // Passive, explicit reftype, expressions
-                const reftype: opcode.RefType = @enumFromInt(try reader.readByte());
+                const reftype = try readRefTypeGC(reader);
                 const num = try reader.readU32();
                 const exprs = try self.alloc.alloc([]const u8, num);
                 for (exprs) |*expr| {
@@ -701,7 +701,7 @@ pub const Module = struct {
                 const offset_start = reader.pos;
                 try skipInitExpr(reader);
                 const offset_end = reader.pos;
-                const reftype: opcode.RefType = @enumFromInt(try reader.readByte());
+                const reftype = try readRefTypeGC(reader);
                 const num = try reader.readU32();
                 const exprs = try self.alloc.alloc([]const u8, num);
                 for (exprs) |*expr| {
@@ -721,7 +721,7 @@ pub const Module = struct {
             },
             7 => {
                 // Declarative, explicit reftype, expressions
-                const reftype: opcode.RefType = @enumFromInt(try reader.readByte());
+                const reftype = try readRefTypeGC(reader);
                 const num = try reader.readU32();
                 const exprs = try self.alloc.alloc([]const u8, num);
                 for (exprs) |*expr| {
@@ -1067,8 +1067,27 @@ fn decodeFieldType(reader: *Reader) !FieldType {
     return .{ .storage = storage, .mutable = mut_byte == 1 };
 }
 
+/// Read a reftype from binary, supporting GC typed refs (0x63/0x64 prefix)
+/// and shorthand abstract heap types (0x6E=anyref, 0x6D=eqref, etc.).
+/// Maps non-MVP types to externref as carrier.
+fn readRefTypeGC(reader: *Reader) !opcode.RefType {
+    const first_byte = try reader.readByte();
+    if (first_byte == 0x63 or first_byte == 0x64) {
+        // GC typed ref: (ref null ht) or (ref ht) — read heap type
+        const ht = try reader.readI33();
+        if (ht == -16) return .funcref; // func
+        if (ht == -17) return .externref; // extern
+        return .externref; // GC heap types — use externref as carrier
+    }
+    if (first_byte == 0x70) return .funcref;
+    if (first_byte == 0x6F) return .externref;
+    // GC shorthand reftypes: anyref(0x6E), eqref(0x6D), i31ref(0x6C),
+    // structref(0x6B), arrayref(0x6A), exnref(0x69), nullref(0x71), etc.
+    return .externref;
+}
+
 fn readTableDef(reader: *Reader) !TableDef {
-    const reftype: opcode.RefType = @enumFromInt(try reader.readByte());
+    const reftype = try readRefTypeGC(reader);
     const limits = try readLimits(reader);
     return .{ .reftype = reftype, .limits = limits };
 }
@@ -1163,12 +1182,22 @@ fn skipInitExpr(reader: *Reader) !void {
             .f32_const => _ = try reader.readBytes(4),
             .f64_const => _ = try reader.readBytes(8),
             .global_get => _ = try reader.readU32(),
-            .ref_null => _ = try reader.readByte(),
+            .ref_null => _ = try reader.readI33(), // heap type (S33 LEB128)
             .ref_func => _ = try reader.readU32(),
             // Extended constant expressions (Wasm 3.0)
             .i32_add, .i32_sub, .i32_mul,
             .i64_add, .i64_sub, .i64_mul,
             => {},
+            // GC prefix — struct/array constructors and conversions in init expressions
+            .gc_prefix => {
+                const gc_op = try reader.readU32();
+                switch (gc_op) {
+                    0x00, 0x01, 0x06, 0x07 => _ = try reader.readU32(), // struct.new/default, array.new/default (type_idx)
+                    0x08 => { _ = try reader.readU32(); _ = try reader.readU32(); }, // array.new_fixed (type_idx, count)
+                    0x1A, 0x1B, 0x1C => {}, // any.convert_extern, extern.convert_any, ref.i31
+                    else => return error.InvalidWasm,
+                }
+            },
             // SIMD prefix — v128.const (0xFD 0x0C) in init expressions
             .simd_prefix => {
                 const simd_op = try reader.readU32();

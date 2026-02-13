@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-2, 4, 7-18 — COMPLETE (Wasm 3.0 all 9 proposals)
 - Source: ~32K LOC, 19 files, 239 tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: ~27
-- Spec: 60,873/60,906 Mac (99.9%), 7 skips, E2E: 356/356, CI: ubuntu + macOS
+- Spec: 61,344/61,451 Mac (99.8%), incl. GC 472/546, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -152,7 +152,7 @@ Target: GC spec tests (W21), table.init修正 (W2), GC collector (W20), WASI P1�
 Group A: GC Spec Tests (wasm-tools 1.244.0で828 assertions変換)
 1. [x] A1: convert.shにwasm-tools対応
 2. [x] A2: run_spec.pyのGC ref型対応(value無しref, ref_anyマッチ)
-3. [ ] A3: GC spec実行 + パスカウント記録
+3. [x] A3: GC spec実行 + パスカウント記録 — 472/546 (86.4%)
 
 Group B: table.init修正 — RESOLVED
 4. [x] B1: Already fixed in cdb0c10. spec table_init 729/729 + table_init64 819/819 = 1,548/1,548 (100%)
@@ -173,11 +173,11 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-A3: GC spec実行 + パスカウント記録
+C1: GcSlot + free list
 
 ## Previous Task
 
-A2: run_spec.pyのGC ref型対応。ref_anyタプル(value無し=任意非null)処理追加。18ファイル157/546 pass (28.8%)。
+A3: GC spec 472/546 (86.4%). Fixed skipInitExpr/evalInitExpr (GC prefix + ref_null S33), readTableDef/readRefTypeGC (elem section), GC init expr eval (struct/array/i31).
 
 ## v0.1.0 Tag Replace Queue
 
@@ -219,11 +219,11 @@ Docs overhauled, benchmarks recorded, CI green on both repos.
 ## Wasm 3.0 Coverage
 
 All 9 proposals complete: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory, relaxed_simd, function_references, gc.
-GC spec tests blocked on wabt 1.0.39 (W21) — only binary-gc.wast converts. 16 unit tests cover all 31 opcodes.
+GC spec tests via wasm-tools 1.244.0: 472/546 (86.4%), 18 files. W21 resolved.
 
 ## Known Bugs
 
-None. Mac 60,873/60,906 (99.9%), 7 skips, 33 multi-module linking failures.
+None. Mac 61,344/61,451 (99.8%), 32 GC skips, 33 multi-module linking failures.
 Note: Ubuntu Debug build has 11 extra timeouts on tail-call recursion tests (return_call/return_call_ref count/even/odd 1M iterations). Use ReleaseSafe for spec tests on Ubuntu.
 
 ## References

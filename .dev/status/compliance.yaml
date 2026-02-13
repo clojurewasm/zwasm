@@ -5,8 +5,8 @@
 # spec_tests: from test/spec/ (official WebAssembly spec testsuite)
 # e2e_tests: from test/e2e/ (wasmtime misc_testsuite port)
 #
-# Last updated: 2026-02-12
-# Spec: 32,231/32,236 (100%) — 204 test files
+# Last updated: 2026-02-13
+# Spec: 61,344/61,451 (99.8%) — 211 test files (incl. 18 GC)
 # E2E:  356/356 (100%), 70 files
 
 wasm_core:
@@ -111,8 +111,9 @@ wasm_core:
     note: "throw, try_table, catch, catch_all, catch_ref, catch_all_ref. throw_ref stub. E2E: issue11561.wast skipped (needs exnref values)."
   gc:
     version: "3.0"
-    status: skip
-    note: "Not implemented. E2E: gc/*.wast skipped. See proposals.yaml#gc"
+    status: partial
+    spec_tests: {total: 546, pass: 472, fail: 74, skip: 32}
+    note: "18 test files via wasm-tools. 472/546 (86.4%). Remaining: subtype checks, br_on_cast_fail, some array ops."
   multi_memory:
     version: "3.0"
     status: pass
