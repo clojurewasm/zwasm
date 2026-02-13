@@ -169,15 +169,15 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 11. [x] D3: fd_renumber + path_symlink + path_link
 12. [x] D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
 13. [x] D5: poll_oneoff簡易版 (CLOCKのみ)
-14. [ ] D6: sock_* + 残り (NOSYS stub)
+14. [x] D6: sock_* + 残り (NOSYS stub)
 
 ## Current Task
 
-D6: sock_* + 残り (NOSYS stub)
+Stage 19 Group D complete. All WASI P1 functions implemented (46 entries).
 
 ## Previous Task
 
-D5: poll_oneoff simplified — CLOCK subscriptions sleep via std.Thread.sleep, ABSTIME support, FD_READ/FD_WRITE return immediately as ready.
+D6: sock_* NOSYS stubs (sock_accept/recv/send/shutdown), fd_fdstat_set_rights (deprecated, SUCCESS), proc_raise (NOSYS). WASI P1 now 46/46 functions registered.
 
 ## v0.1.0 Tag Replace Queue
 

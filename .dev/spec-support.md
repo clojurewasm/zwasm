@@ -40,9 +40,9 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | path_*          | 8           | 8     | Full (incl. symlink, link)      |
 | proc_*          | 2           | 2     | exit, raise                     |
 | random_*        | 1           | 1     | random_get                      |
-| sock_*          | 0           | 4     | Not implemented (W5)            |
+| sock_*          | 4           | 4     | NOSYS stubs (W5)                |
 | poll_oneoff     | 1           | 1     | CLOCK sleep, FD pass-through    |
-| **Total WASI**  | **~32**     | **35** | ~91%                           |
+| **Total WASI**  | **46**      | **46** | 100% (all registered)          |
 
 ## Proposals Status
 

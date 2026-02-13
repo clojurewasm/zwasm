@@ -14,8 +14,8 @@ Prefix: W## (to distinguish from CW's F## items).
 | ID   | Item                                | Source     | Trigger                               |
 |------|-------------------------------------|------------|---------------------------------------|
 | ~~W2~~ | ~~table.init edge cases~~ | ~~CW F137~~ | ~~RESOLVED (cdb0c10). spec 1,548/1,548 (100%)~~ |
-| W4   | WASI fd_readdir implementation      | CW gap     | Stage 19 Group D (D2)                 |
-| W5   | WASI sock_* family                  | CW gap     | Stage 19 Group D (D6)                 |
+| ~~W4~~ | ~~WASI fd_readdir implementation~~ | ~~CW gap~~ | ~~RESOLVED. Stage 19 D2~~ |
+| ~~W5~~ | ~~WASI sock_* family~~ | ~~CW gap~~ | ~~RESOLVED. Stage 19 D6 (NOSYS stubs)~~ |
 | W7   | Component Model basics              | New        | Stage 3                               |
 
 ## Cross-module linking (from E2E 5E)

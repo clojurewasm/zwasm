@@ -1806,6 +1806,63 @@ fn toWasiErrno(err: anyerror) Errno {
     };
 }
 
+/// fd_fdstat_set_rights(fd: i32, rights_base: i64, rights_inheriting: i64) -> errno
+/// Deprecated in WASI — accept and ignore.
+pub fn fd_fdstat_set_rights(ctx: *anyopaque, _: usize) anyerror!void {
+    const vm = getVm(ctx);
+    _ = vm.popOperandI64(); // rights_inheriting
+    _ = vm.popOperandI64(); // rights_base
+    _ = vm.popOperandI32(); // fd
+    try pushErrno(vm, .SUCCESS);
+}
+
+/// proc_raise(sig: i32) -> errno
+pub fn proc_raise(ctx: *anyopaque, _: usize) anyerror!void {
+    const vm = getVm(ctx);
+    _ = vm.popOperandI32(); // sig
+    try pushErrno(vm, .NOSYS);
+}
+
+/// sock_accept(fd: i32, flags: i32, result_fd_ptr: i32) -> errno
+pub fn sock_accept(ctx: *anyopaque, _: usize) anyerror!void {
+    const vm = getVm(ctx);
+    _ = vm.popOperandU32(); // result_fd_ptr
+    _ = vm.popOperandU32(); // flags
+    _ = vm.popOperandI32(); // fd
+    try pushErrno(vm, .NOSYS);
+}
+
+/// sock_recv(fd: i32, ri_data_ptr: i32, ri_data_len: i32, ri_flags: i32, ro_datalen_ptr: i32, ro_flags_ptr: i32) -> errno
+pub fn sock_recv(ctx: *anyopaque, _: usize) anyerror!void {
+    const vm = getVm(ctx);
+    _ = vm.popOperandU32(); // ro_flags_ptr
+    _ = vm.popOperandU32(); // ro_datalen_ptr
+    _ = vm.popOperandU32(); // ri_flags
+    _ = vm.popOperandU32(); // ri_data_len
+    _ = vm.popOperandU32(); // ri_data_ptr
+    _ = vm.popOperandI32(); // fd
+    try pushErrno(vm, .NOSYS);
+}
+
+/// sock_send(fd: i32, si_data_ptr: i32, si_data_len: i32, si_flags: i32, so_datalen_ptr: i32) -> errno
+pub fn sock_send(ctx: *anyopaque, _: usize) anyerror!void {
+    const vm = getVm(ctx);
+    _ = vm.popOperandU32(); // so_datalen_ptr
+    _ = vm.popOperandU32(); // si_flags
+    _ = vm.popOperandU32(); // si_data_len
+    _ = vm.popOperandU32(); // si_data_ptr
+    _ = vm.popOperandI32(); // fd
+    try pushErrno(vm, .NOSYS);
+}
+
+/// sock_shutdown(fd: i32, how: i32) -> errno
+pub fn sock_shutdown(ctx: *anyopaque, _: usize) anyerror!void {
+    const vm = getVm(ctx);
+    _ = vm.popOperandU32(); // how
+    _ = vm.popOperandI32(); // fd
+    try pushErrno(vm, .NOSYS);
+}
+
 // ============================================================
 // Registration — register WASI functions for module imports
 // ============================================================
@@ -1828,6 +1885,7 @@ const wasi_table = [_]WasiEntry{
     .{ .name = "fd_datasync", .func = &fd_datasync },
     .{ .name = "fd_fdstat_get", .func = &fd_fdstat_get },
     .{ .name = "fd_fdstat_set_flags", .func = &fd_fdstat_set_flags },
+    .{ .name = "fd_fdstat_set_rights", .func = &fd_fdstat_set_rights },
     .{ .name = "fd_filestat_get", .func = &fd_filestat_get },
     .{ .name = "fd_filestat_set_size", .func = &fd_filestat_set_size },
     .{ .name = "fd_filestat_set_times", .func = &fd_filestat_set_times },
@@ -1854,8 +1912,13 @@ const wasi_table = [_]WasiEntry{
     .{ .name = "path_symlink", .func = &path_symlink },
     .{ .name = "path_unlink_file", .func = &path_unlink_file },
     .{ .name = "proc_exit", .func = &proc_exit },
+    .{ .name = "proc_raise", .func = &proc_raise },
     .{ .name = "random_get", .func = &random_get },
     .{ .name = "sched_yield", .func = &sched_yield },
+    .{ .name = "sock_accept", .func = &sock_accept },
+    .{ .name = "sock_recv", .func = &sock_recv },
+    .{ .name = "sock_send", .func = &sock_send },
+    .{ .name = "sock_shutdown", .func = &sock_shutdown },
 };
 
 fn lookupWasiFunc(name: []const u8) ?store_mod.HostFn {
