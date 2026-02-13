@@ -6,7 +6,7 @@
 # e2e_tests: from test/e2e/ (wasmtime misc_testsuite port)
 #
 # Last updated: 2026-02-13
-# Spec: 61,344/61,451 (99.8%) — 211 test files (incl. 18 GC)
+# Spec: 61,650/61,761 (99.8%) — 224 test files (incl. 18 GC, 13 threads)
 # E2E:  356/356 (100%), 70 files
 
 wasm_core:
@@ -135,8 +135,9 @@ wasm_core:
     note: "Table64 + memory64 addressing. table_size64(36), memory_grow64(45), memory_trap64(170), call_indirect64(1). See proposals.yaml#memory64"
   threads:
     version: "3.0"
-    status: skip
-    note: "Not implemented. E2E: threads/*.wast skipped. See proposals.yaml#threads (Phase 4, not ratified)"
+    status: pass
+    spec_tests: {total: 310, pass: 306, fail: 4}
+    note: "79 atomic opcodes (0xFE prefix). Single-threaded semantics. 4 failures require real multi-threading."
   wide_arithmetic:
     version: "3.0"
     status: skip

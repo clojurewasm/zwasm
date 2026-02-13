@@ -27,7 +27,8 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Exception handling    | 3           | 3     | throw, throw_ref, try_table    |
 | Function references   | 5           | 5     | call_ref, br_on_null, etc.     |
 | GC                    | 31          | 31    | struct/array/cast/i31 ops      |
-| **Total opcodes**     | **502+**    | **502+** | 100% (all proposals)        |
+| Threads (0xFE)        | 79          | 79    | atomic load/store/rmw/cmpxchg  |
+| **Total opcodes**     | **581+**    | **581+** | 100% (all proposals)        |
 
 ## WASI Preview 1
 
@@ -66,6 +67,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Multi-memory          | Complete     | Multiple memories, memarg bit 6    |
 | Function references   | Complete     | 5 opcodes, 104/106 spec tests     |
 | GC                    | Complete     | 31 opcodes (0xFB prefix), 16 unit tests |
+| Threads               | Complete     | 79 opcodes (0xFE prefix), 306/310 spec  |
 | WAT parser            | Complete     | v128/SIMD, named locals/globals    |
 | Component Model       | Not started  | Wasm 3.0 (W7)                     |
 | WASI Preview 2        | Not started  | Wasm 3.0                          |
