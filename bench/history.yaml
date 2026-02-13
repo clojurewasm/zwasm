@@ -762,3 +762,30 @@ entries:
       st_nestedloop: {time_ms: 5.1}
       st_ackermann: {time_ms: 6.8}
       st_matrix: {time_ms: 290.4}
+  - id: "23.2"
+    date: "2026-02-14"
+    reason: "Guard pages for bounds check elimination"
+    commit: "853fbe3"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 96.1}
+      tak: {time_ms: 9.4}
+      sieve: {time_ms: 3.3}
+      nbody: {time_ms: 42.5}
+      nqueens: {time_ms: 3.2}
+      tgo_fib: {time_ms: 50.4}
+      tgo_tak: {time_ms: 9.3}
+      tgo_arith: {time_ms: 2.0}
+      tgo_sieve: {time_ms: 3.1}
+      tgo_fib_loop: {time_ms: 1.8}
+      tgo_gcd: {time_ms: 2.5}
+      tgo_nqueens: {time_ms: 41.9}
+      tgo_mfr: {time_ms: 58.8}
+      tgo_list: {time_ms: 33.1}
+      tgo_rwork: {time_ms: 4.2}
+      tgo_strops: {time_ms: 34.8}
+      st_fib2: {time_ms: 1343.7}
+      st_sieve: {time_ms: 213.3}
+      st_nestedloop: {time_ms: 3.6}
+      st_ackermann: {time_ms: 6.2}
+      st_matrix: {time_ms: 283.2}

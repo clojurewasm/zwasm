@@ -5,9 +5,14 @@
 //!
 //! Each page is 64 KiB. Memory grows in page increments with optional max limit.
 //! All reads/writes are bounds-checked. Little-endian byte order per Wasm spec.
+//!
+//! Supports two backing modes:
+//! - ArrayList (default): standard allocator-based, used in tests and small modules
+//! - GuardedMem (JIT mode): mmap with guard pages for bounds check elimination
 
 const std = @import("std");
 const mem = std.mem;
+const guard_mod = @import("guard.zig");
 
 pub const PAGE_SIZE: u32 = 64 * 1024; // 64 KiB
 pub const MAX_PAGES: u32 = 64 * 1024; // 4 GiB theoretical max
@@ -20,6 +25,7 @@ pub const Memory = struct {
     data: std.ArrayList(u8),
     shared: bool = false, // true = borrowed from another module, skip deinit
     is_shared_memory: bool = false, // threads proposal: declared with shared flag
+    guard_mem: ?guard_mod.GuardedMem = null, // mmap-backed with guard pages
 
     pub fn init(alloc: mem.Allocator, min: u32, max: ?u32) Memory {
         return .{
@@ -40,8 +46,29 @@ pub const Memory = struct {
         };
     }
 
+    /// Create a Memory backed by mmap with guard pages for JIT bounds check elimination.
+    pub fn initGuarded(alloc: mem.Allocator, min: u32, max: ?u32) !Memory {
+        var gm = try guard_mod.GuardedMem.init();
+        return .{
+            .alloc = alloc,
+            .min = min,
+            .max = max,
+            .data = .{
+                .items = gm.base[0..0],
+                .capacity = guard_mod.TOTAL_RESERVATION - guard_mod.GUARD_SIZE,
+            },
+            .guard_mem = gm,
+        };
+    }
+
     pub fn deinit(self: *Memory) void {
-        if (!self.shared) self.data.deinit(self.alloc);
+        if (self.shared) return;
+        if (self.guard_mem) |*gm| {
+            gm.deinit();
+            self.guard_mem = null;
+        } else {
+            self.data.deinit(self.alloc);
+        }
     }
 
     /// Allocate initial pages (called during instantiation).
@@ -62,6 +89,11 @@ pub const Memory = struct {
         return @truncate(self.data.items.len);
     }
 
+    /// Whether this memory has guard pages (for JIT bounds check elimination).
+    pub fn hasGuardPages(self: *const Memory) bool {
+        return self.guard_mem != null;
+    }
+
     /// Grow memory by num_pages. Returns old size in pages, or error if exceeds max.
     pub fn grow(self: *Memory, num_pages: u32) !u32 {
         // Max total bytes = 4 GiB; derive max pages from page_size
@@ -74,8 +106,17 @@ pub const Memory = struct {
         const old_size = self.size();
         const old_bytes = self.data.items.len;
         const new_bytes = @as(usize, self.page_size) * num_pages;
-        _ = try self.data.resize(self.alloc, old_bytes + new_bytes);
-        @memset(self.data.items[old_bytes..][0..new_bytes], 0);
+
+        if (self.guard_mem) |*gm| {
+            // Guarded mode: grow via mprotect (pages are zero-filled by OS)
+            _ = gm.grow(new_bytes) catch return error.OutOfBoundsMemoryAccess;
+            // Update data.items to reflect new size (ptr stays the same)
+            self.data.items.len = old_bytes + new_bytes;
+        } else {
+            // ArrayList mode: grow via allocator
+            _ = try self.data.resize(self.alloc, old_bytes + new_bytes);
+            @memset(self.data.items[old_bytes..][0..new_bytes], 0);
+        }
         return old_size;
     }
 
@@ -329,4 +370,47 @@ test "Memory — zero pages" {
     try testing.expectEqual(@as(u32, 0), m.size());
     try testing.expectEqual(@as(usize, 0), m.memory().len);
     try testing.expectError(error.OutOfBoundsMemoryAccess, m.read(u8, 0, 0));
+}
+
+test "Memory — guarded mode init and grow" {
+    var m = try Memory.initGuarded(testing.allocator, 0, null);
+    defer m.deinit();
+
+    try testing.expectEqual(@as(u32, 0), m.size());
+    try testing.expect(m.hasGuardPages());
+
+    const old = try m.grow(1);
+    try testing.expectEqual(@as(u32, 0), old);
+    try testing.expectEqual(@as(u32, 1), m.size());
+    try testing.expectEqual(@as(u33, PAGE_SIZE), m.sizeBytes());
+}
+
+test "Memory — guarded mode read/write" {
+    var m = try Memory.initGuarded(testing.allocator, 0, null);
+    defer m.deinit();
+    _ = try m.grow(1);
+
+    try m.write(u32, 0, 100, 0xDEADBEEF);
+    try testing.expectEqual(@as(u32, 0xDEADBEEF), try m.read(u32, 0, 100));
+
+    // Bounds checking still works (interpreter path)
+    try testing.expectError(error.OutOfBoundsMemoryAccess, m.read(u8, 0, PAGE_SIZE));
+}
+
+test "Memory — guarded mode grow multiple times" {
+    var m = try Memory.initGuarded(testing.allocator, 0, null);
+    defer m.deinit();
+
+    _ = try m.grow(1);
+    try m.write(u8, 0, 0, 42);
+
+    _ = try m.grow(1);
+    try m.write(u8, 0, PAGE_SIZE, 99);
+
+    // Both pages accessible, data preserved
+    try testing.expectEqual(@as(u8, 42), try m.read(u8, 0, 0));
+    try testing.expectEqual(@as(u8, 99), try m.read(u8, 0, PAGE_SIZE));
+
+    // Base pointer didn't change (mmap is stable)
+    try testing.expectEqual(@as(u32, 2), m.size());
 }

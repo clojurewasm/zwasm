@@ -1099,6 +1099,10 @@ pub const Compiler = struct {
     /// Live vreg bitmap at current call site.
     call_live_set: u32,
     scratch_vreg: ?u8,
+    /// True when the memory has guard pages — skip explicit bounds checks.
+    use_guard_pages: bool,
+    /// Byte offset of the shared error epilogue (for signal handler recovery).
+    shared_exit_offset: u32,
 
     const Patch = struct {
         rel32_offset: u32, // byte offset of the rel32 field in code
@@ -1143,6 +1147,8 @@ pub const Compiler = struct {
             .written_vregs = 0,
             .call_live_set = 0,
             .scratch_vreg = null,
+            .use_guard_pages = false,
+            .shared_exit_offset = 0,
         };
     }
 
@@ -1356,10 +1362,11 @@ pub const Compiler = struct {
 
     /// Emit error stubs at function end and patch forward branches.
     fn emitErrorStubs(self: *Compiler) void {
-        if (self.error_stubs.items.len == 0) return;
+        if (self.error_stubs.items.len == 0 and !self.use_guard_pages) return;
 
         // Shared error epilogue: restore callee-saved, return with RAX=error_code
         const shared_exit = self.currentOffset();
+        self.shared_exit_offset = shared_exit;
         // At this point, RAX has the error code. Restore callee-saved and return.
         // Undo alignment padding from prologue
         Enc.addImm32(&self.code, self.alloc, .rsp, 8);
@@ -1456,14 +1463,13 @@ pub const Compiler = struct {
         Enc.movRegReg32(&self.code, self.alloc, SCRATCH, addr_reg);
         self.emitAddOffset(instr.operand);
 
-        // 2. Bounds check: effective + access_size <= MEM_SIZE
-        // LEA SCRATCH2, [SCRATCH + access_size]
-        Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
-        Enc.addImm32(&self.code, self.alloc, SCRATCH2, @bitCast(access_size));
-        // CMP SCRATCH2, MEM_SIZE
-        Enc.cmpRegReg(&self.code, self.alloc, SCRATCH2, MEM_SIZE);
-        // JA error (unsigned above = out of bounds)
-        self.emitCondError(.a, 6); // OutOfBoundsMemoryAccess
+        // 2. Bounds check (skipped when guard pages handle OOB via signal handler)
+        if (!self.use_guard_pages) {
+            Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
+            Enc.addImm32(&self.code, self.alloc, SCRATCH2, @bitCast(access_size));
+            Enc.cmpRegReg(&self.code, self.alloc, SCRATCH2, MEM_SIZE);
+            self.emitCondError(.a, 6); // OutOfBoundsMemoryAccess
+        }
 
         // 3. Load: dst = mem_base[effective]
         switch (kind) {
@@ -1488,11 +1494,13 @@ pub const Compiler = struct {
         Enc.movRegReg32(&self.code, self.alloc, SCRATCH, addr_reg);
         self.emitAddOffset(instr.operand);
 
-        // 2. Bounds check
-        Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
-        Enc.addImm32(&self.code, self.alloc, SCRATCH2, @bitCast(access_size));
-        Enc.cmpRegReg(&self.code, self.alloc, SCRATCH2, MEM_SIZE);
-        self.emitCondError(.a, 6);
+        // 2. Bounds check (skipped when guard pages handle OOB via signal handler)
+        if (!self.use_guard_pages) {
+            Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
+            Enc.addImm32(&self.code, self.alloc, SCRATCH2, @bitCast(access_size));
+            Enc.cmpRegReg(&self.code, self.alloc, SCRATCH2, MEM_SIZE);
+            self.emitCondError(.a, 6);
+        }
 
         // 3. Store: mem_base[effective] = value
         // Load value into SCRATCH2 (SCRATCH has effective address)
@@ -2422,6 +2430,7 @@ pub const Compiler = struct {
             .buf = aligned_buf,
             .entry = @ptrCast(@alignCast(aligned_buf.ptr)),
             .code_len = @intCast(code_size),
+            .oob_exit_offset = self.shared_exit_offset,
         };
         return jit_code;
     }
@@ -3294,6 +3303,7 @@ pub fn compileFunction(
     result_count: u16,
     trace: ?*trace_mod.TraceConfig,
     min_memory_bytes: u32,
+    use_guard_pages: bool,
 ) ?*JitCode {
     if (builtin.cpu.arch != .x86_64) return null;
     _ = trace;
@@ -3310,6 +3320,7 @@ pub fn compileFunction(
     const reg_ptr_offset: u32 = @intCast(@offsetOf(vm_mod.Vm, "reg_ptr"));
 
     var compiler = Compiler.init(alloc);
+    compiler.use_guard_pages = use_guard_pages;
     defer compiler.deinit();
 
     return compiler.compile(
@@ -3451,7 +3462,7 @@ test "x86_64 compile and execute constant return" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3477,7 +3488,7 @@ test "x86_64 compile and execute i32 add" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3510,7 +3521,7 @@ test "x86_64 compile and execute branch (LE_S + BR_IF_NOT)" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3560,7 +3571,7 @@ test "x86_64 compile and execute loop (simple counter)" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 1, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 1, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3616,7 +3627,7 @@ test "x86_64 compile and execute memory load" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 1, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 1, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3678,7 +3689,7 @@ test "x86_64 compile and execute memory store then load" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3708,7 +3719,7 @@ test "x86_64 compile and execute f64 add" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 2, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 

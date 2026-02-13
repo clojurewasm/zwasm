@@ -20,8 +20,15 @@ const wat = @import("wat.zig");
 const validate = @import("validate.zig");
 const build_options = @import("build_options");
 const component_mod = @import("component.zig");
+const guard_mod = @import("guard.zig");
+const jit_mod = vm_mod.jit_mod;
 
 pub fn main() !void {
+    // Install signal handler for JIT guard page OOB traps
+    if (comptime jit_mod.jitSupported()) {
+        guard_mod.installSignalHandler();
+    }
+
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();

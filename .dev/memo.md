@@ -44,18 +44,18 @@ Gap analysis (v0.2.0 vs wasmtime 41.0.1):
 ROI-ordered task list:
 
 1. [x] 23.1: Liveness-aware spill/reload — only spill live regs on call sites
-2. [ ] 23.2: Loop bounds check hoisting — prove memory safety at loop entry, elide inner checks
+2. [x] 23.2: Guard pages for bounds check elimination — mmap 8GB + PROT_NONE + signal handler
 3. [ ] 23.3: Address calculation optimization — strength reduction, scaled offset addressing
 4. [ ] 23.4: FP register file — keep f64/f32 in D-registers, eliminate GPR↔FPR round-trips
 5. [ ] 23.5: Measure & tune — re-benchmark, profile remaining gaps, targeted fixes
 
 ## Current Task
 
-23.2: Loop bounds check hoisting — prove memory safety at loop entry, elide inner checks.
+23.3: Address calculation optimization.
 
 ## Previous Task
 
-23.1: Liveness-aware spill/reload — forward-scan liveness analysis at call sites (ARM64+x86).
+23.2: Guard pages for bounds check elimination. Eliminated all explicit bounds checks in JIT-compiled memory loads/stores. tgo_mfr -15%, st_sieve -12%.
 
 ## Wasm 3.0 Coverage
 

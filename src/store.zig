@@ -337,7 +337,13 @@ pub const Store = struct {
         // Memory sizes are capped well below u32 max by implementation limits.
         const min32: u32 = @intCast(min);
         const max32: ?u32 = if (max) |m| @intCast(m) else null;
-        var new_mem = WasmMemory.initWithPageSize(self.alloc, min32, max32, page_size);
+        // Use guarded memory (mmap + guard pages) on JIT-capable platforms.
+        // Falls back to ArrayList if mmap fails (e.g., insufficient virtual memory).
+        const memory_mod = @import("memory.zig");
+        var new_mem = if (jit_mod.jitSupported() and page_size == memory_mod.PAGE_SIZE)
+            WasmMemory.initGuarded(self.alloc, min32, max32) catch WasmMemory.initWithPageSize(self.alloc, min32, max32, page_size)
+        else
+            WasmMemory.initWithPageSize(self.alloc, min32, max32, page_size);
         new_mem.is_shared_memory = is_shared_memory;
         ptr.* = new_mem;
         return self.memories.items.len - 1;

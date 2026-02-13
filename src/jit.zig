@@ -43,6 +43,8 @@ pub const JitCode = struct {
     buf: []align(std.heap.page_size_min) u8,
     entry: JitFn,
     code_len: u32,
+    /// Offset of the OOB error return stub within buf (for signal handler recovery).
+    oob_exit_offset: u32 = 0,
 
     pub fn deinit(self: *JitCode, alloc: Allocator) void {
         std.posix.munmap(self.buf);
@@ -819,6 +821,10 @@ pub const Compiler = struct {
     /// Live vreg bitmap at current call site (set by spillCallerSavedLive).
     /// Bit N = 1 means vreg N is live and must be spilled/reloaded across the call.
     call_live_set: u32,
+    /// Index of the shared error epilogue in the code array (for signal handler recovery).
+    shared_exit_idx: u32,
+    /// True when the memory has guard pages — skip explicit bounds checks.
+    use_guard_pages: bool,
 
     const Patch = struct {
         arm64_idx: u32, // index in code array
@@ -866,6 +872,8 @@ pub const Compiler = struct {
             .vm_ptr_cached = false,
             .inst_ptr_cached = false,
             .call_live_set = 0,
+            .shared_exit_idx = 0,
+            .use_guard_pages = false,
         };
     }
 
@@ -2175,6 +2183,29 @@ pub const Compiler = struct {
     const LoadKind = enum { w32, x64, u8, s8_32, s8_64, u16, s16_32, s16_64, s32_64 };
     const StoreKind = enum { w32, x64, b8, h16 };
 
+    fn emitLoadInstr(kind: LoadKind, rd: u5, base: u5, offset: u5) u32 {
+        return switch (kind) {
+            .w32 => a64.ldr32Reg(rd, base, offset),
+            .x64 => a64.ldr64Reg(rd, base, offset),
+            .u8 => a64.ldrbReg(rd, base, offset),
+            .s8_32 => a64.ldrsbReg(rd, base, offset),
+            .s8_64 => a64.ldrsb64Reg(rd, base, offset),
+            .u16 => a64.ldrhReg(rd, base, offset),
+            .s16_32 => a64.ldrshReg(rd, base, offset),
+            .s16_64 => a64.ldrsh64Reg(rd, base, offset),
+            .s32_64 => a64.ldrswReg(rd, base, offset),
+        };
+    }
+
+    fn emitStoreInstr(kind: StoreKind, rt: u5, base: u5, offset: u5) u32 {
+        return switch (kind) {
+            .w32 => a64.str32Reg(rt, base, offset),
+            .x64 => a64.str64Reg(rt, base, offset),
+            .b8 => a64.strbReg(rt, base, offset),
+            .h16 => a64.strhReg(rt, base, offset),
+        };
+    }
+
     /// Check if a memory access with known const address can skip bounds check.
     fn isConstAddrSafe(self: *const Compiler, addr_vreg: u8, offset: u32, access_size: u32) ?u32 {
         if (self.min_memory_bytes == 0) return null;
@@ -2191,18 +2222,7 @@ pub const Compiler = struct {
         // Fast path: const-addr with guaranteed in-bounds → skip bounds check
         if (self.isConstAddrSafe(instr.rs1, instr.operand, access_size)) |eff_addr| {
             self.emitLoadImm(SCRATCH, eff_addr);
-            const load_instr: u32 = switch (kind) {
-                .w32 => a64.ldr32Reg(SCRATCH, MEM_BASE, SCRATCH),
-                .x64 => a64.ldr64Reg(SCRATCH, MEM_BASE, SCRATCH),
-                .u8 => a64.ldrbReg(SCRATCH, MEM_BASE, SCRATCH),
-                .s8_32 => a64.ldrsbReg(SCRATCH, MEM_BASE, SCRATCH),
-                .s8_64 => a64.ldrsb64Reg(SCRATCH, MEM_BASE, SCRATCH),
-                .u16 => a64.ldrhReg(SCRATCH, MEM_BASE, SCRATCH),
-                .s16_32 => a64.ldrshReg(SCRATCH, MEM_BASE, SCRATCH),
-                .s16_64 => a64.ldrsh64Reg(SCRATCH, MEM_BASE, SCRATCH),
-                .s32_64 => a64.ldrswReg(SCRATCH, MEM_BASE, SCRATCH),
-            };
-            self.emit(load_instr);
+            self.emit(emitLoadInstr(kind, SCRATCH, MEM_BASE, SCRATCH));
             self.storeVreg(instr.rd, SCRATCH);
             return;
         }
@@ -2212,29 +2232,20 @@ pub const Compiler = struct {
         self.emit(a64.uxtw(SCRATCH, addr_reg)); // zero-extend 32→64
         self.emitAddOffset(SCRATCH, instr.operand);
 
-        // 2. Bounds check: effective + access_size <= mem_size
-        if (access_size <= 0xFFF) {
-            self.emit(a64.addImm64(SCRATCH2, SCRATCH, @intCast(access_size)));
-        } else {
-            self.emit(a64.mov64(SCRATCH2, SCRATCH));
-            self.emitAddOffset(SCRATCH2, access_size);
+        // 2. Bounds check (skipped when guard pages handle OOB via signal handler)
+        if (!self.use_guard_pages) {
+            if (access_size <= 0xFFF) {
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, @intCast(access_size)));
+            } else {
+                self.emit(a64.mov64(SCRATCH2, SCRATCH));
+                self.emitAddOffset(SCRATCH2, access_size);
+            }
+            self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+            self.emitCondError(.hi, 6); // OutOfBoundsMemoryAccess
         }
-        self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
-        self.emitCondError(.hi, 6); // OutOfBoundsMemoryAccess
 
         // 3. Load: dst = mem_base[effective]
-        const load_instr: u32 = switch (kind) {
-            .w32 => a64.ldr32Reg(SCRATCH, MEM_BASE, SCRATCH),
-            .x64 => a64.ldr64Reg(SCRATCH, MEM_BASE, SCRATCH),
-            .u8 => a64.ldrbReg(SCRATCH, MEM_BASE, SCRATCH),
-            .s8_32 => a64.ldrsbReg(SCRATCH, MEM_BASE, SCRATCH),
-            .s8_64 => a64.ldrsb64Reg(SCRATCH, MEM_BASE, SCRATCH),
-            .u16 => a64.ldrhReg(SCRATCH, MEM_BASE, SCRATCH),
-            .s16_32 => a64.ldrshReg(SCRATCH, MEM_BASE, SCRATCH),
-            .s16_64 => a64.ldrsh64Reg(SCRATCH, MEM_BASE, SCRATCH),
-            .s32_64 => a64.ldrswReg(SCRATCH, MEM_BASE, SCRATCH),
-        };
-        self.emit(load_instr);
+        self.emit(emitLoadInstr(kind, SCRATCH, MEM_BASE, SCRATCH));
         self.storeVreg(instr.rd, SCRATCH);
     }
 
@@ -2245,13 +2256,7 @@ pub const Compiler = struct {
         if (self.isConstAddrSafe(instr.rs1, instr.operand, access_size)) |eff_addr| {
             self.emitLoadImm(SCRATCH, eff_addr);
             const val_reg = self.getOrLoad(instr.rd, SCRATCH2);
-            const store_instr: u32 = switch (kind) {
-                .w32 => a64.str32Reg(val_reg, MEM_BASE, SCRATCH),
-                .x64 => a64.str64Reg(val_reg, MEM_BASE, SCRATCH),
-                .b8 => a64.strbReg(val_reg, MEM_BASE, SCRATCH),
-                .h16 => a64.strhReg(val_reg, MEM_BASE, SCRATCH),
-            };
-            self.emit(store_instr);
+            self.emit(emitStoreInstr(kind, val_reg, MEM_BASE, SCRATCH));
             self.scratch_vreg = null;
             return;
         }
@@ -2261,26 +2266,22 @@ pub const Compiler = struct {
         self.emit(a64.uxtw(SCRATCH, addr_reg));
         self.emitAddOffset(SCRATCH, instr.operand);
 
-        // 2. Bounds check
-        if (access_size <= 0xFFF) {
-            self.emit(a64.addImm64(SCRATCH2, SCRATCH, @intCast(access_size)));
-        } else {
-            self.emit(a64.mov64(SCRATCH2, SCRATCH));
-            self.emitAddOffset(SCRATCH2, access_size);
+        // 2. Bounds check (skipped when guard pages handle OOB via signal handler)
+        if (!self.use_guard_pages) {
+            if (access_size <= 0xFFF) {
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, @intCast(access_size)));
+            } else {
+                self.emit(a64.mov64(SCRATCH2, SCRATCH));
+                self.emitAddOffset(SCRATCH2, access_size);
+            }
+            self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+            self.emitCondError(.hi, 6);
         }
-        self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
-        self.emitCondError(.hi, 6);
 
         // 3. Store: mem_base[effective] = value
         // Value is in rd; need to load it to SCRATCH2 without clobbering SCRATCH (effective addr)
         const val_reg = self.getOrLoad(instr.rd, SCRATCH2);
-        const store_instr: u32 = switch (kind) {
-            .w32 => a64.str32Reg(val_reg, MEM_BASE, SCRATCH),
-            .x64 => a64.str64Reg(val_reg, MEM_BASE, SCRATCH),
-            .b8 => a64.strbReg(val_reg, MEM_BASE, SCRATCH),
-            .h16 => a64.strhReg(val_reg, MEM_BASE, SCRATCH),
-        };
-        self.emit(store_instr);
+        self.emit(emitStoreInstr(kind, val_reg, MEM_BASE, SCRATCH));
         // SCRATCH holds effective address, not a vreg value — invalidate cache
         self.scratch_vreg = null;
     }
@@ -3287,10 +3288,11 @@ pub const Compiler = struct {
     /// Emit error stubs and shared error epilogue at end of function.
     /// Each error site branches to a stub that sets x0 and jumps to shared exit.
     fn emitErrorStubs(self: *Compiler) void {
-        if (self.error_stubs.items.len == 0) return;
+        if (self.error_stubs.items.len == 0 and !self.use_guard_pages) return;
 
         // Shared error epilogue: restore callee-saved regs and return (x0 has error code)
         const shared_exit = self.currentIdx();
+        self.shared_exit_idx = shared_exit;
         self.emit(a64.ldpPost(27, 28, 31, 2));
         self.emit(a64.ldpPost(25, 26, 31, 2));
         self.emit(a64.ldpPost(23, 24, 31, 2));
@@ -3405,7 +3407,8 @@ pub const Compiler = struct {
         jit_code.* = .{
             .buf = aligned_buf,
             .entry = @ptrCast(@alignCast(aligned_buf.ptr)),
-            .code_len = @intCast(self.code.items.len),
+            .code_len = @intCast(self.code.items.len * 4),
+            .oob_exit_offset = self.shared_exit_idx * 4,
         };
         return jit_code;
     }
@@ -3658,6 +3661,11 @@ pub fn getMinMemoryBytes(instance: *Instance) u32 {
     return mem.min * mem.page_size;
 }
 
+pub fn getUseGuardPages(instance: *Instance) bool {
+    const mem = instance.getMemory(0) catch return false;
+    return mem.hasGuardPages();
+}
+
 /// param_count: number of parameters for the function.
 pub fn compileFunction(
     alloc: Allocator,
@@ -3668,11 +3676,12 @@ pub fn compileFunction(
     result_count: u16,
     trace: ?*trace_mod.TraceConfig,
     min_memory_bytes: u32,
+    use_guard_pages: bool,
 ) ?*JitCode {
     // x86_64 dispatch — delegate to separate backend
     if (builtin.cpu.arch == .x86_64) {
         const x86 = @import("x86.zig");
-        return x86.compileFunction(alloc, reg_func, pool64, self_func_idx, param_count, result_count, trace, min_memory_bytes);
+        return x86.compileFunction(alloc, reg_func, pool64, self_func_idx, param_count, result_count, trace, min_memory_bytes, use_guard_pages);
     }
 
     if (builtin.cpu.arch != .aarch64) return null;
@@ -3689,6 +3698,7 @@ pub fn compileFunction(
 
     var compiler = Compiler.init(alloc);
     compiler.min_memory_bytes = min_memory_bytes;
+    compiler.use_guard_pages = use_guard_pages;
 
     // Dump JIT code before deinit (pc_map still alive, one-shot)
     if (trace) |tc| {
@@ -3799,7 +3809,7 @@ test "compile and execute constant return" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3831,7 +3841,7 @@ test "compile and execute i32 add" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3868,7 +3878,7 @@ test "compile and execute branch (LE_S + BR_IF_NOT)" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3914,7 +3924,7 @@ test "compile and execute i32 division" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -3961,7 +3971,7 @@ test "compile and execute i32 remainder" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -4029,7 +4039,7 @@ test "compile and execute memory load/store" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -4093,7 +4103,7 @@ test "compile and execute memory store then load" {
         .alloc = alloc,
     };
 
-    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+    const jit_code = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_code.deinit(alloc);
 
@@ -4149,12 +4159,12 @@ test "const-addr memory load elides bounds check" {
     };
 
     // Compile with min_memory_bytes = 65536 (1 page, all const addrs safe)
-    const jit_opt = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 65536) orelse
+    const jit_opt = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 65536, false) orelse
         return error.CompilationFailed;
     defer jit_opt.deinit(alloc);
 
     // Compile without optimization (min_memory_bytes = 0)
-    const jit_noopt = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0) orelse
+    const jit_noopt = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
         return error.CompilationFailed;
     defer jit_noopt.deinit(alloc);
 

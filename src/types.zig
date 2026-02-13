@@ -24,6 +24,7 @@ const rt = struct {
     const opcode = @import("opcode.zig");
     const wat = @import("wat.zig");
     const validate = @import("validate.zig");
+    const guard = @import("guard.zig");
 };
 
 // ============================================================
