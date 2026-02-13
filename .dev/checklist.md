@@ -13,9 +13,9 @@ Prefix: W## (to distinguish from CW's F## items).
 
 | ID   | Item                                | Source     | Trigger                               |
 |------|-------------------------------------|------------|---------------------------------------|
-| W2   | table.init implementation           | CW F137    | Currently stub in CW                  |
-| W4   | WASI fd_readdir implementation      | CW gap     | WASI P1 completion (Stage 2)          |
-| W5   | WASI sock_* family                  | CW gap     | WASI P1 completion (Stage 2)          |
+| W2   | table.init edge cases (48 failures) | CW F137    | Stage 19 Group B                      |
+| W4   | WASI fd_readdir implementation      | CW gap     | Stage 19 Group D (D2)                 |
+| W5   | WASI sock_* family                  | CW gap     | Stage 19 Group D (D6)                 |
 | W7   | Component Model basics              | New        | Stage 3                               |
 
 ## Cross-module linking (from E2E 5E)
@@ -28,14 +28,14 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 |------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
 | ~~W10~~ | ~~Cross-process table side effects~~ | ~~0~~ | ~~RESOLVED~~ | Fixed by Zig E2E runner with shared Store. partial-init-table-segment 3/3 pass. |
 | W16  | wast2json NaN literal syntax                | 0     | simd/canonicalize-nan.wast uses NaN syntax wast2json 1.0.39 can't parse. No upgrade available. | Blocked on wabt release. File skipped in conversion. |
-| W21  | wast2json GC WAT text format               | 0     | wabt 1.0.39 can't parse GC text syntax (ref i31, struct.new, etc.). 17 GC test files unconvertible. | Blocked on wabt release. Only binary-gc.wast converts. |
+| W21  | wast2json GC WAT text format               | 0     | wabt 1.0.39 can't parse GC text syntax. wasm-tools 1.244.0 can convert all 18 files. | Stage 19 Group A                                       |
 | ~~W17~~ | ~~.wat file support (native WAT parser)~~ | ~~0~~ | ~~RESOLVED (Stage 12)~~ | Completed. WAT parser with v128/SIMD, named locals/globals/labels, build-time optional. issue12170.wat validates OK. issue11563.wat out of scope (multi-module + GC). |
 
 ## Future improvements
 
 | ID   | Item                                | Trigger    | Notes                                    |
 |------|-------------------------------------|------------|------------------------------------------|
-| W20  | GC algorithm upgrade (generational/Immix) | Post Stage 18 | Stage 18 uses simple mark-and-sweep. Upgrade to generational or Immix for ClojureWasm perf. Design for swappable collector interface. |
+| W20  | GC collector (mark-and-sweep)             | Post Stage 18 | Stage 19 Group C. Simple mark-and-sweep without compaction first. Generational/Immix upgrade later. |
 
 ## Wasm proposals (assigned to stages)
 

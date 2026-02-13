@@ -144,9 +144,36 @@ Task Queue:
 7. [x] C1: WAT validation tests (1,119 skips → 0)
 8. [x] D1-D5: Full type checker + section validation (~2,186 skips → 5)
 
+Stage 19: Post-GC Improvements
+
+Target: GC spec tests (W21), table.init修正 (W2), GC collector (W20), WASI P1全対応 (W4/W5).
+~1,490 LOC, 14 tasks. 詳細設計: `.claude/plans/groovy-sprouting-horizon.md`
+
+Group A: GC Spec Tests (wasm-tools 1.244.0で828 assertions変換)
+1. [ ] A1: convert.shにwasm-tools対応
+2. [ ] A2: run_spec.pyのGC ref型対応(value無しref, ref_anyマッチ)
+3. [ ] A3: GC spec実行 + パスカウント記録
+
+Group B: table.init修正 (614/662パス、48失敗のエッジケース修正)
+4. [ ] B1: 失敗原因特定 + 修正
+
+Group C: GC Collector — compact無しmark-and-sweep
+5. [ ] C1: GcSlot + free list (GcObject wrapping, alloc再利用)
+6. [ ] C2: Markフェーズ (ルートスキャン + BFS)
+7. [ ] C3: Sweepフェーズ (未到達解放 + free list追加)
+8. [ ] C4: VM統合 (threshold trigger, D115)
+
+Group D: WASI P1 Full Support (~27/35 → 35/35)
+9.  [ ] D1: FdTable拡張 + path_open (最重要、250 LOC)
+10. [ ] D2: fd_readdir (directory iteration)
+11. [ ] D3: fd_renumber + path_symlink + path_link
+12. [ ] D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
+13. [ ] D5: poll_oneoff簡易版 (CLOCKのみ)
+14. [ ] D6: sock_* + 残り (NOSYS stub)
+
 ## Current Task
 
-Stage 18 complete. Merge to main via Merge Gate Checklist.
+A1: convert.shにwasm-tools対応.
 
 ## Previous Task
 

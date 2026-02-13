@@ -391,6 +391,57 @@ W17 resolved. issue11563.wat out of scope (multi-module format + GC proposal).
 - No regression
 - CW: no regression
 
+## Stage 19: Post-GC Improvements (PLANNED)
+
+**Goal**: Quality improvements after Wasm 3.0 completion — GC spec tests, table.init fix,
+GC collector, WASI P1 full support. ~1,490 LOC, 14 tasks.
+
+### Group A: GC Spec Tests (W21)
+
+Resolve wabt GC WAT format blocker using wasm-tools 1.244.0.
+
+- A1: convert.sh wasm-tools support (~40 LOC)
+- A2: run_spec.py GC ref type handling (~50 LOC)
+- A3: GC spec execution + pass count recording (~20 LOC)
+
+### Group B: table.init Fix (W2)
+
+614/662 pass, 48 edge case failures (OOB boundaries, dropped segments).
+
+- B1: Failure analysis + fix (~80 LOC)
+
+### Group C: GC Collector (W20)
+
+Mark-and-sweep without compaction. Addresses stay stable, no ref remapping.
+
+- C1: GcSlot + free list (~80 LOC)
+- C2: Mark phase — root scan + BFS (~120 LOC)
+- C3: Sweep phase — free unmarked + free list (~80 LOC)
+- C4: VM integration — threshold trigger (~70 LOC)
+
+### Group D: WASI P1 Full Support (W4/W5)
+
+~27/35 → 35/35. path_open is most critical.
+
+- D1: FdTable + path_open (~250 LOC)
+- D2: fd_readdir (~150 LOC)
+- D3: fd_renumber + path_symlink + path_link (~120 LOC)
+- D4: stub implementations (set_flags, set_times, filestat_get) (~200 LOC)
+- D5: poll_oneoff (CLOCK only) (~150 LOC)
+- D6: sock_* + remaining (NOSYS stubs) (~80 LOC)
+
+### Execution Order
+
+A1 → A2 → A3 → B1 → C1 → C2 → C3 → C4 → D1 → D2 → D3 → D4 → D5 → D6
+
+### Exit criteria
+
+- GC spec tests converted and running via wasm-tools
+- table.init 662/662 pass
+- GC collector operational (mark-and-sweep, threshold-triggered)
+- WASI P1 35/35 functions implemented
+- No regression on existing tests/benchmarks
+
 ## Future
 
 - Superinstruction expansion (profile-guided)
