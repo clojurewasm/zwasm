@@ -8,6 +8,7 @@
 //! Wasm operand stack, perform the operation, and push errno result.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const posix = std.posix;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -1400,10 +1401,19 @@ pub fn fd_fdstat_set_flags(ctx: *anyopaque, _: usize) anyerror!void {
     if (fdflags & 0x04 != 0) os_flags |= @as(u32, @bitCast(posix.O{ .NONBLOCK = true }));
     if (fdflags & 0x10 != 0) os_flags |= @as(u32, @bitCast(posix.O{ .SYNC = true }));
 
-    const rc = std.c.fcntl(host_fd, std.c.F.SETFL, os_flags);
-    if (rc < 0) {
-        try pushErrno(vm, toWasiErrno(posix.unexpectedErrno(@enumFromInt(-rc))));
-        return;
+    if (comptime builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+        const rc = linux.fcntl(host_fd, linux.F.SETFL, @as(usize, os_flags));
+        if (posix.errno(rc) != .SUCCESS) {
+            try pushErrno(vm, .IO);
+            return;
+        }
+    } else {
+        const rc = std.c.fcntl(host_fd, std.c.F.SETFL, os_flags);
+        if (rc < 0) {
+            try pushErrno(vm, .IO);
+            return;
+        }
     }
     try pushErrno(vm, .SUCCESS);
 }
@@ -1656,10 +1666,19 @@ pub fn path_filestat_set_times(ctx: *anyopaque, _: usize) anyerror!void {
     @memcpy(path_buf[0..path_len], path);
     path_buf[path_len] = 0;
 
-    const rc = std.c.utimensat(host_fd, &path_buf, &times, nofollow);
-    if (rc < 0) {
-        try pushErrno(vm, toWasiErrno(posix.unexpectedErrno(@enumFromInt(-rc))));
-        return;
+    if (comptime builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+        const rc = linux.utimensat(host_fd, &path_buf, &times, nofollow);
+        if (posix.errno(rc) != .SUCCESS) {
+            try pushErrno(vm, .IO);
+            return;
+        }
+    } else {
+        const rc = std.c.utimensat(host_fd, &path_buf, &times, nofollow);
+        if (rc < 0) {
+            try pushErrno(vm, .IO);
+            return;
+        }
     }
     try pushErrno(vm, .SUCCESS);
 }
