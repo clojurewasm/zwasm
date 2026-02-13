@@ -27,6 +27,9 @@ jobs:
       - name: Run unit tests
         run: zig build test
 
+      - name: Build ReleaseSafe for spec tests
+        run: zig build -Doptimize=ReleaseSafe
+
       - name: Install wabt (wast2json)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y wabt
