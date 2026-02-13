@@ -60,7 +60,7 @@ pub fn main() !void {
     } else if (std.mem.eql(u8, command, "help") or std.mem.eql(u8, command, "--help") or std.mem.eql(u8, command, "-h")) {
         printUsage(stdout);
     } else if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "version")) {
-        try stdout.print("zwasm 0.1.0\n", .{});
+        try stdout.print("zwasm {s}\n", .{build_options.version});
     } else {
         try stderr.print("error: unknown command '{s}'\n", .{command});
         try stderr.flush();

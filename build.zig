@@ -7,8 +7,11 @@ pub fn build(b: *std.Build) void {
     // Build options
     const enable_wat = b.option(bool, "wat", "Enable WAT text format parser (default: true)") orelse true;
 
+    const build_zon = @import("build.zig.zon");
+
     const options = b.addOptions();
     options.addOption(bool, "enable_wat", enable_wat);
+    options.addOption([]const u8, "version", build_zon.version);
 
     // Library module (for use as dependency and test root)
     const mod = b.addModule("zwasm", .{
