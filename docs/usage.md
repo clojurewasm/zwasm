@@ -65,6 +65,25 @@ zwasm run app.wasm --link math=math.wasm
 zwasm run app.wasm --link env=helpers.wasm --link io=io.wasm
 ```
 
+### Component Model
+
+zwasm auto-detects Component Model binaries and runs them:
+
+```bash
+# Run a component (auto-detected from binary header)
+zwasm run component.wasm
+```
+
+### Feature listing
+
+```bash
+# Show all supported Wasm proposals
+zwasm features
+
+# Machine-readable JSON output
+zwasm features --json
+```
+
 ### Inspect and validate
 
 ```bash

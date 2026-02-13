@@ -6,7 +6,7 @@ Per-opcode details live in code (`src/opcode.zig` enum).
 Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
-- Spec: `python3 test/spec/run_spec.py --summary` (60,873/60,906, 7 skips)
+- Spec: `python3 test/spec/run_spec.py --summary` (61,650/61,761, 48 skips)
 - E2E: `bash test/e2e/run_e2e.sh --summary` (356/356 = 100%, 70 files, Zig runner)
 
 ## Opcode Coverage Summary
@@ -69,8 +69,8 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | GC                    | Complete     | 31 opcodes (0xFB prefix), 16 unit tests |
 | Threads               | Complete     | 79 opcodes (0xFE prefix), 306/310 spec  |
 | WAT parser            | Complete     | v128/SIMD, named locals/globals    |
-| Component Model       | Not started  | Wasm 3.0 (W7)                     |
-| WASI Preview 2        | Not started  | Wasm 3.0                          |
+| Component Model       | Complete     | WIT, binary, Canon ABI, linker    |
+| WASI Preview 2        | Complete     | 14 interfaces via P1 adapter      |
 
 ## E2E Test Status
 
