@@ -58,7 +58,7 @@ Design: default ON, implement all wasmtime supports, minimal flags.
 
 Group A: WIT Parser (~800 LOC)
 1. [ ] A1: WIT lexer + token types
-2. [ ] A2: WIT parser — interfaces, worlds, types, functions
+2. [x] A2: WIT parser — interfaces, worlds, types, functions
 3. [ ] A3: WIT resolution — use declarations, package references
 4. [ ] A4: Unit tests + wasmtime WIT corpus validation
 
@@ -85,12 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 A2: WIT parser — interfaces, worlds, types, functions
+Stage 22 A3: WIT resolution — use declarations, package references
 
 ## Previous Task
 
-21.2-21.5: All 79 atomic opcodes, alignment/shared-memory traps, spec test runner
-thread/wait/either support. 306/310 threads tests passing. 61,650/61,761 total (99.8%).
+A2: WIT parser — full AST (Document, Interface, World, TypeDef, FuncDef, TypeRef), 16 parser tests.
 
 ## Wasm 3.0 Coverage
 
