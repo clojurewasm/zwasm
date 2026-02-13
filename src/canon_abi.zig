@@ -1068,3 +1068,98 @@ test "CanonContext — postReturn null is noop" {
     // Should not crash
     ctx.invokePostReturn();
 }
+
+// ── Integration Tests ─────────────────────────────────────────────────
+
+test "integration: full scalar lift → lower roundtrip" {
+    // Lift i32 → component u32, lower back → core i32
+    const lifted = liftScalar(.u32_, .{ .i32 = 42 }).?;
+    try std.testing.expectEqual(@as(u32, 42), lifted.u32_);
+    const lowered = lowerScalar(lifted).?;
+    try std.testing.expectEqual(@as(i32, 42), lowered.i32);
+}
+
+test "integration: string utf8 write + read roundtrip" {
+    var mem: [256]u8 = undefined;
+    @memset(&mem, 0);
+
+    // Write string to memory
+    const written = lowerStringUtf8(&mem, 0, "hello world").?;
+    try std.testing.expectEqual(@as(u32, 0), written.ptr);
+    try std.testing.expectEqual(@as(u32, 11), written.len);
+
+    // Read it back
+    const read = liftStringUtf8(&mem, written.ptr, written.len).?;
+    try std.testing.expectEqualStrings("hello world", read);
+}
+
+test "integration: flags + memory layout combined" {
+    var mem: [64]u8 = undefined;
+    @memset(&mem, 0);
+
+    // Write an option<u32> at offset 0 (disc=1, payload=42)
+    const opt_layout = optionLayout(4, 4);
+    try std.testing.expect(storeDiscriminant(&mem, opt_layout.disc_offset, 1, 1));
+    try std.testing.expect(storeU32(&mem, opt_layout.payload_offset, 42));
+
+    // Write flags at offset after option (16 flags = 1 word = 4 bytes)
+    const flags_offset: u32 = opt_layout.total_size;
+    try std.testing.expect(lowerFlags(&mem, flags_offset, 16, 0b1010101010101010));
+
+    // Read back option
+    try std.testing.expectEqual(@as(u32, 1), loadDiscriminant(&mem, opt_layout.disc_offset, 1).?);
+    try std.testing.expectEqual(@as(u32, 42), loadU32(&mem, opt_layout.payload_offset).?);
+
+    // Read back flags
+    try std.testing.expectEqual(@as(u64, 0b1010101010101010), liftFlags(&mem, flags_offset, 16).?);
+}
+
+test "integration: CanonContext string + list interleaved" {
+    var mem: [512]u8 = undefined;
+    @memset(&mem, 0);
+    var ctx = CanonContext.initWithMemory(&mem, .utf8);
+
+    // Lower a string
+    const s1 = ctx.lowerStringAlloc("test").?;
+    try std.testing.expectEqualStrings("test", mem[s1.ptr..][0..s1.len]);
+
+    // Lower a list of i32
+    const items = [_]u32{ 100, 200 };
+    const l1 = ctx.lowerListI32(&items).?;
+    try std.testing.expectEqual(@as(u32, 2), l1.len);
+    try std.testing.expectEqual(@as(u32, 100), loadU32(&mem, l1.ptr).?);
+    try std.testing.expectEqual(@as(u32, 200), loadU32(&mem, l1.ptr + 4).?);
+
+    // Lower another string — bump allocator should not overlap
+    const s2 = ctx.lowerStringAlloc("data").?;
+    try std.testing.expect(s2.ptr >= l1.ptr + 8);
+    try std.testing.expectEqualStrings("data", mem[s2.ptr..][0..s2.len]);
+}
+
+test "integration: HandleTable resource lifecycle" {
+    var ht = HandleTable.init(std.testing.allocator);
+    defer ht.deinit();
+
+    // Simulate resource creation, use, and cleanup
+    const h0 = try ht.new(1000); // resource rep=1000
+    const h1 = try ht.new(2000); // resource rep=2000
+    const h2 = try ht.new(3000); // resource rep=3000
+
+    // Use resources
+    try std.testing.expectEqual(@as(?u32, 1000), ht.getRep(h0));
+    try std.testing.expectEqual(@as(?u32, 2000), ht.getRep(h1));
+    try std.testing.expectEqual(@as(?u32, 3000), ht.getRep(h2));
+
+    // Drop middle resource
+    try std.testing.expect(ht.drop(h1));
+    try std.testing.expectEqual(@as(?u32, null), ht.getRep(h1));
+
+    // Allocate new resource — should reuse slot
+    const h3 = try ht.new(4000);
+    try std.testing.expectEqual(h1, h3); // reused slot
+    try std.testing.expectEqual(@as(?u32, 4000), ht.getRep(h3));
+
+    // Remaining resources still valid
+    try std.testing.expectEqual(@as(?u32, 1000), ht.getRep(h0));
+    try std.testing.expectEqual(@as(?u32, 3000), ht.getRep(h2));
+}

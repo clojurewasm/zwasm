@@ -1765,3 +1765,134 @@ test "WasiP2 — adapter and P2 interfaces are consistent" {
         try std.testing.expect(WasiAdapter.isWasiP2Import(iface.name));
     }
 }
+
+// ── Integration Tests ─────────────────────────────────────────────────
+
+test "integration: full decode → instantiate pipeline" {
+    // Component with one core module, one type, one export
+    const core_mod = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00 };
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // core_module section (id=1)
+        0x01, 0x08,
+    } ++ core_mod ++ [_]u8{
+        // type section (id=7): 1 type = defined(u32)
+        0x07, 0x03, 0x01, 0x40, 0x79,
+        // export section (id=11): 1 func export "compute"
+        0x0B, 0x0D, 0x01,
+        0x00, // kebab discriminant
+        0x07, 'c', 'o', 'm', 'p', 'u', 't', 'e',
+        0x01, // kind: func
+        0x00, // idx: 0
+    };
+
+    // Decode
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 1), comp.core_modules.items.len);
+    try std.testing.expectEqual(@as(usize, 1), comp.types.items.len);
+    try std.testing.expectEqual(@as(usize, 1), comp.exports.items.len);
+    try std.testing.expectEqualStrings("compute", comp.exports.items[0].name);
+
+    // Instantiate
+    var ci = ComponentInstance.init(std.testing.allocator, &comp);
+    defer ci.deinit();
+    try ci.instantiate();
+
+    try std.testing.expectEqual(@as(usize, 1), ci.coreModuleCount());
+    try std.testing.expect(ci.getExport("compute") != null);
+    try std.testing.expect(ci.getExport("missing") == null);
+}
+
+test "integration: component with multiple sections roundtrip" {
+    // Component: core_module + type + canon + export
+    const core_mod = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00 };
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x0D, 0x00, 0x01, 0x00,
+        // core_module
+        0x01, 0x08,
+    } ++ core_mod ++ [_]u8{
+        // type section: defined(string), func(name: type0) -> type0
+        0x07, 0x10, 0x02,
+        0x40, 0x73, // defined(string)
+        0x41, // func
+        0x01, // 1 param
+        0x04, 'n', 'a', 'm', 'e', // "name"
+        0x00, // type idx 0
+        0x01, 0x00, // result: single unnamed type 0
+        // canonical section: lift core_func=0, opts=[utf8, memory=0]
+        0x08, 0x08, 0x01,
+        0x00, 0x00, 0x00, // lift, sub=0x00, core_func_idx=0
+        0x02, 0x00, 0x03, 0x00, // 2 opts: utf8, memory=0
+    };
+
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 2), comp.types.items.len);
+    try std.testing.expectEqual(ValType.string_, comp.types.items[0].defined.primitive);
+    const ft = comp.types.items[1].func;
+    try std.testing.expectEqual(@as(usize, 1), ft.params.len);
+    try std.testing.expectEqualStrings("name", ft.params[0].name);
+
+    try std.testing.expectEqual(@as(usize, 1), comp.canon_funcs.items.len);
+    const lift = comp.canon_funcs.items[0].lift;
+    try std.testing.expectEqual(@as(u32, 0), lift.core_func_idx);
+    try std.testing.expectEqual(StringEncoding.utf8, lift.options.string_encoding);
+    try std.testing.expectEqual(@as(u32, 0), lift.options.memory.?);
+}
+
+test "integration: WIT parse → resolve → adapter lookup" {
+    const wit_src =
+        \\package example:test@1.0.0;
+        \\
+        \\interface logger {
+        \\    log: func(msg: string);
+        \\}
+        \\
+        \\world app {
+        \\    import wasi:cli/stdout;
+        \\    export run: func();
+        \\}
+    ;
+
+    const wit = @import("wit.zig");
+    var lexer = wit.Lexer.init(wit_src);
+    var parser = wit.Parser.init(&lexer);
+    const doc = try parser.parseDocument(std.testing.allocator);
+    defer std.testing.allocator.free(doc.interfaces);
+    defer std.testing.allocator.free(doc.worlds);
+
+    // Verify parsed structure
+    try std.testing.expectEqualStrings("example", doc.package_name.?.namespace);
+    try std.testing.expectEqualStrings("test", doc.package_name.?.name);
+    try std.testing.expectEqual(@as(usize, 1), doc.interfaces.len);
+    try std.testing.expectEqualStrings("logger", doc.interfaces[0].name);
+    try std.testing.expectEqual(@as(usize, 1), doc.worlds.len);
+    try std.testing.expectEqualStrings("app", doc.worlds[0].name);
+
+    // Verify adapter can resolve the imported interface
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:cli/stdout"));
+    const p1_fns = WasiAdapter.getP1Functions("wasi:cli/stdout").?;
+    try std.testing.expectEqualStrings("fd_write", p1_fns[0]);
+}
+
+test "integration: isComponent / isCoreModule exhaustive" {
+    // Valid component
+    try std.testing.expect(isComponent(&[_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x0D, 0x00, 0x01, 0x00 }));
+    // Valid module
+    try std.testing.expect(isCoreModule(&[_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00 }));
+    // Neither
+    try std.testing.expect(!isComponent(&[_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x02, 0x00, 0x00, 0x00 }));
+    try std.testing.expect(!isCoreModule(&[_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x02, 0x00, 0x00, 0x00 }));
+    // Too short
+    try std.testing.expect(!isComponent(&[_]u8{0x00}));
+    try std.testing.expect(!isCoreModule(&[_]u8{0x00}));
+    // Empty
+    try std.testing.expect(!isComponent(&[_]u8{}));
+    try std.testing.expect(!isCoreModule(&[_]u8{}));
+}

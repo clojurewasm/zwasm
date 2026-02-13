@@ -4,8 +4,9 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-19 — COMPLETE (Wasm 3.0 all 9 proposals + GC collector + WASI P1 full)
-- Source: ~33K LOC, 19 files, 239+ tests all pass
+- Stages 0-2, 4, 7-19, 22 — COMPLETE (Wasm 3.0 + GC + WASI P1 + Component Model)
+- Source: ~38K LOC, 22 files, 360+ tests all pass
+- Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
 - Spec: 61,650/61,761 Mac (99.8%), incl. GC 472/546, threads 306/310, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
@@ -81,15 +82,15 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 16. [x] D2: Virtual adapter pattern — P1 compat shim
 17. [x] D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
 18. [x] D4: `zwasm run` component support (detect component vs module automatically)
-19. [ ] D5: Spec tests + integration
+19. [x] D5: Spec tests + integration
 
 ## Current Task
 
-Stage 22 D5: Spec tests + integration
+Stage 22 complete. Run merge gate checklist.
 
 ## Previous Task
 
-D4: Auto-detect component vs module in `zwasm run`, runComponent handler with core module _start dispatch. 1 new test.
+D5: Integration tests — full decode→instantiate pipeline, scalar/string/flags/handle roundtrips, WIT parse→resolve→adapter lookup. 10 new integration tests (121 CM tests total).
 
 ## Wasm 3.0 Coverage
 
