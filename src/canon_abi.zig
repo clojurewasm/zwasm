@@ -512,6 +512,83 @@ pub const HandleTable = struct {
     }
 };
 
+// ── Realloc Protocol + Context ────────────────────────────────────────
+
+/// Callback type matching cabi_realloc(old_ptr, old_size, align, new_size) -> ptr.
+/// Returns null on allocation failure.
+pub const ReallocFn = *const fn (old_ptr: u32, old_size: u32, alignment: u32, new_size: u32) ?u32;
+
+/// Context for canonical ABI lifting/lowering operations.
+/// Carries memory, encoding, realloc, and post-return state.
+pub const CanonContext = struct {
+    memory: []u8,
+    string_encoding: component.StringEncoding,
+    realloc_fn: ?ReallocFn = null,
+    // Bump allocator fallback when no realloc_fn
+    bump_offset: u32 = 0,
+    // Post-return
+    post_return_fn: ?*const fn (?*anyopaque) void = null,
+    post_return_ctx: ?*anyopaque = null,
+
+    /// Init with a memory buffer and encoding. Uses bump allocator.
+    pub fn initWithMemory(mem: []u8, encoding: component.StringEncoding) CanonContext {
+        return .{
+            .memory = mem,
+            .string_encoding = encoding,
+        };
+    }
+
+    /// Allocate bytes via realloc or bump allocator.
+    pub fn alloc(self: *CanonContext, alignment: u32, size: u32) ?u32 {
+        if (self.realloc_fn) |realloc| {
+            return realloc(0, 0, alignment, size);
+        }
+        // Bump allocator fallback
+        const aligned = alignTo(self.bump_offset, alignment);
+        if (aligned + size > self.memory.len) return null;
+        self.bump_offset = aligned + size;
+        return aligned;
+    }
+
+    /// Lower a UTF-8 string into memory, allocating space.
+    pub fn lowerStringAlloc(self: *CanonContext, str: []const u8) ?struct { ptr: u32, len: u32 } {
+        switch (self.string_encoding) {
+            .utf8 => {
+                const ptr = self.alloc(1, @intCast(str.len)) orelse return null;
+                return lowerStringUtf8(self.memory, ptr, str);
+            },
+            .utf16 => {
+                // Worst case: each byte -> one UTF-16 code unit (2 bytes)
+                const worst_size: u32 = @intCast(str.len * 2);
+                const ptr = self.alloc(2, worst_size) orelse return null;
+                return lowerStringUtf16(self.memory, ptr, str);
+            },
+            .compact_utf16 => {
+                // Treat as UTF-8 for now
+                const ptr = self.alloc(1, @intCast(str.len)) orelse return null;
+                return lowerStringUtf8(self.memory, ptr, str);
+            },
+        }
+    }
+
+    /// Lower a list of u32 values into memory, allocating space.
+    pub fn lowerListI32(self: *CanonContext, items: []const u32) ?struct { ptr: u32, len: u32 } {
+        const byte_len: u32 = @intCast(items.len * 4);
+        const ptr = self.alloc(4, byte_len) orelse return null;
+        for (items, 0..) |item, i| {
+            if (!storeU32(self.memory, ptr + @as(u32, @intCast(i)) * 4, item)) return null;
+        }
+        return .{ .ptr = ptr, .len = @intCast(items.len) };
+    }
+
+    /// Invoke post-return callback if set.
+    pub fn invokePostReturn(self: *CanonContext) void {
+        if (self.post_return_fn) |f| {
+            f(self.post_return_ctx);
+        }
+    }
+};
+
 // ── Tests ─────────────────────────────────────────────────────────────
 
 test "liftScalar — bool" {
@@ -921,4 +998,73 @@ test "HandleTable — invalid handles" {
     // out of range handle
     try std.testing.expectEqual(@as(?u32, null), ht.getRep(99));
     try std.testing.expect(!ht.drop(99));
+}
+
+test "CanonContext — lowerStringAlloc utf8" {
+    var backing: [256]u8 = undefined;
+    @memset(&backing, 0);
+    var ctx = CanonContext.initWithMemory(&backing, .utf8);
+    const result = ctx.lowerStringAlloc("hello") orelse unreachable;
+    try std.testing.expectEqual(@as(u32, 5), result.len);
+    // Verify content was written at allocated ptr
+    try std.testing.expectEqualStrings("hello", backing[result.ptr..][0..result.len]);
+}
+
+test "CanonContext — lowerStringAlloc utf16" {
+    var backing: [256]u8 = undefined;
+    @memset(&backing, 0);
+    var ctx = CanonContext.initWithMemory(&backing, .utf16);
+    const result = ctx.lowerStringAlloc("AB") orelse unreachable;
+    // UTF-16: 2 code units
+    try std.testing.expectEqual(@as(u32, 2), result.len);
+    // Check first code unit is 'A' (0x0041)
+    const cu0 = std.mem.readInt(u16, backing[result.ptr..][0..2], .little);
+    try std.testing.expectEqual(@as(u16, 0x41), cu0);
+}
+
+test "CanonContext — lowerListAlloc i32" {
+    var backing: [256]u8 = undefined;
+    @memset(&backing, 0);
+    var ctx = CanonContext.initWithMemory(&backing, .utf8);
+    const items = [_]u32{ 10, 20, 30 };
+    const result = ctx.lowerListI32(&items) orelse unreachable;
+    try std.testing.expectEqual(@as(u32, 3), result.len);
+    // Verify each element
+    const base = result.ptr;
+    try std.testing.expectEqual(@as(u32, 10), loadU32(&backing, base).?);
+    try std.testing.expectEqual(@as(u32, 20), loadU32(&backing, base + 4).?);
+    try std.testing.expectEqual(@as(u32, 30), loadU32(&backing, base + 8).?);
+}
+
+test "CanonContext — bump allocator advances" {
+    var backing: [256]u8 = undefined;
+    @memset(&backing, 0);
+    var ctx = CanonContext.initWithMemory(&backing, .utf8);
+    const r1 = ctx.lowerStringAlloc("aa") orelse unreachable;
+    const r2 = ctx.lowerStringAlloc("bb") orelse unreachable;
+    // Second allocation should not overlap first
+    try std.testing.expect(r2.ptr >= r1.ptr + r1.len);
+}
+
+test "CanonContext — postReturn callback" {
+    var backing: [256]u8 = undefined;
+    @memset(&backing, 0);
+    var called: bool = false;
+    var ctx = CanonContext.initWithMemory(&backing, .utf8);
+    ctx.post_return_ctx = &called;
+    ctx.post_return_fn = struct {
+        fn cb(ptr: ?*anyopaque) void {
+            const flag: *bool = @ptrCast(@alignCast(ptr.?));
+            flag.* = true;
+        }
+    }.cb;
+    ctx.invokePostReturn();
+    try std.testing.expect(called);
+}
+
+test "CanonContext — postReturn null is noop" {
+    var backing: [256]u8 = undefined;
+    var ctx = CanonContext.initWithMemory(&backing, .utf8);
+    // Should not crash
+    ctx.invokePostReturn();
 }

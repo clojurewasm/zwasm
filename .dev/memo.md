@@ -74,7 +74,7 @@ Group C: Canonical ABI (~1,500 LOC)
 11. [x] C2: String encoding (utf-8/utf-16/latin1+utf-16)
 12. [x] C3: List, record, tuple, variant, enum, option, result
 13. [x] C4: Flags, own/borrow handles
-14. [ ] C5: Memory realloc protocol + post-return
+14. [x] C5: Memory realloc protocol + post-return
 
 Group D: Component Linker + WASI P2 (~2,000 LOC)
 15. [ ] D1: Component instantiation — resolve imports, create instances
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 C5: Memory realloc protocol + post-return
+Stage 22 D1: Component instantiation — resolve imports, create instances
 
 ## Previous Task
 
-C4: Flags (wordCount/size/load/store/lift/lower) + HandleTable (new/getRep/drop with slot recycling). 8 new tests.
+C5: ReallocFn type, CanonContext (bump allocator, lowerStringAlloc, lowerListI32, post-return callback). 6 new tests.
 
 ## Wasm 3.0 Coverage
 
