@@ -161,7 +161,7 @@ Group C: GC Collector — compact無しmark-and-sweep
 5. [x] C1: GcSlot + free list (GcObject wrapping, alloc再利用)
 6. [x] C2: Markフェーズ (ルートスキャン + BFS)
 7. [x] C3: Sweepフェーズ (未到達解放 + free list追加)
-8. [ ] C4: VM統合 (threshold trigger, D115)
+8. [x] C4: VM統合 (threshold trigger, D115)
 
 Group D: WASI P1 Full Support (~27/35 → 35/35)
 9.  [ ] D1: FdTable拡張 + path_open (最重要、250 LOC)
@@ -173,11 +173,11 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-C4: VM統合 (threshold trigger, D115)
+D1: FdTable拡張 + path_open (最重要、250 LOC)
 
 ## Previous Task
 
-C3: collect(roots) — full mark-and-sweep cycle. Removed redundant clearMarks from sweep(). 2 new tests (full cycle with slot reuse, multiple cycles).
+C4: VM integration complete. GcHeap tracks alloc_since_gc with threshold (default 1024). tryCollectGarbage in VM scans op_stack (u128), reg_stack (u64), globals for roots. Triggered at executeGc entry. markRootsWide for u128 scanning. BFS refactored to shared tryEnqueue + drainMarkQueue.
 
 C1: GcSlot + free list. GcObject→GcSlot migration, intrusive free list, freeSlot/mark/clearMarks/sweep API.
 

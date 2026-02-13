@@ -45,10 +45,14 @@ pub const GcSlot = struct {
 };
 
 /// Mark-and-sweep GC heap with free-list reuse.
+pub const GC_THRESHOLD_DEFAULT: u32 = 1024;
+
 pub const GcHeap = struct {
     slots: ArrayList(GcSlot),
     alloc: Allocator,
     free_head: ?u32, // head of free list (null = no free slots)
+    alloc_since_gc: u32 = 0, // allocations since last collection
+    gc_threshold: u32 = GC_THRESHOLD_DEFAULT,
 
     pub fn init(alloc: Allocator) GcHeap {
         return .{ .slots = .empty, .alloc = alloc, .free_head = null };
@@ -66,8 +70,14 @@ pub const GcHeap = struct {
         self.slots.deinit(self.alloc);
     }
 
+    /// Check if GC collection should be triggered.
+    pub fn shouldCollect(self: *const GcHeap) bool {
+        return self.alloc_since_gc >= self.gc_threshold;
+    }
+
     /// Allocate a slot, reusing free list or appending.
     fn allocSlot(self: *GcHeap, obj: GcObject) !u32 {
+        self.alloc_since_gc += 1;
         if (self.free_head) |head| {
             // Reuse free slot
             const slot = &self.slots.items[head];
@@ -146,56 +156,58 @@ pub const GcHeap = struct {
         }
     }
 
-    /// Mark all objects reachable from roots via BFS.
-    /// `roots` is a slice of u64 values (operand stack / globals / tables).
-    /// Non-GC values (null, i31, plain integers) are skipped.
-    pub fn markRoots(self: *GcHeap, roots: []const u64) !void {
-        // Use an ArrayList as BFS queue
-        var queue: ArrayList(u32) = .empty;
-        defer queue.deinit(self.alloc);
-
-        // Seed queue from roots
-        for (roots) |val| {
-            if (isGcRef(val)) {
-                const addr = decodeRef(val) catch continue;
-                if (addr < self.slots.items.len and self.slots.items[addr].obj != null and !self.slots.items[addr].marked) {
-                    self.slots.items[addr].marked = true;
-                    try queue.append(self.alloc, addr);
-                }
-            }
+    /// Try to mark+enqueue a single u64 value. Returns true if enqueued.
+    fn tryEnqueue(self: *GcHeap, val: u64, queue: *ArrayList(u32)) !void {
+        if (!isGcRef(val)) return;
+        const addr = decodeRef(val) catch return;
+        if (addr >= self.slots.items.len) return;
+        const slot = &self.slots.items[addr];
+        if (slot.obj != null and !slot.marked) {
+            slot.marked = true;
+            try queue.append(self.alloc, addr);
         }
+    }
 
-        // BFS traversal (cursor-based to avoid O(n) shifts)
+    /// BFS traversal from already-seeded queue.
+    fn drainMarkQueue(self: *GcHeap, queue: *ArrayList(u32)) !void {
         var cursor: usize = 0;
         while (cursor < queue.items.len) {
             const addr = queue.items[cursor];
             cursor += 1;
             const slot = &self.slots.items[addr];
             const obj = slot.obj orelse continue;
-
-            // Scan fields/elements for GC refs
             const vals: []const u64 = switch (obj) {
                 .struct_obj => |s| s.fields,
                 .array_obj => |a| a.elements,
             };
             for (vals) |val| {
-                if (isGcRef(val)) {
-                    const child = decodeRef(val) catch continue;
-                    if (child < self.slots.items.len and self.slots.items[child].obj != null and !self.slots.items[child].marked) {
-                        self.slots.items[child].marked = true;
-                        try queue.append(self.alloc, child);
-                    }
-                }
+                try self.tryEnqueue(val, queue);
             }
         }
     }
 
+    /// Mark all objects reachable from u64 roots via BFS.
+    pub fn markRoots(self: *GcHeap, roots: []const u64) !void {
+        var queue: ArrayList(u32) = .empty;
+        defer queue.deinit(self.alloc);
+        for (roots) |val| try self.tryEnqueue(val, &queue);
+        try self.drainMarkQueue(&queue);
+    }
+
+    /// Mark all objects reachable from u128 roots (op_stack, globals) via BFS.
+    pub fn markRootsWide(self: *GcHeap, roots: []const u128) !void {
+        var queue: ArrayList(u32) = .empty;
+        defer queue.deinit(self.alloc);
+        for (roots) |wide_val| try self.tryEnqueue(@truncate(wide_val), &queue);
+        try self.drainMarkQueue(&queue);
+    }
+
     /// Full mark-and-sweep collection cycle.
-    /// Clears marks, marks all reachable objects from roots, then sweeps.
     pub fn collect(self: *GcHeap, roots: []const u64) !void {
         self.clearMarks();
         try self.markRoots(roots);
         self.sweep();
+        self.alloc_since_gc = 0;
     }
 
     /// Encode a GC heap address as an operand stack value (non-null).
@@ -974,4 +986,49 @@ test "collect — multiple cycles reclaim more garbage" {
     try heap.collect(&roots);
     _ = try heap.getObject(a);
     try testing.expectError(error.Trap, heap.getObject(b));
+}
+
+test "shouldCollect — threshold tracking" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+    heap.gc_threshold = 3; // low threshold for testing
+
+    try testing.expect(!heap.shouldCollect());
+
+    _ = try heap.allocStruct(0, &[_]u64{1});
+    try testing.expectEqual(@as(u32, 1), heap.alloc_since_gc);
+    try testing.expect(!heap.shouldCollect());
+
+    _ = try heap.allocStruct(0, &[_]u64{2});
+    try testing.expect(!heap.shouldCollect());
+
+    _ = try heap.allocStruct(0, &[_]u64{3});
+    try testing.expectEqual(@as(u32, 3), heap.alloc_since_gc);
+    try testing.expect(heap.shouldCollect()); // threshold reached
+
+    // After collect, counter resets
+    const roots = [_]u64{};
+    try heap.collect(&roots);
+    try testing.expectEqual(@as(u32, 0), heap.alloc_since_gc);
+    try testing.expect(!heap.shouldCollect());
+}
+
+test "markRootsWide — u128 operand stack scanning" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    const a = try heap.allocStruct(0, &[_]u64{42});
+    const b = try heap.allocStruct(0, &[_]u64{99});
+
+    heap.clearMarks();
+    // Simulate op_stack entries: u128 with GC ref in low 64 bits
+    const wide_roots = [_]u128{
+        @as(u128, GcHeap.encodeRef(a)),
+        0, // null
+        @as(u128, 12345), // plain integer
+    };
+    try heap.markRootsWide(&wide_roots);
+
+    try testing.expect(heap.slots.items[a].marked);
+    try testing.expect(!heap.slots.items[b].marked); // not in roots
 }

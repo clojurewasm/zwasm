@@ -647,6 +647,37 @@ pub const Vm = struct {
     }
 
     // ================================================================
+    // GC collection trigger
+    // ================================================================
+
+    /// Check if GC collection is needed and run it if so.
+    /// Scans op_stack, reg_stack, and globals for GC roots.
+    fn tryCollectGarbage(self: *Vm, store: *store_mod.Store) void {
+        if (!store.gc_heap.shouldCollect()) return;
+        store.gc_heap.clearMarks();
+        // Mark from op_stack (u128 — GC refs in low 64 bits)
+        store.gc_heap.markRootsWide(self.op_stack[0..self.op_ptr]) catch {};
+        // Mark from reg_stack (u64)
+        store.gc_heap.markRoots(self.reg_stack[0..self.reg_ptr]) catch {};
+        // Mark from globals (extract u64 from u128 values)
+        if (store.globals.items.len > 0) {
+            var g_roots = store.gc_heap.alloc.alloc(u64, store.globals.items.len) catch {
+                // If OOM, skip global scanning — still correct, just may collect too much
+                store.gc_heap.sweep();
+                store.gc_heap.alloc_since_gc = 0;
+                return;
+            };
+            defer store.gc_heap.alloc.free(g_roots);
+            for (store.globals.items, 0..) |g, i| {
+                g_roots[i] = @truncate(g.value);
+            }
+            store.gc_heap.markRoots(g_roots) catch {};
+        }
+        store.gc_heap.sweep();
+        store.gc_heap.alloc_since_gc = 0;
+    }
+
+    // ================================================================
     // Main execution loop
     // ================================================================
 
@@ -1331,6 +1362,8 @@ pub const Vm = struct {
 
     fn executeGc(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {
         const gc_mod = @import("gc.zig");
+        // Trigger GC collection if allocation threshold reached
+        self.tryCollectGarbage(instance.store);
         const sub = reader.readU32() catch return error.Trap;
         const gc_op: opcode.GcOpcode = @enumFromInt(sub);
         switch (gc_op) {
