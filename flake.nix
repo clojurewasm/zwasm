@@ -99,6 +99,7 @@
             # Wasm build tools
             tinygo
             wabt  # wast2json, wat2wasm, wasm2wat (spec test conversion)
+            wasm-tools  # json-from-wast (GC/SIMD NaN fallback), component inspection
 
             # Utilities
             gnused
