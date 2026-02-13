@@ -36,13 +36,13 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | args_*          | 2           | 2     | args_get, args_sizes_get        |
 | environ_*       | 2           | 2     | environ_get, environ_sizes_get  |
 | clock_*         | 2           | 2     | time_get, res_get               |
-| fd_*            | ~13         | 14    | renumber stub (W4)              |
-| path_*          | 7           | 8     | path_open + symlink stub        |
+| fd_*            | 14          | 14    | Full (incl. renumber, readdir)  |
+| path_*          | 8           | 8     | Full (incl. symlink, link)      |
 | proc_*          | 2           | 2     | exit, raise                     |
 | random_*        | 1           | 1     | random_get                      |
 | sock_*          | 0           | 4     | Not implemented (W5)            |
 | poll_oneoff     | 0           | 1     | Not implemented                 |
-| **Total WASI**  | **~28**     | **35** | ~80%                           |
+| **Total WASI**  | **~31**     | **35** | ~89%                           |
 
 ## Proposals Status
 

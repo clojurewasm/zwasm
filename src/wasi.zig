@@ -1385,11 +1385,59 @@ pub fn fd_renumber(ctx: *anyopaque, _: usize) anyerror!void {
     const fd_to = vm.popOperandI32();
     const fd_from = vm.popOperandI32();
 
-    _ = fd_to;
-    _ = fd_from;
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
 
-    // dup2 equivalent — stub for now
-    try pushErrno(vm, .NOSYS);
+    const wasi = getWasi(vm) orelse {
+        try pushErrno(vm, .NOSYS);
+        return;
+    };
+
+    // Validate source fd exists
+    const from_host = wasi.getHostFd(fd_from) orelse {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+
+    // Close destination fd if open
+    _ = wasi.closeFd(fd_to);
+
+    // Dup host fd and assign to fd_to slot
+    const new_host = posix.dup(from_host) catch |err| {
+        try pushErrno(vm, toWasiErrno(err));
+        return;
+    };
+
+    // Close old fd_from
+    _ = wasi.closeFd(fd_from);
+
+    // Assign new host fd to fd_to
+    if (fd_to >= wasi.fd_base) {
+        const idx: usize = @intCast(fd_to - wasi.fd_base);
+        if (idx < wasi.fd_table.items.len) {
+            wasi.fd_table.items[idx] = .{ .host_fd = new_host };
+        } else {
+            // Extend table to fit
+            while (wasi.fd_table.items.len < idx) {
+                wasi.fd_table.append(wasi.alloc, .{ .host_fd = 0, .is_open = false }) catch {
+                    posix.close(new_host);
+                    try pushErrno(vm, .NOMEM);
+                    return;
+                };
+            }
+            wasi.fd_table.append(wasi.alloc, .{ .host_fd = new_host }) catch {
+                posix.close(new_host);
+                try pushErrno(vm, .NOMEM);
+                return;
+            };
+        }
+    } else {
+        // Can't renumber to a preopened or stdio fd — just close new_host
+        posix.close(new_host);
+        try pushErrno(vm, .BADF);
+        return;
+    }
+
+    try pushErrno(vm, .SUCCESS);
 }
 
 /// path_filestat_set_times(fd: i32, flags: i32, path_ptr: i32, path_len: i32, atim: i64, mtim: i64, fst_flags: i32) -> errno
@@ -1447,14 +1495,77 @@ pub fn path_readlink(ctx: *anyopaque, _: usize) anyerror!void {
 /// path_symlink(old_path_ptr: i32, old_path_len: i32, fd: i32, new_path_ptr: i32, new_path_len: i32) -> errno
 pub fn path_symlink(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
-    _ = vm.popOperandU32(); // new_path_len
-    _ = vm.popOperandU32(); // new_path_ptr
-    _ = vm.popOperandI32(); // fd
-    _ = vm.popOperandU32(); // old_path_len
-    _ = vm.popOperandU32(); // old_path_ptr
+    const new_path_len = vm.popOperandU32();
+    const new_path_ptr = vm.popOperandU32();
+    const fd = vm.popOperandI32();
+    const old_path_len = vm.popOperandU32();
+    const old_path_ptr = vm.popOperandU32();
+
     if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
-    // symlinkat not in std.posix — stub as NOSYS
-    try pushErrno(vm, .NOSYS);
+
+    const wasi = getWasi(vm) orelse {
+        try pushErrno(vm, .NOSYS);
+        return;
+    };
+
+    const host_fd = wasi.getHostFd(fd) orelse {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+
+    const memory_inst = try vm.getMemory(0);
+    const data = memory_inst.memory();
+    if (old_path_ptr + old_path_len > data.len) return error.OutOfBoundsMemoryAccess;
+    if (new_path_ptr + new_path_len > data.len) return error.OutOfBoundsMemoryAccess;
+    const old_path = data[old_path_ptr .. old_path_ptr + old_path_len];
+    const new_path = data[new_path_ptr .. new_path_ptr + new_path_len];
+
+    posix.symlinkat(old_path, host_fd, new_path) catch |err| {
+        try pushErrno(vm, toWasiErrno(err));
+        return;
+    };
+    try pushErrno(vm, .SUCCESS);
+}
+
+/// path_link(old_fd:i32, old_flags:i32, old_path_ptr:i32, old_path_len:i32, new_fd:i32, new_path_ptr:i32, new_path_len:i32) -> errno
+pub fn path_link(ctx: *anyopaque, _: usize) anyerror!void {
+    const vm = getVm(ctx);
+    const new_path_len = vm.popOperandU32();
+    const new_path_ptr = vm.popOperandU32();
+    const new_fd = vm.popOperandI32();
+    const old_path_len = vm.popOperandU32();
+    const old_path_ptr = vm.popOperandU32();
+    _ = vm.popOperandU32(); // old_flags (lookupflags)
+    const old_fd = vm.popOperandI32();
+
+    if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
+
+    const wasi = getWasi(vm) orelse {
+        try pushErrno(vm, .NOSYS);
+        return;
+    };
+
+    const old_host_fd = wasi.getHostFd(old_fd) orelse {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+    const new_host_fd = wasi.getHostFd(new_fd) orelse {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+
+    const memory_inst = try vm.getMemory(0);
+    const data = memory_inst.memory();
+    if (old_path_ptr + old_path_len > data.len) return error.OutOfBoundsMemoryAccess;
+    if (new_path_ptr + new_path_len > data.len) return error.OutOfBoundsMemoryAccess;
+    const old_path = data[old_path_ptr .. old_path_ptr + old_path_len];
+    const new_path = data[new_path_ptr .. new_path_ptr + new_path_len];
+
+    posix.linkat(old_host_fd, old_path, new_host_fd, new_path, 0) catch |err| {
+        try pushErrno(vm, toWasiErrno(err));
+        return;
+    };
+    try pushErrno(vm, .SUCCESS);
 }
 
 // ============================================================
@@ -1524,6 +1635,7 @@ const wasi_table = [_]WasiEntry{
     .{ .name = "fd_write", .func = &fd_write },
     .{ .name = "path_create_directory", .func = &path_create_directory },
     .{ .name = "path_filestat_get", .func = &path_filestat_get },
+    .{ .name = "path_link", .func = &path_link },
     .{ .name = "path_filestat_set_times", .func = &path_filestat_set_times },
     .{ .name = "path_open", .func = &path_open },
     .{ .name = "path_readlink", .func = &path_readlink },
