@@ -77,6 +77,22 @@ if [ -d "$RSDIR" ]; then
     done
 fi
 
+# GC proposal tests (from external spec repo)
+GC_TESTSUITE="${GC_TESTSUITE:-$HOME/Documents/OSS/WebAssembly/gc}"
+GCDIR="$GC_TESTSUITE/test/core/gc"
+if [ -d "$GCDIR" ]; then
+    for wast in "$GCDIR"/*.wast; do
+        name=$(basename "$wast" .wast)
+        outname="gc-$name"  # prefix to avoid collisions
+        if wast2json --enable-gc --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$outname.json" 2>/dev/null; then
+            CONVERTED=$((CONVERTED + 1))
+        else
+            echo "WARN: failed to convert gc/$name.wast"
+            FAILED=$((FAILED + 1))
+        fi
+    done
+fi
+
 echo ""
 echo "Converted: $CONVERTED, Skipped: $SKIPPED, Failed: $FAILED"
 echo "Output: $OUTDIR/"

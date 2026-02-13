@@ -119,7 +119,7 @@ Target: Struct/array heap objects, garbage collector (~3500 LOC).
 Largest proposal. Depends on Stage 17 (function_references).
 
 1. [x] 18.1: CompositeType migration + abstract heap types
-2. [ ] 18.2: Type section decode — rec/sub/struct/array
+2. [x] 18.2: Type section decode — rec/sub/struct/array
 3. [ ] 18.3: GC heap + i31 instructions
 4. [ ] 18.4: Struct operations
 5. [ ] 18.5: Array core operations
@@ -146,11 +146,11 @@ Task Queue:
 
 ## Current Task
 
-18.2: Type section decode — rec/sub/struct/array.
+18.3: GC heap + i31 instructions.
 
 ## Previous Task
 
-18.1: CompositeType migration — TypeDef/CompositeType union, getTypeFunc helper, 9 files migrated, abstract heap types added to ValType.
+18.2: Type section decode — rec/sub/struct/array, GC test conversion in convert.sh.
 
 ## Wasm 3.0 Coverage
 

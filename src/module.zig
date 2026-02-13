@@ -352,24 +352,89 @@ pub const Module = struct {
 
         for (0..count) |_| {
             const form = try reader.readByte();
-            if (form != 0x60) return error.InvalidWasm; // functype marker
+            if (form == 0x4E) {
+                // rec group: 0x4E count subtype*
+                const rec_count = try reader.readU32();
+                try self.types.ensureTotalCapacity(self.alloc, self.types.items.len + rec_count);
+                for (0..rec_count) |_| {
+                    try self.decodeSubType(reader);
+                }
+            } else {
+                // Single type definition (may be sub/sub-final or bare composite)
+                try self.decodeSubTypeWithForm(reader, form);
+            }
+        }
+    }
 
-            // Params
-            const param_count = try reader.readU32();
-            const params = try self.alloc.alloc(ValType, param_count);
-            errdefer self.alloc.free(params);
-            for (params) |*p| p.* = try ValType.readValType(reader);
+    fn decodeSubType(self: *Module, reader: *Reader) !void {
+        const form = try reader.readByte();
+        try self.decodeSubTypeWithForm(reader, form);
+    }
 
-            // Results
-            const result_count = try reader.readU32();
-            const results = try self.alloc.alloc(ValType, result_count);
-            errdefer self.alloc.free(results);
-            for (results) |*r| r.* = try ValType.readValType(reader);
+    fn decodeSubTypeWithForm(self: *Module, reader: *Reader, form: u8) !void {
+        var is_final: bool = true;
+        var super_types: []const u32 = &.{};
 
+        if (form == 0x50 or form == 0x4F) {
+            // 0x50 = sub (non-final), 0x4F = sub final
+            is_final = (form == 0x4F);
+            const super_count = try reader.readU32();
+            if (super_count > 0) {
+                const supers = try self.alloc.alloc(u32, super_count);
+                for (supers) |*s| s.* = try reader.readU32();
+                super_types = supers;
+            }
+            // Read the composite type tag
+            const comp_form = try reader.readByte();
+            const composite = try self.decodeCompositeType(reader, comp_form);
             try self.types.append(self.alloc, .{
-                .composite = .{ .func = .{ .params = params, .results = results } },
+                .composite = composite,
+                .super_types = super_types,
+                .is_final = is_final,
+            });
+        } else {
+            // Bare composite type (implicitly final, no supertypes)
+            const composite = try self.decodeCompositeType(reader, form);
+            try self.types.append(self.alloc, .{
+                .composite = composite,
             });
         }
+    }
+
+    fn decodeCompositeType(self: *Module, reader: *Reader, form: u8) !CompositeType {
+        return switch (form) {
+            0x60 => .{ .func = try self.decodeFuncType(reader) },
+            0x5F => .{ .struct_type = try self.decodeStructType(reader) },
+            0x5E => .{ .array_type = try self.decodeArrayType(reader) },
+            else => error.InvalidWasm,
+        };
+    }
+
+    fn decodeFuncType(self: *Module, reader: *Reader) !FuncType {
+        const param_count = try reader.readU32();
+        const params = try self.alloc.alloc(ValType, param_count);
+        errdefer self.alloc.free(params);
+        for (params) |*p| p.* = try ValType.readValType(reader);
+
+        const result_count = try reader.readU32();
+        const results = try self.alloc.alloc(ValType, result_count);
+        errdefer self.alloc.free(results);
+        for (results) |*r| r.* = try ValType.readValType(reader);
+
+        return .{ .params = params, .results = results };
+    }
+
+    fn decodeStructType(self: *Module, reader: *Reader) !StructType {
+        const field_count = try reader.readU32();
+        const fields = try self.alloc.alloc(FieldType, field_count);
+        errdefer self.alloc.free(fields);
+        for (fields) |*f| f.* = try decodeFieldType(reader);
+        return .{ .fields = fields };
+    }
+
+    fn decodeArrayType(_: *Module, reader: *Reader) !ArrayType {
+        const field = try decodeFieldType(reader);
+        return .{ .field = field };
     }
 
     /// Get FuncType by type index (returns null if not a func type or out of bounds).
@@ -958,6 +1023,21 @@ pub const Module = struct {
 // Helpers
 // ============================================================
 
+fn decodeFieldType(reader: *Reader) !FieldType {
+    // Storage type: peek at byte to determine if packed or valtype
+    const byte = reader.bytes[reader.pos];
+    const storage: StorageType = if (byte == 0x78) blk: {
+        reader.pos += 1;
+        break :blk .i8;
+    } else if (byte == 0x77) blk: {
+        reader.pos += 1;
+        break :blk .i16;
+    } else .{ .val = try ValType.readValType(reader) };
+    const mut_byte = try reader.readByte();
+    if (mut_byte > 1) return error.InvalidWasm;
+    return .{ .storage = storage, .mutable = mut_byte == 1 };
+}
+
 fn readTableDef(reader: *Reader) !TableDef {
     const reftype: opcode.RefType = @enumFromInt(try reader.readByte());
     const limits = try readLimits(reader);
@@ -1429,4 +1509,120 @@ test "Module — multi-memory (2 memories)" {
     try testing.expectEqual(@as(usize, 2), m.memories.items.len);
     try testing.expectEqual(@as(u32, 1), m.memories.items[0].limits.min);
     try testing.expectEqual(@as(u32, 2), m.memories.items[1].limits.min);
+}
+
+test "Module — GC struct type decode" {
+    // Type section: struct { i32 mut, i64 const }
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, // type section
+        7, // section size
+        0x01, // 1 type
+        0x5F, // struct
+        0x02, // 2 fields
+        0x7F, 0x01, // i32, mutable
+        0x7E, 0x00, // i64, immutable
+    };
+    var m = Module.init(testing.allocator, &wasm);
+    defer m.deinit();
+    try m.decode();
+
+    try testing.expectEqual(@as(usize, 1), m.types.items.len);
+    const td = m.types.items[0];
+    try testing.expect(td.is_final);
+    try testing.expectEqual(@as(usize, 0), td.super_types.len);
+    switch (td.composite) {
+        .struct_type => |st| {
+            try testing.expectEqual(@as(usize, 2), st.fields.len);
+            try testing.expectEqual(StorageType{ .val = .i32 }, st.fields[0].storage);
+            try testing.expect(st.fields[0].mutable);
+            try testing.expectEqual(StorageType{ .val = .i64 }, st.fields[1].storage);
+            try testing.expect(!st.fields[1].mutable);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "Module — GC array type decode" {
+    // Type section: array { i8 mutable }
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
+        0x01, // type section
+        4, // section size
+        0x01, // 1 type
+        0x5E, // array
+        0x78, 0x01, // i8 packed, mutable
+    };
+    var m = Module.init(testing.allocator, &wasm);
+    defer m.deinit();
+    try m.decode();
+
+    try testing.expectEqual(@as(usize, 1), m.types.items.len);
+    switch (m.types.items[0].composite) {
+        .array_type => |at| {
+            try testing.expectEqual(StorageType.i8, at.field.storage);
+            try testing.expect(at.field.mutable);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "Module — GC sub type decode" {
+    // Type section: 2 types
+    //   type 0: func () -> ()
+    //   type 1: sub type 0, func () -> ()  (non-final)
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
+        0x01, // type section
+        10, // section size
+        0x02, // 2 types
+        0x60, 0x00, 0x00, // func () -> ()
+        0x50, // sub (non-final)
+        0x01, 0x00, // 1 supertype: type 0
+        0x60, 0x00, 0x00, // func () -> ()
+    };
+    var m = Module.init(testing.allocator, &wasm);
+    defer m.deinit();
+    try m.decode();
+
+    try testing.expectEqual(@as(usize, 2), m.types.items.len);
+    // Type 0: plain func, final
+    try testing.expect(m.types.items[0].is_final);
+    try testing.expect(m.types.items[0].getFunc() != null);
+    // Type 1: sub non-final, supertype [0]
+    try testing.expect(!m.types.items[1].is_final);
+    try testing.expectEqual(@as(usize, 1), m.types.items[1].super_types.len);
+    try testing.expectEqual(@as(u32, 0), m.types.items[1].super_types[0]);
+    try testing.expect(m.types.items[1].getFunc() != null);
+}
+
+test "Module — GC rec group decode" {
+    // Type section: 1 rec group with 2 types
+    //   rec { func () -> (ref null 1), func (ref null 0) -> () }
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
+        0x01, // type section
+        13, // section size
+        0x01, // 1 entry (the rec group counts as 1 entry)
+        0x4E, // rec
+        0x02, // 2 types in group
+        0x60, 0x00, 0x01, 0x63, 0x01, // func () -> (ref null 1)
+        0x60, 0x01, 0x63, 0x00, 0x00, // func (ref null 0) -> ()
+    };
+    var m = Module.init(testing.allocator, &wasm);
+    defer m.deinit();
+    try m.decode();
+
+    try testing.expectEqual(@as(usize, 2), m.types.items.len);
+    // Both should be func types
+    try testing.expect(m.types.items[0].getFunc() != null);
+    try testing.expect(m.types.items[1].getFunc() != null);
+    // Type 0: () -> (ref null 1) — 0 params, 1 result
+    const ft0 = m.types.items[0].getFunc().?;
+    try testing.expectEqual(@as(usize, 0), ft0.params.len);
+    try testing.expectEqual(@as(usize, 1), ft0.results.len);
+    // Type 1: (ref null 0) -> () — 1 param, 0 results
+    const ft1 = m.types.items[1].getFunc().?;
+    try testing.expectEqual(@as(usize, 1), ft1.params.len);
+    try testing.expectEqual(@as(usize, 0), ft1.results.len);
 }
