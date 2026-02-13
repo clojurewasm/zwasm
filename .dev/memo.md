@@ -34,9 +34,9 @@ Stage 20: `zwasm features` CLI + Spec Compliance Metadata
 
 Target: Machine-readable feature listing (~200 LOC). No runtime changes.
 
-1. [ ] 20.1: Add `zwasm features` subcommand — prints table of supported proposals with status
-2. [ ] 20.2: Spec level tags per feature (W3C Recommendation / Finalized / Preview / Not yet)
-3. [ ] 20.3: `--json` output for machine consumption
+1. [x] 20.1: Add `zwasm features` subcommand — prints table of supported proposals with status
+2. [x] 20.2: Spec level tags per feature (W3C Recommendation / Finalized / Preview / Not yet)
+3. [x] 20.3: `--json` output for machine consumption
 
 Stage 21: Threads (Shared Memory + Atomics)
 
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 20.1: Add `zwasm features` subcommand.
+Stage 20 complete. Merge to main, then start Stage 21.
 
 ## Previous Task
 
-Stage 19 complete. Merged to main. WASI P1 46/46, GC collector, spec 61,344/61,451.
+20.3: `--json` output for `zwasm features --json`. Valid JSON with features array + summary.
 
 ## Wasm 3.0 Coverage
 

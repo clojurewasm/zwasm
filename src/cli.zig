@@ -54,6 +54,8 @@ pub fn main() !void {
         const ok = try cmdValidate(allocator, args[2..], stdout, stderr);
         try stdout.flush();
         if (!ok) std.process.exit(1);
+    } else if (std.mem.eql(u8, command, "features")) {
+        cmdFeatures(args[2..], stdout, stderr);
     } else if (std.mem.eql(u8, command, "help") or std.mem.eql(u8, command, "--help") or std.mem.eql(u8, command, "-h")) {
         printUsage(stdout);
     } else if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "version")) {
@@ -74,6 +76,7 @@ fn printUsage(w: *std.Io.Writer) void {
         \\  zwasm run [options] <file.wasm|.wat> [args...]
         \\  zwasm inspect [--json] <file.wasm|.wat>
         \\  zwasm validate <file.wasm|.wat>
+        \\  zwasm features
         \\  zwasm version
         \\  zwasm help
         \\
@@ -1233,6 +1236,142 @@ fn valTypeName(vt: opcode.ValType) []const u8 {
         .ref_type => "ref",
         .ref_null_type => "ref_null",
     };
+}
+
+// ── features subcommand ────────────────────────────────────────────
+
+const Feature = struct {
+    name: []const u8,
+    spec_level: SpecLevel,
+    status: Status,
+    opcodes: u16,
+
+    const Status = enum { complete, partial, planned };
+    const SpecLevel = enum {
+        wasm_2_0, // W3C Recommendation (Dec 2019)
+        wasm_3_0, // W3C Recommendation (Jul 2024, batch 2 Jul 2025)
+        phase_4, // Browser-shipped, not yet ratified
+        phase_3, // Implementation phase
+    };
+
+    fn specLevelStr(self: Feature) []const u8 {
+        return switch (self.spec_level) {
+            .wasm_2_0 => "Wasm 2.0",
+            .wasm_3_0 => "Wasm 3.0",
+            .phase_4 => "Phase 4",
+            .phase_3 => "Phase 3",
+        };
+    }
+};
+
+const features_list = [_]Feature{
+    // Wasm 2.0 — W3C Recommendation (Dec 2019)
+    .{ .name = "Sign extension", .spec_level = .wasm_2_0, .status = .complete, .opcodes = 7 },
+    .{ .name = "Non-trapping float-to-int", .spec_level = .wasm_2_0, .status = .complete, .opcodes = 8 },
+    .{ .name = "Bulk memory", .spec_level = .wasm_2_0, .status = .complete, .opcodes = 9 },
+    .{ .name = "Reference types", .spec_level = .wasm_2_0, .status = .complete, .opcodes = 5 },
+    .{ .name = "Multi-value", .spec_level = .wasm_2_0, .status = .complete, .opcodes = 0 },
+    .{ .name = "Fixed-width SIMD", .spec_level = .wasm_2_0, .status = .complete, .opcodes = 236 },
+    // Wasm 3.0 — W3C Recommendation (Jul 2024 + batch 2 Jul 2025)
+    .{ .name = "Tail call", .spec_level = .wasm_3_0, .status = .complete, .opcodes = 2 },
+    .{ .name = "Extended const", .spec_level = .wasm_3_0, .status = .complete, .opcodes = 0 },
+    .{ .name = "Function references", .spec_level = .wasm_3_0, .status = .complete, .opcodes = 5 },
+    .{ .name = "GC", .spec_level = .wasm_3_0, .status = .complete, .opcodes = 31 },
+    .{ .name = "Multi-memory", .spec_level = .wasm_3_0, .status = .complete, .opcodes = 0 },
+    .{ .name = "Relaxed SIMD", .spec_level = .wasm_3_0, .status = .complete, .opcodes = 20 },
+    .{ .name = "Branch hinting", .spec_level = .wasm_3_0, .status = .complete, .opcodes = 0 },
+    .{ .name = "Exception handling", .spec_level = .wasm_3_0, .status = .complete, .opcodes = 3 },
+    .{ .name = "Memory64", .spec_level = .wasm_3_0, .status = .complete, .opcodes = 0 },
+    // Other proposals
+    .{ .name = "Wide arithmetic", .spec_level = .phase_3, .status = .complete, .opcodes = 4 },
+    .{ .name = "Custom page sizes", .spec_level = .phase_3, .status = .complete, .opcodes = 0 },
+    .{ .name = "Threads", .spec_level = .phase_4, .status = .planned, .opcodes = 68 },
+};
+
+fn cmdFeatures(args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) void {
+    _ = stderr;
+    var json_mode = false;
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--json")) json_mode = true;
+    }
+
+    if (json_mode) {
+        printFeaturesJson(stdout);
+    } else {
+        printFeaturesTable(stdout);
+    }
+}
+
+fn printFeaturesTable(stdout: *std.Io.Writer) void {
+    stdout.print("Spec       Proposal                    Status     Opcodes\n", .{}) catch {};
+    stdout.print("────       ───────────────────────     ────────   ───────\n", .{}) catch {};
+    for (features_list) |f| {
+        const status_str = statusStr(f.status);
+        if (f.opcodes > 0) {
+            stdout.print("{s: <11}{s: <28}{s: <11}{d}\n", .{ f.specLevelStr(), f.name, status_str, f.opcodes }) catch {};
+        } else {
+            stdout.print("{s: <11}{s: <28}{s: <11}-\n", .{ f.specLevelStr(), f.name, status_str }) catch {};
+        }
+    }
+    const summary = featureSummary();
+    stdout.print("\n{d}/{d} proposals complete, {d} opcodes total\n", .{
+        summary.complete, features_list.len, summary.total_opcodes,
+    }) catch {};
+}
+
+fn printFeaturesJson(stdout: *std.Io.Writer) void {
+    stdout.print("{{\"features\":[", .{}) catch {};
+    for (features_list, 0..) |f, i| {
+        if (i > 0) stdout.print(",", .{}) catch {};
+        stdout.print("{{\"name\":\"{s}\",\"spec_level\":\"{s}\",\"status\":\"{s}\",\"opcodes\":{d}}}", .{
+            f.name, f.specLevelStr(), statusStr(f.status), f.opcodes,
+        }) catch {};
+    }
+    const summary = featureSummary();
+    stdout.print("],\"summary\":{{\"complete\":{d},\"total\":{d},\"opcodes\":{d}}}}}\n", .{
+        summary.complete, features_list.len, summary.total_opcodes,
+    }) catch {};
+}
+
+fn statusStr(status: Feature.Status) []const u8 {
+    return switch (status) {
+        .complete => "complete",
+        .partial => "partial",
+        .planned => "planned",
+    };
+}
+
+fn featureSummary() struct { complete: u16, total_opcodes: u16 } {
+    var complete: u16 = 0;
+    var total_opcodes: u16 = 0;
+    for (features_list) |f| {
+        if (f.status == .complete) complete += 1;
+        total_opcodes += f.opcodes;
+    }
+    return .{ .complete = complete, .total_opcodes = total_opcodes };
+}
+
+test "features list has expected entries" {
+    const testing = std.testing;
+    try testing.expectEqual(@as(usize, 18), features_list.len);
+
+    // All status values are valid (compile-time guarantee, but test the first/last)
+    try testing.expectEqual(Feature.Status.complete, features_list[0].status);
+    try testing.expectEqual(Feature.Status.planned, features_list[features_list.len - 1].status);
+
+    // Spec levels: first 6 are Wasm 2.0, next 9 are Wasm 3.0
+    try testing.expectEqual(Feature.SpecLevel.wasm_2_0, features_list[0].spec_level);
+    try testing.expectEqual(Feature.SpecLevel.wasm_3_0, features_list[6].spec_level);
+    try testing.expectEqual(Feature.SpecLevel.phase_4, features_list[17].spec_level);
+
+    // Spec level string
+    try testing.expectEqualStrings("Wasm 2.0", features_list[0].specLevelStr());
+    try testing.expectEqualStrings("Phase 4", features_list[17].specLevelStr());
+
+    // Total opcodes
+    var total: u16 = 0;
+    for (features_list) |f| total += f.opcodes;
+    try testing.expect(total >= 398);
 }
 
 fn readFile(allocator: Allocator, path: []const u8) ![]const u8 {
