@@ -148,6 +148,50 @@ pub const GcHeap = struct {
         self.clearMarks();
     }
 
+    /// Mark all objects reachable from roots via BFS.
+    /// `roots` is a slice of u64 values (operand stack / globals / tables).
+    /// Non-GC values (null, i31, plain integers) are skipped.
+    pub fn markRoots(self: *GcHeap, roots: []const u64) !void {
+        // Use an ArrayList as BFS queue
+        var queue: ArrayList(u32) = .empty;
+        defer queue.deinit(self.alloc);
+
+        // Seed queue from roots
+        for (roots) |val| {
+            if (isGcRef(val)) {
+                const addr = decodeRef(val) catch continue;
+                if (addr < self.slots.items.len and self.slots.items[addr].obj != null and !self.slots.items[addr].marked) {
+                    self.slots.items[addr].marked = true;
+                    try queue.append(self.alloc, addr);
+                }
+            }
+        }
+
+        // BFS traversal (cursor-based to avoid O(n) shifts)
+        var cursor: usize = 0;
+        while (cursor < queue.items.len) {
+            const addr = queue.items[cursor];
+            cursor += 1;
+            const slot = &self.slots.items[addr];
+            const obj = slot.obj orelse continue;
+
+            // Scan fields/elements for GC refs
+            const vals: []const u64 = switch (obj) {
+                .struct_obj => |s| s.fields,
+                .array_obj => |a| a.elements,
+            };
+            for (vals) |val| {
+                if (isGcRef(val)) {
+                    const child = decodeRef(val) catch continue;
+                    if (child < self.slots.items.len and self.slots.items[child].obj != null and !self.slots.items[child].marked) {
+                        self.slots.items[child].marked = true;
+                        try queue.append(self.alloc, child);
+                    }
+                }
+            }
+        }
+    }
+
     /// Encode a GC heap address as an operand stack value (non-null).
     pub fn encodeRef(addr: u32) u64 {
         return (@as(u64, addr) + 1) | GC_TAG;
@@ -800,4 +844,85 @@ test "GcSlot — mark and sweep basics" {
     // Next alloc reuses slot 1
     const a3 = try heap.allocStruct(0, &fields);
     try testing.expectEqual(@as(u32, 1), a3);
+}
+
+test "markRoots — BFS transitive marking" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Build an object graph: root -> A -> B -> C, D is unreachable
+    //   C: leaf struct with no GC refs in fields
+    const c_addr = try heap.allocStruct(0, &[_]u64{42});
+    //   B: struct with a field pointing to C
+    const b_addr = try heap.allocStruct(0, &[_]u64{GcHeap.encodeRef(c_addr)});
+    //   A: struct with a field pointing to B
+    const a_addr = try heap.allocStruct(0, &[_]u64{GcHeap.encodeRef(b_addr)});
+    //   D: unreachable struct
+    const d_addr = try heap.allocStruct(0, &[_]u64{99});
+
+    // Root set: only A
+    heap.clearMarks();
+    const roots = [_]u64{GcHeap.encodeRef(a_addr)};
+    try heap.markRoots(&roots);
+
+    // A, B, C should be marked (transitively reachable from root)
+    try testing.expect(heap.slots.items[a_addr].marked);
+    try testing.expect(heap.slots.items[b_addr].marked);
+    try testing.expect(heap.slots.items[c_addr].marked);
+    // D should NOT be marked
+    try testing.expect(!heap.slots.items[d_addr].marked);
+}
+
+test "markRoots — array elements traversal" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // leaf1 and leaf2: structs with no GC refs
+    const leaf1 = try heap.allocStruct(0, &[_]u64{10});
+    const leaf2 = try heap.allocStruct(0, &[_]u64{20});
+    // arr: array with elements pointing to leaf1 and leaf2
+    const arr = try heap.allocArrayWithValues(1, &[_]u64{ GcHeap.encodeRef(leaf1), GcHeap.encodeRef(leaf2), 0 });
+
+    heap.clearMarks();
+    const roots = [_]u64{GcHeap.encodeRef(arr)};
+    try heap.markRoots(&roots);
+
+    try testing.expect(heap.slots.items[arr].marked);
+    try testing.expect(heap.slots.items[leaf1].marked);
+    try testing.expect(heap.slots.items[leaf2].marked);
+}
+
+test "markRoots — cycle detection" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Create two structs that reference each other (cycle)
+    // a -> b -> a (cycle)
+    const a_addr = try heap.allocStruct(0, &[_]u64{0}); // placeholder
+    const b_addr = try heap.allocStruct(0, &[_]u64{GcHeap.encodeRef(a_addr)});
+    // Patch a's field to point to b
+    const a_obj = try heap.getObject(a_addr);
+    a_obj.struct_obj.fields[0] = GcHeap.encodeRef(b_addr);
+
+    heap.clearMarks();
+    const roots = [_]u64{GcHeap.encodeRef(a_addr)};
+    try heap.markRoots(&roots); // should not infinite loop
+
+    try testing.expect(heap.slots.items[a_addr].marked);
+    try testing.expect(heap.slots.items[b_addr].marked);
+}
+
+test "markRoots — i31 and null ignored" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    const s_addr = try heap.allocStruct(0, &[_]u64{7});
+
+    heap.clearMarks();
+    // Roots: null (0), i31 value, a real GC ref
+    const i31_val = encodeI31(42);
+    const roots = [_]u64{ 0, i31_val, GcHeap.encodeRef(s_addr) };
+    try heap.markRoots(&roots);
+
+    try testing.expect(heap.slots.items[s_addr].marked);
 }

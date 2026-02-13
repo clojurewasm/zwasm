@@ -159,7 +159,7 @@ Group B: table.init修正 — RESOLVED
 
 Group C: GC Collector — compact無しmark-and-sweep
 5. [x] C1: GcSlot + free list (GcObject wrapping, alloc再利用)
-6. [ ] C2: Markフェーズ (ルートスキャン + BFS)
+6. [x] C2: Markフェーズ (ルートスキャン + BFS)
 7. [ ] C3: Sweepフェーズ (未到達解放 + free list追加)
 8. [ ] C4: VM統合 (threshold trigger, D115)
 
@@ -173,9 +173,11 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-C2: Markフェーズ (ルートスキャン + BFS)
+C3: Sweepフェーズ (未到達解放 + free list追加)
 
 ## Previous Task
+
+C2: Mark phase complete. markRoots(roots) does BFS traversal — marks all transitively reachable GC objects. Cursor-based queue, cycle-safe via mark bits. 4 tests (transitive struct, array elements, cycles, i31/null skipping).
 
 C1: GcSlot + free list. GcObject→GcSlot migration, intrusive free list, freeSlot/mark/clearMarks/sweep API.
 
