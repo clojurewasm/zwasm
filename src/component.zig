@@ -792,6 +792,129 @@ pub const Component = struct {
     }
 };
 
+// ── WASI P1 → P2 Adapter ─────────────────────────────────────────────
+
+/// Maps WASI Preview 2 interface names to their Preview 1 equivalents.
+/// Used by ComponentInstance to resolve P2 imports via zwasm's existing P1 support.
+pub const WasiAdapter = struct {
+    /// A mapping from a P2 interface to its P1 function group.
+    pub const Mapping = struct {
+        p2_interface: []const u8,
+        p1_module: []const u8,
+        p1_functions: []const []const u8,
+    };
+
+    /// Check if a component import name is a recognized WASI P2 interface.
+    pub fn isWasiP2Import(name: []const u8) bool {
+        for (&p2_to_p1_map) |m| {
+            if (std.mem.eql(u8, m.p2_interface, name)) return true;
+        }
+        return false;
+    }
+
+    /// Get the P1 module name for a P2 interface.
+    /// All WASI P1 functions live under "wasi_snapshot_preview1".
+    pub fn getP1ModuleName(_: *const WasiAdapter, name: []const u8) ?[]const u8 {
+        for (&p2_to_p1_map) |m| {
+            if (std.mem.eql(u8, m.p2_interface, name)) return m.p1_module;
+        }
+        return null;
+    }
+
+    /// Get the list of P1 functions that implement a P2 interface.
+    pub fn getP1Functions(name: []const u8) ?[]const []const u8 {
+        for (&p2_to_p1_map) |m| {
+            if (std.mem.eql(u8, m.p2_interface, name)) return m.p1_functions;
+        }
+        return null;
+    }
+
+    // P2 interface → P1 function group mapping table
+    const p2_to_p1_map = [_]Mapping{
+        .{
+            .p2_interface = "wasi:cli/stdin",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{"fd_read"},
+        },
+        .{
+            .p2_interface = "wasi:cli/stdout",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{"fd_write"},
+        },
+        .{
+            .p2_interface = "wasi:cli/stderr",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{"fd_write"},
+        },
+        .{
+            .p2_interface = "wasi:cli/environment",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{ "environ_get", "environ_sizes_get" },
+        },
+        .{
+            .p2_interface = "wasi:cli/arguments",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{ "args_get", "args_sizes_get" },
+        },
+        .{
+            .p2_interface = "wasi:cli/exit",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{"proc_exit"},
+        },
+        .{
+            .p2_interface = "wasi:clocks/wall-clock",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{"clock_time_get"},
+        },
+        .{
+            .p2_interface = "wasi:clocks/monotonic-clock",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{"clock_time_get"},
+        },
+        .{
+            .p2_interface = "wasi:filesystem/types",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{
+                "fd_read",           "fd_write",     "fd_close",
+                "fd_seek",           "fd_tell",      "fd_sync",
+                "fd_filestat_get",   "fd_readdir",   "path_open",
+                "path_create_directory",
+                "path_remove_directory",
+                "path_unlink_file",  "path_rename",  "path_filestat_get",
+                "fd_prestat_get",    "fd_prestat_dir_name",
+            },
+        },
+        .{
+            .p2_interface = "wasi:filesystem/preopens",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{ "fd_prestat_get", "fd_prestat_dir_name" },
+        },
+        .{
+            .p2_interface = "wasi:random/random",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{"random_get"},
+        },
+        .{
+            .p2_interface = "wasi:io/poll",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{"poll_oneoff"},
+        },
+        .{
+            .p2_interface = "wasi:io/streams",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{ "fd_read", "fd_write" },
+        },
+        .{
+            .p2_interface = "wasi:sockets/tcp",
+            .p1_module = "wasi_snapshot_preview1",
+            .p1_functions = &.{ "sock_accept", "sock_recv", "sock_send", "sock_shutdown" },
+        },
+    };
+
+    /// Number of recognized P2 interfaces.
+    pub const interface_count = p2_to_p1_map.len;
+};
+
 // ── Utility ───────────────────────────────────────────────────────────
 
 /// Returns true if the given bytes represent a component (not a core module).
@@ -1375,4 +1498,48 @@ test "ComponentInstance — export map built from component exports" {
     const exp = ci.getExport("run");
     try std.testing.expect(exp != null);
     try std.testing.expectEqual(@as(u32, 0), exp.?.core_instance_idx);
+}
+
+test "WasiAdapter — recognizes P2 interfaces" {
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:cli/stdin"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:cli/stdout"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:cli/stderr"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:cli/environment"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:cli/arguments"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:cli/exit"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:clocks/wall-clock"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:clocks/monotonic-clock"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:filesystem/types"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:filesystem/preopens"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:random/random"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:io/poll"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:io/streams"));
+    try std.testing.expect(WasiAdapter.isWasiP2Import("wasi:sockets/tcp"));
+    // Unknown interface
+    try std.testing.expect(!WasiAdapter.isWasiP2Import("wasi:http/handler"));
+    try std.testing.expect(!WasiAdapter.isWasiP2Import("custom:foo/bar"));
+}
+
+test "WasiAdapter — P1 function lookup" {
+    // stdin maps to fd_read
+    const stdin_fns = WasiAdapter.getP1Functions("wasi:cli/stdin").?;
+    try std.testing.expectEqual(@as(usize, 1), stdin_fns.len);
+    try std.testing.expectEqualStrings("fd_read", stdin_fns[0]);
+
+    // environment maps to environ_get + environ_sizes_get
+    const env_fns = WasiAdapter.getP1Functions("wasi:cli/environment").?;
+    try std.testing.expectEqual(@as(usize, 2), env_fns.len);
+    try std.testing.expectEqualStrings("environ_get", env_fns[0]);
+    try std.testing.expectEqualStrings("environ_sizes_get", env_fns[1]);
+
+    // filesystem/types has many functions
+    const fs_fns = WasiAdapter.getP1Functions("wasi:filesystem/types").?;
+    try std.testing.expect(fs_fns.len >= 10);
+
+    // Unknown returns null
+    try std.testing.expectEqual(@as(?[]const []const u8, null), WasiAdapter.getP1Functions("wasi:http/handler"));
+}
+
+test "WasiAdapter — interface count" {
+    try std.testing.expectEqual(@as(usize, 14), WasiAdapter.interface_count);
 }

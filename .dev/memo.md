@@ -78,18 +78,18 @@ Group C: Canonical ABI (~1,500 LOC)
 
 Group D: Component Linker + WASI P2 (~2,000 LOC)
 15. [x] D1: Component instantiation — resolve imports, create instances
-16. [ ] D2: Virtual adapter pattern — P1 compat shim
+16. [x] D2: Virtual adapter pattern — P1 compat shim
 17. [ ] D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
 18. [ ] D4: `zwasm run` component support (detect component vs module automatically)
 19. [ ] D5: Spec tests + integration
 
 ## Current Task
 
-Stage 22 D2: Virtual adapter pattern — P1 compat shim
+Stage 22 D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
 
 ## Previous Task
 
-D1: ComponentInstance struct with instantiate/instantiateWithImports, export map, core module loading. 3 new tests.
+D2: WasiAdapter mapping 14 P2 interfaces to P1 function groups. 3 new tests.
 
 ## Wasm 3.0 Coverage
 
