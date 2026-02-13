@@ -85,7 +85,7 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 Group A: WIT Parser
+Stage 22 A2: WIT parser — interfaces, worlds, types, functions
 
 ## Previous Task
 
