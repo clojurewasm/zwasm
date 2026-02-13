@@ -520,22 +520,22 @@ pub fn fd_filestat_get(ctx: *anyopaque, _: usize) anyerror!void {
     const filestat_ptr = vm.popOperandU32();
     const fd = vm.popOperandI32();
 
-    const memory = try vm.getMemory(0);
-    const data = memory.memory();
-
-    // filestat struct: dev(u64) + ino(u64) + filetype(u8) + pad(7) + nlink(u64) + size(u64) + atim(u64) + mtim(u64) + ctim(u64) = 64 bytes
-    if (filestat_ptr + 64 > data.len) return error.OutOfBoundsMemoryAccess;
-    @memset(data[filestat_ptr .. filestat_ptr + 64], 0);
-
-    // Set filetype at offset 16
-    const filetype: u8 = switch (fd) {
-        0, 1, 2 => @intFromEnum(Filetype.CHARACTER_DEVICE),
-        else => @intFromEnum(Filetype.DIRECTORY),
+    const wasi = getWasi(vm);
+    const host_fd: posix.fd_t = if (wasi) |w| w.getHostFd(fd) orelse {
+        try pushErrno(vm, .BADF);
+        return;
+    } else if (fd >= 0 and fd <= 2) @intCast(fd) else {
+        try pushErrno(vm, .BADF);
+        return;
     };
-    data[filestat_ptr + 16] = filetype;
-    // nlink = 1
-    try memory.write(u64, filestat_ptr, 24, 1);
 
+    const stat = posix.fstat(host_fd) catch |err| {
+        try pushErrno(vm, toWasiErrno(err));
+        return;
+    };
+
+    const memory = try vm.getMemory(0);
+    try writeFilestat(memory, filestat_ptr, stat);
     try pushErrno(vm, .SUCCESS);
 }
 
@@ -842,6 +842,68 @@ pub fn fd_readdir(ctx: *anyopaque, _: usize) anyerror!void {
     try pushErrno(vm, .SUCCESS);
 }
 
+/// Convert WASI fst_flags + timestamps to posix timespec pair [atime, mtime].
+/// fst_flags: ATIM=0x01, ATIM_NOW=0x02, MTIM=0x04, MTIM_NOW=0x08
+fn wasiTimesToTimespec(fst_flags: u32, atim_ns: i64, mtim_ns: i64) [2]std.posix.timespec {
+    const UTIME_NOW: isize = (1 << 30) - 1;
+    const UTIME_OMIT: isize = (1 << 30) - 2;
+    var times: [2]std.posix.timespec = undefined;
+
+    if (fst_flags & 0x02 != 0) {
+        // ATIM_NOW
+        times[0] = .{ .sec = 0, .nsec = UTIME_NOW };
+    } else if (fst_flags & 0x01 != 0) {
+        // ATIM — use provided value
+        times[0] = .{ .sec = @intCast(@divTrunc(atim_ns, 1_000_000_000)), .nsec = @intCast(@mod(atim_ns, 1_000_000_000)) };
+    } else {
+        times[0] = .{ .sec = 0, .nsec = UTIME_OMIT };
+    }
+
+    if (fst_flags & 0x08 != 0) {
+        // MTIM_NOW
+        times[1] = .{ .sec = 0, .nsec = UTIME_NOW };
+    } else if (fst_flags & 0x04 != 0) {
+        // MTIM — use provided value
+        times[1] = .{ .sec = @intCast(@divTrunc(mtim_ns, 1_000_000_000)), .nsec = @intCast(@mod(mtim_ns, 1_000_000_000)) };
+    } else {
+        times[1] = .{ .sec = 0, .nsec = UTIME_OMIT };
+    }
+
+    return times;
+}
+
+fn wasiFiletypeFromMode(mode: u32) u8 {
+    const S = std.posix.S;
+    if (S.ISDIR(mode)) return @intFromEnum(Filetype.DIRECTORY);
+    if (S.ISLNK(mode)) return @intFromEnum(Filetype.SYMBOLIC_LINK);
+    if (S.ISREG(mode)) return @intFromEnum(Filetype.REGULAR_FILE);
+    if (S.ISBLK(mode)) return @intFromEnum(Filetype.BLOCK_DEVICE);
+    if (S.ISCHR(mode)) return @intFromEnum(Filetype.CHARACTER_DEVICE);
+    return @intFromEnum(Filetype.UNKNOWN);
+}
+
+/// Write a WASI filestat struct (64 bytes) from a posix Stat to memory.
+fn writeFilestat(memory: *WasmMemory, ptr: u32, stat: std.posix.Stat) !void {
+    const data = memory.memory();
+    if (ptr + 64 > data.len) return error.OutOfBoundsMemoryAccess;
+    @memset(data[ptr .. ptr + 64], 0);
+    // dev(u64)=0, ino(u64)=8, filetype(u8)=16, pad=17..23, nlink(u64)=24, size(u64)=32, atim(u64)=40, mtim(u64)=48, ctim(u64)=56
+    try memory.write(u64, ptr, 8, @bitCast(@as(i64, @intCast(stat.ino))));
+    data[ptr + 16] = wasiFiletypeFromMode(stat.mode);
+    try memory.write(u64, ptr, 24, @bitCast(@as(i64, @intCast(stat.nlink))));
+    try memory.write(u64, ptr, 32, @bitCast(@as(i64, @intCast(stat.size))));
+    // timestamps: sec * 1_000_000_000 + nsec (use methods for cross-platform)
+    const at = stat.atime();
+    const mt = stat.mtime();
+    const ct = stat.ctime();
+    const atim: u64 = @bitCast(@as(i64, at.sec) * 1_000_000_000 + at.nsec);
+    const mtim: u64 = @bitCast(@as(i64, mt.sec) * 1_000_000_000 + mt.nsec);
+    const ctim: u64 = @bitCast(@as(i64, ct.sec) * 1_000_000_000 + ct.nsec);
+    try memory.write(u64, ptr, 40, atim);
+    try memory.write(u64, ptr, 48, mtim);
+    try memory.write(u64, ptr, 56, ctim);
+}
+
 fn wasiFiletype(kind: std.fs.Dir.Entry.Kind) u8 {
     return switch (kind) {
         .directory => @intFromEnum(Filetype.DIRECTORY),
@@ -859,21 +921,34 @@ pub fn path_filestat_get(ctx: *anyopaque, _: usize) anyerror!void {
     const filestat_ptr = vm.popOperandU32();
     const path_len = vm.popOperandU32();
     const path_ptr = vm.popOperandU32();
-    _ = vm.popOperandU32(); // flags
-    _ = vm.popOperandI32(); // fd
+    const flags = vm.popOperandU32();
+    const fd = vm.popOperandI32();
 
     if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
 
-    _ = path_ptr;
-    _ = path_len;
+    const wasi = getWasi(vm) orelse {
+        try pushErrno(vm, .NOSYS);
+        return;
+    };
 
-    // Stub: zero-fill filestat
+    const host_fd = wasi.getHostFd(fd) orelse {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+
     const memory = try vm.getMemory(0);
     const data = memory.memory();
-    if (filestat_ptr + 64 > data.len) return error.OutOfBoundsMemoryAccess;
-    @memset(data[filestat_ptr .. filestat_ptr + 64], 0);
-    data[filestat_ptr + 16] = @intFromEnum(Filetype.REGULAR_FILE);
+    if (path_ptr + path_len > data.len) return error.OutOfBoundsMemoryAccess;
 
+    const path = data[path_ptr .. path_ptr + path_len];
+    // dirflags bit 0: SYMLINK_FOLLOW
+    const nofollow: u32 = if (flags & 0x01 == 0) posix.AT.SYMLINK_NOFOLLOW else 0;
+    const stat = posix.fstatat(host_fd, path, nofollow) catch |err| {
+        try pushErrno(vm, toWasiErrno(err));
+        return;
+    };
+
+    try writeFilestat(memory, filestat_ptr, stat);
     try pushErrno(vm, .SUCCESS);
 }
 
@@ -1241,10 +1316,33 @@ pub fn fd_allocate(ctx: *anyopaque, _: usize) anyerror!void {
 /// fd_fdstat_set_flags(fd: i32, flags: i32) -> errno
 pub fn fd_fdstat_set_flags(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
-    _ = vm.popOperandU32(); // flags
-    _ = vm.popOperandI32(); // fd
+    const fdflags = vm.popOperandU32();
+    const fd = vm.popOperandI32();
     if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
-    // Stub — flags modification not commonly needed
+
+    const wasi = getWasi(vm) orelse {
+        try pushErrno(vm, .NOSYS);
+        return;
+    };
+
+    const host_fd = wasi.getHostFd(fd) orelse if (fd >= 0 and fd <= 2)
+        @as(posix.fd_t, @intCast(fd))
+    else {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+
+    // WASI fdflags: APPEND=0x01, DSYNC=0x02, NONBLOCK=0x04, RSYNC=0x08, SYNC=0x10
+    var os_flags: u32 = 0;
+    if (fdflags & 0x01 != 0) os_flags |= @as(u32, @bitCast(posix.O{ .APPEND = true }));
+    if (fdflags & 0x04 != 0) os_flags |= @as(u32, @bitCast(posix.O{ .NONBLOCK = true }));
+    if (fdflags & 0x10 != 0) os_flags |= @as(u32, @bitCast(posix.O{ .SYNC = true }));
+
+    const rc = std.c.fcntl(host_fd, std.c.F.SETFL, os_flags);
+    if (rc < 0) {
+        try pushErrno(vm, toWasiErrno(posix.unexpectedErrno(@enumFromInt(-rc))));
+        return;
+    }
     try pushErrno(vm, .SUCCESS);
 }
 
@@ -1280,12 +1378,29 @@ pub fn fd_filestat_set_size(ctx: *anyopaque, _: usize) anyerror!void {
 /// fd_filestat_set_times(fd: i32, atim: i64, mtim: i64, fst_flags: i32) -> errno
 pub fn fd_filestat_set_times(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
-    _ = vm.popOperandU32(); // fst_flags
-    _ = vm.popOperandI64(); // mtim
-    _ = vm.popOperandI64(); // atim
-    _ = vm.popOperandI32(); // fd
+    const fst_flags = vm.popOperandU32();
+    const mtim_ns = vm.popOperandI64();
+    const atim_ns = vm.popOperandI64();
+    const fd = vm.popOperandI32();
     if (!hasCap(vm, .allow_write)) return pushErrno(vm, .ACCES);
-    // Stub — timestamp modification not commonly needed
+
+    const wasi = getWasi(vm) orelse {
+        try pushErrno(vm, .NOSYS);
+        return;
+    };
+
+    const host_fd = wasi.getHostFd(fd) orelse if (fd >= 0 and fd <= 2)
+        @as(posix.fd_t, @intCast(fd))
+    else {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+
+    const times = wasiTimesToTimespec(fst_flags, atim_ns, mtim_ns);
+    std.posix.futimens(host_fd, &times) catch |err| {
+        try pushErrno(vm, toWasiErrno(err));
+        return;
+    };
     try pushErrno(vm, .SUCCESS);
 }
 
@@ -1443,15 +1558,47 @@ pub fn fd_renumber(ctx: *anyopaque, _: usize) anyerror!void {
 /// path_filestat_set_times(fd: i32, flags: i32, path_ptr: i32, path_len: i32, atim: i64, mtim: i64, fst_flags: i32) -> errno
 pub fn path_filestat_set_times(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
-    _ = vm.popOperandU32(); // fst_flags
-    _ = vm.popOperandI64(); // mtim
-    _ = vm.popOperandI64(); // atim
-    _ = vm.popOperandU32(); // path_len
-    _ = vm.popOperandU32(); // path_ptr
-    _ = vm.popOperandU32(); // flags
-    _ = vm.popOperandI32(); // fd
+    const fst_flags = vm.popOperandU32();
+    const mtim_ns = vm.popOperandI64();
+    const atim_ns = vm.popOperandI64();
+    const path_len = vm.popOperandU32();
+    const path_ptr = vm.popOperandU32();
+    const flags = vm.popOperandU32();
+    const fd = vm.popOperandI32();
     if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
-    // Stub — timestamp modification
+
+    const wasi = getWasi(vm) orelse {
+        try pushErrno(vm, .NOSYS);
+        return;
+    };
+
+    const host_fd = wasi.getHostFd(fd) orelse {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+
+    const memory = try vm.getMemory(0);
+    const data = memory.memory();
+    if (path_ptr + path_len > data.len) return error.OutOfBoundsMemoryAccess;
+
+    const path = data[path_ptr .. path_ptr + path_len];
+    const nofollow: u32 = if (flags & 0x01 == 0) posix.AT.SYMLINK_NOFOLLOW else 0;
+    var times = wasiTimesToTimespec(fst_flags, atim_ns, mtim_ns);
+
+    // utimensat requires sentinel-terminated path
+    var path_buf: [4096:0]u8 = undefined;
+    if (path_len > 4096) {
+        try pushErrno(vm, .NAMETOOLONG);
+        return;
+    }
+    @memcpy(path_buf[0..path_len], path);
+    path_buf[path_len] = 0;
+
+    const rc = std.c.utimensat(host_fd, &path_buf, &times, nofollow);
+    if (rc < 0) {
+        try pushErrno(vm, toWasiErrno(posix.unexpectedErrno(@enumFromInt(-rc))));
+        return;
+    }
     try pushErrno(vm, .SUCCESS);
 }
 

@@ -167,17 +167,17 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 9.  [x] D1: FdTable拡張 + path_open (最重要、250 LOC)
 10. [x] D2: fd_readdir (directory iteration)
 11. [x] D3: fd_renumber + path_symlink + path_link
-12. [ ] D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
+12. [x] D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
 13. [ ] D5: poll_oneoff簡易版 (CLOCKのみ)
 14. [ ] D6: sock_* + 残り (NOSYS stub)
 
 ## Current Task
 
-D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
+D5: poll_oneoff簡易版 (CLOCKのみ)
 
 ## Previous Task
 
-D3: fd_renumber + path_symlink + path_link — posix.dup for fd_renumber, posix.symlinkat for path_symlink, posix.linkat for path_link. All three added to wasi_table.
+D4: Real implementations for 5 stub functions — fd_fdstat_set_flags (fcntl F_SETFL), fd_filestat_get (fstat), fd_filestat_set_times (futimens), path_filestat_get (fstatat), path_filestat_set_times (utimensat). Added writeFilestat + wasiFiletypeFromMode + wasiTimesToTimespec helpers.
 
 ## v0.1.0 Tag Replace Queue
 
