@@ -915,6 +915,179 @@ pub const WasiAdapter = struct {
     pub const interface_count = p2_to_p1_map.len;
 };
 
+// ── WASI P2 Provider ─────────────────────────────────────────────────
+
+/// WASI P2 interface types for Component Model.
+pub const WasiP2 = struct {
+    /// Interface categories.
+    pub const Category = enum {
+        io,
+        clocks,
+        filesystem,
+        cli,
+        random,
+        sockets,
+    };
+
+    /// Interface descriptor with metadata.
+    pub const Interface = struct {
+        name: []const u8,
+        category: Category,
+        functions: []const FuncDesc,
+    };
+
+    /// Function descriptor within a P2 interface.
+    pub const FuncDesc = struct {
+        name: []const u8,
+        params: []const ParamDesc,
+        result: ?ResultDesc,
+    };
+
+    pub const ParamDesc = struct {
+        name: []const u8,
+        type_name: []const u8,
+    };
+
+    pub const ResultDesc = struct {
+        type_name: []const u8,
+    };
+
+    /// All supported WASI P2 interfaces.
+    pub const interfaces = [_]Interface{
+        // wasi:io
+        .{
+            .name = "wasi:io/streams",
+            .category = .io,
+            .functions = &.{
+                .{ .name = "read", .params = &.{.{ .name = "len", .type_name = "u64" }}, .result = .{ .type_name = "result<list<u8>, stream-error>" } },
+                .{ .name = "write", .params = &.{.{ .name = "contents", .type_name = "list<u8>" }}, .result = .{ .type_name = "result<u64, stream-error>" } },
+            },
+        },
+        .{
+            .name = "wasi:io/poll",
+            .category = .io,
+            .functions = &.{
+                .{ .name = "poll", .params = &.{.{ .name = "in", .type_name = "list<pollable>" }}, .result = .{ .type_name = "list<u32>" } },
+            },
+        },
+        // wasi:clocks
+        .{
+            .name = "wasi:clocks/wall-clock",
+            .category = .clocks,
+            .functions = &.{
+                .{ .name = "now", .params = &.{}, .result = .{ .type_name = "datetime" } },
+                .{ .name = "resolution", .params = &.{}, .result = .{ .type_name = "datetime" } },
+            },
+        },
+        .{
+            .name = "wasi:clocks/monotonic-clock",
+            .category = .clocks,
+            .functions = &.{
+                .{ .name = "now", .params = &.{}, .result = .{ .type_name = "instant" } },
+                .{ .name = "resolution", .params = &.{}, .result = .{ .type_name = "instant" } },
+            },
+        },
+        // wasi:filesystem
+        .{
+            .name = "wasi:filesystem/types",
+            .category = .filesystem,
+            .functions = &.{
+                .{ .name = "read-via-stream", .params = &.{.{ .name = "fd", .type_name = "descriptor" }}, .result = .{ .type_name = "result<input-stream, error-code>" } },
+                .{ .name = "write-via-stream", .params = &.{.{ .name = "fd", .type_name = "descriptor" }}, .result = .{ .type_name = "result<output-stream, error-code>" } },
+                .{ .name = "stat", .params = &.{.{ .name = "fd", .type_name = "descriptor" }}, .result = .{ .type_name = "result<descriptor-stat, error-code>" } },
+            },
+        },
+        .{
+            .name = "wasi:filesystem/preopens",
+            .category = .filesystem,
+            .functions = &.{
+                .{ .name = "get-directories", .params = &.{}, .result = .{ .type_name = "list<tuple<descriptor, string>>" } },
+            },
+        },
+        // wasi:cli
+        .{
+            .name = "wasi:cli/stdin",
+            .category = .cli,
+            .functions = &.{
+                .{ .name = "get-stdin", .params = &.{}, .result = .{ .type_name = "input-stream" } },
+            },
+        },
+        .{
+            .name = "wasi:cli/stdout",
+            .category = .cli,
+            .functions = &.{
+                .{ .name = "get-stdout", .params = &.{}, .result = .{ .type_name = "output-stream" } },
+            },
+        },
+        .{
+            .name = "wasi:cli/stderr",
+            .category = .cli,
+            .functions = &.{
+                .{ .name = "get-stderr", .params = &.{}, .result = .{ .type_name = "output-stream" } },
+            },
+        },
+        .{
+            .name = "wasi:cli/environment",
+            .category = .cli,
+            .functions = &.{
+                .{ .name = "get-environment", .params = &.{}, .result = .{ .type_name = "list<tuple<string, string>>" } },
+            },
+        },
+        .{
+            .name = "wasi:cli/arguments",
+            .category = .cli,
+            .functions = &.{
+                .{ .name = "get-arguments", .params = &.{}, .result = .{ .type_name = "list<string>" } },
+            },
+        },
+        .{
+            .name = "wasi:cli/exit",
+            .category = .cli,
+            .functions = &.{
+                .{ .name = "exit", .params = &.{.{ .name = "status", .type_name = "result" }}, .result = null },
+            },
+        },
+        // wasi:random
+        .{
+            .name = "wasi:random/random",
+            .category = .random,
+            .functions = &.{
+                .{ .name = "get-random-bytes", .params = &.{.{ .name = "len", .type_name = "u64" }}, .result = .{ .type_name = "list<u8>" } },
+                .{ .name = "get-random-u64", .params = &.{}, .result = .{ .type_name = "u64" } },
+            },
+        },
+        // wasi:sockets
+        .{
+            .name = "wasi:sockets/tcp",
+            .category = .sockets,
+            .functions = &.{
+                .{ .name = "accept", .params = &.{.{ .name = "sock", .type_name = "tcp-socket" }}, .result = .{ .type_name = "result<tuple<tcp-socket, input-stream, output-stream>, error-code>" } },
+            },
+        },
+    };
+
+    /// Look up an interface descriptor by name.
+    pub fn getInterface(name: []const u8) ?*const Interface {
+        for (&interfaces) |*iface| {
+            if (std.mem.eql(u8, iface.name, name)) return iface;
+        }
+        return null;
+    }
+
+    /// Get all interfaces in a given category.
+    pub fn getByCategory(category: Category) []const Interface {
+        // Return a comptime-known slice for each category
+        return switch (category) {
+            .io => interfaces[0..2],
+            .clocks => interfaces[2..4],
+            .filesystem => interfaces[4..6],
+            .cli => interfaces[6..12],
+            .random => interfaces[12..13],
+            .sockets => interfaces[13..14],
+        };
+    }
+};
+
 // ── Utility ───────────────────────────────────────────────────────────
 
 /// Returns true if the given bytes represent a component (not a core module).
@@ -1542,4 +1715,53 @@ test "WasiAdapter — P1 function lookup" {
 
 test "WasiAdapter — interface count" {
     try std.testing.expectEqual(@as(usize, 14), WasiAdapter.interface_count);
+}
+
+test "WasiP2 — interface lookup" {
+    const streams = WasiP2.getInterface("wasi:io/streams").?;
+    try std.testing.expectEqualStrings("wasi:io/streams", streams.name);
+    try std.testing.expectEqual(WasiP2.Category.io, streams.category);
+    try std.testing.expectEqual(@as(usize, 2), streams.functions.len);
+    try std.testing.expectEqualStrings("read", streams.functions[0].name);
+    try std.testing.expectEqualStrings("write", streams.functions[1].name);
+
+    // Unknown interface
+    try std.testing.expectEqual(@as(?*const WasiP2.Interface, null), WasiP2.getInterface("wasi:http/handler"));
+}
+
+test "WasiP2 — all categories populated" {
+    try std.testing.expectEqual(@as(usize, 2), WasiP2.getByCategory(.io).len);
+    try std.testing.expectEqual(@as(usize, 2), WasiP2.getByCategory(.clocks).len);
+    try std.testing.expectEqual(@as(usize, 2), WasiP2.getByCategory(.filesystem).len);
+    try std.testing.expectEqual(@as(usize, 6), WasiP2.getByCategory(.cli).len);
+    try std.testing.expectEqual(@as(usize, 1), WasiP2.getByCategory(.random).len);
+    try std.testing.expectEqual(@as(usize, 1), WasiP2.getByCategory(.sockets).len);
+}
+
+test "WasiP2 — total interface count matches adapter" {
+    try std.testing.expectEqual(WasiAdapter.interface_count, WasiP2.interfaces.len);
+}
+
+test "WasiP2 — function descriptors have correct structure" {
+    // wall-clock.now: no params, returns datetime
+    const clock = WasiP2.getInterface("wasi:clocks/wall-clock").?;
+    const now = clock.functions[0];
+    try std.testing.expectEqualStrings("now", now.name);
+    try std.testing.expectEqual(@as(usize, 0), now.params.len);
+    try std.testing.expectEqualStrings("datetime", now.result.?.type_name);
+
+    // exit: 1 param, no result
+    const exit = WasiP2.getInterface("wasi:cli/exit").?;
+    const exit_fn = exit.functions[0];
+    try std.testing.expectEqualStrings("exit", exit_fn.name);
+    try std.testing.expectEqual(@as(usize, 1), exit_fn.params.len);
+    try std.testing.expectEqualStrings("status", exit_fn.params[0].name);
+    try std.testing.expect(exit_fn.result == null);
+}
+
+test "WasiP2 — adapter and P2 interfaces are consistent" {
+    // Every P2 interface should be recognized by the adapter
+    for (&WasiP2.interfaces) |iface| {
+        try std.testing.expect(WasiAdapter.isWasiP2Import(iface.name));
+    }
 }
