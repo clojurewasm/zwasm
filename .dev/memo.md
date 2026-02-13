@@ -173,7 +173,7 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-v0.1.0 Tag Replace — Phase 1.1: Full benchmark + record.
+v0.1.0 Tag Replace — Phase 1.4: Commit docs.
 Requirements: `~/Documents/MyProducts/ClojureWasm/private/my-tag-replace.md`
 
 ## v0.1.0 Tag Replace Queue
@@ -181,9 +181,9 @@ Requirements: `~/Documents/MyProducts/ClojureWasm/private/my-tag-replace.md`
 Stage 19 is paused. Tag replace takes priority.
 
 Phase 1: zwasm docs + full bench
-- [ ] 1.1: Full benchmark (`bash bench/record.sh --id="v0.1.0-pre" --reason="Pre-v0.1.0 full benchmark"`)
-- [ ] 1.2: Code comments + YAML cleanup (bench history tag→commit, proposals.yaml, spec-support.md)
-- [ ] 1.3: Public docs overhaul (README.md: Wasm coverage table, benchmarks, usage guide with docs/usage.md)
+- [x] 1.1: Full benchmark (`bash bench/record.sh --id="v0.1.0-pre" --reason="Pre-v0.1.0 full benchmark"`)
+- [x] 1.2: Code comments + YAML cleanup (bench history tag→commit, proposals.yaml, spec-support.md)
+- [x] 1.3: Public docs overhaul (README.md: Wasm coverage table, benchmarks, usage guide with docs/usage.md)
 - [ ] 1.4: Commit docs
 
 Phase 2: zwasm tag operations (do in one session)

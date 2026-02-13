@@ -6,24 +6,28 @@ Per-opcode details live in code (`src/opcode.zig` enum).
 Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
-- Spec: `python3 test/spec/run_spec.py --summary` (32,231/32,236, 204 files)
+- Spec: `python3 test/spec/run_spec.py --summary` (60,873/60,906, 7 skips)
 - E2E: `bash test/e2e/run_e2e.sh --summary` (356/356 = 100%, 70 files, Zig runner)
 
 ## Opcode Coverage Summary
 
-| Category              | Implemented | Total | Notes                         |
-|-----------------------|-------------|-------|-------------------------------|
-| MVP (core)            | 172         | 172   | Full MVP coverage             |
-| Sign extension        | 7           | 7     | i32/i64 extend ops            |
-| Non-trapping f->i     | 8           | 8     | saturating conversions        |
-| Bulk memory           | 7           | 9     | table.copy/init stubbed (W1,W2)|
-| Reference types       | 5           | 5     | ref.null, ref.is_null, etc.   |
+| Category              | Implemented | Total | Notes                          |
+|-----------------------|-------------|-------|--------------------------------|
+| MVP (core)            | 172         | 172   | Full MVP coverage              |
+| Sign extension        | 7           | 7     | i32/i64 extend ops             |
+| Non-trapping f->i     | 8           | 8     | Saturating conversions         |
+| Bulk memory           | 9           | 9     | Complete (table.copy/init)     |
+| Reference types       | 5           | 5     | ref.null, ref.is_null, etc.    |
 | Multi-value           | Yes         | -     | Multiple return values         |
-| SIMD (v128)           | 236         | 236   | Full SIMD coverage            |
-| Memory64 (table64)    | 0*          | 0*    | Extends existing ops with i64 |
-| Wide arithmetic       | 4           | 4     | add128, sub128, mul_wide_s/u  |
+| SIMD (v128)           | 236         | 236   | Full SIMD coverage             |
+| Relaxed SIMD          | 20          | 20    | Non-deterministic SIMD ops     |
+| Memory64 (table64)    | 0*          | 0*    | Extends existing ops with i64  |
+| Wide arithmetic       | 4           | 4     | add128, sub128, mul_wide_s/u   |
 | Tail calls            | 2           | 2     | return_call, return_call_indirect |
-| **Total opcodes**     | **441**     | **443** | 99.5% (2 stubs)            |
+| Exception handling    | 3           | 3     | throw, throw_ref, try_table    |
+| Function references   | 5           | 5     | call_ref, br_on_null, etc.     |
+| GC                    | 31          | 31    | struct/array/cast/i31 ops      |
+| **Total opcodes**     | **502+**    | **502+** | 100% (all proposals)        |
 
 ## WASI Preview 1
 
@@ -47,25 +51,24 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | MVP                   | Complete     | All opcodes                        |
 | Sign extension        | Complete     | Phase 1 proposal                   |
 | Non-trapping f->i     | Complete     | Phase 1 proposal                   |
-| Bulk memory           | Partial      | table ops stubbed (W1, W2)         |
-| Reference types       | Complete     | externref, funcref                  |
+| Bulk memory           | Complete     | All 9 opcodes                      |
+| Reference types       | Complete     | externref, funcref                 |
 | Multi-value           | Complete     | Multiple returns                   |
 | SIMD                  | Complete     | All 236 v128 opcodes               |
 | Relaxed SIMD          | Complete     | 20 opcodes (0x100-0x113), 85/85 spec |
 | Memory64              | Complete     | Wasm 3.0 — table64 + i64 addressing |
-| Tail calls            | Complete     | return_call + return_call_indirect    |
+| Tail calls            | Complete     | return_call + return_call_indirect |
 | Extended const        | Complete     | i32/i64 add/sub/mul in const exprs |
 | Branch hinting        | Complete     | metadata.code.branch_hint section  |
 | Exception handling    | Complete     | throw, try_table, catch clauses    |
-| Wide arithmetic       | Complete     | 4 opcodes, 99/99 e2e (W14)         |
-| Custom page sizes     | Complete     | page_size 1 or 65536, 18/18 e2e    |
-| Multi-memory          | Complete     | Multiple memories, memarg bit 6     |
-| WAT parser            | Complete     | v128/SIMD, named locals/globals     |
-| Relaxed SIMD          | Complete     | 20 opcodes, 85/85 spec tests       |
-| Function references   | Complete     | 5 opcodes, 104/106 spec tests      |
-| GC                    | Complete     | 31 opcodes (0xFB prefix), 1/1 spec  |
-| Component Model       | Not started  | Wasm 3.0 (W7)                      |
-| WASI Preview 2        | Not started  | Wasm 3.0                           |
+| Wide arithmetic       | Complete     | 4 opcodes, 99/99 e2e (W14)        |
+| Custom page sizes     | Complete     | page_size 1 or 65536, 18/18 e2e   |
+| Multi-memory          | Complete     | Multiple memories, memarg bit 6    |
+| Function references   | Complete     | 5 opcodes, 104/106 spec tests     |
+| GC                    | Complete     | 31 opcodes (0xFB prefix), 16 unit tests |
+| WAT parser            | Complete     | v128/SIMD, named locals/globals    |
+| Component Model       | Not started  | Wasm 3.0 (W7)                     |
+| WASI Preview 2        | Not started  | Wasm 3.0                          |
 
 ## E2E Test Status
 

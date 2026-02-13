@@ -1,6 +1,6 @@
 # Wasm Proposal Catalog — zwasm
 # Source: github.com/WebAssembly/proposals/finished-proposals.md
-# Last updated: 2026-02-11
+# Last updated: 2026-02-13
 #
 # Schema:
 #   status: complete | partial | todo | skip
@@ -17,7 +17,7 @@
 
 metadata:
   spec_repos: ~/Documents/OSS/WebAssembly/
-  last_sync: "2026-02-11"
+  last_sync: "2026-02-13"
   wasm_3_0_ratified: "2024-07-10"  # WG vote date for first batch
   wasm_3_0_batch_2: "2025-07-23"   # exception-handling, js-string-builtins, memory64
 
