@@ -76,5 +76,5 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 | Category                  | Status                   | Checklist         |
 |---------------------------|--------------------------|-------------------|
-| wast2json NaN syntax      | 1 file skipped           | W16               |
+| wast2json NaN syntax      | RESOLVED (wasm-tools)    | ~~W16~~           |
 | .wat files                | 2 files skipped          | W17 (partial)     |

@@ -27,7 +27,7 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 | ID   | Item                                        | Fails | Root Cause                           | Resolution Approach                      |
 |------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
 | ~~W10~~ | ~~Cross-process table side effects~~ | ~~0~~ | ~~RESOLVED~~ | Fixed by Zig E2E runner with shared Store. partial-init-table-segment 3/3 pass. |
-| W16  | wast2json NaN literal syntax                | 0     | simd/canonicalize-nan.wast uses NaN syntax wast2json 1.0.39 can't parse. No upgrade available. | Blocked on wabt release. File skipped in conversion. |
+| ~~W16~~ | ~~wast2json NaN literal syntax~~ | ~~0~~ | ~~RESOLVED~~ | wasm-tools fallback added to all convert.sh scripts. No longer blocked on wabt. |
 | ~~W21~~ | ~~wast2json GC WAT text format~~ | ~~0~~ | ~~RESOLVED~~ | wasm-tools 1.244.0 converts all 18 GC files. 472/546 pass (86.4%). |
 | ~~W17~~ | ~~.wat file support (native WAT parser)~~ | ~~0~~ | ~~RESOLVED (Stage 12)~~ | Completed. WAT parser with v128/SIMD, named locals/globals/labels, build-time optional. issue12170.wat validates OK. issue11563.wat out of scope (multi-module + GC). |
 

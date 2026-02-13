@@ -43,6 +43,8 @@ for wast in "$TESTSUITE"/*.wast; do
 
     if wast2json --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
         CONVERTED=$((CONVERTED + 1))
+    elif command -v wasm-tools &>/dev/null && wasm-tools json-from-wast "$wast" -o "$OUTDIR/$name.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
+        CONVERTED=$((CONVERTED + 1))
     else
         echo "WARN: failed to convert $name.wast"
         FAILED=$((FAILED + 1))
@@ -55,6 +57,8 @@ if [ -d "$MMDIR" ]; then
     for wast in "$MMDIR"/*.wast; do
         name=$(basename "$wast" .wast)
         if wast2json --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
+            CONVERTED=$((CONVERTED + 1))
+        elif command -v wasm-tools &>/dev/null && wasm-tools json-from-wast "$wast" -o "$OUTDIR/$name.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
             CONVERTED=$((CONVERTED + 1))
         else
             echo "WARN: failed to convert $name.wast"
@@ -69,6 +73,8 @@ if [ -d "$RSDIR" ]; then
     for wast in "$RSDIR"/*.wast; do
         name=$(basename "$wast" .wast)
         if wast2json --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
+            CONVERTED=$((CONVERTED + 1))
+        elif command -v wasm-tools &>/dev/null && wasm-tools json-from-wast "$wast" -o "$OUTDIR/$name.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
             CONVERTED=$((CONVERTED + 1))
         else
             echo "WARN: failed to convert $name.wast"
