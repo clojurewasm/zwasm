@@ -173,7 +173,7 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-v0.1.0 Tag Replace — Phase 2: zwasm tag operations.
+v0.1.0 Tag Replace — Phase 2.4: CI green.
 Requirements: `~/Documents/MyProducts/ClojureWasm/private/my-tag-replace.md`
 
 ## v0.1.0 Tag Replace Queue
@@ -187,9 +187,9 @@ Phase 1: zwasm docs + full bench
 - [x] 1.4: Commit docs
 
 Phase 2: zwasm tag operations (do in one session)
-- [ ] 2.1: Delete old v0.1.0 tag + release
-- [ ] 2.2: Replace tag refs in bench history
-- [ ] 2.3: Update build.zig.zon version to 0.1.0, commit, push
+- [x] 2.1: Delete old v0.1.0 tag + release
+- [x] 2.2: Replace tag refs in bench history (done in 1.2)
+- [x] 2.3: Update build.zig.zon version to 0.1.0, commit, push
 - [ ] 2.4: CI green
 - [ ] 2.5: Create new v0.1.0 tag, push
 

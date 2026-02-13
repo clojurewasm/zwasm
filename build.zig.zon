@@ -1,6 +1,6 @@
 .{
     .name = .zwasm,
-    .version = "0.13.0",
+    .version = "0.1.0",
     .fingerprint = 0xfdac019117f31620,
     .minimum_zig_version = "0.15.2",
     .dependencies = .{},
