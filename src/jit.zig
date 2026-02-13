@@ -803,6 +803,9 @@ pub const Compiler = struct {
     result_count: u16,
     reg_ptr_offset: u32,
     min_memory_bytes: u32,
+    /// Bitmask of vregs that need loading in the prologue.
+    /// Bit N = 1 means vreg N is read before written and must be loaded.
+    prologue_load_mask: u32,
     /// Track known constant values per vreg for bounds check elision.
     /// Index = vreg number, null = unknown. Max 128 vregs tracked.
     known_consts: [128]?u32,
@@ -865,6 +868,7 @@ pub const Compiler = struct {
             .result_count = 0,
             .reg_ptr_offset = 0,
             .min_memory_bytes = 0,
+            .prologue_load_mask = 0xFFFFF, // default: load all (20 vregs)
             .known_consts = .{null} ** 128,
             .written_vregs = 0,
             .scratch_vreg = null,
@@ -1171,6 +1175,105 @@ pub const Compiler = struct {
         }
     }
 
+    // --- Fast-Path Base Case ---
+
+    /// Emit a fast-path check for self-recursive base cases.
+    /// Pattern: IR[0] = cmp_imm(param, const), IR[1] = br_if_not, IR[2] = return param.
+    /// Emitted BEFORE the prologue — base cases return without callee-saved save/restore.
+    fn emitBaseCaseFastPath(self: *Compiler, ir: []const RegInstr) void {
+        if (ir.len < 3) return;
+        if (self.result_count == 0) return;
+
+        // Check for self-calls in the IR
+        var has_self_call = false;
+        for (ir) |instr| {
+            if (instr.op == regalloc_mod.OP_CALL and instr.operand == self.self_func_idx) {
+                has_self_call = true;
+                break;
+            }
+        }
+        if (!has_self_call) return;
+
+        const cmp_instr = ir[0];
+        const br_instr = ir[1];
+        const ret_instr = ir[2];
+
+        // Must be: compare_imm + br_if_not + return
+        if (br_instr.op != regalloc_mod.OP_BR_IF_NOT) return;
+        if (ret_instr.op != regalloc_mod.OP_RETURN) return;
+        if (br_instr.rd != cmp_instr.rd) return; // branch tests compare result
+        if (br_instr.operand <= 2) return; // target must be after the return
+
+        // Compare must be on a parameter with immediate
+        if (cmp_instr.rs1 >= self.param_count) return;
+
+        // Return must return a parameter (cheap — no computation needed)
+        if (ret_instr.rd >= self.param_count) return;
+
+        // Immediate must fit CMP imm12
+        const imm = cmp_instr.operand;
+        if (imm > 0xFFF) return;
+
+        // Determine ARM64 condition to skip to prologue (invert the comparison)
+        const skip_cond: a64.Cond = switch (cmp_instr.op) {
+            regalloc_mod.OP_LT_S_I32 => .ge, // n >= imm → not base case
+            regalloc_mod.OP_LT_U_I32 => .hs, // n >= imm unsigned
+            regalloc_mod.OP_LE_S_I32 => .gt,
+            regalloc_mod.OP_GE_S_I32 => .lt,
+            regalloc_mod.OP_GT_S_I32 => .le,
+            regalloc_mod.OP_EQ_I32 => .ne,
+            regalloc_mod.OP_NE_I32 => .eq,
+            else => return,
+        };
+
+        const param_offset: u16 = @intCast(@as(u32, cmp_instr.rs1) * 8);
+
+        // --- Emit fast path (before prologue) ---
+        // x0 = callee regs pointer (from caller)
+
+        // 1. Load param from callee frame
+        self.emit(a64.ldr64(SCRATCH, 0, param_offset)); // x8 = regs[param]
+
+        // 2. Compare (32-bit signed/unsigned)
+        self.emit(a64.cmpImm32(SCRATCH, @intCast(imm)));
+
+        // 3. Branch to prologue if NOT base case
+        const branch_idx = self.currentIdx();
+        self.emit(a64.bCond(skip_cond, 0)); // placeholder
+
+        // 4. Store result to regs[0] if return vreg != 0
+        if (ret_instr.rd != 0) {
+            // Result is a different param — copy to regs[0]
+            if (ret_instr.rd != cmp_instr.rs1) {
+                // Load the return param
+                self.emit(a64.ldr64(SCRATCH, 0, @intCast(@as(u32, ret_instr.rd) * 8)));
+            }
+            self.emit(a64.str64(SCRATCH, 0, 0)); // regs[0] = result
+        }
+        // If ret_instr.rd == 0: result already in regs[0], no copy needed
+
+        // 5. Return success
+        self.emit(a64.movz64(0, 0, 0)); // x0 = 0
+        self.emit(a64.ret_());
+
+        // Patch branch to point to next instruction (start of prologue)
+        const prologue_start = self.currentIdx();
+        const disp: i19 = @intCast(@as(i32, @intCast(prologue_start)) - @as(i32, @intCast(branch_idx)));
+        self.code.items[branch_idx] = a64.bCond(skip_cond, disp);
+    }
+
+    // --- Vreg Liveness Pre-scan ---
+
+    /// Compute which vregs need loading in the prologue.
+    /// A vreg needs loading if it's read before being written on ANY execution path.
+    /// Returns a bitmask where bit N = 1 means vreg N must be loaded.
+    /// Compute prologue load mask: only params and locals need loading.
+    /// Regalloc temporaries (vreg >= local_count) are SSA — always written before read.
+    fn computePrologueLoads(local_count: u16) u32 {
+        if (local_count >= 20) return 0xFFFFF; // all 20 vregs
+        if (local_count == 0) return 0;
+        return (@as(u32, 1) << @intCast(local_count)) - 1;
+    }
     // --- Prologue / Epilogue ---
 
     fn emitPrologue(self: *Compiler) void {
@@ -1219,9 +1322,11 @@ pub const Compiler = struct {
 
         // Load virtual registers from regs[] into physical registers.
         // Must be AFTER emitLoadMemCache() which calls BLR (trashes x0-x18).
+        // Only load vregs that are read before written (prologue_load_mask).
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
         for (0..max) |i| {
             const vreg: u8 = @intCast(i);
+            if (vreg < 20 and self.prologue_load_mask & (@as(u32, 1) << @intCast(vreg)) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
                 self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
             }
@@ -1382,6 +1487,13 @@ pub const Compiler = struct {
 
         // Scan IR for memory opcodes
         self.has_memory = scanForMemoryOps(reg_func.code);
+
+        // Pre-scan: compute which vregs need loading in prologue
+        self.prologue_load_mask = computePrologueLoads(self.local_count);
+
+        // Emit fast-path for self-recursive base cases (before prologue).
+        // Base cases return without callee-saved save/restore overhead.
+        self.emitBaseCaseFastPath(reg_func.code);
 
         self.emitPrologue();
 

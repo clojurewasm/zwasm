@@ -45,17 +45,17 @@ ROI-ordered task list:
 
 1. [x] 23.1: Liveness-aware spill/reload — only spill live regs on call sites
 2. [x] 23.2: Guard pages for bounds check elimination — mmap 8GB + PROT_NONE + signal handler
-3. [ ] 23.3: Address calculation optimization — strength reduction, scaled offset addressing
+3. [x] 23.3: Call overhead reduction — fast-path base case, prologue load elimination
 4. [ ] 23.4: FP register file — keep f64/f32 in D-registers, eliminate GPR↔FPR round-trips
 5. [ ] 23.5: Measure & tune — re-benchmark, profile remaining gaps, targeted fixes
 
 ## Current Task
 
-23.3: Address calculation optimization.
+23.4: FP register file — keep f64/f32 in D-registers, eliminate GPR↔FPR round-trips.
 
 ## Previous Task
 
-23.2: Guard pages for bounds check elimination. Eliminated all explicit bounds checks in JIT-compiled memory loads/stores. tgo_mfr -15%, st_sieve -12%.
+23.3: Call overhead reduction — fast-path base case + prologue load elimination. Reprioritized from address calc (call overhead = 95% of gap). st_sieve -7%, tgo_fib -7%, nbody -4%, st_matrix -3%.
 
 ## Wasm 3.0 Coverage
 
