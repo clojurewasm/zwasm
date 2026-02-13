@@ -73,7 +73,7 @@ Group C: Canonical ABI (~1,500 LOC)
 10. [x] C1: Scalar types (bool, integers, float, char)
 11. [x] C2: String encoding (utf-8/utf-16/latin1+utf-16)
 12. [x] C3: List, record, tuple, variant, enum, option, result
-13. [ ] C4: Flags, own/borrow handles
+13. [x] C4: Flags, own/borrow handles
 14. [ ] C5: Memory realloc protocol + post-return
 
 Group D: Component Linker + WASI P2 (~2,000 LOC)
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 C4: Flags, own/borrow handles
+Stage 22 C5: Memory realloc protocol + post-return
 
 ## Previous Task
 
-C3: Compound type layout — alignTo, discriminantSize, load/store memory ops, option/result/variant layout computations. 12 new tests.
+C4: Flags (wordCount/size/load/store/lift/lower) + HandleTable (new/getRep/drop with slot recycling). 8 new tests.
 
 ## Wasm 3.0 Coverage
 

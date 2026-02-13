@@ -401,6 +401,117 @@ pub fn variantLayout(case_count: u32, max_payload_size: u32, max_payload_align: 
     return .{ .disc_offset = 0, .payload_offset = payload_offset, .total_size = total };
 }
 
+// ── Flags ─────────────────────────────────────────────────────────────
+
+/// Number of u32 words needed to store N flags.
+pub fn flagsWordCount(flag_count: u32) u32 {
+    return (flag_count + 31) / 32;
+}
+
+/// Size in bytes for a flags type with N flags.
+pub fn flagsSize(flag_count: u32) u32 {
+    return flagsWordCount(flag_count) * 4;
+}
+
+/// Read a flag bit from linear memory.
+pub fn loadFlag(memory: []const u8, base_offset: u32, flag_idx: u32) ?bool {
+    const word_idx = flag_idx / 32;
+    const bit_idx: u5 = @intCast(flag_idx % 32);
+    const word = loadU32(memory, base_offset + word_idx * 4) orelse return null;
+    return (word >> bit_idx) & 1 != 0;
+}
+
+/// Set a flag bit in linear memory.
+pub fn storeFlag(memory: []u8, base_offset: u32, flag_idx: u32, value: bool) bool {
+    const word_idx = flag_idx / 32;
+    const bit_idx: u5 = @intCast(flag_idx % 32);
+    const word_offset = base_offset + word_idx * 4;
+    const current = loadU32(memory, word_offset) orelse return false;
+    const new_word = if (value)
+        current | (@as(u32, 1) << bit_idx)
+    else
+        current & ~(@as(u32, 1) << bit_idx);
+    return storeU32(memory, word_offset, new_word);
+}
+
+/// Lift all flags from linear memory into a u64 bitmask (max 64 flags).
+pub fn liftFlags(memory: []const u8, base_offset: u32, flag_count: u32) ?u64 {
+    if (flag_count > 64) return null;
+    var result: u64 = 0;
+    const words = flagsWordCount(flag_count);
+    for (0..words) |i| {
+        const w = loadU32(memory, base_offset + @as(u32, @intCast(i)) * 4) orelse return null;
+        result |= @as(u64, w) << @intCast(i * 32);
+    }
+    return result;
+}
+
+/// Lower flags from a u64 bitmask to linear memory.
+pub fn lowerFlags(memory: []u8, base_offset: u32, flag_count: u32, bits: u64) bool {
+    const words = flagsWordCount(flag_count);
+    for (0..words) |i| {
+        const w: u32 = @truncate(bits >> @intCast(i * 32));
+        if (!storeU32(memory, base_offset + @as(u32, @intCast(i)) * 4, w)) return false;
+    }
+    return true;
+}
+
+// ── Handle Table ─────────────────────────────────────────────────────
+
+/// Manages own/borrow handles for resource types.
+pub const HandleTable = struct {
+    alloc: Allocator,
+    // Each slot: null = free, non-null = resource rep value
+    slots: std.ArrayListUnmanaged(?u32),
+    // Free list for recycling slots
+    free_list: std.ArrayListUnmanaged(u32),
+
+    pub fn init(alloc: Allocator) HandleTable {
+        return .{
+            .alloc = alloc,
+            .slots = .empty,
+            .free_list = .empty,
+        };
+    }
+
+    pub fn deinit(self: *HandleTable) void {
+        self.slots.deinit(self.alloc);
+        self.free_list.deinit(self.alloc);
+    }
+
+    /// Allocate a new handle for a resource with the given rep value.
+    /// Returns the handle index (i32).
+    pub fn new(self: *HandleTable, rep_val: u32) !i32 {
+        if (self.free_list.items.len > 0) {
+            const idx = self.free_list.pop();
+            self.slots.items[idx] = rep_val;
+            return @intCast(idx);
+        }
+        const idx = self.slots.items.len;
+        self.slots.append(self.alloc, rep_val) catch return error.OutOfMemory;
+        return @intCast(idx);
+    }
+
+    /// Get the rep value for a handle. Returns null if invalid.
+    pub fn getRep(self: *const HandleTable, handle: i32) ?u32 {
+        if (handle < 0) return null;
+        const idx: usize = @intCast(handle);
+        if (idx >= self.slots.items.len) return null;
+        return self.slots.items[idx];
+    }
+
+    /// Drop a handle (free the slot).
+    pub fn drop(self: *HandleTable, handle: i32) bool {
+        if (handle < 0) return false;
+        const idx: usize = @intCast(handle);
+        if (idx >= self.slots.items.len) return false;
+        if (self.slots.items[idx] == null) return false; // already freed
+        self.slots.items[idx] = null;
+        self.free_list.append(self.alloc, @intCast(idx)) catch return false;
+        return true;
+    }
+};
+
 // ── Tests ─────────────────────────────────────────────────────────────
 
 test "liftScalar — bool" {
@@ -696,4 +807,118 @@ test "memory ops — enum discriminant" {
     // enum with 3 cases, write case 2
     try std.testing.expect(storeDiscriminant(&mem, 0, discriminantSize(3), 2));
     try std.testing.expectEqual(@as(u32, 2), loadDiscriminant(&mem, 0, discriminantSize(3)).?);
+}
+
+test "flagsWordCount and flagsSize" {
+    try std.testing.expectEqual(@as(u32, 0), flagsWordCount(0));
+    try std.testing.expectEqual(@as(u32, 1), flagsWordCount(1));
+    try std.testing.expectEqual(@as(u32, 1), flagsWordCount(31));
+    try std.testing.expectEqual(@as(u32, 1), flagsWordCount(32));
+    try std.testing.expectEqual(@as(u32, 2), flagsWordCount(33));
+    try std.testing.expectEqual(@as(u32, 2), flagsWordCount(64));
+    try std.testing.expectEqual(@as(u32, 3), flagsWordCount(65));
+
+    try std.testing.expectEqual(@as(u32, 0), flagsSize(0));
+    try std.testing.expectEqual(@as(u32, 4), flagsSize(1));
+    try std.testing.expectEqual(@as(u32, 4), flagsSize(32));
+    try std.testing.expectEqual(@as(u32, 8), flagsSize(33));
+}
+
+test "loadFlag/storeFlag — individual bits" {
+    var mem: [8]u8 = undefined;
+    @memset(&mem, 0);
+
+    // set flag 0
+    try std.testing.expect(storeFlag(&mem, 0, 0, true));
+    try std.testing.expectEqual(true, loadFlag(&mem, 0, 0).?);
+    try std.testing.expectEqual(false, loadFlag(&mem, 0, 1).?);
+
+    // set flag 7
+    try std.testing.expect(storeFlag(&mem, 0, 7, true));
+    try std.testing.expectEqual(true, loadFlag(&mem, 0, 7).?);
+
+    // clear flag 0
+    try std.testing.expect(storeFlag(&mem, 0, 0, false));
+    try std.testing.expectEqual(false, loadFlag(&mem, 0, 0).?);
+    try std.testing.expectEqual(true, loadFlag(&mem, 0, 7).?);
+
+    // flag in second word (flag 33)
+    try std.testing.expect(storeFlag(&mem, 0, 33, true));
+    try std.testing.expectEqual(true, loadFlag(&mem, 0, 33).?);
+    try std.testing.expectEqual(false, loadFlag(&mem, 0, 32).?);
+}
+
+test "liftFlags/lowerFlags — roundtrip" {
+    var mem: [8]u8 = undefined;
+    @memset(&mem, 0);
+
+    // lower 8 flags: bits 0, 2, 7 set = 0b10000101 = 0x85
+    try std.testing.expect(lowerFlags(&mem, 0, 8, 0x85));
+    try std.testing.expectEqual(@as(u64, 0x85), liftFlags(&mem, 0, 8).?);
+
+    // lower 40 flags spanning two words
+    @memset(&mem, 0);
+    const bits: u64 = (1 << 0) | (1 << 31) | (@as(u64, 1) << 32) | (@as(u64, 1) << 39);
+    try std.testing.expect(lowerFlags(&mem, 0, 40, bits));
+    try std.testing.expectEqual(bits, liftFlags(&mem, 0, 40).?);
+}
+
+test "liftFlags — over 64 flags returns null" {
+    var mem: [36]u8 = undefined;
+    @memset(&mem, 0);
+    try std.testing.expectEqual(@as(?u64, null), liftFlags(&mem, 0, 65));
+}
+
+test "HandleTable — new/getRep/drop lifecycle" {
+    var ht = HandleTable.init(std.testing.allocator);
+    defer ht.deinit();
+
+    // allocate handle 0 with rep 100
+    const h0 = try ht.new(100);
+    try std.testing.expectEqual(@as(i32, 0), h0);
+    try std.testing.expectEqual(@as(?u32, 100), ht.getRep(h0));
+
+    // allocate handle 1 with rep 200
+    const h1 = try ht.new(200);
+    try std.testing.expectEqual(@as(i32, 1), h1);
+    try std.testing.expectEqual(@as(?u32, 200), ht.getRep(h1));
+
+    // drop handle 0
+    try std.testing.expect(ht.drop(h0));
+    try std.testing.expectEqual(@as(?u32, null), ht.getRep(h0));
+
+    // double drop returns false
+    try std.testing.expect(!ht.drop(h0));
+}
+
+test "HandleTable — slot recycling" {
+    var ht = HandleTable.init(std.testing.allocator);
+    defer ht.deinit();
+
+    const h0 = try ht.new(10);
+    const h1 = try ht.new(20);
+    try std.testing.expectEqual(@as(i32, 0), h0);
+    try std.testing.expectEqual(@as(i32, 1), h1);
+
+    // drop h0, then allocate — should reuse slot 0
+    try std.testing.expect(ht.drop(h0));
+    const h2 = try ht.new(30);
+    try std.testing.expectEqual(@as(i32, 0), h2);
+    try std.testing.expectEqual(@as(?u32, 30), ht.getRep(h2));
+
+    // h1 still valid
+    try std.testing.expectEqual(@as(?u32, 20), ht.getRep(h1));
+}
+
+test "HandleTable — invalid handles" {
+    var ht = HandleTable.init(std.testing.allocator);
+    defer ht.deinit();
+
+    // negative handle
+    try std.testing.expectEqual(@as(?u32, null), ht.getRep(-1));
+    try std.testing.expect(!ht.drop(-1));
+
+    // out of range handle
+    try std.testing.expectEqual(@as(?u32, null), ht.getRep(99));
+    try std.testing.expect(!ht.drop(99));
 }
