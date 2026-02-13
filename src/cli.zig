@@ -1289,33 +1289,66 @@ const features_list = [_]Feature{
 };
 
 fn cmdFeatures(args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) void {
-    _ = args;
     _ = stderr;
+    var json_mode = false;
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--json")) json_mode = true;
+    }
+
+    if (json_mode) {
+        printFeaturesJson(stdout);
+    } else {
+        printFeaturesTable(stdout);
+    }
+}
+
+fn printFeaturesTable(stdout: *std.Io.Writer) void {
     stdout.print("Spec       Proposal                    Status     Opcodes\n", .{}) catch {};
     stdout.print("────       ───────────────────────     ────────   ───────\n", .{}) catch {};
     for (features_list) |f| {
-        const status_str = switch (f.status) {
-            .complete => "complete",
-            .partial => "partial",
-            .planned => "planned",
-        };
+        const status_str = statusStr(f.status);
         if (f.opcodes > 0) {
             stdout.print("{s: <11}{s: <28}{s: <11}{d}\n", .{ f.specLevelStr(), f.name, status_str, f.opcodes }) catch {};
         } else {
             stdout.print("{s: <11}{s: <28}{s: <11}-\n", .{ f.specLevelStr(), f.name, status_str }) catch {};
         }
     }
+    const summary = featureSummary();
+    stdout.print("\n{d}/{d} proposals complete, {d} opcodes total\n", .{
+        summary.complete, features_list.len, summary.total_opcodes,
+    }) catch {};
+}
 
-    // Summary
+fn printFeaturesJson(stdout: *std.Io.Writer) void {
+    stdout.print("{{\"features\":[", .{}) catch {};
+    for (features_list, 0..) |f, i| {
+        if (i > 0) stdout.print(",", .{}) catch {};
+        stdout.print("{{\"name\":\"{s}\",\"spec_level\":\"{s}\",\"status\":\"{s}\",\"opcodes\":{d}}}", .{
+            f.name, f.specLevelStr(), statusStr(f.status), f.opcodes,
+        }) catch {};
+    }
+    const summary = featureSummary();
+    stdout.print("],\"summary\":{{\"complete\":{d},\"total\":{d},\"opcodes\":{d}}}}}\n", .{
+        summary.complete, features_list.len, summary.total_opcodes,
+    }) catch {};
+}
+
+fn statusStr(status: Feature.Status) []const u8 {
+    return switch (status) {
+        .complete => "complete",
+        .partial => "partial",
+        .planned => "planned",
+    };
+}
+
+fn featureSummary() struct { complete: u16, total_opcodes: u16 } {
     var complete: u16 = 0;
     var total_opcodes: u16 = 0;
     for (features_list) |f| {
         if (f.status == .complete) complete += 1;
         total_opcodes += f.opcodes;
     }
-    stdout.print("\n{d}/{d} proposals complete, {d} opcodes total\n", .{
-        complete, features_list.len, total_opcodes,
-    }) catch {};
+    return .{ .complete = complete, .total_opcodes = total_opcodes };
 }
 
 test "features list has expected entries" {

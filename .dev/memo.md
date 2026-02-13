@@ -36,7 +36,7 @@ Target: Machine-readable feature listing (~200 LOC). No runtime changes.
 
 1. [x] 20.1: Add `zwasm features` subcommand — prints table of supported proposals with status
 2. [x] 20.2: Spec level tags per feature (W3C Recommendation / Finalized / Preview / Not yet)
-3. [ ] 20.3: `--json` output for machine consumption
+3. [x] 20.3: `--json` output for machine consumption
 
 Stage 21: Threads (Shared Memory + Atomics)
 
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 20.3: `--json` output for machine consumption.
+Stage 20 complete. Merge to main, then start Stage 21.
 
 ## Previous Task
 
-20.2: Spec level column (Wasm 2.0 / Wasm 3.0 / Phase 3 / Phase 4) added to features table.
+20.3: `--json` output for `zwasm features --json`. Valid JSON with features array + summary.
 
 ## Wasm 3.0 Coverage
 
