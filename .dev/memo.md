@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-19, 22 — COMPLETE (Wasm 3.0 + GC + WASI P1 + Component Model)
+- Stages 0-2, 4, 7-22 — COMPLETE (Wasm 3.0 + GC + WASI P1 + Component Model)
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -16,81 +16,46 @@ Session handover document. Read at session start.
 - WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
-- **main = stable**: CW depends on main via GitHub URL (v0.1.0 tag).
+- **main = stable**: CW depends on main via GitHub URL (v0.2.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
+- **Size guard**: Binary ≤ 1.5MB, Memory ≤ 4.5MB (fib RSS). Current: 1.1MB / 3.3MB.
 
 ## Completed Stages
 
-Stages 0-7, 5E, 5F, 8-12 — all COMPLETE. See `roadmap.md` for details.
-Key results: Spec 30,715/30,715 (100%), E2E 356/356 (100%, Zig runner), 20/21 bench < 2x wasmtime.
+Stages 0-22 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue
 
-**Execution order: 20 → 21 → 22A → 22B → 22C → 22D**
-(features CLI → threads → component model)
+Stage 23: JIT Optimization — wasmtime parity
 
-Stages 7-19: ALL COMPLETE (see roadmap.md for details).
+Target: Close performance gap to wasmtime 1x across all 21 benchmarks.
+Constraints: Binary ≤ 1.5MB, memory ≤ 4.5MB (fib RSS).
 
-Stage 20: `zwasm features` CLI + Spec Compliance Metadata
+Gap analysis (v0.2.0 vs wasmtime 41.0.1):
+- 3.3x: st_matrix (array ops, bounds check overhead)
+- 2.1x: tgo_mfr (map/filter/reduce, memory patterns)
+- 2.0x: nbody (f64 heavy, no FMADD, GPR↔FPR round-trips)
+- 2.0x: st_fib2 (deep recursion, call overhead)
+- 1.8x: fib, st_nestedloop, tgo_fib (recursive/loop int)
+- 1.4x: tak (deep recursion)
+- ≤1.2x: 7 benchmarks near parity
+- <1x: 7 benchmarks already faster than wasmtime
 
-Target: Machine-readable feature listing (~200 LOC). No runtime changes.
+ROI-ordered task list:
 
-1. [x] 20.1: Add `zwasm features` subcommand — prints table of supported proposals with status
-2. [x] 20.2: Spec level tags per feature (W3C Recommendation / Finalized / Preview / Not yet)
-3. [x] 20.3: `--json` output for machine consumption
-
-Stage 21: Threads (Shared Memory + Atomics)
-
-Target: Core Wasm threads proposal (~1,500 LOC).
-Shared memory, atomic ops, wait/notify. Phase 4, browser-shipped.
-Reference: wasmtime cranelift atomics, spec repo `~/Documents/OSS/WebAssembly/threads`.
-
-1. [x] 21.1: Shared memory flag in memory section, AtomicOpcode enum, 0xFE prefix decoder
-2. [x] 21.2: All 79 atomic opcodes (load/store/rmw/cmpxchg) + alignment + shared memory checks
-3. [x] 21.3: memory.atomic.wait32/wait64/notify (single-threaded semantics)
-4. [x] 21.4: atomic.fence (no-op)
-5. [x] 21.5: Spec tests 306/310 + runner thread/wait/either support (4 genuine multi-thread failures)
-
-Stage 22: Component Model (W7)
-
-Target: Full CM support. WIT parsing, Canonical ABI, component linking.
-wasmtime is reference impl. Each group independently mergeable.
-Design: default ON, implement all wasmtime supports, minimal flags.
-
-Group A: WIT Parser (~800 LOC)
-1. [x] A1: WIT lexer + token types
-2. [x] A2: WIT parser — interfaces, worlds, types, functions
-3. [x] A3: WIT resolution — use declarations, package references
-4. [x] A4: Unit tests + wasmtime WIT corpus validation
-
-Group B: Component Binary Format (~1,200 LOC)
-5. [x] B1: Component section types (component, core:module, instance, alias, etc.)
-6. [x] B2: Component type section — func types, component types, instance types
-7. [x] B3: Canon section — lift/lower/resource ops
-8. [x] B4: Start, import, export sections
-9. [x] B5: Nested component/module instantiation
-
-Group C: Canonical ABI (~1,500 LOC)
-10. [x] C1: Scalar types (bool, integers, float, char)
-11. [x] C2: String encoding (utf-8/utf-16/latin1+utf-16)
-12. [x] C3: List, record, tuple, variant, enum, option, result
-13. [x] C4: Flags, own/borrow handles
-14. [x] C5: Memory realloc protocol + post-return
-
-Group D: Component Linker + WASI P2 (~2,000 LOC)
-15. [x] D1: Component instantiation — resolve imports, create instances
-16. [x] D2: Virtual adapter pattern — P1 compat shim
-17. [x] D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
-18. [x] D4: `zwasm run` component support (detect component vs module automatically)
-19. [x] D5: Spec tests + integration
+1. [x] 23.1: Liveness-aware spill/reload — only spill live regs on call sites
+2. [ ] 23.2: Loop bounds check hoisting — prove memory safety at loop entry, elide inner checks
+3. [ ] 23.3: Address calculation optimization — strength reduction, scaled offset addressing
+4. [ ] 23.4: FP register file — keep f64/f32 in D-registers, eliminate GPR↔FPR round-trips
+5. [ ] 23.5: Measure & tune — re-benchmark, profile remaining gaps, targeted fixes
 
 ## Current Task
 
-Stage 22 complete. Run merge gate checklist.
+23.2: Loop bounds check hoisting — prove memory safety at loop entry, elide inner checks.
 
 ## Previous Task
 
-D5: Integration tests — full decode→instantiate pipeline, scalar/string/flags/handle roundtrips, WIT parse→resolve→adapter lookup. 10 new integration tests (121 CM tests total).
+23.1: Liveness-aware spill/reload — forward-scan liveness analysis at call sites (ARM64+x86).
 
 ## Wasm 3.0 Coverage
 

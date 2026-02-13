@@ -735,3 +735,30 @@ entries:
       st_nestedloop: {time_ms: 4.5}
       st_ackermann: {time_ms: 6.4}
       st_matrix: {time_ms: 286.2}
+  - id: "23.1"
+    date: "2026-02-14"
+    reason: "Liveness-aware spill/reload"
+    commit: "6efe779"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 93.4}
+      tak: {time_ms: 11.1}
+      sieve: {time_ms: 3.9}
+      nbody: {time_ms: 42.6}
+      nqueens: {time_ms: 3.7}
+      tgo_fib: {time_ms: 51.4}
+      tgo_tak: {time_ms: 9.3}
+      tgo_arith: {time_ms: 1.4}
+      tgo_sieve: {time_ms: 3.5}
+      tgo_fib_loop: {time_ms: 2.1}
+      tgo_gcd: {time_ms: 2.8}
+      tgo_nqueens: {time_ms: 44.4}
+      tgo_mfr: {time_ms: 71.7}
+      tgo_list: {time_ms: 61.4}
+      tgo_rwork: {time_ms: 7.9}
+      tgo_strops: {time_ms: 35.3}
+      st_fib2: {time_ms: 1331.4}
+      st_sieve: {time_ms: 227.2}
+      st_nestedloop: {time_ms: 5.1}
+      st_ackermann: {time_ms: 6.8}
+      st_matrix: {time_ms: 290.4}

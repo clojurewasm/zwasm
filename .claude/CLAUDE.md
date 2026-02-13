@@ -137,10 +137,14 @@ Run before every commit:
 3. **Benchmarks**: REQUIRED for optimization/JIT tasks.
    Quick check: `bash bench/run_bench.sh --quick`
    Record: `bash bench/record.sh --id=TASK_ID --reason=REASON`
-4. **decisions.md**: D## entry for architectural decisions (D100+)
-5. **checklist.md**: Resolve/add W## items
-6. **spec-support.md**: Update when implementing opcodes or WASI syscalls
-7. **memo.md**: Update per Complete step 1 format above
+4. **Size guard**: Binary ≤ 1.5MB, memory ≤ 4.5MB (fib benchmark RSS).
+   Binary: `zig build -Doptimize=ReleaseSafe && ls -l zig-out/bin/zwasm`
+   Memory: fib mem_mb from `bash bench/compare_runtimes.sh --bench=fib --rt=zwasm --quick`
+   Fail if either exceeds limit. Current baseline: 1.1MB / 3.3MB.
+5. **decisions.md**: D## entry for architectural decisions (D100+)
+6. **checklist.md**: Resolve/add W## items
+7. **spec-support.md**: Update when implementing opcodes or WASI syscalls
+8. **memo.md**: Update per Complete step 1 format above
 
 ### Proposal Stage Rules (Stages 7-10)
 

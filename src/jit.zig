@@ -816,6 +816,9 @@ pub const Compiler = struct {
     vm_ptr_cached: bool,
     /// True when inst_ptr is cached in x21 (only when reg_count <= 13 and has self-calls).
     inst_ptr_cached: bool,
+    /// Live vreg bitmap at current call site (set by spillCallerSavedLive).
+    /// Bit N = 1 means vreg N is live and must be spilled/reloaded across the call.
+    call_live_set: u32,
 
     const Patch = struct {
         arm64_idx: u32, // index in code array
@@ -862,6 +865,7 @@ pub const Compiler = struct {
             .fp_scratch0_vreg = null,
             .vm_ptr_cached = false,
             .inst_ptr_cached = false,
+            .call_live_set = 0,
         };
     }
 
@@ -994,6 +998,158 @@ pub const Compiler = struct {
                 if (vreg == sv) continue;
             }
             if (vreg < 128 and (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg)))) == 0) continue;
+            if (vregToPhys(vreg)) |phys| {
+                self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
+            }
+        }
+    }
+
+    /// Compute live vreg bitmap at a call site by forward-scanning the IR.
+    /// A vreg is live if it's read (as rs1/rs2) before being overwritten (as rd).
+    /// Only tracks caller-saved vregs (5-11, 14-19) since callee-saved are preserved.
+    fn computeCallLiveSet(ir: []const RegInstr, call_pc: u32) u32 {
+        var live: u32 = 0;
+        var resolved: u32 = 0; // vregs whose liveness is determined
+        var pc = call_pc + 1;
+        // Skip NOP data words that follow the call at call_pc
+        while (pc < ir.len and (ir[pc].op == regalloc_mod.OP_NOP or ir[pc].op == regalloc_mod.OP_DELETED)) : (pc += 1) {}
+
+        while (pc < ir.len) : (pc += 1) {
+            const instr = ir[pc];
+            if (instr.op == regalloc_mod.OP_DELETED or
+                instr.op == regalloc_mod.OP_BLOCK_END) continue;
+            // NOP data words (following OP_CALL) contain arg vregs — extract them as uses
+            if (instr.op == regalloc_mod.OP_NOP) {
+                markCallerSavedUse(&live, &resolved, instr.rd);
+                markCallerSavedUse(&live, &resolved, instr.rs1);
+                const op_low: u8 = @truncate(instr.operand);
+                const op_high: u8 = @truncate(instr.operand >> 8);
+                if (op_low != 0) markCallerSavedUse(&live, &resolved, op_low);
+                if (op_high != 0) markCallerSavedUse(&live, &resolved, op_high);
+                continue;
+            }
+
+            // Check uses first (rs1, rs2) — if used before defined, vreg is live
+            // Note: OP_CALL rs1 = n_args (not a vreg), skip it.
+            // OP_CALL_INDIRECT rs1 = elem_idx_reg (IS a vreg), don't skip.
+            if (instr.op != regalloc_mod.OP_CALL) {
+                markCallerSavedUse(&live, &resolved, instr.rs1);
+            }
+            // rs2 for binary ops (op uses operand low byte as rs2)
+            if (instrHasRs2(instr)) {
+                markCallerSavedUse(&live, &resolved, instr.rs2());
+            }
+
+            // Check definition (rd) — if defined before used, vreg is dead
+            if (instrDefinesRd(instr)) {
+                if (isCallerSavedVreg(instr.rd)) {
+                    resolved |= @as(u32, 1) << @as(u5, @intCast(instr.rd));
+                }
+            }
+
+            // At backward branches (loop back-edges), be conservative: mark all
+            // unresolved written vregs as live since they may be used in next iteration.
+            if (instr.op == regalloc_mod.OP_BR or instr.op == regalloc_mod.OP_BR_IF or
+                instr.op == regalloc_mod.OP_BR_IF_NOT)
+            {
+                if (instr.operand <= call_pc) {
+                    // Back-edge: mark all unresolved caller-saved as live (conservative)
+                    return live | ~resolved;
+                }
+            }
+        }
+        return live;
+    }
+
+    /// Mark a vreg as used (live) if it's caller-saved and not yet resolved.
+    fn markCallerSavedUse(live: *u32, resolved: *u32, vreg: u8) void {
+        if (isCallerSavedVreg(vreg) and (resolved.* & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) {
+            live.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
+            resolved.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
+        }
+    }
+
+    /// Check if a vreg is in the caller-saved range (5-11 or 14-19).
+    fn isCallerSavedVreg(vreg: u8) bool {
+        return (vreg >= 5 and vreg <= 11 and vreg != 12 and vreg != 13) or
+            (vreg >= 14 and vreg < MAX_PHYS_REGS);
+    }
+
+    /// Check if an instruction has an rs2 operand (binary ops).
+    /// Conservative: returns true for all binary arithmetic/comparison ops.
+    fn instrHasRs2(instr: RegInstr) bool {
+        const op = instr.op;
+        return switch (op) {
+            // i32/i64/f32/f64 binary ops (comparisons + arithmetic): 0x46-0x8A, 0x92-0x97, 0xA0-0xA6
+            0x46...0x8A, 0x92...0x97, 0xA0...0xA6,
+            // memory.fill/copy have rs2 in operand
+            regalloc_mod.OP_MEMORY_FILL, regalloc_mod.OP_MEMORY_COPY,
+            => true,
+            else => false,
+        };
+    }
+
+    /// Check if an instruction defines rd (writes to rd register).
+    fn instrDefinesRd(instr: RegInstr) bool {
+        const op = instr.op;
+        return switch (op) {
+            regalloc_mod.OP_NOP, regalloc_mod.OP_DELETED, regalloc_mod.OP_BLOCK_END,
+            regalloc_mod.OP_BR, regalloc_mod.OP_BR_IF, regalloc_mod.OP_BR_IF_NOT,
+            regalloc_mod.OP_RETURN, regalloc_mod.OP_RETURN_VOID, regalloc_mod.OP_BR_TABLE,
+            => false,
+            // Memory stores use rd as VALUE source, not a definition
+            0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
+            => false,
+            else => true,
+        };
+    }
+
+    /// Spill only caller-saved vregs that are live after the call.
+    /// call_pc: the PC of the OP_CALL instruction in the IR.
+    fn spillCallerSavedLive(self: *Compiler, ir: []const RegInstr, call_pc: u32) void {
+        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        if (max <= 5) return;
+        const live_set = computeCallLiveSet(ir, call_pc);
+        self.call_live_set = live_set;
+        for (5..max) |i| {
+            const vreg: u8 = @intCast(i);
+            if (vreg == 12 or vreg == 13) continue;
+            if (vreg < 128 and (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg)))) == 0) continue;
+            // Only spill if vreg is live after the call
+            if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
+            if (vregToPhys(vreg)) |phys| {
+                self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
+            }
+        }
+    }
+
+    /// Reload only caller-saved vregs that were spilled as live.
+    fn reloadCallerSavedLive(self: *Compiler) void {
+        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        if (max <= 5) return;
+        const live_set = self.call_live_set;
+        for (5..max) |i| {
+            const vreg: u8 = @intCast(i);
+            if (vreg == 12 or vreg == 13) continue;
+            if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
+            if (vregToPhys(vreg)) |phys| {
+                self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
+            }
+        }
+    }
+
+    /// Reload caller-saved live vregs, optionally skipping one vreg (result of call).
+    fn reloadCallerSavedLiveExcept(self: *Compiler, skip_vreg: ?u8) void {
+        const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
+        if (max <= 5) return;
+        const live_set = self.call_live_set;
+        for (5..max) |i| {
+            const vreg: u8 = @intCast(i);
+            if (vreg == 12 or vreg == 13) continue;
+            if (skip_vreg) |sv| {
+                if (vreg == sv) continue;
+            }
+            if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
                 self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
             }
@@ -1355,6 +1511,7 @@ pub const Compiler = struct {
             regalloc_mod.OP_CALL => {
                 const func_idx = instr.operand;
                 const n_args: u16 = @intCast(instr.rs1);
+                const call_pc = pc.* - 1; // PC of this OP_CALL instruction
                 const data = ir[pc.*];
                 pc.* += 1;
                 // Skip second data word if present
@@ -1364,7 +1521,7 @@ pub const Compiler = struct {
                     data2 = ir[pc.*];
                     pc.* += 1;
                 }
-                self.emitCall(instr.rd, func_idx, n_args, data, if (has_data2) data2 else null);
+                self.emitCall(instr.rd, func_idx, n_args, data, if (has_data2) data2 else null, ir, call_pc);
             },
             regalloc_mod.OP_CALL_INDIRECT => {
                 const data = ir[pc.*];
@@ -2291,17 +2448,17 @@ pub const Compiler = struct {
         self.fp_scratch0_vreg = null;
     }
 
-    fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr) void {
+    fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         // Self-call optimization: direct BL instead of trampoline.
         // Non-memory: uses cached &vm.reg_ptr in x27.
         // Memory: recomputes &vm.reg_ptr into SCRATCH each time.
         if (func_idx == self.self_func_idx) {
-            self.emitInlineSelfCall(rd, data, data2);
+            self.emitInlineSelfCall(rd, data, data2, ir, call_pc);
             return;
         }
 
         // 1. Spill caller-saved regs + arg vregs needed by trampoline
-        self.spillCallerSaved();
+        self.spillCallerSavedLive(ir, call_pc);
         // Trampoline reads args from regs[] — spill callee-saved arg vregs
         if (n_args > 0) self.spillVregIfCalleeSaved(data.rd);
         if (n_args > 1) self.spillVregIfCalleeSaved(data.rs1);
@@ -2366,7 +2523,7 @@ pub const Compiler = struct {
         }
 
         // 6. Reload caller-saved regs AFTER all BLRs, then result register
-        self.reloadCallerSaved();
+        self.reloadCallerSavedLive();
         self.reloadVreg(rd);
     }
 
@@ -2450,12 +2607,12 @@ pub const Compiler = struct {
     /// Manages reg_ptr and callee frame setup inline for maximum performance.
     /// Non-memory functions use cached REG_PTR_ADDR (x27) for &vm.reg_ptr.
     /// Memory functions recompute &vm.reg_ptr into SCRATCH each time.
-    fn emitInlineSelfCall(self: *Compiler, rd: u8, data: RegInstr, data2: ?RegInstr) void {
+    fn emitInlineSelfCall(self: *Compiler, rd: u8, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         const needed: u32 = @as(u32, self.reg_count) + 4;
         const needed_bytes: u32 = needed * 8;
 
-        // 1. Spill only caller-saved regs (callee-saved preserved by callee's prologue)
-        self.spillCallerSaved();
+        // 1. Spill only caller-saved regs that are live after this call
+        self.spillCallerSavedLive(ir, call_pc);
 
         // 2. Advance vm.reg_ptr and check overflow.
         //    Non-memory: use cached REG_PTR_ADDR (x27).
@@ -2568,7 +2725,7 @@ pub const Compiler = struct {
             self.emitLoadCalleeResult(rd_phys.?, needed_bytes);
         }
 
-        self.reloadCallerSavedExcept(if (rd_phys != null and !rd_callee_saved) rd else null);
+        self.reloadCallerSavedLiveExcept(if (rd_phys != null and !rd_callee_saved) rd else null);
 
         if (self.result_count > 0 and !rd_callee_saved) {
             if (rd_phys) |phys| {

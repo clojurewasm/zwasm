@@ -1096,6 +1096,8 @@ pub const Compiler = struct {
     min_memory_bytes: u32,
     known_consts: [128]?u32,
     written_vregs: u128,
+    /// Live vreg bitmap at current call site.
+    call_live_set: u32,
     scratch_vreg: ?u8,
 
     const Patch = struct {
@@ -1139,6 +1141,7 @@ pub const Compiler = struct {
             .min_memory_bytes = 0,
             .known_consts = .{null} ** 128,
             .written_vregs = 0,
+            .call_live_set = 0,
             .scratch_vreg = null,
         };
     }
@@ -1210,6 +1213,40 @@ pub const Compiler = struct {
         if (max <= FIRST_CALLER_SAVED_VREG) return;
         for (FIRST_CALLER_SAVED_VREG..max) |i| {
             const vreg: u8 = @intCast(i);
+            if (vregToPhys(vreg)) |phys| {
+                const disp: i32 = @as(i32, vreg) * 8;
+                Enc.loadDisp32(&self.code, self.alloc, phys, REGS_PTR, disp);
+            }
+        }
+    }
+
+    /// Spill only caller-saved vregs that are live after the call.
+    fn spillCallerSavedLive(self: *Compiler, ir: []const RegInstr, call_pc: u32) void {
+        const max = @min(self.reg_count, MAX_PHYS_REGS);
+        if (max <= FIRST_CALLER_SAVED_VREG) return;
+        // Reuse ARM64's computeCallLiveSet — same RegInstr format
+        const jit_arm64 = @import("jit.zig");
+        const live_set = jit_arm64.Compiler.computeCallLiveSet(ir, call_pc);
+        self.call_live_set = live_set;
+        for (FIRST_CALLER_SAVED_VREG..max) |i| {
+            const vreg: u8 = @intCast(i);
+            if (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg))) == 0) continue;
+            if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
+            if (vregToPhys(vreg)) |phys| {
+                const disp: i32 = @as(i32, vreg) * 8;
+                Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
+            }
+        }
+    }
+
+    /// Reload only caller-saved vregs that were spilled as live.
+    fn reloadCallerSavedLive(self: *Compiler) void {
+        const max = @min(self.reg_count, MAX_PHYS_REGS);
+        if (max <= FIRST_CALLER_SAVED_VREG) return;
+        const live_set = self.call_live_set;
+        for (FIRST_CALLER_SAVED_VREG..max) |i| {
+            const vreg: u8 = @intCast(i);
+            if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
                 const disp: i32 = @as(i32, vreg) * 8;
                 Enc.loadDisp32(&self.code, self.alloc, phys, REGS_PTR, disp);
@@ -1516,9 +1553,9 @@ pub const Compiler = struct {
     // --- Call emitters ---
 
     /// Emit a function call via trampoline.
-    fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr) void {
+    fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         // 1. Spill caller-saved regs + arg vregs
-        self.spillCallerSaved();
+        self.spillCallerSavedLive(ir, call_pc);
         if (n_args > 0) self.spillVregIfCalleeSaved(data.rd);
         if (n_args > 1) self.spillVregIfCalleeSaved(data.rs1);
         if (n_args > 2) self.spillVregIfCalleeSaved(@truncate(data.operand));
@@ -1579,7 +1616,7 @@ pub const Compiler = struct {
         }
 
         // 7. Reload caller-saved regs, then load result
-        self.reloadCallerSaved();
+        self.reloadCallerSavedLive();
         self.reloadVreg(rd);
     }
 
@@ -2556,6 +2593,7 @@ pub const Compiler = struct {
             regalloc_mod.OP_CALL => {
                 const func_idx = instr.operand;
                 const n_args: u16 = @intCast(instr.rs1);
+                const call_pc = pc.* - 1;
                 const data = ir[pc.*];
                 pc.* += 1;
                 const has_data2 = (pc.* < ir.len and ir[pc.*].op == regalloc_mod.OP_NOP);
@@ -2564,7 +2602,7 @@ pub const Compiler = struct {
                     data2 = ir[pc.*];
                     pc.* += 1;
                 }
-                self.emitCall(instr.rd, func_idx, n_args, data, if (has_data2) data2 else null);
+                self.emitCall(instr.rd, func_idx, n_args, data, if (has_data2) data2 else null, ir, call_pc);
             },
             regalloc_mod.OP_CALL_INDIRECT => {
                 const data = ir[pc.*];
