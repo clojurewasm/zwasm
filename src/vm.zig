@@ -1329,11 +1329,109 @@ pub const Vm = struct {
     }
 
     fn executeGc(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {
-        _ = instance;
         const gc_mod = @import("gc.zig");
         const sub = reader.readU32() catch return error.Trap;
         const gc_op: opcode.GcOpcode = @enumFromInt(sub);
         switch (gc_op) {
+            // ---- struct operations ----
+            .struct_new => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                const n = stype.fields.len;
+                // Pop n field values from stack (last field is on top, so reverse order)
+                var fields_buf: [256]u64 = undefined;
+                if (n > fields_buf.len) return error.Trap;
+                var i: usize = n;
+                while (i > 0) {
+                    i -= 1;
+                    fields_buf[i] = self.pop();
+                }
+                const addr = instance.store.gc_heap.allocStruct(type_idx, fields_buf[0..n]) catch return error.Trap;
+                try self.push(gc_mod.GcHeap.encodeRef(addr));
+            },
+            .struct_new_default => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                const n = stype.fields.len;
+                // Allocate with default values (0 for all — numeric=0, ref=null=0)
+                const fields = instance.store.gc_heap.alloc.alloc(u64, n) catch return error.Trap;
+                defer instance.store.gc_heap.alloc.free(fields);
+                @memset(fields, 0);
+                const addr = instance.store.gc_heap.allocStruct(type_idx, fields) catch return error.Trap;
+                try self.push(gc_mod.GcHeap.encodeRef(addr));
+            },
+            .struct_get => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const field_idx = reader.readU32() catch return error.Trap;
+                _ = type_idx;
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const s = switch (obj.*) {
+                    .struct_obj => |so| so,
+                    else => return error.Trap,
+                };
+                if (field_idx >= s.fields.len) return error.Trap;
+                try self.push(s.fields[field_idx]);
+            },
+            .struct_get_s => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const field_idx = reader.readU32() catch return error.Trap;
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const s = switch (obj.*) {
+                    .struct_obj => |so| so,
+                    else => return error.Trap,
+                };
+                if (field_idx >= s.fields.len) return error.Trap;
+                const raw: u32 = @truncate(s.fields[field_idx]);
+                const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                const result: i32 = switch (stype.fields[field_idx].storage) {
+                    .i8 => @as(i32, @as(i8, @bitCast(@as(u8, @truncate(raw))))),
+                    .i16 => @as(i32, @as(i16, @bitCast(@as(u16, @truncate(raw))))),
+                    else => @bitCast(raw),
+                };
+                try self.pushI32(result);
+            },
+            .struct_get_u => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const field_idx = reader.readU32() catch return error.Trap;
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const s = switch (obj.*) {
+                    .struct_obj => |so| so,
+                    else => return error.Trap,
+                };
+                if (field_idx >= s.fields.len) return error.Trap;
+                const raw: u32 = @truncate(s.fields[field_idx]);
+                const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                const result: u32 = switch (stype.fields[field_idx].storage) {
+                    .i8 => @as(u32, @as(u8, @truncate(raw))),
+                    .i16 => @as(u32, @as(u16, @truncate(raw))),
+                    else => raw,
+                };
+                try self.pushI32(@bitCast(result));
+            },
+            .struct_set => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const field_idx = reader.readU32() catch return error.Trap;
+                _ = type_idx;
+                const val = self.pop();
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                switch (obj.*) {
+                    .struct_obj => |*so| {
+                        if (field_idx >= so.fields.len) return error.Trap;
+                        so.fields[field_idx] = val;
+                    },
+                    else => return error.Trap,
+                }
+            },
+
+            // ---- i31 operations ----
             .ref_i31 => {
                 const val: i32 = @bitCast(self.popI32());
                 try self.push(gc_mod.encodeI31(val));
@@ -1350,6 +1448,15 @@ pub const Vm = struct {
             },
             else => return error.Trap, // unimplemented GC opcodes
         }
+    }
+
+    /// Helper: get StructType from type index.
+    fn getStructType(_: *Vm, instance: *Instance, type_idx: u32) ?module_mod.StructType {
+        if (type_idx >= instance.module.types.items.len) return null;
+        return switch (instance.module.types.items[type_idx].composite) {
+            .struct_type => |st| st,
+            else => null,
+        };
     }
 
     fn executeMisc(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {

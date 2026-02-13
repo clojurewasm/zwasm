@@ -233,6 +233,113 @@ test "GcHeap encodeRef/decodeRef" {
     try testing.expectError(error.Trap, GcHeap.decodeRef(0));
 }
 
+test "struct VM integration — struct.new + struct.get" {
+    const Module = module_mod.Module;
+    const Store = @import("store.zig").Store;
+    const Instance = @import("instance.zig").Instance;
+    const Vm = @import("vm.zig").Vm;
+
+    // Module with: type 0 = struct { (mut i32), (mut i32) }, type 1 = func (i32 i32) -> (i32)
+    // func (export "stest") (param i32 i32) (result i32): local.get 0, local.get 1, struct.new 0, struct.get 0 1, end
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, // magic + version
+        // Type section: 2 types (size = 1 + 6 + 6 = 13)
+        0x01, 0x0D, // section id=1, size=13
+        0x02, // 2 types
+        // type 0: struct { (mut i32), (mut i32) }
+        0x5F, 0x02, // struct, 2 fields
+        0x7F, 0x01, // field 0: i32, mutable
+        0x7F, 0x01, // field 1: i32, mutable
+        // type 1: func (i32, i32) -> (i32)
+        0x60, 0x02, 0x7F, 0x7F, 0x01, 0x7F, // func (i32 i32) -> (i32)
+        // Function section
+        0x03, 0x02, 0x01, 0x01, // 1 func, type idx 1
+        // Export section
+        0x07, 0x09, 0x01, 0x05, 's', 't', 'e', 's', 't', 0x00, 0x00,
+        // Code section (body: 1+2+2+3+4+1 = 13 bytes, section: 1+1+13 = 15)
+        0x0A, 0x0F, // section id=10, size=15
+        0x01, 0x0D, // 1 body, size=13
+        0x00, // 0 locals
+        0x20, 0x00, // local.get 0
+        0x20, 0x01, // local.get 1
+        0xFB, 0x00, // struct.new (gc_prefix + sub=0)
+        0x00, // typeidx 0
+        0xFB, 0x02, // struct.get (gc_prefix + sub=2)
+        0x00, // typeidx 0
+        0x01, // fieldidx 1
+        0x0B, // end
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    // struct.new with fields (10, 20), then struct.get field 1 -> 20
+    var args = [_]u64{ 10, 20 };
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "stest", &args, &results);
+    try testing.expectEqual(@as(u64, 20), results[0]);
+}
+
+test "struct VM integration — struct.new_default + struct.set + struct.get" {
+    const Module = module_mod.Module;
+    const Store = @import("store.zig").Store;
+    const Instance = @import("instance.zig").Instance;
+    const Vm = @import("vm.zig").Vm;
+
+    // func (export "stest2") (param i32) (result i32) (local i64)
+    //   struct.new_default 0, local.tee 1, local.get 0, struct.set 0 0, local.get 1, struct.get 0 0, end
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
+        // Type section (size=12)
+        0x01, 0x0C,
+        0x02, // 2 types
+        0x5F, 0x02, 0x7F, 0x01, 0x7F, 0x01, // struct { mut i32, mut i32 }
+        0x60, 0x01, 0x7F, 0x01, 0x7F, // func (i32) -> (i32)
+        // Function section
+        0x03, 0x02, 0x01, 0x01, // 1 func, type 1
+        // Export section
+        0x07, 0x0A, 0x01, 0x06, 's', 't', 'e', 's', 't', '2', 0x00, 0x00,
+        // Code section (body=21, section=1+1+21=23)
+        0x0A, 0x17, // section 10, size=23
+        0x01, 0x15, // 1 body, size=21
+        0x01, 0x01, 0x7E, // 1 local: i64
+        0xFB, 0x01, 0x00, // struct.new_default 0
+        0x22, 0x01, // local.tee 1
+        0x20, 0x00, // local.get 0
+        0xFB, 0x05, 0x00, 0x00, // struct.set 0 0
+        0x20, 0x01, // local.get 1
+        0xFB, 0x02, 0x00, 0x00, // struct.get 0 0
+        0x0B, // end
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    // Set field 0 to 99, then read it back
+    var args = [_]u64{99};
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "stest2", &args, &results);
+    try testing.expectEqual(@as(u64, 99), results[0]);
+}
+
 test "i31 VM integration — ref.i31 + i31.get_s round-trip" {
     const Module = module_mod.Module;
     const Store = @import("store.zig").Store;

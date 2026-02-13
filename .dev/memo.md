@@ -5,7 +5,7 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4, 7-15 — COMPLETE
-- Source: ~28K LOC, 18 files, 236 tests all pass
+- Source: ~28K LOC, 18 files, 238 tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
 - Spec: 60,873/60,906 Mac (99.9%), 7 skips, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
@@ -121,7 +121,7 @@ Largest proposal. Depends on Stage 17 (function_references).
 1. [x] 18.1: CompositeType migration + abstract heap types
 2. [x] 18.2: Type section decode — rec/sub/struct/array
 3. [x] 18.3: GC heap + i31 instructions
-4. [ ] 18.4: Struct operations
+4. [x] 18.4: Struct operations
 5. [ ] 18.5: Array core operations
 6. [ ] 18.6: ref.eq + extern conversion
 7. [ ] 18.7: Array bulk + data/elem init
@@ -146,11 +146,11 @@ Task Queue:
 
 ## Current Task
 
-18.4: Struct operations.
+18.5: Array core operations.
 
 ## Previous Task
 
-18.3: GC heap + i31 instructions — gc.zig (GcHeap, i31 helpers), store.zig integration, 0xFB prefix dispatch, ref.i31/i31.get_s/i31.get_u in vm.zig.
+18.4: Struct operations — struct.new/new_default/get/get_s/get_u/set (6 opcodes), packed field support, predecode 0xFB bail.
 
 ## Wasm 3.0 Coverage
 
