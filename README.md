@@ -4,40 +4,59 @@ A small, fast WebAssembly runtime written in Zig. Library and CLI.
 
 ## Why zwasm
 
-Most Wasm runtimes are either fast but large (wasmtime ~56MB, wasmer ~110MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1MB with ARM64 + x86_64 JIT compilation**.
+Most Wasm runtimes are either fast but large (wasmtime ~56MB, wasmer ~118MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1.1MB with ARM64 + x86_64 JIT compilation**.
 
 | Runtime  | Binary  | Memory | JIT            |
 |----------|--------:|-------:|----------------|
-| zwasm    | 1.0MB   | ~3MB   | ARM64 + x86_64 |
+| zwasm    | 1.1MB   | ~3MB   | ARM64 + x86_64 |
 | wasmtime | 56MB    | ~13MB  | Cranelift      |
-| wasmer   | 110MB   | ~25MB  | LLVM/Cranelift |
+| wasmer   | 118MB   | ~25MB  | LLVM/Cranelift |
 | wasm3    | 0.3MB   | ~1MB   | None           |
 
 zwasm was extracted from [ClojureWasm](https://github.com/niclas-ahden/ClojureWasm) (a Zig reimplementation of Clojure) where optimizing a Wasm subsystem inside a language runtime created a "runtime within runtime" problem. Separating it produced a cleaner codebase, independent optimization, and a reusable library. ClojureWasm remains the primary consumer.
 
 ## Features
 
-- **472 opcodes**: Full MVP + SIMD (236 v128) + Exception handling + Wide arithmetic
+- **523 opcodes**: Full MVP + SIMD (236 + 20 relaxed) + Exception handling + Function references + GC
 - **4-tier execution**: bytecode > predecoded IR > register IR > ARM64/x86_64 JIT
-- **100% spec conformance**: 32,231/32,236 spec tests passing (204 test files)
-- **Wasm 3.0**: memory64, exception handling, tail calls, extended const, branch hinting, multi-memory, wide arithmetic, custom page sizes
+- **99.9% spec conformance**: 60,873/60,906 spec tests passing
+- **All Wasm 3.0 proposals**: See [Spec Coverage](#wasm-spec-coverage) below
 - **WAT support**: `zwasm run file.wat`, build-time optional (`-Dwat=false`)
 - **WASI Preview 1**: ~27 syscalls (fd, path, clock, environ, args, proc, random)
 - **Security**: Deny-by-default WASI, capability flags, resource limits
 - **Zero dependencies**: Pure Zig, no libc required
 - **Allocator-parameterized**: Caller controls memory allocation
 
-### Performance (vs wasmtime JIT)
+## Wasm Spec Coverage
 
-11 of 21 benchmarks match or beat wasmtime. 20/21 within 2x.
+All ratified Wasm proposals through 3.0 are implemented.
 
-| Benchmark     | zwasm   | wasmtime | Ratio    |
-|---------------|--------:|---------:|---------:|
-| sieve(1M)     | 5ms     | 8ms      | **0.6x** |
-| nqueens(8)    | 3ms     | 7ms      | **0.4x** |
-| tak(24,16,8)  | 12ms    | 12ms     | **1.0x** |
-| fib(35)       | 97ms    | 56ms     | 1.7x     |
-| nbody(1M)     | 41ms    | 25ms     | 1.6x     |
+| Spec     | Proposals                                                                         | Status       |
+|----------|-----------------------------------------------------------------------------------|--------------|
+| Wasm 1.0 | MVP (172 opcodes)                                                                | Complete     |
+| Wasm 2.0 | Sign extension, Non-trapping f->i, Bulk memory, Reference types, Multi-value, Fixed-width SIMD (236) | All complete |
+| Wasm 3.0 | Memory64, Exception handling, Tail calls, Extended const, Branch hinting, Multi-memory, Relaxed SIMD (20), Function references, GC (31) | All complete |
+| Phase 3  | Wide arithmetic (4), Custom page sizes                                           | Complete     |
+
+9/9 Wasm 3.0 proposals implemented. 239 unit tests, 356/356 E2E tests.
+
+## Performance
+
+Benchmarked on Apple M4 Pro against wasmtime 41.0.1 (Cranelift JIT).
+10 of 21 benchmarks match or beat wasmtime. 18/21 within 2x.
+Memory usage 3-4x lower across all benchmarks.
+
+| Benchmark       | zwasm   | wasmtime | Ratio    |
+|-----------------|--------:|---------:|---------:|
+| sieve(1M)       | 3.6ms   | 7.1ms    | **0.5x** |
+| nqueens(8)      | 2.5ms   | 8.4ms    | **0.3x** |
+| tak(24,16,8)    | 10.6ms  | 10.7ms   | **1.0x** |
+| gcd(1B)         | 1.5ms   | 5.3ms    | **0.3x** |
+| ackermann(3,11) | 7.0ms   | 8.6ms    | **0.8x** |
+| fib(35)         | 92ms    | 53ms     | 1.7x     |
+| nbody(1M)       | 52ms    | 25ms     | 2.1x     |
+
+Full results (21 benchmarks, 5 runtimes): `bench/runtime_comparison.yaml`
 
 ## Usage
 
@@ -65,13 +84,15 @@ try module.invoke("fib", &args, &results);
 // results[0] == 9227465
 ```
 
+See [docs/usage.md](docs/usage.md) for detailed library and CLI documentation.
+
 ## Build
 
 Requires Zig 0.15.2.
 
 ```bash
 zig build              # Build (Debug)
-zig build test         # Run all tests (229 tests)
+zig build test         # Run all tests (239 tests)
 ./zig-out/bin/zwasm run file.wasm
 ```
 
@@ -119,16 +140,12 @@ The spec test suite runs on every change.
 
 ## Roadmap
 
-- [x] Stage 0-4: Core runtime (extraction, library API, spec conformance, ARM64 JIT)
+- [x] Stages 0-4: Core runtime (extraction, library API, spec conformance, ARM64 JIT)
 - [x] Stage 5: JIT coverage (20/21 benchmarks within 2x of wasmtime)
-- [x] Stage 7-12: Wasm 3.0 proposals (memory64, exception handling, wide arithmetic, custom page sizes, WAT parser)
+- [x] Stages 7-12: Wasm 3.0 (memory64, exception handling, wide arithmetic, custom page sizes, WAT parser)
 - [x] Stage 13: x86_64 JIT backend
-- [x] Stage 14: Wasm 3.0 trivial proposals (extended const, branch hinting, tail calls)
-- [x] Stage 15: Wasm 3.0 multi-memory
-- [ ] Stage 16: Relaxed SIMD
-- [ ] Stage 17: Function references
-- [ ] Stage 18: GC
-- [ ] Future: Component Model, WASI P2, threads
+- [x] Stages 14-18: Wasm 3.0 proposals (tail calls, extended const, branch hinting, multi-memory, relaxed SIMD, function references, GC)
+- [ ] Future: GC collector, WASI P1 full coverage, Component Model, WASI P2
 
 ## License
 
