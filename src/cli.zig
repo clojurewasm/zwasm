@@ -54,6 +54,8 @@ pub fn main() !void {
         const ok = try cmdValidate(allocator, args[2..], stdout, stderr);
         try stdout.flush();
         if (!ok) std.process.exit(1);
+    } else if (std.mem.eql(u8, command, "features")) {
+        cmdFeatures(args[2..], stdout, stderr);
     } else if (std.mem.eql(u8, command, "help") or std.mem.eql(u8, command, "--help") or std.mem.eql(u8, command, "-h")) {
         printUsage(stdout);
     } else if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "version")) {
@@ -74,6 +76,7 @@ fn printUsage(w: *std.Io.Writer) void {
         \\  zwasm run [options] <file.wasm|.wat> [args...]
         \\  zwasm inspect [--json] <file.wasm|.wat>
         \\  zwasm validate <file.wasm|.wat>
+        \\  zwasm features
         \\  zwasm version
         \\  zwasm help
         \\
@@ -1233,6 +1236,84 @@ fn valTypeName(vt: opcode.ValType) []const u8 {
         .ref_type => "ref",
         .ref_null_type => "ref_null",
     };
+}
+
+// ── features subcommand ────────────────────────────────────────────
+
+const Feature = struct {
+    name: []const u8,
+    status: Status,
+    opcodes: u16,
+
+    const Status = enum { complete, partial, planned };
+};
+
+const features_list = [_]Feature{
+    // Wasm 2.0
+    .{ .name = "Sign extension", .status = .complete, .opcodes = 7 },
+    .{ .name = "Non-trapping float-to-int", .status = .complete, .opcodes = 8 },
+    .{ .name = "Bulk memory", .status = .complete, .opcodes = 9 },
+    .{ .name = "Reference types", .status = .complete, .opcodes = 5 },
+    .{ .name = "Multi-value", .status = .complete, .opcodes = 0 },
+    .{ .name = "Fixed-width SIMD", .status = .complete, .opcodes = 236 },
+    // Wasm 3.0
+    .{ .name = "Tail call", .status = .complete, .opcodes = 2 },
+    .{ .name = "Extended const", .status = .complete, .opcodes = 0 },
+    .{ .name = "Function references", .status = .complete, .opcodes = 5 },
+    .{ .name = "GC", .status = .complete, .opcodes = 31 },
+    .{ .name = "Multi-memory", .status = .complete, .opcodes = 0 },
+    .{ .name = "Relaxed SIMD", .status = .complete, .opcodes = 20 },
+    .{ .name = "Branch hinting", .status = .complete, .opcodes = 0 },
+    .{ .name = "Exception handling", .status = .complete, .opcodes = 3 },
+    .{ .name = "Memory64", .status = .complete, .opcodes = 0 },
+    // Other proposals
+    .{ .name = "Wide arithmetic", .status = .complete, .opcodes = 4 },
+    .{ .name = "Custom page sizes", .status = .complete, .opcodes = 0 },
+    .{ .name = "Threads", .status = .planned, .opcodes = 68 },
+};
+
+fn cmdFeatures(args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) void {
+    _ = args;
+    _ = stderr;
+    stdout.print("Proposal                    Status     Opcodes\n", .{}) catch {};
+    stdout.print("───────────────────────     ────────   ───────\n", .{}) catch {};
+    for (features_list) |f| {
+        const status_str = switch (f.status) {
+            .complete => "complete",
+            .partial => "partial",
+            .planned => "planned",
+        };
+        if (f.opcodes > 0) {
+            stdout.print("{s: <28}{s: <11}{d}\n", .{ f.name, status_str, f.opcodes }) catch {};
+        } else {
+            stdout.print("{s: <28}{s: <11}-\n", .{ f.name, status_str }) catch {};
+        }
+    }
+
+    // Summary
+    var complete: u16 = 0;
+    var total_opcodes: u16 = 0;
+    for (features_list) |f| {
+        if (f.status == .complete) complete += 1;
+        total_opcodes += f.opcodes;
+    }
+    stdout.print("\n{d}/{d} proposals complete, {d} opcodes total\n", .{
+        complete, features_list.len, total_opcodes,
+    }) catch {};
+}
+
+test "features list has expected entries" {
+    const testing = std.testing;
+    try testing.expectEqual(@as(usize, 18), features_list.len);
+
+    // All status values are valid (compile-time guarantee, but test the first/last)
+    try testing.expectEqual(Feature.Status.complete, features_list[0].status);
+    try testing.expectEqual(Feature.Status.planned, features_list[features_list.len - 1].status);
+
+    // Total opcodes
+    var total: u16 = 0;
+    for (features_list) |f| total += f.opcodes;
+    try testing.expect(total >= 398); // 7+8+9+5+0+236+2+0+5+31+0+20+0+3+0+4+0+68 = 398
 }
 
 fn readFile(allocator: Allocator, path: []const u8) ![]const u8 {
