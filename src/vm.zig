@@ -1541,6 +1541,199 @@ pub const Vm = struct {
                 try self.pushI32(@bitCast(len));
             },
 
+            // ---- array bulk operations ----
+            .array_fill => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                _ = type_idx;
+                const size: u32 = @truncate(self.pop());
+                const fill_val = self.pop();
+                const offset: u32 = @truncate(self.pop());
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                switch (obj.*) {
+                    .array_obj => |*ao| {
+                        const end = @as(u64, offset) + @as(u64, size);
+                        if (end > ao.elements.len) return error.Trap;
+                        @memset(ao.elements[offset .. offset + size], fill_val);
+                    },
+                    else => return error.Trap,
+                }
+            },
+            .array_copy => {
+                const dst_type = reader.readU32() catch return error.Trap;
+                const src_type = reader.readU32() catch return error.Trap;
+                _ = dst_type;
+                _ = src_type;
+                const size: u32 = @truncate(self.pop());
+                const src_off: u32 = @truncate(self.pop());
+                const src_ref = self.pop();
+                const dst_off: u32 = @truncate(self.pop());
+                const dst_ref = self.pop();
+                const src_addr = gc_mod.GcHeap.decodeRef(src_ref) catch return error.Trap;
+                const dst_addr = gc_mod.GcHeap.decodeRef(dst_ref) catch return error.Trap;
+                const src_obj = instance.store.gc_heap.getObject(src_addr) catch return error.Trap;
+                const src_elems = switch (src_obj.*) {
+                    .array_obj => |ao| ao.elements,
+                    else => return error.Trap,
+                };
+                if (@as(u64, src_off) + @as(u64, size) > src_elems.len) return error.Trap;
+                // Copy src slice to temp buffer to handle overlapping src/dst
+                var tmp_buf: [4096]u64 = undefined;
+                const tmp = if (size <= tmp_buf.len) tmp_buf[0..size] else return error.Trap;
+                @memcpy(tmp, src_elems[src_off .. src_off + size]);
+                // Now write to dst
+                const dst_obj = instance.store.gc_heap.getObject(dst_addr) catch return error.Trap;
+                switch (dst_obj.*) {
+                    .array_obj => |*dao| {
+                        if (@as(u64, dst_off) + @as(u64, size) > dao.elements.len) return error.Trap;
+                        @memcpy(dao.elements[dst_off .. dst_off + size], tmp);
+                    },
+                    else => return error.Trap,
+                }
+            },
+            .array_new_data => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const data_idx = reader.readU32() catch return error.Trap;
+                const size: u32 = @truncate(self.pop());
+                const offset: u32 = @truncate(self.pop());
+                // Get data segment bytes
+                if (data_idx >= instance.module.datas.items.len) return error.Trap;
+                const data_seg = instance.module.datas.items[data_idx];
+                // Determine element byte size from array type
+                const atype = self.getArrayType(instance, type_idx) orelse return error.Trap;
+                const elem_bytes: u32 = switch (atype.field.storage) {
+                    .i8 => 1,
+                    .i16 => 2,
+                    .val => |v| switch (v) {
+                        .i32, .f32 => @as(u32, 4),
+                        .i64, .f64 => @as(u32, 8),
+                        else => return error.Trap,
+                    },
+                };
+                const byte_len = @as(u64, size) * @as(u64, elem_bytes);
+                if (@as(u64, offset) + byte_len > data_seg.data.len) return error.Trap;
+                // Read elements from data bytes
+                const vals = instance.store.gc_heap.alloc.alloc(u64, size) catch return error.Trap;
+                defer instance.store.gc_heap.alloc.free(vals);
+                const src = data_seg.data[offset..];
+                for (vals, 0..) |*v, i| {
+                    const base = i * elem_bytes;
+                    v.* = switch (atype.field.storage) {
+                        .i8 => @as(u64, src[base]),
+                        .i16 => @as(u64, std.mem.readInt(u16, src[base..][0..2], .little)),
+                        .val => |vt| switch (vt) {
+                            .i32, .f32 => @as(u64, std.mem.readInt(u32, src[base..][0..4], .little)),
+                            .i64, .f64 => std.mem.readInt(u64, src[base..][0..8], .little),
+                            else => return error.Trap,
+                        },
+                    };
+                }
+                const addr = instance.store.gc_heap.allocArrayWithValues(type_idx, vals) catch return error.Trap;
+                try self.push(gc_mod.GcHeap.encodeRef(addr));
+            },
+            .array_new_elem => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const elem_idx = reader.readU32() catch return error.Trap;
+                const size: u32 = @truncate(self.pop());
+                const offset: u32 = @truncate(self.pop());
+                // Get element segment
+                if (elem_idx >= instance.module.elements.items.len) return error.Trap;
+                const elem_seg = instance.module.elements.items[elem_idx];
+                const func_indices = switch (elem_seg.init) {
+                    .func_indices => |fi| fi,
+                    .expressions => return error.Trap, // TODO: evaluate expressions
+                };
+                if (@as(u64, offset) + @as(u64, size) > func_indices.len) return error.Trap;
+                const vals = instance.store.gc_heap.alloc.alloc(u64, size) catch return error.Trap;
+                defer instance.store.gc_heap.alloc.free(vals);
+                for (vals, 0..) |*v, i| {
+                    const fidx = func_indices[offset + i];
+                    if (fidx < instance.funcaddrs.items.len) {
+                        v.* = @as(u64, @intCast(instance.funcaddrs.items[fidx])) + 1;
+                    } else {
+                        v.* = 0; // null ref
+                    }
+                }
+                const addr = instance.store.gc_heap.allocArrayWithValues(type_idx, vals) catch return error.Trap;
+                try self.push(gc_mod.GcHeap.encodeRef(addr));
+            },
+            .array_init_data => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const data_idx = reader.readU32() catch return error.Trap;
+                const size: u32 = @truncate(self.pop());
+                const src_off: u32 = @truncate(self.pop());
+                const dst_off: u32 = @truncate(self.pop());
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                if (data_idx >= instance.module.datas.items.len) return error.Trap;
+                const data_seg = instance.module.datas.items[data_idx];
+                const atype = self.getArrayType(instance, type_idx) orelse return error.Trap;
+                const elem_bytes: u32 = switch (atype.field.storage) {
+                    .i8 => 1,
+                    .i16 => 2,
+                    .val => |v| switch (v) {
+                        .i32, .f32 => @as(u32, 4),
+                        .i64, .f64 => @as(u32, 8),
+                        else => return error.Trap,
+                    },
+                };
+                const byte_len = @as(u64, size) * @as(u64, elem_bytes);
+                if (@as(u64, src_off) + byte_len > data_seg.data.len) return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                switch (obj.*) {
+                    .array_obj => |*ao| {
+                        if (@as(u64, dst_off) + @as(u64, size) > ao.elements.len) return error.Trap;
+                        const src = data_seg.data[src_off..];
+                        for (0..size) |i| {
+                            const base = i * elem_bytes;
+                            ao.elements[dst_off + i] = switch (atype.field.storage) {
+                                .i8 => @as(u64, src[base]),
+                                .i16 => @as(u64, std.mem.readInt(u16, src[base..][0..2], .little)),
+                                .val => |vt| switch (vt) {
+                                    .i32, .f32 => @as(u64, std.mem.readInt(u32, src[base..][0..4], .little)),
+                                    .i64, .f64 => std.mem.readInt(u64, src[base..][0..8], .little),
+                                    else => return error.Trap,
+                                },
+                            };
+                        }
+                    },
+                    else => return error.Trap,
+                }
+            },
+            .array_init_elem => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const elem_idx = reader.readU32() catch return error.Trap;
+                _ = type_idx;
+                const size: u32 = @truncate(self.pop());
+                const src_off: u32 = @truncate(self.pop());
+                const dst_off: u32 = @truncate(self.pop());
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                if (elem_idx >= instance.module.elements.items.len) return error.Trap;
+                const elem_seg = instance.module.elements.items[elem_idx];
+                const func_indices = switch (elem_seg.init) {
+                    .func_indices => |fi| fi,
+                    .expressions => return error.Trap,
+                };
+                if (@as(u64, src_off) + @as(u64, size) > func_indices.len) return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                switch (obj.*) {
+                    .array_obj => |*ao| {
+                        if (@as(u64, dst_off) + @as(u64, size) > ao.elements.len) return error.Trap;
+                        for (0..size) |i| {
+                            const fidx = func_indices[src_off + i];
+                            if (fidx < instance.funcaddrs.items.len) {
+                                ao.elements[dst_off + i] = @as(u64, @intCast(instance.funcaddrs.items[fidx])) + 1;
+                            } else {
+                                ao.elements[dst_off + i] = 0;
+                            }
+                        }
+                    },
+                    else => return error.Trap,
+                }
+            },
+
             // ---- i31 operations ----
             .ref_i31 => {
                 const val: i32 = @bitCast(self.popI32());

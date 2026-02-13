@@ -124,7 +124,7 @@ Largest proposal. Depends on Stage 17 (function_references).
 4. [x] 18.4: Struct operations
 5. [x] 18.5: Array core operations
 6. [x] 18.6: ref.eq + extern conversion
-7. [ ] 18.7: Array bulk + data/elem init
+7. [x] 18.7: Array bulk + data/elem init
 8. [ ] 18.8: Subtype checking
 9. [ ] 18.9: Cast operations
 10. [ ] 18.10: Validation + predecode + remaining tests
@@ -146,11 +146,11 @@ Task Queue:
 
 ## Current Task
 
-18.7: Array bulk + data/elem init.
+18.8: Subtype checking.
 
 ## Previous Task
 
-18.6: ref.eq + extern conversion — ref.eq (0xD3), any.convert_extern, extern.convert_any, predecoded IR ref.eq.
+18.7: Array bulk + data/elem init — array.fill/copy/new_data/new_elem/init_data/init_elem (6 opcodes), data/elem segment integration.
 
 ## Wasm 3.0 Coverage
 

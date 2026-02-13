@@ -63,7 +63,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | WAT parser            | Complete     | v128/SIMD, named locals/globals     |
 | Relaxed SIMD          | Complete     | 20 opcodes, 85/85 spec tests       |
 | Function references   | Complete     | 5 opcodes, 104/106 spec tests      |
-| GC                    | Partial      | 20/31 opcodes (+ref.eq+extern)      |
+| GC                    | Partial      | 26/31 opcodes (+array bulk)         |
 | Component Model       | Not started  | Wasm 3.0 (W7)                      |
 | WASI Preview 2        | Not started  | Wasm 3.0                           |
 
