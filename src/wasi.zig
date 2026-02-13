@@ -1291,6 +1291,68 @@ pub fn sched_yield(ctx: *anyopaque, _: usize) anyerror!void {
     try pushErrno(vm, .SUCCESS);
 }
 
+/// poll_oneoff(in_ptr: i32, out_ptr: i32, nsubscriptions: i32, nevents_ptr: i32) -> errno
+/// Simplified: handles CLOCK subscriptions (sleep), FD subscriptions return immediately.
+pub fn poll_oneoff(ctx: *anyopaque, _: usize) anyerror!void {
+    const vm = getVm(ctx);
+    const nevents_ptr = vm.popOperandU32();
+    const nsubscriptions = vm.popOperandU32();
+    const out_ptr = vm.popOperandU32();
+    const in_ptr = vm.popOperandU32();
+
+    if (nsubscriptions == 0) {
+        try pushErrno(vm, .INVAL);
+        return;
+    }
+
+    const memory = try vm.getMemory(0);
+    const data = memory.memory();
+    // subscription = 48 bytes, event = 32 bytes
+    if (in_ptr + nsubscriptions * 48 > data.len) return error.OutOfBoundsMemoryAccess;
+    if (out_ptr + nsubscriptions * 32 > data.len) return error.OutOfBoundsMemoryAccess;
+
+    var nevents: u32 = 0;
+    for (0..nsubscriptions) |i| {
+        const sub_off: u32 = in_ptr + @as(u32, @intCast(i)) * 48;
+        const evt_off: u32 = out_ptr + nevents * 32;
+
+        // subscription: userdata(u64) at +0, tag(u8) at +8
+        const userdata = try memory.read(u64, sub_off, 0);
+        const tag = data[sub_off + 8];
+
+        // Clear event
+        @memset(data[evt_off .. evt_off + 32], 0);
+        // event: userdata(u64) at +0, error(u16) at +8, type(u8) at +10
+        try memory.write(u64, evt_off, 0, userdata);
+        data[evt_off + 10] = tag;
+
+        if (tag == 0) {
+            // CLOCK subscription
+            // clock: id(u32) at +16, timeout(u64) at +24, precision(u64) at +32, flags(u16) at +40
+            const timeout = try memory.read(u64, sub_off, 24);
+            const clock_flags = try memory.read(u16, sub_off, 40);
+
+            if (clock_flags & 0x01 != 0) {
+                // ABSTIME: compute relative from current time
+                const now_ns = @as(u64, @bitCast(@as(i64, @intCast(std.time.nanoTimestamp()))));
+                if (timeout > now_ns) {
+                    std.Thread.sleep(timeout - now_ns);
+                }
+            } else {
+                std.Thread.sleep(timeout);
+            }
+            // error = SUCCESS (0, already zeroed)
+        } else {
+            // FD_READ (1) or FD_WRITE (2) — return immediately as ready
+            // error = SUCCESS (already zeroed), nbytes = 0
+        }
+        nevents += 1;
+    }
+
+    try memory.write(u32, nevents_ptr, 0, nevents);
+    try pushErrno(vm, .SUCCESS);
+}
+
 /// fd_advise(fd: i32, offset: i64, len: i64, advice: i32) -> errno
 pub fn fd_advise(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
@@ -1780,6 +1842,7 @@ const wasi_table = [_]WasiEntry{
     .{ .name = "fd_sync", .func = &fd_sync },
     .{ .name = "fd_tell", .func = &fd_tell },
     .{ .name = "fd_write", .func = &fd_write },
+    .{ .name = "poll_oneoff", .func = &poll_oneoff },
     .{ .name = "path_create_directory", .func = &path_create_directory },
     .{ .name = "path_filestat_get", .func = &path_filestat_get },
     .{ .name = "path_link", .func = &path_link },

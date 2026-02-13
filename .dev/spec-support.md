@@ -41,8 +41,8 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | proc_*          | 2           | 2     | exit, raise                     |
 | random_*        | 1           | 1     | random_get                      |
 | sock_*          | 0           | 4     | Not implemented (W5)            |
-| poll_oneoff     | 0           | 1     | Not implemented                 |
-| **Total WASI**  | **~31**     | **35** | ~89%                           |
+| poll_oneoff     | 1           | 1     | CLOCK sleep, FD pass-through    |
+| **Total WASI**  | **~32**     | **35** | ~91%                           |
 
 ## Proposals Status
 
