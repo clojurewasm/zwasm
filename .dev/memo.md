@@ -63,7 +63,7 @@ Group A: WIT Parser (~800 LOC)
 4. [x] A4: Unit tests + wasmtime WIT corpus validation
 
 Group B: Component Binary Format (~1,200 LOC)
-5. [ ] B1: Component section types (component, core:module, instance, alias, etc.)
+5. [x] B1: Component section types (component, core:module, instance, alias, etc.)
 6. [ ] B2: Component type section — func types, component types, instance types
 7. [ ] B3: Canon section — lift/lower/resource ops
 8. [ ] B4: Start, import, export sections
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 B1: Component section types (component, core:module, instance, alias, etc.)
+Stage 22 B2: Component type section — func types, component types, instance types
 
 ## Previous Task
 
-A4: Corpus validation — 8 wasmtime-derived tests including resources, handles, result wildcards.
+B1: Component binary format — SectionId/ExternKind/CanonOp/AliasSort enums, Component decoder with section parsing, core module extraction. 7 tests.
 
 ## Wasm 3.0 Coverage
 
