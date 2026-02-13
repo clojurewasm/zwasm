@@ -151,7 +151,7 @@ Target: GC spec tests (W21), table.init修正 (W2), GC collector (W20), WASI P1�
 
 Group A: GC Spec Tests (wasm-tools 1.244.0で828 assertions変換)
 1. [x] A1: convert.shにwasm-tools対応
-2. [ ] A2: run_spec.pyのGC ref型対応(value無しref, ref_anyマッチ)
+2. [x] A2: run_spec.pyのGC ref型対応(value無しref, ref_anyマッチ)
 3. [ ] A3: GC spec実行 + パスカウント記録
 
 Group B: table.init修正 — RESOLVED
@@ -173,11 +173,11 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-A2: run_spec.pyのGC ref型対応
+A3: GC spec実行 + パスカウント記録
 
 ## Previous Task
 
-A1: convert.shにwasm-tools 1.244.0対応。18/18 GCファイル変換成功、gc-プレフィックスで衝突回避。
+A2: run_spec.pyのGC ref型対応。ref_anyタプル(value無し=任意非null)処理追加。18ファイル157/546 pass (28.8%)。
 
 ## v0.1.0 Tag Replace Queue
 
