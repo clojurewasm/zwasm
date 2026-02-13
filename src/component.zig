@@ -182,6 +182,47 @@ pub const ResourceType = struct {
     dtor: ?u32, // optional destructor function index
 };
 
+// ── Canonical Functions ───────────────────────────────────────────────
+
+pub const CanonicalFunc = union(enum) {
+    lift: LiftFunc,
+    lower: LowerFunc,
+    resource_new: u32, // resource type index
+    resource_drop: u32, // resource type index
+    resource_rep: u32, // resource type index
+};
+
+pub const LiftFunc = struct {
+    core_func_idx: u32,
+    options: CanonOptions,
+};
+
+pub const LowerFunc = struct {
+    func_idx: u32,
+    options: CanonOptions,
+};
+
+pub const CanonOptions = struct {
+    string_encoding: StringEncoding = .utf8,
+    memory: ?u32 = null,
+    realloc: ?u32 = null,
+    post_return: ?u32 = null,
+};
+
+pub const StringEncoding = enum {
+    utf8,
+    utf16,
+    compact_utf16,
+};
+
+// ── Alias Declarations ───────────────────────────────────────────────
+
+pub const AliasDecl = union(enum) {
+    instance_export: struct { instance_idx: u32, name: []const u8 },
+    core_instance_export: struct { instance_idx: u32, name: []const u8 },
+    outer: struct { outer_count: u32, kind: u8, idx: u32 },
+};
+
 // ── Raw Section ───────────────────────────────────────────────────────
 
 pub const RawSection = struct {
@@ -202,6 +243,10 @@ pub const Component = struct {
     exports: std.ArrayListUnmanaged(ComponentExport),
     // Decoded component types (from type sections)
     types: std.ArrayListUnmanaged(ComponentType),
+    // Decoded canonical functions
+    canon_funcs: std.ArrayListUnmanaged(CanonicalFunc),
+    // Decoded aliases
+    aliases: std.ArrayListUnmanaged(AliasDecl),
 
     pub const ComponentImport = struct {
         name: []const u8,
@@ -222,6 +267,8 @@ pub const Component = struct {
             .imports = .empty,
             .exports = .empty,
             .types = .empty,
+            .canon_funcs = .empty,
+            .aliases = .empty,
         };
     }
 
@@ -231,6 +278,8 @@ pub const Component = struct {
         self.imports.deinit(self.alloc);
         self.exports.deinit(self.alloc);
         self.types.deinit(self.alloc);
+        self.canon_funcs.deinit(self.alloc);
+        self.aliases.deinit(self.alloc);
     }
 
     pub fn decode(self: *Component) !void {
@@ -273,6 +322,12 @@ pub const Component = struct {
                 },
                 .@"export" => {
                     self.decodeExportSection(payload) catch {};
+                },
+                .canonical => {
+                    self.decodeCanonSection(payload) catch {};
+                },
+                .alias => {
+                    self.decodeAliasSection(payload) catch {};
                 },
                 else => {},
             }
@@ -477,6 +532,87 @@ pub const Component = struct {
                 .name = name,
                 .kind = @enumFromInt(kind_byte),
             }) catch return error.OutOfMemory;
+        }
+    }
+
+    fn decodeCanonSection(self: *Component, payload: []const u8) !void {
+        var r = Reader.init(payload);
+        const count = r.readU32() catch return;
+        for (0..count) |_| {
+            const op_byte = r.readByte() catch return;
+            const sub_byte = r.readByte() catch return;
+            _ = sub_byte; // sub-opcode (0x00 for most ops)
+            const cf: CanonicalFunc = switch (op_byte) {
+                @intFromEnum(CanonOp.lift) => blk: {
+                    const core_func_idx = r.readU32() catch return;
+                    const opts = self.decodeCanonOptions(&r);
+                    break :blk .{ .lift = .{ .core_func_idx = core_func_idx, .options = opts } };
+                },
+                @intFromEnum(CanonOp.lower) => blk: {
+                    const func_idx = r.readU32() catch return;
+                    const opts = self.decodeCanonOptions(&r);
+                    break :blk .{ .lower = .{ .func_idx = func_idx, .options = opts } };
+                },
+                @intFromEnum(CanonOp.resource_new) => .{
+                    .resource_new = r.readU32() catch return,
+                },
+                @intFromEnum(CanonOp.resource_drop) => .{
+                    .resource_drop = r.readU32() catch return,
+                },
+                @intFromEnum(CanonOp.resource_rep) => .{
+                    .resource_rep = r.readU32() catch return,
+                },
+                else => return,
+            };
+            self.canon_funcs.append(self.alloc, cf) catch return error.OutOfMemory;
+        }
+    }
+
+    fn decodeCanonOptions(_: *Component, r: *Reader) CanonOptions {
+        var opts = CanonOptions{};
+        const opt_count = r.readU32() catch return opts;
+        for (0..opt_count) |_| {
+            const opt_byte = r.readByte() catch return opts;
+            switch (opt_byte) {
+                @intFromEnum(CanonOpt.utf8) => opts.string_encoding = .utf8,
+                @intFromEnum(CanonOpt.utf16) => opts.string_encoding = .utf16,
+                @intFromEnum(CanonOpt.compact_utf16) => opts.string_encoding = .compact_utf16,
+                @intFromEnum(CanonOpt.memory) => opts.memory = r.readU32() catch return opts,
+                @intFromEnum(CanonOpt.realloc) => opts.realloc = r.readU32() catch return opts,
+                @intFromEnum(CanonOpt.post_return) => opts.post_return = r.readU32() catch return opts,
+                else => {},
+            }
+        }
+        return opts;
+    }
+
+    fn decodeAliasSection(self: *Component, payload: []const u8) !void {
+        var r = Reader.init(payload);
+        const count = r.readU32() catch return;
+        for (0..count) |_| {
+            const sort_byte = r.readByte() catch return;
+            const alias: AliasDecl = switch (sort_byte) {
+                @intFromEnum(AliasSort.instance_export) => blk: {
+                    const inst_idx = r.readU32() catch return;
+                    const name_len = r.readU32() catch return;
+                    const name = r.readBytes(name_len) catch return;
+                    break :blk .{ .instance_export = .{ .instance_idx = inst_idx, .name = name } };
+                },
+                @intFromEnum(AliasSort.core_instance_export) => blk: {
+                    const inst_idx = r.readU32() catch return;
+                    const name_len = r.readU32() catch return;
+                    const name = r.readBytes(name_len) catch return;
+                    break :blk .{ .core_instance_export = .{ .instance_idx = inst_idx, .name = name } };
+                },
+                @intFromEnum(AliasSort.outer) => blk: {
+                    const outer_count = r.readU32() catch return;
+                    const kind = r.readByte() catch return;
+                    const idx = r.readU32() catch return;
+                    break :blk .{ .outer = .{ .outer_count = outer_count, .kind = kind, .idx = idx } };
+                },
+                else => return,
+            };
+            self.aliases.append(self.alloc, alias) catch return error.OutOfMemory;
         }
     }
 
@@ -742,4 +878,100 @@ test "Component.decode — resource type" {
     const rt = comp.types.items[0].resource;
     try std.testing.expectEqual(ValType.u32_, rt.rep);
     try std.testing.expect(rt.dtor == null);
+}
+
+test "Component.decode — canonical lift/lower" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Canon section (id=8)
+        0x08,
+        0x10, // section size
+        0x02, // count: 2 canon funcs
+        // Canon 0: lift core_func_idx=0, opts=[utf8, memory=0]
+        0x00, 0x00, // op=lift, sub=0x00
+        0x00, // core_func_idx=0
+        0x02, // 2 options
+        0x00, // utf8
+        0x03, 0x00, // memory idx=0
+        // Canon 1: lower func_idx=1, opts=[utf8, memory=0, realloc=2]
+        0x01, 0x00, // op=lower, sub=0x00
+        0x01, // func_idx=1
+        0x03, // 3 options
+        0x00, // utf8
+        0x03, 0x00, // memory idx=0
+        0x04, 0x02, // realloc idx=2
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 2), comp.canon_funcs.items.len);
+
+    // Lift
+    const lift = comp.canon_funcs.items[0].lift;
+    try std.testing.expectEqual(@as(u32, 0), lift.core_func_idx);
+    try std.testing.expectEqual(StringEncoding.utf8, lift.options.string_encoding);
+    try std.testing.expectEqual(@as(u32, 0), lift.options.memory.?);
+
+    // Lower
+    const lower = comp.canon_funcs.items[1].lower;
+    try std.testing.expectEqual(@as(u32, 1), lower.func_idx);
+    try std.testing.expectEqual(@as(u32, 0), lower.options.memory.?);
+    try std.testing.expectEqual(@as(u32, 2), lower.options.realloc.?);
+}
+
+test "Component.decode — canonical resource ops" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Canon section (id=8)
+        0x08,
+        0x0A, // section size
+        0x03, // count: 3 canon funcs
+        // resource.new(type=0)
+        0x02, 0x00, 0x00,
+        // resource.drop(type=0)
+        0x03, 0x00, 0x00,
+        // resource.rep(type=0)
+        0x04, 0x00, 0x00,
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 3), comp.canon_funcs.items.len);
+    try std.testing.expectEqual(@as(u32, 0), comp.canon_funcs.items[0].resource_new);
+    try std.testing.expectEqual(@as(u32, 0), comp.canon_funcs.items[1].resource_drop);
+    try std.testing.expectEqual(@as(u32, 0), comp.canon_funcs.items[2].resource_rep);
+}
+
+test "Component.decode — alias section" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Alias section (id=6)
+        0x06,
+        0x0D, // section size
+        0x02, // count: 2 aliases
+        // Alias 0: instance export (inst=0, name="foo")
+        0x00, // sort = instance_export
+        0x00, // instance_idx = 0
+        0x03, 'f', 'o', 'o', // name = "foo"
+        // Alias 1: core instance export (inst=1, name="mem")
+        0x01, // sort = core_instance_export
+        0x01, // instance_idx = 1
+        0x03, 'm', 'e', 'm', // name = "mem"
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 2), comp.aliases.items.len);
+    const a0 = comp.aliases.items[0].instance_export;
+    try std.testing.expectEqual(@as(u32, 0), a0.instance_idx);
+    try std.testing.expectEqualStrings("foo", a0.name);
+    const a1 = comp.aliases.items[1].core_instance_export;
+    try std.testing.expectEqual(@as(u32, 1), a1.instance_idx);
+    try std.testing.expectEqualStrings("mem", a1.name);
 }

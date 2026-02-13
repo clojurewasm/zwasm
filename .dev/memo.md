@@ -65,7 +65,7 @@ Group A: WIT Parser (~800 LOC)
 Group B: Component Binary Format (~1,200 LOC)
 5. [x] B1: Component section types (component, core:module, instance, alias, etc.)
 6. [x] B2: Component type section — func types, component types, instance types
-7. [ ] B3: Canon section — lift/lower/resource ops
+7. [x] B3: Canon section — lift/lower/resource ops
 8. [ ] B4: Start, import, export sections
 9. [ ] B5: Nested component/module instantiation
 
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 B3: Canon section — lift/lower/resource ops
+Stage 22 B4: Start, import, export sections
 
 ## Previous Task
 
-B2: Type section decoder — ValType enum, DefinedType/ComponentFuncType/ResourceType, decodes primitives/list/option/result/func/resource types. 5 new tests.
+B3: Canon section — lift/lower with CanonOptions (string encoding, memory, realloc, post-return), resource.new/drop/rep, alias section (instance/core_instance/outer). 3 new tests.
 
 ## Wasm 3.0 Coverage
 
