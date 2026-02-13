@@ -150,7 +150,7 @@ Target: GC spec tests (W21), table.init修正 (W2), GC collector (W20), WASI P1�
 ~1,490 LOC, 14 tasks. 詳細設計: `.claude/plans/groovy-sprouting-horizon.md`
 
 Group A: GC Spec Tests (wasm-tools 1.244.0で828 assertions変換)
-1. [ ] A1: convert.shにwasm-tools対応
+1. [x] A1: convert.shにwasm-tools対応
 2. [ ] A2: run_spec.pyのGC ref型対応(value無しref, ref_anyマッチ)
 3. [ ] A3: GC spec実行 + パスカウント記録
 
@@ -173,8 +173,11 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-v0.1.0 Tag Replace — ALL COMPLETE. Resume Stage 19.
-Requirements: `~/Documents/MyProducts/ClojureWasm/private/my-tag-replace.md`
+A2: run_spec.pyのGC ref型対応
+
+## Previous Task
+
+A1: convert.shにwasm-tools 1.244.0対応。18/18 GCファイル変換成功、gc-プレフィックスで衝突回避。
 
 ## v0.1.0 Tag Replace Queue
 
