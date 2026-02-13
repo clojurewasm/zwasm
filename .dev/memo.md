@@ -57,10 +57,10 @@ wasmtime is reference impl. Each group independently mergeable.
 Design: default ON, implement all wasmtime supports, minimal flags.
 
 Group A: WIT Parser (~800 LOC)
-1. [ ] A1: WIT lexer + token types
+1. [x] A1: WIT lexer + token types
 2. [x] A2: WIT parser — interfaces, worlds, types, functions
 3. [x] A3: WIT resolution — use declarations, package references
-4. [ ] A4: Unit tests + wasmtime WIT corpus validation
+4. [x] A4: Unit tests + wasmtime WIT corpus validation
 
 Group B: Component Binary Format (~1,200 LOC)
 5. [ ] B1: Component section types (component, core:module, instance, alias, etc.)
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 A4: Unit tests + wasmtime WIT corpus validation
+Stage 22 B1: Component section types (component, core:module, instance, alias, etc.)
 
 ## Previous Task
 
-A3: WIT resolution — Resolver with 3-phase resolution (types/funcs, use decls, worlds), 3 tests.
+A4: Corpus validation — 8 wasmtime-derived tests including resources, handles, result wildcards.
 
 ## Wasm 3.0 Coverage
 

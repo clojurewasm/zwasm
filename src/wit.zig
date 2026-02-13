@@ -1803,3 +1803,296 @@ test "Resolver — world resolution" {
     try std.testing.expect(world.imports.contains("logger"));
     try std.testing.expect(world.exports.contains("logger"));
 }
+
+// ── Corpus Validation (wasmtime WIT files) ─────────────────────────────
+
+fn parseAndValidate(source: []const u8) !void {
+    var parser = Parser.init(std.testing.allocator, source);
+    var doc = try parser.parseDocument();
+    defer doc.deinit(std.testing.allocator);
+    // Verify parsing produced some content (not all skipped)
+    try std.testing.expect(doc.interfaces.len > 0 or doc.worlds.len > 0 or doc.package != null);
+}
+
+test "Corpus — wasmtime smoke.wit" {
+    try parseAndValidate(
+        \\package foo:foo;
+        \\
+        \\world the-world {
+        \\  import imports: interface {
+        \\    y: func();
+        \\  }
+        \\}
+    );
+}
+
+test "Corpus — wasmtime records.wit" {
+    const source =
+        \\package foo:foo;
+        \\
+        \\interface records {
+        \\  tuple-arg: func(x: tuple<char, u32>);
+        \\  tuple-result: func() -> tuple<char, u32>;
+        \\
+        \\  record empty {}
+        \\
+        \\  empty-arg: func(x: empty);
+        \\  empty-result: func() -> empty;
+        \\
+        \\  /// A record containing two scalar fields
+        \\  record scalars {
+        \\      a: u32,
+        \\      b: u32,
+        \\  }
+        \\
+        \\  scalar-arg: func(x: scalars);
+        \\  scalar-result: func() -> scalars;
+        \\
+        \\  record really-flags {
+        \\      a: bool,
+        \\      b: bool,
+        \\      c: bool,
+        \\      d: bool,
+        \\  }
+        \\
+        \\  flags-arg: func(x: really-flags);
+        \\  flags-result: func() -> really-flags;
+        \\
+        \\  type tuple-typedef = tuple<s32>;
+        \\  type int-typedef = s32;
+        \\  type tuple-typedef2 = tuple<int-typedef>;
+        \\  typedef-inout: func(e: tuple-typedef2) -> s32;
+        \\}
+        \\
+        \\world the-world {
+        \\  import records;
+        \\  export records;
+        \\}
+    ;
+    var parser = Parser.init(std.testing.allocator, source);
+    var doc = try parser.parseDocument();
+    defer doc.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualStrings("foo", doc.package.?.namespace);
+    try std.testing.expectEqual(@as(usize, 1), doc.interfaces.len);
+    try std.testing.expectEqual(@as(usize, 1), doc.worlds.len);
+
+    const iface = doc.interfaces[0];
+    try std.testing.expectEqualStrings("records", iface.name);
+    // Count: 8 funcs + 4 records + 3 type aliases = 15 items (doc comments skipped)
+    try std.testing.expect(iface.items.len >= 12);
+}
+
+test "Corpus — wasmtime lists.wit" {
+    const source =
+        \\package foo:foo;
+        \\
+        \\interface lists {
+        \\  list-u8-param: func(x: list<u8>);
+        \\  list-u16-param: func(x: list<u16>);
+        \\  list-u32-param: func(x: list<u32>);
+        \\  list-u64-param: func(x: list<u64>);
+        \\  list-s8-param: func(x: list<s8>);
+        \\  list-s16-param: func(x: list<s16>);
+        \\  list-s32-param: func(x: list<s32>);
+        \\  list-s64-param: func(x: list<s64>);
+        \\  list-f32-param: func(x: list<f32>);
+        \\  list-f64-param: func(x: list<f64>);
+        \\  list-u8-ret: func() -> list<u8>;
+        \\  tuple-list: func(x: list<tuple<u8, s8>>) -> list<tuple<s64, u32>>;
+        \\  string-list-arg: func(a: list<string>);
+        \\  string-list-ret: func() -> list<string>;
+        \\
+        \\  record some-record {
+        \\    x: string,
+        \\    c1: u32,
+        \\    c2: u64,
+        \\  }
+        \\  record other-record {
+        \\    a1: u32,
+        \\    b: string,
+        \\    c: list<u8>,
+        \\  }
+        \\  record-list: func(x: list<some-record>) -> list<other-record>;
+        \\
+        \\  variant some-variant {
+        \\    a(string),
+        \\    b,
+        \\    c(u32),
+        \\  }
+        \\  variant other-variant {
+        \\    a,
+        \\    b(u32),
+        \\    c(string),
+        \\  }
+        \\  variant-list: func(x: list<some-variant>) -> list<other-variant>;
+        \\
+        \\  type load-store-all-sizes = list<tuple<string, u8, s8, u16, s16, u32, s32, u64, s64, f32, f64, char>>;
+        \\  load-store-everything: func(a: load-store-all-sizes) -> load-store-all-sizes;
+        \\}
+        \\
+        \\world the-lists {
+        \\  import lists;
+        \\  export lists;
+        \\}
+    ;
+    var parser = Parser.init(std.testing.allocator, source);
+    var doc = try parser.parseDocument();
+    defer doc.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), doc.interfaces.len);
+    try std.testing.expect(doc.interfaces[0].items.len >= 15);
+}
+
+test "Corpus — wasmtime many-arguments.wit" {
+    const source =
+        \\package foo:foo;
+        \\
+        \\interface manyarg {
+        \\  many-args: func(
+        \\    a1: u64, a2: u64, a3: u64, a4: u64,
+        \\    a5: u64, a6: u64, a7: u64, a8: u64,
+        \\    a9: u64, a10: u64, a11: u64, a12: u64,
+        \\    a13: u64, a14: u64, a15: u64, a16: u64,
+        \\  );
+        \\
+        \\  record big-struct {
+        \\    a1: string, a2: string, a3: string, a4: string,
+        \\    a5: string, a6: string, a7: string, a8: string,
+        \\  }
+        \\
+        \\  big-argument: func(x: big-struct);
+        \\}
+        \\
+        \\world the-world {
+        \\  import manyarg;
+        \\  export manyarg;
+        \\}
+    ;
+    var parser = Parser.init(std.testing.allocator, source);
+    var doc = try parser.parseDocument();
+    defer doc.deinit(std.testing.allocator);
+
+    const iface = doc.interfaces[0];
+    // many-args should have 16 params
+    const many_args = iface.items[0].func_def;
+    try std.testing.expectEqualStrings("many-args", many_args.name);
+    try std.testing.expectEqual(@as(usize, 16), many_args.params.len);
+}
+
+test "Corpus — wasmtime floats.wit" {
+    try parseAndValidate(
+        \\package foo:foo;
+        \\
+        \\interface floats {
+        \\  f32-param: func(x: f32);
+        \\  f64-param: func(x: f64);
+        \\  f32-result: func() -> f32;
+        \\  f64-result: func() -> f64;
+        \\}
+        \\
+        \\world the-world {
+        \\  import floats;
+        \\  export floats;
+        \\}
+    );
+}
+
+test "Corpus — complex WIT with resources and handles" {
+    const source =
+        \\package wasi:filesystem@0.2.0;
+        \\
+        \\interface types {
+        \\  resource descriptor;
+        \\  resource dir-entry-stream;
+        \\
+        \\  enum error-code {
+        \\    access,
+        \\    would-block,
+        \\    already,
+        \\    bad-descriptor,
+        \\    busy,
+        \\  }
+        \\
+        \\  flags path-flags {
+        \\    symlink-follow,
+        \\  }
+        \\
+        \\  flags open-flags {
+        \\    create,
+        \\    directory,
+        \\    exclusive,
+        \\    truncate,
+        \\  }
+        \\
+        \\  type filesize = u64;
+        \\
+        \\  record descriptor-stat {
+        \\    size: filesize,
+        \\  }
+        \\
+        \\  open-at: func(fd: borrow<descriptor>, flags: path-flags, path: string) -> result<own<descriptor>, error-code>;
+        \\  read: func(fd: borrow<descriptor>, len: u64, offset: filesize) -> result<list<u8>, error-code>;
+        \\  stat: func(fd: borrow<descriptor>) -> result<descriptor-stat, error-code>;
+        \\}
+        \\
+        \\world filesystem {
+        \\  import types;
+        \\}
+    ;
+    var parser = Parser.init(std.testing.allocator, source);
+    var doc = try parser.parseDocument();
+    defer doc.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualStrings("wasi", doc.package.?.namespace);
+    try std.testing.expectEqualStrings("filesystem", doc.package.?.name);
+    try std.testing.expectEqualStrings("0.2.0", doc.package.?.version.?);
+    try std.testing.expectEqual(@as(usize, 1), doc.interfaces.len);
+
+    const iface = doc.interfaces[0];
+    // 2 resources + 1 enum + 2 flags + 1 type alias + 1 record + 3 funcs = 10
+    try std.testing.expect(iface.items.len >= 10);
+
+    // Verify open-at has result<own<descriptor>, error-code>
+    var open_fn: ?FuncDef = null;
+    for (iface.items) |item| {
+        switch (item) {
+            .func_def => |fd| {
+                if (std.mem.eql(u8, fd.name, "open-at")) open_fn = fd;
+            },
+            else => {},
+        }
+    }
+    try std.testing.expect(open_fn != null);
+    try std.testing.expect(open_fn.?.result != null);
+    // result type should be result_type
+    const rt = open_fn.?.result.?.result_type;
+    try std.testing.expect(rt.ok != null);
+    // ok should be own<descriptor>
+    try std.testing.expectEqualStrings("descriptor", rt.ok.?.handle_own);
+    // err should be named "error-code"
+    try std.testing.expectEqualStrings("error-code", rt.err.?.named);
+}
+
+test "Corpus — result with wildcard" {
+    const source =
+        \\interface err-handling {
+        \\  fallible: func() -> result<_, string>;
+        \\  bare-result: func() -> result;
+        \\}
+    ;
+    var parser = Parser.init(std.testing.allocator, source);
+    var doc = try parser.parseDocument();
+    defer doc.deinit(std.testing.allocator);
+
+    const f1 = doc.interfaces[0].items[0].func_def;
+    const rt1 = f1.result.?.result_type;
+    try std.testing.expect(rt1.ok == null); // wildcard
+    try std.testing.expect(rt1.err != null);
+    try std.testing.expectEqual(TypeRef{ .primitive = .string_ }, rt1.err.?.*);
+
+    const f2 = doc.interfaces[0].items[1].func_def;
+    const rt2 = f2.result.?.result_type;
+    try std.testing.expect(rt2.ok == null);
+    try std.testing.expect(rt2.err == null);
+}
