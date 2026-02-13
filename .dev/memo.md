@@ -15,7 +15,7 @@ Session handover document. Read at session start.
 - WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
-- **main = stable**: CW depends on main via GitHub URL (v0.10.0 tag).
+- **main = stable**: CW depends on main via GitHub URL (v0.1.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
 
 ## Completed Stages
@@ -173,7 +173,7 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-v0.1.0 Tag Replace — Phase 2.4: CI green.
+v0.1.0 Tag Replace — Phase 3: CW dependency switch + docs.
 Requirements: `~/Documents/MyProducts/ClojureWasm/private/my-tag-replace.md`
 
 ## v0.1.0 Tag Replace Queue
@@ -190,8 +190,8 @@ Phase 2: zwasm tag operations (do in one session)
 - [x] 2.1: Delete old v0.1.0 tag + release
 - [x] 2.2: Replace tag refs in bench history (done in 1.2)
 - [x] 2.3: Update build.zig.zon version to 0.1.0, commit, push
-- [ ] 2.4: CI green
-- [ ] 2.5: Create new v0.1.0 tag, push
+- [x] 2.4: CI green (bd2c852)
+- [x] 2.5: Create new v0.1.0 tag, push
 
 Phase 3: CW dependency + docs (CW repo)
 - [ ] 3.1: Switch CW build.zig.zon to zwasm v0.1.0 tar.gz
