@@ -246,7 +246,7 @@ const Validator = struct {
         const type_idx = try reader.readI32();
         const idx: u32 = @bitCast(type_idx);
         if (idx >= self.module.types.items.len) return error.UnknownType;
-        const ft = self.module.types.items[idx];
+        const ft = self.module.types.items[idx].getFunc() orelse return error.UnknownType;
         return .{ .params = ft.params, .results = ft.results };
     }
 
@@ -289,7 +289,7 @@ const Validator = struct {
 
         const type_idx = self.module.functions.items[code_idx].type_idx;
         if (type_idx >= self.module.types.items.len) return error.UnknownType;
-        const func_type = self.module.types.items[type_idx];
+        const func_type = self.module.types.items[type_idx].getFunc() orelse return error.UnknownType;
         const code = self.module.codes.items[code_idx];
 
         // Build local types: params + declared locals
@@ -453,7 +453,7 @@ const Validator = struct {
                 if (table_idx >= total_tables) return error.UnknownTable;
                 if (!self.getTableRefType(table_idx).eql(.funcref)) return error.TypeMismatch;
                 try self.popI32(); // table index
-                const ft = self.module.types.items[type_idx];
+                const ft = self.module.types.items[type_idx].getFunc() orelse return error.UnknownType;
                 try self.popExpectingTypes(ft.params);
                 try self.pushTypes(ft.results);
             },
@@ -481,7 +481,7 @@ const Validator = struct {
                 if (table_idx >= total_tables) return error.UnknownTable;
                 if (!self.getTableRefType(table_idx).eql(.funcref)) return error.TypeMismatch;
                 try self.popI32();
-                const ft = self.module.types.items[type_idx];
+                const ft = self.module.types.items[type_idx].getFunc() orelse return error.UnknownType;
                 // return_call_indirect: callee's results must match caller's results
                 const caller_results = self.ctrl_stack.items[0].end_types;
                 if (ft.results.len != caller_results.len) return error.TypeMismatch;
@@ -497,7 +497,7 @@ const Validator = struct {
                 const type_idx = try reader.readU32();
                 if (type_idx >= self.module.types.items.len) return error.UnknownType;
                 _ = try self.popExpecting(.funcref); // pop nullable typed ref (treat as funcref)
-                const ft = self.module.types.items[type_idx];
+                const ft = self.module.types.items[type_idx].getFunc() orelse return error.UnknownType;
                 try self.popExpectingTypes(ft.params);
                 try self.pushTypes(ft.results);
             },
@@ -505,7 +505,7 @@ const Validator = struct {
                 const type_idx = try reader.readU32();
                 if (type_idx >= self.module.types.items.len) return error.UnknownType;
                 _ = try self.popExpecting(.funcref);
-                const ft = self.module.types.items[type_idx];
+                const ft = self.module.types.items[type_idx].getFunc() orelse return error.UnknownType;
                 const caller_results = self.ctrl_stack.items[0].end_types;
                 if (ft.results.len != caller_results.len) return error.TypeMismatch;
                 for (ft.results, caller_results) |a, b| {
@@ -1181,26 +1181,7 @@ const Validator = struct {
     // ---- Helpers ----
 
     fn getFuncType(self: *Validator, func_idx: u32) ?module_mod.FuncType {
-        if (func_idx < self.module.num_imported_funcs) {
-            // Search imports for this function
-            var import_func_idx: u32 = 0;
-            for (self.module.imports.items) |imp| {
-                if (imp.kind == .func) {
-                    if (import_func_idx == func_idx) {
-                        if (imp.index < self.module.types.items.len)
-                            return self.module.types.items[imp.index];
-                        return null;
-                    }
-                    import_func_idx += 1;
-                }
-            }
-            return null;
-        }
-        const local_idx = func_idx - self.module.num_imported_funcs;
-        if (local_idx >= self.module.functions.items.len) return null;
-        const type_idx = self.module.functions.items[local_idx].type_idx;
-        if (type_idx >= self.module.types.items.len) return null;
-        return self.module.types.items[type_idx];
+        return self.module.getFuncType(func_idx);
     }
 
     fn getTableRefType(self: *Validator, idx: u32) ValType {
@@ -1389,7 +1370,7 @@ fn validateStart(mod: *const Module) ValidateError!void {
         type_idx = mod.functions.items[local_idx].type_idx;
     }
     if (type_idx >= mod.types.items.len) return error.UnknownType;
-    const ft = mod.types.items[type_idx];
+    const ft = mod.types.items[type_idx].getFunc() orelse return error.UnknownType;
     if (ft.params.len != 0 or ft.results.len != 0) return error.TypeMismatch;
 }
 

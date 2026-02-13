@@ -143,8 +143,7 @@ pub fn inspectImportFunctions(allocator: Allocator, wasm_bytes: []const u8) ![]c
     var idx: usize = 0;
     for (module.imports.items) |imp| {
         if (imp.kind != .func) continue;
-        if (imp.index >= module.types.items.len) continue;
-        const functype = module.types.items[imp.index];
+        const functype = module.getTypeFunc(imp.index) orelse continue;
         result[idx] = .{
             .module = imp.module,
             .name = imp.name,
@@ -574,8 +573,7 @@ fn registerImports(
                 // Register host callback function
                 const host_entry = findHostFn(host_fns, imp.name) orelse continue;
 
-                if (imp.index >= module.types.items.len) continue;
-                const functype = module.types.items[imp.index];
+                const functype = module.getTypeFunc(imp.index) orelse continue;
 
                 store.exposeHostFunction(
                     imp.module,

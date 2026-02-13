@@ -3360,8 +3360,7 @@ pub fn jitCallIndirectTrampoline(
     const func_ptr = instance.store.getFunctionPtr(func_addr) catch return 1;
 
     // Type check
-    if (type_idx < instance.module.types.items.len) {
-        const expected = instance.module.types.items[type_idx];
+    if (instance.module.getTypeFunc(type_idx)) |expected| {
         if (!ValType.sliceEql(expected.params, func_ptr.params) or
             !ValType.sliceEql(expected.results, func_ptr.results))
             return 1; // MismatchedSignatures → Trap

@@ -414,8 +414,7 @@ pub const Vm = struct {
                         .resolve_type_fn = struct {
                             fn resolve(ctx: *anyopaque, type_idx: u32) ?regalloc_mod.FuncTypeInfo {
                                 const i: *Instance = @ptrCast(@alignCast(ctx));
-                                if (type_idx >= i.module.types.items.len) return null;
-                                const t = i.module.types.items[type_idx];
+                                const t = i.module.getTypeFunc(type_idx) orelse return null;
                                 return .{
                                     .param_count = @intCast(t.params.len),
                                     .result_count = @intCast(t.results.len),
@@ -830,10 +829,9 @@ pub const Vm = struct {
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
 
                     // Type check: compare param/result types, not just lengths
-                    if (type_idx < instance.module.types.items.len) {
-                        const expected = instance.module.types.items[type_idx];
-                        if (!ValType.sliceEql( expected.params, func_ptr.params) or
-                            !ValType.sliceEql( expected.results, func_ptr.results))
+                    if (instance.module.getTypeFunc(type_idx)) |expected| {
+                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
+                            !ValType.sliceEql(expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
 
@@ -867,10 +865,9 @@ pub const Vm = struct {
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
                     // Type check
-                    if (type_idx < instance.module.types.items.len) {
-                        const expected = instance.module.types.items[type_idx];
-                        if (!ValType.sliceEql( expected.params, func_ptr.params) or
-                            !ValType.sliceEql( expected.results, func_ptr.results))
+                    if (instance.module.getTypeFunc(type_idx)) |expected| {
+                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
+                            !ValType.sliceEql(expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
                     const n_args = func_ptr.params.len;
@@ -891,7 +888,7 @@ pub const Vm = struct {
                         return error.Trap;
                     const tag_addr = instance.tagaddrs.items[tag_idx];
                     const tag = instance.store.tags.items[tag_addr];
-                    const ft = instance.module.types.items[tag.type_idx];
+                    const ft = instance.module.getTypeFunc(tag.type_idx) orelse return error.Trap;
                     const param_count = ft.params.len;
                     if (param_count > MAX_EXCEPTION_VALUES) return error.Trap;
 
@@ -1282,8 +1279,7 @@ pub const Vm = struct {
                     const func_addr = ref_val - 1;
                     const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
                     // Type check
-                    if (type_idx < instance.module.types.items.len) {
-                        const expected = instance.module.types.items[type_idx];
+                    if (instance.module.getTypeFunc(type_idx)) |expected| {
                         if (!ValType.sliceEql(expected.params, func_ptr.params) or
                             !ValType.sliceEql(expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
@@ -1301,8 +1297,7 @@ pub const Vm = struct {
                     const func_addr = ref_val - 1;
                     const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
                     // Type check
-                    if (type_idx < instance.module.types.items.len) {
-                        const expected = instance.module.types.items[type_idx];
+                    if (instance.module.getTypeFunc(type_idx)) |expected| {
                         if (!ValType.sliceEql(expected.params, func_ptr.params) or
                             !ValType.sliceEql(expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
@@ -2801,10 +2796,9 @@ pub const Vm = struct {
                     const callee_fn = try instance.store.getFunctionPtr(func_addr);
 
                     // Type check
-                    if (type_idx < instance.module.types.items.len) {
-                        const expected = instance.module.types.items[type_idx];
-                        if (!ValType.sliceEql( expected.params, callee_fn.params) or
-                            !ValType.sliceEql( expected.results, callee_fn.results))
+                    if (instance.module.getTypeFunc(type_idx)) |expected| {
+                        if (!ValType.sliceEql(expected.params, callee_fn.params) or
+                            !ValType.sliceEql(expected.results, callee_fn.results))
                             return error.MismatchedSignatures;
                     }
 
@@ -3458,10 +3452,9 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (type_idx < instance.module.types.items.len) {
-                        const expected = instance.module.types.items[type_idx];
-                        if (!ValType.sliceEql( expected.params, func_ptr.params) or
-                            !ValType.sliceEql( expected.results, func_ptr.results))
+                    if (instance.module.getTypeFunc(type_idx)) |expected| {
+                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
+                            !ValType.sliceEql(expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
                     try self.doCallDirectIR(instance, func_ptr);
@@ -3485,10 +3478,9 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (type_idx < instance.module.types.items.len) {
-                        const expected = instance.module.types.items[type_idx];
-                        if (!ValType.sliceEql( expected.params, func_ptr.params) or
-                            !ValType.sliceEql( expected.results, func_ptr.results))
+                    if (instance.module.getTypeFunc(type_idx)) |expected| {
+                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
+                            !ValType.sliceEql(expected.results, func_ptr.results))
                             return error.MismatchedSignatures;
                     }
                     const n_args = func_ptr.params.len;
@@ -3924,8 +3916,7 @@ pub const Vm = struct {
                             .resolve_type_fn = struct {
                                 fn resolve(ctx: *anyopaque, type_idx: u32) ?regalloc_mod.FuncTypeInfo {
                                     const i: *Instance = @ptrCast(@alignCast(ctx));
-                                    if (type_idx >= i.module.types.items.len) return null;
-                                    const t = i.module.types.items[type_idx];
+                                    const t = i.module.getTypeFunc(type_idx) orelse return null;
                                     return .{
                                         .param_count = @intCast(t.params.len),
                                         .result_count = @intCast(t.results.len),
@@ -4582,8 +4573,8 @@ fn b2i(b: bool) i32 { return if (b) 1 else 0; }
 fn resolveArityIR(extra: u16, instance: *Instance) usize {
     if (extra & predecode_mod.ARITY_TYPE_INDEX_FLAG != 0) {
         const idx = extra & ~predecode_mod.ARITY_TYPE_INDEX_FLAG;
-        if (idx < instance.module.types.items.len)
-            return instance.module.types.items[idx].results.len;
+        if (instance.module.getTypeFunc(idx)) |ft|
+            return ft.results.len;
         return 0;
     }
     return extra;
@@ -4592,8 +4583,8 @@ fn resolveArityIR(extra: u16, instance: *Instance) usize {
 fn resolveParamArityIR(extra: u16, instance: *Instance) usize {
     if (extra & predecode_mod.ARITY_TYPE_INDEX_FLAG != 0) {
         const idx = extra & ~predecode_mod.ARITY_TYPE_INDEX_FLAG;
-        if (idx < instance.module.types.items.len)
-            return instance.module.types.items[idx].params.len;
+        if (instance.module.getTypeFunc(idx)) |ft|
+            return ft.params.len;
         return 0;
     }
     return 0; // simple blocktypes have 0 params
@@ -4633,8 +4624,8 @@ fn blockTypeArity(bt: opcode.BlockType, instance: *Instance) usize {
         .empty => 0,
         .val_type => 1,
         .type_index => |idx| blk: {
-            if (idx < instance.module.types.items.len)
-                break :blk instance.module.types.items[idx].results.len;
+            if (instance.module.getTypeFunc(idx)) |ft|
+                break :blk ft.results.len;
             break :blk 0;
         },
     };
@@ -4644,8 +4635,8 @@ fn blockTypeParamArity(bt: opcode.BlockType, instance: *Instance) usize {
     return switch (bt) {
         .empty, .val_type => 0,
         .type_index => |idx| blk: {
-            if (idx < instance.module.types.items.len)
-                break :blk instance.module.types.items[idx].params.len;
+            if (instance.module.getTypeFunc(idx)) |ft|
+                break :blk ft.params.len;
             break :blk 0;
         },
     };

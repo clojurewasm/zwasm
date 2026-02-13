@@ -26,6 +26,51 @@ pub const FuncType = struct {
     results: []const ValType,
 };
 
+/// Storage type for struct/array fields (GC proposal).
+pub const StorageType = union(enum) {
+    val: ValType,
+    i8, // packed 0x78
+    i16, // packed 0x77
+};
+
+/// Field type for struct/array (GC proposal).
+pub const FieldType = struct {
+    storage: StorageType,
+    mutable: bool, // false = const, true = var
+};
+
+/// Struct composite type (GC proposal).
+pub const StructType = struct {
+    fields: []const FieldType,
+};
+
+/// Array composite type (GC proposal).
+pub const ArrayType = struct {
+    field: FieldType,
+};
+
+/// Composite type: func, struct, or array (GC proposal).
+pub const CompositeType = union(enum) {
+    func: FuncType,
+    struct_type: StructType,
+    array_type: ArrayType,
+};
+
+/// Type definition with subtyping info (GC proposal).
+pub const TypeDef = struct {
+    composite: CompositeType,
+    super_types: []const u32 = &.{}, // subtyping parents
+    is_final: bool = true, // sub final by default
+
+    /// Convenience: get FuncType if this is a func composite type.
+    pub fn getFunc(self: TypeDef) ?FuncType {
+        return switch (self.composite) {
+            .func => |f| f,
+            else => null,
+        };
+    }
+};
+
 /// Import descriptor.
 pub const Import = struct {
     module: []const u8,
@@ -133,7 +178,7 @@ pub const Module = struct {
     decoded: bool,
 
     // Decoded sections
-    types: ArrayList(FuncType),
+    types: ArrayList(TypeDef),
     imports: ArrayList(Import),
     functions: ArrayList(FunctionDef),
     tables: ArrayList(TableDef),
@@ -183,9 +228,16 @@ pub const Module = struct {
     }
 
     pub fn deinit(self: *Module) void {
-        for (self.types.items) |ft| {
-            self.alloc.free(ft.params);
-            self.alloc.free(ft.results);
+        for (self.types.items) |td| {
+            switch (td.composite) {
+                .func => |ft| {
+                    self.alloc.free(ft.params);
+                    self.alloc.free(ft.results);
+                },
+                .struct_type => |st| self.alloc.free(st.fields),
+                .array_type => {},
+            }
+            if (td.super_types.len > 0) self.alloc.free(td.super_types);
         }
         self.types.deinit(self.alloc);
 
@@ -314,8 +366,16 @@ pub const Module = struct {
             errdefer self.alloc.free(results);
             for (results) |*r| r.* = try ValType.readValType(reader);
 
-            try self.types.append(self.alloc, .{ .params = params, .results = results });
+            try self.types.append(self.alloc, .{
+                .composite = .{ .func = .{ .params = params, .results = results } },
+            });
         }
+    }
+
+    /// Get FuncType by type index (returns null if not a func type or out of bounds).
+    pub fn getTypeFunc(self: *const Module, type_idx: u32) ?FuncType {
+        if (type_idx >= self.types.items.len) return null;
+        return self.types.items[type_idx].getFunc();
     }
 
     // ---- Section 2: Import ----
@@ -843,9 +903,7 @@ pub const Module = struct {
             for (self.imports.items) |imp| {
                 if (imp.kind == .func) {
                     if (import_func_idx == func_idx) {
-                        if (imp.index < self.types.items.len)
-                            return self.types.items[imp.index];
-                        return null;
+                        return self.getTypeFunc(imp.index);
                     }
                     import_func_idx += 1;
                 }
@@ -856,8 +914,7 @@ pub const Module = struct {
             const local_idx = func_idx - self.num_imported_funcs;
             if (local_idx >= self.functions.items.len) return null;
             const type_idx = self.functions.items[local_idx].type_idx;
-            if (type_idx >= self.types.items.len) return null;
-            return self.types.items[type_idx];
+            return self.getTypeFunc(type_idx);
         }
     }
 
@@ -1053,11 +1110,12 @@ test "Module — decode 01_add.wasm" {
 
     // Type section: one func type (i32, i32) -> i32
     try testing.expectEqual(@as(usize, 1), mod.types.items.len);
-    try testing.expectEqual(@as(usize, 2), mod.types.items[0].params.len);
-    try testing.expectEqual(ValType.i32, mod.types.items[0].params[0]);
-    try testing.expectEqual(ValType.i32, mod.types.items[0].params[1]);
-    try testing.expectEqual(@as(usize, 1), mod.types.items[0].results.len);
-    try testing.expectEqual(ValType.i32, mod.types.items[0].results[0]);
+    const ft0 = mod.types.items[0].getFunc().?;
+    try testing.expectEqual(@as(usize, 2), ft0.params.len);
+    try testing.expectEqual(ValType.i32, ft0.params[0]);
+    try testing.expectEqual(ValType.i32, ft0.params[1]);
+    try testing.expectEqual(@as(usize, 1), ft0.results.len);
+    try testing.expectEqual(ValType.i32, ft0.results[0]);
 
     // Function section: one function
     try testing.expectEqual(@as(usize, 1), mod.functions.items.len);
@@ -1152,8 +1210,10 @@ test "Module — decode 08_multi_value.wasm" {
     try mod.decode();
 
     var has_multi = false;
-    for (mod.types.items) |ft| {
-        if (ft.results.len > 1) has_multi = true;
+    for (mod.types.items) |td| {
+        if (td.getFunc()) |ft| {
+            if (ft.results.len > 1) has_multi = true;
+        }
     }
     try testing.expect(has_multi);
 }

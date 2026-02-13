@@ -25,6 +25,16 @@ pub const ValType = union(enum) {
     /// Sentinel type index values for abstract heap types in ref_type/ref_null_type.
     pub const HEAP_FUNC: u32 = 0xFFFF_FFF0;
     pub const HEAP_EXTERN: u32 = 0xFFFF_FFEF;
+    // GC proposal abstract heap types
+    pub const HEAP_ANY: u32 = 0xFFFF_FFEE;
+    pub const HEAP_EQ: u32 = 0xFFFF_FFED;
+    pub const HEAP_I31: u32 = 0xFFFF_FFEC;
+    pub const HEAP_STRUCT: u32 = 0xFFFF_FFEB;
+    pub const HEAP_ARRAY: u32 = 0xFFFF_FFEA;
+    pub const HEAP_NONE: u32 = 0xFFFF_FFE1;
+    pub const HEAP_NOFUNC: u32 = 0xFFFF_FFE3;
+    pub const HEAP_NOEXTERN: u32 = 0xFFFF_FFE2;
+    pub const HEAP_EXN: u32 = 0xFFFF_FFE0;
 
     /// Read a ValType from a binary reader, handling multi-byte ref type encodings.
     /// Supports single-byte MVP types and the function-references proposal
@@ -37,8 +47,16 @@ pub const ValType = union(enum) {
             0x7D => .f32,
             0x7C => .f64,
             0x7B => .v128,
-            0x70 => .funcref,
-            0x6F => .externref,
+            0x73 => ValType{ .ref_null_type = HEAP_NOFUNC }, // nullfuncref
+            0x72 => ValType{ .ref_null_type = HEAP_NOEXTERN }, // nullexternref
+            0x71 => ValType{ .ref_null_type = HEAP_NONE }, // nullref
+            0x70 => .funcref, // (ref null func)
+            0x6F => .externref, // (ref null extern)
+            0x6E => ValType{ .ref_null_type = HEAP_ANY }, // anyref
+            0x6D => ValType{ .ref_null_type = HEAP_EQ }, // eqref
+            0x6C => ValType{ .ref_null_type = HEAP_I31 }, // i31ref
+            0x6B => ValType{ .ref_null_type = HEAP_STRUCT }, // structref
+            0x6A => ValType{ .ref_null_type = HEAP_ARRAY }, // arrayref
             0x69 => .exnref,
             0x63 => readRefType(reader, true), // (ref null ht)
             0x64 => readRefType(reader, false), // (ref ht)
@@ -58,12 +76,26 @@ pub const ValType = union(enum) {
             const idx: u32 = @intCast(ht);
             return if (nullable) ValType{ .ref_null_type = idx } else ValType{ .ref_type = idx };
         }
-        // Abstract heap types
-        return switch (ht) {
-            -16 => if (nullable) .funcref else ValType{ .ref_type = HEAP_FUNC }, // func
-            -17 => if (nullable) .externref else ValType{ .ref_type = HEAP_EXTERN }, // extern
-            else => error.InvalidValType,
+        // Abstract heap types (negative S33 values)
+        const heap_sentinel: u32 = switch (ht) {
+            -16 => HEAP_FUNC, // func
+            -17 => HEAP_EXTERN, // extern
+            -18 => HEAP_ANY, // any
+            -19 => HEAP_EQ, // eq
+            -20 => HEAP_I31, // i31
+            -21 => HEAP_STRUCT, // struct
+            -22 => HEAP_ARRAY, // array
+            -15 => HEAP_NONE, // none
+            -13 => HEAP_NOFUNC, // nofunc
+            -14 => HEAP_NOEXTERN, // noextern
+            -24 => HEAP_EXN, // exn
+            else => return error.InvalidValType,
         };
+        // Use shorthand for common nullable types
+        if (nullable and heap_sentinel == HEAP_FUNC) return .funcref;
+        if (nullable and heap_sentinel == HEAP_EXTERN) return .externref;
+        if (nullable and heap_sentinel == HEAP_EXN) return .exnref;
+        return if (nullable) ValType{ .ref_null_type = heap_sentinel } else ValType{ .ref_type = heap_sentinel };
     }
 
     /// Decode ValType from a single-byte binary encoding (MVP types).
@@ -74,8 +106,16 @@ pub const ValType = union(enum) {
             0x7D => .f32,
             0x7C => .f64,
             0x7B => .v128,
+            0x73 => ValType{ .ref_null_type = HEAP_NOFUNC }, // nullfuncref
+            0x72 => ValType{ .ref_null_type = HEAP_NOEXTERN }, // nullexternref
+            0x71 => ValType{ .ref_null_type = HEAP_NONE }, // nullref
             0x70 => .funcref,
             0x6F => .externref,
+            0x6E => ValType{ .ref_null_type = HEAP_ANY }, // anyref
+            0x6D => ValType{ .ref_null_type = HEAP_EQ }, // eqref
+            0x6C => ValType{ .ref_null_type = HEAP_I31 }, // i31ref
+            0x6B => ValType{ .ref_null_type = HEAP_STRUCT }, // structref
+            0x6A => ValType{ .ref_null_type = HEAP_ARRAY }, // arrayref
             0x69 => .exnref,
             else => null,
         };

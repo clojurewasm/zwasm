@@ -115,10 +115,20 @@ Type system: ValType tagged union (ref/ref_null with heap type index).
 
 Stage 18: Wasm 3.0 — GC
 
-Target: Struct/array heap objects, garbage collector (~3000 LOC).
+Target: Struct/array heap objects, garbage collector (~3500 LOC).
 Largest proposal. Depends on Stage 17 (function_references).
 
-(Task breakdown TBD.)
+1. [x] 18.1: CompositeType migration + abstract heap types
+2. [ ] 18.2: Type section decode — rec/sub/struct/array
+3. [ ] 18.3: GC heap + i31 instructions
+4. [ ] 18.4: Struct operations
+5. [ ] 18.5: Array core operations
+6. [ ] 18.6: ref.eq + extern conversion
+7. [ ] 18.7: Array bulk + data/elem init
+8. [ ] 18.8: Subtype checking
+9. [ ] 18.9: Cast operations
+10. [ ] 18.10: Validation + predecode + remaining tests
+11. [ ] 18.11: Spec tests cleanup + documentation
 
 Stage 16V: Spec Test Validation Coverage
 
@@ -136,11 +146,11 @@ Task Queue:
 
 ## Current Task
 
-Plan Stage 18 (GC) — task breakdown TBD.
+18.2: Type section decode — rec/sub/struct/array.
 
 ## Previous Task
 
-Stage 17 (Function References) complete. Merged to main, Ubuntu verified (60,863/60,896 matching Mac).
+18.1: CompositeType migration — TypeDef/CompositeType union, getTypeFunc helper, 9 files migrated, abstract heap types added to ValType.
 
 ## Wasm 3.0 Coverage
 

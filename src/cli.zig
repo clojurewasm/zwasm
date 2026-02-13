@@ -785,19 +785,20 @@ fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
                 .tag => "tag",
             };
             try stdout.print("  {s} {s}::{s}", .{ kind_str, imp.module, imp.name });
-            if (imp.kind == .func and imp.index < module.types.items.len) {
-                const ft = module.types.items[imp.index];
-                try stdout.print(" (", .{});
-                for (ft.params, 0..) |p, idx| {
-                    if (idx > 0) try stdout.print(", ", .{});
-                    try stdout.print("{s}", .{valTypeName(p)});
+            if (imp.kind == .func) {
+                if (module.getTypeFunc(imp.index)) |ft| {
+                    try stdout.print(" (", .{});
+                    for (ft.params, 0..) |p, idx| {
+                        if (idx > 0) try stdout.print(", ", .{});
+                        try stdout.print("{s}", .{valTypeName(p)});
+                    }
+                    try stdout.print(") -> (", .{});
+                    for (ft.results, 0..) |r, idx| {
+                        if (idx > 0) try stdout.print(", ", .{});
+                        try stdout.print("{s}", .{valTypeName(r)});
+                    }
+                    try stdout.print(")", .{});
                 }
-                try stdout.print(") -> (", .{});
-                for (ft.results, 0..) |r, idx| {
-                    if (idx > 0) try stdout.print(", ", .{});
-                    try stdout.print("{s}", .{valTypeName(r)});
-                }
-                try stdout.print(")", .{});
             }
             try stdout.print("\n", .{});
         }
@@ -894,19 +895,20 @@ fn printInspectJson(module: *const module_mod.Module, file_path: []const u8, siz
             .tag => "tag",
         };
         try w.print("{{\"module\":\"{s}\",\"name\":\"{s}\",\"kind\":\"{s}\"", .{ imp.module, imp.name, kind_str });
-        if (imp.kind == .func and imp.index < module.types.items.len) {
-            const ft = module.types.items[imp.index];
-            try w.print(",\"params\":[", .{});
-            for (ft.params, 0..) |p, pi| {
-                if (pi > 0) try w.print(",", .{});
-                try w.print("\"{s}\"", .{valTypeName(p)});
+        if (imp.kind == .func) {
+            if (module.getTypeFunc(imp.index)) |ft| {
+                try w.print(",\"params\":[", .{});
+                for (ft.params, 0..) |p, pi| {
+                    if (pi > 0) try w.print(",", .{});
+                    try w.print("\"{s}\"", .{valTypeName(p)});
+                }
+                try w.print("],\"results\":[", .{});
+                for (ft.results, 0..) |r, ri| {
+                    if (ri > 0) try w.print(",", .{});
+                    try w.print("\"{s}\"", .{valTypeName(r)});
+                }
+                try w.print("]", .{});
             }
-            try w.print("],\"results\":[", .{});
-            for (ft.results, 0..) |r, ri| {
-                if (ri > 0) try w.print(",", .{});
-                try w.print("\"{s}\"", .{valTypeName(r)});
-            }
-            try w.print("]", .{});
         }
         try w.print("}}", .{});
     }
