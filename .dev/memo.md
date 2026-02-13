@@ -126,7 +126,7 @@ Largest proposal. Depends on Stage 17 (function_references).
 6. [x] 18.6: ref.eq + extern conversion
 7. [x] 18.7: Array bulk + data/elem init
 8. [x] 18.8: Subtype checking
-9. [ ] 18.9: Cast operations
+9. [x] 18.9: Cast operations
 10. [ ] 18.10: Validation + predecode + remaining tests
 11. [ ] 18.11: Spec tests cleanup + documentation
 
@@ -146,11 +146,11 @@ Task Queue:
 
 ## Current Task
 
-18.9: Cast operations.
+18.10: Validation + predecode + remaining tests.
 
 ## Previous Task
 
-18.8: Subtype checking — matchesHeapTypeWithHeap, isConcreteSubtype, abstract type hierarchy, super_types chain walk (D114).
+18.9: Cast operations — ref.test/ref.test_null, ref.cast/ref.cast_null, br_on_cast/br_on_cast_fail with readHeapType helper.
 
 ## Wasm 3.0 Coverage
 

@@ -1757,6 +1757,70 @@ pub const Vm = struct {
                 // but our untyped u64 stack makes them identity operations.
             },
 
+            // ---- cast operations ----
+            .ref_test, .ref_test_null => {
+                const target_ht = readHeapType(reader) orelse return error.Trap;
+                const ref_val = self.pop();
+                const result: i32 = if (ref_val == 0)
+                    (if (gc_op == .ref_test_null) @as(i32, 1) else @as(i32, 0))
+                else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap))
+                    @as(i32, 1)
+                else
+                    @as(i32, 0);
+                try self.pushI32(result);
+            },
+            .ref_cast, .ref_cast_null => {
+                const target_ht = readHeapType(reader) orelse return error.Trap;
+                const ref_val = self.pop();
+                if (ref_val == 0) {
+                    if (gc_op == .ref_cast_null) {
+                        try self.push(ref_val); // null passes through
+                    } else {
+                        return error.Trap; // ref.cast traps on null
+                    }
+                } else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap)) {
+                    try self.push(ref_val); // match: pass through
+                } else {
+                    return error.Trap; // cast failure
+                }
+            },
+            .br_on_cast => {
+                const flags = reader.readByte() catch return error.Trap;
+                const depth = reader.readU32() catch return error.Trap;
+                _ = readHeapType(reader) orelse return error.Trap; // ht1 (source type, not used at runtime)
+                const target_ht = readHeapType(reader) orelse return error.Trap; // ht2 (target type)
+                const null_check = (flags & 0x02) != 0; // bit 1: target is nullable
+                const ref_val = self.pop();
+                const matches = if (ref_val == 0)
+                    null_check // null matches if target is nullable
+                else
+                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap);
+                if (matches) {
+                    try self.push(ref_val);
+                    try self.branchTo(depth, reader);
+                } else {
+                    try self.push(ref_val);
+                }
+            },
+            .br_on_cast_fail => {
+                const flags = reader.readByte() catch return error.Trap;
+                const depth = reader.readU32() catch return error.Trap;
+                _ = readHeapType(reader) orelse return error.Trap; // ht1 (source type, not used at runtime)
+                const target_ht = readHeapType(reader) orelse return error.Trap; // ht2 (target type)
+                const null_check = (flags & 0x02) != 0; // bit 1: target is nullable
+                const ref_val = self.pop();
+                const matches = if (ref_val == 0)
+                    null_check
+                else
+                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap);
+                if (!matches) {
+                    try self.push(ref_val);
+                    try self.branchTo(depth, reader);
+                } else {
+                    try self.push(ref_val);
+                }
+            },
+
             else => return error.Trap, // unimplemented GC opcodes
         }
     }
@@ -5265,6 +5329,26 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
 }
 
 /// Skip GC instruction immediates when scanning bytecode (for skipToEnd/findElseOrEnd).
+/// Read a heap type immediate (S33) and convert to u32 sentinel.
+/// Negative values map to abstract heap types, non-negative to type indices.
+fn readHeapType(reader: *Reader) ?u32 {
+    const ht = reader.readI33() catch return null;
+    if (ht >= 0) return @intCast(ht); // concrete type index
+    return switch (ht) {
+        -16 => opcode.ValType.HEAP_FUNC,
+        -17 => opcode.ValType.HEAP_EXTERN,
+        -18 => opcode.ValType.HEAP_ANY,
+        -19 => opcode.ValType.HEAP_EQ,
+        -20 => opcode.ValType.HEAP_I31,
+        -21 => opcode.ValType.HEAP_STRUCT,
+        -22 => opcode.ValType.HEAP_ARRAY,
+        -15 => opcode.ValType.HEAP_NONE,
+        -13 => opcode.ValType.HEAP_NOFUNC,
+        -14 => opcode.ValType.HEAP_NOEXTERN,
+        else => null,
+    };
+}
+
 fn skipGcImmediates(reader: *Reader) !void {
     const sub = reader.readU32() catch return;
     switch (sub) {

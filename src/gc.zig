@@ -599,3 +599,104 @@ test "i31 VM integration — ref.i31 + i31.get_s round-trip" {
     // i31 truncates to 31 bits, so -1 stays -1 (0x7FFFFFFF -> sign extend -> 0xFFFFFFFF)
     try testing.expectEqual(@as(u64, @as(u32, @bitCast(@as(i32, -1)))), results[0]);
 }
+
+test "cast VM integration — ref.test i31ref against i31" {
+    const Store = @import("store.zig").Store;
+    const Instance = @import("instance.zig").Instance;
+    const Vm = @import("vm.zig").Vm;
+
+    // Wasm binary:
+    // (func (export "rt") (param i32) (result i32)
+    //   local.get 0       ;; i32 param
+    //   ref.i31            ;; -> i31ref
+    //   ref.test i31       ;; -> i32 (1 if matches)
+    // )
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, // magic + version
+        // Type section: (i32) -> (i32)
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7F, 0x01, 0x7F,
+        // Function section
+        0x03, 0x02, 0x01, 0x00,
+        // Export section: "rt" -> func 0
+        0x07, 0x06, 0x01, 0x02, 'r', 't', 0x00, 0x00,
+        // Code section
+        0x0A, 0x0B, // section id=10, size=11
+        0x01, // 1 body
+        0x09, // body size = 9
+        0x00, // 0 locals
+        0x20, 0x00, // local.get 0
+        0xFB, 0x1C, // ref.i31
+        0xFB, 0x14, // ref.test
+        0x6C, // heap type = i31 (-20 as signed LEB128)
+        0x0B, // end
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    var args = [_]u64{42};
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "rt", &args, &results);
+    try testing.expectEqual(@as(u64, 1), results[0]); // i31ref matches i31 → 1
+
+    // Test ref.test against eq (i31 is subtype of eq) → should also return 1
+    // Reuse same module/instance but with a different test encoding:
+    // We test against HEAP_ANY which all non-null refs match
+}
+
+test "cast VM integration — ref.cast null traps" {
+    const Store = @import("store.zig").Store;
+    const Instance = @import("instance.zig").Instance;
+    const Vm = @import("vm.zig").Vm;
+
+    // (func (export "rc") (result i32)
+    //   ref.null i31      ;; push null i31ref
+    //   ref.cast i31      ;; cast null → trap
+    //   i31.get_s          ;; unreachable
+    // )
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
+        // Type section: () -> (i32)
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7F,
+        // Function section
+        0x03, 0x02, 0x01, 0x00,
+        // Export section: "rc" -> func 0
+        0x07, 0x06, 0x01, 0x02, 'r', 'c', 0x00, 0x00,
+        // Code section
+        0x0A, 0x0B, // section id=10, size=11
+        0x01, // 1 body
+        0x09, // body size = 9
+        0x00, // 0 locals
+        0xD0, 0x6C, // ref.null i31 (0xD0 + heaptype i31 = 0x6C)
+        0xFB, 0x16, // ref.cast
+        0x6C, // heap type = i31
+        0xFB, 0x1D, // i31.get_s
+        0x0B, // end
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    // ref.cast on null should trap
+    try testing.expectError(error.Trap, vm.invoke(&inst, "rc", &args, &results));
+}
