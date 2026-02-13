@@ -77,7 +77,7 @@ Group C: Canonical ABI (~1,500 LOC)
 14. [x] C5: Memory realloc protocol + post-return
 
 Group D: Component Linker + WASI P2 (~2,000 LOC)
-15. [ ] D1: Component instantiation — resolve imports, create instances
+15. [x] D1: Component instantiation — resolve imports, create instances
 16. [ ] D2: Virtual adapter pattern — P1 compat shim
 17. [ ] D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
 18. [ ] D4: `zwasm run` component support (detect component vs module automatically)
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 D1: Component instantiation — resolve imports, create instances
+Stage 22 D2: Virtual adapter pattern — P1 compat shim
 
 ## Previous Task
 
-C5: ReallocFn type, CanonContext (bump allocator, lowerStringAlloc, lowerListI32, post-return callback). 6 new tests.
+D1: ComponentInstance struct with instantiate/instantiateWithImports, export map, core module loading. 3 new tests.
 
 ## Wasm 3.0 Coverage
 

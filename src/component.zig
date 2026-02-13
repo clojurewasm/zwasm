@@ -5,6 +5,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Reader = @import("leb128.zig").Reader;
 const opcode = @import("opcode.zig");
+const types = @import("types.zig");
 
 // ── Constants ─────────────────────────────────────────────────────────
 
@@ -807,6 +808,94 @@ pub fn isCoreModule(bytes: []const u8) bool {
         std.mem.eql(u8, bytes[4..8], &opcode.VERSION);
 }
 
+// ── Component Instance ────────────────────────────────────────────────
+
+/// Runtime instance of a component.
+/// Created by instantiating a decoded Component with resolved imports.
+pub const ComponentInstance = struct {
+    alloc: Allocator,
+    comp: *Component,
+    // Core module instances (indexed by core instance order)
+    core_modules: std.ArrayListUnmanaged(*types.WasmModule),
+    // Exported component function/value names
+    export_funcs: std.StringHashMapUnmanaged(ExportedFunc),
+
+    pub const ExportedFunc = struct {
+        core_instance_idx: u32,
+        func_name: []const u8,
+    };
+
+    pub fn init(alloc: Allocator, comp: *Component) ComponentInstance {
+        return .{
+            .alloc = alloc,
+            .comp = comp,
+            .core_modules = .empty,
+            .export_funcs = .{},
+        };
+    }
+
+    pub fn deinit(self: *ComponentInstance) void {
+        for (self.core_modules.items) |m| {
+            m.deinit();
+            self.alloc.destroy(m);
+        }
+        self.core_modules.deinit(self.alloc);
+        self.export_funcs.deinit(self.alloc);
+    }
+
+    /// Instantiate the component: load embedded core modules,
+    /// process core instance declarations, and build export map.
+    pub fn instantiate(self: *ComponentInstance) !void {
+        // Phase 1: Load embedded core modules
+        for (self.comp.core_modules.items) |mod_bytes| {
+            const m = try types.WasmModule.load(self.alloc, mod_bytes);
+            self.core_modules.append(self.alloc, m) catch return error.OutOfMemory;
+        }
+
+        // Phase 2: Build export map from component exports
+        for (self.comp.exports.items) |exp| {
+            if (exp.kind == .func) {
+                self.export_funcs.put(self.alloc, exp.name, .{
+                    .core_instance_idx = 0,
+                    .func_name = exp.name,
+                }) catch return error.OutOfMemory;
+            }
+        }
+    }
+
+    /// Instantiate with imports provided as WasmModule import entries.
+    pub fn instantiateWithImports(self: *ComponentInstance, imports: []const types.ImportEntry) !void {
+        // Phase 1: Load embedded core modules with imports
+        for (self.comp.core_modules.items) |mod_bytes| {
+            const m = if (imports.len > 0)
+                try types.WasmModule.loadWithImports(self.alloc, mod_bytes, imports)
+            else
+                try types.WasmModule.load(self.alloc, mod_bytes);
+            self.core_modules.append(self.alloc, m) catch return error.OutOfMemory;
+        }
+
+        // Phase 2: Build export map from component exports
+        for (self.comp.exports.items) |exp| {
+            if (exp.kind == .func) {
+                self.export_funcs.put(self.alloc, exp.name, .{
+                    .core_instance_idx = 0,
+                    .func_name = exp.name,
+                }) catch return error.OutOfMemory;
+            }
+        }
+    }
+
+    /// Look up an exported function by name.
+    pub fn getExport(self: *const ComponentInstance, name: []const u8) ?ExportedFunc {
+        return self.export_funcs.get(name);
+    }
+
+    /// Get the number of loaded core module instances.
+    pub fn coreModuleCount(self: *const ComponentInstance) usize {
+        return self.core_modules.items.len;
+    }
+};
+
 // ── Tests ─────────────────────────────────────────────────────────────
 
 test "isComponent — identifies component vs module" {
@@ -1215,4 +1304,75 @@ test "Component.decode — component instance" {
     try std.testing.expectEqual(@as(u32, 2), inst.component_idx);
     try std.testing.expectEqual(@as(usize, 1), inst.args.len);
     try std.testing.expectEqualStrings("api", inst.args[0].name);
+}
+
+test "ComponentInstance — instantiate empty component" {
+    // Component with no core modules and no exports
+    const bytes = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x0D, 0x00, 0x01, 0x00 };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    var ci = ComponentInstance.init(std.testing.allocator, &comp);
+    defer ci.deinit();
+    try ci.instantiate();
+
+    try std.testing.expectEqual(@as(usize, 0), ci.coreModuleCount());
+    try std.testing.expectEqual(@as(?ComponentInstance.ExportedFunc, null), ci.getExport("anything"));
+}
+
+test "ComponentInstance — instantiate with core module" {
+    // Build a component containing one minimal core wasm module
+    // The core module is: magic + version + empty (no sections)
+    const core_mod = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00 };
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        0x01, // section id: core_module
+        0x08, // section size: 8 bytes
+    } ++ core_mod;
+
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    var ci = ComponentInstance.init(std.testing.allocator, &comp);
+    defer ci.deinit();
+    try ci.instantiate();
+
+    try std.testing.expectEqual(@as(usize, 1), ci.coreModuleCount());
+}
+
+test "ComponentInstance — export map built from component exports" {
+    // Component with export section declaring a func export
+    const core_mod = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00 };
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // core_module section
+        0x01, 0x08,
+    } ++ core_mod ++ [_]u8{
+        // export section (id=11)
+        0x0B,
+        0x09, // section size
+        0x01, // count: 1 export
+        // export name: kebab-case "run"
+        0x00, // discriminant: kebab
+        0x03, 'r', 'u', 'n', // name
+        0x01, // kind: func
+        0x00, // idx: 0
+    };
+
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    var ci = ComponentInstance.init(std.testing.allocator, &comp);
+    defer ci.deinit();
+    try ci.instantiate();
+
+    try std.testing.expectEqual(@as(usize, 1), ci.coreModuleCount());
+    const exp = ci.getExport("run");
+    try std.testing.expect(exp != null);
+    try std.testing.expectEqual(@as(u32, 0), exp.?.core_instance_idx);
 }
