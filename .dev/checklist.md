@@ -35,7 +35,7 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 
 | ID   | Item                                | Trigger    | Notes                                    |
 |------|-------------------------------------|------------|------------------------------------------|
-| W20  | GC collector (mark-and-sweep)             | Post Stage 18 | Stage 19 Group C. Simple mark-and-sweep without compaction first. Generational/Immix upgrade later. |
+| ~~W20~~ | ~~GC collector (mark-and-sweep)~~ | ~~Post Stage 18~~ | ~~RESOLVED. Stage 19 C1-C4. Mark-and-sweep with threshold trigger.~~ |
 
 ## Wasm proposals (assigned to stages)
 
