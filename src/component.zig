@@ -223,6 +223,50 @@ pub const AliasDecl = union(enum) {
     outer: struct { outer_count: u32, kind: u8, idx: u32 },
 };
 
+// ── Start Function ───────────────────────────────────────────────────
+
+pub const StartFunc = struct {
+    func_idx: u32,
+    args: []u32, // value indices passed as arguments
+    result_count: u32,
+};
+
+// ── Instances ────────────────────────────────────────────────────────
+
+pub const CoreInstance = union(enum) {
+    instantiate: struct {
+        module_idx: u32,
+        args: []InstantiateArg,
+    },
+    from_exports: []CoreExportArg,
+};
+
+pub const InstantiateArg = struct {
+    name: []const u8,
+    kind: u8,
+    idx: u32,
+};
+
+pub const CoreExportArg = struct {
+    name: []const u8,
+    kind: u8,
+    idx: u32,
+};
+
+pub const Instance = union(enum) {
+    instantiate: struct {
+        component_idx: u32,
+        args: []InstantiateArg,
+    },
+    from_exports: []ComponentExportArg,
+};
+
+pub const ComponentExportArg = struct {
+    name: []const u8,
+    kind: ExternKind,
+    idx: u32,
+};
+
 // ── Raw Section ───────────────────────────────────────────────────────
 
 pub const RawSection = struct {
@@ -247,6 +291,12 @@ pub const Component = struct {
     canon_funcs: std.ArrayListUnmanaged(CanonicalFunc),
     // Decoded aliases
     aliases: std.ArrayListUnmanaged(AliasDecl),
+    // Start function index
+    start_func: ?StartFunc = null,
+    // Core instances
+    core_instances: std.ArrayListUnmanaged(CoreInstance),
+    // Component instances
+    instances: std.ArrayListUnmanaged(Instance),
 
     pub const ComponentImport = struct {
         name: []const u8,
@@ -269,6 +319,8 @@ pub const Component = struct {
             .types = .empty,
             .canon_funcs = .empty,
             .aliases = .empty,
+            .core_instances = .empty,
+            .instances = .empty,
         };
     }
 
@@ -280,6 +332,9 @@ pub const Component = struct {
         self.types.deinit(self.alloc);
         self.canon_funcs.deinit(self.alloc);
         self.aliases.deinit(self.alloc);
+        if (self.start_func) |sf| self.alloc.free(sf.args);
+        self.core_instances.deinit(self.alloc);
+        self.instances.deinit(self.alloc);
     }
 
     pub fn decode(self: *Component) !void {
@@ -328,6 +383,15 @@ pub const Component = struct {
                 },
                 .alias => {
                     self.decodeAliasSection(payload) catch {};
+                },
+                .start => {
+                    self.decodeStartSection(payload) catch {};
+                },
+                .core_instance => {
+                    self.decodeCoreInstanceSection(payload) catch {};
+                },
+                .instance => {
+                    self.decodeInstanceSection(payload) catch {};
                 },
                 else => {},
             }
@@ -613,6 +677,107 @@ pub const Component = struct {
                 else => return,
             };
             self.aliases.append(self.alloc, alias) catch return error.OutOfMemory;
+        }
+    }
+
+    fn decodeStartSection(self: *Component, payload: []const u8) !void {
+        var r = Reader.init(payload);
+        const func_idx = r.readU32() catch return;
+        const arg_count = r.readU32() catch return;
+        var args = std.ArrayListUnmanaged(u32).empty;
+        for (0..arg_count) |_| {
+            args.append(self.alloc, r.readU32() catch return) catch return error.OutOfMemory;
+        }
+        const result_count = r.readU32() catch return;
+        self.start_func = .{
+            .func_idx = func_idx,
+            .args = args.toOwnedSlice(self.alloc) catch return error.OutOfMemory,
+            .result_count = result_count,
+        };
+    }
+
+    fn decodeCoreInstanceSection(self: *Component, payload: []const u8) !void {
+        var r = Reader.init(payload);
+        const count = r.readU32() catch return;
+        for (0..count) |_| {
+            const tag = r.readByte() catch return;
+            const ci: CoreInstance = switch (tag) {
+                0x00 => blk: {
+                    // instantiate: module_idx + args
+                    const module_idx = r.readU32() catch return;
+                    const arg_count = r.readU32() catch return;
+                    var args = std.ArrayListUnmanaged(InstantiateArg).empty;
+                    for (0..arg_count) |_| {
+                        const name_len = r.readU32() catch return;
+                        const name = r.readBytes(name_len) catch return;
+                        const kind = r.readByte() catch return;
+                        const idx = r.readU32() catch return;
+                        args.append(self.alloc, .{ .name = name, .kind = kind, .idx = idx }) catch return error.OutOfMemory;
+                    }
+                    break :blk .{ .instantiate = .{
+                        .module_idx = module_idx,
+                        .args = args.toOwnedSlice(self.alloc) catch return error.OutOfMemory,
+                    } };
+                },
+                0x01 => blk: {
+                    // from_exports: vec<(name, sort, idx)>
+                    const exp_count = r.readU32() catch return;
+                    var exports = std.ArrayListUnmanaged(CoreExportArg).empty;
+                    for (0..exp_count) |_| {
+                        const name_len = r.readU32() catch return;
+                        const name = r.readBytes(name_len) catch return;
+                        const kind = r.readByte() catch return;
+                        const idx = r.readU32() catch return;
+                        exports.append(self.alloc, .{ .name = name, .kind = kind, .idx = idx }) catch return error.OutOfMemory;
+                    }
+                    break :blk .{ .from_exports = exports.toOwnedSlice(self.alloc) catch return error.OutOfMemory };
+                },
+                else => return,
+            };
+            self.core_instances.append(self.alloc, ci) catch return error.OutOfMemory;
+        }
+    }
+
+    fn decodeInstanceSection(self: *Component, payload: []const u8) !void {
+        var r = Reader.init(payload);
+        const count = r.readU32() catch return;
+        for (0..count) |_| {
+            const tag = r.readByte() catch return;
+            const inst: Instance = switch (tag) {
+                0x00 => blk: {
+                    const comp_idx = r.readU32() catch return;
+                    const arg_count = r.readU32() catch return;
+                    var args = std.ArrayListUnmanaged(InstantiateArg).empty;
+                    for (0..arg_count) |_| {
+                        const name_len = r.readU32() catch return;
+                        const name = r.readBytes(name_len) catch return;
+                        const kind = r.readByte() catch return;
+                        const idx = r.readU32() catch return;
+                        args.append(self.alloc, .{ .name = name, .kind = kind, .idx = idx }) catch return error.OutOfMemory;
+                    }
+                    break :blk .{ .instantiate = .{
+                        .component_idx = comp_idx,
+                        .args = args.toOwnedSlice(self.alloc) catch return error.OutOfMemory,
+                    } };
+                },
+                0x01 => blk: {
+                    const exp_count = r.readU32() catch return;
+                    var exports = std.ArrayListUnmanaged(ComponentExportArg).empty;
+                    for (0..exp_count) |_| {
+                        const name = self.readComponentName(&r) orelse return;
+                        const kind_byte = r.readByte() catch return;
+                        const idx = r.readU32() catch return;
+                        exports.append(self.alloc, .{
+                            .name = name,
+                            .kind = @enumFromInt(kind_byte),
+                            .idx = idx,
+                        }) catch return error.OutOfMemory;
+                    }
+                    break :blk .{ .from_exports = exports.toOwnedSlice(self.alloc) catch return error.OutOfMemory };
+                },
+                else => return,
+            };
+            self.instances.append(self.alloc, inst) catch return error.OutOfMemory;
         }
     }
 
@@ -974,4 +1139,80 @@ test "Component.decode — alias section" {
     const a1 = comp.aliases.items[1].core_instance_export;
     try std.testing.expectEqual(@as(u32, 1), a1.instance_idx);
     try std.testing.expectEqualStrings("mem", a1.name);
+}
+
+test "Component.decode — start section" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Start section (id=9)
+        0x09,
+        0x04, // section size
+        0x03, // func_idx=3
+        0x01, // 1 arg
+        0x00, // arg value idx=0
+        0x00, // 0 results
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expect(comp.start_func != null);
+    const sf = comp.start_func.?;
+    try std.testing.expectEqual(@as(u32, 3), sf.func_idx);
+    try std.testing.expectEqual(@as(usize, 1), sf.args.len);
+    try std.testing.expectEqual(@as(u32, 0), sf.args[0]);
+    try std.testing.expectEqual(@as(u32, 0), sf.result_count);
+}
+
+test "Component.decode — core instance instantiate" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Core instance section (id=2)
+        0x02,
+        0x09, // section size
+        0x01, // count: 1
+        0x00, // tag=instantiate
+        0x00, // module_idx=0
+        0x01, // 1 arg
+        0x03, 'e', 'n', 'v', // arg name="env"
+        0x05, // kind=instance
+        0x00, // idx=0
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 1), comp.core_instances.items.len);
+    const ci = comp.core_instances.items[0].instantiate;
+    try std.testing.expectEqual(@as(u32, 0), ci.module_idx);
+    try std.testing.expectEqual(@as(usize, 1), ci.args.len);
+    try std.testing.expectEqualStrings("env", ci.args[0].name);
+}
+
+test "Component.decode — component instance" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Instance section (id=5)
+        0x05,
+        0x09, // section size
+        0x01, // count: 1
+        0x00, // tag=instantiate
+        0x02, // component_idx=2
+        0x01, // 1 arg
+        0x03, 'a', 'p', 'i', // arg name="api"
+        0x01, // kind=func
+        0x05, // idx=5
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 1), comp.instances.items.len);
+    const inst = comp.instances.items[0].instantiate;
+    try std.testing.expectEqual(@as(u32, 2), inst.component_idx);
+    try std.testing.expectEqual(@as(usize, 1), inst.args.len);
+    try std.testing.expectEqualStrings("api", inst.args[0].name);
 }

@@ -66,8 +66,8 @@ Group B: Component Binary Format (~1,200 LOC)
 5. [x] B1: Component section types (component, core:module, instance, alias, etc.)
 6. [x] B2: Component type section — func types, component types, instance types
 7. [x] B3: Canon section — lift/lower/resource ops
-8. [ ] B4: Start, import, export sections
-9. [ ] B5: Nested component/module instantiation
+8. [x] B4: Start, import, export sections
+9. [x] B5: Nested component/module instantiation
 
 Group C: Canonical ABI (~1,500 LOC)
 10. [ ] C1: Scalar types (bool, integers, float, char)
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 B4: Start, import, export sections
+Stage 22 C1: Scalar types (bool, integers, float, char)
 
 ## Previous Task
 
-B3: Canon section — lift/lower with CanonOptions (string encoding, memory, realloc, post-return), resource.new/drop/rep, alias section (instance/core_instance/outer). 3 new tests.
+B4+B5: Start section, core instance (instantiate/from_exports), component instance decoders. 3 new tests. Group B complete.
 
 ## Wasm 3.0 Coverage
 
