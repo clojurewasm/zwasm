@@ -25,6 +25,16 @@ pub const ValType = union(enum) {
     /// Sentinel type index values for abstract heap types in ref_type/ref_null_type.
     pub const HEAP_FUNC: u32 = 0xFFFF_FFF0;
     pub const HEAP_EXTERN: u32 = 0xFFFF_FFEF;
+    // GC proposal abstract heap types
+    pub const HEAP_ANY: u32 = 0xFFFF_FFEE;
+    pub const HEAP_EQ: u32 = 0xFFFF_FFED;
+    pub const HEAP_I31: u32 = 0xFFFF_FFEC;
+    pub const HEAP_STRUCT: u32 = 0xFFFF_FFEB;
+    pub const HEAP_ARRAY: u32 = 0xFFFF_FFEA;
+    pub const HEAP_NONE: u32 = 0xFFFF_FFE1;
+    pub const HEAP_NOFUNC: u32 = 0xFFFF_FFE3;
+    pub const HEAP_NOEXTERN: u32 = 0xFFFF_FFE2;
+    pub const HEAP_EXN: u32 = 0xFFFF_FFE0;
 
     /// Read a ValType from a binary reader, handling multi-byte ref type encodings.
     /// Supports single-byte MVP types and the function-references proposal
@@ -37,8 +47,16 @@ pub const ValType = union(enum) {
             0x7D => .f32,
             0x7C => .f64,
             0x7B => .v128,
-            0x70 => .funcref,
-            0x6F => .externref,
+            0x73 => ValType{ .ref_null_type = HEAP_NOFUNC }, // nullfuncref
+            0x72 => ValType{ .ref_null_type = HEAP_NOEXTERN }, // nullexternref
+            0x71 => ValType{ .ref_null_type = HEAP_NONE }, // nullref
+            0x70 => .funcref, // (ref null func)
+            0x6F => .externref, // (ref null extern)
+            0x6E => ValType{ .ref_null_type = HEAP_ANY }, // anyref
+            0x6D => ValType{ .ref_null_type = HEAP_EQ }, // eqref
+            0x6C => ValType{ .ref_null_type = HEAP_I31 }, // i31ref
+            0x6B => ValType{ .ref_null_type = HEAP_STRUCT }, // structref
+            0x6A => ValType{ .ref_null_type = HEAP_ARRAY }, // arrayref
             0x69 => .exnref,
             0x63 => readRefType(reader, true), // (ref null ht)
             0x64 => readRefType(reader, false), // (ref ht)
@@ -58,12 +76,26 @@ pub const ValType = union(enum) {
             const idx: u32 = @intCast(ht);
             return if (nullable) ValType{ .ref_null_type = idx } else ValType{ .ref_type = idx };
         }
-        // Abstract heap types
-        return switch (ht) {
-            -16 => if (nullable) .funcref else ValType{ .ref_type = HEAP_FUNC }, // func
-            -17 => if (nullable) .externref else ValType{ .ref_type = HEAP_EXTERN }, // extern
-            else => error.InvalidValType,
+        // Abstract heap types (negative S33 values)
+        const heap_sentinel: u32 = switch (ht) {
+            -16 => HEAP_FUNC, // func
+            -17 => HEAP_EXTERN, // extern
+            -18 => HEAP_ANY, // any
+            -19 => HEAP_EQ, // eq
+            -20 => HEAP_I31, // i31
+            -21 => HEAP_STRUCT, // struct
+            -22 => HEAP_ARRAY, // array
+            -15 => HEAP_NONE, // none
+            -13 => HEAP_NOFUNC, // nofunc
+            -14 => HEAP_NOEXTERN, // noextern
+            -24 => HEAP_EXN, // exn
+            else => return error.InvalidValType,
         };
+        // Use shorthand for common nullable types
+        if (nullable and heap_sentinel == HEAP_FUNC) return .funcref;
+        if (nullable and heap_sentinel == HEAP_EXTERN) return .externref;
+        if (nullable and heap_sentinel == HEAP_EXN) return .exnref;
+        return if (nullable) ValType{ .ref_null_type = heap_sentinel } else ValType{ .ref_type = heap_sentinel };
     }
 
     /// Decode ValType from a single-byte binary encoding (MVP types).
@@ -74,8 +106,16 @@ pub const ValType = union(enum) {
             0x7D => .f32,
             0x7C => .f64,
             0x7B => .v128,
+            0x73 => ValType{ .ref_null_type = HEAP_NOFUNC }, // nullfuncref
+            0x72 => ValType{ .ref_null_type = HEAP_NOEXTERN }, // nullexternref
+            0x71 => ValType{ .ref_null_type = HEAP_NONE }, // nullref
             0x70 => .funcref,
             0x6F => .externref,
+            0x6E => ValType{ .ref_null_type = HEAP_ANY }, // anyref
+            0x6D => ValType{ .ref_null_type = HEAP_EQ }, // eqref
+            0x6C => ValType{ .ref_null_type = HEAP_I31 }, // i31ref
+            0x6B => ValType{ .ref_null_type = HEAP_STRUCT }, // structref
+            0x6A => ValType{ .ref_null_type = HEAP_ARRAY }, // arrayref
             0x69 => .exnref,
             else => null,
         };
@@ -398,15 +438,53 @@ pub const Opcode = enum(u8) {
     ref_null = 0xD0,
     ref_is_null = 0xD1,
     ref_func = 0xD2,
+    ref_eq = 0xD3,
     // Function references proposal
     ref_as_non_null = 0xD4,
     br_on_null = 0xD5,
     br_on_non_null = 0xD6,
 
     // Multi-byte prefix
+    gc_prefix = 0xFB,
     misc_prefix = 0xFC,
     simd_prefix = 0xFD,
 
+    _,
+};
+
+/// 0xFB-prefixed GC opcodes.
+pub const GcOpcode = enum(u32) {
+    struct_new = 0x00,
+    struct_new_default = 0x01,
+    struct_get = 0x02,
+    struct_get_s = 0x03,
+    struct_get_u = 0x04,
+    struct_set = 0x05,
+    array_new = 0x06,
+    array_new_default = 0x07,
+    array_new_fixed = 0x08,
+    array_new_data = 0x09,
+    array_new_elem = 0x0A,
+    array_get = 0x0B,
+    array_get_s = 0x0C,
+    array_get_u = 0x0D,
+    array_set = 0x0E,
+    array_len = 0x0F,
+    array_fill = 0x10,
+    array_copy = 0x11,
+    array_init_data = 0x12,
+    array_init_elem = 0x13,
+    ref_test = 0x14,
+    ref_test_null = 0x15,
+    ref_cast = 0x16,
+    ref_cast_null = 0x17,
+    br_on_cast = 0x18,
+    br_on_cast_fail = 0x19,
+    any_convert_extern = 0x1A,
+    extern_convert_any = 0x1B,
+    ref_i31 = 0x1C,
+    i31_get_s = 0x1D,
+    i31_get_u = 0x1E,
     _,
 };
 
@@ -879,8 +957,8 @@ test "Opcode — unknown byte produces non-named variant" {
         .f32_reinterpret_i32, .f64_reinterpret_i64 => true,
         .i32_extend8_s, .i32_extend16_s => true,
         .i64_extend8_s, .i64_extend16_s, .i64_extend32_s => true,
-        .ref_null, .ref_is_null, .ref_func, .ref_as_non_null, .br_on_null, .br_on_non_null => true,
-        .misc_prefix, .simd_prefix => true,
+        .ref_null, .ref_is_null, .ref_func, .ref_eq, .ref_as_non_null, .br_on_null, .br_on_non_null => true,
+        .gc_prefix, .misc_prefix, .simd_prefix => true,
         _ => false,
     };
     try std.testing.expect(!is_known);

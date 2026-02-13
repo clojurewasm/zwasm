@@ -382,3 +382,52 @@ need it but CLI users do. Need a pattern for compile-time feature exclusion.
 **Chose**: Zig build options. `-Dwat=false` excludes WAT parser code.
 `build_options.enable_wat` checked at comptime for dead code elimination.
 Pattern extends to future flags (WASI, JIT, SIMD) when needed.
+
+---
+
+## D110: CompositeType migration (GC proposal)
+
+**Context**: GC proposal requires struct/array types alongside func types.
+`Module.types: ArrayList(FuncType)` must support all three.
+
+**Decision**: `TypeDef { composite: CompositeType, super_types, is_final }`.
+`CompositeType = union(enum) { func: FuncType, struct_type: StructType, array_type: ArrayType }`.
+`getTypeFunc(idx) ?FuncType` helper for safe extraction at call sites.
+
+**Impact**: 9 files, ~80 call sites migrated mechanically.
+
+---
+
+## D111: GC heap — no-collect allocator
+
+**Context**: GC proposal needs struct/array heap objects. Full GC is complex.
+
+**Decision**: No-collect allocator (append-only). `GcHeap` with `allocStruct`/`allocArray`/`getObject`.
+Collector interface deferred to W20 checklist item.
+
+---
+
+## D112: i31 representation — unboxed tagged value
+
+**Context**: i31ref is a reference that holds a 31-bit integer without heap allocation.
+
+**Decision**: Encode on operand stack u128: bit 63 = 1 (i31 tag), bits 0-30 = value.
+Null i31ref = 0 (standard null). No heap interaction.
+
+---
+
+## D113: GC ref encoding on operand stack
+
+**Context**: GC objects need distinct encoding from funcref/externref on the value stack.
+
+**Decision**: `(gc_heap_index + 1) | (GC_TAG << 32)`. Tag bits distinguish GC refs
+from funcref (existing encoding). Zero = null (consistent with all ref types).
+
+---
+
+## D114: Subtype checking — linear scan
+
+**Context**: Cast instructions need runtime subtype checking.
+
+**Decision**: Linear scan of `TypeDef.super_types` chain. Type counts are small
+in practice. Future optimization (display vector) deferred to W20.

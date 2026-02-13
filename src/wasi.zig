@@ -1345,8 +1345,7 @@ pub fn registerAll(store: *Store, module: *const Module) !void {
         const func_ptr = lookupWasiFunc(imp.name) orelse continue;
 
         // Get type from module
-        if (imp.index >= module.types.items.len) return error.InvalidTypeIndex;
-        const func_type = module.types.items[imp.index];
+        const func_type = module.getTypeFunc(imp.index) orelse return error.InvalidTypeIndex;
 
         try store.exposeHostFunction(
             imp.module,

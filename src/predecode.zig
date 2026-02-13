@@ -283,6 +283,13 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
                 if (!try predecodeMisc(alloc, &code, &reader)) return error.InvalidWasm;
             },
 
+            // -- GC prefix (0xFB) — not supported, fall back --
+            0xFB => {
+                code.deinit(alloc);
+                pool64.deinit(alloc);
+                return null;
+            },
+
             // -- SIMD prefix (0xFD) — not supported, fall back --
             0xFD => {
                 code.deinit(alloc);

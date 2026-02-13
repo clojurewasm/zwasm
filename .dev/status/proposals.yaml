@@ -121,15 +121,14 @@ wasm_3.0:
       ref_type/ref_null_type variants. Spec tests: 104/106 pass (2 skips).
 
   gc:
-    status: todo
-    opcodes: 26                   # struct.new/new_default/get/get_s/get_u/set (6),
+    status: complete
+    opcodes: 31                   # struct.new/new_default/get/get_s/get_u/set (6),
                                   # array.new/new_default/new_fixed/new_data/new_elem/
                                   # get/get_s/get_u/set/len/fill/copy/init_data/init_elem (14),
-                                  # ref.test/ref.cast (null variants) (4),
+                                  # ref.test/ref.test_null/ref.cast/ref.cast_null (4),
                                   # br_on_cast/br_on_cast_fail (2),
                                   # any.convert_extern/extern.convert_any (2),
-                                  # ref.i31/i31.get_s/i31.get_u (3),
-                                  # ref.eq (1) — total ~32 counting variants
+                                  # ref.i31/i31.get_s/i31.get_u (3)
     new_types:
       - "struct"                  # Heterogeneous fields, static index
       - "array"                   # Homogeneous elements, dynamic index

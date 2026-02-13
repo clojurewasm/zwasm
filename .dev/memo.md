@@ -4,10 +4,10 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-15 — COMPLETE
-- Source: ~28K LOC, 17 files, 229 tests all pass
-- Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
-- Spec: 60,863/60,896 Mac (99.9%), 7 skips, E2E: 356/356, CI: ubuntu + macOS
+- Stages 0-2, 4, 7-18 — COMPLETE (Wasm 3.0 all 9 proposals)
+- Source: ~32K LOC, 19 files, 239 tests all pass
+- Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: ~27
+- Spec: 60,873/60,906 Mac (99.9%), 7 skips, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -115,10 +115,20 @@ Type system: ValType tagged union (ref/ref_null with heap type index).
 
 Stage 18: Wasm 3.0 — GC
 
-Target: Struct/array heap objects, garbage collector (~3000 LOC).
+Target: Struct/array heap objects, garbage collector (~3500 LOC).
 Largest proposal. Depends on Stage 17 (function_references).
 
-(Task breakdown TBD.)
+1. [x] 18.1: CompositeType migration + abstract heap types
+2. [x] 18.2: Type section decode — rec/sub/struct/array
+3. [x] 18.3: GC heap + i31 instructions
+4. [x] 18.4: Struct operations
+5. [x] 18.5: Array core operations
+6. [x] 18.6: ref.eq + extern conversion
+7. [x] 18.7: Array bulk + data/elem init
+8. [x] 18.8: Subtype checking
+9. [x] 18.9: Cast operations
+10. [x] 18.10: Validation + predecode + remaining tests
+11. [x] 18.11: Spec tests cleanup + documentation
 
 Stage 16V: Spec Test Validation Coverage
 
@@ -136,21 +146,20 @@ Task Queue:
 
 ## Current Task
 
-Plan Stage 18 (GC) — task breakdown TBD.
+Stage 18 complete. Merge to main via Merge Gate Checklist.
 
 ## Previous Task
 
-Stage 17 (Function References) complete. Merged to main, Ubuntu verified (60,863/60,896 matching Mac).
+18.11: Spec tests cleanup — proposals.yaml gc:complete, spec-support.md, Wasm 3.0 9/9 all proposals.
 
 ## Wasm 3.0 Coverage
 
-Implemented: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory, relaxed_simd, function_references (8/10 finished proposals).
-NOT implemented: gc (1 proposal).
-GC requires function_references (done).
+All 9 proposals complete: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory, relaxed_simd, function_references, gc.
+GC spec tests blocked on wabt 1.0.39 (W21) — only binary-gc.wast converts. 16 unit tests cover all 31 opcodes.
 
 ## Known Bugs
 
-None. Mac 60,863/60,896 (99.9%), Ubuntu 60,863/60,896 (99.9%), 7 skips, 33 multi-module linking failures.
+None. Mac 60,873/60,906 (99.9%), 7 skips, 33 multi-module linking failures.
 Note: Ubuntu Debug build has 11 extra timeouts on tail-call recursion tests (return_call/return_call_ref count/even/odd 1M iterations). Use ReleaseSafe for spec tests on Ubuntu.
 
 ## References

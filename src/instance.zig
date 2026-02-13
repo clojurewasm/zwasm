@@ -161,8 +161,7 @@ pub const Instance = struct {
             switch (imp.kind) {
                 .func => {
                     // Validate function signature matches expected type
-                    if (imp.index < self.module.types.items.len) {
-                        const expected = self.module.types.items[imp.index];
+                    if (self.module.getTypeFunc(imp.index)) |expected| {
                         const func = self.store.getFunction(handle) catch
                             return error.ImportNotFound;
                         if (!opcode.ValType.sliceEql(func.params, expected.params) or
@@ -186,9 +185,7 @@ pub const Instance = struct {
         for (self.module.functions.items, 0..) |func_def, i| {
             if (i >= self.module.codes.items.len) return error.FunctionCodeMismatch;
             const code = self.module.codes.items[i];
-            const func_type = if (func_def.type_idx < self.module.types.items.len)
-                self.module.types.items[func_def.type_idx]
-            else
+            const func_type = self.module.getTypeFunc(func_def.type_idx) orelse
                 return error.InvalidTypeIndex;
 
             const addr = try self.store.addFunction(.{

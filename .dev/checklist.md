@@ -28,7 +28,14 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 |------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
 | ~~W10~~ | ~~Cross-process table side effects~~ | ~~0~~ | ~~RESOLVED~~ | Fixed by Zig E2E runner with shared Store. partial-init-table-segment 3/3 pass. |
 | W16  | wast2json NaN literal syntax                | 0     | simd/canonicalize-nan.wast uses NaN syntax wast2json 1.0.39 can't parse. No upgrade available. | Blocked on wabt release. File skipped in conversion. |
+| W21  | wast2json GC WAT text format               | 0     | wabt 1.0.39 can't parse GC text syntax (ref i31, struct.new, etc.). 17 GC test files unconvertible. | Blocked on wabt release. Only binary-gc.wast converts. |
 | ~~W17~~ | ~~.wat file support (native WAT parser)~~ | ~~0~~ | ~~RESOLVED (Stage 12)~~ | Completed. WAT parser with v128/SIMD, named locals/globals/labels, build-time optional. issue12170.wat validates OK. issue11563.wat out of scope (multi-module + GC). |
+
+## Future improvements
+
+| ID   | Item                                | Trigger    | Notes                                    |
+|------|-------------------------------------|------------|------------------------------------------|
+| W20  | GC algorithm upgrade (generational/Immix) | Post Stage 18 | Stage 18 uses simple mark-and-sweep. Upgrade to generational or Immix for ClojureWasm perf. Design for swappable collector interface. |
 
 ## Wasm proposals (assigned to stages)
 
