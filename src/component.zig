@@ -82,6 +82,106 @@ pub const ComponentTypeOp = enum(u8) {
     _,
 };
 
+// ── Component Value Types ─────────────────────────────────────────────
+
+pub const ValType = enum(u8) {
+    bool_ = 0x7f,
+    s8 = 0x7e,
+    u8_ = 0x7d,
+    s16 = 0x7c,
+    u16_ = 0x7b,
+    s32 = 0x7a,
+    u32_ = 0x79,
+    s64 = 0x78,
+    u64_ = 0x77,
+    f32_ = 0x76,
+    f64_ = 0x75,
+    char_ = 0x74,
+    string_ = 0x73,
+    // Compound types (followed by type data)
+    record = 0x72,
+    variant = 0x71,
+    list = 0x70,
+    tuple = 0x6f,
+    flags = 0x6e,
+    @"enum" = 0x6d,
+    option = 0x6c,
+    result = 0x6b,
+    own = 0x69,
+    borrow = 0x68,
+    _,
+};
+
+// ── Decoded Component Types ──────────────────────────────────────────
+
+pub const ComponentType = union(enum) {
+    defined: DefinedType,
+    func: ComponentFuncType,
+    component: ComponentComponentType,
+    instance: ComponentInstanceType,
+    resource: ResourceType,
+};
+
+pub const DefinedType = union(enum) {
+    primitive: ValType,
+    record: []FieldType,
+    variant: []VariantCase,
+    list: u32, // type index
+    tuple: []u32, // type indices
+    flags: []const []const u8, // field names
+    enum_: []const []const u8, // case names
+    option: u32, // type index
+    result: ResultTypeDesc,
+    own: u32, // resource type index
+    borrow: u32, // resource type index
+};
+
+pub const FieldType = struct {
+    name: []const u8,
+    type_idx: u32,
+};
+
+pub const VariantCase = struct {
+    name: []const u8,
+    type_idx: ?u32, // null if no payload
+    refines: ?u32, // optional refines index
+};
+
+pub const ResultTypeDesc = struct {
+    ok: ?u32, // type index or null
+    err: ?u32, // type index or null
+};
+
+pub const ComponentFuncType = struct {
+    params: []NamedType,
+    result: FuncResult,
+};
+
+pub const NamedType = struct {
+    name: []const u8,
+    type_idx: u32,
+};
+
+pub const FuncResult = union(enum) {
+    unnamed: u32, // single type index
+    named: []NamedType, // multiple named results
+};
+
+pub const ComponentComponentType = struct {
+    // Simplified: just track import/export declarations
+    decl_count: u32,
+};
+
+pub const ComponentInstanceType = struct {
+    // Simplified: just track export declarations
+    decl_count: u32,
+};
+
+pub const ResourceType = struct {
+    rep: ValType, // representation type (usually i32)
+    dtor: ?u32, // optional destructor function index
+};
+
 // ── Raw Section ───────────────────────────────────────────────────────
 
 pub const RawSection = struct {
@@ -100,6 +200,8 @@ pub const Component = struct {
     // Import and export names
     imports: std.ArrayListUnmanaged(ComponentImport),
     exports: std.ArrayListUnmanaged(ComponentExport),
+    // Decoded component types (from type sections)
+    types: std.ArrayListUnmanaged(ComponentType),
 
     pub const ComponentImport = struct {
         name: []const u8,
@@ -119,6 +221,7 @@ pub const Component = struct {
             .core_modules = .empty,
             .imports = .empty,
             .exports = .empty,
+            .types = .empty,
         };
     }
 
@@ -127,6 +230,7 @@ pub const Component = struct {
         self.core_modules.deinit(self.alloc);
         self.imports.deinit(self.alloc);
         self.exports.deinit(self.alloc);
+        self.types.deinit(self.alloc);
     }
 
     pub fn decode(self: *Component) !void {
@@ -161,6 +265,9 @@ pub const Component = struct {
                 .core_module => {
                     self.core_modules.append(self.alloc, payload) catch return error.OutOfMemory;
                 },
+                .@"type" => {
+                    self.decodeTypeSection(payload) catch {};
+                },
                 .@"import" => {
                     self.decodeImportSection(payload) catch {};
                 },
@@ -169,6 +276,170 @@ pub const Component = struct {
                 },
                 else => {},
             }
+        }
+    }
+
+    fn decodeTypeSection(self: *Component, payload: []const u8) !void {
+        var r = Reader.init(payload);
+        const count = r.readU32() catch return;
+        for (0..count) |_| {
+            const disc = r.readByte() catch return;
+            const ct: ComponentType = switch (disc) {
+                @intFromEnum(ComponentTypeOp.defined_type) => .{
+                    .defined = self.decodeDefinedType(&r) orelse return,
+                },
+                @intFromEnum(ComponentTypeOp.func_type) => .{
+                    .func = self.decodeFuncType(&r) orelse return,
+                },
+                @intFromEnum(ComponentTypeOp.resource_type) => .{
+                    .resource = self.decodeResourceType(&r) orelse return,
+                },
+                @intFromEnum(ComponentTypeOp.component_type) => blk: {
+                    // Skip component type body (count + declarations)
+                    const decl_count = r.readU32() catch return;
+                    self.skipDeclarations(&r, decl_count);
+                    break :blk .{ .component = .{ .decl_count = decl_count } };
+                },
+                @intFromEnum(ComponentTypeOp.instance_type) => blk: {
+                    const decl_count = r.readU32() catch return;
+                    self.skipDeclarations(&r, decl_count);
+                    break :blk .{ .instance = .{ .decl_count = decl_count } };
+                },
+                else => return,
+            };
+            self.types.append(self.alloc, ct) catch return error.OutOfMemory;
+        }
+    }
+
+    fn decodeDefinedType(_: *Component, r: *Reader) ?DefinedType {
+        const vt_byte = r.readByte() catch return null;
+        const vt: ValType = @enumFromInt(vt_byte);
+        return switch (vt) {
+            // Primitive types
+            .bool_, .s8, .u8_, .s16, .u16_, .s32, .u32_, .s64, .u64_, .f32_, .f64_, .char_, .string_ => .{ .primitive = vt },
+            // Compound types
+            .list => .{ .list = r.readU32() catch return null },
+            .option => .{ .option = r.readU32() catch return null },
+            .own => .{ .own = r.readU32() catch return null },
+            .borrow => .{ .borrow = r.readU32() catch return null },
+            .result => blk: {
+                // result has ok? and err? type indices
+                const ok_tag = r.readByte() catch return null;
+                var ok: ?u32 = null;
+                if (ok_tag == 0x00) {
+                    ok = r.readU32() catch return null;
+                }
+                const err_tag = r.readByte() catch return null;
+                var err: ?u32 = null;
+                if (err_tag == 0x00) {
+                    err = r.readU32() catch return null;
+                }
+                break :blk .{ .result = .{ .ok = ok, .err = err } };
+            },
+            .record => blk: {
+                const field_count = r.readU32() catch return null;
+                // Skip field data for now (name + type_idx per field)
+                for (0..field_count) |_| {
+                    const name_len = r.readU32() catch return null;
+                    _ = r.readBytes(name_len) catch return null;
+                    _ = r.readU32() catch return null;
+                }
+                break :blk .{ .record = &[_]FieldType{} };
+            },
+            .variant => blk: {
+                const case_count = r.readU32() catch return null;
+                for (0..case_count) |_| {
+                    const name_len = r.readU32() catch return null;
+                    _ = r.readBytes(name_len) catch return null;
+                    const has_type = r.readByte() catch return null;
+                    if (has_type == 0x00) {
+                        _ = r.readU32() catch return null;
+                    }
+                    // optional refines
+                    const has_refines = r.readByte() catch return null;
+                    if (has_refines == 0x00) {
+                        _ = r.readU32() catch return null;
+                    }
+                }
+                break :blk .{ .variant = &[_]VariantCase{} };
+            },
+            .tuple => blk: {
+                const elem_count = r.readU32() catch return null;
+                for (0..elem_count) |_| {
+                    _ = r.readU32() catch return null;
+                }
+                break :blk .{ .tuple = &[_]u32{} };
+            },
+            .flags => blk: {
+                const flag_count = r.readU32() catch return null;
+                for (0..flag_count) |_| {
+                    const name_len = r.readU32() catch return null;
+                    _ = r.readBytes(name_len) catch return null;
+                }
+                break :blk .{ .flags = &[_][]const u8{} };
+            },
+            .@"enum" => blk: {
+                const case_count = r.readU32() catch return null;
+                for (0..case_count) |_| {
+                    const name_len = r.readU32() catch return null;
+                    _ = r.readBytes(name_len) catch return null;
+                }
+                break :blk .{ .enum_ = &[_][]const u8{} };
+            },
+            _ => null,
+        };
+    }
+
+    fn decodeFuncType(self: *Component, r: *Reader) ?ComponentFuncType {
+        // Params: vec<(name, type_idx)>
+        const param_count = r.readU32() catch return null;
+        var params = std.ArrayListUnmanaged(NamedType).empty;
+        for (0..param_count) |_| {
+            const name_len = r.readU32() catch return null;
+            const name = r.readBytes(name_len) catch return null;
+            const type_idx = r.readU32() catch return null;
+            params.append(self.alloc, .{ .name = name, .type_idx = type_idx }) catch return null;
+        }
+        // Result: 0x00 = named results, 0x01 = single type
+        const result_tag = r.readByte() catch return null;
+        const result: FuncResult = if (result_tag == 0x01) blk: {
+            break :blk .{ .unnamed = r.readU32() catch return null };
+        } else blk: {
+            const res_count = r.readU32() catch return null;
+            var results = std.ArrayListUnmanaged(NamedType).empty;
+            for (0..res_count) |_| {
+                const name_len = r.readU32() catch return null;
+                const name = r.readBytes(name_len) catch return null;
+                const type_idx = r.readU32() catch return null;
+                results.append(self.alloc, .{ .name = name, .type_idx = type_idx }) catch return null;
+            }
+            break :blk .{ .named = results.toOwnedSlice(self.alloc) catch return null };
+        };
+        return .{
+            .params = params.toOwnedSlice(self.alloc) catch return null,
+            .result = result,
+        };
+    }
+
+    fn decodeResourceType(_: *Component, r: *Reader) ?ResourceType {
+        const rep_byte = r.readByte() catch return null;
+        const has_dtor = r.readByte() catch return null;
+        var dtor: ?u32 = null;
+        if (has_dtor == 0x00) {
+            dtor = r.readU32() catch return null;
+        }
+        return .{
+            .rep = @enumFromInt(rep_byte),
+            .dtor = dtor,
+        };
+    }
+
+    fn skipDeclarations(_: *Component, r: *Reader, count: u32) void {
+        // Skip declaration bodies — each starts with a discriminant
+        for (0..count) |_| {
+            _ = r.readByte() catch return;
+            // Skip remaining bytes until next declaration
+            // This is a simplification — real impl would parse each decl type
         }
     }
 
@@ -340,4 +611,135 @@ test "ExternKind — enum values" {
     try std.testing.expectEqual(@as(u8, 0x01), @intFromEnum(ExternKind.func));
     try std.testing.expectEqual(@as(u8, 0x03), @intFromEnum(ExternKind.@"type"));
     try std.testing.expectEqual(@as(u8, 0x05), @intFromEnum(ExternKind.instance));
+}
+
+test "Component.decode — type section with primitive defined types" {
+    // Component with type section containing: bool, string, u32
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Type section (id=7)
+        0x07,
+        0x07, // section size: 7 bytes
+        0x03, // count: 3 types
+        // Type 0: defined(bool)
+        0x40, 0x7f,
+        // Type 1: defined(string)
+        0x40, 0x73,
+        // Type 2: defined(u32)
+        0x40, 0x79,
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 3), comp.types.items.len);
+    try std.testing.expectEqual(ValType.bool_, comp.types.items[0].defined.primitive);
+    try std.testing.expectEqual(ValType.string_, comp.types.items[1].defined.primitive);
+    try std.testing.expectEqual(ValType.u32_, comp.types.items[2].defined.primitive);
+}
+
+test "Component.decode — type section with list and option" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Type section (id=7)
+        0x07,
+        0x09, // section size: 9 bytes
+        0x03, // count: 3 types
+        // Type 0: defined(u8)
+        0x40, 0x7d,
+        // Type 1: defined(list<type 0>)
+        0x40, 0x70, 0x00, // list of type index 0
+        // Type 2: defined(option<type 0>)
+        0x40, 0x6c, 0x00, // option of type index 0
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 3), comp.types.items.len);
+    try std.testing.expectEqual(ValType.u8_, comp.types.items[0].defined.primitive);
+    try std.testing.expectEqual(@as(u32, 0), comp.types.items[1].defined.list);
+    try std.testing.expectEqual(@as(u32, 0), comp.types.items[2].defined.option);
+}
+
+test "Component.decode — type section with result type" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Type section
+        0x07,
+        0x0A, // section size
+        0x03, // count: 3 types
+        // Type 0: defined(u32)
+        0x40, 0x79,
+        // Type 1: defined(string)
+        0x40, 0x73,
+        // Type 2: defined(result<type 0, type 1>)
+        0x40, 0x6b,
+        0x00, 0x00, // ok = present, type idx 0
+        0x00, 0x01, // err = present, type idx 1
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 3), comp.types.items.len);
+    const rt = comp.types.items[2].defined.result;
+    try std.testing.expectEqual(@as(u32, 0), rt.ok.?);
+    try std.testing.expectEqual(@as(u32, 1), rt.err.?);
+}
+
+test "Component.decode — func type" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Type section
+        0x07,
+        0x10, // section size
+        0x02, // count: 2 types
+        // Type 0: defined(string)
+        0x40, 0x73,
+        // Type 1: func(name: type0) -> type0
+        0x41,
+        0x01, // 1 param
+        0x04, 'n', 'a', 'm', 'e', // param name "name"
+        0x00, // param type index 0
+        0x01, // result tag: single unnamed
+        0x00, // result type index 0
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 2), comp.types.items.len);
+    const ft = comp.types.items[1].func;
+    try std.testing.expectEqual(@as(usize, 1), ft.params.len);
+    try std.testing.expectEqualStrings("name", ft.params[0].name);
+    try std.testing.expectEqual(@as(u32, 0), ft.params[0].type_idx);
+    try std.testing.expectEqual(@as(u32, 0), ft.result.unnamed);
+}
+
+test "Component.decode — resource type" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, // magic
+        0x0D, 0x00, 0x01, 0x00, // component version
+        // Type section
+        0x07,
+        0x05, // section size
+        0x01, // count: 1 type
+        // Type 0: resource(rep=i32, no dtor)
+        0x3f,
+        0x79, // rep = u32 (0x79)
+        0x01, // no destructor (0x01 = absent)
+    };
+    var comp = Component.init(std.testing.allocator, &bytes);
+    defer comp.deinit();
+    try comp.decode();
+
+    try std.testing.expectEqual(@as(usize, 1), comp.types.items.len);
+    const rt = comp.types.items[0].resource;
+    try std.testing.expectEqual(ValType.u32_, rt.rep);
+    try std.testing.expect(rt.dtor == null);
 }
