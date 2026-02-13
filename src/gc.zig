@@ -340,6 +340,56 @@ test "struct VM integration — struct.new_default + struct.set + struct.get" {
     try testing.expectEqual(@as(u64, 99), results[0]);
 }
 
+test "array VM integration — array.new + array.get + array.len" {
+    const Module = module_mod.Module;
+    const Store = @import("store.zig").Store;
+    const Instance = @import("instance.zig").Instance;
+    const Vm = @import("vm.zig").Vm;
+
+    // type 0 = array (mut i32), type 1 = func (i32 init, i32 len) -> (i32)
+    // func: local.get 0, local.get 1, array.new 0, i32.const 0, array.get 0, end
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
+        // Type section (size=10): 2 types
+        0x01, 0x0A,
+        0x02,
+        0x5E, 0x7F, 0x01, // array (mut i32)
+        0x60, 0x02, 0x7F, 0x7F, 0x01, 0x7F, // func (i32 i32) -> (i32)
+        // Function section
+        0x03, 0x02, 0x01, 0x01,
+        // Export section: "atest"
+        0x07, 0x09, 0x01, 0x05, 'a', 't', 'e', 's', 't', 0x00, 0x00,
+        // Code section (body = 1+2+2+3+2+3+1 = 14, section = 1+1+14 = 16)
+        0x0A, 0x10,
+        0x01, 0x0E,
+        0x00, // 0 locals
+        0x20, 0x00, // local.get 0 (init_val)
+        0x20, 0x01, // local.get 1 (len)
+        0xFB, 0x06, 0x00, // array.new 0
+        0x41, 0x00, // i32.const 0 (index)
+        0xFB, 0x0B, 0x00, // array.get 0
+        0x0B,
+    };
+
+    var mod = Module.init(testing.allocator, &wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    // array.new with init=42, len=3, then array.get at index 0 -> 42
+    var args = [_]u64{ 42, 3 };
+    var results = [_]u64{0};
+    try vm.invoke(&inst, "atest", &args, &results);
+    try testing.expectEqual(@as(u64, 42), results[0]);
+}
+
 test "i31 VM integration — ref.i31 + i31.get_s round-trip" {
     const Module = module_mod.Module;
     const Store = @import("store.zig").Store;

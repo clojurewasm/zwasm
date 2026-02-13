@@ -1431,6 +1431,115 @@ pub const Vm = struct {
                 }
             },
 
+            // ---- array operations ----
+            .array_new => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const len: u32 = @truncate(self.pop());
+                const init_val = self.pop();
+                const addr = instance.store.gc_heap.allocArray(type_idx, len, init_val) catch return error.Trap;
+                try self.push(gc_mod.GcHeap.encodeRef(addr));
+            },
+            .array_new_default => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const len: u32 = @truncate(self.pop());
+                const addr = instance.store.gc_heap.allocArray(type_idx, len, 0) catch return error.Trap;
+                try self.push(gc_mod.GcHeap.encodeRef(addr));
+            },
+            .array_new_fixed => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const n = reader.readU32() catch return error.Trap;
+                // Pop n values from stack (last element on top)
+                var vals_buf: [256]u64 = undefined;
+                if (n > vals_buf.len) return error.Trap;
+                var i: u32 = n;
+                while (i > 0) {
+                    i -= 1;
+                    vals_buf[i] = self.pop();
+                }
+                const addr = instance.store.gc_heap.allocArrayWithValues(type_idx, vals_buf[0..n]) catch return error.Trap;
+                try self.push(gc_mod.GcHeap.encodeRef(addr));
+            },
+            .array_get => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                _ = type_idx;
+                const idx: u32 = @truncate(self.pop());
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const a = switch (obj.*) {
+                    .array_obj => |ao| ao,
+                    else => return error.Trap,
+                };
+                if (idx >= a.elements.len) return error.Trap;
+                try self.push(a.elements[idx]);
+            },
+            .array_get_s => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const idx: u32 = @truncate(self.pop());
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const a = switch (obj.*) {
+                    .array_obj => |ao| ao,
+                    else => return error.Trap,
+                };
+                if (idx >= a.elements.len) return error.Trap;
+                const raw: u32 = @truncate(a.elements[idx]);
+                const atype = self.getArrayType(instance, type_idx) orelse return error.Trap;
+                const result: i32 = switch (atype.field.storage) {
+                    .i8 => @as(i32, @as(i8, @bitCast(@as(u8, @truncate(raw))))),
+                    .i16 => @as(i32, @as(i16, @bitCast(@as(u16, @truncate(raw))))),
+                    else => @bitCast(raw),
+                };
+                try self.pushI32(result);
+            },
+            .array_get_u => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                const idx: u32 = @truncate(self.pop());
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const a = switch (obj.*) {
+                    .array_obj => |ao| ao,
+                    else => return error.Trap,
+                };
+                if (idx >= a.elements.len) return error.Trap;
+                const raw: u32 = @truncate(a.elements[idx]);
+                const atype = self.getArrayType(instance, type_idx) orelse return error.Trap;
+                const result: u32 = switch (atype.field.storage) {
+                    .i8 => @as(u32, @as(u8, @truncate(raw))),
+                    .i16 => @as(u32, @as(u16, @truncate(raw))),
+                    else => raw,
+                };
+                try self.pushI32(@bitCast(result));
+            },
+            .array_set => {
+                const type_idx = reader.readU32() catch return error.Trap;
+                _ = type_idx;
+                const val = self.pop();
+                const idx: u32 = @truncate(self.pop());
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                switch (obj.*) {
+                    .array_obj => |*ao| {
+                        if (idx >= ao.elements.len) return error.Trap;
+                        ao.elements[idx] = val;
+                    },
+                    else => return error.Trap,
+                }
+            },
+            .array_len => {
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const len: u32 = switch (obj.*) {
+                    .array_obj => |ao| @intCast(ao.elements.len),
+                    else => return error.Trap,
+                };
+                try self.pushI32(@bitCast(len));
+            },
+
             // ---- i31 operations ----
             .ref_i31 => {
                 const val: i32 = @bitCast(self.popI32());
@@ -1455,6 +1564,15 @@ pub const Vm = struct {
         if (type_idx >= instance.module.types.items.len) return null;
         return switch (instance.module.types.items[type_idx].composite) {
             .struct_type => |st| st,
+            else => null,
+        };
+    }
+
+    /// Helper: get ArrayType from type index.
+    fn getArrayType(_: *Vm, instance: *Instance, type_idx: u32) ?module_mod.ArrayType {
+        if (type_idx >= instance.module.types.items.len) return null;
+        return switch (instance.module.types.items[type_idx].composite) {
+            .array_type => |at| at,
             else => null,
         };
     }
