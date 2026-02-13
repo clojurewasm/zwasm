@@ -627,3 +627,30 @@ entries:
       st_nestedloop: {time_ms: 4.4}
       st_ackermann: {time_ms: 7.4}
       st_matrix: {time_ms: 284.4}
+  - id: "stage18"
+    date: "2026-02-13"
+    reason: "Stage 18 GC complete"
+    commit: "1dd02fe"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 95.6}
+      tak: {time_ms: 12.6}
+      sieve: {time_ms: 4.8}
+      nbody: {time_ms: 42.4}
+      nqueens: {time_ms: 1.5}
+      tgo_fib: {time_ms: 54.2}
+      tgo_tak: {time_ms: 7.6}
+      tgo_arith: {time_ms: 0.0}
+      tgo_sieve: {time_ms: 4.1}
+      tgo_fib_loop: {time_ms: 2.1}
+      tgo_gcd: {time_ms: 2.0}
+      tgo_nqueens: {time_ms: 47.0}
+      tgo_mfr: {time_ms: 73.4}
+      tgo_list: {time_ms: 66.0}
+      tgo_rwork: {time_ms: 8.4}
+      tgo_strops: {time_ms: 38.5}
+      st_fib2: {time_ms: 1376.7}
+      st_sieve: {time_ms: 232.1}
+      st_nestedloop: {time_ms: 4.3}
+      st_ackermann: {time_ms: 7.2}
+      st_matrix: {time_ms: 283.2}
