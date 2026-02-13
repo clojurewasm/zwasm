@@ -4,9 +4,9 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-18 — COMPLETE (Wasm 3.0 all 9 proposals)
-- Source: ~32K LOC, 19 files, 239 tests all pass
-- Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: ~27
+- Stages 0-2, 4, 7-19 — COMPLETE (Wasm 3.0 all 9 proposals + GC collector + WASI P1 full)
+- Source: ~33K LOC, 19 files, 239+ tests all pass
+- Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
 - Spec: 61,344/61,451 Mac (99.8%), incl. GC 472/546, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
