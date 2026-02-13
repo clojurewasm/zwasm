@@ -34,10 +34,9 @@ wasm_2.0:
     opcodes: 8
     complexity: trivial
   bulk_memory:
-    status: partial
+    status: complete
     opcodes: 9
     complexity: low
-    blockers: ["W2: table.init edge cases"]
   reference_types:
     status: complete
     opcodes: 5

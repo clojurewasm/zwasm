@@ -154,8 +154,8 @@ Group A: GC Spec Tests (wasm-tools 1.244.0で828 assertions変換)
 2. [ ] A2: run_spec.pyのGC ref型対応(value無しref, ref_anyマッチ)
 3. [ ] A3: GC spec実行 + パスカウント記録
 
-Group B: table.init修正 (614/662パス、48失敗のエッジケース修正)
-4. [ ] B1: 失敗原因特定 + 修正
+Group B: table.init修正 — RESOLVED
+4. [x] B1: Already fixed in cdb0c10. spec table_init 729/729 + table_init64 819/819 = 1,548/1,548 (100%)
 
 Group C: GC Collector — compact無しmark-and-sweep
 5. [ ] C1: GcSlot + free list (GcObject wrapping, alloc再利用)

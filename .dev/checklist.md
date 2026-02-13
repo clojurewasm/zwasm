@@ -13,7 +13,7 @@ Prefix: W## (to distinguish from CW's F## items).
 
 | ID   | Item                                | Source     | Trigger                               |
 |------|-------------------------------------|------------|---------------------------------------|
-| W2   | table.init edge cases (48 failures) | CW F137    | Stage 19 Group B                      |
+| ~~W2~~ | ~~table.init edge cases~~ | ~~CW F137~~ | ~~RESOLVED (cdb0c10). spec 1,548/1,548 (100%)~~ |
 | W4   | WASI fd_readdir implementation      | CW gap     | Stage 19 Group D (D2)                 |
 | W5   | WASI sock_* family                  | CW gap     | Stage 19 Group D (D6)                 |
 | W7   | Component Model basics              | New        | Stage 3                               |
