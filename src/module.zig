@@ -908,8 +908,17 @@ pub const Module = struct {
                         else => {},
                     }
                 },
-                0xFE => { // wide arithmetic prefix
-                    _ = try r.readU32();
+                0xFE => { // atomic prefix (threads proposal)
+                    const atomic_sub = try r.readU32();
+                    if (atomic_sub == 0x03) {
+                        // atomic.fence: reserved byte 0x00
+                        const reserved = try r.readByte();
+                        if (reserved != 0x00) return error.MalformedModule;
+                    } else {
+                        // All other atomic ops have memarg (align + offset)
+                        _ = try r.readU32(); // align
+                        _ = try r.readU32(); // offset
+                    }
                 },
                 else => {}, // opcodes with no immediates
             }
@@ -1138,8 +1147,10 @@ fn readLimits(reader: *Reader) !opcode.Limits {
     if (flags & 0xF0 != 0) return error.InvalidWasm;
     const is_64 = (flags & 0x04) != 0;
     const has_max = (flags & 0x01) != 0;
+    const is_shared = (flags & 0x02) != 0;
     const has_page_size = (flags & 0x08) != 0;
-    // flags & 0x02 = shared (threads proposal) — ignored for now
+    // Shared memory requires max to be specified
+    if (is_shared and !has_max) return error.InvalidWasm;
 
     // Read min/max first, then page_size exponent (per binary encoding order)
     var min: u64 = undefined;
@@ -1167,7 +1178,7 @@ fn readLimits(reader: *Reader) !opcode.Limits {
         if (min > m) return error.InvalidWasm;
     }
 
-    return .{ .min = min, .max = max, .is_64 = is_64, .page_size = page_size };
+    return .{ .min = min, .max = max, .is_64 = is_64, .is_shared = is_shared, .page_size = page_size };
 }
 
 /// Skip over an init expression (reads until `end` opcode 0x0B).

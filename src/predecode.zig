@@ -297,6 +297,13 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
                 return null;
             },
 
+            // -- Atomic prefix (0xFE) — not supported in predecode, fall back --
+            0xFE => {
+                code.deinit(alloc);
+                pool64.deinit(alloc);
+                return null;
+            },
+
             else => try emit0(alloc, &code, @intCast(byte)),
         }
     }

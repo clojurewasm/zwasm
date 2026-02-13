@@ -250,6 +250,7 @@ pub fn computeBranchTable(alloc: Allocator, code: []const u8) !*BranchTable {
             },
             .gc_prefix => skipGcImmediates(&reader) catch break,
             .simd_prefix => skipSimdImmediates(&reader) catch break,
+            .atomic_prefix => skipAtomicImmediates(&reader) catch break,
             else => {},
         }
         _ = pos_before;
@@ -1354,6 +1355,7 @@ pub const Vm = struct {
 
                 // ---- SIMD prefix ----
                 .simd_prefix => try self.executeSimd(reader, instance),
+                .atomic_prefix => try self.executeAtomic(reader, instance),
 
                 _ => return error.Trap,
             }
@@ -2068,6 +2070,22 @@ pub const Vm = struct {
             },
             _ => return error.Trap,
         }
+    }
+
+    fn executeAtomic(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {
+        _ = self;
+        _ = instance;
+        const sub = try reader.readU32();
+        if (sub == 0x03) {
+            // atomic.fence — no-op for single-threaded
+            _ = try reader.readByte();
+            return;
+        }
+        // All other atomic ops have memarg
+        _ = try reader.readU32(); // align
+        _ = try reader.readU32(); // offset
+        // TODO: implement atomic operations in 21.2
+        return error.Trap;
     }
 
     fn executeSimd(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {
@@ -5267,6 +5285,7 @@ fn skipToEnd(reader: *Reader) !void {
             },
             .gc_prefix => skipGcImmediates(reader) catch return,
             .simd_prefix => try skipSimdImmediates(reader),
+            .atomic_prefix => try skipAtomicImmediates(reader),
             else => {}, // Simple opcodes with no immediates
         }
     }
@@ -5355,6 +5374,7 @@ fn findElseOrEnd(else_reader: *Reader, end_reader: *Reader) !bool {
             },
             .gc_prefix => skipGcImmediates(reader) catch return false,
             .simd_prefix => try skipSimdImmediates(reader),
+            .atomic_prefix => try skipAtomicImmediates(reader),
             else => {},
         }
     }
@@ -5435,6 +5455,18 @@ fn skipSimdImmediates(reader: *Reader) !void {
         },
         // All other ops: no immediates
         else => {},
+    }
+}
+
+fn skipAtomicImmediates(reader: *Reader) !void {
+    const sub = try reader.readU32();
+    if (sub == 0x03) {
+        // atomic.fence: reserved byte 0x00
+        _ = try reader.readByte();
+    } else {
+        // All other atomic ops: memarg (align + offset)
+        _ = try reader.readU32(); // align
+        _ = try reader.readU32(); // offset
     }
 }
 

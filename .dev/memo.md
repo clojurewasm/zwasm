@@ -44,7 +44,7 @@ Target: Core Wasm threads proposal (~1,500 LOC).
 Shared memory, atomic ops, wait/notify. Phase 4, browser-shipped.
 Reference: wasmtime cranelift atomics, spec repo `~/Documents/OSS/WebAssembly/threads`.
 
-1. [ ] 21.1: Shared memory flag in memory section, SharedArrayBuffer-style backing
+1. [x] 21.1: Shared memory flag in memory section, AtomicOpcode enum, 0xFE prefix decoder
 2. [ ] 21.2: Atomic load/store/rmw opcodes (i32/i64) — 57 opcodes
 3. [ ] 21.3: memory.atomic.wait32/wait64/notify
 4. [ ] 21.4: atomic.fence
@@ -85,11 +85,12 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 20 complete. Merge to main, then start Stage 21.
+Stage 21.2: Atomic load/store/rmw opcodes in bytecode interpreter.
 
 ## Previous Task
 
-20.3: `--json` output for `zwasm features --json`. Valid JSON with features array + summary.
+21.1: Shared memory flag (Limits.is_shared), AtomicOpcode enum (79 opcodes), 0xFE prefix
+in module decoder/vm/predecode/validate. Spec 61,344/61,451 — no regression.
 
 ## Wasm 3.0 Coverage
 

@@ -202,6 +202,7 @@ pub const Limits = struct {
     min: u64,
     max: ?u64,
     is_64: bool = false, // true = i64 addrtype (memory64/table64)
+    is_shared: bool = false, // true = shared memory (threads proposal)
     page_size: u32 = 65536, // custom page sizes proposal: 1 or 65536
 };
 
@@ -448,6 +449,7 @@ pub const Opcode = enum(u8) {
     gc_prefix = 0xFB,
     misc_prefix = 0xFC,
     simd_prefix = 0xFD,
+    atomic_prefix = 0xFE,
 
     _,
 };
@@ -519,6 +521,90 @@ pub const MiscOpcode = enum(u32) {
     i64_sub128 = 0x14,
     i64_mul_wide_s = 0x15,
     i64_mul_wide_u = 0x16,
+
+    _,
+};
+
+/// 0xFE-prefixed atomic opcodes (threads proposal).
+pub const AtomicOpcode = enum(u32) {
+    // Wait/Notify
+    memory_atomic_notify = 0x00,
+    memory_atomic_wait32 = 0x01,
+    memory_atomic_wait64 = 0x02,
+    // Fence
+    atomic_fence = 0x03,
+    // Atomic loads
+    i32_atomic_load = 0x10,
+    i64_atomic_load = 0x11,
+    i32_atomic_load8_u = 0x12,
+    i32_atomic_load16_u = 0x13,
+    i64_atomic_load8_u = 0x14,
+    i64_atomic_load16_u = 0x15,
+    i64_atomic_load32_u = 0x16,
+    // Atomic stores
+    i32_atomic_store = 0x17,
+    i64_atomic_store = 0x18,
+    i32_atomic_store8 = 0x19,
+    i32_atomic_store16 = 0x1A,
+    i64_atomic_store8 = 0x1B,
+    i64_atomic_store16 = 0x1C,
+    i64_atomic_store32 = 0x1D,
+    // RMW add
+    i32_atomic_rmw_add = 0x1E,
+    i64_atomic_rmw_add = 0x1F,
+    i32_atomic_rmw8_add_u = 0x20,
+    i32_atomic_rmw16_add_u = 0x21,
+    i64_atomic_rmw8_add_u = 0x22,
+    i64_atomic_rmw16_add_u = 0x23,
+    i64_atomic_rmw32_add_u = 0x24,
+    // RMW sub
+    i32_atomic_rmw_sub = 0x25,
+    i64_atomic_rmw_sub = 0x26,
+    i32_atomic_rmw8_sub_u = 0x27,
+    i32_atomic_rmw16_sub_u = 0x28,
+    i64_atomic_rmw8_sub_u = 0x29,
+    i64_atomic_rmw16_sub_u = 0x2A,
+    i64_atomic_rmw32_sub_u = 0x2B,
+    // RMW and
+    i32_atomic_rmw_and = 0x2C,
+    i64_atomic_rmw_and = 0x2D,
+    i32_atomic_rmw8_and_u = 0x2E,
+    i32_atomic_rmw16_and_u = 0x2F,
+    i64_atomic_rmw8_and_u = 0x30,
+    i64_atomic_rmw16_and_u = 0x31,
+    i64_atomic_rmw32_and_u = 0x32,
+    // RMW or
+    i32_atomic_rmw_or = 0x33,
+    i64_atomic_rmw_or = 0x34,
+    i32_atomic_rmw8_or_u = 0x35,
+    i32_atomic_rmw16_or_u = 0x36,
+    i64_atomic_rmw8_or_u = 0x37,
+    i64_atomic_rmw16_or_u = 0x38,
+    i64_atomic_rmw32_or_u = 0x39,
+    // RMW xor
+    i32_atomic_rmw_xor = 0x3A,
+    i64_atomic_rmw_xor = 0x3B,
+    i32_atomic_rmw8_xor_u = 0x3C,
+    i32_atomic_rmw16_xor_u = 0x3D,
+    i64_atomic_rmw8_xor_u = 0x3E,
+    i64_atomic_rmw16_xor_u = 0x3F,
+    i64_atomic_rmw32_xor_u = 0x40,
+    // RMW xchg
+    i32_atomic_rmw_xchg = 0x41,
+    i64_atomic_rmw_xchg = 0x42,
+    i32_atomic_rmw8_xchg_u = 0x43,
+    i32_atomic_rmw16_xchg_u = 0x44,
+    i64_atomic_rmw8_xchg_u = 0x45,
+    i64_atomic_rmw16_xchg_u = 0x46,
+    i64_atomic_rmw32_xchg_u = 0x47,
+    // RMW cmpxchg
+    i32_atomic_rmw_cmpxchg = 0x48,
+    i64_atomic_rmw_cmpxchg = 0x49,
+    i32_atomic_rmw8_cmpxchg_u = 0x4A,
+    i32_atomic_rmw16_cmpxchg_u = 0x4B,
+    i64_atomic_rmw8_cmpxchg_u = 0x4C,
+    i64_atomic_rmw16_cmpxchg_u = 0x4D,
+    i64_atomic_rmw32_cmpxchg_u = 0x4E,
 
     _,
 };
@@ -904,7 +990,7 @@ test "Opcode — decode from raw byte" {
 }
 
 test "Opcode — unknown byte produces non-named variant" {
-    const byte: u8 = 0xFE; // not a valid opcode
+    const byte: u8 = 0xFF; // not a valid opcode
     const op: Opcode = @enumFromInt(byte);
     // Should not match any named variant
     const is_known = switch (op) {
@@ -958,7 +1044,7 @@ test "Opcode — unknown byte produces non-named variant" {
         .i32_extend8_s, .i32_extend16_s => true,
         .i64_extend8_s, .i64_extend16_s, .i64_extend32_s => true,
         .ref_null, .ref_is_null, .ref_func, .ref_eq, .ref_as_non_null, .br_on_null, .br_on_non_null => true,
-        .gc_prefix, .misc_prefix, .simd_prefix => true,
+        .gc_prefix, .misc_prefix, .simd_prefix, .atomic_prefix => true,
         _ => false,
     };
     try std.testing.expect(!is_known);
@@ -974,6 +1060,27 @@ test "MiscOpcode — correct values" {
     try std.testing.expectEqual(@as(u32, 0x14), @intFromEnum(MiscOpcode.i64_sub128));
     try std.testing.expectEqual(@as(u32, 0x15), @intFromEnum(MiscOpcode.i64_mul_wide_s));
     try std.testing.expectEqual(@as(u32, 0x16), @intFromEnum(MiscOpcode.i64_mul_wide_u));
+}
+
+test "AtomicOpcode — correct values" {
+    try std.testing.expectEqual(@as(u32, 0x00), @intFromEnum(AtomicOpcode.memory_atomic_notify));
+    try std.testing.expectEqual(@as(u32, 0x01), @intFromEnum(AtomicOpcode.memory_atomic_wait32));
+    try std.testing.expectEqual(@as(u32, 0x02), @intFromEnum(AtomicOpcode.memory_atomic_wait64));
+    try std.testing.expectEqual(@as(u32, 0x03), @intFromEnum(AtomicOpcode.atomic_fence));
+    try std.testing.expectEqual(@as(u32, 0x10), @intFromEnum(AtomicOpcode.i32_atomic_load));
+    try std.testing.expectEqual(@as(u32, 0x17), @intFromEnum(AtomicOpcode.i32_atomic_store));
+    try std.testing.expectEqual(@as(u32, 0x1E), @intFromEnum(AtomicOpcode.i32_atomic_rmw_add));
+    try std.testing.expectEqual(@as(u32, 0x48), @intFromEnum(AtomicOpcode.i32_atomic_rmw_cmpxchg));
+    try std.testing.expectEqual(@as(u32, 0x4E), @intFromEnum(AtomicOpcode.i64_atomic_rmw32_cmpxchg_u));
+    // Opcode prefix
+    try std.testing.expectEqual(@as(u8, 0xFE), @intFromEnum(Opcode.atomic_prefix));
+}
+
+test "Limits — shared flag" {
+    const shared_limits = Limits{ .min = 1, .max = 10, .is_shared = true };
+    try std.testing.expect(shared_limits.is_shared);
+    const normal_limits = Limits{ .min = 1, .max = null };
+    try std.testing.expect(!normal_limits.is_shared);
 }
 
 test "ValType — round-trip encoding" {
