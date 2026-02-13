@@ -5,7 +5,7 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-2, 4, 7-15 — COMPLETE
-- Source: ~28K LOC, 18 files, 239 tests all pass
+- Source: ~29K LOC, 18 files, 242 tests all pass
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) = 492, WASI: ~27
 - Spec: 60,873/60,906 Mac (99.9%), 7 skips, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
@@ -125,7 +125,7 @@ Largest proposal. Depends on Stage 17 (function_references).
 5. [x] 18.5: Array core operations
 6. [x] 18.6: ref.eq + extern conversion
 7. [x] 18.7: Array bulk + data/elem init
-8. [ ] 18.8: Subtype checking
+8. [x] 18.8: Subtype checking
 9. [ ] 18.9: Cast operations
 10. [ ] 18.10: Validation + predecode + remaining tests
 11. [ ] 18.11: Spec tests cleanup + documentation
@@ -146,11 +146,11 @@ Task Queue:
 
 ## Current Task
 
-18.8: Subtype checking.
+18.9: Cast operations.
 
 ## Previous Task
 
-18.7: Array bulk + data/elem init — array.fill/copy/new_data/new_elem/init_data/init_elem (6 opcodes), data/elem segment integration.
+18.8: Subtype checking — matchesHeapTypeWithHeap, isConcreteSubtype, abstract type hierarchy, super_types chain walk (D114).
 
 ## Wasm 3.0 Coverage
 

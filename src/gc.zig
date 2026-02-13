@@ -123,6 +123,97 @@ pub const GcHeap = struct {
 };
 
 // ============================================================
+// Subtype checking (D114: linear scan)
+// ============================================================
+
+const ValType = @import("opcode.zig").ValType;
+const Module = module_mod.Module;
+
+/// Check if a runtime GC value matches a target heap type.
+/// Used by ref.test, ref.cast, br_on_cast.
+/// Returns true if the non-null value `val` is an instance of `target_ht`.
+pub fn matchesHeapType(val: u64, target_ht: u32, module: *const Module) bool {
+    // Abstract heap types
+    if (target_ht == ValType.HEAP_ANY) return true; // any non-null matches any
+    if (target_ht == ValType.HEAP_NONE) return false; // none matches nothing
+
+    if (isI31(val)) {
+        // i31 matches: i31, eq, any
+        return target_ht == ValType.HEAP_I31 or target_ht == ValType.HEAP_EQ;
+    }
+
+    if (GcHeap.isGcRef(val)) {
+        const addr = GcHeap.decodeRef(val) catch return false;
+        // We need the object to check struct vs array, but we don't have the heap here.
+        // Instead, encode the object's type_idx in the ref. For now, we use a two-arg version.
+        // This function requires the GcHeap to resolve the object.
+        _ = addr;
+        _ = module;
+        // Can't fully resolve without heap — see matchesHeapTypeWithHeap
+        return false;
+    }
+
+    // funcref: check HEAP_FUNC
+    if (target_ht == ValType.HEAP_FUNC) return val != 0;
+
+    return false;
+}
+
+/// Check if a runtime GC value matches a target heap type, with heap access.
+pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, heap: *GcHeap) bool {
+    if (target_ht == ValType.HEAP_ANY) return true;
+    if (target_ht == ValType.HEAP_NONE) return false;
+
+    if (isI31(val)) {
+        return target_ht == ValType.HEAP_I31 or target_ht == ValType.HEAP_EQ;
+    }
+
+    if (GcHeap.isGcRef(val)) {
+        const addr = GcHeap.decodeRef(val) catch return false;
+        const obj = heap.getObject(addr) catch return false;
+        const obj_type_idx: u32 = switch (obj.*) {
+            .struct_obj => |s| s.type_idx,
+            .array_obj => |a| a.type_idx,
+        };
+        const is_struct = switch (obj.*) {
+            .struct_obj => true,
+            .array_obj => false,
+        };
+
+        // Abstract type checks
+        if (target_ht == ValType.HEAP_EQ) return true; // all GC objects are eq
+        if (target_ht == ValType.HEAP_STRUCT) return is_struct;
+        if (target_ht == ValType.HEAP_ARRAY) return !is_struct;
+
+        // Concrete type check: target_ht is a type index
+        if (target_ht >= module.types.items.len) return false;
+        return isConcreteSubtype(obj_type_idx, target_ht, module);
+    }
+
+    // funcref
+    if (target_ht == ValType.HEAP_FUNC) return val != 0;
+
+    return false;
+}
+
+/// Check if concrete type `sub` is a subtype of concrete type `super` (or equal).
+/// Uses linear super_types chain walk (D114).
+pub fn isConcreteSubtype(sub: u32, super: u32, module: *const Module) bool {
+    if (sub == super) return true;
+    if (sub >= module.types.items.len) return false;
+
+    // Walk the super_types chain
+    var current = sub;
+    while (true) {
+        if (current >= module.types.items.len) return false;
+        const td = module.types.items[current];
+        if (td.super_types.len == 0) return false;
+        current = td.super_types[0]; // single inheritance
+        if (current == super) return true;
+    }
+}
+
+// ============================================================
 // i31 helpers
 // ============================================================
 
@@ -233,8 +324,71 @@ test "GcHeap encodeRef/decodeRef" {
     try testing.expectError(error.Trap, GcHeap.decodeRef(0));
 }
 
+test "subtype checking — i31 matches i31/eq/any" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+    var mod: Module = Module.init(testing.allocator, &.{});
+    const i31_val = encodeI31(42);
+    // i31 matches i31, eq, any but not struct/array/none
+    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_I31, &mod, &heap));
+    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_EQ, &mod, &heap));
+    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ANY, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_STRUCT, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ARRAY, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_NONE, &mod, &heap));
+}
+
+test "subtype checking — GC struct ref matches struct/eq/any" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+    const fields = [_]u64{42};
+    const addr = try heap.allocStruct(0, &fields);
+    const ref_val = GcHeap.encodeRef(addr);
+
+    // Create a minimal module with one struct type (no supertypes)
+    var types_list: std.ArrayList(module_mod.TypeDef) = .empty;
+    defer types_list.deinit(testing.allocator);
+    try types_list.append(testing.allocator, .{
+        .composite = .{ .struct_type = .{ .fields = &.{} } },
+    });
+    var mod: Module = Module.init(testing.allocator, &.{});
+    mod.types = types_list;
+
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_STRUCT, &mod, &heap));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_EQ, &mod, &heap));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ANY, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ARRAY, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_I31, &mod, &heap));
+    // Concrete type 0 matches itself
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, 0, &mod, &heap));
+}
+
+test "subtype checking — concrete subtype chain" {
+    // type 0 = struct {} (base)
+    // type 1 = struct {} with super = [0]
+    var types_list: std.ArrayList(module_mod.TypeDef) = .empty;
+    defer types_list.deinit(testing.allocator);
+    const supers = [_]u32{0};
+    try types_list.append(testing.allocator, .{
+        .composite = .{ .struct_type = .{ .fields = &.{} } },
+    });
+    try types_list.append(testing.allocator, .{
+        .composite = .{ .struct_type = .{ .fields = &.{} } },
+        .super_types = &supers,
+        .is_final = false,
+    });
+    var mod: Module = Module.init(testing.allocator, &.{});
+    mod.types = types_list;
+
+    // type 1 is subtype of type 0
+    try testing.expect(isConcreteSubtype(1, 0, &mod));
+    // type 0 is NOT subtype of type 1
+    try testing.expect(!isConcreteSubtype(0, 1, &mod));
+    // type 0 is subtype of itself
+    try testing.expect(isConcreteSubtype(0, 0, &mod));
+}
+
 test "struct VM integration — struct.new + struct.get" {
-    const Module = module_mod.Module;
     const Store = @import("store.zig").Store;
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
@@ -290,7 +444,6 @@ test "struct VM integration — struct.new + struct.get" {
 }
 
 test "struct VM integration — struct.new_default + struct.set + struct.get" {
-    const Module = module_mod.Module;
     const Store = @import("store.zig").Store;
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
@@ -341,7 +494,6 @@ test "struct VM integration — struct.new_default + struct.set + struct.get" {
 }
 
 test "array VM integration — array.new + array.get + array.len" {
-    const Module = module_mod.Module;
     const Store = @import("store.zig").Store;
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
@@ -391,7 +543,6 @@ test "array VM integration — array.new + array.get + array.len" {
 }
 
 test "i31 VM integration — ref.i31 + i31.get_s round-trip" {
-    const Module = module_mod.Module;
     const Store = @import("store.zig").Store;
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
