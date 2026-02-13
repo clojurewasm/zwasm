@@ -80,16 +80,16 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 15. [x] D1: Component instantiation — resolve imports, create instances
 16. [x] D2: Virtual adapter pattern — P1 compat shim
 17. [x] D3: WASI P2 interfaces — wasi:io, wasi:clocks, wasi:filesystem, wasi:sockets
-18. [ ] D4: `zwasm run` component support (detect component vs module automatically)
+18. [x] D4: `zwasm run` component support (detect component vs module automatically)
 19. [ ] D5: Spec tests + integration
 
 ## Current Task
 
-Stage 22 D4: `zwasm run` component support (detect component vs module automatically)
+Stage 22 D5: Spec tests + integration
 
 ## Previous Task
 
-D3: WasiP2 interface descriptors for 14 interfaces across 6 categories (io, clocks, filesystem, cli, random, sockets) with function/param/result metadata. 5 new tests.
+D4: Auto-detect component vs module in `zwasm run`, runComponent handler with core module _start dispatch. 1 new test.
 
 ## Wasm 3.0 Coverage
 

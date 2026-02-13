@@ -19,6 +19,7 @@ const trace_mod = vm_mod.trace_mod;
 const wat = @import("wat.zig");
 const validate = @import("validate.zig");
 const build_options = @import("build_options");
+const component_mod = @import("component.zig");
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -254,6 +255,11 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         return false;
     };
     defer allocator.free(wasm_bytes);
+
+    // Auto-detect component vs core module
+    if (component_mod.isComponent(wasm_bytes)) {
+        return runComponent(allocator, wasm_bytes, stdout, stderr);
+    }
 
     // Load linked modules
     var linked_modules: std.ArrayList(*types.WasmModule) = .empty;
@@ -506,6 +512,64 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         }
     }
     return true;
+}
+
+// ============================================================
+// Component Model execution
+// ============================================================
+
+fn runComponent(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
+    _ = stdout;
+
+    // Decode the component
+    var comp = component_mod.Component.init(allocator, wasm_bytes);
+    defer comp.deinit();
+
+    comp.decode() catch |err| {
+        try stderr.print("error: failed to decode component: {s}\n", .{@errorName(err)});
+        try stderr.flush();
+        return false;
+    };
+
+    // Create and instantiate
+    var instance = component_mod.ComponentInstance.init(allocator, &comp);
+    defer instance.deinit();
+
+    instance.instantiate() catch |err| {
+        try stderr.print("error: failed to instantiate component: {s}\n", .{@errorName(err)});
+        try stderr.flush();
+        return false;
+    };
+
+    // Report component info
+    try stderr.print("component: {d} core module(s), {d} export(s)\n", .{
+        instance.coreModuleCount(),
+        comp.exports.items.len,
+    });
+
+    // Look for a _start-like entry point in core modules
+    for (instance.core_modules.items) |m| {
+        var no_args = [_]u64{};
+        var no_results = [_]u64{};
+        m.invoke("_start", &no_args, &no_results) catch |err| {
+            if (m.getWasiExitCode()) |code| {
+                if (code != 0) std.process.exit(@truncate(code));
+                return true;
+            }
+            try stderr.print("error: _start failed: {s}\n", .{@errorName(err)});
+            try stderr.flush();
+            return false;
+        };
+
+        if (m.getWasiExitCode()) |code| {
+            if (code != 0) std.process.exit(@truncate(code));
+        }
+        return true;
+    }
+
+    try stderr.print("error: no executable entry point found in component\n", .{});
+    try stderr.flush();
+    return false;
 }
 
 // ============================================================
@@ -1397,4 +1461,14 @@ fn readWasmFile(allocator: Allocator, path: []const u8) ![]const u8 {
         return wat.watToWasm(allocator, file_bytes);
     }
     return file_bytes;
+}
+
+test "component detection in CLI" {
+    // Verify component_mod.isComponent distinguishes correctly
+    const comp_bytes = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x0D, 0x00, 0x01, 0x00 };
+    const mod_bytes = [_]u8{ 0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00 };
+    try std.testing.expect(component_mod.isComponent(&comp_bytes));
+    try std.testing.expect(!component_mod.isComponent(&mod_bytes));
+    try std.testing.expect(component_mod.isCoreModule(&mod_bytes));
+    try std.testing.expect(!component_mod.isCoreModule(&comp_bytes));
 }
