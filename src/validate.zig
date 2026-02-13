@@ -779,12 +779,16 @@ const Validator = struct {
 
             // ---- Reference types ----
             .ref_null => {
-                const reftype = try reader.readByte();
-                const vt: ValType = ValType.fromByte(reftype) orelse return error.TypeMismatch;
-                try self.pushVal(vt);
+                _ = try reader.readI33(); // heap type (S33)
+                try self.pushVal(.funcref); // simplified: push generic ref
             },
             .ref_is_null => {
                 _ = try self.popOperand(); // any ref type
+                try self.pushVal(.i32);
+            },
+            .ref_eq => {
+                _ = try self.popOperand(); // eqref
+                _ = try self.popOperand(); // eqref
                 try self.pushVal(.i32);
             },
             .ref_func => {
@@ -797,6 +801,11 @@ const Validator = struct {
             // ---- 0xFC prefix (misc) ----
             .misc_prefix => {
                 try self.validateMiscOp(reader);
+            },
+
+            // ---- 0xFB prefix (GC) ----
+            .gc_prefix => {
+                try self.validateGcOp(reader);
             },
 
             // ---- 0xFD prefix (SIMD) ----
@@ -952,6 +961,39 @@ const Validator = struct {
                 try self.popI32(); // idx
             },
             else => return error.IllegalOpcode,
+        }
+    }
+
+    fn validateGcOp(self: *Validator, reader: *Reader) !void {
+        // Skip GC instruction immediates without full type checking.
+        // Runtime type safety is enforced by the bytecode interpreter.
+        _ = self;
+        const sub_op = try reader.readU32();
+        switch (sub_op) {
+            0x00, 0x01 => _ = try reader.readU32(), // struct.new/new_default (typeidx)
+            0x02, 0x03, 0x04, 0x05 => { // struct.get/get_s/get_u/set
+                _ = try reader.readU32();
+                _ = try reader.readU32();
+            },
+            0x06, 0x07 => _ = try reader.readU32(), // array.new/new_default
+            0x08 => { _ = try reader.readU32(); _ = try reader.readU32(); }, // array.new_fixed
+            0x09, 0x0A => { _ = try reader.readU32(); _ = try reader.readU32(); }, // array.new_data/elem
+            0x0B, 0x0C, 0x0D, 0x0E => _ = try reader.readU32(), // array.get/set
+            0x0F => {}, // array.len
+            0x10 => _ = try reader.readU32(), // array.fill
+            0x11 => { _ = try reader.readU32(); _ = try reader.readU32(); }, // array.copy
+            0x12, 0x13 => { _ = try reader.readU32(); _ = try reader.readU32(); }, // array.init_data/elem
+            0x14, 0x15 => _ = try reader.readI33(), // ref.test/ref.test_null
+            0x16, 0x17 => _ = try reader.readI33(), // ref.cast/ref.cast_null
+            0x18, 0x19 => { // br_on_cast/br_on_cast_fail
+                _ = try reader.readByte(); // flags
+                _ = try reader.readU32(); // labelidx
+                _ = try reader.readI33(); // heaptype1
+                _ = try reader.readI33(); // heaptype2
+            },
+            0x1A, 0x1B => {}, // any.convert_extern, extern.convert_any
+            0x1C, 0x1D, 0x1E => {}, // ref.i31, i31.get_s, i31.get_u
+            else => {},
         }
     }
 

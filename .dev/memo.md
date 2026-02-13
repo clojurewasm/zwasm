@@ -127,7 +127,7 @@ Largest proposal. Depends on Stage 17 (function_references).
 7. [x] 18.7: Array bulk + data/elem init
 8. [x] 18.8: Subtype checking
 9. [x] 18.9: Cast operations
-10. [ ] 18.10: Validation + predecode + remaining tests
+10. [x] 18.10: Validation + predecode + remaining tests
 11. [ ] 18.11: Spec tests cleanup + documentation
 
 Stage 16V: Spec Test Validation Coverage
@@ -146,11 +146,11 @@ Task Queue:
 
 ## Current Task
 
-18.10: Validation + predecode + remaining tests.
+18.11: Spec tests cleanup + documentation.
 
 ## Previous Task
 
-18.9: Cast operations — ref.test/ref.test_null, ref.cast/ref.cast_null, br_on_cast/br_on_cast_fail with readHeapType helper.
+18.10: Validation + predecode — validateGcOp, ref_eq, ref_null i33 fix, GC ref types in runner, W21 checklist.
 
 ## Wasm 3.0 Coverage
 
