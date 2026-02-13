@@ -1259,6 +1259,7 @@ pub const Vm = struct {
                 // ---- Reference types ----
                 .ref_null => { _ = try reader.readI33(); try self.push(0); },
                 .ref_is_null => { const a = self.pop(); try self.pushI32(b2i(a == 0)); },
+                .ref_eq => { const b = self.pop(); const a = self.pop(); try self.pushI32(b2i(a == b)); },
                 .ref_func => {
                     const idx = try reader.readU32();
                     // Push store address + 1 (0 = null ref convention)
@@ -1555,6 +1556,14 @@ pub const Vm = struct {
                 const result = gc_mod.decodeI31Unsigned(ref_val) catch return error.Trap;
                 try self.pushI32(result);
             },
+
+            // ---- extern conversion (identity passthrough) ----
+            .any_convert_extern, .extern_convert_any => {
+                // No-op: value stays on stack unchanged.
+                // In a fully typed runtime these would convert between anyref and externref,
+                // but our untyped u64 stack makes them identity operations.
+            },
+
             else => return error.Trap, // unimplemented GC opcodes
         }
     }
@@ -4036,6 +4045,7 @@ pub const Vm = struct {
                 // ---- Reference types ----
                 0xD0 => try self.push(0), // ref_null
                 0xD1 => { const a = self.pop(); try self.pushI32(b2i(a == 0)); }, // ref_is_null
+                0xD3 => { const b = self.pop(); const a = self.pop(); try self.pushI32(b2i(a == b)); }, // ref_eq
                 0xD2 => { // ref_func — push store address + 1 (0 = null)
                     if (instr.operand < instance.funcaddrs.items.len) {
                         try self.push(@as(u64, @intCast(instance.funcaddrs.items[instr.operand])) + 1);

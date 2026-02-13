@@ -123,7 +123,7 @@ Largest proposal. Depends on Stage 17 (function_references).
 3. [x] 18.3: GC heap + i31 instructions
 4. [x] 18.4: Struct operations
 5. [x] 18.5: Array core operations
-6. [ ] 18.6: ref.eq + extern conversion
+6. [x] 18.6: ref.eq + extern conversion
 7. [ ] 18.7: Array bulk + data/elem init
 8. [ ] 18.8: Subtype checking
 9. [ ] 18.9: Cast operations
@@ -146,11 +146,11 @@ Task Queue:
 
 ## Current Task
 
-18.6: ref.eq + extern conversion.
+18.7: Array bulk + data/elem init.
 
 ## Previous Task
 
-18.5: Array core operations — array.new/new_default/new_fixed/get/get_s/get_u/set/len (8 opcodes), packed i8/i16 support.
+18.6: ref.eq + extern conversion — ref.eq (0xD3), any.convert_extern, extern.convert_any, predecoded IR ref.eq.
 
 ## Wasm 3.0 Coverage
 

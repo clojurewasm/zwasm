@@ -438,6 +438,7 @@ pub const Opcode = enum(u8) {
     ref_null = 0xD0,
     ref_is_null = 0xD1,
     ref_func = 0xD2,
+    ref_eq = 0xD3,
     // Function references proposal
     ref_as_non_null = 0xD4,
     br_on_null = 0xD5,
@@ -956,7 +957,7 @@ test "Opcode — unknown byte produces non-named variant" {
         .f32_reinterpret_i32, .f64_reinterpret_i64 => true,
         .i32_extend8_s, .i32_extend16_s => true,
         .i64_extend8_s, .i64_extend16_s, .i64_extend32_s => true,
-        .ref_null, .ref_is_null, .ref_func, .ref_as_non_null, .br_on_null, .br_on_non_null => true,
+        .ref_null, .ref_is_null, .ref_func, .ref_eq, .ref_as_non_null, .br_on_null, .br_on_non_null => true,
         .gc_prefix, .misc_prefix, .simd_prefix => true,
         _ => false,
     };
