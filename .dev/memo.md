@@ -173,7 +173,7 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-v0.1.0 Tag Replace — Phase 3: CW dependency switch + docs.
+v0.1.0 Tag Replace — ALL COMPLETE. Resume Stage 19.
 Requirements: `~/Documents/MyProducts/ClojureWasm/private/my-tag-replace.md`
 
 ## v0.1.0 Tag Replace Queue
@@ -194,24 +194,24 @@ Phase 2: zwasm tag operations (do in one session)
 - [x] 2.5: Create new v0.1.0 tag, push
 
 Phase 3: CW dependency + docs (CW repo)
-- [ ] 3.1: Switch CW build.zig.zon to zwasm v0.1.0 tar.gz
-- [ ] 3.2: Full benchmark + record
-- [ ] 3.3: Code comments + YAML cleanup (-alpha refs → v0.1.0)
-- [ ] 3.4: Public docs overhaul
-- [ ] 3.5: Commit, push, CI green
+- [x] 3.1: Switch CW build.zig.zon to zwasm v0.1.0 tar.gz
+- [x] 3.2: Full benchmark + record
+- [x] 3.3: Code comments + YAML cleanup (-alpha refs → v0.1.0)
+- [x] 3.4: Public docs overhaul
+- [x] 3.5: Commit, push, CI green
 
 Phase 4: CW tag operations (do in one session, CW repo)
-- [ ] 4.1: Delete old -alpha tags + releases
-- [ ] 4.2: Create CW v0.1.0 tag, push
+- [x] 4.1: Delete old -alpha tags + releases
+- [x] 4.2: Create CW v0.1.0 tag, push
 
 Phase 5: Cleanup old zwasm tags (zwasm repo)
-- [ ] 5.1: Delete all zwasm tags except v0.1.0
-- [ ] 5.2: Final verification (both repos: only v0.1.0 tag, tests pass, docs clean)
+- [x] 5.1: Delete all zwasm tags except v0.1.0
+- [x] 5.2: Final verification (both repos: only v0.1.0 tag, tests pass, docs clean)
 
 ## Previous Task
 
-Pre-release preparation complete (2026-02-13): W2 resolved (acff466),
-Mac+Ubuntu tests pass, CW compatibility verified, CW Phase 60.3-60.4 done.
+v0.1.0 tag replace complete (2026-02-13): zwasm+CW both have only v0.1.0 tag.
+Docs overhauled, benchmarks recorded, CI green on both repos.
 
 ## Wasm 3.0 Coverage
 
