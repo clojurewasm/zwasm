@@ -142,6 +142,12 @@ pub const Preopen = struct {
     host_fd: posix.fd_t,
 };
 
+/// Runtime file descriptor entry (for dynamically opened files).
+pub const FdEntry = struct {
+    host_fd: posix.fd_t,
+    is_open: bool = true,
+};
+
 // ============================================================
 // WASI capabilities — deny-by-default security model
 // ============================================================
@@ -184,6 +190,8 @@ pub const WasiContext = struct {
     environ_keys: std.ArrayList([]const u8),
     environ_vals: std.ArrayList([]const u8),
     preopens: std.ArrayList(Preopen),
+    fd_table: std.ArrayList(FdEntry), // runtime-opened fds (wasi_fd = index + fd_base)
+    fd_base: i32 = 0, // first dynamic fd number (set after preopens added)
     alloc: Allocator,
     exit_code: ?u32 = null,
     caps: Capabilities = .{}, // deny-by-default
@@ -194,6 +202,7 @@ pub const WasiContext = struct {
             .environ_keys = .empty,
             .environ_vals = .empty,
             .preopens = .empty,
+            .fd_table = .empty,
             .alloc = alloc,
         };
     }
@@ -205,6 +214,10 @@ pub const WasiContext = struct {
             if (p.host_fd > 2) posix.close(p.host_fd);
         }
         self.preopens.deinit(self.alloc);
+        for (self.fd_table.items) |entry| {
+            if (entry.is_open) posix.close(entry.host_fd);
+        }
+        self.fd_table.deinit(self.alloc);
     }
 
     pub fn setArgs(self: *WasiContext, args: []const [:0]const u8) void {
@@ -223,10 +236,52 @@ pub const WasiContext = struct {
     fn getHostFd(self: *WasiContext, wasi_fd: i32) ?posix.fd_t {
         // Standard FDs map directly
         if (wasi_fd >= 0 and wasi_fd <= 2) return @intCast(wasi_fd);
+        // Preopened directories
         for (self.preopens.items) |p| {
             if (p.wasi_fd == wasi_fd) return p.host_fd;
         }
+        // Dynamic fd_table
+        if (wasi_fd >= self.fd_base) {
+            const idx: usize = @intCast(wasi_fd - self.fd_base);
+            if (idx < self.fd_table.items.len and self.fd_table.items[idx].is_open) {
+                return self.fd_table.items[idx].host_fd;
+            }
+        }
         return null;
+    }
+
+    /// Allocate a new WASI fd for a host file descriptor.
+    fn allocFd(self: *WasiContext, host_fd: posix.fd_t) !i32 {
+        // Compute fd_base lazily (after all preopens are added)
+        if (self.fd_base == 0) {
+            var max_fd: i32 = 2; // stdio
+            for (self.preopens.items) |p| {
+                if (p.wasi_fd > max_fd) max_fd = p.wasi_fd;
+            }
+            self.fd_base = max_fd + 1;
+        }
+        // Reuse closed slot
+        for (self.fd_table.items, 0..) |*entry, i| {
+            if (!entry.is_open) {
+                entry.* = .{ .host_fd = host_fd };
+                return self.fd_base + @as(i32, @intCast(i));
+            }
+        }
+        // Append new entry
+        const idx: i32 = @intCast(self.fd_table.items.len);
+        try self.fd_table.append(self.alloc, .{ .host_fd = host_fd });
+        return self.fd_base + idx;
+    }
+
+    /// Close a dynamic fd. Returns false if fd is not a dynamic fd or already closed.
+    fn closeFd(self: *WasiContext, wasi_fd: i32) bool {
+        if (wasi_fd < self.fd_base) return false;
+        const idx: usize = @intCast(wasi_fd - self.fd_base);
+        if (idx >= self.fd_table.items.len) return false;
+        if (!self.fd_table.items[idx].is_open) return false;
+        posix.close(self.fd_table.items[idx].host_fd);
+        self.fd_table.items[idx].is_open = false;
+        return true;
     }
 };
 
@@ -415,6 +470,13 @@ pub fn fd_close(ctx: *anyopaque, _: usize) anyerror!void {
         return;
     };
 
+    // Try dynamic fd_table first
+    if (wasi.closeFd(fd)) {
+        try pushErrno(vm, .SUCCESS);
+        return;
+    }
+
+    // Fall back to preopened fd
     if (wasi.getHostFd(fd)) |host_fd| {
         posix.close(host_fd);
         try pushErrno(vm, .SUCCESS);
@@ -743,21 +805,90 @@ pub fn path_filestat_get(ctx: *anyopaque, _: usize) anyerror!void {
 pub fn path_open(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const opened_fd_ptr = vm.popOperandU32();
-    _ = vm.popOperandU32(); // fdflags
+    const fdflags = vm.popOperandU32();
     _ = vm.popOperandI64(); // rights_inheriting
     _ = vm.popOperandI64(); // rights_base
-    _ = vm.popOperandU32(); // oflags
-    _ = vm.popOperandU32(); // path_len
-    _ = vm.popOperandU32(); // path_ptr
-    _ = vm.popOperandU32(); // dirflags
-    _ = vm.popOperandI32(); // fd
+    const oflags = vm.popOperandU32();
+    const path_len = vm.popOperandU32();
+    const path_ptr = vm.popOperandU32();
+    const dirflags = vm.popOperandU32();
+    const fd = vm.popOperandI32();
 
     if (!hasCap(vm, .allow_path)) return pushErrno(vm, .ACCES);
 
-    _ = opened_fd_ptr;
+    const wasi = getWasi(vm) orelse {
+        try pushErrno(vm, .NOSYS);
+        return;
+    };
 
-    // Stub: filesystem access not yet implemented
-    try pushErrno(vm, .NOENT);
+    const dir_fd = wasi.getHostFd(fd) orelse {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+
+    const memory = try vm.getMemory(0);
+    const data = memory.memory();
+    if (path_ptr + path_len > data.len) return error.OutOfBoundsMemoryAccess;
+    const path = data[path_ptr .. path_ptr + path_len];
+
+    // Convert WASI oflags to posix flags
+    var flags: posix.O = .{};
+    if (oflags & 0x01 != 0) flags.CREAT = true; // __WASI_OFLAGS_CREAT
+    if (oflags & 0x04 != 0) flags.EXCL = true; // __WASI_OFLAGS_EXCL
+    if (oflags & 0x08 != 0) flags.TRUNC = true; // __WASI_OFLAGS_TRUNC
+    if (oflags & 0x02 != 0) flags.DIRECTORY = true; // __WASI_OFLAGS_DIRECTORY
+
+    // Convert WASI fdflags
+    if (fdflags & 0x01 != 0) flags.APPEND = true; // __WASI_FDFLAGS_APPEND
+    if (fdflags & 0x04 != 0) flags.NONBLOCK = true; // __WASI_FDFLAGS_NONBLOCK
+    // DSYNC (0x02) and RSYNC (0x08) and SYNC (0x10) — mapped to SYNC if any set
+    if (fdflags & 0x12 != 0) flags.SYNC = true;
+
+    // WASI SYMLINK_FOLLOW in dirflags (bit 0)
+    if (dirflags & 0x01 == 0) flags.NOFOLLOW = true;
+
+    // Default to RDWR; for directories, use RDONLY
+    if (!flags.DIRECTORY) {
+        flags.ACCMODE = .RDWR;
+    }
+
+    const host_fd = posix.openat(dir_fd, path, flags, 0o666) catch |err| {
+        // If RDWR fails with ISDIR, retry as RDONLY
+        if (err == error.IsDir) {
+            const ro_flags = blk: {
+                var f = flags;
+                f.ACCMODE = .RDONLY;
+                break :blk f;
+            };
+            const ro_fd = posix.openat(dir_fd, path, ro_flags, 0o666) catch |err2| {
+                try pushErrno(vm, toWasiErrno(err2));
+                return;
+            };
+            const new_fd = wasi.allocFd(ro_fd) catch {
+                posix.close(ro_fd);
+                try pushErrno(vm, .NOMEM);
+                return;
+            };
+            // Write new fd to memory
+            if (opened_fd_ptr + 4 > data.len) return error.OutOfBoundsMemoryAccess;
+            mem.writeInt(u32, data[opened_fd_ptr..][0..4], @bitCast(new_fd), .little);
+            try pushErrno(vm, .SUCCESS);
+            return;
+        }
+        try pushErrno(vm, toWasiErrno(err));
+        return;
+    };
+
+    const new_fd = wasi.allocFd(host_fd) catch {
+        posix.close(host_fd);
+        try pushErrno(vm, .NOMEM);
+        return;
+    };
+
+    // Write new fd to memory
+    if (opened_fd_ptr + 4 > data.len) return error.OutOfBoundsMemoryAccess;
+    mem.writeInt(u32, data[opened_fd_ptr..][0..4], @bitCast(new_fd), .little);
+    try pushErrno(vm, .SUCCESS);
 }
 
 /// proc_exit(exit_code: i32) -> noreturn (via Trap)
@@ -1660,6 +1791,92 @@ test "WASI — deny-by-default capabilities" {
     try clock_time_get(@ptrCast(&vm_inst), 0);
     const errno = vm_inst.popOperand();
     try testing.expectEqual(@as(u64, @intFromEnum(Errno.ACCES)), errno);
+}
+
+test "WASI — path_open creates file and returns valid fd" {
+    const alloc = testing.allocator;
+
+    const wasm_bytes = try readTestFile("07_wasi_hello.wasm");
+    defer alloc.free(wasm_bytes);
+
+    var module = Module.init(alloc, wasm_bytes);
+    defer module.deinit();
+    try module.decode();
+
+    var store_inst = Store.init(alloc);
+    defer store_inst.deinit();
+    try registerAll(&store_inst, &module);
+
+    var instance = instance_mod.Instance.init(alloc, &store_inst, &module);
+    defer instance.deinit();
+
+    var wasi_ctx = WasiContext.init(alloc);
+    defer wasi_ctx.deinit();
+    wasi_ctx.caps = Capabilities.all;
+    instance.wasi = &wasi_ctx;
+
+    // Preopen /tmp as fd 3
+    const tmp_fd = posix.openat(posix.AT.FDCWD, "/tmp", .{ .DIRECTORY = true }, 0) catch unreachable;
+    try wasi_ctx.addPreopen(3, "/tmp", tmp_fd);
+
+    try instance.instantiate();
+
+    var vm_inst = Vm.init(alloc);
+    vm_inst.current_instance = &instance;
+
+    const memory = try instance.getMemory(0);
+    const data = memory.memory();
+
+    // Write path "zwasm_test_open.txt" into wasm memory at offset 100
+    const test_path = "zwasm_test_path_open.txt";
+    @memcpy(data[100 .. 100 + test_path.len], test_path);
+
+    // Clean up test file if it exists
+    posix.unlinkat(tmp_fd, test_path, 0) catch {};
+
+    // Push path_open args in signature order (stack: first pushed = bottom)
+    // path_open(fd=3, dirflags=1, path_ptr=100, path_len, oflags=CREAT(1),
+    //           rights_base=0, rights_inh=0, fdflags=0, opened_fd_ptr=200)
+    try vm_inst.pushOperand(3); // fd (preopen)
+    try vm_inst.pushOperand(1); // dirflags = SYMLINK_FOLLOW
+    try vm_inst.pushOperand(100); // path_ptr
+    try vm_inst.pushOperand(test_path.len); // path_len
+    try vm_inst.pushOperand(1); // oflags = CREAT
+    try vm_inst.pushOperand(0); // rights_base (i64)
+    try vm_inst.pushOperand(0); // rights_inheriting (i64)
+    try vm_inst.pushOperand(0); // fdflags
+    try vm_inst.pushOperand(200); // opened_fd_ptr
+    try path_open(@ptrCast(&vm_inst), 0);
+    const errno = vm_inst.popOperand();
+    try testing.expectEqual(@as(u64, @intFromEnum(Errno.SUCCESS)), errno);
+
+    // Read the opened fd from memory
+    const opened_fd = mem.readInt(u32, data[200..204], .little);
+    try testing.expect(opened_fd >= 4); // should be > preopen fd 3
+
+    // Verify: the fd is usable (write to it via fd_write)
+    // Write "hello" to the opened fd
+    const msg = "hello";
+    @memcpy(data[300 .. 300 + msg.len], msg);
+    // iovec at 400: {buf=300, len=5}
+    mem.writeInt(u32, data[400..404], 300, .little);
+    mem.writeInt(u32, data[404..408], @intCast(msg.len), .little);
+    try vm_inst.pushOperand(opened_fd); // fd
+    try vm_inst.pushOperand(400); // iovs_ptr
+    try vm_inst.pushOperand(1); // iovs_len
+    try vm_inst.pushOperand(500); // nwritten_ptr
+    try fd_write(@ptrCast(&vm_inst), 0);
+    const write_errno = vm_inst.popOperand();
+    try testing.expectEqual(@as(u64, @intFromEnum(Errno.SUCCESS)), write_errno);
+
+    // Close the fd
+    try vm_inst.pushOperand(opened_fd);
+    try fd_close(@ptrCast(&vm_inst), 0);
+    const close_errno = vm_inst.popOperand();
+    try testing.expectEqual(@as(u64, @intFromEnum(Errno.SUCCESS)), close_errno);
+
+    // Clean up
+    posix.unlinkat(tmp_fd, test_path, 0) catch {};
 }
 
 test "WASI — registerAll for wasi_hello module" {

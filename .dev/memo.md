@@ -164,7 +164,7 @@ Group C: GC Collector — compact無しmark-and-sweep
 8. [x] C4: VM統合 (threshold trigger, D115)
 
 Group D: WASI P1 Full Support (~27/35 → 35/35)
-9.  [ ] D1: FdTable拡張 + path_open (最重要、250 LOC)
+9.  [x] D1: FdTable拡張 + path_open (最重要、250 LOC)
 10. [ ] D2: fd_readdir (directory iteration)
 11. [ ] D3: fd_renumber + path_symlink + path_link
 12. [ ] D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
@@ -173,11 +173,11 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-D1: FdTable拡張 + path_open (最重要、250 LOC)
+D2: fd_readdir (directory iteration)
 
 ## Previous Task
 
-C4: VM integration complete. GcHeap tracks alloc_since_gc with threshold (default 1024). tryCollectGarbage in VM scans op_stack (u128), reg_stack (u64), globals for roots. Triggered at executeGc entry. markRootsWide for u128 scanning. BFS refactored to shared tryEnqueue + drainMarkQueue.
+D1: FdTable + path_open. Added FdEntry struct + fd_table ArrayList to WasiContext. allocFd/closeFd for dynamic fd management. path_open with posix.openat, oflags/fdflags conversion, ISDIR retry. Updated fd_close for dynamic fds. Test: create file, write, close via path_open.
 
 C1: GcSlot + free list. GcObject→GcSlot migration, intrusive free list, freeSlot/mark/clearMarks/sweep API.
 
