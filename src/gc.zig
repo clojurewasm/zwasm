@@ -137,15 +137,13 @@ pub const GcHeap = struct {
         }
     }
 
-    /// Sweep: free all unmarked live slots, then clear marks.
+    /// Sweep: free all unmarked live slots.
     pub fn sweep(self: *GcHeap) void {
         for (self.slots.items, 0..) |*slot, i| {
             if (slot.obj != null and !slot.marked) {
                 self.freeSlot(@intCast(i));
             }
         }
-        // Clear marks for next cycle
-        self.clearMarks();
     }
 
     /// Mark all objects reachable from roots via BFS.
@@ -190,6 +188,14 @@ pub const GcHeap = struct {
                 }
             }
         }
+    }
+
+    /// Full mark-and-sweep collection cycle.
+    /// Clears marks, marks all reachable objects from roots, then sweeps.
+    pub fn collect(self: *GcHeap, roots: []const u64) !void {
+        self.clearMarks();
+        try self.markRoots(roots);
+        self.sweep();
     }
 
     /// Encode a GC heap address as an operand stack value (non-null).
@@ -925,4 +931,47 @@ test "markRoots — i31 and null ignored" {
     try heap.markRoots(&roots);
 
     try testing.expect(heap.slots.items[s_addr].marked);
+}
+
+test "collect — full mark-and-sweep cycle" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Object graph: root -> A -> B, C is garbage
+    const b_addr = try heap.allocStruct(0, &[_]u64{100});
+    const a_addr = try heap.allocStruct(0, &[_]u64{GcHeap.encodeRef(b_addr)});
+    const c_addr = try heap.allocStruct(0, &[_]u64{200}); // unreachable
+
+    // Run full collection with A as root
+    const roots = [_]u64{GcHeap.encodeRef(a_addr)};
+    try heap.collect(&roots);
+
+    // A and B survive, C freed
+    _ = try heap.getObject(a_addr);
+    _ = try heap.getObject(b_addr);
+    try testing.expectError(error.Trap, heap.getObject(c_addr));
+
+    // Next alloc should reuse C's slot
+    const d_addr = try heap.allocStruct(0, &[_]u64{300});
+    try testing.expectEqual(c_addr, d_addr);
+}
+
+test "collect — multiple cycles reclaim more garbage" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    const a = try heap.allocStruct(0, &[_]u64{1});
+    const b = try heap.allocStruct(0, &[_]u64{2});
+    _ = try heap.allocStruct(0, &[_]u64{3}); // garbage
+
+    // First cycle: keep a and b
+    var roots = [_]u64{ GcHeap.encodeRef(a), GcHeap.encodeRef(b) };
+    try heap.collect(&roots);
+    try testing.expectEqual(@as(usize, 3), heap.slots.items.len);
+
+    // Second cycle: only keep a, b becomes garbage
+    roots = [_]u64{ GcHeap.encodeRef(a), 0 };
+    try heap.collect(&roots);
+    _ = try heap.getObject(a);
+    try testing.expectError(error.Trap, heap.getObject(b));
 }
