@@ -184,6 +184,114 @@ pub fn alignOf(vt: ValType) ?u32 {
     };
 }
 
+// ── String Lifting (memory → component string) ──────────────────────
+
+pub const StringEncoding = component.StringEncoding;
+
+/// Lift a string from linear memory (UTF-8 encoding).
+/// ptr and len are core i32 values from the flat representation.
+pub fn liftStringUtf8(memory: []const u8, ptr: u32, len: u32) ?[]const u8 {
+    if (ptr + len > memory.len) return null;
+    const bytes = memory[ptr..][0..len];
+    // Validate UTF-8
+    if (!std.unicode.utf8ValidateSlice(bytes)) return null;
+    return bytes;
+}
+
+/// Lift a string from linear memory (UTF-16 encoding).
+/// Returns UTF-8 encoded bytes (allocated).
+pub fn liftStringUtf16(alloc: Allocator, memory: []const u8, ptr: u32, len: u32) ?[]u8 {
+    // len is number of u16 code units; byte length = len * 2
+    const byte_len = @as(u64, len) * 2;
+    if (ptr + byte_len > memory.len) return null;
+    if (ptr % 2 != 0) return null; // must be aligned
+
+    const u16_slice = std.mem.bytesAsSlice(u16, memory[ptr..][0..@intCast(byte_len)]);
+
+    // Decode UTF-16 to UTF-8
+    var buf = std.ArrayList(u8).init(alloc);
+    var i: usize = 0;
+    while (i < u16_slice.len) {
+        const code_unit = std.mem.littleToNative(u16, u16_slice[i]);
+        i += 1;
+        var codepoint: u21 = undefined;
+
+        if (code_unit >= 0xD800 and code_unit <= 0xDBFF) {
+            // High surrogate — need low surrogate
+            if (i >= u16_slice.len) {
+                buf.deinit();
+                return null;
+            }
+            const low = std.mem.littleToNative(u16, u16_slice[i]);
+            i += 1;
+            if (low < 0xDC00 or low > 0xDFFF) {
+                buf.deinit();
+                return null;
+            }
+            codepoint = @intCast((@as(u32, code_unit - 0xD800) << 10) + (low - 0xDC00) + 0x10000);
+        } else if (code_unit >= 0xDC00 and code_unit <= 0xDFFF) {
+            // Lone low surrogate
+            buf.deinit();
+            return null;
+        } else {
+            codepoint = code_unit;
+        }
+
+        var utf8_buf: [4]u8 = undefined;
+        const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch {
+            buf.deinit();
+            return null;
+        };
+        buf.appendSlice(utf8_buf[0..utf8_len]) catch {
+            buf.deinit();
+            return null;
+        };
+    }
+
+    return buf.toOwnedSlice() catch {
+        buf.deinit();
+        return null;
+    };
+}
+
+/// Lower a UTF-8 string to linear memory. Returns (ptr, byte_len).
+/// Writes the string bytes to memory at the given offset.
+pub fn lowerStringUtf8(memory: []u8, offset: u32, str: []const u8) ?struct { ptr: u32, len: u32 } {
+    if (offset + str.len > memory.len) return null;
+    @memcpy(memory[offset..][0..str.len], str);
+    return .{ .ptr = offset, .len = @intCast(str.len) };
+}
+
+/// Lower a UTF-8 string to linear memory as UTF-16. Returns (ptr, code_unit_count).
+pub fn lowerStringUtf16(memory: []u8, offset: u32, str: []const u8) ?struct { ptr: u32, len: u32 } {
+    if (offset % 2 != 0) return null; // must be aligned
+
+    var utf8_view = std.unicode.Utf8View.initUnchecked(str);
+    var iter = utf8_view.iterator();
+    var pos: u32 = offset;
+    var count: u32 = 0;
+
+    while (iter.nextCodepoint()) |cp| {
+        if (cp >= 0x10000) {
+            // Surrogate pair
+            if (pos + 4 > memory.len) return null;
+            const hi: u16 = @intCast(((@as(u32, cp) - 0x10000) >> 10) + 0xD800);
+            const lo: u16 = @intCast(((@as(u32, cp) - 0x10000) & 0x3FF) + 0xDC00);
+            std.mem.writeInt(u16, memory[pos..][0..2], hi, .little);
+            std.mem.writeInt(u16, memory[pos + 2 ..][0..2], lo, .little);
+            pos += 4;
+            count += 2;
+        } else {
+            if (pos + 2 > memory.len) return null;
+            std.mem.writeInt(u16, memory[pos..][0..2], @intCast(cp), .little);
+            pos += 2;
+            count += 1;
+        }
+    }
+
+    return .{ .ptr = offset, .len = count };
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────
 
 test "liftScalar — bool" {
@@ -288,4 +396,74 @@ test "alignOf — scalar alignments" {
     try std.testing.expectEqual(@as(u32, 2), alignOf(.u16_).?);
     try std.testing.expectEqual(@as(u32, 4), alignOf(.u32_).?);
     try std.testing.expectEqual(@as(u32, 4), alignOf(.string_).?);
+}
+
+// ── String Tests ─────────────────────────────────────────────────────
+
+test "liftStringUtf8 — basic" {
+    var mem: [64]u8 = undefined;
+    @memcpy(mem[0..5], "hello");
+    const s = liftStringUtf8(&mem, 0, 5).?;
+    try std.testing.expectEqualStrings("hello", s);
+}
+
+test "liftStringUtf8 — unicode" {
+    const utf8 = "日本語"; // 9 bytes
+    var mem: [64]u8 = undefined;
+    @memcpy(mem[0..utf8.len], utf8);
+    const s = liftStringUtf8(&mem, 0, @intCast(utf8.len)).?;
+    try std.testing.expectEqualStrings("日本語", s);
+}
+
+test "liftStringUtf8 — invalid utf8" {
+    var mem = [_]u8{ 0xFF, 0xFE, 0x00, 0x00 };
+    try std.testing.expect(liftStringUtf8(&mem, 0, 2) == null);
+}
+
+test "liftStringUtf8 — out of bounds" {
+    var mem: [4]u8 = undefined;
+    try std.testing.expect(liftStringUtf8(&mem, 0, 5) == null);
+}
+
+test "liftStringUtf16 — basic ASCII" {
+    // "Hi" in UTF-16LE: 0x48 0x00, 0x69 0x00
+    var mem = [_]u8{ 0x48, 0x00, 0x69, 0x00 };
+    const s = liftStringUtf16(std.testing.allocator, &mem, 0, 2).?;
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("Hi", s);
+}
+
+test "liftStringUtf16 — surrogate pair" {
+    // U+1F600 (grinning face) = D83D DE00 in UTF-16
+    var mem = [_]u8{ 0x3D, 0xD8, 0x00, 0xDE };
+    const s = liftStringUtf16(std.testing.allocator, &mem, 0, 2).?;
+    defer std.testing.allocator.free(s);
+    // U+1F600 in UTF-8: F0 9F 98 80
+    try std.testing.expectEqualStrings("\xF0\x9F\x98\x80", s);
+}
+
+test "lowerStringUtf8 — basic" {
+    var mem: [64]u8 = undefined;
+    const result = lowerStringUtf8(&mem, 0, "hello").?;
+    try std.testing.expectEqual(@as(u32, 0), result.ptr);
+    try std.testing.expectEqual(@as(u32, 5), result.len);
+    try std.testing.expectEqualStrings("hello", mem[0..5]);
+}
+
+test "lowerStringUtf16 — basic ASCII" {
+    var mem: [64]u8 = undefined;
+    const result = lowerStringUtf16(&mem, 0, "Hi").?;
+    try std.testing.expectEqual(@as(u32, 0), result.ptr);
+    try std.testing.expectEqual(@as(u32, 2), result.len); // 2 code units
+    // Verify UTF-16LE bytes
+    try std.testing.expectEqual(@as(u16, 'H'), std.mem.readInt(u16, mem[0..2], .little));
+    try std.testing.expectEqual(@as(u16, 'i'), std.mem.readInt(u16, mem[2..4], .little));
+}
+
+test "lowerStringUtf16 — surrogate pair" {
+    var mem: [64]u8 = undefined;
+    const result = lowerStringUtf16(&mem, 0, "\xF0\x9F\x98\x80").?; // U+1F600
+    try std.testing.expectEqual(@as(u32, 2), result.len); // 2 code units (surrogate pair)
+    try std.testing.expectEqual(@as(u16, 0xD83D), std.mem.readInt(u16, mem[0..2], .little));
+    try std.testing.expectEqual(@as(u16, 0xDE00), std.mem.readInt(u16, mem[2..4], .little));
 }
