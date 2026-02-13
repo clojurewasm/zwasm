@@ -1008,6 +1008,166 @@ pub const Parser = struct {
     }
 };
 
+// ── Resolver ──────────────────────────────────────────────────────────
+
+/// Resolved interface with all types (including imported via `use`) and functions.
+pub const ResolvedInterface = struct {
+    name: []const u8,
+    types: std.StringHashMapUnmanaged(TypeDef),
+    funcs: std.StringHashMapUnmanaged(FuncDef),
+
+    fn init(name: []const u8) ResolvedInterface {
+        return .{ .name = name, .types = .empty, .funcs = .empty };
+    }
+
+    fn deinit(self: *ResolvedInterface, alloc: Allocator) void {
+        self.types.deinit(alloc);
+        self.funcs.deinit(alloc);
+    }
+
+    pub fn getType(self: *const ResolvedInterface, name: []const u8) ?TypeDef {
+        return self.types.get(name);
+    }
+
+    pub fn getFunc(self: *const ResolvedInterface, name: []const u8) ?FuncDef {
+        return self.funcs.get(name);
+    }
+};
+
+/// Resolved world with import/export interface references.
+pub const ResolvedWorld = struct {
+    name: []const u8,
+    imports: std.StringHashMapUnmanaged(void),
+    exports: std.StringHashMapUnmanaged(void),
+
+    fn init(name: []const u8) ResolvedWorld {
+        return .{ .name = name, .imports = .empty, .exports = .empty };
+    }
+
+    fn deinit(self: *ResolvedWorld, alloc: Allocator) void {
+        self.imports.deinit(alloc);
+        self.exports.deinit(alloc);
+    }
+};
+
+/// Resolves WIT `use` declarations and builds lookup tables for types and functions.
+pub const Resolver = struct {
+    alloc: Allocator,
+    // Raw parsed interfaces, indexed by name
+    raw_interfaces: std.StringHashMapUnmanaged(Interface),
+    // Raw parsed worlds
+    raw_worlds: std.StringHashMapUnmanaged(World),
+    // Resolved output
+    interfaces: std.StringHashMapUnmanaged(ResolvedInterface),
+    worlds: std.StringHashMapUnmanaged(ResolvedWorld),
+
+    pub fn init(alloc: Allocator) Resolver {
+        return .{
+            .alloc = alloc,
+            .raw_interfaces = .empty,
+            .raw_worlds = .empty,
+            .interfaces = .empty,
+            .worlds = .empty,
+        };
+    }
+
+    pub fn deinit(self: *Resolver) void {
+        self.raw_interfaces.deinit(self.alloc);
+        self.raw_worlds.deinit(self.alloc);
+        var it = self.interfaces.valueIterator();
+        while (it.next()) |ri| ri.deinit(self.alloc);
+        self.interfaces.deinit(self.alloc);
+        var wit = self.worlds.valueIterator();
+        while (wit.next()) |rw| rw.deinit(self.alloc);
+        self.worlds.deinit(self.alloc);
+    }
+
+    pub fn addDocument(self: *Resolver, doc: *const Document) !void {
+        for (doc.interfaces) |iface| {
+            self.raw_interfaces.put(self.alloc, iface.name, iface) catch return error.OutOfMemory;
+        }
+        for (doc.worlds) |w| {
+            self.raw_worlds.put(self.alloc, w.name, w) catch return error.OutOfMemory;
+        }
+    }
+
+    pub fn resolve(self: *Resolver) !void {
+        // Phase 1: Build resolved interfaces with their own types/funcs
+        var raw_it = self.raw_interfaces.iterator();
+        while (raw_it.next()) |entry| {
+            var ri = ResolvedInterface.init(entry.key_ptr.*);
+
+            for (entry.value_ptr.items) |item| {
+                switch (item) {
+                    .type_def => |td| {
+                        ri.types.put(self.alloc, td.name, td) catch return error.OutOfMemory;
+                    },
+                    .func_def => |fd| {
+                        ri.funcs.put(self.alloc, fd.name, fd) catch return error.OutOfMemory;
+                    },
+                    .use_decl => {}, // handled in phase 2
+                }
+            }
+
+            self.interfaces.put(self.alloc, entry.key_ptr.*, ri) catch return error.OutOfMemory;
+        }
+
+        // Phase 2: Resolve `use` declarations
+        raw_it = self.raw_interfaces.iterator();
+        while (raw_it.next()) |entry| {
+            const ri = self.interfaces.getPtr(entry.key_ptr.*) orelse continue;
+
+            for (entry.value_ptr.items) |item| {
+                switch (item) {
+                    .use_decl => |use| {
+                        const source_iface = self.interfaces.get(use.path) orelse continue;
+                        for (use.names) |use_name| {
+                            const src_type = source_iface.types.get(use_name.name) orelse continue;
+                            const target_name = use_name.alias orelse use_name.name;
+                            ri.types.put(self.alloc, target_name, src_type) catch return error.OutOfMemory;
+                        }
+                    },
+                    else => {},
+                }
+            }
+        }
+
+        // Phase 3: Resolve worlds
+        var world_it = self.raw_worlds.iterator();
+        while (world_it.next()) |entry| {
+            var rw = ResolvedWorld.init(entry.key_ptr.*);
+
+            for (entry.value_ptr.items) |item| {
+                switch (item) {
+                    .import_interface => |name| {
+                        rw.imports.put(self.alloc, name, {}) catch return error.OutOfMemory;
+                    },
+                    .export_interface => |name| {
+                        rw.exports.put(self.alloc, name, {}) catch return error.OutOfMemory;
+                    },
+                    .import_func => |fd| {
+                        rw.imports.put(self.alloc, fd.name, {}) catch return error.OutOfMemory;
+                    },
+                    .export_func => |fd| {
+                        rw.exports.put(self.alloc, fd.name, {}) catch return error.OutOfMemory;
+                    },
+                    .include_world => {}, // TODO: resolve included worlds
+                }
+            }
+
+            self.worlds.put(self.alloc, entry.key_ptr.*, rw) catch return error.OutOfMemory;
+        }
+    }
+
+    pub fn getInterface(self: *const Resolver, name: []const u8) ?*const ResolvedInterface {
+        return self.interfaces.getPtr(name);
+    }
+
+    pub fn getWorld(self: *const Resolver, name: []const u8) ?*const ResolvedWorld {
+        return self.worlds.getPtr(name);
+    }
+};
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 test "Lexer — punctuation tokens" {
@@ -1555,4 +1715,91 @@ test "Parser — full document" {
     try std.testing.expectEqual(@as(usize, 2), doc.interfaces.len);
     try std.testing.expectEqual(@as(usize, 1), doc.worlds.len);
     try std.testing.expectEqualStrings("canvas", doc.worlds[0].name);
+}
+
+test "Resolver — resolve use declaration" {
+    const source =
+        \\interface types {
+        \\  record point {
+        \\    x: f64,
+        \\    y: f64,
+        \\  }
+        \\  enum color { red, green, blue }
+        \\}
+        \\
+        \\interface canvas {
+        \\  use types.{point, color};
+        \\  draw: func(p: point, c: color);
+        \\}
+    ;
+    var parser = Parser.init(std.testing.allocator, source);
+    var doc = try parser.parseDocument();
+    defer doc.deinit(std.testing.allocator);
+
+    var resolver = Resolver.init(std.testing.allocator);
+    defer resolver.deinit();
+    try resolver.addDocument(&doc);
+    try resolver.resolve();
+
+    // After resolution, "canvas" interface should have types from "types"
+    const canvas = resolver.getInterface("canvas") orelse return error.WitSyntaxError;
+    try std.testing.expect(canvas.getType("point") != null);
+    try std.testing.expect(canvas.getType("color") != null);
+    try std.testing.expect(canvas.getFunc("draw") != null);
+}
+
+test "Resolver — use with alias" {
+    const source =
+        \\interface base {
+        \\  record item {
+        \\    id: u32,
+        \\  }
+        \\}
+        \\
+        \\interface consumer {
+        \\  use base.{item as base-item};
+        \\  process: func(i: base-item) -> bool;
+        \\}
+    ;
+    var parser = Parser.init(std.testing.allocator, source);
+    var doc = try parser.parseDocument();
+    defer doc.deinit(std.testing.allocator);
+
+    var resolver = Resolver.init(std.testing.allocator);
+    defer resolver.deinit();
+    try resolver.addDocument(&doc);
+    try resolver.resolve();
+
+    const consumer = resolver.getInterface("consumer") orelse return error.WitSyntaxError;
+    // aliased as "base-item"
+    try std.testing.expect(consumer.getType("base-item") != null);
+    // original name should NOT be present
+    try std.testing.expect(consumer.getType("item") == null);
+}
+
+test "Resolver — world resolution" {
+    const source =
+        \\interface logger {
+        \\  log: func(msg: string);
+        \\}
+        \\
+        \\world my-app {
+        \\  import logger;
+        \\  export logger;
+        \\}
+    ;
+    var parser = Parser.init(std.testing.allocator, source);
+    var doc = try parser.parseDocument();
+    defer doc.deinit(std.testing.allocator);
+
+    var resolver = Resolver.init(std.testing.allocator);
+    defer resolver.deinit();
+    try resolver.addDocument(&doc);
+    try resolver.resolve();
+
+    const world = resolver.getWorld("my-app") orelse return error.WitSyntaxError;
+    try std.testing.expectEqual(@as(usize, 1), world.imports.count());
+    try std.testing.expectEqual(@as(usize, 1), world.exports.count());
+    try std.testing.expect(world.imports.contains("logger"));
+    try std.testing.expect(world.exports.contains("logger"));
 }

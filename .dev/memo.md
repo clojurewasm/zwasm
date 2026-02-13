@@ -59,7 +59,7 @@ Design: default ON, implement all wasmtime supports, minimal flags.
 Group A: WIT Parser (~800 LOC)
 1. [ ] A1: WIT lexer + token types
 2. [x] A2: WIT parser — interfaces, worlds, types, functions
-3. [ ] A3: WIT resolution — use declarations, package references
+3. [x] A3: WIT resolution — use declarations, package references
 4. [ ] A4: Unit tests + wasmtime WIT corpus validation
 
 Group B: Component Binary Format (~1,200 LOC)
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 A3: WIT resolution — use declarations, package references
+Stage 22 A4: Unit tests + wasmtime WIT corpus validation
 
 ## Previous Task
 
-A2: WIT parser — full AST (Document, Interface, World, TypeDef, FuncDef, TypeRef), 16 parser tests.
+A3: WIT resolution — Resolver with 3-phase resolution (types/funcs, use decls, worlds), 3 tests.
 
 ## Wasm 3.0 Coverage
 
