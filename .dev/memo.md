@@ -72,7 +72,7 @@ Group B: Component Binary Format (~1,200 LOC)
 Group C: Canonical ABI (~1,500 LOC)
 10. [x] C1: Scalar types (bool, integers, float, char)
 11. [x] C2: String encoding (utf-8/utf-16/latin1+utf-16)
-12. [ ] C3: List, record, tuple, variant, enum, option, result
+12. [x] C3: List, record, tuple, variant, enum, option, result
 13. [ ] C4: Flags, own/borrow handles
 14. [ ] C5: Memory realloc protocol + post-return
 
@@ -85,11 +85,11 @@ Group D: Component Linker + WASI P2 (~2,000 LOC)
 
 ## Current Task
 
-Stage 22 C3: List, record, tuple, variant, enum, option, result
+Stage 22 C4: Flags, own/borrow handles
 
 ## Previous Task
 
-C2: String encoding — liftStringUtf8/Utf16, lowerStringUtf8/Utf16 with surrogate pair handling. 8 new tests.
+C3: Compound type layout — alignTo, discriminantSize, load/store memory ops, option/result/variant layout computations. 12 new tests.
 
 ## Wasm 3.0 Coverage
 

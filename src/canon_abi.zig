@@ -292,6 +292,115 @@ pub fn lowerStringUtf16(memory: []u8, offset: u32, str: []const u8) ?struct { pt
     return .{ .ptr = offset, .len = count };
 }
 
+// ── Compound Type Layout ─────────────────────────────────────────────
+
+/// Compute memory offset aligned to given alignment.
+pub fn alignTo(offset: u32, alignment: u32) u32 {
+    if (alignment == 0) return offset;
+    return (offset + alignment - 1) & ~(alignment - 1);
+}
+
+/// Discriminant size in bytes for a variant/enum with `case_count` cases.
+pub fn discriminantSize(case_count: u32) u32 {
+    if (case_count <= 0xFF) return 1;
+    if (case_count <= 0xFFFF) return 2;
+    return 4;
+}
+
+/// Load a u32 from linear memory at given offset (little-endian).
+pub fn loadU32(memory: []const u8, offset: u32) ?u32 {
+    if (offset + 4 > memory.len) return null;
+    return std.mem.readInt(u32, memory[offset..][0..4], .little);
+}
+
+/// Store a u32 to linear memory at given offset (little-endian).
+pub fn storeU32(memory: []u8, offset: u32, value: u32) bool {
+    if (offset + 4 > memory.len) return false;
+    std.mem.writeInt(u32, memory[offset..][0..4], value, .little);
+    return true;
+}
+
+/// Load an i32 from linear memory at given offset (little-endian).
+pub fn loadI32(memory: []const u8, offset: u32) ?i32 {
+    if (offset + 4 > memory.len) return null;
+    return std.mem.readInt(i32, memory[offset..][0..4], .little);
+}
+
+/// Store an i32 to linear memory at given offset (little-endian).
+pub fn storeI32(memory: []u8, offset: u32, value: i32) bool {
+    if (offset + 4 > memory.len) return false;
+    std.mem.writeInt(i32, memory[offset..][0..4], value, .little);
+    return true;
+}
+
+/// Load a u8 from linear memory.
+pub fn loadU8(memory: []const u8, offset: u32) ?u8 {
+    if (offset >= memory.len) return null;
+    return memory[offset];
+}
+
+/// Store a u8 to linear memory.
+pub fn storeU8(memory: []u8, offset: u32, value: u8) bool {
+    if (offset >= memory.len) return false;
+    memory[offset] = value;
+    return true;
+}
+
+/// Load a discriminant from linear memory (size 1, 2, or 4 bytes).
+pub fn loadDiscriminant(memory: []const u8, offset: u32, disc_size: u32) ?u32 {
+    return switch (disc_size) {
+        1 => @as(u32, loadU8(memory, offset) orelse return null),
+        2 => blk: {
+            if (offset + 2 > memory.len) break :blk null;
+            break :blk @as(u32, std.mem.readInt(u16, memory[offset..][0..2], .little));
+        },
+        4 => loadU32(memory, offset),
+        else => null,
+    };
+}
+
+/// Store a discriminant to linear memory.
+pub fn storeDiscriminant(memory: []u8, offset: u32, disc_size: u32, value: u32) bool {
+    return switch (disc_size) {
+        1 => storeU8(memory, offset, @intCast(value & 0xFF)),
+        2 => blk: {
+            if (offset + 2 > memory.len) break :blk false;
+            std.mem.writeInt(u16, memory[offset..][0..2], @intCast(value & 0xFFFF), .little);
+            break :blk true;
+        },
+        4 => storeU32(memory, offset, value),
+        else => false,
+    };
+}
+
+/// Option layout: [disc:1][padding][payload]
+/// Returns (disc_offset, payload_offset, total_size)
+pub fn optionLayout(payload_size: u32, payload_align: u32) struct { disc_offset: u32, payload_offset: u32, total_size: u32 } {
+    const disc_size: u32 = 1;
+    const payload_offset = alignTo(disc_size, payload_align);
+    const total = payload_offset + payload_size;
+    return .{ .disc_offset = 0, .payload_offset = payload_offset, .total_size = total };
+}
+
+/// Result layout: [disc:1][padding][payload (max of ok/err)]
+pub fn resultLayout(ok_size: u32, ok_align: u32, err_size: u32, err_align: u32) struct { disc_offset: u32, payload_offset: u32, total_size: u32 } {
+    const disc_size: u32 = 1;
+    const max_align = @max(ok_align, err_align);
+    const payload_offset = alignTo(disc_size, max_align);
+    const max_payload = @max(ok_size, err_size);
+    const total = alignTo(payload_offset + max_payload, @max(max_align, 1));
+    return .{ .disc_offset = 0, .payload_offset = payload_offset, .total_size = total };
+}
+
+/// Variant layout: [disc:N][padding][payload (max of case payloads)]
+pub fn variantLayout(case_count: u32, max_payload_size: u32, max_payload_align: u32) struct { disc_offset: u32, payload_offset: u32, total_size: u32 } {
+    const disc_size = discriminantSize(case_count);
+    const payload_align = @max(max_payload_align, 1);
+    const payload_offset = alignTo(disc_size, payload_align);
+    const total = alignTo(payload_offset + max_payload_size, @max(payload_align, disc_size));
+    return .{ .disc_offset = 0, .payload_offset = payload_offset, .total_size = total };
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────
 
 test "liftScalar — bool" {
@@ -466,4 +575,125 @@ test "lowerStringUtf16 — surrogate pair" {
     try std.testing.expectEqual(@as(u32, 2), result.len); // 2 code units (surrogate pair)
     try std.testing.expectEqual(@as(u16, 0xD83D), std.mem.readInt(u16, mem[0..2], .little));
     try std.testing.expectEqual(@as(u16, 0xDE00), std.mem.readInt(u16, mem[2..4], .little));
+}
+
+// ── Compound Type Tests ──────────────────────────────────────────────
+
+test "alignTo — alignment padding" {
+    try std.testing.expectEqual(@as(u32, 0), alignTo(0, 4));
+    try std.testing.expectEqual(@as(u32, 4), alignTo(1, 4));
+    try std.testing.expectEqual(@as(u32, 4), alignTo(3, 4));
+    try std.testing.expectEqual(@as(u32, 4), alignTo(4, 4));
+    try std.testing.expectEqual(@as(u32, 8), alignTo(5, 4));
+    try std.testing.expectEqual(@as(u32, 2), alignTo(1, 2));
+    try std.testing.expectEqual(@as(u32, 1), alignTo(1, 1));
+}
+
+test "discriminantSize" {
+    try std.testing.expectEqual(@as(u32, 1), discriminantSize(2)); // bool-like
+    try std.testing.expectEqual(@as(u32, 1), discriminantSize(255));
+    try std.testing.expectEqual(@as(u32, 2), discriminantSize(256));
+    try std.testing.expectEqual(@as(u32, 2), discriminantSize(65535));
+    try std.testing.expectEqual(@as(u32, 4), discriminantSize(65536));
+}
+
+test "loadU32/storeU32 — roundtrip" {
+    var mem: [16]u8 = undefined;
+    try std.testing.expect(storeU32(&mem, 0, 0xDEADBEEF));
+    try std.testing.expectEqual(@as(u32, 0xDEADBEEF), loadU32(&mem, 0).?);
+    try std.testing.expect(storeU32(&mem, 4, 42));
+    try std.testing.expectEqual(@as(u32, 42), loadU32(&mem, 4).?);
+}
+
+test "loadDiscriminant — different sizes" {
+    var mem = [_]u8{ 0x03, 0x00, 0x01, 0x00, 0x05, 0x00, 0x00, 0x00 };
+    // 1-byte discriminant
+    try std.testing.expectEqual(@as(u32, 3), loadDiscriminant(&mem, 0, 1).?);
+    // 2-byte discriminant
+    try std.testing.expectEqual(@as(u32, 3), loadDiscriminant(&mem, 0, 2).?);
+    try std.testing.expectEqual(@as(u32, 1), loadDiscriminant(&mem, 2, 2).?);
+    // 4-byte discriminant
+    try std.testing.expectEqual(@as(u32, 0x00010003), loadDiscriminant(&mem, 0, 4).?);
+}
+
+test "storeDiscriminant — different sizes" {
+    var mem: [8]u8 = undefined;
+    @memset(&mem, 0);
+    try std.testing.expect(storeDiscriminant(&mem, 0, 1, 5));
+    try std.testing.expectEqual(@as(u8, 5), mem[0]);
+    try std.testing.expect(storeDiscriminant(&mem, 2, 2, 0x1234));
+    try std.testing.expectEqual(@as(u16, 0x1234), std.mem.readInt(u16, mem[2..4], .little));
+}
+
+test "optionLayout — u32 payload" {
+    // option<u32>: disc(1) + pad(3) + payload(4) = 8
+    const layout = optionLayout(4, 4);
+    try std.testing.expectEqual(@as(u32, 0), layout.disc_offset);
+    try std.testing.expectEqual(@as(u32, 4), layout.payload_offset);
+    try std.testing.expectEqual(@as(u32, 8), layout.total_size);
+}
+
+test "optionLayout — u8 payload" {
+    // option<u8>: disc(1) + payload(1) = 2
+    const layout = optionLayout(1, 1);
+    try std.testing.expectEqual(@as(u32, 0), layout.disc_offset);
+    try std.testing.expectEqual(@as(u32, 1), layout.payload_offset);
+    try std.testing.expectEqual(@as(u32, 2), layout.total_size);
+}
+
+test "resultLayout — ok=u32, err=string" {
+    // result<u32, string>: disc(1) + pad(3) + max_payload(8) = 12
+    const layout = resultLayout(4, 4, 8, 4);
+    try std.testing.expectEqual(@as(u32, 0), layout.disc_offset);
+    try std.testing.expectEqual(@as(u32, 4), layout.payload_offset);
+    try std.testing.expectEqual(@as(u32, 12), layout.total_size);
+}
+
+test "variantLayout — 3 cases" {
+    // variant with 3 cases, max payload 4 bytes, align 4
+    const layout = variantLayout(3, 4, 4);
+    try std.testing.expectEqual(@as(u32, 0), layout.disc_offset);
+    try std.testing.expectEqual(@as(u32, 4), layout.payload_offset); // disc(1) aligned to 4
+    try std.testing.expectEqual(@as(u32, 8), layout.total_size);
+}
+
+test "memory ops — option<u32> write and read" {
+    var mem: [16]u8 = undefined;
+    @memset(&mem, 0);
+
+    const layout = optionLayout(4, 4);
+
+    // Write some(42)
+    try std.testing.expect(storeDiscriminant(&mem, layout.disc_offset, 1, 1)); // some=1
+    try std.testing.expect(storeU32(&mem, layout.payload_offset, 42));
+
+    // Read back
+    const disc = loadDiscriminant(&mem, layout.disc_offset, 1).?;
+    try std.testing.expectEqual(@as(u32, 1), disc);
+    const val = loadU32(&mem, layout.payload_offset).?;
+    try std.testing.expectEqual(@as(u32, 42), val);
+}
+
+test "memory ops — result<u32, u32> ok case" {
+    var mem: [16]u8 = undefined;
+    @memset(&mem, 0);
+
+    const layout = resultLayout(4, 4, 4, 4);
+
+    // Write ok(100)
+    try std.testing.expect(storeDiscriminant(&mem, layout.disc_offset, 1, 0)); // ok=0
+    try std.testing.expect(storeU32(&mem, layout.payload_offset, 100));
+
+    // Read back
+    try std.testing.expectEqual(@as(u32, 0), loadDiscriminant(&mem, layout.disc_offset, 1).?);
+    try std.testing.expectEqual(@as(u32, 100), loadU32(&mem, layout.payload_offset).?);
+}
+
+test "memory ops — enum discriminant" {
+    var mem: [4]u8 = undefined;
+    @memset(&mem, 0);
+
+    // enum with 3 cases, write case 2
+    try std.testing.expect(storeDiscriminant(&mem, 0, discriminantSize(3), 2));
+    try std.testing.expectEqual(@as(u32, 2), loadDiscriminant(&mem, 0, discriminantSize(3)).?);
 }
