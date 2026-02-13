@@ -150,6 +150,7 @@ wasm_3.0:
       (ref.test, ref.cast, br_on_cast). i31ref for unboxed small ints.
       Requires actual garbage collector implementation. Consider
       reference-counting or tracing GC strategy.
+      Spec tests: 472/546 (86.4%) via wasm-tools 1.244.0, 18 files.
 
   multi_memory:
     status: complete

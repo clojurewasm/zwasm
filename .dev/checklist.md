@@ -14,8 +14,8 @@ Prefix: W## (to distinguish from CW's F## items).
 | ID   | Item                                | Source     | Trigger                               |
 |------|-------------------------------------|------------|---------------------------------------|
 | ~~W2~~ | ~~table.init edge cases~~ | ~~CW F137~~ | ~~RESOLVED (cdb0c10). spec 1,548/1,548 (100%)~~ |
-| W4   | WASI fd_readdir implementation      | CW gap     | Stage 19 Group D (D2)                 |
-| W5   | WASI sock_* family                  | CW gap     | Stage 19 Group D (D6)                 |
+| ~~W4~~ | ~~WASI fd_readdir implementation~~ | ~~CW gap~~ | ~~RESOLVED. Stage 19 D2~~ |
+| ~~W5~~ | ~~WASI sock_* family~~ | ~~CW gap~~ | ~~RESOLVED. Stage 19 D6 (NOSYS stubs)~~ |
 | W7   | Component Model basics              | New        | Stage 3                               |
 
 ## Cross-module linking (from E2E 5E)
@@ -28,14 +28,14 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 |------|---------------------------------------------|-------|--------------------------------------|------------------------------------------|
 | ~~W10~~ | ~~Cross-process table side effects~~ | ~~0~~ | ~~RESOLVED~~ | Fixed by Zig E2E runner with shared Store. partial-init-table-segment 3/3 pass. |
 | W16  | wast2json NaN literal syntax                | 0     | simd/canonicalize-nan.wast uses NaN syntax wast2json 1.0.39 can't parse. No upgrade available. | Blocked on wabt release. File skipped in conversion. |
-| W21  | wast2json GC WAT text format               | 0     | wabt 1.0.39 can't parse GC text syntax. wasm-tools 1.244.0 can convert all 18 files. | Stage 19 Group A                                       |
+| ~~W21~~ | ~~wast2json GC WAT text format~~ | ~~0~~ | ~~RESOLVED~~ | wasm-tools 1.244.0 converts all 18 GC files. 472/546 pass (86.4%). |
 | ~~W17~~ | ~~.wat file support (native WAT parser)~~ | ~~0~~ | ~~RESOLVED (Stage 12)~~ | Completed. WAT parser with v128/SIMD, named locals/globals/labels, build-time optional. issue12170.wat validates OK. issue11563.wat out of scope (multi-module + GC). |
 
 ## Future improvements
 
 | ID   | Item                                | Trigger    | Notes                                    |
 |------|-------------------------------------|------------|------------------------------------------|
-| W20  | GC collector (mark-and-sweep)             | Post Stage 18 | Stage 19 Group C. Simple mark-and-sweep without compaction first. Generational/Immix upgrade later. |
+| ~~W20~~ | ~~GC collector (mark-and-sweep)~~ | ~~Post Stage 18~~ | ~~RESOLVED. Stage 19 C1-C4. Mark-and-sweep with threshold trigger.~~ |
 
 ## Wasm proposals (assigned to stages)
 

@@ -37,65 +37,177 @@ pub const ArrayObj = struct {
     elements: []StackVal,
 };
 
-/// No-collect GC heap. Append-only allocation.
+/// GC slot: wraps a GcObject with mark bit and free-list link.
+pub const GcSlot = struct {
+    obj: ?GcObject, // null = free slot
+    marked: bool,
+    next_free: ?u32, // intrusive free-list link
+};
+
+/// Mark-and-sweep GC heap with free-list reuse.
+pub const GC_THRESHOLD_DEFAULT: u32 = 1024;
+
 pub const GcHeap = struct {
-    objects: ArrayList(GcObject),
+    slots: ArrayList(GcSlot),
     alloc: Allocator,
+    free_head: ?u32, // head of free list (null = no free slots)
+    alloc_since_gc: u32 = 0, // allocations since last collection
+    gc_threshold: u32 = GC_THRESHOLD_DEFAULT,
 
     pub fn init(alloc: Allocator) GcHeap {
-        return .{ .objects = .empty, .alloc = alloc };
+        return .{ .slots = .empty, .alloc = alloc, .free_head = null };
     }
 
     pub fn deinit(self: *GcHeap) void {
-        for (self.objects.items) |obj| {
-            switch (obj) {
-                .struct_obj => |s| self.alloc.free(s.fields),
-                .array_obj => |a| self.alloc.free(a.elements),
+        for (self.slots.items) |slot| {
+            if (slot.obj) |obj| {
+                switch (obj) {
+                    .struct_obj => |s| self.alloc.free(s.fields),
+                    .array_obj => |a| self.alloc.free(a.elements),
+                }
             }
         }
-        self.objects.deinit(self.alloc);
+        self.slots.deinit(self.alloc);
     }
 
-    /// Allocate a struct object, returns gc_addr (index into objects).
+    /// Check if GC collection should be triggered.
+    pub fn shouldCollect(self: *const GcHeap) bool {
+        return self.alloc_since_gc >= self.gc_threshold;
+    }
+
+    /// Allocate a slot, reusing free list or appending.
+    fn allocSlot(self: *GcHeap, obj: GcObject) !u32 {
+        self.alloc_since_gc += 1;
+        if (self.free_head) |head| {
+            // Reuse free slot
+            const slot = &self.slots.items[head];
+            self.free_head = slot.next_free;
+            slot.* = .{ .obj = obj, .marked = false, .next_free = null };
+            return head;
+        }
+        // Append new slot
+        const addr: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(self.alloc, .{ .obj = obj, .marked = false, .next_free = null });
+        return addr;
+    }
+
+    /// Allocate a struct object, returns gc_addr (index into slots).
     pub fn allocStruct(self: *GcHeap, type_idx: u32, fields: []const StackVal) !u32 {
         const stored = try self.alloc.alloc(StackVal, fields.len);
         @memcpy(stored, fields);
-        const addr: u32 = @intCast(self.objects.items.len);
-        try self.objects.append(self.alloc, .{ .struct_obj = .{
-            .type_idx = type_idx,
-            .fields = stored,
-        } });
-        return addr;
+        return self.allocSlot(.{ .struct_obj = .{ .type_idx = type_idx, .fields = stored } });
     }
 
     /// Allocate an array object, returns gc_addr.
     pub fn allocArray(self: *GcHeap, type_idx: u32, len: u32, init_val: StackVal) !u32 {
         const elements = try self.alloc.alloc(StackVal, len);
         @memset(elements, init_val);
-        const addr: u32 = @intCast(self.objects.items.len);
-        try self.objects.append(self.alloc, .{ .array_obj = .{
-            .type_idx = type_idx,
-            .elements = elements,
-        } });
-        return addr;
+        return self.allocSlot(.{ .array_obj = .{ .type_idx = type_idx, .elements = elements } });
     }
 
     /// Allocate an array with pre-filled values, returns gc_addr.
     pub fn allocArrayWithValues(self: *GcHeap, type_idx: u32, values: []const StackVal) !u32 {
         const elements = try self.alloc.alloc(StackVal, values.len);
         @memcpy(elements, values);
-        const addr: u32 = @intCast(self.objects.items.len);
-        try self.objects.append(self.alloc, .{ .array_obj = .{
-            .type_idx = type_idx,
-            .elements = elements,
-        } });
-        return addr;
+        return self.allocSlot(.{ .array_obj = .{ .type_idx = type_idx, .elements = elements } });
     }
 
     /// Get a mutable reference to a GC object by address.
     pub fn getObject(self: *GcHeap, addr: u32) !*GcObject {
-        if (addr >= self.objects.items.len) return error.Trap;
-        return &self.objects.items[addr];
+        if (addr >= self.slots.items.len) return error.Trap;
+        const slot = &self.slots.items[addr];
+        if (slot.obj == null) return error.Trap; // freed slot
+        return &slot.obj.?;
+    }
+
+    /// Free a slot and add it to the free list.
+    pub fn freeSlot(self: *GcHeap, addr: u32) void {
+        if (addr >= self.slots.items.len) return;
+        const slot = &self.slots.items[addr];
+        if (slot.obj) |obj| {
+            switch (obj) {
+                .struct_obj => |s| self.alloc.free(s.fields),
+                .array_obj => |a| self.alloc.free(a.elements),
+            }
+        }
+        slot.* = .{ .obj = null, .marked = false, .next_free = self.free_head };
+        self.free_head = addr;
+    }
+
+    /// Mark a slot as reachable.
+    pub fn mark(self: *GcHeap, addr: u32) void {
+        if (addr >= self.slots.items.len) return;
+        self.slots.items[addr].marked = true;
+    }
+
+    /// Clear all mark bits (call before mark phase).
+    pub fn clearMarks(self: *GcHeap) void {
+        for (self.slots.items) |*slot| {
+            slot.marked = false;
+        }
+    }
+
+    /// Sweep: free all unmarked live slots.
+    pub fn sweep(self: *GcHeap) void {
+        for (self.slots.items, 0..) |*slot, i| {
+            if (slot.obj != null and !slot.marked) {
+                self.freeSlot(@intCast(i));
+            }
+        }
+    }
+
+    /// Try to mark+enqueue a single u64 value. Returns true if enqueued.
+    fn tryEnqueue(self: *GcHeap, val: u64, queue: *ArrayList(u32)) !void {
+        if (!isGcRef(val)) return;
+        const addr = decodeRef(val) catch return;
+        if (addr >= self.slots.items.len) return;
+        const slot = &self.slots.items[addr];
+        if (slot.obj != null and !slot.marked) {
+            slot.marked = true;
+            try queue.append(self.alloc, addr);
+        }
+    }
+
+    /// BFS traversal from already-seeded queue.
+    fn drainMarkQueue(self: *GcHeap, queue: *ArrayList(u32)) !void {
+        var cursor: usize = 0;
+        while (cursor < queue.items.len) {
+            const addr = queue.items[cursor];
+            cursor += 1;
+            const slot = &self.slots.items[addr];
+            const obj = slot.obj orelse continue;
+            const vals: []const u64 = switch (obj) {
+                .struct_obj => |s| s.fields,
+                .array_obj => |a| a.elements,
+            };
+            for (vals) |val| {
+                try self.tryEnqueue(val, queue);
+            }
+        }
+    }
+
+    /// Mark all objects reachable from u64 roots via BFS.
+    pub fn markRoots(self: *GcHeap, roots: []const u64) !void {
+        var queue: ArrayList(u32) = .empty;
+        defer queue.deinit(self.alloc);
+        for (roots) |val| try self.tryEnqueue(val, &queue);
+        try self.drainMarkQueue(&queue);
+    }
+
+    /// Mark all objects reachable from u128 roots (op_stack, globals) via BFS.
+    pub fn markRootsWide(self: *GcHeap, roots: []const u128) !void {
+        var queue: ArrayList(u32) = .empty;
+        defer queue.deinit(self.alloc);
+        for (roots) |wide_val| try self.tryEnqueue(@truncate(wide_val), &queue);
+        try self.drainMarkQueue(&queue);
+    }
+
+    /// Full mark-and-sweep collection cycle.
+    pub fn collect(self: *GcHeap, roots: []const u64) !void {
+        self.clearMarks();
+        try self.markRoots(roots);
+        self.sweep();
+        self.alloc_since_gc = 0;
     }
 
     /// Encode a GC heap address as an operand stack value (non-null).
@@ -699,4 +811,224 @@ test "cast VM integration — ref.cast null traps" {
     var results = [_]u64{0};
     // ref.cast on null should trap
     try testing.expectError(error.Trap, vm.invoke(&inst, "rc", &args, &results));
+}
+
+test "GcSlot — free list reuse" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Allocate 3 structs
+    const fields = [_]u64{1};
+    const a0 = try heap.allocStruct(0, &fields);
+    const a1 = try heap.allocStruct(0, &fields);
+    const a2 = try heap.allocStruct(0, &fields);
+    try testing.expectEqual(@as(u32, 0), a0);
+    try testing.expectEqual(@as(u32, 1), a1);
+    try testing.expectEqual(@as(u32, 2), a2);
+
+    // Free slot 1
+    heap.freeSlot(a1);
+
+    // Next alloc should reuse slot 1
+    const a3 = try heap.allocStruct(0, &fields);
+    try testing.expectEqual(@as(u32, 1), a3);
+
+    // Next alloc should append (slot 3)
+    const a4 = try heap.allocStruct(0, &fields);
+    try testing.expectEqual(@as(u32, 3), a4);
+}
+
+test "GcSlot — mark and sweep basics" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    const fields = [_]u64{1};
+    const a0 = try heap.allocStruct(0, &fields);
+    _ = try heap.allocStruct(0, &fields); // a1, will be swept
+    const a2 = try heap.allocStruct(0, &fields);
+
+    // Mark a0 and a2, leave a1 unmarked
+    heap.mark(a0);
+    heap.mark(a2);
+
+    // Sweep unmarked objects
+    heap.sweep();
+
+    // a0 and a2 should still be accessible
+    _ = try heap.getObject(a0);
+    _ = try heap.getObject(a2);
+
+    // a1 should be freed (slot 1 on free list)
+    // Next alloc reuses slot 1
+    const a3 = try heap.allocStruct(0, &fields);
+    try testing.expectEqual(@as(u32, 1), a3);
+}
+
+test "markRoots — BFS transitive marking" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Build an object graph: root -> A -> B -> C, D is unreachable
+    //   C: leaf struct with no GC refs in fields
+    const c_addr = try heap.allocStruct(0, &[_]u64{42});
+    //   B: struct with a field pointing to C
+    const b_addr = try heap.allocStruct(0, &[_]u64{GcHeap.encodeRef(c_addr)});
+    //   A: struct with a field pointing to B
+    const a_addr = try heap.allocStruct(0, &[_]u64{GcHeap.encodeRef(b_addr)});
+    //   D: unreachable struct
+    const d_addr = try heap.allocStruct(0, &[_]u64{99});
+
+    // Root set: only A
+    heap.clearMarks();
+    const roots = [_]u64{GcHeap.encodeRef(a_addr)};
+    try heap.markRoots(&roots);
+
+    // A, B, C should be marked (transitively reachable from root)
+    try testing.expect(heap.slots.items[a_addr].marked);
+    try testing.expect(heap.slots.items[b_addr].marked);
+    try testing.expect(heap.slots.items[c_addr].marked);
+    // D should NOT be marked
+    try testing.expect(!heap.slots.items[d_addr].marked);
+}
+
+test "markRoots — array elements traversal" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // leaf1 and leaf2: structs with no GC refs
+    const leaf1 = try heap.allocStruct(0, &[_]u64{10});
+    const leaf2 = try heap.allocStruct(0, &[_]u64{20});
+    // arr: array with elements pointing to leaf1 and leaf2
+    const arr = try heap.allocArrayWithValues(1, &[_]u64{ GcHeap.encodeRef(leaf1), GcHeap.encodeRef(leaf2), 0 });
+
+    heap.clearMarks();
+    const roots = [_]u64{GcHeap.encodeRef(arr)};
+    try heap.markRoots(&roots);
+
+    try testing.expect(heap.slots.items[arr].marked);
+    try testing.expect(heap.slots.items[leaf1].marked);
+    try testing.expect(heap.slots.items[leaf2].marked);
+}
+
+test "markRoots — cycle detection" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Create two structs that reference each other (cycle)
+    // a -> b -> a (cycle)
+    const a_addr = try heap.allocStruct(0, &[_]u64{0}); // placeholder
+    const b_addr = try heap.allocStruct(0, &[_]u64{GcHeap.encodeRef(a_addr)});
+    // Patch a's field to point to b
+    const a_obj = try heap.getObject(a_addr);
+    a_obj.struct_obj.fields[0] = GcHeap.encodeRef(b_addr);
+
+    heap.clearMarks();
+    const roots = [_]u64{GcHeap.encodeRef(a_addr)};
+    try heap.markRoots(&roots); // should not infinite loop
+
+    try testing.expect(heap.slots.items[a_addr].marked);
+    try testing.expect(heap.slots.items[b_addr].marked);
+}
+
+test "markRoots — i31 and null ignored" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    const s_addr = try heap.allocStruct(0, &[_]u64{7});
+
+    heap.clearMarks();
+    // Roots: null (0), i31 value, a real GC ref
+    const i31_val = encodeI31(42);
+    const roots = [_]u64{ 0, i31_val, GcHeap.encodeRef(s_addr) };
+    try heap.markRoots(&roots);
+
+    try testing.expect(heap.slots.items[s_addr].marked);
+}
+
+test "collect — full mark-and-sweep cycle" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Object graph: root -> A -> B, C is garbage
+    const b_addr = try heap.allocStruct(0, &[_]u64{100});
+    const a_addr = try heap.allocStruct(0, &[_]u64{GcHeap.encodeRef(b_addr)});
+    const c_addr = try heap.allocStruct(0, &[_]u64{200}); // unreachable
+
+    // Run full collection with A as root
+    const roots = [_]u64{GcHeap.encodeRef(a_addr)};
+    try heap.collect(&roots);
+
+    // A and B survive, C freed
+    _ = try heap.getObject(a_addr);
+    _ = try heap.getObject(b_addr);
+    try testing.expectError(error.Trap, heap.getObject(c_addr));
+
+    // Next alloc should reuse C's slot
+    const d_addr = try heap.allocStruct(0, &[_]u64{300});
+    try testing.expectEqual(c_addr, d_addr);
+}
+
+test "collect — multiple cycles reclaim more garbage" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    const a = try heap.allocStruct(0, &[_]u64{1});
+    const b = try heap.allocStruct(0, &[_]u64{2});
+    _ = try heap.allocStruct(0, &[_]u64{3}); // garbage
+
+    // First cycle: keep a and b
+    var roots = [_]u64{ GcHeap.encodeRef(a), GcHeap.encodeRef(b) };
+    try heap.collect(&roots);
+    try testing.expectEqual(@as(usize, 3), heap.slots.items.len);
+
+    // Second cycle: only keep a, b becomes garbage
+    roots = [_]u64{ GcHeap.encodeRef(a), 0 };
+    try heap.collect(&roots);
+    _ = try heap.getObject(a);
+    try testing.expectError(error.Trap, heap.getObject(b));
+}
+
+test "shouldCollect — threshold tracking" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+    heap.gc_threshold = 3; // low threshold for testing
+
+    try testing.expect(!heap.shouldCollect());
+
+    _ = try heap.allocStruct(0, &[_]u64{1});
+    try testing.expectEqual(@as(u32, 1), heap.alloc_since_gc);
+    try testing.expect(!heap.shouldCollect());
+
+    _ = try heap.allocStruct(0, &[_]u64{2});
+    try testing.expect(!heap.shouldCollect());
+
+    _ = try heap.allocStruct(0, &[_]u64{3});
+    try testing.expectEqual(@as(u32, 3), heap.alloc_since_gc);
+    try testing.expect(heap.shouldCollect()); // threshold reached
+
+    // After collect, counter resets
+    const roots = [_]u64{};
+    try heap.collect(&roots);
+    try testing.expectEqual(@as(u32, 0), heap.alloc_since_gc);
+    try testing.expect(!heap.shouldCollect());
+}
+
+test "markRootsWide — u128 operand stack scanning" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    const a = try heap.allocStruct(0, &[_]u64{42});
+    const b = try heap.allocStruct(0, &[_]u64{99});
+
+    heap.clearMarks();
+    // Simulate op_stack entries: u128 with GC ref in low 64 bits
+    const wide_roots = [_]u128{
+        @as(u128, GcHeap.encodeRef(a)),
+        0, // null
+        @as(u128, 12345), // plain integer
+    };
+    try heap.markRootsWide(&wide_roots);
+
+    try testing.expect(heap.slots.items[a].marked);
+    try testing.expect(!heap.slots.items[b].marked); // not in roots
 }

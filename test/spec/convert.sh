@@ -77,20 +77,39 @@ if [ -d "$RSDIR" ]; then
     done
 fi
 
-# GC proposal tests (from external spec repo)
+# GC proposal tests (from external spec repo, requires wasm-tools)
+# wabt's wast2json cannot parse GC text format; use wasm-tools json-from-wast.
 GC_TESTSUITE="${GC_TESTSUITE:-$HOME/Documents/OSS/WebAssembly/gc}"
 GCDIR="$GC_TESTSUITE/test/core/gc"
 if [ -d "$GCDIR" ]; then
-    for wast in "$GCDIR"/*.wast; do
-        name=$(basename "$wast" .wast)
-        outname="gc-$name"  # prefix to avoid collisions
-        if wast2json --enable-gc --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$outname.json" 2>/dev/null; then
-            CONVERTED=$((CONVERTED + 1))
-        else
-            echo "WARN: failed to convert gc/$name.wast"
-            FAILED=$((FAILED + 1))
-        fi
-    done
+    if ! command -v wasm-tools &>/dev/null; then
+        echo "WARN: wasm-tools not found, skipping GC tests"
+    else
+        for wast in "$GCDIR"/*.wast; do
+            name=$(basename "$wast" .wast)
+            outname="gc-$name"  # prefix to avoid collisions with core tests
+            if wasm-tools json-from-wast "$wast" -o "$OUTDIR/$outname.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
+                # Rename wasm files: name.N.wasm -> gc-name.N.wasm (avoid collisions)
+                for wf in "$OUTDIR/$name".*.wasm; do
+                    [ -f "$wf" ] || continue
+                    base=$(basename "$wf")
+                    mv "$wf" "$OUTDIR/gc-$base"
+                done
+                # Fix filename references in JSON to match renamed wasm files
+                python3 -c "
+import re, sys
+p = sys.argv[1]
+with open(p) as f: s = f.read()
+s = re.sub(r'\"' + re.escape(sys.argv[2]) + r'\.(\d+)\.wasm\"', r'\"' + sys.argv[3] + r'.\1.wasm\"', s)
+with open(p, 'w') as f: f.write(s)
+" "$OUTDIR/$outname.json" "$name" "$outname"
+                CONVERTED=$((CONVERTED + 1))
+            else
+                echo "WARN: failed to convert gc/$name.wast"
+                FAILED=$((FAILED + 1))
+            fi
+        done
+    fi
 fi
 
 echo ""

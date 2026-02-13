@@ -4,10 +4,10 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-18 — COMPLETE (Wasm 3.0 all 9 proposals)
-- Source: ~32K LOC, 19 files, 239 tests all pass
-- Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: ~27
-- Spec: 60,873/60,906 Mac (99.9%), 7 skips, E2E: 356/356, CI: ubuntu + macOS
+- Stages 0-2, 4, 7-19 — COMPLETE (Wasm 3.0 all 9 proposals + GC collector + WASI P1 full)
+- Source: ~33K LOC, 19 files, 239+ tests all pass
+- Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
+- Spec: 61,344/61,451 Mac (99.8%), incl. GC 472/546, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
@@ -150,31 +150,34 @@ Target: GC spec tests (W21), table.init修正 (W2), GC collector (W20), WASI P1�
 ~1,490 LOC, 14 tasks. 詳細設計: `.claude/plans/groovy-sprouting-horizon.md`
 
 Group A: GC Spec Tests (wasm-tools 1.244.0で828 assertions変換)
-1. [ ] A1: convert.shにwasm-tools対応
-2. [ ] A2: run_spec.pyのGC ref型対応(value無しref, ref_anyマッチ)
-3. [ ] A3: GC spec実行 + パスカウント記録
+1. [x] A1: convert.shにwasm-tools対応
+2. [x] A2: run_spec.pyのGC ref型対応(value無しref, ref_anyマッチ)
+3. [x] A3: GC spec実行 + パスカウント記録 — 472/546 (86.4%)
 
 Group B: table.init修正 — RESOLVED
 4. [x] B1: Already fixed in cdb0c10. spec table_init 729/729 + table_init64 819/819 = 1,548/1,548 (100%)
 
 Group C: GC Collector — compact無しmark-and-sweep
-5. [ ] C1: GcSlot + free list (GcObject wrapping, alloc再利用)
-6. [ ] C2: Markフェーズ (ルートスキャン + BFS)
-7. [ ] C3: Sweepフェーズ (未到達解放 + free list追加)
-8. [ ] C4: VM統合 (threshold trigger, D115)
+5. [x] C1: GcSlot + free list (GcObject wrapping, alloc再利用)
+6. [x] C2: Markフェーズ (ルートスキャン + BFS)
+7. [x] C3: Sweepフェーズ (未到達解放 + free list追加)
+8. [x] C4: VM統合 (threshold trigger, D115)
 
 Group D: WASI P1 Full Support (~27/35 → 35/35)
-9.  [ ] D1: FdTable拡張 + path_open (最重要、250 LOC)
-10. [ ] D2: fd_readdir (directory iteration)
-11. [ ] D3: fd_renumber + path_symlink + path_link
-12. [ ] D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
-13. [ ] D5: poll_oneoff簡易版 (CLOCKのみ)
-14. [ ] D6: sock_* + 残り (NOSYS stub)
+9.  [x] D1: FdTable拡張 + path_open (最重要、250 LOC)
+10. [x] D2: fd_readdir (directory iteration)
+11. [x] D3: fd_renumber + path_symlink + path_link
+12. [x] D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
+13. [x] D5: poll_oneoff簡易版 (CLOCKのみ)
+14. [x] D6: sock_* + 残り (NOSYS stub)
 
 ## Current Task
 
-v0.1.0 Tag Replace — ALL COMPLETE. Resume Stage 19.
-Requirements: `~/Documents/MyProducts/ClojureWasm/private/my-tag-replace.md`
+Stage 19 Group D complete. All WASI P1 functions implemented (46 entries).
+
+## Previous Task
+
+D6: sock_* NOSYS stubs (sock_accept/recv/send/shutdown), fd_fdstat_set_rights (deprecated, SUCCESS), proc_raise (NOSYS). WASI P1 now 46/46 functions registered.
 
 ## v0.1.0 Tag Replace Queue
 
@@ -216,11 +219,11 @@ Docs overhauled, benchmarks recorded, CI green on both repos.
 ## Wasm 3.0 Coverage
 
 All 9 proposals complete: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory, relaxed_simd, function_references, gc.
-GC spec tests blocked on wabt 1.0.39 (W21) — only binary-gc.wast converts. 16 unit tests cover all 31 opcodes.
+GC spec tests via wasm-tools 1.244.0: 472/546 (86.4%), 18 files. W21 resolved.
 
 ## Known Bugs
 
-None. Mac 60,873/60,906 (99.9%), 7 skips, 33 multi-module linking failures.
+None. Mac 61,344/61,451 (99.8%), 32 GC skips, 33 multi-module linking failures.
 Note: Ubuntu Debug build has 11 extra timeouts on tail-call recursion tests (return_call/return_call_ref count/even/odd 1M iterations). Use ReleaseSafe for spec tests on Ubuntu.
 
 ## References

@@ -58,6 +58,11 @@ def v128_has_nan(lane_type, lanes):
 def parse_value(val_obj):
     """Parse a JSON value object to u64 or v128 tuple. Returns ("skip",) for unsupported types."""
     vtype = val_obj["type"]
+
+    # GC ref types may have no "value" field: means "any non-null ref of this type"
+    if "value" not in val_obj:
+        return ("ref_any", vtype)
+
     vstr = val_obj["value"]
 
     if vtype == "v128":
@@ -175,6 +180,8 @@ def match_result(results, expected):
             if len(results) < 1:
                 return False
             return is_nan_u64(results[0], expected[1])
+        elif expected[0] == "ref_any":
+            return len(results) == 1 and results[0] != 0
         return False
     # Plain u64 comparison
     return len(results) == 1 and results[0] == expected
@@ -202,6 +209,13 @@ def match_results(results, expected_list):
                     return False
                 if not is_nan_u64(results[ridx], e[1]):
                     return False
+                ridx += 1
+            elif e[0] == "ref_any":
+                # Any non-null ref value matches
+                if ridx >= len(results):
+                    return False
+                if results[ridx] == 0:
+                    return False  # null doesn't match ref_any
                 ridx += 1
             else:
                 return False
