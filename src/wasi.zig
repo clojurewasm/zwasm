@@ -764,17 +764,93 @@ pub fn fd_tell(ctx: *anyopaque, _: usize) anyerror!void {
 pub fn fd_readdir(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const bufused_ptr = vm.popOperandU32();
-    _ = vm.popOperandI64(); // cookie
-    _ = vm.popOperandU32(); // buf_len
-    _ = vm.popOperandU32(); // buf_ptr
-    _ = vm.popOperandI32(); // fd
+    const cookie = vm.popOperandI64();
+    const buf_len = vm.popOperandU32();
+    const buf_ptr = vm.popOperandU32();
+    const fd = vm.popOperandI32();
 
     if (!hasCap(vm, .allow_read)) return pushErrno(vm, .ACCES);
 
-    // Stub: return empty directory
+    const wasi = getWasi(vm) orelse {
+        try pushErrno(vm, .NOSYS);
+        return;
+    };
+
+    const host_fd = wasi.getHostFd(fd) orelse {
+        try pushErrno(vm, .BADF);
+        return;
+    };
+
     const memory = try vm.getMemory(0);
-    try memory.write(u32, bufused_ptr, 0, 0);
+    const data = memory.memory();
+    if (buf_ptr + buf_len > data.len) return error.OutOfBoundsMemoryAccess;
+
+    var dir = std.fs.Dir{ .fd = host_fd };
+    var iter = dir.iterate();
+
+    // Skip entries up to cookie
+    var idx: i64 = 0;
+    while (idx < cookie) : (idx += 1) {
+        _ = iter.next() catch {
+            try memory.write(u32, bufused_ptr, 0, 0);
+            try pushErrno(vm, .SUCCESS);
+            return;
+        };
+    }
+
+    // Fill buffer with dirent entries
+    // WASI dirent: d_next(u64) + d_ino(u64) + d_namlen(u32) + d_type(u8) = 24 bytes header + name
+    var bufused: u32 = 0;
+    const DIRENT_HDR: u32 = 24;
+    while (true) {
+        const entry = iter.next() catch break;
+        if (entry == null) break;
+        const e = entry.?;
+        const name = e.name;
+        const name_len: u32 = @intCast(name.len);
+        const entry_size = DIRENT_HDR + name_len;
+
+        // Check if entry fits in remaining buffer
+        if (bufused + entry_size > buf_len) {
+            // Partially write header if we have room for at least the header
+            if (bufused + DIRENT_HDR <= buf_len) {
+                const off = buf_ptr + bufused;
+                idx += 1;
+                mem.writeInt(u64, data[off..][0..8], @bitCast(idx), .little); // d_next
+                mem.writeInt(u64, data[off + 8 ..][0..8], 0, .little); // d_ino
+                mem.writeInt(u32, data[off + 16 ..][0..4], name_len, .little); // d_namlen
+                data[off + 20] = wasiFiletype(e.kind); // d_type
+                // Partial name copy
+                const avail = buf_len - bufused - DIRENT_HDR;
+                if (avail > 0) @memcpy(data[off + DIRENT_HDR .. off + DIRENT_HDR + avail], name[0..avail]);
+                bufused = buf_len;
+            }
+            break;
+        }
+
+        const off = buf_ptr + bufused;
+        idx += 1;
+        mem.writeInt(u64, data[off..][0..8], @bitCast(idx), .little); // d_next
+        mem.writeInt(u64, data[off + 8 ..][0..8], 0, .little); // d_ino (unknown)
+        mem.writeInt(u32, data[off + 16 ..][0..4], name_len, .little); // d_namlen
+        data[off + 20] = wasiFiletype(e.kind); // d_type
+        @memcpy(data[off + DIRENT_HDR .. off + DIRENT_HDR + name_len], name[0..name_len]);
+        bufused += entry_size;
+    }
+
+    try memory.write(u32, bufused_ptr, 0, bufused);
     try pushErrno(vm, .SUCCESS);
+}
+
+fn wasiFiletype(kind: std.fs.Dir.Entry.Kind) u8 {
+    return switch (kind) {
+        .directory => @intFromEnum(Filetype.DIRECTORY),
+        .sym_link => @intFromEnum(Filetype.SYMBOLIC_LINK),
+        .file => @intFromEnum(Filetype.REGULAR_FILE),
+        .block_device => @intFromEnum(Filetype.BLOCK_DEVICE),
+        .character_device => @intFromEnum(Filetype.CHARACTER_DEVICE),
+        else => @intFromEnum(Filetype.UNKNOWN),
+    };
 }
 
 /// path_filestat_get(fd: i32, flags: i32, path_ptr: i32, path_len: i32, filestat_ptr: i32) -> errno
@@ -1877,6 +1953,82 @@ test "WASI — path_open creates file and returns valid fd" {
 
     // Clean up
     posix.unlinkat(tmp_fd, test_path, 0) catch {};
+}
+
+test "WASI — fd_readdir lists directory entries" {
+    const alloc = testing.allocator;
+
+    const wasm_bytes = try readTestFile("07_wasi_hello.wasm");
+    defer alloc.free(wasm_bytes);
+
+    var module = Module.init(alloc, wasm_bytes);
+    defer module.deinit();
+    try module.decode();
+
+    var store_inst = Store.init(alloc);
+    defer store_inst.deinit();
+    try registerAll(&store_inst, &module);
+
+    var instance = instance_mod.Instance.init(alloc, &store_inst, &module);
+    defer instance.deinit();
+
+    var wasi_ctx = WasiContext.init(alloc);
+    defer wasi_ctx.deinit();
+    wasi_ctx.caps = Capabilities.all;
+    instance.wasi = &wasi_ctx;
+
+    // Create a temp directory with known contents
+    const tmp_fd = posix.openat(posix.AT.FDCWD, "/tmp", .{ .DIRECTORY = true }, 0) catch unreachable;
+    const test_dir = "zwasm_test_readdir";
+    posix.mkdirat(tmp_fd, test_dir, 0o755) catch {};
+    const dir_fd = posix.openat(tmp_fd, test_dir, .{ .DIRECTORY = true }, 0) catch unreachable;
+
+    // Create two files in the directory
+    const f1 = posix.openat(dir_fd, "afile.txt", .{ .CREAT = true, .ACCMODE = .RDWR }, 0o644) catch unreachable;
+    posix.close(f1);
+    const f2 = posix.openat(dir_fd, "bfile.txt", .{ .CREAT = true, .ACCMODE = .RDWR }, 0o644) catch unreachable;
+    posix.close(f2);
+
+    // Reopen dir fd for reading
+    const read_dir_fd = posix.openat(tmp_fd, test_dir, .{ .DIRECTORY = true }, 0) catch unreachable;
+    try wasi_ctx.addPreopen(3, "/tmp", tmp_fd);
+    // Put the dir fd in fd_table
+    const wasi_dir_fd = try wasi_ctx.allocFd(read_dir_fd);
+
+    try instance.instantiate();
+
+    var vm_inst = Vm.init(alloc);
+    vm_inst.current_instance = &instance;
+
+    const memory = try instance.getMemory(0);
+    const data = memory.memory();
+
+    // fd_readdir(fd, buf_ptr=1000, buf_len=4096, cookie=0, bufused_ptr=5000)
+    try vm_inst.pushOperand(@intCast(wasi_dir_fd)); // fd
+    try vm_inst.pushOperand(1000); // buf_ptr
+    try vm_inst.pushOperand(4096); // buf_len
+    try vm_inst.pushOperand(0); // cookie = start
+    try vm_inst.pushOperand(5000); // bufused_ptr
+    try fd_readdir(@ptrCast(&vm_inst), 0);
+    const errno = vm_inst.popOperand();
+    try testing.expectEqual(@as(u64, @intFromEnum(Errno.SUCCESS)), errno);
+
+    // Read bufused
+    const bufused = mem.readInt(u32, data[5000..5004], .little);
+    // Should have at least 2 entries (afile.txt=9, bfile.txt=9) + headers (24 each)
+    // Plus . and .. on some platforms
+    try testing.expect(bufused > 0);
+
+    // First entry: check d_namlen and d_type are reasonable
+    const d_namlen = mem.readInt(u32, data[1016..1020], .little);
+    try testing.expect(d_namlen > 0);
+    try testing.expect(d_namlen < 256);
+
+    // Clean up
+    posix.unlinkat(dir_fd, "afile.txt", 0) catch {};
+    posix.unlinkat(dir_fd, "bfile.txt", 0) catch {};
+    posix.close(dir_fd);
+    posix.unlinkat(tmp_fd, test_dir, posix.AT.REMOVEDIR) catch {};
 }
 
 test "WASI — registerAll for wasi_hello module" {

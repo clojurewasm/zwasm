@@ -165,7 +165,7 @@ Group C: GC Collector — compact無しmark-and-sweep
 
 Group D: WASI P1 Full Support (~27/35 → 35/35)
 9.  [x] D1: FdTable拡張 + path_open (最重要、250 LOC)
-10. [ ] D2: fd_readdir (directory iteration)
+10. [x] D2: fd_readdir (directory iteration)
 11. [ ] D3: fd_renumber + path_symlink + path_link
 12. [ ] D4: stub関数実装 (fd_fdstat_set_flags, *_set_times, path_filestat_get)
 13. [ ] D5: poll_oneoff簡易版 (CLOCKのみ)
@@ -173,11 +173,11 @@ Group D: WASI P1 Full Support (~27/35 → 35/35)
 
 ## Current Task
 
-D2: fd_readdir (directory iteration)
+D3: fd_renumber + path_symlink + path_link
 
 ## Previous Task
 
-D1: FdTable + path_open. Added FdEntry struct + fd_table ArrayList to WasiContext. allocFd/closeFd for dynamic fd management. path_open with posix.openat, oflags/fdflags conversion, ISDIR retry. Updated fd_close for dynamic fds. Test: create file, write, close via path_open.
+D2: fd_readdir — full directory iteration via std.fs.Dir.iterate(). Writes WASI dirent entries (d_next, d_ino, d_namlen, d_type + name) to buffer. Cookie-based pagination. wasiFiletype helper for Entry.Kind → Filetype. Test verifies non-empty output for temp directory.
 
 C1: GcSlot + free list. GcObject→GcSlot migration, intrusive free list, freeSlot/mark/clearMarks/sweep API.
 
