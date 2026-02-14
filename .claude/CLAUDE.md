@@ -73,15 +73,9 @@ Lazy load: roadmap.md, decisions.md, checklist.md, bench-strategy.md (only when 
 - Spec tests: `python3 test/spec/run_spec.py --summary` (when changing interpreter or opcodes)
 - `jit.zig` modified → `.claude/rules/jit-check.md` auto-loads
 - `bench/`, `vm.zig`, `regalloc.zig` modified → `.claude/rules/bench-check.md` auto-loads
-- `opcode.zig`, `module.zig`, `predecode.zig` modified for proposals → `.claude/rules/proposal-check.md` auto-loads
 - **Investigation**: Check reference impls when debugging, designing, OR optimizing:
   - wasmtime: `~/Documents/OSS/wasmtime/` (JIT patterns, cranelift)
   - zware: `~/Documents/OSS/zware/` (Zig idioms, API patterns)
-  - WasmResearch: `~/Documents/MyProducts/WasmResearch/docs/` (spec analysis)
-- **Proposals**: For Stages 7-10, always read the proposal spec FIRST:
-  - Specs: `~/Documents/OSS/WebAssembly/<repo>/proposals/<name>/Overview.md`
-  - Summaries: `.dev/references/proposals/<name>.md`
-  - Catalog: `.dev/status/proposals.yaml`
 - **Optimization profiling**: When a benchmark has a performance gap vs wasmtime,
   read the corresponding cranelift codegen to understand what optimizations they apply.
   Key paths in wasmtime: `cranelift/codegen/src/isa/aarch64/` (ARM64 lowering),
@@ -146,23 +140,6 @@ Run before every commit:
 7. **spec-support.md**: Update when implementing opcodes or WASI syscalls
 8. **memo.md**: Update per Complete step 1 format above
 
-### Proposal Stage Rules (Stages 7-10)
-
-Proposal implementations modify core interpreter/decoder, so extra vigilance:
-
-- **Spec tests are ALWAYS required** — every commit, no exceptions.
-  Proposals change vm.zig/opcode.zig/module.zig/predecode.zig by definition.
-- **Benchmark regression check**: Run `bash bench/run_bench.sh --quick` after
-  EACH task completion (not just optimization tasks). Proposals can regress
-  performance via code path changes, larger instruction dispatch, etc.
-- **Benchmark recording**: Record with `bash bench/record.sh` at stage
-  boundaries (first task and last task of each stage) to track drift.
-- **proposals.yaml**: Update status from `todo` to `partial`/`complete` as
-  implementation progresses. Keep in sync with actual state.
-- **compliance.yaml**: Update pass counts after spec test improvements.
-- **Reference impls**: Always check wasmtime/zware before implementing.
-  Read the spec proposal Overview.md first. Study edge cases in spec tests.
-
 ### Merge Gate Checklist (feature branch → main)
 
 Run before merging to main (in addition to commit gate):
@@ -189,10 +166,8 @@ When Task Queue for current stage is all `[x]`:
 
 1. Run benchmark recording: `bash bench/record.sh --id=STAGE_ID --reason="Stage N complete"`
 2. Merge to main via Merge Gate Checklist (tag if milestone warrants)
-3. Next stage is pre-planned in memo.md (Stages 7→8→9→10→11→12→13).
-   Set `## Current Task` to first task of the next stage.
-4. If next stage has `(Task breakdown TBD)`, plan tasks first (read
-   roadmap.md + proposal references), update memo.md, commit plan.
+3. Set `## Current Task` to first task of the next stage.
+4. If next stage needs task breakdown, plan tasks first, update memo.md, commit plan.
 5. Continue to first task — do NOT stop between stages.
 
 ## Build & Test

@@ -60,5 +60,5 @@ bash bench/record.sh --id="3.9" --reason="JIT function-level"
 ## Files
 
 - History: `bench/history.yaml` — zwasm performance progression
-- Comparison: `bench/runtime_comparison.yaml` — 5 runtimes (zwasm/wasmtime/wasmer/bun/node)
+- Comparison: `bench/runtime_comparison.yaml` — 4 runtimes (zwasm/wasmtime/bun/node)
 - Strategy: `.dev/bench-strategy.md` — benchmark layers and design
