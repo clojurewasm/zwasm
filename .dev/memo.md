@@ -34,7 +34,8 @@ Stage 23 merged to main. No next stage defined — awaiting user direction.
 
 ## Previous Task
 
-Stage 23: JIT Optimization — 5 tasks (liveness spill, guard pages, call overhead, FP regs, measure+tune). 13/21 benchmarks at or faster than wasmtime. Merged to main 2026-02-14.
+Stage 24 attempted (address mode folding + adaptive prologue) — no measurable effect, abandoned. See D116.
+Stage 23: JIT Optimization — merged to main 2026-02-14. 13/21 benchmarks at or faster than wasmtime.
 
 ## Wasm 3.0 Coverage
 

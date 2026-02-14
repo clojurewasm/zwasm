@@ -443,3 +443,30 @@ allowing `FADD Dd, Dn, Dm` directly without GPR round-trips. Eviction writes bac
 via `FMOV Xscratch, Dn` + `storeVreg()`. Evict all before: branches, BLR calls
 (order: evictAll → spillCallerSaved). S0/D0/D1 used as scratch only, not cached.
 Result: nbody 43ms→8ms (5.4x), 2.4x faster than wasmtime.
+
+---
+
+## D116: Address mode folding + adaptive prologue — abandoned (no effect)
+
+**Context**: Stage 24 attempted two JIT optimizations to close remaining gaps
+vs wasmtime on memory-bound (st_matrix 3.2x) and recursive (fib 1.8x) benchmarks.
+
+1. **Address mode folding**: Fold static offset into LDR/STR immediate operand
+   (`LDR Wt, [Xn, #offset]`) instead of separate ADD + register-offset load.
+2. **Adaptive prologue**: Save only used callee-saved register pairs via bitmask,
+   skip unused pairs to reduce per-call overhead in recursive functions.
+
+**Result**: No measurable improvement on any of the 21 benchmarks.
+
+**Why it failed**:
+- Address folding: Wasm programs compute effective addresses in wasm code
+  (i32.add), not as static offsets. Most i32.load/store have offset=0, so
+  folding rarely triggers. st_matrix i32.load has offset=0 in 90%+ of cases.
+- Adaptive prologue: Recursive functions (fib, st_fib2) have reg_count >= 4
+  AND has_self_call=true, which means all 6 callee-saved pairs are still needed.
+  No pairs can be skipped.
+
+**Decision**: Abandoned. Branch `24/jit-opt-phase2` deleted. The remaining gaps
+(st_matrix 3.2x, fib 1.8x) require fundamentally different approaches — likely
+loop-invariant code motion, strength reduction, or register promotion for memory
+loads — not instruction-level encoding tricks.
