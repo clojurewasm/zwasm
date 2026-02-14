@@ -816,3 +816,30 @@ entries:
       st_nestedloop: {time_ms: 3.3}
       st_ackermann: {time_ms: 4.6}
       st_matrix: {time_ms: 281.7}
+  - id: "25"
+    date: "2026-02-14"
+    reason: "lightweight self-call"
+    commit: "5effc85"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 57.5}
+      tak: {time_ms: 8.9}
+      sieve: {time_ms: 3.9}
+      nbody: {time_ms: 8.4}
+      nqueens: {time_ms: 2.2}
+      tgo_fib: {time_ms: 42.9}
+      tgo_tak: {time_ms: 10.6}
+      tgo_arith: {time_ms: 0.7}
+      tgo_sieve: {time_ms: 3.8}
+      tgo_fib_loop: {time_ms: 2.2}
+      tgo_gcd: {time_ms: 1.6}
+      tgo_nqueens: {time_ms: 42.4}
+      tgo_mfr: {time_ms: 61.0}
+      tgo_list: {time_ms: 33.8}
+      tgo_rwork: {time_ms: 5.5}
+      tgo_strops: {time_ms: 35.6}
+      st_fib2: {time_ms: 1073.0}
+      st_sieve: {time_ms: 210.7}
+      st_nestedloop: {time_ms: 1.5}
+      st_ackermann: {time_ms: 5.6}
+      st_matrix: {time_ms: 283.2}

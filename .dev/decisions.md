@@ -446,6 +446,23 @@ Result: nbody 43ms→8ms (5.4x), 2.4x faster than wasmtime.
 
 ---
 
+## D117: Lightweight self-call — caller-saves-all for recursive calls
+
+**Context**: Deep recursion benchmarks (fib, st_fib2) showed ~1.8x gap vs wasmtime.
+Root cause: 6 STP + 6 LDP (12 instructions) per recursive call. wasmtime uses tail
+calling convention (no callee-saved save/restore; caller saves only live values).
+
+**Approach**: Dual entry point for has_self_call functions. Normal entry does full
+STP x19-x28 + sets x29=SP (flag). Self-call entry skips callee-saved saves, only
+does STP x29,x30 + MOV x29,#0 (flag). Epilogue CBZ x29 conditionally skips LDP
+x19-x28. Caller saves only live callee-saved vregs to regs[] via liveness analysis.
+
+**Results**: fib 90.6ms→57.5ms (-37%), now 1.03x faster than wasmtime.
+st_fib2 1310ms→1073ms (-18%), tgo_fib 48.6ms→42.9ms (-12%).
+No regressions on non-recursive benchmarks.
+
+---
+
 ## D116: Address mode folding + adaptive prologue — abandoned (no effect)
 
 **Context**: Stage 24 attempted two JIT optimizations to close remaining gaps

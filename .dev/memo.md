@@ -11,7 +11,7 @@ Session handover document. Read at session start.
 - Spec: 61,650/61,761 Mac (99.8%), incl. GC 472/546, threads 306/310, E2E: 356/356, CI: ubuntu + macOS
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
-- JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR
+- JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
 - Embedder API: Vm type, inspectImportFunctions, WasmModule.loadWithImports
 - WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
@@ -22,20 +22,23 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-23 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-23, 25 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue
 
-(empty — no next stage defined)
+- [x] 25.1: x29 flag + conditional epilogue
+- [x] 25.2: Self-call entry point + duplicated fast-path
+- [x] 25.3: Callee-saved liveness + spill/reload in emitInlineSelfCall
+- [x] 25.4: Benchmark + evaluate
 
 ## Current Task
 
-Stage 23 merged to main. No next stage defined — awaiting user direction.
+Stage 25 complete. Ready for merge gate.
 
 ## Previous Task
 
+Stage 25: Lightweight self-call — fib 90.6→57.5ms (-37%), now 1.03x faster than wasmtime. See D117.
 Stage 24 attempted (address mode folding + adaptive prologue) — no measurable effect, abandoned. See D116.
-Stage 23: JIT Optimization — merged to main 2026-02-14. 13/21 benchmarks at or faster than wasmtime.
 
 ## Wasm 3.0 Coverage
 
