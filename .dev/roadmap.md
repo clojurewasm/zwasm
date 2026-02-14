@@ -36,42 +36,7 @@ All development on feature branches; merge to main requires CW verification.
 | 22    | Component Model               | WIT, Canon ABI, WASI P2                 |
 | 23    | Smart Spill + Direct Call     | 13/21 beat wasmtime, fib 331→91ms       |
 | 25    | Lightweight Self-Call         | fib 91→52ms, matches wasmtime (D117)    |
-
-## Stage 26: JIT Peephole Optimizations (PLANNED)
-
-**Goal**: Improve JIT code quality with peephole patterns. No architectural changes.
-Binary target: stay under 1.5MB. See D118.
-
-### Analysis (2026-02-14)
-
-zwasm emits `CMP + CSET + CBNZ` (3 insns) per conditional branch where
-cranelift emits `CMP + B.cond` (2 insns). nqueens inner loop: 18→~12 (-33%).
-Also: redundant MOV chains, suboptimal constant materialization (-1 = 4 insns → 1).
-
-### Current gaps (wasmtime comparison)
-
-| Benchmark    | zwasm   | wasmtime | ratio | category       |
-|--------------|---------|----------|-------|----------------|
-| st_matrix    | 284.8ms | 86.9ms   | 3.28x | regalloc-bound |
-| tgo_mfr      | 59.3ms  | 32.1ms   | 1.85x | memory+loop    |
-| st_fib2      | 1086ms  | 686ms    | 1.58x | recursion      |
-| tgo_fib      | 43.3ms  | 28.9ms   | 1.50x | recursion      |
-
-st_matrix needs multi-pass regalloc (LIRA) — rejected per D116. Known limitation.
-13/21 beat wasmtime, 17/21 within 1.5x, only st_matrix exceeds 2x.
-
-### Task breakdown
-
-- 26.0: Remove wasmer from benchmark infrastructure
-- 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
-- 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
-- 26.3: Redundant MOV elimination — copy propagation tracking
-- 26.4: Constant materialization — MVN for -1, MOVN for negatives
-- 26.5: Benchmark + evaluate + record
-
-### Exit criteria
-
-- All spec tests pass, no regression, binary ≤ 1.5MB
+| 26    | JIT Peephole Optimizations    | CMP+B.cond fusion, MOVN constants       |
 
 ## Future
 
