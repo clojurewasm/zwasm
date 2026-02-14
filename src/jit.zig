@@ -1150,7 +1150,7 @@ pub const Compiler = struct {
     /// Compute live vreg bitmap at a call site by forward-scanning the IR.
     /// A vreg is live if it's read (as rs1/rs2) before being overwritten (as rd).
     /// Only tracks caller-saved vregs (5-11, 14-19) since callee-saved are preserved.
-    fn computeCallLiveSet(ir: []const RegInstr, call_pc: u32) u32 {
+    pub fn computeCallLiveSet(ir: []const RegInstr, call_pc: u32) u32 {
         var live: u32 = 0;
         var resolved: u32 = 0; // vregs whose liveness is determined
         var pc = call_pc + 1;
