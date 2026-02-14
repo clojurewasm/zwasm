@@ -830,6 +830,10 @@ pub const Compiler = struct {
     /// Live vreg bitmap at current call site (set by spillCallerSavedLive).
     /// Bit N = 1 means vreg N is live and must be spilled/reloaded across the call.
     call_live_set: u32,
+    /// Live callee-saved vreg bitmap (set by spillCalleeSavedLive).
+    /// Bit N = 1 means callee-saved vreg N must be saved/restored by the CALLER
+    /// when using lightweight self-call (callee skips STP/LDP x19-x28).
+    callee_live_set: u32,
     /// Index of the shared error epilogue in the code array (for signal handler recovery).
     shared_exit_idx: u32,
     /// True when the memory has guard pages — skip explicit bounds checks.
@@ -897,6 +901,7 @@ pub const Compiler = struct {
             .vm_ptr_cached = false,
             .inst_ptr_cached = false,
             .call_live_set = 0,
+            .callee_live_set = 0,
             .shared_exit_idx = 0,
             .use_guard_pages = false,
             .self_call_entry_idx = 0,
@@ -1318,6 +1323,131 @@ pub const Compiler = struct {
     fn reloadVreg(self: *Compiler, vreg: u8) void {
         if (vregToPhys(vreg)) |phys| {
             self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
+        }
+    }
+
+    // --- Callee-Saved Spill/Reload for Lightweight Self-Call ---
+
+    /// Check if a vreg maps to a callee-saved physical register that needs
+    /// explicit save/restore in lightweight self-call (callee skips STP/LDP x19-x28).
+    fn isCalleeSavedVreg(self: *const Compiler, vreg: u8) bool {
+        if (vreg <= 4) return true; // x22-x26
+        if (vreg == 12 and !self.vm_ptr_cached) return true; // x20 as vreg
+        if (vreg == 13 and !self.inst_ptr_cached) return true; // x21 as vreg
+        return false;
+    }
+
+    /// Compute liveness bitmap for callee-saved vregs after a call site.
+    /// Forward-scans from call_pc to find vregs used before being redefined.
+    fn computeCalleeSavedLiveSet(self: *const Compiler, ir: []const RegInstr, call_pc: u32) u32 {
+        var live: u32 = 0;
+        var resolved: u32 = 0;
+        var pc = call_pc + 1;
+        // Skip NOP data words that follow the call
+        while (pc < ir.len and (ir[pc].op == regalloc_mod.OP_NOP or ir[pc].op == regalloc_mod.OP_DELETED)) : (pc += 1) {}
+
+        while (pc < ir.len) : (pc += 1) {
+            const instr = ir[pc];
+            if (instr.op == regalloc_mod.OP_DELETED or
+                instr.op == regalloc_mod.OP_BLOCK_END) continue;
+            if (instr.op == regalloc_mod.OP_NOP) {
+                self.markCalleeSavedUse(&live, &resolved, instr.rd);
+                self.markCalleeSavedUse(&live, &resolved, instr.rs1);
+                const op_low: u8 = @truncate(instr.operand);
+                const op_high: u8 = @truncate(instr.operand >> 8);
+                if (op_low != 0) self.markCalleeSavedUse(&live, &resolved, op_low);
+                if (op_high != 0) self.markCalleeSavedUse(&live, &resolved, op_high);
+                continue;
+            }
+
+            if (instr.op != regalloc_mod.OP_CALL) {
+                self.markCalleeSavedUse(&live, &resolved, instr.rs1);
+            }
+            if (instrHasRs2(instr)) {
+                self.markCalleeSavedUse(&live, &resolved, instr.rs2());
+            }
+
+            if (instrDefinesRd(instr)) {
+                if (self.isCalleeSavedVreg(instr.rd)) {
+                    resolved |= @as(u32, 1) << @as(u5, @intCast(instr.rd));
+                }
+            }
+
+            // Backward branches: conservatively mark unresolved callee-saved vregs as live
+            if (instr.op == regalloc_mod.OP_BR or instr.op == regalloc_mod.OP_BR_IF or
+                instr.op == regalloc_mod.OP_BR_IF_NOT)
+            {
+                if (instr.operand <= call_pc) {
+                    return live | (~resolved & self.calleeSavedVregMask());
+                }
+            }
+        }
+        return live;
+    }
+
+    fn markCalleeSavedUse(self: *const Compiler, live: *u32, resolved: *u32, vreg: u8) void {
+        if (self.isCalleeSavedVreg(vreg) and (resolved.* & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) {
+            live.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
+            resolved.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
+        }
+    }
+
+    /// Bitmask of all callee-saved vreg positions.
+    fn calleeSavedVregMask(self: *const Compiler) u32 {
+        var mask: u32 = 0x1F; // vreg 0-4 always callee-saved
+        if (!self.vm_ptr_cached) mask |= (1 << 12);
+        if (!self.inst_ptr_cached) mask |= (1 << 13);
+        return mask;
+    }
+
+    /// Spill callee-saved vregs that are live after the self-call to regs[].
+    /// exclude_rd: the call result vreg (defined by the call, not live across it).
+    fn spillCalleeSavedLive(self: *Compiler, ir: []const RegInstr, call_pc: u32, exclude_rd: ?u8) void {
+        var live_set = self.computeCalleeSavedLiveSet(ir, call_pc);
+        // Exclude call result vreg — it's defined by the call, not live across it
+        if (exclude_rd) |erd| {
+            live_set &= ~(@as(u32, 1) << @as(u5, @intCast(erd)));
+        }
+        self.callee_live_set = live_set;
+        for (0..5) |i| {
+            const vreg: u8 = @intCast(i);
+            if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
+            if (vregToPhys(vreg)) |phys| {
+                self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
+            }
+        }
+        // vreg 12, 13 if they're callee-saved vregs (not cached)
+        if (!self.vm_ptr_cached and (live_set & (1 << 12)) != 0) {
+            if (vregToPhys(12)) |phys| {
+                self.emit(a64.str64(phys, REGS_PTR, 12 * 8));
+            }
+        }
+        if (!self.inst_ptr_cached and (live_set & (1 << 13)) != 0) {
+            if (vregToPhys(13)) |phys| {
+                self.emit(a64.str64(phys, REGS_PTR, 13 * 8));
+            }
+        }
+    }
+
+    /// Reload callee-saved vregs that were spilled by spillCalleeSavedLive.
+    fn reloadCalleeSavedLive(self: *Compiler) void {
+        const live_set = self.callee_live_set;
+        for (0..5) |i| {
+            const vreg: u8 = @intCast(i);
+            if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
+            if (vregToPhys(vreg)) |phys| {
+                self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
+            }
+        }
+        if (!self.vm_ptr_cached and (live_set & (1 << 12)) != 0) {
+            if (vregToPhys(12)) |phys| {
+                self.emit(a64.ldr64(phys, REGS_PTR, 12 * 8));
+            }
+        }
+        if (!self.inst_ptr_cached and (live_set & (1 << 13)) != 0) {
+            if (vregToPhys(13)) |phys| {
+                self.emit(a64.ldr64(phys, REGS_PTR, 13 * 8));
+            }
         }
     }
 
@@ -2919,8 +3049,12 @@ pub const Compiler = struct {
         const needed: u32 = @as(u32, self.reg_count) + 4;
         const needed_bytes: u32 = needed * 8;
 
-        // 1. Spill only caller-saved regs that are live after this call
+        // 1. Spill live regs before self-call.
         self.fpCacheEvictAll(); // Write back D-cache before BL clobbers D-regs
+        // Callee-saved spill: lightweight self-call skips STP x19-x28 in callee,
+        // so caller must save live callee-saved vregs to regs[] explicitly.
+        const callee_exclude: ?u8 = if (self.result_count > 0 and self.isCalleeSavedVreg(rd)) rd else null;
+        self.spillCalleeSavedLive(ir, call_pc, callee_exclude);
         self.spillCallerSavedLive(ir, call_pc);
 
         // 2. Advance vm.reg_ptr and check overflow.
@@ -3003,13 +3137,14 @@ pub const Compiler = struct {
             self.emitLoadInstPtr(2);
         }
 
-        // 7. BL to self (backward branch to instruction 0)
+        // 7. BL to self-call entry (skips callee-saved STP x19-x28)
         const bl_idx = self.currentIdx();
-        const bl_offset: i26 = -@as(i26, @intCast(bl_idx));
-        self.emit(a64.bl(bl_offset));
+        const bl_target: i32 = @as(i32, @intCast(self.self_call_entry_idx)) - @as(i32, @intCast(bl_idx));
+        self.emit(a64.bl(@intCast(bl_target)));
 
-        // 8. After return: callee-saved regs (x19-x28) restored by callee's epilogue.
-        //    x0 = error code (0 = success).
+        // 8. After return: callee-saved regs (x19-x28) NOT restored by callee
+        //    (lightweight self-call skips LDP x19-x28). x0 = error code.
+        //    x29 = caller's original (restored by callee's LDP x29,x30).
 
         // 9. Restore vm.reg_ptr
         if (self.has_memory) {
@@ -3043,15 +3178,30 @@ pub const Compiler = struct {
             .cond = .eq,
         }) catch {};
 
+        // 10a. Recover caller's REGS_PTR.
+        // After self-call: x19 = callee's REGS_PTR = caller's + needed_bytes.
+        if (needed_bytes <= 0xFFF) {
+            self.emit(a64.subImm64(REGS_PTR, REGS_PTR, @intCast(needed_bytes)));
+        } else {
+            self.emit(a64.movz64(SCRATCH, @truncate(needed_bytes), 0));
+            if (needed_bytes > 0xFFFF) {
+                self.emit(a64.movk64(SCRATCH, @truncate(needed_bytes >> 16), 1));
+            }
+            self.emit(a64.sub64(REGS_PTR, REGS_PTR, SCRATCH));
+        }
+
+        // 10b. Reload callee-saved vregs from regs[] (caller saved them before BL).
+        self.reloadCalleeSavedLive();
+
         // 11-12. Copy result and reload caller-saved regs.
-        //     For callee-saved rd: load result directly into physical reg before reload.
+        //     For callee-saved rd: load result directly into physical reg after callee reload.
         //     For caller-saved rd: reload others first, then load result directly.
         //     For memory-backed rd: store to memory (no physical reg).
         const rd_phys = if (self.result_count > 0) vregToPhys(rd) else null;
         const rd_callee_saved = if (rd_phys) |p| (p >= 19 and p <= 28) else false;
 
         if (self.result_count > 0 and rd_callee_saved) {
-            // Callee-saved: load directly, survives reloadCallerSaved
+            // Callee-saved: load result (overwrites the just-reloaded pre-call value)
             self.emitLoadCalleeResult(rd_phys.?, needed_bytes);
         }
 
