@@ -51,11 +51,26 @@ ROI-ordered task list:
 
 ## Current Task
 
-23.5: Measure & tune — re-benchmark, profile remaining gaps, targeted fixes.
+23.5: Measure & tune. Reg_ptr value caching done (x27=value, &vm.reg_ptr cached in regs[reg_count]).
+Self-call per-call: 8 instrs+4 mem → 6 instrs+2 mem. BL-after: 3→1 instr.
+
+Gap analysis (current vs wasmtime):
+- 3.17x: st_matrix (memory-bound, i32.load 36%, limited JIT optimization room)
+- 1.87x: st_fib2 (deep recursion, prologue/epilogue overhead)
+- 1.85x: fib (same root cause: 6 STP/LDP prologue vs wasmtime's 1-2)
+- 1.78x: tgo_mfr (memory + call patterns)
+- 1.54x: tgo_fib (recursive int, same as fib)
+- 1.23x: tak (recursive, overhead amortized by deeper recursion)
+
+Root cause for remaining fib/recursive gap: unconditional 6 STP + 6 LDP prologue/epilogue
+saves all 12 callee-saved regs. wasmtime saves only what's used (1-2 pairs).
+Fixing requires adaptive prologue — save only used callee-saved regs.
+
+Next target: adaptive prologue (save only used callee-saved regs) OR st_matrix memory optimization.
 
 ## Previous Task
 
-23.4: FP register file — D2-D7 cache for f64/f32 vregs, eliminated GPR↔FPR round-trips. nbody ~43ms→8ms (5.4x improvement, 2.4x faster than wasmtime).
+23.5 (partial): Reg_ptr register caching — x27=vm.reg_ptr VALUE instead of ADDRESS. Cached &vm.reg_ptr in regs[reg_count]. Added has_self_call scan. Saves 2 instrs + 2 mem accesses per self-call (BL after: 3→1 instr, 2→0 mem).
 
 ## Wasm 3.0 Coverage
 

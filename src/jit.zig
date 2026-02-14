@@ -765,8 +765,10 @@ const REGS_PTR: u5 = 19; // x19
 /// Memory cache (callee-saved, preserved across calls).
 const MEM_BASE: u5 = 27; // x27 — linear memory base pointer
 const MEM_SIZE: u5 = 28; // x28 — linear memory size in bytes
-/// Cached &vm.reg_ptr for functions with self-calls (reuses x27 when !has_memory).
-const REG_PTR_ADDR: u5 = 27; // x27 — &vm.reg_ptr (non-memory functions only)
+/// Cached vm.reg_ptr VALUE for functions with self-calls (reuses x27 when !has_memory).
+/// Contains the actual reg_ptr value (stack offset), not the address.
+/// Interpreter restores reg_ptr via defer, so JIT doesn't need to write back.
+const REG_PTR_VAL: u5 = 27; // x27 — vm.reg_ptr value (non-memory functions only)
 
 /// Scratch FP registers for floating-point operations.
 /// d0 and d1 are caller-saved volatile FP regs on ARM64.
@@ -798,6 +800,7 @@ pub const Compiler = struct {
     call_indirect_addr: u64,
     pool64: []const u64,
     has_memory: bool,
+    has_self_call: bool,
     self_func_idx: u32,
     param_count: u16,
     result_count: u16,
@@ -866,6 +869,7 @@ pub const Compiler = struct {
             .call_indirect_addr = 0,
             .pool64 = &.{},
             .has_memory = false,
+            .has_self_call = false,
             .self_func_idx = 0,
             .param_count = 0,
             .result_count = 0,
@@ -1430,10 +1434,14 @@ pub const Compiler = struct {
         // values in x2-x7, x9-x15 are not corrupted by the call.
         if (self.has_memory) {
             self.emitLoadMemCache();
-        } else if (self.reg_ptr_offset > 0) {
-            // Cache &vm.reg_ptr in x27 for inline self-calls (non-memory functions).
-            // This avoids recomputing the large offset on every self-call.
-            self.emitLoadRegPtrAddr(REG_PTR_ADDR);
+        } else if (self.has_self_call) {
+            // Cache vm.reg_ptr VALUE in x27 for inline self-calls (non-memory functions).
+            // Also cache &vm.reg_ptr in regs[reg_count] to avoid recomputing the large offset
+            // on every self-call (non-memory functions don't use regs[reg_count] for mem cache).
+            self.emitLoadRegPtrAddr(SCRATCH);
+            self.emit(a64.ldr64(REG_PTR_VAL, SCRATCH, 0)); // x27 = vm.reg_ptr value
+            // Store &vm.reg_ptr in regs[reg_count] for fast access in self-calls
+            self.emit(a64.str64(SCRATCH, REGS_PTR, @intCast(@as(u16, self.reg_count) * 8)));
             // Cache REG_STACK_SIZE in x28 (avoids MOV immediate per call).
             self.emit(a64.movz64(28, vm_mod.REG_STACK_SIZE, 0));
             // Cache vm_ptr/inst_ptr in callee-saved regs when vreg slots are unused.
@@ -1612,8 +1620,11 @@ pub const Compiler = struct {
         self.result_count = result_count;
         self.reg_ptr_offset = reg_ptr_offset;
 
-        // Scan IR for memory opcodes
+        // Scan IR for memory opcodes and self-calls
         self.has_memory = scanForMemoryOps(reg_func.code);
+        self.has_self_call = for (reg_func.code) |instr| {
+            if (instr.op == regalloc_mod.OP_CALL and instr.operand == self_func_idx) break true;
+        } else false;
 
         // Pre-scan: compute which vregs need loading in prologue
         self.prologue_load_mask = computePrologueLoads(self.local_count);
@@ -2850,7 +2861,7 @@ pub const Compiler = struct {
 
     /// Inline self-call: direct BL to function entry, bypassing trampoline.
     /// Manages reg_ptr and callee frame setup inline for maximum performance.
-    /// Non-memory functions use cached REG_PTR_ADDR (x27) for &vm.reg_ptr.
+    /// Non-memory functions use cached REG_PTR_VAL (x27) holding the actual value.
     /// Memory functions recompute &vm.reg_ptr into SCRATCH each time.
     fn emitInlineSelfCall(self: *Compiler, rd: u8, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         const needed: u32 = @as(u32, self.reg_count) + 4;
@@ -2861,30 +2872,40 @@ pub const Compiler = struct {
         self.spillCallerSavedLive(ir, call_pc);
 
         // 2. Advance vm.reg_ptr and check overflow.
-        //    Non-memory: use cached REG_PTR_ADDR (x27).
-        //    Memory: compute &vm.reg_ptr into SCRATCH (x8) since x27 = MEM_BASE.
-        const rp_reg: u5 = if (self.has_memory) blk: {
+        //    Non-memory: x27 holds reg_ptr VALUE directly — add/sub in register (0 mem).
+        //    Memory: compute &vm.reg_ptr into SCRATCH, load/store through it.
+        if (self.has_memory) {
+            // Memory path: x27 = MEM_BASE, must use SCRATCH for &vm.reg_ptr
             self.emitLoadRegPtrAddr(SCRATCH);
-            break :blk SCRATCH;
-        } else REG_PTR_ADDR;
-        self.emit(a64.ldr64(SCRATCH2, rp_reg, 0)); // x16 = vm.reg_ptr
-        if (needed <= 0xFFF) {
-            self.emit(a64.addImm64(SCRATCH2, SCRATCH2, @intCast(needed)));
-        } else {
-            self.emit(a64.movz64(0, @truncate(needed), 0));
-            self.emit(a64.add64(SCRATCH2, SCRATCH2, 0));
-        }
-        // Check: new reg_ptr > REG_STACK_SIZE → stack overflow
-        if (!self.has_memory and self.reg_ptr_offset > 0) {
-            // REG_STACK_SIZE cached in x28 (loaded in prologue)
-            self.emit(a64.cmp64(SCRATCH2, 28));
-        } else {
+            self.emit(a64.ldr64(SCRATCH2, SCRATCH, 0)); // x16 = vm.reg_ptr
+            if (needed <= 0xFFF) {
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH2, @intCast(needed)));
+            } else {
+                self.emit(a64.movz64(0, @truncate(needed), 0));
+                self.emit(a64.add64(SCRATCH2, SCRATCH2, 0));
+            }
             self.emit(a64.movz64(0, vm_mod.REG_STACK_SIZE, 0));
             self.emit(a64.cmp64(SCRATCH2, 0));
+            self.emitCondError(.hi, 2); // StackOverflow if new > max
+            self.emit(a64.str64(SCRATCH2, SCRATCH, 0)); // Store back through address
+        } else {
+            // Non-memory path: x27 = reg_ptr VALUE, operate directly in register.
+            // Must store updated value to memory so callee's prologue can read it.
+            if (needed <= 0xFFF) {
+                self.emit(a64.addImm64(REG_PTR_VAL, REG_PTR_VAL, @intCast(needed)));
+            } else {
+                self.emit(a64.movz64(SCRATCH2, @truncate(needed), 0));
+                self.emit(a64.add64(REG_PTR_VAL, REG_PTR_VAL, SCRATCH2));
+            }
+            // Check: new reg_ptr > REG_STACK_SIZE → stack overflow
+            // REG_STACK_SIZE cached in x28 (loaded in prologue)
+            self.emit(a64.cmp64(REG_PTR_VAL, 28));
+            self.emitCondError(.hi, 2); // StackOverflow if new > max
+            // Write updated reg_ptr to memory (callee prologue reads from memory).
+            // Load cached &vm.reg_ptr from regs[reg_count] (stored in prologue).
+            self.emit(a64.ldr64(SCRATCH, REGS_PTR, @intCast(@as(u16, self.reg_count) * 8)));
+            self.emit(a64.str64(REG_PTR_VAL, SCRATCH, 0));
         }
-        self.emitCondError(.hi, 2); // StackOverflow if new > max
-        // Store new reg_ptr
-        self.emit(a64.str64(SCRATCH2, rp_reg, 0));
 
         // 3. Compute callee REGS_PTR: x0 = REGS_PTR + needed*8
         if (needed_bytes <= 0xFFF) {
@@ -2938,16 +2959,27 @@ pub const Compiler = struct {
         // 8. After return: callee-saved regs (x19-x28) restored by callee's epilogue.
         //    x0 = error code (0 = success).
 
-        // 9. Restore vm.reg_ptr (recompute address for memory functions)
-        if (self.has_memory) self.emitLoadRegPtrAddr(SCRATCH);
-        self.emit(a64.ldr64(SCRATCH2, rp_reg, 0));
-        if (needed <= 0xFFF) {
-            self.emit(a64.subImm64(SCRATCH2, SCRATCH2, @intCast(needed)));
+        // 9. Restore vm.reg_ptr
+        if (self.has_memory) {
+            // Memory path: reload address, load-sub-store through memory
+            self.emitLoadRegPtrAddr(SCRATCH);
+            self.emit(a64.ldr64(SCRATCH2, SCRATCH, 0));
+            if (needed <= 0xFFF) {
+                self.emit(a64.subImm64(SCRATCH2, SCRATCH2, @intCast(needed)));
+            } else {
+                self.emit(a64.movz64(1, @truncate(needed), 0));
+                self.emit(a64.sub64(SCRATCH2, SCRATCH2, 1));
+            }
+            self.emit(a64.str64(SCRATCH2, SCRATCH, 0));
         } else {
-            self.emit(a64.movz64(1, @truncate(needed), 0));
-            self.emit(a64.sub64(SCRATCH2, SCRATCH2, 1));
+            // Non-memory path: subtract directly from x27 (0 mem accesses)
+            if (needed <= 0xFFF) {
+                self.emit(a64.subImm64(REG_PTR_VAL, REG_PTR_VAL, @intCast(needed)));
+            } else {
+                self.emit(a64.movz64(SCRATCH2, @truncate(needed), 0));
+                self.emit(a64.sub64(REG_PTR_VAL, REG_PTR_VAL, SCRATCH2));
+            }
         }
-        self.emit(a64.str64(SCRATCH2, rp_reg, 0));
 
         // 10. Check error — branch to shared error epilogue
         const error_branch = self.currentIdx();
