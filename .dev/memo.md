@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-22 — COMPLETE (Wasm 3.0 + GC + WASI P1 + Component Model)
+- Stages 0-2, 4, 7-23 — COMPLETE (Wasm 3.0 + GC + WASI P1 + Component Model + JIT Optimization)
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -22,45 +22,19 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-22 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-23 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue
 
-Stage 23: JIT Optimization — wasmtime parity
-
-Target: Close performance gap to wasmtime 1x across all 21 benchmarks.
-Constraints: Binary ≤ 1.5MB, memory ≤ 4.5MB (fib RSS).
-
-Final gap analysis (Stage 23 complete vs wasmtime 41.0.1):
-- 3.0x: st_matrix (memory-bound, i32.load dominates, needs address mode folding)
-- 1.9x: st_fib2 (deep recursion, prologue/epilogue overhead)
-- 1.7x: fib (prologue overhead — 6 STP/LDP unconditional)
-- 1.7x: tgo_mfr (memory + loop patterns)
-- 1.6x: tgo_fib (recursive int, same as fib)
-- 1.1x: tak, st_sieve, tgo_strops, tgo_nqueens (near parity)
-- <1x: 12/21 benchmarks faster than wasmtime (nbody 0.4x, st_nestedloop 0.4x, etc.)
-
-Root causes for remaining gaps:
-1. Recursive overhead: unconditional 6 STP/LDP prologue saves all 12 callee-saved regs
-2. Memory-bound: no address mode folding (base+offset in 1 instr)
-3. reg_ptr bookkeeping: ldr+str per self-call (value cached in x27, addr in regs[reg_count])
-Future: register-based calling convention, address mode folding, adaptive prologue.
-
-ROI-ordered task list:
-
-1. [x] 23.1: Liveness-aware spill/reload — only spill live regs on call sites
-2. [x] 23.2: Guard pages for bounds check elimination — mmap 8GB + PROT_NONE + signal handler
-3. [x] 23.3: Call overhead reduction — fast-path base case, prologue load elimination
-4. [x] 23.4: FP register file — keep f64/f32 in D-registers, eliminate GPR↔FPR round-trips
-5. [x] 23.5: Measure & tune — reg_ptr caching, gap analysis, benchmark recording
+(empty — no next stage defined)
 
 ## Current Task
 
-Stage 23 complete. Ready for merge to main.
+Stage 23 merged to main. No next stage defined — awaiting user direction.
 
 ## Previous Task
 
-23.5: Measure & tune — reg_ptr value caching (x27=VALUE, addr cached in regs[reg_count]). Self-call BL-after 3→1 instr, 2→0 mem. Final: 13/21 benchmarks at or faster than wasmtime. nbody 4.9x speedup from v0.2.0.
+Stage 23: JIT Optimization — 5 tasks (liveness spill, guard pages, call overhead, FP regs, measure+tune). 13/21 benchmarks at or faster than wasmtime. Merged to main 2026-02-14.
 
 ## Wasm 3.0 Coverage
 
