@@ -814,9 +814,12 @@ pub const Compiler = struct {
     /// Which memory-backed vreg's value is currently in SCRATCH (x8).
     /// Valid only at instruction boundaries — used to skip redundant loads.
     scratch_vreg: ?u8,
-    /// Which vreg's f64 value is currently in FP_SCRATCH0 (D0).
-    /// Used to skip redundant FMOV int→FP in consecutive f64 operations.
-    fp_scratch0_vreg: ?u8,
+    /// FP register cache: maps D2-D7 to vregs holding f64 values.
+    /// fp_dreg[i] = vreg whose f64 value is in D(i+2), null if register free.
+    /// Allows FP operations to use D registers directly, avoiding GPR↔FPR round-trips.
+    fp_dreg: [6]?u8,
+    /// True when the D register value has not been written back to GPR/vreg array.
+    fp_dreg_dirty: [6]bool,
     /// True when vm_ptr is cached in x20 (only when reg_count <= 12 and has self-calls).
     vm_ptr_cached: bool,
     /// True when inst_ptr is cached in x21 (only when reg_count <= 13 and has self-calls).
@@ -872,7 +875,8 @@ pub const Compiler = struct {
             .known_consts = .{null} ** 128,
             .written_vregs = 0,
             .scratch_vreg = null,
-            .fp_scratch0_vreg = null,
+            .fp_dreg = .{null} ** 6,
+            .fp_dreg_dirty = .{false} ** 6,
             .vm_ptr_cached = false,
             .inst_ptr_cached = false,
             .call_live_set = 0,
@@ -922,11 +926,25 @@ pub const Compiler = struct {
                 if (cached == vreg) self.scratch_vreg = null;
             }
         }
+        // Invalidate FP D-register cache — GPR write makes D-reg copy stale
+        self.fpCacheInvalidate(vreg);
     }
 
     /// Get the physical register for a vreg, or load to scratch.
     fn getOrLoad(self: *Compiler, vreg: u8, scratch: u5) u5 {
         if (vregToPhys(vreg)) |phys| return phys;
+        // Check FP D-register cache — if value is only in a D-reg, materialize to GPR
+        if (self.fpCacheFind(vreg)) |slot| {
+            if (self.fp_dreg_dirty[slot]) {
+                const dreg = fpSlotToDreg(slot);
+                self.emit(a64.fmovToGp64(scratch, dreg));
+                // Write back to memory for consistency
+                self.emit(a64.str64(scratch, REGS_PTR, @as(u16, vreg) * 8));
+                self.fp_dreg_dirty[slot] = false;
+                if (scratch == SCRATCH) self.scratch_vreg = vreg;
+                return scratch;
+            }
+        }
         // Check scratch register cache — skip redundant load if value already in SCRATCH
         if (scratch == SCRATCH) {
             if (self.scratch_vreg) |cached| {
@@ -942,6 +960,115 @@ pub const Compiler = struct {
     /// Use with storeVreg(rd, dest) which is a no-op when dest == physical.
     fn destReg(vreg: u8) u5 {
         return vregToPhys(vreg) orelse SCRATCH;
+    }
+
+    // --- FP D-register cache (D2-D7) ---
+
+    /// Number of FP cache registers (D2-D7).
+    const FP_CACHE_SIZE = 6;
+
+    /// Convert cache slot index (0-5) to ARM64 D register number (2-7).
+    fn fpSlotToDreg(slot: u3) u5 {
+        return @as(u5, slot) + 2;
+    }
+
+    /// Find which D-register cache slot holds a vreg's f64 value.
+    /// Returns the slot index (0-5) or null if not cached.
+    fn fpCacheFind(self: *Compiler, vreg: u8) ?u3 {
+        for (0..FP_CACHE_SIZE) |i| {
+            if (self.fp_dreg[i]) |cached| {
+                if (cached == vreg) return @intCast(i);
+            }
+        }
+        return null;
+    }
+
+    /// Allocate a D-register cache slot for a vreg. Evicts LRU (slot 0) if full.
+    /// Returns the slot index (0-5).
+    fn fpCacheAlloc(self: *Compiler) u3 {
+        // Find a free slot
+        for (0..FP_CACHE_SIZE) |i| {
+            if (self.fp_dreg[i] == null) return @intCast(i);
+        }
+        // No free slot — evict slot 0 (simple round-robin)
+        self.fpCacheEvictSlot(0);
+        return 0;
+    }
+
+    /// Evict a single FP cache slot: write-back dirty value to GPR/vreg array.
+    fn fpCacheEvictSlot(self: *Compiler, slot: usize) void {
+        if (self.fp_dreg_dirty[slot]) {
+            if (self.fp_dreg[slot]) |vreg| {
+                const dreg = fpSlotToDreg(@intCast(slot));
+                // FMOV GPR, Dn — move value to GPR, then store
+                self.emit(a64.fmovToGp64(SCRATCH, dreg));
+                self.storeVreg(vreg, SCRATCH);
+            }
+            self.fp_dreg_dirty[slot] = false;
+        }
+        self.fp_dreg[slot] = null;
+    }
+
+    /// Evict all dirty FP cache entries. Called before BLR, branch targets, calls.
+    fn fpCacheEvictAll(self: *Compiler) void {
+        for (0..FP_CACHE_SIZE) |i| {
+            self.fpCacheEvictSlot(i);
+        }
+    }
+
+    /// Invalidate a vreg in the FP cache (without write-back).
+    /// Called when a vreg is overwritten via GPR (e.g., storeVreg for integer result).
+    fn fpCacheInvalidate(self: *Compiler, vreg: u8) void {
+        if (self.fpCacheFind(vreg)) |slot| {
+            // Value overwritten in GPR — D-reg copy is stale
+            self.fp_dreg[slot] = null;
+            self.fp_dreg_dirty[slot] = false;
+        }
+    }
+
+    /// Load an f64 vreg into a D-register. Returns the D register number (2-7).
+    /// If already cached, returns the existing D register. Otherwise allocates one.
+    fn fpLoadToDreg(self: *Compiler, vreg: u8) u5 {
+        // Check if already in D-cache
+        if (self.fpCacheFind(vreg)) |slot| {
+            return fpSlotToDreg(slot);
+        }
+        // Allocate a D-register and load from GPR
+        const slot = self.fpCacheAlloc();
+        const dreg = fpSlotToDreg(slot);
+        const src = self.getOrLoad(vreg, SCRATCH);
+        self.emit(a64.fmovToFp64(dreg, src));
+        self.fp_dreg[slot] = vreg;
+        self.fp_dreg_dirty[slot] = false; // not dirty — GPR has same value
+        return dreg;
+    }
+
+    /// Allocate a D-register for an FP result. Returns the D register number.
+    /// Marks the slot as dirty (value only in D-reg, not in GPR).
+    fn fpAllocResult(self: *Compiler, vreg: u8) u5 {
+        // If vreg already cached, reuse slot (overwrite is fine)
+        if (self.fpCacheFind(vreg)) |slot| {
+            self.fp_dreg_dirty[slot] = true;
+            return fpSlotToDreg(slot);
+        }
+        const slot = self.fpCacheAlloc();
+        const dreg = fpSlotToDreg(slot);
+        self.fp_dreg[slot] = vreg;
+        self.fp_dreg_dirty[slot] = true;
+        return dreg;
+    }
+
+    /// Materialize an FP-cached vreg to GPR. Used when non-FP code needs the value.
+    fn fpMaterializeToGpr(self: *Compiler, vreg: u8) void {
+        if (self.fpCacheFind(vreg)) |slot| {
+            if (self.fp_dreg_dirty[slot]) {
+                const dreg = fpSlotToDreg(slot);
+                const d = destReg(vreg);
+                self.emit(a64.fmovToGp64(d, dreg));
+                self.storeVreg(vreg, d);
+                self.fp_dreg_dirty[slot] = false;
+            }
+        }
     }
 
     /// Load VM pointer from memory slot into dst register.
@@ -1521,7 +1648,7 @@ pub const Compiler = struct {
             if (pc < branch_targets.len and branch_targets[pc]) {
                 self.known_consts = .{null} ** 128;
                 self.scratch_vreg = null;
-                self.fp_scratch0_vreg = null;
+                self.fpCacheEvictAll();
             }
 
             pc += 1;
@@ -1535,7 +1662,7 @@ pub const Compiler = struct {
                 // After branches/calls, clear all — next basic block starts fresh
                 self.known_consts = .{null} ** 128;
                 self.scratch_vreg = null;
-                self.fp_scratch0_vreg = null;
+                self.fpCacheEvictAll();
             } else if (instr.rd < 128) {
                 // Non-const write to rd invalidates that vreg's known const
                 self.known_consts[instr.rd] = null;
@@ -1590,6 +1717,7 @@ pub const Compiler = struct {
 
             // --- Control flow ---
             regalloc_mod.OP_BR => {
+                self.fpCacheEvictAll();
                 const target = instr.operand;
                 const arm_idx = self.currentIdx();
                 self.emit(a64.b(0)); // placeholder
@@ -1600,6 +1728,7 @@ pub const Compiler = struct {
                 }) catch return false;
             },
             regalloc_mod.OP_BR_IF => {
+                self.fpCacheEvictAll();
                 // Branch if rd != 0
                 const cond_reg = self.getOrLoad(instr.rd, SCRATCH);
                 const arm_idx = self.currentIdx();
@@ -1611,6 +1740,7 @@ pub const Compiler = struct {
                 }) catch return false;
             },
             regalloc_mod.OP_BR_IF_NOT => {
+                self.fpCacheEvictAll();
                 const cond_reg = self.getOrLoad(instr.rd, SCRATCH);
                 const arm_idx = self.currentIdx();
                 self.emit(a64.cbz32(cond_reg, 0)); // placeholder
@@ -1621,9 +1751,11 @@ pub const Compiler = struct {
                 }) catch return false;
             },
             regalloc_mod.OP_RETURN => {
+                self.fpCacheEvictAll();
                 self.emitEpilogue(instr.rd);
             },
             regalloc_mod.OP_RETURN_VOID => {
+                self.fpCacheEvictAll();
                 self.emitEpilogue(null);
             },
 
@@ -2425,6 +2557,7 @@ pub const Compiler = struct {
 
     /// global.get: call jitGlobalGet(instance, idx) → u64
     fn emitGlobalGet(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll(); // D-cache → GPR/regs[] before BLR clobbers D-regs
         self.spillCallerSaved();
         // Args: x0 = instance, w1 = global_idx
         self.emitLoadInstPtr(0);
@@ -2440,11 +2573,11 @@ pub const Compiler = struct {
         self.storeVreg(instr.rd, d);
         // BLR clobbered SCRATCH — if rd was physical, storeVreg didn't update cache
         if (d != SCRATCH) self.scratch_vreg = null;
-        self.fp_scratch0_vreg = null; // BLR clobbers D0
     }
 
     /// global.set: call jitGlobalSet(instance, idx, val)
     fn emitGlobalSet(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         self.spillCallerSaved();
         // Args: x0 = instance, w1 = global_idx, x2 = value
         self.emitLoadInstPtr(0);
@@ -2457,7 +2590,6 @@ pub const Compiler = struct {
         self.emit(a64.blr(SCRATCH));
         self.reloadCallerSaved();
         self.scratch_vreg = null; // BLR clobbered SCRATCH
-        self.fp_scratch0_vreg = null;
     }
 
     // --- Memory ops emitters ---
@@ -2465,6 +2597,7 @@ pub const Compiler = struct {
     /// memory.grow: call jitMemGrow(instance, pages) → old_pages or -1
     /// Then reload mem cache since memory may have grown.
     fn emitMemGrow(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         self.spillCallerSaved();
         // Args: x0 = instance, x1 = pages (from rs1 vreg, truncated to 32-bit)
         self.emitLoadInstPtr(0);
@@ -2485,11 +2618,11 @@ pub const Compiler = struct {
         self.reloadCallerSaved();
         if (instr.rd <= 4) self.reloadVreg(instr.rd);
         self.scratch_vreg = null; // BLR clobbered SCRATCH
-        self.fp_scratch0_vreg = null;
     }
 
     /// memory.fill: call jitMemFill(instance, dst, val, n)
     fn emitMemFill(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         self.spillCallerSaved();
         // Args: x0 = instance, w1 = dst (rd), w2 = val (rs1), w3 = n (rs2)
         self.emitLoadInstPtr(0);
@@ -2508,11 +2641,11 @@ pub const Compiler = struct {
         self.emitCondError(.ne, 6); // OutOfBoundsMemoryAccess
         self.reloadCallerSaved();
         self.scratch_vreg = null; // BLR clobbered SCRATCH
-        self.fp_scratch0_vreg = null;
     }
 
     /// memory.copy: call jitMemCopy(instance, dst, src, n)
     fn emitMemCopy(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         self.spillCallerSaved();
         // Args: x0 = instance, w1 = dst (rd), w2 = src (rs1), w3 = n (rs2)
         self.emitLoadInstPtr(0);
@@ -2531,7 +2664,6 @@ pub const Compiler = struct {
         self.emitCondError(.ne, 6);
         self.reloadCallerSaved();
         self.scratch_vreg = null; // BLR clobbered SCRATCH
-        self.fp_scratch0_vreg = null;
     }
 
     /// i32.popcnt: count set bits in a 32-bit value
@@ -2546,7 +2678,6 @@ pub const Compiler = struct {
         self.emit(a64.addvB(FP_SCRATCH0, FP_SCRATCH0)); // ADDV B0, V0.8B
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0)); // FMOV Wd, S0
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     /// i64.popcnt: count set bits in a 64-bit value
@@ -2558,7 +2689,6 @@ pub const Compiler = struct {
         self.emit(a64.addvB(FP_SCRATCH0, FP_SCRATCH0)); // ADDV B0, V0.8B
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0)); // FMOV Wd, S0 (result fits in 32 bits)
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
@@ -2571,6 +2701,7 @@ pub const Compiler = struct {
         }
 
         // 1. Spill caller-saved regs + arg vregs needed by trampoline
+        self.fpCacheEvictAll(); // Write back D-cache before BLR clobbers D-regs
         self.spillCallerSavedLive(ir, call_pc);
         // Trampoline reads args from regs[] — spill callee-saved arg vregs
         if (n_args > 0) self.spillVregIfCalleeSaved(data.rd);
@@ -2644,6 +2775,7 @@ pub const Compiler = struct {
     /// instr: rd=result_reg, rs1=elem_idx_reg, operand=type_idx|(table_idx<<24)
     fn emitCallIndirect(self: *Compiler, instr: RegInstr, data: RegInstr, data2: ?RegInstr) void {
         // 1. Spill caller-saved regs + arg vregs
+        self.fpCacheEvictAll(); // Write back D-cache before BLR clobbers D-regs
         self.spillCallerSaved();
         self.spillVregIfCalleeSaved(data.rd);
         self.spillVregIfCalleeSaved(data.rs1);
@@ -2725,6 +2857,7 @@ pub const Compiler = struct {
         const needed_bytes: u32 = needed * 8;
 
         // 1. Spill only caller-saved regs that are live after this call
+        self.fpCacheEvictAll(); // Write back D-cache before BL clobbers D-regs
         self.spillCallerSavedLive(ir, call_pc);
 
         // 2. Advance vm.reg_ptr and check overflow.
@@ -2901,103 +3034,53 @@ pub const Compiler = struct {
 
     // --- Floating-point emitters (f64) ---
 
-    /// f64 binary: add/sub/mul/div. GPR→FPR, compute, FPR→GPR.
+    /// f64 binary: add/sub/mul/div. Uses D2-D7 cache to avoid GPR↔FPR round-trips.
     fn emitFpBinop64(self: *Compiler, instr: RegInstr) void {
-        const is_commutative = (instr.op == 0xA0 or instr.op == 0xA2); // add, mul
-        const rs1_vreg = instr.rs1;
-        const rs2_vreg = instr.rs2();
-
-        // D0 = first operand (dn), D1 = second operand (dm)
-        // Try FP cache: skip FMOV if operand already in D0
-        var swapped = false;
-        if (self.fp_scratch0_vreg) |cached| {
-            if (cached == rs1_vreg) {
-                // D0 has rs1 — just load rs2 to D1
-                const rs2 = self.getOrLoad(rs2_vreg, SCRATCH2);
-                self.emit(a64.fmovToFp64(FP_SCRATCH1, rs2));
-            } else if (is_commutative and cached == rs2_vreg) {
-                // D0 has rs2 — load rs1 to D1, swap operand order
-                const rs1 = self.getOrLoad(rs1_vreg, SCRATCH);
-                self.emit(a64.fmovToFp64(FP_SCRATCH1, rs1));
-                swapped = true; // D0=rs2(dm), D1=rs1(dn)
-            } else {
-                const rs1 = self.getOrLoad(rs1_vreg, SCRATCH);
-                const rs2 = self.getOrLoad(rs2_vreg, SCRATCH2);
-                self.emit(a64.fmovToFp64(FP_SCRATCH0, rs1));
-                self.emit(a64.fmovToFp64(FP_SCRATCH1, rs2));
-            }
-        } else {
-            const rs1 = self.getOrLoad(rs1_vreg, SCRATCH);
-            const rs2 = self.getOrLoad(rs2_vreg, SCRATCH2);
-            self.emit(a64.fmovToFp64(FP_SCRATCH0, rs1));
-            self.emit(a64.fmovToFp64(FP_SCRATCH1, rs2));
-        }
-
-        // For swapped commutative: D0=dm, D1=dn → op(D0, D1, D0)
-        const dn: u5 = if (swapped) FP_SCRATCH1 else FP_SCRATCH0;
-        const dm: u5 = if (swapped) FP_SCRATCH0 else FP_SCRATCH1;
+        // Load operands into D-registers (from cache or GPR)
+        const dn = self.fpLoadToDreg(instr.rs1);
+        const dm = self.fpLoadToDreg(instr.rs2());
+        // Allocate result D-register
+        const dd = self.fpAllocResult(instr.rd);
         const enc: u32 = switch (instr.op) {
-            0xA0 => a64.fadd64(FP_SCRATCH0, dn, dm),
-            0xA1 => a64.fsub64(FP_SCRATCH0, dn, dm),
-            0xA2 => a64.fmul64(FP_SCRATCH0, dn, dm),
-            0xA3 => a64.fdiv64(FP_SCRATCH0, dn, dm),
+            0xA0 => a64.fadd64(dd, dn, dm),
+            0xA1 => a64.fsub64(dd, dn, dm),
+            0xA2 => a64.fmul64(dd, dn, dm),
+            0xA3 => a64.fdiv64(dd, dn, dm),
             else => unreachable,
         };
         self.emit(enc);
-        const d = destReg(instr.rd);
-        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
-        self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = instr.rd; // D0 still holds rd's value
     }
 
     /// f64 binary with direct FP instruction (min/max).
     fn emitFpBinopDirect64(self: *Compiler, fpOp: fn (u5, u5, u5) u32, instr: RegInstr) void {
-        const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
-        const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
-        self.emit(a64.fmovToFp64(FP_SCRATCH0, rs1));
-        self.emit(a64.fmovToFp64(FP_SCRATCH1, rs2));
-        self.emit(fpOp(FP_SCRATCH0, FP_SCRATCH0, FP_SCRATCH1));
-        const d = destReg(instr.rd);
-        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
-        self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = instr.rd;
+        const dn = self.fpLoadToDreg(instr.rs1);
+        const dm = self.fpLoadToDreg(instr.rs2());
+        const dd = self.fpAllocResult(instr.rd);
+        self.emit(fpOp(dd, dn, dm));
     }
 
-    /// f64 unary (sqrt/abs/neg). GPR→FPR, compute, FPR→GPR.
+    /// f64 unary (sqrt/abs/neg). Uses D-register cache.
     fn emitFpUnop64(self: *Compiler, fpOp: fn (u5, u5) u32, instr: RegInstr) void {
-        // Check FP cache: skip FMOV if rs1 already in D0
-        if (self.fp_scratch0_vreg == null or self.fp_scratch0_vreg.? != instr.rs1) {
-            const src = self.getOrLoad(instr.rs1, SCRATCH);
-            self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
-        }
-        self.emit(fpOp(FP_SCRATCH0, FP_SCRATCH0));
-        const d = destReg(instr.rd);
-        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
-        self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = instr.rd;
+        const dn = self.fpLoadToDreg(instr.rs1);
+        const dd = self.fpAllocResult(instr.rd);
+        self.emit(fpOp(dd, dn));
     }
 
-    /// f64 comparison: FCMP + CSET.
+    /// f64 comparison: FCMP + CSET. Inputs from D-cache, result is integer.
     fn emitFpCmp64(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
-        // Check FP cache for rs1
-        if (self.fp_scratch0_vreg == null or self.fp_scratch0_vreg.? != instr.rs1) {
-            const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
-            self.emit(a64.fmovToFp64(FP_SCRATCH0, rs1));
-        }
-        const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
-        self.emit(a64.fmovToFp64(FP_SCRATCH1, rs2));
-        self.emit(a64.fcmp64(FP_SCRATCH0, FP_SCRATCH1));
+        const dn = self.fpLoadToDreg(instr.rs1);
+        const dm = self.fpLoadToDreg(instr.rs2());
+        self.emit(a64.fcmp64(dn, dm));
         const d = destReg(instr.rd);
         self.emit(a64.cset32(d, cond));
         self.storeVreg(instr.rd, d);
-        // FCMP doesn't modify D0, but result is integer — D0 still holds rs1
-        self.fp_scratch0_vreg = instr.rs1;
     }
 
     // --- Floating-point emitters (f32) ---
 
     /// f32 binary: add/sub/mul/div. GPR→FPR, compute, FPR→GPR.
     fn emitFpBinop32(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll(); // f32 uses S0/S1 which alias D0/D1; also clobbers upper D bits
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, rs1));
@@ -3013,11 +3096,11 @@ pub const Compiler = struct {
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null; // f32 ops invalidate f64 cache (same phys reg)
     }
 
     /// f32 binary with direct FP instruction (min/max).
     fn emitFpBinopDirect32(self: *Compiler, fpOp: fn (u5, u5, u5) u32, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, rs1));
@@ -3026,22 +3109,22 @@ pub const Compiler = struct {
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     /// f32 unary (sqrt/abs/neg).
     fn emitFpUnop32(self: *Compiler, fpOp: fn (u5, u5) u32, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
         self.emit(fpOp(FP_SCRATCH0, FP_SCRATCH0));
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     /// f32 comparison: FCMP + CSET.
     fn emitFpCmp32(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, rs1));
@@ -3050,119 +3133,103 @@ pub const Compiler = struct {
         const d = destReg(instr.rd);
         self.emit(a64.cset32(d, cond));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     // --- Floating-point conversion emitters ---
 
-    /// f64.convert_i32_s: SCVTF Dd, Wn
+    /// f64.convert_i32_s: SCVTF Dd, Wn — result into D-cache.
     fn emitFpConvert_f64_i32_s(self: *Compiler, instr: RegInstr) void {
         const src = self.getOrLoad(instr.rs1, SCRATCH);
-        // SCVTF Dd, Wn: 0x1E620000
-        self.emit(0x1E620000 | (@as(u32, src) << 5) | FP_SCRATCH0);
-        const d = destReg(instr.rd);
-        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
-        self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = instr.rd;
+        const dd = self.fpAllocResult(instr.rd);
+        self.emit(0x1E620000 | (@as(u32, src) << 5) | @as(u32, dd));
     }
 
     /// f64.convert_i32_u: UCVTF Dd, Wn
     fn emitFpConvert_f64_i32_u(self: *Compiler, instr: RegInstr) void {
         const src = self.getOrLoad(instr.rs1, SCRATCH);
-        // UCVTF Dd, Wn: 0x1E630000
-        self.emit(0x1E630000 | (@as(u32, src) << 5) | FP_SCRATCH0);
-        const d = destReg(instr.rd);
-        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
-        self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = instr.rd;
+        const dd = self.fpAllocResult(instr.rd);
+        self.emit(0x1E630000 | (@as(u32, src) << 5) | @as(u32, dd));
     }
 
     /// f64.convert_i64_s: SCVTF Dd, Xn
     fn emitFpConvert_f64_i64_s(self: *Compiler, instr: RegInstr) void {
         const src = self.getOrLoad(instr.rs1, SCRATCH);
-        // SCVTF Dd, Xn: 0x9E620000
-        self.emit(0x9E620000 | (@as(u32, src) << 5) | FP_SCRATCH0);
-        const d = destReg(instr.rd);
-        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
-        self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = instr.rd;
+        const dd = self.fpAllocResult(instr.rd);
+        self.emit(0x9E620000 | (@as(u32, src) << 5) | @as(u32, dd));
     }
 
     /// f64.convert_i64_u: UCVTF Dd, Xn
     fn emitFpConvert_f64_i64_u(self: *Compiler, instr: RegInstr) void {
         const src = self.getOrLoad(instr.rs1, SCRATCH);
-        // UCVTF Dd, Xn: 0x9E630000
-        self.emit(0x9E630000 | (@as(u32, src) << 5) | FP_SCRATCH0);
-        const d = destReg(instr.rd);
-        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
-        self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = instr.rd;
+        const dd = self.fpAllocResult(instr.rd);
+        self.emit(0x9E630000 | (@as(u32, src) << 5) | @as(u32, dd));
     }
 
     /// f64.promote_f32: FCVT Dd, Sn
     fn emitFpPromote(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll(); // f32 input uses S register
         const src = self.getOrLoad(instr.rs1, SCRATCH);
+        const dd = self.fpAllocResult(instr.rd);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
-        self.emit(a64.fcvt_d_s(FP_SCRATCH0, FP_SCRATCH0));
-        const d = destReg(instr.rd);
-        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
-        self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = instr.rd;
+        self.emit(a64.fcvt_d_s(dd, FP_SCRATCH0));
     }
 
     /// f32.convert_i32_s: SCVTF Sd, Wn
     fn emitFpConvert_f32_i32_s(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
-        // SCVTF Sd, Wn: 0x1E220000
         self.emit(0x1E220000 | (@as(u32, src) << 5) | FP_SCRATCH0);
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     /// f32.convert_i32_u: UCVTF Sd, Wn
     fn emitFpConvert_f32_i32_u(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
-        // UCVTF Sd, Wn: 0x1E230000
         self.emit(0x1E230000 | (@as(u32, src) << 5) | FP_SCRATCH0);
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     /// f32.convert_i64_s: SCVTF Sd, Xn
     fn emitFpConvert_f32_i64_s(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
-        // SCVTF Sd, Xn: 0x9E220000
         self.emit(0x9E220000 | (@as(u32, src) << 5) | FP_SCRATCH0);
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     /// f32.convert_i64_u: UCVTF Sd, Xn
     fn emitFpConvert_f32_i64_u(self: *Compiler, instr: RegInstr) void {
+        self.fpCacheEvictAll();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
-        // UCVTF Sd, Xn: 0x9E230000
         self.emit(0x9E230000 | (@as(u32, src) << 5) | FP_SCRATCH0);
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
-    /// f32.demote_f64: FCVT Sd, Dn
+    /// f32.demote_f64: FCVT Sd, Dn — loads f64 from D-cache if available.
     fn emitFpDemote(self: *Compiler, instr: RegInstr) void {
-        const src = self.getOrLoad(instr.rs1, SCRATCH);
-        self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
-        self.emit(a64.fcvt_s_d(FP_SCRATCH0, FP_SCRATCH0));
+        // Load f64 source from D-cache or GPR
+        if (self.fpCacheFind(instr.rs1)) |slot| {
+            const dn = fpSlotToDreg(slot);
+            self.fpCacheEvictAll();
+            self.emit(a64.fcvt_s_d(FP_SCRATCH0, dn));
+        } else {
+            self.fpCacheEvictAll();
+            const src = self.getOrLoad(instr.rs1, SCRATCH);
+            self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
+            self.emit(a64.fcvt_s_d(FP_SCRATCH0, FP_SCRATCH0));
+        }
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     // --- Copysign ---
@@ -3202,23 +3269,20 @@ pub const Compiler = struct {
     // --- Rounding ---
 
     fn emitFpRound64(self: *Compiler, encoding: u32, instr: RegInstr) void {
-        const src = self.getOrLoad(instr.rs1, SCRATCH);
-        self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
-        self.emit(encoding | (@as(u32, FP_SCRATCH0) << 5) | FP_SCRATCH0);
-        const d = destReg(instr.rd);
-        self.emit(a64.fmovToGp64(d, FP_SCRATCH0));
-        self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
+        // f64 rounding: use D-cache (encoding format = base | (Rn<<5) | Rd)
+        const dn = self.fpLoadToDreg(instr.rs1);
+        const dd = self.fpAllocResult(instr.rd);
+        self.emit(encoding | (@as(u32, dn) << 5) | dd);
     }
 
     fn emitFpRound32(self: *Compiler, encoding: u32, instr: RegInstr) void {
+        // Uses S0/D0 (FP_SCRATCH0=0), doesn't alias D2-D7 cache
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
         self.emit(encoding | (@as(u32, FP_SCRATCH0) << 5) | FP_SCRATCH0);
         const d = destReg(instr.rd);
         self.emit(a64.fmovToGp32(d, FP_SCRATCH0));
         self.storeVreg(instr.rd, d);
-        self.fp_scratch0_vreg = null;
     }
 
     // --- Float-to-integer truncation ---
@@ -3303,7 +3367,6 @@ pub const Compiler = struct {
             }
             self.storeVreg(instr.rd, d);
         }
-        self.fp_scratch0_vreg = null;
     }
 
     /// i64.trunc_f32/f64_s/u: NaN check + boundary check + FCVTZS/FCVTZU
@@ -3392,7 +3455,6 @@ pub const Compiler = struct {
             }
             self.storeVreg(instr.rd, d);
         }
-        self.fp_scratch0_vreg = null;
     }
 
     // --- Error stub emission ---

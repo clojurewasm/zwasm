@@ -46,16 +46,16 @@ ROI-ordered task list:
 1. [x] 23.1: Liveness-aware spill/reload — only spill live regs on call sites
 2. [x] 23.2: Guard pages for bounds check elimination — mmap 8GB + PROT_NONE + signal handler
 3. [x] 23.3: Call overhead reduction — fast-path base case, prologue load elimination
-4. [ ] 23.4: FP register file — keep f64/f32 in D-registers, eliminate GPR↔FPR round-trips
+4. [x] 23.4: FP register file — keep f64/f32 in D-registers, eliminate GPR↔FPR round-trips
 5. [ ] 23.5: Measure & tune — re-benchmark, profile remaining gaps, targeted fixes
 
 ## Current Task
 
-23.4: FP register file — keep f64/f32 in D-registers, eliminate GPR↔FPR round-trips.
+23.5: Measure & tune — re-benchmark, profile remaining gaps, targeted fixes.
 
 ## Previous Task
 
-23.3: Call overhead reduction — fast-path base case + prologue load elimination. Reprioritized from address calc (call overhead = 95% of gap). st_sieve -7%, tgo_fib -7%, nbody -4%, st_matrix -3%.
+23.4: FP register file — D2-D7 cache for f64/f32 vregs, eliminated GPR↔FPR round-trips. nbody ~43ms→8ms (5.4x improvement, 2.4x faster than wasmtime).
 
 ## Wasm 3.0 Coverage
 

@@ -431,3 +431,15 @@ from funcref (existing encoding). Zero = null (consistent with all ref types).
 
 **Decision**: Linear scan of `TypeDef.super_types` chain. Type counts are small
 in practice. Future optimization (display vector) deferred to W20.
+
+## D115: FP register cache — D2-D7
+
+**Context**: FP operations (f64/f32) route through D0/D1 scratch registers with
+GPR↔FPR round-trips on every operation (2 FMOV in + 1 FMOV out per op). This
+dominated nbody cost (2.0x vs wasmtime).
+
+**Decision**: Use ARM64 D2-D7 as 6-slot FP register cache. Cache maps vreg→Dn,
+allowing `FADD Dd, Dn, Dm` directly without GPR round-trips. Eviction writes back
+via `FMOV Xscratch, Dn` + `storeVreg()`. Evict all before: branches, BLR calls
+(order: evictAll → spillCallerSaved). S0/D0/D1 used as scratch only, not cached.
+Result: nbody 43ms→8ms (5.4x), 2.4x faster than wasmtime.
