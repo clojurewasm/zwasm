@@ -473,6 +473,11 @@ const a64 = struct {
         return 0x12800000 | (@as(u32, imm16) << 5) | rd;
     }
 
+    /// MOVN Xd, #imm16{, LSL #shift} — 64-bit move wide with NOT
+    fn movn64(rd: u5, imm16: u16, shift: u2) u32 {
+        return 0x92800000 | (@as(u32, shift) << 21) | (@as(u32, imm16) << 5) | rd;
+    }
+
     // --- Sign/zero extension ---
 
     /// SXTW Xd, Wn — sign-extend 32-bit to 64-bit (SBFM Xd, Xn, #0, #31)
@@ -527,28 +532,47 @@ const a64 = struct {
         }
     };
 
-    /// Load a 64-bit immediate into register using MOVZ + MOVK sequence.
+    /// Load a 64-bit immediate into register using MOVZ/MOVN + MOVK sequence.
     fn loadImm64(rd: u5, value: u64) [4]u32 {
         var instrs: [4]u32 = undefined;
         var count: usize = 0;
+
+        const inv = ~value;
         const w0: u16 = @truncate(value);
         const w1: u16 = @truncate(value >> 16);
         const w2: u16 = @truncate(value >> 32);
         const w3: u16 = @truncate(value >> 48);
+        const iw0: u16 = @truncate(inv);
+        const iw1: u16 = @truncate(inv >> 16);
+        const iw2: u16 = @truncate(inv >> 32);
+        const iw3: u16 = @truncate(inv >> 48);
 
-        instrs[0] = movz64(rd, w0, 0);
-        count = 1;
-        if (w1 != 0) {
-            instrs[count] = movk64(rd, w1, 1);
-            count += 1;
-        }
-        if (w2 != 0) {
-            instrs[count] = movk64(rd, w2, 2);
-            count += 1;
-        }
-        if (w3 != 0) {
-            instrs[count] = movk64(rd, w3, 3);
-            count += 1;
+        // Count non-zero halfwords for MOVZ vs MOVN
+        var nz_pos: u8 = 0;
+        if (w0 != 0) nz_pos += 1;
+        if (w1 != 0) nz_pos += 1;
+        if (w2 != 0) nz_pos += 1;
+        if (w3 != 0) nz_pos += 1;
+        var nz_neg: u8 = 0;
+        if (iw0 != 0) nz_neg += 1;
+        if (iw1 != 0) nz_neg += 1;
+        if (iw2 != 0) nz_neg += 1;
+        if (iw3 != 0) nz_neg += 1;
+
+        if (nz_neg < nz_pos) {
+            // MOVN + MOVK sequence is shorter
+            instrs[0] = movn64(rd, iw0, 0);
+            count = 1;
+            if (iw1 != 0) { instrs[count] = movk64(rd, w1, 1); count += 1; }
+            if (iw2 != 0) { instrs[count] = movk64(rd, w2, 2); count += 1; }
+            if (iw3 != 0) { instrs[count] = movk64(rd, w3, 3); count += 1; }
+        } else {
+            // MOVZ + MOVK sequence
+            instrs[0] = movz64(rd, w0, 0);
+            count = 1;
+            if (w1 != 0) { instrs[count] = movk64(rd, w1, 1); count += 1; }
+            if (w2 != 0) { instrs[count] = movk64(rd, w2, 2); count += 1; }
+            if (w3 != 0) { instrs[count] = movk64(rd, w3, 3); count += 1; }
         }
         // Pad remaining with NOPs
         while (count < 4) : (count += 1) {
@@ -1902,6 +1926,9 @@ pub const Compiler = struct {
                 const val = instr.operand;
                 if (val <= 0xFFFF) {
                     self.emit(a64.movz64(d, @truncate(val), 0));
+                } else if ((~val & 0xFFFFFFFF) <= 0xFFFF) {
+                    // Use MOVN for values like 0xFFFFxxxx (saves 1 insn)
+                    self.emit(a64.movn32(d, @truncate(~val)));
                 } else {
                     self.emit(a64.movz64(d, @truncate(val), 0));
                     self.emit(a64.movk64(d, @truncate(val >> 16), 1));
@@ -2603,18 +2630,13 @@ pub const Compiler = struct {
         self.emitCondError(.eq, 3);
         if (sign == .signed) {
             // Check INT_MIN / -1 → overflow
-            // Load -1 into SCRATCH via MOVN
-            self.emit(a64.movz64(SCRATCH, 0, 0));
-            self.emit(a64.movk64(SCRATCH, 0xFFFF, 0));
-            self.emit(a64.movk64(SCRATCH, 0xFFFF, 1));
-            self.emit(a64.movk64(SCRATCH, 0xFFFF, 2));
-            self.emit(a64.movk64(SCRATCH, 0xFFFF, 3));
+            // -1 = ~0, use MOVN (1 insn instead of 5)
+            self.emit(a64.movn64(SCRATCH, 0, 0));
             self.emit(a64.cmp64(rs2, SCRATCH));
             const skip_idx = self.currentIdx();
             self.emit(a64.bCond(.ne, 0));
-            // Load INT_MIN (0x8000000000000000)
-            self.emit(a64.movz64(SCRATCH, 0, 0));
-            self.emit(a64.movk64(SCRATCH, 0x8000, 3));
+            // INT_MIN = 0x8000000000000000 (1 insn instead of 2)
+            self.emit(a64.movz64(SCRATCH, 0x8000, 3));
             self.emit(a64.cmp64(rs1, SCRATCH));
             self.emitCondError(.eq, 4);
             const here = self.currentIdx();
@@ -4718,6 +4740,44 @@ test "CMP+B.cond fusion saves one instruction per compare-and-branch" {
 
     // Fusion check: fused code should be shorter (saves 1 insn = 4 bytes per fusion)
     try testing.expect(jit_fused.code_len < jit_nofuse.code_len);
+}
+
+test "constant materialization uses MOVN for negative values" {
+    if (builtin.cpu.arch != .aarch64) return;
+
+    const alloc = testing.allocator;
+    // Return -1 as 32-bit constant (0xFFFFFFFF).
+    // With MOVN: MOVN Wd, #0 (1 insn). Without: MOVZ + MOVK (2 insns).
+    var code_neg = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 0, .rs1 = 0, .operand = 0xFFFFFFFF },
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 },
+    };
+    // Return 0x10001 (always needs 2 insns: MOVZ + MOVK)
+    var code_pos = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 0, .rs1 = 0, .operand = 0x10001 },
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 },
+    };
+
+    var rf_neg = RegFunc{ .code = &code_neg, .pool64 = &.{}, .reg_count = 1, .local_count = 1, .alloc = alloc };
+    var rf_pos = RegFunc{ .code = &code_pos, .pool64 = &.{}, .reg_count = 1, .local_count = 1, .alloc = alloc };
+
+    const jit_neg = compileFunction(alloc, &rf_neg, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit_neg.deinit(alloc);
+
+    const jit_pos = compileFunction(alloc, &rf_pos, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit_pos.deinit(alloc);
+
+    // Functional: -1 as u32
+    {
+        var regs: [5]u64 = .{ 0, 0, 0, 0, 0 };
+        _ = jit_neg.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0xFFFFFFFF), regs[0]);
+    }
+
+    // MOVN optimization: -1 should use fewer bytes than 0x10001
+    try testing.expect(jit_neg.code_len < jit_pos.code_len);
 }
 
 

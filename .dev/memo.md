@@ -30,16 +30,16 @@ Stages 0-23, 25 — all COMPLETE. See `roadmap.md` for details.
 - [x] 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
 - [x] 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
 - [x] 26.3: Redundant MOV elimination — OP_MOV direct-load into destination register
-- [ ] 26.4: Constant materialization — MVN for -1, MOVN for negatives
+- [x] 26.4: Constant materialization — MVN for -1, MOVN for negatives
 - [ ] 26.5: Benchmark + evaluate + record
 
 ## Current Task
 
-26.4: Constant materialization — MVN for -1, MOVN for negatives.
+26.5: Benchmark + evaluate + record.
 
 ## Previous Task
 
-26.3: OP_MOV direct-load — load memory-backed vreg directly into destination register (both ARM64 + x86). Eliminates redundant SCRATCH→phys MOV.
+26.4: Constant materialization — MOVN for -1 and negatives (ARM64). Optimized OP_CONST32, loadImm64, and div64 overflow checks.
 
 ## Wasm 3.0 Coverage
 
