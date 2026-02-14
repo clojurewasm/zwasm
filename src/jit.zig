@@ -834,6 +834,19 @@ pub const Compiler = struct {
     shared_exit_idx: u32,
     /// True when the memory has guard pages — skip explicit bounds checks.
     use_guard_pages: bool,
+    /// ARM64 instruction index of the self-call entry point (after base-case fast-path).
+    /// Self-calls BL here instead of instruction 0 to skip callee-saved STP.
+    self_call_entry_idx: u32,
+    /// Saved fast-path pattern from emitBaseCaseFastPath for duplication at self-call entry.
+    fast_path_info: ?FastPathInfo,
+
+    const FastPathInfo = struct {
+        param_offset: u16,
+        imm: u12,
+        skip_cond: a64.Cond,
+        ret_rd: u8,
+        cmp_rs1: u8,
+    };
 
     const Patch = struct {
         arm64_idx: u32, // index in code array
@@ -886,6 +899,8 @@ pub const Compiler = struct {
             .call_live_set = 0,
             .shared_exit_idx = 0,
             .use_guard_pages = false,
+            .self_call_entry_idx = 0,
+            .fast_path_info = null,
         };
     }
 
@@ -1308,22 +1323,15 @@ pub const Compiler = struct {
 
     // --- Fast-Path Base Case ---
 
-    /// Emit a fast-path check for self-recursive base cases.
+    /// Analyze IR for base-case fast-path pattern and emit it before the prologue.
     /// Pattern: IR[0] = cmp_imm(param, const), IR[1] = br_if_not, IR[2] = return param.
-    /// Emitted BEFORE the prologue — base cases return without callee-saved save/restore.
+    /// Saves pattern info in fast_path_info for duplication at self-call entry.
     fn emitBaseCaseFastPath(self: *Compiler, ir: []const RegInstr) void {
         if (ir.len < 3) return;
         if (self.result_count == 0) return;
 
         // Check for self-calls in the IR
-        var has_self_call = false;
-        for (ir) |instr| {
-            if (instr.op == regalloc_mod.OP_CALL and instr.operand == self.self_func_idx) {
-                has_self_call = true;
-                break;
-            }
-        }
-        if (!has_self_call) return;
+        if (!self.has_self_call) return;
 
         const cmp_instr = ir[0];
         const br_instr = ir[1];
@@ -1359,38 +1367,41 @@ pub const Compiler = struct {
 
         const param_offset: u16 = @intCast(@as(u32, cmp_instr.rs1) * 8);
 
-        // --- Emit fast path (before prologue) ---
-        // x0 = callee regs pointer (from caller)
+        // Save pattern info for self-call entry duplication
+        self.fast_path_info = .{
+            .param_offset = param_offset,
+            .imm = @intCast(imm),
+            .skip_cond = skip_cond,
+            .ret_rd = ret_instr.rd,
+            .cmp_rs1 = cmp_instr.rs1,
+        };
 
-        // 1. Load param from callee frame
-        self.emit(a64.ldr64(SCRATCH, 0, param_offset)); // x8 = regs[param]
-
-        // 2. Compare (32-bit signed/unsigned)
-        self.emit(a64.cmpImm32(SCRATCH, @intCast(imm)));
-
-        // 3. Branch to prologue if NOT base case
-        const branch_idx = self.currentIdx();
-        self.emit(a64.bCond(skip_cond, 0)); // placeholder
-
-        // 4. Store result to regs[0] if return vreg != 0
-        if (ret_instr.rd != 0) {
-            // Result is a different param — copy to regs[0]
-            if (ret_instr.rd != cmp_instr.rs1) {
-                // Load the return param
-                self.emit(a64.ldr64(SCRATCH, 0, @intCast(@as(u32, ret_instr.rd) * 8)));
-            }
-            self.emit(a64.str64(SCRATCH, 0, 0)); // regs[0] = result
-        }
-        // If ret_instr.rd == 0: result already in regs[0], no copy needed
-
-        // 5. Return success
-        self.emit(a64.movz64(0, 0, 0)); // x0 = 0
-        self.emit(a64.ret_());
-
-        // Patch branch to point to next instruction (start of prologue)
+        // Emit fast path and patch branch to next instruction (prologue start)
+        const branch_idx = self.emitFastPathBlock(param_offset, @intCast(imm), skip_cond, ret_instr.rd, cmp_instr.rs1);
         const prologue_start = self.currentIdx();
         const disp: i19 = @intCast(@as(i32, @intCast(prologue_start)) - @as(i32, @intCast(branch_idx)));
         self.code.items[branch_idx] = a64.bCond(skip_cond, disp);
+    }
+
+    /// Emit a base-case fast-path block: LDR → CMP → B.cond → [STR result] → RET.
+    /// Returns the branch_idx for the caller to patch the B.cond target.
+    fn emitFastPathBlock(self: *Compiler, param_offset: u16, imm: u12, skip_cond: a64.Cond, ret_rd: u8, cmp_rs1: u8) u32 {
+        // x0 = callee regs pointer (from caller)
+        self.emit(a64.ldr64(SCRATCH, 0, param_offset)); // x8 = regs[param]
+        self.emit(a64.cmpImm32(SCRATCH, imm));
+        const branch_idx = self.currentIdx();
+        self.emit(a64.bCond(skip_cond, 0)); // placeholder — caller patches
+
+        if (ret_rd != 0) {
+            if (ret_rd != cmp_rs1) {
+                self.emit(a64.ldr64(SCRATCH, 0, @intCast(@as(u32, ret_rd) * 8)));
+            }
+            self.emit(a64.str64(SCRATCH, 0, 0)); // regs[0] = result
+        }
+
+        self.emit(a64.movz64(0, 0, 0)); // x0 = 0 (success)
+        self.emit(a64.ret_());
+        return branch_idx;
     }
 
     // --- Vreg Liveness Pre-scan ---
@@ -1422,12 +1433,38 @@ pub const Compiler = struct {
         // stp x27, x28, [sp, #-16]!
         self.emit(a64.stpPre(27, 28, 31, -2));
 
-        // Flag for lightweight self-call: x29 = SP (nonzero) marks normal entry.
-        // Self-call entry (emitted in 25.2) sets x29 = 0; epilogue uses CBZ x29
-        // to skip LDP x19-x28 on self-call return paths.
         if (self.has_self_call) {
-            self.emit(a64.addImm64(29, 31, 0)); // MOV x29, SP (nonzero = normal entry)
+            // Normal entry: x29 = SP (nonzero) — epilogue does full LDP x19-x28.
+            self.emit(a64.addImm64(29, 31, 0)); // MOV x29, SP
+
+            // Branch over self-call entry block to shared setup.
+            const b_shared_idx = self.currentIdx();
+            self.emit(0x14000000); // B placeholder
+
+            // --- Self-call entry point ---
+            // Self-calls BL here; skips callee-saved STP x19-x28.
+            self.self_call_entry_idx = self.currentIdx();
+
+            // Duplicated base-case fast-path at self-call entry.
+            if (self.fast_path_info) |fp| {
+                const br_idx = self.emitFastPathBlock(fp.param_offset, fp.imm, fp.skip_cond, fp.ret_rd, fp.cmp_rs1);
+                // Patch B.cond to fall through to self-call prologue
+                const target = self.currentIdx();
+                const disp: i19 = @intCast(@as(i32, @intCast(target)) - @as(i32, @intCast(br_idx)));
+                self.code.items[br_idx] = a64.bCond(fp.skip_cond, disp);
+            }
+
+            // Self-call prologue: only save x29,x30 (link register).
+            self.emit(a64.stpPre(29, 30, 31, -2));
+            self.emit(a64.movz64(29, 0, 0)); // MOV x29, #0 (zero = self-call entry)
+
+            // Patch B to shared setup (current position).
+            const shared_setup = self.currentIdx();
+            const b_offset: i26 = @intCast(@as(i32, @intCast(shared_setup)) - @as(i32, @intCast(b_shared_idx)));
+            self.code.items[b_shared_idx] = a64.b(b_offset);
         }
+
+        // --- Shared setup (normal + self-call entries converge here) ---
 
         // Save args: x0 = regs (→ callee-saved x19), x1 = vm, x2 = instance (→ memory slots)
         self.emit(a64.mov64(REGS_PTR, 0)); // x19 = regs
