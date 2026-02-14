@@ -1422,6 +1422,13 @@ pub const Compiler = struct {
         // stp x27, x28, [sp, #-16]!
         self.emit(a64.stpPre(27, 28, 31, -2));
 
+        // Flag for lightweight self-call: x29 = SP (nonzero) marks normal entry.
+        // Self-call entry (emitted in 25.2) sets x29 = 0; epilogue uses CBZ x29
+        // to skip LDP x19-x28 on self-call return paths.
+        if (self.has_self_call) {
+            self.emit(a64.addImm64(29, 31, 0)); // MOV x29, SP (nonzero = normal entry)
+        }
+
         // Save args: x0 = regs (→ callee-saved x19), x1 = vm, x2 = instance (→ memory slots)
         self.emit(a64.mov64(REGS_PTR, 0)); // x19 = regs
         // Store VM and instance pointers to regs[reg_count+2] and [reg_count+3]
@@ -1494,7 +1501,12 @@ pub const Compiler = struct {
             }
         }
 
-        // Restore callee-saved registers (reverse order)
+        // Restore callee-saved registers (reverse order).
+        // For self-call functions: CBZ x29 skips LDP x19-x28 (self-call entry
+        // didn't save them). LDP x29,x30 always executes (link register).
+        if (self.has_self_call) {
+            self.emit(a64.cbz64(29, 6)); // skip 5 LDPs (offset = +6 instructions)
+        }
         self.emit(a64.ldpPost(27, 28, 31, 2));
         self.emit(a64.ldpPost(25, 26, 31, 2));
         self.emit(a64.ldpPost(23, 24, 31, 2));
@@ -1509,6 +1521,9 @@ pub const Compiler = struct {
 
     fn emitErrorReturn(self: *Compiler, error_code: u16) void {
         // Restore callee-saved and return error
+        if (self.has_self_call) {
+            self.emit(a64.cbz64(29, 6)); // skip 5 LDPs
+        }
         self.emit(a64.ldpPost(27, 28, 31, 2));
         self.emit(a64.ldpPost(25, 26, 31, 2));
         self.emit(a64.ldpPost(23, 24, 31, 2));
@@ -3499,6 +3514,9 @@ pub const Compiler = struct {
         // Shared error epilogue: restore callee-saved regs and return (x0 has error code)
         const shared_exit = self.currentIdx();
         self.shared_exit_idx = shared_exit;
+        if (self.has_self_call) {
+            self.emit(a64.cbz64(29, 6)); // skip 5 LDPs
+        }
         self.emit(a64.ldpPost(27, 28, 31, 2));
         self.emit(a64.ldpPost(25, 26, 31, 2));
         self.emit(a64.ldpPost(23, 24, 31, 2));
