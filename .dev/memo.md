@@ -29,17 +29,17 @@ Stages 0-23, 25 — all COMPLETE. See `roadmap.md` for details.
 - [x] 26.0: Remove wasmer from benchmark infrastructure
 - [x] 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
 - [x] 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
-- [x] 26.3: Redundant MOV elimination — OP_MOV direct-load into destination register
+- [x] ~26.3: Redundant MOV elimination — REVERTED (bypassed scratch cache, caused 30% regression on tgo_mfr)~
 - [x] 26.4: Constant materialization — MVN for -1, MOVN for negatives
-- [ ] 26.5: Benchmark + evaluate + record
+- [x] 26.5: Benchmark + evaluate + record
 
 ## Current Task
 
-26.5: Benchmark + evaluate + record.
+Stage 26 complete. Ready for merge gate.
 
 ## Previous Task
 
-26.4: Constant materialization — MOVN for -1 and negatives (ARM64). Optimized OP_CONST32, loadImm64, and div64 overflow checks.
+26.5: Benchmark evaluation — reverted 26.3 OP_MOV direct-load (bypassed scratch register cache causing 30% regression). Net result: fusion helps most benchmarks (+7-18%), st_fib2 regresses -9% (micro-arch effect).
 
 ## Wasm 3.0 Coverage
 
