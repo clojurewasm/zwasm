@@ -111,9 +111,16 @@ bash bench/compare_runtimes.sh -h                                      # list al
 |----------|-------------------|:----:|---------------------------------|
 | zwasm    | Interpreter+RegIR | Yes  | Our runtime                     |
 | wasmtime | JIT (Cranelift)   | Yes  | Primary comparison target       |
-| wasmer   | JIT (multiple)    | Yes  | Secondary comparison            |
+| wasmer   | JIT (multiple)    | Yes  | **Caution**: see note below     |
 | bun      | JIT (JSC)         | Yes  | WASI via run_wasm_wasi.mjs      |
 | node     | JIT (V8)          | Yes  | WASI via run_wasm_wasi.mjs      |
+
+**wasmer invoke bug (D119)**: wasmer 7.0.1's `-i` flag does NOT work for WASI modules.
+When a module imports WASI functions, wasmer takes the `execute_wasi_module` path
+which ignores `-i` entirely. The function is never called — module just loads and exits.
+This affects ALL TinyGo benchmarks (11/21). WAT benchmarks (no WASI imports) and
+shootout benchmarks (`_start` entry) work correctly. Verified: timing does not scale
+with workload, output is empty, verbose log shows 493µs regardless of input size.
 
 JS wrappers:
 - `bench/run_wasm.mjs` — invoke-style (exported functions), with WASI stubs

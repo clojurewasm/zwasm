@@ -487,3 +487,51 @@ vs wasmtime on memory-bound (st_matrix 3.2x) and recursive (fib 1.8x) benchmarks
 (st_matrix 3.2x, fib 1.8x) require fundamentally different approaches — likely
 loop-invariant code motion, strength reduction, or register promotion for memory
 loads — not instruction-level encoding tricks.
+
+---
+
+## D118: JIT peephole optimizations — CMP+B.cond fusion
+
+**Context**: Analysis of nqueens inner loop showed zwasm emits 18 ARM64 instructions
+where cranelift emits ~12. The root cause: each comparison+branch uses 3 instructions
+(`CMP + CSET rd, cond + CBNZ rd, target`) instead of 2 (`CMP + B.cond target`).
+This pattern affects ALL benchmarks with conditional branches in hot loops.
+
+Additional waste: redundant MOV chains from regalloc intermediates, and suboptimal
+constant materialization (-1 uses 4 MOVK instead of 1 MVN).
+
+**Approach**: RegIR look-ahead during JIT emission. When `emitCmp32/64` detects
+the next RegIR instruction is `BR_IF/BR_IF_NOT` consuming its result vreg, emit
+`CMP + B.cond` directly (skip CSET + store). The BR_IF is marked as fused and skipped.
+Same pattern for x86_64 (`CMP + Jcc`).
+
+Phase 2: redundant MOV elimination via copy-propagation tracking during emission.
+Phase 3: constant materialization optimization (MVN for -1, MOVN for negatives).
+
+**Expected impact**: Inner loops 20-33% fewer instructions. All benchmarks 5-15%.
+
+**Rejected alternatives**:
+- Multi-pass regalloc (LIRA): would fix st_matrix (3.3x gap) but conflicts with
+  zwasm's small/fast philosophy. Binary would grow significantly. Deferred to Future.
+- Post-emission peephole pass: more flexible but adds a second pass over emitted code.
+  Look-ahead is simpler and consistent with single-pass JIT design.
+
+---
+
+## D119: wasmer benchmark invalidation — TinyGo invoke bug
+
+**Context**: Cross-runtime benchmark comparison (runtime_comparison.yaml) included
+wasmer 7.0.1 results for all 21 benchmarks. Analysis revealed wasmer's `-i` (invoke)
+flag does NOT work for WASI modules — it detects WASI imports, enters `execute_wasi_module`
+path, and ignores the `-i` flag entirely. Function is never called, module just loads and exits.
+
+**Evidence**: wasmer produces identical timing (~10ms) for nqueens(1), nqueens(5000),
+nqueens(10000). Output is empty (no return value printed). Verbose log shows 493µs
+execution time for `execute_wasi_module` regardless of workload.
+
+WAT benchmarks (no WASI imports) work correctly (`execute_pure_wasm_module` path).
+Shootout benchmarks use `_start` entry point and work correctly.
+
+**Decision**: Remove wasmer from public documentation (README, etc.) to avoid confusion.
+Keep runtime_comparison.yaml data for internal reference but mark TinyGo results as
+invalid. The benchmark script can still be used with wasmer for WAT and shootout benchmarks.

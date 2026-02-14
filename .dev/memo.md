@@ -26,14 +26,30 @@ Stages 0-23, 25 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue
 
-- [x] 25.1: x29 flag + conditional epilogue
-- [x] 25.2: Self-call entry point + duplicated fast-path
-- [x] 25.3: Callee-saved liveness + spill/reload in emitInlineSelfCall
-- [x] 25.4: Benchmark + evaluate
+- [ ] 26.0: Fix runtime_comparison.yaml — mark wasmer TinyGo invalid, remove wasmer from README
+- [ ] 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
+- [ ] 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
+- [ ] 26.3: Redundant MOV elimination — copy propagation tracking during emission
+- [ ] 26.4: Constant materialization — MVN for -1, MOVN for negatives
+- [ ] 26.5: Benchmark + evaluate + record
 
 ## Current Task
 
-Stage 25 merged to main. No next stage defined.
+Stage 26: JIT Peephole Optimizations. See D118, roadmap.md.
+
+Key insight: zwasm emits `CMP + CSET + CBNZ` (3 insns) per conditional branch
+where cranelift emits `CMP + B.cond` (2 insns). Fix via RegIR look-ahead.
+
+Implementation approach for 26.1 (CMP+B.cond fusion):
+- In `emitCmp32()`/`emitCmp64()`: peek at `ir[pc+1]`
+- If next is BR_IF consuming this result vreg (rd == next.rd): emit CMP + B.cond directly
+- If next is BR_IF_NOT: emit CMP + B.inv(cond) directly
+- Set `skip_next = true` flag to skip the BR_IF during main dispatch
+- Requires: pass `ir` slice and `pc` to emitCmp, or store on Compiler struct
+- Patch kind: `.b_cond` with condition code (new patch variant)
+
+Key files: `src/jit.zig` (emitCmp32, emitCmp64, OP_BR_IF, OP_BR_IF_NOT dispatch)
+Also: `src/x86.zig` for 26.2 x86_64 equivalent
 
 ## Previous Task
 

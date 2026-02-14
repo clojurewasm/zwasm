@@ -4,13 +4,12 @@ A small, fast WebAssembly runtime written in Zig. Library and CLI.
 
 ## Why zwasm
 
-Most Wasm runtimes are either fast but large (wasmtime ~56MB, wasmer ~118MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1.1MB with ARM64 + x86_64 JIT compilation**.
+Most Wasm runtimes are either fast but large (wasmtime ~56MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1.1MB with ARM64 + x86_64 JIT compilation**.
 
 | Runtime  | Binary  | Memory | JIT            |
 |----------|--------:|-------:|----------------|
 | zwasm    | 1.1MB   | ~3MB   | ARM64 + x86_64 |
 | wasmtime | 56MB    | ~12MB  | Cranelift      |
-| wasmer   | 118MB   | ~30MB  | LLVM/Cranelift |
 | wasm3    | 0.3MB   | ~1MB   | None           |
 
 zwasm was extracted from [ClojureWasm](https://github.com/niclas-ahden/ClojureWasm) (a Zig reimplementation of Clojure) where optimizing a Wasm subsystem inside a language runtime created a "runtime within runtime" problem. Separating it produced a cleaner codebase, independent optimization, and a reusable library. ClojureWasm remains the primary consumer.
@@ -19,7 +18,7 @@ zwasm was extracted from [ClojureWasm](https://github.com/niclas-ahden/ClojureWa
 
 - **581+ opcodes**: Full MVP + SIMD (236 + 20 relaxed) + Exception handling + Function references + GC + Threads (79 atomics)
 - **4-tier execution**: bytecode > predecoded IR > register IR > ARM64/x86_64 JIT
-- **99.8% spec conformance**: 61,650/61,761 spec tests passing
+- **99.8% spec conformance**: 61,639/61,761 spec tests passing
 - **All Wasm 3.0 proposals**: See [Spec Coverage](#wasm-spec-coverage) below
 - **Component Model**: WIT parser, Canonical ABI, component linking, WASI P2 adapter
 - **WAT support**: `zwasm run file.wat`, build-time optional (`-Dwat=false`)
@@ -60,7 +59,7 @@ Memory usage 3-4x lower across all benchmarks.
 | fib(35)         | 52ms    | 51ms     | 1.0x     |
 | st_fib2(40)     | 1086ms  | 686ms    | 1.6x     |
 
-Full results (21 benchmarks, 5 runtimes): `bench/runtime_comparison.yaml`
+Full results (21 benchmarks): `bench/runtime_comparison.yaml`
 
 ## Usage
 

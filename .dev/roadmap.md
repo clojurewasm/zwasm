@@ -571,10 +571,74 @@ Caller saves/restores only live callee-saved vregs via liveness analysis.
 - Binary ≤ 1.5MB (actual: 1.1MB)
 - WASI P2: basic filesystem/clock/random via component interfaces
 
+## Stage 26: JIT Peephole Optimizations (PLANNED)
+
+**Goal**: Improve JIT code quality with peephole patterns. No architectural changes.
+Binary target: stay under 1.5MB. See D118.
+
+### Analysis (2026-02-14)
+
+Comparison of zwasm vs cranelift codegen for nqueens inner loop revealed three
+categories of unnecessary instructions:
+
+1. **CMP+CSET+CBNZ → CMP+B.cond**: Every conditional branch uses 3 instructions
+   instead of 2. Affects ALL benchmarks with conditional branches in hot loops.
+   nqueens inner loop: 18 instructions → ~12 (-33%).
+2. **Redundant MOV chains**: Regalloc intermediates cause `mov rA, rB; mov rC, rA`
+   where `mov rC, rB` suffices.
+3. **Constant materialization**: `-1` uses 4 MOVK instructions instead of 1 MVN.
+
+### wasmer benchmark invalidation (D119)
+
+wasmer 7.0.1's `-i` flag is broken for WASI modules (TinyGo benchmarks). All 11
+TinyGo wasmer numbers in runtime_comparison.yaml are invalid (module load only,
+function never invoked). WAT and shootout benchmarks are valid.
+
+### Current gaps (wasmtime comparison, wasmer-corrected)
+
+| Benchmark    | zwasm   | wasmtime | ratio | category       |
+|--------------|---------|----------|-------|----------------|
+| st_matrix    | 284.8ms | 86.9ms   | 3.28x | regalloc-bound |
+| tgo_mfr      | 59.3ms  | 32.1ms   | 1.85x | memory+loop    |
+| st_fib2      | 1086ms  | 686ms    | 1.58x | recursion      |
+| tgo_fib      | 43.3ms  | 28.9ms   | 1.50x | recursion      |
+| tgo_strops   | 36.6ms  | 31.0ms   | 1.18x | memory+loop    |
+| tgo_nqueens  | 42.6ms  | 38.9ms   | 1.10x | loop           |
+
+st_matrix (3.28x) requires multi-pass regalloc (LIRA) — rejected as too complex
+for zwasm's small/fast philosophy. See D116. Accept as known limitation.
+
+13/21 beat wasmtime, 17/21 within 1.5x, only st_matrix exceeds 2x.
+
+### Task breakdown
+
+- 26.0: Fix runtime_comparison.yaml — mark wasmer TinyGo as invalid, remove wasmer from README
+- 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
+- 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
+- 26.3: Redundant MOV elimination — copy propagation tracking during emission
+- 26.4: Constant materialization — MVN for -1, MOVN for negatives
+- 26.5: Benchmark + evaluate + record
+
+### Expected impact
+
+- nqueens inner loop: 18→12 instructions (-33%)
+- All benchmarks: 5-15% improvement
+- tgo_nqueens: 1.10x → ~1.0x
+- tgo_strops: 1.18x → ~1.05x
+- tgo_mfr: 1.85x → ~1.5x (partial, loop overhead reduction)
+- st_fib2: 1.58x → ~1.4x (partial, branch overhead reduction)
+
+### Exit criteria
+
+- All spec tests pass
+- No performance regression on any benchmark
+- Binary ≤ 1.5MB
+- Benchmark recording at stage completion
+
 ## Future
 
+- Liveness-based regalloc / LIRA (st_matrix 3.3x gap — deferred, conflicts with small/fast)
 - Superinstruction expansion (profile-guided)
-- Liveness-based regalloc (st_matrix 3.1x gap)
 - WASI P3 / async (depends on CM Stage 22)
 - GC collector upgrade (generational/Immix)
 
