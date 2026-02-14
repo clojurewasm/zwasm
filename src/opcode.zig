@@ -35,6 +35,7 @@ pub const ValType = union(enum) {
     pub const HEAP_NOFUNC: u32 = 0xFFFF_FFE3;
     pub const HEAP_NOEXTERN: u32 = 0xFFFF_FFE2;
     pub const HEAP_EXN: u32 = 0xFFFF_FFE0;
+    pub const HEAP_NOEXN: u32 = 0xFFFF_FFDF;
 
     /// Read a ValType from a binary reader, handling multi-byte ref type encodings.
     /// Supports single-byte MVP types and the function-references proposal
@@ -47,6 +48,7 @@ pub const ValType = union(enum) {
             0x7D => .f32,
             0x7C => .f64,
             0x7B => .v128,
+            0x74 => ValType{ .ref_null_type = HEAP_NOEXN }, // nullexnref
             0x73 => ValType{ .ref_null_type = HEAP_NOFUNC }, // nullfuncref
             0x72 => ValType{ .ref_null_type = HEAP_NOEXTERN }, // nullexternref
             0x71 => ValType{ .ref_null_type = HEAP_NONE }, // nullref
@@ -89,6 +91,7 @@ pub const ValType = union(enum) {
             -13 => HEAP_NOFUNC, // nofunc
             -14 => HEAP_NOEXTERN, // noextern
             -24 => HEAP_EXN, // exn
+            -25 => HEAP_NOEXN, // noexn
             else => return error.InvalidValType,
         };
         // Use shorthand for common nullable types
@@ -106,6 +109,7 @@ pub const ValType = union(enum) {
             0x7D => .f32,
             0x7C => .f64,
             0x7B => .v128,
+            0x74 => ValType{ .ref_null_type = HEAP_NOEXN }, // nullexnref
             0x73 => ValType{ .ref_null_type = HEAP_NOFUNC }, // nullfuncref
             0x72 => ValType{ .ref_null_type = HEAP_NOEXTERN }, // nullexternref
             0x71 => ValType{ .ref_null_type = HEAP_NONE }, // nullref

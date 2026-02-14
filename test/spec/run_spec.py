@@ -64,8 +64,11 @@ def parse_value(val_obj):
         alternatives = [parse_value(v) for v in val_obj.get("values", [])]
         return ("either", alternatives)
 
-    # GC ref types may have no "value" field: means "any non-null ref of this type"
+    # Null bottom types can only be null — no "value" field means null
+    null_bottom_types = ("refnull", "nullref", "nullfuncref", "nullexternref", "nullexnref")
     if "value" not in val_obj:
+        if vtype in null_bottom_types:
+            return 0  # null bottom types are always null
         return ("ref_any", vtype)
 
     vstr = val_obj["value"]
@@ -88,7 +91,7 @@ def parse_value(val_obj):
     # Reference types: null = 0, non-null values passed as raw integers
     ref_types = ("funcref", "externref", "anyref", "eqref", "i31ref",
                  "structref", "arrayref", "nullref", "nullfuncref", "nullexternref",
-                 "exnref")
+                 "exnref", "nullexnref")
     if vtype in ref_types:
         if vstr == "null":
             return 0  # ref.null = 0 on the stack

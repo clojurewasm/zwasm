@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 61,951/62,165 Mac (99.7%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
+- Spec: 61,980/62,165 Mac (99.7%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -63,10 +63,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 61,951/62,165 (99.7%).
-214 failures: ref_null 28, br_on_cast_fail 21, linking 16, relaxed_* 32,
+None. Mac 61,980/62,165 (99.7%).
+185 failures: br_on_cast_fail 21, linking 16, relaxed_* 32,
 instance 12, type-subtyping 11, ref_test 11, i31 9, array 7, br_on_cast 6,
-elem 6, throw_ref 5, try_table 5, table 5, global 5, array_new_elem 5, other 30.
+elem 6, throw_ref 5, try_table 5, table 5, global 5, array_new_elem 5, other 24.
 Ubuntu: +15 endianness64 (x86-specific). Tail-call timeouts eliminated (27.1).
 
 ## References
