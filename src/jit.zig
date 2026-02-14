@@ -1893,7 +1893,8 @@ pub const Compiler = struct {
         switch (instr.op) {
             // --- Register ops ---
             regalloc_mod.OP_MOV => {
-                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                // Load directly into destination register to avoid SCRATCH → phys MOV
+                const src = self.getOrLoad(instr.rs1, destReg(instr.rd));
                 self.storeVreg(instr.rd, src);
             },
             regalloc_mod.OP_CONST32 => {
@@ -4718,4 +4719,5 @@ test "CMP+B.cond fusion saves one instruction per compare-and-branch" {
     // Fusion check: fused code should be shorter (saves 1 insn = 4 bytes per fusion)
     try testing.expect(jit_fused.code_len < jit_nofuse.code_len);
 }
+
 

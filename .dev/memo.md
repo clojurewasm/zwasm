@@ -29,17 +29,17 @@ Stages 0-23, 25 — all COMPLETE. See `roadmap.md` for details.
 - [x] 26.0: Remove wasmer from benchmark infrastructure
 - [x] 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
 - [x] 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
-- [ ] 26.3: Redundant MOV elimination — copy propagation tracking during emission
+- [x] 26.3: Redundant MOV elimination — OP_MOV direct-load into destination register
 - [ ] 26.4: Constant materialization — MVN for -1, MOVN for negatives
 - [ ] 26.5: Benchmark + evaluate + record
 
 ## Current Task
 
-26.3: Redundant MOV elimination — copy propagation tracking during emission.
+26.4: Constant materialization — MVN for -1, MOVN for negatives.
 
 ## Previous Task
 
-26.2: CMP+Jcc fusion (x86_64). Same pattern as ARM64: tryFuseBranch + emitCmpResult. Saves SETCC+MOVZX+store+load+TEST per fused CMP+BR_IF.
+26.3: OP_MOV direct-load — load memory-backed vreg directly into destination register (both ARM64 + x86). Eliminates redundant SCRATCH→phys MOV.
 
 ## Wasm 3.0 Coverage
 

@@ -2526,7 +2526,9 @@ pub const Compiler = struct {
         switch (instr.op) {
             // --- Register ops ---
             regalloc_mod.OP_MOV => {
-                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                // Load directly into destination register to avoid SCRATCH → phys MOV
+                const d = vregToPhys(instr.rd) orelse SCRATCH;
+                const src = self.getOrLoad(instr.rs1, d);
                 self.storeVreg(instr.rd, src);
             },
             regalloc_mod.OP_CONST32 => self.emitConst32(instr),
