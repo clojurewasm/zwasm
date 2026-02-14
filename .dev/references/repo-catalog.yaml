@@ -142,9 +142,4 @@ repositories:
       - Debugging.md
     use_when: "Toolchain interop, linking conventions, DWARF debug info"
 
-  wabt:
-    purpose: "WebAssembly Binary Toolkit: wast2json, wasm2wat, wat2wasm"
-    key_paths:
-      - src/                      # C++ source
-      - test/                     # Test suite
-    use_when: "wast2json issues (W16), binary format questions, test conversion"
+  # wabt: REMOVED — migrated to wasm-tools (Stage 27). No longer used.

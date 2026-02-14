@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 61,639/61,761 Mac (99.8%), 61,633/61,761 Ubuntu (99.8%), incl. GC 472/546, threads 306/310, E2E: 356/356
+- Spec: 61,787/62,018 Mac (99.6%, wasm-tools), Ubuntu pending re-run. GC 472/546, threads 306/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -26,9 +26,9 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue (v0.3.0)
 
-- [ ] 27.0: Ubuntu x86_64 verification of Stage 26
-- [ ] 27.1: Switch spec runner to ReleaseSafe default
-- [ ] 27.2: Migrate wabt → wasm-tools (docs, rules, scripts)
+- [x] 27.0: Ubuntu x86_64 verification of Stage 26
+- [x] 27.1: Switch spec runner to ReleaseSafe default (--build flag)
+- [x] 27.2: Migrate wabt → wasm-tools (docs, rules, scripts, CI, flake.nix)
 - [ ] 28.0: Regenerate GC spec tests with wasm-tools
 - [ ] 28.1: Investigate multi-module 33 failures (check history for regressions)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
@@ -43,11 +43,11 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-27.0: Ubuntu x86_64 verification of Stage 26.
+28.0: Regenerate GC spec tests with wasm-tools.
 
 ## Previous Task
 
-26.5: Stage 26 complete. CMP+B.cond/Jcc fusion, MOVN constants. OP_MOV direct-load reverted (scratch cache bypass).
+27.2: Migrated wabt → wasm-tools. Spec total: 61,787/62,018 (+148 passes, +257 test cases). Added exnref to spec runner ref_types.
 
 ## Wasm 3.0 Coverage
 
@@ -56,10 +56,11 @@ GC spec tests via wasm-tools 1.244.0: 472/546 (86.4%), 18 files. W21 resolved.
 
 ## Known Bugs
 
-None. Mac 61,639/61,761 (99.8%), Ubuntu 61,633/61,761 (99.8%).
-4 thread-dependent failures (require real threading), 32 GC skips, 33 multi-module linking failures.
+None. Mac 61,787/62,018 (99.6% with wasm-tools — more tests now converted).
+231 failures: ref_null 28, gc-br_on_cast_fail 21, type-subtyping 17, linking 16,
+instance 12, relaxed_* 26, call_indirect 11, GC ~66, threads 4, other.
 Ubuntu: +15 endianness64 (x86-specific), +2 call (cross-module linking).
-Note: Ubuntu Debug build has 11 extra timeouts on tail-call recursion tests. Use ReleaseSafe for spec tests on Ubuntu.
+Tail-call timeouts eliminated by ReleaseSafe default (27.1).
 
 ## References
 

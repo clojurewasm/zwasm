@@ -1,7 +1,8 @@
 #!/bin/bash
-# Convert WebAssembly spec .wast files to JSON + .wasm using wast2json.
+# Convert WebAssembly spec .wast files to JSON + .wasm using wasm-tools.
 # Usage: bash test/spec/convert.sh [/path/to/testsuite]
 #
+# Requires: wasm-tools (https://github.com/bytecodealliance/wasm-tools)
 # Defaults to the git submodule at test/spec/testsuite.
 # Produces: test/spec/json/<testname>.json + test/spec/json/<testname>.N.wasm
 
@@ -15,6 +16,12 @@ if [ ! -d "$TESTSUITE" ] || [ -z "$(ls "$TESTSUITE"/*.wast 2>/dev/null)" ]; then
     echo "Run: git submodule update --init"
     exit 1
 fi
+
+if ! command -v wasm-tools &>/dev/null; then
+    echo "Error: wasm-tools not found. Install: cargo install wasm-tools"
+    exit 1
+fi
+
 OUTDIR="test/spec/json"
 
 mkdir -p "$OUTDIR"
@@ -25,6 +32,19 @@ SKIP_PATTERNS="gc|array|struct|extern|tag|exception|memory64|address64|align64|b
 CONVERTED=0
 SKIPPED=0
 FAILED=0
+
+convert_wast() {
+    local wast="$1"
+    local outname="$2"
+    local outdir="$3"
+
+    if wasm-tools json-from-wast "$wast" -o "$outdir/$outname.json" --wasm-dir "$outdir/" 2>/dev/null; then
+        CONVERTED=$((CONVERTED + 1))
+    else
+        echo "WARN: failed to convert $outname.wast"
+        FAILED=$((FAILED + 1))
+    fi
+}
 
 for wast in "$TESTSUITE"/*.wast; do
     name=$(basename "$wast" .wast)
@@ -41,14 +61,7 @@ for wast in "$TESTSUITE"/*.wast; do
         continue
     fi
 
-    if wast2json --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
-        CONVERTED=$((CONVERTED + 1))
-    elif command -v wasm-tools &>/dev/null && wasm-tools json-from-wast "$wast" -o "$OUTDIR/$name.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
-        CONVERTED=$((CONVERTED + 1))
-    else
-        echo "WARN: failed to convert $name.wast"
-        FAILED=$((FAILED + 1))
-    fi
+    convert_wast "$wast" "$name" "$OUTDIR"
 done
 
 # Multi-memory proposal tests (in subdirectory)
@@ -56,14 +69,7 @@ MMDIR="$TESTSUITE/multi-memory"
 if [ -d "$MMDIR" ]; then
     for wast in "$MMDIR"/*.wast; do
         name=$(basename "$wast" .wast)
-        if wast2json --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
-            CONVERTED=$((CONVERTED + 1))
-        elif command -v wasm-tools &>/dev/null && wasm-tools json-from-wast "$wast" -o "$OUTDIR/$name.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
-            CONVERTED=$((CONVERTED + 1))
-        else
-            echo "WARN: failed to convert $name.wast"
-            FAILED=$((FAILED + 1))
-        fi
+        convert_wast "$wast" "$name" "$OUTDIR"
     done
 fi
 
@@ -72,50 +78,38 @@ RSDIR="$TESTSUITE/relaxed-simd"
 if [ -d "$RSDIR" ]; then
     for wast in "$RSDIR"/*.wast; do
         name=$(basename "$wast" .wast)
-        if wast2json --enable-tail-call --enable-multi-memory --enable-relaxed-simd "$wast" -o "$OUTDIR/$name.json" 2>/dev/null; then
-            CONVERTED=$((CONVERTED + 1))
-        elif command -v wasm-tools &>/dev/null && wasm-tools json-from-wast "$wast" -o "$OUTDIR/$name.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
-            CONVERTED=$((CONVERTED + 1))
-        else
-            echo "WARN: failed to convert $name.wast"
-            FAILED=$((FAILED + 1))
-        fi
+        convert_wast "$wast" "$name" "$OUTDIR"
     done
 fi
 
-# GC proposal tests (from external spec repo, requires wasm-tools)
-# wabt's wast2json cannot parse GC text format; use wasm-tools json-from-wast.
+# GC proposal tests (from external spec repo)
 GC_TESTSUITE="${GC_TESTSUITE:-$HOME/Documents/OSS/WebAssembly/gc}"
 GCDIR="$GC_TESTSUITE/test/core/gc"
 if [ -d "$GCDIR" ]; then
-    if ! command -v wasm-tools &>/dev/null; then
-        echo "WARN: wasm-tools not found, skipping GC tests"
-    else
-        for wast in "$GCDIR"/*.wast; do
-            name=$(basename "$wast" .wast)
-            outname="gc-$name"  # prefix to avoid collisions with core tests
-            if wasm-tools json-from-wast "$wast" -o "$OUTDIR/$outname.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
-                # Rename wasm files: name.N.wasm -> gc-name.N.wasm (avoid collisions)
-                for wf in "$OUTDIR/$name".*.wasm; do
-                    [ -f "$wf" ] || continue
-                    base=$(basename "$wf")
-                    mv "$wf" "$OUTDIR/gc-$base"
-                done
-                # Fix filename references in JSON to match renamed wasm files
-                python3 -c "
+    for wast in "$GCDIR"/*.wast; do
+        name=$(basename "$wast" .wast)
+        outname="gc-$name"  # prefix to avoid collisions with core tests
+        if wasm-tools json-from-wast "$wast" -o "$OUTDIR/$outname.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
+            # Rename wasm files: name.N.wasm -> gc-name.N.wasm (avoid collisions)
+            for wf in "$OUTDIR/$name".*.wasm; do
+                [ -f "$wf" ] || continue
+                base=$(basename "$wf")
+                mv "$wf" "$OUTDIR/gc-$base"
+            done
+            # Fix filename references in JSON to match renamed wasm files
+            python3 -c "
 import re, sys
 p = sys.argv[1]
 with open(p) as f: s = f.read()
 s = re.sub(r'\"' + re.escape(sys.argv[2]) + r'\.(\d+)\.wasm\"', r'\"' + sys.argv[3] + r'.\1.wasm\"', s)
 with open(p, 'w') as f: f.write(s)
 " "$OUTDIR/$outname.json" "$name" "$outname"
-                CONVERTED=$((CONVERTED + 1))
-            else
-                echo "WARN: failed to convert gc/$name.wast"
-                FAILED=$((FAILED + 1))
-            fi
-        done
-    fi
+            CONVERTED=$((CONVERTED + 1))
+        else
+            echo "WARN: failed to convert gc/$name.wast"
+            FAILED=$((FAILED + 1))
+        fi
+    done
 fi
 
 echo ""

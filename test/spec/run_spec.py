@@ -87,7 +87,8 @@ def parse_value(val_obj):
 
     # Reference types: null = 0, non-null values passed as raw integers
     ref_types = ("funcref", "externref", "anyref", "eqref", "i31ref",
-                 "structref", "arrayref", "nullref", "nullfuncref", "nullexternref")
+                 "structref", "arrayref", "nullref", "nullfuncref", "nullexternref",
+                 "exnref")
     if vtype in ref_types:
         if vstr == "null":
             return 0  # ref.null = 0 on the stack

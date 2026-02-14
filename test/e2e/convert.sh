@@ -176,9 +176,7 @@ for src in "${FILES[@]}"; do
 
     # Convert to JSON
     if [[ "$ext" == "wast" ]]; then
-        if wast2json "$WAST_DIR/$flat_name" -o "$JSON_DIR/$flat_base.json" 2>/dev/null; then
-            CONVERTED=$((CONVERTED + 1))
-        elif command -v wasm-tools &>/dev/null && wasm-tools json-from-wast "$WAST_DIR/$flat_name" -o "$JSON_DIR/$flat_base.json" --wasm-dir "$JSON_DIR/" 2>/dev/null; then
+        if wasm-tools json-from-wast "$WAST_DIR/$flat_name" -o "$JSON_DIR/$flat_base.json" --wasm-dir "$JSON_DIR/" 2>/dev/null; then
             CONVERTED=$((CONVERTED + 1))
         else
             echo "WARN: failed to convert $flat_name"

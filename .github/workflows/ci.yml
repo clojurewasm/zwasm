@@ -27,16 +27,8 @@ jobs:
       - name: Run unit tests
         run: zig build test
 
-      - name: Build ReleaseSafe for spec tests
-        run: zig build -Doptimize=ReleaseSafe
-
-      - name: Install wabt (wast2json)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y wabt
-
-      - name: Install wabt (macOS)
-        if: runner.os == 'macOS'
-        run: brew install wabt
+      - name: Install wasm-tools
+        run: cargo install wasm-tools
 
       - name: Download WebAssembly spec testsuite
         run: git clone --depth 1 https://github.com/WebAssembly/spec.git /tmp/wasm-spec
@@ -45,4 +37,4 @@ jobs:
         run: bash test/spec/convert.sh /tmp/wasm-spec/test/core
 
       - name: Run spec tests
-        run: python3 test/spec/run_spec.py --summary --allow-failures 111
+        run: python3 test/spec/run_spec.py --build --summary --allow-failures 111
