@@ -22,24 +22,32 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-23, 25 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
-## Task Queue
+## Task Queue (v0.3.0)
 
-- [x] 26.0: Remove wasmer from benchmark infrastructure
-- [x] 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
-- [x] 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
-- [x] ~26.3: Redundant MOV elimination — REVERTED (bypassed scratch cache, caused 30% regression on tgo_mfr)~
-- [x] 26.4: Constant materialization — MVN for -1, MOVN for negatives
-- [x] 26.5: Benchmark + evaluate + record
+- [ ] 27.0: Ubuntu x86_64 verification of Stage 26
+- [ ] 27.1: Switch spec runner to ReleaseSafe default
+- [ ] 27.2: Migrate wabt → wasm-tools (docs, rules, scripts)
+- [ ] 28.0: Regenerate GC spec tests with wasm-tools
+- [ ] 28.1: Investigate multi-module 33 failures (check history for regressions)
+- [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
+- [ ] 29.1: Thread test suite + spawning mechanism in zwasm
+- [ ] 29.2: Fix threads spec 4 failures
+- [ ] 30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison)
+- [ ] 30.1: st_matrix improvement (MAX_PHYS_REGS expansion or other single-pass approach)
+- [ ] 30.2: tgo_mfr improvement (loop optimization within single-pass)
+- [ ] 31.0: GC stress test suite creation
+- [ ] 31.1: GC benchmark (zwasm vs wasmtime vs node)
+- [ ] 31.2: GC collector improvement decision
 
 ## Current Task
 
-Stage 26 complete. Ready for merge gate.
+27.0: Ubuntu x86_64 verification of Stage 26.
 
 ## Previous Task
 
-26.5: Benchmark evaluation — reverted 26.3 OP_MOV direct-load (bypassed scratch register cache causing 30% regression). Net result: fusion helps most benchmarks (+7-18%), st_fib2 regresses -9% (micro-arch effect).
+26.5: Stage 26 complete. CMP+B.cond/Jcc fusion, MOVN constants. OP_MOV direct-load reverted (scratch cache bypass).
 
 ## Wasm 3.0 Coverage
 

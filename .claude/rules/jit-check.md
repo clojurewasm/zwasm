@@ -20,3 +20,12 @@ paths:
    when copying functions across modules (function imports).
 
 5. **Run benchmarks**: `bash bench/run_bench.sh --quick` to verify no regression.
+
+6. **Scratch register cache**: `getOrLoad(vreg, hint)` only checks the scratch cache
+   when `hint == SCRATCH`. Passing a different register (e.g. `destReg(rd)`) bypasses
+   the cache, turning free MOVs into memory loads. Always use SCRATCH as the hint
+   unless you have verified the cache impact with A/B benchmarks.
+
+7. **Peephole A/B verification**: Instruction count reduction does not guarantee
+   speedup. Always A/B benchmark peephole changes — micro-architectural effects
+   (branch prediction, CPU instruction fusion) can cause regressions.

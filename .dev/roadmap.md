@@ -38,12 +38,61 @@ All development on feature branches; merge to main requires CW verification.
 | 25    | Lightweight Self-Call         | fib 91→52ms, matches wasmtime (D117)    |
 | 26    | JIT Peephole Optimizations    | CMP+B.cond fusion, MOVN constants       |
 
-## Future
+## v0.3.0 Roadmap
 
-- Liveness-based regalloc / LIRA (st_matrix 3.3x — deferred)
-- Superinstruction expansion (profile-guided)
+Target: spec compliance, thread support, close remaining perf gaps.
+
+### Stage 27: Platform Verification + Spec Runner Hardening
+
+- Ubuntu x86_64 verification of Stage 26 (CMP+Jcc fusion)
+- Switch spec runner default build to ReleaseSafe (eliminates 11 tail-call timeouts)
+- Migrate all tooling from wabt to wasm-tools (check latest version)
+- Remove wabt references from docs and rules
+
+### Stage 28: Spec Test Improvements
+
+- Regenerate GC spec tests with wasm-tools (currently 74 failures, mostly wabt limitation)
+- Investigate multi-module 33 failures — check history for regressions, may be spec runner config
+- threads 4 failures — deferred until Stage 29
+
+### Stage 29: Thread Execution
+
+- Set up build toolchain (Emscripten/Rust wasm32-wasip1-threads)
+- Create thread test suite (pthread-based wasm samples)
+- Implement thread spawning mechanism in zwasm if missing
+- Fix remaining 4 threads spec failures
+
+### Stage 30: Performance Gap Analysis + Improvements
+
+Single-pass constraint maintained. Codegen analysis of cranelift output.
+
+- **st_matrix (3.3x)**: Investigate MAX_PHYS_REGS expansion (ARM64 has 30 GPRs),
+  liveness hints, loop-local register pressure reduction. D116 rejected LIRA but
+  other single-pass approaches may help.
+- **tgo_mfr (1.6x)**: Analyze cranelift codegen for loop optimizations
+  (LICM, strength reduction, base+offset precomputation).
+- Deliverable: analysis doc with feasibility estimates before implementation.
+
+### Stage 31: GC Benchmarks + Collector Assessment
+
+- Create GC stress test suite (WAT: mass alloc, reference graph, partial free, realloc loop)
+- Benchmark zwasm vs wasmtime vs node on GC workloads
+- Identify bottleneck (allocation, collection, pause time)
+- Decide on collector improvement scope based on data
+
+### Exit criteria for v0.3.0
+
+- Spec pass rate improved (target: GC + multi-module resolved)
+- Thread execution working with test suite
+- st_matrix / tgo_mfr gaps analyzed, improved where feasible
+- GC performance baselined
+
+## Future (post v0.3.0)
+
+- WASI P2 full interface coverage
 - WASI P3 / async
-- GC collector upgrade (generational/Immix)
+- GC collector upgrade (generational/Immix) — pending Stage 31 analysis
+- Liveness-based regalloc / LIRA — if Stage 30 shows single-pass limit
 
 ## Benchmark History
 
