@@ -473,6 +473,11 @@ const a64 = struct {
         return 0x12800000 | (@as(u32, imm16) << 5) | rd;
     }
 
+    /// MOVN Xd, #imm16{, LSL #shift} — 64-bit move wide with NOT
+    fn movn64(rd: u5, imm16: u16, shift: u2) u32 {
+        return 0x92800000 | (@as(u32, shift) << 21) | (@as(u32, imm16) << 5) | rd;
+    }
+
     // --- Sign/zero extension ---
 
     /// SXTW Xd, Wn — sign-extend 32-bit to 64-bit (SBFM Xd, Xn, #0, #31)
@@ -527,28 +532,47 @@ const a64 = struct {
         }
     };
 
-    /// Load a 64-bit immediate into register using MOVZ + MOVK sequence.
+    /// Load a 64-bit immediate into register using MOVZ/MOVN + MOVK sequence.
     fn loadImm64(rd: u5, value: u64) [4]u32 {
         var instrs: [4]u32 = undefined;
         var count: usize = 0;
+
+        const inv = ~value;
         const w0: u16 = @truncate(value);
         const w1: u16 = @truncate(value >> 16);
         const w2: u16 = @truncate(value >> 32);
         const w3: u16 = @truncate(value >> 48);
+        const iw0: u16 = @truncate(inv);
+        const iw1: u16 = @truncate(inv >> 16);
+        const iw2: u16 = @truncate(inv >> 32);
+        const iw3: u16 = @truncate(inv >> 48);
 
-        instrs[0] = movz64(rd, w0, 0);
-        count = 1;
-        if (w1 != 0) {
-            instrs[count] = movk64(rd, w1, 1);
-            count += 1;
-        }
-        if (w2 != 0) {
-            instrs[count] = movk64(rd, w2, 2);
-            count += 1;
-        }
-        if (w3 != 0) {
-            instrs[count] = movk64(rd, w3, 3);
-            count += 1;
+        // Count non-zero halfwords for MOVZ vs MOVN
+        var nz_pos: u8 = 0;
+        if (w0 != 0) nz_pos += 1;
+        if (w1 != 0) nz_pos += 1;
+        if (w2 != 0) nz_pos += 1;
+        if (w3 != 0) nz_pos += 1;
+        var nz_neg: u8 = 0;
+        if (iw0 != 0) nz_neg += 1;
+        if (iw1 != 0) nz_neg += 1;
+        if (iw2 != 0) nz_neg += 1;
+        if (iw3 != 0) nz_neg += 1;
+
+        if (nz_neg < nz_pos) {
+            // MOVN + MOVK sequence is shorter
+            instrs[0] = movn64(rd, iw0, 0);
+            count = 1;
+            if (iw1 != 0) { instrs[count] = movk64(rd, w1, 1); count += 1; }
+            if (iw2 != 0) { instrs[count] = movk64(rd, w2, 2); count += 1; }
+            if (iw3 != 0) { instrs[count] = movk64(rd, w3, 3); count += 1; }
+        } else {
+            // MOVZ + MOVK sequence
+            instrs[0] = movz64(rd, w0, 0);
+            count = 1;
+            if (w1 != 0) { instrs[count] = movk64(rd, w1, 1); count += 1; }
+            if (w2 != 0) { instrs[count] = movk64(rd, w2, 2); count += 1; }
+            if (w3 != 0) { instrs[count] = movk64(rd, w3, 3); count += 1; }
         }
         // Pad remaining with NOPs
         while (count < 4) : (count += 1) {
@@ -843,6 +867,9 @@ pub const Compiler = struct {
     self_call_entry_idx: u32,
     /// Saved fast-path pattern from emitBaseCaseFastPath for duplication at self-call entry.
     fast_path_info: ?FastPathInfo,
+    /// IR slice and branch targets for peephole fusion (set during compile).
+    ir_slice: []const RegInstr = &.{},
+    branch_targets_slice: []bool = &.{},
 
     const FastPathInfo = struct {
         param_offset: u16,
@@ -1827,6 +1854,10 @@ pub const Compiler = struct {
         const branch_targets = self.scanBranchTargets(ir) orelse return null;
         defer self.alloc.free(branch_targets);
 
+        // Store IR and branch targets for peephole fusion
+        self.ir_slice = ir;
+        self.branch_targets_slice = branch_targets;
+
         // Mark params as written (they're initialized by the caller)
         for (0..self.param_count) |i| {
             if (i < 128) self.written_vregs |= @as(u128, 1) << @as(u7, @intCast(i));
@@ -1894,6 +1925,9 @@ pub const Compiler = struct {
                 const val = instr.operand;
                 if (val <= 0xFFFF) {
                     self.emit(a64.movz64(d, @truncate(val), 0));
+                } else if ((~val & 0xFFFFFFFF) <= 0xFFFF) {
+                    // Use MOVN for values like 0xFFFFxxxx (saves 1 insn)
+                    self.emit(a64.movn32(d, @truncate(~val)));
                 } else {
                     self.emit(a64.movz64(d, @truncate(val), 0));
                     self.emit(a64.movk64(d, @truncate(val >> 16), 1));
@@ -2030,21 +2064,19 @@ pub const Compiler = struct {
             // --- i32 comparison ---
             0x45 => { // i32.eqz
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                const d = destReg(instr.rd);
                 self.emit(a64.cmp32(src, 31)); // CMP Wn, WZR
-                self.emit(a64.cset32(d, .eq));
-                self.storeVreg(instr.rd, d);
+                if (!self.emitCmpResult(.eq, instr.rd, pc, false)) return false;
             },
-            0x46 => self.emitCmp32(.eq, instr),
-            0x47 => self.emitCmp32(.ne, instr),
-            0x48 => self.emitCmp32(.lt, instr), // lt_s
-            0x49 => self.emitCmp32(.lo, instr), // lt_u
-            0x4A => self.emitCmp32(.gt, instr), // gt_s
-            0x4B => self.emitCmp32(.hi, instr), // gt_u
-            0x4C => self.emitCmp32(.le, instr), // le_s
-            0x4D => self.emitCmp32(.ls, instr), // le_u
-            0x4E => self.emitCmp32(.ge, instr), // ge_s
-            0x4F => self.emitCmp32(.hs, instr), // ge_u
+            0x46 => if (!self.emitCmp32(.eq, instr, pc)) return false,
+            0x47 => if (!self.emitCmp32(.ne, instr, pc)) return false,
+            0x48 => if (!self.emitCmp32(.lt, instr, pc)) return false, // lt_s
+            0x49 => if (!self.emitCmp32(.lo, instr, pc)) return false, // lt_u
+            0x4A => if (!self.emitCmp32(.gt, instr, pc)) return false, // gt_s
+            0x4B => if (!self.emitCmp32(.hi, instr, pc)) return false, // gt_u
+            0x4C => if (!self.emitCmp32(.le, instr, pc)) return false, // le_s
+            0x4D => if (!self.emitCmp32(.ls, instr, pc)) return false, // le_u
+            0x4E => if (!self.emitCmp32(.ge, instr, pc)) return false, // ge_s
+            0x4F => if (!self.emitCmp32(.hs, instr, pc)) return false, // ge_u
 
             // --- i64 arithmetic ---
             0x7C => self.emitBinop64(.add, instr),
@@ -2093,21 +2125,19 @@ pub const Compiler = struct {
             // --- i64 comparison ---
             0x50 => { // i64.eqz
                 const src = self.getOrLoad(instr.rs1, SCRATCH);
-                const d = destReg(instr.rd);
                 self.emit(a64.cmpImm64(src, 0));
-                self.emit(a64.cset64(d, .eq));
-                self.storeVreg(instr.rd, d);
+                if (!self.emitCmpResult(.eq, instr.rd, pc, true)) return false;
             },
-            0x51 => self.emitCmp64(.eq, instr),
-            0x52 => self.emitCmp64(.ne, instr),
-            0x53 => self.emitCmp64(.lt, instr),
-            0x54 => self.emitCmp64(.lo, instr),
-            0x55 => self.emitCmp64(.gt, instr),
-            0x56 => self.emitCmp64(.hi, instr),
-            0x57 => self.emitCmp64(.le, instr),
-            0x58 => self.emitCmp64(.ls, instr),
-            0x59 => self.emitCmp64(.ge, instr),
-            0x5A => self.emitCmp64(.hs, instr),
+            0x51 => if (!self.emitCmp64(.eq, instr, pc)) return false,
+            0x52 => if (!self.emitCmp64(.ne, instr, pc)) return false,
+            0x53 => if (!self.emitCmp64(.lt, instr, pc)) return false,
+            0x54 => if (!self.emitCmp64(.lo, instr, pc)) return false,
+            0x55 => if (!self.emitCmp64(.gt, instr, pc)) return false,
+            0x56 => if (!self.emitCmp64(.hi, instr, pc)) return false,
+            0x57 => if (!self.emitCmp64(.le, instr, pc)) return false,
+            0x58 => if (!self.emitCmp64(.ls, instr, pc)) return false,
+            0x59 => if (!self.emitCmp64(.ge, instr, pc)) return false,
+            0x5A => if (!self.emitCmp64(.hs, instr, pc)) return false,
 
             // --- Conversions ---
             0xA7 => { // i32.wrap_i64
@@ -2309,14 +2339,14 @@ pub const Compiler = struct {
             },
 
             // --- Fused comparison with immediate ---
-            regalloc_mod.OP_EQ_I32 => self.emitCmpImm32(.eq, instr),
-            regalloc_mod.OP_NE_I32 => self.emitCmpImm32(.ne, instr),
-            regalloc_mod.OP_LT_S_I32 => self.emitCmpImm32(.lt, instr),
-            regalloc_mod.OP_GT_S_I32 => self.emitCmpImm32(.gt, instr),
-            regalloc_mod.OP_LE_S_I32 => self.emitCmpImm32(.le, instr),
-            regalloc_mod.OP_GE_S_I32 => self.emitCmpImm32(.ge, instr),
-            regalloc_mod.OP_LT_U_I32 => self.emitCmpImm32(.lo, instr),
-            regalloc_mod.OP_GE_U_I32 => self.emitCmpImm32(.hs, instr),
+            regalloc_mod.OP_EQ_I32 => if (!self.emitCmpImm32(.eq, instr, pc)) return false,
+            regalloc_mod.OP_NE_I32 => if (!self.emitCmpImm32(.ne, instr, pc)) return false,
+            regalloc_mod.OP_LT_S_I32 => if (!self.emitCmpImm32(.lt, instr, pc)) return false,
+            regalloc_mod.OP_GT_S_I32 => if (!self.emitCmpImm32(.gt, instr, pc)) return false,
+            regalloc_mod.OP_LE_S_I32 => if (!self.emitCmpImm32(.le, instr, pc)) return false,
+            regalloc_mod.OP_GE_S_I32 => if (!self.emitCmpImm32(.ge, instr, pc)) return false,
+            regalloc_mod.OP_LT_U_I32 => if (!self.emitCmpImm32(.lo, instr, pc)) return false,
+            regalloc_mod.OP_GE_U_I32 => if (!self.emitCmpImm32(.hs, instr, pc)) return false,
 
             // --- Select ---
             0x1B => { // select: rd = cond ? val1 : val2
@@ -2411,18 +2441,64 @@ pub const Compiler = struct {
         self.storeVreg(instr.rd, d);
     }
 
-    fn emitCmp32(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
+    /// Try to fuse a CMP result with a following BR_IF/BR_IF_NOT.
+    /// If fuseable: emits B.cond placeholder, adds patch, advances pc past the BR_IF.
+    /// Returns true if fused, false if not fuseable. Returns error (null bool) on OOM.
+    fn tryFuseBranch(self: *Compiler, cond: a64.Cond, rd: u8, pc: *u32) ?bool {
+        if (pc.* >= self.ir_slice.len) return false;
+        const next = self.ir_slice[pc.*];
+        // Only fuse if next is BR_IF/BR_IF_NOT consuming this rd
+        if (next.op != regalloc_mod.OP_BR_IF and next.op != regalloc_mod.OP_BR_IF_NOT) return false;
+        if (next.rd != rd) return false;
+        // Don't fuse if the BR_IF is a branch target (merge point)
+        if (pc.* < self.branch_targets_slice.len and self.branch_targets_slice[pc.*]) return false;
+
+        // Fuse: emit B.cond instead of CSET + CBNZ/CBZ
+        self.fpCacheEvictAll();
+        const actual_cond = if (next.op == regalloc_mod.OP_BR_IF) cond else cond.invert();
+        const arm_idx = self.currentIdx();
+        self.emit(a64.bCond(actual_cond, 0)); // placeholder
+        self.patches.append(self.alloc, .{
+            .arm64_idx = arm_idx,
+            .target_pc = next.operand,
+            .kind = .b_cond,
+        }) catch return null; // OOM
+
+        // Record pc_map for the skipped BR_IF and advance past it
+        self.pc_map.items[pc.*] = self.currentIdx();
+        pc.* += 1;
+
+        // Match unfused behavior: conditional branch is a control flow point
+        self.known_consts = .{null} ** 128;
+        self.scratch_vreg = null;
+        return true;
+    }
+
+    /// After CMP emission: try fusion with following BR_IF, or fall back to CSET + store.
+    fn emitCmpResult(self: *Compiler, cond: a64.Cond, rd: u8, pc: *u32, is64: bool) bool {
+        if (self.tryFuseBranch(cond, rd, pc)) |fused| {
+            if (fused) return true;
+        } else return false; // OOM
+        // No fusion — emit CSET + store
+        const d = destReg(rd);
+        if (is64) {
+            self.emit(a64.cset64(d, cond));
+        } else {
+            self.emit(a64.cset32(d, cond));
+        }
+        self.storeVreg(rd, d);
+        return true;
+    }
+
+    fn emitCmp32(self: *Compiler, cond: a64.Cond, instr: RegInstr, pc: *u32) bool {
         const rs2_vreg = instr.rs2();
         // Use CMP-immediate when rs2 is a known small constant
         if (rs2_vreg < 128) {
             if (self.known_consts[rs2_vreg]) |c| {
                 if (c <= 0xFFF) {
                     const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
-                    const d = destReg(instr.rd);
                     self.emit(a64.cmpImm32(rs1, @intCast(c)));
-                    self.emit(a64.cset32(d, cond));
-                    self.storeVreg(instr.rd, d);
-                    return;
+                    return self.emitCmpResult(cond, instr.rd, pc, false);
                 }
             }
         }
@@ -2431,34 +2507,26 @@ pub const Compiler = struct {
             if (self.known_consts[instr.rs1]) |c| {
                 if (c <= 0xFFF) {
                     const rs2 = self.getOrLoad(rs2_vreg, SCRATCH);
-                    const d = destReg(instr.rd);
                     self.emit(a64.cmpImm32(rs2, @intCast(c)));
-                    self.emit(a64.cset32(d, cond.swap()));
-                    self.storeVreg(instr.rd, d);
-                    return;
+                    return self.emitCmpResult(cond.swap(), instr.rd, pc, false);
                 }
             }
         }
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(rs2_vreg, SCRATCH2);
-        const d = destReg(instr.rd);
         self.emit(a64.cmp32(rs1, rs2));
-        self.emit(a64.cset32(d, cond));
-        self.storeVreg(instr.rd, d);
+        return self.emitCmpResult(cond, instr.rd, pc, false);
     }
 
-    fn emitCmp64(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
+    fn emitCmp64(self: *Compiler, cond: a64.Cond, instr: RegInstr, pc: *u32) bool {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
-        const d = destReg(instr.rd);
         self.emit(a64.cmp64(rs1, rs2));
-        self.emit(a64.cset64(d, cond));
-        self.storeVreg(instr.rd, d);
+        return self.emitCmpResult(cond, instr.rd, pc, true);
     }
 
-    fn emitCmpImm32(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
+    fn emitCmpImm32(self: *Compiler, cond: a64.Cond, instr: RegInstr, pc: *u32) bool {
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
-        const d = destReg(instr.rd);
         const imm = instr.operand;
         if (imm <= 0xFFF) {
             self.emit(a64.cmpImm32(rs1, @intCast(imm)));
@@ -2468,8 +2536,7 @@ pub const Compiler = struct {
                 self.emit(a64.movk64(SCRATCH2, @truncate(imm >> 16), 1));
             self.emit(a64.cmp32(rs1, SCRATCH2));
         }
-        self.emit(a64.cset32(d, cond));
-        self.storeVreg(instr.rd, d);
+        return self.emitCmpResult(cond, instr.rd, pc, false);
     }
 
     fn emitImmOp32(self: *Compiler, op: enum { add, sub }, instr: RegInstr) void {
@@ -2562,18 +2629,13 @@ pub const Compiler = struct {
         self.emitCondError(.eq, 3);
         if (sign == .signed) {
             // Check INT_MIN / -1 → overflow
-            // Load -1 into SCRATCH via MOVN
-            self.emit(a64.movz64(SCRATCH, 0, 0));
-            self.emit(a64.movk64(SCRATCH, 0xFFFF, 0));
-            self.emit(a64.movk64(SCRATCH, 0xFFFF, 1));
-            self.emit(a64.movk64(SCRATCH, 0xFFFF, 2));
-            self.emit(a64.movk64(SCRATCH, 0xFFFF, 3));
+            // -1 = ~0, use MOVN (1 insn instead of 5)
+            self.emit(a64.movn64(SCRATCH, 0, 0));
             self.emit(a64.cmp64(rs2, SCRATCH));
             const skip_idx = self.currentIdx();
             self.emit(a64.bCond(.ne, 0));
-            // Load INT_MIN (0x8000000000000000)
-            self.emit(a64.movz64(SCRATCH, 0, 0));
-            self.emit(a64.movk64(SCRATCH, 0x8000, 3));
+            // INT_MIN = 0x8000000000000000 (1 insn instead of 2)
+            self.emit(a64.movz64(SCRATCH, 0x8000, 3));
             self.emit(a64.cmp64(rs1, SCRATCH));
             self.emitCondError(.eq, 4);
             const here = self.currentIdx();
@@ -4609,4 +4671,112 @@ test "wasmErrorToCode maps WasmException to distinct code" {
     try testing.expectEqual(@as(u64, 5), wasmErrorToCode(error.Unreachable));
     try testing.expectEqual(@as(u64, 6), wasmErrorToCode(error.OutOfBoundsMemoryAccess));
 }
+
+test "CMP+B.cond fusion saves one instruction per compare-and-branch" {
+    if (builtin.cpu.arch != .aarch64) return;
+
+    const alloc = testing.allocator;
+    // if (a == b) return 42 else return 99
+    // Pattern: i32.eq (r0, r1 -> r2) + BR_IF r2 — should fuse to CMP + B.eq
+    var code = [_]RegInstr{
+        // [0] i32.eq r2, r0, r1  (rs2 = operand low byte)
+        .{ .op = 0x46, .rd = 2, .rs1 = 0, .operand = 1 },
+        // [1] BR_IF r2, target=4
+        .{ .op = regalloc_mod.OP_BR_IF, .rd = 2, .rs1 = 0, .operand = 4 },
+        // [2] CONST32 r1, 99  (else: not equal)
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 99 },
+        // [3] RETURN r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
+        // [4] CONST32 r1, 42  (then: equal)
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 42 },
+        // [5] RETURN r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
+    };
+
+    // Also compile the same logic WITHOUT fusion opportunity
+    // (use different rd for CMP and BR_IF so they can't fuse)
+    var code_nofuse = [_]RegInstr{
+        // [0] i32.eq r2, r0, r1  (rs2 = operand low byte)
+        .{ .op = 0x46, .rd = 2, .rs1 = 0, .operand = 1 },
+        // [1] BR_IF r3, target=4  — different rd, can't fuse
+        .{ .op = regalloc_mod.OP_BR_IF, .rd = 3, .rs1 = 0, .operand = 4 },
+        // [2] CONST32 r1, 99
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 99 },
+        // [3] RETURN r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
+        // [4] CONST32 r1, 42
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 42 },
+        // [5] RETURN r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
+    };
+
+    var reg_func = RegFunc{ .code = &code, .pool64 = &.{}, .reg_count = 4, .local_count = 2, .alloc = alloc };
+    var reg_func_nofuse = RegFunc{ .code = &code_nofuse, .pool64 = &.{}, .reg_count = 4, .local_count = 2, .alloc = alloc };
+
+    const jit_fused = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit_fused.deinit(alloc);
+
+    const jit_nofuse = compileFunction(alloc, &reg_func_nofuse, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit_nofuse.deinit(alloc);
+
+    // Functional: a == b → 42
+    {
+        var regs: [8]u64 = .{ 5, 5, 0, 0, 0, 0, 0, 0 };
+        const result = jit_fused.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0), result);
+        try testing.expectEqual(@as(u64, 42), regs[0]);
+    }
+
+    // Functional: a != b → 99
+    {
+        var regs: [8]u64 = .{ 5, 7, 0, 0, 0, 0, 0, 0 };
+        const result = jit_fused.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0), result);
+        try testing.expectEqual(@as(u64, 99), regs[0]);
+    }
+
+    // Fusion check: fused code should be shorter (saves 1 insn = 4 bytes per fusion)
+    try testing.expect(jit_fused.code_len < jit_nofuse.code_len);
+}
+
+test "constant materialization uses MOVN for negative values" {
+    if (builtin.cpu.arch != .aarch64) return;
+
+    const alloc = testing.allocator;
+    // Return -1 as 32-bit constant (0xFFFFFFFF).
+    // With MOVN: MOVN Wd, #0 (1 insn). Without: MOVZ + MOVK (2 insns).
+    var code_neg = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 0, .rs1 = 0, .operand = 0xFFFFFFFF },
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 },
+    };
+    // Return 0x10001 (always needs 2 insns: MOVZ + MOVK)
+    var code_pos = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 0, .rs1 = 0, .operand = 0x10001 },
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 },
+    };
+
+    var rf_neg = RegFunc{ .code = &code_neg, .pool64 = &.{}, .reg_count = 1, .local_count = 1, .alloc = alloc };
+    var rf_pos = RegFunc{ .code = &code_pos, .pool64 = &.{}, .reg_count = 1, .local_count = 1, .alloc = alloc };
+
+    const jit_neg = compileFunction(alloc, &rf_neg, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit_neg.deinit(alloc);
+
+    const jit_pos = compileFunction(alloc, &rf_pos, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit_pos.deinit(alloc);
+
+    // Functional: -1 as u32
+    {
+        var regs: [5]u64 = .{ 0, 0, 0, 0, 0 };
+        _ = jit_neg.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0xFFFFFFFF), regs[0]);
+    }
+
+    // MOVN optimization: -1 should use fewer bytes than 0x10001
+    try testing.expect(jit_neg.code_len < jit_pos.code_len);
+}
+
 

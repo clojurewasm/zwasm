@@ -1103,6 +1103,9 @@ pub const Compiler = struct {
     use_guard_pages: bool,
     /// Byte offset of the shared error epilogue (for signal handler recovery).
     shared_exit_offset: u32,
+    /// IR slice and branch targets for peephole fusion (set during compile).
+    ir_slice: []const RegInstr = &.{},
+    branch_targets_slice: []bool = &.{},
 
     const Patch = struct {
         rel32_offset: u32, // byte offset of the rel32 field in code
@@ -2481,6 +2484,12 @@ pub const Compiler = struct {
 
         self.pc_map.appendNTimes(self.alloc, 0, ir.len + 1) catch return null;
 
+        // Pre-scan: find branch targets for fusion safety
+        const branch_targets = self.scanBranchTargets(ir) orelse return null;
+        defer self.alloc.free(branch_targets);
+        self.ir_slice = ir;
+        self.branch_targets_slice = branch_targets;
+
         // Mark params as written
         for (0..self.param_count) |i| {
             if (i < 128) self.written_vregs |= @as(u128, 1) << @as(u7, @intCast(i));
@@ -2685,17 +2694,17 @@ pub const Compiler = struct {
             0x69 => self.emitPopcnt32(instr), // i32.popcnt
 
             // --- i32 comparison ---
-            0x45 => self.emitEqz32(instr),           // i32.eqz
-            0x46 => self.emitCmp32(instr, .e),        // i32.eq
-            0x47 => self.emitCmp32(instr, .ne),       // i32.ne
-            0x48 => self.emitCmp32(instr, .l),        // i32.lt_s
-            0x49 => self.emitCmp32(instr, .b),        // i32.lt_u
-            0x4A => self.emitCmp32(instr, .g),        // i32.gt_s
-            0x4B => self.emitCmp32(instr, .a),        // i32.gt_u
-            0x4C => self.emitCmp32(instr, .le),       // i32.le_s
-            0x4D => self.emitCmp32(instr, .be),       // i32.le_u
-            0x4E => self.emitCmp32(instr, .ge),       // i32.ge_s
-            0x4F => self.emitCmp32(instr, .ae),       // i32.ge_u
+            0x45 => if (!self.emitEqz32(instr, pc)) return false,   // i32.eqz
+            0x46 => if (!self.emitCmp32(instr, .e, pc)) return false,  // i32.eq
+            0x47 => if (!self.emitCmp32(instr, .ne, pc)) return false, // i32.ne
+            0x48 => if (!self.emitCmp32(instr, .l, pc)) return false,  // i32.lt_s
+            0x49 => if (!self.emitCmp32(instr, .b, pc)) return false,  // i32.lt_u
+            0x4A => if (!self.emitCmp32(instr, .g, pc)) return false,  // i32.gt_s
+            0x4B => if (!self.emitCmp32(instr, .a, pc)) return false,  // i32.gt_u
+            0x4C => if (!self.emitCmp32(instr, .le, pc)) return false, // i32.le_s
+            0x4D => if (!self.emitCmp32(instr, .be, pc)) return false, // i32.le_u
+            0x4E => if (!self.emitCmp32(instr, .ge, pc)) return false, // i32.ge_s
+            0x4F => if (!self.emitCmp32(instr, .ae, pc)) return false, // i32.ge_u
 
             // --- i64 arithmetic ---
             0x7C => self.emitBinop64(instr, .add),
@@ -2720,17 +2729,17 @@ pub const Compiler = struct {
             0x7B => self.emitPopcnt64(instr), // i64.popcnt
 
             // --- i64 comparison ---
-            0x50 => self.emitEqz64(instr),           // i64.eqz
-            0x51 => self.emitCmp64(instr, .e),        // i64.eq
-            0x52 => self.emitCmp64(instr, .ne),       // i64.ne
-            0x53 => self.emitCmp64(instr, .l),        // i64.lt_s
-            0x54 => self.emitCmp64(instr, .b),        // i64.lt_u
-            0x55 => self.emitCmp64(instr, .g),        // i64.gt_s
-            0x56 => self.emitCmp64(instr, .a),        // i64.gt_u
-            0x57 => self.emitCmp64(instr, .le),       // i64.le_s
-            0x58 => self.emitCmp64(instr, .be),       // i64.le_u
-            0x59 => self.emitCmp64(instr, .ge),       // i64.ge_s
-            0x5A => self.emitCmp64(instr, .ae),       // i64.ge_u
+            0x50 => if (!self.emitEqz64(instr, pc)) return false,   // i64.eqz
+            0x51 => if (!self.emitCmp64(instr, .e, pc)) return false,  // i64.eq
+            0x52 => if (!self.emitCmp64(instr, .ne, pc)) return false, // i64.ne
+            0x53 => if (!self.emitCmp64(instr, .l, pc)) return false,  // i64.lt_s
+            0x54 => if (!self.emitCmp64(instr, .b, pc)) return false,  // i64.lt_u
+            0x55 => if (!self.emitCmp64(instr, .g, pc)) return false,  // i64.gt_s
+            0x56 => if (!self.emitCmp64(instr, .a, pc)) return false,  // i64.gt_u
+            0x57 => if (!self.emitCmp64(instr, .le, pc)) return false, // i64.le_s
+            0x58 => if (!self.emitCmp64(instr, .be, pc)) return false, // i64.le_u
+            0x59 => if (!self.emitCmp64(instr, .ge, pc)) return false, // i64.ge_s
+            0x5A => if (!self.emitCmp64(instr, .ae, pc)) return false, // i64.ge_u
 
             // --- Conversions ---
             0xA7 => { // i32.wrap_i64: just truncate (MOV r32, r32 zero-extends)
@@ -2904,43 +2913,105 @@ pub const Compiler = struct {
         return true;
     }
 
+    // --- Peephole fusion: CMP+Jcc ---
+
+    fn scanBranchTargets(self: *Compiler, ir: []const RegInstr) ?[]bool {
+        const targets = self.alloc.alloc(bool, ir.len) catch return null;
+        @memset(targets, false);
+        var scan_pc: u32 = 0;
+        while (scan_pc < ir.len) {
+            const instr = ir[scan_pc];
+            scan_pc += 1;
+            switch (instr.op) {
+                regalloc_mod.OP_BR => {
+                    if (instr.operand < ir.len) targets[instr.operand] = true;
+                },
+                regalloc_mod.OP_BR_IF, regalloc_mod.OP_BR_IF_NOT => {
+                    if (instr.operand < ir.len) targets[instr.operand] = true;
+                },
+                regalloc_mod.OP_BR_TABLE => {
+                    const count = instr.operand;
+                    var i: u32 = 0;
+                    while (i < count + 1 and scan_pc < ir.len) : (i += 1) {
+                        const entry = ir[scan_pc];
+                        scan_pc += 1;
+                        if (entry.operand < ir.len) targets[entry.operand] = true;
+                    }
+                },
+                regalloc_mod.OP_BLOCK_END => {
+                    targets[scan_pc - 1] = true;
+                },
+                else => {},
+            }
+        }
+        return targets;
+    }
+
+    /// Try to fuse a CMP result with a following BR_IF/BR_IF_NOT.
+    /// Returns true if fused, false if not fuseable. Returns null on OOM.
+    fn tryFuseBranch(self: *Compiler, cc: Cond, rd: u8, pc: *u32) ?bool {
+        if (pc.* >= self.ir_slice.len) return false;
+        const next = self.ir_slice[pc.*];
+        if (next.op != regalloc_mod.OP_BR_IF and next.op != regalloc_mod.OP_BR_IF_NOT) return false;
+        if (next.rd != rd) return false;
+        if (pc.* < self.branch_targets_slice.len and self.branch_targets_slice[pc.*]) return false;
+
+        // Fuse: emit Jcc instead of SETCC + MOVZX + store + load + TEST + Jcc
+        const actual_cc = if (next.op == regalloc_mod.OP_BR_IF) cc else cc.invert();
+        const patch_off = Enc.jccRel32(&self.code, self.alloc, actual_cc);
+        self.patches.append(self.alloc, .{
+            .rel32_offset = patch_off,
+            .target_pc = next.operand,
+            .kind = .jcc,
+        }) catch return null; // OOM
+
+        // Record pc_map for the skipped BR_IF and advance past it
+        self.pc_map.items[pc.*] = self.currentOffset();
+        pc.* += 1;
+        return true;
+    }
+
+    /// After CMP/TEST emission: try fusion, or fall back to SETCC + MOVZX + store.
+    fn emitCmpResult(self: *Compiler, cc: Cond, rd: u8, pc: *u32) bool {
+        if (self.tryFuseBranch(cc, rd, pc)) |fused| {
+            if (fused) return true;
+        } else return false; // OOM
+        // No fusion — emit SETCC + MOVZX + store
+        Enc.setcc(&self.code, self.alloc, cc, .rax);
+        Enc.movzxByte(&self.code, self.alloc, .rax, .rax);
+        self.storeVreg(rd, SCRATCH);
+        return true;
+    }
+
     // --- Comparison helpers ---
     // Pattern: CMP r1, r2 → SETcc AL → MOVZX EAX, AL → store to rd
 
-    fn emitCmp32(self: *Compiler, instr: RegInstr, cc: Cond) void {
+    fn emitCmp32(self: *Compiler, instr: RegInstr, cc: Cond, pc: *u32) bool {
         const rs2: u8 = @truncate(instr.operand);
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         Enc.cmpRegReg32(&self.code, self.alloc, r1, r2);
-        Enc.setcc(&self.code, self.alloc, cc, .rax);
-        Enc.movzxByte(&self.code, self.alloc, .rax, .rax);
-        self.storeVreg(instr.rd, SCRATCH);
+        return self.emitCmpResult(cc, instr.rd, pc);
     }
 
-    fn emitCmp64(self: *Compiler, instr: RegInstr, cc: Cond) void {
+    fn emitCmp64(self: *Compiler, instr: RegInstr, cc: Cond, pc: *u32) bool {
         const rs2: u8 = @truncate(instr.operand);
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         Enc.cmpRegReg(&self.code, self.alloc, r1, r2);
-        Enc.setcc(&self.code, self.alloc, cc, .rax);
-        Enc.movzxByte(&self.code, self.alloc, .rax, .rax);
-        self.storeVreg(instr.rd, SCRATCH);
+        return self.emitCmpResult(cc, instr.rd, pc);
     }
 
-    fn emitEqz32(self: *Compiler, instr: RegInstr) void {
+    fn emitEqz32(self: *Compiler, instr: RegInstr, pc: *u32) bool {
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         Enc.testRegReg(&self.code, self.alloc, src, src);
-        Enc.setcc(&self.code, self.alloc, .e, .rax);
-        Enc.movzxByte(&self.code, self.alloc, .rax, .rax);
-        self.storeVreg(instr.rd, SCRATCH);
+        return self.emitCmpResult(.e, instr.rd, pc);
     }
 
-    fn emitEqz64(self: *Compiler, instr: RegInstr) void {
+    fn emitEqz64(self: *Compiler, instr: RegInstr, pc: *u32) bool {
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         Enc.testRegReg(&self.code, self.alloc, src, src);
-        Enc.setcc(&self.code, self.alloc, .e, .rax);
-        Enc.movzxByte(&self.code, self.alloc, .rax, .rax);
-        self.storeVreg(instr.rd, SCRATCH);
+        return self.emitCmpResult(.e, instr.rd, pc);
     }
 
     // --- Shift helpers ---
@@ -3728,4 +3799,66 @@ test "x86_64 compile and execute f64 add" {
     try testing.expectEqual(@as(u64, 0), jit_code.entry(&regs, undefined, undefined));
     const result: f64 = @bitCast(regs[0]);
     try testing.expectEqual(@as(f64, 7.0), result);
+}
+
+test "x86_64 CMP+Jcc fusion saves instructions per compare-and-branch" {
+    if (builtin.cpu.arch != .x86_64) return;
+
+    const alloc = testing.allocator;
+    // if (a == b) return 42 else return 99
+    // Pattern: i32.eq (r0, r1 -> r2) + BR_IF r2 — should fuse to CMP + Je
+    var code = [_]RegInstr{
+        // [0] i32.eq r2, r0, r1  (rs2 = operand low byte)
+        .{ .op = 0x46, .rd = 2, .rs1 = 0, .operand = 1 },
+        // [1] BR_IF r2, target=4
+        .{ .op = regalloc_mod.OP_BR_IF, .rd = 2, .rs1 = 0, .operand = 4 },
+        // [2] CONST32 r1, 99  (else: not equal)
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 99 },
+        // [3] RETURN r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
+        // [4] CONST32 r1, 42  (then: equal)
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 42 },
+        // [5] RETURN r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
+    };
+
+    // Also compile WITHOUT fusion opportunity (different rd for CMP and BR_IF)
+    var code_nofuse = [_]RegInstr{
+        .{ .op = 0x46, .rd = 2, .rs1 = 0, .operand = 1 },
+        .{ .op = regalloc_mod.OP_BR_IF, .rd = 3, .rs1 = 0, .operand = 4 },
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 99 },
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 42 },
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
+    };
+
+    var reg_func = RegFunc{ .code = &code, .pool64 = &.{}, .reg_count = 4, .local_count = 2, .alloc = alloc };
+    var reg_func_nofuse = RegFunc{ .code = &code_nofuse, .pool64 = &.{}, .reg_count = 4, .local_count = 2, .alloc = alloc };
+
+    const jit_fused = compileFunction(alloc, &reg_func, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit_fused.deinit(alloc);
+
+    const jit_nofuse = compileFunction(alloc, &reg_func_nofuse, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit_nofuse.deinit(alloc);
+
+    // Functional: a == b → 42
+    {
+        var regs: [8]u64 = .{ 5, 5, 0, 0, 0, 0, 0, 0 };
+        const r = jit_fused.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0), r);
+        try testing.expectEqual(@as(u64, 42), regs[0]);
+    }
+
+    // Functional: a != b → 99
+    {
+        var regs: [8]u64 = .{ 5, 7, 0, 0, 0, 0, 0, 0 };
+        const r = jit_fused.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0), r);
+        try testing.expectEqual(@as(u64, 99), regs[0]);
+    }
+
+    // Fusion check: fused code should be shorter
+    try testing.expect(jit_fused.code_len < jit_nofuse.code_len);
 }
