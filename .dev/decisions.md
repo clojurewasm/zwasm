@@ -61,5 +61,5 @@ small/fast philosophy. Post-emission peephole — adds second pass over emitted 
 **Evidence**: Identical timing (~10ms) for nqueens(1)/nqueens(5000)/nqueens(10000).
 WAT benchmarks (no WASI imports) and shootout (_start entry) work correctly.
 
-**Decision**: Remove wasmer from public docs. Mark TinyGo results invalid in
-runtime_comparison.yaml. Keep wasmer in benchmark script for WAT/shootout.
+**Decision**: Remove wasmer entirely from benchmark infrastructure (scripts,
+YAML, flake.nix). Comparison targets: wasmtime, bun, node.

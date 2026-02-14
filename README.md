@@ -135,7 +135,7 @@ fall back to the register IR interpreter.
 
 **Small and fast, not feature-complete.** zwasm prioritizes binary size and
 runtime performance density (performance per byte of binary). It does not
-aim to replace wasmtime or wasmer for general use. Instead, it targets
+aim to replace wasmtime for general use. Instead, it targets
 environments where size and startup time matter: embedded systems, edge
 computing, CLI tools, and as an embeddable library in Zig projects.
 

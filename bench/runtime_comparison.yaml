@@ -13,10 +13,6 @@ runtimes:
     version: "wasmtime 41.0.1"
     binary_size_bytes: 59005424
     binary_size_mb: 56.3
-  wasmer:
-    version: "wasmer 7.0.1"
-    binary_size_bytes: 124035424
-    binary_size_mb: 118.3
   bun:
     version: "bun 1.3.8"
     binary_size_bytes: 59865248
@@ -29,126 +25,105 @@ benchmarks:
   fib:
     zwasm: {time_ms: 51.9, mem_mb: 3.3}
     wasmtime: {time_ms: 51.3, mem_mb: 12.5}
-    wasmer: {time_ms: 54.5, mem_mb: 30.2}
     bun: {time_ms: 33.7, mem_mb: 31.7}
     node: {time_ms: 45.6, mem_mb: 42.6}
   tak:
     zwasm: {time_ms: 10.1, mem_mb: 3.4}
     wasmtime: {time_ms: 11.6, mem_mb: 12.4}
-    wasmer: {time_ms: 13.9, mem_mb: 30.2}
     bun: {time_ms: 18.1, mem_mb: 32.1}
     node: {time_ms: 25.1, mem_mb: 42.5}
   sieve:
     zwasm: {time_ms: 5.1, mem_mb: 4.3}
     wasmtime: {time_ms: 5.9, mem_mb: 13.4}
-    wasmer: {time_ms: 11.9, mem_mb: 30.9}
     bun: {time_ms: 17.9, mem_mb: 33.0}
     node: {time_ms: 30.3, mem_mb: 43.9}
   nbody:
     zwasm: {time_ms: 8.6, mem_mb: 3.4}
     wasmtime: {time_ms: 21.9, mem_mb: 12.5}
-    wasmer: {time_ms: 26.6, mem_mb: 30.3}
     bun: {time_ms: 32.7, mem_mb: 32.5}
     node: {time_ms: 36.9, mem_mb: 43.0}
   nqueens:
     zwasm: {time_ms: 2.6, mem_mb: 3.4}
     wasmtime: {time_ms: 6.9, mem_mb: 12.5}
-    wasmer: {time_ms: 10.8, mem_mb: 30.2}
     bun: {time_ms: 15.1, mem_mb: 32.1}
     node: {time_ms: 24.0, mem_mb: 40.7}
   tgo_fib:
     zwasm: {time_ms: 43.3, mem_mb: 3.5}
     wasmtime: {time_ms: 28.9, mem_mb: 12.7}
-    wasmer: {time_ms: 11.6, mem_mb: 33.3}
     bun: {time_ms: 46.4, mem_mb: 33.0}
     node: {time_ms: 56.8, mem_mb: 43.1}
   tgo_tak:
     zwasm: {time_ms: 7.0, mem_mb: 3.6}
     wasmtime: {time_ms: 9.9, mem_mb: 12.7}
-    wasmer: {time_ms: 11.0, mem_mb: 33.3}
     bun: {time_ms: 18.6, mem_mb: 33.1}
     node: {time_ms: 26.2, mem_mb: 42.9}
   tgo_arith:
     zwasm: {time_ms: 2.2, mem_mb: 3.4}
     wasmtime: {time_ms: 5.4, mem_mb: 12.8}
-    wasmer: {time_ms: 9.8, mem_mb: 33.4}
     bun: {time_ms: 16.4, mem_mb: 30.4}
     node: {time_ms: 24.2, mem_mb: 40.9}
   tgo_sieve:
     zwasm: {time_ms: 3.6, mem_mb: 4.5}
     wasmtime: {time_ms: 5.5, mem_mb: 13.6}
-    wasmer: {time_ms: 11.5, mem_mb: 33.3}
     bun: {time_ms: 16.7, mem_mb: 35.3}
     node: {time_ms: 27.2, mem_mb: 44.2}
   tgo_fib_loop:
     zwasm: {time_ms: 2.1, mem_mb: 3.4}
     wasmtime: {time_ms: 5.0, mem_mb: 12.7}
-    wasmer: {time_ms: 10.0, mem_mb: 33.3}
     bun: {time_ms: 15.4, mem_mb: 30.9}
     node: {time_ms: 23.9, mem_mb: 40.8}
   tgo_gcd:
     zwasm: {time_ms: 2.6, mem_mb: 3.4}
     wasmtime: {time_ms: 6.0, mem_mb: 12.8}
-    wasmer: {time_ms: 11.1, mem_mb: 33.4}
     bun: {time_ms: 15.2, mem_mb: 31.1}
     node: {time_ms: 25.5, mem_mb: 40.9}
   tgo_nqueens:
     zwasm: {time_ms: 42.6, mem_mb: 3.5}
     wasmtime: {time_ms: 38.9, mem_mb: 12.8}
-    wasmer: {time_ms: 12.0, mem_mb: 33.3}
     bun: {time_ms: 48.4, mem_mb: 33.7}
     node: {time_ms: 102.4, mem_mb: 43.2}
   tgo_mfr:
     zwasm: {time_ms: 59.3, mem_mb: 3.5}
     wasmtime: {time_ms: 32.1, mem_mb: 12.8}
-    wasmer: {time_ms: 10.1, mem_mb: 33.4}
     bun: {time_ms: 42.9, mem_mb: 33.6}
     node: {time_ms: 85.3, mem_mb: 43.5}
   tgo_list:
     zwasm: {time_ms: 33.0, mem_mb: 3.5}
     wasmtime: {time_ms: 65.7, mem_mb: 12.7}
-    wasmer: {time_ms: 11.1, mem_mb: 33.3}
     bun: {time_ms: 42.9, mem_mb: 34.1}
     node: {time_ms: 159.7, mem_mb: 43.1}
   tgo_rwork:
     zwasm: {time_ms: 5.4, mem_mb: 26.4}
     wasmtime: {time_ms: 8.7, mem_mb: 35.5}
-    wasmer: {time_ms: 12.1, mem_mb: 33.5}
     bun: {time_ms: 20.0, mem_mb: 57.1}
     node: {time_ms: 31.0, mem_mb: 66.0}
   tgo_strops:
     zwasm: {time_ms: 36.6, mem_mb: 3.5}
     wasmtime: {time_ms: 31.0, mem_mb: 12.8}
-    wasmer: {time_ms: 11.5, mem_mb: 33.4}
     bun: {time_ms: 34.6, mem_mb: 33.6}
     node: {time_ms: 96.1, mem_mb: 43.1}
   st_fib2:
     zwasm: {time_ms: 1086.4, mem_mb: 3.8}
     wasmtime: {time_ms: 686.4, mem_mb: 13.4}
-    wasmer: {time_ms: 692.4, mem_mb: 33.2}
     bun: {time_ms: 383.8, mem_mb: 34.3}
     node: {time_ms: 412.0, mem_mb: 44.4}
   st_sieve:
     zwasm: {time_ms: 216.9, mem_mb: 3.8}
     wasmtime: {time_ms: 202.3, mem_mb: 13.5}
-    wasmer: {time_ms: 206.3, mem_mb: 33.2}
     bun: {time_ms: 187.0, mem_mb: 35.5}
     node: {time_ms: 657.8, mem_mb: 44.8}
   st_nestedloop:
     zwasm: {time_ms: 4.0, mem_mb: 3.7}
     wasmtime: {time_ms: 3.7, mem_mb: 13.4}
-    wasmer: {time_ms: 10.7, mem_mb: 33.1}
     bun: {time_ms: 16.0, mem_mb: 32.0}
     node: {time_ms: 25.0, mem_mb: 44.2}
   st_ackermann:
     zwasm: {time_ms: 5.6, mem_mb: 3.8}
     wasmtime: {time_ms: 7.3, mem_mb: 13.3}
-    wasmer: {time_ms: 12.5, mem_mb: 33.2}
     bun: {time_ms: 17.9, mem_mb: 34.0}
     node: {time_ms: 26.1, mem_mb: 44.2}
   st_matrix:
     zwasm: {time_ms: 284.8, mem_mb: 68.0}
     wasmtime: {time_ms: 86.9, mem_mb: 13.5}
-    wasmer: {time_ms: 93.0, mem_mb: 33.5}
     bun: {time_ms: 84.7, mem_mb: 37.0}
     node: {time_ms: 174.1, mem_mb: 44.7}

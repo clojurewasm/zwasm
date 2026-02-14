@@ -62,7 +62,7 @@ st_matrix needs multi-pass regalloc (LIRA) — rejected per D116. Known limitati
 
 ### Task breakdown
 
-- 26.0: Fix runtime_comparison.yaml — mark wasmer TinyGo as invalid
+- 26.0: Remove wasmer from benchmark infrastructure
 - 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
 - 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
 - 26.3: Redundant MOV elimination — copy propagation tracking

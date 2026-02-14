@@ -26,7 +26,7 @@ Stages 0-23, 25 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue
 
-- [ ] 26.0: Fix runtime_comparison.yaml — mark wasmer TinyGo invalid, remove wasmer from README
+- [ ] 26.0: Remove wasmer from benchmark infrastructure
 - [ ] 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
 - [ ] 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
 - [ ] 26.3: Redundant MOV elimination — copy propagation tracking during emission

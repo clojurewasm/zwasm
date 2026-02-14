@@ -44,36 +44,6 @@
           ln -s ${zigSrc}/lib $out/lib
         '';
 
-        # Wasmer 7.0.1 prebuilt binary (nixpkgs 5.0.4 has __rust_probestack link error on x86_64)
-        wasmerArchInfo = {
-          "aarch64-darwin" = {
-            url = "https://github.com/wasmerio/wasmer/releases/download/v7.0.1/wasmer-darwin-arm64.tar.gz";
-            sha256 = "1knawb09j00wx5n6fzcd4ya9zdfzyf9gzmr9zqb9787afcj8minh";
-          };
-          "x86_64-darwin" = {
-            url = "https://github.com/wasmerio/wasmer/releases/download/v7.0.1/wasmer-darwin-amd64.tar.gz";
-            sha256 = "1d0r8991vvhw4f364bk94li95pywvp31zm1gan7xd7659g39cwbd";
-          };
-          "x86_64-linux" = {
-            url = "https://github.com/wasmerio/wasmer/releases/download/v7.0.1/wasmer-linux-amd64.tar.gz";
-            sha256 = "0pz1q2s3c0l9c6gsfyaki511dwdiw1yc0s7jvv244mjrw0qagz8h";
-          };
-          "aarch64-linux" = {
-            url = "https://github.com/wasmerio/wasmer/releases/download/v7.0.1/wasmer-linux-aarch64.tar.gz";
-            sha256 = "0653fpsh94y936wps7g6m1f1v8rfm145hc6rlfij6zvhxj06xxlh";
-          };
-        }.${system} or (throw "Unsupported system for wasmer: ${system}");
-
-        wasmerSrc = builtins.fetchTarball {
-          url = wasmerArchInfo.url;
-          sha256 = wasmerArchInfo.sha256;
-        };
-
-        wasmerBin = pkgs.runCommand "wasmer-7.0.1-wrapper" {} ''
-          mkdir -p $out/bin
-          ln -s ${wasmerSrc}/bin/wasmer $out/bin/wasmer
-        '';
-
       in {
         devShells.default = pkgs.mkShell {
           name = "zwasm";
@@ -105,7 +75,6 @@
             gnused
             coreutils
             python3
-            wasmerBin
           ];
 
           shellHook = '''';  # silent — avoid noise in SSH/direnv

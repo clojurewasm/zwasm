@@ -6,9 +6,9 @@
 #   bash bench/compare_runtimes.sh --quick                      # Single run
 #   bash bench/compare_runtimes.sh --bench=fib                  # Specific benchmark
 #   bash bench/compare_runtimes.sh --rt=zwasm,wasmtime          # Specific runtimes
-#   bash bench/compare_runtimes.sh --rt=zwasm,wasmtime,wasmer,bun,node
+#   bash bench/compare_runtimes.sh --rt=zwasm,wasmtime,bun,node
 #
-# Supported runtimes: zwasm, wasmtime, wasmer, bun, node
+# Supported runtimes: zwasm, wasmtime, bun, node
 #
 # Benchmark types:
 #   invoke  — calls exported function via --invoke (WAT / TinyGo)
@@ -34,7 +34,7 @@ for arg in "$@"; do
       echo ""
       echo "Options:"
       echo "  --rt=RT1,RT2,...  Runtimes (default: zwasm,wasmtime)"
-      echo "                    Available: zwasm, wasmtime, wasmer, bun, node"
+      echo "                    Available: zwasm, wasmtime, bun, node"
       echo "  --bench=NAME      Specific benchmark"
       echo "  --quick           Single run, no warmup"
       echo ""
@@ -56,7 +56,6 @@ for rt in "${RT_LIST[@]}"; do
   case "$rt" in
     zwasm)    ;;
     wasmtime) command -v wasmtime &>/dev/null || { echo "error: wasmtime not found"; exit 1; } ;;
-    wasmer)   command -v wasmer   &>/dev/null || { echo "error: wasmer not found"; exit 1; } ;;
     bun)      command -v bun      &>/dev/null || { echo "error: bun not found"; exit 1; } ;;
     node)     command -v node     &>/dev/null || { echo "error: node not found"; exit 1; } ;;
     *)        echo "error: unknown runtime '$rt'"; exit 1 ;;
@@ -77,7 +76,6 @@ for rt in "${RT_LIST[@]}"; do
   case "$rt" in
     zwasm)    echo "  zwasm:    $(./zig-out/bin/zwasm --version 2>/dev/null || echo 'dev')" ;;
     wasmtime) echo "  wasmtime: $(wasmtime --version 2>&1)" ;;
-    wasmer)   echo "  wasmer:   $(wasmer --version 2>&1)" ;;
     bun)      echo "  bun:      $(bun --version 2>&1)" ;;
     node)     echo "  node:     $(node --version 2>&1)" ;;
   esac
@@ -130,7 +128,6 @@ build_cmd() {
       case "$rt" in
         zwasm)    echo "./zig-out/bin/zwasm run --invoke $func $wasm $bench_args" ;;
         wasmtime) echo "wasmtime run --invoke $func $wasm $bench_args" ;;
-        wasmer)   echo "wasmer run $wasm -i $func $bench_args" ;;
         bun)      echo "bun bench/run_wasm.mjs $wasm $func $bench_args" ;;
         node)     echo "node bench/run_wasm.mjs $wasm $func $bench_args" ;;
       esac
@@ -139,7 +136,6 @@ build_cmd() {
       case "$rt" in
         zwasm)    echo "./zig-out/bin/zwasm run $wasm" ;;
         wasmtime) echo "wasmtime $wasm" ;;
-        wasmer)   echo "wasmer $wasm" ;;
         bun)      echo "bun bench/run_wasm_wasi.mjs $wasm" ;;
         node)     echo "node bench/run_wasm_wasi.mjs $wasm" ;;
       esac

@@ -14,7 +14,6 @@
 # bench imports, so they run on any WASI-compatible runtime without stubs:
 #   zwasm run shootout-fib2.wasm
 #   wasmtime shootout-fib2.wasm
-#   wasmer shootout-fib2.wasm
 #
 # Requires: zig (tested with 0.15.2)
 set -eo pipefail

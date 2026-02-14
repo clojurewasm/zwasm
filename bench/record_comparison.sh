@@ -23,7 +23,7 @@ RUNNER_WASI="$SCRIPT_DIR/run_wasm_wasi.mjs"
 
 cd "$PROJECT_ROOT"
 
-RUNTIMES="zwasm,wasmtime,wasmer,bun,node"
+RUNTIMES="zwasm,wasmtime,bun,node"
 BENCH_FILTER=""
 RUNS=3
 WARMUP=1
@@ -38,8 +38,8 @@ for arg in "$@"; do
       echo "Usage: bash bench/record_comparison.sh [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --rt=RT1,RT2,...  Runtimes (default: all 5)"
-      echo "                    Available: zwasm, wasmtime, wasmer, bun, node"
+      echo "  --rt=RT1,RT2,...  Runtimes (default: all 4)"
+      echo "                    Available: zwasm, wasmtime, bun, node"
       echo "  --bench=NAME      Specific benchmark"
       echo "  --quick           1 run, no warmup"
       echo "  --runs=N          Hyperfine runs (default: 3)"
@@ -56,7 +56,6 @@ for rt in "${RT_LIST[@]}"; do
   case "$rt" in
     zwasm)    ;; # built below
     wasmtime) command -v wasmtime &>/dev/null || { echo "error: wasmtime not found"; exit 1; } ;;
-    wasmer)   command -v wasmer   &>/dev/null || { echo "error: wasmer not found"; exit 1; } ;;
     bun)      command -v bun      &>/dev/null || { echo "error: bun not found"; exit 1; } ;;
     node)     command -v node     &>/dev/null || { echo "error: node not found"; exit 1; } ;;
     *)        echo "error: unknown runtime '$rt'"; exit 1 ;;
@@ -77,7 +76,6 @@ get_version() {
   case "$1" in
     zwasm)    $ZWASM --version 2>/dev/null || echo "dev" ;;
     wasmtime) wasmtime --version 2>&1 | head -1 ;;
-    wasmer)   wasmer --version 2>&1 | head -1 ;;
     bun)      echo "bun $(bun --version 2>&1)" ;;
     node)     echo "node $(node --version 2>&1)" ;;
   esac
@@ -87,7 +85,6 @@ get_binary_path() {
   case "$1" in
     zwasm)    echo "$ZWASM" ;;
     wasmtime) which wasmtime ;;
-    wasmer)   which wasmer ;;
     bun)      which bun ;;
     node)     which node ;;
   esac
@@ -108,7 +105,6 @@ build_cmd() {
       case "$rt" in
         zwasm)    echo "$ZWASM run --invoke $func $wasm $args" ;;
         wasmtime) echo "wasmtime run --invoke $func $wasm $args" ;;
-        wasmer)   echo "wasmer run $wasm -i $func $args" ;;
         bun)      echo "bun $RUNNER $wasm $func $args" ;;
         node)     echo "node $RUNNER $wasm $func $args" ;;
       esac
@@ -117,7 +113,6 @@ build_cmd() {
       case "$rt" in
         zwasm)    echo "$ZWASM run $wasm" ;;
         wasmtime) echo "wasmtime $wasm" ;;
-        wasmer)   echo "wasmer $wasm" ;;
         bun)      echo "bun $RUNNER_WASI $wasm" ;;
         node)     echo "node $RUNNER_WASI $wasm" ;;
       esac

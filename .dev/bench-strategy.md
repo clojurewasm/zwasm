@@ -89,7 +89,6 @@ All 19 .wasm files run on ANY WASI runtime without stubs or special flags:
 ```bash
 zwasm run shootout-fib2.wasm
 wasmtime shootout-fib2.wasm
-wasmer shootout-fib2.wasm
 bun bench/run_wasm_wasi.mjs shootout-fib2.wasm
 node bench/run_wasm_wasi.mjs shootout-fib2.wasm
 ```
@@ -100,7 +99,7 @@ Compare zwasm against other Wasm runtimes.
 
 ```bash
 bash bench/compare_runtimes.sh                                         # zwasm vs wasmtime
-bash bench/compare_runtimes.sh --rt=zwasm,wasmtime,wasmer,bun,node     # all 5
+bash bench/compare_runtimes.sh --rt=zwasm,wasmtime,bun,node            # all 4
 bash bench/compare_runtimes.sh --bench=st_fib2 --quick                 # quick single
 bash bench/compare_runtimes.sh -h                                      # list all benchmarks
 ```
@@ -111,16 +110,8 @@ bash bench/compare_runtimes.sh -h                                      # list al
 |----------|-------------------|:----:|---------------------------------|
 | zwasm    | Interpreter+RegIR | Yes  | Our runtime                     |
 | wasmtime | JIT (Cranelift)   | Yes  | Primary comparison target       |
-| wasmer   | JIT (multiple)    | Yes  | **Caution**: see note below     |
 | bun      | JIT (JSC)         | Yes  | WASI via run_wasm_wasi.mjs      |
 | node     | JIT (V8)          | Yes  | WASI via run_wasm_wasi.mjs      |
-
-**wasmer invoke bug (D119)**: wasmer 7.0.1's `-i` flag does NOT work for WASI modules.
-When a module imports WASI functions, wasmer takes the `execute_wasi_module` path
-which ignores `-i` entirely. The function is never called — module just loads and exits.
-This affects ALL TinyGo benchmarks (11/21). WAT benchmarks (no WASI imports) and
-shootout benchmarks (`_start` entry) work correctly. Verified: timing does not scale
-with workload, output is empty, verbose log shows 493µs regardless of input size.
 
 JS wrappers:
 - `bench/run_wasm.mjs` — invoke-style (exported functions), with WASI stubs
@@ -128,7 +119,7 @@ JS wrappers:
 
 ### Dependencies
 
-Managed via `flake.nix` (`nix develop`): wasmtime, wasmer, bun, nodejs, hyperfine, tinygo.
+Managed via `flake.nix` (`nix develop`): wasmtime, bun, nodejs, hyperfine, tinygo.
 
 ## Benchmark History
 
