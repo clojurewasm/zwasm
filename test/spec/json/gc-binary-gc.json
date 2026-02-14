@@ -1,1 +1,0 @@
-{"source_filename":"/Users/shota.508/Documents/OSS/WebAssembly/gc/test/core/gc/binary-gc.wast","commands":[{"type":"assert_malformed","line":2,"filename":"gc-binary-gc.0.wasm","module_type":"binary","text":"malformed mutability"}]}

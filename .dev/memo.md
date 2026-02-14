@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 61,787/62,018 Mac (99.6%, wasm-tools), Ubuntu pending re-run. GC 472/546, threads 306/310, E2E: 356/356
+- Spec: 61,940/62,165 Mac (99.6%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -29,7 +29,7 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 27.0: Ubuntu x86_64 verification of Stage 26
 - [x] 27.1: Switch spec runner to ReleaseSafe default (--build flag)
 - [x] 27.2: Migrate wabt → wasm-tools (docs, rules, scripts, CI, flake.nix)
-- [ ] 28.0: Regenerate GC spec tests with wasm-tools
+- [x] 28.0: Regenerate GC spec tests with wasm-tools
 - [ ] 28.1: Investigate multi-module 33 failures (check history for regressions)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
@@ -43,24 +43,24 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.0: Regenerate GC spec tests with wasm-tools.
+28.1: Investigate multi-module 33 failures (check history for regressions).
 
 ## Previous Task
 
-27.2: Migrated wabt → wasm-tools. Spec total: 61,787/62,018 (+148 passes, +257 test cases). Added exnref to spec runner ref_types.
+28.0: Regenerated GC spec tests from main testsuite (removed gc- prefix, added tag/throw_ref/try_table/annotations/table_copy_mixed). 61,940/62,165 (+153 passes, +147 tests, -6 failures).
 
 ## Wasm 3.0 Coverage
 
 All 9 proposals complete: memory64, exception_handling, tail_call, extended_const, branch_hinting, multi_memory, relaxed_simd, function_references, gc.
-GC spec tests via wasm-tools 1.244.0: 472/546 (86.4%), 18 files. W21 resolved.
+GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyping-invalid from external repo.
 
 ## Known Bugs
 
-None. Mac 61,787/62,018 (99.6% with wasm-tools — more tests now converted).
-231 failures: ref_null 28, gc-br_on_cast_fail 21, type-subtyping 17, linking 16,
-instance 12, relaxed_* 26, call_indirect 11, GC ~66, threads 4, other.
-Ubuntu: +15 endianness64 (x86-specific), +2 call (cross-module linking).
-Tail-call timeouts eliminated by ReleaseSafe default (27.1).
+None. Mac 61,940/62,165 (99.6%).
+225 failures: ref_null 28, br_on_cast_fail 21, linking 16, instance 12,
+relaxed_* 26, call_indirect 11, ref_test 11, type-subtyping 11, i31 9,
+array 7, br_on_cast 6, elem 6, throw_ref 5, try_table 5, other.
+Ubuntu: +15 endianness64 (x86-specific). Tail-call timeouts eliminated (27.1).
 
 ## References
 

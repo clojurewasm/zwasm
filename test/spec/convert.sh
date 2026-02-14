@@ -26,8 +26,8 @@ OUTDIR="test/spec/json"
 
 mkdir -p "$OUTDIR"
 
-# MVP core tests (skip GC, memory64, exception-handling, threads, etc.)
-SKIP_PATTERNS="gc|array|struct|extern|tag|exception|memory64|address64|align64|binary_leb128_64|annotations|ref_cast|ref_eq|ref_test|any_|i31|sub_|type_|table_copy_mixed|table_get_mixed|elem_mixed|br_on_cast|extern_|rec_|try_|throw_|rethrow_"
+# Skip memory64 and threads (not yet supported)
+SKIP_PATTERNS="memory64|address64|align64|float_memory64|binary_leb128_64"
 
 CONVERTED=0
 SKIPPED=0
@@ -49,7 +49,7 @@ convert_wast() {
 for wast in "$TESTSUITE"/*.wast; do
     name=$(basename "$wast" .wast)
 
-    # Skip non-MVP tests
+    # Skip unsupported proposals
     if echo "$name" | grep -qE "$SKIP_PATTERNS"; then
         SKIPPED=$((SKIPPED + 1))
         continue
@@ -82,34 +82,11 @@ if [ -d "$RSDIR" ]; then
     done
 fi
 
-# GC proposal tests (from external spec repo)
+# GC type-subtyping-invalid (only in external GC spec repo, not yet in main testsuite)
 GC_TESTSUITE="${GC_TESTSUITE:-$HOME/Documents/OSS/WebAssembly/gc}"
-GCDIR="$GC_TESTSUITE/test/core/gc"
-if [ -d "$GCDIR" ]; then
-    for wast in "$GCDIR"/*.wast; do
-        name=$(basename "$wast" .wast)
-        outname="gc-$name"  # prefix to avoid collisions with core tests
-        if wasm-tools json-from-wast "$wast" -o "$OUTDIR/$outname.json" --wasm-dir "$OUTDIR/" 2>/dev/null; then
-            # Rename wasm files: name.N.wasm -> gc-name.N.wasm (avoid collisions)
-            for wf in "$OUTDIR/$name".*.wasm; do
-                [ -f "$wf" ] || continue
-                base=$(basename "$wf")
-                mv "$wf" "$OUTDIR/gc-$base"
-            done
-            # Fix filename references in JSON to match renamed wasm files
-            python3 -c "
-import re, sys
-p = sys.argv[1]
-with open(p) as f: s = f.read()
-s = re.sub(r'\"' + re.escape(sys.argv[2]) + r'\.(\d+)\.wasm\"', r'\"' + sys.argv[3] + r'.\1.wasm\"', s)
-with open(p, 'w') as f: f.write(s)
-" "$OUTDIR/$outname.json" "$name" "$outname"
-            CONVERTED=$((CONVERTED + 1))
-        else
-            echo "WARN: failed to convert gc/$name.wast"
-            FAILED=$((FAILED + 1))
-        fi
-    done
+TSI="$GC_TESTSUITE/test/core/gc/type-subtyping-invalid.wast"
+if [ -f "$TSI" ]; then
+    convert_wast "$TSI" "type-subtyping-invalid" "$OUTDIR"
 fi
 
 echo ""
