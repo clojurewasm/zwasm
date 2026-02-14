@@ -529,6 +529,46 @@ at group boundaries if spec changes require waiting.
 - `zwasm features` shows all proposals with correct status
 - Threads spec tests pass
 - Component Model: can instantiate and run wasmtime component test suite
+
+## Stage 23: JIT Optimization — Smart Spill + Direct Call (COMPLETE)
+
+**Goal**: Close performance gap with wasmtime through JIT micro-optimizations.
+
+Systematic optimization pass: liveness-based spill/reload, direct call emission,
+FP register cache (D2-D7), inline self-call with caller-saved analysis,
+vm_ptr/inst_ptr/reg_ptr caching in callee-saved registers.
+
+### Key Results
+- 13/21 benchmarks match or beat wasmtime (was 9/21)
+- fib: 331ms → 91ms (Stage 3.10 → 23.5)
+- nbody: 42ms → 9ms (now 0.4x wasmtime)
+
+### Exit Criteria
+- All spec tests pass
+- No performance regression on any benchmark
+- Benchmark recording at stage completion
+
+## Stage 25: Lightweight Self-Call (COMPLETE)
+
+**Goal**: Reduce per-call overhead for self-recursive functions.
+
+Root cause analysis: 6 STP + 6 LDP (12 instructions) per recursive call was the
+bottleneck. wasmtime uses tail calling convention (no callee-saved overhead).
+
+Dual entry point: normal entry saves all callee-saved regs, self-call entry saves
+only x29,x30. x29 flag (SP vs 0) controls conditional epilogue (CBZ x29).
+Caller saves/restores only live callee-saved vregs via liveness analysis.
+
+### Key Results
+- fib: 91ms → 52ms (-43%), now matches wasmtime (1.0x)
+- st_fib2: 1310ms → 1073ms (-18%)
+- No regressions on non-recursive benchmarks
+- See D117
+
+### Exit Criteria
+- All spec tests pass (61,640+)
+- fib benchmark improved
+- Binary ≤ 1.5MB (actual: 1.1MB)
 - WASI P2: basic filesystem/clock/random via component interfaces
 
 ## Future

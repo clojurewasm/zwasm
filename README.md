@@ -47,18 +47,18 @@ All ratified Wasm proposals through 3.0 are implemented.
 ## Performance
 
 Benchmarked on Apple M4 Pro against wasmtime 41.0.1 (Cranelift JIT).
-9 of 21 benchmarks match or beat wasmtime. 19/21 within 2x.
+13 of 21 benchmarks match or beat wasmtime. 20/21 within 2x.
 Memory usage 3-4x lower across all benchmarks.
 
 | Benchmark       | zwasm   | wasmtime | Ratio    |
 |-----------------|--------:|---------:|---------:|
-| gcd(1B)         | 1.3ms   | 5.5ms    | **0.2x** |
-| nqueens(8)      | 2.3ms   | 6.8ms    | **0.3x** |
-| sieve(1M)       | 3.8ms   | 5.9ms    | **0.6x** |
-| ackermann(3,11) | 7.5ms   | 8.3ms    | **0.9x** |
-| tak(24,16,8)    | 11.9ms  | 8.3ms    | 1.4x     |
-| fib(35)         | 92ms    | 51ms     | 1.8x     |
-| nbody(1M)       | 43ms    | 22ms     | 2.0x     |
+| nqueens(8)      | 2.6ms   | 6.9ms    | **0.4x** |
+| nbody(1M)       | 8.6ms   | 21.9ms   | **0.4x** |
+| gcd(1B)         | 2.6ms   | 6.0ms    | **0.4x** |
+| sieve(1M)       | 5.1ms   | 5.9ms    | **0.9x** |
+| tak(24,16,8)    | 10.1ms  | 11.6ms   | **0.9x** |
+| fib(35)         | 52ms    | 51ms     | 1.0x     |
+| st_fib2(40)     | 1086ms  | 686ms    | 1.6x     |
 
 Full results (21 benchmarks, 5 runtimes): `bench/runtime_comparison.yaml`
 
@@ -157,6 +157,8 @@ The spec test suite runs on every change.
 - [x] Stage 20: `zwasm features` CLI
 - [x] Stage 21: Threads (shared memory, 79 atomic operations)
 - [x] Stage 22: Component Model (WIT, Canon ABI, WASI P2)
+- [x] Stage 23: JIT optimization (smart spill, direct call, FP cache, self-call inline)
+- [x] Stage 25: Lightweight self-call (fib now matches wasmtime)
 - [ ] Future: WASI P3/async, GC collector upgrade, liveness-based regalloc
 
 ## License
