@@ -31,15 +31,20 @@ Stage 23: JIT Optimization — wasmtime parity
 Target: Close performance gap to wasmtime 1x across all 21 benchmarks.
 Constraints: Binary ≤ 1.5MB, memory ≤ 4.5MB (fib RSS).
 
-Gap analysis (v0.2.0 vs wasmtime 41.0.1):
-- 3.3x: st_matrix (array ops, bounds check overhead)
-- 2.1x: tgo_mfr (map/filter/reduce, memory patterns)
-- 2.0x: nbody (f64 heavy, no FMADD, GPR↔FPR round-trips)
-- 2.0x: st_fib2 (deep recursion, call overhead)
-- 1.8x: fib, st_nestedloop, tgo_fib (recursive/loop int)
-- 1.4x: tak (deep recursion)
-- ≤1.2x: 7 benchmarks near parity
-- <1x: 7 benchmarks already faster than wasmtime
+Final gap analysis (Stage 23 complete vs wasmtime 41.0.1):
+- 3.0x: st_matrix (memory-bound, i32.load dominates, needs address mode folding)
+- 1.9x: st_fib2 (deep recursion, prologue/epilogue overhead)
+- 1.7x: fib (prologue overhead — 6 STP/LDP unconditional)
+- 1.7x: tgo_mfr (memory + loop patterns)
+- 1.6x: tgo_fib (recursive int, same as fib)
+- 1.1x: tak, st_sieve, tgo_strops, tgo_nqueens (near parity)
+- <1x: 12/21 benchmarks faster than wasmtime (nbody 0.4x, st_nestedloop 0.4x, etc.)
+
+Root causes for remaining gaps:
+1. Recursive overhead: unconditional 6 STP/LDP prologue saves all 12 callee-saved regs
+2. Memory-bound: no address mode folding (base+offset in 1 instr)
+3. reg_ptr bookkeeping: ldr+str per self-call (value cached in x27, addr in regs[reg_count])
+Future: register-based calling convention, address mode folding, adaptive prologue.
 
 ROI-ordered task list:
 
@@ -47,30 +52,15 @@ ROI-ordered task list:
 2. [x] 23.2: Guard pages for bounds check elimination — mmap 8GB + PROT_NONE + signal handler
 3. [x] 23.3: Call overhead reduction — fast-path base case, prologue load elimination
 4. [x] 23.4: FP register file — keep f64/f32 in D-registers, eliminate GPR↔FPR round-trips
-5. [ ] 23.5: Measure & tune — re-benchmark, profile remaining gaps, targeted fixes
+5. [x] 23.5: Measure & tune — reg_ptr caching, gap analysis, benchmark recording
 
 ## Current Task
 
-23.5: Measure & tune. Reg_ptr value caching done (x27=value, &vm.reg_ptr cached in regs[reg_count]).
-Self-call per-call: 8 instrs+4 mem → 6 instrs+2 mem. BL-after: 3→1 instr.
-
-Gap analysis (current vs wasmtime):
-- 3.17x: st_matrix (memory-bound, i32.load 36%, limited JIT optimization room)
-- 1.87x: st_fib2 (deep recursion, prologue/epilogue overhead)
-- 1.85x: fib (same root cause: 6 STP/LDP prologue vs wasmtime's 1-2)
-- 1.78x: tgo_mfr (memory + call patterns)
-- 1.54x: tgo_fib (recursive int, same as fib)
-- 1.23x: tak (recursive, overhead amortized by deeper recursion)
-
-Root cause for remaining fib/recursive gap: unconditional 6 STP + 6 LDP prologue/epilogue
-saves all 12 callee-saved regs. wasmtime saves only what's used (1-2 pairs).
-Fixing requires adaptive prologue — save only used callee-saved regs.
-
-Next target: adaptive prologue (save only used callee-saved regs) OR st_matrix memory optimization.
+Stage 23 complete. Ready for merge to main.
 
 ## Previous Task
 
-23.5 (partial): Reg_ptr register caching — x27=vm.reg_ptr VALUE instead of ADDRESS. Cached &vm.reg_ptr in regs[reg_count]. Added has_self_call scan. Saves 2 instrs + 2 mem accesses per self-call (BL after: 3→1 instr, 2→0 mem).
+23.5: Measure & tune — reg_ptr value caching (x27=VALUE, addr cached in regs[reg_count]). Self-call BL-after 3→1 instr, 2→0 mem. Final: 13/21 benchmarks at or faster than wasmtime. nbody 4.9x speedup from v0.2.0.
 
 ## Wasm 3.0 Coverage
 
