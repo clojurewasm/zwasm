@@ -1,3 +1,1 @@
-{"source_filename": "test/spec/testsuite/inline-module.wast",
- "commands": [
-  {"type": "module", "line": 1, "filename": "inline-module.0.wasm"}]}
+{"source_filename":"test/spec/testsuite/inline-module.wast","commands":[{"type":"module","line":1,"filename":"inline-module.0.wasm","module_type":"binary"}]}
