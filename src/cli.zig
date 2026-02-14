@@ -315,7 +315,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     }
 
     if (batch_mode) {
-        return cmdBatch(allocator, wasm_bytes, import_entries.items, link_names.items, linked_modules.items, stdout, stderr);
+        return cmdBatch(allocator, wasm_bytes, import_entries.items, link_names.items, linked_modules.items, stdout, stderr, trace_categories, dump_regir_func, dump_jit_func);
     }
 
     const imports_slice: ?[]const types.ImportEntry = if (import_entries.items.len > 0)
@@ -1009,7 +1009,7 @@ fn printInspectJson(module: *const module_mod.Module, file_path: []const u8, siz
 /// Batch mode: read invocations from stdin, one per line.
 /// Protocol: "invoke <func> [arg1 arg2 ...]"
 /// Output: "ok [val1 val2 ...]" or "error <message>"
-fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types.ImportEntry, link_names: []const []const u8, linked_modules: []const *types.WasmModule, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
+fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types.ImportEntry, link_names: []const []const u8, linked_modules: []const *types.WasmModule, stdout: *std.Io.Writer, stderr: *std.Io.Writer, trace_categories: u8, dump_regir_func: ?u32, dump_jit_func: ?u32) !bool {
     _ = stderr;
     var module = if (imports.len > 0)
         types.WasmModule.loadWithImports(allocator, wasm_bytes, imports) catch |err| {
@@ -1024,6 +1024,16 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
             return false;
         };
     defer module.deinit();
+
+    // Enable tracing if requested
+    var batch_trace_config = trace_mod.TraceConfig{
+        .categories = trace_categories,
+        .dump_regir_func = dump_regir_func,
+        .dump_jit_func = dump_jit_func,
+    };
+    if (trace_categories != 0 or dump_regir_func != null or dump_jit_func != null) {
+        module.vm.trace = &batch_trace_config;
+    }
 
     const stdin = std.fs.File.stdin();
     var read_buf: [8192]u8 = undefined;

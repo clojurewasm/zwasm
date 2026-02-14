@@ -80,12 +80,41 @@ Pre-allocate `ir.len + 1` entries. Set `pc_map[pc]` at each RegInstr
 start. Data words consumed by handlers leave their slots as 0 (no
 branches target them).
 
-## 5. Cross-Module JIT Cleanup
+## 5. FP Cache Eviction at Branch Target Merge Points
+
+When control flow merges (if/else join, loop entry), the FP D-register
+cache must be evicted. The eviction code must be placed BEFORE the
+`pc_map` entry so that:
+- **Fall-through paths** execute the eviction (they flow through it naturally)
+- **Branch targets** skip it (branches use `pc_map` to jump AFTER eviction)
+
+Wrong order (old bug):
+```
+pc_map[pc] = currentIdx()   // branches land HERE
+fpCacheEvictAll()            // fall-through evicts, but branches also hit this
+```
+
+Correct order:
+```
+fpCacheEvictAll()            // fall-through evicts
+pc_map[pc] = currentIdx()   // branches land HERE (after eviction)
+```
+
+**Symptom**: Base-case results corrupted by stale D-register values from
+the other branch path. Example: f64 recursive factorial base case returned
+garbage because `fmov x8, d4` from the else-path's f64.mul was executed
+when branching to the merge point.
+
+**General principle**: Any per-merge-point fixup code (cache eviction,
+register state normalization) must go BEFORE the branch target label,
+never after. Branches skip fixup; fall-through executes it.
+
+## 6. Cross-Module JIT Cleanup
 
 When copying functions between stores (imports), reset all cached
 JIT state (jit_code, jit_failed, call_count) to prevent double-free.
 
-## 6. Profile vs JIT
+## 7. Profile vs JIT
 
 Skip JIT compilation and dispatch when profiling is active
 (`self.profile != null`) to ensure opcode counters are updated.

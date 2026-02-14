@@ -1864,16 +1864,19 @@ pub const Compiler = struct {
         }
 
         while (pc < ir.len) {
-            // Record ARM64 code offset at actual RegInstr PC
-            self.pc_map.items[pc] = self.currentIdx();
             const instr = ir[pc];
 
-            // Clear caches at branch targets (merge points)
+            // Clear caches at branch targets (merge points).
+            // Evict BEFORE recording pc_map so fall-through paths get eviction
+            // code but branches (which use pc_map) skip over it.
             if (pc < branch_targets.len and branch_targets[pc]) {
                 self.known_consts = .{null} ** 128;
                 self.scratch_vreg = null;
                 self.fpCacheEvictAll();
             }
+
+            // Record ARM64 code offset AFTER eviction — branches jump here.
+            self.pc_map.items[pc] = self.currentIdx();
 
             pc += 1;
 

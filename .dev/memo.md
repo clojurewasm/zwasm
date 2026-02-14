@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 61,940/62,165 Mac (99.6%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
+- Spec: 61,951/62,165 Mac (99.7%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -43,11 +43,18 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.1: Investigate multi-module 33 failures (check history for regressions).
+28.1: Investigate remaining 214 failures — categorize and identify fixable regressions.
+
+Found and fixed JIT FP cache merge-point bug (eviction ordering in compile loop):
+branches jumped into eviction code meant for fall-through only, corrupting f64
+base-case results. Fix: evict BEFORE pc_map recording. +11 passes (call_indirect 0 failures now).
+Batch mode trace support (--dump-regir, --dump-jit, --trace) also fixed for cmdBatch.
+
+Next: categorize the 214 remaining failures by type (GC gaps, relaxed SIMD, linking, etc.)
 
 ## Previous Task
 
-28.0: Regenerated GC spec tests from main testsuite (removed gc- prefix, added tag/throw_ref/try_table/annotations/table_copy_mixed). 61,940/62,165 (+153 passes, +147 tests, -6 failures).
+28.0: Regenerated GC spec tests from main testsuite. 61,940/62,165 (+153 passes, +147 tests).
 
 ## Wasm 3.0 Coverage
 
@@ -56,10 +63,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 61,940/62,165 (99.6%).
-225 failures: ref_null 28, br_on_cast_fail 21, linking 16, instance 12,
-relaxed_* 26, call_indirect 11, ref_test 11, type-subtyping 11, i31 9,
-array 7, br_on_cast 6, elem 6, throw_ref 5, try_table 5, other.
+None. Mac 61,951/62,165 (99.7%).
+214 failures: ref_null 28, br_on_cast_fail 21, linking 16, relaxed_* 32,
+instance 12, type-subtyping 11, ref_test 11, i31 9, array 7, br_on_cast 6,
+elem 6, throw_ref 5, try_table 5, table 5, global 5, array_new_elem 5, other 30.
 Ubuntu: +15 endianness64 (x86-specific). Tail-call timeouts eliminated (27.1).
 
 ## References
