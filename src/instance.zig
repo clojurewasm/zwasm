@@ -231,6 +231,15 @@ pub const Instance = struct {
                 tab_def.limits.max,
                 tab_def.limits.is_64,
             );
+            // Fill table with init_expr value if present (function-references proposal)
+            if (tab_def.init_expr) |expr| {
+                const init_val = try evalInitExpr(expr, self);
+                const ref_val: ?usize = if (init_val == 0) null else @intCast(init_val - 1);
+                const table = try self.store.getTable(addr);
+                for (table.data.items) |*slot| {
+                    slot.* = ref_val;
+                }
+            }
             try self.tableaddrs.append(self.alloc, addr);
         }
     }

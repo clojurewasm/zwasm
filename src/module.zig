@@ -100,6 +100,7 @@ pub const FunctionDef = struct {
 pub const TableDef = struct {
     reftype: opcode.RefType,
     limits: opcode.Limits,
+    init_expr: ?[]const u8 = null, // table init expression (function-references proposal)
 };
 
 /// Memory definition.
@@ -1096,6 +1097,17 @@ fn readRefTypeGC(reader: *Reader) !opcode.RefType {
 }
 
 fn readTableDef(reader: *Reader) !TableDef {
+    // Check for function-references encoding: 0x40 0x00 reftype limits init_expr
+    if (reader.pos < reader.bytes.len and reader.bytes[reader.pos] == 0x40) {
+        _ = try reader.readByte(); // consume 0x40
+        _ = try reader.readByte(); // consume flags (0x00)
+        const reftype = try readRefTypeGC(reader);
+        const limits = try readLimits(reader);
+        const init_start = reader.pos;
+        try skipInitExpr(reader);
+        const init_end = reader.pos;
+        return .{ .reftype = reftype, .limits = limits, .init_expr = reader.bytes[init_start..init_end] };
+    }
     const reftype = try readRefTypeGC(reader);
     const limits = try readLimits(reader);
     return .{ .reftype = reftype, .limits = limits };
