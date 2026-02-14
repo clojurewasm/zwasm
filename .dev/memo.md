@@ -28,18 +28,18 @@ Stages 0-23, 25 — all COMPLETE. See `roadmap.md` for details.
 
 - [x] 26.0: Remove wasmer from benchmark infrastructure
 - [x] 26.1: CMP+B.cond fusion (ARM64) — RegIR look-ahead in emitCmp32/emitCmp64
-- [ ] 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
+- [x] 26.2: CMP+Jcc fusion (x86_64) — same pattern for x86 backend
 - [ ] 26.3: Redundant MOV elimination — copy propagation tracking during emission
 - [ ] 26.4: Constant materialization — MVN for -1, MOVN for negatives
 - [ ] 26.5: Benchmark + evaluate + record
 
 ## Current Task
 
-26.2: CMP+Jcc fusion (x86_64) — same pattern as ARM64 26.1 but for x86 backend.
+26.3: Redundant MOV elimination — copy propagation tracking during emission.
 
 ## Previous Task
 
-26.1: CMP+B.cond fusion (ARM64). Added tryFuseBranch + emitCmpResult to emitCmp32/emitCmp64/emitCmpImm32/eqz. Saves 1 insn per compare-and-branch.
+26.2: CMP+Jcc fusion (x86_64). Same pattern as ARM64: tryFuseBranch + emitCmpResult. Saves SETCC+MOVZX+store+load+TEST per fused CMP+BR_IF.
 
 ## Wasm 3.0 Coverage
 
