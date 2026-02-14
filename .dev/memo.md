@@ -4,11 +4,11 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-23 — COMPLETE (Wasm 3.0 + GC + WASI P1 + Component Model + JIT Optimization)
+- Stages 0-2, 4, 7-23, 25 — COMPLETE (Wasm 3.0 + GC + WASI P1 + Component Model + JIT Optimization)
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 61,650/61,761 Mac (99.8%), incl. GC 472/546, threads 306/310, E2E: 356/356, CI: ubuntu + macOS
+- Spec: 61,639/61,761 Mac (99.8%), 61,633/61,761 Ubuntu (99.8%), incl. GC 472/546, threads 306/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -33,7 +33,7 @@ Stages 0-23, 25 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-Stage 25 complete. Ready for merge gate.
+Stage 25 merged to main. No next stage defined.
 
 ## Previous Task
 
@@ -47,8 +47,10 @@ GC spec tests via wasm-tools 1.244.0: 472/546 (86.4%), 18 files. W21 resolved.
 
 ## Known Bugs
 
-None. Mac 61,650/61,761 (99.8%), 4 thread-dependent failures (require real threading), 32 GC skips, 33 multi-module linking failures.
-Note: Ubuntu Debug build has 11 extra timeouts on tail-call recursion tests (return_call/return_call_ref count/even/odd 1M iterations). Use ReleaseSafe for spec tests on Ubuntu.
+None. Mac 61,639/61,761 (99.8%), Ubuntu 61,633/61,761 (99.8%).
+4 thread-dependent failures (require real threading), 32 GC skips, 33 multi-module linking failures.
+Ubuntu: +15 endianness64 (x86-specific), +2 call (cross-module linking).
+Note: Ubuntu Debug build has 11 extra timeouts on tail-call recursion tests. Use ReleaseSafe for spec tests on Ubuntu.
 
 ## References
 
