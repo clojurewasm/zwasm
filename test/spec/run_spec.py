@@ -848,7 +848,20 @@ def main():
     parser.add_argument("--summary", action="store_true", help="Show per-file summary")
     parser.add_argument("--allow-failures", type=int, default=0,
                         help="Exit 0 if failures <= N (for known/pre-existing failures)")
+    parser.add_argument("--build", action="store_true",
+                        help="Build zwasm (ReleaseSafe) before running tests")
+    parser.add_argument("--debug-build", action="store_true",
+                        help="Build zwasm (Debug) before running tests")
     args = parser.parse_args()
+
+    if args.build or args.debug_build:
+        optimize = [] if args.debug_build else ["-Doptimize=ReleaseSafe"]
+        cmd = ["zig", "build"] + optimize
+        print(f"Building: {' '.join(cmd)}")
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            print("Build failed")
+            sys.exit(1)
 
     test_dir = args.dir if args.dir else SPEC_DIR
 

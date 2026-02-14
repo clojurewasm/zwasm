@@ -33,7 +33,7 @@ Breaking main breaks CW for all users.
 - **Commit freely to feature branches**: one task = one commit rule still applies
 - **Merge to main only after**:
   1. `zig build test` passes (zwasm)
-  2. `python3 test/spec/run_spec.py --summary` passes (if interpreter/opcodes changed)
+  2. `python3 test/spec/run_spec.py --build --summary` passes (if interpreter/opcodes changed)
   3. `bash bench/run_bench.sh --quick` shows no regression
 - **Tag + CW release**: Manual process, use `/release` skill (`.claude/skills/release/SKILL.md`).
 - **Orient step**: At session start, check if you're on main or a feature branch.
@@ -70,7 +70,7 @@ Lazy load: roadmap.md, decisions.md, checklist.md, bench-strategy.md (only when 
 
 - TDD cycle: Red → Green → Refactor
 - Run tests: `zig build test`
-- Spec tests: `python3 test/spec/run_spec.py --summary` (when changing interpreter or opcodes)
+- Spec tests: `python3 test/spec/run_spec.py --build --summary` (when changing interpreter or opcodes)
 - `jit.zig` modified → `.claude/rules/jit-check.md` auto-loads
 - `bench/`, `vm.zig`, `regalloc.zig` modified → `.claude/rules/bench-check.md` auto-loads
 - **Investigation**: Check reference impls when debugging, designing, OR optimizing:
@@ -126,8 +126,9 @@ Run before every commit:
 
 0. **TDD**: Test written/updated BEFORE production code in this commit
 1. **Tests**: `zig build test` passes
-2. **Spec tests**: `python3 test/spec/run_spec.py --summary` — REQUIRED when modifying
+2. **Spec tests**: `python3 test/spec/run_spec.py --build --summary` — REQUIRED when modifying
    vm.zig, predecode.zig, regalloc.zig, opcode.zig, module.zig, wasi.zig
+   (`--build` auto-builds ReleaseSafe; use `--debug-build` for Debug investigation)
 3. **Benchmarks**: REQUIRED for optimization/JIT tasks.
    Quick check: `bash bench/run_bench.sh --quick`
    Record: `bash bench/record.sh --id=TASK_ID --reason=REASON`
@@ -146,13 +147,13 @@ Run before merging to main (in addition to commit gate):
 
 **Local (Mac):**
 1. `zig build test` passes
-2. `python3 test/spec/run_spec.py --summary` passes (if opcodes/interpreter changed)
+2. `python3 test/spec/run_spec.py --build --summary` passes (if opcodes/interpreter changed)
 3. `bash bench/run_bench.sh --quick` — no performance regression
 
 **Ubuntu x86_64 (SSH):** (see `.dev/ubuntu-x86_64.md` for connection)
 4. Push branch, pull on Ubuntu
 5. `zig build test` passes
-6. `python3 test/spec/run_spec.py --summary` — spec tests pass
+6. `python3 test/spec/run_spec.py --build --summary` — spec tests pass
 7. `bash bench/run_bench.sh --quick` — no extreme regression
 
 If Ubuntu tests reveal failures not seen on Mac, **fix the root cause** before merging.
