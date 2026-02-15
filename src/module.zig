@@ -1914,6 +1914,50 @@ test "Module — type canonicalization: structurally identical rec groups" {
     try testing.expectEqual(m.canonical_ids[0], m.canonical_ids[1]);
 }
 
+test "Module — type canonicalization: ref_test.1 GC struct types" {
+    // ref_test.1.wasm types (all singleton rec groups):
+    //   0: sub() struct()              — $t0
+    //   1: sub(0) struct(i32)          — $t1
+    //   2: sub(0) struct(i32)          — $t1' (should be canon-equal to 1)
+    //   3: sub(1) struct(i32, i32)     — $t2
+    //   4: sub(2) struct(i32, i32)     — $t2' (should be canon-equal to 3)
+    //   5: sub(0) struct(i32, i32)     — $t3
+    //   6: sub(0) struct()             — $t0' (NOT same as 0: has super=[0])
+    //   7: sub(6) struct(i32, i32)     — $t4
+    //   8: func() -> ()
+    const wasm = try std.fs.cwd().readFileAlloc(testing.allocator, "test/spec/json/ref_test.1.wasm", 1024 * 1024);
+    defer testing.allocator.free(wasm);
+    var m = Module.init(testing.allocator, wasm);
+    defer m.deinit();
+    try m.decode();
+
+    try testing.expectEqual(@as(usize, 9), m.types.items.len);
+    try testing.expectEqual(@as(usize, 9), m.rec_groups.items.len);
+
+    // Verify canonical equivalence pairs
+    try testing.expectEqual(m.canonical_ids[1], m.canonical_ids[2]); // $t1 == $t1'
+    try testing.expectEqual(m.canonical_ids[3], m.canonical_ids[4]); // $t2 == $t2'
+
+    // These should NOT be equal
+    try testing.expect(m.canonical_ids[0] != m.canonical_ids[1]); // $t0 != $t1
+    try testing.expect(m.canonical_ids[0] != m.canonical_ids[6]); // $t0 != $t0' (different super_types)
+    try testing.expect(m.canonical_ids[1] != m.canonical_ids[5]); // $t1 != $t3 (same struct but different super)
+    try testing.expect(m.canonical_ids[3] != m.canonical_ids[5]); // $t2 != $t3 (same fields, different super chain)
+
+    // Verify isConcreteSubtype with canonical equivalence
+    const gc_mod = @import("gc.zig");
+    // $t1 <: $t1' (canonical equivalence)
+    try testing.expect(gc_mod.isConcreteSubtype(1, 2, &m));
+    // $t1' <: $t1 (canonical equivalence)
+    try testing.expect(gc_mod.isConcreteSubtype(2, 1, &m));
+    // $t2 <: $t2' (canonical equivalence)
+    try testing.expect(gc_mod.isConcreteSubtype(3, 4, &m));
+    // $t2 <: $t1' (t2 sub(t1), t1 canon= t1')
+    try testing.expect(gc_mod.isConcreteSubtype(3, 2, &m));
+    // $t2' <: $t1 (t2' sub(t1'), t1' canon= t1)
+    try testing.expect(gc_mod.isConcreteSubtype(4, 1, &m));
+}
+
 test "Module — GC rec group decode" {
     // Type section: 1 rec group with 2 types
     //   rec { func () -> (ref null 1), func (ref null 0) -> () }

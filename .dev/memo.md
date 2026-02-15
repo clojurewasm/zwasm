@@ -53,20 +53,19 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.4 complete (canonical infra). Remaining 8 type-subtyping need subtype-aware call_indirect.
+28.3 continued: type-subtyping 8 failures need subtype-aware call_indirect.
 
-Spec baseline: Mac 49 failures. Commit gate: failure count must not increase.
+Spec baseline: Mac 48 failures. Commit gate: failure count must not increase.
 
-Remaining 49 categorized:
+Remaining 48 categorized:
 - multi-module ~30: linking 15, elem 6, linking3 4, imports 2, imports4 2, table_grow 2, linking0 1, linking1 1
 - GC subtype-aware call_indirect 8: type-subtyping 8
 - threads 4: threads-wait_notify 2, threads-SB_atomic 1, threads-simple 1
-- Other: call 1, instance 1, ref_test 1
+- Other: call 1, instance 1, throw_ref 1
 
 ## Previous Task
 
-28.4: Type canonicalization infrastructure (rec groups, canonical IDs, matchesCallIndirectType).
-Baseline corrected: actual 49 not 54 (imports/threads counts were off in memo).
+28.3/28.4: isConcreteSubtype canonical ID support fixed ref_test (49→48).
 
 ## Wasm 3.0 Coverage
 
@@ -75,10 +74,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 49 failures.
+None. Mac 48 failures.
 linking 15, type-subtyping 8, elem 6, linking3 4,
 imports 2, imports4 2, table_grow 2, threads-wait_notify 2,
-call 1, instance 1, linking0 1, linking1 1, ref_test 1,
+call 1, instance 1, linking0 1, linking1 1, throw_ref 1,
 threads-SB_atomic 1, threads-simple 1.
 Ubuntu: +15 endianness64 (x86-specific).
 

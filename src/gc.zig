@@ -318,9 +318,13 @@ pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, 
 }
 
 /// Check if concrete type `sub` is a subtype of concrete type `super` (or equal).
-/// Uses linear super_types chain walk (D114).
+/// Uses canonical IDs for equivalence check, then walks super_types chain (D114).
 pub fn isConcreteSubtype(sub: u32, super: u32, module: *const Module) bool {
     if (sub == super) return true;
+    // Canonical equivalence: structurally identical types from different rec groups
+    const canon_sub = module.getCanonicalTypeId(sub);
+    const canon_super = module.getCanonicalTypeId(super);
+    if (canon_sub == canon_super) return true;
     if (sub >= module.types.items.len) return false;
 
     // Walk the super_types chain
@@ -331,6 +335,7 @@ pub fn isConcreteSubtype(sub: u32, super: u32, module: *const Module) bool {
         if (td.super_types.len == 0) return false;
         current = td.super_types[0]; // single inheritance
         if (current == super) return true;
+        if (module.getCanonicalTypeId(current) == canon_super) return true;
     }
 }
 
