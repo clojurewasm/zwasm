@@ -22,7 +22,7 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-30 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-31 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue (v0.3.0)
 
@@ -56,11 +56,11 @@ Stages 0-30 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-Stage 31 complete. Ready for merge gate.
+Plan Stage 32: fix remaining 11 spec failures for v0.3.0.
 
 ## Previous Task
 
-31.5: Final GC numbers recorded. gc_alloc 20ms (2.5x vs wasmtime), gc_tree 131ms (3.7x). Spec: 62,147/62,158 unchanged.
+Stage 31: GC stress tests + benchmarks + arena allocator + adaptive threshold. gc_alloc 62→20ms, gc_tree 1668→131ms. Gap vs wasmtime: 2.5x/3.7x (was 6.7x/46x).
 
 ## Wasm 3.0 Coverage
 

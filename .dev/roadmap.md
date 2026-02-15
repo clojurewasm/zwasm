@@ -86,34 +86,32 @@ Single-pass constraint maintained. Codegen analysis of cranelift output.
   (LICM, strength reduction, base+offset precomputation).
 - Deliverable: analysis doc with feasibility estimates before implementation.
 
-### Stage 31: GC Benchmarks + Collector Assessment
+### Stage 31: GC Benchmarks + Collector Assessment ✓
 
-- Create GC stress test suite (WAT: mass alloc, reference graph, partial free, realloc loop)
-- Benchmark zwasm vs wasmtime vs node on GC workloads
-- Identify bottleneck (allocation, collection, pause time)
-- Decide on collector improvement scope based on data
+- GC stress test suite (5 tests: alloc pressure, deep chain, large array, free list, mixed burst)
+- GC benchmarks: gc_alloc (linked list 100K), gc_tree (binary tree depth 18)
+- Arena allocator + adaptive threshold (D121)
+- Result: gc_alloc 62→20ms (2.5x vs wasmtime), gc_tree 1668→131ms (3.7x vs wasmtime)
 
 ### Exit criteria for v0.3.0
 
-Spec failure targets (103 remaining as of 28.2):
-- [ ] Multi-module linking 36 → 0 (spec runner fix)
-- [ ] GC subtyping 48 → 0 (vm.zig type hierarchy)
-- [ ] GC type canonicalization 5 → 0 (type-equivalence, type-rec)
-- [ ] endianness64 15 → 0 (Ubuntu x86 byte order)
-- [ ] externref 2 → 0 (representation fix)
-- [ ] throw_ref 1 → 0 (opcode implementation)
-- [ ] threads 4 → 0 (thread spawning)
-- [ ] call batch 1 → 0 (spec runner)
-- Thread execution working with test suite
-- st_matrix / tgo_mfr gaps analyzed, improved where feasible
-- GC performance baselined
+Spec failure targets (103 remaining as of 28.2, now 11):
+- [x] Multi-module linking 36 → 0 (spec runner fix, 28.2c)
+- [x] GC subtyping 48 → ~6 (vm.zig type hierarchy, 28.3-28.5)
+- [x] endianness64 15 → 0 (Ubuntu x86 byte order, 28.2e)
+- [x] externref 2 → 0 (representation fix, 28.5)
+- [x] throw_ref 1 → 0 (opcode implementation, 28.6)
+- [x] threads 4 → 0 (thread spawning, 29.0-29.2)
+- [x] st_matrix / tgo_mfr gaps analyzed (30.0-30.2, D120)
+- [x] GC performance baselined (31.0-31.5, D121)
+- [ ] Remaining 11 failures: type-subtyping(4), imports4(2), type-rec(2), call(1), instance(1), table_grow(1)
 
 ## Future (post v0.3.0)
 
 - WASI P2 full interface coverage
 - WASI P3 / async
-- GC collector upgrade (generational/Immix) — pending Stage 31 analysis
-- Liveness-based regalloc / LIRA — if Stage 30 shows single-pass limit
+- GC collector upgrade (generational/Immix) — D121 arena+adaptive approach close enough (2-4x vs JIT)
+- Liveness-based regalloc / LIRA — rejected for now (D116/D120), single-pass sufficient
 
 ## Benchmark History
 
