@@ -201,7 +201,12 @@ pub const WasmModule = struct {
 
     /// Load a Wasm module from binary bytes, decode, and instantiate.
     pub fn load(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
-        return loadCore(allocator, wasm_bytes, false, null);
+        return loadCore(allocator, wasm_bytes, false, null, null);
+    }
+
+    /// Load with a fuel limit (traps start function if it exceeds the limit).
+    pub fn loadWithFuel(allocator: Allocator, wasm_bytes: []const u8, fuel: u64) !*WasmModule {
+        return loadCore(allocator, wasm_bytes, false, null, fuel);
     }
 
     /// Load a module from WAT (WebAssembly Text Format) source.
@@ -209,19 +214,19 @@ pub const WasmModule = struct {
     pub fn loadFromWat(allocator: Allocator, wat_source: []const u8) !*WasmModule {
         const wasm_bytes = try rt.wat.watToWasm(allocator, wat_source);
         errdefer allocator.free(wasm_bytes);
-        const self = try loadCore(allocator, wasm_bytes, false, null);
+        const self = try loadCore(allocator, wasm_bytes, false, null, null);
         self.owned_wasm_bytes = wasm_bytes;
         return self;
     }
 
     /// Load a WASI module — registers wasi_snapshot_preview1 imports.
     pub fn loadWasi(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
-        return loadCore(allocator, wasm_bytes, true, null);
+        return loadCore(allocator, wasm_bytes, true, null, null);
     }
 
     /// Load a WASI module with custom args, env, and preopened directories.
     pub fn loadWasiWithOptions(allocator: Allocator, wasm_bytes: []const u8, opts: WasiOptions) !*WasmModule {
-        const self = try loadCore(allocator, wasm_bytes, true, null);
+        const self = try loadCore(allocator, wasm_bytes, true, null, null);
         errdefer self.deinit();
 
         if (self.wasi_ctx) |*wc| {
@@ -245,12 +250,12 @@ pub const WasmModule = struct {
 
     /// Load with imports from other modules or host functions.
     pub fn loadWithImports(allocator: Allocator, wasm_bytes: []const u8, imports: []const ImportEntry) !*WasmModule {
-        return loadCore(allocator, wasm_bytes, false, imports);
+        return loadCore(allocator, wasm_bytes, false, imports, null);
     }
 
     /// Load with combined WASI + import support. Used by CLI for --link + WASI fallback.
     pub fn loadWasiWithImports(allocator: Allocator, wasm_bytes: []const u8, imports: ?[]const ImportEntry, opts: WasiOptions) !*WasmModule {
-        const self = try loadCore(allocator, wasm_bytes, true, imports);
+        const self = try loadCore(allocator, wasm_bytes, true, imports, null);
         errdefer self.deinit();
 
         if (self.wasi_ctx) |*wc| {
@@ -348,7 +353,7 @@ pub const WasmModule = struct {
         return .{ .module = self, .apply_error = apply_error };
     }
 
-    fn loadCore(allocator: Allocator, wasm_bytes: []const u8, wasi: bool, imports: ?[]const ImportEntry) !*WasmModule {
+    fn loadCore(allocator: Allocator, wasm_bytes: []const u8, wasi: bool, imports: ?[]const ImportEntry, fuel: ?u64) !*WasmModule {
         const self = try allocator.create(WasmModule);
         errdefer allocator.destroy(self);
 
@@ -385,10 +390,12 @@ pub const WasmModule = struct {
 
         self.vm = try allocator.create(rt.vm_mod.Vm);
         self.vm.* = rt.vm_mod.Vm.init(allocator);
+        self.vm.fuel = fuel;
 
         // Execute start function if present
         if (self.module.start) |start_idx| {
             self.vm.reset();
+            self.vm.fuel = fuel;
             try self.vm.invokeByIndex(&self.instance, start_idx, &.{}, &.{});
         }
 

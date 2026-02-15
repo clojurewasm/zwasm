@@ -633,7 +633,7 @@ pub const Vm = struct {
                         try self.pushLabel(.{
                             .arity = next_fp.results.len,
                             .op_stack_base = base + next_fp.params.len + next_wf.locals_count,
-                            .target = .{ .forward = body_reader },
+                            .target = .{ .forward = .{ .bytes = next_wf.code, .pos = next_wf.code.len } },
                         });
                         try self.execute(&body_reader, next_inst);
                     }

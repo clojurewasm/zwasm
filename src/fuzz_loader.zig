@@ -1,7 +1,8 @@
 // Fuzz harness for the wasm module loader.
 //
-// Reads wasm bytes from stdin and attempts to decode + instantiate.
-// Any error is expected (invalid wasm); a panic/crash is a real bug.
+// Reads wasm bytes from stdin and attempts to decode, instantiate,
+// and invoke exported functions. Any error is expected (invalid wasm);
+// a panic/crash is a real bug.
 //
 // Usage:
 //   echo -n '<bytes>' | ./zig-out/bin/fuzz_loader
@@ -10,6 +11,8 @@
 
 const std = @import("std");
 const zwasm = @import("zwasm");
+
+const FUEL_LIMIT: u64 = 1_000_000;
 
 pub fn main() void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -26,11 +29,18 @@ pub fn main() void {
 }
 
 fn fuzzOne(allocator: std.mem.Allocator, input: []const u8) void {
-    // Decode + instantiate the module. This exercises:
-    // - Binary parser (sections, LEB128, type/function/code/data)
-    // - Predecoder (instruction validation, register IR translation)
-    // - Store/instance creation (imports, tables, memories, globals)
-    // Errors are expected for invalid wasm — only panics/crashes are bugs.
-    const module = zwasm.WasmModule.load(allocator, input) catch return;
-    module.deinit();
+    // Load with fuel limit to prevent infinite loops in start functions
+    const module = zwasm.WasmModule.loadWithFuel(allocator, input, FUEL_LIMIT) catch return;
+    defer module.deinit();
+
+    // Invoke zero-arg exported functions to exercise the interpreter
+    for (module.export_fns) |ei| {
+        if (ei.param_types.len == 0 and ei.result_types.len <= 1) {
+            var results: [1]u64 = .{0};
+            const result_slice = results[0..ei.result_types.len];
+            module.invoke(ei.name, &.{}, result_slice) catch continue;
+            // Reset fuel for next function
+            module.vm.fuel = FUEL_LIMIT;
+        }
+    }
 }

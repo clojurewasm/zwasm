@@ -61,20 +61,17 @@ for i in $(seq 1 $ITERATIONS); do
 
     for func in $EXPORTS; do
         # Run in both runtimes (zero-arg invocation)
-        WT_OUT=$(timeout $TIMEOUT wasmtime run --invoke "$func" /tmp/diff_test.wasm 2>&1) || true
-        ZW_OUT=$(timeout $TIMEOUT "$ZWASM" run --invoke "$func" /tmp/diff_test.wasm 2>&1) || true
+        # Capture exit codes directly — more reliable than text parsing
+        WT_OUT=$(timeout $TIMEOUT wasmtime run --invoke "$func" /tmp/diff_test.wasm 2>/dev/null) && WT_RC=0 || WT_RC=$?
+        ZW_OUT=$(timeout $TIMEOUT "$ZWASM" run --invoke "$func" /tmp/diff_test.wasm 2>/dev/null) && ZW_RC=0 || ZW_RC=$?
 
         RUNS=$((RUNS + 1))
 
-        # Strip wasmtime warnings
-        WT_CLEAN=$(echo "$WT_OUT" | grep -v "^warning:")
-        ZW_CLEAN="$ZW_OUT"
-
-        # Classify: error or success
+        # Classify: error or success (nonzero exit = error, 124 = timeout)
         WT_ERR=false
         ZW_ERR=false
-        echo "$WT_CLEAN" | grep -qiE "error|trap|fault|panic|failed" && WT_ERR=true
-        echo "$ZW_CLEAN" | grep -qiE "error|trap|fault|panic|failed|StackOverflow|Unreachable|OutOfBounds" && ZW_ERR=true
+        [ "$WT_RC" -ne 0 ] && WT_ERR=true
+        [ "$ZW_RC" -ne 0 ] && ZW_ERR=true
 
         if $WT_ERR && $ZW_ERR; then
             continue  # Both error — OK
@@ -84,13 +81,13 @@ for i in $(seq 1 $ITERATIONS); do
             # wasmtime OK, zwasm error — potential bug
             MISMATCHES=$((MISMATCHES + 1))
             cp /tmp/diff_test.wasm "$MISMATCH_DIR/mismatch_${i}_${func}.wasm"
-            echo "MISMATCH [$i] $func: wasmtime OK, zwasm error"
-            echo "  wasmtime: $(echo "$WT_CLEAN" | head -1)"
-            echo "  zwasm:    $(echo "$ZW_CLEAN" | head -1)"
+            echo "MISMATCH [$i] $func: wasmtime OK (rc=$WT_RC), zwasm error (rc=$ZW_RC)"
+            echo "  wasmtime: $(echo "$WT_OUT" | head -1)"
+            echo "  zwasm:    $(echo "$ZW_OUT" | head -1)"
         elif ! $WT_ERR && ! $ZW_ERR; then
             # Both succeed — compare numeric results
-            WT_NUMS=$(echo "$WT_CLEAN" | tr -d '[:space:]')
-            ZW_NUMS=$(echo "$ZW_CLEAN" | tr -d '[:space:]')
+            WT_NUMS=$(echo "$WT_OUT" | tr -d '[:space:]')
+            ZW_NUMS=$(echo "$ZW_OUT" | tr -d '[:space:]')
             if [ "$WT_NUMS" != "$ZW_NUMS" ]; then
                 MISMATCHES=$((MISMATCHES + 1))
                 cp /tmp/diff_test.wasm "$MISMATCH_DIR/mismatch_${i}_${func}.wasm"

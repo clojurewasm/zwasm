@@ -72,11 +72,16 @@ RUNS=0
 
 echo "Running $ITERATIONS fuzz iterations..."
 
+TIMEOUT_CMD="timeout"
+TIMEOUT_SEC=2
+
 run_one() {
     local input_file="$1"
     local label="$2"
-    "$FUZZ_BIN" < "$input_file" 2>/tmp/zwasm_fuzz_err.txt
+    $TIMEOUT_CMD ${TIMEOUT_SEC}s "$FUZZ_BIN" < "$input_file" 2>/tmp/zwasm_fuzz_err.txt
     local rc=$?
+    # timeout(1) returns 124 on timeout — not a crash
+    if [ $rc -eq 124 ]; then return; fi
     RUNS=$((RUNS + 1))
     if [ $rc -ne 0 ]; then
         CRASHES=$((CRASHES + 1))

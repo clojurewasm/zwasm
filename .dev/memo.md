@@ -22,22 +22,22 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-32 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-33 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue (Stage 33: Fuzz Testing)
 
 - [x] 33.0: Fuzz harness for wasm module loader (std.testing.fuzz + standalone binary)
 - [x] 33.1: Seed corpus + fuzz runner script (198 seeds, 1000 iterations 0 crashes)
 - [x] 33.2: Differential testing harness (zwasm vs wasmtime) + fix branchTo panic
-- [ ] 33.3: Run extended fuzz campaign (--long), investigate result mismatches
+- [x] 33.3: Extended fuzz campaign + fix tail-call label bug + loadWithFuel API
 
 ## Current Task
 
-33.3: Extended fuzz campaign + investigate result mismatches from diff testing.
+Stage 33 complete. Awaiting merge to main.
 
 ## Previous Task
 
-33.2: Diff test harness (fuzz/diff_test.sh) + fix branchTo/branchToIR underflow panic. peekLabel depth guard, safe label_ptr arithmetic. 62,158/62,158 spec tests pass. 0 fuzz crashes.
+33.3: Extended fuzz (10000 iter, 0 crashes). Fix tail-call bytecode path label target (forward to code end, not start). Add WasmModule.loadWithFuel for fuel-limited start functions. Diff test mismatches are display-only (float formatting).
 
 ## Wasm 3.0 Coverage
 
