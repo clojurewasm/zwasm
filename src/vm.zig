@@ -5380,8 +5380,8 @@ fn readBlockType(reader: *Reader) !opcode.BlockType {
         reader.pos += 1;
         return .empty;
     }
-    // Check if it's a valtype (0x7F..0x70)
-    if (byte >= 0x6F and byte <= 0x7F) {
+    // Check if it's a valtype (0x7F..0x69, includes GC/EH shorthands)
+    if (byte >= 0x69 and byte <= 0x7F) {
         reader.pos += 1;
         return .{ .val_type = ValType.fromByte(byte) orelse return error.InvalidWasm };
     }

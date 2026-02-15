@@ -329,9 +329,10 @@ fn readBlockTypeEncoded(reader: *Reader) !u16 {
     const byte = reader.bytes[reader.pos];
     if (byte == 0x40) {
         reader.pos += 1;
-        return 0;
+        return 0; // void block
     }
-    if (byte >= 0x6F and byte <= 0x7F) {
+    // Single-byte value types: MVP (0x7B-0x7F) + GC/EH shorthands (0x69-0x74)
+    if (byte >= 0x69 and byte <= 0x7F) {
         reader.pos += 1;
         return 1;
     }

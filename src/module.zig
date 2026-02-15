@@ -778,7 +778,7 @@ pub const Module = struct {
     fn skipBlockType(r: *Reader) !void {
         if (!r.hasMore()) return error.MalformedModule;
         const byte = r.bytes[r.pos];
-        if (byte == 0x40 or (byte >= 0x6F and byte <= 0x7F)) {
+        if (byte == 0x40 or (byte >= 0x69 and byte <= 0x7F)) {
             r.pos += 1;
         } else {
             _ = try r.readI33();
