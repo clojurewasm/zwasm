@@ -53,19 +53,20 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.4: GC type canonicalization (type-subtyping 11, type-equivalence 3, type-rec 2 = 16 failures).
+28.4 complete (canonical infra). Remaining 8 type-subtyping need subtype-aware call_indirect.
 
-Spec baseline: Mac 54 failures. Commit gate: failure count must not increase.
+Spec baseline: Mac 49 failures. Commit gate: failure count must not increase.
 
-Remaining 54 categorized:
-- multi-module state sharing ~28: linking 14, elem 6, linking3 4, imports4 2, table_grow 2, linking0 1, linking1 1
-- GC type canonicalization ~17: type-subtyping 11, type-equivalence 3, type-rec 2, ref_test 1
-- threads 3: threads-wait_notify 2, threads-SB_atomic 1
-- Other: call 1, instance 1
+Remaining 49 categorized:
+- multi-module ~30: linking 15, elem 6, linking3 4, imports 2, imports4 2, table_grow 2, linking0 1, linking1 1
+- GC subtype-aware call_indirect 8: type-subtyping 8
+- threads 4: threads-wait_notify 2, threads-SB_atomic 1, threads-simple 1
+- Other: call 1, instance 1, ref_test 1
 
 ## Previous Task
 
-28.3: Fix array_new_data/array_init_data dropped segment check (55→54, -1).
+28.4: Type canonicalization infrastructure (rec groups, canonical IDs, matchesCallIndirectType).
+Baseline corrected: actual 49 not 54 (imports/threads counts were off in memo).
 
 ## Wasm 3.0 Coverage
 
@@ -74,10 +75,11 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 54 failures.
-linking 14, type-subtyping 11, elem 6, linking3 4, type-equivalence 3,
-imports4 2, table_grow 2, threads 3, type-rec 2,
-call 1, instance 1, linking0 1, linking1 1, ref_test 1.
+None. Mac 49 failures.
+linking 15, type-subtyping 8, elem 6, linking3 4,
+imports 2, imports4 2, table_grow 2, threads-wait_notify 2,
+call 1, instance 1, linking0 1, linking1 1, ref_test 1,
+threads-SB_atomic 1, threads-simple 1.
 Ubuntu: +15 endianness64 (x86-specific).
 
 ## References

@@ -34,6 +34,7 @@ pub const Mutability = enum(u8) {
 pub const Function = struct {
     params: []const ValType,
     results: []const ValType,
+    canonical_type_id: u32 = std.math.maxInt(u32),
     subtype: union(enum) {
         wasm_function: WasmFunction,
         host_function: HostFunction,

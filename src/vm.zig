@@ -862,12 +862,9 @@ pub const Vm = struct {
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
 
-                    // Type check: compare param/result types, not just lengths
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
 
                     self.doCallDirect(instance, func_ptr, reader) catch |err| {
                         if (err == error.WasmException and self.handleException(reader, instance))
@@ -898,12 +895,9 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    // Type check
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;
                     while (i > 0) {
@@ -1313,12 +1307,9 @@ pub const Vm = struct {
                     if (ref_val == 0) return error.Trap; // null ref
                     const func_addr = ref_val - 1;
                     const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
-                    // Type check
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
                     self.doCallDirect(instance, func_ptr, reader) catch |err| {
                         if (err == error.WasmException and self.handleException(reader, instance))
                             continue;
@@ -1331,12 +1322,9 @@ pub const Vm = struct {
                     if (ref_val == 0) return error.Trap; // null ref
                     const func_addr = ref_val - 1;
                     const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
-                    // Type check
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;
                     while (i > 0) {
@@ -3570,12 +3558,9 @@ pub const Vm = struct {
                     const func_addr = try t.lookup(elem_idx);
                     const callee_fn = try instance.store.getFunctionPtr(func_addr);
 
-                    // Type check
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, callee_fn.params) or
-                            !ValType.sliceEql(expected.results, callee_fn.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, callee_fn.canonical_type_id, callee_fn.params, callee_fn.results))
+                        return error.MismatchedSignatures;
 
                     const n_args = callee_fn.params.len;
                     var call_args: [8]u64 = undefined;
@@ -4227,11 +4212,8 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    if (instance.module.getCanonicalTypeId(type_idx) != func_ptr.canonical_type_id)
+                        return error.MismatchedSignatures;
                     try self.doCallDirectIR(instance, func_ptr);
                 },
                 0x12 => { // return_call
@@ -4253,11 +4235,8 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    if (instance.module.getCanonicalTypeId(type_idx) != func_ptr.canonical_type_id)
+                        return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;
                     while (i > 0) {

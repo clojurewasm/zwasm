@@ -201,9 +201,14 @@ pub const Instance = struct {
             const func_type = self.module.getTypeFunc(func_def.type_idx) orelse
                 return error.InvalidTypeIndex;
 
+            const canonical_id = if (func_def.type_idx < self.module.canonical_ids.len)
+                self.module.canonical_ids[func_def.type_idx]
+            else
+                func_def.type_idx;
             const addr = try self.store.addFunction(.{
                 .params = func_type.params,
                 .results = func_type.results,
+                .canonical_type_id = canonical_id,
                 .subtype = .{ .wasm_function = .{
                     .locals_count = code.locals_count,
                     .code = code.body,

@@ -3995,12 +3995,9 @@ pub fn jitCallIndirectTrampoline(
     };
     const func_ptr = instance.store.getFunctionPtr(func_addr) catch return 1;
 
-    // Type check
-    if (instance.module.getTypeFunc(type_idx)) |expected| {
-        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-            !ValType.sliceEql(expected.results, func_ptr.results))
-            return 1; // MismatchedSignatures → Trap
-    }
+    // Type check: canonical type ID with structural fallback
+    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+        return 1; // MismatchedSignatures → Trap
 
     const n_args = func_ptr.params.len;
     const n_results = func_ptr.results.len;
