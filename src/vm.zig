@@ -1410,11 +1410,11 @@ pub const Vm = struct {
                 const type_idx = reader.readU32() catch return error.Trap;
                 const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
                 const n = stype.fields.len;
-                // Allocate with default values (0 for all — numeric=0, ref=null=0)
-                const fields = instance.store.gc_heap.alloc.alloc(u64, n) catch return error.Trap;
-                defer instance.store.gc_heap.alloc.free(fields);
-                @memset(fields, 0);
-                const addr = instance.store.gc_heap.allocStruct(type_idx, fields) catch return error.Trap;
+                // Default values: 0 for all (numeric=0, ref=null=0)
+                var fields_buf: [256]u64 = undefined;
+                if (n > fields_buf.len) return error.Trap;
+                @memset(fields_buf[0..n], 0);
+                const addr = instance.store.gc_heap.allocStruct(type_idx, fields_buf[0..n]) catch return error.Trap;
                 try self.push(gc_mod.GcHeap.encodeRef(addr));
             },
             .struct_get => {

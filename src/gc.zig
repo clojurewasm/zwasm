@@ -50,29 +50,62 @@ pub const GcSlot = struct {
     next_free: ?u32, // intrusive free-list link
 };
 
+/// Bump allocator for GC object field/element storage (D121).
+/// Allocates from contiguous pages, avoiding per-object allocator overhead.
+/// Memory is freed only when the entire arena is deinitialized.
+const ARENA_PAGE_SLOTS: usize = 512; // 512 * 8 = 4KB per page
+
+const FieldArena = struct {
+    pages: std.ArrayListUnmanaged([]StackVal),
+    alloc: Allocator,
+    cursor: usize, // next free position in current page
+
+    fn init(a: Allocator) FieldArena {
+        return .{ .pages = .{}, .alloc = a, .cursor = ARENA_PAGE_SLOTS };
+    }
+
+    fn deinit(self: *FieldArena) void {
+        for (self.pages.items) |page| self.alloc.free(page);
+        self.pages.deinit(self.alloc);
+    }
+
+    fn allocFields(self: *FieldArena, n: usize) ![]StackVal {
+        if (n == 0) return &[_]StackVal{};
+        if (n > ARENA_PAGE_SLOTS) {
+            // Oversized: allocate a dedicated page of exact size
+            const page = try self.alloc.alloc(StackVal, n);
+            try self.pages.append(self.alloc, page);
+            return page;
+        }
+        if (self.cursor + n > ARENA_PAGE_SLOTS) {
+            // Current page full — allocate a new one
+            const page = try self.alloc.alloc(StackVal, ARENA_PAGE_SLOTS);
+            try self.pages.append(self.alloc, page);
+            self.cursor = 0;
+        }
+        const start = self.cursor;
+        self.cursor += n;
+        return self.pages.items[self.pages.items.len - 1][start .. start + n];
+    }
+};
+
 /// Mark-and-sweep GC heap with free-list reuse.
 pub const GC_THRESHOLD_DEFAULT: u32 = 1024;
 
 pub const GcHeap = struct {
     slots: ArrayList(GcSlot),
     alloc: Allocator,
+    arena: FieldArena,
     free_head: ?u32, // head of free list (null = no free slots)
     alloc_since_gc: u32 = 0, // allocations since last collection
     gc_threshold: u32 = GC_THRESHOLD_DEFAULT,
 
     pub fn init(alloc: Allocator) GcHeap {
-        return .{ .slots = .empty, .alloc = alloc, .free_head = null };
+        return .{ .slots = .empty, .alloc = alloc, .arena = FieldArena.init(alloc), .free_head = null };
     }
 
     pub fn deinit(self: *GcHeap) void {
-        for (self.slots.items) |slot| {
-            if (slot.obj) |obj| {
-                switch (obj) {
-                    .struct_obj => |s| self.alloc.free(s.fields),
-                    .array_obj => |a| self.alloc.free(a.elements),
-                }
-            }
-        }
+        self.arena.deinit(); // frees all field/element storage
         self.slots.deinit(self.alloc);
     }
 
@@ -99,21 +132,21 @@ pub const GcHeap = struct {
 
     /// Allocate a struct object, returns gc_addr (index into slots).
     pub fn allocStruct(self: *GcHeap, type_idx: u32, fields: []const StackVal) !u32 {
-        const stored = try self.alloc.alloc(StackVal, fields.len);
+        const stored = try self.arena.allocFields(fields.len);
         @memcpy(stored, fields);
         return self.allocSlot(.{ .struct_obj = .{ .type_idx = type_idx, .fields = stored } });
     }
 
     /// Allocate an array object, returns gc_addr.
     pub fn allocArray(self: *GcHeap, type_idx: u32, len: u32, init_val: StackVal) !u32 {
-        const elements = try self.alloc.alloc(StackVal, len);
+        const elements = try self.arena.allocFields(len);
         @memset(elements, init_val);
         return self.allocSlot(.{ .array_obj = .{ .type_idx = type_idx, .elements = elements } });
     }
 
     /// Allocate an array with pre-filled values, returns gc_addr.
     pub fn allocArrayWithValues(self: *GcHeap, type_idx: u32, values: []const StackVal) !u32 {
-        const elements = try self.alloc.alloc(StackVal, values.len);
+        const elements = try self.arena.allocFields(values.len);
         @memcpy(elements, values);
         return self.allocSlot(.{ .array_obj = .{ .type_idx = type_idx, .elements = elements } });
     }
@@ -127,16 +160,10 @@ pub const GcHeap = struct {
     }
 
     /// Free a slot and add it to the free list.
+    /// Field/element memory is arena-managed and freed on GcHeap.deinit().
     pub fn freeSlot(self: *GcHeap, addr: u32) void {
         if (addr >= self.slots.items.len) return;
-        const slot = &self.slots.items[addr];
-        if (slot.obj) |obj| {
-            switch (obj) {
-                .struct_obj => |s| self.alloc.free(s.fields),
-                .array_obj => |a| self.alloc.free(a.elements),
-            }
-        }
-        slot.* = .{ .obj = null, .marked = false, .next_free = self.free_head };
+        self.slots.items[addr] = .{ .obj = null, .marked = false, .next_free = self.free_head };
         self.free_head = addr;
     }
 

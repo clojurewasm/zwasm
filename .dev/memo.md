@@ -50,17 +50,17 @@ Stages 0-30 — all COMPLETE. See `roadmap.md` for details.
 - [x] 31.0: GC stress test suite creation
 - [x] 31.1: GC benchmark (zwasm vs wasmtime vs node)
 - [x] 31.2: GC collector improvement decision (D121)
-- [ ] 31.3: Arena allocator for GC field storage
+- [x] 31.3: Arena allocator for GC field storage
 - [ ] 31.4: Adaptive GC threshold
 - [ ] 31.5: GC benchmark re-measure
 
 ## Current Task
 
-31.3: Arena allocator for GC field storage.
+31.4: Adaptive GC threshold.
 
 ## Previous Task
 
-31.2: D121 decision — arena allocator + adaptive threshold. Root causes: per-object alloc + O(n²) collection.
+31.3: Arena bump allocator for GC fields. gc_alloc -8%, gc_tree -18%.
 
 ## Wasm 3.0 Coverage
 
