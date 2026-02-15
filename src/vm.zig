@@ -1702,7 +1702,8 @@ pub const Vm = struct {
                 const dst_off: u32 = @truncate(self.pop());
                 const ref_val = self.pop();
                 const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
-                if (data_idx >= instance.module.datas.items.len) return error.Trap;
+                if (data_idx >= instance.dataaddrs.items.len) return error.Trap;
+                const d = instance.store.getData(instance.dataaddrs.items[data_idx]) catch return error.Trap;
                 const data_seg = instance.module.datas.items[data_idx];
                 const atype = self.getArrayType(instance, type_idx) orelse return error.Trap;
                 const elem_bytes: u32 = switch (atype.field.storage) {
@@ -1715,7 +1716,9 @@ pub const Vm = struct {
                     },
                 };
                 const byte_len = @as(u64, size) * @as(u64, elem_bytes);
-                if (@as(u64, src_off) + byte_len > data_seg.data.len) return error.Trap;
+                // Dropped segments have effective length 0 (n=0 succeeds even if dropped)
+                const data_len: u64 = if (d.dropped) 0 else data_seg.data.len;
+                if (@as(u64, src_off) + byte_len > data_len) return error.Trap;
                 const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
                 switch (obj.*) {
                     .array_obj => |*ao| {
@@ -1746,13 +1749,16 @@ pub const Vm = struct {
                 const dst_off: u32 = @truncate(self.pop());
                 const ref_val = self.pop();
                 const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
-                if (elem_idx >= instance.module.elements.items.len) return error.Trap;
+                if (elem_idx >= instance.elemaddrs.items.len) return error.Trap;
+                const e = instance.store.getElem(instance.elemaddrs.items[elem_idx]) catch return error.Trap;
                 const elem_seg = instance.module.elements.items[elem_idx];
                 const func_indices = switch (elem_seg.init) {
                     .func_indices => |fi| fi,
                     .expressions => return error.Trap,
                 };
-                if (@as(u64, src_off) + @as(u64, size) > func_indices.len) return error.Trap;
+                // Dropped segments have effective length 0 (n=0 succeeds even if dropped)
+                const elem_len: u64 = if (e.dropped) 0 else func_indices.len;
+                if (@as(u64, src_off) + @as(u64, size) > elem_len) return error.Trap;
                 const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
                 switch (obj.*) {
                     .array_obj => |*ao| {

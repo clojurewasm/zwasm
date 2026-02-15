@@ -34,7 +34,8 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.2a: Spec runner `either` comparison for relaxed_simd (-32 failures)
 - [x] 28.2b: Prefer pre-compiled binary for text modules in spec runner (-3 failures)
 - [ ] 28.2c: Spec runner multi-module linking (linking/instance ~36 failures)
-- [ ] 28.2d: Edge case fixes: throw_ref, extern, table_grow, array_init bounds (~8 failures)
+- [x] 28.2d1: array_init_data/elem dropped segment bounds check (-2 failures)
+- [ ] 28.2d2: Edge case fixes: throw_ref, extern, ref_is_null, etc.
 - [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
@@ -48,12 +49,12 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.2c: Spec runner multi-module linking (linking/instance ~36 failures).
-Spec baseline: Mac 105 failures. Commit gate: failure count must not increase.
+28.2d2: Edge case fixes: throw_ref, extern, ref_is_null, etc.
+Spec baseline: Mac 103 failures. Commit gate: failure count must not increase.
 
 ## Previous Task
 
-28.2b: Prefer pre-compiled binary for text modules (-3 failures, 108→105).
+28.2d1: array_init_data/elem dropped segment bounds check (-2 failures, 105→103).
 
 ## Wasm 3.0 Coverage
 
