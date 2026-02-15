@@ -1299,7 +1299,7 @@ pub const Compiler = struct {
 
     /// Check if an instruction has an rs2 operand (binary ops).
     /// Conservative: returns true for all binary arithmetic/comparison ops.
-    fn instrHasRs2(instr: RegInstr) bool {
+    pub fn instrHasRs2(instr: RegInstr) bool {
         const op = instr.op;
         return switch (op) {
             // i32/i64/f32/f64 binary ops (comparisons + arithmetic): 0x46-0x8A, 0x92-0x97, 0xA0-0xA6
@@ -1312,7 +1312,7 @@ pub const Compiler = struct {
     }
 
     /// Check if an instruction defines rd (writes to rd register).
-    fn instrDefinesRd(instr: RegInstr) bool {
+    pub fn instrDefinesRd(instr: RegInstr) bool {
         const op = instr.op;
         return switch (op) {
             regalloc_mod.OP_NOP, regalloc_mod.OP_DELETED, regalloc_mod.OP_BLOCK_END,

@@ -1072,6 +1072,65 @@ const MAX_PHYS_REGS: u8 = 11;
 /// First caller-saved vreg index (for spill/reload).
 const FIRST_CALLER_SAVED_VREG: u8 = 3;
 
+/// Check if a vreg is caller-saved on x86 (vregs 3-10).
+fn isCallerSavedVreg(vreg: u16) bool {
+    return vreg >= FIRST_CALLER_SAVED_VREG and vreg < MAX_PHYS_REGS;
+}
+
+/// Compute live set for caller-saved vregs at a call site (x86 version).
+/// Scans IR after call_pc to find which caller-saved vregs are used before redefined.
+fn computeCallLiveSet(ir: []const RegInstr, call_pc: u32) u32 {
+    const jit_arm64 = @import("jit.zig");
+    var live: u32 = 0;
+    var resolved: u32 = 0;
+    var pc = call_pc + 1;
+    while (pc < ir.len and (ir[pc].op == regalloc_mod.OP_NOP or ir[pc].op == regalloc_mod.OP_DELETED)) : (pc += 1) {}
+
+    while (pc < ir.len) : (pc += 1) {
+        const instr = ir[pc];
+        if (instr.op == regalloc_mod.OP_DELETED or
+            instr.op == regalloc_mod.OP_BLOCK_END) continue;
+        if (instr.op == regalloc_mod.OP_NOP) {
+            markCallerSavedUse(&live, &resolved, instr.rd);
+            markCallerSavedUse(&live, &resolved, instr.rs1);
+            if (instr.rs2_field != 0) markCallerSavedUse(&live, &resolved, instr.rs2_field);
+            const arg3: u16 = @truncate(instr.operand);
+            if (arg3 != 0) markCallerSavedUse(&live, &resolved, arg3);
+            continue;
+        }
+
+        if (instr.op != regalloc_mod.OP_CALL) {
+            markCallerSavedUse(&live, &resolved, instr.rs1);
+        }
+        if (jit_arm64.Compiler.instrHasRs2(instr)) {
+            markCallerSavedUse(&live, &resolved, instr.rs2());
+        }
+
+        if (jit_arm64.Compiler.instrDefinesRd(instr)) {
+            if (isCallerSavedVreg(instr.rd)) {
+                resolved |= @as(u32, 1) << @as(u5, @intCast(instr.rd));
+            }
+        }
+
+        if (instr.op == regalloc_mod.OP_BR or instr.op == regalloc_mod.OP_BR_IF or
+            instr.op == regalloc_mod.OP_BR_IF_NOT)
+        {
+            if (instr.operand <= call_pc) {
+                return live | ~resolved;
+            }
+        }
+    }
+    return live;
+}
+
+/// Mark a vreg as used (live) if caller-saved on x86 and not yet resolved.
+fn markCallerSavedUse(live: *u32, resolved: *u32, vreg: u16) void {
+    if (isCallerSavedVreg(vreg) and (resolved.* & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) {
+        live.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
+        resolved.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
+    }
+}
+
 // ================================================================
 // x86_64 JIT Compiler
 // ================================================================
@@ -1241,9 +1300,7 @@ pub const Compiler = struct {
     fn spillCallerSavedLive(self: *Compiler, ir: []const RegInstr, call_pc: u32) void {
         const max = @min(self.reg_count, MAX_PHYS_REGS);
         if (max <= FIRST_CALLER_SAVED_VREG) return;
-        // Reuse ARM64's computeCallLiveSet — same RegInstr format
-        const jit_arm64 = @import("jit.zig");
-        const live_set = jit_arm64.Compiler.computeCallLiveSet(ir, call_pc);
+        const live_set = computeCallLiveSet(ir, call_pc);
         self.call_live_set = live_set;
         for (FIRST_CALLER_SAVED_VREG..max) |i| {
             const vreg: u16 = @intCast(i);
