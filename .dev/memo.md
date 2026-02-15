@@ -49,15 +49,18 @@ Stages 0-30 — all COMPLETE. See `roadmap.md` for details.
 - [x] 30.2: Increase MAX_PHYS_REGS (tgo_mfr: 23 regs spill 3, eliminate hot-loop spills)
 - [x] 31.0: GC stress test suite creation
 - [x] 31.1: GC benchmark (zwasm vs wasmtime vs node)
-- [ ] 31.2: GC collector improvement decision
+- [x] 31.2: GC collector improvement decision (D121)
+- [ ] 31.3: Arena allocator for GC field storage
+- [ ] 31.4: Adaptive GC threshold
+- [ ] 31.5: GC benchmark re-measure
 
 ## Current Task
 
-31.2: GC collector improvement decision.
+31.3: Arena allocator for GC field storage.
 
 ## Previous Task
 
-31.1: Added gc_alloc/gc_tree benchmarks to infrastructure (4 layers, 23 total). GC gap: 6.7-46x vs wasmtime.
+31.2: D121 decision — arena allocator + adaptive threshold. Root causes: per-object alloc + O(n²) collection.
 
 ## Wasm 3.0 Coverage
 

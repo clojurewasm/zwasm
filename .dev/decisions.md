@@ -81,3 +81,39 @@ JIT trampoline pack/unpack via explicit helpers (no @bitCast with 12-byte struct
 
 **Rejected**: Smarter register reuse alone — 42 locals consume 42 base regs, leaving
 213 for temps in a 4766-instruction function. Would require full liveness analysis.
+
+---
+
+## D121: GC heap — arena allocator + adaptive threshold
+
+**Context**: GC benchmarks show 6.7-46x gap vs wasmtime (gc_alloc 62ms vs 8ms,
+gc_tree 1668ms vs 36ms). Two root causes identified:
+
+1. **Per-object heap allocation**: Each `struct.new` calls `alloc.alloc(u64, n)` for
+   the fields slice. General-purpose allocator overhead per object (gpa/page_allocator).
+   wasmtime uses bump allocation from pre-allocated pages.
+
+2. **O(n²) collection**: Fixed threshold of 1024 allocations triggers GC. For 100K
+   objects: ~97 collections, each scanning ALL live objects (clearMarks + markRoots +
+   sweep over entire slots array). Total work: O(n²/threshold). gc_tree with 524K
+   nodes does ~512 collections with increasingly expensive scans.
+
+**Decision**: Two-part fix:
+
+**(a) Arena allocator for field storage**: Replace per-object `alloc.alloc()` with a
+page-based arena. Pre-allocate 4KB pages, bump-allocate field slices from them.
+No per-object free — entire arena freed on GcHeap.deinit() or after sweep reclaims
+a full page. Eliminates allocator overhead: O(1) bump vs O(alloc) per struct.
+
+**(b) Adaptive GC threshold**: Instead of fixed 1024, double threshold after each
+collection that reclaims less than 50% of objects. Caps at heap_size/2.
+Reduces collection count from O(n/1024) to O(log n) for growing workloads
+(like benchmark build phases where nothing can be freed).
+
+**Trade-off**: Arena wastes memory on freed objects until page is fully reclaimable.
+Acceptable: GC benchmarks are allocation-heavy, and the arena approach matches how
+production runtimes (V8, wasmtime) handle short-lived GC objects.
+
+**Rejected**: Generational GC — too complex for the current heap model. Nursery/tenured
+split requires write barriers and remembered sets. The adaptive threshold gives most of
+the benefit (avoiding useless collections) without the complexity.
