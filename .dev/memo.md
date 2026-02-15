@@ -33,9 +33,8 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.1: Fix spec failures (225→140): JIT FP cache, nullexnref, table init, S33 heap types, block type range
 - [x] 28.2a: Spec runner `either` comparison for relaxed_simd (-32 failures)
 - [x] 28.2b: Prefer pre-compiled binary for text modules in spec runner (-3 failures)
-- [ ] 28.2c: Spec runner multi-module linking (linking/instance ~36 failures)
+- [ ] 28.2c: Spec runner multi-module linking (linking/instance ~36 failures — deep)
 - [x] 28.2d1: array_init_data/elem dropped segment bounds check (-2 failures)
-- [ ] 28.2d2: Edge case fixes: throw_ref, extern, ref_is_null, etc.
 - [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
@@ -49,12 +48,23 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.2d2: Edge case fixes: throw_ref, extern, ref_is_null, etc.
+28.2 investigation complete. Mac: 103 failures (was 140). Fixed: 37 total.
 Spec baseline: Mac 103 failures. Commit gate: failure count must not increase.
+
+Remaining 103 categorized:
+- linking/instance/imports4 36: multi-module state sharing (spec runner)
+- GC subtyping ~48: type hierarchy checks (ref_test, type-subtyping, etc.)
+- threads 4: need thread spawning
+- table_grow 2: multi-module
+- extern 1: externref(0) vs null conflation
+- throw_ref 1: unimplemented opcode
+- call 1: batch process state loss
+- ref_is_null 1: externref table
+- type-equivalence 3, type-rec 2: GC type canonicalization
 
 ## Previous Task
 
-28.2d1: array_init_data/elem dropped segment bounds check (-2 failures, 105→103).
+28.2: Spec failure reduction (140→103, -37 fixes): either v128 comparison, binary_filename preference, array_init dropped segment check.
 
 ## Wasm 3.0 Coverage
 
@@ -63,10 +73,11 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 62,050/62,158 (99.8%).
-108 failures: linking 16+6, instance 12, type-subtyping 11, ref_test 11,
-array 7, i31 6, elem 6, array_new_elem 5, linking3 4, comments 3,
-type-equivalence 3, br_on_cast 2, br_on_cast_fail 2, imports4 2, ref_cast 2, other ~10.
+None. Mac 62,055/62,158 (99.8%).
+103 failures: linking 16+6, instance 12, type-subtyping 11, ref_test 11,
+array 7, i31 6, elem 6, array_new_elem 5, linking3 4,
+type-equivalence 3, br_on_cast 2, br_on_cast_fail 2, imports4 2, ref_cast 2,
+table_grow 2, type-rec 2, call 1, extern 1, loop 0→1?, ref_is_null 1, throw_ref 1, threads 4.
 Ubuntu: +15 endianness64 (x86-specific).
 
 ## References
