@@ -640,10 +640,12 @@ pub const Module = struct {
     ) bool {
         const UNSET = std.math.maxInt(u32);
         if (func_canonical_id != UNSET) {
-            // Subtype check: func's canonical type must be subtype of expected type
-            return self.isTypeSubtype(func_canonical_id, self.getCanonicalTypeId(type_idx));
+            // Fast path: canonical subtype check (works within same module)
+            if (self.isTypeSubtype(func_canonical_id, self.getCanonicalTypeId(type_idx)))
+                return true;
+            // Cross-module canonical IDs may differ — fall through to structural check
         }
-        // Fallback: structural comparison for host/imported functions
+        // Structural comparison for host/imported/cross-module functions
         if (self.getTypeFunc(type_idx)) |expected| {
             return ValType.sliceEql(expected.params, func_params) and
                 ValType.sliceEql(expected.results, func_results);

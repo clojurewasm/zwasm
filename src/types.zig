@@ -272,6 +272,82 @@ pub const WasmModule = struct {
         return self;
     }
 
+    /// Register this module's exports in its store under the given module name.
+    /// Required before other modules can import from this module via shared store.
+    pub fn registerExports(self: *WasmModule, module_name: []const u8) !void {
+        try self.registerExportsTo(&self.store, module_name);
+    }
+
+    pub fn registerExportsTo(self: *WasmModule, target_store: *rt.store_mod.Store, module_name: []const u8) !void {
+        for (self.module.exports.items) |exp| {
+            const addr: usize = switch (exp.kind) {
+                .func => self.instance.funcaddrs.items[exp.index],
+                .memory => self.instance.memaddrs.items[exp.index],
+                .table => self.instance.tableaddrs.items[exp.index],
+                .global => self.instance.globaladdrs.items[exp.index],
+                .tag => if (exp.index < self.instance.tagaddrs.items.len)
+                    self.instance.tagaddrs.items[exp.index]
+                else
+                    continue,
+            };
+            try target_store.addExport(module_name, exp.name, exp.kind, addr);
+        }
+    }
+
+    /// Load a module into a shared store. Imports are resolved from the shared
+    /// store's registered exports. Tables, memories, globals, and functions are
+    /// shared — changes through one module are visible from all others.
+    /// Load a module into a shared store. Two-phase instantiation:
+    /// Phase 1 (instantiateBase): resolve imports, create functions/tables/etc — must succeed.
+    /// Phase 2 (applyActive): apply element/data segments — may partially fail.
+    /// On phase 2 failure, partial writes persist in the shared store (v2 spec behavior).
+    /// Returns .{ module, apply_error } where apply_error is null on full success.
+    pub fn loadLinked(allocator: Allocator, wasm_bytes: []const u8, shared_store: *rt.store_mod.Store) !struct { module: *WasmModule, apply_error: ?anyerror } {
+        const self = try allocator.create(WasmModule);
+
+        self.allocator = allocator;
+        self.owned_wasm_bytes = null;
+        self.store = rt.store_mod.Store.init(allocator);
+        self.wasi_ctx = null;
+
+        self.module = rt.module_mod.Module.init(allocator, wasm_bytes);
+        self.module.decode() catch |err| {
+            self.module.deinit();
+            allocator.destroy(self);
+            return err;
+        };
+
+        // Phase 1: base instantiation. On failure, functions haven't been added
+        // to the shared store yet, so cleanup is safe.
+        self.instance = rt.instance_mod.Instance.init(allocator, shared_store, &self.module);
+        self.instance.instantiateBase() catch |err| {
+            self.instance.deinit();
+            self.module.deinit();
+            allocator.destroy(self);
+            return err;
+        };
+
+        // Phase 1 succeeded — functions/tables/etc are now in the shared store.
+        // From here on, the module MUST stay alive (no cleanup on failure).
+        self.export_fns = buildExportInfo(allocator, &self.module) catch &[_]ExportInfo{};
+        self.cached_fns = buildCachedFns(allocator, self) catch &[_]WasmFn{};
+        self.wit_funcs = &[_]wit_parser.WitFunc{};
+
+        self.vm = allocator.create(rt.vm_mod.Vm) catch {
+            // OOM after phase 1 — module stays alive (leak) to keep store valid
+            return .{ .module = self, .apply_error = error.OutOfMemory };
+        };
+        self.vm.* = rt.vm_mod.Vm.init(allocator);
+
+        // Phase 2: apply active element/data segments (may partially fail).
+        var apply_error: ?anyerror = null;
+        self.instance.applyActive() catch |err| {
+            apply_error = err;
+        };
+
+        return .{ .module = self, .apply_error = apply_error };
+    }
+
     fn loadCore(allocator: Allocator, wasm_bytes: []const u8, wasi: bool, imports: ?[]const ImportEntry) !*WasmModule {
         const self = try allocator.create(WasmModule);
         errdefer allocator.destroy(self);
@@ -941,6 +1017,37 @@ test "multi-module — cross-module call_indirect type match" {
     var results = [_]u64{0};
     try consumer.invoke("call_add", &args, &results);
     try testing.expectEqual(@as(u64, 7), results[0]);
+}
+
+test "multi-module — shared table via loadLinked" {
+    // Mt: exports table with elements at [2..5] = [$g,$g,$g,$g], $g returns 4
+    const mt_bytes = @embedFile("testdata/30_table_export.wasm");
+    var mt = try WasmModule.load(testing.allocator, mt_bytes);
+    defer mt.deinit();
+
+    // Verify Mt.call(2) = 4 before Ot loads
+    var args2 = [_]u64{2};
+    var results = [_]u64{0};
+    try mt.invoke("call", &args2, &results);
+    try testing.expectEqual(@as(u64, 4), results[0]);
+
+    // Register Mt's exports in its store under "Mt"
+    try mt.registerExports("Mt");
+
+    // Load Ot into Mt's shared store: imports tab and h from Mt, writes elem [1,2] = [$i,$h]
+    const ot_bytes = @embedFile("testdata/31_table_import.wasm");
+    const ot_result = try WasmModule.loadLinked(testing.allocator, ot_bytes, &mt.store);
+    var ot = ot_result.module;
+    defer ot.deinit();
+    try testing.expect(ot_result.apply_error == null);
+
+    // After Ot loads, Mt.tab[2] = $h (returns -4), Mt.tab[1] = $i (returns 6)
+    try mt.invoke("call", &args2, &results); // Mt.call(2)
+    try testing.expectEqual(@as(u64, 4294967292), results[0]); // -4 as u32
+
+    var args1 = [_]u64{1};
+    try mt.invoke("call", &args1, &results); // Mt.call(1)
+    try testing.expectEqual(@as(u64, 6), results[0]); // $i returns 6
 }
 
 test "nqueens(8) = 92 — regir only (JIT disabled)" {

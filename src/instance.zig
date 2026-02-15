@@ -82,6 +82,29 @@ pub const Instance = struct {
         // Start function is deferred — needs VM (35W.6)
     }
 
+    /// Instantiate up to (but not including) applyActive* steps.
+    /// Returns without error even if apply* would fail.
+    /// Use applyActive() separately to apply element/data segments.
+    pub fn instantiateBase(self: *Instance) !void {
+        if (!self.module.decoded) return error.ModuleNotDecoded;
+
+        try self.resolveImports();
+        try self.instantiateFunctions();
+        try self.instantiateMemories();
+        try self.instantiateTables();
+        try self.instantiateGlobals();
+        try self.instantiateTags();
+        try self.instantiateElems();
+        try self.instantiateData();
+    }
+
+    /// Apply active element and data segments.
+    /// Per v2 spec, partial writes from earlier segments persist on failure.
+    pub fn applyActive(self: *Instance) !void {
+        try self.applyActiveElements();
+        try self.applyActiveData();
+    }
+
     // ---- Lookup helpers ----
 
     pub fn getFunc(self: *Instance, idx: usize) !store_mod.Function {

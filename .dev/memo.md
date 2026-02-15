@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 62,122/62,158 Mac (99.9%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
+- Spec: 62,145/62,158 Mac (100.0%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -33,7 +33,7 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.1: Fix spec failures (225→140): JIT FP cache, nullexnref, table init, S33 heap types, block type range
 - [x] 28.2a: Spec runner `either` comparison for relaxed_simd (-32 failures)
 - [x] 28.2b: Prefer pre-compiled binary for text modules in spec runner (-3 failures)
-- [ ] 28.2c: Spec runner multi-module linking (linking/instance ~36 failures — deep)
+- [x] 28.2c: Spec runner multi-module linking (36→13 failures, shared-store approach)
 - [x] 28.2d1: array_init_data/elem dropped segment bounds check (-2 failures)
 - [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
 - [x] 28.3: GC subtyping / type hierarchy (type-subtyping 8 + ref_test 1 fixed, 48→40)
@@ -53,19 +53,16 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.2c: Multi-module linking. Canonical type ID fix done (39→36). Remaining 36:
-- multi-module shared state ~28: linking 14, elem 6, linking3 4, imports4 2, table_grow 2, linking0 1, linking1 1
-- threads 4: threads-wait_notify 2, threads-SB_atomic 1, threads-simple 1
-- Other: call 1, instance 1
-
-Next sub-task: spec runner multi-module support (in-process shared state).
+28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH).
 
 ## Previous Task
 
-28.2c-1: Fix cross-module canonical type ID mismatch. Remap canonical_type_id in
-registerImports for direct func imports, UNSET for table-imported funcs.
-Fixed IR call_indirect paths to use matchesCallIndirectType (structural fallback).
-39→36 failures (imports 0, linking 14).
+28.2c: Multi-module linking — shared-store approach. Added loadLinked two-phase
+instantiation, batch protocol load/register/set_main/invoke_on commands, spec runner
+shared-store support with reg_runners, _resolve_target reg_runners routing.
+Key fixes: buffer corruption (stdin dupe), cross-module canonical IDs,
+partial init persistence (v2 spec), double-free on cleanup.
+36→13 failures (linking 0, elem 0, linking0-3 0).
 
 ## Wasm 3.0 Coverage
 
