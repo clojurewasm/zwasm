@@ -27,17 +27,17 @@ Stages 0-32 — all COMPLETE. See `roadmap.md` for details.
 ## Task Queue (Stage 33: Fuzz Testing)
 
 - [x] 33.0: Fuzz harness for wasm module loader (std.testing.fuzz + standalone binary)
-- [ ] 33.1: Seed corpus from spec test wasm files + wasm-tools smith
+- [x] 33.1: Seed corpus + fuzz runner script (198 seeds, 1000 iterations 0 crashes)
 - [ ] 33.2: Differential testing harness (zwasm vs wasmtime)
 - [ ] 33.3: Run fuzz campaign and fix any crashes
 
 ## Current Task
 
-33.1: Seed corpus from spec test wasm files + wasm-tools smith.
+33.2: Differential testing harness (zwasm vs wasmtime).
 
 ## Previous Task
 
-33.0: Fuzz harness + crash fix. Added fuzz_loader binary (stdin→WasmModule.load), std.testing.fuzz test in module.zig. Found and fixed @intCast panic in store.zig addMemory/addTable for memory64/table64 values exceeding u32. 1000 runs 0 crashes.
+33.1: Seed corpus + fuzz runner. fuzz/run_fuzz.sh builds 198 seeds from testdata/e2e + wasm-tools smith. 1000 iterations (random + smith + mutate): 0 crashes.
 
 ## Wasm 3.0 Coverage
 

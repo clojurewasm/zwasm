@@ -49,3 +49,7 @@ wabt/
 
 # Thread test build artifacts
 test/threads/*/target/
+
+# Fuzz (generated corpus and crash artifacts)
+fuzz/corpus/
+fuzz/crashes/
