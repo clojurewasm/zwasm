@@ -30,7 +30,7 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 27.1: Switch spec runner to ReleaseSafe default (--build flag)
 - [x] 27.2: Migrate wabt → wasm-tools (docs, rules, scripts, CI, flake.nix)
 - [x] 28.0: Regenerate GC spec tests with wasm-tools
-- [ ] 28.1: Investigate multi-module 33 failures (check history for regressions)
+- [x] 28.1: Fix spec failures (225→140): JIT FP cache, nullexnref, table init, S33 heap types, block type range
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
 - [ ] 29.2: Fix threads spec 4 failures
@@ -43,18 +43,25 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.1: Investigate remaining 214 failures — categorize and identify fixable regressions.
+28.2: Investigate and fix spec test failures — categorize remaining 140.
 
-Found and fixed JIT FP cache merge-point bug (eviction ordering in compile loop):
-branches jumped into eviction code meant for fall-through only, corrupting f64
-base-case results. Fix: evict BEFORE pc_map recording. +11 passes (call_indirect 0 failures now).
-Batch mode trace support (--dump-regir, --dump-jit, --trace) also fixed for cmdBatch.
+28.1 complete. Fixed 5 issues:
+1. JIT FP cache merge-point bug: evict BEFORE pc_map at branch targets (+11)
+2. Missing nullexnref (0x74) type + spec runner null bottom type comparison (+29)
+3. Table init expression support (0x40 0x00 prefix) (+10)
+4. S33 heap type encoding: exn=-23, noexn=-12 (+4)
+5. Block type range: 0x69-0x7F for GC/EH shorthand types (+28)
+Total: 225→140 failures, 61,940→62,018 passes.
 
-Next: categorize the 214 remaining failures by type (GC gaps, relaxed SIMD, linking, etc.)
+Remaining 140 breakdown:
+- relaxed_* 32 (implementation-defined, skip)
+- linking/instance 36 (multi-module linking — spec runner limitation)
+- GC subtyping ~50 (type-subtyping 11, ref_test 11, array 7, i31 6, etc.)
+- other 22 (comments 3, threads 4, throw_ref 1, call 1, etc.)
 
 ## Previous Task
 
-28.0: Regenerated GC spec tests from main testsuite. 61,940/62,165 (+153 passes, +147 tests).
+28.1: Fixed 5 spec issues (225→140 failures, +78 passes): JIT FP cache, nullexnref, table init expr, S33 heap types, block type range.
 
 ## Wasm 3.0 Coverage
 
