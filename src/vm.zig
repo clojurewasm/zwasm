@@ -72,6 +72,10 @@ pub const WasmError = error{
     /// Wasm exception thrown via `throw`/`throw_ref` — not caught by any try_table.
     WasmException,
     FuelExhausted,
+    LabelStackUnderflow,
+    OperandStackUnderflow,
+    MemoryLimitExceeded,
+    TableLimitExceeded,
 };
 
 const OPERAND_STACK_SIZE = 4096;
@@ -3295,7 +3299,10 @@ pub const Vm = struct {
     // ================================================================
 
     fn branchTo(self: *Vm, depth: u32, reader: *Reader) WasmError!void {
-        const label = self.peekLabel(depth);
+        const needed: usize = @as(usize, depth) + 1;
+        if (needed > self.label_ptr) return error.LabelStackUnderflow;
+
+        const label = self.label_stack[self.label_ptr - needed];
         const arity = label.arity;
 
         // Save results from top of stack (u128 to preserve v128 values)
@@ -3303,6 +3310,7 @@ pub const Vm = struct {
         var i: usize = arity;
         while (i > 0) {
             i -= 1;
+            if (self.op_ptr == 0) return error.OperandStackUnderflow;
             self.op_ptr -= 1;
             results[i] = self.op_stack[self.op_ptr];
         }
@@ -3317,34 +3325,34 @@ pub const Vm = struct {
         switch (label.target) {
             .forward => |r| {
                 reader.* = r;
-                // Pop labels up to and including target
-                self.label_ptr -= (depth + 1);
+                self.label_ptr -= needed;
             },
             .loop_start => |r| {
-                // For loops: save label, pop intermediates, re-push loop label
-                // so the loop can branch again on next iteration
                 const loop_label = label;
-                self.label_ptr -= (depth + 1);
+                self.label_ptr -= needed;
                 try self.pushLabel(.{
                     .arity = loop_label.arity,
-                    .op_stack_base = self.op_ptr - loop_label.arity,
+                    .op_stack_base = if (self.op_ptr >= loop_label.arity) self.op_ptr - loop_label.arity else 0,
                     .target = .{ .loop_start = r },
                 });
                 reader.* = r;
             },
-            .ir_forward, .ir_loop_start => unreachable, // never in old path
+            .ir_forward, .ir_loop_start => unreachable,
         }
     }
 
     fn branchToIR(self: *Vm, depth: u32, pc: *u32) WasmError!void {
-        const label = self.peekLabel(depth);
+        const needed: usize = @as(usize, depth) + 1;
+        if (needed > self.label_ptr) return error.LabelStackUnderflow;
+
+        const label = self.label_stack[self.label_ptr - needed];
         const arity = label.arity;
 
-        // u128 to preserve v128 values during branch unwind
         var results: [16]u128 = undefined;
         var i: usize = arity;
         while (i > 0) {
             i -= 1;
+            if (self.op_ptr == 0) return error.OperandStackUnderflow;
             self.op_ptr -= 1;
             results[i] = self.op_stack[self.op_ptr];
         }
@@ -3354,19 +3362,19 @@ pub const Vm = struct {
         switch (label.target) {
             .ir_forward => |target_pc| {
                 pc.* = target_pc;
-                self.label_ptr -= (depth + 1);
+                self.label_ptr -= needed;
             },
             .ir_loop_start => |target_pc| {
                 const loop_label = label;
-                self.label_ptr -= (depth + 1);
+                self.label_ptr -= needed;
                 try self.pushLabel(.{
                     .arity = loop_label.arity,
-                    .op_stack_base = self.op_ptr - loop_label.arity,
+                    .op_stack_base = if (self.op_ptr >= loop_label.arity) self.op_ptr - loop_label.arity else 0,
                     .target = .{ .ir_loop_start = target_pc },
                 });
                 pc.* = target_pc;
             },
-            .forward, .loop_start => unreachable, // never in IR path
+            .forward, .loop_start => unreachable,
         }
     }
 
@@ -5284,7 +5292,10 @@ pub const Vm = struct {
     }
 
     fn peekLabel(self: *Vm, depth: u32) Label {
-        return self.label_stack[self.label_ptr - 1 - depth];
+        const needed: usize = @as(usize, depth) + 1;
+        if (needed > self.label_ptr)
+            return .{ .arity = 0, .op_stack_base = 0, .target = .{ .forward = Reader.init("") } };
+        return self.label_stack[self.label_ptr - needed];
     }
 
     /// Search the current function's label stack for a try_table with a matching

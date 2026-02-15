@@ -28,16 +28,16 @@ Stages 0-32 — all COMPLETE. See `roadmap.md` for details.
 
 - [x] 33.0: Fuzz harness for wasm module loader (std.testing.fuzz + standalone binary)
 - [x] 33.1: Seed corpus + fuzz runner script (198 seeds, 1000 iterations 0 crashes)
-- [ ] 33.2: Differential testing harness (zwasm vs wasmtime)
-- [ ] 33.3: Run fuzz campaign and fix any crashes
+- [x] 33.2: Differential testing harness (zwasm vs wasmtime) + fix branchTo panic
+- [ ] 33.3: Run extended fuzz campaign (--long), investigate result mismatches
 
 ## Current Task
 
-33.2: Differential testing harness (zwasm vs wasmtime).
+33.3: Extended fuzz campaign + investigate result mismatches from diff testing.
 
 ## Previous Task
 
-33.1: Seed corpus + fuzz runner. fuzz/run_fuzz.sh builds 198 seeds from testdata/e2e + wasm-tools smith. 1000 iterations (random + smith + mutate): 0 crashes.
+33.2: Diff test harness (fuzz/diff_test.sh) + fix branchTo/branchToIR underflow panic. peekLabel depth guard, safe label_ptr arithmetic. 62,158/62,158 spec tests pass. 0 fuzz crashes.
 
 ## Wasm 3.0 Coverage
 

@@ -50,6 +50,7 @@ wabt/
 # Thread test build artifacts
 test/threads/*/target/
 
-# Fuzz (generated corpus and crash artifacts)
+# Fuzz (generated corpus and artifacts)
 fuzz/corpus/
 fuzz/crashes/
+fuzz/mismatches/
