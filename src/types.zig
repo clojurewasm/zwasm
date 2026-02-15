@@ -453,7 +453,6 @@ fn registerImports(
     imports: []const ImportEntry,
     allocator: Allocator,
 ) !void {
-    _ = allocator;
     for (module.imports.items) |imp| {
         if (std.mem.eql(u8, imp.module, "wasi_snapshot_preview1")) continue;
 
@@ -499,16 +498,23 @@ fn registerImports(
                             return error.WasmInstantiateError;
                     },
                     .table => {
-                        // Share table from source module: copy struct and remap function refs
+                        // Import table from source module: clone data to prevent source corruption
                         const src_addr = src_module.instance.getExportTableAddr(imp.name) orelse
                             return error.ImportNotFound;
                         const src_table_ptr = src_module.store.getTable(src_addr) catch
                             return error.ImportNotFound;
-                        var src_table = src_table_ptr.*;
-                        src_table.shared = true;
+                        var tbl = src_table_ptr.*;
+                        // Clone table data so remap doesn't corrupt source module's entries
+                        const cloned = allocator.alloc(?usize, src_table_ptr.data.items.len) catch
+                            return error.WasmInstantiateError;
+                        @memcpy(cloned, src_table_ptr.data.items);
+                        tbl.data = .{
+                            .items = cloned,
+                            .capacity = cloned.len,
+                        };
+                        tbl.alloc = allocator;
                         // Remap function references: copy referenced functions to target store
-                        // Table entries use ?usize: null=empty, Some(addr)=valid func address
-                        for (src_table.data.items) |*tbl_entry| {
+                        for (tbl.data.items) |*tbl_entry| {
                             if (tbl_entry.*) |src_func_ref| {
                                 var func = src_module.store.getFunction(src_func_ref) catch continue;
                                 if (func.subtype == .wasm_function) {
@@ -525,7 +531,7 @@ fn registerImports(
                                 tbl_entry.* = new_addr;
                             }
                         }
-                        const addr = store.addExistingTable(src_table) catch
+                        const addr = store.addExistingTable(tbl) catch
                             return error.WasmInstantiateError;
                         store.addExport(imp.module, imp.name, .table, addr) catch
                             return error.WasmInstantiateError;
