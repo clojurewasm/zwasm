@@ -37,6 +37,8 @@ All development on feature branches; merge to main requires CW verification.
 | 23    | Smart Spill + Direct Call     | 13/21 beat wasmtime, fib 331→91ms       |
 | 25    | Lightweight Self-Call         | fib 91→52ms, matches wasmtime (D117)    |
 | 26    | JIT Peephole Optimizations    | CMP+B.cond fusion, MOVN constants       |
+| 27-31 | Platform + Spec + Perf + GC   | threads 310/310, GC 2-4x wasmtime       |
+| 32    | Spec Failure Cleanup          | 62,158/62,158 (100.0%) both platforms   |
 
 ## v0.3.0 Roadmap
 
@@ -104,7 +106,7 @@ Spec failure targets (103 remaining as of 28.2, now 11):
 - [x] threads 4 → 0 (thread spawning, 29.0-29.2)
 - [x] st_matrix / tgo_mfr gaps analyzed (30.0-30.2, D120)
 - [x] GC performance baselined (31.0-31.5, D121)
-- [ ] Remaining 11 failures: type-subtyping(4), imports4(2), type-rec(2), call(1), instance(1), table_grow(1)
+- [x] Remaining 11 failures: type-subtyping(4), imports4(2), type-rec(2), call(1), instance(1), table_grow(1) — Stage 32
 
 ## Future (post v0.3.0)
 

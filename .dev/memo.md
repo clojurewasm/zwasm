@@ -22,7 +22,7 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-31 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-32 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue (v0.3.0)
 
@@ -59,7 +59,7 @@ Stages 0-31 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-Stage 32 complete. All spec tests pass (62,158/62,158).
+Stage 32 complete. All spec tests pass (62,158/62,158). v0.3.0 exit criteria met. Awaiting user input for next stage.
 
 ## Previous Task
 
