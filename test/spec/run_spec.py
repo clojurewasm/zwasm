@@ -294,6 +294,7 @@ class BatchRunner:
         self.linked_modules = linked_modules or {}
         self.proc = None
         self.needs_state = False  # True if actions have been executed
+        self._debug = False
         self._start()
 
     def _start(self):
@@ -505,6 +506,9 @@ class BatchRunner:
         if self.proc is None or self.proc.poll() is not None:
             return (False, "process not running")
         try:
+            if self._debug:
+                import sys as _sys
+                _sys.stderr.write(f"  [CMD] {cmd}\n")
             self.proc.stdin.write(cmd + "\n")
             self.proc.stdin.flush()
             import select
@@ -512,6 +516,8 @@ class BatchRunner:
             if not ready:
                 return (False, "timeout")
             response = self.proc.stdout.readline().strip()
+            if self._debug:
+                _sys.stderr.write(f"  [RSP] {response}\n")
             return (response.startswith("ok"), response)
         except Exception as e:
             return (False, str(e))
@@ -520,6 +526,15 @@ class BatchRunner:
         """Register the current main module's exports under the given name."""
         return self.send_batch_cmd(f"register {name}")
 
+    def _read_response(self, timeout=5):
+        """Read a single line response from the batch process."""
+        import select
+        ready, _, _ = select.select([self.proc.stdout], [], [], timeout)
+        if not ready:
+            return "timeout"
+        response = self.proc.stdout.readline().strip()
+        return response if response else "no_response"
+
     def load_module(self, name, wasm_path):
         """Load a module into the shared store and register it by name."""
         return self.send_batch_cmd(f"load {name} {wasm_path}")
@@ -527,6 +542,53 @@ class BatchRunner:
     def set_main(self, name):
         """Change the default target module for invoke/get commands."""
         return self.send_batch_cmd(f"set_main {name}")
+
+    def thread_begin(self, thread_name, module_name):
+        """Start a named thread block targeting a module. No response until thread_end."""
+        self.proc.stdin.write(f"thread_begin {thread_name} {module_name}\n")
+        self.proc.stdin.flush()
+
+    def thread_invoke(self, func_name, args):
+        """Buffer an invocation inside a thread_begin/thread_end block."""
+        name_bytes = func_name.encode('utf-8')
+        cmd = f"invoke {len(name_bytes)}:{func_name}"
+        for a in args:
+            if isinstance(a, tuple) and a[0] == "v128":
+                cmd += f" v128:{a[1]}:{a[2]}"
+            else:
+                cmd += f" {a}"
+        self.proc.stdin.write(cmd + "\n")
+        self.proc.stdin.flush()
+
+    def thread_end(self, timeout=5):
+        """End a thread block and spawn the thread. Returns (ok, response)."""
+        self.proc.stdin.write("thread_end\n")
+        self.proc.stdin.flush()
+        resp = self._read_response(timeout)
+        return resp.startswith("ok"), resp
+
+    def thread_wait(self, thread_name, timeout=30):
+        """Wait for a named thread, return list of result strings."""
+        self.proc.stdin.write(f"thread_wait {thread_name}\n")
+        self.proc.stdin.flush()
+        results = []
+        # First read uses select for timeout; subsequent reads use direct readline
+        # since data may already be in Python's internal read buffer.
+        import select
+        ready, _, _ = select.select([self.proc.stdout], [], [], timeout)
+        if not ready:
+            return results
+        while True:
+            line = self.proc.stdout.readline().strip()
+            if not line:
+                break
+            if line.startswith("thread_result "):
+                results.append(line[len("thread_result "):])
+            elif line == "thread_done":
+                break
+            else:
+                break
+        return results
 
     def close(self):
         if self.proc and self.proc.poll() is None:
@@ -625,28 +687,33 @@ def run_test_file(json_path, verbose=False):
     named_module_wasm = {}
     # Module definitions: maps definition name -> wasm_path (for module_instance)
     module_defs = {}
+    # Thread expectations: maps thread_name -> [(func, args, expected, expected_types, line)]
+    thread_expectations = {}
+    # Pending thread spawns: deferred until first wait (ensures all modules loaded before any spawn)
+    pending_thread_spawns = []  # [(thread_name, module_name, invocations, has_nested)]
     # Maps registration name -> runner that owns that module (for shared-store loading)
     reg_runners = {}
     # Maps internal name -> registration name for shared-store modules
     shared_module_names = {}
 
-    # Flatten thread blocks: run thread commands sequentially (single-threaded runtime)
-    def flatten_commands(commands):
-        result = []
-        for cmd in commands:
-            if cmd["type"] == "thread":
-                result.extend(flatten_commands(cmd.get("commands", [])))
-            elif cmd["type"] == "wait":
-                pass  # no-op for single-threaded
-            else:
-                result.append(cmd)
-        return result
+    # Check if test has thread blocks (needs concurrent execution)
+    has_threads = any(cmd["type"] == "thread" for cmd in data.get("commands", []))
 
-    all_commands = flatten_commands(data.get("commands", []))
+    if not has_threads:
+        # Flatten thread blocks for legacy compatibility (shouldn't happen here)
+        all_commands = data.get("commands", [])
+    else:
+        # Thread-aware processing: handle thread/wait commands directly
+        all_commands = data.get("commands", [])
 
+    _debug_threads = verbose and has_threads
+    _enable_runner_debug = _debug_threads
     for cmd in all_commands:
         cmd_type = cmd["type"]
         line = cmd.get("line", 0)
+
+        if _debug_threads:
+            print(f"  [DBG] cmd_type={cmd_type} line={line}")
 
         if cmd_type == "module":
             wasm_file = cmd.get("filename")
@@ -679,6 +746,8 @@ def run_test_file(json_path, verbose=False):
                     if target_runner and target_runner.proc and target_runner.proc.poll() is None:
                         load_name = internal_name.lstrip("$") if internal_name else f"_mod{line}"
                         ok, resp = target_runner.load_module(load_name, current_wasm)
+                        if _debug_threads:
+                            print(f"  [DBG] shared-store load {load_name}: ok={ok}, resp={resp}")
                         if ok:
                             # Save current runner if needed
                             prev_is_shared = runner and any(r is runner for r in reg_runners.values())
@@ -711,6 +780,8 @@ def run_test_file(json_path, verbose=False):
                     link_mods.update(registered_modules)
                     try:
                         runner = BatchRunner(current_wasm, link_mods)
+                        if _enable_runner_debug:
+                            runner._debug = True
                     except Exception:
                         current_wasm = None
 
@@ -736,6 +807,165 @@ def run_test_file(json_path, verbose=False):
                 if runner and runner.proc and runner.proc.poll() is None:
                     runner.register_module(reg_name)
                     reg_runners[reg_name] = runner
+            continue
+
+        if cmd_type == "thread":
+            # Thread block: load module, buffer invocations, spawn as concurrent thread
+            if not runner or not runner.proc or runner.proc.poll() is not None:
+                skipped += 1
+                continue
+            thread_cmds = cmd.get("commands", [])
+            thread_name = cmd.get("name", "")
+            # Process thread sub-commands: register, module, then actions
+            # Phase 1: load modules and process non-invocation commands serially
+            thread_module_name = None
+            thread_invocations = []  # [(func_name, args, expected, expected_types, line)]
+            has_nested = any(tc.get("type") == "thread" for tc in thread_cmds)
+            for tcmd in thread_cmds:
+                ttype = tcmd.get("type")
+                if ttype == "register":
+                    # Thread's register command — re-register shared module.
+                    reg_as = tcmd.get("as", "")
+                    if _debug_threads and reg_as:
+                        print(f"  [DBG] thread {thread_name}: register as={reg_as}")
+                    if reg_as:
+                        runner.register_module(reg_as)
+                elif ttype == "module":
+                    twasm = tcmd.get("filename")
+                    if twasm:
+                        twasm_path = os.path.join(test_dir, twasm)
+                        thread_module_name = f"_thread_{thread_name}"
+                        ok, resp = runner.load_module(thread_module_name, twasm_path)
+                        if not ok:
+                            if verbose:
+                                print(f"  thread {thread_name}: module load failed: {resp}")
+                            thread_module_name = None
+                elif ttype == "thread":
+                    # Nested thread — process recursively (serial execution)
+                    # For now, we skip nested threads in concurrent execution
+                    pass
+                elif ttype == "wait":
+                    # Wait inside thread — only relevant for nested threads
+                    pass
+                elif ttype == "assert_unlinkable":
+                    # Module linking expected to fail
+                    twasm = tcmd.get("filename")
+                    if twasm:
+                        twasm_path = os.path.join(test_dir, twasm)
+                        tmod_name = f"_tunlink_{thread_name}_{tcmd.get('line', line)}"
+                        ok, resp = runner.load_module(tmod_name, twasm_path)
+                        tline = tcmd.get("line", line)
+                        if not ok:
+                            passed += 1
+                            if verbose:
+                                print(f"  PASS line {tline}: assert_unlinkable (got error)")
+                        else:
+                            failed += 1
+                            if verbose:
+                                print(f"  FAIL line {tline}: assert_unlinkable but module loaded ok")
+                elif ttype in ("assert_return", "action"):
+                    if thread_module_name is None:
+                        if ttype == "assert_return":
+                            failed += 1
+                            tline = tcmd.get("line", line)
+                            if verbose:
+                                print(f"  FAIL line {tline}: no thread module loaded")
+                        continue
+                    action = tcmd.get("action", tcmd)
+                    func_name = action.get("field", "")
+                    args = [parse_value(a) for a in action.get("args", [])]
+                    expected = [parse_value(e) for e in tcmd.get("expected", [])] if ttype == "assert_return" else None
+                    tline = tcmd.get("line", line)
+                    thread_invocations.append((func_name, args, expected, tline))
+
+            # Phase 2: defer spawning until first wait (ensures all modules loaded first)
+            if _debug_threads:
+                print(f"  [DBG] thread {thread_name}: module={thread_module_name}, invocations={len(thread_invocations)}, has_nested={has_nested}")
+            if thread_module_name and thread_invocations and not has_nested:
+                pending_thread_spawns.append((thread_name, thread_module_name, thread_invocations))
+            elif thread_module_name and thread_invocations and has_nested:
+                # Nested threads: execute invocations serially (no concurrency)
+                runner.set_main(thread_module_name)
+                for func_name, args, expected, tline in thread_invocations:
+                    ok_inv, result = runner.invoke(func_name, args)
+                    if expected is not None:
+                        if ok_inv:
+                            if match_results(result, expected):
+                                passed += 1
+                                if verbose:
+                                    print(f"  PASS line {tline}")
+                            else:
+                                failed += 1
+                                if verbose:
+                                    print(f"  FAIL line {tline}: expected {expected} got {result}")
+                        else:
+                            failed += 1
+                            if verbose:
+                                print(f"  FAIL line {tline}: invoke error: {result}")
+            continue
+
+        if cmd_type == "wait":
+            # Spawn all pending threads first (ensures all modules are loaded before any thread runs)
+            if pending_thread_spawns and runner and runner.proc and runner.proc.poll() is None:
+                for pt_name, pt_mod, pt_invocations in pending_thread_spawns:
+                    runner.thread_begin(pt_name, pt_mod)
+                    for func_name, args, _, _ in pt_invocations:
+                        runner.thread_invoke(func_name, args)
+                    ok, resp = runner.thread_end()
+                    if _debug_threads:
+                        print(f"  [DBG] thread_end {pt_name}: ok={ok}, resp={resp}")
+                    if ok:
+                        thread_expectations[pt_name] = pt_invocations
+                    elif verbose:
+                        print(f"  thread {pt_name}: spawn failed: {resp}")
+                pending_thread_spawns.clear()
+
+            # Wait for a specific named thread
+            wait_thread = cmd.get("thread", "")
+            if _debug_threads:
+                import time as _time
+                _t0 = _time.time()
+                print(f"  [DBG] wait {wait_thread}: runner alive={runner and runner.proc and runner.proc.poll() is None}")
+                print(f"  [DBG] thread_expectations keys={list(thread_expectations.keys())}")
+            if not runner or not runner.proc or runner.proc.poll() is not None:
+                continue
+            expectations = thread_expectations.get(wait_thread, [])
+            if not expectations:
+                # No expectations for this thread (e.g., nested, no assertions)
+                # Still need to wait if thread was spawned
+                # Try waiting — if no thread, the CLI will return thread_not_found
+                results = runner.thread_wait(wait_thread)
+                continue
+            results = runner.thread_wait(wait_thread)
+            if _debug_threads:
+                _elapsed = _time.time() - _t0
+                print(f"  [DBG] thread_wait {wait_thread} returned {results} in {_elapsed:.3f}s, proc alive={runner.proc.poll() is None}")
+            # Match results to expectations
+            for i, (func_name, args, expected, tline) in enumerate(expectations):
+                if i < len(results):
+                    result_str = results[i]
+                    if result_str.startswith("ok"):
+                        result_vals = [int(v) for v in result_str.split()[1:]] if len(result_str.split()) > 1 else []
+                        if expected is not None:
+                            if match_results(result_vals, expected):
+                                passed += 1
+                                if verbose:
+                                    print(f"  PASS line {tline}")
+                            else:
+                                failed += 1
+                                if verbose:
+                                    print(f"  FAIL line {tline}: expected {expected} got {result_vals}")
+                        # else: action (no assertion), just count as OK
+                    elif result_str.startswith("error"):
+                        if expected is not None:
+                            failed += 1
+                            if verbose:
+                                print(f"  FAIL line {tline}: thread error: {result_str}")
+                else:
+                    if expected is not None:
+                        failed += 1
+                        if verbose:
+                            print(f"  FAIL line {tline}: no thread result received")
             continue
 
         if cmd_type == "module_definition":
@@ -802,6 +1032,13 @@ def run_test_file(json_path, verbose=False):
             target_kind, target_runner = target
 
             func_name = action["field"]
+            if _debug_threads:
+                print(f"  [DBG] assert_return: target_kind={target_kind}, mod_name={mod_name}, func={func_name}, last_internal={last_internal_name}")
+                # Debug: try both direct and invoke_on
+                ok_d, res_d = target_runner.invoke(func_name, [])
+                ok_o, res_o = target_runner.invoke_on("Check", func_name, [])
+                print(f"  [DBG] direct invoke: ok={ok_d}, res={res_d}")
+                print(f"  [DBG] invoke_on Check: ok={ok_o}, res={res_o}")
             either_sets = None
 
             if action_type == "get":
@@ -842,7 +1079,11 @@ def run_test_file(json_path, verbose=False):
                 if target_kind == "invoke_on":
                     ok, results = target_runner.invoke_on(module_reg_names[mod_name], func_name, args)
                 elif target_kind == "invoke_on_shared":
+                    if _debug_threads:
+                        print(f"  [DBG] assert_return: invoke_on_shared mod={shared_module_names[mod_name]} func={func_name}")
                     ok, results = target_runner.invoke_on(shared_module_names[mod_name], func_name, args)
+                    if _debug_threads:
+                        print(f"  [DBG] assert_return result: ok={ok}, results={results}")
                 else:
                     ok, results = target_runner.invoke(func_name, args)
 

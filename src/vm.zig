@@ -2114,37 +2114,36 @@ pub const Vm = struct {
 
             // ---- Wait/Notify ----
             .memory_atomic_notify => {
-                _ = self.popI32(); // count
+                const count: u32 = @bitCast(self.popI32());
                 const addr: u32 = @bitCast(self.popI32());
-                if ((addr +% offset) % 4 != 0) return error.Trap; // unaligned atomic
-                _ = m.read(u32, offset, addr) catch return error.OutOfBoundsMemoryAccess;
-                try self.pushI32(0); // 0 waiters notified
+                const effective_addr = addr +% offset;
+                if (effective_addr % 4 != 0) return error.Trap; // unaligned atomic
+                const result = m.atomicNotify(effective_addr, count) catch return error.OutOfBoundsMemoryAccess;
+                try self.pushI32(result);
             },
             .memory_atomic_wait32 => {
-                _ = self.popI64(); // timeout
+                const timeout: i64 = self.popI64();
                 const expected: i32 = self.popI32();
                 const addr: u32 = @bitCast(self.popI32());
-                if ((addr +% offset) % 4 != 0) return error.Trap; // unaligned atomic
-                if (!m.is_shared_memory) return error.Trap; // expected shared memory
-                const loaded = m.read(i32, offset, addr) catch return error.OutOfBoundsMemoryAccess;
-                if (loaded != expected) {
-                    try self.pushI32(1); // "not-equal"
-                } else {
-                    try self.pushI32(2); // "timed-out" (single-threaded: can never be woken)
-                }
+                const effective_addr = addr +% offset;
+                if (effective_addr % 4 != 0) return error.Trap; // unaligned atomic
+                const result = m.atomicWait32(effective_addr, expected, timeout) catch |err| switch (err) {
+                    error.Trap => return error.Trap,
+                    else => return error.OutOfBoundsMemoryAccess,
+                };
+                try self.pushI32(result);
             },
             .memory_atomic_wait64 => {
-                _ = self.popI64(); // timeout
+                const timeout: i64 = self.popI64();
                 const expected: i64 = self.popI64();
                 const addr: u32 = @bitCast(self.popI32());
-                if ((addr +% offset) % 8 != 0) return error.Trap; // unaligned atomic
-                if (!m.is_shared_memory) return error.Trap; // expected shared memory
-                const loaded = m.read(i64, offset, addr) catch return error.OutOfBoundsMemoryAccess;
-                if (loaded != expected) {
-                    try self.pushI32(1); // "not-equal"
-                } else {
-                    try self.pushI32(2); // "timed-out"
-                }
+                const effective_addr = addr +% offset;
+                if (effective_addr % 8 != 0) return error.Trap; // unaligned atomic
+                const result = m.atomicWait64(effective_addr, expected, timeout) catch |err| switch (err) {
+                    error.Trap => return error.Trap,
+                    else => return error.OutOfBoundsMemoryAccess,
+                };
+                try self.pushI32(result);
             },
 
             // ---- Atomic loads ----
