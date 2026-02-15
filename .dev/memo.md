@@ -40,7 +40,7 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.4: GC type canonicalization (canonical IDs, matchesCallIndirectType, isTypeSubtype)
 - [x] 28.5: externref representation fix (EXTERN_TAG encoding, -18 failures: 90→72)
 - [x] 28.6: throw_ref opcode implementation (exnref store + re-throw)
-- [ ] 28.7: call batch state loss in spec runner (1 failure — needs_state approach regresses, needs alternative)
+- [x] 28.7: JIT self-call depth guard + unconditional arg spill (call:as-load-operand pre-existing)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
 - [ ] 29.2: Fix threads spec 4 failures
@@ -53,9 +53,7 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.6 complete. Next: multi-module linking (28.2c) or other remaining failures.
-
-Spec baseline: Mac 39 failures. Commit gate: failure count must not increase.
+28.7 complete. Next: multi-module linking (28.2c) or other remaining failures.
 
 Remaining 39 categorized:
 - multi-module ~30: linking 15, elem 6, linking3 4, imports 2, imports4 2, table_grow 2, linking0 1, linking1 1
@@ -64,8 +62,9 @@ Remaining 39 categorized:
 
 ## Previous Task
 
-28.6: throw_ref opcode implementation (40→39). Added exnref store to Vm, catch_ref/catch_all_ref
-store exceptions and push real exnref values, throw_ref pops exnref and re-throws.
+28.7: JIT self-call depth guard with register-cached counter. Fixed trampoline arg spill
+(unconditional spillVreg for dead-after-call args). Moved call_depth adjacent to reg_ptr,
+x28 caches depth (non-memory), zero perf regression (fib 58.5ms vs 59.0ms baseline).
 
 ## Wasm 3.0 Coverage
 

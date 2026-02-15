@@ -851,6 +851,9 @@ pub const Compiler = struct {
     vm_ptr_cached: bool,
     /// True when inst_ptr is cached in x21 (only when reg_count <= 13 and has self-calls).
     inst_ptr_cached: bool,
+    /// True when call_depth is cached in x28 (non-memory self-call functions only).
+    /// Eliminates per-call memory load/store for depth tracking.
+    depth_reg_cached: bool,
     /// Live vreg bitmap at current call site (set by spillCallerSavedLive).
     /// Bit N = 1 means vreg N is live and must be spilled/reloaded across the call.
     call_live_set: u32,
@@ -927,6 +930,7 @@ pub const Compiler = struct {
             .fp_dreg_dirty = .{false} ** 6,
             .vm_ptr_cached = false,
             .inst_ptr_cached = false,
+            .depth_reg_cached = false,
             .call_live_set = 0,
             .callee_live_set = 0,
             .shared_exit_idx = 0,
@@ -1156,6 +1160,14 @@ pub const Compiler = struct {
             // Caller-saved ranges: x9-x15 (vregs 5-11), x2-x7 (vregs 14-19)
             if ((phys >= 9 and phys <= 15) or (phys >= 2 and phys <= 7)) return;
             // Callee-saved: spill to make visible to trampoline
+            self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
+        }
+    }
+
+    /// Spill a single vreg unconditionally. Used for call args that the trampoline
+    /// reads from regs[] — these must be stored even if caller-saved and not live after call.
+    fn spillVreg(self: *Compiler, vreg: u8) void {
+        if (vregToPhys(vreg)) |phys| {
             self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
         }
     }
@@ -1643,8 +1655,12 @@ pub const Compiler = struct {
             self.emit(a64.ldr64(REG_PTR_VAL, SCRATCH, 0)); // x27 = vm.reg_ptr value
             // Store &vm.reg_ptr in regs[reg_count] for fast access in self-calls
             self.emit(a64.str64(SCRATCH, REGS_PTR, @intCast(@as(u16, self.reg_count) * 8)));
-            // Cache REG_STACK_SIZE in x28 (avoids MOV immediate per call).
-            self.emit(a64.movz64(28, vm_mod.REG_STACK_SIZE, 0));
+            // Cache vm.call_depth in x28 for fast depth tracking.
+            // Only load from memory at normal entry (x29 != 0). Self-call entry
+            // (x29 == 0) preserves x28 from the caller — skip the reload.
+            self.emit(a64.cbz64(29, 2)); // self-call: skip LDR
+            self.emit(a64.ldr64(28, SCRATCH, 8)); // normal entry: x28 = vm.call_depth
+            self.depth_reg_cached = true;
             // Cache vm_ptr/inst_ptr in callee-saved regs when vreg slots are unused.
             if (self.reg_count <= 12) {
                 self.emitLoadVmPtr(20); // x20 = vm_ptr
@@ -1694,29 +1710,31 @@ pub const Compiler = struct {
                 self.emit(a64.str64(SCRATCH, REGS_PTR, 0));
             }
         }
-
-        // Restore callee-saved registers (reverse order).
-        // For self-call functions: CBZ x29 skips LDP x19-x28 (self-call entry
-        // didn't save them). LDP x29,x30 always executes (link register).
-        if (self.has_self_call) {
-            self.emit(a64.cbz64(29, 6)); // skip 5 LDPs (offset = +6 instructions)
-        }
-        self.emit(a64.ldpPost(27, 28, 31, 2));
-        self.emit(a64.ldpPost(25, 26, 31, 2));
-        self.emit(a64.ldpPost(23, 24, 31, 2));
-        self.emit(a64.ldpPost(21, 22, 31, 2));
-        self.emit(a64.ldpPost(19, 20, 31, 2));
-        self.emit(a64.ldpPost(29, 30, 31, 2));
-
-        // Return success (x0 = 0)
+        self.emitCalleeSavedRestore();
         self.emit(a64.movz64(0, 0, 0));
         self.emit(a64.ret_());
     }
 
     fn emitErrorReturn(self: *Compiler, error_code: u16) void {
-        // Restore callee-saved and return error
+        self.emitCalleeSavedRestore();
+        self.emit(a64.movz64(0, error_code, 0));
+        self.emit(a64.ret_());
+    }
+
+    /// Emit callee-saved register restore sequence.
+    /// For self-call functions: CBZ x29 skips the normal path (depth flush + 5 LDPs).
+    /// When depth_reg_cached, flushes x28 to vm.call_depth before LDP restores x28.
+    fn emitCalleeSavedRestore(self: *Compiler) void {
         if (self.has_self_call) {
-            self.emit(a64.cbz64(29, 6)); // skip 5 LDPs
+            // Self-call path skips depth flush + 5 LDPs.
+            const skip: i19 = if (self.depth_reg_cached) 8 else 6;
+            self.emit(a64.cbz64(29, skip));
+        }
+        // Normal path only: flush depth counter before LDP clobbers x28.
+        if (self.depth_reg_cached) {
+            const rp_slot: u16 = @intCast(@as(u32, self.reg_count) * 8);
+            self.emit(a64.ldr64(SCRATCH, REGS_PTR, rp_slot)); // &vm.reg_ptr
+            self.emit(a64.str64(28, SCRATCH, 8)); // vm.call_depth = x28
         }
         self.emit(a64.ldpPost(27, 28, 31, 2));
         self.emit(a64.ldpPost(25, 26, 31, 2));
@@ -1724,8 +1742,20 @@ pub const Compiler = struct {
         self.emit(a64.ldpPost(21, 22, 31, 2));
         self.emit(a64.ldpPost(19, 20, 31, 2));
         self.emit(a64.ldpPost(29, 30, 31, 2));
-        self.emit(a64.movz64(0, error_code, 0));
-        self.emit(a64.ret_());
+    }
+
+    /// Flush x28 (depth counter) to vm.call_depth before trampoline calls.
+    fn emitDepthFlush(self: *Compiler) void {
+        const rp_slot: u16 = @intCast(@as(u32, self.reg_count) * 8);
+        self.emit(a64.ldr64(SCRATCH, REGS_PTR, rp_slot)); // &vm.reg_ptr
+        self.emit(a64.str64(28, SCRATCH, 8)); // vm.call_depth = x28
+    }
+
+    /// Reload x28 (depth counter) from vm.call_depth after trampoline calls.
+    fn emitDepthReload(self: *Compiler) void {
+        const rp_slot: u16 = @intCast(@as(u32, self.reg_count) * 8);
+        self.emit(a64.ldr64(SCRATCH, REGS_PTR, rp_slot)); // &vm.reg_ptr
+        self.emit(a64.ldr64(28, SCRATCH, 8)); // x28 = vm.call_depth
     }
 
     pub fn scanForMemoryOps(ir: []const RegInstr) bool {
@@ -2950,9 +2980,7 @@ pub const Compiler = struct {
     }
 
     fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
-        // Self-call optimization: direct BL instead of trampoline.
-        // Non-memory: uses cached &vm.reg_ptr in x27.
-        // Memory: recomputes &vm.reg_ptr into SCRATCH each time.
+        // Self-call: use lightweight inline path with call_depth guard
         if (func_idx == self.self_func_idx) {
             self.emitInlineSelfCall(rd, data, data2, ir, call_pc);
             return;
@@ -2961,17 +2989,19 @@ pub const Compiler = struct {
         // 1. Spill caller-saved regs + arg vregs needed by trampoline
         self.fpCacheEvictAll(); // Write back D-cache before BLR clobbers D-regs
         self.spillCallerSavedLive(ir, call_pc);
-        // Trampoline reads args from regs[] — spill callee-saved arg vregs
-        if (n_args > 0) self.spillVregIfCalleeSaved(data.rd);
-        if (n_args > 1) self.spillVregIfCalleeSaved(data.rs1);
-        if (n_args > 2) self.spillVregIfCalleeSaved(@truncate(data.operand));
-        if (n_args > 3) self.spillVregIfCalleeSaved(@truncate(data.operand >> 8));
+        // Trampoline reads args from regs[] — spill ALL arg vregs unconditionally.
+        // spillCallerSavedLive only spills live-after-call vregs, but call args may be
+        // dead after the call yet still needed by the trampoline to pass to the callee.
+        if (n_args > 0) self.spillVreg(data.rd);
+        if (n_args > 1) self.spillVreg(data.rs1);
+        if (n_args > 2) self.spillVreg(@truncate(data.operand));
+        if (n_args > 3) self.spillVreg(@truncate(data.operand >> 8));
         if (n_args > 4) {
             if (data2) |d2| {
-                if (n_args > 4) self.spillVregIfCalleeSaved(d2.rd);
-                if (n_args > 5) self.spillVregIfCalleeSaved(d2.rs1);
-                if (n_args > 6) self.spillVregIfCalleeSaved(@truncate(d2.operand));
-                if (n_args > 7) self.spillVregIfCalleeSaved(@truncate(d2.operand >> 8));
+                if (n_args > 4) self.spillVreg(d2.rd);
+                if (n_args > 5) self.spillVreg(d2.rs1);
+                if (n_args > 6) self.spillVreg(@truncate(d2.operand));
+                if (n_args > 7) self.spillVreg(@truncate(d2.operand >> 8));
             }
         }
 
@@ -3003,7 +3033,10 @@ pub const Compiler = struct {
             self.emit(a64.movz64(6, 0, 0));
         }
 
-        // 3. Load trampoline address and call
+        // 3. Flush depth counter before trampoline (trampoline reads vm.call_depth)
+        if (self.depth_reg_cached) self.emitDepthFlush();
+
+        // 3a. Load trampoline address and call
         const t_instrs = a64.loadImm64(SCRATCH, self.trampoline_addr);
         for (t_instrs) |inst| self.emit(inst);
         self.emit(a64.blr(SCRATCH));
@@ -3018,8 +3051,11 @@ pub const Compiler = struct {
             .cond = .eq, // unused
         }) catch {};
 
-        // 5. Reload memory cache FIRST (BLR clobbers x0-x15)
-        //    Trampoline already wrote result to regs[rd], so it survives this BLR.
+        // 5. Reload depth counter (trampoline may have changed call_depth)
+        if (self.depth_reg_cached) self.emitDepthReload();
+
+        // 5a. Reload memory cache FIRST (BLR clobbers x0-x15)
+        //     Trampoline already wrote result to regs[rd], so it survives this BLR.
         if (self.has_memory) {
             self.emitLoadMemCache();
         }
@@ -3080,7 +3116,10 @@ pub const Compiler = struct {
         self.emit(a64.ldr64(7, REGS_PTR, @as(u12, instr.rs1) * 8));
         // Truncate to 32 bits (elem_idx is u32)
 
-        // 3. Load call_indirect trampoline address and call
+        // 3. Flush depth counter before trampoline
+        if (self.depth_reg_cached) self.emitDepthFlush();
+
+        // 3a. Load call_indirect trampoline address and call
         const t_instrs = a64.loadImm64(SCRATCH, self.call_indirect_addr);
         for (t_instrs) |inst| self.emit(inst);
         self.emit(a64.blr(SCRATCH));
@@ -3095,8 +3134,11 @@ pub const Compiler = struct {
             .cond = .eq,
         }) catch {};
 
-        // 5. Reload memory cache FIRST (BLR clobbers x0-x15)
-        //    Trampoline already wrote result to regs[rd], so it survives this BLR.
+        // 5. Reload depth counter
+        if (self.depth_reg_cached) self.emitDepthReload();
+
+        // 5a. Reload memory cache FIRST (BLR clobbers x0-x15)
+        //     Trampoline already wrote result to regs[rd], so it survives this BLR.
         if (self.has_memory) {
             self.emitLoadMemCache();
         }
@@ -3113,6 +3155,23 @@ pub const Compiler = struct {
     fn emitInlineSelfCall(self: *Compiler, rd: u8, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         const needed: u32 = @as(u32, self.reg_count) + 4;
         const needed_bytes: u32 = needed * 8;
+
+        // 0. Call depth guard — check BEFORE any state modifications.
+        if (self.depth_reg_cached) {
+            // Register-cached path: x28 holds call_depth. Check-then-increment
+            // avoids needing to undo the increment on error (balanced by step 8a SUB).
+            self.emit(a64.cmpImm64(28, @intCast(vm_mod.MAX_CALL_DEPTH)));
+            self.emitCondError(.ge, 2); // StackOverflow if depth >= MAX
+            self.emit(a64.addImm64(28, 28, 1));
+        } else {
+            // Memory path (memory functions): load-increment-check-store.
+            self.emitLoadRegPtrAddr(SCRATCH); // SCRATCH = &vm.reg_ptr
+            self.emit(a64.ldr64(SCRATCH2, SCRATCH, 8)); // SCRATCH2 = vm.call_depth
+            self.emit(a64.addImm64(SCRATCH2, SCRATCH2, 1));
+            self.emit(a64.cmpImm64(SCRATCH2, @intCast(vm_mod.MAX_CALL_DEPTH)));
+            self.emitCondError(.ge, 2); // StackOverflow if call_depth >= MAX
+            self.emit(a64.str64(SCRATCH2, SCRATCH, 8)); // vm.call_depth = old + 1
+        }
 
         // 1. Spill live regs before self-call.
         self.fpCacheEvictAll(); // Write back D-cache before BL clobbers D-regs
@@ -3149,8 +3208,9 @@ pub const Compiler = struct {
                 self.emit(a64.add64(REG_PTR_VAL, REG_PTR_VAL, SCRATCH2));
             }
             // Check: new reg_ptr > REG_STACK_SIZE → stack overflow
-            // REG_STACK_SIZE cached in x28 (loaded in prologue)
-            self.emit(a64.cmp64(REG_PTR_VAL, 28));
+            // x28 = depth counter (not REG_STACK_SIZE), use inline immediate.
+            self.emit(a64.movz64(SCRATCH, vm_mod.REG_STACK_SIZE, 0));
+            self.emit(a64.cmp64(REG_PTR_VAL, SCRATCH));
             self.emitCondError(.hi, 2); // StackOverflow if new > max
             // Write updated reg_ptr to memory (callee prologue reads from memory).
             // Load cached &vm.reg_ptr from regs[reg_count] (stored in prologue).
@@ -3210,6 +3270,29 @@ pub const Compiler = struct {
         // 8. After return: callee-saved regs (x19-x28) NOT restored by callee
         //    (lightweight self-call skips LDP x19-x28). x0 = error code.
         //    x29 = caller's original (restored by callee's LDP x29,x30).
+
+        // 8a. Decrement call_depth (unconditionally — must balance even on error).
+        if (self.depth_reg_cached) {
+            // Register path: 1 instruction.
+            self.emit(a64.subImm64(28, 28, 1));
+        } else {
+            // Memory path: load-sub-store through vm_ptr.
+            const vm_slot: u16 = @intCast((@as(u32, self.reg_count) + 2) * 8);
+            const cd_addr_offset = self.reg_ptr_offset + 8;
+            self.emit(a64.ldr64(SCRATCH, REGS_PTR, vm_slot)); // SCRATCH = vm_ptr
+            if (cd_addr_offset <= 0xFFF) {
+                self.emit(a64.addImm64(SCRATCH, SCRATCH, @intCast(cd_addr_offset)));
+            } else {
+                self.emit(a64.movz64(SCRATCH2, @truncate(cd_addr_offset), 0));
+                if (cd_addr_offset > 0xFFFF) {
+                    self.emit(a64.movk64(SCRATCH2, @truncate(cd_addr_offset >> 16), 1));
+                }
+                self.emit(a64.add64(SCRATCH, SCRATCH, SCRATCH2));
+            }
+            self.emit(a64.ldr64(SCRATCH2, SCRATCH, 0));
+            self.emit(a64.subImm64(SCRATCH2, SCRATCH2, 1));
+            self.emit(a64.str64(SCRATCH2, SCRATCH, 0));
+        }
 
         // 9. Restore vm.reg_ptr
         if (self.has_memory) {
@@ -3766,15 +3849,7 @@ pub const Compiler = struct {
         // Shared error epilogue: restore callee-saved regs and return (x0 has error code)
         const shared_exit = self.currentIdx();
         self.shared_exit_idx = shared_exit;
-        if (self.has_self_call) {
-            self.emit(a64.cbz64(29, 6)); // skip 5 LDPs
-        }
-        self.emit(a64.ldpPost(27, 28, 31, 2));
-        self.emit(a64.ldpPost(25, 26, 31, 2));
-        self.emit(a64.ldpPost(23, 24, 31, 2));
-        self.emit(a64.ldpPost(21, 22, 31, 2));
-        self.emit(a64.ldpPost(19, 20, 31, 2));
-        self.emit(a64.ldpPost(29, 30, 31, 2));
+        self.emitCalleeSavedRestore();
         self.emit(a64.ret_());
 
         // Emit per-error stubs and patch branch sites
@@ -3936,7 +4011,7 @@ pub fn jitCallTrampoline(
     }
 
     // Fast path: if callee is already JIT-compiled, call directly (skip callFunction)
-    if (func_ptr.subtype == .wasm_function) {
+    if (vm.call_depth < vm_mod.MAX_CALL_DEPTH and func_ptr.subtype == .wasm_function) {
         const wf = &func_ptr.subtype.wasm_function;
         if (wf.jit_code) |jc| {
             if (wf.reg_ir) |reg| {
@@ -3945,12 +4020,14 @@ pub fn jitCallTrampoline(
                 if (base + needed > vm_mod.REG_STACK_SIZE) return 2; // StackOverflow
                 const callee_regs = vm.reg_stack[base .. base + needed];
                 vm.reg_ptr = base + needed;
+                vm.call_depth += 1;
 
                 for (call_args[0..n_args], 0..) |arg, i| callee_regs[i] = arg;
                 for (n_args..reg.local_count) |i| callee_regs[i] = 0;
 
                 const err = jc.entry(callee_regs.ptr, vm_opaque, instance_opaque);
                 vm.reg_ptr = base;
+                vm.call_depth -= 1;
                 if (err != 0) return err;
 
                 if (n_results > 0) regs[result_reg] = callee_regs[0];

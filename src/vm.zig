@@ -76,6 +76,7 @@ pub const WasmError = error{
 
 const OPERAND_STACK_SIZE = 4096;
 const FRAME_STACK_SIZE = 1024;
+pub const MAX_CALL_DEPTH = 4095; // native recursion limit — fits ARM64 CMP imm12
 const LABEL_STACK_SIZE = 4096;
 
 const Frame = struct {
@@ -305,6 +306,7 @@ pub const Vm = struct {
     label_ptr: usize,
     reg_stack: [REG_STACK_SIZE]u64,
     reg_ptr: usize,
+    call_depth: usize = 0, // adjacent to reg_ptr for JIT LDR access
     alloc: Allocator,
     current_instance: ?*Instance = null,
     current_branch_table: ?*BranchTable = null,
@@ -347,6 +349,7 @@ pub const Vm = struct {
         self.current_branch_table = null;
         self.pending_exception = null;
         self.exn_store_count = 0;
+        self.call_depth = 0;
     }
 
     /// Store an exception and return its exnref value (index + 1).
@@ -394,6 +397,9 @@ pub const Vm = struct {
         args: []const u64,
         results: []u64,
     ) WasmError!void {
+        if (self.call_depth >= MAX_CALL_DEPTH) return error.StackOverflow;
+        self.call_depth += 1;
+        defer self.call_depth -= 1;
         if (self.profile) |p| p.call_count += 1;
         switch (func_ptr.subtype) {
             .wasm_function => |*wf| {
@@ -3185,6 +3191,10 @@ pub const Vm = struct {
     }
 
     fn doCallDirect(self: *Vm, instance: *Instance, func_ptr: *store_mod.Function, reader: *Reader) WasmError!void {
+        if (self.call_depth >= MAX_CALL_DEPTH) return error.StackOverflow;
+        self.call_depth += 1;
+        defer self.call_depth -= 1;
+
         var current_fp = func_ptr;
         var current_inst = instance;
 
@@ -4663,6 +4673,10 @@ pub const Vm = struct {
     }
 
     fn doCallDirectIR(self: *Vm, instance: *Instance, initial_fp: *store_mod.Function) WasmError!void {
+        if (self.call_depth >= MAX_CALL_DEPTH) return error.StackOverflow;
+        self.call_depth += 1;
+        defer self.call_depth -= 1;
+
         var current_fp = initial_fp;
         while (true) {
             if (self.profile) |p| p.call_count += 1;
