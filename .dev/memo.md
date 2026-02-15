@@ -36,6 +36,11 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [ ] 28.2c: Spec runner multi-module linking (linking/instance ~36 failures — deep)
 - [x] 28.2d1: array_init_data/elem dropped segment bounds check (-2 failures)
 - [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
+- [ ] 28.3: GC subtyping / type hierarchy (~48 failures: ref_test, type-subtyping, br_on_cast, i31, array, elem)
+- [ ] 28.4: GC type canonicalization (type-equivalence 3, type-rec 2 = 5 failures)
+- [ ] 28.5: externref representation fix (extern 1 + ref_is_null 1 = 2 failures — externref(0) vs null conflation)
+- [ ] 28.6: throw_ref opcode implementation (1 failure — currently returns error.Trap stub)
+- [ ] 28.7: call batch state loss in spec runner (1 failure — needs_state approach regresses, needs alternative)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
 - [ ] 29.2: Fix threads spec 4 failures

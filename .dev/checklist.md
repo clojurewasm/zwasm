@@ -42,6 +42,21 @@ Resolved: W9 (transitive import chains) fixed in 5F.2.
 | ID   | Item                          | Stage | E2E Blocked              | Notes                                    |
 |------|-------------------------------|-------|--------------------------|------------------------------------------|
 | ~~W18~~ | ~~Memory64 table operations~~ | ~~7~~ | ~~RESOLVED~~ | Completed in Stage 7. All 252 memory64 spec tests pass. |
-| ~~W13~~ | ~~Exception handling~~ | ~~8~~ | ~~RESOLVED~~ | throw, try_table, catch clauses done. throw_ref stub. 38/38 spec. |
+| W13 | Exception handling: throw_ref | 28.6 | 1 spec failure | throw/try_table/catch done. throw_ref stub returns error.Trap — needs exnref value impl. |
+
+## Spec failure tracking (103 remaining, added 28.2)
+
+All remaining spec failures tracked here to prevent forgetting. Each maps to a memo.md task.
+
+| ID   | Category                        | Fails | Task   | Root Cause                                                   |
+|------|---------------------------------|-------|--------|--------------------------------------------------------------|
+| W22  | Multi-module linking            | 36    | 28.2c  | Spec runner lacks cross-module state sharing (register/import)|
+| W23  | GC subtyping                    | ~48   | 28.3   | Type hierarchy checks missing: ref_test, type-subtyping, br_on_cast, i31, array, elem |
+| W24  | GC type canonicalization        | 5     | 28.4   | type-equivalence 3, type-rec 2: recursive type group equality |
+| W25  | endianness64 (Ubuntu only)      | 15    | 28.2e  | x86 byte order for memory64 64-bit load/store ops            |
+| W26  | externref representation        | 2     | 28.5   | externref(0) conflated with null (extern 1 + ref_is_null 1)  |
+| W27  | throw_ref opcode                | 1     | 28.6   | = W13. Stub returns error.Trap, needs exnref value handling  |
+| W28  | call batch state loss           | 1     | 28.7   | Spec runner: process state lost after invoke; needs_state fix regresses |
+| W29  | threads spec                    | 4     | 29.2   | Need thread spawning mechanism (wait/notify partially working)|
 | ~~W14~~ | ~~Wide arithmetic (i128)~~ | ~~9~~ | ~~RESOLVED~~ | Completed in Stage 9. 4 opcodes, 99/99 e2e tests. |
 | ~~W15~~ | ~~Custom page sizes~~ | ~~10~~ | ~~RESOLVED~~ | Completed in Stage 10. page_size 1 or 65536. 18/18 e2e tests. |

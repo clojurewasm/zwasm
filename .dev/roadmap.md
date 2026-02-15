@@ -51,9 +51,22 @@ Target: spec compliance, thread support, close remaining perf gaps.
 
 ### Stage 28: Spec Test Improvements
 
-- Regenerate GC spec tests with wasm-tools (currently 74 failures, mostly wabt limitation)
-- Investigate multi-module 33 failures — check history for regressions, may be spec runner config
-- threads 4 failures — deferred until Stage 29
+Baseline: 225 failures → 103 remaining (Mac), 120 (Ubuntu +15 endianness64).
+
+Completed:
+- [x] 28.0: Regenerate GC spec tests with wasm-tools (-85 from wabt limitation)
+- [x] 28.1: Fix JIT FP cache, nullexnref, table init, S33 heap types, block type range (-85)
+- [x] 28.2a-d: Spec runner either/binary/array_init fixes (-37)
+
+Remaining 103 failures by category:
+- **28.2c: Multi-module linking (~36)** — spec runner lacks cross-module state sharing (linking, instance, imports4)
+- **28.2e: endianness64 (15, Ubuntu only)** — x86 byte order for memory64 load/store
+- **28.3: GC subtyping (~48)** — type hierarchy checks missing (ref_test, type-subtyping, br_on_cast, i31, array, elem)
+- **28.4: GC type canonicalization (5)** — type-equivalence 3, type-rec 2
+- **28.5: externref representation (2)** — externref(0) conflated with null
+- **28.6: throw_ref (1)** — opcode stub, needs proper exnref handling
+- **28.7: call batch state (1)** — spec runner process state loss after invoke
+- threads 4 — deferred to Stage 29
 
 ### Stage 29: Thread Execution
 
@@ -82,7 +95,15 @@ Single-pass constraint maintained. Codegen analysis of cranelift output.
 
 ### Exit criteria for v0.3.0
 
-- Spec pass rate improved (target: GC + multi-module resolved)
+Spec failure targets (103 remaining as of 28.2):
+- [ ] Multi-module linking 36 → 0 (spec runner fix)
+- [ ] GC subtyping 48 → 0 (vm.zig type hierarchy)
+- [ ] GC type canonicalization 5 → 0 (type-equivalence, type-rec)
+- [ ] endianness64 15 → 0 (Ubuntu x86 byte order)
+- [ ] externref 2 → 0 (representation fix)
+- [ ] throw_ref 1 → 0 (opcode implementation)
+- [ ] threads 4 → 0 (thread spawning)
+- [ ] call batch 1 → 0 (spec runner)
 - Thread execution working with test suite
 - st_matrix / tgo_mfr gaps analyzed, improved where feasible
 - GC performance baselined
