@@ -968,6 +968,10 @@ pub const Module = struct {
         const byte = r.bytes[r.pos];
         if (byte == 0x40 or (byte >= 0x69 and byte <= 0x7F)) {
             r.pos += 1;
+        } else if (byte == 0x63 or byte == 0x64) {
+            // (ref null ht) or (ref ht): skip prefix byte + S33 heap type
+            r.pos += 1;
+            _ = try r.readI33();
         } else {
             _ = try r.readI33();
         }
