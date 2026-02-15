@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 62,018/62,271 Mac (99.6%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
+- Spec: 62,122/62,158 Mac (99.9%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -53,18 +53,19 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.7 complete. Next: multi-module linking (28.2c) or other remaining failures.
-
-Remaining 39 categorized:
-- multi-module ~30: linking 15, elem 6, linking3 4, imports 2, imports4 2, table_grow 2, linking0 1, linking1 1
+28.2c: Multi-module linking. Canonical type ID fix done (39→36). Remaining 36:
+- multi-module shared state ~28: linking 14, elem 6, linking3 4, imports4 2, table_grow 2, linking0 1, linking1 1
 - threads 4: threads-wait_notify 2, threads-SB_atomic 1, threads-simple 1
 - Other: call 1, instance 1
 
+Next sub-task: spec runner multi-module support (in-process shared state).
+
 ## Previous Task
 
-28.7: JIT self-call depth guard with register-cached counter. Fixed trampoline arg spill
-(unconditional spillVreg for dead-after-call args). Moved call_depth adjacent to reg_ptr,
-x28 caches depth (non-memory), zero perf regression (fib 58.5ms vs 59.0ms baseline).
+28.2c-1: Fix cross-module canonical type ID mismatch. Remap canonical_type_id in
+registerImports for direct func imports, UNSET for table-imported funcs.
+Fixed IR call_indirect paths to use matchesCallIndirectType (structural fallback).
+39→36 failures (imports 0, linking 14).
 
 ## Wasm 3.0 Coverage
 
@@ -73,9 +74,9 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 39 failures.
-linking 15, elem 6, linking3 4,
-imports 2, imports4 2, table_grow 2, threads-wait_notify 2,
+None. Mac 36 failures.
+linking 14, elem 6, linking3 4,
+imports4 2, table_grow 2, threads-wait_notify 2,
 call 1, instance 1, linking0 1, linking1 1,
 threads-SB_atomic 1, threads-simple 1.
 Ubuntu: +15 endianness64 (x86-specific).

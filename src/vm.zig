@@ -4248,7 +4248,7 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (instance.module.getCanonicalTypeId(type_idx) != func_ptr.canonical_type_id)
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
                         return error.MismatchedSignatures;
                     try self.doCallDirectIR(instance, func_ptr);
                 },
@@ -4271,7 +4271,7 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (instance.module.getCanonicalTypeId(type_idx) != func_ptr.canonical_type_id)
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
                         return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;

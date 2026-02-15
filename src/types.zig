@@ -469,6 +469,10 @@ fn registerImports(
 
                         var src_func = src_module.store.getFunction(export_addr) catch
                             return error.ImportNotFound;
+                        // Remap canonical_type_id to importing module's namespace.
+                        // Canonical IDs are module-local, so cross-module call_indirect
+                        // would fail without remapping.
+                        src_func.canonical_type_id = module.getCanonicalTypeId(imp.index);
                         // Reset cached pointers to avoid double-free across stores
                         if (src_func.subtype == .wasm_function) {
                             src_func.subtype.wasm_function.branch_table = null;
@@ -517,6 +521,9 @@ fn registerImports(
                         for (tbl.data.items) |*tbl_entry| {
                             if (tbl_entry.*) |src_func_ref| {
                                 var func = src_module.store.getFunction(src_func_ref) catch continue;
+                                // Reset canonical_type_id: source module's IDs don't match
+                                // importing module's namespace. UNSET forces structural fallback.
+                                func.canonical_type_id = std.math.maxInt(u32);
                                 if (func.subtype == .wasm_function) {
                                     func.subtype.wasm_function.branch_table = null;
                                     func.subtype.wasm_function.ir = null;
@@ -914,6 +921,26 @@ test "multi-module — memory import" {
     var res4 = [_]u64{0};
     try consumer.invoke("read_byte", &args4, &res4);
     try testing.expectEqual(@as(u64, 111), res4[0]);
+}
+
+test "multi-module — cross-module call_indirect type match" {
+    // Provider exports "add(i32,i32)->i32"
+    const provider_bytes = @embedFile("testdata/28_provider_call_indirect.wasm");
+    var provider = try WasmModule.load(testing.allocator, provider_bytes);
+    defer provider.deinit();
+
+    // Consumer imports "add" from provider, places in table, calls via call_indirect
+    const consumer_bytes = @embedFile("testdata/29_consumer_call_indirect.wasm");
+    var consumer = try WasmModule.loadWithImports(testing.allocator, consumer_bytes, &.{
+        .{ .module = "provider", .source = .{ .wasm_module = provider } },
+    });
+    defer consumer.deinit();
+
+    // call_add(3, 4) should call imported add via call_indirect → 7
+    var args = [_]u64{ 3, 4 };
+    var results = [_]u64{0};
+    try consumer.invoke("call_add", &args, &results);
+    try testing.expectEqual(@as(u64, 7), results[0]);
 }
 
 test "nqueens(8) = 92 — regir only (JIT disabled)" {
