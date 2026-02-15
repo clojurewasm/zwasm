@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 62,018/62,271 Mac (99.6%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
+- Spec: 62,145/62,158 Mac (100.0%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -33,14 +33,14 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.1: Fix spec failures (225→140): JIT FP cache, nullexnref, table init, S33 heap types, block type range
 - [x] 28.2a: Spec runner `either` comparison for relaxed_simd (-32 failures)
 - [x] 28.2b: Prefer pre-compiled binary for text modules in spec runner (-3 failures)
-- [ ] 28.2c: Spec runner multi-module linking (linking/instance ~36 failures — deep)
+- [x] 28.2c: Spec runner multi-module linking (36→13 failures, shared-store approach)
 - [x] 28.2d1: array_init_data/elem dropped segment bounds check (-2 failures)
-- [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
-- [ ] 28.3: GC subtyping / type hierarchy (~48 failures: ref_test, type-subtyping, br_on_cast, i31, array, elem)
-- [ ] 28.4: GC type canonicalization (type-equivalence 3, type-rec 2 = 5 failures)
-- [ ] 28.5: externref representation fix (extern 1 + ref_is_null 1 = 2 failures — externref(0) vs null conflation)
-- [ ] 28.6: throw_ref opcode implementation (1 failure — currently returns error.Trap stub)
-- [ ] 28.7: call batch state loss in spec runner (1 failure — needs_state approach regresses, needs alternative)
+- [x] 28.2e: endianness64 x86 JIT call arg spill fix (-15 failures on Ubuntu)
+- [x] 28.3: GC subtyping / type hierarchy (type-subtyping 8 + ref_test 1 fixed, 48→40)
+- [x] 28.4: GC type canonicalization (canonical IDs, matchesCallIndirectType, isTypeSubtype)
+- [x] 28.5: externref representation fix (EXTERN_TAG encoding, -18 failures: 90→72)
+- [x] 28.6: throw_ref opcode implementation (exnref store + re-throw)
+- [x] 28.7: JIT self-call depth guard + unconditional arg spill (call:as-load-operand pre-existing)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
 - [ ] 29.2: Fix threads spec 4 failures
@@ -53,23 +53,13 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.2 investigation complete. Mac: 103 failures (was 140). Fixed: 37 total.
-Spec baseline: Mac 103 failures. Commit gate: failure count must not increase.
-
-Remaining 103 categorized:
-- linking/instance/imports4 36: multi-module state sharing (spec runner)
-- GC subtyping ~48: type hierarchy checks (ref_test, type-subtyping, etc.)
-- threads 4: need thread spawning
-- table_grow 2: multi-module
-- extern 1: externref(0) vs null conflation
-- throw_ref 1: unimplemented opcode
-- call 1: batch process state loss
-- ref_is_null 1: externref table
-- type-equivalence 3, type-rec 2: GC type canonicalization
+Stage 28 complete. Running benchmark + size guard checks before merge.
 
 ## Previous Task
 
-28.2: Spec failure reduction (140→103, -37 fixes): either v128 comparison, binary_filename preference, array_init dropped segment check.
+28.2e: x86 JIT call arg spill — spillVregIfCalleeSaved→spillVreg for trampoline
+args. Dead-after-call arg vregs in caller-saved regs weren't spilled to regs[],
+trampoline read stale values. Fixed 15 endianness64 Ubuntu failures.
 
 ## Wasm 3.0 Coverage
 
@@ -78,12 +68,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 62,055/62,158 (99.8%).
-103 failures: linking 16+6, instance 12, type-subtyping 11, ref_test 11,
-array 7, i31 6, elem 6, array_new_elem 5, linking3 4,
-type-equivalence 3, br_on_cast 2, br_on_cast_fail 2, imports4 2, ref_cast 2,
-table_grow 2, type-rec 2, call 1, extern 1, loop 0→1?, ref_is_null 1, throw_ref 1, threads 4.
-Ubuntu: +15 endianness64 (x86-specific).
+None. Mac 13 failures, Ubuntu 25 (12 extra = tail-call Debug timeouts).
+Mac: type-subtyping 4, imports4 2, threads-wait_notify 2, type-rec 2,
+call 1, instance 1, table_grow 1.
+Ubuntu: +return_call 5, +return_call_ref 5, +call 1, +call_ref 1 (Debug timeouts).
 
 ## References
 

@@ -82,6 +82,29 @@ pub const Instance = struct {
         // Start function is deferred — needs VM (35W.6)
     }
 
+    /// Instantiate up to (but not including) applyActive* steps.
+    /// Returns without error even if apply* would fail.
+    /// Use applyActive() separately to apply element/data segments.
+    pub fn instantiateBase(self: *Instance) !void {
+        if (!self.module.decoded) return error.ModuleNotDecoded;
+
+        try self.resolveImports();
+        try self.instantiateFunctions();
+        try self.instantiateMemories();
+        try self.instantiateTables();
+        try self.instantiateGlobals();
+        try self.instantiateTags();
+        try self.instantiateElems();
+        try self.instantiateData();
+    }
+
+    /// Apply active element and data segments.
+    /// Per v2 spec, partial writes from earlier segments persist on failure.
+    pub fn applyActive(self: *Instance) !void {
+        try self.applyActiveElements();
+        try self.applyActiveData();
+    }
+
     // ---- Lookup helpers ----
 
     pub fn getFunc(self: *Instance, idx: usize) !store_mod.Function {
@@ -117,7 +140,8 @@ pub const Instance = struct {
 
     pub fn getGlobal(self: *Instance, idx: usize) !*store_mod.Global {
         if (idx >= self.globaladdrs.items.len) return error.GlobalIndexOutOfBounds;
-        return self.store.getGlobal(self.globaladdrs.items[idx]);
+        const g = try self.store.getGlobal(self.globaladdrs.items[idx]);
+        return if (g.shared_ref) |ref| ref else g;
     }
 
     // ---- Export lookup ----
@@ -200,9 +224,14 @@ pub const Instance = struct {
             const func_type = self.module.getTypeFunc(func_def.type_idx) orelse
                 return error.InvalidTypeIndex;
 
+            const canonical_id = if (func_def.type_idx < self.module.canonical_ids.len)
+                self.module.canonical_ids[func_def.type_idx]
+            else
+                func_def.type_idx;
             const addr = try self.store.addFunction(.{
                 .params = func_type.params,
                 .results = func_type.results,
+                .canonical_type_id = canonical_id,
                 .subtype = .{ .wasm_function = .{
                     .locals_count = code.locals_count,
                     .code = code.body,
@@ -272,18 +301,17 @@ pub const Instance = struct {
             const addr = try self.store.addElem(elem_seg.reftype, count);
             const elem = try self.store.getElem(addr);
 
-            // Populate store elem: convention 0 = null, addr+1 = valid ref
+            // Populate store elem: convention 0 = null, non-zero = valid ref
             switch (elem_seg.init) {
                 .func_indices => |indices| {
                     for (indices, 0..) |func_idx, i| {
                         if (func_idx < self.funcaddrs.items.len) {
-                            elem.set(i, @intCast(self.funcaddrs.items[func_idx] + 1));
+                            elem.set(i, self.funcaddrs.items[func_idx] + 1);
                         }
                     }
                 },
                 .expressions => |exprs| {
                     for (exprs, 0..) |expr, i| {
-                        // evalInitExpr uses 0=null, addr+1=valid ref convention
                         const val = try evalInitExpr(expr, self);
                         elem.set(i, @truncate(val));
                     }
@@ -336,7 +364,6 @@ pub const Instance = struct {
                         .expressions => |exprs| {
                             for (exprs, 0..) |expr, i| {
                                 const dest: u32 = @intCast(@as(u64, @truncate(offset)) + i);
-                                // evalInitExpr uses 0=null, addr+1=valid ref convention
                                 const val = try evalInitExpr(expr, self);
                                 if (val == 0) {
                                     try t.set(dest, null);

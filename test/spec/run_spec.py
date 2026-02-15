@@ -95,8 +95,15 @@ def parse_value(val_obj):
     if vtype in ref_types:
         if vstr == "null":
             return 0  # ref.null = 0 on the stack
-        # Non-null: pass raw integer value
         v = int(vstr)
+        # Host ref values: encode with +1 so value 0 != null.
+        # Externref additionally gets EXTERN_TAG (bit 33) to mark extern domain.
+        EXTERN_TAG = 0x200000000
+        if vtype == "externref":
+            return ((v + 1) | EXTERN_TAG) & 0xFFFFFFFFFFFFFFFF
+        if vtype == "anyref":
+            return (v + 1) & 0xFFFFFFFFFFFFFFFF
+        # Non-null: pass raw integer value
         return v & 0xFFFFFFFFFFFFFFFF
 
     if vstr.startswith("nan:"):
@@ -493,6 +500,34 @@ class BatchRunner:
                 except Exception:
                     pass
 
+    def send_batch_cmd(self, cmd, timeout=5):
+        """Send a raw batch command and return (success, response)."""
+        if self.proc is None or self.proc.poll() is not None:
+            return (False, "process not running")
+        try:
+            self.proc.stdin.write(cmd + "\n")
+            self.proc.stdin.flush()
+            import select
+            ready, _, _ = select.select([self.proc.stdout], [], [], timeout)
+            if not ready:
+                return (False, "timeout")
+            response = self.proc.stdout.readline().strip()
+            return (response.startswith("ok"), response)
+        except Exception as e:
+            return (False, str(e))
+
+    def register_module(self, name):
+        """Register the current main module's exports under the given name."""
+        return self.send_batch_cmd(f"register {name}")
+
+    def load_module(self, name, wasm_path):
+        """Load a module into the shared store and register it by name."""
+        return self.send_batch_cmd(f"load {name} {wasm_path}")
+
+    def set_main(self, name):
+        """Change the default target module for invoke/get commands."""
+        return self.send_batch_cmd(f"set_main {name}")
+
     def close(self):
         if self.proc and self.proc.poll() is None:
             try:
@@ -526,17 +561,40 @@ def needs_spectest(wasm_path):
         return False
 
 
-def _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner):
+def needs_imports(wasm_path, registered_modules):
+    """Check if a wasm file imports from any of the registered modules."""
+    try:
+        with open(wasm_path, 'rb') as f:
+            content = f.read()
+            return any(name.encode() in content for name in registered_modules)
+    except Exception:
+        return False
+
+
+def _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner,
+                     shared_module_names=None, reg_runners=None):
     """Resolve which runner and invocation style to use for a named module action.
-    Returns (kind, runner) where kind is "invoke_on" or "direct", or None if unresolvable."""
+    Returns (kind, runner) where kind is "invoke_on", "invoke_on_shared", or "direct",
+    or None if unresolvable."""
     if not mod_name:
         return ("direct", runner) if runner else None
     # Current main module
     if mod_name == last_internal_name:
         return ("direct", runner) if runner else None
-    # Linked module (shared state via invoke_on)
-    if mod_name in module_reg_names and runner:
-        return ("invoke_on", runner)
+    # Shared-store module: use invoke_on with the shared name
+    if shared_module_names and mod_name in shared_module_names:
+        if mod_name in module_runners:
+            return ("invoke_on_shared", module_runners[mod_name])
+    # Registered module: use the runner that owns it (from reg_runners)
+    if mod_name in module_reg_names:
+        reg_name = module_reg_names[mod_name]
+        if reg_runners and reg_name in reg_runners:
+            target = reg_runners[reg_name]
+            if target.proc and target.proc.poll() is None:
+                return ("invoke_on", target)
+        # Fallback to current runner
+        if runner:
+            return ("invoke_on", runner)
     # Fallback: dedicated runner for named module
     if mod_name in module_runners:
         return ("direct", module_runners[mod_name])
@@ -565,6 +623,12 @@ def run_test_file(json_path, verbose=False):
     last_internal_name = None
     # Track named modules' wasm paths (for thread register commands)
     named_module_wasm = {}
+    # Module definitions: maps definition name -> wasm_path (for module_instance)
+    module_defs = {}
+    # Maps registration name -> runner that owns that module (for shared-store loading)
+    reg_runners = {}
+    # Maps internal name -> registration name for shared-store modules
+    shared_module_names = {}
 
     # Flatten thread blocks: run thread commands sequentially (single-threaded runtime)
     def flatten_commands(commands):
@@ -585,13 +649,6 @@ def run_test_file(json_path, verbose=False):
         line = cmd.get("line", 0)
 
         if cmd_type == "module":
-            # Save current runner for named modules (fallback for non-linked invocations)
-            if runner and last_internal_name and last_internal_name not in module_runners:
-                module_runners[last_internal_name] = runner
-            elif runner:
-                runner.close()
-            runner = None
-
             wasm_file = cmd.get("filename")
             # Prefer pre-compiled binary when available (avoids WAT parser edge cases)
             binary_file = cmd.get("binary_filename")
@@ -599,24 +656,66 @@ def run_test_file(json_path, verbose=False):
                 binary_path = os.path.join(test_dir, binary_file)
                 if os.path.exists(binary_path):
                     wasm_file = binary_file
+
+            internal_name = cmd.get("name")
+
             if wasm_file:
                 current_wasm = os.path.join(test_dir, wasm_file)
-                # Auto-link spectest host module: check main wasm and all linked modules
-                # spectest must be first so it's available when loading other linked modules
-                any_needs_spectest = needs_spectest(current_wasm) or any(
-                    needs_spectest(p) for p in registered_modules.values()
-                    if p != SPECTEST_WASM)
-                link_mods = {}
-                if any_needs_spectest and "spectest" not in registered_modules:
-                    link_mods["spectest"] = SPECTEST_WASM
-                link_mods.update(registered_modules)
-                try:
-                    runner = BatchRunner(current_wasm, link_mods)
-                except Exception:
-                    current_wasm = None
+
+                # Try shared-store loading: find a registered module's runner to host this module.
+                # Only attempt if the module imports from a registered module.
+                loaded_shared = False
+                if reg_runners and registered_modules:
+                    target_runner = None
+                    for reg_name in registered_modules:
+                        if reg_name in reg_runners:
+                            try:
+                                with open(current_wasm, 'rb') as wf:
+                                    if reg_name.encode() in wf.read():
+                                        target_runner = reg_runners[reg_name]
+                                        break
+                            except Exception:
+                                pass
+                    if target_runner and target_runner.proc and target_runner.proc.poll() is None:
+                        load_name = internal_name.lstrip("$") if internal_name else f"_mod{line}"
+                        ok, resp = target_runner.load_module(load_name, current_wasm)
+                        if ok:
+                            # Save current runner if needed
+                            prev_is_shared = runner and any(r is runner for r in reg_runners.values())
+                            if runner and not prev_is_shared and last_internal_name and last_internal_name not in module_runners:
+                                module_runners[last_internal_name] = runner
+                            runner = target_runner
+                            shared_module_names[internal_name] = load_name if internal_name else None
+                            last_internal_name = internal_name
+                            if internal_name:
+                                named_module_wasm[internal_name] = current_wasm
+                                module_runners[internal_name] = target_runner
+                            target_runner.set_main(load_name)
+                            loaded_shared = True
+
+                if not loaded_shared:
+                    # Standard path: create a new BatchRunner
+                    prev_is_shared = runner and any(r is runner for r in reg_runners.values())
+                    if runner and not prev_is_shared and last_internal_name and last_internal_name not in module_runners:
+                        module_runners[last_internal_name] = runner
+                    elif runner and not prev_is_shared:
+                        runner.close()
+                    runner = None
+
+                    any_needs_spectest = needs_spectest(current_wasm) or any(
+                        needs_spectest(p) for p in registered_modules.values()
+                        if p != SPECTEST_WASM)
+                    link_mods = {}
+                    if any_needs_spectest and "spectest" not in registered_modules:
+                        link_mods["spectest"] = SPECTEST_WASM
+                    link_mods.update(registered_modules)
+                    try:
+                        runner = BatchRunner(current_wasm, link_mods)
+                    except Exception:
+                        current_wasm = None
 
                 # Track internal name for register command pairing
-                last_internal_name = cmd.get("name")
+                last_internal_name = internal_name
                 if last_internal_name:
                     named_module_wasm[last_internal_name] = current_wasm
             continue
@@ -633,6 +732,26 @@ def run_test_file(json_path, verbose=False):
                     registered_modules[reg_name] = current_wasm
                     if last_internal_name:
                         module_reg_names[last_internal_name] = reg_name
+                # Send register command to batch runner for shared-store support
+                if runner and runner.proc and runner.proc.poll() is None:
+                    runner.register_module(reg_name)
+                    reg_runners[reg_name] = runner
+            continue
+
+        if cmd_type == "module_definition":
+            # Save module definition for later instantiation via module_instance
+            def_name = cmd.get("name")
+            wasm_file = cmd.get("filename")
+            if def_name and wasm_file:
+                module_defs[def_name] = os.path.join(test_dir, wasm_file)
+            continue
+
+        if cmd_type == "module_instance":
+            # Create an instance from a saved module definition
+            instance_name = cmd.get("instance")
+            def_name = cmd.get("module")
+            if instance_name and def_name and def_name in module_defs:
+                named_module_wasm[instance_name] = module_defs[def_name]
             continue
 
         if cmd_type == "action":
@@ -651,13 +770,16 @@ def run_test_file(json_path, verbose=False):
                 continue
 
             # Route to correct module
-            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner)
+            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner,
+                                     shared_module_names=shared_module_names, reg_runners=reg_runners)
             if target is None:
                 skipped += 1
                 continue
             target_kind, target_runner = target
             if target_kind == "invoke_on":
                 target_runner.invoke_on(module_reg_names[mod_name], func_name, args)
+            elif target_kind == "invoke_on_shared":
+                target_runner.invoke_on(shared_module_names[mod_name], func_name, args)
             else:
                 target_runner.invoke(func_name, args)
             target_runner.needs_state = True
@@ -672,7 +794,8 @@ def run_test_file(json_path, verbose=False):
                 skipped += 1
                 continue
 
-            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner)
+            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner,
+                                     shared_module_names=shared_module_names, reg_runners=reg_runners)
             if target is None:
                 skipped += 1
                 continue
@@ -689,6 +812,8 @@ def run_test_file(json_path, verbose=False):
                     continue
                 if target_kind == "invoke_on":
                     ok, results = target_runner.get_on_global(module_reg_names[mod_name], func_name)
+                elif target_kind == "invoke_on_shared":
+                    ok, results = target_runner.get_on_global(shared_module_names[mod_name], func_name)
                 else:
                     ok, results = target_runner.get_global(func_name)
             else:
@@ -716,6 +841,8 @@ def run_test_file(json_path, verbose=False):
 
                 if target_kind == "invoke_on":
                     ok, results = target_runner.invoke_on(module_reg_names[mod_name], func_name, args)
+                elif target_kind == "invoke_on_shared":
+                    ok, results = target_runner.invoke_on(shared_module_names[mod_name], func_name, args)
                 else:
                     ok, results = target_runner.invoke(func_name, args)
 
@@ -747,7 +874,8 @@ def run_test_file(json_path, verbose=False):
                 skipped += 1
                 continue
 
-            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner)
+            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner,
+                                     shared_module_names=shared_module_names, reg_runners=reg_runners)
             if target is None:
                 skipped += 1
                 continue
@@ -761,6 +889,8 @@ def run_test_file(json_path, verbose=False):
 
             if target_kind == "invoke_on":
                 ok, results = target_runner.invoke_on(module_reg_names[mod_name], func_name, args)
+            elif target_kind == "invoke_on_shared":
+                ok, results = target_runner.invoke_on(shared_module_names[mod_name], func_name, args)
             else:
                 ok, results = target_runner.invoke(func_name, args)
 
@@ -784,20 +914,41 @@ def run_test_file(json_path, verbose=False):
                 continue
 
             if cmd_type in ("assert_uninstantiable", "assert_unlinkable"):
-                # Attempt actual instantiation with linked modules
-                link_args = []
-                for name, path in registered_modules.items():
-                    link_args.extend(["--link", f"{name}={path}"])
-                try:
-                    result = subprocess.run(
-                        [ZWASM, "run", wasm_path] + link_args,
-                        capture_output=True, text=True, timeout=5)
-                    if result.returncode != 0:
-                        passed += 1  # Correctly rejected at link/instantiation
-                    else:
-                        skipped += 1  # Didn't catch the issue
-                except Exception:
-                    passed += 1  # crash/timeout = rejected
+                # Try shared-store load first (preserves partial writes for v2 spec)
+                shared_loaded = False
+                if reg_runners and registered_modules:
+                    target_runner = None
+                    try:
+                        with open(wasm_path, 'rb') as wf:
+                            wasm_content = wf.read()
+                        for reg_name in registered_modules:
+                            if reg_name in reg_runners and reg_name.encode() in wasm_content:
+                                target_runner = reg_runners[reg_name]
+                                break
+                    except Exception:
+                        pass
+                    if target_runner and target_runner.proc and target_runner.proc.poll() is None:
+                        load_name = f"_uninst{line}"
+                        ok, resp = target_runner.load_module(load_name, wasm_path)
+                        if not ok:
+                            passed += 1  # Correctly rejected
+                            shared_loaded = True
+                        # If ok, fall through to subprocess check
+                if not shared_loaded:
+                    # Fallback: attempt instantiation in separate process
+                    link_args = []
+                    for name, path in registered_modules.items():
+                        link_args.extend(["--link", f"{name}={path}"])
+                    try:
+                        result = subprocess.run(
+                            [ZWASM, "run", wasm_path] + link_args,
+                            capture_output=True, text=True, timeout=5)
+                        if result.returncode != 0:
+                            passed += 1  # Correctly rejected at link/instantiation
+                        else:
+                            skipped += 1  # Didn't catch the issue
+                    except Exception:
+                        passed += 1  # crash/timeout = rejected
             else:
                 try:
                     result = subprocess.run(
@@ -822,7 +973,8 @@ def run_test_file(json_path, verbose=False):
                 skipped += 1
                 continue
 
-            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner)
+            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner,
+                                     shared_module_names=shared_module_names, reg_runners=reg_runners)
             if target is None:
                 skipped += 1
                 continue
@@ -836,6 +988,8 @@ def run_test_file(json_path, verbose=False):
 
             if target_kind == "invoke_on":
                 ok, results = target_runner.invoke_on(module_reg_names[mod_name], func_name, args, timeout=10)
+            elif target_kind == "invoke_on_shared":
+                ok, results = target_runner.invoke_on(shared_module_names[mod_name], func_name, args, timeout=10)
             else:
                 ok, results = target_runner.invoke(func_name, args, timeout=10)
 

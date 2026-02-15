@@ -1044,6 +1044,29 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
     var arg_buf: [512]u64 = undefined;
     var result_buf: [512]u64 = undefined;
 
+    // Dynamic module tracking for multi-module shared-store loading
+    var dyn_names: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (dyn_names.items) |n| allocator.free(@constCast(n));
+        dyn_names.deinit(allocator);
+    }
+    var dyn_modules: std.ArrayList(*types.WasmModule) = .empty;
+    defer {
+        for (dyn_modules.items) |dm| {
+            if (dm != module) dm.deinit(); // Skip main module (freed by its own defer)
+        }
+        dyn_modules.deinit(allocator);
+    }
+    var dyn_bytes: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (dyn_bytes.items) |b| allocator.free(b);
+        dyn_bytes.deinit(allocator);
+    }
+    var main_module: *types.WasmModule = module;
+    // Root store: always points to the original module's store (used for loadLinked).
+    // set_main changes main_module but the shared store must remain the root.
+    const root_store = &module.store;
+
     while (true) {
         const line = r.takeDelimiter('\n') catch |err| switch (err) {
             error.StreamTooLong => continue,
@@ -1052,6 +1075,111 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
 
         // Skip empty lines
         if (line.len == 0) continue;
+
+        // Multi-module commands: register, load, set_main
+        if (std.mem.startsWith(u8, line, "register ")) {
+            // Dupe reg_name — the stdin buffer will be overwritten by subsequent reads
+            const reg_name = allocator.dupe(u8, line["register ".len..]) catch {
+                try stdout.print("error alloc\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            main_module.registerExports(reg_name) catch {
+                try stdout.print("error register failed\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            // Make the current main module findable by invoke_on/get_on
+            // (after set_main, the original main needs to remain accessible)
+            var already_tracked = false;
+            for (dyn_modules.items) |dm| {
+                if (dm == main_module) { already_tracked = true; break; }
+            }
+            if (!already_tracked) {
+                dyn_names.append(allocator, reg_name) catch {};
+                dyn_modules.append(allocator, main_module) catch {};
+            }
+            try stdout.print("ok\n", .{});
+            try stdout.flush();
+            continue;
+        }
+        if (std.mem.startsWith(u8, line, "load ")) {
+            const after_load = line["load ".len..];
+            const sp = std.mem.indexOfScalar(u8, after_load, ' ') orelse {
+                try stdout.print("error load requires name and path\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            const load_name = allocator.dupe(u8, after_load[0..sp]) catch {
+                try stdout.print("error alloc\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            const load_path = after_load[sp + 1 ..];
+            const load_bytes = readFile(allocator, load_path) catch {
+                try stdout.print("error cannot read file\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            const load_result = types.WasmModule.loadLinked(allocator, load_bytes, root_store) catch |err| {
+                allocator.free(load_bytes);
+                try stdout.print("error load {s}\n", .{@errorName(err)});
+                try stdout.flush();
+                continue;
+            };
+            const lm = load_result.module;
+            try dyn_bytes.append(allocator, load_bytes);
+            try dyn_names.append(allocator, load_name);
+            try dyn_modules.append(allocator, lm);
+            // Register the new module's exports in the root store (shared across all modules)
+            lm.registerExportsTo(root_store, load_name) catch {};
+            // Phase 2 failure: partial init persists but module is unusable
+            if (load_result.apply_error) |err| {
+                try stdout.print("error load {s}\n", .{@errorName(err)});
+                try stdout.flush();
+                continue;
+            }
+            // Execute start function if present (v2 spec: partial init persists on trap)
+            if (lm.module.start) |start_idx| {
+                lm.vm.reset();
+                lm.vm.invokeByIndex(&lm.instance, start_idx, &.{}, &.{}) catch {
+                    try stdout.print("error start trapped\n", .{});
+                    try stdout.flush();
+                    continue;
+                };
+            }
+            try stdout.print("ok\n", .{});
+            try stdout.flush();
+            continue;
+        }
+        if (std.mem.startsWith(u8, line, "set_main ")) {
+            const target_name = line["set_main ".len..];
+            var found_main = false;
+            for (dyn_names.items, dyn_modules.items) |dn, dm| {
+                if (std.mem.eql(u8, dn, target_name)) {
+                    main_module = dm;
+                    found_main = true;
+                    break;
+                }
+            }
+            if (!found_main) {
+                for (link_names, linked_modules) |ln, lm| {
+                    if (std.mem.eql(u8, ln, target_name)) {
+                        main_module = lm;
+                        found_main = true;
+                        break;
+                    }
+                }
+            }
+            if (!found_main) {
+                try stdout.print("error module not found\n", .{});
+                try stdout.flush();
+                continue;
+            }
+            try stdout.print("ok\n", .{});
+            try stdout.flush();
+            continue;
+        }
 
         // Parse command: invoke, get, invoke_on, get_on
         const is_invoke_on = std.mem.startsWith(u8, line, "invoke_on ");
@@ -1065,7 +1193,7 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
         }
 
         // For invoke_on/get_on, find the target linked module
-        var target_module: *types.WasmModule = module;
+        var target_module: *types.WasmModule = main_module;
         var rest: []const u8 = undefined;
         if (is_invoke_on or is_get_on) {
             const prefix_len2: usize = if (is_invoke_on) "invoke_on ".len else "get_on ".len;
@@ -1078,13 +1206,22 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
             };
             const mod_name = after_cmd[0..space_pos];
             rest = after_cmd[space_pos + 1 ..];
-            // Find linked module
+            // Find linked module (search dynamic first, then static)
             var found = false;
-            for (link_names, linked_modules) |ln, lm| {
-                if (std.mem.eql(u8, ln, mod_name)) {
-                    target_module = lm;
+            for (dyn_names.items, dyn_modules.items) |dn, dm| {
+                if (std.mem.eql(u8, dn, mod_name)) {
+                    target_module = dm;
                     found = true;
                     break;
+                }
+            }
+            if (!found) {
+                for (link_names, linked_modules) |ln, lm| {
+                    if (std.mem.eql(u8, ln, mod_name)) {
+                        target_module = lm;
+                        found = true;
+                        break;
+                    }
                 }
             }
             if (!found) {
@@ -1195,11 +1332,13 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
                 try stdout.flush();
                 continue;
             };
-            const g = target_module.store.getGlobal(global_addr) catch {
+            const g_raw = target_module.instance.store.getGlobal(global_addr) catch {
                 try stdout.print("error bad global\n", .{});
                 try stdout.flush();
                 continue;
             };
+            // Follow shared_ref for imported mutable globals
+            const g = if (g_raw.shared_ref) |ref| ref else g_raw;
             const val: u64 = switch (g.valtype) {
                 .i32, .f32 => @as(u64, @truncate(g.value)) & 0xFFFFFFFF,
                 else => @truncate(g.value),

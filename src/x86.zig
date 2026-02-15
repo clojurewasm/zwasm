@@ -1567,16 +1567,19 @@ pub const Compiler = struct {
     fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         // 1. Spill caller-saved regs + arg vregs
         self.spillCallerSavedLive(ir, call_pc);
-        if (n_args > 0) self.spillVregIfCalleeSaved(data.rd);
-        if (n_args > 1) self.spillVregIfCalleeSaved(data.rs1);
-        if (n_args > 2) self.spillVregIfCalleeSaved(@truncate(data.operand));
-        if (n_args > 3) self.spillVregIfCalleeSaved(@truncate(data.operand >> 8));
+        // Trampoline reads args from regs[] — spill ALL arg vregs unconditionally.
+        // spillCallerSavedLive only spills live-after-call vregs, but call args may be
+        // dead after the call yet still needed by the trampoline to pass to the callee.
+        if (n_args > 0) self.spillVreg(data.rd);
+        if (n_args > 1) self.spillVreg(data.rs1);
+        if (n_args > 2) self.spillVreg(@truncate(data.operand));
+        if (n_args > 3) self.spillVreg(@truncate(data.operand >> 8));
         if (n_args > 4) {
             if (data2) |d2| {
-                if (n_args > 4) self.spillVregIfCalleeSaved(d2.rd);
-                if (n_args > 5) self.spillVregIfCalleeSaved(d2.rs1);
-                if (n_args > 6) self.spillVregIfCalleeSaved(@truncate(d2.operand));
-                if (n_args > 7) self.spillVregIfCalleeSaved(@truncate(d2.operand >> 8));
+                if (n_args > 4) self.spillVreg(d2.rd);
+                if (n_args > 5) self.spillVreg(d2.rs1);
+                if (n_args > 6) self.spillVreg(@truncate(d2.operand));
+                if (n_args > 7) self.spillVreg(@truncate(d2.operand >> 8));
             }
         }
 
@@ -1635,17 +1638,18 @@ pub const Compiler = struct {
     fn emitCallIndirect(self: *Compiler, instr: RegInstr, data: RegInstr, data2: ?RegInstr) void {
         // 1. Spill caller-saved regs + arg vregs
         self.spillCallerSaved();
-        self.spillVregIfCalleeSaved(data.rd);
-        self.spillVregIfCalleeSaved(data.rs1);
-        self.spillVregIfCalleeSaved(@truncate(data.operand));
-        self.spillVregIfCalleeSaved(@truncate(data.operand >> 8));
+        // Trampoline reads args from regs[] — spill ALL arg vregs unconditionally.
+        self.spillVreg(data.rd);
+        self.spillVreg(data.rs1);
+        self.spillVreg(@truncate(data.operand));
+        self.spillVreg(@truncate(data.operand >> 8));
         if (data2) |d2| {
-            self.spillVregIfCalleeSaved(d2.rd);
-            self.spillVregIfCalleeSaved(d2.rs1);
-            self.spillVregIfCalleeSaved(@truncate(d2.operand));
-            self.spillVregIfCalleeSaved(@truncate(d2.operand >> 8));
+            self.spillVreg(d2.rd);
+            self.spillVreg(d2.rs1);
+            self.spillVreg(@truncate(d2.operand));
+            self.spillVreg(@truncate(d2.operand >> 8));
         }
-        self.spillVregIfCalleeSaved(instr.rs1);
+        self.spillVreg(instr.rs1);
 
         // 2. System V AMD64: RDI=vm, RSI=instance, RDX=regs, ECX=type_idx_table_idx,
         //    R8D=result_reg, R9=data_word, stack[0]=data2_word, stack[1]=elem_idx
@@ -1698,18 +1702,13 @@ pub const Compiler = struct {
         self.reloadVreg(instr.rd);
     }
 
-    /// Spill a single vreg if it's callee-saved (r0-r2). No-op for caller-saved.
-    fn spillVregIfCalleeSaved(self: *Compiler, vreg: u8) void {
+    /// Spill a single vreg unconditionally to regs[]. Required for call args
+    /// because the trampoline reads args from regs[], and spillCallerSavedLive
+    /// only spills live-after-call vregs — dead-after-call args would be missed.
+    fn spillVreg(self: *Compiler, vreg: u8) void {
         if (vregToPhys(vreg)) |phys| {
-            // Caller-saved: RCX, RDI, RSI, RDX, R8-R11 → already spilled
-            // Callee-saved: RBX(r0), RBP(r1), R15(r2) → need explicit spill
-            switch (phys) {
-                .rbx, .rbp, .r15 => {
-                    const disp: i32 = @as(i32, vreg) * 8;
-                    Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
-                },
-                else => {},
-            }
+            const disp: i32 = @as(i32, vreg) * 8;
+            Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
         }
     }
 

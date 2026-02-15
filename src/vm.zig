@@ -76,6 +76,7 @@ pub const WasmError = error{
 
 const OPERAND_STACK_SIZE = 4096;
 const FRAME_STACK_SIZE = 1024;
+pub const MAX_CALL_DEPTH = 4095; // native recursion limit — fits ARM64 CMP imm12
 const LABEL_STACK_SIZE = 4096;
 
 const Frame = struct {
@@ -288,6 +289,12 @@ const PendingException = struct {
     value_count: usize,
 };
 
+/// Maximum number of exnref values that can be alive simultaneously.
+const MAX_EXNREF_STORE = 64;
+
+/// Exnref value encoding: stored exception index + 1 (0 = null exnref).
+/// Used by catch_ref/catch_all_ref (store) and throw_ref (load).
+
 pub const REG_STACK_SIZE = 32768; // register file storage for register IR (256KB)
 
 pub const Vm = struct {
@@ -299,10 +306,13 @@ pub const Vm = struct {
     label_ptr: usize,
     reg_stack: [REG_STACK_SIZE]u64,
     reg_ptr: usize,
+    call_depth: usize = 0, // adjacent to reg_ptr for JIT LDR access
     alloc: Allocator,
     current_instance: ?*Instance = null,
     current_branch_table: ?*BranchTable = null,
     pending_exception: ?PendingException = null,
+    exn_store: [MAX_EXNREF_STORE]PendingException = undefined,
+    exn_store_count: usize = 0,
     profile: ?*Profile = null,
     trace: ?*trace_mod.TraceConfig = null,
     max_memory_bytes: ?u64 = null,
@@ -338,6 +348,20 @@ pub const Vm = struct {
         self.current_instance = null;
         self.current_branch_table = null;
         self.pending_exception = null;
+        self.exn_store_count = 0;
+        self.call_depth = 0;
+    }
+
+    /// Store an exception and return its exnref value (index + 1).
+    fn storeExnref(self: *Vm, exc: PendingException) u64 {
+        if (self.exn_store_count >= MAX_EXNREF_STORE) {
+            // Reuse slot 0 if store is full (unlikely in practice)
+            self.exn_store[0] = exc;
+            return 1;
+        }
+        self.exn_store[self.exn_store_count] = exc;
+        self.exn_store_count += 1;
+        return self.exn_store_count; // index + 1
     }
 
     /// Invoke an exported function by name.
@@ -373,6 +397,9 @@ pub const Vm = struct {
         args: []const u64,
         results: []u64,
     ) WasmError!void {
+        if (self.call_depth >= MAX_CALL_DEPTH) return error.StackOverflow;
+        self.call_depth += 1;
+        defer self.call_depth -= 1;
         if (self.profile) |p| p.call_count += 1;
         switch (func_ptr.subtype) {
             .wasm_function => |*wf| {
@@ -550,7 +577,7 @@ pub const Vm = struct {
                     try self.pushLabel(.{
                         .arity = func_ptr.results.len,
                         .op_stack_base = base + param_slots + wf.locals_count,
-                        .target = .{ .forward = body_reader },
+                        .target = .{ .forward = .{ .bytes = wf.code, .pos = wf.code.len } },
                     });
                     try self.execute(&body_reader, inst);
                 }
@@ -862,12 +889,9 @@ pub const Vm = struct {
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
 
-                    // Type check: compare param/result types, not just lengths
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
 
                     self.doCallDirect(instance, func_ptr, reader) catch |err| {
                         if (err == error.WasmException and self.handleException(reader, instance))
@@ -898,12 +922,9 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    // Type check
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;
                     while (i > 0) {
@@ -943,8 +964,13 @@ pub const Vm = struct {
                     return error.WasmException;
                 },
                 .throw_ref => {
-                    // TODO: implement in 8.4 (needs exnref value representation)
-                    return error.Trap;
+                    const exnref_val = self.popU64();
+                    if (exnref_val == 0) return error.Trap; // null exnref
+                    const idx = exnref_val - 1;
+                    if (idx >= self.exn_store_count) return error.Trap;
+                    self.pending_exception = self.exn_store[@intCast(idx)];
+                    if (self.handleException(reader, instance)) continue;
+                    return error.WasmException;
                 },
                 .try_table => {
                     const bt = try readBlockType(reader);
@@ -1036,7 +1062,7 @@ pub const Vm = struct {
                     const t = try instance.getTable(table_idx);
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const val = t.get(elem_idx) catch return error.OutOfBoundsMemoryAccess;
-                    // Stack convention: addr+1 for valid refs, 0 for null
+                    // Table stores val-1; push val (0=null, non-zero=valid ref)
                     try self.push(if (val) |v| @as(u64, @intCast(v)) + 1 else 0);
                 },
                 .table_set => {
@@ -1044,7 +1070,7 @@ pub const Vm = struct {
                     const val = self.pop();
                     const t = try instance.getTable(table_idx);
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
-                    // Stack convention: 0 = null, addr+1 = valid ref
+                    // Store val-1 (0=null); works for all ref types since val is non-zero
                     const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                     t.set(elem_idx, ref_val) catch return error.OutOfBoundsMemoryAccess;
                 },
@@ -1313,12 +1339,9 @@ pub const Vm = struct {
                     if (ref_val == 0) return error.Trap; // null ref
                     const func_addr = ref_val - 1;
                     const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
-                    // Type check
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
                     self.doCallDirect(instance, func_ptr, reader) catch |err| {
                         if (err == error.WasmException and self.handleException(reader, instance))
                             continue;
@@ -1331,12 +1354,9 @@ pub const Vm = struct {
                     if (ref_val == 0) return error.Trap; // null ref
                     const func_addr = ref_val - 1;
                     const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
-                    // Type check
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;
                     while (i > 0) {
@@ -1633,9 +1653,9 @@ pub const Vm = struct {
                 const data_idx = reader.readU32() catch return error.Trap;
                 const size: u32 = @truncate(self.pop());
                 const offset: u32 = @truncate(self.pop());
-                // Get data segment bytes
-                if (data_idx >= instance.module.datas.items.len) return error.Trap;
-                const data_seg = instance.module.datas.items[data_idx];
+                // Get store data (tracks dropped state)
+                if (data_idx >= instance.dataaddrs.items.len) return error.Trap;
+                const d = instance.store.getData(instance.dataaddrs.items[data_idx]) catch return error.Trap;
                 // Determine element byte size from array type
                 const atype = self.getArrayType(instance, type_idx) orelse return error.Trap;
                 const elem_bytes: u32 = switch (atype.field.storage) {
@@ -1648,11 +1668,13 @@ pub const Vm = struct {
                     },
                 };
                 const byte_len = @as(u64, size) * @as(u64, elem_bytes);
-                if (@as(u64, offset) + byte_len > data_seg.data.len) return error.Trap;
+                // Dropped segments have effective length 0 (spec: n=0 succeeds even if dropped)
+                const data_len: u64 = if (d.dropped) 0 else d.data.len;
+                if (@as(u64, offset) + byte_len > data_len) return error.Trap;
                 // Read elements from data bytes
                 const vals = instance.store.gc_heap.alloc.alloc(u64, size) catch return error.Trap;
                 defer instance.store.gc_heap.alloc.free(vals);
-                const src = data_seg.data[offset..];
+                const src = d.data[offset..];
                 for (vals, 0..) |*v, i| {
                     const base = i * elem_bytes;
                     v.* = switch (atype.field.storage) {
@@ -1673,23 +1695,15 @@ pub const Vm = struct {
                 const elem_idx = reader.readU32() catch return error.Trap;
                 const size: u32 = @truncate(self.pop());
                 const offset: u32 = @truncate(self.pop());
-                // Get element segment
-                if (elem_idx >= instance.module.elements.items.len) return error.Trap;
-                const elem_seg = instance.module.elements.items[elem_idx];
-                const func_indices = switch (elem_seg.init) {
-                    .func_indices => |fi| fi,
-                    .expressions => return error.Trap, // TODO: evaluate expressions
-                };
-                if (@as(u64, offset) + @as(u64, size) > func_indices.len) return error.Trap;
+                // Use pre-evaluated store elem data (u64 values)
+                if (elem_idx >= instance.elemaddrs.items.len) return error.Trap;
+                const e = instance.store.getElem(instance.elemaddrs.items[elem_idx]) catch return error.Trap;
+                const elem_len: u64 = if (e.dropped) 0 else e.data.len;
+                if (@as(u64, offset) + @as(u64, size) > elem_len) return error.Trap;
                 const vals = instance.store.gc_heap.alloc.alloc(u64, size) catch return error.Trap;
                 defer instance.store.gc_heap.alloc.free(vals);
                 for (vals, 0..) |*v, i| {
-                    const fidx = func_indices[offset + i];
-                    if (fidx < instance.funcaddrs.items.len) {
-                        v.* = @as(u64, @intCast(instance.funcaddrs.items[fidx])) + 1;
-                    } else {
-                        v.* = 0; // null ref
-                    }
+                    v.* = e.data[offset + i];
                 }
                 const addr = instance.store.gc_heap.allocArrayWithValues(type_idx, vals) catch return error.Trap;
                 try self.push(gc_mod.GcHeap.encodeRef(addr));
@@ -1704,7 +1718,6 @@ pub const Vm = struct {
                 const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
                 if (data_idx >= instance.dataaddrs.items.len) return error.Trap;
                 const d = instance.store.getData(instance.dataaddrs.items[data_idx]) catch return error.Trap;
-                const data_seg = instance.module.datas.items[data_idx];
                 const atype = self.getArrayType(instance, type_idx) orelse return error.Trap;
                 const elem_bytes: u32 = switch (atype.field.storage) {
                     .i8 => 1,
@@ -1717,13 +1730,13 @@ pub const Vm = struct {
                 };
                 const byte_len = @as(u64, size) * @as(u64, elem_bytes);
                 // Dropped segments have effective length 0 (n=0 succeeds even if dropped)
-                const data_len: u64 = if (d.dropped) 0 else data_seg.data.len;
+                const data_len: u64 = if (d.dropped) 0 else d.data.len;
                 if (@as(u64, src_off) + byte_len > data_len) return error.Trap;
                 const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
                 switch (obj.*) {
                     .array_obj => |*ao| {
                         if (@as(u64, dst_off) + @as(u64, size) > ao.elements.len) return error.Trap;
-                        const src = data_seg.data[src_off..];
+                        const src = d.data[src_off..];
                         for (0..size) |i| {
                             const base = i * elem_bytes;
                             ao.elements[dst_off + i] = switch (atype.field.storage) {
@@ -1751,25 +1764,15 @@ pub const Vm = struct {
                 const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
                 if (elem_idx >= instance.elemaddrs.items.len) return error.Trap;
                 const e = instance.store.getElem(instance.elemaddrs.items[elem_idx]) catch return error.Trap;
-                const elem_seg = instance.module.elements.items[elem_idx];
-                const func_indices = switch (elem_seg.init) {
-                    .func_indices => |fi| fi,
-                    .expressions => return error.Trap,
-                };
-                // Dropped segments have effective length 0 (n=0 succeeds even if dropped)
-                const elem_len: u64 = if (e.dropped) 0 else func_indices.len;
+                // Use pre-evaluated store elem data (u64 values)
+                const elem_len: u64 = if (e.dropped) 0 else e.data.len;
                 if (@as(u64, src_off) + @as(u64, size) > elem_len) return error.Trap;
                 const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
                 switch (obj.*) {
                     .array_obj => |*ao| {
                         if (@as(u64, dst_off) + @as(u64, size) > ao.elements.len) return error.Trap;
                         for (0..size) |i| {
-                            const fidx = func_indices[src_off + i];
-                            if (fidx < instance.funcaddrs.items.len) {
-                                ao.elements[dst_off + i] = @as(u64, @intCast(instance.funcaddrs.items[fidx])) + 1;
-                            } else {
-                                ao.elements[dst_off + i] = 0;
-                            }
+                            ao.elements[dst_off + i] = e.data[src_off + i];
                         }
                     },
                     else => return error.Trap,
@@ -1792,11 +1795,24 @@ pub const Vm = struct {
                 try self.pushI32(result);
             },
 
-            // ---- extern conversion (identity passthrough) ----
-            .any_convert_extern, .extern_convert_any => {
-                // No-op: value stays on stack unchanged.
-                // In a fully typed runtime these would convert between anyref and externref,
-                // but our untyped u64 stack makes them identity operations.
+            // ---- extern conversion ----
+            .any_convert_extern => {
+                // Internalize: externref → anyref. Strip EXTERN_TAG.
+                const val = self.pop();
+                if (val == 0) {
+                    try self.push(0); // null stays null
+                } else {
+                    try self.push(val & ~gc_mod.EXTERN_TAG);
+                }
+            },
+            .extern_convert_any => {
+                // Externalize: anyref → externref. Add EXTERN_TAG.
+                const val = self.pop();
+                if (val == 0) {
+                    try self.push(0); // null stays null
+                } else {
+                    try self.push(val | gc_mod.EXTERN_TAG);
+                }
             },
 
             // ---- cast operations ----
@@ -1805,7 +1821,7 @@ pub const Vm = struct {
                 const ref_val = self.pop();
                 const result: i32 = if (ref_val == 0)
                     (if (gc_op == .ref_test_null) @as(i32, 1) else @as(i32, 0))
-                else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap))
+                else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, instance.store))
                     @as(i32, 1)
                 else
                     @as(i32, 0);
@@ -1820,7 +1836,7 @@ pub const Vm = struct {
                     } else {
                         return error.Trap; // ref.cast traps on null
                     }
-                } else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap)) {
+                } else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, instance.store)) {
                     try self.push(ref_val); // match: pass through
                 } else {
                     return error.Trap; // cast failure
@@ -1836,7 +1852,7 @@ pub const Vm = struct {
                 const matches = if (ref_val == 0)
                     null_check // null matches if target is nullable
                 else
-                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap);
+                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, instance.store);
                 if (matches) {
                     try self.push(ref_val);
                     try self.branchTo(depth, reader);
@@ -1854,7 +1870,7 @@ pub const Vm = struct {
                 const matches = if (ref_val == 0)
                     null_check
                 else
-                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap);
+                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, instance.store);
                 if (!matches) {
                     try self.push(ref_val);
                     try self.branchTo(depth, reader);
@@ -1952,7 +1968,6 @@ pub const Vm = struct {
                 const t = try instance.store.getTable(table_idx);
                 const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 const val = self.pop();
-                // Stack convention: 0 = null ref, addr+1 = valid ref
                 const init_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 const old = t.grow(n, init_val) catch {
                     if (t.is_64) try self.pushI64(-1) else try self.pushI32(-1);
@@ -1971,10 +1986,8 @@ pub const Vm = struct {
                 const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 const val = self.pop();
                 const start: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
-                // Bounds check first (spec: trap if i + n > table.size)
                 if (@as(u64, start) + n > t.size())
                     return error.OutOfBoundsMemoryAccess;
-                // Stack convention: 0 = null ref, addr+1 = valid ref
                 const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 for (0..n) |i| {
                     t.set(start + @as(u32, @intCast(i)), ref_val) catch return error.OutOfBoundsMemoryAccess;
@@ -3178,6 +3191,10 @@ pub const Vm = struct {
     }
 
     fn doCallDirect(self: *Vm, instance: *Instance, func_ptr: *store_mod.Function, reader: *Reader) WasmError!void {
+        if (self.call_depth >= MAX_CALL_DEPTH) return error.StackOverflow;
+        self.call_depth += 1;
+        defer self.call_depth -= 1;
+
         var current_fp = func_ptr;
         var current_inst = instance;
 
@@ -3212,7 +3229,7 @@ pub const Vm = struct {
                     try self.pushLabel(.{
                         .arity = current_fp.results.len,
                         .op_stack_base = self.op_ptr,
-                        .target = .{ .forward = body_reader },
+                        .target = .{ .forward = .{ .bytes = wf.code, .pos = wf.code.len } },
                     });
 
                     const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
@@ -3577,12 +3594,9 @@ pub const Vm = struct {
                     const func_addr = try t.lookup(elem_idx);
                     const callee_fn = try instance.store.getFunctionPtr(func_addr);
 
-                    // Type check
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, callee_fn.params) or
-                            !ValType.sliceEql(expected.results, callee_fn.results))
-                            return error.MismatchedSignatures;
-                    }
+                    // Type check: canonical type ID with structural fallback
+                    if (!instance.module.matchesCallIndirectType(type_idx, callee_fn.canonical_type_id, callee_fn.params, callee_fn.results))
+                        return error.MismatchedSignatures;
 
                     const n_args = callee_fn.params.len;
                     var call_args: [8]u64 = undefined;
@@ -4234,11 +4248,8 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
                     try self.doCallDirectIR(instance, func_ptr);
                 },
                 0x12 => { // return_call
@@ -4260,11 +4271,8 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (instance.module.getTypeFunc(type_idx)) |expected| {
-                        if (!ValType.sliceEql(expected.params, func_ptr.params) or
-                            !ValType.sliceEql(expected.results, func_ptr.results))
-                            return error.MismatchedSignatures;
-                    }
+                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                        return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;
                     while (i > 0) {
@@ -4665,6 +4673,10 @@ pub const Vm = struct {
     }
 
     fn doCallDirectIR(self: *Vm, instance: *Instance, initial_fp: *store_mod.Function) WasmError!void {
+        if (self.call_depth >= MAX_CALL_DEPTH) return error.StackOverflow;
+        self.call_depth += 1;
+        defer self.call_depth -= 1;
+
         var current_fp = initial_fp;
         while (true) {
             if (self.profile) |p| p.call_count += 1;
@@ -4966,7 +4978,6 @@ pub const Vm = struct {
                 const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 const val = self.pop();
                 const start: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
-                // Bounds check first (spec: trap if i + n > table.size)
                 if (@as(u64, start) + n > t.size())
                     return error.OutOfBoundsMemoryAccess;
                 const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
@@ -5320,8 +5331,8 @@ pub const Vm = struct {
                 }
                 // catch_ref/catch_all_ref: also push exnref
                 if (clause.kind == 0x01 or clause.kind == 0x03) {
-                    // TODO: push actual exnref value (for now push a non-null sentinel)
-                    self.op_stack[self.op_ptr] = 1; // placeholder exnref
+                    const exnref = self.storeExnref(exc);
+                    self.op_stack[self.op_ptr] = @as(u128, exnref);
                     self.op_ptr += 1;
                 }
 

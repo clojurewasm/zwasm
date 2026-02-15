@@ -272,6 +272,82 @@ pub const WasmModule = struct {
         return self;
     }
 
+    /// Register this module's exports in its store under the given module name.
+    /// Required before other modules can import from this module via shared store.
+    pub fn registerExports(self: *WasmModule, module_name: []const u8) !void {
+        try self.registerExportsTo(&self.store, module_name);
+    }
+
+    pub fn registerExportsTo(self: *WasmModule, target_store: *rt.store_mod.Store, module_name: []const u8) !void {
+        for (self.module.exports.items) |exp| {
+            const addr: usize = switch (exp.kind) {
+                .func => self.instance.funcaddrs.items[exp.index],
+                .memory => self.instance.memaddrs.items[exp.index],
+                .table => self.instance.tableaddrs.items[exp.index],
+                .global => self.instance.globaladdrs.items[exp.index],
+                .tag => if (exp.index < self.instance.tagaddrs.items.len)
+                    self.instance.tagaddrs.items[exp.index]
+                else
+                    continue,
+            };
+            try target_store.addExport(module_name, exp.name, exp.kind, addr);
+        }
+    }
+
+    /// Load a module into a shared store. Imports are resolved from the shared
+    /// store's registered exports. Tables, memories, globals, and functions are
+    /// shared — changes through one module are visible from all others.
+    /// Load a module into a shared store. Two-phase instantiation:
+    /// Phase 1 (instantiateBase): resolve imports, create functions/tables/etc — must succeed.
+    /// Phase 2 (applyActive): apply element/data segments — may partially fail.
+    /// On phase 2 failure, partial writes persist in the shared store (v2 spec behavior).
+    /// Returns .{ module, apply_error } where apply_error is null on full success.
+    pub fn loadLinked(allocator: Allocator, wasm_bytes: []const u8, shared_store: *rt.store_mod.Store) !struct { module: *WasmModule, apply_error: ?anyerror } {
+        const self = try allocator.create(WasmModule);
+
+        self.allocator = allocator;
+        self.owned_wasm_bytes = null;
+        self.store = rt.store_mod.Store.init(allocator);
+        self.wasi_ctx = null;
+
+        self.module = rt.module_mod.Module.init(allocator, wasm_bytes);
+        self.module.decode() catch |err| {
+            self.module.deinit();
+            allocator.destroy(self);
+            return err;
+        };
+
+        // Phase 1: base instantiation. On failure, functions haven't been added
+        // to the shared store yet, so cleanup is safe.
+        self.instance = rt.instance_mod.Instance.init(allocator, shared_store, &self.module);
+        self.instance.instantiateBase() catch |err| {
+            self.instance.deinit();
+            self.module.deinit();
+            allocator.destroy(self);
+            return err;
+        };
+
+        // Phase 1 succeeded — functions/tables/etc are now in the shared store.
+        // From here on, the module MUST stay alive (no cleanup on failure).
+        self.export_fns = buildExportInfo(allocator, &self.module) catch &[_]ExportInfo{};
+        self.cached_fns = buildCachedFns(allocator, self) catch &[_]WasmFn{};
+        self.wit_funcs = &[_]wit_parser.WitFunc{};
+
+        self.vm = allocator.create(rt.vm_mod.Vm) catch {
+            // OOM after phase 1 — module stays alive (leak) to keep store valid
+            return .{ .module = self, .apply_error = error.OutOfMemory };
+        };
+        self.vm.* = rt.vm_mod.Vm.init(allocator);
+
+        // Phase 2: apply active element/data segments (may partially fail).
+        var apply_error: ?anyerror = null;
+        self.instance.applyActive() catch |err| {
+            apply_error = err;
+        };
+
+        return .{ .module = self, .apply_error = apply_error };
+    }
+
     fn loadCore(allocator: Allocator, wasm_bytes: []const u8, wasi: bool, imports: ?[]const ImportEntry) !*WasmModule {
         const self = try allocator.create(WasmModule);
         errdefer allocator.destroy(self);
@@ -453,7 +529,6 @@ fn registerImports(
     imports: []const ImportEntry,
     allocator: Allocator,
 ) !void {
-    _ = allocator;
     for (module.imports.items) |imp| {
         if (std.mem.eql(u8, imp.module, "wasi_snapshot_preview1")) continue;
 
@@ -470,6 +545,10 @@ fn registerImports(
 
                         var src_func = src_module.store.getFunction(export_addr) catch
                             return error.ImportNotFound;
+                        // Remap canonical_type_id to importing module's namespace.
+                        // Canonical IDs are module-local, so cross-module call_indirect
+                        // would fail without remapping.
+                        src_func.canonical_type_id = module.getCanonicalTypeId(imp.index);
                         // Reset cached pointers to avoid double-free across stores
                         if (src_func.subtype == .wasm_function) {
                             src_func.subtype.wasm_function.branch_table = null;
@@ -499,18 +578,28 @@ fn registerImports(
                             return error.WasmInstantiateError;
                     },
                     .table => {
-                        // Share table from source module: copy struct and remap function refs
+                        // Import table from source module: clone data to prevent source corruption
                         const src_addr = src_module.instance.getExportTableAddr(imp.name) orelse
                             return error.ImportNotFound;
                         const src_table_ptr = src_module.store.getTable(src_addr) catch
                             return error.ImportNotFound;
-                        var src_table = src_table_ptr.*;
-                        src_table.shared = true;
+                        var tbl = src_table_ptr.*;
+                        // Clone table data so remap doesn't corrupt source module's entries
+                        const cloned = allocator.alloc(?usize, src_table_ptr.data.items.len) catch
+                            return error.WasmInstantiateError;
+                        @memcpy(cloned, src_table_ptr.data.items);
+                        tbl.data = .{
+                            .items = cloned,
+                            .capacity = cloned.len,
+                        };
+                        tbl.alloc = allocator;
                         // Remap function references: copy referenced functions to target store
-                        // Table entries use ?usize: null=empty, Some(addr)=valid func address
-                        for (src_table.data.items) |*tbl_entry| {
+                        for (tbl.data.items) |*tbl_entry| {
                             if (tbl_entry.*) |src_func_ref| {
                                 var func = src_module.store.getFunction(src_func_ref) catch continue;
+                                // Reset canonical_type_id: source module's IDs don't match
+                                // importing module's namespace. UNSET forces structural fallback.
+                                func.canonical_type_id = std.math.maxInt(u32);
                                 if (func.subtype == .wasm_function) {
                                     func.subtype.wasm_function.branch_table = null;
                                     func.subtype.wasm_function.ir = null;
@@ -525,35 +614,44 @@ fn registerImports(
                                 tbl_entry.* = new_addr;
                             }
                         }
-                        const addr = store.addExistingTable(src_table) catch
+                        const addr = store.addExistingTable(tbl) catch
                             return error.WasmInstantiateError;
                         store.addExport(imp.module, imp.name, .table, addr) catch
                             return error.WasmInstantiateError;
                     },
                     .global => {
-                        // Copy global from source module
+                        // Import global from source module
                         const src_addr = src_module.instance.getExportGlobalAddr(imp.name) orelse
                             return error.ImportNotFound;
-                        var glob = (src_module.store.getGlobal(src_addr) catch
-                            return error.ImportNotFound).*;
-                        // Remap funcref values: copy referenced function to target store
-                        if (glob.valtype == .funcref and glob.value > 0) {
-                            const src_func_addr: usize = @intCast(glob.value - 1);
-                            var func = src_module.store.getFunction(src_func_addr) catch
-                                return error.ImportNotFound;
-                            if (func.subtype == .wasm_function) {
-                                func.subtype.wasm_function.branch_table = null;
-                                func.subtype.wasm_function.ir = null;
-                                func.subtype.wasm_function.ir_failed = false;
-                                func.subtype.wasm_function.reg_ir = null;
-                                func.subtype.wasm_function.reg_ir_failed = false;
-                                func.subtype.wasm_function.jit_code = null;
-                                func.subtype.wasm_function.jit_failed = false;
-                                func.subtype.wasm_function.call_count = 0;
+                        const src_global = src_module.store.getGlobal(src_addr) catch
+                            return error.ImportNotFound;
+                        var glob = src_global.*;
+                        // Mutable globals: share via reference for cross-module visibility.
+                        // Follow any existing chain to find the ultimate source.
+                        if (glob.mutability == .mutable) {
+                            glob.shared_ref = if (src_global.shared_ref) |ref| ref else src_global;
+                        } else {
+                            // Immutable globals: copy value (no sharing needed)
+                            glob.shared_ref = null;
+                            // Remap funcref values: copy referenced function to target store
+                            if (glob.valtype == .funcref and glob.value > 0) {
+                                const src_func_addr: usize = @intCast(glob.value - 1);
+                                var func = src_module.store.getFunction(src_func_addr) catch
+                                    return error.ImportNotFound;
+                                if (func.subtype == .wasm_function) {
+                                    func.subtype.wasm_function.branch_table = null;
+                                    func.subtype.wasm_function.ir = null;
+                                    func.subtype.wasm_function.ir_failed = false;
+                                    func.subtype.wasm_function.reg_ir = null;
+                                    func.subtype.wasm_function.reg_ir_failed = false;
+                                    func.subtype.wasm_function.jit_code = null;
+                                    func.subtype.wasm_function.jit_failed = false;
+                                    func.subtype.wasm_function.call_count = 0;
+                                }
+                                const new_func_addr = store.addFunction(func) catch
+                                    return error.WasmInstantiateError;
+                                glob.value = @as(u128, @intCast(new_func_addr)) + 1;
                             }
-                            const new_func_addr = store.addFunction(func) catch
-                                return error.WasmInstantiateError;
-                            glob.value = @as(u128, @intCast(new_func_addr)) + 1;
                         }
                         const addr = store.addGlobal(glob) catch
                             return error.WasmInstantiateError;
@@ -899,6 +997,57 @@ test "multi-module — memory import" {
     var res4 = [_]u64{0};
     try consumer.invoke("read_byte", &args4, &res4);
     try testing.expectEqual(@as(u64, 111), res4[0]);
+}
+
+test "multi-module — cross-module call_indirect type match" {
+    // Provider exports "add(i32,i32)->i32"
+    const provider_bytes = @embedFile("testdata/28_provider_call_indirect.wasm");
+    var provider = try WasmModule.load(testing.allocator, provider_bytes);
+    defer provider.deinit();
+
+    // Consumer imports "add" from provider, places in table, calls via call_indirect
+    const consumer_bytes = @embedFile("testdata/29_consumer_call_indirect.wasm");
+    var consumer = try WasmModule.loadWithImports(testing.allocator, consumer_bytes, &.{
+        .{ .module = "provider", .source = .{ .wasm_module = provider } },
+    });
+    defer consumer.deinit();
+
+    // call_add(3, 4) should call imported add via call_indirect → 7
+    var args = [_]u64{ 3, 4 };
+    var results = [_]u64{0};
+    try consumer.invoke("call_add", &args, &results);
+    try testing.expectEqual(@as(u64, 7), results[0]);
+}
+
+test "multi-module — shared table via loadLinked" {
+    // Mt: exports table with elements at [2..5] = [$g,$g,$g,$g], $g returns 4
+    const mt_bytes = @embedFile("testdata/30_table_export.wasm");
+    var mt = try WasmModule.load(testing.allocator, mt_bytes);
+    defer mt.deinit();
+
+    // Verify Mt.call(2) = 4 before Ot loads
+    var args2 = [_]u64{2};
+    var results = [_]u64{0};
+    try mt.invoke("call", &args2, &results);
+    try testing.expectEqual(@as(u64, 4), results[0]);
+
+    // Register Mt's exports in its store under "Mt"
+    try mt.registerExports("Mt");
+
+    // Load Ot into Mt's shared store: imports tab and h from Mt, writes elem [1,2] = [$i,$h]
+    const ot_bytes = @embedFile("testdata/31_table_import.wasm");
+    const ot_result = try WasmModule.loadLinked(testing.allocator, ot_bytes, &mt.store);
+    var ot = ot_result.module;
+    defer ot.deinit();
+    try testing.expect(ot_result.apply_error == null);
+
+    // After Ot loads, Mt.tab[2] = $h (returns -4), Mt.tab[1] = $i (returns 6)
+    try mt.invoke("call", &args2, &results); // Mt.call(2)
+    try testing.expectEqual(@as(u64, 4294967292), results[0]); // -4 as u32
+
+    var args1 = [_]u64{1};
+    try mt.invoke("call", &args1, &results); // Mt.call(1)
+    try testing.expectEqual(@as(u64, 6), results[0]); // $i returns 6
 }
 
 test "nqueens(8) = 92 — regir only (JIT disabled)" {

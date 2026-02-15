@@ -9,12 +9,18 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const module_mod = @import("module.zig");
+const store_mod = @import("store.zig");
+const Store = store_mod.Store;
 
 /// Tag bit for i31ref values on the operand stack (bit 63).
 pub const I31_TAG: u64 = @as(u64, 1) << 63;
 
 /// Tag bits for GC object references on the operand stack (bits 32-39).
 pub const GC_TAG: u64 = @as(u64, 0x01) << 32;
+
+/// Tag bit for externref values on the operand stack (bit 33).
+/// Externref(N) is encoded as (N + 1) | EXTERN_TAG so that externref(0) != null.
+pub const EXTERN_TAG: u64 = @as(u64, 0x02) << 32;
 
 /// A GC heap object (struct or array instance).
 /// Operand stack value type (matches Vm stack: u64).
@@ -272,7 +278,12 @@ pub fn matchesHeapType(val: u64, target_ht: u32, module: *const Module) bool {
 }
 
 /// Check if a runtime GC value matches a target heap type, with heap access.
-pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, heap: *GcHeap) bool {
+pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, store: *Store) bool {
+    // Externref values live in a separate hierarchy — only match HEAP_EXTERN.
+    if (isExternRef(val)) {
+        return target_ht == ValType.HEAP_EXTERN;
+    }
+
     if (target_ht == ValType.HEAP_ANY) return true;
     if (target_ht == ValType.HEAP_NONE) return false;
 
@@ -282,7 +293,7 @@ pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, 
 
     if (GcHeap.isGcRef(val)) {
         const addr = GcHeap.decodeRef(val) catch return false;
-        const obj = heap.getObject(addr) catch return false;
+        const obj = store.gc_heap.getObject(addr) catch return false;
         const obj_type_idx: u32 = switch (obj.*) {
             .struct_obj => |s| s.type_idx,
             .array_obj => |a| a.type_idx,
@@ -302,27 +313,30 @@ pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, 
         return isConcreteSubtype(obj_type_idx, target_ht, module);
     }
 
-    // funcref
-    if (target_ht == ValType.HEAP_FUNC) return val != 0;
+    // funcref: check abstract and concrete function types
+    if (val != 0) {
+        if (target_ht == ValType.HEAP_FUNC) return true;
+        if (target_ht == ValType.HEAP_NOFUNC) return false;
+        // Concrete function type check: look up function's type in store
+        if (target_ht < module.types.items.len) {
+            const func_addr = @as(usize, @intCast(val - 1));
+            if (func_addr < store.functions.items.len) {
+                const func = store.functions.items[func_addr];
+                if (func.canonical_type_id != std.math.maxInt(u32)) {
+                    return module.isTypeSubtype(func.canonical_type_id, module.getCanonicalTypeId(target_ht));
+                }
+            }
+        }
+        return false;
+    }
 
     return false;
 }
 
 /// Check if concrete type `sub` is a subtype of concrete type `super` (or equal).
-/// Uses linear super_types chain walk (D114).
+/// Delegates to Module.isTypeSubtype (canonical IDs + super_types chain walk).
 pub fn isConcreteSubtype(sub: u32, super: u32, module: *const Module) bool {
-    if (sub == super) return true;
-    if (sub >= module.types.items.len) return false;
-
-    // Walk the super_types chain
-    var current = sub;
-    while (true) {
-        if (current >= module.types.items.len) return false;
-        const td = module.types.items[current];
-        if (td.super_types.len == 0) return false;
-        current = td.super_types[0]; // single inheritance
-        if (current == super) return true;
-    }
+    return module.isTypeSubtype(sub, super);
 }
 
 // ============================================================
@@ -358,6 +372,24 @@ pub fn decodeI31Unsigned(val: u64) !i32 {
 /// Check if an operand stack value is an i31ref.
 pub fn isI31(val: u64) bool {
     return val != 0 and (val & I31_TAG != 0);
+}
+
+/// Check if a value is an externref (has EXTERN_TAG set).
+/// EXTERN_TAG takes priority: extern.convert_any preserves internal tags (I31_TAG, GC_TAG)
+/// alongside EXTERN_TAG, so we only check EXTERN_TAG bit.
+pub fn isExternRef(val: u64) bool {
+    return val != 0 and (val & EXTERN_TAG != 0);
+}
+
+/// Encode a host externref value N as a tagged operand-stack value.
+/// externref(N) → (N + 1) | EXTERN_TAG, so externref(0) is distinguishable from null.
+pub fn encodeExternRef(n: u64) u64 {
+    return (n + 1) | EXTERN_TAG;
+}
+
+/// Decode a tagged externref back to the host value N.
+pub fn decodeExternRef(val: u64) u64 {
+    return (val & ~EXTERN_TAG) - 1;
 }
 
 // ============================================================
@@ -436,25 +468,78 @@ test "GcHeap encodeRef/decodeRef" {
     try testing.expectError(error.Trap, GcHeap.decodeRef(0));
 }
 
+test "externref — encode/decode round-trip" {
+    // externref(0) must be non-zero (distinguishable from null)
+    const ext0 = encodeExternRef(0);
+    try testing.expect(ext0 != 0);
+    try testing.expect(isExternRef(ext0));
+    try testing.expectEqual(@as(u64, 0), decodeExternRef(ext0));
+
+    // externref(42) round-trip
+    const ext42 = encodeExternRef(42);
+    try testing.expect(isExternRef(ext42));
+    try testing.expectEqual(@as(u64, 42), decodeExternRef(ext42));
+
+    // null (0) is not externref
+    try testing.expect(!isExternRef(0));
+
+    // i31 is not externref (no EXTERN_TAG)
+    try testing.expect(!isExternRef(encodeI31(7)));
+
+    // GC ref is not externref (no EXTERN_TAG)
+    try testing.expect(!isExternRef(GC_TAG | 1));
+
+    // extern.convert_any(i31) has both I31_TAG and EXTERN_TAG — still externref
+    const externalized_i31 = encodeI31(8) | EXTERN_TAG;
+    try testing.expect(isExternRef(externalized_i31));
+    // any.convert_extern restores original i31
+    const restored_i31 = externalized_i31 & ~EXTERN_TAG;
+    try testing.expect(isI31(restored_i31));
+    try testing.expect(!isExternRef(restored_i31));
+}
+
+test "externref — matchesHeapTypeWithHeap" {
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+    var mod: Module = Module.init(testing.allocator, &.{});
+    const ext_val = encodeExternRef(0);
+
+    // externref matches HEAP_EXTERN only
+    try testing.expect(matchesHeapTypeWithHeap(ext_val, ValType.HEAP_EXTERN, &mod, &store));
+    // externref does NOT match internal hierarchy types
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_ANY, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_EQ, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_I31, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_STRUCT, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_NONE, &mod, &store));
+
+    // After stripping EXTERN_TAG (simulating any.convert_extern), value matches HEAP_ANY
+    const internalized = ext_val & ~EXTERN_TAG;
+    try testing.expect(internalized != 0); // not null
+    try testing.expect(!isExternRef(internalized)); // no longer externref
+    try testing.expect(matchesHeapTypeWithHeap(internalized, ValType.HEAP_ANY, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(internalized, ValType.HEAP_EXTERN, &mod, &store));
+}
+
 test "subtype checking — i31 matches i31/eq/any" {
-    var heap = GcHeap.init(testing.allocator);
-    defer heap.deinit();
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
     var mod: Module = Module.init(testing.allocator, &.{});
     const i31_val = encodeI31(42);
     // i31 matches i31, eq, any but not struct/array/none
-    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_I31, &mod, &heap));
-    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_EQ, &mod, &heap));
-    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ANY, &mod, &heap));
-    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_STRUCT, &mod, &heap));
-    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ARRAY, &mod, &heap));
-    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_NONE, &mod, &heap));
+    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_I31, &mod, &store));
+    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_EQ, &mod, &store));
+    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ANY, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_STRUCT, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ARRAY, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_NONE, &mod, &store));
 }
 
 test "subtype checking — GC struct ref matches struct/eq/any" {
-    var heap = GcHeap.init(testing.allocator);
-    defer heap.deinit();
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
     const fields = [_]u64{42};
-    const addr = try heap.allocStruct(0, &fields);
+    const addr = try store.gc_heap.allocStruct(0, &fields);
     const ref_val = GcHeap.encodeRef(addr);
 
     // Create a minimal module with one struct type (no supertypes)
@@ -466,13 +551,13 @@ test "subtype checking — GC struct ref matches struct/eq/any" {
     var mod: Module = Module.init(testing.allocator, &.{});
     mod.types = types_list;
 
-    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_STRUCT, &mod, &heap));
-    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_EQ, &mod, &heap));
-    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ANY, &mod, &heap));
-    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ARRAY, &mod, &heap));
-    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_I31, &mod, &heap));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_STRUCT, &mod, &store));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_EQ, &mod, &store));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ANY, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ARRAY, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_I31, &mod, &store));
     // Concrete type 0 matches itself
-    try testing.expect(matchesHeapTypeWithHeap(ref_val, 0, &mod, &heap));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, 0, &mod, &store));
 }
 
 test "subtype checking — concrete subtype chain" {
@@ -501,7 +586,7 @@ test "subtype checking — concrete subtype chain" {
 }
 
 test "struct VM integration — struct.new + struct.get" {
-    const Store = @import("store.zig").Store;
+
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -556,7 +641,7 @@ test "struct VM integration — struct.new + struct.get" {
 }
 
 test "struct VM integration — struct.new_default + struct.set + struct.get" {
-    const Store = @import("store.zig").Store;
+
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -606,7 +691,7 @@ test "struct VM integration — struct.new_default + struct.set + struct.get" {
 }
 
 test "array VM integration — array.new + array.get + array.len" {
-    const Store = @import("store.zig").Store;
+
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -655,7 +740,7 @@ test "array VM integration — array.new + array.get + array.len" {
 }
 
 test "i31 VM integration — ref.i31 + i31.get_s round-trip" {
-    const Store = @import("store.zig").Store;
+
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -713,7 +798,7 @@ test "i31 VM integration — ref.i31 + i31.get_s round-trip" {
 }
 
 test "cast VM integration — ref.test i31ref against i31" {
-    const Store = @import("store.zig").Store;
+
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -766,7 +851,7 @@ test "cast VM integration — ref.test i31ref against i31" {
 }
 
 test "cast VM integration — ref.cast null traps" {
-    const Store = @import("store.zig").Store;
+
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -1032,3 +1117,4 @@ test "markRootsWide — u128 operand stack scanning" {
     try testing.expect(heap.slots.items[a].marked);
     try testing.expect(!heap.slots.items[b].marked); // not in roots
 }
+
