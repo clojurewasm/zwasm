@@ -41,7 +41,7 @@ Stages 0-28 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.5: externref representation fix (EXTERN_TAG encoding, -18 failures: 90→72)
 - [x] 28.6: throw_ref opcode implementation (exnref store + re-throw)
 - [x] 28.7: JIT self-call depth guard + unconditional arg spill (call:as-load-operand pre-existing)
-- [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
+- [x] 29.0: Thread toolchain setup (Rust wasm32-wasip1-threads + env.memory import)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
 - [ ] 29.2: Fix threads spec 4 failures
 - [ ] 30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison)
@@ -53,12 +53,12 @@ Stages 0-28 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-Stage 28 merged to main. Ready for Stage 29 (threads).
+29.1: Thread test suite + spawning mechanism in zwasm.
 
 ## Previous Task
 
-Stage 28 complete: spec fix batch (225→13 Mac failures, 14 Ubuntu).
-Merged to main. Benchmarks recorded (28-complete), no regressions.
+29.0: Rust wasm32-wasip1-threads toolchain verified. Added env.memory shared
+import support to WASI loader (registerAll). Rust atomic-test passes.
 
 ## Wasm 3.0 Coverage
 
