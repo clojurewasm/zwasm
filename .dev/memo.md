@@ -31,6 +31,11 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 27.2: Migrate wabt → wasm-tools (docs, rules, scripts, CI, flake.nix)
 - [x] 28.0: Regenerate GC spec tests with wasm-tools
 - [x] 28.1: Fix spec failures (225→140): JIT FP cache, nullexnref, table init, S33 heap types, block type range
+- [x] 28.2a: Spec runner `either` comparison for relaxed_simd (-32 failures)
+- [ ] 28.2b: WAT parser nested comments fix (3 failures)
+- [ ] 28.2c: Spec runner multi-module linking (linking/instance ~36 failures)
+- [ ] 28.2d: Edge case fixes: throw_ref, extern, table_grow, array_init bounds (~8 failures)
+- [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
 - [ ] 29.2: Fix threads spec 4 failures
@@ -43,25 +48,12 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.2: Investigate and fix spec test failures — categorize remaining 140.
-
-28.1 complete. Fixed 5 issues:
-1. JIT FP cache merge-point bug: evict BEFORE pc_map at branch targets (+11)
-2. Missing nullexnref (0x74) type + spec runner null bottom type comparison (+29)
-3. Table init expression support (0x40 0x00 prefix) (+10)
-4. S33 heap type encoding: exn=-23, noexn=-12 (+4)
-5. Block type range: 0x69-0x7F for GC/EH shorthand types (+28)
-Total: 225→140 failures, 61,940→62,018 passes.
-
-Remaining 140 breakdown:
-- relaxed_* 32 (implementation-defined, skip)
-- linking/instance 36 (multi-module linking — spec runner limitation)
-- GC subtyping ~50 (type-subtyping 11, ref_test 11, array 7, i31 6, etc.)
-- other 22 (comments 3, threads 4, throw_ref 1, call 1, etc.)
+28.2b: WAT parser nested comments fix (3 failures).
+Spec baseline: Mac 108 failures. Commit gate: failure count must not increase.
 
 ## Previous Task
 
-28.1: Fixed 5 spec issues (225→140 failures, +78 passes): JIT FP cache, nullexnref, table init expr, S33 heap types, block type range.
+28.2a: Spec runner `either` v128 comparison fix (-32 failures, 140→108).
 
 ## Wasm 3.0 Coverage
 
@@ -70,11 +62,11 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 62,018/62,271 (99.6%).
-140 failures: linking 16+6, relaxed_* 32, instance 12,
-type-subtyping 11, ref_test 11, array 7, i31 6, elem 6, array_new_elem 5,
-br_on_cast_fail 2, br_on_cast 2, other 22.
-Ubuntu: +15 endianness64 (x86-specific). Tail-call timeouts eliminated (27.1).
+None. Mac 62,050/62,158 (99.8%).
+108 failures: linking 16+6, instance 12, type-subtyping 11, ref_test 11,
+array 7, i31 6, elem 6, array_new_elem 5, linking3 4, comments 3,
+type-equivalence 3, br_on_cast 2, br_on_cast_fail 2, imports4 2, ref_cast 2, other ~10.
+Ubuntu: +15 endianness64 (x86-specific).
 
 ## References
 

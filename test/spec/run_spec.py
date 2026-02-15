@@ -227,16 +227,24 @@ def match_results(results, expected_list):
                     return False  # null doesn't match ref_any
                 ridx += 1
             elif e[0] == "either":
-                # Result must match any one of the alternatives
-                if ridx >= len(results):
+                # Result must match any one of the alternatives.
+                # Determine width (result slots) from alternatives:
+                # v128/v128_nan consume 2 slots, everything else 1.
+                width = 1
+                for alt in e[1]:
+                    if isinstance(alt, tuple) and alt[0] in ("v128", "v128_nan"):
+                        width = 2
+                        break
+                if ridx + width > len(results):
                     return False
+                result_slice = results[ridx:ridx + width]
                 matched = any(
-                    match_results([results[ridx]], [alt])
+                    match_result(result_slice, alt)
                     for alt in e[1]
                 )
                 if not matched:
                     return False
-                ridx += 1
+                ridx += width
             else:
                 return False
         else:
