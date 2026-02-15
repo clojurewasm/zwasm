@@ -1118,3 +1118,167 @@ test "markRootsWide — u128 operand stack scanning" {
     try testing.expect(!heap.slots.items[b].marked); // not in roots
 }
 
+// ================================================================
+// Stress tests
+// ================================================================
+
+test "stress — allocation pressure with collection" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+    heap.gc_threshold = 100;
+
+    // Allocate 1000 structs in batches, keeping only even-indexed ones alive
+    var live_addrs: [500]u32 = undefined;
+    var live_count: usize = 0;
+
+    for (0..1000) |i| {
+        const addr = try heap.allocStruct(0, &[_]u64{@intCast(i)});
+        if (i % 2 == 0) {
+            live_addrs[live_count] = addr;
+            live_count += 1;
+        }
+        // Periodically collect, keeping only even-indexed objects
+        if (heap.shouldCollect()) {
+            var roots: [500]u64 = undefined;
+            for (0..live_count) |j| roots[j] = GcHeap.encodeRef(live_addrs[j]);
+            try heap.collect(roots[0..live_count]);
+        }
+    }
+
+    // Final collection
+    var roots: [500]u64 = undefined;
+    for (0..live_count) |j| roots[j] = GcHeap.encodeRef(live_addrs[j]);
+    try heap.collect(roots[0..live_count]);
+
+    // All 500 live objects should survive
+    for (0..live_count) |j| {
+        const obj = try heap.getObject(live_addrs[j]);
+        const val = obj.struct_obj.fields[0];
+        try testing.expectEqual(@as(u64, @intCast(j * 2)), val);
+    }
+}
+
+test "stress — deep object chain survives GC" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Build a chain: node_0 → node_1 → ... → node_99 (leaf has value 42)
+    const depth: u32 = 100;
+    var prev_ref: u64 = 42; // leaf value
+    var chain_addrs: [100]u32 = undefined;
+    for (0..depth) |i| {
+        const addr = try heap.allocStruct(0, &[_]u64{prev_ref});
+        chain_addrs[i] = addr;
+        prev_ref = GcHeap.encodeRef(addr);
+    }
+
+    // Also allocate garbage nodes not in the chain
+    for (0..50) |_| {
+        _ = try heap.allocStruct(0, &[_]u64{999});
+    }
+
+    // Collect with only the chain root
+    const root_addr = chain_addrs[depth - 1];
+    const roots = [_]u64{GcHeap.encodeRef(root_addr)};
+    try heap.collect(&roots);
+
+    // Walk the chain from root to leaf
+    var current = root_addr;
+    for (0..depth - 1) |_| {
+        const obj = try heap.getObject(current);
+        const field = obj.struct_obj.fields[0];
+        current = try GcHeap.decodeRef(field);
+    }
+    // Leaf node should hold the original value
+    const leaf = try heap.getObject(current);
+    try testing.expectEqual(@as(u64, 42), leaf.struct_obj.fields[0]);
+}
+
+test "stress — large array of GC refs" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Allocate 500 leaf structs
+    const n: u32 = 500;
+    var leaf_addrs: [500]u32 = undefined;
+    for (0..n) |i| {
+        leaf_addrs[i] = try heap.allocStruct(0, &[_]u64{@intCast(i)});
+    }
+
+    // Create array holding refs to all leaves
+    var arr_values: [500]u64 = undefined;
+    for (0..n) |i| arr_values[i] = GcHeap.encodeRef(leaf_addrs[i]);
+    const arr_addr = try heap.allocArrayWithValues(1, &arr_values);
+
+    // Allocate garbage
+    for (0..200) |_| {
+        _ = try heap.allocStruct(0, &[_]u64{0xDEAD});
+    }
+
+    // Collect with array as root — should keep array + all 500 leaves
+    const roots = [_]u64{GcHeap.encodeRef(arr_addr)};
+    try heap.collect(&roots);
+
+    // Verify all leaves accessible through array
+    const arr_obj = try heap.getObject(arr_addr);
+    for (0..n) |i| {
+        const ref = arr_obj.array_obj.elements[i];
+        const leaf_addr = try GcHeap.decodeRef(ref);
+        const leaf = try heap.getObject(leaf_addr);
+        try testing.expectEqual(@as(u64, @intCast(i)), leaf.struct_obj.fields[0]);
+    }
+}
+
+test "stress — free list reuse efficiency" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+
+    // Allocate 100 objects, keep only first
+    const first = try heap.allocStruct(0, &[_]u64{1});
+    for (1..100) |_| {
+        _ = try heap.allocStruct(0, &[_]u64{0});
+    }
+
+    // Collect: 99 objects freed
+    const roots = [_]u64{GcHeap.encodeRef(first)};
+    try heap.collect(&roots);
+
+    // Slots grew to 100, but 99 are on free list
+    try testing.expectEqual(@as(usize, 100), heap.slots.items.len);
+
+    // Allocate 99 more — all should reuse freed slots (no new slots)
+    for (0..99) |_| {
+        _ = try heap.allocStruct(0, &[_]u64{2});
+    }
+    try testing.expectEqual(@as(usize, 100), heap.slots.items.len);
+}
+
+test "stress — mixed alloc/collect bursts" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+    heap.gc_threshold = 50;
+
+    var survivors: std.ArrayListUnmanaged(u32) = .empty;
+    defer survivors.deinit(testing.allocator);
+
+    // 10 rounds: each round allocates 100 objects, promotes 10 to survivors
+    for (0..10) |round| {
+        for (0..100) |j| {
+            const addr = try heap.allocStruct(0, &[_]u64{@intCast(round * 100 + j)});
+            if (j % 10 == 0) {
+                try survivors.append(testing.allocator, addr);
+            }
+        }
+        // Collect with all survivors as roots
+        const roots = try testing.allocator.alloc(u64, survivors.items.len);
+        defer testing.allocator.free(roots);
+        for (survivors.items, 0..) |s, k| roots[k] = GcHeap.encodeRef(s);
+        try heap.collect(roots);
+    }
+
+    // All 100 survivors (10 rounds × 10 per round) should be alive
+    try testing.expectEqual(@as(usize, 100), survivors.items.len);
+    for (survivors.items) |addr| {
+        _ = try heap.getObject(addr);
+    }
+}

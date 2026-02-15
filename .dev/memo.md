@@ -47,17 +47,17 @@ Stages 0-30 — all COMPLETE. See `roadmap.md` for details.
 - [x] 30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison)
 - [x] 30.1: Widen RegInstr to u16 regs (st_matrix func#42: u8 reg limit → interpreter fallback)
 - [x] 30.2: Increase MAX_PHYS_REGS (tgo_mfr: 23 regs spill 3, eliminate hot-loop spills)
-- [ ] 31.0: GC stress test suite creation
+- [x] 31.0: GC stress test suite creation
 - [ ] 31.1: GC benchmark (zwasm vs wasmtime vs node)
 - [ ] 31.2: GC collector improvement decision
 
 ## Current Task
 
-31.0: GC stress test suite creation.
+31.1: GC benchmark (zwasm vs wasmtime vs node).
 
 ## Previous Task
 
-Stage 30 merged to main. Fixed x86 JIT call spill bug (ARM64-specific isCallerSavedVreg caused vregs 3-4 to not be spilled on x86). Ubuntu: 62,148/62,158 spec.
+31.0: Added 5 GC stress tests (allocation pressure, deep chain, large array, free list reuse, mixed burst).
 
 ## Wasm 3.0 Coverage
 
