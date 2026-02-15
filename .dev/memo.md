@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 62,153/62,158 Mac (100.0%), 62,148/62,158 Ubuntu (100.0%, wasm-tools). GC+EH integrated, threads 310/310, E2E: 356/356
+- Spec: 62,156/62,158 Mac (100.0%), 62,148/62,158 Ubuntu (100.0%, wasm-tools). GC+EH integrated, threads 310/310, E2E: 356/356
 - Benchmarks: 4 layers (WAT 5, TinyGo 11, Shootout 5, GC 2 = 23 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -54,16 +54,16 @@ Stages 0-31 — all COMPLETE. See `roadmap.md` for details.
 - [x] 31.4: Adaptive GC threshold
 - [x] 31.5: GC benchmark re-measure
 - [x] 32.0: Fix call_indirect type mismatch with subtype checking (6 failures)
-- [ ] 32.1: Fix cross-module memory/table import sharing (3 failures)
+- [x] 32.1: Fix cross-module memory/table import sharing (3 failures)
 - [ ] 32.2: Fix call as-load-operand + instance funcref return (2 failures)
 
 ## Current Task
 
-32.1: Fix cross-module memory/table import sharing (3 failures).
+32.2: Fix call as-load-operand + instance funcref return (2 failures).
 
 ## Previous Task
 
-32.0: Fix call_indirect type mismatch — canonical check definitive for GC subtypes, remap canonical_type_id in resolveImports for cross-module. 6 failures fixed (type-subtyping 4, type-rec 2). 62,153/62,158.
+32.1: Fix cross-module memory/table import sharing — register to root store, shared-store loading for modules-to-be-registered, spectest pre-load. 3 failures fixed (imports4 2, table_grow 1). 62,156/62,158.
 
 ## Wasm 3.0 Coverage
 
@@ -72,9 +72,9 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 5 failures, Ubuntu 4 failures (estimated).
-Mac: imports4 2, call 1, instance 1, table_grow 1.
-Ubuntu: imports4 2, instance 1, table_grow 1 (estimated).
+None. Mac 2 failures, Ubuntu 1 failure (estimated).
+Mac: call 1, instance 1.
+Ubuntu: instance 1 (estimated, call failure may be Mac-only).
 
 ## References
 

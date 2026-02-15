@@ -1133,7 +1133,10 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
                 try stdout.flush();
                 continue;
             };
-            main_module.registerExports(reg_name) catch {
+            // Always register to root store so cross-module imports work.
+            // loadLinked modules have their own empty store, so registerExports
+            // (which targets self.store) would put exports in the wrong store.
+            main_module.registerExportsTo(root_store, reg_name) catch {
                 try stdout.print("error register failed\n", .{});
                 try stdout.flush();
                 continue;

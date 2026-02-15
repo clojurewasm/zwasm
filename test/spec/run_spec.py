@@ -783,11 +783,15 @@ def run_test_file(json_path, verbose=False):
             if wasm_file:
                 current_wasm = os.path.join(test_dir, wasm_file)
 
-                # Try shared-store loading: find a registered module's runner to host this module.
-                # Only attempt if the module imports from a registered module.
+                # Try shared-store loading: load into an existing runner's store.
+                # Prefer a runner whose registered name appears in the binary
+                # (direct import match), but fall back to any available runner
+                # so that all modules in a test share the same store (required
+                # for cross-module memory/table growth visibility).
                 loaded_shared = False
                 if reg_runners and registered_modules:
                     target_runner = None
+                    # First: try to find a runner whose name appears in the binary
                     for reg_name in registered_modules:
                         if reg_name in reg_runners:
                             try:
@@ -797,11 +801,33 @@ def run_test_file(json_path, verbose=False):
                                         break
                             except Exception:
                                 pass
+                    # Fallback: if this named module will be registered (next
+                    # command is a register referencing it), load into shared
+                    # store so its exports are accessible to later modules.
+                    if target_runner is None and internal_name:
+                        cmd_idx = all_commands.index(cmd)
+                        will_register = False
+                        for future in all_commands[cmd_idx + 1:]:
+                            if future["type"] == "register" and future.get("name") == internal_name:
+                                will_register = True
+                                break
+                            if future["type"] == "module":
+                                break  # stop at next module
+                        if will_register:
+                            for reg_name in reg_runners:
+                                r = reg_runners[reg_name]
+                                if r.proc and r.proc.poll() is None:
+                                    target_runner = r
+                                    break
                     if target_runner and target_runner.proc and target_runner.proc.poll() is None:
+                        # Pre-load spectest into shared store if this module needs it
+                        if needs_spectest(current_wasm) and "spectest" not in registered_modules:
+                            st_ok, _ = target_runner.load_module("spectest", SPECTEST_WASM)
+                            if st_ok:
+                                target_runner.register_module("spectest")
+                                registered_modules["spectest"] = SPECTEST_WASM
                         load_name = internal_name.lstrip("$") if internal_name else f"_mod{line}"
                         ok, resp = target_runner.load_module(load_name, current_wasm)
-                        if _debug_threads:
-                            print(f"  [DBG] shared-store load {load_name}: ok={ok}, resp={resp}")
                         if ok:
                             # Save current runner if needed
                             prev_is_shared = runner and any(r is runner for r in reg_runners.values())
