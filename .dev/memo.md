@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 62,145/62,158 Mac (100.0%, wasm-tools), Ubuntu 61,781/62,018. GC+EH integrated, threads 306/310, E2E: 356/356
+- Spec: 62,145/62,158 Mac (100.0%), 62,144/62,158 Ubuntu (100.0%, wasm-tools). GC+EH integrated, threads 306/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -18,11 +18,11 @@ Session handover document. Read at session start.
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
 - **main = stable**: CW depends on main via GitHub URL (v0.2.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
-- **Size guard**: Binary ≤ 1.5MB, Memory ≤ 4.5MB (fib RSS). Current: 1.1MB / 3.3MB.
+- **Size guard**: Binary ≤ 1.5MB, Memory ≤ 4.5MB (fib RSS). Current: 1.22MB / 3.57MB.
 
 ## Completed Stages
 
-Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-28 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue (v0.3.0)
 
@@ -53,13 +53,12 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-Stage 28 complete. Running benchmark + size guard checks before merge.
+Stage 28 merged to main. Ready for Stage 29 (threads).
 
 ## Previous Task
 
-28.2e: x86 JIT call arg spill — spillVregIfCalleeSaved→spillVreg for trampoline
-args. Dead-after-call arg vregs in caller-saved regs weren't spilled to regs[],
-trampoline read stale values. Fixed 15 endianness64 Ubuntu failures.
+Stage 28 complete: spec fix batch (225→13 Mac failures, 14 Ubuntu).
+Merged to main. Benchmarks recorded (28-complete), no regressions.
 
 ## Wasm 3.0 Coverage
 
@@ -68,10 +67,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 13 failures, Ubuntu 25 (12 extra = tail-call Debug timeouts).
+None. Mac 13 failures, Ubuntu 14 (ReleaseSafe via --build).
 Mac: type-subtyping 4, imports4 2, threads-wait_notify 2, type-rec 2,
 call 1, instance 1, table_grow 1.
-Ubuntu: +return_call 5, +return_call_ref 5, +call 1, +call_ref 1 (Debug timeouts).
+Ubuntu: +call 1 extra (2 vs Mac's 1).
 
 ## References
 
