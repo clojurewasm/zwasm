@@ -51,16 +51,16 @@ Stages 0-30 — all COMPLETE. See `roadmap.md` for details.
 - [x] 31.1: GC benchmark (zwasm vs wasmtime vs node)
 - [x] 31.2: GC collector improvement decision (D121)
 - [x] 31.3: Arena allocator for GC field storage
-- [ ] 31.4: Adaptive GC threshold
+- [x] 31.4: Adaptive GC threshold
 - [ ] 31.5: GC benchmark re-measure
 
 ## Current Task
 
-31.4: Adaptive GC threshold.
+31.5: GC benchmark re-measure.
 
 ## Previous Task
 
-31.3: Arena bump allocator for GC fields. gc_alloc -8%, gc_tree -18%.
+31.4: Adaptive GC threshold. gc_alloc 62→18ms (3.4x), gc_tree 1668→125ms (13.3x). Gap vs wasmtime: 2.1x/4.0x (was 6.7x/46x).
 
 ## Wasm 3.0 Coverage
 

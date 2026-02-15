@@ -235,12 +235,38 @@ pub const GcHeap = struct {
         try self.drainMarkQueue(&queue);
     }
 
-    /// Full mark-and-sweep collection cycle.
+    /// Full mark-and-sweep collection cycle with adaptive threshold.
     pub fn collect(self: *GcHeap, roots: []const u64) !void {
+        const live_before = self.countLive();
         self.clearMarks();
         try self.markRoots(roots);
         self.sweep();
         self.alloc_since_gc = 0;
+        self.adaptThreshold(live_before);
+    }
+
+    /// Count live (non-null) slots.
+    pub fn countLive(self: *const GcHeap) u32 {
+        var count: u32 = 0;
+        for (self.slots.items) |slot| {
+            if (slot.obj != null) count += 1;
+        }
+        return count;
+    }
+
+    /// Adapt GC threshold based on reclaim ratio.
+    /// If less than 25% was reclaimed, double the threshold (up to live_count * 2).
+    /// If more than 75% was reclaimed, halve the threshold (down to GC_THRESHOLD_DEFAULT).
+    pub fn adaptThreshold(self: *GcHeap, live_before: u32) void {
+        const live_after = self.countLive();
+        const reclaimed = live_before -| live_after;
+        if (live_before > 0 and reclaimed * 4 < live_before) {
+            // Less than 25% reclaimed — collection was mostly wasted, grow threshold
+            self.gc_threshold = @min(self.gc_threshold *| 2, @max(live_after * 2, GC_THRESHOLD_DEFAULT));
+        } else if (live_before > 0 and reclaimed * 4 > live_before * 3) {
+            // More than 75% reclaimed — lots of garbage, shrink threshold
+            self.gc_threshold = @max(self.gc_threshold / 2, GC_THRESHOLD_DEFAULT);
+        }
     }
 
     /// Encode a GC heap address as an operand stack value (non-null).
@@ -1123,6 +1149,39 @@ test "shouldCollect — threshold tracking" {
     try heap.collect(&roots);
     try testing.expectEqual(@as(u32, 0), heap.alloc_since_gc);
     try testing.expect(!heap.shouldCollect());
+}
+
+test "adaptThreshold — grows when reclaim is low" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+    heap.gc_threshold = 100;
+
+    // Allocate 100 objects, keep ALL alive (0% reclaim)
+    var addrs: [100]u32 = undefined;
+    for (0..100) |i| {
+        addrs[i] = try heap.allocStruct(0, &[_]u64{@intCast(i)});
+    }
+    var roots: [100]u64 = undefined;
+    for (0..100) |i| roots[i] = GcHeap.encodeRef(addrs[i]);
+    try heap.collect(&roots);
+
+    // Threshold should have grown (0% reclaimed → doubled)
+    try testing.expect(heap.gc_threshold > 100);
+}
+
+test "adaptThreshold — shrinks when reclaim is high" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+    heap.gc_threshold = 2000;
+
+    // Allocate 100 objects, keep NONE alive (100% reclaim)
+    for (0..100) |i| {
+        _ = try heap.allocStruct(0, &[_]u64{@intCast(i)});
+    }
+    try heap.collect(&[_]u64{});
+
+    // Threshold should have shrunk (100% reclaimed)
+    try testing.expect(heap.gc_threshold == GC_THRESHOLD_DEFAULT);
 }
 
 test "markRootsWide — u128 operand stack scanning" {

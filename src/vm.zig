@@ -683,6 +683,7 @@ pub const Vm = struct {
     /// Scans op_stack, reg_stack, and globals for GC roots.
     fn tryCollectGarbage(self: *Vm, store: *store_mod.Store) void {
         if (!store.gc_heap.shouldCollect()) return;
+        const live_before = store.gc_heap.countLive();
         store.gc_heap.clearMarks();
         // Mark from op_stack (u128 — GC refs in low 64 bits)
         store.gc_heap.markRootsWide(self.op_stack[0..self.op_ptr]) catch {};
@@ -694,6 +695,7 @@ pub const Vm = struct {
                 // If OOM, skip global scanning — still correct, just may collect too much
                 store.gc_heap.sweep();
                 store.gc_heap.alloc_since_gc = 0;
+                store.gc_heap.adaptThreshold(live_before);
                 return;
             };
             defer store.gc_heap.alloc.free(g_roots);
@@ -704,6 +706,7 @@ pub const Vm = struct {
         }
         store.gc_heap.sweep();
         store.gc_heap.alloc_since_gc = 0;
+        store.gc_heap.adaptThreshold(live_before);
     }
 
     // ================================================================
