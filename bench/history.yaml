@@ -980,3 +980,32 @@ entries:
       st_matrix: {time_ms: 283.8}
       gc_alloc: {time_ms: 61.9}
       gc_tree: {time_ms: 1668.3}
+  - id: "31.5"
+    date: "2026-02-16"
+    reason: "GC arena + adaptive threshold (D121)"
+    commit: "87f3a1f"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 54.1}
+      tak: {time_ms: 7.5}
+      sieve: {time_ms: 4.2}
+      nbody: {time_ms: 10.1}
+      nqueens: {time_ms: 2.9}
+      tgo_fib: {time_ms: 37.5}
+      tgo_tak: {time_ms: 7.6}
+      tgo_arith: {time_ms: 1.7}
+      tgo_sieve: {time_ms: 4.1}
+      tgo_fib_loop: {time_ms: 2.3}
+      tgo_gcd: {time_ms: 2.1}
+      tgo_nqueens: {time_ms: 40.3}
+      tgo_mfr: {time_ms: 45.8}
+      tgo_list: {time_ms: 35.6}
+      tgo_rwork: {time_ms: 6.9}
+      tgo_strops: {time_ms: 34.6}
+      st_fib2: {time_ms: 1023.3}
+      st_sieve: {time_ms: 176.0}
+      st_nestedloop: {time_ms: 4.6}
+      st_ackermann: {time_ms: 5.0}
+      st_matrix: {time_ms: 285.8}
+      gc_alloc: {time_ms: 20.2}
+      gc_tree: {time_ms: 131.2}

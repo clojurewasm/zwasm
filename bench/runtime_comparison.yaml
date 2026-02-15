@@ -128,10 +128,10 @@ benchmarks:
     bun: {time_ms: 84.7, mem_mb: 37.0}
     node: {time_ms: 174.1, mem_mb: 44.7}
   gc_alloc:
-    zwasm: {time_ms: 55.5}
+    zwasm: {time_ms: 20.2}
     wasmtime: {time_ms: 8.2}
     node: {time_ms: 31.6}
   gc_tree:
-    zwasm: {time_ms: 1636.0}
+    zwasm: {time_ms: 131.2}
     wasmtime: {time_ms: 35.6}
     node: {time_ms: 38.6}

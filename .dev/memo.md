@@ -52,15 +52,15 @@ Stages 0-30 — all COMPLETE. See `roadmap.md` for details.
 - [x] 31.2: GC collector improvement decision (D121)
 - [x] 31.3: Arena allocator for GC field storage
 - [x] 31.4: Adaptive GC threshold
-- [ ] 31.5: GC benchmark re-measure
+- [x] 31.5: GC benchmark re-measure
 
 ## Current Task
 
-31.5: GC benchmark re-measure.
+Stage 31 complete. Ready for merge gate.
 
 ## Previous Task
 
-31.4: Adaptive GC threshold. gc_alloc 62→18ms (3.4x), gc_tree 1668→125ms (13.3x). Gap vs wasmtime: 2.1x/4.0x (was 6.7x/46x).
+31.5: Final GC numbers recorded. gc_alloc 20ms (2.5x vs wasmtime), gc_tree 131ms (3.7x). Spec: 62,147/62,158 unchanged.
 
 ## Wasm 3.0 Coverage
 
