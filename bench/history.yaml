@@ -924,3 +924,30 @@ entries:
       st_nestedloop: {time_ms: 1.6}
       st_ackermann: {time_ms: 5.7}
       st_matrix: {time_ms: 264.6}
+  - id: "stage30"
+    date: "2026-02-16"
+    reason: "Stage 30 complete: perf gap analysis + u16 regs + MAX_PHYS_REGS 23"
+    commit: "90de63e"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 54.1}
+      tak: {time_ms: 8.6}
+      sieve: {time_ms: 4.1}
+      nbody: {time_ms: 9.4}
+      nqueens: {time_ms: 2.4}
+      tgo_fib: {time_ms: 37.7}
+      tgo_tak: {time_ms: 7.8}
+      tgo_arith: {time_ms: 1.8}
+      tgo_sieve: {time_ms: 3.2}
+      tgo_fib_loop: {time_ms: 2.1}
+      tgo_gcd: {time_ms: 2.1}
+      tgo_nqueens: {time_ms: 42.1}
+      tgo_mfr: {time_ms: 44.2}
+      tgo_list: {time_ms: 36.7}
+      tgo_rwork: {time_ms: 7.1}
+      tgo_strops: {time_ms: 34.7}
+      st_fib2: {time_ms: 1030.3}
+      st_sieve: {time_ms: 176.8}
+      st_nestedloop: {time_ms: 3.3}
+      st_ackermann: {time_ms: 4.2}
+      st_matrix: {time_ms: 286.2}
