@@ -37,7 +37,7 @@ memory64/
 multi-memory/
 proposals/
 relaxed-simd/
-threads/
+/threads/
 tool-conventions/
 wabt/
 *.cwasm
@@ -45,4 +45,7 @@ wabt/
 # Clojure
 .lsp/
 .cpcache/
-.clj-kondo
+.clj-kondo/
+
+# Thread test build artifacts
+test/threads/*/target/

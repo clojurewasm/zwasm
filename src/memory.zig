@@ -17,6 +17,22 @@ const guard_mod = @import("guard.zig");
 pub const PAGE_SIZE: u32 = 64 * 1024; // 64 KiB
 pub const MAX_PAGES: u32 = 64 * 1024; // 4 GiB theoretical max
 
+/// Per-address wait queue for memory.atomic.wait/notify.
+/// Uses a simple list of condition variables keyed by address.
+pub const WaitQueue = struct {
+    mutex: std.Thread.Mutex = .{},
+    waiters: std.ArrayList(Waiter) = .empty,
+
+    const Waiter = struct {
+        addr: u32,
+        cond: std.Thread.Condition = .{},
+    };
+
+    pub fn deinit(self: *WaitQueue, alloc: mem.Allocator) void {
+        self.waiters.deinit(alloc);
+    }
+};
+
 pub const Memory = struct {
     alloc: mem.Allocator,
     min: u32,
@@ -26,6 +42,7 @@ pub const Memory = struct {
     shared: bool = false, // true = borrowed from another module, skip deinit
     is_shared_memory: bool = false, // threads proposal: declared with shared flag
     guard_mem: ?guard_mod.GuardedMem = null, // mmap-backed with guard pages
+    wait_queue: ?WaitQueue = null, // threads: wait/notify support
 
     pub fn init(alloc: mem.Allocator, min: u32, max: ?u32) Memory {
         return .{
@@ -62,6 +79,7 @@ pub const Memory = struct {
     }
 
     pub fn deinit(self: *Memory) void {
+        if (self.wait_queue) |*wq| wq.deinit(self.alloc);
         if (self.shared) return;
         if (self.guard_mem) |*gm| {
             gm.deinit();
@@ -178,6 +196,113 @@ pub const Memory = struct {
             f64 => mem.writeInt(u64, @ptrCast(ptr), @bitCast(value), .little),
             else => @compileError("Memory.write: unsupported type " ++ @typeName(T)),
         }
+    }
+
+    /// Ensure the wait queue is initialized (lazy init for shared memories).
+    fn ensureWaitQueue(self: *Memory) *WaitQueue {
+        if (self.wait_queue == null) {
+            self.wait_queue = WaitQueue{};
+        }
+        return &self.wait_queue.?;
+    }
+
+    /// memory.atomic.wait32: block until notified or timeout.
+    /// Returns 0 (ok/woken), 1 (not-equal), 2 (timed-out).
+    pub fn atomicWait32(self: *Memory, addr: u32, expected: i32, timeout_ns: i64) !i32 {
+        if (!self.is_shared_memory) return error.Trap;
+        const loaded = try self.read(i32, 0, addr);
+        if (loaded != expected) return 1; // not-equal
+
+        const wq = self.ensureWaitQueue();
+        wq.mutex.lock();
+
+        // Add waiter
+        const idx = wq.waiters.items.len;
+        wq.waiters.append(self.alloc, .{ .addr = addr }) catch {
+            wq.mutex.unlock();
+            return 2; // treat alloc failure as timeout
+        };
+        const waiter = &wq.waiters.items[idx];
+
+        if (timeout_ns < 0) {
+            // Wait forever
+            waiter.cond.wait(&wq.mutex);
+        } else {
+            const timeout: u64 = @intCast(timeout_ns);
+            waiter.cond.timedWait(&wq.mutex, timeout) catch {
+                // Timeout — remove self from waiters
+                self.removeWaiter(wq, idx);
+                wq.mutex.unlock();
+                return 2; // timed-out
+            };
+        }
+
+        // Woken — remove self from waiters
+        self.removeWaiter(wq, idx);
+        wq.mutex.unlock();
+        return 0; // ok
+    }
+
+    /// memory.atomic.wait64: block until notified or timeout.
+    /// Returns 0 (ok/woken), 1 (not-equal), 2 (timed-out).
+    pub fn atomicWait64(self: *Memory, addr: u32, expected: i64, timeout_ns: i64) !i32 {
+        if (!self.is_shared_memory) return error.Trap;
+        const loaded = try self.read(i64, 0, addr);
+        if (loaded != expected) return 1; // not-equal
+
+        const wq = self.ensureWaitQueue();
+        wq.mutex.lock();
+
+        const idx = wq.waiters.items.len;
+        wq.waiters.append(self.alloc, .{ .addr = addr }) catch {
+            wq.mutex.unlock();
+            return 2;
+        };
+        const waiter = &wq.waiters.items[idx];
+
+        if (timeout_ns < 0) {
+            waiter.cond.wait(&wq.mutex);
+        } else {
+            const timeout: u64 = @intCast(timeout_ns);
+            waiter.cond.timedWait(&wq.mutex, timeout) catch {
+                self.removeWaiter(wq, idx);
+                wq.mutex.unlock();
+                return 2;
+            };
+        }
+
+        self.removeWaiter(wq, idx);
+        wq.mutex.unlock();
+        return 0;
+    }
+
+    /// memory.atomic.notify: wake up to `count` waiters at `addr`.
+    /// Returns the number of waiters woken.
+    pub fn atomicNotify(self: *Memory, addr: u32, count: u32) !i32 {
+        // Notify is valid on non-shared memory (returns 0 per spec).
+        _ = try self.read(u32, 0, addr); // bounds check
+        if (count == 0) return 0; // wake 0 threads
+        const wq_opt = self.wait_queue;
+        if (wq_opt == null) return 0;
+        var wq = &self.wait_queue.?;
+        wq.mutex.lock();
+        defer wq.mutex.unlock();
+
+        var woken: i32 = 0;
+        var i: usize = 0;
+        while (i < wq.waiters.items.len and woken < @as(i32, @intCast(count))) {
+            if (wq.waiters.items[i].addr == addr) {
+                wq.waiters.items[i].cond.signal();
+                woken += 1;
+            }
+            i += 1;
+        }
+        return woken;
+    }
+
+    fn removeWaiter(self: *Memory, wq: *WaitQueue, idx: usize) void {
+        _ = self;
+        _ = wq.waiters.orderedRemove(idx);
     }
 
     /// Raw byte slice for direct access.
@@ -395,6 +520,72 @@ test "Memory — guarded mode read/write" {
 
     // Bounds checking still works (interpreter path)
     try testing.expectError(error.OutOfBoundsMemoryAccess, m.read(u8, 0, PAGE_SIZE));
+}
+
+test "Memory — atomicWait32 not-equal returns 1" {
+    var m = Memory.init(testing.allocator, 1, null);
+    defer m.deinit();
+    m.is_shared_memory = true;
+    try m.allocateInitial();
+
+    try m.write(i32, 0, 0, 42);
+    // Wait with expected=0, but actual is 42 → not-equal
+    const result = try m.atomicWait32(0, 0, -1);
+    try testing.expectEqual(@as(i32, 1), result);
+}
+
+test "Memory — atomicWait32 timeout returns 2" {
+    var m = Memory.init(testing.allocator, 1, null);
+    defer m.deinit();
+    m.is_shared_memory = true;
+    try m.allocateInitial();
+
+    try m.write(i32, 0, 0, 0);
+    // Wait with expected=0 (matches), timeout=1ns → should time out quickly
+    const result = try m.atomicWait32(0, 0, 1);
+    try testing.expectEqual(@as(i32, 2), result);
+}
+
+test "Memory — atomicWait32 non-shared traps" {
+    var m = Memory.init(testing.allocator, 1, null);
+    defer m.deinit();
+    try m.allocateInitial();
+    // Non-shared memory → wait should trap
+    try testing.expectError(error.Trap, m.atomicWait32(0, 0, -1));
+}
+
+test "Memory — atomicNotify returns 0 with no waiters" {
+    var m = Memory.init(testing.allocator, 1, null);
+    defer m.deinit();
+    try m.allocateInitial();
+    // Notify is valid on non-shared memory, returns 0
+    const result = try m.atomicNotify(0, 1);
+    try testing.expectEqual(@as(i32, 0), result);
+}
+
+test "Memory — atomicWait32 + notify cross-thread" {
+    var m = Memory.init(testing.allocator, 1, null);
+    defer m.deinit();
+    m.is_shared_memory = true;
+    try m.allocateInitial();
+    try m.write(i32, 0, 0, 0);
+
+    var wait_result: i32 = -1;
+    const t = try std.Thread.spawn(.{}, struct {
+        fn run(mem_ptr: *Memory, result_ptr: *i32) void {
+            result_ptr.* = mem_ptr.atomicWait32(0, 0, -1) catch -1;
+        }
+    }.run, .{ &m, &wait_result });
+
+    // Give the waiter thread time to enter wait state
+    std.Thread.sleep(10 * std.time.ns_per_ms);
+
+    // Notify should wake the waiter
+    const woken = try m.atomicNotify(0, 1);
+    try testing.expectEqual(@as(i32, 1), woken);
+
+    t.join();
+    try testing.expectEqual(@as(i32, 0), wait_result);
 }
 
 test "Memory — guarded mode grow multiple times" {

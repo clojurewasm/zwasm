@@ -1006,6 +1006,39 @@ fn printInspectJson(module: *const module_mod.Module, file_path: []const u8, siz
 // zwasm run --batch
 // ============================================================
 
+const ThreadInvocation = struct {
+    func_name: []const u8,
+    args: []u64,
+    result_count: usize,
+    export_info: ?types.ExportInfo,
+    results: [512]u64 = undefined,
+    err_name: ?[]const u8 = null,
+};
+
+const ThreadCtx = struct {
+    module: *types.WasmModule,
+    invocations: std.ArrayList(ThreadInvocation),
+    alloc: Allocator,
+};
+
+const ThreadHandle = struct {
+    name: []const u8,
+    handle: std.Thread,
+    ctx: *ThreadCtx,
+};
+
+fn threadRunner(ctx: *ThreadCtx) void {
+    for (ctx.invocations.items) |*inv| {
+        var results: [512]u64 = undefined;
+        @memset(results[0..inv.result_count], 0);
+        ctx.module.invoke(inv.func_name, inv.args, results[0..inv.result_count]) catch |err| {
+            inv.err_name = @errorName(err);
+            continue;
+        };
+        @memcpy(inv.results[0..inv.result_count], results[0..inv.result_count]);
+    }
+}
+
 /// Batch mode: read invocations from stdin, one per line.
 /// Protocol: "invoke <func> [arg1 arg2 ...]"
 /// Output: "ok [val1 val2 ...]" or "error <message>"
@@ -1066,6 +1099,22 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
     // Root store: always points to the original module's store (used for loadLinked).
     // set_main changes main_module but the shared store must remain the root.
     const root_store = &module.store;
+
+    // Thread support: track spawned threads
+    var thread_handles: std.ArrayList(ThreadHandle) = .empty;
+    defer {
+        for (thread_handles.items) |th| {
+            th.handle.join();
+            for (th.ctx.invocations.items) |*inv| {
+                allocator.free(inv.func_name);
+                allocator.free(inv.args);
+            }
+            th.ctx.invocations.deinit(allocator);
+            allocator.free(th.name);
+            allocator.destroy(th.ctx);
+        }
+        thread_handles.deinit(allocator);
+    }
 
     while (true) {
         const line = r.takeDelimiter('\n') catch |err| switch (err) {
@@ -1177,6 +1226,210 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
                 continue;
             }
             try stdout.print("ok\n", .{});
+            try stdout.flush();
+            continue;
+        }
+
+        // Thread commands: thread_begin <name> <module>, thread_end, thread_wait <name>, thread_wait_all
+        if (std.mem.startsWith(u8, line, "thread_begin ")) {
+            const after = line["thread_begin ".len..];
+            // Parse: <name> <module_name>
+            const sp = std.mem.indexOfScalar(u8, after, ' ') orelse {
+                try stdout.print("error thread_begin: need name and module\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            // Dupe t_name immediately — the stdin buffer will be overwritten
+            // by subsequent reads inside the invocation-buffering while loop below.
+            const t_name = allocator.dupe(u8, after[0..sp]) catch {
+                try stdout.print("error thread_begin: alloc\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            const t_mod_name = after[sp + 1 ..];
+            // Find the target module
+            var t_module: ?*types.WasmModule = null;
+            for (dyn_names.items, dyn_modules.items) |dn, dm| {
+                if (std.mem.eql(u8, dn, t_mod_name)) { t_module = dm; break; }
+            }
+            if (t_module == null) {
+                for (link_names, linked_modules) |ln, lm| {
+                    if (std.mem.eql(u8, ln, t_mod_name)) { t_module = lm; break; }
+                }
+            }
+            if (t_module == null) {
+                // Try main module name match
+                if (std.mem.eql(u8, t_mod_name, "main")) {
+                    t_module = main_module;
+                }
+            }
+            if (t_module == null) {
+                allocator.free(t_name);
+                try stdout.print("error thread_begin: module not found\n", .{});
+                try stdout.flush();
+                continue;
+            }
+            // Create context and buffer invocations until thread_end
+            const ctx = allocator.create(ThreadCtx) catch {
+                allocator.free(t_name);
+                try stdout.print("error thread_begin: alloc\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            ctx.* = .{
+                .module = t_module.?,
+                .invocations = .empty,
+                .alloc = allocator,
+            };
+            // Buffer invocations until thread_end
+            while (true) {
+                const tline = r.takeDelimiter('\n') catch break orelse break;
+                if (std.mem.eql(u8, tline, "thread_end")) break;
+                if (!std.mem.startsWith(u8, tline, "invoke ")) continue;
+                // Parse: invoke <len>:<func> [args...]
+                const inv_rest = tline["invoke ".len..];
+                const inv_colon = std.mem.indexOfScalar(u8, inv_rest, ':') orelse continue;
+                const inv_name_len = std.fmt.parseInt(usize, inv_rest[0..inv_colon], 10) catch continue;
+                const inv_ns = inv_colon + 1;
+                if (inv_ns + inv_name_len > inv_rest.len) continue;
+                const inv_func = allocator.dupe(u8, inv_rest[inv_ns .. inv_ns + inv_name_len]) catch continue;
+                // Parse args
+                var inv_args_buf: [512]u64 = undefined;
+                var inv_argc: usize = 0;
+                const inv_as = inv_ns + inv_name_len;
+                if (inv_as < inv_rest.len) {
+                    var inv_parts = std.mem.splitScalar(u8, inv_rest[inv_as..], ' ');
+                    while (inv_parts.next()) |part| {
+                        if (part.len == 0) continue;
+                        inv_args_buf[inv_argc] = std.fmt.parseInt(u64, part, 10) catch break;
+                        inv_argc += 1;
+                    }
+                }
+                const inv_args = allocator.alloc(u64, inv_argc) catch continue;
+                @memcpy(inv_args, inv_args_buf[0..inv_argc]);
+                // Result count
+                var inv_rc: usize = 1;
+                const inv_export = t_module.?.getExportInfo(inv_func);
+                if (inv_export) |info| {
+                    inv_rc = 0;
+                    for (info.result_types) |rt| {
+                        inv_rc += if (rt == .v128) 2 else 1;
+                    }
+                }
+                ctx.invocations.append(allocator, .{
+                    .func_name = inv_func,
+                    .args = inv_args,
+                    .result_count = inv_rc,
+                    .export_info = inv_export,
+                }) catch continue;
+            }
+            // Spawn the thread
+            const handle = std.Thread.spawn(.{}, threadRunner, .{ctx}) catch {
+                allocator.free(t_name);
+                try stdout.print("error thread_begin: spawn failed\n", .{});
+                try stdout.flush();
+                continue;
+            };
+            thread_handles.append(allocator, .{ .name = t_name, .handle = handle, .ctx = ctx }) catch {};
+            try stdout.print("ok\n", .{});
+            try stdout.flush();
+            continue;
+        }
+        // thread_wait <name> — wait for a specific named thread
+        if (std.mem.startsWith(u8, line, "thread_wait ")) {
+            const wait_name = line["thread_wait ".len..];
+            var found = false;
+            var i: usize = 0;
+            while (i < thread_handles.items.len) {
+                const th = thread_handles.items[i];
+                if (std.mem.eql(u8, th.name, wait_name)) {
+                    found = true;
+                    th.handle.join();
+                    for (th.ctx.invocations.items) |inv| {
+                        if (inv.err_name) |err_name| {
+                            try stdout.print("thread_result error {s}\n", .{err_name});
+                        } else {
+                            try stdout.print("thread_result ok", .{});
+                            if (inv.export_info) |info| {
+                                var ridx: usize = 0;
+                                for (info.result_types) |rt| {
+                                    if (rt == .v128) {
+                                        try stdout.print(" {d} {d}", .{ inv.results[ridx], inv.results[ridx + 1] });
+                                        ridx += 2;
+                                    } else {
+                                        const out_val = switch (rt) {
+                                            .i32, .f32 => inv.results[ridx] & 0xFFFFFFFF,
+                                            else => inv.results[ridx],
+                                        };
+                                        try stdout.print(" {d}", .{out_val});
+                                        ridx += 1;
+                                    }
+                                }
+                            } else if (inv.result_count > 0) {
+                                try stdout.print(" {d}", .{inv.results[0]});
+                            }
+                            try stdout.print("\n", .{});
+                        }
+                    }
+                    try stdout.print("thread_done\n", .{});
+                    try stdout.flush();
+                    // Cleanup after output is flushed
+                    for (th.ctx.invocations.items) |*inv| {
+                        allocator.free(inv.func_name);
+                        allocator.free(inv.args);
+                    }
+                    th.ctx.invocations.deinit(allocator);
+                    allocator.free(th.name);
+                    allocator.destroy(th.ctx);
+                    _ = thread_handles.orderedRemove(i);
+                    break;
+                }
+                i += 1;
+            }
+            if (!found) {
+                try stdout.print("thread_result error thread_not_found\n", .{});
+                try stdout.print("thread_done\n", .{});
+                try stdout.flush();
+            }
+            continue;
+        }
+        if (std.mem.eql(u8, line, "thread_wait_all")) {
+            for (thread_handles.items) |th| {
+                th.handle.join();
+                for (th.ctx.invocations.items) |*inv| {
+                    if (inv.err_name) |err_name| {
+                        try stdout.print("thread_result error {s}\n", .{err_name});
+                    } else {
+                        try stdout.print("thread_result ok", .{});
+                        if (inv.export_info) |info| {
+                            var ridx: usize = 0;
+                            for (info.result_types) |rt| {
+                                if (rt == .v128) {
+                                    try stdout.print(" {d} {d}", .{ inv.results[ridx], inv.results[ridx + 1] });
+                                    ridx += 2;
+                                } else {
+                                    const out_val = switch (rt) {
+                                        .i32, .f32 => inv.results[ridx] & 0xFFFFFFFF,
+                                        else => inv.results[ridx],
+                                    };
+                                    try stdout.print(" {d}", .{out_val});
+                                    ridx += 1;
+                                }
+                            }
+                        } else if (inv.result_count > 0) {
+                            try stdout.print(" {d}", .{inv.results[0]});
+                        }
+                        try stdout.print("\n", .{});
+                    }
+                    allocator.free(inv.func_name);
+                    allocator.free(inv.args);
+                }
+                th.ctx.invocations.deinit(allocator);
+                allocator.free(th.name);
+                allocator.destroy(th.ctx);
+            }
+            thread_handles.clearRetainingCapacity();
+            try stdout.print("thread_done\n", .{});
             try stdout.flush();
             continue;
         }

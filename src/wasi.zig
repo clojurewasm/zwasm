@@ -1950,22 +1950,37 @@ fn lookupWasiFunc(name: []const u8) ?store_mod.HostFn {
 /// Register WASI functions that the module imports from "wasi_snapshot_preview1".
 pub fn registerAll(store: *Store, module: *const Module) !void {
     for (module.imports.items) |imp| {
-        if (imp.kind != .func) continue;
-        if (!mem.eql(u8, imp.module, "wasi_snapshot_preview1")) continue;
-
-        const func_ptr = lookupWasiFunc(imp.name) orelse continue;
-
-        // Get type from module
-        const func_type = module.getTypeFunc(imp.index) orelse return error.InvalidTypeIndex;
-
-        try store.exposeHostFunction(
-            imp.module,
-            imp.name,
-            func_ptr,
-            0,
-            func_type.params,
-            func_type.results,
-        );
+        switch (imp.kind) {
+            .func => {
+                if (!mem.eql(u8, imp.module, "wasi_snapshot_preview1")) continue;
+                const func_ptr = lookupWasiFunc(imp.name) orelse continue;
+                const func_type = module.getTypeFunc(imp.index) orelse return error.InvalidTypeIndex;
+                try store.exposeHostFunction(
+                    imp.module,
+                    imp.name,
+                    func_ptr,
+                    0,
+                    func_type.params,
+                    func_type.results,
+                );
+            },
+            .memory => {
+                // WASI threads convention: host provides shared memory via "env" "memory"
+                if (!mem.eql(u8, imp.module, "env")) continue;
+                if (!mem.eql(u8, imp.name, "memory")) continue;
+                const mt = imp.memory_type orelse continue;
+                const addr = try store.addMemory(
+                    mt.limits.min,
+                    mt.limits.max,
+                    mt.limits.page_size,
+                    mt.limits.is_shared,
+                );
+                const m = try store.getMemory(addr);
+                try m.allocateInitial();
+                try store.addExport("env", "memory", .memory, addr);
+            },
+            else => {},
+        }
     }
 }
 
@@ -2451,4 +2466,26 @@ test "WASI — registerAll for wasi_hello module" {
 
     // Should have registered fd_write
     try testing.expectEqual(@as(usize, 1), store_inst.functions.items.len);
+}
+
+test "WASI — env.memory shared import" {
+    const alloc = testing.allocator;
+    const wasm_bytes = try readTestFile("32_env_shared_memory.wasm");
+    defer alloc.free(wasm_bytes);
+
+    var module = Module.init(alloc, wasm_bytes);
+    defer module.deinit();
+    try module.decode();
+
+    var store_inst = Store.init(alloc);
+    defer store_inst.deinit();
+    try registerAll(&store_inst, &module);
+
+    // env.memory should have been created as a shared memory import
+    try testing.expectEqual(@as(usize, 1), store_inst.memories.items.len);
+    try testing.expect(store_inst.memories.items[0].is_shared_memory);
+
+    // Should be resolvable as an import
+    const handle = try store_inst.lookupImport("env", "memory", .memory);
+    try testing.expect(handle < store_inst.memories.items.len);
 }
