@@ -36,8 +36,8 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [ ] 28.2c: Spec runner multi-module linking (linking/instance ~36 failures — deep)
 - [x] 28.2d1: array_init_data/elem dropped segment bounds check (-2 failures)
 - [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
-- [ ] 28.3: GC subtyping / type hierarchy (~48 failures: ref_test, type-subtyping, br_on_cast, i31, array, elem)
-- [ ] 28.4: GC type canonicalization (type-equivalence 3, type-rec 2 = 5 failures)
+- [x] 28.3: GC subtyping / type hierarchy (type-subtyping 8 + ref_test 1 fixed, 48→40)
+- [x] 28.4: GC type canonicalization (canonical IDs, matchesCallIndirectType, isTypeSubtype)
 - [x] 28.5: externref representation fix (EXTERN_TAG encoding, -18 failures: 90→72)
 - [ ] 28.6: throw_ref opcode implementation (1 failure — currently returns error.Trap stub)
 - [ ] 28.7: call batch state loss in spec runner (1 failure — needs_state approach regresses, needs alternative)
@@ -53,19 +53,20 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.3 continued: type-subtyping 8 failures need subtype-aware call_indirect.
+28.3 complete. Next: multi-module linking or other remaining failures.
 
-Spec baseline: Mac 48 failures. Commit gate: failure count must not increase.
+Spec baseline: Mac 40 failures. Commit gate: failure count must not increase.
 
-Remaining 48 categorized:
+Remaining 40 categorized:
 - multi-module ~30: linking 15, elem 6, linking3 4, imports 2, imports4 2, table_grow 2, linking0 1, linking1 1
-- GC subtype-aware call_indirect 8: type-subtyping 8
 - threads 4: threads-wait_notify 2, threads-SB_atomic 1, threads-simple 1
 - Other: call 1, instance 1, throw_ref 1
 
 ## Previous Task
 
-28.3/28.4: isConcreteSubtype canonical ID support fixed ref_test (49→48).
+28.3: Subtype-aware call_indirect + funcref ref.test/ref.cast + br-to-function-level fix (48→40).
+Fixed: type-subtyping 8, ref_test 1. Key changes: Module.isTypeSubtype, matchesHeapTypeWithHeap
+accepts Store for funcref concrete type checks, function-level label forward target → body end.
 
 ## Wasm 3.0 Coverage
 
@@ -74,8 +75,8 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 48 failures.
-linking 15, type-subtyping 8, elem 6, linking3 4,
+None. Mac 40 failures.
+linking 15, elem 6, linking3 4,
 imports 2, imports4 2, table_grow 2, threads-wait_notify 2,
 call 1, instance 1, linking0 1, linking1 1, throw_ref 1,
 threads-SB_atomic 1, threads-simple 1.

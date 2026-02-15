@@ -609,9 +609,28 @@ pub const Module = struct {
         return type_idx;
     }
 
+    /// Check if concrete type `sub` is a subtype of (or equal to) concrete type `super`.
+    /// Uses canonical IDs for equivalence, then walks the super_types chain.
+    pub fn isTypeSubtype(self: *const Module, sub: u32, super: u32) bool {
+        if (sub == super) return true;
+        const canon_sub = self.getCanonicalTypeId(sub);
+        const canon_super = self.getCanonicalTypeId(super);
+        if (canon_sub == canon_super) return true;
+        if (sub >= self.types.items.len) return false;
+        var current = sub;
+        while (true) {
+            if (current >= self.types.items.len) return false;
+            const td = self.types.items[current];
+            if (td.super_types.len == 0) return false;
+            current = td.super_types[0];
+            if (current == super) return true;
+            if (self.getCanonicalTypeId(current) == canon_super) return true;
+        }
+    }
+
     /// Check if a function matches the expected call_indirect type.
-    /// Uses canonical IDs when available, falls back to structural comparison
-    /// for functions without canonical IDs (host functions, cross-module imports).
+    /// Uses subtype checking: func's type must be a subtype of the expected type.
+    /// Falls back to structural comparison for host/imported functions.
     pub fn matchesCallIndirectType(
         self: *const Module,
         type_idx: u32,
@@ -621,8 +640,8 @@ pub const Module = struct {
     ) bool {
         const UNSET = std.math.maxInt(u32);
         if (func_canonical_id != UNSET) {
-            // Fast path: canonical ID comparison
-            return self.getCanonicalTypeId(type_idx) == func_canonical_id;
+            // Subtype check: func's canonical type must be subtype of expected type
+            return self.isTypeSubtype(func_canonical_id, self.getCanonicalTypeId(type_idx));
         }
         // Fallback: structural comparison for host/imported functions
         if (self.getTypeFunc(type_idx)) |expected| {

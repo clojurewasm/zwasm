@@ -550,7 +550,7 @@ pub const Vm = struct {
                     try self.pushLabel(.{
                         .arity = func_ptr.results.len,
                         .op_stack_base = base + param_slots + wf.locals_count,
-                        .target = .{ .forward = body_reader },
+                        .target = .{ .forward = .{ .bytes = wf.code, .pos = wf.code.len } },
                     });
                     try self.execute(&body_reader, inst);
                 }
@@ -1789,7 +1789,7 @@ pub const Vm = struct {
                 const ref_val = self.pop();
                 const result: i32 = if (ref_val == 0)
                     (if (gc_op == .ref_test_null) @as(i32, 1) else @as(i32, 0))
-                else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap))
+                else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, instance.store))
                     @as(i32, 1)
                 else
                     @as(i32, 0);
@@ -1804,7 +1804,7 @@ pub const Vm = struct {
                     } else {
                         return error.Trap; // ref.cast traps on null
                     }
-                } else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap)) {
+                } else if (gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, instance.store)) {
                     try self.push(ref_val); // match: pass through
                 } else {
                     return error.Trap; // cast failure
@@ -1820,7 +1820,7 @@ pub const Vm = struct {
                 const matches = if (ref_val == 0)
                     null_check // null matches if target is nullable
                 else
-                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap);
+                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, instance.store);
                 if (matches) {
                     try self.push(ref_val);
                     try self.branchTo(depth, reader);
@@ -1838,7 +1838,7 @@ pub const Vm = struct {
                 const matches = if (ref_val == 0)
                     null_check
                 else
-                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, &instance.store.gc_heap);
+                    gc_mod.matchesHeapTypeWithHeap(ref_val, target_ht, instance.module, instance.store);
                 if (!matches) {
                     try self.push(ref_val);
                     try self.branchTo(depth, reader);
@@ -3193,7 +3193,7 @@ pub const Vm = struct {
                     try self.pushLabel(.{
                         .arity = current_fp.results.len,
                         .op_stack_base = self.op_ptr,
-                        .target = .{ .forward = body_reader },
+                        .target = .{ .forward = .{ .bytes = wf.code, .pos = wf.code.len } },
                     });
 
                     const callee_inst: *Instance = @ptrCast(@alignCast(wf.instance));
