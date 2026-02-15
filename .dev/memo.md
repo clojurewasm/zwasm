@@ -35,7 +35,7 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.2b: Prefer pre-compiled binary for text modules in spec runner (-3 failures)
 - [x] 28.2c: Spec runner multi-module linking (36→13 failures, shared-store approach)
 - [x] 28.2d1: array_init_data/elem dropped segment bounds check (-2 failures)
-- [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
+- [x] 28.2e: endianness64 x86 JIT call arg spill fix (-15 failures on Ubuntu)
 - [x] 28.3: GC subtyping / type hierarchy (type-subtyping 8 + ref_test 1 fixed, 48→40)
 - [x] 28.4: GC type canonicalization (canonical IDs, matchesCallIndirectType, isTypeSubtype)
 - [x] 28.5: externref representation fix (EXTERN_TAG encoding, -18 failures: 90→72)
@@ -53,16 +53,13 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH).
+Stage 28 complete. Running benchmark + size guard checks before merge.
 
 ## Previous Task
 
-28.2c: Multi-module linking — shared-store approach. Added loadLinked two-phase
-instantiation, batch protocol load/register/set_main/invoke_on commands, spec runner
-shared-store support with reg_runners, _resolve_target reg_runners routing.
-Key fixes: buffer corruption (stdin dupe), cross-module canonical IDs,
-partial init persistence (v2 spec), double-free on cleanup.
-36→13 failures (linking 0, elem 0, linking0-3 0).
+28.2e: x86 JIT call arg spill — spillVregIfCalleeSaved→spillVreg for trampoline
+args. Dead-after-call arg vregs in caller-saved regs weren't spilled to regs[],
+trampoline read stale values. Fixed 15 endianness64 Ubuntu failures.
 
 ## Wasm 3.0 Coverage
 
@@ -71,12 +68,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 36 failures.
-linking 14, elem 6, linking3 4,
-imports4 2, table_grow 2, threads-wait_notify 2,
-call 1, instance 1, linking0 1, linking1 1,
-threads-SB_atomic 1, threads-simple 1.
-Ubuntu: +15 endianness64 (x86-specific).
+None. Mac 13 failures, Ubuntu 25 (12 extra = tail-call Debug timeouts).
+Mac: type-subtyping 4, imports4 2, threads-wait_notify 2, type-rec 2,
+call 1, instance 1, table_grow 1.
+Ubuntu: +return_call 5, +return_call_ref 5, +call 1, +call_ref 1 (Debug timeouts).
 
 ## References
 
