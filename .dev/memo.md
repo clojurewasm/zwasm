@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 62,147/62,158 Mac (100.0%), 62,144/62,158 Ubuntu (100.0%, wasm-tools). GC+EH integrated, threads 310/310, E2E: 356/356
+- Spec: 62,147/62,158 Mac (100.0%), 62,148/62,158 Ubuntu (100.0%, wasm-tools). GC+EH integrated, threads 310/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -22,7 +22,7 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-28 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-30 — all COMPLETE. See `roadmap.md` for details.
 
 ## Task Queue (v0.3.0)
 
@@ -57,7 +57,7 @@ Stages 0-28 — all COMPLETE. See `roadmap.md` for details.
 
 ## Previous Task
 
-30.2: Increased ARM64 MAX_PHYS_REGS 20→23 (vreg 20→x0, 21→x1, 22→x17). tgo_mfr gap: 1.55x→1.03x vs wasmtime. tgo_list: 57→34ms.
+Stage 30 merged to main. Fixed x86 JIT call spill bug (ARM64-specific isCallerSavedVreg caused vregs 3-4 to not be spilled on x86). Ubuntu: 62,148/62,158 spec.
 
 ## Wasm 3.0 Coverage
 
@@ -66,10 +66,11 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 11 failures, Ubuntu TBD (ReleaseSafe via --build).
+None. Mac 11 failures, Ubuntu 10 failures.
 Mac: type-subtyping 4, imports4 2, type-rec 2,
 call 1, instance 1, table_grow 1.
-Ubuntu: TBD (needs verification after thread changes).
+Ubuntu: type-subtyping 4, imports4 2, type-rec 2,
+instance 1, table_grow 1.
 
 ## References
 
