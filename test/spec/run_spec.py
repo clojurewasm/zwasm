@@ -95,8 +95,15 @@ def parse_value(val_obj):
     if vtype in ref_types:
         if vstr == "null":
             return 0  # ref.null = 0 on the stack
-        # Non-null: pass raw integer value
         v = int(vstr)
+        # Host ref values: encode with +1 so value 0 != null.
+        # Externref additionally gets EXTERN_TAG (bit 33) to mark extern domain.
+        EXTERN_TAG = 0x200000000
+        if vtype == "externref":
+            return ((v + 1) | EXTERN_TAG) & 0xFFFFFFFFFFFFFFFF
+        if vtype == "anyref":
+            return (v + 1) & 0xFFFFFFFFFFFFFFFF
+        # Non-null: pass raw integer value
         return v & 0xFFFFFFFFFFFFFFFF
 
     if vstr.startswith("nan:"):

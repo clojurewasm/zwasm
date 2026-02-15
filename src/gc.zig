@@ -16,6 +16,10 @@ pub const I31_TAG: u64 = @as(u64, 1) << 63;
 /// Tag bits for GC object references on the operand stack (bits 32-39).
 pub const GC_TAG: u64 = @as(u64, 0x01) << 32;
 
+/// Tag bit for externref values on the operand stack (bit 33).
+/// Externref(N) is encoded as (N + 1) | EXTERN_TAG so that externref(0) != null.
+pub const EXTERN_TAG: u64 = @as(u64, 0x02) << 32;
+
 /// A GC heap object (struct or array instance).
 /// Operand stack value type (matches Vm stack: u64).
 const StackVal = u64;
@@ -273,6 +277,11 @@ pub fn matchesHeapType(val: u64, target_ht: u32, module: *const Module) bool {
 
 /// Check if a runtime GC value matches a target heap type, with heap access.
 pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, heap: *GcHeap) bool {
+    // Externref values live in a separate hierarchy — only match HEAP_EXTERN.
+    if (isExternRef(val)) {
+        return target_ht == ValType.HEAP_EXTERN;
+    }
+
     if (target_ht == ValType.HEAP_ANY) return true;
     if (target_ht == ValType.HEAP_NONE) return false;
 
@@ -360,6 +369,24 @@ pub fn isI31(val: u64) bool {
     return val != 0 and (val & I31_TAG != 0);
 }
 
+/// Check if a value is an externref (has EXTERN_TAG set).
+/// EXTERN_TAG takes priority: extern.convert_any preserves internal tags (I31_TAG, GC_TAG)
+/// alongside EXTERN_TAG, so we only check EXTERN_TAG bit.
+pub fn isExternRef(val: u64) bool {
+    return val != 0 and (val & EXTERN_TAG != 0);
+}
+
+/// Encode a host externref value N as a tagged operand-stack value.
+/// externref(N) → (N + 1) | EXTERN_TAG, so externref(0) is distinguishable from null.
+pub fn encodeExternRef(n: u64) u64 {
+    return (n + 1) | EXTERN_TAG;
+}
+
+/// Decode a tagged externref back to the host value N.
+pub fn decodeExternRef(val: u64) u64 {
+    return (val & ~EXTERN_TAG) - 1;
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -434,6 +461,59 @@ test "GcHeap encodeRef/decodeRef" {
     // null ref
     try testing.expect(!GcHeap.isGcRef(0));
     try testing.expectError(error.Trap, GcHeap.decodeRef(0));
+}
+
+test "externref — encode/decode round-trip" {
+    // externref(0) must be non-zero (distinguishable from null)
+    const ext0 = encodeExternRef(0);
+    try testing.expect(ext0 != 0);
+    try testing.expect(isExternRef(ext0));
+    try testing.expectEqual(@as(u64, 0), decodeExternRef(ext0));
+
+    // externref(42) round-trip
+    const ext42 = encodeExternRef(42);
+    try testing.expect(isExternRef(ext42));
+    try testing.expectEqual(@as(u64, 42), decodeExternRef(ext42));
+
+    // null (0) is not externref
+    try testing.expect(!isExternRef(0));
+
+    // i31 is not externref (no EXTERN_TAG)
+    try testing.expect(!isExternRef(encodeI31(7)));
+
+    // GC ref is not externref (no EXTERN_TAG)
+    try testing.expect(!isExternRef(GC_TAG | 1));
+
+    // extern.convert_any(i31) has both I31_TAG and EXTERN_TAG — still externref
+    const externalized_i31 = encodeI31(8) | EXTERN_TAG;
+    try testing.expect(isExternRef(externalized_i31));
+    // any.convert_extern restores original i31
+    const restored_i31 = externalized_i31 & ~EXTERN_TAG;
+    try testing.expect(isI31(restored_i31));
+    try testing.expect(!isExternRef(restored_i31));
+}
+
+test "externref — matchesHeapTypeWithHeap" {
+    var heap = GcHeap.init(testing.allocator);
+    defer heap.deinit();
+    var mod: Module = Module.init(testing.allocator, &.{});
+    const ext_val = encodeExternRef(0);
+
+    // externref matches HEAP_EXTERN only
+    try testing.expect(matchesHeapTypeWithHeap(ext_val, ValType.HEAP_EXTERN, &mod, &heap));
+    // externref does NOT match internal hierarchy types
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_ANY, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_EQ, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_I31, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_STRUCT, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_NONE, &mod, &heap));
+
+    // After stripping EXTERN_TAG (simulating any.convert_extern), value matches HEAP_ANY
+    const internalized = ext_val & ~EXTERN_TAG;
+    try testing.expect(internalized != 0); // not null
+    try testing.expect(!isExternRef(internalized)); // no longer externref
+    try testing.expect(matchesHeapTypeWithHeap(internalized, ValType.HEAP_ANY, &mod, &heap));
+    try testing.expect(!matchesHeapTypeWithHeap(internalized, ValType.HEAP_EXTERN, &mod, &heap));
 }
 
 test "subtype checking — i31 matches i31/eq/any" {

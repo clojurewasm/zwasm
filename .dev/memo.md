@@ -38,7 +38,7 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
 - [ ] 28.3: GC subtyping / type hierarchy (~48 failures: ref_test, type-subtyping, br_on_cast, i31, array, elem)
 - [ ] 28.4: GC type canonicalization (type-equivalence 3, type-rec 2 = 5 failures)
-- [ ] 28.5: externref representation fix (extern 1 + ref_is_null 1 = 2 failures — externref(0) vs null conflation)
+- [x] 28.5: externref representation fix (EXTERN_TAG encoding, -18 failures: 90→72)
 - [ ] 28.6: throw_ref opcode implementation (1 failure — currently returns error.Trap stub)
 - [ ] 28.7: call batch state loss in spec runner (1 failure — needs_state approach regresses, needs alternative)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
@@ -53,23 +53,20 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.2 investigation complete. Mac: 103 failures (was 140). Fixed: 37 total.
-Spec baseline: Mac 103 failures. Commit gate: failure count must not increase.
+28.3: GC subtyping (~36 failures). Next: investigate type-subtyping, array, i31, elem, array_new_elem.
 
-Remaining 103 categorized:
-- linking/instance/imports4 36: multi-module state sharing (spec runner)
-- GC subtyping ~48: type hierarchy checks (ref_test, type-subtyping, etc.)
-- threads 4: need thread spawning
-- table_grow 2: multi-module
-- extern 1: externref(0) vs null conflation
-- throw_ref 1: unimplemented opcode
-- call 1: batch process state loss
-- ref_is_null 1: externref table
-- type-equivalence 3, type-rec 2: GC type canonicalization
+Spec baseline: Mac 72 failures (was 90). Commit gate: failure count must not increase.
+
+Remaining 72 categorized:
+- multi-module state sharing 22: linking 14, linking3 4, imports4 2, table_grow 2
+- GC subtyping ~36: type-subtyping 11, array 7, i31 6, elem 6, array_new_elem 5, ref_test 1 (canon)
+- GC type canonicalization 5: type-equivalence 3, type-rec 2
+- threads 2: threads-wait_notify
+- Other: call 1, instance 1, linking0 1
 
 ## Previous Task
 
-28.2: Spec failure reduction (140→103, -37 fixes): either v128 comparison, binary_filename preference, array_init dropped segment check.
+28.5: externref representation fix (EXTERN_TAG encoding, -18 failures: 90→72).
 
 ## Wasm 3.0 Coverage
 
@@ -78,11 +75,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 62,055/62,158 (99.8%).
-103 failures: linking 16+6, instance 12, type-subtyping 11, ref_test 11,
-array 7, i31 6, elem 6, array_new_elem 5, linking3 4,
-type-equivalence 3, br_on_cast 2, br_on_cast_fail 2, imports4 2, ref_cast 2,
-table_grow 2, type-rec 2, call 1, extern 1, loop 0→1?, ref_is_null 1, throw_ref 1, threads 4.
+None. Mac 72 failures.
+linking 14, type-subtyping 11, array 7, i31 6, elem 6, array_new_elem 5,
+linking3 4, type-equivalence 3, imports4 2, table_grow 2, threads 2, type-rec 2,
+call 1, instance 1, linking0 1, ref_test 1.
 Ubuntu: +15 endianness64 (x86-specific).
 
 ## References

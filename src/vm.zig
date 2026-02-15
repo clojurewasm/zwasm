@@ -1792,11 +1792,24 @@ pub const Vm = struct {
                 try self.pushI32(result);
             },
 
-            // ---- extern conversion (identity passthrough) ----
-            .any_convert_extern, .extern_convert_any => {
-                // No-op: value stays on stack unchanged.
-                // In a fully typed runtime these would convert between anyref and externref,
-                // but our untyped u64 stack makes them identity operations.
+            // ---- extern conversion ----
+            .any_convert_extern => {
+                // Internalize: externref → anyref. Strip EXTERN_TAG.
+                const val = self.pop();
+                if (val == 0) {
+                    try self.push(0); // null stays null
+                } else {
+                    try self.push(val & ~gc_mod.EXTERN_TAG);
+                }
+            },
+            .extern_convert_any => {
+                // Externalize: anyref → externref. Add EXTERN_TAG.
+                const val = self.pop();
+                if (val == 0) {
+                    try self.push(0); // null stays null
+                } else {
+                    try self.push(val | gc_mod.EXTERN_TAG);
+                }
             },
 
             // ---- cast operations ----
