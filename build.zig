@@ -90,4 +90,17 @@ pub fn build(b: *std.Build) void {
         .root_module = bench_mod,
     });
     b.installArtifact(bench);
+
+    // Fuzz loader executable (reads wasm from stdin, compatible with AFL++/honggfuzz)
+    const fuzz_mod = b.createModule(.{
+        .root_source_file = b.path("src/fuzz_loader.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    fuzz_mod.addImport("zwasm", mod);
+    const fuzz = b.addExecutable(.{
+        .name = "fuzz_loader",
+        .root_module = fuzz_mod,
+    });
+    b.installArtifact(fuzz);
 }

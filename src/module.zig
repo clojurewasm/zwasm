@@ -2014,3 +2014,38 @@ test "Module — GC rec group decode" {
     try testing.expectEqual(@as(usize, 1), ft1.params.len);
     try testing.expectEqual(@as(usize, 0), ft1.results.len);
 }
+
+// ============================================================
+// Fuzz test — module decoder
+// ============================================================
+
+test "fuzz — module decode does not panic on arbitrary input" {
+    const Ctx = struct { corpus: []const []const u8 };
+    const corpus: []const []const u8 = &.{
+        // Empty
+        "",
+        // Too short
+        "\x00",
+        // Valid magic, no version
+        "\x00\x61\x73\x6d",
+        // Valid magic + version, no sections
+        "\x00\x61\x73\x6d\x01\x00\x00\x00",
+        // Valid header + truncated type section
+        "\x00\x61\x73\x6d\x01\x00\x00\x00\x01\x04\x01\x60\x00\x00",
+        // Valid header + invalid section id
+        "\x00\x61\x73\x6d\x01\x00\x00\x00\xff\x00",
+        // Valid header + oversized section length
+        "\x00\x61\x73\x6d\x01\x00\x00\x00\x01\xff\xff\xff\x0f",
+    };
+    try std.testing.fuzz(
+        Ctx{ .corpus = corpus },
+        struct {
+            fn f(_: Ctx, input: []const u8) anyerror!void {
+                var m = Module.init(testing.allocator, input);
+                defer m.deinit();
+                m.decode() catch return;
+            }
+        }.f,
+        .{},
+    );
+}

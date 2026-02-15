@@ -24,46 +24,20 @@ Session handover document. Read at session start.
 
 Stages 0-32 — all COMPLETE. See `roadmap.md` for details.
 
-## Task Queue (v0.3.0)
+## Task Queue (Stage 33: Fuzz Testing)
 
-- [x] 27.0: Ubuntu x86_64 verification of Stage 26
-- [x] 27.1: Switch spec runner to ReleaseSafe default (--build flag)
-- [x] 27.2: Migrate wabt → wasm-tools (docs, rules, scripts, CI, flake.nix)
-- [x] 28.0: Regenerate GC spec tests with wasm-tools
-- [x] 28.1: Fix spec failures (225→140): JIT FP cache, nullexnref, table init, S33 heap types, block type range
-- [x] 28.2a: Spec runner `either` comparison for relaxed_simd (-32 failures)
-- [x] 28.2b: Prefer pre-compiled binary for text modules in spec runner (-3 failures)
-- [x] 28.2c: Spec runner multi-module linking (36→13 failures, shared-store approach)
-- [x] 28.2d1: array_init_data/elem dropped segment bounds check (-2 failures)
-- [x] 28.2e: endianness64 x86 JIT call arg spill fix (-15 failures on Ubuntu)
-- [x] 28.3: GC subtyping / type hierarchy (type-subtyping 8 + ref_test 1 fixed, 48→40)
-- [x] 28.4: GC type canonicalization (canonical IDs, matchesCallIndirectType, isTypeSubtype)
-- [x] 28.5: externref representation fix (EXTERN_TAG encoding, -18 failures: 90→72)
-- [x] 28.6: throw_ref opcode implementation (exnref store + re-throw)
-- [x] 28.7: JIT self-call depth guard + unconditional arg spill (call:as-load-operand pre-existing)
-- [x] 29.0: Thread toolchain setup (Rust wasm32-wasip1-threads + env.memory import)
-- [x] 29.1: Thread test suite + spawning mechanism in zwasm
-- [x] 29.2: Fix threads spec failures (310/310)
-- [x] 30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison)
-- [x] 30.1: Widen RegInstr to u16 regs (st_matrix func#42: u8 reg limit → interpreter fallback)
-- [x] 30.2: Increase MAX_PHYS_REGS (tgo_mfr: 23 regs spill 3, eliminate hot-loop spills)
-- [x] 31.0: GC stress test suite creation
-- [x] 31.1: GC benchmark (zwasm vs wasmtime vs node)
-- [x] 31.2: GC collector improvement decision (D121)
-- [x] 31.3: Arena allocator for GC field storage
-- [x] 31.4: Adaptive GC threshold
-- [x] 31.5: GC benchmark re-measure
-- [x] 32.0: Fix call_indirect type mismatch with subtype checking (6 failures)
-- [x] 32.1: Fix cross-module memory/table import sharing (3 failures)
-- [x] 32.2: Fix call as-load-operand + instance funcref return (2 failures)
+- [x] 33.0: Fuzz harness for wasm module loader (std.testing.fuzz + standalone binary)
+- [ ] 33.1: Seed corpus from spec test wasm files + wasm-tools smith
+- [ ] 33.2: Differential testing harness (zwasm vs wasmtime)
+- [ ] 33.3: Run fuzz campaign and fix any crashes
 
 ## Current Task
 
-Stage 32 complete. All spec tests pass (62,158/62,158). v0.3.0 exit criteria met. Awaiting user input for next stage.
+33.1: Seed corpus from spec test wasm files + wasm-tools smith.
 
 ## Previous Task
 
-32.2: Fix JIT callee-saved spill conflict with reg_ptr cache (call test crash), module_instance handling for instance test. 2 failures fixed (call 1, instance 1). 62,158/62,158.
+33.0: Fuzz harness + crash fix. Added fuzz_loader binary (stdin→WasmModule.load), std.testing.fuzz test in module.zig. Found and fixed @intCast panic in store.zig addMemory/addTable for memory64/table64 values exceeding u32. 1000 runs 0 crashes.
 
 ## Wasm 3.0 Coverage
 

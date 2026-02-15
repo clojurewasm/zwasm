@@ -337,10 +337,9 @@ pub const Store = struct {
     }
 
     pub fn addMemory(self: *Store, min: u64, max: ?u64, page_size: u32, is_shared_memory: bool) !usize {
+        const min32: u32 = std.math.cast(u32, min) orelse return error.MemoryLimitExceeded;
+        const max32: ?u32 = if (max) |m| std.math.cast(u32, m) orelse return error.MemoryLimitExceeded else null;
         const ptr = try self.memories.addOne(self.alloc);
-        // Memory sizes are capped well below u32 max by implementation limits.
-        const min32: u32 = @intCast(min);
-        const max32: ?u32 = if (max) |m| @intCast(m) else null;
         // Use guarded memory (mmap + guard pages) on JIT-capable platforms.
         // Falls back to ArrayList if mmap fails (e.g., insufficient virtual memory).
         const memory_mod = @import("memory.zig");
@@ -361,10 +360,9 @@ pub const Store = struct {
     }
 
     pub fn addTable(self: *Store, reftype: opcode.RefType, min: u64, max: ?u64, is_64: bool) !usize {
+        const min32: u32 = std.math.cast(u32, min) orelse return error.TableLimitExceeded;
+        const max32: ?u32 = if (max) |m| std.math.cast(u32, m) orelse return error.TableLimitExceeded else null;
         const ptr = try self.tables.addOne(self.alloc);
-        // Table sizes are capped at 1M by implementation limits.
-        const min32: u32 = @intCast(min);
-        const max32: ?u32 = if (max) |m| @intCast(m) else null;
         ptr.* = try Table.init(self.alloc, reftype, min32, max32);
         ptr.is_64 = is_64;
         return self.tables.items.len - 1;
