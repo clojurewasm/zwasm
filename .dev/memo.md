@@ -46,18 +46,18 @@ Stages 0-28 — all COMPLETE. See `roadmap.md` for details.
 - [x] 29.2: Fix threads spec failures (310/310)
 - [x] 30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison)
 - [x] 30.1: Widen RegInstr to u16 regs (st_matrix func#42: u8 reg limit → interpreter fallback)
-- [ ] 30.2: Increase MAX_PHYS_REGS (tgo_mfr: 23 regs spill 3, eliminate hot-loop spills)
+- [x] 30.2: Increase MAX_PHYS_REGS (tgo_mfr: 23 regs spill 3, eliminate hot-loop spills)
 - [ ] 31.0: GC stress test suite creation
 - [ ] 31.1: GC benchmark (zwasm vs wasmtime vs node)
 - [ ] 31.2: GC collector improvement decision
 
 ## Current Task
 
-30.2: Increase MAX_PHYS_REGS (tgo_mfr: 23 regs spill 3, eliminate hot-loop spills).
+31.0: GC stress test suite creation.
 
 ## Previous Task
 
-30.1: Widened RegInstr from u8→u16 register fields (8→12 bytes). Unlocks func#42 RegIR for st_matrix. st_matrix gap: 2.96x→2.36x vs wasmtime.
+30.2: Increased ARM64 MAX_PHYS_REGS 20→23 (vreg 20→x0, 21→x1, 22→x17). tgo_mfr gap: 1.55x→1.03x vs wasmtime. tgo_list: 57→34ms.
 
 ## Wasm 3.0 Coverage
 

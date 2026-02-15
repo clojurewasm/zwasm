@@ -791,11 +791,13 @@ fn vregToPhys(vreg: u16) ?u5 {
     if (vreg <= 11) return @intCast(vreg - 5 + 9); // x9-x15 (caller-saved)
     if (vreg <= 13) return @intCast(vreg - 12 + 20); // x20-x21 (callee-saved)
     if (vreg <= 19) return @intCast(vreg - 14 + 2); // x2-x7 (caller-saved)
+    if (vreg <= 21) return @intCast(vreg - 20); // x0-x1 (caller-saved)
+    if (vreg == 22) return 17; // x17 (caller-saved, IP1 — safe in JIT)
     return null; // spill to memory
 }
 
 /// Maximum virtual registers mappable to physical registers.
-const MAX_PHYS_REGS: u8 = 20; // 5 callee + 7 caller + 2 callee + 6 caller
+const MAX_PHYS_REGS: u8 = 23; // 5 callee + 7 caller + 2 callee + 6 caller + 3 caller
 
 /// Scratch register for temporaries.
 const SCRATCH: u5 = 8; // x8
@@ -1176,8 +1178,8 @@ pub const Compiler = struct {
     /// vregs (already spilled by spillCallerSaved) or unmapped vregs (always in memory).
     fn spillVregIfCalleeSaved(self: *Compiler, vreg: u16) void {
         if (vregToPhys(vreg)) |phys| {
-            // Caller-saved ranges: x9-x15 (vregs 5-11), x2-x7 (vregs 14-19)
-            if ((phys >= 9 and phys <= 15) or (phys >= 2 and phys <= 7)) return;
+            // Caller-saved vregs: 5-11, 14-22. Callee-saved: 0-4, 12-13.
+            if (isCallerSavedVreg(vreg)) return;
             // Callee-saved: spill to make visible to trampoline
             self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
         }
@@ -4355,8 +4357,12 @@ test "virtual register mapping" {
     // r14-r19 → x2-x7 (caller-saved)
     try testing.expectEqual(@as(u5, 2), vregToPhys(14).?);
     try testing.expectEqual(@as(u5, 7), vregToPhys(19).?);
-    // r20+ → null (spill)
-    try testing.expectEqual(@as(?u5, null), vregToPhys(20));
+    // r20-r22 → x0, x1, x17 (caller-saved)
+    try testing.expectEqual(@as(u5, 0), vregToPhys(20).?);
+    try testing.expectEqual(@as(u5, 1), vregToPhys(21).?);
+    try testing.expectEqual(@as(u5, 17), vregToPhys(22).?);
+    // r23+ → null (spill)
+    try testing.expectEqual(@as(?u5, null), vregToPhys(23));
 }
 
 test "compile and execute constant return" {
