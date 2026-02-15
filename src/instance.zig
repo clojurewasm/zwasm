@@ -273,18 +273,17 @@ pub const Instance = struct {
             const addr = try self.store.addElem(elem_seg.reftype, count);
             const elem = try self.store.getElem(addr);
 
-            // Populate store elem: convention 0 = null, addr+1 = valid ref
+            // Populate store elem: convention 0 = null, non-zero = valid ref
             switch (elem_seg.init) {
                 .func_indices => |indices| {
                     for (indices, 0..) |func_idx, i| {
                         if (func_idx < self.funcaddrs.items.len) {
-                            elem.set(i, @intCast(self.funcaddrs.items[func_idx] + 1));
+                            elem.set(i, self.funcaddrs.items[func_idx] + 1);
                         }
                     }
                 },
                 .expressions => |exprs| {
                     for (exprs, 0..) |expr, i| {
-                        // evalInitExpr uses 0=null, addr+1=valid ref convention
                         const val = try evalInitExpr(expr, self);
                         elem.set(i, @truncate(val));
                     }
@@ -337,7 +336,6 @@ pub const Instance = struct {
                         .expressions => |exprs| {
                             for (exprs, 0..) |expr, i| {
                                 const dest: u32 = @intCast(@as(u64, @truncate(offset)) + i);
-                                // evalInitExpr uses 0=null, addr+1=valid ref convention
                                 const val = try evalInitExpr(expr, self);
                                 if (val == 0) {
                                     try t.set(dest, null);

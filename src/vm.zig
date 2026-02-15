@@ -1036,7 +1036,7 @@ pub const Vm = struct {
                     const t = try instance.getTable(table_idx);
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const val = t.get(elem_idx) catch return error.OutOfBoundsMemoryAccess;
-                    // Stack convention: addr+1 for valid refs, 0 for null
+                    // Table stores val-1; push val (0=null, non-zero=valid ref)
                     try self.push(if (val) |v| @as(u64, @intCast(v)) + 1 else 0);
                 },
                 .table_set => {
@@ -1044,7 +1044,7 @@ pub const Vm = struct {
                     const val = self.pop();
                     const t = try instance.getTable(table_idx);
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
-                    // Stack convention: 0 = null, addr+1 = valid ref
+                    // Store val-1 (0=null); works for all ref types since val is non-zero
                     const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                     t.set(elem_idx, ref_val) catch return error.OutOfBoundsMemoryAccess;
                 },
@@ -1673,23 +1673,15 @@ pub const Vm = struct {
                 const elem_idx = reader.readU32() catch return error.Trap;
                 const size: u32 = @truncate(self.pop());
                 const offset: u32 = @truncate(self.pop());
-                // Get element segment
-                if (elem_idx >= instance.module.elements.items.len) return error.Trap;
-                const elem_seg = instance.module.elements.items[elem_idx];
-                const func_indices = switch (elem_seg.init) {
-                    .func_indices => |fi| fi,
-                    .expressions => return error.Trap, // TODO: evaluate expressions
-                };
-                if (@as(u64, offset) + @as(u64, size) > func_indices.len) return error.Trap;
+                // Use pre-evaluated store elem data (u64 values)
+                if (elem_idx >= instance.elemaddrs.items.len) return error.Trap;
+                const e = instance.store.getElem(instance.elemaddrs.items[elem_idx]) catch return error.Trap;
+                const elem_len: u64 = if (e.dropped) 0 else e.data.len;
+                if (@as(u64, offset) + @as(u64, size) > elem_len) return error.Trap;
                 const vals = instance.store.gc_heap.alloc.alloc(u64, size) catch return error.Trap;
                 defer instance.store.gc_heap.alloc.free(vals);
                 for (vals, 0..) |*v, i| {
-                    const fidx = func_indices[offset + i];
-                    if (fidx < instance.funcaddrs.items.len) {
-                        v.* = @as(u64, @intCast(instance.funcaddrs.items[fidx])) + 1;
-                    } else {
-                        v.* = 0; // null ref
-                    }
+                    v.* = e.data[offset + i];
                 }
                 const addr = instance.store.gc_heap.allocArrayWithValues(type_idx, vals) catch return error.Trap;
                 try self.push(gc_mod.GcHeap.encodeRef(addr));
@@ -1751,25 +1743,15 @@ pub const Vm = struct {
                 const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
                 if (elem_idx >= instance.elemaddrs.items.len) return error.Trap;
                 const e = instance.store.getElem(instance.elemaddrs.items[elem_idx]) catch return error.Trap;
-                const elem_seg = instance.module.elements.items[elem_idx];
-                const func_indices = switch (elem_seg.init) {
-                    .func_indices => |fi| fi,
-                    .expressions => return error.Trap,
-                };
-                // Dropped segments have effective length 0 (n=0 succeeds even if dropped)
-                const elem_len: u64 = if (e.dropped) 0 else func_indices.len;
+                // Use pre-evaluated store elem data (u64 values)
+                const elem_len: u64 = if (e.dropped) 0 else e.data.len;
                 if (@as(u64, src_off) + @as(u64, size) > elem_len) return error.Trap;
                 const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
                 switch (obj.*) {
                     .array_obj => |*ao| {
                         if (@as(u64, dst_off) + @as(u64, size) > ao.elements.len) return error.Trap;
                         for (0..size) |i| {
-                            const fidx = func_indices[src_off + i];
-                            if (fidx < instance.funcaddrs.items.len) {
-                                ao.elements[dst_off + i] = @as(u64, @intCast(instance.funcaddrs.items[fidx])) + 1;
-                            } else {
-                                ao.elements[dst_off + i] = 0;
-                            }
+                            ao.elements[dst_off + i] = e.data[src_off + i];
                         }
                     },
                     else => return error.Trap,
@@ -1965,7 +1947,6 @@ pub const Vm = struct {
                 const t = try instance.store.getTable(table_idx);
                 const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 const val = self.pop();
-                // Stack convention: 0 = null ref, addr+1 = valid ref
                 const init_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 const old = t.grow(n, init_val) catch {
                     if (t.is_64) try self.pushI64(-1) else try self.pushI32(-1);
@@ -1984,10 +1965,8 @@ pub const Vm = struct {
                 const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 const val = self.pop();
                 const start: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
-                // Bounds check first (spec: trap if i + n > table.size)
                 if (@as(u64, start) + n > t.size())
                     return error.OutOfBoundsMemoryAccess;
-                // Stack convention: 0 = null ref, addr+1 = valid ref
                 const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);
                 for (0..n) |i| {
                     t.set(start + @as(u32, @intCast(i)), ref_val) catch return error.OutOfBoundsMemoryAccess;
@@ -4979,7 +4958,6 @@ pub const Vm = struct {
                 const n: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                 const val = self.pop();
                 const start: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
-                // Bounds check first (spec: trap if i + n > table.size)
                 if (@as(u64, start) + n > t.size())
                     return error.OutOfBoundsMemoryAccess;
                 const ref_val: ?usize = if (val == 0) null else @intCast(val - 1);

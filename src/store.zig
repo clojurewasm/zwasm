@@ -153,12 +153,12 @@ pub const Global = struct {
 /// An element segment (for table initialization).
 pub const Elem = struct {
     reftype: opcode.RefType,
-    data: []u32,
+    data: []u64,
     alloc: mem.Allocator,
     dropped: bool,
 
     pub fn init(alloc: mem.Allocator, reftype: opcode.RefType, count: u32) !Elem {
-        const data = try alloc.alloc(u32, count);
+        const data = try alloc.alloc(u64, count);
         @memset(data, 0);
         return .{
             .reftype = reftype,
@@ -172,7 +172,7 @@ pub const Elem = struct {
         self.alloc.free(self.data);
     }
 
-    pub fn set(self: *Elem, index: usize, value: u32) void {
+    pub fn set(self: *Elem, index: usize, value: u64) void {
         self.data[index] = value;
     }
 };
@@ -600,8 +600,8 @@ test "Elem — init, set, deinit" {
     e.set(0, 10);
     e.set(1, 20);
     e.set(2, 30);
-    try testing.expectEqual(@as(u32, 10), e.data[0]);
-    try testing.expectEqual(@as(u32, 30), e.data[2]);
+    try testing.expectEqual(@as(u64, 10), e.data[0]);
+    try testing.expectEqual(@as(u64, 30), e.data[2]);
 }
 
 test "Data — init, set, deinit" {
