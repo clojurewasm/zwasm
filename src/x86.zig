@@ -3555,7 +3555,7 @@ test "x86_64 compile and execute i32 add" {
 
     const alloc = testing.allocator;
     var code = [_]RegInstr{
-        .{ .op = 0x6A, .rd = 2, .rs1 = 0, .operand = 1 }, // i32.add r2, r0, r1
+        .{ .op = 0x6A, .rd = 2, .rs1 = 0, .rs2_field = 1 }, // i32.add r2, r0, r1
         .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
     };
     var reg_func = RegFunc{
@@ -3586,7 +3586,7 @@ test "x86_64 compile and execute branch (LE_S + BR_IF_NOT)" {
     // 2: RETURN r0
     // 3: RETURN r1
     var code = [_]RegInstr{
-        .{ .op = 0x4C, .rd = 2, .rs1 = 0, .operand = 1 }, // i32.le_s r2, r0, r1
+        .{ .op = 0x4C, .rd = 2, .rs1 = 0, .rs2_field = 1 }, // i32.le_s r2, r0, r1
         .{ .op = regalloc_mod.OP_BR_IF_NOT, .rd = 2, .rs1 = 0, .operand = 3 }, // branch if !le_s
         .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 }, // return r0
         .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 }, // return r1
@@ -3635,8 +3635,8 @@ test "x86_64 compile and execute loop (simple counter)" {
         .{ .op = regalloc_mod.OP_CONST32, .rd = 2, .rs1 = 0, .operand = 1 },
         .{ .op = 0x45, .rd = 3, .rs1 = 0, .operand = 0 }, // i32.eqz r3, r0
         .{ .op = regalloc_mod.OP_BR_IF, .rd = 3, .rs1 = 0, .operand = 7 },
-        .{ .op = 0x6A, .rd = 1, .rs1 = 1, .operand = 2 }, // i32.add r1, r1, r2
-        .{ .op = 0x6B, .rd = 0, .rs1 = 0, .operand = 2 }, // i32.sub r0, r0, r2
+        .{ .op = 0x6A, .rd = 1, .rs1 = 1, .rs2_field = 2 }, // i32.add r1, r1, r2
+        .{ .op = 0x6B, .rd = 0, .rs1 = 0, .rs2_field = 2 }, // i32.sub r0, r0, r2
         .{ .op = regalloc_mod.OP_BR, .rd = 0, .rs1 = 0, .operand = 2 },
         .{ .op = regalloc_mod.OP_MOV, .rd = 0, .rs1 = 1, .operand = 0 },
         .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 },
@@ -3786,7 +3786,7 @@ test "x86_64 compile and execute f64 add" {
     // f64.add r0, r0, r1 (opcode 0xA0)
     // RETURN r0
     var code = [_]RegInstr{
-        .{ .op = 0xA0, .rd = 0, .rs1 = 0, .operand = 1 }, // f64.add r0 = r0 + r1
+        .{ .op = 0xA0, .rd = 0, .rs1 = 0, .rs2_field = 1 }, // f64.add r0 = r0 + r1
         .{ .op = regalloc_mod.OP_RETURN, .rd = 0, .rs1 = 0, .operand = 0 },
     };
     var reg_func = RegFunc{
@@ -3815,8 +3815,8 @@ test "x86_64 CMP+Jcc fusion saves instructions per compare-and-branch" {
     // if (a == b) return 42 else return 99
     // Pattern: i32.eq (r0, r1 -> r2) + BR_IF r2 — should fuse to CMP + Je
     var code = [_]RegInstr{
-        // [0] i32.eq r2, r0, r1  (rs2 = operand low byte)
-        .{ .op = 0x46, .rd = 2, .rs1 = 0, .operand = 1 },
+        // [0] i32.eq r2, r0, r1
+        .{ .op = 0x46, .rd = 2, .rs1 = 0, .rs2_field = 1 },
         // [1] BR_IF r2, target=4
         .{ .op = regalloc_mod.OP_BR_IF, .rd = 2, .rs1 = 0, .operand = 4 },
         // [2] CONST32 r1, 99  (else: not equal)
@@ -3831,7 +3831,7 @@ test "x86_64 CMP+Jcc fusion saves instructions per compare-and-branch" {
 
     // Also compile WITHOUT fusion opportunity (different rd for CMP and BR_IF)
     var code_nofuse = [_]RegInstr{
-        .{ .op = 0x46, .rd = 2, .rs1 = 0, .operand = 1 },
+        .{ .op = 0x46, .rd = 2, .rs1 = 0, .rs2_field = 1 },
         .{ .op = regalloc_mod.OP_BR_IF, .rd = 3, .rs1 = 0, .operand = 4 },
         .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 99 },
         .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
