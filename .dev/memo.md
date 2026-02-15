@@ -44,20 +44,20 @@ Stages 0-28 — all COMPLETE. See `roadmap.md` for details.
 - [x] 29.0: Thread toolchain setup (Rust wasm32-wasip1-threads + env.memory import)
 - [x] 29.1: Thread test suite + spawning mechanism in zwasm
 - [x] 29.2: Fix threads spec failures (310/310)
-- [ ] 30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison)
-- [ ] 30.1: st_matrix improvement (MAX_PHYS_REGS expansion or other single-pass approach)
-- [ ] 30.2: tgo_mfr improvement (loop optimization within single-pass)
+- [x] 30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison)
+- [ ] 30.1: Widen RegInstr to u16 regs (st_matrix func#42: u8 reg limit → interpreter fallback)
+- [ ] 30.2: Increase MAX_PHYS_REGS (tgo_mfr: 23 regs spill 3, eliminate hot-loop spills)
 - [ ] 31.0: GC stress test suite creation
 - [ ] 31.1: GC benchmark (zwasm vs wasmtime vs node)
 - [ ] 31.2: GC collector improvement decision
 
 ## Current Task
 
-30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison).
+30.1: Widen RegInstr to u16 regs (st_matrix func#42: u8 reg limit → interpreter fallback).
 
 ## Previous Task
 
-29.2: Thread-scoped store for assert_unlinkable (wasm import parser). 310/310 threads, 62,147/62,158 total.
+30.0: Performance gap analysis complete. st_matrix 2.96x (func#42 u8 reg overflow → interpreter), tgo_mfr 1.55x (spills + no LICM). See `.dev/perf-gap-analysis.md`.
 
 ## Wasm 3.0 Coverage
 
