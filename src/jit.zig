@@ -1390,6 +1390,7 @@ pub const Compiler = struct {
     /// Check if a vreg maps to a callee-saved physical register that needs
     /// explicit save/restore in lightweight self-call (callee skips STP/LDP x19-x28).
     fn isCalleeSavedVreg(self: *const Compiler, vreg: u16) bool {
+        if (vreg >= self.reg_count) return false; // non-existent vreg
         if (vreg <= 4) return true; // x22-x26
         if (vreg == 12 and !self.vm_ptr_cached) return true; // x20 as vreg
         if (vreg == 13 and !self.inst_ptr_cached) return true; // x21 as vreg
@@ -1452,9 +1453,14 @@ pub const Compiler = struct {
 
     /// Bitmask of all callee-saved vreg positions.
     fn calleeSavedVregMask(self: *const Compiler) u32 {
+        // Only include vregs that actually exist (< reg_count)
         var mask: u32 = 0x1F; // vreg 0-4 always callee-saved
         if (!self.vm_ptr_cached) mask |= (1 << 12);
         if (!self.inst_ptr_cached) mask |= (1 << 13);
+        // Mask off non-existent vregs
+        if (self.reg_count < 32) {
+            mask &= (@as(u32, 1) << @as(u5, @intCast(self.reg_count))) -% 1;
+        }
         return mask;
     }
 

@@ -884,9 +884,15 @@ def run_test_file(json_path, verbose=False):
                     if last_internal_name:
                         module_reg_names[last_internal_name] = reg_name
                 # Send register command to batch runner for shared-store support
-                if runner and runner.proc and runner.proc.poll() is None:
-                    runner.register_module(reg_name)
-                    reg_runners[reg_name] = runner
+                # For module_instance refs, set_main to the right module first
+                target_runner = runner
+                if ref_name and ref_name in module_runners:
+                    target_runner = module_runners[ref_name]
+                if target_runner and target_runner.proc and target_runner.proc.poll() is None:
+                    if ref_name and ref_name in named_module_wasm and ref_name != last_internal_name:
+                        target_runner.set_main(ref_name)
+                    target_runner.register_module(reg_name)
+                    reg_runners[reg_name] = target_runner
             continue
 
         if cmd_type == "thread":
@@ -1068,11 +1074,20 @@ def run_test_file(json_path, verbose=False):
             continue
 
         if cmd_type == "module_instance":
-            # Create an instance from a saved module definition
+            # Create an instance from a saved module definition.
+            # Must load into the batch runner so register picks up the right exports.
             instance_name = cmd.get("instance")
             def_name = cmd.get("module")
             if instance_name and def_name and def_name in module_defs:
-                named_module_wasm[instance_name] = module_defs[def_name]
+                wasm_path = module_defs[def_name]
+                named_module_wasm[instance_name] = wasm_path
+                # Load into existing runner (shared store) or create one
+                if runner and runner.proc and runner.proc.poll() is None:
+                    ok, _ = runner.load_module(instance_name, wasm_path)
+                else:
+                    runner = BatchRunner(wasm_path, {})
+                # Track instance → runner for register and invoke routing
+                module_runners[instance_name] = runner
             continue
 
         if cmd_type == "action":

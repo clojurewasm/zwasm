@@ -76,7 +76,7 @@ pub const WasmError = error{
 
 const OPERAND_STACK_SIZE = 4096;
 const FRAME_STACK_SIZE = 1024;
-pub const MAX_CALL_DEPTH = 4095; // native recursion limit — fits ARM64 CMP imm12
+pub const MAX_CALL_DEPTH = 1024; // native recursion limit — must not overflow Zig stack
 const LABEL_STACK_SIZE = 4096;
 
 const Frame = struct {
