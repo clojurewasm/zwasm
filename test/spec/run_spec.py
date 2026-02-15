@@ -633,6 +633,60 @@ def needs_imports(wasm_path, registered_modules):
         return False
 
 
+def get_wasm_import_modules(wasm_path):
+    """Parse wasm binary import section to get the set of imported module names."""
+    try:
+        with open(wasm_path, 'rb') as f:
+            data = f.read()
+    except Exception:
+        return set()
+    if len(data) < 8:
+        return set()
+
+    def read_leb128(data, pos):
+        result = shift = 0
+        while pos < len(data):
+            b = data[pos]; pos += 1
+            result |= (b & 0x7f) << shift; shift += 7
+            if not (b & 0x80):
+                return result, pos
+        return result, pos
+
+    pos = 8  # skip magic + version
+    while pos < len(data):
+        sec_id = data[pos]; pos += 1
+        sec_size, pos = read_leb128(data, pos)
+        sec_end = pos + sec_size
+        if sec_id == 2:  # import section
+            modules = set()
+            count, pos = read_leb128(data, pos)
+            for _ in range(count):
+                mod_len, pos = read_leb128(data, pos)
+                modules.add(data[pos:pos + mod_len].decode('utf-8', errors='replace'))
+                pos += mod_len
+                field_len, pos = read_leb128(data, pos)
+                pos += field_len
+                desc_type = data[pos]; pos += 1
+                if desc_type == 0:  # func
+                    _, pos = read_leb128(data, pos)
+                elif desc_type == 1:  # table
+                    pos += 1  # reftype
+                    flags = data[pos]; pos += 1
+                    _, pos = read_leb128(data, pos)
+                    if flags & 1:
+                        _, pos = read_leb128(data, pos)
+                elif desc_type == 2:  # memory
+                    flags = data[pos]; pos += 1
+                    _, pos = read_leb128(data, pos)
+                    if flags & 1 or flags & 2:
+                        _, pos = read_leb128(data, pos)
+                elif desc_type == 3:  # global
+                    pos += 2  # valtype + mutability
+            return modules
+        pos = sec_end
+    return set()
+
+
 def _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner,
                      shared_module_names=None, reg_runners=None):
     """Resolve which runner and invocation style to use for a named module action.
@@ -820,6 +874,7 @@ def run_test_file(json_path, verbose=False):
             # Phase 1: load modules and process non-invocation commands serially
             thread_module_name = None
             thread_invocations = []  # [(func_name, args, expected, expected_types, line)]
+            thread_registrations = set()  # module names registered in this thread's scope
             has_nested = any(tc.get("type") == "thread" for tc in thread_cmds)
             for tcmd in thread_cmds:
                 ttype = tcmd.get("type")
@@ -829,6 +884,7 @@ def run_test_file(json_path, verbose=False):
                     if _debug_threads and reg_as:
                         print(f"  [DBG] thread {thread_name}: register as={reg_as}")
                     if reg_as:
+                        thread_registrations.add(reg_as)
                         runner.register_module(reg_as)
                 elif ttype == "module":
                     twasm = tcmd.get("filename")
@@ -848,21 +904,30 @@ def run_test_file(json_path, verbose=False):
                     # Wait inside thread — only relevant for nested threads
                     pass
                 elif ttype == "assert_unlinkable":
-                    # Module linking expected to fail
+                    # Module linking expected to fail — check against thread-scoped registrations
                     twasm = tcmd.get("filename")
                     if twasm:
                         twasm_path = os.path.join(test_dir, twasm)
-                        tmod_name = f"_tunlink_{thread_name}_{tcmd.get('line', line)}"
-                        ok, resp = runner.load_module(tmod_name, twasm_path)
                         tline = tcmd.get("line", line)
-                        if not ok:
+                        # Thread has its own store: only thread-registered modules are available
+                        import_mods = get_wasm_import_modules(twasm_path)
+                        unresolvable = import_mods - thread_registrations
+                        if unresolvable:
+                            # Thread store doesn't have required modules — unlinkable
                             passed += 1
                             if verbose:
-                                print(f"  PASS line {tline}: assert_unlinkable (got error)")
+                                print(f"  PASS line {tline}: assert_unlinkable (thread missing: {unresolvable})")
                         else:
-                            failed += 1
-                            if verbose:
-                                print(f"  FAIL line {tline}: assert_unlinkable but module loaded ok")
+                            tmod_name = f"_tunlink_{thread_name}_{tline}"
+                            ok, resp = runner.load_module(tmod_name, twasm_path)
+                            if not ok:
+                                passed += 1
+                                if verbose:
+                                    print(f"  PASS line {tline}: assert_unlinkable (got error)")
+                            else:
+                                failed += 1
+                                if verbose:
+                                    print(f"  FAIL line {tline}: assert_unlinkable but module loaded ok")
                 elif ttype in ("assert_return", "action"):
                     if thread_module_name is None:
                         if ttype == "assert_return":

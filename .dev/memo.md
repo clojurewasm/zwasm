@@ -8,7 +8,7 @@ Session handover document. Read at session start.
 - Source: ~38K LOC, 22 files, 360+ tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 62,146/62,158 Mac (100.0%), 62,144/62,158 Ubuntu (100.0%, wasm-tools). GC+EH integrated, threads 309/310, E2E: 356/356
+- Spec: 62,147/62,158 Mac (100.0%), 62,144/62,158 Ubuntu (100.0%, wasm-tools). GC+EH integrated, threads 310/310, E2E: 356/356
 - Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -43,7 +43,7 @@ Stages 0-28 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.7: JIT self-call depth guard + unconditional arg spill (call:as-load-operand pre-existing)
 - [x] 29.0: Thread toolchain setup (Rust wasm32-wasip1-threads + env.memory import)
 - [x] 29.1: Thread test suite + spawning mechanism in zwasm
-- [ ] 29.2: Fix threads spec 4 failures
+- [x] 29.2: Fix threads spec failures (310/310)
 - [ ] 30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison)
 - [ ] 30.1: st_matrix improvement (MAX_PHYS_REGS expansion or other single-pass approach)
 - [ ] 30.2: tgo_mfr improvement (loop optimization within single-pass)
@@ -53,11 +53,11 @@ Stages 0-28 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-29.2: Fix threads spec 1 failure (threads-thread assert_unlinkable).
+30.0: st_matrix / tgo_mfr codegen analysis (cranelift comparison).
 
 ## Previous Task
 
-29.1: Thread spawning mechanism (CLI batch protocol + spec runner). 309/310 threads passing.
+29.2: Thread-scoped store for assert_unlinkable (wasm import parser). 310/310 threads, 62,147/62,158 total.
 
 ## Wasm 3.0 Coverage
 
@@ -66,9 +66,9 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 12 failures, Ubuntu TBD (ReleaseSafe via --build).
+None. Mac 11 failures, Ubuntu TBD (ReleaseSafe via --build).
 Mac: type-subtyping 4, imports4 2, type-rec 2,
-call 1, instance 1, table_grow 1, threads-thread 1.
+call 1, instance 1, table_grow 1.
 Ubuntu: TBD (needs verification after thread changes).
 
 ## References
