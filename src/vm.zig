@@ -3565,15 +3565,15 @@ pub const Vm = struct {
                     var call_args: [8]u64 = undefined;
                     if (n_args > 0) call_args[0] = regs[data.rd];
                     if (n_args > 1) call_args[1] = regs[data.rs1];
-                    if (n_args > 2) call_args[2] = regs[@as(u8, @truncate(data.operand))];
-                    if (n_args > 3) call_args[3] = regs[@as(u8, @truncate(data.operand >> 8))];
+                    if (n_args > 2) call_args[2] = regs[data.rs2_field];
+                    if (n_args > 3) call_args[3] = regs[@as(u16, @truncate(data.operand))];
                     if (n_args > 4) {
                         const data2 = code[pc];
                         pc += 1;
                         if (n_args > 4) call_args[4] = regs[data2.rd];
                         if (n_args > 5) call_args[5] = regs[data2.rs1];
-                        if (n_args > 6) call_args[6] = regs[@as(u8, @truncate(data2.operand))];
-                        if (n_args > 7) call_args[7] = regs[@as(u8, @truncate(data2.operand >> 8))];
+                        if (n_args > 6) call_args[6] = regs[data2.rs2_field];
+                        if (n_args > 7) call_args[7] = regs[@as(u16, @truncate(data2.operand))];
                     }
 
                     var call_results: [1]u64 = .{0};
@@ -3601,15 +3601,15 @@ pub const Vm = struct {
                     var call_args: [8]u64 = undefined;
                     if (n_args > 0) call_args[0] = regs[data.rd];
                     if (n_args > 1) call_args[1] = regs[data.rs1];
-                    if (n_args > 2) call_args[2] = regs[@as(u8, @truncate(data.operand))];
-                    if (n_args > 3) call_args[3] = regs[@as(u8, @truncate(data.operand >> 8))];
+                    if (n_args > 2) call_args[2] = regs[data.rs2_field];
+                    if (n_args > 3) call_args[3] = regs[@as(u16, @truncate(data.operand))];
                     if (n_args > 4) {
                         const data2 = code[pc];
                         pc += 1;
                         if (n_args > 4) call_args[4] = regs[data2.rd];
                         if (n_args > 5) call_args[5] = regs[data2.rs1];
-                        if (n_args > 6) call_args[6] = regs[@as(u8, @truncate(data2.operand))];
-                        if (n_args > 7) call_args[7] = regs[@as(u8, @truncate(data2.operand >> 8))];
+                        if (n_args > 6) call_args[6] = regs[data2.rs2_field];
+                        if (n_args > 7) call_args[7] = regs[@as(u16, @truncate(data2.operand))];
                     }
 
                     var call_results: [1]u64 = .{0};
@@ -4017,8 +4017,8 @@ pub const Vm = struct {
 
                 // ---- Select ----
                 0x1B => { // select: rd = cond ? val1 : val2
-                    const val2: u8 = @truncate(instr.operand);
-                    const cond: u8 = @truncate(instr.operand >> 8);
+                    const val2 = instr.rs2_field;
+                    const cond: u16 = @truncate(instr.operand);
                     regs[instr.rd] = if (regs[cond] != 0) regs[instr.rs1] else regs[val2];
                 },
 

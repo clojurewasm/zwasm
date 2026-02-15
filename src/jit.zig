@@ -767,7 +767,26 @@ const a64 = struct {
 /// r12-r13 → x20-x21 (callee-saved, VM/INST ptrs moved to memory)
 /// r14+ → memory (via regs_ptr at x19)
 /// x27/x28 reserved for memory base/size cache.
-fn vregToPhys(vreg: u8) ?u5 {
+/// Pack 4 register indices from a RegInstr into a u64 data word for trampoline calls.
+/// Layout: [rd:16 | rs1:16 | rs2:16 | arg3:16]
+fn packDataWord(instr: RegInstr) u64 {
+    return @as(u64, instr.rd) |
+        (@as(u64, instr.rs1) << 16) |
+        (@as(u64, instr.rs2_field) << 32) |
+        (@as(u64, @as(u16, @truncate(instr.operand))) << 48);
+}
+
+/// Unpack register indices from a u64 data word (inverse of packDataWord).
+fn unpackDataWord(raw: u64) struct { r0: u16, r1: u16, r2: u16, r3: u16 } {
+    return .{
+        .r0 = @truncate(raw),
+        .r1 = @truncate(raw >> 16),
+        .r2 = @truncate(raw >> 32),
+        .r3 = @truncate(raw >> 48),
+    };
+}
+
+fn vregToPhys(vreg: u16) ?u5 {
     if (vreg <= 4) return @intCast(vreg + 22); // x22-x26 (callee-saved)
     if (vreg <= 11) return @intCast(vreg - 5 + 9); // x9-x15 (caller-saved)
     if (vreg <= 13) return @intCast(vreg - 12 + 20); // x20-x21 (callee-saved)
@@ -840,11 +859,11 @@ pub const Compiler = struct {
     written_vregs: u128,
     /// Which memory-backed vreg's value is currently in SCRATCH (x8).
     /// Valid only at instruction boundaries — used to skip redundant loads.
-    scratch_vreg: ?u8,
+    scratch_vreg: ?u16,
     /// FP register cache: maps D2-D7 to vregs holding f64 values.
     /// fp_dreg[i] = vreg whose f64 value is in D(i+2), null if register free.
     /// Allows FP operations to use D registers directly, avoiding GPR↔FPR round-trips.
-    fp_dreg: [6]?u8,
+    fp_dreg: [6]?u16,
     /// True when the D register value has not been written back to GPR/vreg array.
     fp_dreg_dirty: [6]bool,
     /// True when vm_ptr is cached in x20 (only when reg_count <= 12 and has self-calls).
@@ -878,8 +897,8 @@ pub const Compiler = struct {
         param_offset: u16,
         imm: u12,
         skip_cond: a64.Cond,
-        ret_rd: u8,
-        cmp_rs1: u8,
+        ret_rd: u16,
+        cmp_rs1: u16,
     };
 
     const Patch = struct {
@@ -957,7 +976,7 @@ pub const Compiler = struct {
 
     /// Load virtual register value into physical register.
     /// If vreg maps to a physical reg, emit MOV. Otherwise, load from memory.
-    fn loadVreg(self: *Compiler, dst: u5, vreg: u8) void {
+    fn loadVreg(self: *Compiler, dst: u5, vreg: u16) void {
         if (vregToPhys(vreg)) |phys| {
             if (phys != dst) self.emit(a64.mov64(dst, phys));
         } else {
@@ -966,7 +985,7 @@ pub const Compiler = struct {
     }
 
     /// Store value from physical register to virtual register.
-    fn storeVreg(self: *Compiler, vreg: u8, src: u5) void {
+    fn storeVreg(self: *Compiler, vreg: u16, src: u5) void {
         if (vregToPhys(vreg)) |phys| {
             if (phys != src) self.emit(a64.mov64(phys, src));
             // SCRATCH may have been reused as temp — invalidate stale cache
@@ -986,7 +1005,7 @@ pub const Compiler = struct {
     }
 
     /// Get the physical register for a vreg, or load to scratch.
-    fn getOrLoad(self: *Compiler, vreg: u8, scratch: u5) u5 {
+    fn getOrLoad(self: *Compiler, vreg: u16, scratch: u5) u5 {
         if (vregToPhys(vreg)) |phys| return phys;
         // Check FP D-register cache — if value is only in a D-reg, materialize to GPR
         if (self.fpCacheFind(vreg)) |slot| {
@@ -1013,7 +1032,7 @@ pub const Compiler = struct {
 
     /// Get destination register: physical register if mapped, otherwise SCRATCH.
     /// Use with storeVreg(rd, dest) which is a no-op when dest == physical.
-    fn destReg(vreg: u8) u5 {
+    fn destReg(vreg: u16) u5 {
         return vregToPhys(vreg) orelse SCRATCH;
     }
 
@@ -1029,7 +1048,7 @@ pub const Compiler = struct {
 
     /// Find which D-register cache slot holds a vreg's f64 value.
     /// Returns the slot index (0-5) or null if not cached.
-    fn fpCacheFind(self: *Compiler, vreg: u8) ?u3 {
+    fn fpCacheFind(self: *Compiler, vreg: u16) ?u3 {
         for (0..FP_CACHE_SIZE) |i| {
             if (self.fp_dreg[i]) |cached| {
                 if (cached == vreg) return @intCast(i);
@@ -1073,7 +1092,7 @@ pub const Compiler = struct {
 
     /// Invalidate a vreg in the FP cache (without write-back).
     /// Called when a vreg is overwritten via GPR (e.g., storeVreg for integer result).
-    fn fpCacheInvalidate(self: *Compiler, vreg: u8) void {
+    fn fpCacheInvalidate(self: *Compiler, vreg: u16) void {
         if (self.fpCacheFind(vreg)) |slot| {
             // Value overwritten in GPR — D-reg copy is stale
             self.fp_dreg[slot] = null;
@@ -1083,7 +1102,7 @@ pub const Compiler = struct {
 
     /// Load an f64 vreg into a D-register. Returns the D register number (2-7).
     /// If already cached, returns the existing D register. Otherwise allocates one.
-    fn fpLoadToDreg(self: *Compiler, vreg: u8) u5 {
+    fn fpLoadToDreg(self: *Compiler, vreg: u16) u5 {
         // Check if already in D-cache
         if (self.fpCacheFind(vreg)) |slot| {
             return fpSlotToDreg(slot);
@@ -1100,7 +1119,7 @@ pub const Compiler = struct {
 
     /// Allocate a D-register for an FP result. Returns the D register number.
     /// Marks the slot as dirty (value only in D-reg, not in GPR).
-    fn fpAllocResult(self: *Compiler, vreg: u8) u5 {
+    fn fpAllocResult(self: *Compiler, vreg: u16) u5 {
         // If vreg already cached, reuse slot (overwrite is fine)
         if (self.fpCacheFind(vreg)) |slot| {
             self.fp_dreg_dirty[slot] = true;
@@ -1114,7 +1133,7 @@ pub const Compiler = struct {
     }
 
     /// Materialize an FP-cached vreg to GPR. Used when non-FP code needs the value.
-    fn fpMaterializeToGpr(self: *Compiler, vreg: u8) void {
+    fn fpMaterializeToGpr(self: *Compiler, vreg: u16) void {
         if (self.fpCacheFind(vreg)) |slot| {
             if (self.fp_dreg_dirty[slot]) {
                 const dreg = fpSlotToDreg(slot);
@@ -1142,7 +1161,7 @@ pub const Compiler = struct {
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
         if (max <= 5) return;
         for (5..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             // Skip callee-saved vregs 12-13 (x20-x21) — preserved across calls
             if (vreg == 12 or vreg == 13) continue;
             // Skip unwritten vregs — they contain garbage from caller frame
@@ -1155,7 +1174,7 @@ pub const Compiler = struct {
 
     /// Spill a single vreg if it's callee-saved (r0-r4, r12-r13). No-op for caller-saved
     /// vregs (already spilled by spillCallerSaved) or unmapped vregs (always in memory).
-    fn spillVregIfCalleeSaved(self: *Compiler, vreg: u8) void {
+    fn spillVregIfCalleeSaved(self: *Compiler, vreg: u16) void {
         if (vregToPhys(vreg)) |phys| {
             // Caller-saved ranges: x9-x15 (vregs 5-11), x2-x7 (vregs 14-19)
             if ((phys >= 9 and phys <= 15) or (phys >= 2 and phys <= 7)) return;
@@ -1166,7 +1185,7 @@ pub const Compiler = struct {
 
     /// Spill a single vreg unconditionally. Used for call args that the trampoline
     /// reads from regs[] — these must be stored even if caller-saved and not live after call.
-    fn spillVreg(self: *Compiler, vreg: u8) void {
+    fn spillVreg(self: *Compiler, vreg: u16) void {
         if (vregToPhys(vreg)) |phys| {
             self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
         }
@@ -1178,7 +1197,7 @@ pub const Compiler = struct {
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
         if (max <= 5) return;
         for (5..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             // Skip callee-saved vregs 12-13 (x20-x21) — preserved across calls
             if (vreg == 12 or vreg == 13) continue;
             // Skip unwritten vregs — they were never initialized
@@ -1194,7 +1213,7 @@ pub const Compiler = struct {
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
         if (max <= 5) return;
         for (5..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if (vreg == 12 or vreg == 13) continue;
             if (skip_vreg) |sv| {
                 if (vreg == sv) continue;
@@ -1224,10 +1243,9 @@ pub const Compiler = struct {
             if (instr.op == regalloc_mod.OP_NOP) {
                 markCallerSavedUse(&live, &resolved, instr.rd);
                 markCallerSavedUse(&live, &resolved, instr.rs1);
-                const op_low: u8 = @truncate(instr.operand);
-                const op_high: u8 = @truncate(instr.operand >> 8);
-                if (op_low != 0) markCallerSavedUse(&live, &resolved, op_low);
-                if (op_high != 0) markCallerSavedUse(&live, &resolved, op_high);
+                if (instr.rs2_field != 0) markCallerSavedUse(&live, &resolved, instr.rs2_field);
+                const arg3: u16 = @truncate(instr.operand);
+                if (arg3 != 0) markCallerSavedUse(&live, &resolved, arg3);
                 continue;
             }
 
@@ -1264,7 +1282,7 @@ pub const Compiler = struct {
     }
 
     /// Mark a vreg as used (live) if it's caller-saved and not yet resolved.
-    fn markCallerSavedUse(live: *u32, resolved: *u32, vreg: u8) void {
+    fn markCallerSavedUse(live: *u32, resolved: *u32, vreg: u16) void {
         if (isCallerSavedVreg(vreg) and (resolved.* & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) {
             live.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
             resolved.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
@@ -1272,7 +1290,7 @@ pub const Compiler = struct {
     }
 
     /// Check if a vreg is in the caller-saved range (5-11 or 14-19).
-    fn isCallerSavedVreg(vreg: u8) bool {
+    fn isCallerSavedVreg(vreg: u16) bool {
         return (vreg >= 5 and vreg <= 11 and vreg != 12 and vreg != 13) or
             (vreg >= 14 and vreg < MAX_PHYS_REGS);
     }
@@ -1314,7 +1332,7 @@ pub const Compiler = struct {
         const live_set = computeCallLiveSet(ir, call_pc);
         self.call_live_set = live_set;
         for (5..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if (vreg == 12 or vreg == 13) continue;
             if (vreg < 128 and (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg)))) == 0) continue;
             // Only spill if vreg is live after the call
@@ -1331,7 +1349,7 @@ pub const Compiler = struct {
         if (max <= 5) return;
         const live_set = self.call_live_set;
         for (5..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if (vreg == 12 or vreg == 13) continue;
             if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
@@ -1341,12 +1359,12 @@ pub const Compiler = struct {
     }
 
     /// Reload caller-saved live vregs, optionally skipping one vreg (result of call).
-    fn reloadCallerSavedLiveExcept(self: *Compiler, skip_vreg: ?u8) void {
+    fn reloadCallerSavedLiveExcept(self: *Compiler, skip_vreg: ?u16) void {
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
         if (max <= 5) return;
         const live_set = self.call_live_set;
         for (5..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if (vreg == 12 or vreg == 13) continue;
             if (skip_vreg) |sv| {
                 if (vreg == sv) continue;
@@ -1359,7 +1377,7 @@ pub const Compiler = struct {
     }
 
     /// Reload a single virtual register from memory.
-    fn reloadVreg(self: *Compiler, vreg: u8) void {
+    fn reloadVreg(self: *Compiler, vreg: u16) void {
         if (vregToPhys(vreg)) |phys| {
             self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
         }
@@ -1369,7 +1387,7 @@ pub const Compiler = struct {
 
     /// Check if a vreg maps to a callee-saved physical register that needs
     /// explicit save/restore in lightweight self-call (callee skips STP/LDP x19-x28).
-    fn isCalleeSavedVreg(self: *const Compiler, vreg: u8) bool {
+    fn isCalleeSavedVreg(self: *const Compiler, vreg: u16) bool {
         if (vreg <= 4) return true; // x22-x26
         if (vreg == 12 and !self.vm_ptr_cached) return true; // x20 as vreg
         if (vreg == 13 and !self.inst_ptr_cached) return true; // x21 as vreg
@@ -1392,10 +1410,9 @@ pub const Compiler = struct {
             if (instr.op == regalloc_mod.OP_NOP) {
                 self.markCalleeSavedUse(&live, &resolved, instr.rd);
                 self.markCalleeSavedUse(&live, &resolved, instr.rs1);
-                const op_low: u8 = @truncate(instr.operand);
-                const op_high: u8 = @truncate(instr.operand >> 8);
-                if (op_low != 0) self.markCalleeSavedUse(&live, &resolved, op_low);
-                if (op_high != 0) self.markCalleeSavedUse(&live, &resolved, op_high);
+                if (instr.rs2_field != 0) self.markCalleeSavedUse(&live, &resolved, instr.rs2_field);
+                const arg3: u16 = @truncate(instr.operand);
+                if (arg3 != 0) self.markCalleeSavedUse(&live, &resolved, arg3);
                 continue;
             }
 
@@ -1424,7 +1441,7 @@ pub const Compiler = struct {
         return live;
     }
 
-    fn markCalleeSavedUse(self: *const Compiler, live: *u32, resolved: *u32, vreg: u8) void {
+    fn markCalleeSavedUse(self: *const Compiler, live: *u32, resolved: *u32, vreg: u16) void {
         if (self.isCalleeSavedVreg(vreg) and (resolved.* & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) {
             live.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
             resolved.* |= @as(u32, 1) << @as(u5, @intCast(vreg));
@@ -1441,7 +1458,7 @@ pub const Compiler = struct {
 
     /// Spill callee-saved vregs that are live after the self-call to regs[].
     /// exclude_rd: the call result vreg (defined by the call, not live across it).
-    fn spillCalleeSavedLive(self: *Compiler, ir: []const RegInstr, call_pc: u32, exclude_rd: ?u8) void {
+    fn spillCalleeSavedLive(self: *Compiler, ir: []const RegInstr, call_pc: u32, exclude_rd: ?u16) void {
         var live_set = self.computeCalleeSavedLiveSet(ir, call_pc);
         // Exclude call result vreg — it's defined by the call, not live across it
         if (exclude_rd) |erd| {
@@ -1449,7 +1466,7 @@ pub const Compiler = struct {
         }
         self.callee_live_set = live_set;
         for (0..5) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
                 self.emit(a64.str64(phys, REGS_PTR, @as(u16, vreg) * 8));
@@ -1472,7 +1489,7 @@ pub const Compiler = struct {
     fn reloadCalleeSavedLive(self: *Compiler) void {
         const live_set = self.callee_live_set;
         for (0..5) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
                 self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
@@ -1554,7 +1571,7 @@ pub const Compiler = struct {
 
     /// Emit a base-case fast-path block: LDR → CMP → B.cond → [STR result] → RET.
     /// Returns the branch_idx for the caller to patch the B.cond target.
-    fn emitFastPathBlock(self: *Compiler, param_offset: u16, imm: u12, skip_cond: a64.Cond, ret_rd: u8, cmp_rs1: u8) u32 {
+    fn emitFastPathBlock(self: *Compiler, param_offset: u16, imm: u12, skip_cond: a64.Cond, ret_rd: u16, cmp_rs1: u16) u32 {
         // x0 = callee regs pointer (from caller)
         self.emit(a64.ldr64(SCRATCH, 0, param_offset)); // x8 = regs[param]
         self.emit(a64.cmpImm32(SCRATCH, imm));
@@ -1677,7 +1694,7 @@ pub const Compiler = struct {
         // Only load vregs that are read before written (prologue_load_mask).
         const max: u8 = @intCast(@min(self.reg_count, MAX_PHYS_REGS));
         for (0..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if (vreg < 20 and self.prologue_load_mask & (@as(u32, 1) << @intCast(vreg)) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
                 self.emit(a64.ldr64(phys, REGS_PTR, @as(u16, vreg) * 8));
@@ -1700,7 +1717,7 @@ pub const Compiler = struct {
         self.emit(a64.ldr64(MEM_SIZE, REGS_PTR, @as(u16, self.reg_count) * 8 + 8));
     }
 
-    fn emitEpilogue(self: *Compiler, result_vreg: ?u8) void {
+    fn emitEpilogue(self: *Compiler, result_vreg: ?u16) void {
         // Store result to regs[0] if needed
         if (result_vreg) |rv| {
             if (vregToPhys(rv)) |phys| {
@@ -2383,8 +2400,8 @@ pub const Compiler = struct {
 
             // --- Select ---
             0x1B => { // select: rd = cond ? val1 : val2
-                const val2_idx: u8 = @truncate(instr.operand);
-                const cond_idx: u8 = @truncate(instr.operand >> 8);
+                const val2_idx = instr.rs2_field;
+                const cond_idx: u16 = @truncate(instr.operand);
                 const d = destReg(instr.rd);
                 // Compare condition first (before clobbering scratch regs)
                 const cond_reg = self.getOrLoad(cond_idx, SCRATCH);
@@ -2477,7 +2494,7 @@ pub const Compiler = struct {
     /// Try to fuse a CMP result with a following BR_IF/BR_IF_NOT.
     /// If fuseable: emits B.cond placeholder, adds patch, advances pc past the BR_IF.
     /// Returns true if fused, false if not fuseable. Returns error (null bool) on OOM.
-    fn tryFuseBranch(self: *Compiler, cond: a64.Cond, rd: u8, pc: *u32) ?bool {
+    fn tryFuseBranch(self: *Compiler, cond: a64.Cond, rd: u16, pc: *u32) ?bool {
         if (pc.* >= self.ir_slice.len) return false;
         const next = self.ir_slice[pc.*];
         // Only fuse if next is BR_IF/BR_IF_NOT consuming this rd
@@ -2508,7 +2525,7 @@ pub const Compiler = struct {
     }
 
     /// After CMP emission: try fusion with following BR_IF, or fall back to CSET + store.
-    fn emitCmpResult(self: *Compiler, cond: a64.Cond, rd: u8, pc: *u32, is64: bool) bool {
+    fn emitCmpResult(self: *Compiler, cond: a64.Cond, rd: u16, pc: *u32, is64: bool) bool {
         if (self.tryFuseBranch(cond, rd, pc)) |fused| {
             if (fused) return true;
         } else return false; // OOM
@@ -2739,7 +2756,7 @@ pub const Compiler = struct {
     }
 
     /// Check if a memory access with known const address can skip bounds check.
-    fn isConstAddrSafe(self: *const Compiler, addr_vreg: u8, offset: u32, access_size: u32) ?u32 {
+    fn isConstAddrSafe(self: *const Compiler, addr_vreg: u16, offset: u32, access_size: u32) ?u32 {
         if (self.min_memory_bytes == 0) return null;
         if (addr_vreg >= 128) return null;
         const base_addr = self.known_consts[addr_vreg] orelse return null;
@@ -2979,7 +2996,7 @@ pub const Compiler = struct {
         self.storeVreg(instr.rd, d);
     }
 
-    fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
+    fn emitCall(self: *Compiler, rd: u16, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         // Self-call: use lightweight inline path with call_depth guard
         if (func_idx == self.self_func_idx) {
             self.emitInlineSelfCall(rd, data, data2, ir, call_pc);
@@ -2994,14 +3011,14 @@ pub const Compiler = struct {
         // dead after the call yet still needed by the trampoline to pass to the callee.
         if (n_args > 0) self.spillVreg(data.rd);
         if (n_args > 1) self.spillVreg(data.rs1);
-        if (n_args > 2) self.spillVreg(@truncate(data.operand));
-        if (n_args > 3) self.spillVreg(@truncate(data.operand >> 8));
+        if (n_args > 2) self.spillVreg(data.rs2_field);
+        if (n_args > 3) self.spillVreg(@truncate(data.operand));
         if (n_args > 4) {
             if (data2) |d2| {
                 if (n_args > 4) self.spillVreg(d2.rd);
                 if (n_args > 5) self.spillVreg(d2.rs1);
-                if (n_args > 6) self.spillVreg(@truncate(d2.operand));
-                if (n_args > 7) self.spillVreg(@truncate(d2.operand >> 8));
+                if (n_args > 6) self.spillVreg(d2.rs2_field);
+                if (n_args > 7) self.spillVreg(@truncate(d2.operand));
             }
         }
 
@@ -3019,14 +3036,14 @@ pub const Compiler = struct {
             self.emit(a64.movk64(3, @truncate(func_idx >> 16), 1));
         }
         // Load rd into w4
-        self.emit(a64.movz32(4, @as(u16, rd), 0));
-        // Pack data word as u64 into x5
-        const data_u64: u64 = @bitCast(data);
+        self.emit(a64.movz32(4, rd, 0));
+        // Pack data word as u64 into x5: [rd:16|rs1:16|rs2:16|arg3:16]
+        const data_u64: u64 = packDataWord(data);
         const d_instrs = a64.loadImm64(5, data_u64);
         for (d_instrs) |inst| self.emit(inst);
         // data2 into x6 (0 if no second data word)
         if (data2) |d2| {
-            const d2_u64: u64 = @bitCast(d2);
+            const d2_u64: u64 = packDataWord(d2);
             const d2_instrs = a64.loadImm64(6, d2_u64);
             for (d2_instrs) |inst| self.emit(inst);
         } else {
@@ -3073,13 +3090,13 @@ pub const Compiler = struct {
         self.spillCallerSaved();
         self.spillVregIfCalleeSaved(data.rd);
         self.spillVregIfCalleeSaved(data.rs1);
+        self.spillVregIfCalleeSaved(data.rs2_field);
         self.spillVregIfCalleeSaved(@truncate(data.operand));
-        self.spillVregIfCalleeSaved(@truncate(data.operand >> 8));
         if (data2) |d2| {
             self.spillVregIfCalleeSaved(d2.rd);
             self.spillVregIfCalleeSaved(d2.rs1);
+            self.spillVregIfCalleeSaved(d2.rs2_field);
             self.spillVregIfCalleeSaved(@truncate(d2.operand));
-            self.spillVregIfCalleeSaved(@truncate(d2.operand >> 8));
         }
         // Also spill the elem_idx vreg
         self.spillVregIfCalleeSaved(instr.rs1);
@@ -3099,21 +3116,21 @@ pub const Compiler = struct {
             self.emit(a64.movk64(3, @truncate(type_idx_table_idx >> 16), 1));
         }
         // w4 = result_reg
-        self.emit(a64.movz32(4, @as(u16, instr.rd), 0));
-        // x5 = data word
-        const data_u64: u64 = @bitCast(data);
+        self.emit(a64.movz32(4, instr.rd, 0));
+        // x5 = data word (packed register indices)
+        const data_u64: u64 = packDataWord(data);
         const d_instrs = a64.loadImm64(5, data_u64);
         for (d_instrs) |inst| self.emit(inst);
         // x6 = data2 word
         if (data2) |d2| {
-            const d2_u64: u64 = @bitCast(d2);
+            const d2_u64: u64 = packDataWord(d2);
             const d2_instrs = a64.loadImm64(6, d2_u64);
             for (d2_instrs) |inst| self.emit(inst);
         } else {
             self.emit(a64.movz64(6, 0, 0));
         }
         // w7 = elem_idx (load from regs[instr.rs1])
-        self.emit(a64.ldr64(7, REGS_PTR, @as(u12, instr.rs1) * 8));
+        self.emit(a64.ldr64(7, REGS_PTR, @as(u12, @intCast(instr.rs1)) * 8));
         // Truncate to 32 bits (elem_idx is u32)
 
         // 3. Flush depth counter before trampoline
@@ -3152,7 +3169,7 @@ pub const Compiler = struct {
     /// Manages reg_ptr and callee frame setup inline for maximum performance.
     /// Non-memory functions use cached REG_PTR_VAL (x27) holding the actual value.
     /// Memory functions recompute &vm.reg_ptr into SCRATCH each time.
-    fn emitInlineSelfCall(self: *Compiler, rd: u8, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
+    fn emitInlineSelfCall(self: *Compiler, rd: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         const needed: u32 = @as(u32, self.reg_count) + 4;
         const needed_bytes: u32 = needed * 8;
 
@@ -3177,7 +3194,7 @@ pub const Compiler = struct {
         self.fpCacheEvictAll(); // Write back D-cache before BL clobbers D-regs
         // Callee-saved spill: lightweight self-call skips STP x19-x28 in callee,
         // so caller must save live callee-saved vregs to regs[] explicitly.
-        const callee_exclude: ?u8 = if (self.result_count > 0 and self.isCalleeSavedVreg(rd)) rd else null;
+        const callee_exclude: ?u16 = if (self.result_count > 0 and self.isCalleeSavedVreg(rd)) rd else null;
         self.spillCalleeSavedLive(ir, call_pc, callee_exclude);
         self.spillCallerSavedLive(ir, call_pc);
 
@@ -3233,14 +3250,14 @@ pub const Compiler = struct {
         const n_args = self.param_count;
         if (n_args > 0) self.emitArgCopyDirect(0, data.rd, 0);
         if (n_args > 1) self.emitArgCopyDirect(0, data.rs1, 8);
-        if (n_args > 2) self.emitArgCopyDirect(0, @truncate(data.operand), 16);
-        if (n_args > 3) self.emitArgCopyDirect(0, @truncate(data.operand >> 8), 24);
+        if (n_args > 2) self.emitArgCopyDirect(0, data.rs2_field, 16);
+        if (n_args > 3) self.emitArgCopyDirect(0, @truncate(data.operand), 24);
         if (n_args > 4) {
             if (data2) |d2| {
                 if (n_args > 4) self.emitArgCopyDirect(0, d2.rd, 32);
                 if (n_args > 5) self.emitArgCopyDirect(0, d2.rs1, 40);
-                if (n_args > 6) self.emitArgCopyDirect(0, @truncate(d2.operand), 48);
-                if (n_args > 7) self.emitArgCopyDirect(0, @truncate(d2.operand >> 8), 56);
+                if (n_args > 6) self.emitArgCopyDirect(0, d2.rs2_field, 48);
+                if (n_args > 7) self.emitArgCopyDirect(0, @truncate(d2.operand), 56);
             }
         }
 
@@ -3388,7 +3405,7 @@ pub const Compiler = struct {
 
     /// Copy a single arg directly from physical register to callee frame.
     /// Uses physical reg if available, otherwise loads from memory via SCRATCH2.
-    fn emitArgCopyDirect(self: *Compiler, callee_base: u5, src_vreg: u8, offset: u16) void {
+    fn emitArgCopyDirect(self: *Compiler, callee_base: u5, src_vreg: u16, offset: u16) void {
         if (vregToPhys(src_vreg)) |phys| {
             self.emit(a64.str64(phys, callee_base, offset));
         } else {
@@ -3990,7 +4007,7 @@ pub fn jitCallTrampoline(
     const instance: *Instance = @ptrCast(@alignCast(instance_opaque));
 
     // Decode data word to get arg register indices
-    const data: RegInstr = @bitCast(data_raw);
+    const data = unpackDataWord(data_raw);
 
     const func_ptr = instance.getFuncPtr(func_idx) catch return 1;
     const n_args = func_ptr.params.len;
@@ -3998,16 +4015,16 @@ pub fn jitCallTrampoline(
 
     // Collect args from register file
     var call_args: [8]u64 = undefined;
-    if (n_args > 0) call_args[0] = regs[data.rd];
-    if (n_args > 1) call_args[1] = regs[data.rs1];
-    if (n_args > 2) call_args[2] = regs[@as(u8, @truncate(data.operand))];
-    if (n_args > 3) call_args[3] = regs[@as(u8, @truncate(data.operand >> 8))];
+    if (n_args > 0) call_args[0] = regs[data.r0];
+    if (n_args > 1) call_args[1] = regs[data.r1];
+    if (n_args > 2) call_args[2] = regs[data.r2];
+    if (n_args > 3) call_args[3] = regs[data.r3];
     if (n_args > 4 and data2_raw != 0) {
-        const data2: RegInstr = @bitCast(@as([8]u8, @bitCast(data2_raw)));
-        if (n_args > 4) call_args[4] = regs[data2.rd];
-        if (n_args > 5) call_args[5] = regs[data2.rs1];
-        if (n_args > 6) call_args[6] = regs[@as(u8, @truncate(data2.operand))];
-        if (n_args > 7) call_args[7] = regs[@as(u8, @truncate(data2.operand >> 8))];
+        const d2 = unpackDataWord(data2_raw);
+        if (n_args > 4) call_args[4] = regs[d2.r0];
+        if (n_args > 5) call_args[5] = regs[d2.r1];
+        if (n_args > 6) call_args[6] = regs[d2.r2];
+        if (n_args > 7) call_args[7] = regs[d2.r3];
     }
 
     // Fast path: if callee is already JIT-compiled, call directly (skip callFunction)
@@ -4080,18 +4097,18 @@ pub fn jitCallIndirectTrampoline(
     const n_results = func_ptr.results.len;
 
     // Collect args from register file
-    const data: RegInstr = @bitCast(data_raw);
+    const data = unpackDataWord(data_raw);
     var call_args: [8]u64 = undefined;
-    if (n_args > 0) call_args[0] = regs[data.rd];
-    if (n_args > 1) call_args[1] = regs[data.rs1];
-    if (n_args > 2) call_args[2] = regs[@as(u8, @truncate(data.operand))];
-    if (n_args > 3) call_args[3] = regs[@as(u8, @truncate(data.operand >> 8))];
+    if (n_args > 0) call_args[0] = regs[data.r0];
+    if (n_args > 1) call_args[1] = regs[data.r1];
+    if (n_args > 2) call_args[2] = regs[data.r2];
+    if (n_args > 3) call_args[3] = regs[data.r3];
     if (n_args > 4 and data2_raw != 0) {
-        const data2: RegInstr = @bitCast(@as([8]u8, @bitCast(data2_raw)));
-        if (n_args > 4) call_args[4] = regs[data2.rd];
-        if (n_args > 5) call_args[5] = regs[data2.rs1];
-        if (n_args > 6) call_args[6] = regs[@as(u8, @truncate(data2.operand))];
-        if (n_args > 7) call_args[7] = regs[@as(u8, @truncate(data2.operand >> 8))];
+        const d2 = unpackDataWord(data2_raw);
+        if (n_args > 4) call_args[4] = regs[d2.r0];
+        if (n_args > 5) call_args[5] = regs[d2.r1];
+        if (n_args > 6) call_args[6] = regs[d2.r2];
+        if (n_args > 7) call_args[7] = regs[d2.r3];
     }
 
     // Fast path: JIT-compiled callee
@@ -4380,8 +4397,8 @@ test "compile and execute i32 add" {
     // i32.add r2, r0, r1  (opcode 0x6A)
     // RETURN r2
     var code = [_]RegInstr{
-        .{ .op = 0x6A, .rd = 2, .rs1 = 0, .operand = 1 }, // rs2 = 1
-        .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
+        .{ .op = 0x6A, .rd = 2, .rs1 = 0, .rs2_field = 1 }, // rs2 = 1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0 },
     };
     var reg_func = RegFunc{
         .code = &code,
@@ -4463,7 +4480,7 @@ test "compile and execute i32 division" {
     const alloc = testing.allocator;
     // div_s(a, b) = a / b
     var code = [_]RegInstr{
-        .{ .op = 0x6D, .rd = 2, .rs1 = 0, .operand = 1 }, // i32.div_s r2, r0, r1
+        .{ .op = 0x6D, .rd = 2, .rs1 = 0, .rs2_field = 1 }, // i32.div_s r2, r0, r1
         .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
     };
     var reg_func = RegFunc{
@@ -4510,7 +4527,7 @@ test "compile and execute i32 remainder" {
     const alloc = testing.allocator;
     // rem_s(a, b) = a % b
     var code = [_]RegInstr{
-        .{ .op = 0x6F, .rd = 2, .rs1 = 0, .operand = 1 }, // i32.rem_s r2, r0, r1
+        .{ .op = 0x6F, .rd = 2, .rs1 = 0, .rs2_field = 1 }, // i32.rem_s r2, r0, r1
         .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
     };
     var reg_func = RegFunc{
@@ -4697,7 +4714,7 @@ test "const-addr memory load elides bounds check" {
         .{ .op = 0x28, .rd = 1, .rs1 = 0, .operand = 0 }, // i32.load [r0+0]
         .{ .op = regalloc_mod.OP_CONST32, .rd = 2, .rs1 = 0, .operand = 100 },
         .{ .op = 0x28, .rd = 3, .rs1 = 2, .operand = 0 }, // i32.load [r2+0]
-        .{ .op = 0x6A, .rd = 4, .rs1 = 1, .operand = 3 }, // i32.add r4 = r1 + r3
+        .{ .op = 0x6A, .rd = 4, .rs1 = 1, .rs2_field = 3 }, // i32.add r4 = r1 + r3
         .{ .op = regalloc_mod.OP_RETURN, .rd = 4, .rs1 = 0, .operand = 0 },
     };
     var reg_func = RegFunc{
@@ -4756,8 +4773,8 @@ test "CMP+B.cond fusion saves one instruction per compare-and-branch" {
     // if (a == b) return 42 else return 99
     // Pattern: i32.eq (r0, r1 -> r2) + BR_IF r2 — should fuse to CMP + B.eq
     var code = [_]RegInstr{
-        // [0] i32.eq r2, r0, r1  (rs2 = operand low byte)
-        .{ .op = 0x46, .rd = 2, .rs1 = 0, .operand = 1 },
+        // [0] i32.eq r2, r0, r1
+        .{ .op = 0x46, .rd = 2, .rs1 = 0, .rs2_field = 1 },
         // [1] BR_IF r2, target=4
         .{ .op = regalloc_mod.OP_BR_IF, .rd = 2, .rs1 = 0, .operand = 4 },
         // [2] CONST32 r1, 99  (else: not equal)
@@ -4773,8 +4790,8 @@ test "CMP+B.cond fusion saves one instruction per compare-and-branch" {
     // Also compile the same logic WITHOUT fusion opportunity
     // (use different rd for CMP and BR_IF so they can't fuse)
     var code_nofuse = [_]RegInstr{
-        // [0] i32.eq r2, r0, r1  (rs2 = operand low byte)
-        .{ .op = 0x46, .rd = 2, .rs1 = 0, .operand = 1 },
+        // [0] i32.eq r2, r0, r1
+        .{ .op = 0x46, .rd = 2, .rs1 = 0, .rs2_field = 1 },
         // [1] BR_IF r3, target=4  — different rd, can't fuse
         .{ .op = regalloc_mod.OP_BR_IF, .rd = 3, .rs1 = 0, .operand = 4 },
         // [2] CONST32 r1, 99

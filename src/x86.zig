@@ -1041,7 +1041,15 @@ const Cond = enum(u4) {
 /// r0-r2 → RBX, RBP, R15 (callee-saved)
 /// r3-r10 → RCX, RDI, RSI, RDX, R8, R9, R10, R11 (caller-saved)
 /// r11+ → memory (via regs_ptr at R12)
-fn vregToPhys(vreg: u8) ?Reg {
+/// Pack 4 register indices from a RegInstr into a u64 data word for trampoline calls.
+fn packDataWord(instr: RegInstr) u64 {
+    return @as(u64, instr.rd) |
+        (@as(u64, instr.rs1) << 16) |
+        (@as(u64, instr.rs2_field) << 32) |
+        (@as(u64, @as(u16, @truncate(instr.operand))) << 48);
+}
+
+fn vregToPhys(vreg: u16) ?Reg {
     return switch (vreg) {
         0 => .rbx,
         1 => .rbp,
@@ -1098,7 +1106,7 @@ pub const Compiler = struct {
     written_vregs: u128,
     /// Live vreg bitmap at current call site.
     call_live_set: u32,
-    scratch_vreg: ?u8,
+    scratch_vreg: ?u16,
     /// True when the memory has guard pages — skip explicit bounds checks.
     use_guard_pages: bool,
     /// Byte offset of the shared error epilogue (for signal handler recovery).
@@ -1171,7 +1179,7 @@ pub const Compiler = struct {
     /// Load vreg value into a physical register.
     /// If vreg is already in a physical register, returns that register.
     /// Otherwise, loads from memory (regs_ptr + vreg*8) into `scratch`.
-    fn getOrLoad(self: *Compiler, vreg: u8, scratch: Reg) Reg {
+    fn getOrLoad(self: *Compiler, vreg: u16, scratch: Reg) Reg {
         if (vregToPhys(vreg)) |phys| return phys;
         // Load from memory: MOV scratch, [R12 + vreg*8]
         self.loadVreg(vreg, scratch);
@@ -1179,7 +1187,7 @@ pub const Compiler = struct {
     }
 
     /// Load vreg from memory into dst register.
-    fn loadVreg(self: *Compiler, vreg: u8, dst: Reg) void {
+    fn loadVreg(self: *Compiler, vreg: u16, dst: Reg) void {
         const disp: i32 = @as(i32, vreg) * 8;
         Enc.loadDisp32(&self.code, self.alloc, dst, REGS_PTR, disp);
     }
@@ -1187,7 +1195,7 @@ pub const Compiler = struct {
     /// Store a physical register value to vreg.
     /// If vreg maps to a physical register, emit MOV if needed.
     /// Otherwise, store to memory.
-    fn storeVreg(self: *Compiler, vreg: u8, src: Reg) void {
+    fn storeVreg(self: *Compiler, vreg: u16, src: Reg) void {
         if (vregToPhys(vreg)) |phys| {
             if (phys != src) {
                 Enc.movRegReg(&self.code, self.alloc, phys, src);
@@ -1206,7 +1214,7 @@ pub const Compiler = struct {
         const max = @min(self.reg_count, MAX_PHYS_REGS);
         if (max <= FIRST_CALLER_SAVED_VREG) return;
         for (FIRST_CALLER_SAVED_VREG..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg))) != 0) {
                 if (vregToPhys(vreg)) |phys| {
                     const disp: i32 = @as(i32, vreg) * 8;
@@ -1221,7 +1229,7 @@ pub const Compiler = struct {
         const max = @min(self.reg_count, MAX_PHYS_REGS);
         if (max <= FIRST_CALLER_SAVED_VREG) return;
         for (FIRST_CALLER_SAVED_VREG..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if (vregToPhys(vreg)) |phys| {
                 const disp: i32 = @as(i32, vreg) * 8;
                 Enc.loadDisp32(&self.code, self.alloc, phys, REGS_PTR, disp);
@@ -1238,7 +1246,7 @@ pub const Compiler = struct {
         const live_set = jit_arm64.Compiler.computeCallLiveSet(ir, call_pc);
         self.call_live_set = live_set;
         for (FIRST_CALLER_SAVED_VREG..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if (self.written_vregs & (@as(u128, 1) << @as(u7, @intCast(vreg))) == 0) continue;
             if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
@@ -1254,7 +1262,7 @@ pub const Compiler = struct {
         if (max <= FIRST_CALLER_SAVED_VREG) return;
         const live_set = self.call_live_set;
         for (FIRST_CALLER_SAVED_VREG..max) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if ((live_set & (@as(u32, 1) << @as(u5, @intCast(vreg)))) == 0) continue;
             if (vregToPhys(vreg)) |phys| {
                 const disp: i32 = @as(i32, vreg) * 8;
@@ -1302,7 +1310,7 @@ pub const Compiler = struct {
         // Must be AFTER emitLoadMemCache() which calls CALL (trashes caller-saved).
         const max_vreg = @min(self.reg_count, MAX_PHYS_REGS);
         for (0..max_vreg) |i| {
-            const vreg: u8 = @intCast(i);
+            const vreg: u16 = @intCast(i);
             if (vregToPhys(vreg)) |phys| {
                 const disp: i32 = @as(i32, vreg) * 8;
                 Enc.loadDisp32(&self.code, self.alloc, phys, REGS_PTR, disp);
@@ -1310,7 +1318,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn emitEpilogue(self: *Compiler, result_vreg: ?u8) void {
+    fn emitEpilogue(self: *Compiler, result_vreg: ?u16) void {
         // Store result to regs[0] if needed
         if (result_vreg) |rv| {
             if (vregToPhys(rv)) |phys| {
@@ -1564,7 +1572,7 @@ pub const Compiler = struct {
     // --- Call emitters ---
 
     /// Emit a function call via trampoline.
-    fn emitCall(self: *Compiler, rd: u8, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
+    fn emitCall(self: *Compiler, rd: u16, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         // 1. Spill caller-saved regs + arg vregs
         self.spillCallerSavedLive(ir, call_pc);
         // Trampoline reads args from regs[] — spill ALL arg vregs unconditionally.
@@ -1572,14 +1580,14 @@ pub const Compiler = struct {
         // dead after the call yet still needed by the trampoline to pass to the callee.
         if (n_args > 0) self.spillVreg(data.rd);
         if (n_args > 1) self.spillVreg(data.rs1);
-        if (n_args > 2) self.spillVreg(@truncate(data.operand));
-        if (n_args > 3) self.spillVreg(@truncate(data.operand >> 8));
+        if (n_args > 2) self.spillVreg(data.rs2_field);
+        if (n_args > 3) self.spillVreg(@truncate(data.operand));
         if (n_args > 4) {
             if (data2) |d2| {
                 if (n_args > 4) self.spillVreg(d2.rd);
                 if (n_args > 5) self.spillVreg(d2.rs1);
-                if (n_args > 6) self.spillVreg(@truncate(d2.operand));
-                if (n_args > 7) self.spillVreg(@truncate(d2.operand >> 8));
+                if (n_args > 6) self.spillVreg(d2.rs2_field);
+                if (n_args > 7) self.spillVreg(@truncate(d2.operand));
             }
         }
 
@@ -1592,11 +1600,11 @@ pub const Compiler = struct {
         self.emitLoadImm32(.rcx, func_idx);
         self.emitLoadImm32(.r8, @as(u32, rd));
         // Pack data word as u64 into R9
-        const data_u64: u64 = @bitCast(data);
+        const data_u64 = packDataWord(data);
         self.emitLoadImm64(.r9, data_u64);
         // data2 as 7th argument: push onto stack
         if (data2) |d2| {
-            const d2_u64: u64 = @bitCast(d2);
+            const d2_u64 = packDataWord(d2);
             self.emitLoadImm64(SCRATCH, d2_u64);
         } else {
             Enc.xorRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH);
@@ -1641,13 +1649,13 @@ pub const Compiler = struct {
         // Trampoline reads args from regs[] — spill ALL arg vregs unconditionally.
         self.spillVreg(data.rd);
         self.spillVreg(data.rs1);
+        self.spillVreg(data.rs2_field);
         self.spillVreg(@truncate(data.operand));
-        self.spillVreg(@truncate(data.operand >> 8));
         if (data2) |d2| {
             self.spillVreg(d2.rd);
             self.spillVreg(d2.rs1);
+            self.spillVreg(d2.rs2_field);
             self.spillVreg(@truncate(d2.operand));
-            self.spillVreg(@truncate(d2.operand >> 8));
         }
         self.spillVreg(instr.rs1);
 
@@ -1658,17 +1666,17 @@ pub const Compiler = struct {
         Enc.movRegReg(&self.code, self.alloc, .rdx, REGS_PTR);
         self.emitLoadImm32(.rcx, instr.operand);
         self.emitLoadImm32(.r8, @as(u32, instr.rd));
-        const data_u64: u64 = @bitCast(data);
+        const data_u64 = packDataWord(data);
         self.emitLoadImm64(.r9, data_u64);
 
         // Push elem_idx (8th arg) first, then data2 (7th arg) — right to left
         // Load elem_idx from regs[instr.rs1]
-        const elem_disp: i32 = @as(i32, instr.rs1) * 8;
+        const elem_disp: i32 = @as(i32, @intCast(instr.rs1)) * 8;
         Enc.loadDisp32(&self.code, self.alloc, SCRATCH, REGS_PTR, elem_disp);
         Enc.push(&self.code, self.alloc, SCRATCH); // 8th arg
 
         if (data2) |d2| {
-            const d2_u64: u64 = @bitCast(d2);
+            const d2_u64 = packDataWord(d2);
             self.emitLoadImm64(SCRATCH, d2_u64);
         } else {
             Enc.xorRegReg32(&self.code, self.alloc, SCRATCH, SCRATCH);
@@ -1705,7 +1713,7 @@ pub const Compiler = struct {
     /// Spill a single vreg unconditionally to regs[]. Required for call args
     /// because the trampoline reads args from regs[], and spillCallerSavedLive
     /// only spills live-after-call vregs — dead-after-call args would be missed.
-    fn spillVreg(self: *Compiler, vreg: u8) void {
+    fn spillVreg(self: *Compiler, vreg: u16) void {
         if (vregToPhys(vreg)) |phys| {
             const disp: i32 = @as(i32, vreg) * 8;
             Enc.storeDisp32(&self.code, self.alloc, REGS_PTR, disp, phys);
@@ -1713,7 +1721,7 @@ pub const Compiler = struct {
     }
 
     /// Reload a single vreg from memory.
-    fn reloadVreg(self: *Compiler, vreg: u8) void {
+    fn reloadVreg(self: *Compiler, vreg: u16) void {
         if (vregToPhys(vreg)) |phys| {
             const disp: i32 = @as(i32, vreg) * 8;
             Enc.loadDisp32(&self.code, self.alloc, phys, REGS_PTR, disp);
@@ -1792,7 +1800,7 @@ pub const Compiler = struct {
     const XMM2: u4 = 2;
 
     /// Load FP value from vreg (GPR or memory) into XMM register.
-    fn loadFpToXmm(self: *Compiler, xmm: u4, vreg: u8) void {
+    fn loadFpToXmm(self: *Compiler, xmm: u4, vreg: u16) void {
         if (vregToPhys(vreg)) |phys| {
             Enc.movqToXmm(&self.code, self.alloc, xmm, phys);
         } else {
@@ -1804,7 +1812,7 @@ pub const Compiler = struct {
     }
 
     /// Store FP value from XMM register to vreg (GPR or memory).
-    fn storeFpFromXmm(self: *Compiler, vreg: u8, xmm: u4) void {
+    fn storeFpFromXmm(self: *Compiler, vreg: u16, xmm: u4) void {
         if (vregToPhys(vreg)) |phys| {
             Enc.movqFromXmm(&self.code, self.alloc, phys, xmm);
         } else {
@@ -2789,7 +2797,7 @@ pub const Compiler = struct {
     const BinOp = enum { add, sub, mul, @"and", @"or", xor };
 
     fn emitBinop32(self: *Compiler, instr: RegInstr, op: BinOp) void {
-        const rs2: u8 = @truncate(instr.operand);
+        const rs2 = instr.rs2();
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
@@ -2839,7 +2847,7 @@ pub const Compiler = struct {
     }
 
     fn emitBinop64(self: *Compiler, instr: RegInstr, op: BinOp) void {
-        const rs2: u8 = @truncate(instr.operand);
+        const rs2 = instr.rs2();
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
@@ -2948,7 +2956,7 @@ pub const Compiler = struct {
 
     /// Try to fuse a CMP result with a following BR_IF/BR_IF_NOT.
     /// Returns true if fused, false if not fuseable. Returns null on OOM.
-    fn tryFuseBranch(self: *Compiler, cc: Cond, rd: u8, pc: *u32) ?bool {
+    fn tryFuseBranch(self: *Compiler, cc: Cond, rd: u16, pc: *u32) ?bool {
         if (pc.* >= self.ir_slice.len) return false;
         const next = self.ir_slice[pc.*];
         if (next.op != regalloc_mod.OP_BR_IF and next.op != regalloc_mod.OP_BR_IF_NOT) return false;
@@ -2971,7 +2979,7 @@ pub const Compiler = struct {
     }
 
     /// After CMP/TEST emission: try fusion, or fall back to SETCC + MOVZX + store.
-    fn emitCmpResult(self: *Compiler, cc: Cond, rd: u8, pc: *u32) bool {
+    fn emitCmpResult(self: *Compiler, cc: Cond, rd: u16, pc: *u32) bool {
         if (self.tryFuseBranch(cc, rd, pc)) |fused| {
             if (fused) return true;
         } else return false; // OOM
@@ -2986,7 +2994,7 @@ pub const Compiler = struct {
     // Pattern: CMP r1, r2 → SETcc AL → MOVZX EAX, AL → store to rd
 
     fn emitCmp32(self: *Compiler, instr: RegInstr, cc: Cond, pc: *u32) bool {
-        const rs2: u8 = @truncate(instr.operand);
+        const rs2 = instr.rs2();
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         Enc.cmpRegReg32(&self.code, self.alloc, r1, r2);
@@ -2994,7 +3002,7 @@ pub const Compiler = struct {
     }
 
     fn emitCmp64(self: *Compiler, instr: RegInstr, cc: Cond, pc: *u32) bool {
-        const rs2: u8 = @truncate(instr.operand);
+        const rs2 = instr.rs2();
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const r2 = self.getOrLoad(rs2, SCRATCH2);
         Enc.cmpRegReg(&self.code, self.alloc, r1, r2);
@@ -3019,7 +3027,7 @@ pub const Compiler = struct {
     const ShiftOp = enum { shl, shr, sar, rol, ror };
 
     fn emitShift32(self: *Compiler, instr: RegInstr, op: ShiftOp) void {
-        const rs2: u8 = @truncate(instr.operand);
+        const rs2 = instr.rs2();
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
         const rs2_phys = vregToPhys(rs2);
@@ -3061,7 +3069,7 @@ pub const Compiler = struct {
     }
 
     fn emitShift64(self: *Compiler, instr: RegInstr, op: ShiftOp) void {
-        const rs2: u8 = @truncate(instr.operand);
+        const rs2 = instr.rs2();
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rd = vregToPhys(instr.rd) orelse SCRATCH;
         const rs2_phys = vregToPhys(rs2);
@@ -3120,7 +3128,7 @@ pub const Compiler = struct {
     }
 
     /// Move shift amount (vreg rs2) into CL. Save RCX if needed.
-    fn moveShiftCountToCl(self: *Compiler, rs2: u8, rd: Reg) void {
+    fn moveShiftCountToCl(self: *Compiler, rs2: u16, rd: Reg) void {
         _ = rd;
         const shift_reg = self.getOrLoad(rs2, SCRATCH2);
         if (shift_reg != .rcx) {
@@ -3132,7 +3140,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn restoreCl(self: *Compiler, rs2: u8) void {
+    fn restoreCl(self: *Compiler, rs2: u16) void {
         // Use SCRATCH2 as fallback for spilled vregs (matching moveShiftCountToCl)
         const shift_reg = vregToPhys(rs2) orelse SCRATCH2;
         if (shift_reg != .rcx) {
@@ -3146,7 +3154,7 @@ pub const Compiler = struct {
     // x86 uses RAX/RDX for division. RAX = SCRATCH, RDX = vreg 6.
 
     fn emitDiv32(self: *Compiler, instr: RegInstr, signed: bool, is_rem: bool) void {
-        const rs2: u8 = @truncate(instr.operand);
+        const rs2 = instr.rs2();
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const divisor = self.getOrLoad(rs2, SCRATCH2);
 
@@ -3185,7 +3193,7 @@ pub const Compiler = struct {
     }
 
     fn emitDiv64(self: *Compiler, instr: RegInstr, signed: bool, is_rem: bool) void {
-        const rs2: u8 = @truncate(instr.operand);
+        const rs2 = instr.rs2();
         const r1 = self.getOrLoad(instr.rs1, SCRATCH);
         const divisor = self.getOrLoad(rs2, SCRATCH2);
 

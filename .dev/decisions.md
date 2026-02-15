@@ -63,3 +63,21 @@ WAT benchmarks (no WASI imports) and shootout (_start entry) work correctly.
 
 **Decision**: Remove wasmer entirely from benchmark infrastructure (scripts,
 YAML, flake.nix). Comparison targets: wasmtime, bun, node.
+
+---
+
+## D120: RegInstr u16 register widening — 8→12 bytes
+
+**Context**: st_matrix func#42 has 42 locals + hundreds of temporaries, exceeding
+the u8 (255) register limit. Falls back to stack interpreter (2.96x gap vs wasmtime).
+
+**Decision**: Widen RegInstr register fields from u8 to u16. Add explicit `rs2_field`
+instead of packing rs2 in operand low byte. Struct: op:u16, rd:u16, rs1:u16,
+rs2_field:u16, operand:u32 = 12 bytes (was 8).
+
+**Trade-off**: 50% larger IR increases cache pressure (~6% regression on some benchmarks).
+Acceptable: unlocks JIT for all functions regardless of register count.
+JIT trampoline pack/unpack via explicit helpers (no @bitCast with 12-byte struct).
+
+**Rejected**: Smarter register reuse alone — 42 locals consume 42 base regs, leaving
+213 for temps in a 4766-instruction function. Would require full liveness analysis.

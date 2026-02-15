@@ -17,17 +17,18 @@ const PreInstr = predecode.PreInstr;
 /// 8-byte 3-address register instruction (same size as PreInstr).
 pub const RegInstr = extern struct {
     op: u16, // instruction type (reuses Wasm opcodes + extensions)
-    rd: u8, // destination register
-    rs1: u8, // source register 1
-    operand: u32, // rs2 (low byte) | immediate | branch target | pool index
+    rd: u16, // destination register
+    rs1: u16, // source register 1
+    rs2_field: u16 = 0, // source register 2 (for binary ops)
+    operand: u32 = 0, // immediate | branch target | pool index
 
-    pub fn rs2(self: RegInstr) u8 {
-        return @truncate(self.operand);
+    pub fn rs2(self: RegInstr) u16 {
+        return self.rs2_field;
     }
 };
 
 comptime {
-    std.debug.assert(@sizeOf(RegInstr) == 8);
+    std.debug.assert(@sizeOf(RegInstr) == 12);
 }
 
 /// Register IR for a single function.
@@ -150,7 +151,7 @@ const BlockInfo = struct {
     /// Block result arity
     arity: u16,
     /// Register for block result (if arity == 1)
-    result_reg: u8,
+    result_reg: u16,
     /// For forward branches: list of PCs that need patching with end PC.
     /// We use a simple approach: patch slots embedded in RegInstr.operand.
     patches: std.ArrayList(u32),
@@ -163,7 +164,7 @@ const TempAlloc = struct {
     next_reg: u16,
     max_reg: u16,
     free_count: u16 = 0,
-    free_regs: [256]u8 = undefined,
+    free_regs: [512]u16 = undefined,
     total_locals: u16,
 
     fn init(total_locals: u16) TempAlloc {
@@ -174,7 +175,7 @@ const TempAlloc = struct {
         };
     }
 
-    fn alloc(self: *TempAlloc) u8 {
+    fn alloc(self: *TempAlloc) u16 {
         if (self.free_count > 0) {
             self.free_count -= 1;
             return self.free_regs[self.free_count];
@@ -182,26 +183,26 @@ const TempAlloc = struct {
         const reg = self.next_reg;
         self.next_reg += 1;
         if (self.next_reg > self.max_reg) self.max_reg = self.next_reg;
-        return @truncate(reg);
+        return reg;
     }
 
-    fn free(self: *TempAlloc, reg: u8) void {
+    fn free(self: *TempAlloc, reg: u16) void {
         if (reg < self.total_locals) return;
-        if (self.free_count < 256) {
+        if (self.free_count < 512) {
             self.free_regs[self.free_count] = reg;
             self.free_count += 1;
         }
     }
 
     /// Pop from vstack and free if temp register.
-    fn popFree(self: *TempAlloc, vs: *std.ArrayList(u8)) ?u8 {
+    fn popFree(self: *TempAlloc, vs: *std.ArrayList(u16)) ?u16 {
         const reg = vs.pop() orelse return null;
         self.free(reg);
         return reg;
     }
 
     /// Shrink vstack and free discarded temp registers.
-    fn shrinkFree(self: *TempAlloc, vs: *std.ArrayList(u8), new_len: usize) void {
+    fn shrinkFree(self: *TempAlloc, vs: *std.ArrayList(u16), new_len: usize) void {
         for (vs.items[new_len..]) |reg| self.free(reg);
         vs.shrinkRetainingCapacity(new_len);
     }
@@ -236,7 +237,7 @@ pub fn convert(
     }
 
     // Virtual register stack: tracks which register holds each stack slot.
-    var vstack: std.ArrayList(u8) = .empty;
+    var vstack: std.ArrayList(u16) = .empty;
     defer vstack.deinit(alloc);
 
     var temps = TempAlloc.init(total_locals);
@@ -360,7 +361,7 @@ pub fn convert(
                 const rs2 = temps.popFree(&vstack).?;
                 const rs1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .rs2_field = rs2, .operand = 0 });
                 try vstack.append(alloc, rd);
             },
 
@@ -369,7 +370,7 @@ pub fn convert(
                 const rs2 = temps.popFree(&vstack).?;
                 const rs1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .rs2_field = rs2 });
                 try vstack.append(alloc, rd);
             },
 
@@ -394,7 +395,7 @@ pub fn convert(
                 const rs2 = temps.popFree(&vstack).?;
                 const rs1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .rs2_field = rs2 });
                 try vstack.append(alloc, rd);
             },
 
@@ -403,7 +404,7 @@ pub fn convert(
                 const rs2 = temps.popFree(&vstack).?;
                 const rs1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .rs2_field = rs2 });
                 try vstack.append(alloc, rd);
             },
 
@@ -429,7 +430,7 @@ pub fn convert(
                 const rs2 = temps.popFree(&vstack).?;
                 const rs1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .rs2_field = rs2 });
                 try vstack.append(alloc, rd);
             },
 
@@ -438,7 +439,7 @@ pub fn convert(
                 const rs2 = temps.popFree(&vstack).?;
                 const rs1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .rs2_field = rs2 });
                 try vstack.append(alloc, rd);
             },
 
@@ -458,7 +459,7 @@ pub fn convert(
                 const rs2 = temps.popFree(&vstack).?;
                 const rs1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .rs2_field = rs2 });
                 try vstack.append(alloc, rd);
             },
 
@@ -467,7 +468,7 @@ pub fn convert(
                 const rs2 = temps.popFree(&vstack).?;
                 const rs1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .operand = rs2 });
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .rs2_field = rs2 });
                 try vstack.append(alloc, rd);
             },
 
@@ -715,7 +716,7 @@ pub fn convert(
                 try code.append(alloc, .{ .op = OP_CALL, .rd = rd, .rs1 = @intCast(n_args), .operand = func_idx });
 
                 // Pack arg registers into data words (up to 4 per word)
-                var arg_regs: [8]u8 = .{0} ** 8;
+                var arg_regs: [8]u16 = .{0} ** 8;
                 const arg_start = vstack.items.len - n_args;
                 for (0..n_args) |i| {
                     arg_regs[i] = vstack.items[arg_start + i];
@@ -724,14 +725,16 @@ pub fn convert(
                     .op = OP_NOP,
                     .rd = arg_regs[0],
                     .rs1 = arg_regs[1],
-                    .operand = @as(u32, arg_regs[2]) | (@as(u32, arg_regs[3]) << 8),
+                    .rs2_field = arg_regs[2],
+                    .operand = arg_regs[3],
                 });
                 if (n_args > 4) {
                     try code.append(alloc, .{
                         .op = OP_NOP,
                         .rd = arg_regs[4],
                         .rs1 = arg_regs[5],
-                        .operand = @as(u32, arg_regs[6]) | (@as(u32, arg_regs[7]) << 8),
+                        .rs2_field = arg_regs[6],
+                        .operand = arg_regs[7],
                     });
                 }
 
@@ -763,12 +766,13 @@ pub fn convert(
                 const val1 = temps.popFree(&vstack).?;
                 const rd = temps.alloc();
                 // select rd, val1, val2, cond: rd = cond ? val1 : val2
-                // Encode: rd=rd, rs1=val1, operand low=val2, operand byte1=cond
+                // Encode: rd=rd, rs1=val1, rs2_field=val2, operand=cond
                 try code.append(alloc, .{
                     .op = 0x1B,
                     .rd = rd,
                     .rs1 = val1,
-                    .operand = @as(u32, val2) | (@as(u32, cond) << 8),
+                    .rs2_field = val2,
+                    .operand = cond,
                 });
                 try vstack.append(alloc, rd);
             },
@@ -831,13 +835,13 @@ pub fn convert(
             predecode.OP_LOCALS_ADD => {
                 // local.get A + local.get B + i32.add
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = 0x6A, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) });
+                try code.append(alloc, .{ .op = 0x6A, .rd = rd, .rs1 = @intCast(instr.extra), .rs2_field = @intCast(instr.operand & 0xFF) });
                 try vstack.append(alloc, rd);
                 pc += 2; // skip consumed local.get + i32.add
             },
             predecode.OP_LOCALS_SUB => {
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = 0x6B, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) });
+                try code.append(alloc, .{ .op = 0x6B, .rd = rd, .rs1 = @intCast(instr.extra), .rs2_field = @intCast(instr.operand & 0xFF) });
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
@@ -846,7 +850,7 @@ pub fn convert(
                 const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = 0x6A, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd });
+                try code.append(alloc, .{ .op = 0x6A, .rd = rd, .rs1 = @intCast(instr.extra), .rs2_field = const_rd });
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
@@ -854,7 +858,7 @@ pub fn convert(
                 const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = 0x6B, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd });
+                try code.append(alloc, .{ .op = 0x6B, .rd = rd, .rs1 = @intCast(instr.extra), .rs2_field = const_rd });
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
@@ -862,7 +866,7 @@ pub fn convert(
                 const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = 0x48, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd }); // i32.lt_s
+                try code.append(alloc, .{ .op = 0x48, .rd = rd, .rs1 = @intCast(instr.extra), .rs2_field = const_rd }); // i32.lt_s
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
@@ -870,7 +874,7 @@ pub fn convert(
                 const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = 0x4E, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd }); // i32.ge_s
+                try code.append(alloc, .{ .op = 0x4E, .rd = rd, .rs1 = @intCast(instr.extra), .rs2_field = const_rd }); // i32.ge_s
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
@@ -878,19 +882,19 @@ pub fn convert(
                 const const_rd = temps.alloc();
                 try code.append(alloc, .{ .op = OP_CONST32, .rd = const_rd, .rs1 = 0, .operand = instr.operand });
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = 0x49, .rd = rd, .rs1 = @intCast(instr.extra), .operand = const_rd }); // i32.lt_u
+                try code.append(alloc, .{ .op = 0x49, .rd = rd, .rs1 = @intCast(instr.extra), .rs2_field = const_rd }); // i32.lt_u
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
             predecode.OP_LOCALS_GT_S => {
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = 0x4A, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) }); // i32.gt_s
+                try code.append(alloc, .{ .op = 0x4A, .rd = rd, .rs1 = @intCast(instr.extra), .rs2_field = @intCast(instr.operand & 0xFF) }); // i32.gt_s
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
             predecode.OP_LOCALS_LE_S => {
                 const rd = temps.alloc();
-                try code.append(alloc, .{ .op = 0x4C, .rd = rd, .rs1 = @intCast(instr.extra), .operand = @as(u32, @intCast(instr.operand & 0xFF)) }); // i32.le_s
+                try code.append(alloc, .{ .op = 0x4C, .rd = rd, .rs1 = @intCast(instr.extra), .rs2_field = @intCast(instr.operand & 0xFF) }); // i32.le_s
                 try vstack.append(alloc, rd);
                 pc += 2;
             },
@@ -902,8 +906,8 @@ pub fn convert(
 
                 // Pre-scan: check if any target has arity > 0
                 var has_arity = false;
-                var unique_result_reg: ?u8 = null;
-                var arity_val: u8 = 0;
+                var unique_result_reg: ?u16 = null;
+                var arity_val: u16 = 0;
                 for (0..count + 1) |entry_i| {
                     if (pc + entry_i >= ir_code.len) return null;
                     const entry = ir_code[pc + entry_i];
@@ -1022,7 +1026,7 @@ pub fn convert(
                 });
 
                 // Pack arg registers (same layout as OP_CALL)
-                var arg_regs: [8]u8 = .{0} ** 8;
+                var arg_regs: [8]u16 = .{0} ** 8;
                 const arg_start = vstack.items.len - n_args;
                 for (0..n_args) |i| {
                     arg_regs[i] = vstack.items[arg_start + i];
@@ -1031,14 +1035,16 @@ pub fn convert(
                     .op = OP_NOP,
                     .rd = arg_regs[0],
                     .rs1 = arg_regs[1],
-                    .operand = @as(u32, arg_regs[2]) | (@as(u32, arg_regs[3]) << 8),
+                    .rs2_field = arg_regs[2],
+                    .operand = arg_regs[3],
                 });
                 if (n_args > 4) {
                     try code.append(alloc, .{
                         .op = OP_NOP,
                         .rd = arg_regs[4],
                         .rs1 = arg_regs[5],
-                        .operand = @as(u32, arg_regs[6]) | (@as(u32, arg_regs[7]) << 8),
+                        .rs2_field = arg_regs[6],
+                        .operand = arg_regs[7],
                     });
                 }
 
@@ -1057,7 +1063,7 @@ pub fn convert(
                     .op = OP_MEMORY_FILL,
                     .rd = dst_reg,
                     .rs1 = val_reg,
-                    .operand = n_reg,
+                    .rs2_field = n_reg,
                 });
             },
             predecode.MISC_BASE | 0x0A => { // memory.copy
@@ -1070,7 +1076,7 @@ pub fn convert(
                     .op = OP_MEMORY_COPY,
                     .rd = dst_reg,
                     .rs1 = src_reg,
-                    .operand = n_reg,
+                    .rs2_field = n_reg,
                 });
             },
 
@@ -1149,8 +1155,8 @@ pub fn convert(
     const compacted_len = compactCode(code.items);
     code.shrinkRetainingCapacity(compacted_len);
 
-    // Bail if temp registers exceeded u8 range
-    if (temps.max_reg > 255) return null;
+    // Bail if temp registers exceeded u16 range
+    if (temps.max_reg > 65535) return null;
 
     const result = try alloc.create(RegFunc);
     const owned_code = try code.toOwnedSlice(alloc);
@@ -1400,7 +1406,7 @@ fn compactCodeProper(code_slice: []RegInstr) void {
 const testing = std.testing;
 
 test "RegInstr size is 8 bytes" {
-    try testing.expectEqual(8, @sizeOf(RegInstr));
+    try testing.expectEqual(12, @sizeOf(RegInstr));
 }
 
 test "convert — simple i32.add(local.get 0, local.get 1)" {
@@ -1535,15 +1541,20 @@ test "convert — graceful fallback when locals exceed u8 range" {
     try testing.expect(result == null);
 }
 
-test "convert — graceful fallback when temp registers overflow u8" {
-    // 250 params + 7 i32.const temps → reg 256 overflows u8
+test "convert — large register count succeeds with u16 regs" {
+    // 250 params + 7 i32.const temps → reg 256, now fits u16
     var ir: [8]PreInstr = undefined;
     for (0..7) |i| {
         ir[i] = .{ .opcode = 0x41, .extra = 0, .operand = @intCast(i) }; // i32.const
     }
     ir[7] = .{ .opcode = 0x0B, .extra = 0, .operand = 0 }; // end
     const result = try convert(testing.allocator, &ir, &.{}, 250, 0, null);
-    try testing.expect(result == null);
+    try testing.expect(result != null);
+    if (result) |r| {
+        var rf = r;
+        rf.deinit();
+        testing.allocator.destroy(r);
+    }
 }
 
 test "convert — br_table with arity-0 targets" {
@@ -1603,9 +1614,9 @@ test "convert — memory.fill emits OP_MEMORY_FILL" {
     const code = result.?.code;
     try testing.expect(code.len >= 2); // MEMORY_FILL + RETURN
     try testing.expectEqual(OP_MEMORY_FILL, code[0].op);
-    try testing.expectEqual(@as(u8, 0), code[0].rd); // dst = r0
-    try testing.expectEqual(@as(u8, 1), code[0].rs1); // val = r1
-    try testing.expectEqual(@as(u8, 2), code[0].rs2()); // n = r2
+    try testing.expectEqual(@as(u16, 0), code[0].rd); // dst = r0
+    try testing.expectEqual(@as(u16, 1), code[0].rs1); // val = r1
+    try testing.expectEqual(@as(u16, 2), code[0].rs2()); // n = r2
 }
 
 test "copy propagation — const + local.set folds to direct const" {
@@ -1716,7 +1727,7 @@ test "copy propagation — does not fold when temp used by block-end MOV" {
     // The block-end MOV must copy r2→r1, and both MOVs must reference valid r2.
     const code = result.?.code;
     var found_const = false;
-    var const_rd: u8 = 0;
+    var const_rd: u16 = 0;
     for (code) |instr| {
         if (instr.op == OP_CONST32 and instr.operand == 11) {
             found_const = true;
