@@ -897,3 +897,30 @@ entries:
       st_nestedloop: {time_ms: 2.7}
       st_ackermann: {time_ms: 5.6}
       st_matrix: {time_ms: 276.9}
+  - id: "stage29"
+    date: "2026-02-16"
+    reason: "Stage 29 complete: threads"
+    commit: "8dcc1f3"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 54.0}
+      tak: {time_ms: 8.2}
+      sieve: {time_ms: 4.5}
+      nbody: {time_ms: 9.4}
+      nqueens: {time_ms: 2.3}
+      tgo_fib: {time_ms: 40.1}
+      tgo_tak: {time_ms: 8.0}
+      tgo_arith: {time_ms: 1.6}
+      tgo_sieve: {time_ms: 3.8}
+      tgo_fib_loop: {time_ms: 2.0}
+      tgo_gcd: {time_ms: 2.0}
+      tgo_nqueens: {time_ms: 35.4}
+      tgo_mfr: {time_ms: 48.8}
+      tgo_list: {time_ms: 30.0}
+      tgo_rwork: {time_ms: 4.8}
+      tgo_strops: {time_ms: 34.8}
+      st_fib2: {time_ms: 1005.1}
+      st_sieve: {time_ms: 188.8}
+      st_nestedloop: {time_ms: 1.6}
+      st_ackermann: {time_ms: 5.7}
+      st_matrix: {time_ms: 264.6}
