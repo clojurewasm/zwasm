@@ -93,6 +93,33 @@ bun bench/run_wasm_wasi.mjs shootout-fib2.wasm
 node bench/run_wasm_wasi.mjs shootout-fib2.wasm
 ```
 
+## Layer 4: GC Proposal (Struct/Ref Types)
+
+Hand-written WAT using Wasm GC proposal types (struct, ref null).
+Tests allocation throughput, reference traversal, and collection pressure.
+
+Source: `bench/wat/gc_*.wat`
+Compiled: `bench/wasm/gc_*.wasm` (via wasm-tools)
+
+| Name      | WAT source           | Workload                             |
+|-----------|----------------------|--------------------------------------|
+| gc_alloc  | bench/wat/gc_alloc.wat | Linked list: N struct.new + walk   |
+| gc_tree   | bench/wat/gc_tree.wat  | Binary tree: recursive build+count |
+
+### Build instructions
+
+```bash
+# Requires: wasm-tools (cargo install wasm-tools)
+wasm-tools parse bench/wat/gc_alloc.wat -o bench/wasm/gc_alloc.wasm
+wasm-tools parse bench/wat/gc_tree.wat -o bench/wasm/gc_tree.wasm
+```
+
+### Notes
+
+- wasmtime requires `--wasm gc` flag (GC proposal not enabled by default)
+- Node v22+ supports WasmGC natively
+- Large performance gap expected: interpreter vs JIT for allocation-heavy workloads
+
 ## Cross-Runtime Comparison
 
 Compare zwasm against other Wasm runtimes.
@@ -148,4 +175,3 @@ Results: `bench/runtime_comparison.yaml`
 ## Known Issues
 
 - **fib_loop TinyGo**: zwasm returns 196608 instead of 75025 — execution bug
-- **regalloc overflow**: Complex WASI programs (>255 virtual registers) overflow u8

@@ -9,7 +9,7 @@ Session handover document. Read at session start.
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
 - Spec: 62,147/62,158 Mac (100.0%), 62,148/62,158 Ubuntu (100.0%, wasm-tools). GC+EH integrated, threads 310/310, E2E: 356/356
-- Benchmarks: 3 layers (WAT 5, TinyGo 11, Shootout 5 = 21 total)
+- Benchmarks: 4 layers (WAT 5, TinyGo 11, Shootout 5, GC 2 = 23 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
 - Embedder API: Vm type, inspectImportFunctions, WasmModule.loadWithImports
@@ -48,16 +48,16 @@ Stages 0-30 — all COMPLETE. See `roadmap.md` for details.
 - [x] 30.1: Widen RegInstr to u16 regs (st_matrix func#42: u8 reg limit → interpreter fallback)
 - [x] 30.2: Increase MAX_PHYS_REGS (tgo_mfr: 23 regs spill 3, eliminate hot-loop spills)
 - [x] 31.0: GC stress test suite creation
-- [ ] 31.1: GC benchmark (zwasm vs wasmtime vs node)
+- [x] 31.1: GC benchmark (zwasm vs wasmtime vs node)
 - [ ] 31.2: GC collector improvement decision
 
 ## Current Task
 
-31.1: GC benchmark (zwasm vs wasmtime vs node).
+31.2: GC collector improvement decision.
 
 ## Previous Task
 
-31.0: Added 5 GC stress tests (allocation pressure, deep chain, large array, free list reuse, mixed burst).
+31.1: Added gc_alloc/gc_tree benchmarks to infrastructure (4 layers, 23 total). GC gap: 6.7-46x vs wasmtime.
 
 ## Wasm 3.0 Coverage
 

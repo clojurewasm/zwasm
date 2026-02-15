@@ -45,6 +45,7 @@ for arg in "$@"; do
       echo "                     tgo_mfr, tgo_list, tgo_rwork, tgo_strops"
       echo "  Layer 3 (Shootout): st_fib2, st_sieve, st_nestedloop,"
       echo "                      st_ackermann, st_matrix"
+      echo "  Layer 4 (GC):      gc_alloc, gc_tree"
       exit 0
       ;;
   esac
@@ -110,6 +111,9 @@ BENCHMARKS=(
   # ed25519 excluded (crypto, very slow on interpreter)
   #"st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
   "st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
+  # Layer 4: GC proposal (struct/ref types)
+  "gc_alloc:bench/wasm/gc_alloc.wasm:gc_bench:100000:gc_invoke"
+  "gc_tree:bench/wasm/gc_tree.wasm:gc_tree_bench:18:gc_invoke"
 )
 
 RUNS=3
@@ -128,6 +132,14 @@ build_cmd() {
       case "$rt" in
         zwasm)    echo "./zig-out/bin/zwasm run --invoke $func $wasm $bench_args" ;;
         wasmtime) echo "wasmtime run --invoke $func $wasm $bench_args" ;;
+        bun)      echo "bun bench/run_wasm.mjs $wasm $func $bench_args" ;;
+        node)     echo "node bench/run_wasm.mjs $wasm $func $bench_args" ;;
+      esac
+      ;;
+    gc_invoke)
+      case "$rt" in
+        zwasm)    echo "./zig-out/bin/zwasm run --invoke $func $wasm $bench_args" ;;
+        wasmtime) echo "wasmtime run --wasm gc --invoke $func $wasm $bench_args" ;;
         bun)      echo "bun bench/run_wasm.mjs $wasm $func $bench_args" ;;
         node)     echo "node bench/run_wasm.mjs $wasm $func $bench_args" ;;
       esac

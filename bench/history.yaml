@@ -951,3 +951,32 @@ entries:
       st_nestedloop: {time_ms: 3.3}
       st_ackermann: {time_ms: 4.2}
       st_matrix: {time_ms: 286.2}
+  - id: "31.1"
+    date: "2026-02-16"
+    reason: "Add GC benchmarks (gc_alloc, gc_tree)"
+    commit: "97b2332"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 53.5}
+      tak: {time_ms: 8.0}
+      sieve: {time_ms: 4.8}
+      nbody: {time_ms: 9.1}
+      nqueens: {time_ms: 1.8}
+      tgo_fib: {time_ms: 37.7}
+      tgo_tak: {time_ms: 7.8}
+      tgo_arith: {time_ms: 2.4}
+      tgo_sieve: {time_ms: 3.6}
+      tgo_fib_loop: {time_ms: 2.7}
+      tgo_gcd: {time_ms: 2.0}
+      tgo_nqueens: {time_ms: 41.1}
+      tgo_mfr: {time_ms: 45.5}
+      tgo_list: {time_ms: 38.0}
+      tgo_rwork: {time_ms: 6.7}
+      tgo_strops: {time_ms: 36.0}
+      st_fib2: {time_ms: 1012.8}
+      st_sieve: {time_ms: 173.1}
+      st_nestedloop: {time_ms: 1.4}
+      st_ackermann: {time_ms: 4.9}
+      st_matrix: {time_ms: 283.8}
+      gc_alloc: {time_ms: 61.9}
+      gc_tree: {time_ms: 1668.3}

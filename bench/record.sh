@@ -54,9 +54,12 @@ BENCHMARKS=(
   # ed25519 excluded (crypto, very slow on interpreter)
   #"st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
   "st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
+  # Layer 4: GC proposal (struct/ref types)
+  "gc_alloc:bench/wasm/gc_alloc.wasm:gc_bench:100000:invoke"
+  "gc_tree:bench/wasm/gc_tree.wasm:gc_tree_bench:18:invoke"
 )
 
-BENCH_ORDER=(fib tak sieve nbody nqueens tgo_fib tgo_tak tgo_arith tgo_sieve tgo_fib_loop tgo_gcd tgo_nqueens tgo_mfr tgo_list tgo_rwork tgo_strops st_fib2 st_sieve st_nestedloop st_ackermann st_matrix)
+BENCH_ORDER=(fib tak sieve nbody nqueens tgo_fib tgo_tak tgo_arith tgo_sieve tgo_fib_loop tgo_gcd tgo_nqueens tgo_mfr tgo_list tgo_rwork tgo_strops st_fib2 st_sieve st_nestedloop st_ackermann st_matrix gc_alloc gc_tree)
 
 # --- Parse arguments ---
 for arg in "$@"; do

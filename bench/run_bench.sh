@@ -55,6 +55,9 @@ BENCHMARKS=(
   # ed25519 excluded (crypto, very slow on interpreter)
   #"st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
   "st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
+  # Layer 4: GC proposal (struct/ref types)
+  "gc_alloc:bench/wasm/gc_alloc.wasm:gc_bench:100000:invoke"
+  "gc_tree:bench/wasm/gc_tree.wasm:gc_tree_bench:18:invoke"
 )
 
 for entry in "${BENCHMARKS[@]}"; do
