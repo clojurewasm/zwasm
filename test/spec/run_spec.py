@@ -565,6 +565,8 @@ def run_test_file(json_path, verbose=False):
     last_internal_name = None
     # Track named modules' wasm paths (for thread register commands)
     named_module_wasm = {}
+    # Module definitions: maps definition name -> wasm_path (for module_instance)
+    module_defs = {}
 
     # Flatten thread blocks: run thread commands sequentially (single-threaded runtime)
     def flatten_commands(commands):
@@ -633,6 +635,22 @@ def run_test_file(json_path, verbose=False):
                     registered_modules[reg_name] = current_wasm
                     if last_internal_name:
                         module_reg_names[last_internal_name] = reg_name
+            continue
+
+        if cmd_type == "module_definition":
+            # Save module definition for later instantiation via module_instance
+            def_name = cmd.get("name")
+            wasm_file = cmd.get("filename")
+            if def_name and wasm_file:
+                module_defs[def_name] = os.path.join(test_dir, wasm_file)
+            continue
+
+        if cmd_type == "module_instance":
+            # Create an instance from a saved module definition
+            instance_name = cmd.get("instance")
+            def_name = cmd.get("module")
+            if instance_name and def_name and def_name in module_defs:
+                named_module_wasm[instance_name] = module_defs[def_name]
             continue
 
         if cmd_type == "action":

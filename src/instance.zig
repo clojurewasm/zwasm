@@ -117,7 +117,8 @@ pub const Instance = struct {
 
     pub fn getGlobal(self: *Instance, idx: usize) !*store_mod.Global {
         if (idx >= self.globaladdrs.items.len) return error.GlobalIndexOutOfBounds;
-        return self.store.getGlobal(self.globaladdrs.items[idx]);
+        const g = try self.store.getGlobal(self.globaladdrs.items[idx]);
+        return if (g.shared_ref) |ref| ref else g;
     }
 
     // ---- Export lookup ----

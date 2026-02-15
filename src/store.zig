@@ -145,6 +145,9 @@ pub const Global = struct {
     value: u128,
     valtype: ValType,
     mutability: Mutability,
+    /// For imported mutable globals: pointer to the source global for cross-module sharing.
+    /// When set, reads/writes redirect through this pointer to maintain shared state.
+    shared_ref: ?*Global = null,
 };
 
 /// An element segment (for table initialization).

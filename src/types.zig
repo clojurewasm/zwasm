@@ -531,29 +531,38 @@ fn registerImports(
                             return error.WasmInstantiateError;
                     },
                     .global => {
-                        // Copy global from source module
+                        // Import global from source module
                         const src_addr = src_module.instance.getExportGlobalAddr(imp.name) orelse
                             return error.ImportNotFound;
-                        var glob = (src_module.store.getGlobal(src_addr) catch
-                            return error.ImportNotFound).*;
-                        // Remap funcref values: copy referenced function to target store
-                        if (glob.valtype == .funcref and glob.value > 0) {
-                            const src_func_addr: usize = @intCast(glob.value - 1);
-                            var func = src_module.store.getFunction(src_func_addr) catch
-                                return error.ImportNotFound;
-                            if (func.subtype == .wasm_function) {
-                                func.subtype.wasm_function.branch_table = null;
-                                func.subtype.wasm_function.ir = null;
-                                func.subtype.wasm_function.ir_failed = false;
-                                func.subtype.wasm_function.reg_ir = null;
-                                func.subtype.wasm_function.reg_ir_failed = false;
-                                func.subtype.wasm_function.jit_code = null;
-                                func.subtype.wasm_function.jit_failed = false;
-                                func.subtype.wasm_function.call_count = 0;
+                        const src_global = src_module.store.getGlobal(src_addr) catch
+                            return error.ImportNotFound;
+                        var glob = src_global.*;
+                        // Mutable globals: share via reference for cross-module visibility.
+                        // Follow any existing chain to find the ultimate source.
+                        if (glob.mutability == .mutable) {
+                            glob.shared_ref = if (src_global.shared_ref) |ref| ref else src_global;
+                        } else {
+                            // Immutable globals: copy value (no sharing needed)
+                            glob.shared_ref = null;
+                            // Remap funcref values: copy referenced function to target store
+                            if (glob.valtype == .funcref and glob.value > 0) {
+                                const src_func_addr: usize = @intCast(glob.value - 1);
+                                var func = src_module.store.getFunction(src_func_addr) catch
+                                    return error.ImportNotFound;
+                                if (func.subtype == .wasm_function) {
+                                    func.subtype.wasm_function.branch_table = null;
+                                    func.subtype.wasm_function.ir = null;
+                                    func.subtype.wasm_function.ir_failed = false;
+                                    func.subtype.wasm_function.reg_ir = null;
+                                    func.subtype.wasm_function.reg_ir_failed = false;
+                                    func.subtype.wasm_function.jit_code = null;
+                                    func.subtype.wasm_function.jit_failed = false;
+                                    func.subtype.wasm_function.call_count = 0;
+                                }
+                                const new_func_addr = store.addFunction(func) catch
+                                    return error.WasmInstantiateError;
+                                glob.value = @as(u128, @intCast(new_func_addr)) + 1;
                             }
-                            const new_func_addr = store.addFunction(func) catch
-                                return error.WasmInstantiateError;
-                            glob.value = @as(u128, @intCast(new_func_addr)) + 1;
                         }
                         const addr = store.addGlobal(glob) catch
                             return error.WasmInstantiateError;

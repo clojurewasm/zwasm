@@ -1195,11 +1195,13 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
                 try stdout.flush();
                 continue;
             };
-            const g = target_module.store.getGlobal(global_addr) catch {
+            const g_raw = target_module.store.getGlobal(global_addr) catch {
                 try stdout.print("error bad global\n", .{});
                 try stdout.flush();
                 continue;
             };
+            // Follow shared_ref for imported mutable globals
+            const g = if (g_raw.shared_ref) |ref| ref else g_raw;
             const val: u64 = switch (g.valtype) {
                 .i32, .f32 => @as(u64, @truncate(g.value)) & 0xFFFFFFFF,
                 else => @truncate(g.value),
