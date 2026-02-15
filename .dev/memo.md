@@ -53,10 +53,13 @@ Stages 0-31 — all COMPLETE. See `roadmap.md` for details.
 - [x] 31.3: Arena allocator for GC field storage
 - [x] 31.4: Adaptive GC threshold
 - [x] 31.5: GC benchmark re-measure
+- [ ] 32.0: Fix call_indirect type mismatch with subtype checking (6 failures)
+- [ ] 32.1: Fix cross-module memory/table import sharing (3 failures)
+- [ ] 32.2: Fix call as-load-operand + instance funcref return (2 failures)
 
 ## Current Task
 
-Plan Stage 32: fix remaining 11 spec failures for v0.3.0.
+32.0: Fix call_indirect type mismatch with subtype checking (6 failures).
 
 ## Previous Task
 
