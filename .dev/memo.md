@@ -39,7 +39,7 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.3: GC subtyping / type hierarchy (type-subtyping 8 + ref_test 1 fixed, 48→40)
 - [x] 28.4: GC type canonicalization (canonical IDs, matchesCallIndirectType, isTypeSubtype)
 - [x] 28.5: externref representation fix (EXTERN_TAG encoding, -18 failures: 90→72)
-- [ ] 28.6: throw_ref opcode implementation (1 failure — currently returns error.Trap stub)
+- [x] 28.6: throw_ref opcode implementation (exnref store + re-throw)
 - [ ] 28.7: call batch state loss in spec runner (1 failure — needs_state approach regresses, needs alternative)
 - [ ] 29.0: Thread toolchain setup (Emscripten or Rust wasm32-wasip1-threads)
 - [ ] 29.1: Thread test suite + spawning mechanism in zwasm
@@ -53,20 +53,19 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.3 complete. Next: multi-module linking or other remaining failures.
+28.6 complete. Next: multi-module linking (28.2c) or other remaining failures.
 
-Spec baseline: Mac 40 failures. Commit gate: failure count must not increase.
+Spec baseline: Mac 39 failures. Commit gate: failure count must not increase.
 
-Remaining 40 categorized:
+Remaining 39 categorized:
 - multi-module ~30: linking 15, elem 6, linking3 4, imports 2, imports4 2, table_grow 2, linking0 1, linking1 1
 - threads 4: threads-wait_notify 2, threads-SB_atomic 1, threads-simple 1
-- Other: call 1, instance 1, throw_ref 1
+- Other: call 1, instance 1
 
 ## Previous Task
 
-28.3: Subtype-aware call_indirect + funcref ref.test/ref.cast + br-to-function-level fix (48→40).
-Fixed: type-subtyping 8, ref_test 1. Key changes: Module.isTypeSubtype, matchesHeapTypeWithHeap
-accepts Store for funcref concrete type checks, function-level label forward target → body end.
+28.6: throw_ref opcode implementation (40→39). Added exnref store to Vm, catch_ref/catch_all_ref
+store exceptions and push real exnref values, throw_ref pops exnref and re-throws.
 
 ## Wasm 3.0 Coverage
 
@@ -75,10 +74,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 40 failures.
+None. Mac 39 failures.
 linking 15, elem 6, linking3 4,
 imports 2, imports4 2, table_grow 2, threads-wait_notify 2,
-call 1, instance 1, linking0 1, linking1 1, throw_ref 1,
+call 1, instance 1, linking0 1, linking1 1,
 threads-SB_atomic 1, threads-simple 1.
 Ubuntu: +15 endianness64 (x86-specific).
 

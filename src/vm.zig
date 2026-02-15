@@ -288,6 +288,12 @@ const PendingException = struct {
     value_count: usize,
 };
 
+/// Maximum number of exnref values that can be alive simultaneously.
+const MAX_EXNREF_STORE = 64;
+
+/// Exnref value encoding: stored exception index + 1 (0 = null exnref).
+/// Used by catch_ref/catch_all_ref (store) and throw_ref (load).
+
 pub const REG_STACK_SIZE = 32768; // register file storage for register IR (256KB)
 
 pub const Vm = struct {
@@ -303,6 +309,8 @@ pub const Vm = struct {
     current_instance: ?*Instance = null,
     current_branch_table: ?*BranchTable = null,
     pending_exception: ?PendingException = null,
+    exn_store: [MAX_EXNREF_STORE]PendingException = undefined,
+    exn_store_count: usize = 0,
     profile: ?*Profile = null,
     trace: ?*trace_mod.TraceConfig = null,
     max_memory_bytes: ?u64 = null,
@@ -338,6 +346,19 @@ pub const Vm = struct {
         self.current_instance = null;
         self.current_branch_table = null;
         self.pending_exception = null;
+        self.exn_store_count = 0;
+    }
+
+    /// Store an exception and return its exnref value (index + 1).
+    fn storeExnref(self: *Vm, exc: PendingException) u64 {
+        if (self.exn_store_count >= MAX_EXNREF_STORE) {
+            // Reuse slot 0 if store is full (unlikely in practice)
+            self.exn_store[0] = exc;
+            return 1;
+        }
+        self.exn_store[self.exn_store_count] = exc;
+        self.exn_store_count += 1;
+        return self.exn_store_count; // index + 1
     }
 
     /// Invoke an exported function by name.
@@ -937,8 +958,13 @@ pub const Vm = struct {
                     return error.WasmException;
                 },
                 .throw_ref => {
-                    // TODO: implement in 8.4 (needs exnref value representation)
-                    return error.Trap;
+                    const exnref_val = self.popU64();
+                    if (exnref_val == 0) return error.Trap; // null exnref
+                    const idx = exnref_val - 1;
+                    if (idx >= self.exn_store_count) return error.Trap;
+                    self.pending_exception = self.exn_store[@intCast(idx)];
+                    if (self.handleException(reader, instance)) continue;
+                    return error.WasmException;
                 },
                 .try_table => {
                     const bt = try readBlockType(reader);
@@ -5291,8 +5317,8 @@ pub const Vm = struct {
                 }
                 // catch_ref/catch_all_ref: also push exnref
                 if (clause.kind == 0x01 or clause.kind == 0x03) {
-                    // TODO: push actual exnref value (for now push a non-null sentinel)
-                    self.op_stack[self.op_ptr] = 1; // placeholder exnref
+                    const exnref = self.storeExnref(exc);
+                    self.op_stack[self.op_ptr] = @as(u128, exnref);
                     self.op_ptr += 1;
                 }
 
