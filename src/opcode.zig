@@ -90,8 +90,8 @@ pub const ValType = union(enum) {
             -15 => HEAP_NONE, // none
             -13 => HEAP_NOFUNC, // nofunc
             -14 => HEAP_NOEXTERN, // noextern
-            -24 => HEAP_EXN, // exn
-            -25 => HEAP_NOEXN, // noexn
+            -23 => HEAP_EXN, // exn (0x69)
+            -12 => HEAP_NOEXN, // noexn (0x74)
             else => return error.InvalidValType,
         };
         // Use shorthand for common nullable types

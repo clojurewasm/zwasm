@@ -5604,8 +5604,8 @@ fn readHeapType(reader: *Reader) ?u32 {
         -15 => opcode.ValType.HEAP_NONE,
         -13 => opcode.ValType.HEAP_NOFUNC,
         -14 => opcode.ValType.HEAP_NOEXTERN,
-        -24 => opcode.ValType.HEAP_EXN,
-        -25 => opcode.ValType.HEAP_NOEXN,
+        -23 => opcode.ValType.HEAP_EXN,
+        -12 => opcode.ValType.HEAP_NOEXN,
         else => null,
     };
 }
