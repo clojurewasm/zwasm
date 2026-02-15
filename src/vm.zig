@@ -1633,9 +1633,9 @@ pub const Vm = struct {
                 const data_idx = reader.readU32() catch return error.Trap;
                 const size: u32 = @truncate(self.pop());
                 const offset: u32 = @truncate(self.pop());
-                // Get data segment bytes
-                if (data_idx >= instance.module.datas.items.len) return error.Trap;
-                const data_seg = instance.module.datas.items[data_idx];
+                // Get store data (tracks dropped state)
+                if (data_idx >= instance.dataaddrs.items.len) return error.Trap;
+                const d = instance.store.getData(instance.dataaddrs.items[data_idx]) catch return error.Trap;
                 // Determine element byte size from array type
                 const atype = self.getArrayType(instance, type_idx) orelse return error.Trap;
                 const elem_bytes: u32 = switch (atype.field.storage) {
@@ -1648,11 +1648,13 @@ pub const Vm = struct {
                     },
                 };
                 const byte_len = @as(u64, size) * @as(u64, elem_bytes);
-                if (@as(u64, offset) + byte_len > data_seg.data.len) return error.Trap;
+                // Dropped segments have effective length 0 (spec: n=0 succeeds even if dropped)
+                const data_len: u64 = if (d.dropped) 0 else d.data.len;
+                if (@as(u64, offset) + byte_len > data_len) return error.Trap;
                 // Read elements from data bytes
                 const vals = instance.store.gc_heap.alloc.alloc(u64, size) catch return error.Trap;
                 defer instance.store.gc_heap.alloc.free(vals);
-                const src = data_seg.data[offset..];
+                const src = d.data[offset..];
                 for (vals, 0..) |*v, i| {
                     const base = i * elem_bytes;
                     v.* = switch (atype.field.storage) {
@@ -1696,7 +1698,6 @@ pub const Vm = struct {
                 const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
                 if (data_idx >= instance.dataaddrs.items.len) return error.Trap;
                 const d = instance.store.getData(instance.dataaddrs.items[data_idx]) catch return error.Trap;
-                const data_seg = instance.module.datas.items[data_idx];
                 const atype = self.getArrayType(instance, type_idx) orelse return error.Trap;
                 const elem_bytes: u32 = switch (atype.field.storage) {
                     .i8 => 1,
@@ -1709,13 +1710,13 @@ pub const Vm = struct {
                 };
                 const byte_len = @as(u64, size) * @as(u64, elem_bytes);
                 // Dropped segments have effective length 0 (n=0 succeeds even if dropped)
-                const data_len: u64 = if (d.dropped) 0 else data_seg.data.len;
+                const data_len: u64 = if (d.dropped) 0 else d.data.len;
                 if (@as(u64, src_off) + byte_len > data_len) return error.Trap;
                 const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
                 switch (obj.*) {
                     .array_obj => |*ao| {
                         if (@as(u64, dst_off) + @as(u64, size) > ao.elements.len) return error.Trap;
-                        const src = data_seg.data[src_off..];
+                        const src = d.data[src_off..];
                         for (0..size) |i| {
                             const base = i * elem_bytes;
                             ao.elements[dst_off + i] = switch (atype.field.storage) {
