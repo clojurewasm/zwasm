@@ -593,6 +593,12 @@ def run_test_file(json_path, verbose=False):
             runner = None
 
             wasm_file = cmd.get("filename")
+            # Prefer pre-compiled binary when available (avoids WAT parser edge cases)
+            binary_file = cmd.get("binary_filename")
+            if binary_file:
+                binary_path = os.path.join(test_dir, binary_file)
+                if os.path.exists(binary_path):
+                    wasm_file = binary_file
             if wasm_file:
                 current_wasm = os.path.join(test_dir, wasm_file)
                 # Auto-link spectest host module: check main wasm and all linked modules

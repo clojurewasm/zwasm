@@ -32,7 +32,7 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 - [x] 28.0: Regenerate GC spec tests with wasm-tools
 - [x] 28.1: Fix spec failures (225→140): JIT FP cache, nullexnref, table init, S33 heap types, block type range
 - [x] 28.2a: Spec runner `either` comparison for relaxed_simd (-32 failures)
-- [ ] 28.2b: WAT parser nested comments fix (3 failures)
+- [x] 28.2b: Prefer pre-compiled binary for text modules in spec runner (-3 failures)
 - [ ] 28.2c: Spec runner multi-module linking (linking/instance ~36 failures)
 - [ ] 28.2d: Edge case fixes: throw_ref, extern, table_grow, array_init bounds (~8 failures)
 - [ ] 28.2e: endianness64 x86 byte order fix (15 failures, Ubuntu SSH)
@@ -48,12 +48,12 @@ Stages 0-26 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-28.2b: WAT parser nested comments fix (3 failures).
-Spec baseline: Mac 108 failures. Commit gate: failure count must not increase.
+28.2c: Spec runner multi-module linking (linking/instance ~36 failures).
+Spec baseline: Mac 105 failures. Commit gate: failure count must not increase.
 
 ## Previous Task
 
-28.2a: Spec runner `either` v128 comparison fix (-32 failures, 140→108).
+28.2b: Prefer pre-compiled binary for text modules (-3 failures, 108→105).
 
 ## Wasm 3.0 Coverage
 
