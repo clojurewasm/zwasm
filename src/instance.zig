@@ -206,7 +206,25 @@ pub const Instance = struct {
                             return error.ImportTypeMismatch;
                         }
                     }
-                    try self.funcaddrs.append(self.alloc, handle);
+                    // Copy function with canonical_type_id remapped to this module's
+                    // namespace. Canonical IDs are module-local, so cross-module
+                    // call_indirect needs the importing module's ID.
+                    var func = self.store.getFunction(handle) catch
+                        return error.ImportNotFound;
+                    func.canonical_type_id = self.module.getCanonicalTypeId(imp.index);
+                    if (func.subtype == .wasm_function) {
+                        func.subtype.wasm_function.branch_table = null;
+                        func.subtype.wasm_function.ir = null;
+                        func.subtype.wasm_function.ir_failed = false;
+                        func.subtype.wasm_function.reg_ir = null;
+                        func.subtype.wasm_function.reg_ir_failed = false;
+                        func.subtype.wasm_function.jit_code = null;
+                        func.subtype.wasm_function.jit_failed = false;
+                        func.subtype.wasm_function.call_count = 0;
+                    }
+                    const addr = self.store.addFunction(func) catch
+                        return error.WasmInstantiateError;
+                    try self.funcaddrs.append(self.alloc, addr);
                 },
                 .memory => try self.memaddrs.append(self.alloc, handle),
                 .table => try self.tableaddrs.append(self.alloc, handle),
