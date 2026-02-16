@@ -14,6 +14,8 @@ const opcode = @import("opcode.zig");
 const ValType = opcode.ValType;
 const gc_mod = @import("gc.zig");
 pub const GcHeap = gc_mod.GcHeap;
+const type_registry_mod = @import("type_registry.zig");
+pub const TypeRegistry = type_registry_mod.TypeRegistry;
 
 /// Forward declaration — Instance defined in instance.zig.
 pub const Instance = opaque {};
@@ -239,6 +241,7 @@ pub const Store = struct {
     datas: ArrayList(Data),
     imports: ArrayList(ImportExport),
     gc_heap: GcHeap,
+    type_registry: TypeRegistry,
 
     pub fn init(alloc: mem.Allocator) Store {
         return .{
@@ -252,6 +255,7 @@ pub const Store = struct {
             .datas = .empty,
             .imports = .empty,
             .gc_heap = GcHeap.init(alloc),
+            .type_registry = TypeRegistry.init(alloc),
         };
     }
 
@@ -289,6 +293,7 @@ pub const Store = struct {
         self.datas.deinit(self.alloc);
         self.imports.deinit(self.alloc);
         self.gc_heap.deinit();
+        self.type_registry.deinit();
     }
 
     // ---- Lookup by address ----
@@ -611,4 +616,8 @@ test "Data — init, set, deinit" {
     d.set(4, 0xBB);
     try testing.expectEqual(@as(u8, 0xAA), d.data[0]);
     try testing.expectEqual(@as(u8, 0xBB), d.data[4]);
+}
+
+test {
+    _ = type_registry_mod;
 }

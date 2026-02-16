@@ -37,6 +37,9 @@ pub const Instance = struct {
     dataaddrs: ArrayList(usize),
     tagaddrs: ArrayList(usize),
 
+    // Global type IDs — module-local type index → store-level global ID
+    global_type_ids: []u32 = &.{},
+
     // WASI context (optional, set before instantiate for WASI modules)
     wasi: ?*WasiContext = null,
 
@@ -56,6 +59,7 @@ pub const Instance = struct {
     }
 
     pub fn deinit(self: *Instance) void {
+        if (self.global_type_ids.len > 0) self.alloc.free(self.global_type_ids);
         self.funcaddrs.deinit(self.alloc);
         self.memaddrs.deinit(self.alloc);
         self.tableaddrs.deinit(self.alloc);
@@ -68,6 +72,7 @@ pub const Instance = struct {
     pub fn instantiate(self: *Instance) !void {
         if (!self.module.decoded) return error.ModuleNotDecoded;
 
+        self.global_type_ids = try self.store.type_registry.registerModuleTypes(self.module);
         try self.resolveImports();
         try self.instantiateFunctions();
         try self.instantiateMemories();
@@ -88,6 +93,7 @@ pub const Instance = struct {
     pub fn instantiateBase(self: *Instance) !void {
         if (!self.module.decoded) return error.ModuleNotDecoded;
 
+        self.global_type_ids = try self.store.type_registry.registerModuleTypes(self.module);
         try self.resolveImports();
         try self.instantiateFunctions();
         try self.instantiateMemories();
@@ -206,12 +212,13 @@ pub const Instance = struct {
                             return error.ImportTypeMismatch;
                         }
                     }
-                    // Copy function with canonical_type_id remapped to this module's
-                    // namespace. Canonical IDs are module-local, so cross-module
-                    // call_indirect needs the importing module's ID.
+                    // Copy function with canonical_type_id set to global ID.
                     var func = self.store.getFunction(handle) catch
                         return error.ImportNotFound;
-                    func.canonical_type_id = self.module.getCanonicalTypeId(imp.index);
+                    func.canonical_type_id = if (imp.index < self.global_type_ids.len)
+                        self.global_type_ids[imp.index]
+                    else
+                        imp.index;
                     if (func.subtype == .wasm_function) {
                         func.subtype.wasm_function.branch_table = null;
                         func.subtype.wasm_function.ir = null;
@@ -242,8 +249,8 @@ pub const Instance = struct {
             const func_type = self.module.getTypeFunc(func_def.type_idx) orelse
                 return error.InvalidTypeIndex;
 
-            const canonical_id = if (func_def.type_idx < self.module.canonical_ids.len)
-                self.module.canonical_ids[func_def.type_idx]
+            const canonical_id = if (func_def.type_idx < self.global_type_ids.len)
+                self.global_type_ids[func_def.type_idx]
             else
                 func_def.type_idx;
             const addr = try self.store.addFunction(.{
