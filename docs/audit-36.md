@@ -149,3 +149,25 @@ or undefined behavior (ReleaseFast).
 check to pop() would add overhead to the hottest path in the interpreter.
 The validator provides the safety guarantee. ReleaseSafe bounds checks
 provide a second defense layer.
+
+## 36.8: Host Function Interface Audit
+
+**Status**: PASS
+
+**Interface**: `HostFn = *const fn (*anyopaque, usize) anyerror!void`
+
+Host functions communicate with guest through the operand stack:
+- Guest → Host: values popped from operand stack as typed u32/u64/f32/f64
+- Host → Guest: values pushed to operand stack as typed u32/u64/f32/f64
+- No raw native pointers passed to or returned to guest code
+
+**Memory access from host**: WASI functions access guest memory through the
+same bounds-checked `Memory.read()` / `Memory.write()` API. No direct
+pointer arithmetic on guest memory.
+
+**Pointer leak check**: Zero `@intFromPtr`/`@ptrFromInt` in wasi.zig.
+No mechanism for host functions to expose native addresses to guest code.
+
+**VM pointer**: Host receives `*anyopaque` (VM pointer) for stack operations.
+This pointer is never exposed to guest code — it's only used internally
+by the host function implementation.
