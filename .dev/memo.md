@@ -27,21 +27,26 @@ Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.
   then check `.dev/fuzz-overnight-result.txt` next session. Review before Stage 39.
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 38: CI/CD Strengthening)
+## Task Queue (Stage 39: Documentation & Book)
 
-See `private/roadmap-production.md` Phase 38 for full detail.
+See `private/roadmap-production.md` Phase 39 for full detail.
 
-- [x] 38.1: CI benchmark regression detection: compare against recorded baselines
-- [x] 38.2: CI binary size check: fail if > 1.5MB (ReleaseSafe)
-- [x] 38.3: CI ReleaseSafe build verification (currently only Debug)
-- [x] 38.4: E2E test suite in CI
-- [x] 38.5: Nightly sanitizer job (ASan/UBSan)
-- [x] 38.6: Nightly fuzz job (1h continuous)
-- [x] 38.7: CI caching: Zig build cache for faster runs
+- [ ] 39.1: SSG setup: mdBook, deployed to GitHub Pages
+- [ ] 39.2: Getting Started (install, run first module, 5-minute guide)
+- [ ] 39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline)
+- [ ] 39.4: Embedding Guide (Zig library usage, allocator control, error handling)
+- [ ] 39.5: CLI Reference (all commands, flags, examples)
+- [ ] 39.6: Wasm Spec Coverage table (1.0/2.0/3.0, proposal status, spec level)
+- [ ] 39.7: Security Model (threat model, WASI capabilities, sandbox boundaries)
+- [ ] 39.8: Performance Guide (JIT tiers, when JIT kicks in, benchmark methodology)
+- [ ] 39.9: Memory Model (linear memory, GC heap, allocator parameterization)
+- [ ] 39.10: Comparison page (vs wasmtime, wasm3, wasmer — size/speed/features)
+- [ ] 39.11: FAQ / Troubleshooting
+- [ ] 39.12: Contributor Guide (build, test, PR process, code structure)
 
 ## Current Task
 
-Stage 38 complete — merging to main, then start Stage 39 (Documentation & Book).
+39.1: SSG setup — mdBook, book/ directory structure, GitHub Pages deploy.
 
 ## Previous Task
 
