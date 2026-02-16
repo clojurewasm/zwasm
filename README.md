@@ -4,11 +4,11 @@ A small, fast WebAssembly runtime written in Zig. Library and CLI.
 
 ## Why zwasm
 
-Most Wasm runtimes are either fast but large (wasmtime ~56MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1.1MB with ARM64 + x86_64 JIT compilation**.
+Most Wasm runtimes are either fast but large (wasmtime ~56MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1.2MB with ARM64 + x86_64 JIT compilation**.
 
 | Runtime  | Binary  | Memory | JIT            |
 |----------|--------:|-------:|----------------|
-| zwasm    | 1.1MB   | ~3MB   | ARM64 + x86_64 |
+| zwasm    | 1.2MB   | ~3MB   | ARM64 + x86_64 |
 | wasmtime | 56MB    | ~12MB  | Cranelift      |
 | wasm3    | 0.3MB   | ~1MB   | None           |
 
@@ -51,13 +51,13 @@ Memory usage 3-4x lower across all benchmarks.
 
 | Benchmark       | zwasm   | wasmtime | Ratio    |
 |-----------------|--------:|---------:|---------:|
-| nqueens(8)      | 2.6ms   | 6.9ms    | **0.4x** |
-| nbody(1M)       | 8.6ms   | 21.9ms   | **0.4x** |
-| gcd(1B)         | 2.6ms   | 6.0ms    | **0.4x** |
-| sieve(1M)       | 5.1ms   | 5.9ms    | **0.9x** |
-| tak(24,16,8)    | 10.1ms  | 11.6ms   | **0.9x** |
-| fib(35)         | 52ms    | 51ms     | 1.0x     |
-| st_fib2(40)     | 1086ms  | 686ms    | 1.6x     |
+| nqueens(8)      | 2.4ms   | 4.6ms    | **0.5x** |
+| nbody(1M)       | 9.7ms   | 20.8ms   | **0.5x** |
+| gcd(1B)         | 2.3ms   | 5.1ms    | **0.5x** |
+| sieve(1M)       | 4.4ms   | 5.9ms    | **0.7x** |
+| tak(24,16,8)    | 7.3ms   | 10.7ms   | **0.7x** |
+| fib(35)         | 54ms    | 51ms     | 1.1x     |
+| st_fib2(40)     | 1033ms  | 673ms    | 1.5x     |
 
 Full results (21 benchmarks): `bench/runtime_comparison.yaml`
 
