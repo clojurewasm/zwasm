@@ -289,6 +289,10 @@ pub const WatInstr = union(enum) {
     f32_const: f32,
     f64_const: f64,
     v128_const: [16]u8,
+    // SIMD lane operations (extract_lane, replace_lane)
+    simd_lane: struct { op: []const u8, lane: u8 },
+    // SIMD load/store lane operations (memarg + lane)
+    simd_mem_lane: struct { op: []const u8, mem_arg: MemArg, lane: u8 },
     // Memory operations (load/store)
     mem_op: struct { op: []const u8, mem_arg: MemArg },
     // Block/loop
@@ -1163,6 +1167,8 @@ pub const Parser = struct {
         block_type, // block, loop
         if_type, // if
         try_table_type, // try_table
+        simd_lane, // extract_lane, replace_lane
+        simd_mem_lane, // v128.load*_lane, v128.store*_lane
         br_table,
         call_indirect,
         select_t,
@@ -1217,6 +1223,12 @@ pub const Parser = struct {
             std.mem.eql(u8, name, "br_on_non_null"))
             return .index_imm;
 
+        // SIMD lane ops (extract_lane, replace_lane)
+        if (isSimdLaneOp(name)) return .simd_lane;
+
+        // SIMD load/store lane ops
+        if (isSimdMemLaneOp(name)) return .simd_mem_lane;
+
         // Memory load/store
         if (isMemoryOp(name)) return .mem_imm;
 
@@ -1232,6 +1244,32 @@ pub const Parser = struct {
         for (prefixes) |prefix| {
             if (std.mem.eql(u8, name, prefix)) return true;
             if (name.len > prefix.len and std.mem.startsWith(u8, name, prefix)) return true;
+        }
+        return false;
+    }
+
+    fn isSimdLaneOp(name: []const u8) bool {
+        const ops = [_][]const u8{
+            "i8x16.extract_lane_s", "i8x16.extract_lane_u", "i8x16.replace_lane",
+            "i16x8.extract_lane_s", "i16x8.extract_lane_u", "i16x8.replace_lane",
+            "i32x4.extract_lane", "i32x4.replace_lane",
+            "i64x2.extract_lane", "i64x2.replace_lane",
+            "f32x4.extract_lane", "f32x4.replace_lane",
+            "f64x2.extract_lane", "f64x2.replace_lane",
+        };
+        for (ops) |op| {
+            if (std.mem.eql(u8, name, op)) return true;
+        }
+        return false;
+    }
+
+    fn isSimdMemLaneOp(name: []const u8) bool {
+        const ops = [_][]const u8{
+            "v128.load8_lane",  "v128.load16_lane",  "v128.load32_lane",  "v128.load64_lane",
+            "v128.store8_lane", "v128.store16_lane", "v128.store32_lane", "v128.store64_lane",
+        };
+        for (ops) |op| {
+            if (std.mem.eql(u8, name, op)) return true;
         }
         return false;
     }
@@ -1624,6 +1662,19 @@ pub const Parser = struct {
             .f64_const => .{ .f64_const = try self.parseF64() },
             .v128_const => .{ .v128_const = try self.parseV128Const() },
             .mem_imm => .{ .mem_op = .{ .op = op_name, .mem_arg = try self.parseMemArg() } },
+            .simd_lane => blk: {
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const lane_text = self.advance().text;
+                const lane = std.fmt.parseInt(u8, lane_text, 10) catch return error.InvalidWat;
+                break :blk .{ .simd_lane = .{ .op = op_name, .lane = lane } };
+            },
+            .simd_mem_lane => blk: {
+                const mem_arg = try self.parseMemArg();
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const lane_text = self.advance().text;
+                const lane = std.fmt.parseInt(u8, lane_text, 10) catch return error.InvalidWat;
+                break :blk .{ .simd_mem_lane = .{ .op = op_name, .mem_arg = mem_arg, .lane = lane } };
+            },
             .br_table => blk: {
                 var targets: std.ArrayListUnmanaged(WatIndex) = .empty;
                 while (self.current.tag == .integer or self.current.tag == .ident) {
@@ -2814,6 +2865,21 @@ fn encodeInstr(
             lebEncodeU32(alloc, out, 0x0C) catch return error.OutOfMemory; // v128.const
             out.appendSlice(alloc, &val) catch return error.OutOfMemory;
         },
+        .simd_lane => |data| {
+            const subop = simdInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFD) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            out.append(alloc, data.lane) catch return error.OutOfMemory;
+        },
+        .simd_mem_lane => |data| {
+            const subop = simdInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFD) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const align_log2: u32 = if (data.mem_arg.@"align" > 0) std.math.log2_int(u32, data.mem_arg.@"align") else 0;
+            lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, data.mem_arg.offset) catch return error.OutOfMemory;
+            out.append(alloc, data.lane) catch return error.OutOfMemory;
+        },
         .mem_op => |data| {
             const op = instrOpcode(data.op) orelse return error.InvalidWat;
             out.append(alloc, op) catch return error.OutOfMemory;
@@ -3873,4 +3939,21 @@ test "WAT parser — try_table encode round-trip" {
     try module.invoke("test", &args, &results);
     // No exception thrown, try_table body returns 42
     try testing.expectEqual(@as(u64, 42), results[0]);
+}
+
+test "WAT parser — i32x4.extract_lane round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (export "test") (result i32)
+        \\    v128.const i32x4 10 20 30 40
+        \\    i32x4.extract_lane 2))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 30), results[0]);
 }
