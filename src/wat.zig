@@ -1242,7 +1242,18 @@ pub const Parser = struct {
     fn emitInstr(self: *Parser, instrs: *std.ArrayListUnmanaged(WatInstr), op_name: []const u8, cat: InstrCategory) WatError!void {
         const instr: WatInstr = switch (cat) {
             .no_imm => .{ .simple = op_name },
-            .index_imm => .{ .index_op = .{ .op = op_name, .index = try self.parseIndex() } },
+            .index_imm => blk: {
+                // memory.size/memory.grow: index defaults to 0 when omitted
+                if (std.mem.eql(u8, op_name, "memory.size") or
+                    std.mem.eql(u8, op_name, "memory.grow"))
+                {
+                    if (self.current.tag == .integer or self.current.tag == .ident) {
+                        break :blk .{ .index_op = .{ .op = op_name, .index = try self.parseIndex() } };
+                    }
+                    break :blk .{ .index_op = .{ .op = op_name, .index = .{ .num = 0 } } };
+                }
+                break :blk .{ .index_op = .{ .op = op_name, .index = try self.parseIndex() } };
+            },
             .i32_const => .{ .i32_const = try self.parseI32() },
             .i64_const => .{ .i64_const = try self.parseI64() },
             .f32_const => .{ .f32_const = try self.parseF32() },
@@ -3026,4 +3037,40 @@ test "WAT round-trip — v128.const SIMD" {
     var args = [_]u64{};
     var results = [_]u64{ 0, 0 };
     try module.invoke("hi", &args, &results);
+}
+
+test "WAT parser — memory.size default index" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (func (export "size") (result i32)
+        \\    memory.size))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("size", &args, &results);
+    try testing.expectEqual(@as(u64, 1), results[0]);
+}
+
+test "WAT parser — memory.grow default index" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (func (export "grow") (result i32)
+        \\    i32.const 1
+        \\    memory.grow))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("grow", &args, &results);
+    // memory.grow returns previous size (1 page)
+    try testing.expectEqual(@as(u64, 1), results[0]);
 }
