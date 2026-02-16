@@ -32,7 +32,7 @@ Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 See `private/roadmap-production.md` Phase 39 for full detail.
 
 - [x] 39.1: SSG setup: mdBook, deployed to GitHub Pages
-- [ ] 39.2: Getting Started (install, run first module, 5-minute guide)
+- [x] 39.2: Getting Started (install, run first module, 5-minute guide)
 - [ ] 39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline)
 - [ ] 39.4: Embedding Guide (Zig library usage, allocator control, error handling)
 - [ ] 39.5: CLI Reference (all commands, flags, examples)
@@ -46,11 +46,11 @@ See `private/roadmap-production.md` Phase 39 for full detail.
 
 ## Current Task
 
-39.2: Getting Started (install, run first module, 5-minute guide).
+39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline).
 
 ## Previous Task
 
-39.1: mdBook setup — book/ dir, SUMMARY.md, introduction, book.yml GH Pages deploy workflow.
+39.2: Getting Started guide — install, WAT example, WASI, inspect, validate, library usage.
 
 ## Wasm 3.0 Coverage
 
