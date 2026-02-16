@@ -42,11 +42,11 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 
 ## Current Task
 
-43.8: Awaiting fuzz results and user go-ahead for tag.
+44.GC: Phase 3C — GC opcode infrastructure (0xFB prefix)
 
 ## Previous Task
 
-44: WAT Parser Completeness — CLI type-aware args/results, data/elem sections, 0xFC/0xFD/0xFE prefix opcodes, try_table, SIMD lane ops, Wasm 3.0 single-byte opcodes, 4 new examples.
+44.GC Phase 3B: Struct/Array/Rec type definitions — WatTypeDef union, parseTypeDef handles struct/array, rec groups with 0x4E encoding, 6 tests.
 
 ## Wasm 3.0 Coverage
 

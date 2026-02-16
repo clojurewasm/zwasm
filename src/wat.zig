@@ -286,9 +286,26 @@ pub const WatValType = union(enum) {
 };
 
 pub const WatFuncType = struct {
-    name: ?[]const u8 = null,
     params: []WatValType,
     results: []WatValType,
+};
+
+pub const WatFieldType = struct {
+    name: ?[]const u8,
+    valtype: WatValType,
+    mutable: bool,
+};
+
+pub const WatCompositeType = union(enum) {
+    func: WatFuncType,
+    struct_type: struct { fields: []WatFieldType },
+    array_type: struct { field: WatFieldType },
+};
+
+pub const WatTypeDef = struct {
+    name: ?[]const u8 = null,
+    composite: WatCompositeType,
+    rec_count: u32 = 0, // >0 on first type in a rec group
 };
 
 pub const WatParam = struct {
@@ -464,7 +481,7 @@ pub const WatElem = struct {
 
 pub const WatModule = struct {
     name: ?[]const u8,
-    types: []WatFuncType,
+    types: []WatTypeDef,
     imports: []WatImport,
     functions: []WatFunc,
     memories: []WatMemory,
@@ -519,7 +536,7 @@ pub const Parser = struct {
             mod_name = self.advance().text;
         }
 
-        var types: std.ArrayListUnmanaged(WatFuncType) = .empty;
+        var types: std.ArrayListUnmanaged(WatTypeDef) = .empty;
         var imports: std.ArrayListUnmanaged(WatImport) = .empty;
         var functions: std.ArrayListUnmanaged(WatFunc) = .empty;
         var memories: std.ArrayListUnmanaged(WatMemory) = .empty;
@@ -541,6 +558,30 @@ pub const Parser = struct {
             if (std.mem.eql(u8, section, "type")) {
                 _ = self.advance();
                 types.append(self.alloc, try self.parseTypeDef()) catch return error.OutOfMemory;
+            } else if (std.mem.eql(u8, section, "rec")) {
+                _ = self.advance();
+                // (rec (type ...) (type ...) ...)
+                // Mark start of rec group, parse contained types
+                const rec_start: u32 = @intCast(types.items.len);
+                while (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance(); // consume (
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "type")) {
+                        _ = self.advance(); // consume "type"
+                        types.append(self.alloc, try self.parseTypeDef()) catch return error.OutOfMemory;
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    }
+                }
+                const rec_count: u32 = @intCast(types.items.len - rec_start);
+                // Mark the first type in the rec group with rec_count
+                if (rec_count > 0) {
+                    types.items[rec_start].rec_count = rec_count;
+                }
+                _ = try self.expect(.rparen); // close (rec ...)
             } else if (std.mem.eql(u8, section, "func")) {
                 _ = self.advance();
                 const func = try self.parseFunc(&exports);
@@ -678,32 +719,70 @@ pub const Parser = struct {
         return if (nullable) .{ .ref_null_type = heap_type } else .{ .ref_type = heap_type };
     }
 
-    fn parseTypeDef(self: *Parser) WatError!WatFuncType {
-        // (type $name? (func (param ...) (result ...)))
+    fn parseTypeDef(self: *Parser) WatError!WatTypeDef {
+        // (type $name? (func|struct|array ...))
         // We've already consumed "type"
         var type_name: ?[]const u8 = null;
         if (self.current.tag == .ident) type_name = self.advance().text;
 
         _ = try self.expect(.lparen);
-        try self.expectKeyword("func");
 
+        if (self.current.tag != .keyword) return error.InvalidWat;
+        const composite_kw = self.current.text;
+
+        if (std.mem.eql(u8, composite_kw, "func")) {
+            _ = self.advance(); // consume "func"
+            const ft = try self.parseFuncSig();
+            _ = try self.expect(.rparen); // close (func ...)
+            _ = try self.expect(.rparen); // close (type ...)
+            return .{ .name = type_name, .composite = .{ .func = ft } };
+        } else if (std.mem.eql(u8, composite_kw, "struct")) {
+            _ = self.advance(); // consume "struct"
+            var fields: std.ArrayListUnmanaged(WatFieldType) = .empty;
+            while (self.current.tag == .lparen) {
+                const saved_pos = self.tok.pos;
+                const saved_current = self.current;
+                _ = self.advance(); // consume (
+                if (self.current.tag != .keyword or !std.mem.eql(u8, self.current.text, "field")) {
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                    break;
+                }
+                _ = self.advance(); // consume "field"
+                fields.append(self.alloc, try self.parseFieldType()) catch return error.OutOfMemory;
+                _ = try self.expect(.rparen);
+            }
+            _ = try self.expect(.rparen); // close (struct ...)
+            _ = try self.expect(.rparen); // close (type ...)
+            return .{ .name = type_name, .composite = .{ .struct_type = .{ .fields = fields.items } } };
+        } else if (std.mem.eql(u8, composite_kw, "array")) {
+            _ = self.advance(); // consume "array"
+            const field = try self.parseFieldType();
+            _ = try self.expect(.rparen); // close (array ...)
+            _ = try self.expect(.rparen); // close (type ...)
+            return .{ .name = type_name, .composite = .{ .array_type = .{ .field = field } } };
+        } else {
+            return error.InvalidWat;
+        }
+    }
+
+    fn parseFuncSig(self: *Parser) WatError!WatFuncType {
+        // Parse (param ...) (result ...) sequences — reusable for type defs and inline sigs
         var params: std.ArrayListUnmanaged(WatValType) = .empty;
         var results: std.ArrayListUnmanaged(WatValType) = .empty;
 
         while (self.current.tag == .lparen) {
-            // Peek at the keyword after (
             const saved_pos = self.tok.pos;
             const saved_current = self.current;
             _ = self.advance(); // consume (
             if (self.current.tag != .keyword) {
-                // Restore and break
                 self.tok.pos = saved_pos;
                 self.current = saved_current;
                 break;
             }
             if (std.mem.eql(u8, self.current.text, "param")) {
                 _ = self.advance(); // consume "param"
-                while (self.current.tag == .keyword or self.current.tag == .ident) {
+                while (self.current.tag == .keyword or self.current.tag == .ident or self.current.tag == .lparen) {
                     if (self.current.tag == .ident) {
                         _ = self.advance(); // skip param name
                         params.append(self.alloc, try self.parseValType()) catch return error.OutOfMemory;
@@ -725,10 +804,32 @@ pub const Parser = struct {
             }
         }
 
-        _ = try self.expect(.rparen); // close (func ...)
-        _ = try self.expect(.rparen); // close (type ...)
+        return .{ .params = params.items, .results = results.items };
+    }
 
-        return .{ .name = type_name, .params = params.items, .results = results.items };
+    fn parseFieldType(self: *Parser) WatError!WatFieldType {
+        // Parse: $name? (mut valtype) | valtype
+        var field_name: ?[]const u8 = null;
+        if (self.current.tag == .ident) field_name = self.advance().text;
+
+        if (self.current.tag == .lparen) {
+            // Check for (mut ...)
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance(); // consume (
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "mut")) {
+                _ = self.advance(); // consume "mut"
+                const vt = try self.parseValType();
+                _ = try self.expect(.rparen);
+                return .{ .name = field_name, .valtype = vt, .mutable = true };
+            }
+            // Not mut, restore
+            self.tok.pos = saved_pos;
+            self.current = saved_current;
+        }
+
+        const vt = try self.parseValType();
+        return .{ .name = field_name, .valtype = vt, .mutable = false };
     }
 
     fn parseFunc(self: *Parser, exports: *std.ArrayListUnmanaged(WatExport)) WatError!WatFunc {
@@ -2155,8 +2256,8 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
     out.appendSlice(arena, &[_]u8{ 0x00, 0x61, 0x73, 0x6D }) catch return error.OutOfMemory;
     out.appendSlice(arena, &[_]u8{ 0x01, 0x00, 0x00, 0x00 }) catch return error.OutOfMemory;
 
-    // Collect all function types (explicit + synthesized from funcs/imports)
-    var all_types: std.ArrayListUnmanaged(WatFuncType) = .empty;
+    // Collect all types (explicit + synthesized from funcs/imports)
+    var all_types: std.ArrayListUnmanaged(WatTypeDef) = .empty;
     // Add explicit types
     for (module.types) |t| {
         all_types.append(arena, t) catch return error.OutOfMemory;
@@ -2248,16 +2349,35 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
     // Section 1: Type
     if (all_types.items.len > 0) {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
-        lebEncodeU32(arena, &sec, @intCast(all_types.items.len)) catch return error.OutOfMemory;
-        for (all_types.items) |ft| {
-            sec.append(arena, 0x60) catch return error.OutOfMemory; // func type marker
-            lebEncodeU32(arena, &sec, @intCast(ft.params.len)) catch return error.OutOfMemory;
-            for (ft.params) |vt| {
-                encodeValType(arena, &sec, vt) catch return error.OutOfMemory;
+        // Count top-level entries (rec groups count as one entry)
+        var type_section_count: u32 = 0;
+        {
+            var ti: usize = 0;
+            while (ti < all_types.items.len) {
+                type_section_count += 1;
+                if (all_types.items[ti].rec_count > 0) {
+                    ti += all_types.items[ti].rec_count;
+                } else {
+                    ti += 1;
+                }
             }
-            lebEncodeU32(arena, &sec, @intCast(ft.results.len)) catch return error.OutOfMemory;
-            for (ft.results) |vt| {
-                encodeValType(arena, &sec, vt) catch return error.OutOfMemory;
+        }
+        lebEncodeU32(arena, &sec, type_section_count) catch return error.OutOfMemory;
+        {
+            var ti: usize = 0;
+            while (ti < all_types.items.len) {
+                if (all_types.items[ti].rec_count > 0) {
+                    // Rec group: 0x4E + count + subtypes
+                    sec.append(arena, 0x4E) catch return error.OutOfMemory;
+                    lebEncodeU32(arena, &sec, all_types.items[ti].rec_count) catch return error.OutOfMemory;
+                    for (0..all_types.items[ti].rec_count) |j| {
+                        encodeCompositeType(arena, &sec, all_types.items[ti + j].composite) catch return error.OutOfMemory;
+                    }
+                    ti += all_types.items[ti].rec_count;
+                } else {
+                    encodeCompositeType(arena, &sec, all_types.items[ti].composite) catch return error.OutOfMemory;
+                    ti += 1;
+                }
             }
         }
         writeSection(arena, &out, 1, sec.items) catch return error.OutOfMemory;
@@ -2673,6 +2793,42 @@ fn encodeValType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValT
     }
 }
 
+fn encodeCompositeType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), ct: WatCompositeType) !void {
+    switch (ct) {
+        .func => |ft| {
+            out.append(alloc, 0x60) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, @intCast(ft.params.len)) catch return error.OutOfMemory;
+            for (ft.params) |vt| {
+                try encodeValType(alloc, out, vt);
+            }
+            lebEncodeU32(alloc, out, @intCast(ft.results.len)) catch return error.OutOfMemory;
+            for (ft.results) |vt| {
+                try encodeValType(alloc, out, vt);
+            }
+        },
+        .struct_type => |st| {
+            out.append(alloc, 0x5F) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, @intCast(st.fields.len)) catch return error.OutOfMemory;
+            for (st.fields) |field| {
+                try encodeStorageType(alloc, out, field.valtype);
+                out.append(alloc, if (field.mutable) 0x01 else 0x00) catch return error.OutOfMemory;
+            }
+        },
+        .array_type => |at| {
+            out.append(alloc, 0x5E) catch return error.OutOfMemory;
+            try encodeStorageType(alloc, out, at.field.valtype);
+            out.append(alloc, if (at.field.mutable) 0x01 else 0x00) catch return error.OutOfMemory;
+        },
+    }
+}
+
+fn encodeStorageType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValType) !void {
+    // Storage types extend val types with packed types i8 (0x78) and i16 (0x77)
+    // For now, WAT parser doesn't support i8/i16 packed types yet, so delegate to encodeValType.
+    // When packed types are added to WatValType, handle them here.
+    return encodeValType(alloc, out, vt);
+}
+
 fn heapTypeToS33(ht: u32) i64 {
     const opcode = @import("opcode.zig");
     return switch (ht) {
@@ -2768,16 +2924,21 @@ fn eqlValTypeSlice(a: []const WatValType, b: []const WatValType) bool {
     return true;
 }
 
-fn findOrAddType(alloc: Allocator, types: *std.ArrayListUnmanaged(WatFuncType), ft: WatFuncType) !u32 {
+fn findOrAddType(alloc: Allocator, types: *std.ArrayListUnmanaged(WatTypeDef), ft: WatFuncType) !u32 {
     for (types.items, 0..) |existing, i| {
-        if (eqlValTypeSlice(existing.params, ft.params) and
-            eqlValTypeSlice(existing.results, ft.results))
-        {
-            return @intCast(i);
+        switch (existing.composite) {
+            .func => |ef| {
+                if (eqlValTypeSlice(ef.params, ft.params) and
+                    eqlValTypeSlice(ef.results, ft.results))
+                {
+                    return @intCast(i);
+                }
+            },
+            .struct_type, .array_type => {},
         }
     }
     const idx: u32 = @intCast(types.items.len);
-    types.append(alloc, ft) catch return error.OutOfMemory;
+    types.append(alloc, .{ .composite = .{ .func = ft } }) catch return error.OutOfMemory;
     return idx;
 }
 
@@ -3548,9 +3709,9 @@ test "WAT parser — type definition" {
     );
     const mod = try parser.parseModule();
     try testing.expectEqual(@as(usize, 1), mod.types.len);
-    try testing.expectEqual(@as(usize, 2), mod.types[0].params.len);
-    try testing.expectEqual(WatValType.i32, mod.types[0].params[0]);
-    try testing.expectEqual(@as(usize, 1), mod.types[0].results.len);
+    try testing.expectEqual(WatValType.i32, mod.types[0].composite.func.params[0]);
+    try testing.expectEqual(@as(usize, 2), mod.types[0].composite.func.params.len);
+    try testing.expectEqual(@as(usize, 1), mod.types[0].composite.func.results.len);
 }
 
 test "WAT parser — func with params and result" {
@@ -4557,4 +4718,95 @@ test "WAT encoder — anyref param round-trip" {
     const types_mod = @import("types.zig");
     var module = try types_mod.WasmModule.load(testing.allocator, wasm);
     defer module.deinit();
+}
+
+test "WAT parser — struct type definition" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (type $point (struct (field $x i32) (field $y i32)))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.types.len);
+    try testing.expectEqualStrings("$point", mod.types[0].name.?);
+    const st = mod.types[0].composite.struct_type;
+    try testing.expectEqual(@as(usize, 2), st.fields.len);
+    try testing.expectEqualStrings("$x", st.fields[0].name.?);
+    try testing.expectEqual(WatValType.i32, st.fields[0].valtype);
+    try testing.expect(!st.fields[0].mutable);
+}
+
+test "WAT parser — struct with mutable field" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (type $cell (struct (field $val (mut i32))))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const st = mod.types[0].composite.struct_type;
+    try testing.expectEqual(@as(usize, 1), st.fields.len);
+    try testing.expect(st.fields[0].mutable);
+    try testing.expectEqual(WatValType.i32, st.fields[0].valtype);
+}
+
+test "WAT parser — array type definition" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (type $arr (array (mut i32)))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.types.len);
+    const at = mod.types[0].composite.array_type;
+    try testing.expect(at.field.mutable);
+    try testing.expectEqual(WatValType.i32, at.field.valtype);
+}
+
+test "WAT encoder — struct type round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $point (struct (field $x i32) (field $y f64)))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    // Verify the module loaded successfully with struct type
+    try testing.expectEqual(@as(usize, 1), module.module.types.items.len);
+}
+
+test "WAT encoder — array type round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $arr (array (mut f32)))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.types.items.len);
+}
+
+test "WAT encoder — rec group round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (rec
+        \\    (type $a (struct (field (ref null 1))))
+        \\    (type $b (struct (field (ref null 0))))
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 2), module.module.types.items.len);
 }
