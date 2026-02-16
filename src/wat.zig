@@ -343,6 +343,7 @@ pub const WatFunc = struct {
 pub const WatLimits = struct {
     min: u64,
     max: ?u64,
+    shared: bool = false,
 };
 
 pub const WatMemory = struct {
@@ -1147,7 +1148,14 @@ pub const Parser = struct {
             max = std.fmt.parseInt(u64, max_text, 10) catch return error.InvalidWat;
         }
 
-        return .{ .min = min, .max = max };
+        var shared = false;
+        if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "shared")) {
+            _ = self.advance();
+            if (max == null) return error.InvalidWat; // shared requires max
+            shared = true;
+        }
+
+        return .{ .min = min, .max = max, .shared = shared };
     }
 
     // ============================================================
@@ -2431,13 +2439,12 @@ fn lebEncodeI64(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), value: i64) 
 }
 
 fn encodeLimits(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), limits: WatLimits) !void {
+    const has_max: u8 = if (limits.max != null) 0x01 else 0x00;
+    const shared: u8 = if (limits.shared) 0x02 else 0x00;
+    out.append(alloc, has_max | shared) catch return error.OutOfMemory;
+    lebEncodeU32(alloc, out, @intCast(limits.min)) catch return error.OutOfMemory;
     if (limits.max != null) {
-        out.append(alloc, 0x01) catch return error.OutOfMemory; // has_max
-        lebEncodeU32(alloc, out, @intCast(limits.min)) catch return error.OutOfMemory;
         lebEncodeU32(alloc, out, @intCast(limits.max.?)) catch return error.OutOfMemory;
-    } else {
-        out.append(alloc, 0x00) catch return error.OutOfMemory;
-        lebEncodeU32(alloc, out, @intCast(limits.min)) catch return error.OutOfMemory;
     }
 }
 
@@ -4017,4 +4024,68 @@ test "WAT parser — i32.atomic.load round-trip" {
     var results = [_]u64{0};
     try module.invoke("test", &args, &results);
     try testing.expectEqual(@as(u64, 99), results[0]);
+}
+
+test "WAT parser — memory shared" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module (memory 1 4 shared))
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.memories.len);
+    try testing.expectEqual(@as(u64, 1), mod.memories[0].limits.min);
+    try testing.expectEqual(@as(u64, 4), mod.memories[0].limits.max.?);
+    try testing.expect(mod.memories[0].limits.shared);
+}
+
+test "WAT encoder — memory shared round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module (memory 1 4 shared))
+    );
+    defer testing.allocator.free(wasm);
+    // Find memory section (ID 5)
+    var pos: usize = 8;
+    while (pos < wasm.len) {
+        const sec_id = wasm[pos];
+        pos += 1;
+        var sec_size: usize = 0;
+        var shift: u5 = 0;
+        while (pos < wasm.len) {
+            const b = wasm[pos];
+            pos += 1;
+            sec_size |= @as(usize, b & 0x7F) << shift;
+            if (b & 0x80 == 0) break;
+            shift += 7;
+        }
+        if (sec_id == 5) {
+            // count=1, then limits flag byte
+            try testing.expectEqual(@as(u8, 1), wasm[pos]); // count
+            try testing.expectEqual(@as(u8, 0x03), wasm[pos + 1]); // flag: has_max(0x01) | shared(0x02)
+            break;
+        }
+        pos += sec_size;
+    }
+}
+
+test "WAT parser — memory shared requires max" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module (memory 1 shared))
+    );
+    try testing.expectError(error.InvalidWat, parser.parseModule());
+}
+
+test "WAT parser — import memory shared" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module (import "env" "mem" (memory 1 4 shared)))
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.imports.len);
+    try testing.expectEqual(@as(u64, 1), mod.imports[0].kind.memory.min);
+    try testing.expectEqual(@as(u64, 4), mod.imports[0].kind.memory.max.?);
+    try testing.expect(mod.imports[0].kind.memory.shared);
 }
