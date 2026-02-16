@@ -1188,7 +1188,11 @@ pub const Parser = struct {
             std.mem.eql(u8, name, "data.drop") or
             std.mem.eql(u8, name, "elem.drop") or
             std.mem.eql(u8, name, "memory.init") or
-            std.mem.eql(u8, name, "table.init"))
+            std.mem.eql(u8, name, "table.init") or
+            std.mem.eql(u8, name, "call_ref") or
+            std.mem.eql(u8, name, "return_call_ref") or
+            std.mem.eql(u8, name, "br_on_null") or
+            std.mem.eql(u8, name, "br_on_non_null"))
             return .index_imm;
 
         // Memory load/store
@@ -2463,6 +2467,14 @@ fn instrOpcode(name: []const u8) ?u8 {
         .{ "ref_null", 0xD0 },
         .{ "ref_is_null", 0xD1 },
         .{ "ref_func", 0xD2 },
+        .{ "ref_eq", 0xD3 },
+        .{ "ref_as_non_null", 0xD4 },
+        .{ "br_on_null", 0xD5 },
+        .{ "br_on_non_null", 0xD6 },
+        .{ "call_ref", 0x14 },
+        .{ "return_call_ref", 0x15 },
+        .{ "throw_ref", 0x0A },
+        .{ "throw", 0x08 },
     };
 
     inline for (map) |entry| {
@@ -2589,9 +2601,11 @@ fn encodeInstr(
             } else {
                 return error.InvalidWat;
             }
-            // Resolve index: br/br_if use label stack, others use namespace maps
+            // Resolve index: br/br_if/br_on_* use label stack, others use namespace maps
             const is_branch = std.mem.eql(u8, data.op, "br") or
-                std.mem.eql(u8, data.op, "br_if");
+                std.mem.eql(u8, data.op, "br_if") or
+                std.mem.eql(u8, data.op, "br_on_null") or
+                std.mem.eql(u8, data.op, "br_on_non_null");
             const idx = if (is_branch)
                 try resolveLabelIndex(data.index, labels.items)
             else if (std.mem.eql(u8, data.op, "call") or
@@ -2610,6 +2624,9 @@ fn encodeInstr(
                 std.mem.eql(u8, data.op, "local.set") or
                 std.mem.eql(u8, data.op, "local.tee"))
                 resolveNamedIndex(data.index, local_names) catch return error.InvalidWat
+            else if (std.mem.eql(u8, data.op, "call_ref") or
+                std.mem.eql(u8, data.op, "return_call_ref"))
+                resolveNamedIndex(data.index, type_names) catch return error.InvalidWat
             else switch (data.index) {
                 .num => |n| n,
                 .name => return error.InvalidWat,
