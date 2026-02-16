@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-39 — ALL COMPLETE (+ Crash Hardening + Security Audit + Error System + CI/CD + Book)
+- Stages 0-40 — ALL COMPLETE (+ Crash Hardening → CI/CD → Book → API Stabilization)
 - Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -22,7 +22,7 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-39 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-40 — all COMPLETE. See `roadmap.md` for details.
 Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.sh > /dev/null 2>&1 &`
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
@@ -31,20 +31,20 @@ Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
 See `private/roadmap-production.md` Phase 40 for full detail.
 
-- [ ] 40.1: Public API boundary: explicit list of stable types and functions
-- [ ] 40.2: Internal API separation: @import("zwasm") exposes only public surface
-- [ ] 40.3: Stability annotations in docs: stable / experimental / internal
-- [ ] 40.4: Versioning policy: SemVer commitment, what constitutes breaking change
-- [ ] 40.5: Deprecation policy: minimum 1 minor version notice before removal
-- [ ] 40.6: CHANGELOG.md: structured change tracking
+- [x] 40.1: Public API boundary: explicit list of stable types and functions
+- [x] 40.2: Internal API separation: @import("zwasm") exposes only public surface
+- [x] 40.3: Stability annotations in docs: stable / experimental / internal
+- [x] 40.4: Versioning policy: SemVer commitment, what constitutes breaking change
+- [x] 40.5: Deprecation policy: minimum 1 minor version notice before removal
+- [x] 40.6: CHANGELOG.md: structured change tracking
 
 ## Current Task
 
-Stage 40: API Stabilization. Planning task queue.
+Stage 40 complete — all 6 tasks done. Ready for merge gate.
 
 ## Previous Task
 
-Stage 39 complete. 12 mdBook chapters: intro, getting-started, CLI, embedding, architecture, spec coverage, security, performance, memory, comparison, FAQ, contributor guide.
+40.1-40.6: API boundary doc, stability annotations, SemVer policy in README, CHANGELOG.md.
 
 ## Wasm 3.0 Coverage
 
