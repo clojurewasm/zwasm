@@ -18,7 +18,7 @@ zwasm was extracted from [ClojureWasm](https://github.com/niclas-ahden/ClojureWa
 
 - **581+ opcodes**: Full MVP + SIMD (236 + 20 relaxed) + Exception handling + Function references + GC + Threads (79 atomics)
 - **4-tier execution**: bytecode > predecoded IR > register IR > ARM64/x86_64 JIT
-- **99.8% spec conformance**: 61,639/61,761 spec tests passing
+- **100% spec conformance**: 62,158/62,158 spec tests passing (Mac + Ubuntu)
 - **All Wasm 3.0 proposals**: See [Spec Coverage](#wasm-spec-coverage) below
 - **Component Model**: WIT parser, Canonical ABI, component linking, WASI P2 adapter
 - **WAT support**: `zwasm run file.wat`, build-time optional (`-Dwat=false`)
@@ -41,7 +41,7 @@ All ratified Wasm proposals through 3.0 are implemented.
 | Phase 4  | Threads (79 atomics)                                                             | Complete     |
 | Layer    | Component Model (WIT, Canon ABI, WASI P2)                                       | Complete     |
 
-18/18 proposals complete. 388 unit tests, 356/356 E2E tests.
+18/18 proposals complete. 419 unit tests, 341/356 E2E tests.
 
 ## Performance
 
@@ -98,7 +98,7 @@ Requires Zig 0.15.2.
 
 ```bash
 zig build              # Build (Debug)
-zig build test         # Run all tests (388 tests)
+zig build test         # Run all tests (419 tests)
 ./zig-out/bin/zwasm run file.wasm
 ```
 
@@ -158,6 +158,9 @@ The spec test suite runs on every change.
 - [x] Stage 22: Component Model (WIT, Canon ABI, WASI P2)
 - [x] Stage 23: JIT optimization (smart spill, direct call, FP cache, self-call inline)
 - [x] Stage 25: Lightweight self-call (fib now matches wasmtime)
+- [x] Stages 26-31: JIT peephole, platform verification, spec cleanup, GC benchmarks
+- [x] Stage 32: 100% spec conformance (62,158/62,158 on Mac + Ubuntu)
+- [x] Stage 33: Fuzz testing (differential testing, extended fuzz campaign, 0 crashes)
 - [ ] Future: WASI P3/async, GC collector upgrade, liveness-based regalloc
 
 ## License

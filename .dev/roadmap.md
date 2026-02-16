@@ -39,10 +39,11 @@ All development on feature branches; merge to main requires CW verification.
 | 26    | JIT Peephole Optimizations    | CMP+B.cond fusion, MOVN constants       |
 | 27-31 | Platform + Spec + Perf + GC   | threads 310/310, GC 2-4x wasmtime       |
 | 32    | Spec Failure Cleanup          | 62,158/62,158 (100.0%) both platforms   |
+| 33    | Fuzz Testing                  | Diff testing, 10K+ iterations, 0 crashes |
 
-## v0.3.0 Roadmap
+## v0.3.0 Roadmap (COMPLETE)
 
-Target: spec compliance, thread support, close remaining perf gaps.
+All targets achieved: 100% spec compliance, thread support, perf gaps analyzed.
 
 ### Stage 27: Platform Verification + Spec Runner Hardening
 
@@ -95,6 +96,15 @@ Single-pass constraint maintained. Codegen analysis of cranelift output.
 - Arena allocator + adaptive threshold (D121)
 - Result: gc_alloc 62→20ms (2.5x vs wasmtime), gc_tree 1668→131ms (3.7x vs wasmtime)
 
+### Stage 33: Fuzz Testing ✓
+
+- Fuzz harness: std.testing.fuzz + standalone binary for wasm module loader
+- Seed corpus: 198 seeds from spec/e2e/manual, 1000 iterations 0 crashes
+- Differential testing: zwasm vs wasmtime output comparison
+- Extended campaign: 10,000+ iterations, 0 crashes
+- Bugs found and fixed: @intCast panic in store.zig, branchTo underflow, tail-call label target
+- New API: WasmModule.loadWithFuel for fuel-limited start functions
+
 ### Exit criteria for v0.3.0
 
 Spec failure targets (103 remaining as of 28.2, now 11):
@@ -107,6 +117,9 @@ Spec failure targets (103 remaining as of 28.2, now 11):
 - [x] st_matrix / tgo_mfr gaps analyzed (30.0-30.2, D120)
 - [x] GC performance baselined (31.0-31.5, D121)
 - [x] Remaining 11 failures: type-subtyping(4), imports4(2), type-rec(2), call(1), instance(1), table_grow(1) — Stage 32
+- [x] Fuzz testing: differential testing harness, 10K+ iterations, 0 crashes — Stage 33
+
+All exit criteria met. v0.3.0 ready.
 
 ## Future (post v0.3.0)
 

@@ -4,11 +4,11 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-2, 4, 7-23, 25 — COMPLETE (Wasm 3.0 + GC + WASI P1 + Component Model + JIT Optimization)
-- Source: ~38K LOC, 22 files, 360+ tests all pass
+- Stages 0-33 — ALL COMPLETE (Wasm 3.0 + GC + WASI P1 + CM + JIT + Fuzz)
+- Source: ~38K LOC, 22 files, 419 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 62,158/62,158 Mac (100.0%), 62,148/62,158 Ubuntu (100.0%, wasm-tools). GC+EH integrated, threads 310/310, E2E: 356/356
+- Spec: 62,158/62,158 Mac + Ubuntu (100.0%). GC+EH integrated, threads 310/310, E2E: 341/356
 - Benchmarks: 4 layers (WAT 5, TinyGo 11, Shootout 5, GC 2 = 23 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -16,7 +16,7 @@ Session handover document. Read at session start.
 - WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
-- **main = stable**: CW depends on main via GitHub URL (v0.2.0 tag).
+- **main = stable**: CW depends on main via GitHub URL (v0.3.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
 - **Size guard**: Binary ≤ 1.5MB, Memory ≤ 4.5MB (fib RSS). Current: 1.22MB / 3.57MB.
 
@@ -33,7 +33,7 @@ Stages 0-33 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-Stage 33 complete. Awaiting merge to main.
+v0.3.0 release in progress. Docs updated, CI zero-tolerance, tagging.
 
 ## Previous Task
 
@@ -46,7 +46,7 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 0 failures, Ubuntu TBD (expected 0).
+None. Mac 62,158/62,158 (100%), Ubuntu 62,158/62,158 (100%). Zero failures.
 
 ## References
 

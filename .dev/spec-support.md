@@ -6,8 +6,8 @@ Per-opcode details live in code (`src/opcode.zig` enum).
 Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 
 **Run tests**:
-- Spec: `python3 test/spec/run_spec.py --summary` (61,650/61,761, 48 skips)
-- E2E: `bash test/e2e/run_e2e.sh --summary` (356/356 = 100%, 70 files, Zig runner)
+- Spec: `python3 test/spec/run_spec.py --summary` (62,158/62,158 = 100%, 105 skips)
+- E2E: `bash test/e2e/run_e2e.sh --summary` (341/356 = 95.8%, 70 files, Zig runner)
 
 ## Opcode Coverage Summary
 
@@ -67,14 +67,15 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Multi-memory          | Complete     | Multiple memories, memarg bit 6    |
 | Function references   | Complete     | 5 opcodes, 104/106 spec tests     |
 | GC                    | Complete     | 31 opcodes (0xFB prefix), 16 unit tests |
-| Threads               | Complete     | 79 opcodes (0xFE prefix), 306/310 spec  |
+| Threads               | Complete     | 79 opcodes (0xFE prefix), 310/310 spec  |
 | WAT parser            | Complete     | v128/SIMD, named locals/globals    |
 | Component Model       | Complete     | WIT, binary, Canon ABI, linker    |
 | WASI Preview 2        | Complete     | 14 interfaces via P1 adapter      |
 
 ## E2E Test Status
 
-70 wasmtime misc_testsuite files ported. 356/356 assertions pass (100%, Zig runner with shared Store).
+70 wasmtime misc_testsuite files ported. 341/356 assertions pass (95.8%, Zig runner with shared Store).
+15 failures: call_indirect (13, MismatchedSignatures with GC subtypes), table_copy_on_imported_tables (2).
 
 | Category                  | Status                   | Checklist         |
 |---------------------------|--------------------------|-------------------|
