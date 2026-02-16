@@ -82,9 +82,10 @@ fn printUsage(w: *std.Io.Writer) void {
         \\
         \\Usage:
         \\  zwasm run [options] <file.wasm|.wat> [args...]
+        \\  zwasm run <file.wasm|.wat> [options] [args...]
         \\  zwasm inspect [--json] <file.wasm|.wat>
         \\  zwasm validate <file.wasm|.wat>
-        \\  zwasm features
+        \\  zwasm features [--json]
         \\  zwasm version
         \\  zwasm help
         \\
@@ -239,15 +240,27 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 try stderr.flush();
                 return false;
             };
+        } else if (std.mem.eql(u8, args[i], "--")) {
+            // Explicit separator: everything after is function/WASI args
+            func_args_start = i + 1;
+            break;
         } else if (args[i].len > 0 and args[i][0] == '-') {
             try stderr.print("error: unknown option '{s}'\n", .{args[i]});
             try stderr.flush();
             return false;
         } else {
+            if (wasm_path != null) {
+                // Second positional arg — start of function/WASI args
+                func_args_start = i;
+                break;
+            }
             wasm_path = args[i];
-            func_args_start = i + 1;
-            break;
         }
+    }
+
+    // If loop ended without break, no positional args follow the file
+    if (wasm_path != null and func_args_start == 0) {
+        func_args_start = args.len;
     }
 
     const path = wasm_path orelse {

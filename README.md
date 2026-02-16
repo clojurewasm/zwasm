@@ -84,14 +84,16 @@ brew install clojurewasm/tap/zwasm
 ### CLI
 
 ```bash
-zwasm run module.wasm              # Run a WASI module
-zwasm run module.wasm -- arg1 arg2 # With arguments
-zwasm run module.wat               # Run a WAT text module
-zwasm run component.wasm           # Run a component (auto-detected)
-zwasm inspect module.wasm          # Show exports, imports, memory
-zwasm validate module.wasm         # Validate without running
-zwasm features                     # List supported proposals
-zwasm features --json              # Machine-readable output
+zwasm run module.wasm                     # Run a WASI module
+zwasm run module.wasm -- arg1 arg2        # With arguments
+zwasm run module.wat                      # Run a WAT text module
+zwasm run --invoke fib math.wasm 35       # Call a specific function
+zwasm run math.wasm --invoke fib 35       # Same (options after file)
+zwasm run component.wasm                  # Run a component (auto-detected)
+zwasm inspect module.wasm                 # Show exports, imports, memory
+zwasm validate module.wasm                # Validate without running
+zwasm features                            # List supported proposals
+zwasm features --json                     # Machine-readable output
 ```
 
 ### Library
