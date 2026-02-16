@@ -24,3 +24,26 @@ All memory access paths are bounds-checked before pointer dereference:
 | JIT (guard pages) | guard.zig:22 | 4GiB+64KiB PROT_NONE, signal handler converts to trap |
 
 **Key defense**: u33 arithmetic prevents 32-bit address+offset overflow wrapping.
+
+## 36.3: Table Bounds + Type Check
+
+**Status**: PASS
+
+All table access paths are bounds-checked and type-verified:
+
+| Path | Location | Mechanism |
+|------|----------|-----------|
+| Table.lookup() | store.zig:113 | index >= len returns UndefinedElement |
+| Table.get() | store.zig:118 | index >= len returns OutOfBounds |
+| Table.set() | store.zig:123 | index >= len returns OutOfBounds |
+| call_indirect (bytecode) | vm.zig:891 | lookup + matchesCallIndirectType |
+| call_indirect (IR) | vm.zig:4254 | lookup + matchesCallIndirectType |
+| return_call_indirect | vm.zig:925,4277 | lookup + matchesCallIndirectType |
+| table.get (IR) | vm.zig:4332 | Table.get() bounds check |
+| table.set (IR) | vm.zig:4338 | Table.set() bounds check |
+
+**Type safety**: call_indirect checks canonical type IDs first, falls back to
+structural comparison. MismatchedSignatures error on type mismatch.
+
+**Null element defense**: Uninitialized table slots contain `null`, which
+Table.lookup() rejects as UndefinedElement before any dereference.

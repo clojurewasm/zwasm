@@ -31,7 +31,7 @@ See `private/roadmap-production.md` Phase 36 for full detail.
 
 - [x] 36.1: Threat model document: what zwasm protects against, what it doesn't
 - [x] 36.2: Linear memory isolation audit: bounds check on every load/store verified
-- [ ] 36.3: Table bounds + type check audit: call_indirect, table.get/set
+- [x] 36.3: Table bounds + type check audit: call_indirect, table.get/set
 - [ ] 36.4: JIT W^X verification: mmap RW→RX transition, no simultaneous W+X
 - [ ] 36.5: JIT bounds audit: generated code cannot escape sandbox
 - [ ] 36.6: WASI capability audit: deny-by-default path verified for all 46 syscalls
@@ -43,11 +43,11 @@ See `private/roadmap-production.md` Phase 36 for full detail.
 
 ## Current Task
 
-36.3: Table bounds + type check audit.
+36.4: JIT W^X verification.
 
 ## Previous Task
 
-36.2: Linear memory audit — verified: Memory.read/write use u33+bounds, copy/fill/copyWithin bounds-checked, all VM memLoad*/memStore* delegate to checked API, JIT has explicit CMP or guard pages.
+36.3: Table audit — all paths bounds-checked (lookup/get/set), call_indirect type-checked via canonical+structural, null elements rejected.
 
 ## Wasm 3.0 Coverage
 
