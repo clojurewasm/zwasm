@@ -1911,12 +1911,18 @@ test "Module — type canonicalization: structurally identical singletons" {
     try m.decode();
 
     try testing.expectEqual(@as(usize, 4), m.types.items.len);
-    // Types 0 and 1 should have same canonical ID
-    try testing.expectEqual(m.canonical_ids[0], m.canonical_ids[1]);
-    // Types 2 and 3 should have same canonical ID (both ref canon(0) which equals canon(1))
-    try testing.expectEqual(m.canonical_ids[2], m.canonical_ids[3]);
+    // Register types in TypeRegistry to get global IDs
+    const store_mod = @import("store.zig");
+    var reg = store_mod.TypeRegistry.init(testing.allocator);
+    defer reg.deinit();
+    const gids = try reg.registerModuleTypes(&m);
+    defer testing.allocator.free(gids);
+    // Types 0 and 1 should have same global ID
+    try testing.expectEqual(gids[0], gids[1]);
+    // Types 2 and 3 should have same global ID (both ref canon(0) which equals canon(1))
+    try testing.expectEqual(gids[2], gids[3]);
     // Types 0 and 2 should be different
-    try testing.expect(m.canonical_ids[0] != m.canonical_ids[2]);
+    try testing.expect(gids[0] != gids[2]);
 }
 
 test "Module — type canonicalization: structurally identical rec groups" {
@@ -1936,8 +1942,13 @@ test "Module — type canonicalization: structurally identical rec groups" {
     try m.decode();
 
     try testing.expectEqual(@as(usize, 2), m.types.items.len);
-    // Both types should have same canonical ID (structurally identical rec groups)
-    try testing.expectEqual(m.canonical_ids[0], m.canonical_ids[1]);
+    // Both types should have same global ID (structurally identical rec groups)
+    const store_mod = @import("store.zig");
+    var reg = store_mod.TypeRegistry.init(testing.allocator);
+    defer reg.deinit();
+    const gids = try reg.registerModuleTypes(&m);
+    defer testing.allocator.free(gids);
+    try testing.expectEqual(gids[0], gids[1]);
 }
 
 test "Module — type canonicalization: ref_test.1 GC struct types" {
@@ -1960,28 +1971,35 @@ test "Module — type canonicalization: ref_test.1 GC struct types" {
     try testing.expectEqual(@as(usize, 9), m.types.items.len);
     try testing.expectEqual(@as(usize, 9), m.rec_groups.items.len);
 
+    // Register types in TypeRegistry to get global IDs
+    const store_mod = @import("store.zig");
+    var reg = store_mod.TypeRegistry.init(testing.allocator);
+    defer reg.deinit();
+    const gids = try reg.registerModuleTypes(&m);
+    defer testing.allocator.free(gids);
+
     // Verify canonical equivalence pairs
-    try testing.expectEqual(m.canonical_ids[1], m.canonical_ids[2]); // $t1 == $t1'
-    try testing.expectEqual(m.canonical_ids[3], m.canonical_ids[4]); // $t2 == $t2'
+    try testing.expectEqual(gids[1], gids[2]); // $t1 == $t1'
+    try testing.expectEqual(gids[3], gids[4]); // $t2 == $t2'
 
     // These should NOT be equal
-    try testing.expect(m.canonical_ids[0] != m.canonical_ids[1]); // $t0 != $t1
-    try testing.expect(m.canonical_ids[0] != m.canonical_ids[6]); // $t0 != $t0' (different super_types)
-    try testing.expect(m.canonical_ids[1] != m.canonical_ids[5]); // $t1 != $t3 (same struct but different super)
-    try testing.expect(m.canonical_ids[3] != m.canonical_ids[5]); // $t2 != $t3 (same fields, different super chain)
+    try testing.expect(gids[0] != gids[1]); // $t0 != $t1
+    try testing.expect(gids[0] != gids[6]); // $t0 != $t0' (different super_types)
+    try testing.expect(gids[1] != gids[5]); // $t1 != $t3 (same struct but different super)
+    try testing.expect(gids[3] != gids[5]); // $t2 != $t3 (same fields, different super chain)
 
     // Verify isConcreteSubtype with canonical equivalence
     const gc_mod = @import("gc.zig");
     // $t1 <: $t1' (canonical equivalence)
-    try testing.expect(gc_mod.isConcreteSubtype(1, 2, &m));
+    try testing.expect(gc_mod.isConcreteSubtype(gids[1], gids[2], &reg));
     // $t1' <: $t1 (canonical equivalence)
-    try testing.expect(gc_mod.isConcreteSubtype(2, 1, &m));
+    try testing.expect(gc_mod.isConcreteSubtype(gids[2], gids[1], &reg));
     // $t2 <: $t2' (canonical equivalence)
-    try testing.expect(gc_mod.isConcreteSubtype(3, 4, &m));
+    try testing.expect(gc_mod.isConcreteSubtype(gids[3], gids[4], &reg));
     // $t2 <: $t1' (t2 sub(t1), t1 canon= t1')
-    try testing.expect(gc_mod.isConcreteSubtype(3, 2, &m));
+    try testing.expect(gc_mod.isConcreteSubtype(gids[3], gids[2], &reg));
     // $t2' <: $t1 (t2' sub(t1'), t1' canon= t1)
-    try testing.expect(gc_mod.isConcreteSubtype(4, 1, &m));
+    try testing.expect(gc_mod.isConcreteSubtype(gids[4], gids[1], &reg));
 }
 
 test "Module — GC rec group decode" {

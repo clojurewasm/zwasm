@@ -331,7 +331,8 @@ pub fn matchesHeapType(val: u64, target_ht: u32, module: *const Module) bool {
 }
 
 /// Check if a runtime GC value matches a target heap type, with heap access.
-pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, store: *Store) bool {
+/// global_type_ids maps module-local type indices to store-level global IDs.
+pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, store: *Store, global_type_ids: []const u32) bool {
     // Externref values live in a separate hierarchy — only match HEAP_EXTERN.
     if (isExternRef(val)) {
         return target_ht == ValType.HEAP_EXTERN;
@@ -363,7 +364,10 @@ pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, 
 
         // Concrete type check: target_ht is a type index
         if (target_ht >= module.types.items.len) return false;
-        return isConcreteSubtype(obj_type_idx, target_ht, module);
+        // Convert both to global IDs for cross-module comparison
+        const obj_global = if (obj_type_idx < global_type_ids.len) global_type_ids[obj_type_idx] else obj_type_idx;
+        const target_global = if (target_ht < global_type_ids.len) global_type_ids[target_ht] else target_ht;
+        return isConcreteSubtype(obj_global, target_global, &store.type_registry);
     }
 
     // funcref: check abstract and concrete function types
@@ -376,7 +380,9 @@ pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, 
             if (func_addr < store.functions.items.len) {
                 const func = store.functions.items[func_addr];
                 if (func.canonical_type_id != std.math.maxInt(u32)) {
-                    return module.isTypeSubtype(func.canonical_type_id, module.getCanonicalTypeId(target_ht));
+                    const target_global = if (target_ht < global_type_ids.len) global_type_ids[target_ht] else target_ht;
+                    return func.canonical_type_id == target_global or
+                        store.type_registry.isSubtype(func.canonical_type_id, target_global);
                 }
             }
         }
@@ -387,9 +393,9 @@ pub fn matchesHeapTypeWithHeap(val: u64, target_ht: u32, module: *const Module, 
 }
 
 /// Check if concrete type `sub` is a subtype of concrete type `super` (or equal).
-/// Delegates to Module.isTypeSubtype (canonical IDs + super_types chain walk).
-pub fn isConcreteSubtype(sub: u32, super: u32, module: *const Module) bool {
-    return module.isTypeSubtype(sub, super);
+/// Both sub and super should be global type IDs from the TypeRegistry.
+pub fn isConcreteSubtype(sub: u32, super: u32, registry: *const store_mod.TypeRegistry) bool {
+    return sub == super or registry.isSubtype(sub, super);
 }
 
 // ============================================================
@@ -558,20 +564,20 @@ test "externref — matchesHeapTypeWithHeap" {
     const ext_val = encodeExternRef(0);
 
     // externref matches HEAP_EXTERN only
-    try testing.expect(matchesHeapTypeWithHeap(ext_val, ValType.HEAP_EXTERN, &mod, &store));
+    try testing.expect(matchesHeapTypeWithHeap(ext_val, ValType.HEAP_EXTERN, &mod, &store, &.{}));
     // externref does NOT match internal hierarchy types
-    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_ANY, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_EQ, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_I31, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_STRUCT, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_NONE, &mod, &store));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_ANY, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_EQ, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_I31, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_STRUCT, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(ext_val, ValType.HEAP_NONE, &mod, &store, &.{}));
 
     // After stripping EXTERN_TAG (simulating any.convert_extern), value matches HEAP_ANY
     const internalized = ext_val & ~EXTERN_TAG;
     try testing.expect(internalized != 0); // not null
     try testing.expect(!isExternRef(internalized)); // no longer externref
-    try testing.expect(matchesHeapTypeWithHeap(internalized, ValType.HEAP_ANY, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(internalized, ValType.HEAP_EXTERN, &mod, &store));
+    try testing.expect(matchesHeapTypeWithHeap(internalized, ValType.HEAP_ANY, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(internalized, ValType.HEAP_EXTERN, &mod, &store, &.{}));
 }
 
 test "subtype checking — i31 matches i31/eq/any" {
@@ -580,12 +586,12 @@ test "subtype checking — i31 matches i31/eq/any" {
     var mod: Module = Module.init(testing.allocator, &.{});
     const i31_val = encodeI31(42);
     // i31 matches i31, eq, any but not struct/array/none
-    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_I31, &mod, &store));
-    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_EQ, &mod, &store));
-    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ANY, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_STRUCT, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ARRAY, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_NONE, &mod, &store));
+    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_I31, &mod, &store, &.{}));
+    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_EQ, &mod, &store, &.{}));
+    try testing.expect(matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ANY, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_STRUCT, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_ARRAY, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(i31_val, ValType.HEAP_NONE, &mod, &store, &.{}));
 }
 
 test "subtype checking — GC struct ref matches struct/eq/any" {
@@ -604,13 +610,13 @@ test "subtype checking — GC struct ref matches struct/eq/any" {
     var mod: Module = Module.init(testing.allocator, &.{});
     mod.types = types_list;
 
-    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_STRUCT, &mod, &store));
-    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_EQ, &mod, &store));
-    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ANY, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ARRAY, &mod, &store));
-    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_I31, &mod, &store));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_STRUCT, &mod, &store, &.{}));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_EQ, &mod, &store, &.{}));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ANY, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_ARRAY, &mod, &store, &.{}));
+    try testing.expect(!matchesHeapTypeWithHeap(ref_val, ValType.HEAP_I31, &mod, &store, &.{}));
     // Concrete type 0 matches itself
-    try testing.expect(matchesHeapTypeWithHeap(ref_val, 0, &mod, &store));
+    try testing.expect(matchesHeapTypeWithHeap(ref_val, 0, &mod, &store, &.{}));
 }
 
 test "subtype checking — concrete subtype chain" {
@@ -618,24 +624,36 @@ test "subtype checking — concrete subtype chain" {
     // type 1 = struct {} with super = [0]
     var types_list: std.ArrayList(module_mod.TypeDef) = .empty;
     defer types_list.deinit(testing.allocator);
+    var rec_groups: std.ArrayList(module_mod.RecGroup) = .empty;
+    defer rec_groups.deinit(testing.allocator);
     const supers = [_]u32{0};
     try types_list.append(testing.allocator, .{
         .composite = .{ .struct_type = .{ .fields = &.{} } },
+        .is_final = false,
     });
     try types_list.append(testing.allocator, .{
         .composite = .{ .struct_type = .{ .fields = &.{} } },
         .super_types = &supers,
-        .is_final = false,
+        .is_final = true,
     });
+    try rec_groups.append(testing.allocator, .{ .start = 0, .count = 1 });
+    try rec_groups.append(testing.allocator, .{ .start = 1, .count = 1 });
     var mod: Module = Module.init(testing.allocator, &.{});
     mod.types = types_list;
+    mod.rec_groups = rec_groups;
+
+    // Register types to get global IDs
+    var reg = store_mod.TypeRegistry.init(testing.allocator);
+    defer reg.deinit();
+    const mapping = try reg.registerModuleTypes(&mod);
+    defer testing.allocator.free(mapping);
 
     // type 1 is subtype of type 0
-    try testing.expect(isConcreteSubtype(1, 0, &mod));
+    try testing.expect(isConcreteSubtype(mapping[1], mapping[0], &reg));
     // type 0 is NOT subtype of type 1
-    try testing.expect(!isConcreteSubtype(0, 1, &mod));
+    try testing.expect(!isConcreteSubtype(mapping[0], mapping[1], &reg));
     // type 0 is subtype of itself
-    try testing.expect(isConcreteSubtype(0, 0, &mod));
+    try testing.expect(isConcreteSubtype(mapping[0], mapping[0], &reg));
 }
 
 test "struct VM integration — struct.new + struct.get" {
