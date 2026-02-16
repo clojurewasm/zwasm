@@ -23,6 +23,10 @@ zwasm run --allow-all hello.wasm
 zwasm run --invoke add math.wasm 2 3
 zwasm run math.wasm --invoke add 2 3
 
+# Negative integers and floats are type-aware
+zwasm run --invoke negate math.wat -- -5       # i32: -5
+zwasm run --invoke double math.wat 3.14        # f64: 3.14
+
 # Run a WAT text file
 zwasm run program.wat
 

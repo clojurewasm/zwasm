@@ -80,9 +80,13 @@ All 9 Wasm 3.0 proposals are fully implemented:
 
 The text format parser supports:
 - All value types including v128
-- Named locals, globals, functions
+- Named locals, globals, functions, types
 - Inline exports and imports
 - S-expression and flat syntax
+- Data and element sections
+- All prefix opcodes: 0xFC (bulk memory, trunc_sat), 0xFD (SIMD + lane ops), 0xFE (atomics)
+- Wasm 3.0 opcodes: try_table, call_ref, br_on_null, throw_ref, etc.
+- GC prefix (0xFB) deferred — requires type annotation parser extensions
 
 ## Total opcode count
 
