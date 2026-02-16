@@ -1229,6 +1229,15 @@ pub const Parser = struct {
         // SIMD load/store lane ops
         if (isSimdMemLaneOp(name)) return .simd_mem_lane;
 
+        // Atomic memory ops (all take memarg except atomic.fence)
+        if (std.mem.indexOf(u8, name, ".atomic.") != null)
+            return .mem_imm;
+
+        // SIMD memory ops (v128.load*, v128.store — NOT lane variants)
+        if ((std.mem.startsWith(u8, name, "v128.load") or std.mem.startsWith(u8, name, "v128.store")) and
+            !isSimdMemLaneOp(name))
+            return .mem_imm;
+
         // Memory load/store
         if (isMemoryOp(name)) return .mem_imm;
 
@@ -2718,6 +2727,21 @@ fn simdInstrOpcode(name: []const u8) ?u32 {
     return null;
 }
 
+fn atomicInstrOpcode(name: []const u8) ?u32 {
+    var buf: [64]u8 = undefined;
+    if (name.len > buf.len) return null;
+    @memcpy(buf[0..name.len], name);
+    for (buf[0..name.len]) |*c| {
+        if (c.* == '.') c.* = '_';
+    }
+    const zig_name = buf[0..name.len];
+    const fields = @typeInfo(AtomicOpcode).@"enum".fields;
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, zig_name, field.name)) return field.value;
+    }
+    return null;
+}
+
 fn encodeInstrList(
     alloc: Allocator,
     out: *std.ArrayListUnmanaged(u8),
@@ -2791,6 +2815,12 @@ fn encodeInstr(
             } else if (simdInstrOpcode(name)) |subop| {
                 out.append(alloc, 0xFD) catch return error.OutOfMemory;
                 lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else if (atomicInstrOpcode(name)) |subop| {
+                out.append(alloc, 0xFE) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+                if (subop == 0x03) { // atomic.fence: trailing 0x00
+                    out.append(alloc, 0x00) catch return error.OutOfMemory;
+                }
             } else {
                 return error.InvalidWat;
             }
@@ -2881,8 +2911,18 @@ fn encodeInstr(
             out.append(alloc, data.lane) catch return error.OutOfMemory;
         },
         .mem_op => |data| {
-            const op = instrOpcode(data.op) orelse return error.InvalidWat;
-            out.append(alloc, op) catch return error.OutOfMemory;
+            if (instrOpcode(data.op)) |op| {
+                out.append(alloc, op) catch return error.OutOfMemory;
+            } else if (atomicInstrOpcode(data.op)) |subop| {
+                out.append(alloc, 0xFE) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else if (simdInstrOpcode(data.op)) |subop| {
+                // SIMD memory ops (v128.load, v128.store, etc.)
+                out.append(alloc, 0xFD) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else {
+                return error.InvalidWat;
+            }
             // Encode alignment as log2
             const align_log2: u32 = if (data.mem_arg.@"align" > 0) std.math.log2_int(u32, data.mem_arg.@"align") else 0;
             lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
@@ -3956,4 +3996,25 @@ test "WAT parser — i32x4.extract_lane round-trip" {
     var results = [_]u64{0};
     try module.invoke("test", &args, &results);
     try testing.expectEqual(@as(u64, 30), results[0]);
+}
+
+test "WAT parser — i32.atomic.load round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (func (export "test") (result i32)
+        \\    i32.const 0
+        \\    i32.const 99
+        \\    i32.atomic.store
+        \\    i32.const 0
+        \\    i32.atomic.load))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 99), results[0]);
 }
