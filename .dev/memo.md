@@ -29,7 +29,7 @@ Stages 0-34 — all COMPLETE. See `roadmap.md` for details.
 See `private/roadmap-production.md` Phase 35 for full detail.
 
 - [x] 35.1: Expand fuzz corpus with wasm-tools smith-generated modules (1000+)
-- [ ] 35.2: Structure-aware fuzzing: valid-but-tricky module generator
+- [x] 35.2: Structure-aware fuzzing: valid-but-tricky module generator
 - [ ] 35.3: Phase-separate fuzzing: decoder, validator, predecode, regalloc as independent targets
 - [ ] 35.4: Extended fuzz campaign: 24h+ continuous run, 0 crashes
 - [ ] 35.5: Audit all `unreachable` in non-test paths — convert to error returns or prove unreachability
@@ -38,11 +38,11 @@ See `private/roadmap-production.md` Phase 35 for full detail.
 
 ## Current Task
 
-35.2: Structure-aware fuzzing — valid-but-tricky module generator.
+35.3: Phase-separate fuzzing — decoder, validator, predecode, regalloc as independent targets.
 
 ## Previous Task
 
-35.1: Expanded fuzz corpus — 1826 modules (9 categories via wasm-tools smith + 26 edge cases). Full-pipeline fuzz test added. Corpus runner: 1826/1826 pass, 0 crashes.
+35.2: Structure-aware fuzzing — fuzz_gen.zig with 8 generators (deep nesting, many locals, unreachable code, many types/functions, br_table, memory boundary, if/else chain). All parameterized, run through full pipeline.
 
 ## Wasm 3.0 Coverage
 
