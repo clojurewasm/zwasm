@@ -171,3 +171,26 @@ No mechanism for host functions to expose native addresses to guest code.
 **VM pointer**: Host receives `*anyopaque` (VM pointer) for stack operations.
 This pointer is never exposed to guest code — it's only used internally
 by the host function implementation.
+
+## 36.10: ReleaseSafe-Only Distribution
+
+**Status**: PASS
+
+**Build infrastructure**:
+- `run_spec.py --build`: builds ReleaseSafe by default (line 1377)
+- `bench/run_bench.sh`: builds ReleaseSafe (line 27)
+- `test/fuzz/fuzz_campaign.sh`: builds ReleaseSafe (line 51)
+
+**ReleaseSafe preserves** (Zig 0.15.2):
+- Array/slice bounds checks → panic on OOB
+- Integer overflow detection → panic on overflow
+- Optional unwrap checks → panic on null
+- Unreachable assertions → panic
+- @intCast range checks → panic on out-of-range
+
+**ReleaseFast strips all of the above**. Not safe for untrusted modules.
+
+**Binary size**: 1.28MB (ReleaseSafe), well within 1.5MB guard.
+
+**Recommendation**: SECURITY.md and docs/security.md both recommend
+ReleaseSafe for production. Build scripts default to ReleaseSafe.

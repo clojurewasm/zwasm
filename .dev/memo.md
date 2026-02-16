@@ -38,16 +38,16 @@ See `private/roadmap-production.md` Phase 36 for full detail.
 - [x] 36.7: Stack depth limit verification: call depth, value stack depth
 - [x] 36.8: Host function interface audit: no pointer leaks to guest
 - [x] 36.9: SECURITY.md: vulnerability disclosure policy
-- [ ] 36.10: ReleaseSafe-only distribution: ensure safety checks preserved in release binary
+- [x] 36.10: ReleaseSafe-only distribution: ensure safety checks preserved in release binary
 - [ ] 36.11: Sanitizer pass: ASan/UBSan build + test suite run
 
 ## Current Task
 
-36.10: ReleaseSafe-only distribution.
+36.11: Sanitizer pass.
 
 ## Previous Task
 
-36.9: SECURITY.md created — disclosure email, response timeline, scope, build recommendations.
+36.10: ReleaseSafe verified — all scripts default to ReleaseSafe, safety checks preserved (bounds, overflow, null, unreachable). 1.28MB binary.
 
 ## Wasm 3.0 Coverage
 
