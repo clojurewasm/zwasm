@@ -24,14 +24,14 @@ Session handover document. Read at session start.
 
 Stages 0-38 — all COMPLETE. See `roadmap.md` for details.
 Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.sh > /dev/null 2>&1 &`
-  then check `.dev/fuzz-overnight-result.txt` next session. Review before Stage 39.
+  then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
 ## Task Queue (Stage 39: Documentation & Book)
 
 See `private/roadmap-production.md` Phase 39 for full detail.
 
-- [ ] 39.1: SSG setup: mdBook, deployed to GitHub Pages
+- [x] 39.1: SSG setup: mdBook, deployed to GitHub Pages
 - [ ] 39.2: Getting Started (install, run first module, 5-minute guide)
 - [ ] 39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline)
 - [ ] 39.4: Embedding Guide (Zig library usage, allocator control, error handling)
@@ -46,11 +46,11 @@ See `private/roadmap-production.md` Phase 39 for full detail.
 
 ## Current Task
 
-39.1: SSG setup — mdBook, book/ directory structure, GitHub Pages deploy.
+39.2: Getting Started (install, run first module, 5-minute guide).
 
 ## Previous Task
 
-Stage 38 complete. CI: benchmark regression, size check, ReleaseSafe, E2E, nightly sanitizer+fuzz, caching.
+39.1: mdBook setup — book/ dir, SUMMARY.md, introduction, book.yml GH Pages deploy workflow.
 
 ## Wasm 3.0 Coverage
 
