@@ -9,6 +9,8 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const SimdOpcode = @import("opcode.zig").SimdOpcode;
+const MiscOpcode = @import("opcode.zig").MiscOpcode;
+const AtomicOpcode = @import("opcode.zig").AtomicOpcode;
 const Allocator = std.mem.Allocator;
 
 pub const WatError = error{
@@ -1182,7 +1184,11 @@ pub const Parser = struct {
             std.mem.eql(u8, name, "table.fill") or
             std.mem.eql(u8, name, "throw") or
             std.mem.eql(u8, name, "memory.size") or
-            std.mem.eql(u8, name, "memory.grow"))
+            std.mem.eql(u8, name, "memory.grow") or
+            std.mem.eql(u8, name, "data.drop") or
+            std.mem.eql(u8, name, "elem.drop") or
+            std.mem.eql(u8, name, "memory.init") or
+            std.mem.eql(u8, name, "table.init"))
             return .index_imm;
 
         // Memory load/store
@@ -2467,6 +2473,21 @@ fn instrOpcode(name: []const u8) ?u8 {
 
 /// WAT SIMD instruction name → subopcode (after 0xFD prefix).
 /// Uses SimdOpcode enum from opcode.zig via reflection.
+fn miscInstrOpcode(name: []const u8) ?u32 {
+    var buf: [64]u8 = undefined;
+    if (name.len > buf.len) return null;
+    @memcpy(buf[0..name.len], name);
+    for (buf[0..name.len]) |*c| {
+        if (c.* == '.') c.* = '_';
+    }
+    const zig_name = buf[0..name.len];
+    const fields = @typeInfo(MiscOpcode).@"enum".fields;
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, zig_name, field.name)) return field.value;
+    }
+    return null;
+}
+
 fn simdInstrOpcode(name: []const u8) ?u32 {
     var buf: [64]u8 = undefined;
     if (name.len > buf.len) return null;
@@ -2534,6 +2555,24 @@ fn encodeInstr(
         .simple => |name| {
             if (instrOpcode(name)) |op| {
                 out.append(alloc, op) catch return error.OutOfMemory;
+            } else if (miscInstrOpcode(name)) |subop| {
+                out.append(alloc, 0xFC) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+                // Some 0xFC ops need trailing zero bytes for memory/table indices
+                switch (subop) {
+                    0x0A => { // memory.copy: dst_mem(0) + src_mem(0)
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                    },
+                    0x0B => { // memory.fill: mem(0)
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                    },
+                    0x0E => { // table.copy: dst_table(0) + src_table(0)
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                    },
+                    else => {},
+                }
             } else if (simdInstrOpcode(name)) |subop| {
                 out.append(alloc, 0xFD) catch return error.OutOfMemory;
                 lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
@@ -2542,8 +2581,14 @@ fn encodeInstr(
             }
         },
         .index_op => |data| {
-            const op = instrOpcode(data.op) orelse return error.InvalidWat;
-            out.append(alloc, op) catch return error.OutOfMemory;
+            if (instrOpcode(data.op)) |op| {
+                out.append(alloc, op) catch return error.OutOfMemory;
+            } else if (miscInstrOpcode(data.op)) |subop| {
+                out.append(alloc, 0xFC) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else {
+                return error.InvalidWat;
+            }
             // Resolve index: br/br_if use label stack, others use namespace maps
             const is_branch = std.mem.eql(u8, data.op, "br") or
                 std.mem.eql(u8, data.op, "br_if");
@@ -2570,6 +2615,12 @@ fn encodeInstr(
                 .name => return error.InvalidWat,
             };
             lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
+            // 0xFC ops with trailing memory/table index (default 0)
+            if (std.mem.eql(u8, data.op, "memory.init") or
+                std.mem.eql(u8, data.op, "table.init"))
+            {
+                out.append(alloc, 0x00) catch return error.OutOfMemory; // trailing mem/table idx
+            }
         },
         .i32_const => |val| {
             out.append(alloc, 0x41) catch return error.OutOfMemory;
@@ -3520,4 +3571,93 @@ test "decodeWatString — hex escapes" {
     const result = try decodeWatString(testing.allocator, "\\48\\65\\6c\\6c\\6f");
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("Hello", result);
+}
+
+test "WAT parser — i32.trunc_sat_f64_s round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (export "sat") (param f64) (result i32)
+        \\    local.get 0
+        \\    i32.trunc_sat_f64_s))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    // 1e30 should clamp to i32.max = 2147483647
+    var args = [_]u64{@bitCast(@as(f64, 1e30))};
+    var results = [_]u64{0};
+    try module.invoke("sat", &args, &results);
+    try testing.expectEqual(@as(u64, 2147483647), results[0]);
+}
+
+test "WAT parser — memory.fill round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (func (export "test") (result i32)
+        \\    i32.const 0
+        \\    i32.const 42
+        \\    i32.const 4
+        \\    memory.fill
+        \\    i32.const 0
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 42), results[0]);
+}
+
+test "WAT parser — memory.copy round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (data (i32.const 0) "Hello")
+        \\  (func (export "test") (result i32)
+        \\    i32.const 10
+        \\    i32.const 0
+        \\    i32.const 5
+        \\    memory.copy
+        \\    i32.const 10
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 'H'), results[0]);
+}
+
+test "WAT parser — table.fill round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (table 3 funcref)
+        \\  (func $f (result i32) i32.const 99)
+        \\  (func (export "test") (result i32)
+        \\    i32.const 0
+        \\    ref.func $f
+        \\    i32.const 3
+        \\    table.fill 0
+        \\    i32.const 0
+        \\    table.get 0
+        \\    ref.is_null
+        \\    i32.eqz))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    // table.fill wrote non-null refs, so ref.is_null returns 0, i32.eqz gives 1
+    try testing.expectEqual(@as(u64, 1), results[0]);
 }
