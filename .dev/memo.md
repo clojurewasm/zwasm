@@ -5,10 +5,10 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-33 — ALL COMPLETE (Wasm 3.0 + GC + WASI P1 + CM + JIT + Fuzz)
-- Source: ~38K LOC, 22 files, 419 unit tests all pass
+- Source: ~38K LOC, 23 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
-- Spec: 62,158/62,158 Mac + Ubuntu (100.0%). GC+EH integrated, threads 310/310, E2E: 341/356
+- Spec: 62,158/62,158 Mac + Ubuntu (100.0%). GC+EH integrated, threads 310/310, E2E: 356/356
 - Benchmarks: 4 layers (WAT 5, TinyGo 11, Shootout 5, GC 2 = 23 total)
 - Register IR + ARM64 JIT: full arithmetic/control/FP/memory/call_indirect
 - JIT optimizations: fast path, inline self-call, smart spill, doCallDirectIR, lightweight self-call
@@ -18,7 +18,7 @@ Session handover document. Read at session start.
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
 - **main = stable**: CW depends on main via GitHub URL (v0.3.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
-- **Size guard**: Binary ≤ 1.5MB, Memory ≤ 4.5MB (fib RSS). Current: 1.22MB / 3.57MB.
+- **Size guard**: Binary ≤ 1.5MB, Memory ≤ 4.5MB (fib RSS). Current: 1.28MB / 3.57MB.
 
 ## Completed Stages
 
@@ -33,11 +33,11 @@ Stages 0-33 — all COMPLETE. See `roadmap.md` for details.
 
 ## Current Task
 
-v0.3.0 release in progress. Docs updated, CI zero-tolerance, tagging.
+Global type registry complete. Ready for merge gate.
 
 ## Previous Task
 
-33.3: Extended fuzz (10000 iter, 0 crashes). Fix tail-call bytecode path label target (forward to code end, not start). Add WasmModule.loadWithFuel for fuel-limited start functions. Diff test mismatches are display-only (float formatting).
+34: Global TypeRegistry for cross-module call_indirect. Store-level hash consing of rec groups (6 commits). Fixed 15 E2E test failures (13 call_indirect + 2 table_copy_on_imported_tables). Removed module-local canonical system.
 
 ## Wasm 3.0 Coverage
 
