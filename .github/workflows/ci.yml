@@ -49,6 +49,22 @@ jobs:
       - name: Run spec tests
         run: python3 test/spec/run_spec.py --build --summary
 
+      - name: Build ReleaseSafe
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Binary size check
+        run: |
+          BINARY=zig-out/bin/zwasm
+          SIZE_BYTES=$(wc -c < "$BINARY" | tr -d ' ')
+          SIZE_MB=$(python3 -c "print(f'{$SIZE_BYTES / 1048576:.2f}')")
+          LIMIT_BYTES=1572864
+          echo "Binary size: ${SIZE_MB} MB ($SIZE_BYTES bytes)"
+          if [ "$SIZE_BYTES" -gt "$LIMIT_BYTES" ]; then
+            echo "FAIL: Binary exceeds 1.5 MB limit"
+            exit 1
+          fi
+          echo "PASS: Within 1.5 MB limit"
+
   benchmark:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

@@ -32,8 +32,8 @@ Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 See `private/roadmap-production.md` Phase 38 for full detail.
 
 - [x] 38.1: CI benchmark regression detection: compare against recorded baselines
-- [ ] 38.2: CI binary size check: fail if > 1.5MB (ReleaseSafe)
-- [ ] 38.3: CI ReleaseSafe build verification (currently only Debug)
+- [x] 38.2: CI binary size check: fail if > 1.5MB (ReleaseSafe)
+- [x] 38.3: CI ReleaseSafe build verification (currently only Debug)
 - [ ] 38.4: E2E test suite in CI
 - [ ] 38.5: Nightly sanitizer job (ASan/UBSan)
 - [ ] 38.6: Nightly fuzz job (1h continuous)
@@ -41,11 +41,11 @@ See `private/roadmap-production.md` Phase 38 for full detail.
 
 ## Current Task
 
-38.2: CI binary size check: fail if > 1.5MB (ReleaseSafe).
+38.4: E2E test suite in CI.
 
 ## Previous Task
 
-38.1: CI benchmark regression detection — ci_compare.sh runs 6 representative benchmarks on base vs PR branch, 20% threshold, added as PR-only CI job.
+38.2+38.3: CI binary size check (1.5MB limit) + ReleaseSafe build verification added to test job.
 
 ## Wasm 3.0 Coverage
 
