@@ -383,6 +383,10 @@ pub const WatImportKind = union(enum) {
         reftype: WatValType,
     },
     global: WatGlobalType,
+    tag: struct {
+        type_use: ?WatIndex,
+        params: []WatParam,
+    },
 };
 
 pub const WatImport = struct {
@@ -392,11 +396,19 @@ pub const WatImport = struct {
     kind: WatImportKind,
 };
 
+pub const WatTag = struct {
+    name: ?[]const u8,
+    type_use: ?WatIndex,
+    params: []WatParam,
+    export_name: ?[]const u8,
+};
+
 pub const WatExportKind = enum {
     func,
     memory,
     table,
     global,
+    tag,
 };
 
 pub const WatExport = struct {
@@ -437,6 +449,7 @@ pub const WatModule = struct {
     start: ?WatIndex,
     data: []WatData,
     elements: []WatElem,
+    tags: []WatTag,
 };
 
 // ============================================================
@@ -491,6 +504,7 @@ pub const Parser = struct {
         var start: ?WatIndex = null;
         var data_segments: std.ArrayListUnmanaged(WatData) = .empty;
         var elem_segments: std.ArrayListUnmanaged(WatElem) = .empty;
+        var tags: std.ArrayListUnmanaged(WatTag) = .empty;
 
         while (self.current.tag != .rparen and self.current.tag != .eof) {
             if (self.current.tag != .lparen) return error.InvalidWat;
@@ -532,6 +546,9 @@ pub const Parser = struct {
             } else if (std.mem.eql(u8, section, "elem")) {
                 _ = self.advance();
                 elem_segments.append(self.alloc, try self.parseElem()) catch return error.OutOfMemory;
+            } else if (std.mem.eql(u8, section, "tag")) {
+                _ = self.advance();
+                tags.append(self.alloc, try self.parseTag(&exports)) catch return error.OutOfMemory;
             } else {
                 // Skip unknown sections
                 try self.skipSExpr();
@@ -552,6 +569,7 @@ pub const Parser = struct {
             .start = start,
             .data = data_segments.items,
             .elements = elem_segments.items,
+            .tags = tags.items,
         };
     }
 
@@ -847,6 +865,77 @@ pub const Parser = struct {
         };
     }
 
+    fn parseTag(self: *Parser, exports: *std.ArrayListUnmanaged(WatExport)) WatError!WatTag {
+        _ = exports;
+        var tag_name: ?[]const u8 = null;
+        var export_name: ?[]const u8 = null;
+
+        if (self.current.tag == .ident) {
+            tag_name = self.advance().text;
+        }
+
+        // Inline export
+        if (self.current.tag == .lparen) {
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance();
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "export")) {
+                _ = self.advance();
+                const name_tok = try self.expect(.string);
+                export_name = stripQuotes(name_tok.text);
+                _ = try self.expect(.rparen);
+            } else {
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+            }
+        }
+
+        // (type $t) or (param ...)
+        var type_use: ?WatIndex = null;
+        var params: std.ArrayListUnmanaged(WatParam) = .empty;
+        while (self.current.tag == .lparen) {
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance();
+            if (self.current.tag != .keyword) {
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+                break;
+            }
+            if (std.mem.eql(u8, self.current.text, "type")) {
+                _ = self.advance();
+                type_use = try self.parseIndex();
+                _ = try self.expect(.rparen);
+            } else if (std.mem.eql(u8, self.current.text, "param")) {
+                _ = self.advance();
+                if (self.current.tag == .ident) {
+                    const pname = self.advance().text;
+                    const vt = try self.parseValType();
+                    params.append(self.alloc, .{ .name = pname, .valtype = vt }) catch return error.OutOfMemory;
+                } else {
+                    while (self.current.tag == .keyword) {
+                        const vt = try self.parseValType();
+                        params.append(self.alloc, .{ .name = null, .valtype = vt }) catch return error.OutOfMemory;
+                    }
+                }
+                _ = try self.expect(.rparen);
+            } else {
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+                break;
+            }
+        }
+
+        _ = try self.expect(.rparen); // close (tag ...)
+
+        return .{
+            .name = tag_name,
+            .type_use = type_use,
+            .params = params.items,
+            .export_name = export_name,
+        };
+    }
+
     fn parseImport(self: *Parser) WatError!WatImport {
         // (import "module" "name" (func $id? (type $t)? (param ...)* (result ...)*))
         const mod_tok = try self.expect(.string);
@@ -924,6 +1013,42 @@ pub const Parser = struct {
             } else {
                 kind = .{ .global = .{ .valtype = try self.parseValType(), .mutable = false } };
             }
+        } else if (std.mem.eql(u8, kind_text, "tag")) {
+            var tag_type_use: ?WatIndex = null;
+            var tag_params: std.ArrayListUnmanaged(WatParam) = .empty;
+            while (self.current.tag == .lparen) {
+                const saved_pos = self.tok.pos;
+                const saved_current = self.current;
+                _ = self.advance();
+                if (self.current.tag != .keyword) {
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                    break;
+                }
+                if (std.mem.eql(u8, self.current.text, "type")) {
+                    _ = self.advance();
+                    tag_type_use = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                } else if (std.mem.eql(u8, self.current.text, "param")) {
+                    _ = self.advance();
+                    if (self.current.tag == .ident) {
+                        const pname = self.advance().text;
+                        const vt = try self.parseValType();
+                        tag_params.append(self.alloc, .{ .name = pname, .valtype = vt }) catch return error.OutOfMemory;
+                    } else {
+                        while (self.current.tag == .keyword) {
+                            const vt = try self.parseValType();
+                            tag_params.append(self.alloc, .{ .name = null, .valtype = vt }) catch return error.OutOfMemory;
+                        }
+                    }
+                    _ = try self.expect(.rparen);
+                } else {
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                    break;
+                }
+            }
+            kind = .{ .tag = .{ .type_use = tag_type_use, .params = tag_params.items } };
         } else {
             return error.InvalidWat;
         }
@@ -955,6 +1080,8 @@ pub const Parser = struct {
             .table
         else if (std.mem.eql(u8, kind_text, "global"))
             .global
+        else if (std.mem.eql(u8, kind_text, "tag"))
+            .tag
         else
             return error.InvalidWat;
 
@@ -1960,6 +2087,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
     var mem_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
     var table_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
     var global_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
+    var tag_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
 
     // Import counts per kind (imports come first in index space)
     var import_func_count: u32 = 0;
@@ -1983,6 +2111,9 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             },
             .global => {
                 global_names.append(arena, imp.id) catch return error.OutOfMemory;
+            },
+            .tag => {
+                tag_names.append(arena, imp.id) catch return error.OutOfMemory;
             },
         }
     }
@@ -2010,6 +2141,20 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
     }
     for (module.globals) |g| {
         global_names.append(arena, g.name) catch return error.OutOfMemory;
+    }
+    // Tag type indices for defined tags
+    var tag_type_indices: std.ArrayListUnmanaged(u32) = .empty;
+    for (module.tags) |t| {
+        tag_names.append(arena, t.name) catch return error.OutOfMemory;
+        if (t.type_use) |tu| {
+            const idx = resolveIndex(tu, null, null) catch return error.InvalidWat;
+            tag_type_indices.append(arena, idx) catch return error.OutOfMemory;
+        } else {
+            const vts = extractValTypes(arena, t.params) catch return error.OutOfMemory;
+            const ft: WatFuncType = .{ .params = vts, .results = &.{} };
+            const idx = findOrAddType(arena, &all_types, ft) catch return error.OutOfMemory;
+            tag_type_indices.append(arena, idx) catch return error.OutOfMemory;
+        }
     }
     // Pad type_names for any synthesized types added by findOrAddType
     while (type_names.items.len < all_types.items.len) {
@@ -2070,6 +2215,19 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                     sec.append(arena, valTypeByte(g.valtype)) catch return error.OutOfMemory;
                     sec.append(arena, if (g.mutable) @as(u8, 0x01) else @as(u8, 0x00)) catch return error.OutOfMemory;
                 },
+                .tag => |t| {
+                    sec.append(arena, 0x04) catch return error.OutOfMemory;
+                    sec.append(arena, 0x00) catch return error.OutOfMemory; // exception attribute
+                    if (t.type_use) |tu| {
+                        const idx = resolveIndex(tu, null, null) catch return error.InvalidWat;
+                        lebEncodeU32(arena, &sec, idx) catch return error.OutOfMemory;
+                    } else {
+                        const vts = extractValTypes(arena, t.params) catch return error.OutOfMemory;
+                        const ft: WatFuncType = .{ .params = vts, .results = &.{} };
+                        const idx = findOrAddType(arena, &all_types, ft) catch return error.OutOfMemory;
+                        lebEncodeU32(arena, &sec, idx) catch return error.OutOfMemory;
+                    }
+                },
             }
         }
         writeSection(arena, &out, 2, sec.items) catch return error.OutOfMemory;
@@ -2114,10 +2272,21 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             sec.append(arena, valTypeByte(g.global_type.valtype)) catch return error.OutOfMemory;
             sec.append(arena, if (g.global_type.mutable) @as(u8, 0x01) else @as(u8, 0x00)) catch return error.OutOfMemory;
             var g_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels, type_names.items) catch return error.OutOfMemory;
+            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
             sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
         }
         writeSection(arena, &out, 6, sec.items) catch return error.OutOfMemory;
+    }
+
+    // Section 13: Tag
+    if (tag_type_indices.items.len > 0) {
+        var sec: std.ArrayListUnmanaged(u8) = .empty;
+        lebEncodeU32(arena, &sec, @intCast(tag_type_indices.items.len)) catch return error.OutOfMemory;
+        for (tag_type_indices.items) |tidx| {
+            sec.append(arena, 0x00) catch return error.OutOfMemory; // exception attribute
+            lebEncodeU32(arena, &sec, tidx) catch return error.OutOfMemory;
+        }
+        writeSection(arena, &out, 13, sec.items) catch return error.OutOfMemory;
     }
 
     // Section 7: Export (explicit + inline)
@@ -2161,6 +2330,15 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             }) catch return error.OutOfMemory;
         }
     }
+    for (module.tags, 0..) |t, i| {
+        if (t.export_name) |ename| {
+            all_exports.append(arena, .{
+                .name = ename,
+                .kind = .tag,
+                .index = .{ .num = @intCast(i) },
+            }) catch return error.OutOfMemory;
+        }
+    }
     if (all_exports.items.len > 0) {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(all_exports.items.len)) catch return error.OutOfMemory;
@@ -2172,12 +2350,14 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 .table => 0x01,
                 .memory => 0x02,
                 .global => 0x03,
+                .tag => 0x04,
             }) catch return error.OutOfMemory;
             const idx = resolveNamedIndex(e.index, switch (e.kind) {
                 .func => func_names.items,
                 .table => table_names.items,
                 .memory => mem_names.items,
                 .global => global_names.items,
+                .tag => tag_names.items,
             }) catch return error.InvalidWat;
             lebEncodeU32(arena, &sec, idx) catch return error.OutOfMemory;
         }
@@ -2208,7 +2388,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             }
             // Offset expression + end
             var e_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &sec, elem.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &e_labels, type_names.items) catch return error.OutOfMemory;
+            encodeInstrList(arena, &sec, elem.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &e_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
             sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
             if (table_resolved != 0) {
                 // elemkind for flag 0x02
@@ -2261,7 +2441,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 f_local_names.append(arena, l.name) catch return error.OutOfMemory;
             }
             var f_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, f_local_names.items, &f_labels, type_names.items) catch return error.OutOfMemory;
+            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, f_local_names.items, &f_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
             code_body.append(arena, 0x0B) catch return error.OutOfMemory; // end
 
             lebEncodeU32(arena, &sec, @intCast(code_body.items.len)) catch return error.OutOfMemory;
@@ -2285,7 +2465,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 }
                 // Offset expression + end
                 var d_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-                encodeInstrList(arena, &sec, data.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &d_labels, type_names.items) catch return error.OutOfMemory;
+                encodeInstrList(arena, &sec, data.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &d_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
                 sec.append(arena, 0x0B) catch return error.OutOfMemory;
             } else {
                 sec.append(arena, 0x01) catch return error.OutOfMemory; // flag: passive
@@ -2760,9 +2940,10 @@ fn encodeInstrList(
     local_names: []const ?[]const u8,
     labels: *std.ArrayListUnmanaged(?[]const u8),
     type_names: []const ?[]const u8,
+    tag_names: []const ?[]const u8,
 ) WatError!void {
     for (instrs) |instr| {
-        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, local_names, labels, type_names);
+        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names);
     }
 }
 
@@ -2796,6 +2977,7 @@ fn encodeInstr(
     local_names: []const ?[]const u8,
     labels: *std.ArrayListUnmanaged(?[]const u8),
     type_names: []const ?[]const u8,
+    tag_names: []const ?[]const u8,
 ) WatError!void {
     switch (instr) {
         .simple => |name| {
@@ -2945,7 +3127,7 @@ fn encodeInstr(
                 out.append(alloc, 0x40) catch return error.OutOfMemory; // empty block type
             }
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
         },
@@ -2957,10 +3139,10 @@ fn encodeInstr(
                 out.append(alloc, 0x40) catch return error.OutOfMemory;
             }
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
             if (data.else_body.len > 0) {
                 out.append(alloc, 0x05) catch return error.OutOfMemory; // else
-                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names) catch return error.OutOfMemory;
+                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
             }
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
@@ -2978,13 +3160,13 @@ fn encodeInstr(
             for (data.catches) |c| {
                 out.append(alloc, @intFromEnum(c.kind)) catch return error.OutOfMemory;
                 if (c.tag_idx) |tag| {
-                    const idx = resolveNamedIndex(tag, &.{}) catch return error.InvalidWat;
+                    const idx = resolveNamedIndex(tag, tag_names) catch return error.InvalidWat;
                     lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
                 }
                 const label_idx = try resolveLabelIndex(c.label, labels.items);
                 lebEncodeU32(alloc, out, label_idx) catch return error.OutOfMemory;
             }
-            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
         },
@@ -4088,4 +4270,84 @@ test "WAT parser — import memory shared" {
     try testing.expectEqual(@as(u64, 1), mod.imports[0].kind.memory.min);
     try testing.expectEqual(@as(u64, 4), mod.imports[0].kind.memory.max.?);
     try testing.expect(mod.imports[0].kind.memory.shared);
+}
+
+test "WAT parser — tag declaration" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (tag $e (param i32))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.tags.len);
+    try testing.expectEqualStrings("$e", mod.tags[0].name.?);
+    try testing.expectEqual(@as(usize, 1), mod.tags[0].params.len);
+    try testing.expectEqual(WatValType.i32, mod.tags[0].params[0].valtype);
+}
+
+test "WAT encoder — tag round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (tag $e (param i32))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    // Should load as valid module
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.tags.items.len);
+}
+
+test "WAT encoder — tag with try_table catch" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (tag $e (param i32))
+        \\  (func (export "test") (result i32)
+        \\    (block $outer (result i32)
+        \\      (try_table (result i32) (catch $e $outer)
+        \\        i32.const 42
+        \\      )
+        \\    )
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 42), results[0]);
+}
+
+test "WAT parser — import tag" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (import "env" "exn" (tag $e (param i32)))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.imports.len);
+    try testing.expectEqualStrings("$e", mod.imports[0].id.?);
+    try testing.expectEqual(@as(usize, 1), mod.imports[0].kind.tag.params.len);
+}
+
+test "WAT encoder — export tag" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (tag $e (param i32))
+        \\  (export "error" (tag $e))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.tags.items.len);
 }
