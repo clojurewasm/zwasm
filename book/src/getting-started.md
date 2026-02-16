@@ -116,6 +116,18 @@ exe.root_module.addImport("zwasm", zwasm_dep.module("zwasm"));
 
 See the [Embedding Guide](./embedding-guide.md) for API usage.
 
+## More examples
+
+The repository includes 25 educational WAT examples in `examples/wat/` covering basics through Wasm 3.0 and WASI:
+
+```bash
+zwasm run --invoke fib examples/wat/fibonacci.wat 10     # → 55
+zwasm run --invoke sum examples/wat/return_call.wat 1000000  # tail calls
+zwasm run --allow-all examples/wat/wasi_hello.wat        # → Hi!
+```
+
+Each file includes run instructions in its header comment. Zig embedding examples are in `examples/zig/`.
+
 ## Next steps
 
 - [CLI Reference](./cli-reference.md) — all commands and flags

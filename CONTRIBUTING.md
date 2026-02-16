@@ -56,9 +56,8 @@ bench/
   run_bench.sh    Benchmark runner
   wasm/           Benchmark wasm modules
 examples/
-  basic.zig       Load and call a function
-  memory.zig      Read/write linear memory
-  inspect.zig     List exports with signatures
+  zig/            Zig embedding examples (5 files)
+  wat/            Educational WAT examples (25 files)
 ```
 
 ## CI checks
