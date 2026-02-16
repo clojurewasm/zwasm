@@ -34,19 +34,19 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 - [x] 43.1: Test suite pass: unit (425) + spec (62,158) + E2E (356) — PASS. Fuzz 24h deferred (user schedules).
 - [x] 43.2: Security audit: Phase 36 complete (SECURITY.md, docs/security.md, docs/audit-36.md)
 - [x] 43.3: Documentation: Phase 39 complete (12-chapter book, API boundary, embedding guide)
-- [ ] 43.4: Cross-platform verification — needs Ubuntu SSH
+- [x] 43.4: Cross-platform: Ubuntu unit tests PASS, spec 62,158/62,158 (100%). Bench timeout (known hyperfine issue, not a bug).
 - [x] 43.5: Performance baseline recorded (v1.0.0-baseline, 23 benchmarks)
 - [x] 43.6: Binary audit: 1.28MB, no debug symbols, no secrets in ReleaseSafe
 - [x] 43.7: CHANGELOG updated for v1.0.0
-- [ ] 43.8: Tag v1.0.0 + publish — needs: version bump, Ubuntu verification, user approval
+- [ ] 43.8: Tag v1.0.0 + publish — awaiting: fuzz results + user approval
 
 ## Current Task
 
-43.4+43.8: Awaiting user for Ubuntu cross-platform verification and tag authorization.
+43.8: Awaiting fuzz results and user go-ahead for tag.
 
 ## Previous Task
 
-43.1-43.7: v1.0.0 prep — audit, baseline, CHANGELOG, binary check all pass.
+43.4: Ubuntu x86_64 verification — unit + spec PASS.
 
 ## Wasm 3.0 Coverage
 
