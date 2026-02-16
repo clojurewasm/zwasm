@@ -125,3 +125,27 @@ JIT-generated code cannot escape the sandbox:
 
 **CLI defaults**: only stdio, clock, random, proc_exit enabled.
 File read/write/path disabled by default — must be explicitly enabled.
+
+## 36.7: Stack Depth Limit Verification
+
+**Status**: PASS (with design note)
+
+| Stack | Size | Overflow check | Underflow check |
+|-------|------|---------------|-----------------|
+| Operand | 4096 | vm.zig:5218 push() | No runtime check |
+| Frame | 1024 | vm.zig:5269 pushFrame() | No runtime check |
+| Label | 4096 | vm.zig:5284 pushLabel() | No runtime check |
+| Call depth | 1024 | vm.zig:404,3200,4686 | N/A (counter) |
+
+**Overflow**: All stacks checked before every push. StackOverflow on exceed.
+
+**Underflow**: Not runtime-checked. Validator (validate.zig) ensures all
+instruction sequences produce balanced push/pop. A module that passes
+validation cannot underflow at runtime. If validation is bypassed (bug),
+underflow causes usize wrap → array OOB → Zig safety check (ReleaseSafe)
+or undefined behavior (ReleaseFast).
+
+**Design note**: Pop underflow is a performance trade-off. Adding a runtime
+check to pop() would add overhead to the hottest path in the interpreter.
+The validator provides the safety guarantee. ReleaseSafe bounds checks
+provide a second defense layer.
