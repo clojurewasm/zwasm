@@ -38,19 +38,19 @@ See `private/roadmap-production.md` Phase 39 for full detail.
 - [x] 39.5: CLI Reference (all commands, flags, examples)
 - [x] 39.6: Wasm Spec Coverage table (1.0/2.0/3.0, proposal status, spec level)
 - [x] 39.7: Security Model (threat model, WASI capabilities, sandbox boundaries)
-- [ ] 39.8: Performance Guide (JIT tiers, when JIT kicks in, benchmark methodology)
-- [ ] 39.9: Memory Model (linear memory, GC heap, allocator parameterization)
-- [ ] 39.10: Comparison page (vs wasmtime, wasm3, wasmer — size/speed/features)
-- [ ] 39.11: FAQ / Troubleshooting
-- [ ] 39.12: Contributor Guide (build, test, PR process, code structure)
+- [x] 39.8: Performance Guide (JIT tiers, when JIT kicks in, benchmark methodology)
+- [x] 39.9: Memory Model (linear memory, GC heap, allocator parameterization)
+- [x] 39.10: Comparison page (vs wasmtime, wasm3, wasmer — size/speed/features)
+- [x] 39.11: FAQ / Troubleshooting
+- [x] 39.12: Contributor Guide (build, test, PR process, code structure)
 
 ## Current Task
 
-39.8: Performance Guide (JIT tiers, when JIT kicks in, benchmark methodology).
+Stage 39 complete — all 12 tasks done. Ready for merge gate.
 
 ## Previous Task
 
-39.6+39.7: Spec coverage tables (proposals, WASI, opcodes) + security model (trust boundary, defense layers).
+39.8-39.12: Performance guide, memory model, comparison, FAQ, contributor guide.
 
 ## Wasm 3.0 Coverage
 
