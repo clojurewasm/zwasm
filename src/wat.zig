@@ -11,6 +11,7 @@ const build_options = @import("build_options");
 const SimdOpcode = @import("opcode.zig").SimdOpcode;
 const MiscOpcode = @import("opcode.zig").MiscOpcode;
 const AtomicOpcode = @import("opcode.zig").AtomicOpcode;
+const GcOpcode = @import("opcode.zig").GcOpcode;
 const Allocator = std.mem.Allocator;
 
 pub const WatError = error{
@@ -269,17 +270,17 @@ pub const WatValType = union(enum) {
     nullref,
     nullfuncref,
     nullexternref,
-    // Typed references
-    ref_type: u32, // (ref $T) non-nullable
-    ref_null_type: u32, // (ref null $T) nullable
+    // Typed references (payload = heap type index or name, resolved at encoding)
+    ref_type: WatIndex, // (ref $T) non-nullable
+    ref_null_type: WatIndex, // (ref null $T) nullable
 
     pub fn eql(a: WatValType, b: WatValType) bool {
         const tag_a = std.meta.activeTag(a);
         const tag_b = std.meta.activeTag(b);
         if (tag_a != tag_b) return false;
         return switch (a) {
-            .ref_type => |v| v == b.ref_type,
-            .ref_null_type => |v| v == b.ref_null_type,
+            .ref_type => |v| std.meta.eql(v, b.ref_type),
+            .ref_null_type => |v| std.meta.eql(v, b.ref_null_type),
             else => true, // tag-only variants are equal if tags match
         };
     }
@@ -353,7 +354,7 @@ pub const WatInstr = union(enum) {
         body: []WatInstr,
     },
     // ref.null <heaptype>
-    ref_null: u32, // heap type constant or type index
+    ref_null: WatIndex, // heap type constant or type index
     // end / else markers (for flat instruction sequences)
     end,
     @"else",
@@ -678,27 +679,31 @@ pub const Parser = struct {
         return error.InvalidWat;
     }
 
-    fn parseHeapType(self: *Parser) WatError!u32 {
+    fn parseHeapType(self: *Parser) WatError!WatIndex {
         const opcode = @import("opcode.zig");
         if (self.current.tag == .keyword) {
             const text = self.advance().text;
-            if (std.mem.eql(u8, text, "func")) return opcode.ValType.HEAP_FUNC;
-            if (std.mem.eql(u8, text, "extern")) return opcode.ValType.HEAP_EXTERN;
-            if (std.mem.eql(u8, text, "any")) return opcode.ValType.HEAP_ANY;
-            if (std.mem.eql(u8, text, "eq")) return opcode.ValType.HEAP_EQ;
-            if (std.mem.eql(u8, text, "i31")) return opcode.ValType.HEAP_I31;
-            if (std.mem.eql(u8, text, "struct")) return opcode.ValType.HEAP_STRUCT;
-            if (std.mem.eql(u8, text, "array")) return opcode.ValType.HEAP_ARRAY;
-            if (std.mem.eql(u8, text, "none")) return opcode.ValType.HEAP_NONE;
-            if (std.mem.eql(u8, text, "nofunc")) return opcode.ValType.HEAP_NOFUNC;
-            if (std.mem.eql(u8, text, "noextern")) return opcode.ValType.HEAP_NOEXTERN;
-            if (std.mem.eql(u8, text, "exn")) return opcode.ValType.HEAP_EXN;
-            if (std.mem.eql(u8, text, "noexn")) return opcode.ValType.HEAP_NOEXN;
+            if (std.mem.eql(u8, text, "func")) return .{ .num = opcode.ValType.HEAP_FUNC };
+            if (std.mem.eql(u8, text, "extern")) return .{ .num = opcode.ValType.HEAP_EXTERN };
+            if (std.mem.eql(u8, text, "any")) return .{ .num = opcode.ValType.HEAP_ANY };
+            if (std.mem.eql(u8, text, "eq")) return .{ .num = opcode.ValType.HEAP_EQ };
+            if (std.mem.eql(u8, text, "i31")) return .{ .num = opcode.ValType.HEAP_I31 };
+            if (std.mem.eql(u8, text, "struct")) return .{ .num = opcode.ValType.HEAP_STRUCT };
+            if (std.mem.eql(u8, text, "array")) return .{ .num = opcode.ValType.HEAP_ARRAY };
+            if (std.mem.eql(u8, text, "none")) return .{ .num = opcode.ValType.HEAP_NONE };
+            if (std.mem.eql(u8, text, "nofunc")) return .{ .num = opcode.ValType.HEAP_NOFUNC };
+            if (std.mem.eql(u8, text, "noextern")) return .{ .num = opcode.ValType.HEAP_NOEXTERN };
+            if (std.mem.eql(u8, text, "exn")) return .{ .num = opcode.ValType.HEAP_EXN };
+            if (std.mem.eql(u8, text, "noexn")) return .{ .num = opcode.ValType.HEAP_NOEXN };
             return error.InvalidWat;
         }
         if (self.current.tag == .integer) {
             const text = self.advance().text;
-            return std.fmt.parseInt(u32, text, 10) catch return error.InvalidWat;
+            const n = std.fmt.parseInt(u32, text, 10) catch return error.InvalidWat;
+            return .{ .num = n };
+        }
+        if (self.current.tag == .ident) {
+            return .{ .name = self.advance().text };
         }
         return error.InvalidWat;
     }
@@ -1540,6 +1545,27 @@ pub const Parser = struct {
             std.mem.eql(u8, name, "br_on_non_null"))
             return .index_imm;
 
+        // GC no-immediate instructions
+        if (std.mem.eql(u8, name, "array.len") or
+            std.mem.eql(u8, name, "ref.i31") or
+            std.mem.eql(u8, name, "i31.get_s") or
+            std.mem.eql(u8, name, "i31.get_u") or
+            std.mem.eql(u8, name, "any.convert_extern") or
+            std.mem.eql(u8, name, "extern.convert_any"))
+            return .no_imm;
+
+        // GC single-index instructions
+        if (std.mem.eql(u8, name, "struct.new") or
+            std.mem.eql(u8, name, "struct.new_default") or
+            std.mem.eql(u8, name, "array.new") or
+            std.mem.eql(u8, name, "array.new_default") or
+            std.mem.eql(u8, name, "array.get") or
+            std.mem.eql(u8, name, "array.get_s") or
+            std.mem.eql(u8, name, "array.get_u") or
+            std.mem.eql(u8, name, "array.set") or
+            std.mem.eql(u8, name, "array.fill"))
+            return .index_imm;
+
         // SIMD lane ops (extract_lane, replace_lane)
         if (isSimdLaneOp(name)) return .simd_lane;
 
@@ -2371,11 +2397,11 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                     sec.append(arena, 0x4E) catch return error.OutOfMemory;
                     lebEncodeU32(arena, &sec, all_types.items[ti].rec_count) catch return error.OutOfMemory;
                     for (0..all_types.items[ti].rec_count) |j| {
-                        encodeCompositeType(arena, &sec, all_types.items[ti + j].composite) catch return error.OutOfMemory;
+                        encodeCompositeType(arena, &sec, all_types.items[ti + j].composite, type_names.items) catch return error.OutOfMemory;
                     }
                     ti += all_types.items[ti].rec_count;
                 } else {
-                    encodeCompositeType(arena, &sec, all_types.items[ti].composite) catch return error.OutOfMemory;
+                    encodeCompositeType(arena, &sec, all_types.items[ti].composite, type_names.items) catch return error.OutOfMemory;
                     ti += 1;
                 }
             }
@@ -2407,7 +2433,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 },
                 .table => |t| {
                     sec.append(arena, 0x01) catch return error.OutOfMemory;
-                    encodeValType(arena, &sec, t.reftype) catch return error.OutOfMemory;
+                    encodeValType(arena, &sec, t.reftype, type_names.items) catch return error.OutOfMemory;
                     encodeLimits(arena, &sec, t.limits) catch return error.OutOfMemory;
                 },
                 .memory => |m| {
@@ -2416,7 +2442,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 },
                 .global => |g| {
                     sec.append(arena, 0x03) catch return error.OutOfMemory;
-                    encodeValType(arena, &sec, g.valtype) catch return error.OutOfMemory;
+                    encodeValType(arena, &sec, g.valtype, type_names.items) catch return error.OutOfMemory;
                     sec.append(arena, if (g.mutable) @as(u8, 0x01) else @as(u8, 0x00)) catch return error.OutOfMemory;
                 },
                 .tag => |t| {
@@ -2452,7 +2478,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(module.tables.len)) catch return error.OutOfMemory;
         for (module.tables) |t| {
-            encodeValType(arena, &sec, t.reftype) catch return error.OutOfMemory;
+            encodeValType(arena, &sec, t.reftype, type_names.items) catch return error.OutOfMemory;
             encodeLimits(arena, &sec, t.limits) catch return error.OutOfMemory;
         }
         writeSection(arena, &out, 4, sec.items) catch return error.OutOfMemory;
@@ -2473,7 +2499,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(module.globals.len)) catch return error.OutOfMemory;
         for (module.globals) |g| {
-            encodeValType(arena, &sec, g.global_type.valtype) catch return error.OutOfMemory;
+            encodeValType(arena, &sec, g.global_type.valtype, type_names.items) catch return error.OutOfMemory;
             sec.append(arena, if (g.global_type.mutable) @as(u8, 0x01) else @as(u8, 0x00)) catch return error.OutOfMemory;
             var g_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
             encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
@@ -2633,7 +2659,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             lebEncodeU32(arena, &code_body, @intCast(local_groups.items.len)) catch return error.OutOfMemory;
             for (local_groups.items) |lg| {
                 lebEncodeU32(arena, &code_body, lg.count) catch return error.OutOfMemory;
-                encodeValType(arena, &code_body, lg.valtype) catch return error.OutOfMemory;
+                encodeValType(arena, &code_body, lg.valtype, type_names.items) catch return error.OutOfMemory;
             }
 
             // Build local name map: params then locals
@@ -2764,7 +2790,7 @@ fn hexDigit(c: u8) ?u8 {
     return null;
 }
 
-fn encodeValType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValType) !void {
+fn encodeValType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValType, type_names: []const ?[]const u8) !void {
     switch (vt) {
         .i32 => out.append(alloc, 0x7F) catch return error.OutOfMemory,
         .i64 => out.append(alloc, 0x7E) catch return error.OutOfMemory,
@@ -2784,49 +2810,48 @@ fn encodeValType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValT
         .nullexternref => out.append(alloc, 0x72) catch return error.OutOfMemory,
         .ref_type => |ht| {
             out.append(alloc, 0x64) catch return error.OutOfMemory;
-            lebEncodeS33(alloc, out, heapTypeToS33(ht)) catch return error.OutOfMemory;
+            const resolved = resolveNamedIndex(ht, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
         },
         .ref_null_type => |ht| {
             out.append(alloc, 0x63) catch return error.OutOfMemory;
-            lebEncodeS33(alloc, out, heapTypeToS33(ht)) catch return error.OutOfMemory;
+            const resolved = resolveNamedIndex(ht, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
         },
     }
 }
 
-fn encodeCompositeType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), ct: WatCompositeType) !void {
+fn encodeCompositeType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), ct: WatCompositeType, type_names: []const ?[]const u8) !void {
     switch (ct) {
         .func => |ft| {
             out.append(alloc, 0x60) catch return error.OutOfMemory;
             lebEncodeU32(alloc, out, @intCast(ft.params.len)) catch return error.OutOfMemory;
             for (ft.params) |vt| {
-                try encodeValType(alloc, out, vt);
+                try encodeValType(alloc, out, vt, type_names);
             }
             lebEncodeU32(alloc, out, @intCast(ft.results.len)) catch return error.OutOfMemory;
             for (ft.results) |vt| {
-                try encodeValType(alloc, out, vt);
+                try encodeValType(alloc, out, vt, type_names);
             }
         },
         .struct_type => |st| {
             out.append(alloc, 0x5F) catch return error.OutOfMemory;
             lebEncodeU32(alloc, out, @intCast(st.fields.len)) catch return error.OutOfMemory;
             for (st.fields) |field| {
-                try encodeStorageType(alloc, out, field.valtype);
+                try encodeStorageType(alloc, out, field.valtype, type_names);
                 out.append(alloc, if (field.mutable) 0x01 else 0x00) catch return error.OutOfMemory;
             }
         },
         .array_type => |at| {
             out.append(alloc, 0x5E) catch return error.OutOfMemory;
-            try encodeStorageType(alloc, out, at.field.valtype);
+            try encodeStorageType(alloc, out, at.field.valtype, type_names);
             out.append(alloc, if (at.field.mutable) 0x01 else 0x00) catch return error.OutOfMemory;
         },
     }
 }
 
-fn encodeStorageType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValType) !void {
-    // Storage types extend val types with packed types i8 (0x78) and i16 (0x77)
-    // For now, WAT parser doesn't support i8/i16 packed types yet, so delegate to encodeValType.
-    // When packed types are added to WatValType, handle them here.
-    return encodeValType(alloc, out, vt);
+fn encodeStorageType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValType, type_names: []const ?[]const u8) !void {
+    return encodeValType(alloc, out, vt, type_names);
 }
 
 fn heapTypeToS33(ht: u32) i64 {
@@ -3215,6 +3240,21 @@ fn simdInstrOpcode(name: []const u8) ?u32 {
     return null;
 }
 
+fn gcInstrOpcode(name: []const u8) ?u32 {
+    var buf: [64]u8 = undefined;
+    if (name.len > buf.len) return null;
+    @memcpy(buf[0..name.len], name);
+    for (buf[0..name.len]) |*c| {
+        if (c.* == '.') c.* = '_';
+    }
+    const zig_name = buf[0..name.len];
+    const fields = @typeInfo(GcOpcode).@"enum".fields;
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, zig_name, field.name)) return field.value;
+    }
+    return null;
+}
+
 fn atomicInstrOpcode(name: []const u8) ?u32 {
     var buf: [64]u8 = undefined;
     if (name.len > buf.len) return null;
@@ -3311,6 +3351,9 @@ fn encodeInstr(
                 if (subop == 0x03) { // atomic.fence: trailing 0x00
                     out.append(alloc, 0x00) catch return error.OutOfMemory;
                 }
+            } else if (gcInstrOpcode(name)) |subop| {
+                out.append(alloc, 0xFB) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
             } else {
                 return error.InvalidWat;
             }
@@ -3320,6 +3363,9 @@ fn encodeInstr(
                 out.append(alloc, op) catch return error.OutOfMemory;
             } else if (miscInstrOpcode(data.op)) |subop| {
                 out.append(alloc, 0xFC) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else if (gcInstrOpcode(data.op)) |subop| {
+                out.append(alloc, 0xFB) catch return error.OutOfMemory;
                 lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
             } else {
                 return error.InvalidWat;
@@ -3349,6 +3395,8 @@ fn encodeInstr(
                 resolveNamedIndex(data.index, local_names) catch return error.InvalidWat
             else if (std.mem.eql(u8, data.op, "call_ref") or
                 std.mem.eql(u8, data.op, "return_call_ref"))
+                resolveNamedIndex(data.index, type_names) catch return error.InvalidWat
+            else if (gcInstrOpcode(data.op) != null)
                 resolveNamedIndex(data.index, type_names) catch return error.InvalidWat
             else switch (data.index) {
                 .num => |n| n,
@@ -3423,7 +3471,7 @@ fn encodeInstr(
             out.append(alloc, op) catch return error.OutOfMemory;
             // Block type
             if (data.block_type) |vt| {
-                encodeValType(alloc, out, vt) catch return error.OutOfMemory;
+                encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
             } else {
                 out.append(alloc, 0x40) catch return error.OutOfMemory; // empty block type
             }
@@ -3435,7 +3483,7 @@ fn encodeInstr(
         .if_op => |data| {
             out.append(alloc, 0x04) catch return error.OutOfMemory; // if
             if (data.block_type) |vt| {
-                encodeValType(alloc, out, vt) catch return error.OutOfMemory;
+                encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
             } else {
                 out.append(alloc, 0x40) catch return error.OutOfMemory;
             }
@@ -3451,7 +3499,7 @@ fn encodeInstr(
         .try_table => |data| {
             out.append(alloc, 0x1F) catch return error.OutOfMemory; // try_table
             if (data.block_type) |vt| {
-                encodeValType(alloc, out, vt) catch return error.OutOfMemory;
+                encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
             } else {
                 out.append(alloc, 0x40) catch return error.OutOfMemory;
             }
@@ -3495,12 +3543,13 @@ fn encodeInstr(
             out.append(alloc, 0x1C) catch return error.OutOfMemory;
             lebEncodeU32(alloc, out, @intCast(types.len)) catch return error.OutOfMemory;
             for (types) |vt| {
-                encodeValType(alloc, out, vt) catch return error.OutOfMemory;
+                encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
             }
         },
         .ref_null => |ht| {
             out.append(alloc, 0xD0) catch return error.OutOfMemory;
-            lebEncodeS33(alloc, out, heapTypeToS33(ht)) catch return error.OutOfMemory;
+            const resolved = resolveNamedIndex(ht, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
         },
         .end => {
             out.append(alloc, 0x0B) catch return error.OutOfMemory;
@@ -4687,8 +4736,8 @@ test "WAT parser — ref type" {
     const params = mod.functions[0].params;
     try testing.expectEqual(@as(usize, 2), params.len);
     const opcode = @import("opcode.zig");
-    try testing.expect(params[0].valtype.eql(.{ .ref_type = opcode.ValType.HEAP_FUNC }));
-    try testing.expect(params[1].valtype.eql(.{ .ref_null_type = opcode.ValType.HEAP_EXTERN }));
+    try testing.expect(params[0].valtype.eql(.{ .ref_type = .{ .num = opcode.ValType.HEAP_FUNC } }));
+    try testing.expect(params[1].valtype.eql(.{ .ref_null_type = .{ .num = opcode.ValType.HEAP_EXTERN } }));
 }
 
 test "WAT encoder — ref.null heap type" {
@@ -4793,6 +4842,41 @@ test "WAT encoder — array type round-trip" {
     var module = try types_mod.WasmModule.load(testing.allocator, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.types.items.len);
+}
+
+test "WAT encoder — i31.get_s round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (param i31ref) (result i32)
+        \\    local.get 0
+        \\    i31.get_s
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    // Function loaded successfully with i31.get_s instruction
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+test "WAT encoder — struct.new round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $point (struct (field i32) (field i32)))
+        \\  (func (param i32 i32) (result (ref $point))
+        \\    local.get 0
+        \\    local.get 1
+        \\    struct.new $point
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
 }
 
 test "WAT encoder — rec group round-trip" {

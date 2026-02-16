@@ -42,11 +42,11 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 
 ## Current Task
 
-44.GC: Phase 3C — GC opcode infrastructure (0xFB prefix)
+44.GC: Phase 3D — GC instruction immediates
 
 ## Previous Task
 
-44.GC Phase 3B: Struct/Array/Rec type definitions — WatTypeDef union, parseTypeDef handles struct/array, rec groups with 0x4E encoding, 6 tests.
+44.GC Phase 3C: GC opcode infrastructure — gcInstrOpcode, 0xFB prefix encoding, WatIndex for ref types, GC instruction classification, struct.new/i31.get_s round-trip tests.
 
 ## Wasm 3.0 Coverage
 
