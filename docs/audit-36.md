@@ -67,3 +67,30 @@ JIT code is never modified after mprotect transition.
 |------|------|----------|----------|
 | ARM64 | jit.zig:3955 (RW) | jit.zig:3970 (RX) | finalize() |
 | x86_64 | x86.zig:2472 (RW) | x86.zig:2485 (RX) | finalize() |
+
+## 36.5: JIT Bounds Audit
+
+**Status**: PASS
+
+JIT-generated code cannot escape the sandbox:
+
+**Memory access bounds** (two modes):
+- Non-guard: explicit CMP effective+size > mem_size + conditional branch to error
+  (jit.zig:2793 load, jit.zig:2827 store)
+- Guard pages: 4GiB+64KiB PROT_NONE region, hardware fault → signal handler → trap
+
+**Branch target validation**:
+- patchBranches() (jit.zig:3914): validates target_pc within pc_map range
+- All branches resolved to concrete offsets within the code buffer at compile time
+- Error stubs branch to shared exit (RET instruction)
+
+**Signal handler safety** (guard.zig:132):
+1. Checks `recovery.active` — only handles faults during JIT execution
+2. Validates faulting PC within `[jit_code_start, jit_code_end)` range
+3. Non-JIT faults re-raised with default handler (crash, not silent)
+4. Redirects to OOB error return stub setting error code + RET
+
+**JIT return interface**:
+- JIT functions return u64 error code via x0/rax (0=success, non-zero=error)
+- Caller checks return value and converts to WasmError
+- No raw native pointers exposed to guest code
