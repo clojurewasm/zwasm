@@ -1840,7 +1840,7 @@ test "Module — GC rec group decode" {
 // Fuzz tests
 // ============================================================
 
-const fuzz_corpus = &[_][]const u8{
+pub const fuzz_corpus = &[_][]const u8{
     // Empty / truncated
     "",
     "\x00",

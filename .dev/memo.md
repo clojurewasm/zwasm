@@ -30,7 +30,7 @@ See `private/roadmap-production.md` Phase 35 for full detail.
 
 - [x] 35.1: Expand fuzz corpus with wasm-tools smith-generated modules (1000+)
 - [x] 35.2: Structure-aware fuzzing: valid-but-tricky module generator
-- [ ] 35.3: Phase-separate fuzzing: decoder, validator, predecode, regalloc as independent targets
+- [x] 35.3: Phase-separate fuzzing: decoder, validator, predecode, regalloc as independent targets
 - [ ] 35.4: Extended fuzz campaign: 24h+ continuous run, 0 crashes
 - [ ] 35.5: Audit all `unreachable` in non-test paths — convert to error returns or prove unreachability
 - [ ] 35.6: Audit all `@intCast` — verify no negative-value panics
@@ -38,11 +38,11 @@ See `private/roadmap-production.md` Phase 35 for full detail.
 
 ## Current Task
 
-35.3: Phase-separate fuzzing — decoder, validator, predecode, regalloc as independent targets.
+35.4: Extended fuzz campaign — 24h+ continuous run, 0 crashes.
 
 ## Previous Task
 
-35.2: Structure-aware fuzzing — fuzz_gen.zig with 8 generators (deep nesting, many locals, unreachable code, many types/functions, br_table, memory boundary, if/else chain). All parameterized, run through full pipeline.
+35.3: Phase-separate fuzz tests — 4 independent targets (decoder, validator, predecode, regalloc). Each uses std.testing.fuzz with targeted corpus seeds. Body corpus: 12 function body patterns for predecode/regalloc.
 
 ## Wasm 3.0 Coverage
 

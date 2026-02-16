@@ -825,3 +825,124 @@ test "fuzz-gen — if/else chain (5, 20, 50, 100)" {
         loadAndExercise(alloc, wasm);
     }
 }
+
+// ============================================================
+// Phase-separate fuzz tests
+//
+// Each test targets a single pipeline stage with arbitrary input,
+// verifying that stage never panics regardless of input quality.
+// ============================================================
+
+const module_mod = @import("module.zig");
+const Module = module_mod.Module;
+const validate_mod = @import("validate.zig");
+const predecode_mod = @import("predecode.zig");
+const regalloc_mod = @import("regalloc.zig");
+
+// Corpus of valid function bodies (bytecode between locals and end).
+// Used as seeds for predecode and regalloc fuzz tests.
+const body_corpus = &[_][]const u8{
+    // Empty body (just end)
+    &.{0x0B},
+    // nop + end
+    &.{ 0x01, 0x0B },
+    // i32.const 0 + end
+    &.{ 0x41, 0x00, 0x0B },
+    // i32.const 0 + drop + end
+    &.{ 0x41, 0x00, 0x1A, 0x0B },
+    // block (void) + end + end
+    &.{ 0x02, 0x40, 0x0B, 0x0B },
+    // loop (void) + end + end
+    &.{ 0x03, 0x40, 0x0B, 0x0B },
+    // if (void) + end + end
+    &.{ 0x41, 0x01, 0x04, 0x40, 0x0B, 0x0B },
+    // block, i32.const, br 0, end
+    &.{ 0x02, 0x40, 0x41, 0x00, 0x1A, 0x0C, 0x00, 0x0B, 0x0B },
+    // local.get 0 + local.set 0 + end (requires 1 local)
+    &.{ 0x20, 0x00, 0x21, 0x00, 0x0B },
+    // i32.const 1 + i32.const 2 + i32.add + drop + end
+    &.{ 0x41, 0x01, 0x41, 0x02, 0x6A, 0x1A, 0x0B },
+    // Nested blocks: block { block { nop } } end
+    &.{ 0x02, 0x40, 0x02, 0x40, 0x01, 0x0B, 0x0B, 0x0B },
+    // i32.const 1 + if (i32) + i32.const 2 + else + i32.const 3 + end + drop + end
+    &.{ 0x41, 0x01, 0x04, 0x7F, 0x41, 0x02, 0x05, 0x41, 0x03, 0x0B, 0x1A, 0x0B },
+};
+
+test "fuzz-phase — decoder does not panic on arbitrary bytes" {
+    const Ctx = struct { corpus: []const []const u8 };
+    try std.testing.fuzz(
+        Ctx{ .corpus = module_mod.fuzz_corpus },
+        struct {
+            fn f(_: Ctx, input: []const u8) anyerror!void {
+                var m = Module.init(testing.allocator, input);
+                defer m.deinit();
+                m.decode() catch return;
+            }
+        }.f,
+        .{},
+    );
+}
+
+test "fuzz-phase — validator does not panic on decoded modules" {
+    const Ctx = struct { corpus: []const []const u8 };
+    try std.testing.fuzz(
+        Ctx{ .corpus = module_mod.fuzz_corpus },
+        struct {
+            fn f(_: Ctx, input: []const u8) anyerror!void {
+                var m = Module.init(testing.allocator, input);
+                defer m.deinit();
+                m.decode() catch return;
+                validate_mod.validateModule(testing.allocator, &m) catch return;
+            }
+        }.f,
+        .{},
+    );
+}
+
+test "fuzz-phase — predecode does not panic on arbitrary bytecode" {
+    const Ctx = struct { corpus: []const []const u8 };
+    try std.testing.fuzz(
+        Ctx{ .corpus = body_corpus },
+        struct {
+            fn f(_: Ctx, input: []const u8) anyerror!void {
+                const ir = predecode_mod.predecode(testing.allocator, input) catch return;
+                if (ir) |func| {
+                    func.deinit();
+                    testing.allocator.destroy(func);
+                }
+            }
+        }.f,
+        .{},
+    );
+}
+
+test "fuzz-phase — regalloc does not panic on predecoded IR" {
+    const Ctx = struct { corpus: []const []const u8 };
+    try std.testing.fuzz(
+        Ctx{ .corpus = body_corpus },
+        struct {
+            fn f(_: Ctx, input: []const u8) anyerror!void {
+                const ir = predecode_mod.predecode(testing.allocator, input) catch return;
+                const func = ir orelse return;
+                defer {
+                    func.deinit();
+                    testing.allocator.destroy(func);
+                }
+
+                const reg = regalloc_mod.convert(
+                    testing.allocator,
+                    func.code,
+                    func.pool64,
+                    0, // param_count
+                    0, // local_count
+                    null, // resolver
+                ) catch return;
+                if (reg) |rf| {
+                    rf.deinit();
+                    testing.allocator.destroy(rf);
+                }
+            }
+        }.f,
+        .{},
+    );
+}
