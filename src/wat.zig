@@ -515,6 +515,9 @@ pub const Parser = struct {
     tok: Tokenizer,
     alloc: Allocator,
     current: Token,
+    depth: u32 = 0,
+
+    const max_depth: u32 = 1000;
 
     pub fn init(alloc: Allocator, source: []const u8) Parser {
         var tok = Tokenizer.init(source);
@@ -1706,6 +1709,10 @@ pub const Parser = struct {
     /// (op folded-args... plain-args...)
     /// Unfolded: inner args first, then outer op.
     fn parseFoldedInstr(self: *Parser, instrs: *std.ArrayListUnmanaged(WatInstr)) WatError!void {
+        self.depth += 1;
+        defer self.depth -= 1;
+        if (self.depth > max_depth) return error.InvalidWat;
+
         _ = self.advance(); // consume (
 
         if (self.current.tag != .keyword) return error.InvalidWat;
@@ -5110,4 +5117,72 @@ test "WAT encoder — array.new_fixed round-trip" {
     var module = try types_mod.WasmModule.load(testing.allocator, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+// ============================================================
+// Validation Tests (Phase 4: malformed WAT must not panic)
+// ============================================================
+
+test "WAT validation — empty input" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, ""));
+}
+
+test "WAT validation — unclosed paren" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "(module"));
+}
+
+test "WAT validation — not a module" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "(func)"));
+}
+
+test "WAT validation — invalid keyword" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "(bogus)"));
+}
+
+test "WAT validation — unresolved name reference" {
+    // Unresolved names produce an error (not a panic)
+    const result = watToWasm(testing.allocator,
+        \\(module (func (call $nonexistent)))
+    );
+    if (result) |wasm| {
+        testing.allocator.free(wasm);
+        return error.TestExpectedError;
+    } else |_| {}
+}
+
+test "WAT validation — deeply nested folded instrs" {
+    // Build a deeply nested (drop (drop (drop ... ))) to test recursion limit
+    var buf: [12000]u8 = undefined;
+    var pos: usize = 0;
+    const prefix = "(module (func ";
+    @memcpy(buf[pos..][0..prefix.len], prefix);
+    pos += prefix.len;
+    const depth: usize = 1001;
+    for (0..depth) |_| {
+        const open = "(drop ";
+        @memcpy(buf[pos..][0..open.len], open);
+        pos += open.len;
+    }
+    for (0..depth) |_| {
+        buf[pos] = ')';
+        pos += 1;
+    }
+    const suffix = "))";
+    @memcpy(buf[pos..][0..suffix.len], suffix);
+    pos += suffix.len;
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, buf[0..pos]));
+}
+
+test "WAT validation — invalid number literal" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator,
+        \\(module (func (result i32) i32.const abc))
+    ));
+}
+
+test "WAT validation — no opening paren" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "func"));
+}
+
+test "WAT validation — unclosed func" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "(module (func"));
 }

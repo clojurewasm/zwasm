@@ -42,11 +42,11 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 
 ## Current Task
 
-44.GC: Phase 4 — WAT Validation hardening
+44.GC: Complete. All 4 phases done. Merge gate next.
 
 ## Previous Task
 
-44.GC Phase 3D: GC instruction immediates — type+field, type+u32, two_types, type+seg, heap_type, br_on_cast patterns, 3 new round-trip tests.
+44.GC Phase 4: WAT validation hardening — recursion depth limit (1000), 8 validation tests for malformed WAT input.
 
 ## Wasm 3.0 Coverage
 
