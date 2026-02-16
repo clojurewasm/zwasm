@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-37 — ALL COMPLETE (+ Crash Hardening + Security Audit + Error System)
+- Stages 0-38 — ALL COMPLETE (+ Crash Hardening + Security Audit + Error System + CI/CD)
 - Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -22,7 +22,7 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-37 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-38 — all COMPLETE. See `roadmap.md` for details.
 Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.sh > /dev/null 2>&1 &`
   then check `.dev/fuzz-overnight-result.txt` next session. Review before Stage 39.
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
@@ -41,11 +41,11 @@ See `private/roadmap-production.md` Phase 38 for full detail.
 
 ## Current Task
 
-Stage 38 complete — all 7 tasks done. Ready for merge gate.
+Stage 38 complete — merging to main, then start Stage 39 (Documentation & Book).
 
 ## Previous Task
 
-38.7: CI caching with actions/cache for .zig-cache and ~/.cache/zig.
+Stage 38 complete. CI: benchmark regression, size check, ReleaseSafe, E2E, nightly sanitizer+fuzz, caching.
 
 ## Wasm 3.0 Coverage
 
