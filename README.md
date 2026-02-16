@@ -41,7 +41,7 @@ All ratified Wasm proposals through 3.0 are implemented.
 | Phase 4  | Threads (79 atomics)                                                             | Complete     |
 | Layer    | Component Model (WIT, Canon ABI, WASI P2)                                       | Complete     |
 
-18/18 proposals complete. 419 unit tests, 341/356 E2E tests.
+18/18 proposals complete. 425 unit tests, 356/356 E2E tests.
 
 ## Performance
 

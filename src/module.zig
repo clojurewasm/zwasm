@@ -187,7 +187,6 @@ pub const Module = struct {
     // Decoded sections
     types: ArrayList(TypeDef),
     rec_groups: ArrayList(RecGroup),
-    canonical_ids: []u32,
     imports: ArrayList(Import),
     functions: ArrayList(FunctionDef),
     tables: ArrayList(TableDef),
@@ -216,7 +215,6 @@ pub const Module = struct {
             .decoded = false,
             .types = .empty,
             .rec_groups = .empty,
-            .canonical_ids = &.{},
             .imports = .empty,
             .functions = .empty,
             .tables = .empty,
@@ -252,8 +250,6 @@ pub const Module = struct {
         }
         self.types.deinit(self.alloc);
         self.rec_groups.deinit(self.alloc);
-        if (self.canonical_ids.len > 0) self.alloc.free(self.canonical_ids);
-
         self.imports.deinit(self.alloc);
         self.functions.deinit(self.alloc);
         self.tables.deinit(self.alloc);
@@ -382,148 +378,6 @@ pub const Module = struct {
             }
         }
 
-        // Canonicalize types: assign canonical IDs so structurally identical
-        // rec groups get the same IDs (needed for call_indirect type matching).
-        try self.canonicalizeTypes();
-    }
-
-    /// Assign canonical type IDs. Structurally identical rec groups get the
-    /// same canonical IDs, enabling O(1) type matching in call_indirect.
-    fn canonicalizeTypes(self: *Module) !void {
-        const n = self.types.items.len;
-        if (n == 0) return;
-        self.canonical_ids = try self.alloc.alloc(u32, n);
-
-        // For each rec group, check if a previous group has the same structure.
-        // If so, reuse its canonical IDs. Otherwise, assign self as canonical.
-        for (self.rec_groups.items) |group| {
-            var matched = false;
-            for (self.rec_groups.items) |prev| {
-                if (prev.start >= group.start) break; // only look at earlier groups
-                if (prev.count != group.count) continue;
-                if (self.recGroupsEqual(group, prev)) {
-                    // Map this group's types to prev group's canonical IDs
-                    for (0..group.count) |i| {
-                        self.canonical_ids[group.start + i] = self.canonical_ids[prev.start + i];
-                    }
-                    matched = true;
-                    break;
-                }
-            }
-            if (!matched) {
-                // Self-canonical: each type maps to its own index
-                for (0..group.count) |i| {
-                    self.canonical_ids[group.start + i] = group.start + @as(u32, @intCast(i));
-                }
-            }
-        }
-    }
-
-    /// Check if two rec groups are structurally equivalent.
-    fn recGroupsEqual(self: *const Module, a: RecGroup, b: RecGroup) bool {
-        if (a.count != b.count) return false;
-        for (0..a.count) |i| {
-            if (!self.typeDefsCanonEqual(
-                a.start + @as(u32, @intCast(i)),
-                b.start + @as(u32, @intCast(i)),
-                a,
-                b,
-            )) return false;
-        }
-        return true;
-    }
-
-    /// Check if two TypeDefs are structurally equivalent with canonical resolution.
-    fn typeDefsCanonEqual(self: *const Module, idx_a: u32, idx_b: u32, grp_a: RecGroup, grp_b: RecGroup) bool {
-        const ta = self.types.items[idx_a];
-        const tb = self.types.items[idx_b];
-        if (ta.is_final != tb.is_final) return false;
-        if (ta.super_types.len != tb.super_types.len) return false;
-        for (ta.super_types, tb.super_types) |sa, sb| {
-            if (self.canonRef(sa, grp_a) != self.canonRef(sb, grp_b)) return false;
-        }
-        return self.compositeCanonEqual(ta.composite, tb.composite, grp_a, grp_b);
-    }
-
-    /// Check if two composite types are structurally equivalent.
-    fn compositeCanonEqual(self: *const Module, a: CompositeType, b: CompositeType, grp_a: RecGroup, grp_b: RecGroup) bool {
-        switch (a) {
-            .func => |fa| {
-                const fb = switch (b) {
-                    .func => |f| f,
-                    else => return false,
-                };
-                return self.valTypeSliceCanonEqual(fa.params, fb.params, grp_a, grp_b) and
-                    self.valTypeSliceCanonEqual(fa.results, fb.results, grp_a, grp_b);
-            },
-            .struct_type => |sa| {
-                const sb = switch (b) {
-                    .struct_type => |s| s,
-                    else => return false,
-                };
-                if (sa.fields.len != sb.fields.len) return false;
-                for (sa.fields, sb.fields) |fa, fb| {
-                    if (fa.mutable != fb.mutable) return false;
-                    if (!self.storageCanonEqual(fa.storage, fb.storage, grp_a, grp_b)) return false;
-                }
-                return true;
-            },
-            .array_type => |aa| {
-                const ab = switch (b) {
-                    .array_type => |arr| arr,
-                    else => return false,
-                };
-                if (aa.field.mutable != ab.field.mutable) return false;
-                return self.storageCanonEqual(aa.field.storage, ab.field.storage, grp_a, grp_b);
-            },
-        }
-    }
-
-    fn storageCanonEqual(self: *const Module, a: StorageType, b: StorageType, grp_a: RecGroup, grp_b: RecGroup) bool {
-        switch (a) {
-            .i8 => return b == .i8,
-            .i16 => return b == .i16,
-            .val => |va| {
-                const vb = switch (b) {
-                    .val => |v| v,
-                    else => return false,
-                };
-                return self.valTypeCanonEqual(va, vb, grp_a, grp_b);
-            },
-        }
-    }
-
-    fn valTypeSliceCanonEqual(self: *const Module, a: []const ValType, b: []const ValType, grp_a: RecGroup, grp_b: RecGroup) bool {
-        if (a.len != b.len) return false;
-        for (a, b) |va, vb| {
-            if (!self.valTypeCanonEqual(va, vb, grp_a, grp_b)) return false;
-        }
-        return true;
-    }
-
-    fn valTypeCanonEqual(self: *const Module, a: ValType, b: ValType, grp_a: RecGroup, grp_b: RecGroup) bool {
-        const tag_a: @typeInfo(ValType).@"union".tag_type.? = a;
-        const tag_b: @typeInfo(ValType).@"union".tag_type.? = b;
-        if (tag_a != tag_b) return false;
-        return switch (a) {
-            .i32, .i64, .f32, .f64, .v128, .funcref, .externref, .exnref => true,
-            .ref_type => |idx_a| self.canonRef(idx_a, grp_a) == self.canonRef(b.ref_type, grp_b),
-            .ref_null_type => |idx_a| self.canonRef(idx_a, grp_a) == self.canonRef(b.ref_null_type, grp_b),
-        };
-    }
-
-    /// Canonicalize a type reference: intra-group refs become relative offsets
-    /// (with high bit set to distinguish from canonical IDs), cross-group refs
-    /// become their previously-assigned canonical ID.
-    fn canonRef(self: *const Module, idx: u32, grp: RecGroup) u32 {
-        // Abstract heap type codes (≥ 0x69) are not type indices
-        if (idx >= 0x69) return idx;
-        // Intra-group reference: use relative offset with marker bit
-        if (idx >= grp.start and idx < grp.start + grp.count) {
-            return 0x80000000 | (idx - grp.start);
-        }
-        // Cross-group reference: use already-computed canonical ID
-        return self.canonical_ids[idx];
     }
 
     fn decodeSubType(self: *Module, reader: *Reader) !void {
@@ -601,57 +455,6 @@ pub const Module = struct {
     pub fn getTypeFunc(self: *const Module, type_idx: u32) ?FuncType {
         if (type_idx >= self.types.items.len) return null;
         return self.types.items[type_idx].getFunc();
-    }
-
-    /// Get canonical type ID for a type index (for call_indirect matching).
-    pub fn getCanonicalTypeId(self: *const Module, type_idx: u32) u32 {
-        if (type_idx < self.canonical_ids.len) return self.canonical_ids[type_idx];
-        return type_idx;
-    }
-
-    /// Check if concrete type `sub` is a subtype of (or equal to) concrete type `super`.
-    /// Uses canonical IDs for equivalence, then walks the super_types chain.
-    pub fn isTypeSubtype(self: *const Module, sub: u32, super: u32) bool {
-        if (sub == super) return true;
-        const canon_sub = self.getCanonicalTypeId(sub);
-        const canon_super = self.getCanonicalTypeId(super);
-        if (canon_sub == canon_super) return true;
-        if (sub >= self.types.items.len) return false;
-        var current = sub;
-        while (true) {
-            if (current >= self.types.items.len) return false;
-            const td = self.types.items[current];
-            if (td.super_types.len == 0) return false;
-            current = td.super_types[0];
-            if (current == super) return true;
-            if (self.getCanonicalTypeId(current) == canon_super) return true;
-        }
-    }
-
-    /// Check if a function matches the expected call_indirect type.
-    /// Uses subtype checking: func's type must be a subtype of the expected type.
-    /// Falls back to structural comparison for host/imported functions.
-    pub fn matchesCallIndirectType(
-        self: *const Module,
-        type_idx: u32,
-        func_canonical_id: u32,
-        func_params: []const ValType,
-        func_results: []const ValType,
-    ) bool {
-        const UNSET = std.math.maxInt(u32);
-        if (func_canonical_id != UNSET) {
-            // Canonical subtype check — definitive when IDs are available.
-            // With GC proposal, structurally identical types can be distinct
-            // (e.g., (sub (func)) vs (sub final (func))). Do NOT fall through
-            // to structural comparison when canonical check fails.
-            return self.isTypeSubtype(func_canonical_id, self.getCanonicalTypeId(type_idx));
-        }
-        // Structural comparison only for host functions without canonical IDs
-        if (self.getTypeFunc(type_idx)) |expected| {
-            return ValType.sliceEql(expected.params, func_params) and
-                ValType.sliceEql(expected.results, func_results);
-        }
-        return true;
     }
 
     // ---- Section 2: Import ----
