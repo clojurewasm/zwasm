@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-35 — ALL COMPLETE (Wasm 3.0 + GC + WASI P1 + CM + JIT + Fuzz + TypeRegistry + Crash Hardening)
+- Stages 0-36 — ALL COMPLETE (+ Crash Hardening + Security Audit)
 - Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -22,32 +22,26 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-35 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-36 — all COMPLETE. See `roadmap.md` for details.
 Stage 35 note: 35.4 24h fuzz campaign deferred as overnight background task.
 
-## Task Queue (Stage 36: Security Audit & Hardening)
+## Task Queue (Stage 37: Error System Maturity)
 
-See `private/roadmap-production.md` Phase 36 for full detail.
+See `private/roadmap-production.md` Phase 37 for full detail.
 
-- [x] 36.1: Threat model document: what zwasm protects against, what it doesn't
-- [x] 36.2: Linear memory isolation audit: bounds check on every load/store verified
-- [x] 36.3: Table bounds + type check audit: call_indirect, table.get/set
-- [x] 36.4: JIT W^X verification: mmap RW→RX transition, no simultaneous W+X
-- [x] 36.5: JIT bounds audit: generated code cannot escape sandbox
-- [x] 36.6: WASI capability audit: deny-by-default path verified for all 46 syscalls
-- [x] 36.7: Stack depth limit verification: call depth, value stack depth
-- [x] 36.8: Host function interface audit: no pointer leaks to guest
-- [x] 36.9: SECURITY.md: vulnerability disclosure policy
-- [x] 36.10: ReleaseSafe-only distribution: ensure safety checks preserved in release binary
-- [x] 36.11: Sanitizer pass: ASan/UBSan build + test suite run
+- [x] 37.1: Catalog all error types returned from public API (load, invoke, validate)
+- [x] 37.2: CLI error formatting: human-readable messages with context (file, section, offset)
+- [ ] 37.3: Validation error messages: spec-quality diagnostics (SHOULD — deferred, current messages actionable)
+- [x] 37.4: Trap messages: clear distinction between trap types (unreachable, OOB, stack overflow, etc.)
+- [x] 37.5: Library API error documentation: document every error enum variant (docs/errors.md)
 
 ## Current Task
 
-Stage 36 complete. Ready for merge.
+Stage 37 complete (37.3 SHOULD deferred). Ready for merge.
 
 ## Previous Task
 
-36.11: Sanitizer pass — Zig built-in safety (Debug/ReleaseSafe) covers UBSan+ASan equivalent. 425+ tests, 62K spec, 25K fuzz all clean.
+37.4-37.5: Trap messages already in formatWasmError (10 trap types with "trap:" prefix). Error docs in docs/errors.md from 37.1.
 
 ## Wasm 3.0 Coverage
 
