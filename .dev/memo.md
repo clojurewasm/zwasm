@@ -31,18 +31,18 @@ Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
 See `private/roadmap-production.md` Phase 43 for full detail.
 
-- [x] 43.1: Test suite pass: unit (425) + spec (62,158) + E2E (356) — PASS. Fuzz 24h deferred (user schedules).
+- [x] 43.1: Test suite pass: unit (425) + spec (62,158) + E2E (356) — PASS. Fuzz: 847,477 modules, 0 crashes, PASS (2026-02-17, 466min).
 - [x] 43.2: Security audit: Phase 36 complete (SECURITY.md, docs/security.md, docs/audit-36.md)
 - [x] 43.3: Documentation: Phase 39 complete (12-chapter book, API boundary, embedding guide)
 - [x] 43.4: Cross-platform: Ubuntu unit tests PASS, spec 62,158/62,158 (100%). Bench timeout (known hyperfine issue, not a bug).
 - [x] 43.5: Performance baseline recorded (v1.0.0-baseline, 23 benchmarks)
 - [x] 43.6: Binary audit: 1.28MB, no debug symbols, no secrets in ReleaseSafe
 - [x] 43.7: CHANGELOG updated for v1.0.0
-- [ ] 43.8: Tag v1.0.0 + publish — awaiting: fuzz results + user approval
+- [ ] 43.8: Tag v1.0.0 + publish — fuzz PASS, awaiting user approval
 
 ## Current Task
 
-44.GC: Complete. All 4 phases done. Merge gate next.
+43.8: Tag v1.0.0 — awaiting user instruction.
 
 ## Previous Task
 
