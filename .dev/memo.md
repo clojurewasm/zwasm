@@ -35,7 +35,7 @@ See `private/roadmap-production.md` Phase 39 for full detail.
 - [x] 39.2: Getting Started (install, run first module, 5-minute guide)
 - [x] 39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline)
 - [x] 39.4: Embedding Guide (Zig library usage, allocator control, error handling)
-- [ ] 39.5: CLI Reference (all commands, flags, examples)
+- [x] 39.5: CLI Reference (all commands, flags, examples)
 - [ ] 39.6: Wasm Spec Coverage table (1.0/2.0/3.0, proposal status, spec level)
 - [ ] 39.7: Security Model (threat model, WASI capabilities, sandbox boundaries)
 - [ ] 39.8: Performance Guide (JIT tiers, when JIT kicks in, benchmark methodology)
@@ -46,11 +46,11 @@ See `private/roadmap-production.md` Phase 39 for full detail.
 
 ## Current Task
 
-39.5: CLI Reference (all commands, flags, examples).
+39.6: Wasm Spec Coverage table.
 
 ## Previous Task
 
-39.4: Embedding guide — load variants, host functions, WASI config, memory, linking, errors.
+39.5: CLI reference — all commands, run options tables, batch mode, exit codes.
 
 ## Wasm 3.0 Coverage
 
