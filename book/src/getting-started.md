@@ -118,12 +118,17 @@ See the [Embedding Guide](./embedding-guide.md) for API usage.
 
 ## More examples
 
-The repository includes 25 educational WAT examples in `examples/wat/` covering basics through Wasm 3.0 and WASI:
+The repository includes 33 numbered WAT examples in `examples/wat/`, ordered from beginner to advanced:
 
 ```bash
-zwasm run --invoke fib examples/wat/fibonacci.wat 10     # → 55
-zwasm run --invoke sum examples/wat/return_call.wat 1000000  # tail calls
-zwasm run --allow-all examples/wat/wasi_hello.wat        # → Hi!
+zwasm run --invoke add examples/wat/01_hello_add.wat 2 3      # basics
+zwasm run --invoke abs examples/wat/02_if_else.wat -7          # if/else
+zwasm run --invoke sum examples/wat/03_loop.wat 100            # loops → 5050
+zwasm run --invoke fib examples/wat/05_fibonacci.wat 10        # recursion → 55
+zwasm run --invoke apply examples/wat/24_call_indirect.wat 0 10 3  # tables → 13
+zwasm run --invoke sum examples/wat/25_return_call.wat 1000000 # tail calls
+zwasm run --allow-all examples/wat/30_wasi_hello.wat           # WASI → Hi!
+zwasm run --allow-all examples/wat/32_wasi_args.wat -- hi      # WASI args
 ```
 
 Each file includes run instructions in its header comment. Zig embedding examples are in `examples/zig/`.

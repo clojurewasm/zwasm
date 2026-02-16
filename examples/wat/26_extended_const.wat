@@ -1,9 +1,9 @@
 ;; Extended constant expressions (Wasm 3.0).
 ;; Globals can use i32.add/i32.mul in their init expressions.
 ;;
-;; Run: zwasm run --invoke get_offset examples/wat/extended_const.wat
+;; Run: zwasm run --invoke get_offset examples/wat/26_extended_const.wat
 ;; Output: 1024
-;; Run: zwasm run --invoke get_table_size examples/wat/extended_const.wat
+;; Run: zwasm run --invoke get_table_size examples/wat/26_extended_const.wat
 ;; Output: 400
 (module
   ;; Base address computed at instantiation time.

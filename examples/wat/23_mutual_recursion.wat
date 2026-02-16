@@ -1,10 +1,10 @@
 ;; Mutual recursion: is_even / is_odd.
 ;;
-;; Run: zwasm run --invoke is_even examples/wat/mutual_recursion.wat 10
+;; Run: zwasm run --invoke is_even examples/wat/23_mutual_recursion.wat 10
 ;; Output: 1
-;; Run: zwasm run --invoke is_even examples/wat/mutual_recursion.wat 7
+;; Run: zwasm run --invoke is_even examples/wat/23_mutual_recursion.wat 7
 ;; Output: 0
-;; Run: zwasm run --invoke is_odd examples/wat/mutual_recursion.wat 7
+;; Run: zwasm run --invoke is_odd examples/wat/23_mutual_recursion.wat 7
 ;; Output: 1
 (module
   ;; Returns 1 if n is even (via mutual recursion with is_odd).

@@ -1,6 +1,6 @@
 ;; Mutable global: a simple counter.
 ;;
-;; Run: zwasm run --invoke inc examples/wat/counter.wat
+;; Run: zwasm run --invoke inc examples/wat/09_counter.wat
 ;; Output: 1
 ;; (Each call increments from the initial value 0.)
 (module

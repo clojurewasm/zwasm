@@ -1,6 +1,6 @@
 ;; Bubble sort in linear memory.
 ;;
-;; Run: zwasm run --invoke sort examples/wat/bubble_sort.wat
+;; Run: zwasm run --invoke sort examples/wat/27_bubble_sort.wat
 ;; Output: 1
 ;; (Loads [5,3,8,1,2] into memory, sorts, returns 1 if sorted correctly.)
 (module

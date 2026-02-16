@@ -96,7 +96,7 @@ zwasm inspect [--json] <file.wasm|.wat>
 
 ```bash
 # Human-readable
-zwasm inspect examples/wat/hello_add.wat
+zwasm inspect examples/wat/01_hello_add.wat
 
 # JSON output (for scripting)
 zwasm inspect --json math.wasm

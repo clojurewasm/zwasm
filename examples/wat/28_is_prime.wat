@@ -1,8 +1,8 @@
 ;; Primality test by trial division.
 ;;
-;; Run: zwasm run --invoke is_prime examples/wat/is_prime.wat 97
+;; Run: zwasm run --invoke is_prime examples/wat/28_is_prime.wat 97
 ;; Output: 1
-;; Run: zwasm run --invoke is_prime examples/wat/is_prime.wat 100
+;; Run: zwasm run --invoke is_prime examples/wat/28_is_prime.wat 100
 ;; Output: 0
 (module
   ;; Returns 1 if n is prime, 0 otherwise.

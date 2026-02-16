@@ -1,11 +1,11 @@
 ;; Block with typed results: if/else returning values.
 ;; NOTE: The CLI displays i32 -1 as unsigned 4294967295.
 ;;
-;; Run: zwasm run --invoke classify examples/wat/multi_return.wat 0
+;; Run: zwasm run --invoke classify examples/wat/20_multi_return.wat 0
 ;; Output: 0
-;; Run: zwasm run --invoke classify examples/wat/multi_return.wat 42
+;; Run: zwasm run --invoke classify examples/wat/20_multi_return.wat 42
 ;; Output: 1
-;; Run: zwasm run --invoke classify_neg examples/wat/multi_return.wat
+;; Run: zwasm run --invoke classify_neg examples/wat/20_multi_return.wat
 ;; Output: 4294967295 (= -1 as i32, meaning "negative")
 ;; (0=zero, 1=positive, -1=negative)
 (module

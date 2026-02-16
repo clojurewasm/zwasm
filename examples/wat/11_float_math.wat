@@ -2,11 +2,11 @@
 ;; NOTE: The CLI displays f64 results as raw i64 bit patterns.
 ;; Use Python to decode: struct.unpack('d', struct.pack('q', VALUE))
 ;;
-;; Run: zwasm run --invoke pi_area_r5 examples/wat/float_math.wat
+;; Run: zwasm run --invoke pi_area_r5 examples/wat/11_float_math.wat
 ;; Output: 4635227165180642107 (= 78.5398... as f64 bits)
-;; Run: zwasm run --invoke distance_3_4 examples/wat/float_math.wat
+;; Run: zwasm run --invoke distance_3_4 examples/wat/11_float_math.wat
 ;; Output: 4617315517961601024 (= 5.0 as f64 bits)
-;; Run: zwasm run --invoke c_to_f_100 examples/wat/float_math.wat
+;; Run: zwasm run --invoke c_to_f_100 examples/wat/11_float_math.wat
 ;; Output: 4641663103447072768 (= 212.0 as f64 bits)
 (module
   ;; Area of a circle with radius 5: pi * 5^2 = 78.5398...

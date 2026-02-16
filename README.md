@@ -116,24 +116,24 @@ See [docs/usage.md](docs/usage.md) for detailed library and CLI documentation.
 
 ### WAT examples (`examples/wat/`)
 
-29 educational WAT files covering Wasm MVP through 3.0:
+33 numbered educational WAT files, ordered from simple to advanced:
 
-| Category | Examples |
-|----------|----------|
-| Basics | `hello_add`, `factorial`, `fibonacci`, `collatz`, `is_prime`, `bubble_sort` |
-| Stack & control | `stack_machine`, `select`, `br_table`, `multi_return`, `mutual_recursion` |
-| Memory | `memory`, `data_string`, `grow_memory`, `bulk_memory` |
-| Types & values | `counter` (globals), `bitwise`, `i64_math`, `float_math`, `type_convert`, `sign_extend`, `saturating_trunc` |
-| Wasm 2.0 | `multi_value` (multiple returns) |
-| Wasm 3.0 | `return_call` (tail calls), `extended_const` |
-| SIMD | `simd_add` (i32x4 vector add + extract_lane) |
-| WASI | `wasi_hello` (stdout), `wasi_echo` (stdin→stdout), `wasi_write_file` (file I/O) |
+| # | Category | Examples |
+|---|----------|----------|
+| 01-09 | Basics | `hello_add`, `if_else`, `loop`, `factorial`, `fibonacci`, `select`, `collatz`, `stack_machine`, `counter` |
+| 10-15 | Types | `i64_math`, `float_math`, `bitwise`, `type_convert`, `sign_extend`, `saturating_trunc` |
+| 16-19 | Memory | `memory`, `data_string`, `grow_memory`, `bulk_memory` |
+| 20-24 | Functions | `multi_return`, `multi_value`, `br_table`, `mutual_recursion`, `call_indirect` |
+| 25-26 | Wasm 3.0 | `return_call` (tail calls), `extended_const` |
+| 27-29 | Algorithms | `bubble_sort`, `is_prime`, `simd_add` |
+| 30-33 | WASI | `wasi_hello`, `wasi_echo`, `wasi_args`, `wasi_write_file` |
 
 Each file includes a run command in its header comment:
 
 ```bash
-zwasm run --invoke fib examples/wat/fibonacci.wat 10    # → 55
-zwasm run --allow-all examples/wat/wasi_hello.wat       # → Hi!
+zwasm run --invoke add examples/wat/01_hello_add.wat 2 3   # → 5
+zwasm run --invoke fib examples/wat/05_fibonacci.wat 10    # → 55
+zwasm run --allow-all examples/wat/30_wasi_hello.wat       # → Hi!
 ```
 
 ### Zig embedding examples (`examples/zig/`)

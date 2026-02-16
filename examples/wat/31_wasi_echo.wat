@@ -1,6 +1,6 @@
 ;; WASI: read from stdin and echo to stdout.
 ;;
-;; Run: echo "Hello" | zwasm run --allow-all examples/wat/wasi_echo.wat
+;; Run: echo "Hello" | zwasm run --allow-all examples/wat/31_wasi_echo.wat
 ;; Output: Hello
 (module
   (import "wasi_snapshot_preview1" "fd_read"

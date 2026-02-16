@@ -1,5 +1,5 @@
 ;; Dynamic memory growth with memory.grow and memory.size
-;; Run: zwasm run --invoke test examples/wat/grow_memory.wat
+;; Run: zwasm run --invoke test examples/wat/18_grow_memory.wat
 ;; Expected: 2 (memory size after growing by 1 page)
 (module
   (memory 1)

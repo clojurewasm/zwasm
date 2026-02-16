@@ -1,9 +1,9 @@
 ;; Collatz conjecture: count steps until n reaches 1.
 ;; If even: n/2, if odd: 3n+1.
 ;;
-;; Run: zwasm run --invoke steps examples/wat/collatz.wat 27
+;; Run: zwasm run --invoke steps examples/wat/07_collatz.wat 27
 ;; Output: 111
-;; Run: zwasm run --invoke steps examples/wat/collatz.wat 1
+;; Run: zwasm run --invoke steps examples/wat/07_collatz.wat 1
 ;; Output: 0
 (module
   (func (export "steps") (param $n i32) (result i32)

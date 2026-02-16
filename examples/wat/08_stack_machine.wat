@@ -1,7 +1,7 @@
 ;; Stack machine basics: Wasm is a stack-based virtual machine.
 ;; This example demonstrates the implicit operand stack.
 ;;
-;; Run: zwasm run --invoke rpn_calc examples/wat/stack_machine.wat
+;; Run: zwasm run --invoke rpn_calc examples/wat/08_stack_machine.wat
 ;; Output: 14
 ;; Computes (2 + 3) * 4 - 6 = 14 using stack operations.
 (module

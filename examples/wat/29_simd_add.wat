@@ -1,5 +1,5 @@
 ;; SIMD: add two i32x4 vectors and extract a lane
-;; Run: zwasm run --invoke test examples/wat/simd_add.wat
+;; Run: zwasm run --invoke test examples/wat/29_simd_add.wat
 ;; Expected: 33 (30 + 3)
 (module
   (func (export "test") (result i32)

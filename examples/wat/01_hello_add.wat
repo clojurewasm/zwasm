@@ -1,6 +1,6 @@
 ;; Basic: export a function that adds two i32 values.
 ;;
-;; Run: zwasm run --invoke add examples/wat/hello_add.wat 2 3
+;; Run: zwasm run --invoke add examples/wat/01_hello_add.wat 2 3
 ;; Output: 5
 (module
   (func (export "add") (param i32 i32) (result i32)

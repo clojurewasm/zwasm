@@ -1,7 +1,7 @@
 ;; Tail calls: return_call avoids stack overflow (Wasm 3.0).
 ;; Without tail calls, deep recursion would exhaust the stack.
 ;;
-;; Run: zwasm run --invoke sum examples/wat/return_call.wat 1000000
+;; Run: zwasm run --invoke sum examples/wat/25_return_call.wat 1000000
 ;; Output: 500000500000
 ;; (Sum 1..n using tail-recursive accumulator — no stack overflow.)
 (module
