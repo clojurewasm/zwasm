@@ -32,7 +32,7 @@ See `private/roadmap-production.md` Phase 36 for full detail.
 - [x] 36.1: Threat model document: what zwasm protects against, what it doesn't
 - [x] 36.2: Linear memory isolation audit: bounds check on every load/store verified
 - [x] 36.3: Table bounds + type check audit: call_indirect, table.get/set
-- [ ] 36.4: JIT W^X verification: mmap RW→RX transition, no simultaneous W+X
+- [x] 36.4: JIT W^X verification: mmap RW→RX transition, no simultaneous W+X
 - [ ] 36.5: JIT bounds audit: generated code cannot escape sandbox
 - [ ] 36.6: WASI capability audit: deny-by-default path verified for all 46 syscalls
 - [ ] 36.7: Stack depth limit verification: call depth, value stack depth
@@ -43,11 +43,11 @@ See `private/roadmap-production.md` Phase 36 for full detail.
 
 ## Current Task
 
-36.4: JIT W^X verification.
+36.5: JIT bounds audit.
 
 ## Previous Task
 
-36.3: Table audit — all paths bounds-checked (lookup/get/set), call_indirect type-checked via canonical+structural, null elements rejected.
+36.4: JIT W^X verified — ARM64+x86_64 both mmap(RW)→memcpy→mprotect(RX), no simultaneous W+X.
 
 ## Wasm 3.0 Coverage
 

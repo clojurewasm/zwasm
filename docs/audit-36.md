@@ -47,3 +47,23 @@ structural comparison. MismatchedSignatures error on type mismatch.
 
 **Null element defense**: Uninitialized table slots contain `null`, which
 Table.lookup() rejects as UndefinedElement before any dereference.
+
+## 36.4: JIT W^X Verification
+
+**Status**: PASS
+
+Both ARM64 (jit.zig) and x86_64 (x86.zig) follow strict W^X:
+
+1. `mmap(PROT_READ | PROT_WRITE)` — writable, not executable
+2. `@memcpy` instructions into buffer
+3. `mprotect(PROT_READ | PROT_EXEC)` — executable, not writable
+4. ARM64: `icacheInvalidate()` after mprotect
+5. x86_64: coherent I/D caches, no flush needed
+
+No code path creates `PROT_READ | PROT_WRITE | PROT_EXEC` pages.
+JIT code is never modified after mprotect transition.
+
+| Arch | mmap | mprotect | Location |
+|------|------|----------|----------|
+| ARM64 | jit.zig:3955 (RW) | jit.zig:3970 (RX) | finalize() |
+| x86_64 | x86.zig:2472 (RW) | x86.zig:2485 (RX) | finalize() |
