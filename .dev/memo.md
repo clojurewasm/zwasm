@@ -31,17 +31,17 @@ See `private/roadmap-production.md` Phase 37 for full detail.
 
 - [x] 37.1: Catalog all error types returned from public API (load, invoke, validate)
 - [x] 37.2: CLI error formatting: human-readable messages with context (file, section, offset)
-- [ ] 37.3: Validation error messages: spec-quality diagnostics (what failed, where, expected vs got)
-- [ ] 37.4: Trap messages: clear distinction between trap types (unreachable, OOB, stack overflow, etc.)
-- [ ] 37.5: Library API error documentation: document every error enum variant
+- [ ] 37.3: Validation error messages: spec-quality diagnostics (SHOULD — deferred, current messages actionable)
+- [x] 37.4: Trap messages: clear distinction between trap types (unreachable, OOB, stack overflow, etc.)
+- [x] 37.5: Library API error documentation: document every error enum variant (docs/errors.md)
 
 ## Current Task
 
-37.3: Validation error messages.
+Stage 37 complete (37.3 SHOULD deferred). Ready for merge.
 
 ## Previous Task
 
-37.2: CLI formatWasmError() — 30 mapped error messages (traps, decode, validation, resource, file). All CLI error paths updated.
+37.4-37.5: Trap messages already in formatWasmError (10 trap types with "trap:" prefix). Error docs in docs/errors.md from 37.1.
 
 ## Wasm 3.0 Coverage
 
