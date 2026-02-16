@@ -1,8 +1,8 @@
 ;; If/else: conditional branching.
 ;;
-;; Run: zwasm run --invoke abs examples/wat/02_if_else.wat -7
+;; Run: zwasm run examples/wat/02_if_else.wat --invoke abs -7
 ;; Output: 7
-;; Run: zwasm run --invoke max examples/wat/02_if_else.wat 3 8
+;; Run: zwasm run examples/wat/02_if_else.wat --invoke max 3 8
 ;; Output: 8
 (module
   ;; Absolute value: if n < 0 then -n else n.

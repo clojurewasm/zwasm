@@ -3,9 +3,9 @@
 ;; The (data ...) section embeds bytes directly into linear memory,
 ;; avoiding manual i32.store setup. Supports escape sequences like \n.
 ;;
-;; Run: zwasm run --invoke char_at examples/wat/17_data_string.wat 0
+;; Run: zwasm run examples/wat/17_data_string.wat --invoke char_at 0
 ;; Output: 72   (ASCII 'H')
-;; Run: zwasm run --invoke length examples/wat/17_data_string.wat
+;; Run: zwasm run examples/wat/17_data_string.wat --invoke length
 ;; Output: 6
 (module
   (memory (export "memory") 1)

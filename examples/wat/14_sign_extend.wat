@@ -1,11 +1,11 @@
 ;; Sign extension operations (Wasm 2.0).
 ;; NOTE: The CLI displays i32 results as unsigned u64.
 ;;
-;; Run: zwasm run --invoke extend8 examples/wat/14_sign_extend.wat 255
+;; Run: zwasm run examples/wat/14_sign_extend.wat --invoke extend8 255
 ;; Output: 4294967295 (= -1 as i32, sign-extended from 0xFF)
-;; Run: zwasm run --invoke extend8 examples/wat/14_sign_extend.wat 127
+;; Run: zwasm run examples/wat/14_sign_extend.wat --invoke extend8 127
 ;; Output: 127
-;; Run: zwasm run --invoke extend16 examples/wat/14_sign_extend.wat 65535
+;; Run: zwasm run examples/wat/14_sign_extend.wat --invoke extend16 65535
 ;; Output: 4294967295 (= -1 as i32, sign-extended from 0xFFFF)
 (module
   ;; Sign-extend from 8 bits: treats low byte as signed.

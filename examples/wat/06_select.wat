@@ -1,8 +1,8 @@
 ;; The select instruction: branchless conditional.
 ;;
-;; Run: zwasm run --invoke max examples/wat/06_select.wat 7 3
+;; Run: zwasm run examples/wat/06_select.wat --invoke max 7 3
 ;; Output: 7
-;; Run: zwasm run --invoke min examples/wat/06_select.wat 7 3
+;; Run: zwasm run examples/wat/06_select.wat --invoke min 7 3
 ;; Output: 3
 (module
   ;; Return the larger of two i32 values (branchless).

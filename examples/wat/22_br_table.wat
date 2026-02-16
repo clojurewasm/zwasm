@@ -1,6 +1,6 @@
 ;; br_table: indexed branch (like a switch statement).
 ;;
-;; Run: zwasm run --invoke day_kind examples/wat/22_br_table.wat 0
+;; Run: zwasm run examples/wat/22_br_table.wat --invoke day_kind 0
 ;; Output: 1
 ;; (0=Sun→1=weekend, 1..5=Mon-Fri→0=weekday, 6=Sat→1=weekend)
 (module

@@ -57,7 +57,7 @@ Create `hello.wat`:
 Run it:
 
 ```bash
-zwasm run --invoke add hello.wat 2 3
+zwasm run hello.wat --invoke add 2 3
 # Output: 5
 ```
 
@@ -121,12 +121,12 @@ See the [Embedding Guide](./embedding-guide.md) for API usage.
 The repository includes 33 numbered WAT examples in `examples/wat/`, ordered from beginner to advanced:
 
 ```bash
-zwasm run --invoke add examples/wat/01_hello_add.wat 2 3      # basics
-zwasm run --invoke abs examples/wat/02_if_else.wat -7          # if/else
-zwasm run --invoke sum examples/wat/03_loop.wat 100            # loops → 5050
-zwasm run --invoke fib examples/wat/05_fibonacci.wat 10        # recursion → 55
-zwasm run --invoke apply examples/wat/24_call_indirect.wat 0 10 3  # tables → 13
-zwasm run --invoke sum examples/wat/25_return_call.wat 1000000 # tail calls
+zwasm run examples/wat/01_hello_add.wat --invoke add 2 3      # basics
+zwasm run examples/wat/02_if_else.wat --invoke abs -7          # if/else
+zwasm run examples/wat/03_loop.wat --invoke sum 100            # loops → 5050
+zwasm run examples/wat/05_fibonacci.wat --invoke fib 10        # recursion → 55
+zwasm run examples/wat/24_call_indirect.wat --invoke apply 0 10 3  # tables → 13
+zwasm run examples/wat/25_return_call.wat --invoke sum 1000000 # tail calls
 zwasm run --allow-all examples/wat/30_wasi_hello.wat           # WASI → Hi!
 zwasm run --allow-all examples/wat/32_wasi_args.wat -- hi      # WASI args
 ```

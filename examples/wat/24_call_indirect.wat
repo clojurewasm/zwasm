@@ -3,11 +3,11 @@
 ;; A table holds function references. call_indirect dispatches
 ;; by index, enabling dynamic dispatch (like vtables or callbacks).
 ;;
-;; Run: zwasm run --invoke apply examples/wat/24_call_indirect.wat 0 10 3
+;; Run: zwasm run examples/wat/24_call_indirect.wat --invoke apply 0 10 3
 ;; Output: 13   (add)
-;; Run: zwasm run --invoke apply examples/wat/24_call_indirect.wat 1 10 3
+;; Run: zwasm run examples/wat/24_call_indirect.wat --invoke apply 1 10 3
 ;; Output: 7    (sub)
-;; Run: zwasm run --invoke apply examples/wat/24_call_indirect.wat 2 10 3
+;; Run: zwasm run examples/wat/24_call_indirect.wat --invoke apply 2 10 3
 ;; Output: 30   (mul)
 (module
   (type $binop (func (param i32 i32) (result i32)))

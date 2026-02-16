@@ -23,8 +23,8 @@ zwasm run --allow-all hello.wasm
 zwasm run program.wat
 
 # Call a specific exported function
-zwasm run --invoke add math.wasm 2 3
-zwasm run math.wasm --invoke add 2 3    # options after file OK
+zwasm run math.wasm --invoke add 2 3
+zwasm run --invoke add math.wasm 2 3    # options before file also OK
 ```
 
 #### Argument types
@@ -34,18 +34,18 @@ to parse integers, floats, and negative numbers correctly.
 
 ```bash
 # Integers
-zwasm run --invoke add math.wat 2 3          # → 5
+zwasm run math.wat --invoke add 2 3          # → 5
 
 # Negative numbers (no -- needed)
-zwasm run --invoke negate math.wat -5        # → -5
-zwasm run --invoke abs math.wat -42          # → 42
+zwasm run math.wat --invoke negate -5        # → -5
+zwasm run math.wat --invoke abs -42          # → 42
 
 # Floating-point
-zwasm run --invoke double math.wat 3.14      # → 6.28
-zwasm run --invoke half math.wat -6.28       # → -3.14
+zwasm run math.wat --invoke double 3.14      # → 6.28
+zwasm run math.wat --invoke half -6.28       # → -3.14
 
 # 64-bit integers
-zwasm run --invoke fib math.wat 50           # → 12586269025
+zwasm run math.wat --invoke fib 50           # → 12586269025
 ```
 
 Results are displayed in their natural format:
@@ -55,7 +55,7 @@ Results are displayed in their natural format:
 Argument count is validated against the function signature:
 
 ```bash
-zwasm run --invoke add math.wat 2            # error: 'add' expects 2 arguments, got 1
+zwasm run math.wat --invoke add 2             # error: 'add' expects 2 arguments, got 1
 ```
 
 #### WASI modules
@@ -76,7 +76,7 @@ zwasm run --allow-env --env HOME=/tmp --env USER=alice app.wasm
 
 ```bash
 # Link an import module and call a function
-zwasm run --link math=math.wasm --invoke compute app.wasm 42
+zwasm run app.wasm --link math=math.wasm --invoke compute 42
 ```
 
 #### Resource limits
@@ -178,7 +178,7 @@ fib 10
 ```
 
 ```bash
-echo -e "add 2 3\nmul 4 5" | zwasm run --batch --invoke add math.wasm
+echo -e "add 2 3\nmul 4 5" | zwasm run math.wasm --batch --invoke add
 ```
 
 ## Exit codes

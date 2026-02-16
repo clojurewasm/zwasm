@@ -1,10 +1,10 @@
 ;; Bitwise operations: popcount, clz, ctz, rotl.
 ;;
-;; Run: zwasm run --invoke popcount examples/wat/12_bitwise.wat 255
+;; Run: zwasm run examples/wat/12_bitwise.wat --invoke popcount 255
 ;; Output: 8
-;; Run: zwasm run --invoke clz examples/wat/12_bitwise.wat 1
+;; Run: zwasm run examples/wat/12_bitwise.wat --invoke clz 1
 ;; Output: 31
-;; Run: zwasm run --invoke is_power_of_two examples/wat/12_bitwise.wat 64
+;; Run: zwasm run examples/wat/12_bitwise.wat --invoke is_power_of_two 64
 ;; Output: 1
 (module
   ;; Count the number of 1-bits.

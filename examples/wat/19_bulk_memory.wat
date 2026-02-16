@@ -1,5 +1,5 @@
 ;; Bulk memory operations: memory.fill and memory.copy
-;; Run: zwasm run --invoke test examples/wat/19_bulk_memory.wat
+;; Run: zwasm run examples/wat/19_bulk_memory.wat --invoke test
 ;; Expected: 42
 (module
   (memory 1)

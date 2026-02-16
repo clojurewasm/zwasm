@@ -1,6 +1,6 @@
 ;; Loop: sum integers from 1 to n.
 ;;
-;; Run: zwasm run --invoke sum examples/wat/03_loop.wat 100
+;; Run: zwasm run examples/wat/03_loop.wat --invoke sum 100
 ;; Output: 5050
 (module
   (func (export "sum") (param $n i32) (result i32)

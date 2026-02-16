@@ -5,7 +5,7 @@
 //!
 //! Usage:
 //!   zwasm run <file.wasm|.wat> [args...]
-//!   zwasm run --invoke <func> <file.wasm|.wat> [i32:N ...]
+//!   zwasm run <file.wasm|.wat> --invoke <func> [args...]
 //!   zwasm inspect <file.wasm|.wat>
 //!   zwasm validate <file.wasm|.wat>
 

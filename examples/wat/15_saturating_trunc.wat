@@ -1,5 +1,5 @@
 ;; Saturating truncation: clamps out-of-range floats instead of trapping
-;; Run: zwasm run --invoke clamp_to_i32 examples/wat/15_saturating_trunc.wat 1e30
+;; Run: zwasm run examples/wat/15_saturating_trunc.wat --invoke clamp_to_i32 1e30
 ;; Expected: 2147483647 (i32 max)
 (module
   (func (export "clamp_to_i32") (param f64) (result i32)
