@@ -245,12 +245,19 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             func_args_start = i + 1;
             break;
         } else if (args[i].len > 0 and args[i][0] == '-') {
+            // After file path, negative numbers are function args
+            if (wasm_path != null and args[i].len > 1 and
+                (args[i][1] >= '0' and args[i][1] <= '9' or args[i][1] == '.'))
+            {
+                func_args_start = i;
+                break;
+            }
             try stderr.print("error: unknown option '{s}'\n", .{args[i]});
             try stderr.flush();
             return false;
         } else {
             if (wasm_path != null) {
-                // Second positional arg — start of function/WASI args
+                // After file path: remaining args are function/WASI args
                 func_args_start = i;
                 break;
             }

@@ -11,39 +11,79 @@ zwasm run [options] <file.wasm|.wat> [args...]
 zwasm run <file.wasm|.wat> [options] [args...]
 ```
 
-By default, calls `_start` (WASI entry point). Use `--invoke` to call a different function. Options can appear before or after the file path.
+By default, calls `_start` (WASI entry point). Use `--invoke` to call a specific exported function. Options can appear before or after the file path.
 
 **Examples:**
 
 ```bash
-# Run a WASI module
+# Run a WASI module (calls _start)
 zwasm run --allow-all hello.wasm
 
-# Call a specific function with arguments
-zwasm run --invoke add math.wasm 2 3
-zwasm run math.wasm --invoke add 2 3
-
-# Negative integers and floats are type-aware
-zwasm run --invoke negate math.wat -- -5       # i32: -5
-zwasm run --invoke double math.wat 3.14        # f64: 3.14
-
-# Run a WAT text file
+# Run a WAT text format file (no compilation needed)
 zwasm run program.wat
 
-# With WASI filesystem access
-zwasm run --allow-read --dir ./data app.wasm
+# Call a specific exported function
+zwasm run --invoke add math.wasm 2 3
+zwasm run math.wasm --invoke add 2 3    # options after file OK
+```
 
-# With environment variables
-zwasm run --allow-env --env HOME=/tmp app.wasm
+#### Argument types
 
-# Link multiple modules
+Function arguments are type-aware: zwasm uses the function's type signature
+to parse integers, floats, and negative numbers correctly.
+
+```bash
+# Integers
+zwasm run --invoke add math.wat 2 3          # → 5
+
+# Negative numbers (no -- needed)
+zwasm run --invoke negate math.wat -5        # → -5
+zwasm run --invoke abs math.wat -42          # → 42
+
+# Floating-point
+zwasm run --invoke double math.wat 3.14      # → 6.28
+zwasm run --invoke half math.wat -6.28       # → -3.14
+
+# 64-bit integers
+zwasm run --invoke fib math.wat 50           # → 12586269025
+```
+
+Results are displayed in their natural format:
+- i32/i64: signed decimal (e.g. `-1`, not `4294967295`)
+- f32/f64: decimal (e.g. `3.14`, not raw bits)
+
+Argument count is validated against the function signature:
+
+```bash
+zwasm run --invoke add math.wat 2            # error: 'add' expects 2 arguments, got 1
+```
+
+#### WASI modules
+
+WASI modules use `_start` and receive string arguments via `args_get`.
+Use `--` to separate WASI args from zwasm options:
+
+```bash
+# String args passed to the WASI module
+zwasm run --allow-all app.wasm -- hello world
+zwasm run --allow-read --dir ./data app.wasm -- input.txt
+
+# Environment variables
+zwasm run --allow-env --env HOME=/tmp --env USER=alice app.wasm
+```
+
+#### Multi-module linking
+
+```bash
+# Link an import module and call a function
 zwasm run --link math=math.wasm --invoke compute app.wasm 42
+```
 
-# Resource limits
+#### Resource limits
+
+```bash
+# Limit instructions (fuel metering) and memory
 zwasm run --fuel 1000000 --max-memory 16777216 untrusted.wasm
-
-# Pass args to WASI module with -- separator
-zwasm run app.wasm -- arg1 arg2
 ```
 
 ### `zwasm inspect`
@@ -52,6 +92,14 @@ Show a module's imports and exports.
 
 ```bash
 zwasm inspect [--json] <file.wasm|.wat>
+```
+
+```bash
+# Human-readable
+zwasm inspect examples/wat/hello_add.wat
+
+# JSON output (for scripting)
+zwasm inspect --json math.wasm
 ```
 
 **Options:**
