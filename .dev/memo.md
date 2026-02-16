@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-40 — ALL COMPLETE (+ Crash Hardening → CI/CD → Book → API Stabilization)
+- Stages 0-41 — ALL COMPLETE (Crash Hardening → CI/CD → Book → API Stabilization → Distribution)
 - Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -22,29 +22,30 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-40 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-41 — all COMPLETE. See `roadmap.md` for details.
 Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.sh > /dev/null 2>&1 &`
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 40: API Stabilization)
+## Task Queue (Stage 41: Distribution)
 
-See `private/roadmap-production.md` Phase 40 for full detail.
+See `private/roadmap-production.md` Phase 41 for full detail.
 
-- [x] 40.1: Public API boundary: explicit list of stable types and functions
-- [x] 40.2: Internal API separation: @import("zwasm") exposes only public surface
-- [x] 40.3: Stability annotations in docs: stable / experimental / internal
-- [x] 40.4: Versioning policy: SemVer commitment, what constitutes breaking change
-- [x] 40.5: Deprecation policy: minimum 1 minor version notice before removal
-- [x] 40.6: CHANGELOG.md: structured change tracking
+- [x] 41.1: GitHub Releases: automated binary builds (macOS ARM64, Linux x86_64, Linux aarch64)
+- [x] 41.2: Homebrew tap: brew install clojurewasm/tap/zwasm (template in dist/homebrew/)
+- [x] 41.3: Nix flake (already exists, verified)
+- [x] 41.4: Release automation: tag → build → publish workflow (release.yml)
+- [x] 41.5: Signed releases (SHA256SUMS in release workflow)
+- [skip] 41.6: Docker image (multi-arch) — COULD, skipped
+- [x] 41.7: Install script: curl -fsSL ... | sh (install.sh)
 
 ## Current Task
 
-Stage 40 complete — all 6 tasks done. Ready for merge gate.
+Stage 41 complete. Preparing merge to main.
 
 ## Previous Task
 
-40.1-40.6: API boundary doc, stability annotations, SemVer policy in README, CHANGELOG.md.
+41.1-41.7: Distribution — release.yml, install.sh, Homebrew formula template.
 
 ## Wasm 3.0 Coverage
 
