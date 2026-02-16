@@ -301,9 +301,29 @@ pub const WatInstr = union(enum) {
     call_indirect: struct { type_use: ?WatIndex, table_idx: u32 },
     // select with type
     select_t: []WatValType,
+    // try_table with catch clauses
+    try_table: struct {
+        label: ?[]const u8,
+        block_type: ?WatValType,
+        catches: []CatchClause,
+        body: []WatInstr,
+    },
     // end / else markers (for flat instruction sequences)
     end,
     @"else",
+
+    pub const CatchClause = struct {
+        kind: CatchKind,
+        tag_idx: ?WatIndex, // for catch/catch_ref
+        label: WatIndex,
+    };
+
+    pub const CatchKind = enum(u8) {
+        @"catch" = 0,
+        catch_ref = 1,
+        catch_all = 2,
+        catch_all_ref = 3,
+    };
 };
 
 pub const WatFunc = struct {
@@ -1142,6 +1162,7 @@ pub const Parser = struct {
         mem_imm, // i32.load, i32.store, etc.
         block_type, // block, loop
         if_type, // if
+        try_table_type, // try_table
         br_table,
         call_indirect,
         select_t,
@@ -1159,6 +1180,7 @@ pub const Parser = struct {
         if (std.mem.eql(u8, name, "block")) return .block_type;
         if (std.mem.eql(u8, name, "loop")) return .block_type;
         if (std.mem.eql(u8, name, "if")) return .if_type;
+        if (std.mem.eql(u8, name, "try_table")) return .try_table_type;
 
         // Special control
         if (std.mem.eql(u8, name, "br_table")) return .br_table;
@@ -1269,6 +1291,72 @@ pub const Parser = struct {
                     .op = op_name,
                     .label = label,
                     .block_type = block_type,
+                    .body = body,
+                } }) catch return error.OutOfMemory;
+            },
+            .try_table_type => {
+                // try_table $label? (result type)? (catch tag $label)* body end
+                var label: ?[]const u8 = null;
+                var block_type: ?WatValType = null;
+                if (self.current.tag == .ident) label = self.advance().text;
+                // Parse optional (result type)
+                if (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "result")) {
+                        _ = self.advance();
+                        block_type = try self.parseValType();
+                        _ = try self.expect(.rparen);
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                    }
+                }
+                // Parse catch clauses
+                var catches: std.ArrayListUnmanaged(WatInstr.CatchClause) = .empty;
+                while (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag != .keyword) {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    }
+                    const catch_kw = self.current.text;
+                    const kind: WatInstr.CatchKind = if (std.mem.eql(u8, catch_kw, "catch"))
+                        .@"catch"
+                    else if (std.mem.eql(u8, catch_kw, "catch_ref"))
+                        .catch_ref
+                    else if (std.mem.eql(u8, catch_kw, "catch_all"))
+                        .catch_all
+                    else if (std.mem.eql(u8, catch_kw, "catch_all_ref"))
+                        .catch_all_ref
+                    else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    };
+                    _ = self.advance(); // consume catch keyword
+                    var tag_idx: ?WatIndex = null;
+                    if (kind == .@"catch" or kind == .catch_ref) {
+                        tag_idx = try self.parseIndex();
+                    }
+                    const catch_label = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                    catches.append(self.alloc, .{
+                        .kind = kind,
+                        .tag_idx = tag_idx,
+                        .label = catch_label,
+                    }) catch return error.OutOfMemory;
+                }
+                const body = try self.parseInstrList();
+                _ = try self.expect(.rparen);
+                instrs.append(self.alloc, .{ .try_table = .{
+                    .label = label,
+                    .block_type = block_type,
+                    .catches = catches.items,
                     .body = body,
                 } }) catch return error.OutOfMemory;
             },
@@ -1444,6 +1532,70 @@ pub const Parser = struct {
                     .else_body = else_body,
                 } }) catch return error.OutOfMemory;
             },
+            .try_table_type => {
+                // try_table $label? (result type)? (catch ...)* body end
+                var label: ?[]const u8 = null;
+                var block_type: ?WatValType = null;
+                if (self.current.tag == .ident) label = self.advance().text;
+                if (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "result")) {
+                        _ = self.advance();
+                        block_type = try self.parseValType();
+                        _ = try self.expect(.rparen);
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                    }
+                }
+                // Parse catch clauses
+                var catches: std.ArrayListUnmanaged(WatInstr.CatchClause) = .empty;
+                while (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag != .keyword) {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    }
+                    const catch_kw = self.current.text;
+                    const kind: WatInstr.CatchKind = if (std.mem.eql(u8, catch_kw, "catch"))
+                        .@"catch"
+                    else if (std.mem.eql(u8, catch_kw, "catch_ref"))
+                        .catch_ref
+                    else if (std.mem.eql(u8, catch_kw, "catch_all"))
+                        .catch_all
+                    else if (std.mem.eql(u8, catch_kw, "catch_all_ref"))
+                        .catch_all_ref
+                    else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    };
+                    _ = self.advance();
+                    var tag_idx: ?WatIndex = null;
+                    if (kind == .@"catch" or kind == .catch_ref) {
+                        tag_idx = try self.parseIndex();
+                    }
+                    const catch_label = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                    catches.append(self.alloc, .{
+                        .kind = kind,
+                        .tag_idx = tag_idx,
+                        .label = catch_label,
+                    }) catch return error.OutOfMemory;
+                }
+                const body = try self.parseBlockBody();
+                instrs.append(self.alloc, .{ .try_table = .{
+                    .label = label,
+                    .block_type = block_type,
+                    .catches = catches.items,
+                    .body = body,
+                } }) catch return error.OutOfMemory;
+            },
             else => {
                 try self.emitInstr(instrs, op_name, cat);
             },
@@ -1513,7 +1665,7 @@ pub const Parser = struct {
                 }
                 break :blk .{ .select_t = types.items };
             },
-            .block_type, .if_type => unreachable, // handled in caller
+            .block_type, .if_type, .try_table_type => unreachable, // handled in caller
         };
         instrs.append(self.alloc, instr) catch return error.OutOfMemory;
     }
@@ -2700,6 +2852,29 @@ fn encodeInstr(
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
         },
+        .try_table => |data| {
+            out.append(alloc, 0x1F) catch return error.OutOfMemory; // try_table
+            if (data.block_type) |vt| {
+                out.append(alloc, valTypeByte(vt)) catch return error.OutOfMemory;
+            } else {
+                out.append(alloc, 0x40) catch return error.OutOfMemory;
+            }
+            // Catch clause vector
+            lebEncodeU32(alloc, out, @intCast(data.catches.len)) catch return error.OutOfMemory;
+            labels.append(alloc, data.label) catch return error.OutOfMemory;
+            for (data.catches) |c| {
+                out.append(alloc, @intFromEnum(c.kind)) catch return error.OutOfMemory;
+                if (c.tag_idx) |tag| {
+                    const idx = resolveNamedIndex(tag, &.{}) catch return error.InvalidWat;
+                    lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
+                }
+                const label_idx = try resolveLabelIndex(c.label, labels.items);
+                lebEncodeU32(alloc, out, label_idx) catch return error.OutOfMemory;
+            }
+            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names) catch return error.OutOfMemory;
+            _ = labels.pop();
+            out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
+        },
         .br_table => |data| {
             out.append(alloc, 0x0E) catch return error.OutOfMemory;
             lebEncodeU32(alloc, out, @intCast(data.targets.len)) catch return error.OutOfMemory;
@@ -3677,4 +3852,25 @@ test "WAT parser — table.fill round-trip" {
     try module.invoke("test", &args, &results);
     // table.fill wrote non-null refs, so ref.is_null returns 0, i32.eqz gives 1
     try testing.expectEqual(@as(u64, 1), results[0]);
+}
+
+test "WAT parser — try_table encode round-trip" {
+    // Verify try_table parses and encodes to valid wasm binary
+    // Uses catch_all (no tag needed) with body that returns normally
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (export "test") (result i32)
+        \\    (block $outer (result i32)
+        \\      (try_table (result i32) (catch_all $outer)
+        \\        i32.const 42))))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    // No exception thrown, try_table body returns 42
+    try testing.expectEqual(@as(u64, 42), results[0]);
 }
