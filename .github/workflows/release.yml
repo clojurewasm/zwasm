@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-macos
+            artifact: zwasm-macos-aarch64
+          - os: ubuntu-latest
+            target: x86_64-linux
+            artifact: zwasm-linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64-linux
+            artifact: zwasm-linux-aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build ReleaseSafe
+        env:
+          ZIG_TARGET: ${{ matrix.target }}
+        run: zig build -Doptimize=ReleaseSafe -Dtarget="$ZIG_TARGET"
+
+      - name: Package binary
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact }}
+        run: |
+          mkdir -p dist
+          cp zig-out/bin/zwasm dist/zwasm
+          cd dist
+          tar czf "${ARTIFACT_NAME}.tar.gz" zwasm
+          shasum -a 256 "${ARTIFACT_NAME}.tar.gz" > "${ARTIFACT_NAME}.tar.gz.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}.tar.gz*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create checksums
+        run: |
+          cd artifacts
+          find . -name '*.sha256' -exec cat {} \; > ../SHA256SUMS
+          cd ..
+          mv artifacts/*/*.tar.gz .
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG_NAME" \
+            --title "$TAG_NAME" \
+            --generate-notes \
+            *.tar.gz SHA256SUMS
