@@ -18,7 +18,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CORPUS_DIR="$SCRIPT_DIR/corpus"
-FUZZ_BIN="$PROJECT_DIR/zig-out/bin/fuzz_loader"
+FUZZ_BIN="${FUZZ_BIN_OVERRIDE:-$PROJECT_DIR/zig-out/bin/fuzz_loader}"
 DURATION=30
 COVERAGE=true
 

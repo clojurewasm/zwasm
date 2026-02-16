@@ -55,3 +55,6 @@ fuzz/corpus/
 fuzz/crashes/
 fuzz/mismatches/
 test/fuzz/corpus/
+
+# Overnight fuzz results (machine-generated)
+.dev/fuzz-overnight-result.txt

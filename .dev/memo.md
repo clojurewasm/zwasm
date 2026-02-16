@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-36 — ALL COMPLETE (+ Crash Hardening + Security Audit)
+- Stages 0-37 — ALL COMPLETE (+ Crash Hardening + Security Audit + Error System)
 - Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -22,26 +22,30 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-36 — all COMPLETE. See `roadmap.md` for details.
-Stage 35 note: 35.4 24h fuzz campaign deferred as overnight background task.
+Stages 0-37 — all COMPLETE. See `roadmap.md` for details.
+Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.sh > /dev/null 2>&1 &`
+  then check `.dev/fuzz-overnight-result.txt` next session. Review before Stage 39.
+Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 37: Error System Maturity)
+## Task Queue (Stage 38: CI/CD Strengthening)
 
-See `private/roadmap-production.md` Phase 37 for full detail.
+See `private/roadmap-production.md` Phase 38 for full detail.
 
-- [x] 37.1: Catalog all error types returned from public API (load, invoke, validate)
-- [x] 37.2: CLI error formatting: human-readable messages with context (file, section, offset)
-- [ ] 37.3: Validation error messages: spec-quality diagnostics (SHOULD — deferred, current messages actionable)
-- [x] 37.4: Trap messages: clear distinction between trap types (unreachable, OOB, stack overflow, etc.)
-- [x] 37.5: Library API error documentation: document every error enum variant (docs/errors.md)
+- [ ] 38.1: CI benchmark regression detection: compare against recorded baselines
+- [ ] 38.2: CI binary size check: fail if > 1.5MB (ReleaseSafe)
+- [ ] 38.3: CI ReleaseSafe build verification (currently only Debug)
+- [ ] 38.4: E2E test suite in CI
+- [ ] 38.5: Nightly sanitizer job (ASan/UBSan)
+- [ ] 38.6: Nightly fuzz job (1h continuous)
+- [ ] 38.7: CI caching: Zig build cache for faster runs
 
 ## Current Task
 
-Stage 37 complete (37.3 SHOULD deferred). Ready for merge.
+38.1: CI benchmark regression detection.
 
 ## Previous Task
 
-37.4-37.5: Trap messages already in formatWasmError (10 trap types with "trap:" prefix). Error docs in docs/errors.md from 37.1.
+Stage 37 complete (37.3 deferred). Error catalog, CLI formatting (30 messages), trap messages, error docs all done.
 
 ## Wasm 3.0 Coverage
 
