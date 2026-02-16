@@ -46,7 +46,7 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 
 ## Previous Task
 
-43.4: Ubuntu x86_64 verification — unit + spec PASS.
+44: WAT Parser Completeness — CLI type-aware args/results, data/elem sections, 0xFC/0xFD/0xFE prefix opcodes, try_table, SIMD lane ops, Wasm 3.0 single-byte opcodes, 4 new examples.
 
 ## Wasm 3.0 Coverage
 
