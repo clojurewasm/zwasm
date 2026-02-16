@@ -68,7 +68,7 @@ Update compliance.yaml when implementing new opcode categories or WASI syscalls.
 | Function references   | Complete     | 5 opcodes, 104/106 spec tests     |
 | GC                    | Complete     | 31 opcodes (0xFB prefix), 16 unit tests |
 | Threads               | Complete     | 79 opcodes (0xFE prefix), 310/310 spec  |
-| WAT parser            | Complete     | v128/SIMD, named locals/globals    |
+| WAT parser            | Complete     | data/elem, 0xFC/0xFD/0xFE prefix, try_table, SIMD lanes, Wasm 3.0 opcodes (GC 0xFB deferred) |
 | Component Model       | Complete     | WIT, binary, Canon ABI, linker    |
 | WASI Preview 2        | Complete     | 14 interfaces via P1 adapter      |
 

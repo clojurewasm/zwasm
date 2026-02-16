@@ -116,16 +116,17 @@ See [docs/usage.md](docs/usage.md) for detailed library and CLI documentation.
 
 ### WAT examples (`examples/wat/`)
 
-25 educational WAT files covering Wasm MVP through 3.0:
+29 educational WAT files covering Wasm MVP through 3.0:
 
 | Category | Examples |
 |----------|----------|
 | Basics | `hello_add`, `factorial`, `fibonacci`, `collatz`, `is_prime`, `bubble_sort` |
 | Stack & control | `stack_machine`, `select`, `br_table`, `multi_return`, `mutual_recursion` |
-| Memory | `memory`, `data_string` |
-| Types & values | `counter` (globals), `bitwise`, `i64_math`, `float_math`, `type_convert`, `sign_extend` |
+| Memory | `memory`, `data_string`, `grow_memory`, `bulk_memory` |
+| Types & values | `counter` (globals), `bitwise`, `i64_math`, `float_math`, `type_convert`, `sign_extend`, `saturating_trunc` |
 | Wasm 2.0 | `multi_value` (multiple returns) |
 | Wasm 3.0 | `return_call` (tail calls), `extended_const` |
+| SIMD | `simd_add` (i32x4 vector add + extract_lane) |
 | WASI | `wasi_hello` (stdout), `wasi_echo` (stdin→stdout), `wasi_write_file` (file I/O) |
 
 Each file includes a run command in its header comment:
