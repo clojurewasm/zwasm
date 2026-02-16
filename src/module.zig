@@ -1837,34 +1837,95 @@ test "Module — GC rec group decode" {
 }
 
 // ============================================================
-// Fuzz test — module decoder
+// Fuzz tests
 // ============================================================
+
+const fuzz_corpus = &[_][]const u8{
+    // Empty / truncated
+    "",
+    "\x00",
+    "\x00\x61\x73",
+    // Wrong magic / wrong version
+    "\xDE\xAD\xBE\xEF\x01\x00\x00\x00",
+    "\x00\x61\x73\x6d\x02\x00\x00\x00",
+    // Valid header, no sections
+    "\x00\x61\x73\x6d\x01\x00\x00\x00",
+    // Valid header + truncated type section
+    "\x00\x61\x73\x6d\x01\x00\x00\x00\x01\x04\x01\x60\x00\x00",
+    // Valid header + invalid section id
+    "\x00\x61\x73\x6d\x01\x00\x00\x00\xff\x00",
+    // Valid header + oversized section length
+    "\x00\x61\x73\x6d\x01\x00\x00\x00\x01\xff\xff\xff\x0f",
+    // Oversized LEB128 (6-byte encoding of 0)
+    "\x00\x61\x73\x6d\x01\x00\x00\x00\x01\x80\x80\x80\x80\x80\x00",
+    // Duplicate type sections
+    "\x00\x61\x73\x6d\x01\x00\x00\x00\x01\x04\x01\x60\x00\x00\x01\x04\x01\x60\x00\x00",
+    // Minimal valid module: type + func + code (void→void, empty body)
+    "\x00\x61\x73\x6d\x01\x00\x00\x00" ++ // header
+        "\x01\x04\x01\x60\x00\x00" ++ // type section: 1 type, () -> ()
+        "\x03\x02\x01\x00" ++ // function section: 1 func, type 0
+        "\x0a\x04\x01\x02\x00\x0b", // code section: 1 body, 0 locals, end
+    // Module with i32 export: type + func + export + code (returns 42)
+    "\x00\x61\x73\x6d\x01\x00\x00\x00" ++
+        "\x01\x05\x01\x60\x00\x01\x7f" ++ // type: () -> i32
+        "\x03\x02\x01\x00" ++ // func section
+        "\x07\x05\x01\x01\x66\x00\x00" ++ // export "f" = func 0
+        "\x0a\x06\x01\x04\x00\x41\x2a\x0b", // code: i32.const 42, end
+    // Module with memory
+    "\x00\x61\x73\x6d\x01\x00\x00\x00" ++
+        "\x05\x03\x01\x00\x01", // memory section: 1 mem, min=0 max=1
+    // Module with global
+    "\x00\x61\x73\x6d\x01\x00\x00\x00" ++
+        "\x06\x06\x01\x7f\x00\x41\x00\x0b", // global section: 1 global, i32, const, i32.const 0, end
+    // Module with table
+    "\x00\x61\x73\x6d\x01\x00\x00\x00" ++
+        "\x04\x04\x01\x70\x00\x01", // table section: 1 table, funcref, min=0 max=1
+    // Custom section only
+    "\x00\x61\x73\x6d\x01\x00\x00\x00" ++
+        "\x00\x05\x04name\x00",
+    // Section content overrun (length > remaining bytes)
+    "\x00\x61\x73\x6d\x01\x00\x00\x00" ++
+        "\x01\xFF\x01\x60\x00\x00",
+};
 
 test "fuzz — module decode does not panic on arbitrary input" {
     const Ctx = struct { corpus: []const []const u8 };
-    const corpus: []const []const u8 = &.{
-        // Empty
-        "",
-        // Too short
-        "\x00",
-        // Valid magic, no version
-        "\x00\x61\x73\x6d",
-        // Valid magic + version, no sections
-        "\x00\x61\x73\x6d\x01\x00\x00\x00",
-        // Valid header + truncated type section
-        "\x00\x61\x73\x6d\x01\x00\x00\x00\x01\x04\x01\x60\x00\x00",
-        // Valid header + invalid section id
-        "\x00\x61\x73\x6d\x01\x00\x00\x00\xff\x00",
-        // Valid header + oversized section length
-        "\x00\x61\x73\x6d\x01\x00\x00\x00\x01\xff\xff\xff\x0f",
-    };
     try std.testing.fuzz(
-        Ctx{ .corpus = corpus },
+        Ctx{ .corpus = fuzz_corpus },
         struct {
             fn f(_: Ctx, input: []const u8) anyerror!void {
                 var m = Module.init(testing.allocator, input);
                 defer m.deinit();
                 m.decode() catch return;
+            }
+        }.f,
+        .{},
+    );
+}
+
+test "fuzz — full pipeline (load+instantiate) does not panic" {
+    const Ctx = struct { corpus: []const []const u8 };
+    try std.testing.fuzz(
+        Ctx{ .corpus = fuzz_corpus },
+        struct {
+            fn f(_: Ctx, input: []const u8) anyerror!void {
+                const zwasm = @import("types.zig");
+                const module = zwasm.WasmModule.loadWithFuel(
+                    testing.allocator,
+                    input,
+                    100_000,
+                ) catch return;
+                defer module.deinit();
+
+                // Try invoking zero-arg exported functions
+                for (module.export_fns) |ei| {
+                    if (ei.param_types.len == 0 and ei.result_types.len <= 1) {
+                        var results: [1]u64 = .{0};
+                        const result_slice = results[0..ei.result_types.len];
+                        module.invoke(ei.name, &.{}, result_slice) catch continue;
+                        module.vm.fuel = 100_000;
+                    }
+                }
             }
         }.f,
         .{},

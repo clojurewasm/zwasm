@@ -54,3 +54,4 @@ test/threads/*/target/
 fuzz/corpus/
 fuzz/crashes/
 fuzz/mismatches/
+test/fuzz/corpus/
