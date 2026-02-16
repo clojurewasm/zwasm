@@ -22,6 +22,18 @@ The binary is at `zig-out/bin/zwasm`. Copy it to your PATH:
 cp zig-out/bin/zwasm ~/.local/bin/
 ```
 
+### Install script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/clojurewasm/zwasm/main/install.sh | bash
+```
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew install clojurewasm/tap/zwasm
+```
+
 ### Verify installation
 
 ```bash

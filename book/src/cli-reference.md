@@ -8,9 +8,10 @@ Execute a WebAssembly module.
 
 ```bash
 zwasm run [options] <file.wasm|.wat> [args...]
+zwasm run <file.wasm|.wat> [options] [args...]
 ```
 
-By default, calls `_start` (WASI entry point). Use `--invoke` to call a different function.
+By default, calls `_start` (WASI entry point). Use `--invoke` to call a different function. Options can appear before or after the file path.
 
 **Examples:**
 
@@ -20,6 +21,7 @@ zwasm run --allow-all hello.wasm
 
 # Call a specific function with arguments
 zwasm run --invoke add math.wasm 2 3
+zwasm run math.wasm --invoke add 2 3
 
 # Run a WAT text file
 zwasm run program.wat
@@ -35,6 +37,9 @@ zwasm run --link math=math.wasm --invoke compute app.wasm 42
 
 # Resource limits
 zwasm run --fuel 1000000 --max-memory 16777216 untrusted.wasm
+
+# Pass args to WASI module with -- separator
+zwasm run app.wasm -- arg1 arg2
 ```
 
 ### `zwasm inspect`
@@ -61,7 +66,7 @@ zwasm validate <file.wasm|.wat>
 List supported WebAssembly proposals.
 
 ```bash
-zwasm features
+zwasm features [--json]
 ```
 
 ### `zwasm version`
