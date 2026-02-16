@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-40 — ALL COMPLETE (+ Crash Hardening → CI/CD → Book → API Stabilization)
+- Stages 0-40 — ALL COMPLETE (Crash Hardening → CI/CD → Book → API Stabilization)
 - Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -27,24 +27,25 @@ Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 40: API Stabilization)
+## Task Queue (Stage 41: Distribution)
 
-See `private/roadmap-production.md` Phase 40 for full detail.
+See `private/roadmap-production.md` Phase 41 for full detail.
 
-- [x] 40.1: Public API boundary: explicit list of stable types and functions
-- [x] 40.2: Internal API separation: @import("zwasm") exposes only public surface
-- [x] 40.3: Stability annotations in docs: stable / experimental / internal
-- [x] 40.4: Versioning policy: SemVer commitment, what constitutes breaking change
-- [x] 40.5: Deprecation policy: minimum 1 minor version notice before removal
-- [x] 40.6: CHANGELOG.md: structured change tracking
+- [ ] 41.1: GitHub Releases: automated binary builds (macOS ARM64, Linux x86_64, Linux aarch64)
+- [ ] 41.2: Homebrew tap: brew install clojurewasm/tap/zwasm
+- [ ] 41.3: Nix flake (already exists, verify)
+- [ ] 41.4: Release automation: tag → build → publish workflow
+- [ ] 41.5: Signed releases (checksums)
+- [ ] 41.6: Docker image (multi-arch) — COULD, skip
+- [ ] 41.7: Install script: curl -fsSL ... | sh
 
 ## Current Task
 
-Stage 40 complete — all 6 tasks done. Ready for merge gate.
+41.1+41.4: Release workflow — tag triggers cross-platform binary builds and GitHub Release.
 
 ## Previous Task
 
-40.1-40.6: API boundary doc, stability annotations, SemVer policy in README, CHANGELOG.md.
+Stage 40 complete. API boundary, stability annotations, SemVer, CHANGELOG.
 
 ## Wasm 3.0 Coverage
 
