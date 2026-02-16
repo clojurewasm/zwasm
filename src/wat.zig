@@ -261,6 +261,7 @@ pub const WatValType = enum {
 };
 
 pub const WatFuncType = struct {
+    name: ?[]const u8 = null,
     params: []WatValType,
     results: []WatValType,
 };
@@ -377,6 +378,26 @@ pub const WatExport = struct {
     index: WatIndex,
 };
 
+pub const WatDataMode = enum {
+    active, // has offset expression, placed in memory at instantiation
+    passive, // no offset, used with memory.init
+};
+
+pub const WatData = struct {
+    name: ?[]const u8,
+    memory_idx: WatIndex,
+    mode: WatDataMode,
+    offset: []WatInstr, // offset expression (active only)
+    bytes: []const u8, // decoded byte content
+};
+
+pub const WatElem = struct {
+    name: ?[]const u8,
+    table_idx: WatIndex,
+    offset: []WatInstr,
+    func_indices: []WatIndex,
+};
+
 pub const WatModule = struct {
     name: ?[]const u8,
     types: []WatFuncType,
@@ -387,6 +408,8 @@ pub const WatModule = struct {
     globals: []WatGlobal,
     exports: []WatExport,
     start: ?WatIndex,
+    data: []WatData,
+    elements: []WatElem,
 };
 
 // ============================================================
@@ -439,6 +462,8 @@ pub const Parser = struct {
         var globals: std.ArrayListUnmanaged(WatGlobal) = .empty;
         var exports: std.ArrayListUnmanaged(WatExport) = .empty;
         var start: ?WatIndex = null;
+        var data_segments: std.ArrayListUnmanaged(WatData) = .empty;
+        var elem_segments: std.ArrayListUnmanaged(WatElem) = .empty;
 
         while (self.current.tag != .rparen and self.current.tag != .eof) {
             if (self.current.tag != .lparen) return error.InvalidWat;
@@ -474,6 +499,12 @@ pub const Parser = struct {
                 _ = self.advance();
                 start = try self.parseIndex();
                 _ = try self.expect(.rparen);
+            } else if (std.mem.eql(u8, section, "data")) {
+                _ = self.advance();
+                data_segments.append(self.alloc, try self.parseData()) catch return error.OutOfMemory;
+            } else if (std.mem.eql(u8, section, "elem")) {
+                _ = self.advance();
+                elem_segments.append(self.alloc, try self.parseElem()) catch return error.OutOfMemory;
             } else {
                 // Skip unknown sections
                 try self.skipSExpr();
@@ -492,6 +523,8 @@ pub const Parser = struct {
             .globals = globals.items,
             .exports = exports.items,
             .start = start,
+            .data = data_segments.items,
+            .elements = elem_segments.items,
         };
     }
 
@@ -524,7 +557,8 @@ pub const Parser = struct {
     fn parseTypeDef(self: *Parser) WatError!WatFuncType {
         // (type $name? (func (param ...) (result ...)))
         // We've already consumed "type"
-        if (self.current.tag == .ident) _ = self.advance(); // skip optional $name
+        var type_name: ?[]const u8 = null;
+        if (self.current.tag == .ident) type_name = self.advance().text;
 
         _ = try self.expect(.lparen);
         try self.expectKeyword("func");
@@ -570,7 +604,7 @@ pub const Parser = struct {
         _ = try self.expect(.rparen); // close (func ...)
         _ = try self.expect(.rparen); // close (type ...)
 
-        return .{ .params = params.items, .results = results.items };
+        return .{ .name = type_name, .params = params.items, .results = results.items };
     }
 
     fn parseFunc(self: *Parser, exports: *std.ArrayListUnmanaged(WatExport)) WatError!WatFunc {
@@ -905,6 +939,174 @@ pub const Parser = struct {
             .name = stripQuotes(name_tok.text),
             .kind = kind,
             .index = index,
+        };
+    }
+
+    /// Parse a data segment: (data $name? (memory $m)? (offset expr) "bytes"...)
+    /// or passive: (data $name? "bytes"...)
+    fn parseData(self: *Parser) WatError!WatData {
+        // Optional name
+        var name: ?[]const u8 = null;
+        if (self.current.tag == .ident) {
+            name = self.advance().text;
+        }
+
+        var memory_idx: WatIndex = .{ .num = 0 };
+        var mode: WatDataMode = .passive;
+        var offset_instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+
+        // Check for offset expression — either (memory ...) or (offset ...) or (i32.const ...)
+        if (self.current.tag == .lparen) {
+            // Peek ahead to see if this is an offset expression or inline memory
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance(); // consume (
+
+            if (self.current.tag == .keyword) {
+                const kw = self.current.text;
+                if (std.mem.eql(u8, kw, "memory")) {
+                    // (memory $m) — explicit memory index
+                    _ = self.advance();
+                    memory_idx = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                    // Now parse offset expression
+                    if (self.current.tag == .lparen) {
+                        _ = self.advance();
+                        try self.parseOffsetExpr(&offset_instrs);
+                    } else return error.InvalidWat;
+                    mode = .active;
+                } else if (std.mem.eql(u8, kw, "offset")) {
+                    // (offset expr)
+                    _ = self.advance();
+                    while (self.current.tag != .rparen) {
+                        try self.parsePlainInstr(&offset_instrs);
+                    }
+                    _ = try self.expect(.rparen);
+                    mode = .active;
+                } else if (std.mem.eql(u8, kw, "i32.const") or
+                    std.mem.eql(u8, kw, "i64.const") or
+                    std.mem.eql(u8, kw, "global.get"))
+                {
+                    // Shorthand: (i32.const N) as offset expression
+                    try self.parsePlainInstr(&offset_instrs);
+                    _ = try self.expect(.rparen);
+                    mode = .active;
+                } else {
+                    // Not an offset expression — restore and treat as passive
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                }
+            } else {
+                // Not a keyword after ( — restore
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+            }
+        }
+
+        // Parse string literals (concatenated)
+        var bytes: std.ArrayListUnmanaged(u8) = .empty;
+        while (self.current.tag == .string) {
+            const str_tok = self.advance();
+            const decoded = decodeWatString(self.alloc, stripQuotes(str_tok.text)) catch return error.OutOfMemory;
+            bytes.appendSlice(self.alloc, decoded) catch return error.OutOfMemory;
+        }
+
+        _ = try self.expect(.rparen); // close (data ...)
+
+        return .{
+            .name = name,
+            .memory_idx = memory_idx,
+            .mode = mode,
+            .offset = offset_instrs.items,
+            .bytes = bytes.items,
+        };
+    }
+
+    /// Helper to parse an offset expression that starts after the opening (
+    fn parseOffsetExpr(self: *Parser, instrs: *std.ArrayListUnmanaged(WatInstr)) WatError!void {
+        if (self.current.tag == .keyword) {
+            const kw = self.current.text;
+            if (std.mem.eql(u8, kw, "offset")) {
+                _ = self.advance();
+                while (self.current.tag != .rparen) {
+                    try self.parsePlainInstr(instrs);
+                }
+                _ = try self.expect(.rparen);
+            } else {
+                // Shorthand expression like (i32.const N)
+                try self.parsePlainInstr(instrs);
+                _ = try self.expect(.rparen);
+            }
+        } else return error.InvalidWat;
+    }
+
+    /// Parse an elem segment: (elem $name? (table $t)? (offset expr) func $f...)
+    fn parseElem(self: *Parser) WatError!WatElem {
+        // Optional name
+        var name: ?[]const u8 = null;
+        if (self.current.tag == .ident) {
+            name = self.advance().text;
+        }
+
+        var table_idx: WatIndex = .{ .num = 0 };
+        var offset_instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+
+        // Check for (table ...) or offset expression
+        if (self.current.tag == .lparen) {
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance(); // consume (
+
+            if (self.current.tag == .keyword) {
+                const kw = self.current.text;
+                if (std.mem.eql(u8, kw, "table")) {
+                    // (table $t)
+                    _ = self.advance();
+                    table_idx = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                    // Now parse offset expression
+                    if (self.current.tag == .lparen) {
+                        _ = self.advance();
+                        try self.parseOffsetExpr(&offset_instrs);
+                    } else return error.InvalidWat;
+                } else if (std.mem.eql(u8, kw, "offset")) {
+                    _ = self.advance();
+                    while (self.current.tag != .rparen) {
+                        try self.parsePlainInstr(&offset_instrs);
+                    }
+                    _ = try self.expect(.rparen);
+                } else if (std.mem.eql(u8, kw, "i32.const") or
+                    std.mem.eql(u8, kw, "i64.const") or
+                    std.mem.eql(u8, kw, "global.get"))
+                {
+                    try self.parsePlainInstr(&offset_instrs);
+                    _ = try self.expect(.rparen);
+                } else {
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                }
+            } else {
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+            }
+        }
+
+        // Parse "func" keyword then function indices
+        var func_indices: std.ArrayListUnmanaged(WatIndex) = .empty;
+        if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "func")) {
+            _ = self.advance(); // consume "func"
+        }
+        while (self.current.tag == .integer or self.current.tag == .ident) {
+            func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
+        }
+
+        _ = try self.expect(.rparen); // close (elem ...)
+
+        return .{
+            .name = name,
+            .table_idx = table_idx,
+            .offset = offset_instrs.items,
+            .func_indices = func_indices.items,
         };
     }
 
@@ -1520,6 +1722,10 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
     }
 
     // Build name maps
+    var type_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
+    for (all_types.items) |t| {
+        type_names.append(arena, t.name) catch return error.OutOfMemory;
+    }
     var func_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
     var mem_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
     var table_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
@@ -1574,6 +1780,10 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
     }
     for (module.globals) |g| {
         global_names.append(arena, g.name) catch return error.OutOfMemory;
+    }
+    // Pad type_names for any synthesized types added by findOrAddType
+    while (type_names.items.len < all_types.items.len) {
+        type_names.append(arena, null) catch return error.OutOfMemory;
     }
 
     // Section 1: Type
@@ -1674,7 +1884,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             sec.append(arena, valTypeByte(g.global_type.valtype)) catch return error.OutOfMemory;
             sec.append(arena, if (g.global_type.mutable) @as(u8, 0x01) else @as(u8, 0x00)) catch return error.OutOfMemory;
             var g_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels) catch return error.OutOfMemory;
+            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels, type_names.items) catch return error.OutOfMemory;
             sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
         }
         writeSection(arena, &out, 6, sec.items) catch return error.OutOfMemory;
@@ -1752,6 +1962,45 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         writeSection(arena, &out, 8, sec.items) catch return error.OutOfMemory;
     }
 
+    // Section 9: Element
+    if (module.elements.len > 0) {
+        var sec: std.ArrayListUnmanaged(u8) = .empty;
+        lebEncodeU32(arena, &sec, @intCast(module.elements.len)) catch return error.OutOfMemory;
+        for (module.elements) |elem| {
+            const table_resolved = resolveNamedIndex(elem.table_idx, table_names.items) catch return error.InvalidWat;
+            if (table_resolved == 0) {
+                // Flag 0x00: active, table 0, offset, vec(funcidx)
+                sec.append(arena, 0x00) catch return error.OutOfMemory;
+            } else {
+                // Flag 0x02: active, explicit table index
+                sec.append(arena, 0x02) catch return error.OutOfMemory;
+                lebEncodeU32(arena, &sec, table_resolved) catch return error.OutOfMemory;
+            }
+            // Offset expression + end
+            var e_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
+            encodeInstrList(arena, &sec, elem.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &e_labels, type_names.items) catch return error.OutOfMemory;
+            sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
+            if (table_resolved != 0) {
+                // elemkind for flag 0x02
+                sec.append(arena, 0x00) catch return error.OutOfMemory; // funcref
+            }
+            // Function indices
+            lebEncodeU32(arena, &sec, @intCast(elem.func_indices.len)) catch return error.OutOfMemory;
+            for (elem.func_indices) |fi| {
+                const fidx = resolveNamedIndex(fi, func_names.items) catch return error.InvalidWat;
+                lebEncodeU32(arena, &sec, fidx) catch return error.OutOfMemory;
+            }
+        }
+        writeSection(arena, &out, 9, sec.items) catch return error.OutOfMemory;
+    }
+
+    // Section 12: DataCount (must appear before Code section)
+    if (module.data.len > 0) {
+        var sec: std.ArrayListUnmanaged(u8) = .empty;
+        lebEncodeU32(arena, &sec, @intCast(module.data.len)) catch return error.OutOfMemory;
+        writeSection(arena, &out, 12, sec.items) catch return error.OutOfMemory;
+    }
+
     // Section 10: Code
     if (module.functions.len > 0) {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
@@ -1782,7 +2031,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 f_local_names.append(arena, l.name) catch return error.OutOfMemory;
             }
             var f_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, f_local_names.items, &f_labels) catch return error.OutOfMemory;
+            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, f_local_names.items, &f_labels, type_names.items) catch return error.OutOfMemory;
             code_body.append(arena, 0x0B) catch return error.OutOfMemory; // end
 
             lebEncodeU32(arena, &sec, @intCast(code_body.items.len)) catch return error.OutOfMemory;
@@ -1791,9 +2040,114 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         writeSection(arena, &out, 10, sec.items) catch return error.OutOfMemory;
     }
 
+    // Section 11: Data
+    if (module.data.len > 0) {
+        var sec: std.ArrayListUnmanaged(u8) = .empty;
+        lebEncodeU32(arena, &sec, @intCast(module.data.len)) catch return error.OutOfMemory;
+        for (module.data) |data| {
+            const mem_resolved = resolveNamedIndex(data.memory_idx, mem_names.items) catch return error.InvalidWat;
+            if (data.mode == .active) {
+                if (mem_resolved == 0) {
+                    sec.append(arena, 0x00) catch return error.OutOfMemory; // flag: active, memory 0
+                } else {
+                    sec.append(arena, 0x02) catch return error.OutOfMemory; // flag: active, explicit memory
+                    lebEncodeU32(arena, &sec, mem_resolved) catch return error.OutOfMemory;
+                }
+                // Offset expression + end
+                var d_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
+                encodeInstrList(arena, &sec, data.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &d_labels, type_names.items) catch return error.OutOfMemory;
+                sec.append(arena, 0x0B) catch return error.OutOfMemory;
+            } else {
+                sec.append(arena, 0x01) catch return error.OutOfMemory; // flag: passive
+            }
+            // Byte content
+            lebEncodeU32(arena, &sec, @intCast(data.bytes.len)) catch return error.OutOfMemory;
+            sec.appendSlice(arena, data.bytes) catch return error.OutOfMemory;
+        }
+        writeSection(arena, &out, 11, sec.items) catch return error.OutOfMemory;
+    }
+
     // Copy result to caller's allocator (arena will be freed on return)
     const result = alloc.dupe(u8, out.items) catch return error.OutOfMemory;
     return result;
+}
+
+/// Decode WAT string escapes: \n, \t, \\, \", \xx (hex byte)
+/// Returns a slice backed by the allocator (arena-friendly).
+fn decodeWatString(alloc: Allocator, input: []const u8) ![]u8 {
+    // Check if any escapes exist — fast path for no-escape strings
+    var has_escape = false;
+    for (input) |c| {
+        if (c == '\\') {
+            has_escape = true;
+            break;
+        }
+    }
+    if (!has_escape) {
+        const result = alloc.alloc(u8, input.len) catch return error.OutOfMemory;
+        @memcpy(result, input);
+        return result;
+    }
+
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    var i: usize = 0;
+    while (i < input.len) {
+        if (input[i] == '\\' and i + 1 < input.len) {
+            const next = input[i + 1];
+            // Try \xx hex escape first (two hex digits)
+            if (i + 2 < input.len) {
+                const hi = hexDigit(next);
+                const lo = hexDigit(input[i + 2]);
+                if (hi != null and lo != null) {
+                    out.append(alloc, hi.? * 16 + lo.?) catch return error.OutOfMemory;
+                    i += 3;
+                    continue;
+                }
+            }
+            switch (next) {
+                'n' => {
+                    out.append(alloc, '\n') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                't' => {
+                    out.append(alloc, '\t') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                'r' => {
+                    out.append(alloc, '\r') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                '\\' => {
+                    out.append(alloc, '\\') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                '"' => {
+                    out.append(alloc, '"') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                '\'' => {
+                    out.append(alloc, '\'') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                else => {
+                    out.append(alloc, input[i]) catch return error.OutOfMemory;
+                    i += 1;
+                },
+            }
+        } else {
+            out.append(alloc, input[i]) catch return error.OutOfMemory;
+            i += 1;
+        }
+    }
+    // Return owned slice from ArrayList
+    return out.toOwnedSlice(alloc) catch return error.OutOfMemory;
+}
+
+fn hexDigit(c: u8) ?u8 {
+    if (c >= '0' and c <= '9') return c - '0';
+    if (c >= 'a' and c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' and c <= 'F') return c - 'A' + 10;
+    return null;
 }
 
 fn valTypeByte(vt: WatValType) u8 {
@@ -2138,9 +2492,10 @@ fn encodeInstrList(
     global_names: []const ?[]const u8,
     local_names: []const ?[]const u8,
     labels: *std.ArrayListUnmanaged(?[]const u8),
+    type_names: []const ?[]const u8,
 ) WatError!void {
     for (instrs) |instr| {
-        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, local_names, labels);
+        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, local_names, labels, type_names);
     }
 }
 
@@ -2173,6 +2528,7 @@ fn encodeInstr(
     global_names: []const ?[]const u8,
     local_names: []const ?[]const u8,
     labels: *std.ArrayListUnmanaged(?[]const u8),
+    type_names: []const ?[]const u8,
 ) WatError!void {
     switch (instr) {
         .simple => |name| {
@@ -2256,7 +2612,7 @@ fn encodeInstr(
                 out.append(alloc, 0x40) catch return error.OutOfMemory; // empty block type
             }
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names) catch return error.OutOfMemory;
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
         },
@@ -2268,10 +2624,10 @@ fn encodeInstr(
                 out.append(alloc, 0x40) catch return error.OutOfMemory;
             }
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names) catch return error.OutOfMemory;
             if (data.else_body.len > 0) {
                 out.append(alloc, 0x05) catch return error.OutOfMemory; // else
-                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels) catch return error.OutOfMemory;
+                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names) catch return error.OutOfMemory;
             }
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
@@ -2289,10 +2645,7 @@ fn encodeInstr(
         .call_indirect => |data| {
             out.append(alloc, 0x11) catch return error.OutOfMemory;
             if (data.type_use) |tu| {
-                const idx = switch (tu) {
-                    .num => |n| n,
-                    .name => return error.InvalidWat,
-                };
+                const idx = resolveNamedIndex(tu, type_names) catch return error.InvalidWat;
                 lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
             } else {
                 lebEncodeU32(alloc, out, 0) catch return error.OutOfMemory;
@@ -3073,4 +3426,98 @@ test "WAT parser — memory.grow default index" {
     try module.invoke("grow", &args, &results);
     // memory.grow returns previous size (1 page)
     try testing.expectEqual(@as(u64, 1), results[0]);
+}
+
+test "WAT parser — data section round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory (export "mem") 1)
+        \\  (data (i32.const 0) "Hello")
+        \\  (func (export "load") (result i32)
+        \\    i32.const 0
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("load", &args, &results);
+    try testing.expectEqual(@as(u64, 'H'), results[0]);
+}
+
+test "WAT parser — data section with escape sequences" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (data (i32.const 0) "\48\65\6c\6c\6f")
+        \\  (func (export "load") (result i32)
+        \\    i32.const 4
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("load", &args, &results);
+    try testing.expectEqual(@as(u64, 'o'), results[0]);
+}
+
+test "WAT parser — data section with offset keyword" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (data (offset i32.const 10) "AB")
+        \\  (func (export "load") (result i32)
+        \\    i32.const 10
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("load", &args, &results);
+    try testing.expectEqual(@as(u64, 'A'), results[0]);
+}
+
+test "WAT parser — elem section round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $t (func (result i32)))
+        \\  (table 2 funcref)
+        \\  (func $f0 (result i32) i32.const 42)
+        \\  (func $f1 (result i32) i32.const 99)
+        \\  (elem (i32.const 0) func $f0 $f1)
+        \\  (func (export "call") (param i32) (result i32)
+        \\    local.get 0
+        \\    call_indirect (type $t)))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args0 = [_]u64{0};
+    var results = [_]u64{0};
+    try module.invoke("call", &args0, &results);
+    try testing.expectEqual(@as(u64, 42), results[0]);
+    var args1 = [_]u64{1};
+    try module.invoke("call", &args1, &results);
+    try testing.expectEqual(@as(u64, 99), results[0]);
+}
+
+test "decodeWatString — basic escapes" {
+    const result = try decodeWatString(testing.allocator, "Hello\\nWorld");
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("Hello\nWorld", result);
+}
+
+test "decodeWatString — hex escapes" {
+    const result = try decodeWatString(testing.allocator, "\\48\\65\\6c\\6c\\6f");
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("Hello", result);
 }
