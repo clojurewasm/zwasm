@@ -25,7 +25,7 @@ zwasm was extracted from [ClojureWasm](https://github.com/niclas-ahden/ClojureWa
 - **100% spec conformance**: 62,158/62,158 spec tests passing (Mac + Ubuntu)
 - **All Wasm 3.0 proposals**: See [Spec Coverage](#wasm-spec-coverage) below
 - **Component Model**: WIT parser, Canonical ABI, component linking, WASI P2 adapter
-- **WAT support**: `zwasm run file.wat`, build-time optional (`-Dwat=false`)
+- **WAT support**: `zwasm file.wat`, build-time optional (`-Dwat=false`)
 - **WASI Preview 1 + 2**: 46/46 P1 syscalls (100%), P2 via component adapter
 - **Threads**: Shared memory, 79 atomic operations (load/store/RMW/cmpxchg), wait/notify
 - **Security**: Deny-by-default WASI, capability flags, resource limits

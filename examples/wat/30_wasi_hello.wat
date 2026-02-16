@@ -3,7 +3,7 @@
 ;; The simplest WASI example: write 4 bytes to file descriptor 1 (stdout).
 ;; Uses fd_write with an iovec (pointer + length) structure in linear memory.
 ;;
-;; Run: zwasm run --allow-all examples/wat/30_wasi_hello.wat
+;; Run: zwasm examples/wat/30_wasi_hello.wat --allow-all
 ;; Output: Hi!
 (module
   ;; Import WASI fd_write(fd, iovs, iovs_len, nwritten) -> errno

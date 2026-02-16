@@ -2,7 +2,7 @@
 ;;
 ;; Demonstrates args_sizes_get + args_get to receive string arguments.
 ;;
-;; Run: zwasm run --allow-all examples/wat/32_wasi_args.wat -- hello world
+;; Run: zwasm examples/wat/32_wasi_args.wat --allow-all -- hello world
 ;; Output:
 ;;   examples/wat/32_wasi_args.wat
 ;;   hello

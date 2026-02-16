@@ -33,18 +33,18 @@ to parse integers, floats, and negative numbers correctly.
 
 ```bash
 # Integers
-zwasm run math.wat --invoke add 2 3          # → 5
+zwasm math.wat --invoke add 2 3          # → 5
 
 # Negative numbers (no -- needed)
-zwasm run math.wat --invoke negate -5        # → -5
-zwasm run math.wat --invoke abs -42          # → 42
+zwasm math.wat --invoke negate -5        # → -5
+zwasm math.wat --invoke abs -42          # → 42
 
 # Floating-point
-zwasm run math.wat --invoke double 3.14      # → 6.28
-zwasm run math.wat --invoke half -6.28       # → -3.14
+zwasm math.wat --invoke double 3.14      # → 6.28
+zwasm math.wat --invoke half -6.28       # → -3.14
 
 # 64-bit integers
-zwasm run math.wat --invoke fib 50           # → 12586269025
+zwasm math.wat --invoke fib 50           # → 12586269025
 ```
 
 Results are displayed in their natural format:
@@ -54,7 +54,7 @@ Results are displayed in their natural format:
 Argument count is validated against the function signature:
 
 ```bash
-zwasm run math.wat --invoke add 2             # error: 'add' expects 2 arguments, got 1
+zwasm math.wat --invoke add 2             # error: 'add' expects 2 arguments, got 1
 ```
 
 #### WASI modules
@@ -64,25 +64,25 @@ Use `--` to separate WASI args from zwasm options:
 
 ```bash
 # String args passed to the WASI module
-zwasm run --allow-all app.wasm -- hello world
-zwasm run --allow-read --dir ./data app.wasm -- input.txt
+zwasm app.wasm --allow-all -- hello world
+zwasm app.wasm --allow-read --dir ./data -- input.txt
 
 # Environment variables
-zwasm run --allow-env --env HOME=/tmp --env USER=alice app.wasm
+zwasm app.wasm --allow-env --env HOME=/tmp --env USER=alice
 ```
 
 #### Multi-module linking
 
 ```bash
 # Link an import module and call a function
-zwasm run app.wasm --link math=math.wasm --invoke compute 42
+zwasm app.wasm --link math=math.wasm --invoke compute 42
 ```
 
 #### Resource limits
 
 ```bash
 # Limit instructions (fuel metering) and memory
-zwasm run --fuel 1000000 --max-memory 16777216 untrusted.wasm
+zwasm untrusted.wasm --fuel 1000000 --max-memory 16777216
 ```
 
 ### `zwasm inspect`
@@ -177,7 +177,7 @@ fib 10
 ```
 
 ```bash
-echo -e "add 2 3\nmul 4 5" | zwasm run math.wasm --batch --invoke add
+echo -e "add 2 3\nmul 4 5" | zwasm math.wasm --batch --invoke add
 ```
 
 ## Exit codes

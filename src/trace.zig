@@ -4,7 +4,7 @@
 //! Debug trace/dump infrastructure for JIT, RegIR, and execution analysis.
 //!
 //! Zero-cost when disabled: Vm.trace == null means a single null check per call.
-//! Usage: `zwasm run --trace=jit,exec --dump-regir=5 --dump-jit=5 module.wasm`
+//! Usage: `zwasm module.wasm --trace=jit,exec --dump-regir=5 --dump-jit=5`
 
 const std = @import("std");
 const builtin = @import("builtin");
