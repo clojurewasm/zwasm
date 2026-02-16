@@ -36,15 +36,15 @@ See `private/roadmap-production.md` Phase 35 for full detail.
   - NOTE: 24h run to be done as background overnight task
 - [x] 35.5: Audit all `unreachable` in non-test paths — all 93 instances verified safe
 - [x] 35.6: Audit all `@intCast` — 463 instances, all safe (comptime/validated inputs)
-- [ ] 35.7: Resource limit enforcement: nesting depth, section count, type count
+- [x] 35.7: Resource limit enforcement: nesting depth, section count, type count
 
 ## Current Task
 
-35.7: Resource limit enforcement — nesting depth, section count, type count.
+Stage 35 complete. Evaluate merge readiness.
 
 ## Previous Task
 
-35.4-35.6: Fuzz campaign (25K modules, 0 crashes), unreachable audit (93 safe), @intCast audit (463 safe). fuzz_campaign.sh with time-proportional phases (corpus/fresh/mutation).
+35.7: Resource limits (11 constants): section counts, locals overflow (saturating add), nesting depth (500). Two tests added.
 
 ## Wasm 3.0 Coverage
 

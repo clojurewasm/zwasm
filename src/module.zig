@@ -179,6 +179,20 @@ pub const RecGroup = struct {
     count: u32,
 };
 
+// Resource limits to prevent pathological inputs from consuming excessive resources.
+// These are well above what any legitimate module needs, but prevent DoS/OOM.
+pub const MAX_TYPES: u32 = 100_000;
+pub const MAX_FUNCTIONS: u32 = 100_000;
+pub const MAX_GLOBALS: u32 = 100_000;
+pub const MAX_TABLES: u32 = 100;
+pub const MAX_MEMORIES: u32 = 100;
+pub const MAX_TAGS: u32 = 100_000;
+pub const MAX_EXPORTS: u32 = 100_000;
+pub const MAX_ELEMENTS: u32 = 100_000;
+pub const MAX_DATA_SEGMENTS: u32 = 100_000;
+pub const MAX_LOCALS_PER_FUNC: u32 = 50_000;
+pub const MAX_NESTING_DEPTH: u32 = 500;
+
 pub const Module = struct {
     alloc: Allocator,
     wasm_bin: []const u8,
@@ -357,6 +371,7 @@ pub const Module = struct {
     // ---- Section 1: Type ----
     fn decodeTypeSection(self: *Module, reader: *Reader) !void {
         const count = try reader.readU32();
+        if (count > MAX_TYPES) return error.InvalidWasm;
         try self.types.ensureTotalCapacity(self.alloc, count);
 
         for (0..count) |_| {
@@ -511,6 +526,7 @@ pub const Module = struct {
     // ---- Section 3: Function ----
     fn decodeFunctionSection(self: *Module, reader: *Reader) !void {
         const count = try reader.readU32();
+        if (count > MAX_FUNCTIONS) return error.InvalidWasm;
         try self.functions.ensureTotalCapacity(self.alloc, count);
         for (0..count) |_| {
             try self.functions.append(self.alloc, .{ .type_idx = try reader.readU32() });
@@ -520,6 +536,7 @@ pub const Module = struct {
     // ---- Section 4: Table ----
     fn decodeTableSection(self: *Module, reader: *Reader) !void {
         const count = try reader.readU32();
+        if (count > MAX_TABLES) return error.InvalidWasm;
         try self.tables.ensureTotalCapacity(self.alloc, count);
         for (0..count) |_| {
             try self.tables.append(self.alloc, try readTableDef(reader));
@@ -529,6 +546,7 @@ pub const Module = struct {
     // ---- Section 5: Memory ----
     fn decodeMemorySection(self: *Module, reader: *Reader) !void {
         const count = try reader.readU32();
+        if (count > MAX_MEMORIES) return error.InvalidWasm;
         try self.memories.ensureTotalCapacity(self.alloc, count);
         for (0..count) |_| {
             try self.memories.append(self.alloc, try readMemoryDef(reader));
@@ -538,6 +556,7 @@ pub const Module = struct {
     // ---- Section 6: Global ----
     fn decodeGlobalSection(self: *Module, reader: *Reader) !void {
         const count = try reader.readU32();
+        if (count > MAX_GLOBALS) return error.InvalidWasm;
         try self.globals.ensureTotalCapacity(self.alloc, count);
         for (0..count) |_| {
             const valtype: ValType = try ValType.readValType(reader);
@@ -558,6 +577,7 @@ pub const Module = struct {
     // ---- Section 13: Tag (exception handling) ----
     fn decodeTagSection(self: *Module, reader: *Reader) !void {
         const count = try reader.readU32();
+        if (count > MAX_TAGS) return error.InvalidWasm;
         try self.tags.ensureTotalCapacity(self.alloc, count);
         for (0..count) |_| {
             const attr = try reader.readByte();
@@ -570,6 +590,7 @@ pub const Module = struct {
     // ---- Section 7: Export ----
     fn decodeExportSection(self: *Module, reader: *Reader) !void {
         const count = try reader.readU32();
+        if (count > MAX_EXPORTS) return error.InvalidWasm;
         try self.exports.ensureTotalCapacity(self.alloc, count);
         for (0..count) |_| {
             const name_len = try reader.readU32();
@@ -593,6 +614,7 @@ pub const Module = struct {
     // ---- Section 9: Element ----
     fn decodeElementSection(self: *Module, reader: *Reader) !void {
         const count = try reader.readU32();
+        if (count > MAX_ELEMENTS) return error.InvalidWasm;
         try self.elements.ensureTotalCapacity(self.alloc, count);
 
         for (0..count) |_| {
@@ -771,7 +793,8 @@ pub const Module = struct {
             for (locals) |*le| {
                 le.count = try body_reader.readU32();
                 le.valtype = try ValType.readValType(&body_reader);
-                locals_count += le.count;
+                locals_count +|= le.count; // saturating to detect overflow
+                if (locals_count > MAX_LOCALS_PER_FUNC) return error.InvalidWasm;
             }
 
             // Remaining bytes are the function body (includes trailing `end`)
@@ -814,6 +837,7 @@ pub const Module = struct {
                 0x02, 0x03, 0x04 => { // block, loop, if
                     try skipBlockType(&r);
                     depth += 1;
+                    if (depth > MAX_NESTING_DEPTH) return error.InvalidWasm;
                 },
                 0x1F => { // try_table
                     try skipBlockType(&r);
@@ -824,6 +848,7 @@ pub const Module = struct {
                         _ = try r.readU32();
                     }
                     depth += 1;
+                    if (depth > MAX_NESTING_DEPTH) return error.InvalidWasm;
                 },
                 0x0B => { // end
                     depth -= 1;
@@ -948,6 +973,7 @@ pub const Module = struct {
     // ---- Section 11: Data ----
     fn decodeDataSection(self: *Module, reader: *Reader) !void {
         const count = try reader.readU32();
+        if (count > MAX_DATA_SEGMENTS) return error.InvalidWasm;
         try self.datas.ensureTotalCapacity(self.alloc, count);
 
         for (0..count) |_| {
@@ -1466,6 +1492,81 @@ test "Module — too short" {
     var mod = Module.init(testing.allocator, &short);
     defer mod.deinit();
     try testing.expectError(error.InvalidWasm, mod.decode());
+}
+
+test "Module — rejects excessive locals count" {
+    // Module with one function declaring 50001 locals
+    const wasm = "\x00\x61\x73\x6d\x01\x00\x00\x00" ++ // header
+        "\x01\x04\x01\x60\x00\x00" ++ // type: ()→()
+        "\x03\x02\x01\x00" ++ // function section
+        "\x0a\x08\x01" ++ // code section: size=8, 1 body
+        "\x06" ++ // body size = 6
+        "\x01" ++ // 1 local declaration entry
+        "\xd1\x86\x03" ++ // count = 50001 (LEB128)
+        "\x7f" ++ // type = i32
+        "\x0b"; // end
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try testing.expectError(error.InvalidWasm, mod.decode());
+}
+
+test "Module — rejects excessive nesting depth" {
+    // Build a module with MAX_NESTING_DEPTH+1 nested blocks.
+    // header + type section + function section + code section
+    const header = "\x00\x61\x73\x6d\x01\x00\x00\x00";
+    const type_sec = "\x01\x04\x01\x60\x00\x00";
+    const func_sec = "\x03\x02\x01\x00";
+
+    const depth = MAX_NESTING_DEPTH + 1; // 501
+    // Body: 0 locals, depth*(block+blocktype) + nop + (depth+1)*end
+    const body_len: u32 = 1 + depth * 2 + 1 + (depth + 1); // locals_count + blocks + nop + ends
+    var wasm: std.ArrayList(u8) = .empty;
+    defer wasm.deinit(testing.allocator);
+    try wasm.appendSlice(testing.allocator, header);
+    try wasm.appendSlice(testing.allocator, type_sec);
+    try wasm.appendSlice(testing.allocator, func_sec);
+
+    // Code section header
+    var code_sec: std.ArrayList(u8) = .empty;
+    defer code_sec.deinit(testing.allocator);
+    // function count = 1
+    try writeLeb128(&code_sec, testing.allocator, @as(u32, 1));
+    // body size
+    try writeLeb128(&code_sec, testing.allocator, body_len);
+    // locals count = 0
+    try code_sec.append(testing.allocator, 0x00);
+    // 501 nested blocks: each is (0x02 0x40) = block void
+    for (0..depth) |_| {
+        try code_sec.append(testing.allocator, 0x02); // block
+        try code_sec.append(testing.allocator, 0x40); // void blocktype
+    }
+    try code_sec.append(testing.allocator, 0x01); // nop
+    // 501 + 1 ends (501 blocks + 1 function body)
+    for (0..depth + 1) |_| {
+        try code_sec.append(testing.allocator, 0x0B); // end
+    }
+
+    // Write code section: id=10, size, content
+    try wasm.append(testing.allocator, 0x0A); // section id
+    try writeLeb128(&wasm, testing.allocator, @as(u32, @intCast(code_sec.items.len)));
+    try wasm.appendSlice(testing.allocator, code_sec.items);
+
+    var mod = Module.init(testing.allocator, wasm.items);
+    defer mod.deinit();
+    try testing.expectError(error.InvalidWasm, mod.decode());
+}
+
+fn writeLeb128(list: *std.ArrayList(u8), alloc: Allocator, value: u32) !void {
+    var v = value;
+    while (true) {
+        const byte: u8 = @truncate(v & 0x7F);
+        v >>= 7;
+        if (v == 0) {
+            try list.append(alloc, byte);
+            return;
+        }
+        try list.append(alloc, byte | 0x80);
+    }
 }
 
 test "readLimits — i64 addrtype (memory64 table64)" {
