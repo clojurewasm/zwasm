@@ -27,30 +27,24 @@ Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 39: Documentation & Book)
+## Task Queue (Stage 40: API Stabilization)
 
-See `private/roadmap-production.md` Phase 39 for full detail.
+See `private/roadmap-production.md` Phase 40 for full detail.
 
-- [x] 39.1: SSG setup: mdBook, deployed to GitHub Pages
-- [x] 39.2: Getting Started (install, run first module, 5-minute guide)
-- [x] 39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline)
-- [x] 39.4: Embedding Guide (Zig library usage, allocator control, error handling)
-- [x] 39.5: CLI Reference (all commands, flags, examples)
-- [x] 39.6: Wasm Spec Coverage table (1.0/2.0/3.0, proposal status, spec level)
-- [x] 39.7: Security Model (threat model, WASI capabilities, sandbox boundaries)
-- [x] 39.8: Performance Guide (JIT tiers, when JIT kicks in, benchmark methodology)
-- [x] 39.9: Memory Model (linear memory, GC heap, allocator parameterization)
-- [x] 39.10: Comparison page (vs wasmtime, wasm3, wasmer — size/speed/features)
-- [x] 39.11: FAQ / Troubleshooting
-- [x] 39.12: Contributor Guide (build, test, PR process, code structure)
+- [ ] 40.1: Public API boundary: explicit list of stable types and functions
+- [ ] 40.2: Internal API separation: @import("zwasm") exposes only public surface
+- [ ] 40.3: Stability annotations in docs: stable / experimental / internal
+- [ ] 40.4: Versioning policy: SemVer commitment, what constitutes breaking change
+- [ ] 40.5: Deprecation policy: minimum 1 minor version notice before removal
+- [ ] 40.6: CHANGELOG.md: structured change tracking
 
 ## Current Task
 
-Stage 39 complete — all 12 tasks done. Ready for merge gate.
+Stage 40: API Stabilization. Planning task queue.
 
 ## Previous Task
 
-39.8-39.12: Performance guide, memory model, comparison, FAQ, contributor guide.
+Stage 39 complete. 12 mdBook chapters: intro, getting-started, CLI, embedding, architecture, spec coverage, security, performance, memory, comparison, FAQ, contributor guide.
 
 ## Wasm 3.0 Coverage
 
