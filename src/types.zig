@@ -552,10 +552,11 @@ fn registerImports(
 
                         var src_func = src_module.store.getFunction(export_addr) catch
                             return error.ImportNotFound;
-                        // Remap canonical_type_id to importing module's namespace.
-                        // Canonical IDs are module-local, so cross-module call_indirect
-                        // would fail without remapping.
-                        src_func.canonical_type_id = module.getCanonicalTypeId(imp.index);
+                        // Register func type in target store's TypeRegistry for global ID.
+                        src_func.canonical_type_id = store.type_registry.registerFuncType(
+                            src_func.params,
+                            src_func.results,
+                        ) catch return error.WasmInstantiateError;
                         // Reset cached pointers to avoid double-free across stores
                         if (src_func.subtype == .wasm_function) {
                             src_func.subtype.wasm_function.branch_table = null;
@@ -604,9 +605,11 @@ fn registerImports(
                         for (tbl.data.items) |*tbl_entry| {
                             if (tbl_entry.*) |src_func_ref| {
                                 var func = src_module.store.getFunction(src_func_ref) catch continue;
-                                // Reset canonical_type_id: source module's IDs don't match
-                                // importing module's namespace. UNSET forces structural fallback.
-                                func.canonical_type_id = std.math.maxInt(u32);
+                                // Register func type in target store's TypeRegistry for global ID.
+                                func.canonical_type_id = store.type_registry.registerFuncType(
+                                    func.params,
+                                    func.results,
+                                ) catch continue;
                                 if (func.subtype == .wasm_function) {
                                     func.subtype.wasm_function.branch_table = null;
                                     func.subtype.wasm_function.ir = null;
