@@ -31,7 +31,7 @@ Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
 See `private/roadmap-production.md` Phase 38 for full detail.
 
-- [ ] 38.1: CI benchmark regression detection: compare against recorded baselines
+- [x] 38.1: CI benchmark regression detection: compare against recorded baselines
 - [ ] 38.2: CI binary size check: fail if > 1.5MB (ReleaseSafe)
 - [ ] 38.3: CI ReleaseSafe build verification (currently only Debug)
 - [ ] 38.4: E2E test suite in CI
@@ -41,11 +41,11 @@ See `private/roadmap-production.md` Phase 38 for full detail.
 
 ## Current Task
 
-38.1: CI benchmark regression detection.
+38.2: CI binary size check: fail if > 1.5MB (ReleaseSafe).
 
 ## Previous Task
 
-Stage 37 complete (37.3 deferred). Error catalog, CLI formatting (30 messages), trap messages, error docs all done.
+38.1: CI benchmark regression detection — ci_compare.sh runs 6 representative benchmarks on base vs PR branch, 20% threshold, added as PR-only CI job.
 
 ## Wasm 3.0 Coverage
 

@@ -48,3 +48,24 @@ jobs:
 
       - name: Run spec tests
         run: python3 test/spec/run_spec.py --build --summary
+
+  benchmark:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Install hyperfine
+        run: |
+          curl -L -o /tmp/hyperfine.deb https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
+          sudo dpkg -i /tmp/hyperfine.deb
+
+      - name: Benchmark regression check
+        run: bash bench/ci_compare.sh --base=origin/main --threshold=20 --runs=3 --warmup=1
