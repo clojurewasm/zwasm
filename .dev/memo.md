@@ -27,26 +27,26 @@ Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 42: Community Preparation)
+## Task Queue (Stage 43: v1.0.0 Release)
 
-See `private/roadmap-production.md` Phase 42 for full detail.
+See `private/roadmap-production.md` Phase 43 for full detail.
 
-- [x] 42.1: CONTRIBUTING.md in repo root
-- [x] 42.2: Issue templates (bug report, feature request)
-- [x] 42.3: Code of Conduct
-- [x] 42.4: Public roadmap (link from README)
-- [x] 42.5: README polish: badges, install section, doc links
-- [x] 42.6: Examples: host_functions.zig + wasi.zig (now 5 total)
-- [x] 42.7: License audit (MIT clean, test suite Apache 2.0 compatible)
-- [x] Book fixes: syumai→clojurewasm URLs, ASCII diagram alignment, Vm type fix
+- [x] 43.1: Test suite pass: unit (425) + spec (62,158) + E2E (356) — PASS. Fuzz 24h deferred (user schedules).
+- [x] 43.2: Security audit: Phase 36 complete (SECURITY.md, docs/security.md, docs/audit-36.md)
+- [x] 43.3: Documentation: Phase 39 complete (12-chapter book, API boundary, embedding guide)
+- [ ] 43.4: Cross-platform verification — needs Ubuntu SSH
+- [x] 43.5: Performance baseline recorded (v1.0.0-baseline, 23 benchmarks)
+- [x] 43.6: Binary audit: 1.28MB, no debug symbols, no secrets in ReleaseSafe
+- [x] 43.7: CHANGELOG updated for v1.0.0
+- [ ] 43.8: Tag v1.0.0 + publish — needs: version bump, Ubuntu verification, user approval
 
 ## Current Task
 
-Stage 42 complete. Preparing merge to main.
+43.4+43.8: Awaiting user for Ubuntu cross-platform verification and tag authorization.
 
 ## Previous Task
 
-42.1-42.7: Community prep — CONTRIBUTING, issue templates, CoC, README badges, examples, book fixes.
+43.1-43.7: v1.0.0 prep — audit, baseline, CHANGELOG, binary check all pass.
 
 ## Wasm 3.0 Coverage
 

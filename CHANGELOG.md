@@ -5,22 +5,30 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-02-16
+
+First stable release. API frozen under SemVer guarantees.
+
 ### Added
-- mdBook documentation site with 12 chapters (Getting Started, Architecture, CLI, Embedding, Spec Coverage, Security, Performance, Memory, Comparison, FAQ, Contributing)
+- mdBook documentation site with 12 chapters
 - GitHub Pages deployment for book
 - CI benchmark regression detection (20% threshold)
-- CI binary size check (1.5 MB limit)
-- CI ReleaseSafe build verification
-- E2E tests in CI (wasmtime misc_testsuite)
-- Nightly sanitizer job (Debug build)
-- Nightly fuzz campaign (60 min)
+- CI binary size check (1.5 MB limit), ReleaseSafe build verification
+- E2E tests in CI (wasmtime misc_testsuite, 356 assertions)
+- Nightly sanitizer job (Debug build) and fuzz campaign (60 min)
 - CI caching for Zig build artifacts
 - Overnight fuzz infrastructure (`test/fuzz/fuzz_overnight.sh`)
 - API boundary documentation (`docs/api-boundary.md`)
+- CONTRIBUTING.md, CODE_OF_CONDUCT.md, issue templates
+- Release automation: tag-triggered cross-platform builds
+- Install script (`install.sh`), Homebrew formula template
+- Host function and WASI examples (5 examples total)
 - CHANGELOG.md
+- SemVer versioning policy, deprecation guarantees
 
 ### Changed
 - Error messages now use human-readable format (30 error variants)
+- README: badges, install section, documentation links
 
 ## [0.3.0] - 2026-02-15
 
