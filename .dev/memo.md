@@ -37,17 +37,17 @@ See `private/roadmap-production.md` Phase 36 for full detail.
 - [x] 36.6: WASI capability audit: deny-by-default path verified for all 46 syscalls
 - [x] 36.7: Stack depth limit verification: call depth, value stack depth
 - [x] 36.8: Host function interface audit: no pointer leaks to guest
-- [ ] 36.9: SECURITY.md: vulnerability disclosure policy
+- [x] 36.9: SECURITY.md: vulnerability disclosure policy
 - [ ] 36.10: ReleaseSafe-only distribution: ensure safety checks preserved in release binary
 - [ ] 36.11: Sanitizer pass: ASan/UBSan build + test suite run
 
 ## Current Task
 
-36.9: SECURITY.md vulnerability disclosure policy.
+36.10: ReleaseSafe-only distribution.
 
 ## Previous Task
 
-36.8: Host function audit — typed values via operand stack, no pointer leaks, WASI uses bounds-checked Memory API.
+36.9: SECURITY.md created — disclosure email, response timeline, scope, build recommendations.
 
 ## Wasm 3.0 Coverage
 
