@@ -1,0 +1,76 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # 03:00 UTC daily
+  workflow_dispatch:       # manual trigger
+
+jobs:
+  sanitizer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Debug build + unit tests
+        run: zig build test
+
+      - name: Install wasm-tools
+        env:
+          WASM_TOOLS_VERSION: "1.245.1"
+        run: |
+          ARCH=$(uname -m)
+          curl -L -o /tmp/wasm-tools.tar.gz \
+            "https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VERSION}/wasm-tools-${WASM_TOOLS_VERSION}-${ARCH}-linux.tar.gz"
+          tar xzf /tmp/wasm-tools.tar.gz -C /tmp
+          echo "/tmp/wasm-tools-${WASM_TOOLS_VERSION}-${ARCH}-linux" >> "$GITHUB_PATH"
+
+      - name: Download spec testsuite
+        run: git clone --depth 1 https://github.com/WebAssembly/spec.git /tmp/wasm-spec
+
+      - name: Convert spec tests
+        run: bash test/spec/convert.sh /tmp/wasm-spec/test/core
+
+      - name: Spec tests (Debug)
+        run: python3 test/spec/run_spec.py --debug-build --summary
+        timeout-minutes: 30
+
+      - name: Download wasmtime misc_testsuite
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/bytecodealliance/wasmtime.git /tmp/wasmtime
+          cd /tmp/wasmtime
+          git sparse-checkout set tests/misc_testsuite
+
+      - name: E2E tests (Debug)
+        env:
+          WASMTIME_MISC_DIR: /tmp/wasmtime/tests/misc_testsuite
+        run: bash test/e2e/run_e2e.sh --convert --summary
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Install wasm-tools
+        env:
+          WASM_TOOLS_VERSION: "1.245.1"
+        run: |
+          ARCH=$(uname -m)
+          curl -L -o /tmp/wasm-tools.tar.gz \
+            "https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VERSION}/wasm-tools-${WASM_TOOLS_VERSION}-${ARCH}-linux.tar.gz"
+          tar xzf /tmp/wasm-tools.tar.gz -C /tmp
+          echo "/tmp/wasm-tools-${WASM_TOOLS_VERSION}-${ARCH}-linux" >> "$GITHUB_PATH"
+
+      - name: Fuzz campaign (60 min)
+        run: bash test/fuzz/fuzz_campaign.sh --duration=60 --no-coverage
+        timeout-minutes: 75
