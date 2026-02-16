@@ -34,7 +34,7 @@ See `private/roadmap-production.md` Phase 36 for full detail.
 - [x] 36.3: Table bounds + type check audit: call_indirect, table.get/set
 - [x] 36.4: JIT W^X verification: mmap RW→RX transition, no simultaneous W+X
 - [x] 36.5: JIT bounds audit: generated code cannot escape sandbox
-- [ ] 36.6: WASI capability audit: deny-by-default path verified for all 46 syscalls
+- [x] 36.6: WASI capability audit: deny-by-default path verified for all 46 syscalls
 - [ ] 36.7: Stack depth limit verification: call depth, value stack depth
 - [ ] 36.8: Host function interface audit: no pointer leaks to guest
 - [ ] 36.9: SECURITY.md: vulnerability disclosure policy
@@ -43,11 +43,11 @@ See `private/roadmap-production.md` Phase 36 for full detail.
 
 ## Current Task
 
-36.6: WASI capability audit.
+36.7: Stack depth limit verification.
 
 ## Previous Task
 
-36.5: JIT bounds audit — memory access checked (CMP or guard pages), branch targets validated, signal handler verifies PC range, error stubs return safely.
+36.6: WASI capability audit — 46 functions, 32 with hasCap(), 8 no-cap (by design), 6 stubs (NOSYS). Deny-by-default confirmed.
 
 ## Wasm 3.0 Coverage
 

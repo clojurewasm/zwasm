@@ -68,7 +68,7 @@ JIT code is never modified after mprotect transition.
 | ARM64 | jit.zig:3955 (RW) | jit.zig:3970 (RX) | finalize() |
 | x86_64 | x86.zig:2472 (RW) | x86.zig:2485 (RX) | finalize() |
 
-## 36.5: JIT Bounds Audit
+## 36.5: JIT Bounds Audit (generated code cannot escape sandbox)
 
 **Status**: PASS
 
@@ -94,3 +94,34 @@ JIT-generated code cannot escape the sandbox:
 - JIT functions return u64 error code via x0/rax (0=success, non-zero=error)
 - Caller checks return value and converts to WasmError
 - No raw native pointers exposed to guest code
+
+## 36.6: WASI Capability Audit
+
+**Status**: PASS
+
+46 WASI functions registered. Deny-by-default capability model with 8 flags.
+
+**Capability-checked functions** (32 functions with hasCap()):
+
+| Capability | Functions |
+|-----------|-----------|
+| allow_env | environ_get, environ_sizes_get |
+| allow_clock | clock_time_get, clock_res_get |
+| allow_stdio | fd_read (fd 0-2), fd_write (fd 0-2) |
+| allow_read | fd_read (fd >2), fd_pread, fd_readdir, path_filestat_get, fd_filestat_get (via read) |
+| allow_write | fd_write (fd >2), fd_pwrite, fd_datasync, fd_sync, fd_allocate, fd_fdstat_set_flags, fd_filestat_set_size, fd_filestat_set_times, fd_renumber |
+| allow_path | path_open, path_create_directory, path_remove_directory, path_rename, path_symlink, path_unlink_file, path_readlink, path_link, path_filestat_set_times |
+| allow_proc_exit | proc_exit |
+| allow_random | random_get |
+
+**No-cap functions** (by design, not a gap):
+- args_get/args_sizes_get: args are host-provided, not privileged
+- fd_close/fd_fdstat_get/fd_prestat_get/fd_prestat_dir_name: operate on already-open FDs
+- fd_seek/fd_tell: position within already-open FDs
+- sched_yield/poll_oneoff: harmless scheduling
+
+**Stub functions** (return NOSYS, no capability needed):
+- fd_fdstat_set_rights, proc_raise, sock_accept/recv/send/shutdown
+
+**CLI defaults**: only stdio, clock, random, proc_exit enabled.
+File read/write/path disabled by default — must be explicitly enabled.
