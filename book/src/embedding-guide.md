@@ -186,3 +186,15 @@ var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 defer arena.deinit();
 const mod = try WasmModule.load(arena.allocator(), wasm_bytes);
 ```
+
+## API stability
+
+Types and functions are classified into three stability levels:
+
+- **Stable**: Covered by SemVer. Will not break in minor/patch releases. Includes: `WasmModule`, `WasmFn`, `WasmValType`, `ExportInfo`, `ImportEntry`, `HostFnEntry`, `WasiOptions`, and all their public methods.
+
+- **Experimental**: May change in minor releases. Includes: `runtime.Store`, `runtime.Module`, `runtime.Instance`, `loadLinked`, WIT-related functions.
+
+- **Internal**: Not accessible to library consumers. All types in source files other than `types.zig`.
+
+See [docs/api-boundary.md](https://github.com/syumai/zwasm/blob/main/docs/api-boundary.md) for the complete list.

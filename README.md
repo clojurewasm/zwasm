@@ -163,6 +163,14 @@ The spec test suite runs on every change.
 - [x] Stage 33: Fuzz testing (differential testing, extended fuzz campaign, 0 crashes)
 - [ ] Future: WASI P3/async, GC collector upgrade, liveness-based regalloc
 
+## Versioning
+
+zwasm follows [Semantic Versioning](https://semver.org/). The public API surface is defined in [docs/api-boundary.md](docs/api-boundary.md).
+
+- **Stable** types and functions (WasmModule, WasmFn, etc.) won't break in minor/patch releases
+- **Experimental** types (runtime.\*, WIT) may change in minor releases
+- **Deprecation**: At least one minor version notice before removal
+
 ## License
 
 MIT
