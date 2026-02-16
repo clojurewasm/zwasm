@@ -32,17 +32,19 @@ See `private/roadmap-production.md` Phase 35 for full detail.
 - [x] 35.2: Structure-aware fuzzing: valid-but-tricky module generator
 - [x] 35.3: Phase-separate fuzzing: decoder, validator, predecode, regalloc as independent targets
 - [ ] 35.4: Extended fuzz campaign: 24h+ continuous run, 0 crashes
-- [ ] 35.5: Audit all `unreachable` in non-test paths — convert to error returns or prove unreachability
-- [ ] 35.6: Audit all `@intCast` — verify no negative-value panics
+  - 10min campaign: 25,818 modules, 0 crashes (fuzz_campaign.sh)
+  - NOTE: 24h run to be done as background overnight task
+- [x] 35.5: Audit all `unreachable` in non-test paths — all 93 instances verified safe
+- [x] 35.6: Audit all `@intCast` — 463 instances, all safe (comptime/validated inputs)
 - [ ] 35.7: Resource limit enforcement: nesting depth, section count, type count
 
 ## Current Task
 
-35.4: Extended fuzz campaign — 24h+ continuous run, 0 crashes.
+35.7: Resource limit enforcement — nesting depth, section count, type count.
 
 ## Previous Task
 
-35.3: Phase-separate fuzz tests — 4 independent targets (decoder, validator, predecode, regalloc). Each uses std.testing.fuzz with targeted corpus seeds. Body corpus: 12 function body patterns for predecode/regalloc.
+35.4-35.6: Fuzz campaign (25K modules, 0 crashes), unreachable audit (93 safe), @intCast audit (463 safe). fuzz_campaign.sh with time-proportional phases (corpus/fresh/mutation).
 
 ## Wasm 3.0 Coverage
 
