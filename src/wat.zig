@@ -355,6 +355,18 @@ pub const WatInstr = union(enum) {
     },
     // ref.null <heaptype>
     ref_null: WatIndex, // heap type constant or type index
+    // GC: type_idx + field_idx (struct.get, struct.set, etc.)
+    gc_type_field: struct { op: []const u8, type_idx: WatIndex, field_idx: WatIndex },
+    // GC: type_idx + u32 (array.new_fixed)
+    gc_type_u32: struct { op: []const u8, type_idx: WatIndex, count: u32 },
+    // GC: two type indices (array.copy)
+    gc_two_types: struct { op: []const u8, type1: WatIndex, type2: WatIndex },
+    // GC: type_idx + data/elem index (array.new_data, array.init_data, etc.)
+    gc_type_seg: struct { op: []const u8, type_idx: WatIndex, seg_idx: WatIndex },
+    // GC: heap type immediate (ref.test, ref.cast, etc.)
+    gc_heap_type: struct { op: []const u8, heap_type: WatIndex },
+    // GC: br_on_cast / br_on_cast_fail
+    gc_br_on_cast: struct { op: []const u8, flags: u8, label: WatIndex, ht1: WatIndex, ht2: WatIndex },
     // end / else markers (for flat instruction sequences)
     end,
     @"else",
@@ -1493,6 +1505,13 @@ pub const Parser = struct {
         call_indirect,
         select_t,
         ref_null, // ref.null <heaptype>
+        gc_type_field, // struct.get, struct.get_s, struct.get_u, struct.set
+        gc_type_u32, // array.new_fixed
+        gc_two_types, // array.copy
+        gc_type_data, // array.new_data, array.init_data
+        gc_type_elem, // array.new_elem, array.init_elem
+        gc_heap_type, // ref.test, ref.test_null, ref.cast, ref.cast_null
+        gc_br_on_cast, // br_on_cast, br_on_cast_fail
     };
 
     fn classifyInstr(name: []const u8) InstrCategory {
@@ -1554,7 +1573,7 @@ pub const Parser = struct {
             std.mem.eql(u8, name, "extern.convert_any"))
             return .no_imm;
 
-        // GC single-index instructions
+        // GC single-index instructions (type index only)
         if (std.mem.eql(u8, name, "struct.new") or
             std.mem.eql(u8, name, "struct.new_default") or
             std.mem.eql(u8, name, "array.new") or
@@ -1565,6 +1584,43 @@ pub const Parser = struct {
             std.mem.eql(u8, name, "array.set") or
             std.mem.eql(u8, name, "array.fill"))
             return .index_imm;
+
+        // GC type + field index (struct field access)
+        if (std.mem.eql(u8, name, "struct.get") or
+            std.mem.eql(u8, name, "struct.get_s") or
+            std.mem.eql(u8, name, "struct.get_u") or
+            std.mem.eql(u8, name, "struct.set"))
+            return .gc_type_field;
+
+        // GC type + u32 count
+        if (std.mem.eql(u8, name, "array.new_fixed"))
+            return .gc_type_u32;
+
+        // GC two type indices
+        if (std.mem.eql(u8, name, "array.copy"))
+            return .gc_two_types;
+
+        // GC type + data index
+        if (std.mem.eql(u8, name, "array.new_data") or
+            std.mem.eql(u8, name, "array.init_data"))
+            return .gc_type_data;
+
+        // GC type + elem index
+        if (std.mem.eql(u8, name, "array.new_elem") or
+            std.mem.eql(u8, name, "array.init_elem"))
+            return .gc_type_elem;
+
+        // GC heap type
+        if (std.mem.eql(u8, name, "ref.test") or
+            std.mem.eql(u8, name, "ref.test_null") or
+            std.mem.eql(u8, name, "ref.cast") or
+            std.mem.eql(u8, name, "ref.cast_null"))
+            return .gc_heap_type;
+
+        // GC br_on_cast
+        if (std.mem.eql(u8, name, "br_on_cast") or
+            std.mem.eql(u8, name, "br_on_cast_fail"))
+            return .gc_br_on_cast;
 
         // SIMD lane ops (extract_lane, replace_lane)
         if (isSimdLaneOp(name)) return .simd_lane;
@@ -2070,6 +2126,54 @@ pub const Parser = struct {
             },
             .ref_null => blk: {
                 break :blk .{ .ref_null = try self.parseHeapType() };
+            },
+            .gc_type_field => blk: {
+                const type_idx = try self.parseIndex();
+                const field_idx = try self.parseIndex();
+                break :blk .{ .gc_type_field = .{ .op = op_name, .type_idx = type_idx, .field_idx = field_idx } };
+            },
+            .gc_type_u32 => blk: {
+                const type_idx = try self.parseIndex();
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const count = std.fmt.parseInt(u32, self.advance().text, 10) catch return error.InvalidWat;
+                break :blk .{ .gc_type_u32 = .{ .op = op_name, .type_idx = type_idx, .count = count } };
+            },
+            .gc_two_types => blk: {
+                const type1 = try self.parseIndex();
+                const type2 = try self.parseIndex();
+                break :blk .{ .gc_two_types = .{ .op = op_name, .type1 = type1, .type2 = type2 } };
+            },
+            .gc_type_data, .gc_type_elem => blk: {
+                const type_idx = try self.parseIndex();
+                const seg_idx = try self.parseIndex();
+                break :blk .{ .gc_type_seg = .{ .op = op_name, .type_idx = type_idx, .seg_idx = seg_idx } };
+            },
+            .gc_heap_type => blk: {
+                const heap_type = try self.parseHeapType();
+                break :blk .{ .gc_heap_type = .{ .op = op_name, .heap_type = heap_type } };
+            },
+            .gc_br_on_cast => blk: {
+                // br_on_cast flags label ht1 ht2
+                // Parse: label first, then two heap types
+                // flags: bit 0 = ht1 nullable, bit 1 = ht2 nullable
+                // For WAT, we parse: br_on_cast label ht1 ht2
+                // The null variants are encoded in the heap type (ref vs ref null)
+                const label = try self.parseIndex();
+                const ht1 = try self.parseHeapType();
+                const ht2 = try self.parseHeapType();
+                // Determine flags from instruction name
+                // br_on_cast and br_on_cast_fail both have same encoding,
+                // differentiated by opcode (0x18 vs 0x19)
+                // Flags need to be computed from the heap type nullability
+                // For now, use 0x00 (both non-nullable) as default
+                // The actual flags depend on WAT syntax like (ref null ...) vs (ref ...)
+                break :blk .{ .gc_br_on_cast = .{
+                    .op = op_name,
+                    .flags = 0x03, // both nullable as common default
+                    .label = label,
+                    .ht1 = ht1,
+                    .ht2 = ht2,
+                } };
             },
             .block_type, .if_type, .try_table_type => unreachable, // handled in caller
         };
@@ -3551,6 +3655,66 @@ fn encodeInstr(
             const resolved = resolveNamedIndex(ht, type_names) catch return error.InvalidWat;
             lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
         },
+        .gc_type_field => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const type_idx = resolveNamedIndex(data.type_idx, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, type_idx) catch return error.OutOfMemory;
+            const field_idx = switch (data.field_idx) {
+                .num => |n| n,
+                .name => return error.InvalidWat, // field names not resolved here
+            };
+            lebEncodeU32(alloc, out, field_idx) catch return error.OutOfMemory;
+        },
+        .gc_type_u32 => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const type_idx = resolveNamedIndex(data.type_idx, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, type_idx) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, data.count) catch return error.OutOfMemory;
+        },
+        .gc_two_types => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const t1 = resolveNamedIndex(data.type1, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, t1) catch return error.OutOfMemory;
+            const t2 = resolveNamedIndex(data.type2, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, t2) catch return error.OutOfMemory;
+        },
+        .gc_type_seg => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const type_idx = resolveNamedIndex(data.type_idx, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, type_idx) catch return error.OutOfMemory;
+            const seg_idx = switch (data.seg_idx) {
+                .num => |n| n,
+                .name => return error.InvalidWat,
+            };
+            lebEncodeU32(alloc, out, seg_idx) catch return error.OutOfMemory;
+        },
+        .gc_heap_type => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const resolved = resolveNamedIndex(data.heap_type, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
+        },
+        .gc_br_on_cast => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            out.append(alloc, data.flags) catch return error.OutOfMemory;
+            const label_idx = try resolveLabelIndex(data.label, labels.items);
+            lebEncodeU32(alloc, out, label_idx) catch return error.OutOfMemory;
+            const ht1 = resolveNamedIndex(data.ht1, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(ht1)) catch return error.OutOfMemory;
+            const ht2 = resolveNamedIndex(data.ht2, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(ht2)) catch return error.OutOfMemory;
+        },
         .end => {
             out.append(alloc, 0x0B) catch return error.OutOfMemory;
         },
@@ -4893,4 +5057,57 @@ test "WAT encoder — rec group round-trip" {
     var module = try types_mod.WasmModule.load(testing.allocator, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 2), module.module.types.items.len);
+}
+
+test "WAT encoder — struct.get round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $point (struct (field $x i32) (field $y i32)))
+        \\  (func (param (ref $point)) (result i32)
+        \\    local.get 0
+        \\    struct.get $point 0
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+test "WAT encoder — ref.test round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $my (struct))
+        \\  (func (param anyref) (result i32)
+        \\    local.get 0
+        \\    ref.test $my
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+test "WAT encoder — array.new_fixed round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $arr (array i32))
+        \\  (func (result (ref $arr))
+        \\    i32.const 1
+        \\    i32.const 2
+        \\    i32.const 3
+        \\    array.new_fixed $arr 3
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
 }

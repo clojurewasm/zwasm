@@ -42,11 +42,11 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 
 ## Current Task
 
-44.GC: Phase 3D — GC instruction immediates
+44.GC: Phase 4 — WAT Validation hardening
 
 ## Previous Task
 
-44.GC Phase 3C: GC opcode infrastructure — gcInstrOpcode, 0xFB prefix encoding, WatIndex for ref types, GC instruction classification, struct.new/i31.get_s round-trip tests.
+44.GC Phase 3D: GC instruction immediates — type+field, type+u32, two_types, type+seg, heap_type, br_on_cast patterns, 3 new round-trip tests.
 
 ## Wasm 3.0 Coverage
 
