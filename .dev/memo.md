@@ -33,7 +33,7 @@ See `private/roadmap-production.md` Phase 39 for full detail.
 
 - [x] 39.1: SSG setup: mdBook, deployed to GitHub Pages
 - [x] 39.2: Getting Started (install, run first module, 5-minute guide)
-- [ ] 39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline)
+- [x] 39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline)
 - [ ] 39.4: Embedding Guide (Zig library usage, allocator control, error handling)
 - [ ] 39.5: CLI Reference (all commands, flags, examples)
 - [ ] 39.6: Wasm Spec Coverage table (1.0/2.0/3.0, proposal status, spec level)
@@ -46,11 +46,11 @@ See `private/roadmap-production.md` Phase 39 for full detail.
 
 ## Current Task
 
-39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline).
+39.4: Embedding Guide (Zig library usage, allocator control, error handling).
 
 ## Previous Task
 
-39.2: Getting Started guide — install, WAT example, WASI, inspect, validate, library usage.
+39.3: Architecture overview — pipeline diagram, source map, register IR, JIT, instantiation.
 
 ## Wasm 3.0 Coverage
 
