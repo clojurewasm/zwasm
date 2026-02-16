@@ -4,8 +4,8 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-33 — ALL COMPLETE (Wasm 3.0 + GC + WASI P1 + CM + JIT + Fuzz)
-- Source: ~38K LOC, 23 files, 425 unit tests all pass
+- Stages 0-34 — ALL COMPLETE (Wasm 3.0 + GC + WASI P1 + CM + JIT + Fuzz + TypeRegistry)
+- Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
 - Spec: 62,158/62,158 Mac + Ubuntu (100.0%). GC+EH integrated, threads 310/310, E2E: 356/356
@@ -22,22 +22,27 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-33 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-34 — all COMPLETE. See `roadmap.md` for details.
 
-## Task Queue (Stage 33: Fuzz Testing)
+## Task Queue (Stage 35: Crash Hardening)
 
-- [x] 33.0: Fuzz harness for wasm module loader (std.testing.fuzz + standalone binary)
-- [x] 33.1: Seed corpus + fuzz runner script (198 seeds, 1000 iterations 0 crashes)
-- [x] 33.2: Differential testing harness (zwasm vs wasmtime) + fix branchTo panic
-- [x] 33.3: Extended fuzz campaign + fix tail-call label bug + loadWithFuel API
+See `private/roadmap-production.md` Phase 35 for full detail.
+
+- [ ] 35.1: Expand fuzz corpus with wasm-tools smith-generated modules (1000+)
+- [ ] 35.2: Structure-aware fuzzing: valid-but-tricky module generator
+- [ ] 35.3: Phase-separate fuzzing: decoder, validator, predecode, regalloc as independent targets
+- [ ] 35.4: Extended fuzz campaign: 24h+ continuous run, 0 crashes
+- [ ] 35.5: Audit all `unreachable` in non-test paths — convert to error returns or prove unreachability
+- [ ] 35.6: Audit all `@intCast` — verify no negative-value panics
+- [ ] 35.7: Resource limit enforcement: nesting depth, section count, type count
 
 ## Current Task
 
-Global type registry complete. Ready for merge gate.
+Stage 35: Crash Hardening — start with 35.1 (expand fuzz corpus).
 
 ## Previous Task
 
-34: Global TypeRegistry for cross-module call_indirect. Store-level hash consing of rec groups (6 commits). Fixed 15 E2E test failures (13 call_indirect + 2 table_copy_on_imported_tables). Removed module-local canonical system.
+34: Global TypeRegistry for cross-module call_indirect. Store-level hash consing of rec groups (7 commits). Fixed 15 E2E test failures (13 call_indirect + 2 table_copy_on_imported_tables). Removed module-local canonical system. Merged to main.
 
 ## Wasm 3.0 Coverage
 
@@ -52,6 +57,7 @@ None. Mac 62,158/62,158 (100%), Ubuntu 62,158/62,158 (100%). Zero failures.
 
 .dev/ docs: roadmap.md, decisions.md, checklist.md, spec-support.md,
 bench-strategy.md, profile-analysis.md, jit-debugging.md, references/wasm-spec.md
+**Production roadmap**: private/roadmap-production.md (Stages 35+ detail)
 Proposals: .dev/status/proposals.yaml, .dev/references/proposals/, .dev/references/repo-catalog.yaml
 Ubuntu x86_64: .dev/ubuntu-x86_64.md (gitignored — SSH commands, tools, JIT debug)
 External: wasmtime (~/Documents/OSS/wasmtime/), zware (~/Documents/OSS/zware/)

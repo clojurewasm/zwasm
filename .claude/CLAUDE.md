@@ -1,7 +1,7 @@
 # zwasm
 
 Standalone Zig WebAssembly runtime — library AND CLI tool.
-Zig 0.15.2. Memo: `.dev/memo.md`. Roadmap: `.dev/roadmap.md`.
+Zig 0.15.2. Memo: `.dev/memo.md`. Roadmap: `.dev/roadmap.md` + `private/roadmap-production.md`.
 
 ## Language Policy
 
@@ -64,7 +64,7 @@ Lazy load: roadmap.md, decisions.md, checklist.md, bench-strategy.md (only when 
 **2. Plan**
 
 1. Write task design in `## Current Task` (approach, key files)
-2. Check `roadmap.md` and `.dev/checklist.md` for context
+2. Check `roadmap.md` (+ `private/roadmap-production.md` for Stages 35+) and `.dev/checklist.md` for context
 
 **3. Execute**
 
@@ -103,7 +103,7 @@ Lazy load: roadmap.md, decisions.md, checklist.md, bench-strategy.md (only when 
 ### When to Stop
 
 See `.dev/memo.md` for task queue and current state.
-See `.dev/roadmap.md` for stage order and future plans.
+See `.dev/roadmap.md` for stage overview. See `private/roadmap-production.md` for Stages 35+ detail.
 Do NOT stop between tasks within a stage.
 
 Stop **only** when:
@@ -124,8 +124,8 @@ When in doubt, **continue** — pick the most reasonable option and proceed.
 
 Run before every commit:
 
-0. **TDD**: Test written/updated BEFORE production code in this commit
-1. **Tests**: `zig build test` passes
+0. **TDD**: Test written/updated BEFORE production code in this commit (skip for doc-only/CI/config commits)
+1. **Tests**: `zig build test` passes (skip for doc-only commits that don't touch src/)
 2. **Spec tests**: `python3 test/spec/run_spec.py --build --summary` — REQUIRED when modifying
    vm.zig, predecode.zig, regalloc.zig, opcode.zig, module.zig, wasi.zig
    (`--build` auto-builds ReleaseSafe; use `--debug-build` for Debug investigation)
@@ -135,7 +135,7 @@ Run before every commit:
 4. **Size guard**: Binary ≤ 1.5MB, memory ≤ 4.5MB (fib benchmark RSS).
    Binary: `zig build -Doptimize=ReleaseSafe && ls -l zig-out/bin/zwasm`
    Memory: fib mem_mb from `bash bench/compare_runtimes.sh --bench=fib --rt=zwasm --quick`
-   Fail if either exceeds limit. Current baseline: 1.1MB / 3.3MB.
+   Fail if either exceeds limit. Current baseline: 1.28MB / 3.57MB.
 5. **decisions.md**: D## entry for architectural decisions (D100+)
 6. **checklist.md**: Resolve/add W## items
 7. **spec-support.md**: Update when implementing opcodes or WASI syscalls

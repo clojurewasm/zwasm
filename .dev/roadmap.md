@@ -40,6 +40,7 @@ All development on feature branches; merge to main requires CW verification.
 | 27-31 | Platform + Spec + Perf + GC   | threads 310/310, GC 2-4x wasmtime       |
 | 32    | Spec Failure Cleanup          | 62,158/62,158 (100.0%) both platforms   |
 | 33    | Fuzz Testing                  | Diff testing, 10K+ iterations, 0 crashes |
+| 34    | Global Type Registry          | Store-level hash consing, 15 E2E fixes  |
 
 ## v0.3.0 Roadmap (COMPLETE)
 
@@ -121,7 +122,25 @@ Spec failure targets (103 remaining as of 28.2, now 11):
 
 All exit criteria met. v0.3.0 ready.
 
-## Future (post v0.3.0)
+## Production Readiness Roadmap (Stages 35+)
+
+Detailed plan: `private/roadmap-production.md`
+
+| Phase | Name | Tier |
+|-------|------|------|
+| 35 | Crash Hardening | 1: Harden |
+| 36 | Security Audit & Hardening | 1: Harden |
+| 37 | Error System Maturity | 1: Harden |
+| 38 | CI/CD Strengthening | 2: Quality |
+| 39 | Documentation & Book | 2: Quality |
+| 40 | API Stabilization | 2: Quality |
+| 41 | Distribution | 3: Ecosystem |
+| 42 | Community Preparation | 3: Ecosystem |
+| 43 | v1.0.0 Release | 3: Ecosystem |
+| 44 | Advanced Optimization | 4: Future |
+| 45 | Ecosystem Expansion | 4: Future |
+
+## Future (post v1.0)
 
 - WASI P2 full interface coverage
 - WASI P3 / async
