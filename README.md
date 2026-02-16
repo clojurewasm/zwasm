@@ -25,7 +25,7 @@ zwasm was extracted from [ClojureWasm](https://github.com/niclas-ahden/ClojureWa
 - **100% spec conformance**: 62,158/62,158 spec tests passing (Mac + Ubuntu)
 - **All Wasm 3.0 proposals**: See [Spec Coverage](#wasm-spec-coverage) below
 - **Component Model**: WIT parser, Canonical ABI, component linking, WASI P2 adapter
-- **WAT support**: `zwasm run file.wat`, build-time optional (`-Dwat=false`)
+- **WAT support**: `zwasm file.wat`, build-time optional (`-Dwat=false`)
 - **WASI Preview 1 + 2**: 46/46 P1 syscalls (100%), P2 via component adapter
 - **Threads**: Shared memory, 79 atomic operations (load/store/RMW/cmpxchg), wait/notify
 - **Security**: Deny-by-default WASI, capability flags, resource limits
@@ -84,12 +84,11 @@ brew install clojurewasm/tap/zwasm
 ### CLI
 
 ```bash
-zwasm run module.wasm                     # Run a WASI module
-zwasm run module.wasm -- arg1 arg2        # With arguments
-zwasm run module.wat                      # Run a WAT text module
-zwasm run --invoke fib math.wasm 35       # Call a specific function
-zwasm run math.wasm --invoke fib 35       # Same (options after file)
-zwasm run component.wasm                  # Run a component (auto-detected)
+zwasm module.wasm                         # Run a WASI module (run is optional)
+zwasm module.wasm -- arg1 arg2            # With arguments
+zwasm module.wat                          # Run a WAT text module
+zwasm module.wasm --invoke fib 35         # Call a specific function
+zwasm run module.wasm --allow-all         # Explicit run subcommand also works
 zwasm inspect module.wasm                 # Show exports, imports, memory
 zwasm validate module.wasm                # Validate without running
 zwasm features                            # List supported proposals
@@ -116,23 +115,24 @@ See [docs/usage.md](docs/usage.md) for detailed library and CLI documentation.
 
 ### WAT examples (`examples/wat/`)
 
-25 educational WAT files covering Wasm MVP through 3.0:
+33 numbered educational WAT files, ordered from simple to advanced:
 
-| Category | Examples |
-|----------|----------|
-| Basics | `hello_add`, `factorial`, `fibonacci`, `collatz`, `is_prime`, `bubble_sort` |
-| Stack & control | `stack_machine`, `select`, `br_table`, `multi_return`, `mutual_recursion` |
-| Memory | `memory`, `data_string` |
-| Types & values | `counter` (globals), `bitwise`, `i64_math`, `float_math`, `type_convert`, `sign_extend` |
-| Wasm 2.0 | `multi_value` (multiple returns) |
-| Wasm 3.0 | `return_call` (tail calls), `extended_const` |
-| WASI | `wasi_hello` (stdout), `wasi_echo` (stdin→stdout), `wasi_write_file` (file I/O) |
+| # | Category | Examples |
+|---|----------|----------|
+| 01-09 | Basics | `hello_add`, `if_else`, `loop`, `factorial`, `fibonacci`, `select`, `collatz`, `stack_machine`, `counter` |
+| 10-15 | Types | `i64_math`, `float_math`, `bitwise`, `type_convert`, `sign_extend`, `saturating_trunc` |
+| 16-19 | Memory | `memory`, `data_string`, `grow_memory`, `bulk_memory` |
+| 20-24 | Functions | `multi_return`, `multi_value`, `br_table`, `mutual_recursion`, `call_indirect` |
+| 25-26 | Wasm 3.0 | `return_call` (tail calls), `extended_const` |
+| 27-29 | Algorithms | `bubble_sort`, `is_prime`, `simd_add` |
+| 30-33 | WASI | `wasi_hello`, `wasi_echo`, `wasi_args`, `wasi_write_file` |
 
 Each file includes a run command in its header comment:
 
 ```bash
-zwasm run --invoke fib examples/wat/fibonacci.wat 10    # → 55
-zwasm run --allow-all examples/wat/wasi_hello.wat       # → Hi!
+zwasm examples/wat/01_hello_add.wat --invoke add 2 3   # → 5
+zwasm examples/wat/05_fibonacci.wat --invoke fib 10    # → 55
+zwasm examples/wat/30_wasi_hello.wat --allow-all       # → Hi!
 ```
 
 ### Zig embedding examples (`examples/zig/`)

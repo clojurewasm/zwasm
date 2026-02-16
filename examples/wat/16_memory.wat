@@ -1,6 +1,6 @@
 ;; Linear memory: store and load values.
 ;;
-;; Run: zwasm run --invoke sum_array examples/wat/memory.wat 5
+;; Run: zwasm run examples/wat/16_memory.wat --invoke sum_array 5
 ;; Output: 15
 ;; (Stores 1..n into memory then sums them.)
 (module

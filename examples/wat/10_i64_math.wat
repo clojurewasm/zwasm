@@ -1,8 +1,8 @@
 ;; 64-bit integer arithmetic.
 ;;
-;; Run: zwasm run --invoke pow examples/wat/i64_math.wat 2 32
+;; Run: zwasm run examples/wat/10_i64_math.wat --invoke pow 2 32
 ;; Output: 4294967296
-;; Run: zwasm run --invoke gcd examples/wat/i64_math.wat 48 18
+;; Run: zwasm run examples/wat/10_i64_math.wat --invoke gcd 48 18
 ;; Output: 6
 (module
   ;; Integer exponentiation: base^exp (iterative).

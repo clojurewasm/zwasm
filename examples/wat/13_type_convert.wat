@@ -1,8 +1,8 @@
 ;; Type conversions between i32, i64, and f64.
 ;;
-;; Run: zwasm run --invoke widen examples/wat/type_convert.wat 42
+;; Run: zwasm run examples/wat/13_type_convert.wat --invoke widen 42
 ;; Output: 42
-;; Run: zwasm run --invoke narrow examples/wat/type_convert.wat 100
+;; Run: zwasm run examples/wat/13_type_convert.wat --invoke narrow 100
 ;; Output: 100
 (module
   ;; i32 → i64 (sign-extend).

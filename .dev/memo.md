@@ -42,11 +42,11 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 
 ## Current Task
 
-43.8: Awaiting fuzz results and user go-ahead for tag.
+44.GC: Complete. All 4 phases done. Merge gate next.
 
 ## Previous Task
 
-43.4: Ubuntu x86_64 verification — unit + spec PASS.
+44.GC Phase 4: WAT validation hardening — recursion depth limit (1000), 8 validation tests for malformed WAT input.
 
 ## Wasm 3.0 Coverage
 

@@ -1,6 +1,6 @@
 ;; WASI: write a message to a file.
 ;;
-;; Run: zwasm run --allow-all --dir /tmp examples/wat/wasi_write_file.wat
+;; Run: zwasm examples/wat/33_wasi_write_file.wat --allow-all --dir /tmp
 ;; Output: (creates /tmp/zwasm.txt)
 ;; Verify: cat /tmp/zwasm.txt → "OK"
 (module

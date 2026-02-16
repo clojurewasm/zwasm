@@ -1,8 +1,8 @@
 ;; Multi-value: functions returning multiple values (Wasm 2.0).
 ;;
-;; Run: zwasm run --invoke swap examples/wat/multi_value.wat 10 20
+;; Run: zwasm run examples/wat/21_multi_value.wat --invoke swap 10 20
 ;; Output: 20 10
-;; Run: zwasm run --invoke divmod examples/wat/multi_value.wat 17 5
+;; Run: zwasm run examples/wat/21_multi_value.wat --invoke divmod 17 5
 ;; Output: 3 2
 (module
   ;; Swap two values.

@@ -4,8 +4,8 @@
 //! zwasm CLI — run, inspect, and validate WebAssembly modules.
 //!
 //! Usage:
-//!   zwasm run <file.wasm|.wat> [args...]
-//!   zwasm run --invoke <func> <file.wasm|.wat> [i32:N ...]
+//!   zwasm <file.wasm|.wat> [args...]
+//!   zwasm run <file.wasm|.wat> --invoke <func> [args...]
 //!   zwasm inspect <file.wasm|.wat>
 //!   zwasm validate <file.wasm|.wat>
 
@@ -68,6 +68,11 @@ pub fn main() !void {
         printUsage(stdout);
     } else if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "version")) {
         try stdout.print("zwasm {s}\n", .{build_options.version});
+    } else if (std.mem.endsWith(u8, command, ".wasm") or std.mem.endsWith(u8, command, ".wat")) {
+        // zwasm file.wasm ... → shorthand for zwasm run file.wasm ...
+        const ok = try cmdRun(allocator, args[1..], stdout, stderr);
+        try stdout.flush();
+        if (!ok) std.process.exit(1);
     } else {
         try stderr.print("error: unknown command '{s}'\n", .{command});
         try stderr.flush();
@@ -81,7 +86,7 @@ fn printUsage(w: *std.Io.Writer) void {
         \\zwasm — Zig WebAssembly Runtime
         \\
         \\Usage:
-        \\  zwasm run [options] <file.wasm|.wat> [args...]
+        \\  zwasm <file.wasm|.wat> [options] [args...]
         \\  zwasm run <file.wasm|.wat> [options] [args...]
         \\  zwasm inspect [--json] <file.wasm|.wat>
         \\  zwasm validate <file.wasm|.wat>
@@ -245,12 +250,19 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             func_args_start = i + 1;
             break;
         } else if (args[i].len > 0 and args[i][0] == '-') {
+            // After file path, negative numbers are function args
+            if (wasm_path != null and args[i].len > 1 and
+                (args[i][1] >= '0' and args[i][1] <= '9' or args[i][1] == '.'))
+            {
+                func_args_start = i;
+                break;
+            }
             try stderr.print("error: unknown option '{s}'\n", .{args[i]});
             try stderr.flush();
             return false;
         } else {
             if (wasm_path != null) {
-                // Second positional arg — start of function/WASI args
+                // After file path: remaining args are function/WASI args
                 func_args_start = i;
                 break;
             }
@@ -402,23 +414,50 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         module.vm.max_memory_bytes = max_memory_bytes;
         module.vm.fuel = fuel;
 
-        // Parse function arguments as u64
+        // Lookup export info for type-aware parsing and validation
+        const export_info = module.getExportInfo(func_name);
         const func_args_slice = args[func_args_start..];
+
+        // Validate argument count if type info is available
+        if (export_info) |info| {
+            if (func_args_slice.len != info.param_types.len) {
+                try stderr.print("error: '{s}' expects {d} argument{s}, got {d}\n", .{
+                    func_name,
+                    info.param_types.len,
+                    if (info.param_types.len != 1) "s" else "",
+                    func_args_slice.len,
+                });
+                try stderr.flush();
+                return false;
+            }
+        }
+
+        // Parse function arguments using type info
         const wasm_args = try allocator.alloc(u64, func_args_slice.len);
         defer allocator.free(wasm_args);
 
         for (func_args_slice, 0..) |arg, idx| {
-            wasm_args[idx] = std.fmt.parseInt(u64, arg, 10) catch {
-                try stderr.print("error: invalid argument '{s}' (expected integer)\n", .{arg});
+            const param_type: ?types.WasmValType = if (export_info) |info|
+                (if (idx < info.param_types.len) info.param_types[idx] else null)
+            else
+                null;
+            wasm_args[idx] = parseWasmArg(arg, param_type) catch {
+                const type_name: []const u8 = if (param_type) |pt| switch (pt) {
+                    .i32 => "i32",
+                    .i64 => "i64",
+                    .f32 => "f32",
+                    .f64 => "f64",
+                    else => "integer",
+                } else "number";
+                try stderr.print("error: invalid argument '{s}' (expected {s})\n", .{ arg, type_name });
                 try stderr.flush();
                 return false;
             };
         }
 
-        // Determine result count and types from export info
+        // Determine result count from export info
         // v128 results use 2 u64 slots each
         var result_count: usize = 1;
-        const export_info = module.getExportInfo(func_name);
         if (export_info) |info| {
             result_count = 0;
             for (info.result_types) |rt| {
@@ -437,7 +476,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             return false;
         };
 
-        // Print results (truncate 32-bit types to u32, v128 as two u64)
+        // Print results with type-aware formatting
         if (export_info) |info| {
             var ridx: usize = 0;
             for (info.result_types, 0..) |rt, tidx| {
@@ -446,18 +485,14 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                     try stdout.print("{d} {d}", .{ results[ridx], results[ridx + 1] });
                     ridx += 2;
                 } else {
-                    const val = switch (rt) {
-                        .i32, .f32 => results[ridx] & 0xFFFFFFFF,
-                        else => results[ridx],
-                    };
-                    try stdout.print("{d}", .{val});
+                    try formatWasmResult(stdout, results[ridx], rt);
                     ridx += 1;
                 }
             }
         } else {
             for (results, 0..) |r, idx| {
                 if (idx > 0) try stdout.print(" ", .{});
-                try stdout.print("{d}", .{r});
+                try formatWasmResult(stdout, r, null);
             }
         }
         if (results.len > 0) try stdout.print("\n", .{});
@@ -1923,6 +1958,155 @@ fn formatWasmError(err: anyerror) []const u8 {
         error.InvalidWat => "invalid WAT syntax",
         else => @errorName(err),
     };
+}
+
+/// Parse a CLI argument string into a u64 Wasm value, guided by the expected type.
+/// For i32/i64: parse as signed integer, then bitcast to unsigned.
+/// For f32/f64: parse as float, then bitcast to unsigned.
+/// For unknown/ref types: try signed integer first, then float.
+fn parseWasmArg(arg: []const u8, val_type: ?types.WasmValType) error{InvalidArg}!u64 {
+    if (val_type) |vt| {
+        switch (vt) {
+            .i32 => {
+                const v = std.fmt.parseInt(i32, arg, 10) catch return error.InvalidArg;
+                return @as(u64, @as(u32, @bitCast(v)));
+            },
+            .i64 => {
+                const v = std.fmt.parseInt(i64, arg, 10) catch return error.InvalidArg;
+                return @bitCast(v);
+            },
+            .f32 => {
+                const v = std.fmt.parseFloat(f32, arg) catch return error.InvalidArg;
+                return @as(u64, @as(u32, @bitCast(v)));
+            },
+            .f64 => {
+                const v = std.fmt.parseFloat(f64, arg) catch return error.InvalidArg;
+                return @bitCast(v);
+            },
+            else => {
+                // funcref/externref/v128: try integer
+                return std.fmt.parseInt(u64, arg, 10) catch return error.InvalidArg;
+            },
+        }
+    }
+    // No type info: heuristic — try signed i64, then f64
+    if (std.fmt.parseInt(i64, arg, 10)) |v| {
+        return @bitCast(v);
+    } else |_| {}
+    if (std.fmt.parseFloat(f64, arg)) |v| {
+        return @bitCast(v);
+    } else |_| {}
+    return error.InvalidArg;
+}
+
+/// Format a Wasm result u64 value to the writer, guided by the expected type.
+fn formatWasmResult(writer: anytype, val: u64, val_type: ?types.WasmValType) !void {
+    if (val_type) |vt| {
+        switch (vt) {
+            .i32 => {
+                const v: i32 = @bitCast(@as(u32, @truncate(val)));
+                try writer.print("{d}", .{v});
+                return;
+            },
+            .i64 => {
+                const v: i64 = @bitCast(val);
+                try writer.print("{d}", .{v});
+                return;
+            },
+            .f32 => {
+                const v: f32 = @bitCast(@as(u32, @truncate(val)));
+                try writer.print("{d}", .{v});
+                return;
+            },
+            .f64 => {
+                const v: f64 = @bitCast(val);
+                try writer.print("{d}", .{v});
+                return;
+            },
+            else => {},
+        }
+    }
+    // Fallback: raw u64
+    try writer.print("{d}", .{val});
+}
+
+test "parseWasmArg — i32 negative" {
+    const result = try parseWasmArg("-5", .i32);
+    // -5 as i32 = 0xFFFFFFFB, stored as u64 = 4294967291
+    const back: i32 = @bitCast(@as(u32, @truncate(result)));
+    try std.testing.expectEqual(@as(i32, -5), back);
+}
+
+test "parseWasmArg — i64 negative" {
+    const result = try parseWasmArg("-1", .i64);
+    const back: i64 = @bitCast(result);
+    try std.testing.expectEqual(@as(i64, -1), back);
+}
+
+test "parseWasmArg — f32" {
+    const result = try parseWasmArg("3.14", .f32);
+    const back: f32 = @bitCast(@as(u32, @truncate(result)));
+    try std.testing.expectApproxEqAbs(@as(f32, 3.14), back, 0.001);
+}
+
+test "parseWasmArg — f64" {
+    const result = try parseWasmArg("2.718281828", .f64);
+    const back: f64 = @bitCast(result);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.718281828), back, 0.000001);
+}
+
+test "parseWasmArg — heuristic integer" {
+    const result = try parseWasmArg("-42", null);
+    const back: i64 = @bitCast(result);
+    try std.testing.expectEqual(@as(i64, -42), back);
+}
+
+test "parseWasmArg — heuristic float" {
+    const result = try parseWasmArg("1.5", null);
+    const back: f64 = @bitCast(result);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), back, 0.001);
+}
+
+test "parseWasmArg — invalid" {
+    try std.testing.expectError(error.InvalidArg, parseWasmArg("abc", .i32));
+}
+
+test "formatWasmResult — i32 negative" {
+    var buf: [64]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const val: u64 = @as(u32, @bitCast(@as(i32, -1)));
+    try formatWasmResult(fbs.writer(), val, .i32);
+    try std.testing.expectEqualStrings("-1", fbs.getWritten());
+}
+
+test "formatWasmResult — i64 negative" {
+    var buf: [64]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const val: u64 = @bitCast(@as(i64, -1));
+    try formatWasmResult(fbs.writer(), val, .i64);
+    try std.testing.expectEqualStrings("-1", fbs.getWritten());
+}
+
+test "formatWasmResult — f32" {
+    var buf: [64]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const val: u64 = @as(u32, @bitCast(@as(f32, 3.14)));
+    try formatWasmResult(fbs.writer(), val, .f32);
+    const written = fbs.getWritten();
+    // Should contain "3.14" approximately
+    try std.testing.expect(written.len > 0);
+    const f = try std.fmt.parseFloat(f64, written);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.14), f, 0.01);
+}
+
+test "formatWasmResult — f64" {
+    var buf: [64]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const val: u64 = @bitCast(@as(f64, 2.718281828));
+    try formatWasmResult(fbs.writer(), val, .f64);
+    const written = fbs.getWritten();
+    const f = try std.fmt.parseFloat(f64, written);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.718281828), f, 0.000001);
 }
 
 test "component detection in CLI" {

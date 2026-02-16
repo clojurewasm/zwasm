@@ -11,7 +11,10 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open items
 
-None currently. All W2-W29 resolved as of Stage 34 (62,158/62,158 spec, 356/356 E2E).
+- [ ] W30: WAT parser: 0xFB GC prefix opcodes (ref.cast, struct.new, array.new, etc.)
+  require complex type annotation parsing (`(ref $T)`, heap types). Deferred post-v1.0.0.
+- [ ] W31: WAT parser: input validation hardening — prevent panics/crashes from invalid WAT.
+  Binary .wasm path has validation; WAT path needs equivalent checks before execution.
 
 ## Resolved items (summary, details in git history)
 

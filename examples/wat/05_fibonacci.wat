@@ -1,6 +1,6 @@
 ;; Recursive Fibonacci.
 ;;
-;; Run: zwasm run --invoke fib examples/wat/fibonacci.wat 10
+;; Run: zwasm run examples/wat/05_fibonacci.wat --invoke fib 10
 ;; Output: 55
 (module
   (func $fib (export "fib") (param $n i32) (result i32)

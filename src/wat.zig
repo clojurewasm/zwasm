@@ -9,6 +9,9 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const SimdOpcode = @import("opcode.zig").SimdOpcode;
+const MiscOpcode = @import("opcode.zig").MiscOpcode;
+const AtomicOpcode = @import("opcode.zig").AtomicOpcode;
+const GcOpcode = @import("opcode.zig").GcOpcode;
 const Allocator = std.mem.Allocator;
 
 pub const WatError = error{
@@ -249,7 +252,7 @@ pub const WatIndex = union(enum) {
     name: []const u8,
 };
 
-pub const WatValType = enum {
+pub const WatValType = union(enum) {
     i32,
     i64,
     f32,
@@ -258,11 +261,52 @@ pub const WatValType = enum {
     funcref,
     externref,
     exnref,
+    // GC abstract heap type abbreviations (nullable)
+    anyref,
+    eqref,
+    i31ref,
+    structref,
+    arrayref,
+    nullref,
+    nullfuncref,
+    nullexternref,
+    // Typed references (payload = heap type index or name, resolved at encoding)
+    ref_type: WatIndex, // (ref $T) non-nullable
+    ref_null_type: WatIndex, // (ref null $T) nullable
+
+    pub fn eql(a: WatValType, b: WatValType) bool {
+        const tag_a = std.meta.activeTag(a);
+        const tag_b = std.meta.activeTag(b);
+        if (tag_a != tag_b) return false;
+        return switch (a) {
+            .ref_type => |v| std.meta.eql(v, b.ref_type),
+            .ref_null_type => |v| std.meta.eql(v, b.ref_null_type),
+            else => true, // tag-only variants are equal if tags match
+        };
+    }
 };
 
 pub const WatFuncType = struct {
     params: []WatValType,
     results: []WatValType,
+};
+
+pub const WatFieldType = struct {
+    name: ?[]const u8,
+    valtype: WatValType,
+    mutable: bool,
+};
+
+pub const WatCompositeType = union(enum) {
+    func: WatFuncType,
+    struct_type: struct { fields: []WatFieldType },
+    array_type: struct { field: WatFieldType },
+};
+
+pub const WatTypeDef = struct {
+    name: ?[]const u8 = null,
+    composite: WatCompositeType,
+    rec_count: u32 = 0, // >0 on first type in a rec group
 };
 
 pub const WatParam = struct {
@@ -286,6 +330,10 @@ pub const WatInstr = union(enum) {
     f32_const: f32,
     f64_const: f64,
     v128_const: [16]u8,
+    // SIMD lane operations (extract_lane, replace_lane)
+    simd_lane: struct { op: []const u8, lane: u8 },
+    // SIMD load/store lane operations (memarg + lane)
+    simd_mem_lane: struct { op: []const u8, mem_arg: MemArg, lane: u8 },
     // Memory operations (load/store)
     mem_op: struct { op: []const u8, mem_arg: MemArg },
     // Block/loop
@@ -298,9 +346,43 @@ pub const WatInstr = union(enum) {
     call_indirect: struct { type_use: ?WatIndex, table_idx: u32 },
     // select with type
     select_t: []WatValType,
+    // try_table with catch clauses
+    try_table: struct {
+        label: ?[]const u8,
+        block_type: ?WatValType,
+        catches: []CatchClause,
+        body: []WatInstr,
+    },
+    // ref.null <heaptype>
+    ref_null: WatIndex, // heap type constant or type index
+    // GC: type_idx + field_idx (struct.get, struct.set, etc.)
+    gc_type_field: struct { op: []const u8, type_idx: WatIndex, field_idx: WatIndex },
+    // GC: type_idx + u32 (array.new_fixed)
+    gc_type_u32: struct { op: []const u8, type_idx: WatIndex, count: u32 },
+    // GC: two type indices (array.copy)
+    gc_two_types: struct { op: []const u8, type1: WatIndex, type2: WatIndex },
+    // GC: type_idx + data/elem index (array.new_data, array.init_data, etc.)
+    gc_type_seg: struct { op: []const u8, type_idx: WatIndex, seg_idx: WatIndex },
+    // GC: heap type immediate (ref.test, ref.cast, etc.)
+    gc_heap_type: struct { op: []const u8, heap_type: WatIndex },
+    // GC: br_on_cast / br_on_cast_fail
+    gc_br_on_cast: struct { op: []const u8, flags: u8, label: WatIndex, ht1: WatIndex, ht2: WatIndex },
     // end / else markers (for flat instruction sequences)
     end,
     @"else",
+
+    pub const CatchClause = struct {
+        kind: CatchKind,
+        tag_idx: ?WatIndex, // for catch/catch_ref
+        label: WatIndex,
+    };
+
+    pub const CatchKind = enum(u8) {
+        @"catch" = 0,
+        catch_ref = 1,
+        catch_all = 2,
+        catch_all_ref = 3,
+    };
 };
 
 pub const WatFunc = struct {
@@ -316,6 +398,7 @@ pub const WatFunc = struct {
 pub const WatLimits = struct {
     min: u64,
     max: ?u64,
+    shared: bool = false,
 };
 
 pub const WatMemory = struct {
@@ -355,6 +438,10 @@ pub const WatImportKind = union(enum) {
         reftype: WatValType,
     },
     global: WatGlobalType,
+    tag: struct {
+        type_use: ?WatIndex,
+        params: []WatParam,
+    },
 };
 
 pub const WatImport = struct {
@@ -364,11 +451,19 @@ pub const WatImport = struct {
     kind: WatImportKind,
 };
 
+pub const WatTag = struct {
+    name: ?[]const u8,
+    type_use: ?WatIndex,
+    params: []WatParam,
+    export_name: ?[]const u8,
+};
+
 pub const WatExportKind = enum {
     func,
     memory,
     table,
     global,
+    tag,
 };
 
 pub const WatExport = struct {
@@ -377,9 +472,29 @@ pub const WatExport = struct {
     index: WatIndex,
 };
 
+pub const WatDataMode = enum {
+    active, // has offset expression, placed in memory at instantiation
+    passive, // no offset, used with memory.init
+};
+
+pub const WatData = struct {
+    name: ?[]const u8,
+    memory_idx: WatIndex,
+    mode: WatDataMode,
+    offset: []WatInstr, // offset expression (active only)
+    bytes: []const u8, // decoded byte content
+};
+
+pub const WatElem = struct {
+    name: ?[]const u8,
+    table_idx: WatIndex,
+    offset: []WatInstr,
+    func_indices: []WatIndex,
+};
+
 pub const WatModule = struct {
     name: ?[]const u8,
-    types: []WatFuncType,
+    types: []WatTypeDef,
     imports: []WatImport,
     functions: []WatFunc,
     memories: []WatMemory,
@@ -387,6 +502,9 @@ pub const WatModule = struct {
     globals: []WatGlobal,
     exports: []WatExport,
     start: ?WatIndex,
+    data: []WatData,
+    elements: []WatElem,
+    tags: []WatTag,
 };
 
 // ============================================================
@@ -397,6 +515,9 @@ pub const Parser = struct {
     tok: Tokenizer,
     alloc: Allocator,
     current: Token,
+    depth: u32 = 0,
+
+    const max_depth: u32 = 1000;
 
     pub fn init(alloc: Allocator, source: []const u8) Parser {
         var tok = Tokenizer.init(source);
@@ -431,7 +552,7 @@ pub const Parser = struct {
             mod_name = self.advance().text;
         }
 
-        var types: std.ArrayListUnmanaged(WatFuncType) = .empty;
+        var types: std.ArrayListUnmanaged(WatTypeDef) = .empty;
         var imports: std.ArrayListUnmanaged(WatImport) = .empty;
         var functions: std.ArrayListUnmanaged(WatFunc) = .empty;
         var memories: std.ArrayListUnmanaged(WatMemory) = .empty;
@@ -439,6 +560,9 @@ pub const Parser = struct {
         var globals: std.ArrayListUnmanaged(WatGlobal) = .empty;
         var exports: std.ArrayListUnmanaged(WatExport) = .empty;
         var start: ?WatIndex = null;
+        var data_segments: std.ArrayListUnmanaged(WatData) = .empty;
+        var elem_segments: std.ArrayListUnmanaged(WatElem) = .empty;
+        var tags: std.ArrayListUnmanaged(WatTag) = .empty;
 
         while (self.current.tag != .rparen and self.current.tag != .eof) {
             if (self.current.tag != .lparen) return error.InvalidWat;
@@ -450,6 +574,30 @@ pub const Parser = struct {
             if (std.mem.eql(u8, section, "type")) {
                 _ = self.advance();
                 types.append(self.alloc, try self.parseTypeDef()) catch return error.OutOfMemory;
+            } else if (std.mem.eql(u8, section, "rec")) {
+                _ = self.advance();
+                // (rec (type ...) (type ...) ...)
+                // Mark start of rec group, parse contained types
+                const rec_start: u32 = @intCast(types.items.len);
+                while (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance(); // consume (
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "type")) {
+                        _ = self.advance(); // consume "type"
+                        types.append(self.alloc, try self.parseTypeDef()) catch return error.OutOfMemory;
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    }
+                }
+                const rec_count: u32 = @intCast(types.items.len - rec_start);
+                // Mark the first type in the rec group with rec_count
+                if (rec_count > 0) {
+                    types.items[rec_start].rec_count = rec_count;
+                }
+                _ = try self.expect(.rparen); // close (rec ...)
             } else if (std.mem.eql(u8, section, "func")) {
                 _ = self.advance();
                 const func = try self.parseFunc(&exports);
@@ -474,6 +622,15 @@ pub const Parser = struct {
                 _ = self.advance();
                 start = try self.parseIndex();
                 _ = try self.expect(.rparen);
+            } else if (std.mem.eql(u8, section, "data")) {
+                _ = self.advance();
+                data_segments.append(self.alloc, try self.parseData()) catch return error.OutOfMemory;
+            } else if (std.mem.eql(u8, section, "elem")) {
+                _ = self.advance();
+                elem_segments.append(self.alloc, try self.parseElem()) catch return error.OutOfMemory;
+            } else if (std.mem.eql(u8, section, "tag")) {
+                _ = self.advance();
+                tags.append(self.alloc, try self.parseTag(&exports)) catch return error.OutOfMemory;
             } else {
                 // Skip unknown sections
                 try self.skipSExpr();
@@ -492,6 +649,9 @@ pub const Parser = struct {
             .globals = globals.items,
             .exports = exports.items,
             .start = start,
+            .data = data_segments.items,
+            .elements = elem_segments.items,
+            .tags = tags.items,
         };
     }
 
@@ -508,6 +668,10 @@ pub const Parser = struct {
     }
 
     fn parseValType(self: *Parser) WatError!WatValType {
+        // (ref ...) or (ref null ...) — starts with lparen
+        if (self.current.tag == .lparen) {
+            return self.parseRefType();
+        }
         if (self.current.tag != .keyword) return error.InvalidWat;
         const text = self.advance().text;
         if (std.mem.eql(u8, text, "i32")) return .i32;
@@ -518,34 +682,127 @@ pub const Parser = struct {
         if (std.mem.eql(u8, text, "funcref")) return .funcref;
         if (std.mem.eql(u8, text, "externref")) return .externref;
         if (std.mem.eql(u8, text, "exnref")) return .exnref;
+        // GC abbreviations
+        if (std.mem.eql(u8, text, "anyref")) return .anyref;
+        if (std.mem.eql(u8, text, "eqref")) return .eqref;
+        if (std.mem.eql(u8, text, "i31ref")) return .i31ref;
+        if (std.mem.eql(u8, text, "structref")) return .structref;
+        if (std.mem.eql(u8, text, "arrayref")) return .arrayref;
+        if (std.mem.eql(u8, text, "nullref")) return .nullref;
+        if (std.mem.eql(u8, text, "nullfuncref")) return .nullfuncref;
+        if (std.mem.eql(u8, text, "nullexternref")) return .nullexternref;
         return error.InvalidWat;
     }
 
-    fn parseTypeDef(self: *Parser) WatError!WatFuncType {
-        // (type $name? (func (param ...) (result ...)))
+    fn parseHeapType(self: *Parser) WatError!WatIndex {
+        const opcode = @import("opcode.zig");
+        if (self.current.tag == .keyword) {
+            const text = self.advance().text;
+            if (std.mem.eql(u8, text, "func")) return .{ .num = opcode.ValType.HEAP_FUNC };
+            if (std.mem.eql(u8, text, "extern")) return .{ .num = opcode.ValType.HEAP_EXTERN };
+            if (std.mem.eql(u8, text, "any")) return .{ .num = opcode.ValType.HEAP_ANY };
+            if (std.mem.eql(u8, text, "eq")) return .{ .num = opcode.ValType.HEAP_EQ };
+            if (std.mem.eql(u8, text, "i31")) return .{ .num = opcode.ValType.HEAP_I31 };
+            if (std.mem.eql(u8, text, "struct")) return .{ .num = opcode.ValType.HEAP_STRUCT };
+            if (std.mem.eql(u8, text, "array")) return .{ .num = opcode.ValType.HEAP_ARRAY };
+            if (std.mem.eql(u8, text, "none")) return .{ .num = opcode.ValType.HEAP_NONE };
+            if (std.mem.eql(u8, text, "nofunc")) return .{ .num = opcode.ValType.HEAP_NOFUNC };
+            if (std.mem.eql(u8, text, "noextern")) return .{ .num = opcode.ValType.HEAP_NOEXTERN };
+            if (std.mem.eql(u8, text, "exn")) return .{ .num = opcode.ValType.HEAP_EXN };
+            if (std.mem.eql(u8, text, "noexn")) return .{ .num = opcode.ValType.HEAP_NOEXN };
+            return error.InvalidWat;
+        }
+        if (self.current.tag == .integer) {
+            const text = self.advance().text;
+            const n = std.fmt.parseInt(u32, text, 10) catch return error.InvalidWat;
+            return .{ .num = n };
+        }
+        if (self.current.tag == .ident) {
+            return .{ .name = self.advance().text };
+        }
+        return error.InvalidWat;
+    }
+
+    fn parseRefType(self: *Parser) WatError!WatValType {
+        // (ref $T) or (ref null $T)
+        _ = try self.expect(.lparen); // consume (
+        try self.expectKeyword("ref");
+
+        var nullable = false;
+        if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "null")) {
+            _ = self.advance();
+            nullable = true;
+        }
+
+        const heap_type = try self.parseHeapType();
+        _ = try self.expect(.rparen);
+        return if (nullable) .{ .ref_null_type = heap_type } else .{ .ref_type = heap_type };
+    }
+
+    fn parseTypeDef(self: *Parser) WatError!WatTypeDef {
+        // (type $name? (func|struct|array ...))
         // We've already consumed "type"
-        if (self.current.tag == .ident) _ = self.advance(); // skip optional $name
+        var type_name: ?[]const u8 = null;
+        if (self.current.tag == .ident) type_name = self.advance().text;
 
         _ = try self.expect(.lparen);
-        try self.expectKeyword("func");
 
+        if (self.current.tag != .keyword) return error.InvalidWat;
+        const composite_kw = self.current.text;
+
+        if (std.mem.eql(u8, composite_kw, "func")) {
+            _ = self.advance(); // consume "func"
+            const ft = try self.parseFuncSig();
+            _ = try self.expect(.rparen); // close (func ...)
+            _ = try self.expect(.rparen); // close (type ...)
+            return .{ .name = type_name, .composite = .{ .func = ft } };
+        } else if (std.mem.eql(u8, composite_kw, "struct")) {
+            _ = self.advance(); // consume "struct"
+            var fields: std.ArrayListUnmanaged(WatFieldType) = .empty;
+            while (self.current.tag == .lparen) {
+                const saved_pos = self.tok.pos;
+                const saved_current = self.current;
+                _ = self.advance(); // consume (
+                if (self.current.tag != .keyword or !std.mem.eql(u8, self.current.text, "field")) {
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                    break;
+                }
+                _ = self.advance(); // consume "field"
+                fields.append(self.alloc, try self.parseFieldType()) catch return error.OutOfMemory;
+                _ = try self.expect(.rparen);
+            }
+            _ = try self.expect(.rparen); // close (struct ...)
+            _ = try self.expect(.rparen); // close (type ...)
+            return .{ .name = type_name, .composite = .{ .struct_type = .{ .fields = fields.items } } };
+        } else if (std.mem.eql(u8, composite_kw, "array")) {
+            _ = self.advance(); // consume "array"
+            const field = try self.parseFieldType();
+            _ = try self.expect(.rparen); // close (array ...)
+            _ = try self.expect(.rparen); // close (type ...)
+            return .{ .name = type_name, .composite = .{ .array_type = .{ .field = field } } };
+        } else {
+            return error.InvalidWat;
+        }
+    }
+
+    fn parseFuncSig(self: *Parser) WatError!WatFuncType {
+        // Parse (param ...) (result ...) sequences — reusable for type defs and inline sigs
         var params: std.ArrayListUnmanaged(WatValType) = .empty;
         var results: std.ArrayListUnmanaged(WatValType) = .empty;
 
         while (self.current.tag == .lparen) {
-            // Peek at the keyword after (
             const saved_pos = self.tok.pos;
             const saved_current = self.current;
             _ = self.advance(); // consume (
             if (self.current.tag != .keyword) {
-                // Restore and break
                 self.tok.pos = saved_pos;
                 self.current = saved_current;
                 break;
             }
             if (std.mem.eql(u8, self.current.text, "param")) {
                 _ = self.advance(); // consume "param"
-                while (self.current.tag == .keyword or self.current.tag == .ident) {
+                while (self.current.tag == .keyword or self.current.tag == .ident or self.current.tag == .lparen) {
                     if (self.current.tag == .ident) {
                         _ = self.advance(); // skip param name
                         params.append(self.alloc, try self.parseValType()) catch return error.OutOfMemory;
@@ -556,7 +813,7 @@ pub const Parser = struct {
                 _ = try self.expect(.rparen);
             } else if (std.mem.eql(u8, self.current.text, "result")) {
                 _ = self.advance(); // consume "result"
-                while (self.current.tag == .keyword) {
+                while (self.current.tag == .keyword or self.current.tag == .lparen) {
                     results.append(self.alloc, try self.parseValType()) catch return error.OutOfMemory;
                 }
                 _ = try self.expect(.rparen);
@@ -567,10 +824,32 @@ pub const Parser = struct {
             }
         }
 
-        _ = try self.expect(.rparen); // close (func ...)
-        _ = try self.expect(.rparen); // close (type ...)
-
         return .{ .params = params.items, .results = results.items };
+    }
+
+    fn parseFieldType(self: *Parser) WatError!WatFieldType {
+        // Parse: $name? (mut valtype) | valtype
+        var field_name: ?[]const u8 = null;
+        if (self.current.tag == .ident) field_name = self.advance().text;
+
+        if (self.current.tag == .lparen) {
+            // Check for (mut ...)
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance(); // consume (
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "mut")) {
+                _ = self.advance(); // consume "mut"
+                const vt = try self.parseValType();
+                _ = try self.expect(.rparen);
+                return .{ .name = field_name, .valtype = vt, .mutable = true };
+            }
+            // Not mut, restore
+            self.tok.pos = saved_pos;
+            self.current = saved_current;
+        }
+
+        const vt = try self.parseValType();
+        return .{ .name = field_name, .valtype = vt, .mutable = false };
     }
 
     fn parseFunc(self: *Parser, exports: *std.ArrayListUnmanaged(WatExport)) WatError!WatFunc {
@@ -613,7 +892,7 @@ pub const Parser = struct {
                     const vt = try self.parseValType();
                     params.append(self.alloc, .{ .name = pname, .valtype = vt }) catch return error.OutOfMemory;
                 } else {
-                    while (self.current.tag == .keyword) {
+                    while (self.current.tag == .keyword or self.current.tag == .lparen) {
                         const vt = try self.parseValType();
                         params.append(self.alloc, .{ .name = null, .valtype = vt }) catch return error.OutOfMemory;
                     }
@@ -621,7 +900,7 @@ pub const Parser = struct {
                 _ = try self.expect(.rparen);
             } else if (std.mem.eql(u8, self.current.text, "result")) {
                 _ = self.advance();
-                while (self.current.tag == .keyword) {
+                while (self.current.tag == .keyword or self.current.tag == .lparen) {
                     results.append(self.alloc, try self.parseValType()) catch return error.OutOfMemory;
                 }
                 _ = try self.expect(.rparen);
@@ -632,7 +911,7 @@ pub const Parser = struct {
                     const vt = try self.parseValType();
                     locals.append(self.alloc, .{ .name = lname, .valtype = vt }) catch return error.OutOfMemory;
                 } else {
-                    while (self.current.tag == .keyword) {
+                    while (self.current.tag == .keyword or self.current.tag == .lparen) {
                         const vt = try self.parseValType();
                         locals.append(self.alloc, .{ .name = null, .valtype = vt }) catch return error.OutOfMemory;
                     }
@@ -786,6 +1065,77 @@ pub const Parser = struct {
         };
     }
 
+    fn parseTag(self: *Parser, exports: *std.ArrayListUnmanaged(WatExport)) WatError!WatTag {
+        _ = exports;
+        var tag_name: ?[]const u8 = null;
+        var export_name: ?[]const u8 = null;
+
+        if (self.current.tag == .ident) {
+            tag_name = self.advance().text;
+        }
+
+        // Inline export
+        if (self.current.tag == .lparen) {
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance();
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "export")) {
+                _ = self.advance();
+                const name_tok = try self.expect(.string);
+                export_name = stripQuotes(name_tok.text);
+                _ = try self.expect(.rparen);
+            } else {
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+            }
+        }
+
+        // (type $t) or (param ...)
+        var type_use: ?WatIndex = null;
+        var params: std.ArrayListUnmanaged(WatParam) = .empty;
+        while (self.current.tag == .lparen) {
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance();
+            if (self.current.tag != .keyword) {
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+                break;
+            }
+            if (std.mem.eql(u8, self.current.text, "type")) {
+                _ = self.advance();
+                type_use = try self.parseIndex();
+                _ = try self.expect(.rparen);
+            } else if (std.mem.eql(u8, self.current.text, "param")) {
+                _ = self.advance();
+                if (self.current.tag == .ident) {
+                    const pname = self.advance().text;
+                    const vt = try self.parseValType();
+                    params.append(self.alloc, .{ .name = pname, .valtype = vt }) catch return error.OutOfMemory;
+                } else {
+                    while (self.current.tag == .keyword or self.current.tag == .lparen) {
+                        const vt = try self.parseValType();
+                        params.append(self.alloc, .{ .name = null, .valtype = vt }) catch return error.OutOfMemory;
+                    }
+                }
+                _ = try self.expect(.rparen);
+            } else {
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+                break;
+            }
+        }
+
+        _ = try self.expect(.rparen); // close (tag ...)
+
+        return .{
+            .name = tag_name,
+            .type_use = type_use,
+            .params = params.items,
+            .export_name = export_name,
+        };
+    }
+
     fn parseImport(self: *Parser) WatError!WatImport {
         // (import "module" "name" (func $id? (type $t)? (param ...)* (result ...)*))
         const mod_tok = try self.expect(.string);
@@ -827,7 +1177,7 @@ pub const Parser = struct {
                         const vt = try self.parseValType();
                         params.append(self.alloc, .{ .name = pname, .valtype = vt }) catch return error.OutOfMemory;
                     } else {
-                        while (self.current.tag == .keyword) {
+                        while (self.current.tag == .keyword or self.current.tag == .lparen) {
                             const vt = try self.parseValType();
                             params.append(self.alloc, .{ .name = null, .valtype = vt }) catch return error.OutOfMemory;
                         }
@@ -835,7 +1185,7 @@ pub const Parser = struct {
                     _ = try self.expect(.rparen);
                 } else if (std.mem.eql(u8, self.current.text, "result")) {
                     _ = self.advance();
-                    while (self.current.tag == .keyword) {
+                    while (self.current.tag == .keyword or self.current.tag == .lparen) {
                         results.append(self.alloc, try self.parseValType()) catch return error.OutOfMemory;
                     }
                     _ = try self.expect(.rparen);
@@ -863,6 +1213,42 @@ pub const Parser = struct {
             } else {
                 kind = .{ .global = .{ .valtype = try self.parseValType(), .mutable = false } };
             }
+        } else if (std.mem.eql(u8, kind_text, "tag")) {
+            var tag_type_use: ?WatIndex = null;
+            var tag_params: std.ArrayListUnmanaged(WatParam) = .empty;
+            while (self.current.tag == .lparen) {
+                const saved_pos = self.tok.pos;
+                const saved_current = self.current;
+                _ = self.advance();
+                if (self.current.tag != .keyword) {
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                    break;
+                }
+                if (std.mem.eql(u8, self.current.text, "type")) {
+                    _ = self.advance();
+                    tag_type_use = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                } else if (std.mem.eql(u8, self.current.text, "param")) {
+                    _ = self.advance();
+                    if (self.current.tag == .ident) {
+                        const pname = self.advance().text;
+                        const vt = try self.parseValType();
+                        tag_params.append(self.alloc, .{ .name = pname, .valtype = vt }) catch return error.OutOfMemory;
+                    } else {
+                        while (self.current.tag == .keyword or self.current.tag == .lparen) {
+                            const vt = try self.parseValType();
+                            tag_params.append(self.alloc, .{ .name = null, .valtype = vt }) catch return error.OutOfMemory;
+                        }
+                    }
+                    _ = try self.expect(.rparen);
+                } else {
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                    break;
+                }
+            }
+            kind = .{ .tag = .{ .type_use = tag_type_use, .params = tag_params.items } };
         } else {
             return error.InvalidWat;
         }
@@ -894,6 +1280,8 @@ pub const Parser = struct {
             .table
         else if (std.mem.eql(u8, kind_text, "global"))
             .global
+        else if (std.mem.eql(u8, kind_text, "tag"))
+            .tag
         else
             return error.InvalidWat;
 
@@ -908,6 +1296,174 @@ pub const Parser = struct {
         };
     }
 
+    /// Parse a data segment: (data $name? (memory $m)? (offset expr) "bytes"...)
+    /// or passive: (data $name? "bytes"...)
+    fn parseData(self: *Parser) WatError!WatData {
+        // Optional name
+        var name: ?[]const u8 = null;
+        if (self.current.tag == .ident) {
+            name = self.advance().text;
+        }
+
+        var memory_idx: WatIndex = .{ .num = 0 };
+        var mode: WatDataMode = .passive;
+        var offset_instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+
+        // Check for offset expression — either (memory ...) or (offset ...) or (i32.const ...)
+        if (self.current.tag == .lparen) {
+            // Peek ahead to see if this is an offset expression or inline memory
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance(); // consume (
+
+            if (self.current.tag == .keyword) {
+                const kw = self.current.text;
+                if (std.mem.eql(u8, kw, "memory")) {
+                    // (memory $m) — explicit memory index
+                    _ = self.advance();
+                    memory_idx = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                    // Now parse offset expression
+                    if (self.current.tag == .lparen) {
+                        _ = self.advance();
+                        try self.parseOffsetExpr(&offset_instrs);
+                    } else return error.InvalidWat;
+                    mode = .active;
+                } else if (std.mem.eql(u8, kw, "offset")) {
+                    // (offset expr)
+                    _ = self.advance();
+                    while (self.current.tag != .rparen) {
+                        try self.parsePlainInstr(&offset_instrs);
+                    }
+                    _ = try self.expect(.rparen);
+                    mode = .active;
+                } else if (std.mem.eql(u8, kw, "i32.const") or
+                    std.mem.eql(u8, kw, "i64.const") or
+                    std.mem.eql(u8, kw, "global.get"))
+                {
+                    // Shorthand: (i32.const N) as offset expression
+                    try self.parsePlainInstr(&offset_instrs);
+                    _ = try self.expect(.rparen);
+                    mode = .active;
+                } else {
+                    // Not an offset expression — restore and treat as passive
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                }
+            } else {
+                // Not a keyword after ( — restore
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+            }
+        }
+
+        // Parse string literals (concatenated)
+        var bytes: std.ArrayListUnmanaged(u8) = .empty;
+        while (self.current.tag == .string) {
+            const str_tok = self.advance();
+            const decoded = decodeWatString(self.alloc, stripQuotes(str_tok.text)) catch return error.OutOfMemory;
+            bytes.appendSlice(self.alloc, decoded) catch return error.OutOfMemory;
+        }
+
+        _ = try self.expect(.rparen); // close (data ...)
+
+        return .{
+            .name = name,
+            .memory_idx = memory_idx,
+            .mode = mode,
+            .offset = offset_instrs.items,
+            .bytes = bytes.items,
+        };
+    }
+
+    /// Helper to parse an offset expression that starts after the opening (
+    fn parseOffsetExpr(self: *Parser, instrs: *std.ArrayListUnmanaged(WatInstr)) WatError!void {
+        if (self.current.tag == .keyword) {
+            const kw = self.current.text;
+            if (std.mem.eql(u8, kw, "offset")) {
+                _ = self.advance();
+                while (self.current.tag != .rparen) {
+                    try self.parsePlainInstr(instrs);
+                }
+                _ = try self.expect(.rparen);
+            } else {
+                // Shorthand expression like (i32.const N)
+                try self.parsePlainInstr(instrs);
+                _ = try self.expect(.rparen);
+            }
+        } else return error.InvalidWat;
+    }
+
+    /// Parse an elem segment: (elem $name? (table $t)? (offset expr) func $f...)
+    fn parseElem(self: *Parser) WatError!WatElem {
+        // Optional name
+        var name: ?[]const u8 = null;
+        if (self.current.tag == .ident) {
+            name = self.advance().text;
+        }
+
+        var table_idx: WatIndex = .{ .num = 0 };
+        var offset_instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+
+        // Check for (table ...) or offset expression
+        if (self.current.tag == .lparen) {
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
+            _ = self.advance(); // consume (
+
+            if (self.current.tag == .keyword) {
+                const kw = self.current.text;
+                if (std.mem.eql(u8, kw, "table")) {
+                    // (table $t)
+                    _ = self.advance();
+                    table_idx = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                    // Now parse offset expression
+                    if (self.current.tag == .lparen) {
+                        _ = self.advance();
+                        try self.parseOffsetExpr(&offset_instrs);
+                    } else return error.InvalidWat;
+                } else if (std.mem.eql(u8, kw, "offset")) {
+                    _ = self.advance();
+                    while (self.current.tag != .rparen) {
+                        try self.parsePlainInstr(&offset_instrs);
+                    }
+                    _ = try self.expect(.rparen);
+                } else if (std.mem.eql(u8, kw, "i32.const") or
+                    std.mem.eql(u8, kw, "i64.const") or
+                    std.mem.eql(u8, kw, "global.get"))
+                {
+                    try self.parsePlainInstr(&offset_instrs);
+                    _ = try self.expect(.rparen);
+                } else {
+                    self.tok.pos = saved_pos;
+                    self.current = saved_current;
+                }
+            } else {
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+            }
+        }
+
+        // Parse "func" keyword then function indices
+        var func_indices: std.ArrayListUnmanaged(WatIndex) = .empty;
+        if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "func")) {
+            _ = self.advance(); // consume "func"
+        }
+        while (self.current.tag == .integer or self.current.tag == .ident) {
+            func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
+        }
+
+        _ = try self.expect(.rparen); // close (elem ...)
+
+        return .{
+            .name = name,
+            .table_idx = table_idx,
+            .offset = offset_instrs.items,
+            .func_indices = func_indices.items,
+        };
+    }
+
     fn parseLimits(self: *Parser) WatError!WatLimits {
         if (self.current.tag != .integer) return error.InvalidWat;
         const min_text = self.advance().text;
@@ -919,7 +1475,14 @@ pub const Parser = struct {
             max = std.fmt.parseInt(u64, max_text, 10) catch return error.InvalidWat;
         }
 
-        return .{ .min = min, .max = max };
+        var shared = false;
+        if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "shared")) {
+            _ = self.advance();
+            if (max == null) return error.InvalidWat; // shared requires max
+            shared = true;
+        }
+
+        return .{ .min = min, .max = max, .shared = shared };
     }
 
     // ============================================================
@@ -938,9 +1501,20 @@ pub const Parser = struct {
         mem_imm, // i32.load, i32.store, etc.
         block_type, // block, loop
         if_type, // if
+        try_table_type, // try_table
+        simd_lane, // extract_lane, replace_lane
+        simd_mem_lane, // v128.load*_lane, v128.store*_lane
         br_table,
         call_indirect,
         select_t,
+        ref_null, // ref.null <heaptype>
+        gc_type_field, // struct.get, struct.get_s, struct.get_u, struct.set
+        gc_type_u32, // array.new_fixed
+        gc_two_types, // array.copy
+        gc_type_data, // array.new_data, array.init_data
+        gc_type_elem, // array.new_elem, array.init_elem
+        gc_heap_type, // ref.test, ref.test_null, ref.cast, ref.cast_null
+        gc_br_on_cast, // br_on_cast, br_on_cast_fail
     };
 
     fn classifyInstr(name: []const u8) InstrCategory {
@@ -955,12 +1529,14 @@ pub const Parser = struct {
         if (std.mem.eql(u8, name, "block")) return .block_type;
         if (std.mem.eql(u8, name, "loop")) return .block_type;
         if (std.mem.eql(u8, name, "if")) return .if_type;
+        if (std.mem.eql(u8, name, "try_table")) return .try_table_type;
 
         // Special control
         if (std.mem.eql(u8, name, "br_table")) return .br_table;
         if (std.mem.eql(u8, name, "call_indirect")) return .call_indirect;
         if (std.mem.eql(u8, name, "return_call_indirect")) return .call_indirect;
         if (std.mem.eql(u8, name, "select")) return .no_imm;
+        if (std.mem.eql(u8, name, "ref.null")) return .ref_null;
 
         // Index instructions
         if (std.mem.eql(u8, name, "local.get") or
@@ -980,8 +1556,89 @@ pub const Parser = struct {
             std.mem.eql(u8, name, "table.fill") or
             std.mem.eql(u8, name, "throw") or
             std.mem.eql(u8, name, "memory.size") or
-            std.mem.eql(u8, name, "memory.grow"))
+            std.mem.eql(u8, name, "memory.grow") or
+            std.mem.eql(u8, name, "data.drop") or
+            std.mem.eql(u8, name, "elem.drop") or
+            std.mem.eql(u8, name, "memory.init") or
+            std.mem.eql(u8, name, "table.init") or
+            std.mem.eql(u8, name, "call_ref") or
+            std.mem.eql(u8, name, "return_call_ref") or
+            std.mem.eql(u8, name, "br_on_null") or
+            std.mem.eql(u8, name, "br_on_non_null"))
             return .index_imm;
+
+        // GC no-immediate instructions
+        if (std.mem.eql(u8, name, "array.len") or
+            std.mem.eql(u8, name, "ref.i31") or
+            std.mem.eql(u8, name, "i31.get_s") or
+            std.mem.eql(u8, name, "i31.get_u") or
+            std.mem.eql(u8, name, "any.convert_extern") or
+            std.mem.eql(u8, name, "extern.convert_any"))
+            return .no_imm;
+
+        // GC single-index instructions (type index only)
+        if (std.mem.eql(u8, name, "struct.new") or
+            std.mem.eql(u8, name, "struct.new_default") or
+            std.mem.eql(u8, name, "array.new") or
+            std.mem.eql(u8, name, "array.new_default") or
+            std.mem.eql(u8, name, "array.get") or
+            std.mem.eql(u8, name, "array.get_s") or
+            std.mem.eql(u8, name, "array.get_u") or
+            std.mem.eql(u8, name, "array.set") or
+            std.mem.eql(u8, name, "array.fill"))
+            return .index_imm;
+
+        // GC type + field index (struct field access)
+        if (std.mem.eql(u8, name, "struct.get") or
+            std.mem.eql(u8, name, "struct.get_s") or
+            std.mem.eql(u8, name, "struct.get_u") or
+            std.mem.eql(u8, name, "struct.set"))
+            return .gc_type_field;
+
+        // GC type + u32 count
+        if (std.mem.eql(u8, name, "array.new_fixed"))
+            return .gc_type_u32;
+
+        // GC two type indices
+        if (std.mem.eql(u8, name, "array.copy"))
+            return .gc_two_types;
+
+        // GC type + data index
+        if (std.mem.eql(u8, name, "array.new_data") or
+            std.mem.eql(u8, name, "array.init_data"))
+            return .gc_type_data;
+
+        // GC type + elem index
+        if (std.mem.eql(u8, name, "array.new_elem") or
+            std.mem.eql(u8, name, "array.init_elem"))
+            return .gc_type_elem;
+
+        // GC heap type
+        if (std.mem.eql(u8, name, "ref.test") or
+            std.mem.eql(u8, name, "ref.test_null") or
+            std.mem.eql(u8, name, "ref.cast") or
+            std.mem.eql(u8, name, "ref.cast_null"))
+            return .gc_heap_type;
+
+        // GC br_on_cast
+        if (std.mem.eql(u8, name, "br_on_cast") or
+            std.mem.eql(u8, name, "br_on_cast_fail"))
+            return .gc_br_on_cast;
+
+        // SIMD lane ops (extract_lane, replace_lane)
+        if (isSimdLaneOp(name)) return .simd_lane;
+
+        // SIMD load/store lane ops
+        if (isSimdMemLaneOp(name)) return .simd_mem_lane;
+
+        // Atomic memory ops (all take memarg except atomic.fence)
+        if (std.mem.indexOf(u8, name, ".atomic.") != null)
+            return .mem_imm;
+
+        // SIMD memory ops (v128.load*, v128.store — NOT lane variants)
+        if ((std.mem.startsWith(u8, name, "v128.load") or std.mem.startsWith(u8, name, "v128.store")) and
+            !isSimdMemLaneOp(name))
+            return .mem_imm;
 
         // Memory load/store
         if (isMemoryOp(name)) return .mem_imm;
@@ -998,6 +1655,32 @@ pub const Parser = struct {
         for (prefixes) |prefix| {
             if (std.mem.eql(u8, name, prefix)) return true;
             if (name.len > prefix.len and std.mem.startsWith(u8, name, prefix)) return true;
+        }
+        return false;
+    }
+
+    fn isSimdLaneOp(name: []const u8) bool {
+        const ops = [_][]const u8{
+            "i8x16.extract_lane_s", "i8x16.extract_lane_u", "i8x16.replace_lane",
+            "i16x8.extract_lane_s", "i16x8.extract_lane_u", "i16x8.replace_lane",
+            "i32x4.extract_lane", "i32x4.replace_lane",
+            "i64x2.extract_lane", "i64x2.replace_lane",
+            "f32x4.extract_lane", "f32x4.replace_lane",
+            "f64x2.extract_lane", "f64x2.replace_lane",
+        };
+        for (ops) |op| {
+            if (std.mem.eql(u8, name, op)) return true;
+        }
+        return false;
+    }
+
+    fn isSimdMemLaneOp(name: []const u8) bool {
+        const ops = [_][]const u8{
+            "v128.load8_lane",  "v128.load16_lane",  "v128.load32_lane",  "v128.load64_lane",
+            "v128.store8_lane", "v128.store16_lane", "v128.store32_lane", "v128.store64_lane",
+        };
+        for (ops) |op| {
+            if (std.mem.eql(u8, name, op)) return true;
         }
         return false;
     }
@@ -1026,6 +1709,10 @@ pub const Parser = struct {
     /// (op folded-args... plain-args...)
     /// Unfolded: inner args first, then outer op.
     fn parseFoldedInstr(self: *Parser, instrs: *std.ArrayListUnmanaged(WatInstr)) WatError!void {
+        self.depth += 1;
+        defer self.depth -= 1;
+        if (self.depth > max_depth) return error.InvalidWat;
+
         _ = self.advance(); // consume (
 
         if (self.current.tag != .keyword) return error.InvalidWat;
@@ -1057,6 +1744,72 @@ pub const Parser = struct {
                     .op = op_name,
                     .label = label,
                     .block_type = block_type,
+                    .body = body,
+                } }) catch return error.OutOfMemory;
+            },
+            .try_table_type => {
+                // try_table $label? (result type)? (catch tag $label)* body end
+                var label: ?[]const u8 = null;
+                var block_type: ?WatValType = null;
+                if (self.current.tag == .ident) label = self.advance().text;
+                // Parse optional (result type)
+                if (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "result")) {
+                        _ = self.advance();
+                        block_type = try self.parseValType();
+                        _ = try self.expect(.rparen);
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                    }
+                }
+                // Parse catch clauses
+                var catches: std.ArrayListUnmanaged(WatInstr.CatchClause) = .empty;
+                while (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag != .keyword) {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    }
+                    const catch_kw = self.current.text;
+                    const kind: WatInstr.CatchKind = if (std.mem.eql(u8, catch_kw, "catch"))
+                        .@"catch"
+                    else if (std.mem.eql(u8, catch_kw, "catch_ref"))
+                        .catch_ref
+                    else if (std.mem.eql(u8, catch_kw, "catch_all"))
+                        .catch_all
+                    else if (std.mem.eql(u8, catch_kw, "catch_all_ref"))
+                        .catch_all_ref
+                    else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    };
+                    _ = self.advance(); // consume catch keyword
+                    var tag_idx: ?WatIndex = null;
+                    if (kind == .@"catch" or kind == .catch_ref) {
+                        tag_idx = try self.parseIndex();
+                    }
+                    const catch_label = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                    catches.append(self.alloc, .{
+                        .kind = kind,
+                        .tag_idx = tag_idx,
+                        .label = catch_label,
+                    }) catch return error.OutOfMemory;
+                }
+                const body = try self.parseInstrList();
+                _ = try self.expect(.rparen);
+                instrs.append(self.alloc, .{ .try_table = .{
+                    .label = label,
+                    .block_type = block_type,
+                    .catches = catches.items,
                     .body = body,
                 } }) catch return error.OutOfMemory;
             },
@@ -1232,6 +1985,70 @@ pub const Parser = struct {
                     .else_body = else_body,
                 } }) catch return error.OutOfMemory;
             },
+            .try_table_type => {
+                // try_table $label? (result type)? (catch ...)* body end
+                var label: ?[]const u8 = null;
+                var block_type: ?WatValType = null;
+                if (self.current.tag == .ident) label = self.advance().text;
+                if (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "result")) {
+                        _ = self.advance();
+                        block_type = try self.parseValType();
+                        _ = try self.expect(.rparen);
+                    } else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                    }
+                }
+                // Parse catch clauses
+                var catches: std.ArrayListUnmanaged(WatInstr.CatchClause) = .empty;
+                while (self.current.tag == .lparen) {
+                    const saved_pos = self.tok.pos;
+                    const saved_current = self.current;
+                    _ = self.advance();
+                    if (self.current.tag != .keyword) {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    }
+                    const catch_kw = self.current.text;
+                    const kind: WatInstr.CatchKind = if (std.mem.eql(u8, catch_kw, "catch"))
+                        .@"catch"
+                    else if (std.mem.eql(u8, catch_kw, "catch_ref"))
+                        .catch_ref
+                    else if (std.mem.eql(u8, catch_kw, "catch_all"))
+                        .catch_all
+                    else if (std.mem.eql(u8, catch_kw, "catch_all_ref"))
+                        .catch_all_ref
+                    else {
+                        self.tok.pos = saved_pos;
+                        self.current = saved_current;
+                        break;
+                    };
+                    _ = self.advance();
+                    var tag_idx: ?WatIndex = null;
+                    if (kind == .@"catch" or kind == .catch_ref) {
+                        tag_idx = try self.parseIndex();
+                    }
+                    const catch_label = try self.parseIndex();
+                    _ = try self.expect(.rparen);
+                    catches.append(self.alloc, .{
+                        .kind = kind,
+                        .tag_idx = tag_idx,
+                        .label = catch_label,
+                    }) catch return error.OutOfMemory;
+                }
+                const body = try self.parseBlockBody();
+                instrs.append(self.alloc, .{ .try_table = .{
+                    .label = label,
+                    .block_type = block_type,
+                    .catches = catches.items,
+                    .body = body,
+                } }) catch return error.OutOfMemory;
+            },
             else => {
                 try self.emitInstr(instrs, op_name, cat);
             },
@@ -1242,13 +2059,37 @@ pub const Parser = struct {
     fn emitInstr(self: *Parser, instrs: *std.ArrayListUnmanaged(WatInstr), op_name: []const u8, cat: InstrCategory) WatError!void {
         const instr: WatInstr = switch (cat) {
             .no_imm => .{ .simple = op_name },
-            .index_imm => .{ .index_op = .{ .op = op_name, .index = try self.parseIndex() } },
+            .index_imm => blk: {
+                // memory.size/memory.grow: index defaults to 0 when omitted
+                if (std.mem.eql(u8, op_name, "memory.size") or
+                    std.mem.eql(u8, op_name, "memory.grow"))
+                {
+                    if (self.current.tag == .integer or self.current.tag == .ident) {
+                        break :blk .{ .index_op = .{ .op = op_name, .index = try self.parseIndex() } };
+                    }
+                    break :blk .{ .index_op = .{ .op = op_name, .index = .{ .num = 0 } } };
+                }
+                break :blk .{ .index_op = .{ .op = op_name, .index = try self.parseIndex() } };
+            },
             .i32_const => .{ .i32_const = try self.parseI32() },
             .i64_const => .{ .i64_const = try self.parseI64() },
             .f32_const => .{ .f32_const = try self.parseF32() },
             .f64_const => .{ .f64_const = try self.parseF64() },
             .v128_const => .{ .v128_const = try self.parseV128Const() },
             .mem_imm => .{ .mem_op = .{ .op = op_name, .mem_arg = try self.parseMemArg() } },
+            .simd_lane => blk: {
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const lane_text = self.advance().text;
+                const lane = std.fmt.parseInt(u8, lane_text, 10) catch return error.InvalidWat;
+                break :blk .{ .simd_lane = .{ .op = op_name, .lane = lane } };
+            },
+            .simd_mem_lane => blk: {
+                const mem_arg = try self.parseMemArg();
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const lane_text = self.advance().text;
+                const lane = std.fmt.parseInt(u8, lane_text, 10) catch return error.InvalidWat;
+                break :blk .{ .simd_mem_lane = .{ .op = op_name, .mem_arg = mem_arg, .lane = lane } };
+            },
             .br_table => blk: {
                 var targets: std.ArrayListUnmanaged(WatIndex) = .empty;
                 while (self.current.tag == .integer or self.current.tag == .ident) {
@@ -1283,14 +2124,65 @@ pub const Parser = struct {
                 if (self.current.tag == .lparen) {
                     _ = self.advance();
                     try self.expectKeyword("result");
-                    while (self.current.tag == .keyword) {
+                    while (self.current.tag == .keyword or self.current.tag == .lparen) {
                         types.append(self.alloc, try self.parseValType()) catch return error.OutOfMemory;
                     }
                     _ = try self.expect(.rparen);
                 }
                 break :blk .{ .select_t = types.items };
             },
-            .block_type, .if_type => unreachable, // handled in caller
+            .ref_null => blk: {
+                break :blk .{ .ref_null = try self.parseHeapType() };
+            },
+            .gc_type_field => blk: {
+                const type_idx = try self.parseIndex();
+                const field_idx = try self.parseIndex();
+                break :blk .{ .gc_type_field = .{ .op = op_name, .type_idx = type_idx, .field_idx = field_idx } };
+            },
+            .gc_type_u32 => blk: {
+                const type_idx = try self.parseIndex();
+                if (self.current.tag != .integer) return error.InvalidWat;
+                const count = std.fmt.parseInt(u32, self.advance().text, 10) catch return error.InvalidWat;
+                break :blk .{ .gc_type_u32 = .{ .op = op_name, .type_idx = type_idx, .count = count } };
+            },
+            .gc_two_types => blk: {
+                const type1 = try self.parseIndex();
+                const type2 = try self.parseIndex();
+                break :blk .{ .gc_two_types = .{ .op = op_name, .type1 = type1, .type2 = type2 } };
+            },
+            .gc_type_data, .gc_type_elem => blk: {
+                const type_idx = try self.parseIndex();
+                const seg_idx = try self.parseIndex();
+                break :blk .{ .gc_type_seg = .{ .op = op_name, .type_idx = type_idx, .seg_idx = seg_idx } };
+            },
+            .gc_heap_type => blk: {
+                const heap_type = try self.parseHeapType();
+                break :blk .{ .gc_heap_type = .{ .op = op_name, .heap_type = heap_type } };
+            },
+            .gc_br_on_cast => blk: {
+                // br_on_cast flags label ht1 ht2
+                // Parse: label first, then two heap types
+                // flags: bit 0 = ht1 nullable, bit 1 = ht2 nullable
+                // For WAT, we parse: br_on_cast label ht1 ht2
+                // The null variants are encoded in the heap type (ref vs ref null)
+                const label = try self.parseIndex();
+                const ht1 = try self.parseHeapType();
+                const ht2 = try self.parseHeapType();
+                // Determine flags from instruction name
+                // br_on_cast and br_on_cast_fail both have same encoding,
+                // differentiated by opcode (0x18 vs 0x19)
+                // Flags need to be computed from the heap type nullability
+                // For now, use 0x00 (both non-nullable) as default
+                // The actual flags depend on WAT syntax like (ref null ...) vs (ref ...)
+                break :blk .{ .gc_br_on_cast = .{
+                    .op = op_name,
+                    .flags = 0x03, // both nullable as common default
+                    .label = label,
+                    .ht1 = ht1,
+                    .ht2 = ht2,
+                } };
+            },
+            .block_type, .if_type, .try_table_type => unreachable, // handled in caller
         };
         instrs.append(self.alloc, instr) catch return error.OutOfMemory;
     }
@@ -1501,18 +2393,23 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
     out.appendSlice(arena, &[_]u8{ 0x00, 0x61, 0x73, 0x6D }) catch return error.OutOfMemory;
     out.appendSlice(arena, &[_]u8{ 0x01, 0x00, 0x00, 0x00 }) catch return error.OutOfMemory;
 
-    // Collect all function types (explicit + synthesized from funcs/imports)
-    var all_types: std.ArrayListUnmanaged(WatFuncType) = .empty;
+    // Collect all types (explicit + synthesized from funcs/imports)
+    var all_types: std.ArrayListUnmanaged(WatTypeDef) = .empty;
     // Add explicit types
     for (module.types) |t| {
         all_types.append(arena, t) catch return error.OutOfMemory;
     }
 
     // Build name maps
+    var type_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
+    for (all_types.items) |t| {
+        type_names.append(arena, t.name) catch return error.OutOfMemory;
+    }
     var func_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
     var mem_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
     var table_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
     var global_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
+    var tag_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
 
     // Import counts per kind (imports come first in index space)
     var import_func_count: u32 = 0;
@@ -1536,6 +2433,9 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             },
             .global => {
                 global_names.append(arena, imp.id) catch return error.OutOfMemory;
+            },
+            .tag => {
+                tag_names.append(arena, imp.id) catch return error.OutOfMemory;
             },
         }
     }
@@ -1564,20 +2464,57 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
     for (module.globals) |g| {
         global_names.append(arena, g.name) catch return error.OutOfMemory;
     }
+    // Tag type indices for defined tags
+    var tag_type_indices: std.ArrayListUnmanaged(u32) = .empty;
+    for (module.tags) |t| {
+        tag_names.append(arena, t.name) catch return error.OutOfMemory;
+        if (t.type_use) |tu| {
+            const idx = resolveIndex(tu, null, null) catch return error.InvalidWat;
+            tag_type_indices.append(arena, idx) catch return error.OutOfMemory;
+        } else {
+            const vts = extractValTypes(arena, t.params) catch return error.OutOfMemory;
+            const ft: WatFuncType = .{ .params = vts, .results = &.{} };
+            const idx = findOrAddType(arena, &all_types, ft) catch return error.OutOfMemory;
+            tag_type_indices.append(arena, idx) catch return error.OutOfMemory;
+        }
+    }
+    // Pad type_names for any synthesized types added by findOrAddType
+    while (type_names.items.len < all_types.items.len) {
+        type_names.append(arena, null) catch return error.OutOfMemory;
+    }
 
     // Section 1: Type
     if (all_types.items.len > 0) {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
-        lebEncodeU32(arena, &sec, @intCast(all_types.items.len)) catch return error.OutOfMemory;
-        for (all_types.items) |ft| {
-            sec.append(arena, 0x60) catch return error.OutOfMemory; // func type marker
-            lebEncodeU32(arena, &sec, @intCast(ft.params.len)) catch return error.OutOfMemory;
-            for (ft.params) |vt| {
-                sec.append(arena, valTypeByte(vt)) catch return error.OutOfMemory;
+        // Count top-level entries (rec groups count as one entry)
+        var type_section_count: u32 = 0;
+        {
+            var ti: usize = 0;
+            while (ti < all_types.items.len) {
+                type_section_count += 1;
+                if (all_types.items[ti].rec_count > 0) {
+                    ti += all_types.items[ti].rec_count;
+                } else {
+                    ti += 1;
+                }
             }
-            lebEncodeU32(arena, &sec, @intCast(ft.results.len)) catch return error.OutOfMemory;
-            for (ft.results) |vt| {
-                sec.append(arena, valTypeByte(vt)) catch return error.OutOfMemory;
+        }
+        lebEncodeU32(arena, &sec, type_section_count) catch return error.OutOfMemory;
+        {
+            var ti: usize = 0;
+            while (ti < all_types.items.len) {
+                if (all_types.items[ti].rec_count > 0) {
+                    // Rec group: 0x4E + count + subtypes
+                    sec.append(arena, 0x4E) catch return error.OutOfMemory;
+                    lebEncodeU32(arena, &sec, all_types.items[ti].rec_count) catch return error.OutOfMemory;
+                    for (0..all_types.items[ti].rec_count) |j| {
+                        encodeCompositeType(arena, &sec, all_types.items[ti + j].composite, type_names.items) catch return error.OutOfMemory;
+                    }
+                    ti += all_types.items[ti].rec_count;
+                } else {
+                    encodeCompositeType(arena, &sec, all_types.items[ti].composite, type_names.items) catch return error.OutOfMemory;
+                    ti += 1;
+                }
             }
         }
         writeSection(arena, &out, 1, sec.items) catch return error.OutOfMemory;
@@ -1607,7 +2544,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 },
                 .table => |t| {
                     sec.append(arena, 0x01) catch return error.OutOfMemory;
-                    sec.append(arena, valTypeByte(t.reftype)) catch return error.OutOfMemory;
+                    encodeValType(arena, &sec, t.reftype, type_names.items) catch return error.OutOfMemory;
                     encodeLimits(arena, &sec, t.limits) catch return error.OutOfMemory;
                 },
                 .memory => |m| {
@@ -1616,8 +2553,21 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 },
                 .global => |g| {
                     sec.append(arena, 0x03) catch return error.OutOfMemory;
-                    sec.append(arena, valTypeByte(g.valtype)) catch return error.OutOfMemory;
+                    encodeValType(arena, &sec, g.valtype, type_names.items) catch return error.OutOfMemory;
                     sec.append(arena, if (g.mutable) @as(u8, 0x01) else @as(u8, 0x00)) catch return error.OutOfMemory;
+                },
+                .tag => |t| {
+                    sec.append(arena, 0x04) catch return error.OutOfMemory;
+                    sec.append(arena, 0x00) catch return error.OutOfMemory; // exception attribute
+                    if (t.type_use) |tu| {
+                        const idx = resolveIndex(tu, null, null) catch return error.InvalidWat;
+                        lebEncodeU32(arena, &sec, idx) catch return error.OutOfMemory;
+                    } else {
+                        const vts = extractValTypes(arena, t.params) catch return error.OutOfMemory;
+                        const ft: WatFuncType = .{ .params = vts, .results = &.{} };
+                        const idx = findOrAddType(arena, &all_types, ft) catch return error.OutOfMemory;
+                        lebEncodeU32(arena, &sec, idx) catch return error.OutOfMemory;
+                    }
                 },
             }
         }
@@ -1639,7 +2589,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(module.tables.len)) catch return error.OutOfMemory;
         for (module.tables) |t| {
-            sec.append(arena, valTypeByte(t.reftype)) catch return error.OutOfMemory;
+            encodeValType(arena, &sec, t.reftype, type_names.items) catch return error.OutOfMemory;
             encodeLimits(arena, &sec, t.limits) catch return error.OutOfMemory;
         }
         writeSection(arena, &out, 4, sec.items) catch return error.OutOfMemory;
@@ -1660,13 +2610,24 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(module.globals.len)) catch return error.OutOfMemory;
         for (module.globals) |g| {
-            sec.append(arena, valTypeByte(g.global_type.valtype)) catch return error.OutOfMemory;
+            encodeValType(arena, &sec, g.global_type.valtype, type_names.items) catch return error.OutOfMemory;
             sec.append(arena, if (g.global_type.mutable) @as(u8, 0x01) else @as(u8, 0x00)) catch return error.OutOfMemory;
             var g_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels) catch return error.OutOfMemory;
+            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
             sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
         }
         writeSection(arena, &out, 6, sec.items) catch return error.OutOfMemory;
+    }
+
+    // Section 13: Tag
+    if (tag_type_indices.items.len > 0) {
+        var sec: std.ArrayListUnmanaged(u8) = .empty;
+        lebEncodeU32(arena, &sec, @intCast(tag_type_indices.items.len)) catch return error.OutOfMemory;
+        for (tag_type_indices.items) |tidx| {
+            sec.append(arena, 0x00) catch return error.OutOfMemory; // exception attribute
+            lebEncodeU32(arena, &sec, tidx) catch return error.OutOfMemory;
+        }
+        writeSection(arena, &out, 13, sec.items) catch return error.OutOfMemory;
     }
 
     // Section 7: Export (explicit + inline)
@@ -1710,6 +2671,15 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             }) catch return error.OutOfMemory;
         }
     }
+    for (module.tags, 0..) |t, i| {
+        if (t.export_name) |ename| {
+            all_exports.append(arena, .{
+                .name = ename,
+                .kind = .tag,
+                .index = .{ .num = @intCast(i) },
+            }) catch return error.OutOfMemory;
+        }
+    }
     if (all_exports.items.len > 0) {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(all_exports.items.len)) catch return error.OutOfMemory;
@@ -1721,12 +2691,14 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 .table => 0x01,
                 .memory => 0x02,
                 .global => 0x03,
+                .tag => 0x04,
             }) catch return error.OutOfMemory;
             const idx = resolveNamedIndex(e.index, switch (e.kind) {
                 .func => func_names.items,
                 .table => table_names.items,
                 .memory => mem_names.items,
                 .global => global_names.items,
+                .tag => tag_names.items,
             }) catch return error.InvalidWat;
             lebEncodeU32(arena, &sec, idx) catch return error.OutOfMemory;
         }
@@ -1741,6 +2713,45 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         writeSection(arena, &out, 8, sec.items) catch return error.OutOfMemory;
     }
 
+    // Section 9: Element
+    if (module.elements.len > 0) {
+        var sec: std.ArrayListUnmanaged(u8) = .empty;
+        lebEncodeU32(arena, &sec, @intCast(module.elements.len)) catch return error.OutOfMemory;
+        for (module.elements) |elem| {
+            const table_resolved = resolveNamedIndex(elem.table_idx, table_names.items) catch return error.InvalidWat;
+            if (table_resolved == 0) {
+                // Flag 0x00: active, table 0, offset, vec(funcidx)
+                sec.append(arena, 0x00) catch return error.OutOfMemory;
+            } else {
+                // Flag 0x02: active, explicit table index
+                sec.append(arena, 0x02) catch return error.OutOfMemory;
+                lebEncodeU32(arena, &sec, table_resolved) catch return error.OutOfMemory;
+            }
+            // Offset expression + end
+            var e_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
+            encodeInstrList(arena, &sec, elem.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &e_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
+            sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
+            if (table_resolved != 0) {
+                // elemkind for flag 0x02
+                sec.append(arena, 0x00) catch return error.OutOfMemory; // funcref
+            }
+            // Function indices
+            lebEncodeU32(arena, &sec, @intCast(elem.func_indices.len)) catch return error.OutOfMemory;
+            for (elem.func_indices) |fi| {
+                const fidx = resolveNamedIndex(fi, func_names.items) catch return error.InvalidWat;
+                lebEncodeU32(arena, &sec, fidx) catch return error.OutOfMemory;
+            }
+        }
+        writeSection(arena, &out, 9, sec.items) catch return error.OutOfMemory;
+    }
+
+    // Section 12: DataCount (must appear before Code section)
+    if (module.data.len > 0) {
+        var sec: std.ArrayListUnmanaged(u8) = .empty;
+        lebEncodeU32(arena, &sec, @intCast(module.data.len)) catch return error.OutOfMemory;
+        writeSection(arena, &out, 12, sec.items) catch return error.OutOfMemory;
+    }
+
     // Section 10: Code
     if (module.functions.len > 0) {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
@@ -1750,7 +2761,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
 
             var local_groups: std.ArrayListUnmanaged(struct { count: u32, valtype: WatValType }) = .empty;
             for (f.locals) |l| {
-                if (local_groups.items.len > 0 and local_groups.items[local_groups.items.len - 1].valtype == l.valtype) {
+                if (local_groups.items.len > 0 and local_groups.items[local_groups.items.len - 1].valtype.eql(l.valtype)) {
                     local_groups.items[local_groups.items.len - 1].count += 1;
                 } else {
                     local_groups.append(arena, .{ .count = 1, .valtype = l.valtype }) catch return error.OutOfMemory;
@@ -1759,7 +2770,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             lebEncodeU32(arena, &code_body, @intCast(local_groups.items.len)) catch return error.OutOfMemory;
             for (local_groups.items) |lg| {
                 lebEncodeU32(arena, &code_body, lg.count) catch return error.OutOfMemory;
-                code_body.append(arena, valTypeByte(lg.valtype)) catch return error.OutOfMemory;
+                encodeValType(arena, &code_body, lg.valtype, type_names.items) catch return error.OutOfMemory;
             }
 
             // Build local name map: params then locals
@@ -1771,7 +2782,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 f_local_names.append(arena, l.name) catch return error.OutOfMemory;
             }
             var f_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, f_local_names.items, &f_labels) catch return error.OutOfMemory;
+            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, f_local_names.items, &f_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
             code_body.append(arena, 0x0B) catch return error.OutOfMemory; // end
 
             lebEncodeU32(arena, &sec, @intCast(code_body.items.len)) catch return error.OutOfMemory;
@@ -1780,22 +2791,210 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         writeSection(arena, &out, 10, sec.items) catch return error.OutOfMemory;
     }
 
+    // Section 11: Data
+    if (module.data.len > 0) {
+        var sec: std.ArrayListUnmanaged(u8) = .empty;
+        lebEncodeU32(arena, &sec, @intCast(module.data.len)) catch return error.OutOfMemory;
+        for (module.data) |data| {
+            const mem_resolved = resolveNamedIndex(data.memory_idx, mem_names.items) catch return error.InvalidWat;
+            if (data.mode == .active) {
+                if (mem_resolved == 0) {
+                    sec.append(arena, 0x00) catch return error.OutOfMemory; // flag: active, memory 0
+                } else {
+                    sec.append(arena, 0x02) catch return error.OutOfMemory; // flag: active, explicit memory
+                    lebEncodeU32(arena, &sec, mem_resolved) catch return error.OutOfMemory;
+                }
+                // Offset expression + end
+                var d_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
+                encodeInstrList(arena, &sec, data.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &d_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
+                sec.append(arena, 0x0B) catch return error.OutOfMemory;
+            } else {
+                sec.append(arena, 0x01) catch return error.OutOfMemory; // flag: passive
+            }
+            // Byte content
+            lebEncodeU32(arena, &sec, @intCast(data.bytes.len)) catch return error.OutOfMemory;
+            sec.appendSlice(arena, data.bytes) catch return error.OutOfMemory;
+        }
+        writeSection(arena, &out, 11, sec.items) catch return error.OutOfMemory;
+    }
+
     // Copy result to caller's allocator (arena will be freed on return)
     const result = alloc.dupe(u8, out.items) catch return error.OutOfMemory;
     return result;
 }
 
-fn valTypeByte(vt: WatValType) u8 {
-    return switch (vt) {
-        .i32 => 0x7F,
-        .i64 => 0x7E,
-        .f32 => 0x7D,
-        .f64 => 0x7C,
-        .v128 => 0x7B,
-        .funcref => 0x70,
-        .externref => 0x6F,
-        .exnref => 0x69,
+/// Decode WAT string escapes: \n, \t, \\, \", \xx (hex byte)
+/// Returns a slice backed by the allocator (arena-friendly).
+fn decodeWatString(alloc: Allocator, input: []const u8) ![]u8 {
+    // Check if any escapes exist — fast path for no-escape strings
+    var has_escape = false;
+    for (input) |c| {
+        if (c == '\\') {
+            has_escape = true;
+            break;
+        }
+    }
+    if (!has_escape) {
+        const result = alloc.alloc(u8, input.len) catch return error.OutOfMemory;
+        @memcpy(result, input);
+        return result;
+    }
+
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    var i: usize = 0;
+    while (i < input.len) {
+        if (input[i] == '\\' and i + 1 < input.len) {
+            const next = input[i + 1];
+            // Try \xx hex escape first (two hex digits)
+            if (i + 2 < input.len) {
+                const hi = hexDigit(next);
+                const lo = hexDigit(input[i + 2]);
+                if (hi != null and lo != null) {
+                    out.append(alloc, hi.? * 16 + lo.?) catch return error.OutOfMemory;
+                    i += 3;
+                    continue;
+                }
+            }
+            switch (next) {
+                'n' => {
+                    out.append(alloc, '\n') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                't' => {
+                    out.append(alloc, '\t') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                'r' => {
+                    out.append(alloc, '\r') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                '\\' => {
+                    out.append(alloc, '\\') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                '"' => {
+                    out.append(alloc, '"') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                '\'' => {
+                    out.append(alloc, '\'') catch return error.OutOfMemory;
+                    i += 2;
+                },
+                else => {
+                    out.append(alloc, input[i]) catch return error.OutOfMemory;
+                    i += 1;
+                },
+            }
+        } else {
+            out.append(alloc, input[i]) catch return error.OutOfMemory;
+            i += 1;
+        }
+    }
+    // Return owned slice from ArrayList
+    return out.toOwnedSlice(alloc) catch return error.OutOfMemory;
+}
+
+fn hexDigit(c: u8) ?u8 {
+    if (c >= '0' and c <= '9') return c - '0';
+    if (c >= 'a' and c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' and c <= 'F') return c - 'A' + 10;
+    return null;
+}
+
+fn encodeValType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValType, type_names: []const ?[]const u8) !void {
+    switch (vt) {
+        .i32 => out.append(alloc, 0x7F) catch return error.OutOfMemory,
+        .i64 => out.append(alloc, 0x7E) catch return error.OutOfMemory,
+        .f32 => out.append(alloc, 0x7D) catch return error.OutOfMemory,
+        .f64 => out.append(alloc, 0x7C) catch return error.OutOfMemory,
+        .v128 => out.append(alloc, 0x7B) catch return error.OutOfMemory,
+        .funcref => out.append(alloc, 0x70) catch return error.OutOfMemory,
+        .externref => out.append(alloc, 0x6F) catch return error.OutOfMemory,
+        .exnref => out.append(alloc, 0x69) catch return error.OutOfMemory,
+        .anyref => out.append(alloc, 0x6E) catch return error.OutOfMemory,
+        .eqref => out.append(alloc, 0x6D) catch return error.OutOfMemory,
+        .i31ref => out.append(alloc, 0x6C) catch return error.OutOfMemory,
+        .structref => out.append(alloc, 0x6B) catch return error.OutOfMemory,
+        .arrayref => out.append(alloc, 0x6A) catch return error.OutOfMemory,
+        .nullref => out.append(alloc, 0x71) catch return error.OutOfMemory,
+        .nullfuncref => out.append(alloc, 0x73) catch return error.OutOfMemory,
+        .nullexternref => out.append(alloc, 0x72) catch return error.OutOfMemory,
+        .ref_type => |ht| {
+            out.append(alloc, 0x64) catch return error.OutOfMemory;
+            const resolved = resolveNamedIndex(ht, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
+        },
+        .ref_null_type => |ht| {
+            out.append(alloc, 0x63) catch return error.OutOfMemory;
+            const resolved = resolveNamedIndex(ht, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
+        },
+    }
+}
+
+fn encodeCompositeType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), ct: WatCompositeType, type_names: []const ?[]const u8) !void {
+    switch (ct) {
+        .func => |ft| {
+            out.append(alloc, 0x60) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, @intCast(ft.params.len)) catch return error.OutOfMemory;
+            for (ft.params) |vt| {
+                try encodeValType(alloc, out, vt, type_names);
+            }
+            lebEncodeU32(alloc, out, @intCast(ft.results.len)) catch return error.OutOfMemory;
+            for (ft.results) |vt| {
+                try encodeValType(alloc, out, vt, type_names);
+            }
+        },
+        .struct_type => |st| {
+            out.append(alloc, 0x5F) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, @intCast(st.fields.len)) catch return error.OutOfMemory;
+            for (st.fields) |field| {
+                try encodeStorageType(alloc, out, field.valtype, type_names);
+                out.append(alloc, if (field.mutable) 0x01 else 0x00) catch return error.OutOfMemory;
+            }
+        },
+        .array_type => |at| {
+            out.append(alloc, 0x5E) catch return error.OutOfMemory;
+            try encodeStorageType(alloc, out, at.field.valtype, type_names);
+            out.append(alloc, if (at.field.mutable) 0x01 else 0x00) catch return error.OutOfMemory;
+        },
+    }
+}
+
+fn encodeStorageType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValType, type_names: []const ?[]const u8) !void {
+    return encodeValType(alloc, out, vt, type_names);
+}
+
+fn heapTypeToS33(ht: u32) i64 {
+    const opcode = @import("opcode.zig");
+    return switch (ht) {
+        opcode.ValType.HEAP_FUNC => -16,
+        opcode.ValType.HEAP_EXTERN => -17,
+        opcode.ValType.HEAP_ANY => -18,
+        opcode.ValType.HEAP_EQ => -19,
+        opcode.ValType.HEAP_I31 => -20,
+        opcode.ValType.HEAP_STRUCT => -21,
+        opcode.ValType.HEAP_ARRAY => -22,
+        opcode.ValType.HEAP_NONE => -15,
+        opcode.ValType.HEAP_NOFUNC => -13,
+        opcode.ValType.HEAP_NOEXTERN => -14,
+        opcode.ValType.HEAP_EXN => -23,
+        opcode.ValType.HEAP_NOEXN => -12,
+        else => @intCast(ht), // concrete type index
     };
+}
+
+fn lebEncodeS33(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), value: i64) !void {
+    var v = value;
+    while (true) {
+        const byte: u8 = @truncate(@as(u64, @bitCast(v)) & 0x7F);
+        v >>= 7;
+        if ((v == 0 and byte & 0x40 == 0) or (v == -1 and byte & 0x40 != 0)) {
+            out.append(alloc, byte) catch return error.OutOfMemory;
+            return;
+        }
+        out.append(alloc, byte | 0x80) catch return error.OutOfMemory;
+    }
 }
 
 fn writeSection(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), id: u8, body: []const u8) !void {
@@ -1844,26 +3043,38 @@ fn lebEncodeI64(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), value: i64) 
 }
 
 fn encodeLimits(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), limits: WatLimits) !void {
+    const has_max: u8 = if (limits.max != null) 0x01 else 0x00;
+    const shared: u8 = if (limits.shared) 0x02 else 0x00;
+    out.append(alloc, has_max | shared) catch return error.OutOfMemory;
+    lebEncodeU32(alloc, out, @intCast(limits.min)) catch return error.OutOfMemory;
     if (limits.max != null) {
-        out.append(alloc, 0x01) catch return error.OutOfMemory; // has_max
-        lebEncodeU32(alloc, out, @intCast(limits.min)) catch return error.OutOfMemory;
         lebEncodeU32(alloc, out, @intCast(limits.max.?)) catch return error.OutOfMemory;
-    } else {
-        out.append(alloc, 0x00) catch return error.OutOfMemory;
-        lebEncodeU32(alloc, out, @intCast(limits.min)) catch return error.OutOfMemory;
     }
 }
 
-fn findOrAddType(alloc: Allocator, types: *std.ArrayListUnmanaged(WatFuncType), ft: WatFuncType) !u32 {
+fn eqlValTypeSlice(a: []const WatValType, b: []const WatValType) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |va, vb| {
+        if (!va.eql(vb)) return false;
+    }
+    return true;
+}
+
+fn findOrAddType(alloc: Allocator, types: *std.ArrayListUnmanaged(WatTypeDef), ft: WatFuncType) !u32 {
     for (types.items, 0..) |existing, i| {
-        if (std.mem.eql(WatValType, existing.params, ft.params) and
-            std.mem.eql(WatValType, existing.results, ft.results))
-        {
-            return @intCast(i);
+        switch (existing.composite) {
+            .func => |ef| {
+                if (eqlValTypeSlice(ef.params, ft.params) and
+                    eqlValTypeSlice(ef.results, ft.results))
+                {
+                    return @intCast(i);
+                }
+            },
+            .struct_type, .array_type => {},
         }
     }
     const idx: u32 = @intCast(types.items.len);
-    types.append(alloc, ft) catch return error.OutOfMemory;
+    types.append(alloc, .{ .composite = .{ .func = ft } }) catch return error.OutOfMemory;
     return idx;
 }
 
@@ -2092,6 +3303,14 @@ fn instrOpcode(name: []const u8) ?u8 {
         .{ "ref_null", 0xD0 },
         .{ "ref_is_null", 0xD1 },
         .{ "ref_func", 0xD2 },
+        .{ "ref_eq", 0xD3 },
+        .{ "ref_as_non_null", 0xD4 },
+        .{ "br_on_null", 0xD5 },
+        .{ "br_on_non_null", 0xD6 },
+        .{ "call_ref", 0x14 },
+        .{ "return_call_ref", 0x15 },
+        .{ "throw_ref", 0x0A },
+        .{ "throw", 0x08 },
     };
 
     inline for (map) |entry| {
@@ -2102,6 +3321,21 @@ fn instrOpcode(name: []const u8) ?u8 {
 
 /// WAT SIMD instruction name → subopcode (after 0xFD prefix).
 /// Uses SimdOpcode enum from opcode.zig via reflection.
+fn miscInstrOpcode(name: []const u8) ?u32 {
+    var buf: [64]u8 = undefined;
+    if (name.len > buf.len) return null;
+    @memcpy(buf[0..name.len], name);
+    for (buf[0..name.len]) |*c| {
+        if (c.* == '.') c.* = '_';
+    }
+    const zig_name = buf[0..name.len];
+    const fields = @typeInfo(MiscOpcode).@"enum".fields;
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, zig_name, field.name)) return field.value;
+    }
+    return null;
+}
+
 fn simdInstrOpcode(name: []const u8) ?u32 {
     var buf: [64]u8 = undefined;
     if (name.len > buf.len) return null;
@@ -2111,6 +3345,36 @@ fn simdInstrOpcode(name: []const u8) ?u32 {
     }
     const zig_name = buf[0..name.len];
     const fields = @typeInfo(SimdOpcode).@"enum".fields;
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, zig_name, field.name)) return field.value;
+    }
+    return null;
+}
+
+fn gcInstrOpcode(name: []const u8) ?u32 {
+    var buf: [64]u8 = undefined;
+    if (name.len > buf.len) return null;
+    @memcpy(buf[0..name.len], name);
+    for (buf[0..name.len]) |*c| {
+        if (c.* == '.') c.* = '_';
+    }
+    const zig_name = buf[0..name.len];
+    const fields = @typeInfo(GcOpcode).@"enum".fields;
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, zig_name, field.name)) return field.value;
+    }
+    return null;
+}
+
+fn atomicInstrOpcode(name: []const u8) ?u32 {
+    var buf: [64]u8 = undefined;
+    if (name.len > buf.len) return null;
+    @memcpy(buf[0..name.len], name);
+    for (buf[0..name.len]) |*c| {
+        if (c.* == '.') c.* = '_';
+    }
+    const zig_name = buf[0..name.len];
+    const fields = @typeInfo(AtomicOpcode).@"enum".fields;
     inline for (fields) |field| {
         if (std.mem.eql(u8, zig_name, field.name)) return field.value;
     }
@@ -2127,9 +3391,11 @@ fn encodeInstrList(
     global_names: []const ?[]const u8,
     local_names: []const ?[]const u8,
     labels: *std.ArrayListUnmanaged(?[]const u8),
+    type_names: []const ?[]const u8,
+    tag_names: []const ?[]const u8,
 ) WatError!void {
     for (instrs) |instr| {
-        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, local_names, labels);
+        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names);
     }
 }
 
@@ -2162,24 +3428,64 @@ fn encodeInstr(
     global_names: []const ?[]const u8,
     local_names: []const ?[]const u8,
     labels: *std.ArrayListUnmanaged(?[]const u8),
+    type_names: []const ?[]const u8,
+    tag_names: []const ?[]const u8,
 ) WatError!void {
     switch (instr) {
         .simple => |name| {
             if (instrOpcode(name)) |op| {
                 out.append(alloc, op) catch return error.OutOfMemory;
+            } else if (miscInstrOpcode(name)) |subop| {
+                out.append(alloc, 0xFC) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+                // Some 0xFC ops need trailing zero bytes for memory/table indices
+                switch (subop) {
+                    0x0A => { // memory.copy: dst_mem(0) + src_mem(0)
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                    },
+                    0x0B => { // memory.fill: mem(0)
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                    },
+                    0x0E => { // table.copy: dst_table(0) + src_table(0)
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                        out.append(alloc, 0x00) catch return error.OutOfMemory;
+                    },
+                    else => {},
+                }
             } else if (simdInstrOpcode(name)) |subop| {
                 out.append(alloc, 0xFD) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else if (atomicInstrOpcode(name)) |subop| {
+                out.append(alloc, 0xFE) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+                if (subop == 0x03) { // atomic.fence: trailing 0x00
+                    out.append(alloc, 0x00) catch return error.OutOfMemory;
+                }
+            } else if (gcInstrOpcode(name)) |subop| {
+                out.append(alloc, 0xFB) catch return error.OutOfMemory;
                 lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
             } else {
                 return error.InvalidWat;
             }
         },
         .index_op => |data| {
-            const op = instrOpcode(data.op) orelse return error.InvalidWat;
-            out.append(alloc, op) catch return error.OutOfMemory;
-            // Resolve index: br/br_if use label stack, others use namespace maps
+            if (instrOpcode(data.op)) |op| {
+                out.append(alloc, op) catch return error.OutOfMemory;
+            } else if (miscInstrOpcode(data.op)) |subop| {
+                out.append(alloc, 0xFC) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else if (gcInstrOpcode(data.op)) |subop| {
+                out.append(alloc, 0xFB) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else {
+                return error.InvalidWat;
+            }
+            // Resolve index: br/br_if/br_on_* use label stack, others use namespace maps
             const is_branch = std.mem.eql(u8, data.op, "br") or
-                std.mem.eql(u8, data.op, "br_if");
+                std.mem.eql(u8, data.op, "br_if") or
+                std.mem.eql(u8, data.op, "br_on_null") or
+                std.mem.eql(u8, data.op, "br_on_non_null");
             const idx = if (is_branch)
                 try resolveLabelIndex(data.index, labels.items)
             else if (std.mem.eql(u8, data.op, "call") or
@@ -2198,11 +3504,22 @@ fn encodeInstr(
                 std.mem.eql(u8, data.op, "local.set") or
                 std.mem.eql(u8, data.op, "local.tee"))
                 resolveNamedIndex(data.index, local_names) catch return error.InvalidWat
+            else if (std.mem.eql(u8, data.op, "call_ref") or
+                std.mem.eql(u8, data.op, "return_call_ref"))
+                resolveNamedIndex(data.index, type_names) catch return error.InvalidWat
+            else if (gcInstrOpcode(data.op) != null)
+                resolveNamedIndex(data.index, type_names) catch return error.InvalidWat
             else switch (data.index) {
                 .num => |n| n,
                 .name => return error.InvalidWat,
             };
             lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
+            // 0xFC ops with trailing memory/table index (default 0)
+            if (std.mem.eql(u8, data.op, "memory.init") or
+                std.mem.eql(u8, data.op, "table.init"))
+            {
+                out.append(alloc, 0x00) catch return error.OutOfMemory; // trailing mem/table idx
+            }
         },
         .i32_const => |val| {
             out.append(alloc, 0x41) catch return error.OutOfMemory;
@@ -2227,9 +3544,34 @@ fn encodeInstr(
             lebEncodeU32(alloc, out, 0x0C) catch return error.OutOfMemory; // v128.const
             out.appendSlice(alloc, &val) catch return error.OutOfMemory;
         },
+        .simd_lane => |data| {
+            const subop = simdInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFD) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            out.append(alloc, data.lane) catch return error.OutOfMemory;
+        },
+        .simd_mem_lane => |data| {
+            const subop = simdInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFD) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const align_log2: u32 = if (data.mem_arg.@"align" > 0) std.math.log2_int(u32, data.mem_arg.@"align") else 0;
+            lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, data.mem_arg.offset) catch return error.OutOfMemory;
+            out.append(alloc, data.lane) catch return error.OutOfMemory;
+        },
         .mem_op => |data| {
-            const op = instrOpcode(data.op) orelse return error.InvalidWat;
-            out.append(alloc, op) catch return error.OutOfMemory;
+            if (instrOpcode(data.op)) |op| {
+                out.append(alloc, op) catch return error.OutOfMemory;
+            } else if (atomicInstrOpcode(data.op)) |subop| {
+                out.append(alloc, 0xFE) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else if (simdInstrOpcode(data.op)) |subop| {
+                // SIMD memory ops (v128.load, v128.store, etc.)
+                out.append(alloc, 0xFD) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            } else {
+                return error.InvalidWat;
+            }
             // Encode alignment as log2
             const align_log2: u32 = if (data.mem_arg.@"align" > 0) std.math.log2_int(u32, data.mem_arg.@"align") else 0;
             lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
@@ -2240,28 +3582,51 @@ fn encodeInstr(
             out.append(alloc, op) catch return error.OutOfMemory;
             // Block type
             if (data.block_type) |vt| {
-                out.append(alloc, valTypeByte(vt)) catch return error.OutOfMemory;
+                encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
             } else {
                 out.append(alloc, 0x40) catch return error.OutOfMemory; // empty block type
             }
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
         },
         .if_op => |data| {
             out.append(alloc, 0x04) catch return error.OutOfMemory; // if
             if (data.block_type) |vt| {
-                out.append(alloc, valTypeByte(vt)) catch return error.OutOfMemory;
+                encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
             } else {
                 out.append(alloc, 0x40) catch return error.OutOfMemory;
             }
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
             if (data.else_body.len > 0) {
                 out.append(alloc, 0x05) catch return error.OutOfMemory; // else
-                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels) catch return error.OutOfMemory;
+                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
             }
+            _ = labels.pop();
+            out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
+        },
+        .try_table => |data| {
+            out.append(alloc, 0x1F) catch return error.OutOfMemory; // try_table
+            if (data.block_type) |vt| {
+                encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
+            } else {
+                out.append(alloc, 0x40) catch return error.OutOfMemory;
+            }
+            // Catch clause vector
+            lebEncodeU32(alloc, out, @intCast(data.catches.len)) catch return error.OutOfMemory;
+            labels.append(alloc, data.label) catch return error.OutOfMemory;
+            for (data.catches) |c| {
+                out.append(alloc, @intFromEnum(c.kind)) catch return error.OutOfMemory;
+                if (c.tag_idx) |tag| {
+                    const idx = resolveNamedIndex(tag, tag_names) catch return error.InvalidWat;
+                    lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
+                }
+                const label_idx = try resolveLabelIndex(c.label, labels.items);
+                lebEncodeU32(alloc, out, label_idx) catch return error.OutOfMemory;
+            }
+            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
         },
@@ -2278,10 +3643,7 @@ fn encodeInstr(
         .call_indirect => |data| {
             out.append(alloc, 0x11) catch return error.OutOfMemory;
             if (data.type_use) |tu| {
-                const idx = switch (tu) {
-                    .num => |n| n,
-                    .name => return error.InvalidWat,
-                };
+                const idx = resolveNamedIndex(tu, type_names) catch return error.InvalidWat;
                 lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
             } else {
                 lebEncodeU32(alloc, out, 0) catch return error.OutOfMemory;
@@ -2292,8 +3654,73 @@ fn encodeInstr(
             out.append(alloc, 0x1C) catch return error.OutOfMemory;
             lebEncodeU32(alloc, out, @intCast(types.len)) catch return error.OutOfMemory;
             for (types) |vt| {
-                out.append(alloc, valTypeByte(vt)) catch return error.OutOfMemory;
+                encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
             }
+        },
+        .ref_null => |ht| {
+            out.append(alloc, 0xD0) catch return error.OutOfMemory;
+            const resolved = resolveNamedIndex(ht, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
+        },
+        .gc_type_field => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const type_idx = resolveNamedIndex(data.type_idx, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, type_idx) catch return error.OutOfMemory;
+            const field_idx = switch (data.field_idx) {
+                .num => |n| n,
+                .name => return error.InvalidWat, // field names not resolved here
+            };
+            lebEncodeU32(alloc, out, field_idx) catch return error.OutOfMemory;
+        },
+        .gc_type_u32 => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const type_idx = resolveNamedIndex(data.type_idx, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, type_idx) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, data.count) catch return error.OutOfMemory;
+        },
+        .gc_two_types => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const t1 = resolveNamedIndex(data.type1, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, t1) catch return error.OutOfMemory;
+            const t2 = resolveNamedIndex(data.type2, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, t2) catch return error.OutOfMemory;
+        },
+        .gc_type_seg => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const type_idx = resolveNamedIndex(data.type_idx, type_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, type_idx) catch return error.OutOfMemory;
+            const seg_idx = switch (data.seg_idx) {
+                .num => |n| n,
+                .name => return error.InvalidWat,
+            };
+            lebEncodeU32(alloc, out, seg_idx) catch return error.OutOfMemory;
+        },
+        .gc_heap_type => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            const resolved = resolveNamedIndex(data.heap_type, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
+        },
+        .gc_br_on_cast => |data| {
+            const subop = gcInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFB) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            out.append(alloc, data.flags) catch return error.OutOfMemory;
+            const label_idx = try resolveLabelIndex(data.label, labels.items);
+            lebEncodeU32(alloc, out, label_idx) catch return error.OutOfMemory;
+            const ht1 = resolveNamedIndex(data.ht1, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(ht1)) catch return error.OutOfMemory;
+            const ht2 = resolveNamedIndex(data.ht2, type_names) catch return error.InvalidWat;
+            lebEncodeS33(alloc, out, heapTypeToS33(ht2)) catch return error.OutOfMemory;
         },
         .end => {
             out.append(alloc, 0x0B) catch return error.OutOfMemory;
@@ -2502,9 +3929,9 @@ test "WAT parser — type definition" {
     );
     const mod = try parser.parseModule();
     try testing.expectEqual(@as(usize, 1), mod.types.len);
-    try testing.expectEqual(@as(usize, 2), mod.types[0].params.len);
-    try testing.expectEqual(WatValType.i32, mod.types[0].params[0]);
-    try testing.expectEqual(@as(usize, 1), mod.types[0].results.len);
+    try testing.expectEqual(WatValType.i32, mod.types[0].composite.func.params[0]);
+    try testing.expectEqual(@as(usize, 2), mod.types[0].composite.func.params.len);
+    try testing.expectEqual(@as(usize, 1), mod.types[0].composite.func.results.len);
 }
 
 test "WAT parser — func with params and result" {
@@ -3026,4 +4453,736 @@ test "WAT round-trip — v128.const SIMD" {
     var args = [_]u64{};
     var results = [_]u64{ 0, 0 };
     try module.invoke("hi", &args, &results);
+}
+
+test "WAT parser — memory.size default index" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (func (export "size") (result i32)
+        \\    memory.size))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("size", &args, &results);
+    try testing.expectEqual(@as(u64, 1), results[0]);
+}
+
+test "WAT parser — memory.grow default index" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (func (export "grow") (result i32)
+        \\    i32.const 1
+        \\    memory.grow))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("grow", &args, &results);
+    // memory.grow returns previous size (1 page)
+    try testing.expectEqual(@as(u64, 1), results[0]);
+}
+
+test "WAT parser — data section round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory (export "mem") 1)
+        \\  (data (i32.const 0) "Hello")
+        \\  (func (export "load") (result i32)
+        \\    i32.const 0
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("load", &args, &results);
+    try testing.expectEqual(@as(u64, 'H'), results[0]);
+}
+
+test "WAT parser — data section with escape sequences" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (data (i32.const 0) "\48\65\6c\6c\6f")
+        \\  (func (export "load") (result i32)
+        \\    i32.const 4
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("load", &args, &results);
+    try testing.expectEqual(@as(u64, 'o'), results[0]);
+}
+
+test "WAT parser — data section with offset keyword" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (data (offset i32.const 10) "AB")
+        \\  (func (export "load") (result i32)
+        \\    i32.const 10
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("load", &args, &results);
+    try testing.expectEqual(@as(u64, 'A'), results[0]);
+}
+
+test "WAT parser — elem section round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $t (func (result i32)))
+        \\  (table 2 funcref)
+        \\  (func $f0 (result i32) i32.const 42)
+        \\  (func $f1 (result i32) i32.const 99)
+        \\  (elem (i32.const 0) func $f0 $f1)
+        \\  (func (export "call") (param i32) (result i32)
+        \\    local.get 0
+        \\    call_indirect (type $t)))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args0 = [_]u64{0};
+    var results = [_]u64{0};
+    try module.invoke("call", &args0, &results);
+    try testing.expectEqual(@as(u64, 42), results[0]);
+    var args1 = [_]u64{1};
+    try module.invoke("call", &args1, &results);
+    try testing.expectEqual(@as(u64, 99), results[0]);
+}
+
+test "decodeWatString — basic escapes" {
+    const result = try decodeWatString(testing.allocator, "Hello\\nWorld");
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("Hello\nWorld", result);
+}
+
+test "decodeWatString — hex escapes" {
+    const result = try decodeWatString(testing.allocator, "\\48\\65\\6c\\6c\\6f");
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("Hello", result);
+}
+
+test "WAT parser — i32.trunc_sat_f64_s round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (export "sat") (param f64) (result i32)
+        \\    local.get 0
+        \\    i32.trunc_sat_f64_s))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    // 1e30 should clamp to i32.max = 2147483647
+    var args = [_]u64{@bitCast(@as(f64, 1e30))};
+    var results = [_]u64{0};
+    try module.invoke("sat", &args, &results);
+    try testing.expectEqual(@as(u64, 2147483647), results[0]);
+}
+
+test "WAT parser — memory.fill round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (func (export "test") (result i32)
+        \\    i32.const 0
+        \\    i32.const 42
+        \\    i32.const 4
+        \\    memory.fill
+        \\    i32.const 0
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 42), results[0]);
+}
+
+test "WAT parser — memory.copy round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (data (i32.const 0) "Hello")
+        \\  (func (export "test") (result i32)
+        \\    i32.const 10
+        \\    i32.const 0
+        \\    i32.const 5
+        \\    memory.copy
+        \\    i32.const 10
+        \\    i32.load8_u))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 'H'), results[0]);
+}
+
+test "WAT parser — table.fill round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (table 3 funcref)
+        \\  (func $f (result i32) i32.const 99)
+        \\  (func (export "test") (result i32)
+        \\    i32.const 0
+        \\    ref.func $f
+        \\    i32.const 3
+        \\    table.fill 0
+        \\    i32.const 0
+        \\    table.get 0
+        \\    ref.is_null
+        \\    i32.eqz))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    // table.fill wrote non-null refs, so ref.is_null returns 0, i32.eqz gives 1
+    try testing.expectEqual(@as(u64, 1), results[0]);
+}
+
+test "WAT parser — try_table encode round-trip" {
+    // Verify try_table parses and encodes to valid wasm binary
+    // Uses catch_all (no tag needed) with body that returns normally
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (export "test") (result i32)
+        \\    (block $outer (result i32)
+        \\      (try_table (result i32) (catch_all $outer)
+        \\        i32.const 42))))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    // No exception thrown, try_table body returns 42
+    try testing.expectEqual(@as(u64, 42), results[0]);
+}
+
+test "WAT parser — i32x4.extract_lane round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (export "test") (result i32)
+        \\    v128.const i32x4 10 20 30 40
+        \\    i32x4.extract_lane 2))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 30), results[0]);
+}
+
+test "WAT parser — i32.atomic.load round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (memory 1)
+        \\  (func (export "test") (result i32)
+        \\    i32.const 0
+        \\    i32.const 99
+        \\    i32.atomic.store
+        \\    i32.const 0
+        \\    i32.atomic.load))
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 99), results[0]);
+}
+
+test "WAT parser — memory shared" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module (memory 1 4 shared))
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.memories.len);
+    try testing.expectEqual(@as(u64, 1), mod.memories[0].limits.min);
+    try testing.expectEqual(@as(u64, 4), mod.memories[0].limits.max.?);
+    try testing.expect(mod.memories[0].limits.shared);
+}
+
+test "WAT encoder — memory shared round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module (memory 1 4 shared))
+    );
+    defer testing.allocator.free(wasm);
+    // Find memory section (ID 5)
+    var pos: usize = 8;
+    while (pos < wasm.len) {
+        const sec_id = wasm[pos];
+        pos += 1;
+        var sec_size: usize = 0;
+        var shift: u5 = 0;
+        while (pos < wasm.len) {
+            const b = wasm[pos];
+            pos += 1;
+            sec_size |= @as(usize, b & 0x7F) << shift;
+            if (b & 0x80 == 0) break;
+            shift += 7;
+        }
+        if (sec_id == 5) {
+            // count=1, then limits flag byte
+            try testing.expectEqual(@as(u8, 1), wasm[pos]); // count
+            try testing.expectEqual(@as(u8, 0x03), wasm[pos + 1]); // flag: has_max(0x01) | shared(0x02)
+            break;
+        }
+        pos += sec_size;
+    }
+}
+
+test "WAT parser — memory shared requires max" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module (memory 1 shared))
+    );
+    try testing.expectError(error.InvalidWat, parser.parseModule());
+}
+
+test "WAT parser — import memory shared" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module (import "env" "mem" (memory 1 4 shared)))
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.imports.len);
+    try testing.expectEqual(@as(u64, 1), mod.imports[0].kind.memory.min);
+    try testing.expectEqual(@as(u64, 4), mod.imports[0].kind.memory.max.?);
+    try testing.expect(mod.imports[0].kind.memory.shared);
+}
+
+test "WAT parser — tag declaration" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (tag $e (param i32))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.tags.len);
+    try testing.expectEqualStrings("$e", mod.tags[0].name.?);
+    try testing.expectEqual(@as(usize, 1), mod.tags[0].params.len);
+    try testing.expectEqual(WatValType.i32, mod.tags[0].params[0].valtype);
+}
+
+test "WAT encoder — tag round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (tag $e (param i32))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    // Should load as valid module
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.tags.items.len);
+}
+
+test "WAT encoder — tag with try_table catch" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (tag $e (param i32))
+        \\  (func (export "test") (result i32)
+        \\    (block $outer (result i32)
+        \\      (try_table (result i32) (catch $e $outer)
+        \\        i32.const 42
+        \\      )
+        \\    )
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+    try testing.expectEqual(@as(u64, 42), results[0]);
+}
+
+test "WAT parser — import tag" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (import "env" "exn" (tag $e (param i32)))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.imports.len);
+    try testing.expectEqualStrings("$e", mod.imports[0].id.?);
+    try testing.expectEqual(@as(usize, 1), mod.imports[0].kind.tag.params.len);
+}
+
+test "WAT encoder — export tag" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (tag $e (param i32))
+        \\  (export "error" (tag $e))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.tags.items.len);
+}
+
+test "WAT parser — GC valtype abbreviations" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (func (param anyref eqref i31ref structref arrayref))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const params = mod.functions[0].params;
+    try testing.expectEqual(@as(usize, 5), params.len);
+    try testing.expect(params[0].valtype.eql(.anyref));
+    try testing.expect(params[1].valtype.eql(.eqref));
+    try testing.expect(params[2].valtype.eql(.i31ref));
+    try testing.expect(params[3].valtype.eql(.structref));
+    try testing.expect(params[4].valtype.eql(.arrayref));
+}
+
+test "WAT parser — ref type" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (func (param (ref func)) (param (ref null extern)))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const params = mod.functions[0].params;
+    try testing.expectEqual(@as(usize, 2), params.len);
+    const opcode = @import("opcode.zig");
+    try testing.expect(params[0].valtype.eql(.{ .ref_type = .{ .num = opcode.ValType.HEAP_FUNC } }));
+    try testing.expect(params[1].valtype.eql(.{ .ref_null_type = .{ .num = opcode.ValType.HEAP_EXTERN } }));
+}
+
+test "WAT encoder — ref.null heap type" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (export "test") (result funcref)
+        \\    ref.null func
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    var args = [_]u64{};
+    var results = [_]u64{0};
+    try module.invoke("test", &args, &results);
+}
+
+test "WAT encoder — anyref param round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (param anyref))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+}
+
+test "WAT parser — struct type definition" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (type $point (struct (field $x i32) (field $y i32)))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.types.len);
+    try testing.expectEqualStrings("$point", mod.types[0].name.?);
+    const st = mod.types[0].composite.struct_type;
+    try testing.expectEqual(@as(usize, 2), st.fields.len);
+    try testing.expectEqualStrings("$x", st.fields[0].name.?);
+    try testing.expectEqual(WatValType.i32, st.fields[0].valtype);
+    try testing.expect(!st.fields[0].mutable);
+}
+
+test "WAT parser — struct with mutable field" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (type $cell (struct (field $val (mut i32))))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    const st = mod.types[0].composite.struct_type;
+    try testing.expectEqual(@as(usize, 1), st.fields.len);
+    try testing.expect(st.fields[0].mutable);
+    try testing.expectEqual(WatValType.i32, st.fields[0].valtype);
+}
+
+test "WAT parser — array type definition" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var parser = Parser.init(arena.allocator(),
+        \\(module
+        \\  (type $arr (array (mut i32)))
+        \\)
+    );
+    const mod = try parser.parseModule();
+    try testing.expectEqual(@as(usize, 1), mod.types.len);
+    const at = mod.types[0].composite.array_type;
+    try testing.expect(at.field.mutable);
+    try testing.expectEqual(WatValType.i32, at.field.valtype);
+}
+
+test "WAT encoder — struct type round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $point (struct (field $x i32) (field $y f64)))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    // Verify the module loaded successfully with struct type
+    try testing.expectEqual(@as(usize, 1), module.module.types.items.len);
+}
+
+test "WAT encoder — array type round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $arr (array (mut f32)))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.types.items.len);
+}
+
+test "WAT encoder — i31.get_s round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (func (param i31ref) (result i32)
+        \\    local.get 0
+        \\    i31.get_s
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    // Function loaded successfully with i31.get_s instruction
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+test "WAT encoder — struct.new round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $point (struct (field i32) (field i32)))
+        \\  (func (param i32 i32) (result (ref $point))
+        \\    local.get 0
+        \\    local.get 1
+        \\    struct.new $point
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+test "WAT encoder — rec group round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (rec
+        \\    (type $a (struct (field (ref null 1))))
+        \\    (type $b (struct (field (ref null 0))))
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 2), module.module.types.items.len);
+}
+
+test "WAT encoder — struct.get round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $point (struct (field $x i32) (field $y i32)))
+        \\  (func (param (ref $point)) (result i32)
+        \\    local.get 0
+        \\    struct.get $point 0
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+test "WAT encoder — ref.test round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $my (struct))
+        \\  (func (param anyref) (result i32)
+        \\    local.get 0
+        \\    ref.test $my
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+test "WAT encoder — array.new_fixed round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $arr (array i32))
+        \\  (func (result (ref $arr))
+        \\    i32.const 1
+        \\    i32.const 2
+        \\    i32.const 3
+        \\    array.new_fixed $arr 3
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+// ============================================================
+// Validation Tests (Phase 4: malformed WAT must not panic)
+// ============================================================
+
+test "WAT validation — empty input" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, ""));
+}
+
+test "WAT validation — unclosed paren" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "(module"));
+}
+
+test "WAT validation — not a module" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "(func)"));
+}
+
+test "WAT validation — invalid keyword" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "(bogus)"));
+}
+
+test "WAT validation — unresolved name reference" {
+    // Unresolved names produce an error (not a panic)
+    const result = watToWasm(testing.allocator,
+        \\(module (func (call $nonexistent)))
+    );
+    if (result) |wasm| {
+        testing.allocator.free(wasm);
+        return error.TestExpectedError;
+    } else |_| {}
+}
+
+test "WAT validation — deeply nested folded instrs" {
+    // Build a deeply nested (drop (drop (drop ... ))) to test recursion limit
+    var buf: [12000]u8 = undefined;
+    var pos: usize = 0;
+    const prefix = "(module (func ";
+    @memcpy(buf[pos..][0..prefix.len], prefix);
+    pos += prefix.len;
+    const depth: usize = 1001;
+    for (0..depth) |_| {
+        const open = "(drop ";
+        @memcpy(buf[pos..][0..open.len], open);
+        pos += open.len;
+    }
+    for (0..depth) |_| {
+        buf[pos] = ')';
+        pos += 1;
+    }
+    const suffix = "))";
+    @memcpy(buf[pos..][0..suffix.len], suffix);
+    pos += suffix.len;
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, buf[0..pos]));
+}
+
+test "WAT validation — invalid number literal" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator,
+        \\(module (func (result i32) i32.const abc))
+    ));
+}
+
+test "WAT validation — no opening paren" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "func"));
+}
+
+test "WAT validation — unclosed func" {
+    try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "(module (func"));
 }

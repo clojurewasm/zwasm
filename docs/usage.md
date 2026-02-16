@@ -5,17 +5,17 @@
 ### Running Wasm modules
 
 ```bash
-# Run a WASI module (calls _start)
-zwasm run module.wasm
+# Run a WASI module (calls _start) — `run` is optional
+zwasm module.wasm
 
 # Pass arguments
-zwasm run module.wasm -- arg1 arg2
+zwasm module.wasm -- arg1 arg2
 
 # Run a WAT text format module
-zwasm run module.wat
+zwasm module.wat
 
 # Call a specific exported function instead of _start
-zwasm run module.wasm --invoke fib
+zwasm module.wasm --invoke fib
 ```
 
 ### WASI security
@@ -25,16 +25,16 @@ environment access unless explicitly granted.
 
 ```bash
 # Grant filesystem read access
-zwasm run module.wasm --allow-read
+zwasm module.wasm --allow-read
 
 # Grant specific directory access
-zwasm run module.wasm --dir /path/to/data
+zwasm module.wasm --dir /path/to/data
 
 # Grant all capabilities
-zwasm run module.wasm --allow-all
+zwasm module.wasm --allow-all
 
 # Set environment variables
-zwasm run module.wasm --env KEY=VALUE
+zwasm module.wasm --env KEY=VALUE
 ```
 
 Available capability flags:
@@ -51,18 +51,18 @@ Available capability flags:
 
 ```bash
 # Limit memory growth (bytes)
-zwasm run module.wasm --max-memory 67108864  # 64MB ceiling
+zwasm module.wasm --max-memory 67108864  # 64MB ceiling
 
 # Limit execution (instruction fuel)
-zwasm run module.wasm --fuel 1000000
+zwasm module.wasm --fuel 1000000
 ```
 
 ### Linking modules
 
 ```bash
 # Link another Wasm module as import source
-zwasm run app.wasm --link math=math.wasm
-zwasm run app.wasm --link env=helpers.wasm --link io=io.wasm
+zwasm app.wasm --link math=math.wasm
+zwasm app.wasm --link env=helpers.wasm --link io=io.wasm
 ```
 
 ### Component Model
@@ -71,7 +71,7 @@ zwasm auto-detects Component Model binaries and runs them:
 
 ```bash
 # Run a component (auto-detected from binary header)
-zwasm run component.wasm
+zwasm component.wasm
 ```
 
 ### Feature listing
@@ -101,16 +101,16 @@ zwasm validate module.wasm
 
 ```bash
 # Trace execution categories (comma-separated)
-zwasm run module.wasm --trace=jit,regir,exec,mem,call
+zwasm module.wasm --trace=jit,regir,exec,mem,call
 
 # Dump Register IR for function index N
-zwasm run module.wasm --dump-regir=5
+zwasm module.wasm --dump-regir=5
 
 # Dump JIT disassembly for function index N
-zwasm run module.wasm --dump-jit=5
+zwasm module.wasm --dump-jit=5
 
 # Execution profile (opcode frequency, call counts)
-zwasm run module.wasm --profile
+zwasm module.wasm --profile
 ```
 
 ### Batch mode
@@ -118,7 +118,7 @@ zwasm run module.wasm --profile
 Read function invocations from stdin, one per line:
 
 ```bash
-echo '{"func":"add","args":[1,2]}' | zwasm run module.wasm --batch
+echo '{"func":"add","args":[1,2]}' | zwasm module.wasm --batch
 ```
 
 ---

@@ -1,6 +1,6 @@
 ;; Iterative factorial using a loop.
 ;;
-;; Run: zwasm run --invoke factorial examples/wat/factorial.wat 10
+;; Run: zwasm run examples/wat/04_factorial.wat --invoke factorial 10
 ;; Output: 3628800
 (module
   (func (export "factorial") (param $n i32) (result i32)

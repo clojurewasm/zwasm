@@ -1,7 +1,9 @@
 ;; WASI: print "Hi!\n" to stdout.
-;; Uses i32.store to set up memory (WAT parser doesn't support data sections).
 ;;
-;; Run: zwasm run --allow-all examples/wat/wasi_hello.wat
+;; The simplest WASI example: write 4 bytes to file descriptor 1 (stdout).
+;; Uses fd_write with an iovec (pointer + length) structure in linear memory.
+;;
+;; Run: zwasm examples/wat/30_wasi_hello.wat --allow-all
 ;; Output: Hi!
 (module
   ;; Import WASI fd_write(fd, iovs, iovs_len, nwritten) -> errno
@@ -10,11 +12,10 @@
 
   (memory (export "memory") 1)
 
-  (func (export "_start")
-    ;; Write "Hi!\n" (4 bytes) at offset 16.
-    ;; 'H'=72, 'i'=105, '!'=33, '\n'=10 → little-endian i32 = 0x0A216948
-    (i32.store (i32.const 16) (i32.const 0x0A216948))
+  ;; Store "Hi!\n" at offset 16 via data section.
+  (data (i32.const 16) "Hi!\n")
 
+  (func (export "_start")
     ;; Set up iovec at offset 0: { buf_ptr=16, buf_len=4 }
     (i32.store (i32.const 0) (i32.const 16))   ;; pointer to string
     (i32.store (i32.const 4) (i32.const 4))    ;; length = 4
