@@ -295,14 +295,14 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 // Retry without imports if the linked module doesn't need them
                 types.WasmModule.load(allocator, link_bytes) catch |err| {
                     allocator.free(link_bytes);
-                    try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, @errorName(err) });
+                    try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, formatWasmError(err) });
                     try stderr.flush();
                     return false;
                 }
         else
             types.WasmModule.load(allocator, link_bytes) catch |err| {
                 allocator.free(link_bytes);
-                try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, @errorName(err) });
+                try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, formatWasmError(err) });
                 try stderr.flush();
                 return false;
             };
@@ -341,12 +341,12 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 break :load_blk types.WasmModule.loadWithImports(allocator, wasm_bytes, imports_slice.?) catch |err| {
                     if (err == error.ImportNotFound) {
                         break :load_blk types.WasmModule.loadWasiWithImports(allocator, wasm_bytes, imports_slice, wasi_opts) catch |err2| {
-                            try stderr.print("error: failed to load module: {s}\n", .{@errorName(err2)});
+                            try stderr.print("error: failed to load module: {s}\n", .{formatWasmError(err2)});
                             try stderr.flush();
                             return false;
                         };
                     }
-                    try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
+                    try stderr.print("error: failed to load module: {s}\n", .{formatWasmError(err)});
                     try stderr.flush();
                     return false;
                 };
@@ -355,12 +355,12 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             break :load_blk types.WasmModule.load(allocator, wasm_bytes) catch |err| {
                 if (err == error.ImportNotFound) {
                     break :load_blk types.WasmModule.loadWasiWithOptions(allocator, wasm_bytes, wasi_opts) catch |err2| {
-                        try stderr.print("error: failed to load module: {s}\n", .{@errorName(err2)});
+                        try stderr.print("error: failed to load module: {s}\n", .{formatWasmError(err2)});
                         try stderr.flush();
                         return false;
                     };
                 }
-                try stderr.print("error: failed to load module: {s}\n", .{@errorName(err)});
+                try stderr.print("error: failed to load module: {s}\n", .{formatWasmError(err)});
                 try stderr.flush();
                 return false;
             };
@@ -418,7 +418,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         @memset(results, 0);
 
         module.invoke(func_name, wasm_args, results) catch |err| {
-            try stderr.print("error: invoke '{s}' failed: {s}\n", .{ func_name, @errorName(err) });
+            try stderr.print("error: invoke '{s}' failed: {s}\n", .{ func_name, formatWasmError(err) });
             try stderr.flush();
             if (profile_mode) printProfile(&profile, stderr);
             return false;
@@ -472,7 +472,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .caps = caps,
         };
         var module = types.WasmModule.loadWasiWithImports(allocator, wasm_bytes, imports_slice, wasi_opts2) catch |err| {
-            try stderr.print("error: failed to load WASI module: {s}\n", .{@errorName(err)});
+            try stderr.print("error: failed to load WASI module: {s}\n", .{formatWasmError(err)});
             try stderr.flush();
             return false;
         };
@@ -505,7 +505,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 if (code != 0) std.process.exit(@truncate(code));
                 return true;
             }
-            try stderr.print("error: _start failed: {s}\n", .{@errorName(err)});
+            try stderr.print("error: _start failed: {s}\n", .{formatWasmError(err)});
             try stderr.flush();
             if (profile_mode) printProfile(&wasi_profile, stderr);
             return false;
@@ -533,7 +533,7 @@ fn runComponent(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Wr
     defer comp.deinit();
 
     comp.decode() catch |err| {
-        try stderr.print("error: failed to decode component: {s}\n", .{@errorName(err)});
+        try stderr.print("error: failed to decode component: {s}\n", .{formatWasmError(err)});
         try stderr.flush();
         return false;
     };
@@ -543,7 +543,7 @@ fn runComponent(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Wr
     defer instance.deinit();
 
     instance.instantiate() catch |err| {
-        try stderr.print("error: failed to instantiate component: {s}\n", .{@errorName(err)});
+        try stderr.print("error: failed to instantiate component: {s}\n", .{formatWasmError(err)});
         try stderr.flush();
         return false;
     };
@@ -563,7 +563,7 @@ fn runComponent(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Wr
                 if (code != 0) std.process.exit(@truncate(code));
                 return true;
             }
-            try stderr.print("error: _start failed: {s}\n", .{@errorName(err)});
+            try stderr.print("error: _start failed: {s}\n", .{formatWasmError(err)});
             try stderr.flush();
             return false;
         };
@@ -800,7 +800,7 @@ fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
     var module = module_mod.Module.init(allocator, wasm_bytes);
     defer module.deinit();
     module.decode() catch |err| {
-        try stderr.print("error: decode failed: {s}\n", .{@errorName(err)});
+        try stderr.print("error: decode failed: {s}\n", .{formatWasmError(err)});
         try stderr.flush();
         return;
     };
@@ -1665,7 +1665,7 @@ fn cmdValidate(allocator: Allocator, args: []const []const u8, stdout: *std.Io.W
 
     const path = args[0];
     const wasm_bytes = readWasmFile(allocator, path) catch |err| {
-        try stderr.print("error: validation failed: {s}: {s}\n", .{ path, @errorName(err) });
+        try stderr.print("error: validation failed: {s}: {s}\n", .{ path, formatWasmError(err) });
         try stderr.flush();
         return false;
     };
@@ -1674,13 +1674,13 @@ fn cmdValidate(allocator: Allocator, args: []const []const u8, stdout: *std.Io.W
     var module = module_mod.Module.init(allocator, wasm_bytes);
     defer module.deinit();
     module.decode() catch |err| {
-        try stderr.print("error: validation failed: {s}: {s}\n", .{ path, @errorName(err) });
+        try stderr.print("error: validation failed: {s}: {s}\n", .{ path, formatWasmError(err) });
         try stderr.flush();
         return false;
     };
 
     validate.validateModule(allocator, &module) catch |err| {
-        try stderr.print("error: validation failed: {s}: {s}\n", .{ path, @errorName(err) });
+        try stderr.print("error: validation failed: {s}: {s}\n", .{ path, formatWasmError(err) });
         try stderr.flush();
         return false;
     };
@@ -1873,6 +1873,43 @@ fn readWasmFile(allocator: Allocator, path: []const u8) ![]const u8 {
         return wat.watToWasm(allocator, file_bytes);
     }
     return file_bytes;
+}
+
+/// Format a Wasm error as a human-readable message.
+fn formatWasmError(err: anyerror) []const u8 {
+    return switch (err) {
+        // Trap errors
+        error.Trap => "trap: unreachable instruction executed",
+        error.StackOverflow => "trap: call stack overflow (depth > 1024)",
+        error.DivisionByZero => "trap: integer division by zero",
+        error.IntegerOverflow => "trap: integer overflow",
+        error.InvalidConversion => "trap: invalid float-to-integer conversion",
+        error.OutOfBoundsMemoryAccess => "trap: out-of-bounds memory access",
+        error.UndefinedElement => "trap: uninitialized table element",
+        error.MismatchedSignatures => "trap: call_indirect type mismatch",
+        error.Unreachable => "trap: unreachable code",
+        error.WasmException => "trap: unhandled wasm exception",
+        // Decode/validation errors
+        error.InvalidWasm => "invalid wasm binary",
+        error.FunctionCodeMismatch => "function section count does not match code section count",
+        error.InvalidTypeIndex => "type index out of range",
+        error.InvalidInitExpr => "invalid constant expression in initializer",
+        error.ImportNotFound => "required import not found",
+        error.ModuleNotDecoded => "module not decoded (internal error)",
+        error.TypeMismatch => "validation: type mismatch",
+        error.UnknownLabel => "validation: branch target label not found",
+        error.IllegalOpcode => "validation: illegal opcode in this context",
+        error.DuplicateExportName => "validation: duplicate export name",
+        // Resource errors
+        error.OutOfMemory => "out of memory",
+        error.MemoryLimitExceeded => "memory grow exceeded maximum",
+        error.FuelExhausted => "fuel limit exhausted",
+        // File errors
+        error.FileNotFound => "file not found",
+        error.WatNotEnabled => "WAT format disabled (build with -Dwat=true)",
+        error.InvalidWat => "invalid WAT syntax",
+        else => @errorName(err),
+    };
 }
 
 test "component detection in CLI" {

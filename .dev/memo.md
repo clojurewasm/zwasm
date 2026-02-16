@@ -30,18 +30,18 @@ Stage 35 note: 35.4 24h fuzz campaign deferred as overnight background task.
 See `private/roadmap-production.md` Phase 37 for full detail.
 
 - [x] 37.1: Catalog all error types returned from public API (load, invoke, validate)
-- [ ] 37.2: CLI error formatting: human-readable messages with context (file, section, offset)
+- [x] 37.2: CLI error formatting: human-readable messages with context (file, section, offset)
 - [ ] 37.3: Validation error messages: spec-quality diagnostics (what failed, where, expected vs got)
 - [ ] 37.4: Trap messages: clear distinction between trap types (unreachable, OOB, stack overflow, etc.)
 - [ ] 37.5: Library API error documentation: document every error enum variant
 
 ## Current Task
 
-37.2: CLI error formatting.
+37.3: Validation error messages.
 
 ## Previous Task
 
-37.1: Error catalog (docs/errors.md). WasmError 40+ variants, ValidateError 20+, PredecodeError 2, ConvertError 2, WatError 2. 4 API surfaces documented.
+37.2: CLI formatWasmError() — 30 mapped error messages (traps, decode, validation, resource, file). All CLI error paths updated.
 
 ## Wasm 3.0 Coverage
 
