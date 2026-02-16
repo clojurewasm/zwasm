@@ -58,3 +58,6 @@ test/fuzz/corpus/
 
 # Overnight fuzz results (machine-generated)
 .dev/fuzz-overnight-result.txt
+
+# mdBook output (generated)
+docs/book/

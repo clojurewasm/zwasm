@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-38 — ALL COMPLETE (+ Crash Hardening + Security Audit + Error System + CI/CD)
+- Stages 0-39 — ALL COMPLETE (+ Crash Hardening + Security Audit + Error System + CI/CD + Book)
 - Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -22,30 +22,35 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-38 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-39 — all COMPLETE. See `roadmap.md` for details.
 Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.sh > /dev/null 2>&1 &`
-  then check `.dev/fuzz-overnight-result.txt` next session. Review before Stage 39.
+  then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 38: CI/CD Strengthening)
+## Task Queue (Stage 39: Documentation & Book)
 
-See `private/roadmap-production.md` Phase 38 for full detail.
+See `private/roadmap-production.md` Phase 39 for full detail.
 
-- [x] 38.1: CI benchmark regression detection: compare against recorded baselines
-- [x] 38.2: CI binary size check: fail if > 1.5MB (ReleaseSafe)
-- [x] 38.3: CI ReleaseSafe build verification (currently only Debug)
-- [x] 38.4: E2E test suite in CI
-- [x] 38.5: Nightly sanitizer job (ASan/UBSan)
-- [x] 38.6: Nightly fuzz job (1h continuous)
-- [x] 38.7: CI caching: Zig build cache for faster runs
+- [x] 39.1: SSG setup: mdBook, deployed to GitHub Pages
+- [x] 39.2: Getting Started (install, run first module, 5-minute guide)
+- [x] 39.3: Architecture Overview (4-tier execution, decode→IR→JIT pipeline)
+- [x] 39.4: Embedding Guide (Zig library usage, allocator control, error handling)
+- [x] 39.5: CLI Reference (all commands, flags, examples)
+- [x] 39.6: Wasm Spec Coverage table (1.0/2.0/3.0, proposal status, spec level)
+- [x] 39.7: Security Model (threat model, WASI capabilities, sandbox boundaries)
+- [x] 39.8: Performance Guide (JIT tiers, when JIT kicks in, benchmark methodology)
+- [x] 39.9: Memory Model (linear memory, GC heap, allocator parameterization)
+- [x] 39.10: Comparison page (vs wasmtime, wasm3, wasmer — size/speed/features)
+- [x] 39.11: FAQ / Troubleshooting
+- [x] 39.12: Contributor Guide (build, test, PR process, code structure)
 
 ## Current Task
 
-Stage 38 complete — merging to main, then start Stage 39 (Documentation & Book).
+Stage 39 complete — all 12 tasks done. Ready for merge gate.
 
 ## Previous Task
 
-Stage 38 complete. CI: benchmark regression, size check, ReleaseSafe, E2E, nightly sanitizer+fuzz, caching.
+39.8-39.12: Performance guide, memory model, comparison, FAQ, contributor guide.
 
 ## Wasm 3.0 Coverage
 

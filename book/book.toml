@@ -1,0 +1,13 @@
+[book]
+title = "zwasm"
+description = "A standalone WebAssembly runtime written in Zig"
+authors = ["zwasm contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "../docs/book"
+
+[output.html]
+git-repository-url = "https://github.com/syumai/zwasm"
+additional-css = ["custom.css"]
