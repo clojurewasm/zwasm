@@ -193,6 +193,27 @@ pub const Instance = struct {
         return self.tagaddrs.items[idx];
     }
 
+    /// Check if a function matches the expected call_indirect type using
+    /// store-level global type IDs. Falls back to structural comparison
+    /// for host functions without canonical IDs.
+    pub fn matchesCallIndirectType(self: *const Instance, type_idx: u32, func: *const store_mod.Function) bool {
+        const UNSET = std.math.maxInt(u32);
+        if (func.canonical_type_id != UNSET) {
+            const expected = if (type_idx < self.global_type_ids.len)
+                self.global_type_ids[type_idx]
+            else
+                type_idx;
+            return func.canonical_type_id == expected or
+                self.store.type_registry.isSubtype(func.canonical_type_id, expected);
+        }
+        // Structural fallback for host functions without canonical IDs
+        if (self.module.getTypeFunc(type_idx)) |exp| {
+            return ValType.sliceEql(exp.params, func.params) and
+                ValType.sliceEql(exp.results, func.results);
+        }
+        return true;
+    }
+
     // ---- Instantiation steps ----
 
     fn resolveImports(self: *Instance) !void {

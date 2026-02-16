@@ -897,7 +897,7 @@ pub const Vm = struct {
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
 
                     // Type check: canonical type ID with structural fallback
-                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                    if (!instance.matchesCallIndirectType(type_idx, func_ptr))
                         return error.MismatchedSignatures;
 
                     self.doCallDirect(instance, func_ptr, reader) catch |err| {
@@ -930,7 +930,7 @@ pub const Vm = struct {
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
                     // Type check: canonical type ID with structural fallback
-                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                    if (!instance.matchesCallIndirectType(type_idx, func_ptr))
                         return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;
@@ -1347,7 +1347,7 @@ pub const Vm = struct {
                     const func_addr = ref_val - 1;
                     const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
                     // Type check: canonical type ID with structural fallback
-                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                    if (!instance.matchesCallIndirectType(type_idx, func_ptr))
                         return error.MismatchedSignatures;
                     self.doCallDirect(instance, func_ptr, reader) catch |err| {
                         if (err == error.WasmException and self.handleException(reader, instance))
@@ -1362,7 +1362,7 @@ pub const Vm = struct {
                     const func_addr = ref_val - 1;
                     const func_ptr = try instance.store.getFunctionPtr(@intCast(func_addr));
                     // Type check: canonical type ID with structural fallback
-                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                    if (!instance.matchesCallIndirectType(type_idx, func_ptr))
                         return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;
@@ -3605,7 +3605,7 @@ pub const Vm = struct {
                     const callee_fn = try instance.store.getFunctionPtr(func_addr);
 
                     // Type check: canonical type ID with structural fallback
-                    if (!instance.module.matchesCallIndirectType(type_idx, callee_fn.canonical_type_id, callee_fn.params, callee_fn.results))
+                    if (!instance.matchesCallIndirectType(type_idx, callee_fn))
                         return error.MismatchedSignatures;
 
                     const n_args = callee_fn.params.len;
@@ -4258,7 +4258,7 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                    if (!instance.matchesCallIndirectType(type_idx, func_ptr))
                         return error.MismatchedSignatures;
                     try self.doCallDirectIR(instance, func_ptr);
                 },
@@ -4281,7 +4281,7 @@ pub const Vm = struct {
                     const elem_idx: u32 = if (t.is_64) @truncate(self.popU64()) else @as(u32, @bitCast(self.popI32()));
                     const func_addr = try t.lookup(elem_idx);
                     const func_ptr = try instance.store.getFunctionPtr(func_addr);
-                    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+                    if (!instance.matchesCallIndirectType(type_idx, func_ptr))
                         return error.MismatchedSignatures;
                     const n_args = func_ptr.params.len;
                     var i: usize = n_args;

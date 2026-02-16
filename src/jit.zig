@@ -4098,7 +4098,7 @@ pub fn jitCallIndirectTrampoline(
     const func_ptr = instance.store.getFunctionPtr(func_addr) catch return 1;
 
     // Type check: canonical type ID with structural fallback
-    if (!instance.module.matchesCallIndirectType(type_idx, func_ptr.canonical_type_id, func_ptr.params, func_ptr.results))
+    if (!instance.matchesCallIndirectType(type_idx, func_ptr))
         return 1; // MismatchedSignatures → Trap
 
     const n_args = func_ptr.params.len;
