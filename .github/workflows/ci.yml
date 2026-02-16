@@ -28,7 +28,17 @@ jobs:
         run: zig build test
 
       - name: Install wasm-tools
-        run: cargo install wasm-tools
+        env:
+          WASM_TOOLS_VERSION: "1.245.1"
+        run: |
+          ARCH=$(uname -m)
+          [ "$ARCH" = "arm64" ] && ARCH="aarch64"
+          OS=${{ runner.os == 'Linux' && '"linux"' || '"macos"' }}
+          ARCHIVE="wasm-tools-${WASM_TOOLS_VERSION}-${ARCH}-${OS}"
+          curl -L -o /tmp/wasm-tools.tar.gz \
+            "https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VERSION}/${ARCHIVE}.tar.gz"
+          tar xzf /tmp/wasm-tools.tar.gz -C /tmp
+          echo "/tmp/${ARCHIVE}" >> "$GITHUB_PATH"
 
       - name: Download WebAssembly spec testsuite
         run: git clone --depth 1 https://github.com/WebAssembly/spec.git /tmp/wasm-spec
@@ -37,4 +47,4 @@ jobs:
         run: bash test/spec/convert.sh /tmp/wasm-spec/test/core
 
       - name: Run spec tests
-        run: python3 test/spec/run_spec.py --build --summary --allow-failures 111
+        run: python3 test/spec/run_spec.py --build --summary
