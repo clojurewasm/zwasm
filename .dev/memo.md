@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-41 — ALL COMPLETE (Crash Hardening → CI/CD → Book → API Stabilization → Distribution)
+- Stages 0-42 — ALL COMPLETE (... → Distribution → Community Preparation)
 - Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -22,30 +22,31 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-41 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-42 — all COMPLETE. See `roadmap.md` for details.
 Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.sh > /dev/null 2>&1 &`
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 41: Distribution)
+## Task Queue (Stage 42: Community Preparation)
 
-See `private/roadmap-production.md` Phase 41 for full detail.
+See `private/roadmap-production.md` Phase 42 for full detail.
 
-- [x] 41.1: GitHub Releases: automated binary builds (macOS ARM64, Linux x86_64, Linux aarch64)
-- [x] 41.2: Homebrew tap: brew install clojurewasm/tap/zwasm (template in dist/homebrew/)
-- [x] 41.3: Nix flake (already exists, verified)
-- [x] 41.4: Release automation: tag → build → publish workflow (release.yml)
-- [x] 41.5: Signed releases (SHA256SUMS in release workflow)
-- [skip] 41.6: Docker image (multi-arch) — COULD, skipped
-- [x] 41.7: Install script: curl -fsSL ... | sh (install.sh)
+- [x] 42.1: CONTRIBUTING.md in repo root
+- [x] 42.2: Issue templates (bug report, feature request)
+- [x] 42.3: Code of Conduct
+- [x] 42.4: Public roadmap (link from README)
+- [x] 42.5: README polish: badges, install section, doc links
+- [x] 42.6: Examples: host_functions.zig + wasi.zig (now 5 total)
+- [x] 42.7: License audit (MIT clean, test suite Apache 2.0 compatible)
+- [x] Book fixes: syumai→clojurewasm URLs, ASCII diagram alignment, Vm type fix
 
 ## Current Task
 
-Stage 41 complete. Preparing merge to main.
+Stage 42 complete. Preparing merge to main.
 
 ## Previous Task
 
-41.1-41.7: Distribution — release.yml, install.sh, Homebrew formula template.
+42.1-42.7: Community prep — CONTRIBUTING, issue templates, CoC, README badges, examples, book fixes.
 
 ## Wasm 3.0 Coverage
 

@@ -1,5 +1,9 @@
 # zwasm
 
+[![CI](https://github.com/clojurewasm/zwasm/actions/workflows/ci.yml/badge.svg)](https://github.com/clojurewasm/zwasm/actions/workflows/ci.yml)
+[![Spec Tests](https://img.shields.io/badge/spec_tests-62%2C158%2F62%2C158-brightgreen)](https://github.com/clojurewasm/zwasm)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A small, fast WebAssembly runtime written in Zig. Library and CLI.
 
 ## Why zwasm
@@ -61,6 +65,20 @@ Memory usage 3-4x lower across all benchmarks.
 
 Full results (21 benchmarks): `bench/runtime_comparison.yaml`
 
+## Install
+
+```bash
+# From source (requires Zig 0.15.2)
+zig build -Doptimize=ReleaseSafe
+cp zig-out/bin/zwasm ~/.local/bin/
+
+# Or use the install script
+curl -fsSL https://raw.githubusercontent.com/clojurewasm/zwasm/main/install.sh | bash
+
+# Or via Homebrew (macOS/Linux)
+brew install clojurewasm/tap/zwasm
+```
+
 ## Usage
 
 ### CLI
@@ -98,7 +116,7 @@ Requires Zig 0.15.2.
 
 ```bash
 zig build              # Build (Debug)
-zig build test         # Run all tests (419 tests)
+zig build test         # Run all tests (425 tests)
 ./zig-out/bin/zwasm run file.wasm
 ```
 
@@ -161,6 +179,8 @@ The spec test suite runs on every change.
 - [x] Stages 26-31: JIT peephole, platform verification, spec cleanup, GC benchmarks
 - [x] Stage 32: 100% spec conformance (62,158/62,158 on Mac + Ubuntu)
 - [x] Stage 33: Fuzz testing (differential testing, extended fuzz campaign, 0 crashes)
+- [x] Stages 35-41: Production hardening (crash safety, CI/CD, docs, API stability, distribution)
+- [ ] Stage 42-43: Community preparation, v1.0.0 release
 - [ ] Future: WASI P3/async, GC collector upgrade, liveness-based regalloc
 
 ## Versioning
@@ -170,6 +190,16 @@ zwasm follows [Semantic Versioning](https://semver.org/). The public API surface
 - **Stable** types and functions (WasmModule, WasmFn, etc.) won't break in minor/patch releases
 - **Experimental** types (runtime.\*, WIT) may change in minor releases
 - **Deprecation**: At least one minor version notice before removal
+
+## Documentation
+
+- [Book](https://clojurewasm.github.io/zwasm/) — Getting started, architecture, embedding guide, CLI reference
+- [API Boundary](docs/api-boundary.md) — Stable vs experimental API surface
+- [CHANGELOG](CHANGELOG.md) — Version history
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, development workflow, and CI checks.
 
 ## License
 

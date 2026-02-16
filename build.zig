@@ -50,6 +50,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "example_basic", .src = "examples/basic.zig" },
         .{ .name = "example_memory", .src = "examples/memory.zig" },
         .{ .name = "example_inspect", .src = "examples/inspect.zig" },
+        .{ .name = "example_host_functions", .src = "examples/host_functions.zig" },
+        .{ .name = "example_wasi", .src = "examples/wasi.zig" },
     };
     for (examples) |ex| {
         const ex_mod = b.createModule(.{

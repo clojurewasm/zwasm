@@ -9,5 +9,5 @@ src = "src"
 build-dir = "../docs/book"
 
 [output.html]
-git-repository-url = "https://github.com/syumai/zwasm"
+git-repository-url = "https://github.com/clojurewasm/zwasm"
 additional-css = ["custom.css"]

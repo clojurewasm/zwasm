@@ -6,38 +6,38 @@ zwasm processes a WebAssembly module through a multi-stage pipeline: decode, val
 
 ```
 .wasm binary
-    │
-    ▼
-┌──────────┐
-│  Decode   │  module.zig — parse binary format, sections, types
-└────┬─────┘
-     │
-     ▼
-┌──────────┐
-│ Validate  │  validate.zig — type checking, operand stack simulation
-└────┬─────┘
-     │
-     ▼
-┌──────────┐
-│ Predecode │  predecode.zig — stack machine → register IR
-└────┬─────┘
-     │
-     ▼
-┌──────────┐
-│ Regalloc  │  regalloc.zig — virtual → physical register assignment
-└────┬─────┘
-     │
-     ▼
-┌──────────────────────┐
-│     Execution         │
-│  ┌─────────────────┐  │
-│  │  Interpreter     │  │  vm.zig — register IR dispatch loop
-│  └────────┬────────┘  │
-│           │ hot path   │
-│  ┌────────▼────────┐  │
-│  │  JIT Compiler    │  │  jit.zig (ARM64), x86.zig (x86_64)
-│  └─────────────────┘  │
-└──────────────────────┘
+      |
+      v
++-----------+
+|  Decode   |  module.zig -- parse binary format, sections, types
++-----+-----+
+      |
+      v
++-----------+
+| Validate  |  validate.zig -- type checking, operand stack simulation
++-----+-----+
+      |
+      v
++-----------+
+| Predecode |  predecode.zig -- stack machine -> register IR
++-----+-----+
+      |
+      v
++-----------+
+| Regalloc  |  regalloc.zig -- virtual -> physical register assignment
++-----+-----+
+      |
+      v
++----------------------+
+|      Execution       |
+|  +----------------+  |
+|  |  Interpreter   |  |  vm.zig -- register IR dispatch loop
+|  +-------+--------+  |
+|          | hot path  |
+|  +-------v--------+  |
+|  |  JIT Compiler  |  |  jit.zig (ARM64), x86.zig (x86_64)
+|  +----------------+  |
++----------------------+
 ```
 
 ## Execution tiers
@@ -95,13 +95,13 @@ The JIT uses W^X memory protection: code is written to RW pages, then switched t
 ## Module instantiation
 
 ```
-WasmModule.load(bytes)       → decode + validate + predecode
-    │
-    ▼
-Instance.instantiate(store)  → link imports, init memory/tables/globals
-    │
-    ▼
-Vm.invoke(func_name, args)   → execute via interpreter or JIT
+WasmModule.load(bytes)       -> decode + validate + predecode
+    |
+    v
+Instance.instantiate(store)  -> link imports, init memory/tables/globals
+    |
+    v
+Vm.invoke(func_name, args)   -> execute via interpreter or JIT
 ```
 
 The `Store` holds all runtime state: memories, tables, globals, function instances. Multiple module instances can share a store for cross-module linking.

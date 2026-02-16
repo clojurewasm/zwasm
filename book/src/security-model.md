@@ -5,13 +5,13 @@ zwasm enforces a clear boundary between guest (WebAssembly module) and host (emb
 ## Trust boundary
 
 ```
-+-------------------+     WASI capabilities     +------------------+
-|   Guest (Wasm)    | <-- deny-by-default --->  |   Host (Zig/CLI) |
-|                   |                           |                  |
-| Linear memory     |     Imports/exports       | Native memory    |
-| Table entries     | <-- validated types --->  | Filesystem, env  |
-| Global variables  |                           | Network, OS APIs |
-+-------------------+                           +------------------+
++-------------------+    WASI capabilities    +------------------+
+|   Guest (Wasm)    | <-- deny-by-default --> |  Host (Zig/CLI)  |
+|                   |                         |                  |
+| Linear memory     |    Imports/exports      | Native memory    |
+| Table entries     | <-- validated types --> | Filesystem, env  |
+| Global variables  |                         | Network, OS APIs |
++-------------------+                         +------------------+
 ```
 
 A valid Wasm module, no matter how adversarial, cannot:
@@ -86,4 +86,4 @@ Deny-by-default model with 8 capability flags:
 - Use `--fuel` for untrusted modules to prevent infinite loops
 - Use `--max-memory` to cap memory usage
 - Grant only the WASI capabilities the module needs
-- See [SECURITY.md](https://github.com/syumai/zwasm/blob/main/SECURITY.md) for vulnerability reporting
+- See [SECURITY.md](https://github.com/clojurewasm/zwasm/blob/main/SECURITY.md) for vulnerability reporting
