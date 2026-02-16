@@ -84,12 +84,11 @@ brew install clojurewasm/tap/zwasm
 ### CLI
 
 ```bash
-zwasm run module.wasm                     # Run a WASI module
-zwasm run module.wasm -- arg1 arg2        # With arguments
-zwasm run module.wat                      # Run a WAT text module
-zwasm run math.wasm --invoke fib 35       # Call a specific function
-zwasm run --invoke fib math.wasm 35       # Same (options before file)
-zwasm run component.wasm                  # Run a component (auto-detected)
+zwasm module.wasm                         # Run a WASI module (run is optional)
+zwasm module.wasm -- arg1 arg2            # With arguments
+zwasm module.wat                          # Run a WAT text module
+zwasm module.wasm --invoke fib 35         # Call a specific function
+zwasm run module.wasm --allow-all         # Explicit run subcommand also works
 zwasm inspect module.wasm                 # Show exports, imports, memory
 zwasm validate module.wasm                # Validate without running
 zwasm features                            # List supported proposals
@@ -131,9 +130,9 @@ See [docs/usage.md](docs/usage.md) for detailed library and CLI documentation.
 Each file includes a run command in its header comment:
 
 ```bash
-zwasm run examples/wat/01_hello_add.wat --invoke add 2 3   # → 5
-zwasm run examples/wat/05_fibonacci.wat --invoke fib 10    # → 55
-zwasm run --allow-all examples/wat/30_wasi_hello.wat       # → Hi!
+zwasm examples/wat/01_hello_add.wat --invoke add 2 3   # → 5
+zwasm examples/wat/05_fibonacci.wat --invoke fib 10    # → 55
+zwasm examples/wat/30_wasi_hello.wat --allow-all       # → Hi!
 ```
 
 ### Zig embedding examples (`examples/zig/`)

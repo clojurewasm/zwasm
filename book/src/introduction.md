@@ -16,13 +16,13 @@ A standalone WebAssembly runtime written in Zig. Runs Wasm modules as a CLI tool
 
 ```bash
 # Run a WebAssembly module
-zwasm run hello.wasm
+zwasm hello.wasm
 
 # Invoke a specific function
-zwasm run math.wasm --invoke add 2 3
+zwasm math.wasm --invoke add 2 3
 
 # Run a WAT text file
-zwasm run program.wat
+zwasm program.wat
 ```
 
 See [Getting Started](./getting-started.md) for installation instructions.

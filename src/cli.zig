@@ -4,7 +4,7 @@
 //! zwasm CLI — run, inspect, and validate WebAssembly modules.
 //!
 //! Usage:
-//!   zwasm run <file.wasm|.wat> [args...]
+//!   zwasm <file.wasm|.wat> [args...]
 //!   zwasm run <file.wasm|.wat> --invoke <func> [args...]
 //!   zwasm inspect <file.wasm|.wat>
 //!   zwasm validate <file.wasm|.wat>
@@ -68,6 +68,11 @@ pub fn main() !void {
         printUsage(stdout);
     } else if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "version")) {
         try stdout.print("zwasm {s}\n", .{build_options.version});
+    } else if (std.mem.endsWith(u8, command, ".wasm") or std.mem.endsWith(u8, command, ".wat")) {
+        // zwasm file.wasm ... → shorthand for zwasm run file.wasm ...
+        const ok = try cmdRun(allocator, args[1..], stdout, stderr);
+        try stdout.flush();
+        if (!ok) std.process.exit(1);
     } else {
         try stderr.print("error: unknown command '{s}'\n", .{command});
         try stderr.flush();
@@ -81,7 +86,7 @@ fn printUsage(w: *std.Io.Writer) void {
         \\zwasm — Zig WebAssembly Runtime
         \\
         \\Usage:
-        \\  zwasm run [options] <file.wasm|.wat> [args...]
+        \\  zwasm <file.wasm|.wat> [options] [args...]
         \\  zwasm run <file.wasm|.wat> [options] [args...]
         \\  zwasm inspect [--json] <file.wasm|.wat>
         \\  zwasm validate <file.wasm|.wat>

@@ -2,29 +2,28 @@
 
 ## Commands
 
-### `zwasm run`
+### `zwasm run` / `zwasm <file>`
 
-Execute a WebAssembly module.
+Execute a WebAssembly module. The `run` subcommand is optional — `zwasm file.wasm` is equivalent to `zwasm run file.wasm`.
 
 ```bash
-zwasm run [options] <file.wasm|.wat> [args...]
+zwasm <file.wasm|.wat> [options] [args...]
 zwasm run <file.wasm|.wat> [options] [args...]
 ```
 
-By default, calls `_start` (WASI entry point). Use `--invoke` to call a specific exported function. Options can appear before or after the file path.
+By default, calls `_start` (WASI entry point). Use `--invoke` to call a specific exported function.
 
 **Examples:**
 
 ```bash
 # Run a WASI module (calls _start)
-zwasm run --allow-all hello.wasm
+zwasm hello.wasm --allow-all
 
 # Run a WAT text format file (no compilation needed)
-zwasm run program.wat
+zwasm program.wat
 
 # Call a specific exported function
-zwasm run math.wasm --invoke add 2 3
-zwasm run --invoke add math.wasm 2 3    # options before file also OK
+zwasm math.wasm --invoke add 2 3
 ```
 
 #### Argument types

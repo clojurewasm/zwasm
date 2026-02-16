@@ -5,17 +5,17 @@
 ### Running Wasm modules
 
 ```bash
-# Run a WASI module (calls _start)
-zwasm run module.wasm
+# Run a WASI module (calls _start) — `run` is optional
+zwasm module.wasm
 
 # Pass arguments
-zwasm run module.wasm -- arg1 arg2
+zwasm module.wasm -- arg1 arg2
 
 # Run a WAT text format module
-zwasm run module.wat
+zwasm module.wat
 
 # Call a specific exported function instead of _start
-zwasm run module.wasm --invoke fib
+zwasm module.wasm --invoke fib
 ```
 
 ### WASI security
