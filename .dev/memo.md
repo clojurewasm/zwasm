@@ -34,18 +34,18 @@ See `private/roadmap-production.md` Phase 38 for full detail.
 - [x] 38.1: CI benchmark regression detection: compare against recorded baselines
 - [x] 38.2: CI binary size check: fail if > 1.5MB (ReleaseSafe)
 - [x] 38.3: CI ReleaseSafe build verification (currently only Debug)
-- [ ] 38.4: E2E test suite in CI
+- [x] 38.4: E2E test suite in CI
 - [ ] 38.5: Nightly sanitizer job (ASan/UBSan)
 - [ ] 38.6: Nightly fuzz job (1h continuous)
 - [ ] 38.7: CI caching: Zig build cache for faster runs
 
 ## Current Task
 
-38.4: E2E test suite in CI.
+38.5: Nightly sanitizer job (ASan/UBSan).
 
 ## Previous Task
 
-38.2+38.3: CI binary size check (1.5MB limit) + ReleaseSafe build verification added to test job.
+38.4: E2E tests in CI via sparse wasmtime checkout + WASMTIME_MISC_DIR env var.
 
 ## Wasm 3.0 Coverage
 

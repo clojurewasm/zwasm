@@ -11,7 +11,7 @@
 set -e
 cd "$(dirname "$0")/../.."
 
-WASMTIME_MISC="$HOME/Documents/OSS/wasmtime/tests/misc_testsuite"
+WASMTIME_MISC="${WASMTIME_MISC_DIR:-$HOME/Documents/OSS/wasmtime/tests/misc_testsuite}"
 WAST_DIR="test/e2e/wast"
 JSON_DIR="test/e2e/json"
 SKIP_FILE="test/e2e/skip.txt"
