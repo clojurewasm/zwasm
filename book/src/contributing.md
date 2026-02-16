@@ -3,7 +3,7 @@
 ## Build and test
 
 ```bash
-git clone https://github.com/syumai/zwasm.git
+git clone https://github.com/clojurewasm/zwasm.git
 cd zwasm
 
 # Build

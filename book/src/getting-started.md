@@ -11,7 +11,7 @@ This guide gets you from zero to running a WebAssembly module in under 5 minutes
 ### Build from source
 
 ```bash
-git clone https://github.com/syumai/zwasm.git
+git clone https://github.com/clojurewasm/zwasm.git
 cd zwasm
 zig build -Doptimize=ReleaseSafe
 ```
@@ -86,7 +86,7 @@ Add zwasm as a dependency in your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zwasm = .{
-        .url = "https://github.com/syumai/zwasm/archive/refs/tags/v0.3.0.tar.gz",
+        .url = "https://github.com/clojurewasm/zwasm/archive/refs/tags/v0.3.0.tar.gz",
         .hash = "...",  // zig build will tell you the correct hash
     },
 },

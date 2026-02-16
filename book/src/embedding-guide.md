@@ -9,7 +9,7 @@ Add zwasm to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zwasm = .{
-        .url = "https://github.com/syumai/zwasm/archive/refs/tags/v0.3.0.tar.gz",
+        .url = "https://github.com/clojurewasm/zwasm/archive/refs/tags/v0.3.0.tar.gz",
         .hash = "...",  // zig build will provide the correct hash
     },
 },
@@ -64,14 +64,14 @@ const zwasm = @import("zwasm");
 
 fn hostLog(ctx_ptr: *anyopaque, context: usize) anyerror!void {
     _ = context;
-    const vm: *zwasm.runtime.VmImpl = @ptrCast(@alignCast(ctx_ptr));
+    const vm: *zwasm.Vm = @ptrCast(@alignCast(ctx_ptr));
 
-    // Read argument from operand stack
-    const value = vm.popOperand(i32);
+    // Pop argument from operand stack
+    const value = vm.popOperandI32();
     std.debug.print("log: {}\n", .{value});
 
     // Push return value (if function returns one)
-    // vm.pushOperand(i32, result);
+    // try vm.pushOperand(@bitCast(@as(i32, result)));
 }
 
 const imports = [_]zwasm.ImportEntry{
@@ -197,4 +197,4 @@ Types and functions are classified into three stability levels:
 
 - **Internal**: Not accessible to library consumers. All types in source files other than `types.zig`.
 
-See [docs/api-boundary.md](https://github.com/syumai/zwasm/blob/main/docs/api-boundary.md) for the complete list.
+See [docs/api-boundary.md](https://github.com/clojurewasm/zwasm/blob/main/docs/api-boundary.md) for the complete list.
