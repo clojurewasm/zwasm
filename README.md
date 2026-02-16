@@ -112,6 +112,33 @@ try module.invoke("fib", &args, &results);
 
 See [docs/usage.md](docs/usage.md) for detailed library and CLI documentation.
 
+## Examples
+
+### WAT examples (`examples/wat/`)
+
+25 educational WAT files covering Wasm MVP through 3.0:
+
+| Category | Examples |
+|----------|----------|
+| Basics | `hello_add`, `factorial`, `fibonacci`, `collatz`, `is_prime`, `bubble_sort` |
+| Stack & control | `stack_machine`, `select`, `br_table`, `multi_return`, `mutual_recursion` |
+| Memory | `memory`, `data_string` |
+| Types & values | `counter` (globals), `bitwise`, `i64_math`, `float_math`, `type_convert`, `sign_extend` |
+| Wasm 2.0 | `multi_value` (multiple returns) |
+| Wasm 3.0 | `return_call` (tail calls), `extended_const` |
+| WASI | `wasi_hello` (stdout), `wasi_echo` (stdin→stdout), `wasi_write_file` (file I/O) |
+
+Each file includes a run command in its header comment:
+
+```bash
+zwasm run --invoke fib examples/wat/fibonacci.wat 10    # → 55
+zwasm run --allow-all examples/wat/wasi_hello.wat       # → Hi!
+```
+
+### Zig embedding examples (`examples/zig/`)
+
+5 examples showing the library API: `basic`, `memory`, `inspect`, `host_functions`, `wasi`.
+
 ## Build
 
 Requires Zig 0.15.2.
