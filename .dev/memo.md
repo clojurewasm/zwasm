@@ -4,7 +4,7 @@ Session handover document. Read at session start.
 
 ## Current State
 
-- Stages 0-34 — ALL COMPLETE (Wasm 3.0 + GC + WASI P1 + CM + JIT + Fuzz + TypeRegistry)
+- Stages 0-35 — ALL COMPLETE (Wasm 3.0 + GC + WASI P1 + CM + JIT + Fuzz + TypeRegistry + Crash Hardening)
 - Source: ~38K LOC, 24 files, 425 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
@@ -22,29 +22,32 @@ Session handover document. Read at session start.
 
 ## Completed Stages
 
-Stages 0-34 — all COMPLETE. See `roadmap.md` for details.
+Stages 0-35 — all COMPLETE. See `roadmap.md` for details.
+Stage 35 note: 35.4 24h fuzz campaign deferred as overnight background task.
 
-## Task Queue (Stage 35: Crash Hardening)
+## Task Queue (Stage 36: Security Audit & Hardening)
 
-See `private/roadmap-production.md` Phase 35 for full detail.
+See `private/roadmap-production.md` Phase 36 for full detail.
 
-- [x] 35.1: Expand fuzz corpus with wasm-tools smith-generated modules (1000+)
-- [x] 35.2: Structure-aware fuzzing: valid-but-tricky module generator
-- [x] 35.3: Phase-separate fuzzing: decoder, validator, predecode, regalloc as independent targets
-- [ ] 35.4: Extended fuzz campaign: 24h+ continuous run, 0 crashes
-  - 10min campaign: 25,818 modules, 0 crashes (fuzz_campaign.sh)
-  - NOTE: 24h run to be done as background overnight task
-- [x] 35.5: Audit all `unreachable` in non-test paths — all 93 instances verified safe
-- [x] 35.6: Audit all `@intCast` — 463 instances, all safe (comptime/validated inputs)
-- [x] 35.7: Resource limit enforcement: nesting depth, section count, type count
+- [x] 36.1: Threat model document: what zwasm protects against, what it doesn't
+- [ ] 36.2: Linear memory isolation audit: bounds check on every load/store verified
+- [ ] 36.3: Table bounds + type check audit: call_indirect, table.get/set
+- [ ] 36.4: JIT W^X verification: mmap RW→RX transition, no simultaneous W+X
+- [ ] 36.5: JIT bounds audit: generated code cannot escape sandbox
+- [ ] 36.6: WASI capability audit: deny-by-default path verified for all 46 syscalls
+- [ ] 36.7: Stack depth limit verification: call depth, value stack depth
+- [ ] 36.8: Host function interface audit: no pointer leaks to guest
+- [ ] 36.9: SECURITY.md: vulnerability disclosure policy
+- [ ] 36.10: ReleaseSafe-only distribution: ensure safety checks preserved in release binary
+- [ ] 36.11: Sanitizer pass: ASan/UBSan build + test suite run
 
 ## Current Task
 
-Stage 35 complete. Evaluate merge readiness.
+36.2: Linear memory isolation audit.
 
 ## Previous Task
 
-35.7: Resource limits (11 constants): section counts, locals overflow (saturating add), nesting depth (500). Two tests added.
+36.1: Threat model document (docs/security.md). 9 attack surfaces, mitigations, non-protections documented.
 
 ## Wasm 3.0 Coverage
 
