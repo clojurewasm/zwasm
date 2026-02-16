@@ -21,6 +21,17 @@ jobs:
         with:
           version: 0.15.2
 
+      - name: Cache Zig build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            zig-cache
+            ~/.cache/zig
+          key: zig-${{ runner.os }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
+          restore-keys: |
+            zig-${{ runner.os }}-
+
       - name: Build
         run: zig build
 
@@ -48,3 +59,52 @@ jobs:
 
       - name: Run spec tests
         run: python3 test/spec/run_spec.py --build --summary
+
+      - name: Download wasmtime misc_testsuite
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/bytecodealliance/wasmtime.git /tmp/wasmtime
+          cd /tmp/wasmtime
+          git sparse-checkout set tests/misc_testsuite
+
+      - name: Run E2E tests
+        env:
+          WASMTIME_MISC_DIR: /tmp/wasmtime/tests/misc_testsuite
+        run: bash test/e2e/run_e2e.sh --convert --summary
+
+      - name: Build ReleaseSafe
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Binary size check
+        run: |
+          BINARY=zig-out/bin/zwasm
+          SIZE_BYTES=$(wc -c < "$BINARY" | tr -d ' ')
+          SIZE_MB=$(python3 -c "print(f'{$SIZE_BYTES / 1048576:.2f}')")
+          LIMIT_BYTES=1572864
+          echo "Binary size: ${SIZE_MB} MB ($SIZE_BYTES bytes)"
+          if [ "$SIZE_BYTES" -gt "$LIMIT_BYTES" ]; then
+            echo "FAIL: Binary exceeds 1.5 MB limit"
+            exit 1
+          fi
+          echo "PASS: Within 1.5 MB limit"
+
+  benchmark:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Install hyperfine
+        run: |
+          curl -L -o /tmp/hyperfine.deb https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
+          sudo dpkg -i /tmp/hyperfine.deb
+
+      - name: Benchmark regression check
+        run: bash bench/ci_compare.sh --base=origin/main --threshold=20 --runs=3 --warmup=1
