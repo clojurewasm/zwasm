@@ -3369,9 +3369,9 @@ fn encodeMemoryLimits(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), limits
             lebEncodeU64(alloc, out, limits.max.?) catch return error.OutOfMemory;
         }
     } else {
-        lebEncodeU32(alloc, out, @intCast(limits.min)) catch return error.OutOfMemory;
+        lebEncodeU32(alloc, out, std.math.cast(u32, limits.min) orelse return error.InvalidWat) catch return error.OutOfMemory;
         if (limits.max != null) {
-            lebEncodeU32(alloc, out, @intCast(limits.max.?)) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, std.math.cast(u32, limits.max.?) orelse return error.InvalidWat) catch return error.OutOfMemory;
         }
     }
 }
