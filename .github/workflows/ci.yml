@@ -78,12 +78,19 @@ jobs:
       - name: Binary size check
         run: |
           BINARY=zig-out/bin/zwasm
-          SIZE_BYTES=$(wc -c < "$BINARY" | tr -d ' ')
+          # Strip debug info for size measurement (Linux ELF includes DWARF
+          # inline while macOS uses separate .dSYM). We check distributable size.
+          cp "$BINARY" /tmp/zwasm_size_check
+          strip /tmp/zwasm_size_check 2>/dev/null || true
+          SIZE_BYTES=$(wc -c < /tmp/zwasm_size_check | tr -d ' ')
           SIZE_MB=$(python3 -c "print(f'{$SIZE_BYTES / 1048576:.2f}')")
           LIMIT_BYTES=1572864
-          echo "Binary size: ${SIZE_MB} MB ($SIZE_BYTES bytes)"
+          RAW_BYTES=$(wc -c < "$BINARY" | tr -d ' ')
+          RAW_MB=$(python3 -c "print(f'{$RAW_BYTES / 1048576:.2f}')")
+          echo "Binary size (raw): ${RAW_MB} MB ($RAW_BYTES bytes)"
+          echo "Binary size (stripped): ${SIZE_MB} MB ($SIZE_BYTES bytes)"
           if [ "$SIZE_BYTES" -gt "$LIMIT_BYTES" ]; then
-            echo "FAIL: Binary exceeds 1.5 MB limit"
+            echo "FAIL: Stripped binary exceeds 1.5 MB limit"
             exit 1
           fi
           echo "PASS: Within 1.5 MB limit"
