@@ -36,15 +36,15 @@ See `private/roadmap-production.md` Phase 45 for full detail. Resolves W32.
 - [x] 45.3: Bottleneck analysis
 - [x] 45.4: Interpreter fast-path
 - [x] 45.5: JIT SIMD feasibility study
-- [ ] 45.6: Final recording + stage closure
+- [x] 45.6: Final recording + stage closure
 
 ## Current Task
 
-45.6: Final recording + stage closure
+Stage 45 complete. Next: Stage 46 (Book i18n).
 
 ## Previous Task
 
-45.5: JIT SIMD feasibility study — D122 defers RegIR v128 extension + JIT NEON to future stage. 20 hot ops identified for 80% coverage, ~10-14 week effort. Current 2x from 45.4 predecoded IR is adequate for embedded runtime use case.
+45.6: Final recording — post-optimization SIMD benchmarks recorded. SIMD gap vs wasmtime: 42.8x → 22.3x. SIMD penalty vs scalar: 10.2x → 4.0x. W32 resolved.
 
 ## Wasm 3.0 Coverage
 
