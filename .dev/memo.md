@@ -38,15 +38,19 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 - [x] 43.5: Performance baseline recorded (v1.0.0-baseline, 23 benchmarks)
 - [x] 43.6: Binary audit: 1.28MB, no debug symbols, no secrets in ReleaseSafe
 - [x] 43.7: CHANGELOG updated for v1.0.0
-- [ ] 43.8: Tag v1.0.0 + publish — fuzz PASS, awaiting user approval
+- [ ] 43.8: Tag v1.0.0 + publish — after 43.9-43.11 complete + fuzz PASS
+- [ ] 43.9: Restrictive library API defaults — loadWasi() → cli_default (see .dev/security-hardening.md)
+- [ ] 43.10: --sandbox CLI flag — deny-all + fuel 1B + memory 256MB
+- [ ] 43.11: --env=KEY=VALUE individual env injection
 
 ## Current Task
 
-43.8: Tag v1.0.0 — awaiting user instruction.
+43.9: Restrictive library API defaults — change loadWasi()/loadCore() to Capabilities.cli_default.
+Design: .dev/security-hardening.md
 
 ## Previous Task
 
-44.GC Phase 4: WAT validation hardening — recursion depth limit (1000), 8 validation tests for malformed WAT input.
+CI binary size check fix: strip DWARF debug info before measuring (Linux ELF includes inline debug info).
 
 ## Wasm 3.0 Coverage
 
