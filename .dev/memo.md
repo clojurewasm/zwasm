@@ -35,17 +35,17 @@ See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W
 - [x] 44.2: Gap triage report — `.dev/wat-gap-report.md`
 - [x] 44.3: Fix highest-count failure category (CORE: block (type N) + named type_use)
 - [x] 44.4: Fix second category (MEM64 syntax + import memory64)
-- [ ] 44.5: Continue until all fixable gaps resolved
+- [x] 44.5: Continue until all fixable gaps resolved
 - [ ] 44.6: Input validation hardening (W31)
 - [ ] 44.7: GC type annotation parsing (W30)
 
 ## Current Task
 
-44.5: Continue — remaining: table_copy elem exprs, multi-memory, SIMD, NAMES, GC
+44.6: Input validation hardening (W31)
 
 ## Previous Task
 
-44.5: typed select, NaN/inf keywords, INT_MIN, elem declare/passive, call_indirect named table, i8x16.shuffle — 94.2% → 95.1% (530 recovered).
+44.5: WAT roundtrip 95.1% → 99.0% (2,412 recovered). Fixes: Unicode \u{} escapes, export/import name decoding, batch WAT loading, two_index (table.copy/init, memory.copy/init), multi-memory memarg, table64, (ref null $t) in elem, return_call_indirect opcode, data/elem named segments, -nan sign bit, memory.init single-arg. Remaining 626: ~490 GC (→44.7), 48 EH (W33), 10 multi-module batch, 15 edge cases.
 
 ## Wasm 3.0 Coverage
 
