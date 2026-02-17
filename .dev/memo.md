@@ -34,17 +34,17 @@ See `private/roadmap-production.md` Phase 46 for full detail.
 - [x] 46.1: Directory restructure (book/src/ → book/en/src/, book/ja/src/)
 - [x] 46.2: Root redirect (docs/book/index.html)
 - [x] 46.3: CI update (build both languages)
-- [ ] 46.4: Japanese translation (all 12 chapter files)
-- [ ] 46.5: Language switcher (theme override)
+- [x] 46.4: Japanese translation (all 12 chapter files)
+- [x] 46.5: Language switcher (theme override)
 - [ ] 46.6: README update
 
 ## Current Task
 
-46.4: Japanese translation
+46.6: README update
 
 ## Previous Task
 
-45.6: Final recording — SIMD gap 42.8x → 22.3x. W32 resolved. Stage 45 merged to main.
+46.5: Language switcher — lang-switcher.js + CSS in both books, nav bar toggle.
 
 ## Wasm 3.0 Coverage
 
