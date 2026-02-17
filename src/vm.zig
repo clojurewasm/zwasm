@@ -2305,6 +2305,10 @@ pub const Vm = struct {
 
     fn executeSimd(self: *Vm, reader: *Reader, instance: *Instance) WasmError!void {
         const sub = try reader.readU32();
+        return self.executeSimdSub(sub, reader, instance);
+    }
+
+    fn executeSimdSub(self: *Vm, sub: u32, reader: *Reader, instance: *Instance) WasmError!void {
         const simd: opcode.SimdOpcode = @enumFromInt(sub);
         switch (simd) {
             // ---- Memory operations (36.2) ----
@@ -4173,7 +4177,9 @@ pub const Vm = struct {
                 if (instr.opcode < 256)
                     p.opcode_counts[instr.opcode] += 1
                 else if (instr.opcode >= 0xFC00 and instr.opcode < 0xFC00 + 32)
-                    p.misc_counts[instr.opcode - 0xFC00] += 1;
+                    p.misc_counts[instr.opcode - 0xFC00] += 1
+                else if (instr.opcode >= predecode_mod.SIMD_BASE)
+                    p.opcode_counts[0xFD] += 1; // count as simd_prefix
                 p.total_instrs += 1;
             }
 
@@ -4672,8 +4678,226 @@ pub const Vm = struct {
                     pc += 2;
                 },
 
+                // ---- SIMD prefix (predecoded) ----
+                predecode_mod.SIMD_BASE...predecode_mod.SIMD_BASE + 0x113 => {
+                    try self.executeSimdIR(instr, pool64, instance, cached_mem);
+                },
+
                 else => return error.Trap,
             }
+        }
+    }
+
+    fn executeSimdIR(self: *Vm, instr: PreInstr, pool64: []const u64, instance: *Instance, cached_mem: ?*WasmMemory) WasmError!void {
+        const sub: u32 = instr.opcode - predecode_mod.SIMD_BASE;
+        switch (sub) {
+            // Memory ops: offset in operand, memidx in extra — use direct mem access
+            0x00...0x0B, 0x5C, 0x5D => {
+                const offset = instr.operand;
+                const wm = if (instr.extra == 0)
+                    cached_mem orelse (instance.getMemory(0) catch return error.OutOfBoundsMemoryAccess)
+                else
+                    instance.getMemory(instr.extra) catch return error.OutOfBoundsMemoryAccess;
+                try self.executeSimdMemOp(sub, offset, wm);
+            },
+            // v128.const: pool64[operand] = lo, pool64[operand+1] = hi
+            0x0C => {
+                const lo = pool64[instr.operand];
+                const hi = pool64[instr.operand + 1];
+                try self.pushV128(@as(u128, lo) | (@as(u128, hi) << 64));
+            },
+            // i8x16.shuffle: lane indices in pool64[operand], pool64[operand+1]
+            0x0D => {
+                const lo = pool64[instr.operand];
+                const hi = pool64[instr.operand + 1];
+                var lanes: [16]u8 = undefined;
+                @memcpy(lanes[0..8], std.mem.asBytes(&lo));
+                @memcpy(lanes[8..16], std.mem.asBytes(&hi));
+                const b = self.popV128();
+                const a = self.popV128();
+                const a_bytes: [16]u8 = @bitCast(a);
+                const b_bytes: [16]u8 = @bitCast(b);
+                var result: [16]u8 = undefined;
+                for (&result, lanes) |*r, l| {
+                    r.* = if (l < 16) a_bytes[l] else b_bytes[l - 16];
+                }
+                try self.pushV128(@bitCast(result));
+            },
+            // Extract/replace lane: lane index in extra
+            0x15...0x22 => {
+                var buf = [_]u8{@truncate(instr.extra)};
+                var rdr = Reader.init(&buf);
+                try self.executeSimdSub(sub, &rdr, instance);
+            },
+            // Lane load/store: offset in operand, lane in extra>>8, memidx in extra&0xFF
+            0x54...0x5B => {
+                const offset = instr.operand;
+                const lane: u8 = @truncate(instr.extra >> 8);
+                const memidx: u16 = instr.extra & 0xFF;
+                const mem_ptr = if (memidx == 0)
+                    cached_mem orelse (instance.getMemory(0) catch return error.OutOfBoundsMemoryAccess)
+                else
+                    instance.getMemory(memidx) catch return error.OutOfBoundsMemoryAccess;
+                try self.executeSimdLaneMemOp(sub, offset, mem_ptr, lane);
+            },
+            // Zero-immediate ops (splats, arithmetic, comparison, conversion, etc.)
+            else => {
+                var empty = [_]u8{};
+                var rdr = Reader.init(&empty);
+                try self.executeSimdSub(sub, &rdr, instance);
+            },
+        }
+    }
+
+    fn executeSimdMemOp(self: *Vm, sub: u32, offset: u32, wm: *WasmMemory) WasmError!void {
+        switch (sub) {
+            0x00 => { // v128.load
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u128, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                try self.pushV128(val);
+            },
+            0x01 => { // v128.load8x8_s
+                const base = @as(u32, @bitCast(self.popI32()));
+                const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const bytes: [8]i8 = @bitCast(raw);
+                var result: @Vector(8, i16) = undefined;
+                for (0..8) |i| result[i] = bytes[i];
+                try self.pushV128(@bitCast(result));
+            },
+            0x02 => { // v128.load8x8_u
+                const base = @as(u32, @bitCast(self.popI32()));
+                const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const bytes: [8]u8 = @bitCast(raw);
+                var result: @Vector(8, u16) = undefined;
+                for (0..8) |i| result[i] = bytes[i];
+                try self.pushV128(@bitCast(result));
+            },
+            0x03 => { // v128.load16x4_s
+                const base = @as(u32, @bitCast(self.popI32()));
+                const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const vals: [4]i16 = @bitCast(raw);
+                var result: @Vector(4, i32) = undefined;
+                for (0..4) |i| result[i] = vals[i];
+                try self.pushV128(@bitCast(result));
+            },
+            0x04 => { // v128.load16x4_u
+                const base = @as(u32, @bitCast(self.popI32()));
+                const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const vals: [4]u16 = @bitCast(raw);
+                var result: @Vector(4, u32) = undefined;
+                for (0..4) |i| result[i] = vals[i];
+                try self.pushV128(@bitCast(result));
+            },
+            0x05 => { // v128.load32x2_s
+                const base = @as(u32, @bitCast(self.popI32()));
+                const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const vals: [2]i32 = @bitCast(raw);
+                var result: @Vector(2, i64) = undefined;
+                for (0..2) |i| result[i] = vals[i];
+                try self.pushV128(@bitCast(result));
+            },
+            0x06 => { // v128.load32x2_u
+                const base = @as(u32, @bitCast(self.popI32()));
+                const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const vals: [2]u32 = @bitCast(raw);
+                var result: @Vector(2, u64) = undefined;
+                for (0..2) |i| result[i] = vals[i];
+                try self.pushV128(@bitCast(result));
+            },
+            0x07 => { // v128.load8_splat
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u8, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const vec: @Vector(16, u8) = @splat(val);
+                try self.pushV128(@bitCast(vec));
+            },
+            0x08 => { // v128.load16_splat
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u16, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const vec: @Vector(8, u16) = @splat(val);
+                try self.pushV128(@bitCast(vec));
+            },
+            0x09 => { // v128.load32_splat
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u32, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const vec: @Vector(4, u32) = @splat(val);
+                try self.pushV128(@bitCast(vec));
+            },
+            0x0A => { // v128.load64_splat
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                const vec: @Vector(2, u64) = @splat(val);
+                try self.pushV128(@bitCast(vec));
+            },
+            0x0B => { // v128.store
+                const val = self.popV128();
+                const base = @as(u32, @bitCast(self.popI32()));
+                wm.write(u128, offset, base, val) catch return error.OutOfBoundsMemoryAccess;
+            },
+            0x5C => { // v128.load32_zero
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u32, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                try self.pushV128(@as(u128, val));
+            },
+            0x5D => { // v128.load64_zero
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                try self.pushV128(@as(u128, val));
+            },
+            else => return error.Trap,
+        }
+    }
+
+    fn executeSimdLaneMemOp(self: *Vm, sub: u32, offset: u32, wm: *WasmMemory, lane: u8) WasmError!void {
+        switch (sub) {
+            0x54 => { // v128.load8_lane: [i32, v128] → [v128]
+                var vec: @Vector(16, u8) = @bitCast(self.popV128());
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u8, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                vec[lane] = val;
+                try self.pushV128(@bitCast(vec));
+            },
+            0x55 => { // v128.load16_lane
+                var vec: @Vector(8, u16) = @bitCast(self.popV128());
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u16, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                vec[lane] = val;
+                try self.pushV128(@bitCast(vec));
+            },
+            0x56 => { // v128.load32_lane
+                var vec: @Vector(4, u32) = @bitCast(self.popV128());
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u32, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                vec[lane] = val;
+                try self.pushV128(@bitCast(vec));
+            },
+            0x57 => { // v128.load64_lane
+                var vec: @Vector(2, u64) = @bitCast(self.popV128());
+                const base = @as(u32, @bitCast(self.popI32()));
+                const val = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
+                vec[lane] = val;
+                try self.pushV128(@bitCast(vec));
+            },
+            0x58 => { // v128.store8_lane
+                const vec: @Vector(16, u8) = @bitCast(self.popV128());
+                const base = @as(u32, @bitCast(self.popI32()));
+                wm.write(u8, offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+            },
+            0x59 => { // v128.store16_lane
+                const vec: @Vector(8, u16) = @bitCast(self.popV128());
+                const base = @as(u32, @bitCast(self.popI32()));
+                wm.write(u16, offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+            },
+            0x5A => { // v128.store32_lane
+                const vec: @Vector(4, u32) = @bitCast(self.popV128());
+                const base = @as(u32, @bitCast(self.popI32()));
+                wm.write(u32, offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+            },
+            0x5B => { // v128.store64_lane
+                const vec: @Vector(2, u64) = @bitCast(self.popV128());
+                const base = @as(u32, @bitCast(self.popI32()));
+                wm.write(u64, offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+            },
+            else => return error.Trap,
         }
     }
 

@@ -1,0 +1,120 @@
+# SIMD Performance Comparison: zwasm vs wasmtime
+# Platform: macOS aarch64 (Apple Silicon)
+# zwasm: v1.0.0 (ReleaseSafe), wasmtime: v41.0.1
+# Methodology: hyperfine --warmup 3 --runs 10
+
+# === POST-OPTIMIZATION (Stage 45.4: predecoded IR fast-path) ===
+# Recorded: 2026-02-17 (after SIMD predecoded IR extension)
+# Change: SIMD functions now use predecoded IR interpreter instead of raw stack interpreter
+
+post_optimization:
+
+  dot_product:
+    description: "f32 dot product, N=4096 elements, 10000 iterations"
+    scalar:
+      zwasm_ms: 128.2
+      wasmtime_ms: 33.9
+      ratio: 3.78
+    simd:
+      zwasm_ms: 422.1
+      wasmtime_ms: 14.7
+      ratio: 28.71
+    zwasm_simd_vs_scalar: 3.29
+
+  matrix_mul:
+    description: "f32 16x16 matrix multiply, 1000 iterations"
+    scalar:
+      zwasm_ms: 21.1
+      wasmtime_ms: 7.7
+      ratio: 2.74
+    simd:
+      zwasm_ms: 86.3
+      wasmtime_ms: 6.9
+      ratio: 12.51
+    zwasm_simd_vs_scalar: 4.09
+
+  byte_search:
+    description: "byte search in 64KB buffer, 1000 iterations, target=42"
+    scalar:
+      zwasm_ms: 30.7
+      wasmtime_ms: 22.2
+      ratio: 1.38
+    simd:
+      zwasm_ms: 181.1
+      wasmtime_ms: 9.2
+      ratio: 19.68
+    zwasm_simd_vs_scalar: 5.90
+
+  image_blend:
+    description: "128x128 RGBA image blend (50% alpha), 1000 iterations"
+    scalar:
+      zwasm_ms: 53.3
+      wasmtime_ms: 25.6
+      ratio: 2.08
+    simd:
+      zwasm_ms: 164.6
+      wasmtime_ms: 5.1
+      ratio: 32.27
+    zwasm_simd_vs_scalar: 3.09
+
+  summary:
+    simd_gap_vs_wasmtime:
+      geometric_mean: 22.3x  # was 42.8x baseline → ~1.9x improvement
+    zwasm_simd_penalty:
+      geometric_mean: 3.97x  # was 10.2x → ~2.6x improvement
+    improvement_from_baseline: 1.92x  # geometric mean SIMD speedup
+
+# === BASELINE (before Stage 45.4) ===
+# Recorded: 2026-02-17 (raw stack interpreter for SIMD functions)
+
+baseline:
+
+  dot_product:
+    scalar:
+      zwasm_ms: 126.3
+      wasmtime_ms: 33.3
+      ratio: 3.79
+    simd:
+      zwasm_ms: 862.7
+      wasmtime_ms: 11.2
+      ratio: 77.24
+    zwasm_simd_vs_scalar: 6.83
+
+  matrix_mul:
+    scalar:
+      zwasm_ms: 7.7
+      wasmtime_ms: 6.0
+      ratio: 1.27
+    simd:
+      zwasm_ms: 133.7
+      wasmtime_ms: 6.1
+      ratio: 21.92
+    zwasm_simd_vs_scalar: 17.36
+
+  byte_search:
+    scalar:
+      zwasm_ms: 26.5
+      wasmtime_ms: 25.9
+      ratio: 1.02
+    simd:
+      zwasm_ms: 388.8
+      wasmtime_ms: 8.5
+      ratio: 45.48
+    zwasm_simd_vs_scalar: 14.67
+
+  image_blend:
+    scalar:
+      zwasm_ms: 53.8
+      wasmtime_ms: 32.0
+      ratio: 1.68
+    simd:
+      zwasm_ms: 333.1
+      wasmtime_ms: 7.6
+      ratio: 43.93
+    zwasm_simd_vs_scalar: 6.19
+
+  summary:
+    simd_gap_vs_wasmtime:
+      geometric_mean: 42.8x
+    zwasm_simd_penalty:
+      geometric_mean: 10.2x

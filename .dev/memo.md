@@ -31,20 +31,20 @@ Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
 See `private/roadmap-production.md` Phase 45 for full detail. Resolves W32.
 
-- [ ] 45.1: SIMD microbenchmark suite
-- [ ] 45.2: Baseline recording
-- [ ] 45.3: Bottleneck analysis
-- [ ] 45.4: Interpreter fast-path
-- [ ] 45.5: JIT SIMD feasibility study
-- [ ] 45.6: Implement chosen optimization
+- [x] 45.1: SIMD microbenchmark suite
+- [x] 45.2: Baseline recording
+- [x] 45.3: Bottleneck analysis
+- [x] 45.4: Interpreter fast-path
+- [x] 45.5: JIT SIMD feasibility study
+- [x] 45.6: Final recording + stage closure
 
 ## Current Task
 
-45.1: SIMD microbenchmark suite
+Stage 45 complete. Next: Stage 46 (Book i18n).
 
 ## Previous Task
 
-Stage 44 complete (WAT Parser Spec Parity). Merged to main. WAT roundtrip 99.9% (62,101/62,156). W30+W31 resolved.
+45.6: Final recording — post-optimization SIMD benchmarks recorded. SIMD gap vs wasmtime: 42.8x → 22.3x. SIMD penalty vs scalar: 10.2x → 4.0x. W32 resolved.
 
 ## Wasm 3.0 Coverage
 
@@ -53,7 +53,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 62,158/62,158 (100%), Ubuntu 62,158/62,158 (100%). Zero failures.
+JIT: Nested loop functions with 9+ virtual registers produce wrong results when
+back-edge JIT triggers (e.g., 32x32+ matrix multiply). 16x16 works, 32x32 doesn't.
+Spec tests unaffected (all pass). Workaround: use smaller sizes or split into sub-functions.
+Mac 62,158/62,158 (100%), Ubuntu 62,158/62,158 (100%). Zero spec failures.
 
 ## References
 
