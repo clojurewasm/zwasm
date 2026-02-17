@@ -11,6 +11,11 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open items
 
+- [ ] W32: SIMD performance — SIMD ops 6-15x slower than scalar due to interpreter dispatch overhead.
+  Functions with v128 skip RegIR/JIT (stack path only). See Stage 45.
+- [ ] W34: JIT nested loop bug — functions with 9+ virtual registers and deeply nested loops
+  produce wrong results when back-edge JIT triggers (32x32+ matmul). Spec tests unaffected.
+
 ## Resolved items (summary, details in git history)
 
 W2 (table.init), W4 (fd_readdir), W5 (sock_*), W7 (Component Model Stage 22),

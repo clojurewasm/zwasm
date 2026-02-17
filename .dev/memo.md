@@ -53,7 +53,10 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-None. Mac 62,158/62,158 (100%), Ubuntu 62,158/62,158 (100%). Zero failures.
+JIT: Nested loop functions with 9+ virtual registers produce wrong results when
+back-edge JIT triggers (e.g., 32x32+ matrix multiply). 16x16 works, 32x32 doesn't.
+Spec tests unaffected (all pass). Workaround: use smaller sizes or split into sub-functions.
+Mac 62,158/62,158 (100%), Ubuntu 62,158/62,158 (100%). Zero spec failures.
 
 ## References
 
