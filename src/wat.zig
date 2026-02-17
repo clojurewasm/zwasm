@@ -412,6 +412,7 @@ pub const WatMemory = struct {
     name: ?[]const u8,
     limits: WatLimits,
     export_name: ?[]const u8,
+    is_memory64: bool = false,
 };
 
 pub const WatTable = struct {
@@ -439,7 +440,10 @@ pub const WatImportKind = union(enum) {
         params: []WatParam,
         results: []WatValType,
     },
-    memory: WatLimits,
+    memory: struct {
+        limits: WatLimits,
+        is_memory64: bool = false,
+    },
     table: struct {
         limits: WatLimits,
         reftype: WatValType,
@@ -977,6 +981,13 @@ pub const Parser = struct {
             }
         }
 
+        // Check for memory64 index type: (memory i64 min max?)
+        var is_memory64 = false;
+        if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "i64")) {
+            is_memory64 = true;
+            _ = self.advance();
+        }
+
         const limits = try self.parseLimits();
         _ = try self.expect(.rparen);
 
@@ -984,6 +995,7 @@ pub const Parser = struct {
             .name = mem_name,
             .limits = limits,
             .export_name = export_name,
+            .is_memory64 = is_memory64,
         };
     }
 
@@ -1205,7 +1217,12 @@ pub const Parser = struct {
 
             kind = .{ .func = .{ .type_use = type_use, .params = params.items, .results = results.items } };
         } else if (std.mem.eql(u8, kind_text, "memory")) {
-            kind = .{ .memory = try self.parseLimits() };
+            var import_mem64 = false;
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "i64")) {
+                import_mem64 = true;
+                _ = self.advance();
+            }
+            kind = .{ .memory = .{ .limits = try self.parseLimits(), .is_memory64 = import_mem64 } };
         } else if (std.mem.eql(u8, kind_text, "table")) {
             const limits = try self.parseLimits();
             const reftype = try self.parseValType();
@@ -2540,7 +2557,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 },
                 .memory => |m| {
                     sec.append(arena, 0x02) catch return error.OutOfMemory;
-                    encodeLimits(arena, &sec, m) catch return error.OutOfMemory;
+                    encodeMemoryLimits(arena, &sec, m.limits, m.is_memory64) catch return error.OutOfMemory;
                 },
                 .global => |g| {
                     sec.append(arena, 0x03) catch return error.OutOfMemory;
@@ -2591,7 +2608,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(module.memories.len)) catch return error.OutOfMemory;
         for (module.memories) |m| {
-            encodeLimits(arena, &sec, m.limits) catch return error.OutOfMemory;
+            encodeMemoryLimits(arena, &sec, m.limits, m.is_memory64) catch return error.OutOfMemory;
         }
         writeSection(arena, &out, 5, sec.items) catch return error.OutOfMemory;
     }
@@ -3033,13 +3050,39 @@ fn lebEncodeI64(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), value: i64) 
     }
 }
 
+fn lebEncodeU64(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), value: u64) !void {
+    var v = value;
+    while (true) {
+        const byte: u8 = @truncate(v & 0x7F);
+        v >>= 7;
+        if (v == 0) {
+            out.append(alloc, byte) catch return error.OutOfMemory;
+            return;
+        }
+        out.append(alloc, byte | 0x80) catch return error.OutOfMemory;
+    }
+}
+
 fn encodeLimits(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), limits: WatLimits) !void {
+    encodeMemoryLimits(alloc, out, limits, false) catch return error.OutOfMemory;
+}
+
+fn encodeMemoryLimits(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), limits: WatLimits, is_memory64: bool) !void {
     const has_max: u8 = if (limits.max != null) 0x01 else 0x00;
     const shared: u8 = if (limits.shared) 0x02 else 0x00;
-    out.append(alloc, has_max | shared) catch return error.OutOfMemory;
-    lebEncodeU32(alloc, out, @intCast(limits.min)) catch return error.OutOfMemory;
-    if (limits.max != null) {
-        lebEncodeU32(alloc, out, @intCast(limits.max.?)) catch return error.OutOfMemory;
+    const mem64: u8 = if (is_memory64) 0x04 else 0x00;
+    out.append(alloc, has_max | shared | mem64) catch return error.OutOfMemory;
+    if (is_memory64) {
+        // memory64 uses 64-bit LEB128 for limits
+        lebEncodeU64(alloc, out, limits.min) catch return error.OutOfMemory;
+        if (limits.max != null) {
+            lebEncodeU64(alloc, out, limits.max.?) catch return error.OutOfMemory;
+        }
+    } else {
+        lebEncodeU32(alloc, out, @intCast(limits.min)) catch return error.OutOfMemory;
+        if (limits.max != null) {
+            lebEncodeU32(alloc, out, @intCast(limits.max.?)) catch return error.OutOfMemory;
+        }
     }
 }
 
@@ -3996,7 +4039,7 @@ test "WAT parser — import memory" {
     );
     const mod = try parser.parseModule();
     try testing.expectEqual(@as(usize, 1), mod.imports.len);
-    try testing.expectEqual(@as(u64, 1), mod.imports[0].kind.memory.min);
+    try testing.expectEqual(@as(u64, 1), mod.imports[0].kind.memory.limits.min);
 }
 
 test "WAT parser — global mutable" {
@@ -4781,9 +4824,9 @@ test "WAT parser — import memory shared" {
     );
     const mod = try parser.parseModule();
     try testing.expectEqual(@as(usize, 1), mod.imports.len);
-    try testing.expectEqual(@as(u64, 1), mod.imports[0].kind.memory.min);
-    try testing.expectEqual(@as(u64, 4), mod.imports[0].kind.memory.max.?);
-    try testing.expect(mod.imports[0].kind.memory.shared);
+    try testing.expectEqual(@as(u64, 1), mod.imports[0].kind.memory.limits.min);
+    try testing.expectEqual(@as(u64, 4), mod.imports[0].kind.memory.limits.max.?);
+    try testing.expect(mod.imports[0].kind.memory.limits.shared);
 }
 
 test "WAT parser — tag declaration" {
