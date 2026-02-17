@@ -6,7 +6,7 @@ language = "en"
 src = "src"
 
 [build]
-build-dir = "../docs/book"
+build-dir = "../../docs/book/en"
 
 [output.html]
 git-repository-url = "https://github.com/clojurewasm/zwasm"

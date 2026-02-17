@@ -27,24 +27,24 @@ Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 45: SIMD Performance Engineering)
+## Task Queue (Stage 46: Book i18n)
 
-See `private/roadmap-production.md` Phase 45 for full detail. Resolves W32.
+See `private/roadmap-production.md` Phase 46 for full detail.
 
-- [x] 45.1: SIMD microbenchmark suite
-- [x] 45.2: Baseline recording
-- [x] 45.3: Bottleneck analysis
-- [x] 45.4: Interpreter fast-path
-- [x] 45.5: JIT SIMD feasibility study
-- [x] 45.6: Final recording + stage closure
+- [ ] 46.1: Directory restructure (book/src/ → book/en/src/, book/ja/src/)
+- [ ] 46.2: Root redirect (docs/book/index.html)
+- [ ] 46.3: CI update (build both languages)
+- [ ] 46.4: Japanese translation (all 12 chapter files)
+- [ ] 46.5: Language switcher (theme override)
+- [ ] 46.6: README update
 
 ## Current Task
 
-Stage 45 complete. Next: Stage 46 (Book i18n).
+46.1: Directory restructure
 
 ## Previous Task
 
-45.6: Final recording — post-optimization SIMD benchmarks recorded. SIMD gap vs wasmtime: 42.8x → 22.3x. SIMD penalty vs scalar: 10.2x → 4.0x. W32 resolved.
+45.6: Final recording — SIMD gap 42.8x → 22.3x. W32 resolved. Stage 45 merged to main.
 
 ## Wasm 3.0 Coverage
 

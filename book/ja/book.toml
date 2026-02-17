@@ -1,0 +1,13 @@
+[book]
+title = "zwasm"
+description = "Zig で書かれたスタンドアロン WebAssembly ランタイム"
+authors = ["zwasm contributors"]
+language = "ja"
+src = "src"
+
+[build]
+build-dir = "../../docs/book/ja"
+
+[output.html]
+git-repository-url = "https://github.com/clojurewasm/zwasm"
+additional-css = ["custom.css"]
