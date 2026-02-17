@@ -55,9 +55,11 @@ fuzz/corpus/
 fuzz/crashes/
 fuzz/mismatches/
 test/fuzz/corpus/
+test/fuzz/corpus_wat/
 
 # Overnight fuzz results (machine-generated)
 .dev/fuzz-overnight-result.txt
+.dev/fuzz-overnight-wat-result.txt
 
 # mdBook output (generated)
 docs/book/

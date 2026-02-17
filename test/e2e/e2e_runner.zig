@@ -552,9 +552,16 @@ const TestRunner = struct {
 fn parseValue(v: JsonValue) u64 {
     const s = v.getValueString() orelse return 0;
     if (std.mem.eql(u8, v.type, "i32") or std.mem.eql(u8, v.type, "f32")) {
-        return @as(u64, std.fmt.parseInt(u32, s, 10) catch return 0);
+        // Try unsigned first, then signed (for negative values like "-7268")
+        return @as(u64, std.fmt.parseInt(u32, s, 10) catch {
+            const signed = std.fmt.parseInt(i32, s, 10) catch return 0;
+            return @as(u64, @as(u32, @bitCast(signed)));
+        });
     } else if (std.mem.eql(u8, v.type, "i64") or std.mem.eql(u8, v.type, "f64")) {
-        return std.fmt.parseInt(u64, s, 10) catch return 0;
+        return std.fmt.parseInt(u64, s, 10) catch {
+            const signed = std.fmt.parseInt(i64, s, 10) catch return 0;
+            return @bitCast(signed);
+        };
     } else if (std.mem.eql(u8, v.type, "externref") or std.mem.eql(u8, v.type, "funcref")) {
         if (std.mem.eql(u8, s, "null")) return 0;
         return std.fmt.parseInt(u64, s, 10) catch return 0;
@@ -570,9 +577,17 @@ fn valuesMatch(expected: JsonValue, actual: u64) bool {
     };
 
     if (std.mem.eql(u8, expected.type, "i32")) {
-        return @as(u32, @truncate(actual)) == (std.fmt.parseInt(u32, s, 10) catch return false);
+        const exp = std.fmt.parseInt(u32, s, 10) catch blk: {
+            const signed = std.fmt.parseInt(i32, s, 10) catch return false;
+            break :blk @as(u32, @bitCast(signed));
+        };
+        return @as(u32, @truncate(actual)) == exp;
     } else if (std.mem.eql(u8, expected.type, "i64")) {
-        return actual == (std.fmt.parseInt(u64, s, 10) catch return false);
+        const exp = std.fmt.parseInt(u64, s, 10) catch blk: {
+            const signed = std.fmt.parseInt(i64, s, 10) catch return false;
+            break :blk @as(u64, @bitCast(signed));
+        };
+        return actual == exp;
     } else if (std.mem.eql(u8, expected.type, "f32")) {
         const exp_bits = std.fmt.parseInt(u32, s, 10) catch return false;
         const act_bits: u32 = @truncate(actual);
