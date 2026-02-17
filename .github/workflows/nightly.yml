@@ -1,9 +1,9 @@
 name: Nightly
 
 on:
-  schedule:
-    - cron: '0 3 * * *'  # 03:00 UTC daily
-  workflow_dispatch:       # manual trigger
+  # schedule:
+  #   - cron: '0 3 * * *'  # 03:00 UTC daily (disabled to save CI minutes)
+  workflow_dispatch:       # manual trigger only
 
 jobs:
   sanitizer:
