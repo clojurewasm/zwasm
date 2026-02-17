@@ -316,17 +316,12 @@ class BatchRunner:
 
     def invoke(self, func_name, args, timeout=5):
         """Invoke a function. Returns (success, results_or_error)."""
-        has_v128 = any(isinstance(a, tuple) and a[0] == "v128" for a in args)
         if self.proc is None or self.proc.poll() is not None:
-            if not self.needs_state and not has_v128:
-                if not self._has_problematic_name(func_name):
-                    return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
-                return (False, "problematic name + no batch")
+            # Always use batch mode — single invoke interprets args as float
+            # literals instead of bit patterns, causing f32_cmp/f64_cmp failures.
+            self._start()
             if self.proc is None or self.proc.poll() is not None:
-                # Restart batch process if needed
-                self._start()
-                if self.proc is None or self.proc.poll() is not None:
-                    return (False, "process not running")
+                return (False, "process not running")
 
         # Hex-encode function name if it contains bytes that break the line protocol
         name_bytes = func_name.encode('utf-8')
@@ -356,9 +351,6 @@ class BatchRunner:
 
             response = self.proc.stdout.readline().strip()
             if not response:
-                # Process may have died — try fallback (only for non-v128 args)
-                if not self.needs_state and not has_v128:
-                    return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
                 return (False, "no response")
             if response.startswith("ok"):
                 parts = response.split()
@@ -371,8 +363,6 @@ class BatchRunner:
         except Exception as e:
             self._cleanup_proc()
             self.proc = None
-            if not self.needs_state and not has_v128:
-                return run_invoke_single(self.wasm_path, func_name, args, self.linked_modules)
             return (False, str(e))
 
     def invoke_on(self, mod_name, func_name, args, timeout=5):

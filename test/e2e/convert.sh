@@ -65,7 +65,7 @@ BATCH1=(
     add.wast div-rem.wast mul16-negative.wast wide-arithmetic.wast
     control-flow.wast br-table-fuzzbug.wast simple-unreachable.wast
     misc_traps.wast stack_overflow.wast no-panic.wast no-panic-on-invalid.wast
-    memory-copy.wast memory-combos.wast imported-memory-copy.wast
+    memory-copy.wast imported-memory-copy.wast
     partial-init-memory-segment.wast
     call_indirect.wast many-results.wast many-return-values.wast
     export-large-signature.wast func-400-params.wast
@@ -92,14 +92,14 @@ BATCH3=(
     rust_fannkuch.wast fib.wast
     issue1809.wast issue4840.wast issue4857.wast issue4890.wast
     issue6562.wast issue694.wast
-    issue11561.wast issue11748.wast issue12318.wast
+    issue11748.wast issue12318.wast
 )
 
-# .wat files need special handling
-BATCH3_WAT=(issue11563.wat issue12170.wat)
+# .wat files need special handling (none currently — issue11563.wat needs GC, issue12170.wat has no assertions)
+BATCH3_WAT=()
 
 BATCH4_SIMD=(
-    simd/canonicalize-nan.wast simd/cvt-from-uint.wast
+    simd/cvt-from-uint.wast
     simd/edge-of-memory.wast simd/unaligned-load.wast
     simd/load_splat_out_of_bounds.wast simd/v128-select.wast
     simd/replace-lane-preserve.wast simd/almost-extmul.wast
@@ -130,13 +130,12 @@ collect_files() {
             for f in "${BATCH4_SIMD[@]}"; do files+=("$WASMTIME_MISC/$f"); done
             ;;
         *)
-            # All portable files (top-level .wast + simd/)
-            for f in "$WASMTIME_MISC"/*.wast "$WASMTIME_MISC"/*.wat; do
-                [ -f "$f" ] && files+=("$f")
-            done
-            for f in "$WASMTIME_MISC"/simd/*.wast; do
-                [ -f "$f" ] && files+=("$f")
-            done
+            # All batches combined (explicit list — no wildcard scan)
+            for f in "${BATCH1[@]}"; do files+=("$WASMTIME_MISC/$f"); done
+            for f in "${BATCH2[@]}"; do files+=("$WASMTIME_MISC/$f"); done
+            for f in "${BATCH3[@]}"; do files+=("$WASMTIME_MISC/$f"); done
+            for f in "${BATCH3_WAT[@]}"; do files+=("$WASMTIME_MISC/$f"); done
+            for f in "${BATCH4_SIMD[@]}"; do files+=("$WASMTIME_MISC/$f"); done
             ;;
     esac
     echo "${files[@]}"

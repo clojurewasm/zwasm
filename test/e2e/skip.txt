@@ -1,9 +1,11 @@
-# Files/directories to skip from wasmtime misc_testsuite
-# Reasons: unimplemented proposals, wasmtime-specific tests
+# Directories to skip from wasmtime misc_testsuite
 #
 # Format: one entry per line, directories end with /
+#
+# For individual file exclusions, remove them from the BATCH lists
+# in convert.sh instead of adding entries here.
 
-# Unimplemented proposals
+# Unimplemented proposals (not in e2e scope)
 gc/
 threads/
 memory64/
@@ -17,18 +19,3 @@ function-references/
 
 # Wasmtime JIT-specific
 winch/
-
-# Requires exception handling
-many-results-with-exceptions.wast
-stack-args-exceptions.wast
-traps-skip-catch-all.wast
-issue11561.wast
-
-# Requires newer proposals (custom page sizes)
-memory-combos.wast
-
-# .wat files (no wast2json assertions — validated via `zwasm validate`)
-# issue12170.wat: SIMD smoke test — validates OK, no assertions to run
-issue12170.wat
-# issue11563.wat: multi-module format (not standard single-module WAT), needs GC proposal
-issue11563.wat

@@ -220,6 +220,15 @@ pub const WasmModule = struct {
         return self;
     }
 
+    /// Load from WAT with a fuel limit (traps start function if it exceeds the limit).
+    pub fn loadFromWatWithFuel(allocator: Allocator, wat_source: []const u8, fuel: u64) !*WasmModule {
+        const wasm_bytes = try rt.wat.watToWasm(allocator, wat_source);
+        errdefer allocator.free(wasm_bytes);
+        const self = try loadCore(allocator, wasm_bytes, false, null, fuel);
+        self.owned_wasm_bytes = wasm_bytes;
+        return self;
+    }
+
     /// Load a WASI module — registers wasi_snapshot_preview1 imports.
     pub fn loadWasi(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
         return loadCore(allocator, wasm_bytes, true, null, null);

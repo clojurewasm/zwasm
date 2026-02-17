@@ -105,4 +105,17 @@ pub fn build(b: *std.Build) void {
         .root_module = fuzz_mod,
     });
     b.installArtifact(fuzz);
+
+    // WAT fuzz loader executable (reads WAT text from stdin)
+    const fuzz_wat_mod = b.createModule(.{
+        .root_source_file = b.path("src/fuzz_wat_loader.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    fuzz_wat_mod.addImport("zwasm", mod);
+    const fuzz_wat = b.addExecutable(.{
+        .name = "fuzz_wat_loader",
+        .root_module = fuzz_wat_mod,
+    });
+    b.installArtifact(fuzz_wat);
 }

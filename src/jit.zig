@@ -499,6 +499,7 @@ const a64 = struct {
         hs = 0b0010, // unsigned >= / carry set
         lo = 0b0011, // unsigned < / carry clear
         mi = 0b0100, // minus / negative (N=1) — used for FP less-than
+        pl = 0b0101, // plus / positive (N=0) — invert of mi
         vs = 0b0110, // overflow set (FP unordered / NaN)
         vc = 0b0111, // overflow clear
         hi = 0b1000, // unsigned >
@@ -526,6 +527,7 @@ const a64 = struct {
                 .ge => .le,
                 .le => .ge,
                 .mi => .mi,
+                .pl => .pl,
                 .vs => .vs,
                 .vc => .vc,
             };
