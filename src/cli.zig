@@ -1221,7 +1221,7 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
                 continue;
             };
             const load_path = after_load[sp + 1 ..];
-            const load_bytes = readFile(allocator, load_path) catch {
+            const load_bytes = readWasmFile(allocator, load_path) catch {
                 try stdout.print("error cannot read file\n", .{});
                 try stdout.flush();
                 continue;

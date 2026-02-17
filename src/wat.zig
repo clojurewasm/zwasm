@@ -324,6 +324,7 @@ pub const WatParam = struct {
 pub const MemArg = struct {
     offset: u32,
     @"align": u32,
+    mem_idx: WatIndex = .{ .num = 0 },
 };
 
 pub const WatInstr = union(enum) {
@@ -351,8 +352,8 @@ pub const WatInstr = union(enum) {
     if_op: struct { label: ?[]const u8, block_type: WatBlockType, then_body: []WatInstr, else_body: []WatInstr },
     // br_table
     br_table: struct { targets: []WatIndex, default: WatIndex },
-    // call_indirect
-    call_indirect: struct { type_use: ?WatIndex, table_idx: WatIndex },
+    // call_indirect / return_call_indirect
+    call_indirect: struct { op: []const u8, type_use: ?WatIndex, table_idx: WatIndex },
     // select with type
     select_t: []WatValType,
     // try_table with catch clauses
@@ -376,6 +377,8 @@ pub const WatInstr = union(enum) {
     gc_heap_type: struct { op: []const u8, heap_type: WatIndex },
     // GC: br_on_cast / br_on_cast_fail
     gc_br_on_cast: struct { op: []const u8, flags: u8, label: WatIndex, ht1: WatIndex, ht2: WatIndex },
+    // Two index immediates: table.copy dst src, memory.copy dst src
+    two_index: struct { op: []const u8, idx1: WatIndex, idx2: WatIndex },
     // end / else markers (for flat instruction sequences)
     end,
     @"else",
@@ -422,6 +425,7 @@ pub const WatTable = struct {
     limits: WatLimits,
     reftype: WatValType,
     export_name: ?[]const u8,
+    is_table64: bool = false,
 };
 
 pub const WatGlobalType = struct {
@@ -449,6 +453,7 @@ pub const WatImportKind = union(enum) {
     table: struct {
         limits: WatLimits,
         reftype: WatValType,
+        is_table64: bool = false,
     },
     global: WatGlobalType,
     tag: struct {
@@ -1030,6 +1035,13 @@ pub const Parser = struct {
             }
         }
 
+        // Optional i64 keyword for table64
+        var is_table64 = false;
+        if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "i64")) {
+            _ = self.advance();
+            is_table64 = true;
+        }
+
         const limits = try self.parseLimits();
         const reftype = try self.parseValType();
         _ = try self.expect(.rparen);
@@ -1039,6 +1051,7 @@ pub const Parser = struct {
             .limits = limits,
             .reftype = reftype,
             .export_name = export_name,
+            .is_table64 = is_table64,
         };
     }
 
@@ -1230,9 +1243,14 @@ pub const Parser = struct {
             }
             kind = .{ .memory = .{ .limits = try self.parseLimits(), .is_memory64 = import_mem64 } };
         } else if (std.mem.eql(u8, kind_text, "table")) {
+            var import_table64 = false;
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "i64")) {
+                _ = self.advance();
+                import_table64 = true;
+            }
             const limits = try self.parseLimits();
             const reftype = try self.parseValType();
-            kind = .{ .table = .{ .limits = limits, .reftype = reftype } };
+            kind = .{ .table = .{ .limits = limits, .reftype = reftype, .is_table64 = import_table64 } };
         } else if (std.mem.eql(u8, kind_text, "global")) {
             if (self.current.tag == .lparen) {
                 _ = self.advance();
@@ -1503,7 +1521,6 @@ pub const Parser = struct {
             std.mem.eql(u8, self.current.text, "externref")))
         {
             is_expr_style = true;
-            // reftype (ref.func N) (ref.func M) ... form
             _ = self.advance(); // consume reftype keyword
             while (self.current.tag == .lparen) {
                 _ = self.advance(); // consume (
@@ -1515,10 +1532,45 @@ pub const Parser = struct {
                     _ = self.advance(); // consume ref.null
                     _ = try self.parseHeapType(); // consume heap type
                     _ = try self.expect(.rparen);
-                    // null ref — encode as index with a sentinel
                     func_indices.append(self.alloc, .{ .num = 0xFFFFFFFF }) catch return error.OutOfMemory;
                 } else {
                     return error.InvalidWat;
+                }
+            }
+        } else if (self.current.tag == .lparen) {
+            // Check for (ref ...) as a parenthesized reftype
+            const saved_pos2 = self.tok.pos;
+            const saved_current2 = self.current;
+            _ = self.advance(); // consume (
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref")) {
+                // (ref null <heaptype>) or (ref <heaptype>) — element type annotation
+                _ = self.advance(); // consume "ref"
+                if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "null")) {
+                    _ = self.advance(); // consume "null"
+                }
+                _ = try self.parseHeapType(); // consume heap type
+                _ = try self.expect(.rparen);
+                is_expr_style = true;
+            } else {
+                // Not (ref ...) — restore position
+                self.tok.pos = saved_pos2;
+                self.current = saved_current2;
+            }
+            if (is_expr_style) {
+                while (self.current.tag == .lparen) {
+                    _ = self.advance(); // consume (
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref.func")) {
+                        _ = self.advance();
+                        func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
+                        _ = try self.expect(.rparen);
+                    } else if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref.null")) {
+                        _ = self.advance();
+                        _ = try self.parseHeapType();
+                        _ = try self.expect(.rparen);
+                        func_indices.append(self.alloc, .{ .num = 0xFFFFFFFF }) catch return error.OutOfMemory;
+                    } else {
+                        return error.InvalidWat;
+                    }
                 }
             }
         } else {
@@ -1591,6 +1643,7 @@ pub const Parser = struct {
         gc_type_elem, // array.new_elem, array.init_elem
         gc_heap_type, // ref.test, ref.test_null, ref.cast, ref.cast_null
         gc_br_on_cast, // br_on_cast, br_on_cast_fail
+        two_index, // table.copy, memory.copy (two index immediates)
     };
 
     fn classifyInstr(name: []const u8) InstrCategory {
@@ -1633,10 +1686,9 @@ pub const Parser = struct {
             std.mem.eql(u8, name, "throw") or
             std.mem.eql(u8, name, "memory.size") or
             std.mem.eql(u8, name, "memory.grow") or
+            std.mem.eql(u8, name, "memory.fill") or
             std.mem.eql(u8, name, "data.drop") or
             std.mem.eql(u8, name, "elem.drop") or
-            std.mem.eql(u8, name, "memory.init") or
-            std.mem.eql(u8, name, "table.init") or
             std.mem.eql(u8, name, "call_ref") or
             std.mem.eql(u8, name, "return_call_ref") or
             std.mem.eql(u8, name, "br_on_null") or
@@ -1700,6 +1752,12 @@ pub const Parser = struct {
         if (std.mem.eql(u8, name, "br_on_cast") or
             std.mem.eql(u8, name, "br_on_cast_fail"))
             return .gc_br_on_cast;
+
+        // Two-index instructions
+        if (std.mem.eql(u8, name, "table.copy")) return .two_index;
+        if (std.mem.eql(u8, name, "memory.copy")) return .two_index;
+        if (std.mem.eql(u8, name, "table.init")) return .two_index;
+        if (std.mem.eql(u8, name, "memory.init")) return .two_index;
 
         // SIMD shuffle (16 lane immediates)
         if (std.mem.eql(u8, name, "i8x16.shuffle")) return .simd_shuffle;
@@ -2123,9 +2181,10 @@ pub const Parser = struct {
         const instr: WatInstr = switch (cat) {
             .no_imm => .{ .simple = op_name },
             .index_imm => blk: {
-                // memory.size/memory.grow: index defaults to 0 when omitted
+                // memory.size/memory.grow/memory.fill: index defaults to 0 when omitted
                 if (std.mem.eql(u8, op_name, "memory.size") or
-                    std.mem.eql(u8, op_name, "memory.grow"))
+                    std.mem.eql(u8, op_name, "memory.grow") or
+                    std.mem.eql(u8, op_name, "memory.fill"))
                 {
                     if (self.current.tag == .integer or self.current.tag == .ident) {
                         break :blk .{ .index_op = .{ .op = op_name, .index = try self.parseIndex() } };
@@ -2155,7 +2214,7 @@ pub const Parser = struct {
                 break :blk .{ .simd_lane = .{ .op = op_name, .lane = lane } };
             },
             .simd_mem_lane => blk: {
-                const mem_arg = try self.parseMemArg();
+                const mem_arg = try self.parseMemArgLane();
                 if (self.current.tag != .integer) return error.InvalidWat;
                 const lane_text = self.advance().text;
                 const lane = std.fmt.parseInt(u8, lane_text, 10) catch return error.InvalidWat;
@@ -2193,7 +2252,7 @@ pub const Parser = struct {
                     const text = self.advance().text;
                     table_idx = .{ .num = std.fmt.parseInt(u32, text, 10) catch return error.InvalidWat };
                 }
-                break :blk .{ .call_indirect = .{ .type_use = type_idx, .table_idx = table_idx } };
+                break :blk .{ .call_indirect = .{ .op = op_name, .type_use = type_idx, .table_idx = table_idx } };
             },
             .select_t => blk: {
                 // select (result type)
@@ -2258,6 +2317,44 @@ pub const Parser = struct {
                     .ht1 = ht1,
                     .ht2 = ht2,
                 } };
+            },
+            .two_index => blk: {
+                // table.copy dst src — both default to 0
+                // memory.copy dst src — both default to 0
+                // table.init [table] elem — table defaults to 0, elem required
+                // memory.init [mem] data — mem defaults to 0, data required
+                const is_init = std.mem.eql(u8, op_name, "table.init") or
+                    std.mem.eql(u8, op_name, "memory.init");
+                var idx1: WatIndex = .{ .num = 0 };
+                var idx2: WatIndex = .{ .num = 0 };
+                if (is_init) {
+                    // For init: optional named table/mem first, then required segment idx
+                    // memory.init $seg OR memory.init $mem $seg
+                    // table.init $seg OR table.init $table $seg
+                    if (self.current.tag == .ident) {
+                        const first = try self.parseIndex();
+                        if (self.current.tag == .ident or self.current.tag == .integer) {
+                            // Two args: first is table/mem, second is segment
+                            idx1 = first;
+                            idx2 = try self.parseIndex();
+                        } else {
+                            // One arg: it's the segment, table/mem defaults to 0
+                            idx2 = first;
+                        }
+                    } else if (self.current.tag == .integer) {
+                        // Numeric segment index
+                        idx2 = try self.parseIndex();
+                    }
+                } else {
+                    // For copy: both indices, defaulting to 0
+                    if (self.current.tag == .integer or self.current.tag == .ident) {
+                        idx1 = try self.parseIndex();
+                        if (self.current.tag == .integer or self.current.tag == .ident) {
+                            idx2 = try self.parseIndex();
+                        }
+                    }
+                }
+                break :blk .{ .two_index = .{ .op = op_name, .idx1 = idx1, .idx2 = idx2 } };
             },
             .block_type, .if_type, .try_table_type => unreachable, // handled in caller
         };
@@ -2411,9 +2508,26 @@ pub const Parser = struct {
         return bytes;
     }
 
+    fn parseMemArgLane(self: *Parser) WatError!MemArg {
+        // For SIMD lane ops: don't consume bare integer (it's the lane, not memory index)
+        return self.parseMemArgInner(false);
+    }
+
     fn parseMemArg(self: *Parser) WatError!MemArg {
+        return self.parseMemArgInner(true);
+    }
+
+    fn parseMemArgInner(self: *Parser, consume_bare_int: bool) WatError!MemArg {
         var offset: u32 = 0;
         var alignment: u32 = 0;
+        var mem_idx: WatIndex = .{ .num = 0 };
+        // Parse optional memory index ($name or bare number) before offset/align
+        if (self.current.tag == .ident) {
+            mem_idx = try self.parseIndex();
+        } else if (consume_bare_int and self.current.tag == .integer) {
+            // Bare number: memory index (multi-memory)
+            mem_idx = try self.parseIndex();
+        }
         // Parse offset=N and align=N in any order
         while (self.current.tag == .keyword) {
             if (std.mem.startsWith(u8, self.current.text, "offset=")) {
@@ -2430,7 +2544,7 @@ pub const Parser = struct {
                 break;
             }
         }
-        return .{ .offset = offset, .@"align" = alignment };
+        return .{ .offset = offset, .@"align" = alignment, .mem_idx = mem_idx };
     }
 
     fn skipSExpr(self: *Parser) WatError!void {
@@ -2571,6 +2685,15 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             tag_type_indices.append(arena, idx) catch return error.OutOfMemory;
         }
     }
+    // Collect data and elem segment names
+    var data_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
+    for (module.data) |d| {
+        data_names.append(arena, d.name) catch return error.OutOfMemory;
+    }
+    var elem_names: std.ArrayListUnmanaged(?[]const u8) = .empty;
+    for (module.elements) |e| {
+        elem_names.append(arena, e.name) catch return error.OutOfMemory;
+    }
     // Pad type_names for any synthesized types added by findOrAddType
     while (type_names.items.len < all_types.items.len) {
         type_names.append(arena, null) catch return error.OutOfMemory;
@@ -2618,10 +2741,12 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(module.imports.len)) catch return error.OutOfMemory;
         for (module.imports) |imp| {
-            lebEncodeU32(arena, &sec, @intCast(imp.module_name.len)) catch return error.OutOfMemory;
-            sec.appendSlice(arena, imp.module_name) catch return error.OutOfMemory;
-            lebEncodeU32(arena, &sec, @intCast(imp.name.len)) catch return error.OutOfMemory;
-            sec.appendSlice(arena, imp.name) catch return error.OutOfMemory;
+            const dec_mod = decodeWatString(arena, imp.module_name) catch return error.OutOfMemory;
+            lebEncodeU32(arena, &sec, @intCast(dec_mod.len)) catch return error.OutOfMemory;
+            sec.appendSlice(arena, dec_mod) catch return error.OutOfMemory;
+            const dec_name = decodeWatString(arena, imp.name) catch return error.OutOfMemory;
+            lebEncodeU32(arena, &sec, @intCast(dec_name.len)) catch return error.OutOfMemory;
+            sec.appendSlice(arena, dec_name) catch return error.OutOfMemory;
             switch (imp.kind) {
                 .func => |f| {
                     sec.append(arena, 0x00) catch return error.OutOfMemory;
@@ -2638,7 +2763,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 .table => |t| {
                     sec.append(arena, 0x01) catch return error.OutOfMemory;
                     encodeValType(arena, &sec, t.reftype, type_names.items) catch return error.OutOfMemory;
-                    encodeLimits(arena, &sec, t.limits) catch return error.OutOfMemory;
+                    encodeMemoryLimits(arena, &sec, t.limits, t.is_table64) catch return error.OutOfMemory;
                 },
                 .memory => |m| {
                     sec.append(arena, 0x02) catch return error.OutOfMemory;
@@ -2683,7 +2808,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         lebEncodeU32(arena, &sec, @intCast(module.tables.len)) catch return error.OutOfMemory;
         for (module.tables) |t| {
             encodeValType(arena, &sec, t.reftype, type_names.items) catch return error.OutOfMemory;
-            encodeLimits(arena, &sec, t.limits) catch return error.OutOfMemory;
+            encodeMemoryLimits(arena, &sec, t.limits, t.is_table64) catch return error.OutOfMemory;
         }
         writeSection(arena, &out, 4, sec.items) catch return error.OutOfMemory;
     }
@@ -2706,7 +2831,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
             encodeValType(arena, &sec, g.global_type.valtype, type_names.items) catch return error.OutOfMemory;
             sec.append(arena, if (g.global_type.mutable) @as(u8, 0x01) else @as(u8, 0x00)) catch return error.OutOfMemory;
             var g_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
+            encodeInstrList(arena, &sec, g.init, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &g_labels, type_names.items, tag_names.items, data_names.items, elem_names.items) catch return error.OutOfMemory;
             sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
         }
         writeSection(arena, &out, 6, sec.items) catch return error.OutOfMemory;
@@ -2777,8 +2902,9 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(all_exports.items.len)) catch return error.OutOfMemory;
         for (all_exports.items) |e| {
-            lebEncodeU32(arena, &sec, @intCast(e.name.len)) catch return error.OutOfMemory;
-            sec.appendSlice(arena, e.name) catch return error.OutOfMemory;
+            const decoded_name = decodeWatString(arena, e.name) catch return error.OutOfMemory;
+            lebEncodeU32(arena, &sec, @intCast(decoded_name.len)) catch return error.OutOfMemory;
+            sec.appendSlice(arena, decoded_name) catch return error.OutOfMemory;
             sec.append(arena, switch (e.kind) {
                 .func => 0x00,
                 .table => 0x01,
@@ -2835,7 +2961,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                     }
                     // Offset expression + end
                     var e_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-                    encodeInstrList(arena, &sec, elem.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &e_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
+                    encodeInstrList(arena, &sec, elem.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &e_labels, type_names.items, tag_names.items, data_names.items, elem_names.items) catch return error.OutOfMemory;
                     sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
                     if (elem.is_expr_style) {
                         if (table_resolved != 0) {
@@ -2927,7 +3053,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 f_local_names.append(arena, l.name) catch return error.OutOfMemory;
             }
             var f_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, f_local_names.items, &f_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
+            encodeInstrList(arena, &code_body, f.body, func_names.items, mem_names.items, table_names.items, global_names.items, f_local_names.items, &f_labels, type_names.items, tag_names.items, data_names.items, elem_names.items) catch return error.OutOfMemory;
             code_body.append(arena, 0x0B) catch return error.OutOfMemory; // end
 
             lebEncodeU32(arena, &sec, @intCast(code_body.items.len)) catch return error.OutOfMemory;
@@ -2951,7 +3077,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                 }
                 // Offset expression + end
                 var d_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-                encodeInstrList(arena, &sec, data.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &d_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
+                encodeInstrList(arena, &sec, data.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &d_labels, type_names.items, tag_names.items, data_names.items, elem_names.items) catch return error.OutOfMemory;
                 sec.append(arena, 0x0B) catch return error.OutOfMemory;
             } else {
                 sec.append(arena, 0x01) catch return error.OutOfMemory; // flag: passive
@@ -3024,6 +3150,33 @@ fn decodeWatString(alloc: Allocator, input: []const u8) ![]u8 {
                 '\'' => {
                     out.append(alloc, '\'') catch return error.OutOfMemory;
                     i += 2;
+                },
+                'u' => {
+                    // \u{NNNN} Unicode escape → UTF-8 encoding
+                    if (i + 2 < input.len and input[i + 2] == '{') {
+                        const start = i + 3;
+                        const end = std.mem.indexOfScalarPos(u8, input, start, '}') orelse {
+                            out.append(alloc, input[i]) catch return error.OutOfMemory;
+                            i += 1;
+                            continue;
+                        };
+                        const codepoint = std.fmt.parseUnsigned(u21, input[start..end], 16) catch {
+                            out.append(alloc, input[i]) catch return error.OutOfMemory;
+                            i += 1;
+                            continue;
+                        };
+                        var buf: [4]u8 = undefined;
+                        const len = std.unicode.utf8Encode(codepoint, &buf) catch {
+                            out.append(alloc, input[i]) catch return error.OutOfMemory;
+                            i += 1;
+                            continue;
+                        };
+                        out.appendSlice(alloc, buf[0..len]) catch return error.OutOfMemory;
+                        i = end + 1;
+                    } else {
+                        out.append(alloc, input[i]) catch return error.OutOfMemory;
+                        i += 1;
+                    }
                 },
                 else => {
                     out.append(alloc, input[i]) catch return error.OutOfMemory;
@@ -3564,9 +3717,11 @@ fn encodeInstrList(
     labels: *std.ArrayListUnmanaged(?[]const u8),
     type_names: []const ?[]const u8,
     tag_names: []const ?[]const u8,
+    data_names: []const ?[]const u8,
+    elem_names: []const ?[]const u8,
 ) WatError!void {
     for (instrs) |instr| {
-        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names);
+        try encodeInstr(alloc, out, instr, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names, data_names, elem_names);
     }
 }
 
@@ -3612,6 +3767,8 @@ fn encodeInstr(
     labels: *std.ArrayListUnmanaged(?[]const u8),
     type_names: []const ?[]const u8,
     tag_names: []const ?[]const u8,
+    data_names: []const ?[]const u8,
+    elem_names: []const ?[]const u8,
 ) WatError!void {
     switch (instr) {
         .simple => |name| {
@@ -3680,7 +3837,8 @@ fn encodeInstr(
             else if (std.mem.startsWith(u8, data.op, "table."))
                 resolveNamedIndex(data.index, table_names) catch return error.InvalidWat
             else if (std.mem.eql(u8, data.op, "memory.size") or
-                std.mem.eql(u8, data.op, "memory.grow"))
+                std.mem.eql(u8, data.op, "memory.grow") or
+                std.mem.eql(u8, data.op, "memory.fill"))
                 resolveNamedIndex(data.index, mem_names) catch return error.InvalidWat
             else if (std.mem.eql(u8, data.op, "local.get") or
                 std.mem.eql(u8, data.op, "local.set") or
@@ -3691,17 +3849,15 @@ fn encodeInstr(
                 resolveNamedIndex(data.index, type_names) catch return error.InvalidWat
             else if (gcInstrOpcode(data.op) != null)
                 resolveNamedIndex(data.index, type_names) catch return error.InvalidWat
+            else if (std.mem.eql(u8, data.op, "data.drop"))
+                resolveNamedIndex(data.index, data_names) catch return error.InvalidWat
+            else if (std.mem.eql(u8, data.op, "elem.drop"))
+                resolveNamedIndex(data.index, elem_names) catch return error.InvalidWat
             else switch (data.index) {
                 .num => |n| n,
                 .name => return error.InvalidWat,
             };
             lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
-            // 0xFC ops with trailing memory/table index (default 0)
-            if (std.mem.eql(u8, data.op, "memory.init") or
-                std.mem.eql(u8, data.op, "table.init"))
-            {
-                out.append(alloc, 0x00) catch return error.OutOfMemory; // trailing mem/table idx
-            }
         },
         .i32_const => |val| {
             out.append(alloc, 0x41) catch return error.OutOfMemory;
@@ -3741,9 +3897,17 @@ fn encodeInstr(
             const subop = simdInstrOpcode(data.op) orelse return error.InvalidWat;
             out.append(alloc, 0xFD) catch return error.OutOfMemory;
             lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
-            const align_log2: u32 = if (data.mem_arg.@"align" > 0) std.math.log2_int(u32, data.mem_arg.@"align") else 0;
-            lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
-            lebEncodeU32(alloc, out, data.mem_arg.offset) catch return error.OutOfMemory;
+            var align_log2: u32 = if (data.mem_arg.@"align" > 0) std.math.log2_int(u32, data.mem_arg.@"align") else 0;
+            const sml_mem_idx = resolveNamedIndex(data.mem_arg.mem_idx, mem_names) catch return error.InvalidWat;
+            if (sml_mem_idx != 0) {
+                align_log2 |= 0x40;
+                lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, sml_mem_idx) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, data.mem_arg.offset) catch return error.OutOfMemory;
+            } else {
+                lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, data.mem_arg.offset) catch return error.OutOfMemory;
+            }
             out.append(alloc, data.lane) catch return error.OutOfMemory;
         },
         .mem_op => |data| {
@@ -3759,17 +3923,27 @@ fn encodeInstr(
             } else {
                 return error.InvalidWat;
             }
-            // Encode alignment as log2
-            const align_log2: u32 = if (data.mem_arg.@"align" > 0) std.math.log2_int(u32, data.mem_arg.@"align") else 0;
-            lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
-            lebEncodeU32(alloc, out, data.mem_arg.offset) catch return error.OutOfMemory;
+            // Encode alignment as log2, with multi-memory flag if needed
+            // Multi-memory format: align|0x40, mem_idx, offset
+            // Single-memory format: align, offset
+            var align_log2: u32 = if (data.mem_arg.@"align" > 0) std.math.log2_int(u32, data.mem_arg.@"align") else 0;
+            const mem_index = resolveNamedIndex(data.mem_arg.mem_idx, mem_names) catch return error.InvalidWat;
+            if (mem_index != 0) {
+                align_log2 |= 0x40; // multi-memory flag
+                lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, mem_index) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, data.mem_arg.offset) catch return error.OutOfMemory;
+            } else {
+                lebEncodeU32(alloc, out, align_log2) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, data.mem_arg.offset) catch return error.OutOfMemory;
+            }
         },
         .block_op => |data| {
             const op = instrOpcode(data.op) orelse return error.InvalidWat;
             out.append(alloc, op) catch return error.OutOfMemory;
             encodeBlockType(alloc, out, data.block_type, type_names) catch return error.OutOfMemory;
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names, data_names, elem_names) catch return error.OutOfMemory;
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
         },
@@ -3777,10 +3951,10 @@ fn encodeInstr(
             out.append(alloc, 0x04) catch return error.OutOfMemory; // if
             encodeBlockType(alloc, out, data.block_type, type_names) catch return error.OutOfMemory;
             labels.append(alloc, data.label) catch return error.OutOfMemory;
-            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names, data_names, elem_names) catch return error.OutOfMemory;
             if (data.else_body.len > 0) {
                 out.append(alloc, 0x05) catch return error.OutOfMemory; // else
-                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
+                encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names, data_names, elem_names) catch return error.OutOfMemory;
             }
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
@@ -3800,7 +3974,7 @@ fn encodeInstr(
                 const label_idx = try resolveLabelIndex(c.label, labels.items);
                 lebEncodeU32(alloc, out, label_idx) catch return error.OutOfMemory;
             }
-            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names) catch return error.OutOfMemory;
+            encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names, data_names, elem_names) catch return error.OutOfMemory;
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
         },
@@ -3815,7 +3989,8 @@ fn encodeInstr(
             lebEncodeU32(alloc, out, default) catch return error.OutOfMemory;
         },
         .call_indirect => |data| {
-            out.append(alloc, 0x11) catch return error.OutOfMemory;
+            const ci_opcode: u8 = if (std.mem.eql(u8, data.op, "return_call_indirect")) 0x13 else 0x11;
+            out.append(alloc, ci_opcode) catch return error.OutOfMemory;
             if (data.type_use) |tu| {
                 const idx = resolveNamedIndex(tu, type_names) catch return error.InvalidWat;
                 lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
@@ -3901,6 +4076,34 @@ fn encodeInstr(
             const ht2 = resolveNamedIndex(data.ht2, type_names) catch return error.InvalidWat;
             lebEncodeS33(alloc, out, heapTypeToS33(ht2)) catch return error.OutOfMemory;
         },
+        .two_index => |data| {
+            const subop = miscInstrOpcode(data.op) orelse return error.InvalidWat;
+            out.append(alloc, 0xFC) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
+            if (std.mem.eql(u8, data.op, "table.init")) {
+                // binary: elem_idx(idx2) table_idx(idx1)
+                const seg = resolveNamedIndex(data.idx2, elem_names) catch data.idx2.num;
+                const tbl = resolveNamedIndex(data.idx1, table_names) catch return error.InvalidWat;
+                lebEncodeU32(alloc, out, seg) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, tbl) catch return error.OutOfMemory;
+            } else if (std.mem.eql(u8, data.op, "memory.init")) {
+                // binary: data_idx(idx2) mem_idx(idx1)
+                const seg = resolveNamedIndex(data.idx2, data_names) catch data.idx2.num;
+                const mem = resolveNamedIndex(data.idx1, mem_names) catch return error.InvalidWat;
+                lebEncodeU32(alloc, out, seg) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, mem) catch return error.OutOfMemory;
+            } else {
+                // table.copy dst src, memory.copy dst src
+                const names = if (std.mem.eql(u8, data.op, "table.copy"))
+                    table_names
+                else
+                    mem_names;
+                const dst = resolveNamedIndex(data.idx1, names) catch return error.InvalidWat;
+                const src = resolveNamedIndex(data.idx2, names) catch return error.InvalidWat;
+                lebEncodeU32(alloc, out, dst) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, src) catch return error.OutOfMemory;
+            }
+        },
         .end => {
             out.append(alloc, 0x0B) catch return error.OutOfMemory;
         },
@@ -3967,8 +4170,17 @@ fn parseIntLiteral(comptime T: type, text: []const u8) !T {
 /// Parse WAT float literal: decimal, hex float, nan, inf.
 fn parseFloatLiteral(comptime T: type, text: []const u8) !T {
     // Handle special values
-    if (std.mem.eql(u8, text, "nan")) return std.math.nan(T);
-    if (std.mem.eql(u8, text, "+nan") or std.mem.eql(u8, text, "-nan")) return std.math.nan(T);
+    if (std.mem.eql(u8, text, "nan") or std.mem.eql(u8, text, "+nan")) return std.math.nan(T);
+    if (std.mem.eql(u8, text, "-nan")) {
+        // Negative NaN: set sign bit
+        if (T == f32) {
+            const bits: u32 = 0xFFC00000; // -nan canonical
+            return @bitCast(bits);
+        } else {
+            const bits: u64 = 0xFFF8000000000000; // -nan canonical
+            return @bitCast(bits);
+        }
+    }
     if (std.mem.eql(u8, text, "inf") or std.mem.eql(u8, text, "+inf")) return std.math.inf(T);
     if (std.mem.eql(u8, text, "-inf")) return -std.math.inf(T);
 
