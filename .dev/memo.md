@@ -35,16 +35,16 @@ See `private/roadmap-production.md` Phase 45 for full detail. Resolves W32.
 - [x] 45.2: Baseline recording
 - [x] 45.3: Bottleneck analysis
 - [x] 45.4: Interpreter fast-path
-- [ ] 45.5: JIT SIMD feasibility study
-- [ ] 45.6: Implement chosen optimization
+- [x] 45.5: JIT SIMD feasibility study
+- [ ] 45.6: Final recording + stage closure
 
 ## Current Task
 
-45.5: JIT SIMD feasibility study
+45.6: Final recording + stage closure
 
 ## Previous Task
 
-45.4: Interpreter fast-path — extended predecoder to handle SIMD prefix (0xFD), added executeSimdIR to predecoded IR interpreter. Fixed SIMD_BASE encoding collision (| → + for sub >= 0x100). ~2x SIMD speedup, 62,158/62,158 spec tests.
+45.5: JIT SIMD feasibility study — D122 defers RegIR v128 extension + JIT NEON to future stage. 20 hot ops identified for 80% coverage, ~10-14 week effort. Current 2x from 45.4 predecoded IR is adequate for embedded runtime use case.
 
 ## Wasm 3.0 Coverage
 

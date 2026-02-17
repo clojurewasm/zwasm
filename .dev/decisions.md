@@ -84,6 +84,37 @@ JIT trampoline pack/unpack via explicit helpers (no @bitCast with 12-byte struct
 
 ---
 
+## D122: SIMD JIT strategy — hybrid predecoded IR + deferred NEON
+
+**Context**: SIMD benchmarks show 43x geometric mean gap vs wasmtime. Root cause:
+v128 functions forced to raw stack interpreter (~2.4μs/instr) because RegIR only
+supports u64 registers. 88% of instructions in SIMD functions are non-SIMD overhead
+(loops, address calc, locals) that RegIR handles at ~0.15μs/instr.
+
+Task 45.4 extended the predecoded IR interpreter to handle SIMD prefix (0xFD),
+achieving ~2x speedup by eliminating LEB128 decode and double-switch dispatch.
+Still uses stack-based value manipulation for SIMD ops.
+
+**Feasibility assessment** for full JIT NEON:
+- ARM64 has 32 V registers (V0-V31), NEON instruction encoding is distinct from GP
+- V0-V7 share physical space with D0-D7 (scalar FP) — requires careful tracking
+- ~20 hot ops cover 80% of benchmark use: v128 load/store, f32x4 add/mul/splat,
+  i32x4 add/mul, extract_lane, v128_const, i8x16_shuffle
+- Register allocation: parallel V-register file alongside existing GP allocation
+- Spill/reload: 16-byte slots (vs current 8-byte)
+- Calling convention: v128 is local-only in Wasm (no params/returns), simplifies ABI
+
+**Decision**: Defer RegIR v128 extension and JIT NEON to a future stage. Rationale:
+1. Task 45.4's predecoded IR path already delivers 2x SIMD speedup
+2. Full RegIR v128 extension requires type tagging in RegInstr (3-4 weeks)
+3. JIT NEON requires parallel register file + 20 instruction encoders (6-8 weeks)
+4. Combined effort ~10-14 weeks is a major undertaking for diminishing returns
+5. Current SIMD performance is adequate for zwasm's use case (embedded runtime)
+
+**If revisited**: Start with RegIR v128 type tagging (extend RegInstr with
+reg_class bits, add v128_regs parallel to u64 regs), then selective NEON for the
+20 hot ops. See `.dev/simd-analysis.md` for full bottleneck data.
+
 ## D121: GC heap — arena allocator + adaptive threshold
 
 **Context**: GC benchmarks show 6.7-46x gap vs wasmtime (gc_alloc 62ms vs 8ms,
