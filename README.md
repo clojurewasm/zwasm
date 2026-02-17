@@ -222,7 +222,8 @@ zwasm follows [Semantic Versioning](https://semver.org/). The public API surface
 
 ## Documentation
 
-- [Book](https://clojurewasm.github.io/zwasm/) — Getting started, architecture, embedding guide, CLI reference
+- [Book (English)](https://clojurewasm.github.io/zwasm/en/) — Getting started, architecture, embedding guide, CLI reference
+- [Book (日本語)](https://clojurewasm.github.io/zwasm/ja/) — 日本語ドキュメント
 - [API Boundary](docs/api-boundary.md) — Stable vs experimental API surface
 - [CHANGELOG](CHANGELOG.md) — Version history
 

@@ -1,0 +1,21 @@
+/* Minimal custom styling for zwasm book */
+.content main {
+    max-width: 72rem;
+}
+
+/* Language switcher */
+.lang-switcher {
+    display: inline-block;
+    padding: 3px 8px;
+    margin: 5px;
+    border: 1px solid var(--icons);
+    border-radius: 3px;
+    color: var(--icons) !important;
+    text-decoration: none;
+    font-size: 0.85em;
+    line-height: 1.4;
+}
+.lang-switcher:hover {
+    color: var(--icons-hover) !important;
+    border-color: var(--icons-hover);
+}
