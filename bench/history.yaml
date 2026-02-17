@@ -1038,3 +1038,32 @@ entries:
       st_matrix: {time_ms: 294.9}
       gc_alloc: {time_ms: 20.6}
       gc_tree: {time_ms: 131.0}
+  - id: "stage44"
+    date: "2026-02-18"
+    reason: "Stage 44 complete"
+    commit: "3784802"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 54.2}
+      tak: {time_ms: 8.4}
+      sieve: {time_ms: 4.0}
+      nbody: {time_ms: 9.7}
+      nqueens: {time_ms: 1.8}
+      tgo_fib: {time_ms: 38.7}
+      tgo_tak: {time_ms: 9.0}
+      tgo_arith: {time_ms: 1.6}
+      tgo_sieve: {time_ms: 2.6}
+      tgo_fib_loop: {time_ms: 1.6}
+      tgo_gcd: {time_ms: 1.5}
+      tgo_nqueens: {time_ms: 40.6}
+      tgo_mfr: {time_ms: 46.3}
+      tgo_list: {time_ms: 32.3}
+      tgo_rwork: {time_ms: 7.1}
+      tgo_strops: {time_ms: 34.3}
+      st_fib2: {time_ms: 1023.6}
+      st_sieve: {time_ms: 176.5}
+      st_nestedloop: {time_ms: 1.0}
+      st_ackermann: {time_ms: 5.3}
+      st_matrix: {time_ms: 287.7}
+      gc_alloc: {time_ms: 17.1}
+      gc_tree: {time_ms: 126.5}

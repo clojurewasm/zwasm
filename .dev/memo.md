@@ -27,25 +27,24 @@ Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 44: WAT Parser Spec Parity)
+## Task Queue (Stage 45: SIMD Performance Engineering)
 
-See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W33.
+See `private/roadmap-production.md` Phase 45 for full detail. Resolves W32.
 
-- [x] 44.1: WAT roundtrip audit script — `run_spec.py --wat-mode`
-- [x] 44.2: Gap triage report — `.dev/wat-gap-report.md`
-- [x] 44.3: Fix highest-count failure category (CORE: block (type N) + named type_use)
-- [x] 44.4: Fix second category (MEM64 syntax + import memory64)
-- [x] 44.5: Continue until all fixable gaps resolved
-- [x] 44.6: Input validation hardening (W31)
-- [x] 44.7: GC type annotation parsing (W30)
+- [ ] 45.1: SIMD microbenchmark suite
+- [ ] 45.2: Baseline recording
+- [ ] 45.3: Bottleneck analysis
+- [ ] 45.4: Interpreter fast-path
+- [ ] 45.5: JIT SIMD feasibility study
+- [ ] 45.6: Implement chosen optimization
 
 ## Current Task
 
-Stage 44 complete. Next: merge to main via Merge Gate Checklist, then Stage 45.
+45.1: SIMD microbenchmark suite
 
 ## Previous Task
 
-44.7: GC type annotation parsing — WAT roundtrip 99.0% → 99.9% (62,101/62,156). Fixed: sub type parsing, parenthesized reftype, i8/i16 packed storage types, (ref ...) global type, nullexnref, named data/elem segment resolution, throw tag resolution, table init expressions, elem GC reftype + (item ...) syntax, passive elem mode, arbitrary elem expressions, try_table catch label depth, has_else encoding. Remaining 55 are import chain "no response" (not parser bugs). W30 resolved.
+Stage 44 complete (WAT Parser Spec Parity). Merged to main. WAT roundtrip 99.9% (62,101/62,156). W30+W31 resolved.
 
 ## Wasm 3.0 Coverage
 
