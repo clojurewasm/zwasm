@@ -290,11 +290,9 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
                 return null;
             },
 
-            // -- SIMD prefix (0xFD) — not supported, fall back --
+            // -- SIMD prefix (0xFD) --
             0xFD => {
-                code.deinit(alloc);
-                pool64.deinit(alloc);
-                return null;
+                if (!try predecodeSimd(alloc, &code, &pool64, &reader)) return error.InvalidWasm;
             },
 
             // -- Atomic prefix (0xFE) — not supported in predecode, fall back --
@@ -401,6 +399,65 @@ fn predecodeMisc(alloc: Allocator, code: *std.ArrayList(PreInstr), reader: *Read
             const table_idx = reader.readU32() catch return false;
             try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = table_idx });
         },
+        else => try emit0(alloc, code, ir_op),
+    }
+    return true;
+}
+
+fn predecodeSimd(alloc: Allocator, code: *std.ArrayList(PreInstr), pool64: *std.ArrayList(u64), reader: *Reader) !bool {
+    const sub = reader.readU32() catch return false;
+    if (sub > 0x113) return false; // unknown SIMD sub-opcode
+    const ir_op: u16 = SIMD_BASE + @as(u16, @intCast(sub));
+    switch (sub) {
+        // Memory ops: memarg (align [+ memidx] + offset)
+        // v128.load (0x00) through v128.store (0x0B), v128.load32_zero (0x5C), v128.load64_zero (0x5D)
+        0x00...0x0B, 0x5C, 0x5D => {
+            const align_val = reader.readU32() catch return false;
+            const memidx: u16 = if (align_val & 0x40 != 0)
+                @intCast(reader.readU32() catch return false)
+            else
+                0;
+            const offset = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = memidx, .operand = offset });
+        },
+        // v128.const (0x0C): 16 raw bytes → store as 2 pool64 entries
+        0x0C => {
+            const bytes = reader.readBytes(16) catch return false;
+            const pool_idx: u32 = @intCast(pool64.items.len);
+            const lo = std.mem.readInt(u64, bytes[0..8], .little);
+            const hi = std.mem.readInt(u64, bytes[8..16], .little);
+            try pool64.append(alloc, lo);
+            try pool64.append(alloc, hi);
+            try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = pool_idx });
+        },
+        // i8x16.shuffle (0x0D): 16 lane bytes → store as 2 pool64 entries
+        0x0D => {
+            const bytes = reader.readBytes(16) catch return false;
+            const pool_idx: u32 = @intCast(pool64.items.len);
+            const lo = std.mem.readInt(u64, bytes[0..8], .little);
+            const hi = std.mem.readInt(u64, bytes[8..16], .little);
+            try pool64.append(alloc, lo);
+            try pool64.append(alloc, hi);
+            try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = pool_idx });
+        },
+        // Extract/replace lane (0x15-0x22): 1 byte lane index
+        0x15...0x22 => {
+            const lane = reader.readByte() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = lane, .operand = 0 });
+        },
+        // Lane load/store (0x54-0x5B): memarg + 1 byte lane
+        0x54...0x5B => {
+            const align_val = reader.readU32() catch return false;
+            const memidx: u16 = if (align_val & 0x40 != 0)
+                @intCast(reader.readU32() catch return false)
+            else
+                0;
+            const offset = reader.readU32() catch return false;
+            const lane = reader.readByte() catch return false;
+            // Pack lane into extra high byte, memidx into extra low byte
+            try code.append(alloc, .{ .opcode = ir_op, .extra = (@as(u16, lane) << 8) | memidx, .operand = offset });
+        },
+        // All other SIMD ops: no immediates
         else => try emit0(alloc, code, ir_op),
     }
     return true;
@@ -535,4 +592,65 @@ test "predecode return_call_indirect does not bail" {
     try testing.expectEqual(@as(u16, 0x13), ir.?.code[0].opcode);
     try testing.expectEqual(@as(u32, 0), ir.?.code[0].operand);
     try testing.expectEqual(@as(u16, 0), ir.?.code[0].extra);
+}
+
+test "predecode SIMD basic ops" {
+    // Function body: v128.const + f32x4.splat + f32x4.add + v128.store + end
+    // v128.const (0xFD 0x0C) + 16 bytes
+    // f32x4.splat (0xFD 0x13) — no immediates
+    // f32x4.add (0xFD 0xE4 0x01) — LEB128 for 0xE4 is 0xE4 0x01
+    // v128.store (0xFD 0x0B) + memarg(align=4, offset=0)
+    const bytecode = [_]u8{
+        0xFD, 0x0C, // v128.const
+        0x00, 0x00, 0x80, 0x3F, // 1.0f32 (little-endian)
+        0x00, 0x00, 0x80, 0x3F,
+        0x00, 0x00, 0x80, 0x3F,
+        0x00, 0x00, 0x80, 0x3F,
+        0xFD, 0x13, // f32x4.splat
+        0xFD, 0xE4, 0x01, // f32x4.add (sub_opcode = 228 = 0xE4, LEB128 = 0xE4 0x01)
+        0xFD, 0x0B, 0x04, 0x00, // v128.store align=4 offset=0
+        0x0B, // end
+    };
+    const ir = try predecode(testing.allocator, &bytecode);
+    try testing.expect(ir != null);
+    defer {
+        ir.?.deinit();
+        testing.allocator.destroy(ir.?);
+    }
+    // v128.const → SIMD_BASE + 0x0C
+    try testing.expectEqual(SIMD_BASE + 0x0C, ir.?.code[0].opcode);
+    // f32x4.splat → SIMD_BASE + 0x13
+    try testing.expectEqual(SIMD_BASE + 0x13, ir.?.code[1].opcode);
+    // f32x4.add → SIMD_BASE + 0xE4
+    try testing.expectEqual(SIMD_BASE + 0xE4, ir.?.code[2].opcode);
+    // v128.store → SIMD_BASE + 0x0B, operand=offset(0)
+    try testing.expectEqual(SIMD_BASE + 0x0B, ir.?.code[3].opcode);
+    try testing.expectEqual(@as(u32, 0), ir.?.code[3].operand); // offset = 0
+    // end
+    try testing.expectEqual(@as(u16, 0x0B), ir.?.code[4].opcode);
+}
+
+test "predecode SIMD relaxed ops (sub >= 0x100)" {
+    // i8x16.relaxed_swizzle sub=0x100, LEB128 = 0x80 0x02
+    // i32x4.relaxed_trunc_f32x4_s sub=0x101, LEB128 = 0x81 0x02
+    // i16x8.relaxed_dot_i8x16_i7x16_s sub=0x10F, LEB128 = 0x8F 0x02
+    const bytecode = [_]u8{
+        0xFD, 0x80, 0x02, // i8x16.relaxed_swizzle (0x100)
+        0xFD, 0x81, 0x02, // i32x4.relaxed_trunc_f32x4_s (0x101)
+        0xFD, 0x8F, 0x02, // i16x8.relaxed_dot_i8x16_i7x16_s (0x10F)
+        0x0B, // end
+    };
+    const ir = try predecode(testing.allocator, &bytecode);
+    try testing.expect(ir != null);
+    defer {
+        ir.?.deinit();
+        testing.allocator.destroy(ir.?);
+    }
+    // Relaxed ops must use SIMD_BASE + sub (not |) to avoid bit collision
+    try testing.expectEqual(SIMD_BASE + 0x100, ir.?.code[0].opcode);
+    try testing.expectEqual(SIMD_BASE + 0x101, ir.?.code[1].opcode);
+    try testing.expectEqual(SIMD_BASE + 0x10F, ir.?.code[2].opcode);
+    // Verify they are distinct from sub=0x00 (v128.load) and sub=0x01 (v128.load8x8_s)
+    try testing.expect(ir.?.code[0].opcode != SIMD_BASE + 0x00);
+    try testing.expect(ir.?.code[1].opcode != SIMD_BASE + 0x01);
 }
