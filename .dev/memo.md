@@ -36,15 +36,15 @@ See `private/roadmap-production.md` Phase 46 for full detail.
 - [x] 46.3: CI update (build both languages)
 - [x] 46.4: Japanese translation (all 12 chapter files)
 - [x] 46.5: Language switcher (theme override)
-- [ ] 46.6: README update
+- [x] 46.6: README update
 
 ## Current Task
 
-46.6: README update
+Stage 46 complete — merge gate pending.
 
 ## Previous Task
 
-46.5: Language switcher — lang-switcher.js + CSS in both books, nav bar toggle.
+46.6: README update — linked both language versions in Documentation section.
 
 ## Wasm 3.0 Coverage
 
