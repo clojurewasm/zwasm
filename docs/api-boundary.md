@@ -16,7 +16,8 @@ Types and functions listed here are covered by SemVer guarantees.
 | `HostFnEntry` | A single host function (name, callback, context) | v0.2.0 |
 | `HostFn` | Function type: `fn (*anyopaque, usize) anyerror!void` | v0.2.0 |
 | `ImportFuncInfo` | Import metadata (module, name, param/result count) | v0.2.0 |
-| `WasiOptions` | WASI configuration (args, env, preopen, capabilities) | v0.2.0 |
+| `WasiOptions` | WASI configuration (args, env, preopen, capabilities). Default caps: `cli_default` | v0.2.0 |
+| `Capabilities` | WASI capability flags (presets: `all`, `cli_default`, `sandbox`) | v1.0.0 |
 | `Vm` | VM type for host function callbacks | v0.2.0 |
 
 ## Stable functions

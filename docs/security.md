@@ -88,7 +88,10 @@ A valid Wasm module, no matter how adversarial, cannot:
 
 **Mitigations**:
 - Deny-by-default capability model: all capabilities start disabled
-- CLI defaults: only stdio, clock, random, and proc_exit enabled
+- CLI defaults: `cli_default` (stdio, clock, random, proc_exit)
+- Library API defaults: `cli_default` since v1.0.0 (was `all` in v0.x)
+- `--sandbox` mode: deny all + fuel 1B + memory 256MB
+- `--env KEY=VALUE` injected vars accessible without `--allow-env`
 - Filesystem: restricted to preopened directories only (no arbitrary path traversal)
 - Path pointers validated against linear memory bounds before use
 - Each WASI function checks its required capability at entry

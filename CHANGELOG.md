@@ -27,8 +27,15 @@ First stable release. API frozen under SemVer guarantees.
 - SemVer versioning policy, deprecation guarantees
 
 ### Changed
+- **BREAKING**: `loadWasi()` defaults to `cli_default` capabilities (stdio, clock, random, proc_exit). Use `loadWasiWithOptions(.{ .caps = .all })` for full access.
+- `--env KEY=VALUE` injected variables now accessible without `--allow-env`
 - Error messages now use human-readable format (30 error variants)
 - README: badges, install section, documentation links
+
+### Added (security)
+- `--sandbox` CLI flag: deny-all capabilities + fuel 1B + memory 256MB
+- `Capabilities.sandbox` preset for library API
+- Restrictive library API defaults for safe embedding
 
 ## [0.3.0] - 2026-02-15
 

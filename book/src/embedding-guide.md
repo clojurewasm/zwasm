@@ -49,7 +49,7 @@ const sum: i32 = @bitCast(@as(u32, @truncate(results[0])));
 |--------|----------|
 | `load(alloc, bytes)` | Basic module, no WASI |
 | `loadFromWat(alloc, wat_src)` | Load from WAT text format |
-| `loadWasi(alloc, bytes)` | Module with WASI imports |
+| `loadWasi(alloc, bytes)` | Module with WASI (cli_default caps) |
 | `loadWasiWithOptions(alloc, bytes, opts)` | WASI with custom config |
 | `loadWithImports(alloc, bytes, imports)` | Module with host functions |
 | `loadWasiWithImports(alloc, bytes, imports, opts)` | Both WASI and host functions |
@@ -89,12 +89,14 @@ const mod = try WasmModule.loadWithImports(allocator, wasm_bytes, &imports);
 ## WASI configuration
 
 ```zig
+// loadWasi() defaults to cli_default caps (stdio, clock, random, proc_exit).
+// Use loadWasiWithOptions for full access or custom capabilities:
 const opts = zwasm.WasiOptions{
     .args = &.{ "my-app", "--verbose" },
     .env_keys = &.{"HOME"},
     .env_vals = &.{"/tmp"},
     .preopen_paths = &.{"./data"},
-    .caps = zwasm.runtime.wasi.Capabilities.all(),
+    .caps = zwasm.Capabilities.all,
 };
 
 const mod = try WasmModule.loadWasiWithOptions(allocator, wasm_bytes, opts);

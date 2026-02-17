@@ -64,7 +64,17 @@ Deny-by-default model with 8 capability flags:
 | `allow-proc` | Process operations |
 | `allow-all` | All of the above |
 
-32 of 46 WASI functions check capabilities before executing. The remaining 14 are safe operations (args/environ size queries, fd_close, etc.).
+32 of 46 WASI functions check capabilities before executing. The remaining 14 are safe operations (args size queries, fd_close, etc.).
+
+**Library API defaults** (`loadWasi()`): `cli_default` — only stdio, clock, random, and proc_exit. Embedders needing full access use `loadWasiWithOptions(.{ .caps = .all })`.
+
+**`--sandbox` mode**: Denies all capabilities, sets fuel to 1 billion instructions and memory ceiling to 256MB. Combine with `--allow-*` flags for selective access:
+
+```bash
+zwasm untrusted.wasm --sandbox --allow-read --dir ./data
+```
+
+**`--env KEY=VALUE`**: Injected environment variables are always accessible to the guest, even without `--allow-env`. The `--allow-env` flag controls access to host environment passthrough.
 
 ### Stack protection
 

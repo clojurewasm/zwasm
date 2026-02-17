@@ -33,7 +33,7 @@ zwasm module.wasm --dir /path/to/data
 # Grant all capabilities
 zwasm module.wasm --allow-all
 
-# Set environment variables
+# Set environment variables (accessible without --allow-env)
 zwasm module.wasm --env KEY=VALUE
 ```
 
@@ -46,10 +46,17 @@ Available capability flags:
 | `--allow-env`    | Environment variable access              |
 | `--allow-path`   | Path operations (open, mkdir, unlink)    |
 | `--allow-all`    | All WASI capabilities                    |
+| `--sandbox`      | Deny all + fuel 1B + memory 256MB        |
 
 ### Resource limits
 
 ```bash
+# Sandbox mode: deny all capabilities, fuel 1B, memory 256MB
+zwasm module.wasm --sandbox
+
+# Sandbox with selective access
+zwasm module.wasm --sandbox --allow-read --dir ./data
+
 # Limit memory growth (bytes)
 zwasm module.wasm --max-memory 67108864  # 64MB ceiling
 
@@ -181,12 +188,17 @@ Requires `-Dwat=true` (default). Disable with `-Dwat=false` to reduce binary siz
 ### WASI modules
 
 ```zig
-// Basic WASI (calls _start)
+// Basic WASI — defaults to cli_default capabilities (stdio, clock, random, proc_exit)
 var module = try zwasm.WasmModule.loadWasi(allocator, wasm_bytes);
 defer module.deinit();
 try module.invoke("_start", &.{}, &.{});
 
-// With options
+// With full access (filesystem, env, etc.)
+var module = try zwasm.WasmModule.loadWasiWithOptions(allocator, wasm_bytes, .{
+    .caps = zwasm.Capabilities.all,
+});
+
+// With selective options
 var module = try zwasm.WasmModule.loadWasiWithOptions(allocator, wasm_bytes, .{
     .args = &.{ "myapp", "--verbose" },
     .env_keys = &.{"HOME"},

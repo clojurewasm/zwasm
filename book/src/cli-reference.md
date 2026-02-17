@@ -67,8 +67,12 @@ Use `--` to separate WASI args from zwasm options:
 zwasm app.wasm --allow-all -- hello world
 zwasm app.wasm --allow-read --dir ./data -- input.txt
 
-# Environment variables
-zwasm app.wasm --allow-env --env HOME=/tmp --env USER=alice
+# Environment variables (injected vars accessible without --allow-env)
+zwasm app.wasm --env HOME=/tmp --env USER=alice
+
+# Sandbox mode: deny all + fuel 1B + memory 256MB
+zwasm untrusted.wasm --sandbox
+zwasm untrusted.wasm --sandbox --allow-read --dir ./data
 ```
 
 #### Multi-module linking
@@ -142,13 +146,14 @@ Show usage information.
 
 | Flag | Description |
 |------|-------------|
+| `--sandbox` | Deny all capabilities + fuel 1B + memory 256MB |
 | `--allow-all` | Grant all WASI capabilities |
 | `--allow-read` | Grant filesystem read |
 | `--allow-write` | Grant filesystem write |
 | `--allow-env` | Grant environment variable access |
 | `--allow-path` | Grant path operations (open, mkdir, unlink) |
 | `--dir <path>` | Preopen a host directory (repeatable) |
-| `--env KEY=VALUE` | Set a WASI environment variable (repeatable) |
+| `--env KEY=VALUE` | Set a WASI environment variable (always accessible) |
 
 ### Resource limits
 
