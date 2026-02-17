@@ -2316,15 +2316,29 @@ pub const Parser = struct {
     }
 
     fn parseF32(self: *Parser) WatError!f32 {
-        if (self.current.tag != .float and self.current.tag != .integer) return error.InvalidWat;
+        if (self.current.tag != .float and self.current.tag != .integer and
+            !isFloatKeyword(self.current))
+            return error.InvalidWat;
         const text = self.advance().text;
         return parseFloatLiteral(f32, text) catch return error.InvalidWat;
     }
 
     fn parseF64(self: *Parser) WatError!f64 {
-        if (self.current.tag != .float and self.current.tag != .integer) return error.InvalidWat;
+        if (self.current.tag != .float and self.current.tag != .integer and
+            !isFloatKeyword(self.current))
+            return error.InvalidWat;
         const text = self.advance().text;
         return parseFloatLiteral(f64, text) catch return error.InvalidWat;
+    }
+
+    fn isFloatKeyword(tok: Token) bool {
+        if (tok.tag != .keyword) return false;
+        const t = tok.text;
+        return std.mem.eql(u8, t, "nan") or std.mem.eql(u8, t, "inf") or
+            std.mem.eql(u8, t, "+nan") or std.mem.eql(u8, t, "-nan") or
+            std.mem.eql(u8, t, "+inf") or std.mem.eql(u8, t, "-inf") or
+            std.mem.startsWith(u8, t, "nan:") or std.mem.startsWith(u8, t, "+nan:") or
+            std.mem.startsWith(u8, t, "-nan:");
     }
 
     fn parseV128Const(self: *Parser) WatError![16]u8 {
@@ -2363,14 +2377,16 @@ pub const Parser = struct {
             }
         } else if (std.mem.eql(u8, shape, "f64x2")) {
             for (0..2) |i| {
-                if (self.current.tag != .float and self.current.tag != .integer) return error.InvalidWat;
+                if (self.current.tag != .float and self.current.tag != .integer and
+                    !isFloatKeyword(self.current)) return error.InvalidWat;
                 const val = parseFloatLiteral(f64, self.advance().text) catch return error.InvalidWat;
                 const le = std.mem.toBytes(std.mem.nativeToLittle(u64, @as(u64, @bitCast(val))));
                 @memcpy(bytes[i * 8 ..][0..8], &le);
             }
         } else if (std.mem.eql(u8, shape, "f32x4")) {
             for (0..4) |i| {
-                if (self.current.tag != .float and self.current.tag != .integer) return error.InvalidWat;
+                if (self.current.tag != .float and self.current.tag != .integer and
+                    !isFloatKeyword(self.current)) return error.InvalidWat;
                 const val = parseFloatLiteral(f32, self.advance().text) catch return error.InvalidWat;
                 const le = std.mem.toBytes(std.mem.nativeToLittle(u32, @as(u32, @bitCast(val))));
                 @memcpy(bytes[i * 4 ..][0..4], &le);
