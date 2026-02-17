@@ -31,16 +31,16 @@ Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
 See `private/roadmap-production.md` Phase 46 for full detail.
 
-- [ ] 46.1: Directory restructure (book/src/ → book/en/src/, book/ja/src/)
-- [ ] 46.2: Root redirect (docs/book/index.html)
-- [ ] 46.3: CI update (build both languages)
+- [x] 46.1: Directory restructure (book/src/ → book/en/src/, book/ja/src/)
+- [x] 46.2: Root redirect (docs/book/index.html)
+- [x] 46.3: CI update (build both languages)
 - [ ] 46.4: Japanese translation (all 12 chapter files)
 - [ ] 46.5: Language switcher (theme override)
 - [ ] 46.6: README update
 
 ## Current Task
 
-46.1: Directory restructure
+46.4: Japanese translation
 
 ## Previous Task
 
