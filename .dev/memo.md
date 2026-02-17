@@ -27,29 +27,26 @@ Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 43: v1.0.0 Release)
+## Task Queue (Stage 44: WAT Parser Spec Parity)
 
-See `private/roadmap-production.md` Phase 43 for full detail.
+See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W33.
 
-- [x] 43.1: Test suite pass: unit (425) + spec (62,158) + E2E (356) — PASS. Fuzz: 847,477 modules, 0 crashes, PASS (2026-02-17, 466min).
-- [x] 43.2: Security audit: Phase 36 complete (SECURITY.md, docs/security.md, docs/audit-36.md)
-- [x] 43.3: Documentation: Phase 39 complete (12-chapter book, API boundary, embedding guide)
-- [x] 43.4: Cross-platform: Ubuntu unit tests PASS, spec 62,158/62,158 (100%). Bench timeout (known hyperfine issue, not a bug).
-- [x] 43.5: Performance baseline recorded (v1.0.0-baseline, 23 benchmarks)
-- [x] 43.6: Binary audit: 1.28MB, no debug symbols, no secrets in ReleaseSafe
-- [x] 43.7: CHANGELOG updated for v1.0.0
-- [x] 43.8: Tag v1.0.0 + publish
-- [x] 43.9: Restrictive library API defaults — loadWasi() → cli_default (see .dev/security-hardening.md)
-- [x] 43.10: --sandbox CLI flag — deny-all + fuel 1B + memory 256MB
-- [x] 43.11: --env=KEY=VALUE individual env injection
+- [x] 44.1: WAT roundtrip audit script — `run_spec.py --wat-mode`
+- [ ] 44.2: Gap triage report — `.dev/wat-gap-report.md`
+- [ ] 44.3: Fix highest-count failure category
+- [ ] 44.4: Fix second category
+- [ ] 44.5: Continue until all fixable gaps resolved
+- [ ] 44.6: Input validation hardening (W31)
+- [ ] 44.7: GC type annotation parsing (W30)
 
 ## Current Task
 
-Stage 43 complete. v1.0.0 released.
+44.2: Gap triage report — `.dev/wat-gap-report.md`
+- Key change: `run_test_file()` gets `wat_mode` param, converts path before loading
 
 ## Previous Task
 
-43.8: Tag v1.0.0 — version bumped, docs updated, tag pushed.
+44.1: WAT roundtrip audit script — 91.0% pass rate (56,624/62,196), 5,572 failures, 708 conv-fail.
 
 ## Wasm 3.0 Coverage
 
