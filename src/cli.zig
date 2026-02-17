@@ -314,7 +314,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     defer import_entries.deinit(allocator);
 
     for (link_names.items, link_paths.items) |name, lpath| {
-        const link_bytes = readFile(allocator, lpath) catch |err| {
+        const link_bytes = readWasmFile(allocator, lpath) catch |err| {
             try stderr.print("error: cannot read linked module '{s}': {s}\n", .{ lpath, @errorName(err) });
             try stderr.flush();
             return false;
