@@ -261,6 +261,9 @@ pub const WatValType = union(enum) {
     funcref,
     externref,
     exnref,
+    // GC packed storage types
+    i8,
+    i16,
     // GC abstract heap type abbreviations (nullable)
     anyref,
     eqref,
@@ -270,6 +273,7 @@ pub const WatValType = union(enum) {
     nullref,
     nullfuncref,
     nullexternref,
+    nullexnref,
     // Typed references (payload = heap type index or name, resolved at encoding)
     ref_type: WatIndex, // (ref $T) non-nullable
     ref_null_type: WatIndex, // (ref null $T) nullable
@@ -314,6 +318,9 @@ pub const WatTypeDef = struct {
     name: ?[]const u8 = null,
     composite: WatCompositeType,
     rec_count: u32 = 0, // >0 on first type in a rec group
+    is_sub: bool = false, // wrapped in (sub ...)
+    is_final: bool = true, // default: implicitly final (no sub = final)
+    super_type: ?WatIndex = null, // parent type index
 };
 
 pub const WatParam = struct {
@@ -349,7 +356,7 @@ pub const WatInstr = union(enum) {
     // Block/loop
     block_op: struct { op: []const u8, label: ?[]const u8, block_type: WatBlockType, body: []WatInstr },
     // If/else
-    if_op: struct { label: ?[]const u8, block_type: WatBlockType, then_body: []WatInstr, else_body: []WatInstr },
+    if_op: struct { label: ?[]const u8, block_type: WatBlockType, then_body: []WatInstr, else_body: []WatInstr, has_else: bool = false },
     // br_table
     br_table: struct { targets: []WatIndex, default: WatIndex },
     // call_indirect / return_call_indirect
@@ -426,6 +433,7 @@ pub const WatTable = struct {
     reftype: WatValType,
     export_name: ?[]const u8,
     is_table64: bool = false,
+    init_expr: []const WatInstr = &.{},
 };
 
 pub const WatGlobalType = struct {
@@ -510,6 +518,8 @@ pub const WatElem = struct {
     func_indices: []WatIndex,
     mode: ElemMode = .active,
     is_expr_style: bool = false, // true for "funcref (ref.func N)" form
+    reftype: WatValType = .funcref, // element type (funcref, externref, i31ref, etc.)
+    expr_lists: []const []const WatInstr = &.{}, // arbitrary expression items
 
     const ElemMode = enum { active, passive, declarative };
 };
@@ -701,6 +711,8 @@ pub const Parser = struct {
         if (std.mem.eql(u8, text, "f32")) return .f32;
         if (std.mem.eql(u8, text, "f64")) return .f64;
         if (std.mem.eql(u8, text, "v128")) return .v128;
+        if (std.mem.eql(u8, text, "i8")) return .i8;
+        if (std.mem.eql(u8, text, "i16")) return .i16;
         if (std.mem.eql(u8, text, "funcref")) return .funcref;
         if (std.mem.eql(u8, text, "externref")) return .externref;
         if (std.mem.eql(u8, text, "exnref")) return .exnref;
@@ -713,6 +725,7 @@ pub const Parser = struct {
         if (std.mem.eql(u8, text, "nullref")) return .nullref;
         if (std.mem.eql(u8, text, "nullfuncref")) return .nullfuncref;
         if (std.mem.eql(u8, text, "nullexternref")) return .nullexternref;
+        if (std.mem.eql(u8, text, "nullexnref")) return .nullexnref;
         return error.InvalidWat;
     }
 
@@ -761,8 +774,54 @@ pub const Parser = struct {
         return if (nullable) .{ .ref_null_type = heap_type } else .{ .ref_type = heap_type };
     }
 
+    const RefTypeAnnotation = struct { heap_type: WatIndex, nullable: bool };
+
+    fn parseRefTypeAnnotation(self: *Parser) WatError!RefTypeAnnotation {
+        // Parse a reftype in annotation position: bare keyword, (ref ht), or (ref null ht)
+        // Bare keywords: anyref=(ref null any), eqref=(ref null eq), funcref=(ref null func),
+        //   externref=(ref null extern), structref=(ref null struct), arrayref=(ref null array),
+        //   i31ref=(ref null i31), nullref=(ref null none), nullfuncref=(ref null nofunc),
+        //   nullexternref=(ref null noextern)
+        const opc = @import("opcode.zig");
+        if (self.current.tag == .lparen) {
+            _ = self.advance(); // consume (
+            try self.expectKeyword("ref");
+            var nullable = false;
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "null")) {
+                _ = self.advance();
+                nullable = true;
+            }
+            const ht = try self.parseHeapType();
+            _ = try self.expect(.rparen);
+            return .{ .heap_type = ht, .nullable = nullable };
+        }
+        if (self.current.tag == .keyword) {
+            const text = self.current.text;
+            const result: ?RefTypeAnnotation =
+                if (std.mem.eql(u8, text, "anyref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_ANY }, .nullable = true }
+            else if (std.mem.eql(u8, text, "eqref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_EQ }, .nullable = true }
+            else if (std.mem.eql(u8, text, "funcref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_FUNC }, .nullable = true }
+            else if (std.mem.eql(u8, text, "externref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_EXTERN }, .nullable = true }
+            else if (std.mem.eql(u8, text, "structref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_STRUCT }, .nullable = true }
+            else if (std.mem.eql(u8, text, "arrayref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_ARRAY }, .nullable = true }
+            else if (std.mem.eql(u8, text, "i31ref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_I31 }, .nullable = true }
+            else if (std.mem.eql(u8, text, "nullref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NONE }, .nullable = true }
+            else if (std.mem.eql(u8, text, "nullfuncref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NOFUNC }, .nullable = true }
+            else if (std.mem.eql(u8, text, "nullexternref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NOEXTERN }, .nullable = true }
+            else if (std.mem.eql(u8, text, "nullexnref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NOEXN }, .nullable = true }
+            else if (std.mem.eql(u8, text, "exnref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_EXN }, .nullable = true }
+            else null;
+            if (result) |r| {
+                _ = self.advance();
+                return r;
+            }
+        }
+        // Fallback: bare heap type (ident, integer, or abstract keyword)
+        return .{ .heap_type = try self.parseHeapType(), .nullable = false };
+    }
+
     fn parseTypeDef(self: *Parser) WatError!WatTypeDef {
-        // (type $name? (func|struct|array ...))
+        // (type $name? (sub? (func|struct|array ...)))
         // We've already consumed "type"
         var type_name: ?[]const u8 = null;
         if (self.current.tag == .ident) type_name = self.advance().text;
@@ -770,15 +829,37 @@ pub const Parser = struct {
         _ = try self.expect(.lparen);
 
         if (self.current.tag != .keyword) return error.InvalidWat;
+
+        // Handle (sub ...) wrapper
+        var is_sub = false;
+        var is_final = true;
+        var super_type: ?WatIndex = null;
+        if (std.mem.eql(u8, self.current.text, "sub")) {
+            _ = self.advance(); // consume "sub"
+            is_sub = true;
+            is_final = false; // sub without final = open (not final)
+            // Check for "final" keyword
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "final")) {
+                _ = self.advance(); // consume "final"
+                is_final = true;
+            }
+            // Check for supertype (ident or integer before the opening paren)
+            if (self.current.tag == .ident or self.current.tag == .integer) {
+                super_type = try self.parseIndex();
+            }
+            // Now expect the inner composite type paren
+            _ = try self.expect(.lparen);
+            if (self.current.tag != .keyword) return error.InvalidWat;
+        }
+
         const composite_kw = self.current.text;
 
-        if (std.mem.eql(u8, composite_kw, "func")) {
+        const composite: WatCompositeType = if (std.mem.eql(u8, composite_kw, "func")) blk: {
             _ = self.advance(); // consume "func"
             const ft = try self.parseFuncSig();
             _ = try self.expect(.rparen); // close (func ...)
-            _ = try self.expect(.rparen); // close (type ...)
-            return .{ .name = type_name, .composite = .{ .func = ft } };
-        } else if (std.mem.eql(u8, composite_kw, "struct")) {
+            break :blk .{ .func = ft };
+        } else if (std.mem.eql(u8, composite_kw, "struct")) blk: {
             _ = self.advance(); // consume "struct"
             var fields: std.ArrayListUnmanaged(WatFieldType) = .empty;
             while (self.current.tag == .lparen) {
@@ -795,17 +876,19 @@ pub const Parser = struct {
                 _ = try self.expect(.rparen);
             }
             _ = try self.expect(.rparen); // close (struct ...)
-            _ = try self.expect(.rparen); // close (type ...)
-            return .{ .name = type_name, .composite = .{ .struct_type = .{ .fields = fields.items } } };
-        } else if (std.mem.eql(u8, composite_kw, "array")) {
+            break :blk .{ .struct_type = .{ .fields = fields.items } };
+        } else if (std.mem.eql(u8, composite_kw, "array")) blk: {
             _ = self.advance(); // consume "array"
             const field = try self.parseFieldType();
             _ = try self.expect(.rparen); // close (array ...)
-            _ = try self.expect(.rparen); // close (type ...)
-            return .{ .name = type_name, .composite = .{ .array_type = .{ .field = field } } };
-        } else {
-            return error.InvalidWat;
+            break :blk .{ .array_type = .{ .field = field } };
+        } else return error.InvalidWat;
+
+        if (is_sub) {
+            _ = try self.expect(.rparen); // close (sub ...)
         }
+        _ = try self.expect(.rparen); // close (type ...)
+        return .{ .name = type_name, .composite = composite, .is_sub = is_sub, .is_final = is_final, .super_type = super_type };
     }
 
     fn parseFuncSig(self: *Parser) WatError!WatFuncType {
@@ -1044,6 +1127,14 @@ pub const Parser = struct {
 
         const limits = try self.parseLimits();
         const reftype = try self.parseValType();
+
+        // Parse optional init expression (e.g., "ref.null func" after reftype)
+        var init_expr: std.ArrayListUnmanaged(WatInstr) = .empty;
+        if (self.current.tag != .rparen) {
+            while (self.current.tag != .rparen) {
+                try self.parsePlainInstr(&init_expr);
+            }
+        }
         _ = try self.expect(.rparen);
 
         return .{
@@ -1052,6 +1143,7 @@ pub const Parser = struct {
             .reftype = reftype,
             .export_name = export_name,
             .is_table64 = is_table64,
+            .init_expr = init_expr.items,
         };
     }
 
@@ -1081,12 +1173,21 @@ pub const Parser = struct {
         }
 
         // Global type: valtype or (mut valtype)
+        // Note: (ref ...) also starts with lparen, so lookahead for "mut"
         var global_type: WatGlobalType = undefined;
         if (self.current.tag == .lparen) {
+            const saved_pos = self.tok.pos;
+            const saved_current = self.current;
             _ = self.advance();
-            try self.expectKeyword("mut");
-            global_type = .{ .valtype = try self.parseValType(), .mutable = true };
-            _ = try self.expect(.rparen);
+            if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "mut")) {
+                _ = self.advance();
+                global_type = .{ .valtype = try self.parseValType(), .mutable = true };
+                _ = try self.expect(.rparen);
+            } else {
+                self.tok.pos = saved_pos;
+                self.current = saved_current;
+                global_type = .{ .valtype = try self.parseValType(), .mutable = false };
+            }
         } else {
             global_type = .{ .valtype = try self.parseValType(), .mutable = false };
         }
@@ -1500,31 +1601,43 @@ pub const Parser = struct {
                 self.current = saved_current;
             }
         }
-        // Check for reftype keyword without paren (passive: funcref ... or externref ...)
-        else if (self.current.tag == .keyword and
-            (std.mem.eql(u8, self.current.text, "funcref") or
-            std.mem.eql(u8, self.current.text, "externref")))
+        // Check for reftype keyword without paren (passive/declarative marker)
+        else if (self.current.tag == .keyword and isRefTypeKeyword(self.current.text))
         {
+            mode = .passive;
+        }
+
+        // If no offset was found and mode is still active, it's passive
+        if (mode == .active and offset_instrs.items.len == 0) {
             mode = .passive;
         }
 
         // Parse "func" keyword then function indices, or reftype + expr items
         var func_indices: std.ArrayListUnmanaged(WatIndex) = .empty;
         var is_expr_style = false;
+        var elem_reftype: WatValType = .funcref;
+        var expr_lists: std.ArrayListUnmanaged([]const WatInstr) = .empty;
         if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "func")) {
             _ = self.advance(); // consume "func"
             while (self.current.tag == .integer or self.current.tag == .ident) {
                 func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
             }
-        } else if (self.current.tag == .keyword and
-            (std.mem.eql(u8, self.current.text, "funcref") or
-            std.mem.eql(u8, self.current.text, "externref")))
+        } else if (self.current.tag == .keyword and isRefTypeKeyword(self.current.text))
         {
             is_expr_style = true;
-            _ = self.advance(); // consume reftype keyword
+            elem_reftype = try self.parseValType();
             while (self.current.tag == .lparen) {
                 _ = self.advance(); // consume (
-                if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref.func")) {
+                if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "item")) {
+                    // (item expr...) — arbitrary constant expression
+                    _ = self.advance(); // consume "item"
+                    var item_instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+                    while (self.current.tag != .rparen) {
+                        try self.parsePlainInstr(&item_instrs);
+                    }
+                    _ = try self.expect(.rparen);
+                    expr_lists.append(self.alloc, item_instrs.items) catch return error.OutOfMemory;
+                } else if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref.func")) {
                     _ = self.advance(); // consume ref.func
                     func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
                     _ = try self.expect(.rparen);
@@ -1534,7 +1647,13 @@ pub const Parser = struct {
                     _ = try self.expect(.rparen);
                     func_indices.append(self.alloc, .{ .num = 0xFFFFFFFF }) catch return error.OutOfMemory;
                 } else {
-                    return error.InvalidWat;
+                    // Arbitrary constant expression (e.g., global.get $g)
+                    var item_instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+                    while (self.current.tag != .rparen) {
+                        try self.parsePlainInstr(&item_instrs);
+                    }
+                    _ = try self.expect(.rparen);
+                    expr_lists.append(self.alloc, item_instrs.items) catch return error.OutOfMemory;
                 }
             }
         } else if (self.current.tag == .lparen) {
@@ -1544,12 +1663,9 @@ pub const Parser = struct {
             _ = self.advance(); // consume (
             if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref")) {
                 // (ref null <heaptype>) or (ref <heaptype>) — element type annotation
-                _ = self.advance(); // consume "ref"
-                if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "null")) {
-                    _ = self.advance(); // consume "null"
-                }
-                _ = try self.parseHeapType(); // consume heap type
-                _ = try self.expect(.rparen);
+                self.tok.pos = saved_pos2;
+                self.current = saved_current2;
+                elem_reftype = try self.parseValType();
                 is_expr_style = true;
             } else {
                 // Not (ref ...) — restore position
@@ -1559,7 +1675,15 @@ pub const Parser = struct {
             if (is_expr_style) {
                 while (self.current.tag == .lparen) {
                     _ = self.advance(); // consume (
-                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref.func")) {
+                    if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "item")) {
+                        _ = self.advance(); // consume "item"
+                        var item_instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+                        while (self.current.tag != .rparen) {
+                            try self.parsePlainInstr(&item_instrs);
+                        }
+                        _ = try self.expect(.rparen);
+                        expr_lists.append(self.alloc, item_instrs.items) catch return error.OutOfMemory;
+                    } else if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref.func")) {
                         _ = self.advance();
                         func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
                         _ = try self.expect(.rparen);
@@ -1569,7 +1693,13 @@ pub const Parser = struct {
                         _ = try self.expect(.rparen);
                         func_indices.append(self.alloc, .{ .num = 0xFFFFFFFF }) catch return error.OutOfMemory;
                     } else {
-                        return error.InvalidWat;
+                        // Arbitrary constant expression
+                        var item_instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+                        while (self.current.tag != .rparen) {
+                            try self.parsePlainInstr(&item_instrs);
+                        }
+                        _ = try self.expect(.rparen);
+                        expr_lists.append(self.alloc, item_instrs.items) catch return error.OutOfMemory;
                     }
                 }
             }
@@ -1588,6 +1718,8 @@ pub const Parser = struct {
             .func_indices = func_indices.items,
             .mode = mode,
             .is_expr_style = is_expr_style,
+            .reftype = elem_reftype,
+            .expr_lists = expr_lists.items,
         };
     }
 
@@ -2014,6 +2146,7 @@ pub const Parser = struct {
 
                 var then_body: []WatInstr = &.{};
                 var else_body: []WatInstr = &.{};
+                var has_else = false;
 
                 // (then instr*)
                 if (self.current.tag == .lparen) {
@@ -2029,6 +2162,7 @@ pub const Parser = struct {
                     _ = self.advance();
                     if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "else")) {
                         _ = self.advance();
+                        has_else = true;
                         else_body = try self.parseInstrList();
                         _ = try self.expect(.rparen);
                     }
@@ -2041,6 +2175,7 @@ pub const Parser = struct {
                     .block_type = block_type,
                     .then_body = then_body,
                     .else_body = else_body,
+                    .has_else = has_else,
                 } }) catch return error.OutOfMemory;
             },
             else => {
@@ -2107,9 +2242,11 @@ pub const Parser = struct {
                 // Parse then body until "else" or "end"
                 const then_body = try self.parseIfBody();
                 var else_body: []WatInstr = &.{};
+                var has_else = false;
                 // Check for "else"
                 if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "else")) {
                     _ = self.advance();
+                    has_else = true;
                     else_body = try self.parseBlockBody();
                 }
                 instrs.append(self.alloc, .{ .if_op = .{
@@ -2117,6 +2254,7 @@ pub const Parser = struct {
                     .block_type = block_type,
                     .then_body = then_body,
                     .else_body = else_body,
+                    .has_else = has_else,
                 } }) catch return error.OutOfMemory;
             },
             .try_table_type => {
@@ -2292,30 +2430,34 @@ pub const Parser = struct {
                 break :blk .{ .gc_type_seg = .{ .op = op_name, .type_idx = type_idx, .seg_idx = seg_idx } };
             },
             .gc_heap_type => blk: {
-                const heap_type = try self.parseHeapType();
-                break :blk .{ .gc_heap_type = .{ .op = op_name, .heap_type = heap_type } };
+                // ref.test/ref.cast accept: bare heap type, (ref $T), (ref null $T), or shorthand keywords
+                const ann = try self.parseRefTypeAnnotation();
+                var effective_op = op_name;
+                if (ann.nullable) {
+                    // Switch to null variant: ref.test -> ref.test_null, ref.cast -> ref.cast_null
+                    if (std.mem.eql(u8, op_name, "ref.test")) {
+                        effective_op = "ref.test_null";
+                    } else if (std.mem.eql(u8, op_name, "ref.cast")) {
+                        effective_op = "ref.cast_null";
+                    }
+                }
+                break :blk .{ .gc_heap_type = .{ .op = effective_op, .heap_type = ann.heap_type } };
             },
             .gc_br_on_cast => blk: {
-                // br_on_cast flags label ht1 ht2
-                // Parse: label first, then two heap types
-                // flags: bit 0 = ht1 nullable, bit 1 = ht2 nullable
-                // For WAT, we parse: br_on_cast label ht1 ht2
-                // The null variants are encoded in the heap type (ref vs ref null)
+                // br_on_cast label rt1 rt2
+                // flags: bit 0 = rt1 nullable, bit 1 = rt2 nullable
                 const label = try self.parseIndex();
-                const ht1 = try self.parseHeapType();
-                const ht2 = try self.parseHeapType();
-                // Determine flags from instruction name
-                // br_on_cast and br_on_cast_fail both have same encoding,
-                // differentiated by opcode (0x18 vs 0x19)
-                // Flags need to be computed from the heap type nullability
-                // For now, use 0x00 (both non-nullable) as default
-                // The actual flags depend on WAT syntax like (ref null ...) vs (ref ...)
+                const ann1 = try self.parseRefTypeAnnotation();
+                const ann2 = try self.parseRefTypeAnnotation();
+                var flags: u8 = 0;
+                if (ann1.nullable) flags |= 0x01;
+                if (ann2.nullable) flags |= 0x02;
                 break :blk .{ .gc_br_on_cast = .{
                     .op = op_name,
-                    .flags = 0x03, // both nullable as common default
+                    .flags = flags,
                     .label = label,
-                    .ht1 = ht1,
-                    .ht2 = ht2,
+                    .ht1 = ann1.heap_type,
+                    .ht2 = ann2.heap_type,
                 } };
             },
             .two_index => blk: {
@@ -2583,6 +2725,21 @@ pub const Parser = struct {
     }
 };
 
+fn isRefTypeKeyword(text: []const u8) bool {
+    return std.mem.eql(u8, text, "funcref") or
+        std.mem.eql(u8, text, "externref") or
+        std.mem.eql(u8, text, "anyref") or
+        std.mem.eql(u8, text, "eqref") or
+        std.mem.eql(u8, text, "i31ref") or
+        std.mem.eql(u8, text, "structref") or
+        std.mem.eql(u8, text, "arrayref") or
+        std.mem.eql(u8, text, "exnref") or
+        std.mem.eql(u8, text, "nullref") or
+        std.mem.eql(u8, text, "nullfuncref") or
+        std.mem.eql(u8, text, "nullexternref") or
+        std.mem.eql(u8, text, "nullexnref");
+}
+
 // ============================================================
 // Binary Encoder
 // ============================================================
@@ -2724,11 +2881,11 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                     sec.append(arena, 0x4E) catch return error.OutOfMemory;
                     lebEncodeU32(arena, &sec, all_types.items[ti].rec_count) catch return error.OutOfMemory;
                     for (0..all_types.items[ti].rec_count) |j| {
-                        encodeCompositeType(arena, &sec, all_types.items[ti + j].composite, type_names.items) catch return error.OutOfMemory;
+                        encodeSubType(arena, &sec, all_types.items[ti + j], type_names.items) catch return error.OutOfMemory;
                     }
                     ti += all_types.items[ti].rec_count;
                 } else {
-                    encodeCompositeType(arena, &sec, all_types.items[ti].composite, type_names.items) catch return error.OutOfMemory;
+                    encodeSubType(arena, &sec, all_types.items[ti], type_names.items) catch return error.OutOfMemory;
                     ti += 1;
                 }
             }
@@ -2807,8 +2964,19 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(module.tables.len)) catch return error.OutOfMemory;
         for (module.tables) |t| {
-            encodeValType(arena, &sec, t.reftype, type_names.items) catch return error.OutOfMemory;
-            encodeMemoryLimits(arena, &sec, t.limits, t.is_table64) catch return error.OutOfMemory;
+            if (t.init_expr.len > 0) {
+                // Table with init expression: 0x40 0x00 reftype limits init_expr end
+                sec.append(arena, 0x40) catch return error.OutOfMemory;
+                sec.append(arena, 0x00) catch return error.OutOfMemory;
+                encodeValType(arena, &sec, t.reftype, type_names.items) catch return error.OutOfMemory;
+                encodeMemoryLimits(arena, &sec, t.limits, t.is_table64) catch return error.OutOfMemory;
+                var t_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
+                encodeInstrList(arena, &sec, t.init_expr, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &t_labels, type_names.items, tag_names.items, data_names.items, elem_names.items) catch return error.OutOfMemory;
+                sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
+            } else {
+                encodeValType(arena, &sec, t.reftype, type_names.items) catch return error.OutOfMemory;
+                encodeMemoryLimits(arena, &sec, t.limits, t.is_table64) catch return error.OutOfMemory;
+            }
         }
         writeSection(arena, &out, 4, sec.items) catch return error.OutOfMemory;
     }
@@ -2937,12 +3105,14 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(module.elements.len)) catch return error.OutOfMemory;
         for (module.elements) |elem| {
+            const has_expr_lists = elem.expr_lists.len > 0;
+            const is_expr = elem.is_expr_style or has_expr_lists;
             switch (elem.mode) {
                 .active => {
                     const table_resolved = resolveNamedIndex(elem.table_idx, table_names.items) catch return error.InvalidWat;
-                    if (elem.is_expr_style) {
-                        if (table_resolved == 0) {
-                            // Flag 0x04: active, table 0, offset, vec(expr)
+                    if (is_expr) {
+                        if (table_resolved == 0 and elem.reftype == .funcref) {
+                            // Flag 0x04: active, table 0, offset, vec(expr) [implicit funcref]
                             sec.append(arena, 0x04) catch return error.OutOfMemory;
                         } else {
                             // Flag 0x06: active, tableidx, offset, reftype, vec(expr)
@@ -2963,9 +3133,9 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                     var e_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
                     encodeInstrList(arena, &sec, elem.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &e_labels, type_names.items, tag_names.items, data_names.items, elem_names.items) catch return error.OutOfMemory;
                     sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
-                    if (elem.is_expr_style) {
-                        if (table_resolved != 0) {
-                            sec.append(arena, 0x70) catch return error.OutOfMemory; // funcref
+                    if (is_expr) {
+                        if (!(table_resolved == 0 and elem.reftype == .funcref)) {
+                            encodeValType(arena, &sec, elem.reftype, type_names.items) catch return error.OutOfMemory;
                         }
                     } else {
                         if (table_resolved != 0) {
@@ -2974,10 +3144,10 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                     }
                 },
                 .passive => {
-                    if (elem.is_expr_style) {
+                    if (is_expr) {
                         // Flag 0x05: passive, reftype, vec(expr)
                         sec.append(arena, 0x05) catch return error.OutOfMemory;
-                        sec.append(arena, 0x70) catch return error.OutOfMemory; // funcref
+                        encodeValType(arena, &sec, elem.reftype, type_names.items) catch return error.OutOfMemory;
                     } else {
                         // Flag 0x01: passive, elemkind, vec(funcidx)
                         sec.append(arena, 0x01) catch return error.OutOfMemory;
@@ -2985,19 +3155,33 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                     }
                 },
                 .declarative => {
-                    // Flag 0x03: declarative, elemkind, vec(funcidx)
-                    sec.append(arena, 0x03) catch return error.OutOfMemory;
-                    sec.append(arena, 0x00) catch return error.OutOfMemory; // elemkind funcref
+                    if (is_expr) {
+                        // Flag 0x07: declarative, reftype, vec(expr)
+                        sec.append(arena, 0x07) catch return error.OutOfMemory;
+                        encodeValType(arena, &sec, elem.reftype, type_names.items) catch return error.OutOfMemory;
+                    } else {
+                        // Flag 0x03: declarative, elemkind, vec(funcidx)
+                        sec.append(arena, 0x03) catch return error.OutOfMemory;
+                        sec.append(arena, 0x00) catch return error.OutOfMemory; // elemkind funcref
+                    }
                 },
             }
-            // Function indices / expressions
-            lebEncodeU32(arena, &sec, @intCast(elem.func_indices.len)) catch return error.OutOfMemory;
-            if (elem.is_expr_style) {
+            if (has_expr_lists) {
+                // Arbitrary expression items
+                lebEncodeU32(arena, &sec, @intCast(elem.expr_lists.len)) catch return error.OutOfMemory;
+                for (elem.expr_lists) |exprs| {
+                    var el_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
+                    encodeInstrList(arena, &sec, exprs, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &el_labels, type_names.items, tag_names.items, data_names.items, elem_names.items) catch return error.OutOfMemory;
+                    sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
+                }
+            } else if (is_expr) {
+                // func_indices as expressions
+                lebEncodeU32(arena, &sec, @intCast(elem.func_indices.len)) catch return error.OutOfMemory;
                 for (elem.func_indices) |fi| {
                     if (fi == .num and fi.num == 0xFFFFFFFF) {
-                        // ref.null funcref
+                        // ref.null
                         sec.append(arena, 0xD0) catch return error.OutOfMemory; // ref.null
-                        sec.append(arena, 0x70) catch return error.OutOfMemory; // funcref
+                        encodeValType(arena, &sec, elem.reftype, type_names.items) catch return error.OutOfMemory;
                         sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
                     } else {
                         const fidx = resolveNamedIndex(fi, func_names.items) catch return error.InvalidWat;
@@ -3007,6 +3191,7 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
                     }
                 }
             } else {
+                lebEncodeU32(arena, &sec, @intCast(elem.func_indices.len)) catch return error.OutOfMemory;
                 for (elem.func_indices) |fi| {
                     const fidx = resolveNamedIndex(fi, func_names.items) catch return error.InvalidWat;
                     lebEncodeU32(arena, &sec, fidx) catch return error.OutOfMemory;
@@ -3217,6 +3402,7 @@ fn encodeValType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValT
         .nullref => out.append(alloc, 0x71) catch return error.OutOfMemory,
         .nullfuncref => out.append(alloc, 0x73) catch return error.OutOfMemory,
         .nullexternref => out.append(alloc, 0x72) catch return error.OutOfMemory,
+        .nullexnref => out.append(alloc, 0x74) catch return error.OutOfMemory,
         .ref_type => |ht| {
             out.append(alloc, 0x64) catch return error.OutOfMemory;
             const resolved = resolveNamedIndex(ht, type_names) catch return error.InvalidWat;
@@ -3227,6 +3413,7 @@ fn encodeValType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValT
             const resolved = resolveNamedIndex(ht, type_names) catch return error.InvalidWat;
             lebEncodeS33(alloc, out, heapTypeToS33(resolved)) catch return error.OutOfMemory;
         },
+        .i8, .i16 => return error.InvalidWat, // packed storage types, not value types
     }
 }
 
@@ -3259,8 +3446,27 @@ fn encodeCompositeType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), ct: W
     }
 }
 
+fn encodeSubType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), td: WatTypeDef, type_names: []const ?[]const u8) !void {
+    if (td.is_sub) {
+        // Emit sub type prefix: 0x50 (sub open) or 0x4F (sub final)
+        out.append(alloc, if (td.is_final) 0x4F else 0x50) catch return error.OutOfMemory;
+        if (td.super_type) |st| {
+            lebEncodeU32(alloc, out, 1) catch return error.OutOfMemory; // 1 supertype
+            const idx = resolveIndex(st, type_names, null) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, idx) catch return error.OutOfMemory;
+        } else {
+            lebEncodeU32(alloc, out, 0) catch return error.OutOfMemory; // 0 supertypes
+        }
+    }
+    try encodeCompositeType(alloc, out, td.composite, type_names);
+}
+
 fn encodeStorageType(alloc: Allocator, out: *std.ArrayListUnmanaged(u8), vt: WatValType, type_names: []const ?[]const u8) !void {
-    return encodeValType(alloc, out, vt, type_names);
+    switch (vt) {
+        .i8 => out.append(alloc, 0x78) catch return error.OutOfMemory,
+        .i16 => out.append(alloc, 0x77) catch return error.OutOfMemory,
+        else => return encodeValType(alloc, out, vt, type_names),
+    }
 }
 
 fn heapTypeToS33(ht: u32) i64 {
@@ -3853,6 +4059,8 @@ fn encodeInstr(
                 resolveNamedIndex(data.index, data_names) catch return error.InvalidWat
             else if (std.mem.eql(u8, data.op, "elem.drop"))
                 resolveNamedIndex(data.index, elem_names) catch return error.InvalidWat
+            else if (std.mem.eql(u8, data.op, "throw"))
+                resolveNamedIndex(data.index, tag_names) catch return error.InvalidWat
             else switch (data.index) {
                 .num => |n| n,
                 .name => return error.InvalidWat,
@@ -3952,7 +4160,7 @@ fn encodeInstr(
             encodeBlockType(alloc, out, data.block_type, type_names) catch return error.OutOfMemory;
             labels.append(alloc, data.label) catch return error.OutOfMemory;
             encodeInstrList(alloc, out, data.then_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names, data_names, elem_names) catch return error.OutOfMemory;
-            if (data.else_body.len > 0) {
+            if (data.has_else or data.else_body.len > 0) {
                 out.append(alloc, 0x05) catch return error.OutOfMemory; // else
                 encodeInstrList(alloc, out, data.else_body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names, data_names, elem_names) catch return error.OutOfMemory;
             }
@@ -3962,9 +4170,8 @@ fn encodeInstr(
         .try_table => |data| {
             out.append(alloc, 0x1F) catch return error.OutOfMemory; // try_table
             encodeBlockType(alloc, out, data.block_type, type_names) catch return error.OutOfMemory;
-            // Catch clause vector
+            // Catch clause vector — resolve labels BEFORE pushing try_table's own label
             lebEncodeU32(alloc, out, @intCast(data.catches.len)) catch return error.OutOfMemory;
-            labels.append(alloc, data.label) catch return error.OutOfMemory;
             for (data.catches) |c| {
                 out.append(alloc, @intFromEnum(c.kind)) catch return error.OutOfMemory;
                 if (c.tag_idx) |tag| {
@@ -3974,6 +4181,7 @@ fn encodeInstr(
                 const label_idx = try resolveLabelIndex(c.label, labels.items);
                 lebEncodeU32(alloc, out, label_idx) catch return error.OutOfMemory;
             }
+            labels.append(alloc, data.label) catch return error.OutOfMemory;
             encodeInstrList(alloc, out, data.body, func_names, mem_names, table_names, global_names, local_names, labels, type_names, tag_names, data_names, elem_names) catch return error.OutOfMemory;
             _ = labels.pop();
             out.append(alloc, 0x0B) catch return error.OutOfMemory; // end
@@ -4051,10 +4259,8 @@ fn encodeInstr(
             lebEncodeU32(alloc, out, subop) catch return error.OutOfMemory;
             const type_idx = resolveNamedIndex(data.type_idx, type_names) catch return error.InvalidWat;
             lebEncodeU32(alloc, out, type_idx) catch return error.OutOfMemory;
-            const seg_idx = switch (data.seg_idx) {
-                .num => |n| n,
-                .name => return error.InvalidWat,
-            };
+            const seg_names = if (std.mem.indexOf(u8, data.op, "data") != null) data_names else elem_names;
+            const seg_idx = resolveNamedIndex(data.seg_idx, seg_names) catch return error.InvalidWat;
             lebEncodeU32(alloc, out, seg_idx) catch return error.OutOfMemory;
         },
         .gc_heap_type => |data| {
@@ -5608,4 +5814,93 @@ test "WAT validation — no opening paren" {
 
 test "WAT validation — unclosed func" {
     try testing.expectError(error.InvalidWat, watToWasm(testing.allocator, "(module (func"));
+}
+
+test "WAT encoder — ref.test with parenthesized reftype" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $st (struct))
+        \\  (func (param anyref) (result i32)
+        \\    local.get 0
+        \\    ref.test (ref $st)
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
+}
+
+test "WAT encoder — packed storage types i8/i16" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $arr8 (array i8))
+        \\  (type $arr16 (array (mut i16)))
+        \\  (type $st (struct (field i8) (field i16) (field i32)))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    try testing.expectEqual(@as(usize, 3), module.module.types.items.len);
+}
+
+test "WAT encoder — sub type round-trip" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type $st (sub (struct)))
+        \\  (type $st2 (sub $st (struct (field i32))))
+        \\  (type $st3 (sub final (struct)))
+        \\  (type $st4 (sub final $st (struct (field i64))))
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    // 4 types loaded successfully
+    try testing.expectEqual(@as(usize, 4), module.module.types.items.len);
+}
+
+test "WAT encoder — throw catch named tag" {
+    const wasm = try watToWasm(testing.allocator,
+        \\(module
+        \\  (type (;0;) (func))
+        \\  (type (;1;) (func (param i32) (result i32)))
+        \\  (tag $e0 (;0;) (type 0))
+        \\  (export "test" (func 0))
+        \\  (func (;0;) (type 1) (param i32) (result i32)
+        \\    block $h
+        \\      try_table (result i32) (catch $e0 $h)
+        \\        local.get 0
+        \\        i32.eqz
+        \\        if
+        \\          throw $e0
+        \\        else
+        \\        end
+        \\        i32.const 42
+        \\      end
+        \\      return
+        \\    end
+        \\    i32.const 23
+        \\  )
+        \\)
+    );
+    defer testing.allocator.free(wasm);
+    const types_mod = @import("types.zig");
+    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    defer module.deinit();
+    // Input 0: throw path → catch → return 23
+    var args0 = [_]u64{0};
+    var results0 = [_]u64{0};
+    try module.invoke("test", &args0, &results0);
+    try testing.expectEqual(@as(u64, 23), results0[0]);
+    // Input 1: no throw → return 42
+    var args1 = [_]u64{1};
+    var results1 = [_]u64{0};
+    try module.invoke("test", &args1, &results1);
+    try testing.expectEqual(@as(u64, 42), results1[0]);
 }

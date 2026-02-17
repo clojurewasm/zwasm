@@ -37,15 +37,15 @@ See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W
 - [x] 44.4: Fix second category (MEM64 syntax + import memory64)
 - [x] 44.5: Continue until all fixable gaps resolved
 - [x] 44.6: Input validation hardening (W31)
-- [ ] 44.7: GC type annotation parsing (W30)
+- [x] 44.7: GC type annotation parsing (W30)
 
 ## Current Task
 
-44.7: GC type annotation parsing (W30)
+Stage 44 complete. Next: merge to main via Merge Gate Checklist, then Stage 45.
 
 ## Previous Task
 
-44.6: Limits overflow fix (std.math.cast vs @intCast). 150+ random fuzz + 30 targeted adversarial inputs, 0 crashes. W31 resolved.
+44.7: GC type annotation parsing — WAT roundtrip 99.0% → 99.9% (62,101/62,156). Fixed: sub type parsing, parenthesized reftype, i8/i16 packed storage types, (ref ...) global type, nullexnref, named data/elem segment resolution, throw tag resolution, table init expressions, elem GC reftype + (item ...) syntax, passive elem mode, arbitrary elem expressions, try_table catch label depth, has_else encoding. Remaining 55 are import chain "no response" (not parser bugs). W30 resolved.
 
 ## Wasm 3.0 Coverage
 
