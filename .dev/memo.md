@@ -41,11 +41,11 @@ See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W
 
 ## Current Task
 
-44.5: Continue until all fixable gaps resolved (multi-memory, SIMD, NAMES, remaining)
+44.5: Continue — remaining: table_copy elem exprs, multi-memory, SIMD, NAMES, GC
 
 ## Previous Task
 
-44.4: MEM64 syntax + import memory64 — 92.9% → 94.2% (805 recovered).
+44.5 batch 1: typed select, NaN payloads, INT_MIN, elem declare/passive, call_indirect named table — 94.2% → 94.5% (166 recovered).
 
 ## Wasm 3.0 Coverage
 

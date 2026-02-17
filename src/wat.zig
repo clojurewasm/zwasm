@@ -350,7 +350,7 @@ pub const WatInstr = union(enum) {
     // br_table
     br_table: struct { targets: []WatIndex, default: WatIndex },
     // call_indirect
-    call_indirect: struct { type_use: ?WatIndex, table_idx: u32 },
+    call_indirect: struct { type_use: ?WatIndex, table_idx: WatIndex },
     // select with type
     select_t: []WatValType,
     // try_table with catch clauses
@@ -501,6 +501,10 @@ pub const WatElem = struct {
     table_idx: WatIndex,
     offset: []WatInstr,
     func_indices: []WatIndex,
+    mode: ElemMode = .active,
+    is_expr_style: bool = false, // true for "funcref (ref.func N)" form
+
+    const ElemMode = enum { active, passive, declarative };
 };
 
 pub const WatModule = struct {
@@ -1428,9 +1432,15 @@ pub const Parser = struct {
 
         var table_idx: WatIndex = .{ .num = 0 };
         var offset_instrs: std.ArrayListUnmanaged(WatInstr) = .empty;
+        var mode: WatElem.ElemMode = .active;
 
+        // Check for "declare" keyword (declarative elem segment)
+        if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "declare")) {
+            _ = self.advance();
+            mode = .declarative;
+        }
         // Check for (table ...) or offset expression
-        if (self.current.tag == .lparen) {
+        else if (self.current.tag == .lparen) {
             const saved_pos = self.tok.pos;
             const saved_current = self.current;
             _ = self.advance(); // consume (
@@ -1462,20 +1472,57 @@ pub const Parser = struct {
                 } else {
                     self.tok.pos = saved_pos;
                     self.current = saved_current;
+                    // No offset expression — this is a passive elem segment
+                    mode = .passive;
                 }
             } else {
                 self.tok.pos = saved_pos;
                 self.current = saved_current;
             }
         }
+        // Check for reftype keyword without paren (passive: funcref ... or externref ...)
+        else if (self.current.tag == .keyword and
+            (std.mem.eql(u8, self.current.text, "funcref") or
+            std.mem.eql(u8, self.current.text, "externref")))
+        {
+            mode = .passive;
+        }
 
-        // Parse "func" keyword then function indices
+        // Parse "func" keyword then function indices, or reftype + expr items
         var func_indices: std.ArrayListUnmanaged(WatIndex) = .empty;
+        var is_expr_style = false;
         if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "func")) {
             _ = self.advance(); // consume "func"
-        }
-        while (self.current.tag == .integer or self.current.tag == .ident) {
-            func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
+            while (self.current.tag == .integer or self.current.tag == .ident) {
+                func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
+            }
+        } else if (self.current.tag == .keyword and
+            (std.mem.eql(u8, self.current.text, "funcref") or
+            std.mem.eql(u8, self.current.text, "externref")))
+        {
+            is_expr_style = true;
+            // reftype (ref.func N) (ref.func M) ... form
+            _ = self.advance(); // consume reftype keyword
+            while (self.current.tag == .lparen) {
+                _ = self.advance(); // consume (
+                if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref.func")) {
+                    _ = self.advance(); // consume ref.func
+                    func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
+                    _ = try self.expect(.rparen);
+                } else if (self.current.tag == .keyword and std.mem.eql(u8, self.current.text, "ref.null")) {
+                    _ = self.advance(); // consume ref.null
+                    _ = try self.parseHeapType(); // consume heap type
+                    _ = try self.expect(.rparen);
+                    // null ref — encode as index with a sentinel
+                    func_indices.append(self.alloc, .{ .num = 0xFFFFFFFF }) catch return error.OutOfMemory;
+                } else {
+                    return error.InvalidWat;
+                }
+            }
+        } else {
+            while (self.current.tag == .integer or self.current.tag == .ident) {
+                func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
+            }
         }
 
         _ = try self.expect(.rparen); // close (elem ...)
@@ -1485,6 +1532,8 @@ pub const Parser = struct {
             .table_idx = table_idx,
             .offset = offset_instrs.items,
             .func_indices = func_indices.items,
+            .mode = mode,
+            .is_expr_style = is_expr_style,
         };
     }
 
@@ -1559,7 +1608,7 @@ pub const Parser = struct {
         if (std.mem.eql(u8, name, "br_table")) return .br_table;
         if (std.mem.eql(u8, name, "call_indirect")) return .call_indirect;
         if (std.mem.eql(u8, name, "return_call_indirect")) return .call_indirect;
-        if (std.mem.eql(u8, name, "select")) return .no_imm;
+        if (std.mem.eql(u8, name, "select")) return .select_t;
         if (std.mem.eql(u8, name, "ref.null")) return .ref_null;
 
         // Index instructions
@@ -2111,18 +2160,24 @@ pub const Parser = struct {
                 } };
             },
             .call_indirect => blk: {
-                // call_indirect (type $t)? $table?
+                // call_indirect $table? (type $t)? | call_indirect (type $t) $table?
                 var type_idx: ?WatIndex = null;
-                var table_idx: u32 = 0;
+                var table_idx: WatIndex = .{ .num = 0 };
+                // Check for table name before type use (wasm-tools format: call_indirect $t (type ...))
+                if (self.current.tag == .ident) {
+                    table_idx = try self.parseIndex();
+                }
+                // Parse (type $t)
                 if (self.current.tag == .lparen) {
                     _ = self.advance();
                     try self.expectKeyword("type");
                     type_idx = try self.parseIndex();
                     _ = try self.expect(.rparen);
                 }
+                // Check for table index after type (numeric)
                 if (self.current.tag == .integer) {
                     const text = self.advance().text;
-                    table_idx = std.fmt.parseInt(u32, text, 10) catch return error.InvalidWat;
+                    table_idx = .{ .num = std.fmt.parseInt(u32, text, 10) catch return error.InvalidWat };
                 }
                 break :blk .{ .call_indirect = .{ .type_use = type_idx, .table_idx = table_idx } };
             },
@@ -2726,28 +2781,80 @@ pub fn encode(alloc: Allocator, module: WatModule) WatError![]u8 {
         var sec: std.ArrayListUnmanaged(u8) = .empty;
         lebEncodeU32(arena, &sec, @intCast(module.elements.len)) catch return error.OutOfMemory;
         for (module.elements) |elem| {
-            const table_resolved = resolveNamedIndex(elem.table_idx, table_names.items) catch return error.InvalidWat;
-            if (table_resolved == 0) {
-                // Flag 0x00: active, table 0, offset, vec(funcidx)
-                sec.append(arena, 0x00) catch return error.OutOfMemory;
-            } else {
-                // Flag 0x02: active, explicit table index
-                sec.append(arena, 0x02) catch return error.OutOfMemory;
-                lebEncodeU32(arena, &sec, table_resolved) catch return error.OutOfMemory;
+            switch (elem.mode) {
+                .active => {
+                    const table_resolved = resolveNamedIndex(elem.table_idx, table_names.items) catch return error.InvalidWat;
+                    if (elem.is_expr_style) {
+                        if (table_resolved == 0) {
+                            // Flag 0x04: active, table 0, offset, vec(expr)
+                            sec.append(arena, 0x04) catch return error.OutOfMemory;
+                        } else {
+                            // Flag 0x06: active, tableidx, offset, reftype, vec(expr)
+                            sec.append(arena, 0x06) catch return error.OutOfMemory;
+                            lebEncodeU32(arena, &sec, table_resolved) catch return error.OutOfMemory;
+                        }
+                    } else {
+                        if (table_resolved == 0) {
+                            // Flag 0x00: active, table 0, offset, vec(funcidx)
+                            sec.append(arena, 0x00) catch return error.OutOfMemory;
+                        } else {
+                            // Flag 0x02: active, tableidx, offset, elemkind, vec(funcidx)
+                            sec.append(arena, 0x02) catch return error.OutOfMemory;
+                            lebEncodeU32(arena, &sec, table_resolved) catch return error.OutOfMemory;
+                        }
+                    }
+                    // Offset expression + end
+                    var e_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
+                    encodeInstrList(arena, &sec, elem.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &e_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
+                    sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
+                    if (elem.is_expr_style) {
+                        if (table_resolved != 0) {
+                            sec.append(arena, 0x70) catch return error.OutOfMemory; // funcref
+                        }
+                    } else {
+                        if (table_resolved != 0) {
+                            sec.append(arena, 0x00) catch return error.OutOfMemory; // elemkind
+                        }
+                    }
+                },
+                .passive => {
+                    if (elem.is_expr_style) {
+                        // Flag 0x05: passive, reftype, vec(expr)
+                        sec.append(arena, 0x05) catch return error.OutOfMemory;
+                        sec.append(arena, 0x70) catch return error.OutOfMemory; // funcref
+                    } else {
+                        // Flag 0x01: passive, elemkind, vec(funcidx)
+                        sec.append(arena, 0x01) catch return error.OutOfMemory;
+                        sec.append(arena, 0x00) catch return error.OutOfMemory; // elemkind funcref
+                    }
+                },
+                .declarative => {
+                    // Flag 0x03: declarative, elemkind, vec(funcidx)
+                    sec.append(arena, 0x03) catch return error.OutOfMemory;
+                    sec.append(arena, 0x00) catch return error.OutOfMemory; // elemkind funcref
+                },
             }
-            // Offset expression + end
-            var e_labels: std.ArrayListUnmanaged(?[]const u8) = .empty;
-            encodeInstrList(arena, &sec, elem.offset, func_names.items, mem_names.items, table_names.items, global_names.items, &.{}, &e_labels, type_names.items, tag_names.items) catch return error.OutOfMemory;
-            sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
-            if (table_resolved != 0) {
-                // elemkind for flag 0x02
-                sec.append(arena, 0x00) catch return error.OutOfMemory; // funcref
-            }
-            // Function indices
+            // Function indices / expressions
             lebEncodeU32(arena, &sec, @intCast(elem.func_indices.len)) catch return error.OutOfMemory;
-            for (elem.func_indices) |fi| {
-                const fidx = resolveNamedIndex(fi, func_names.items) catch return error.InvalidWat;
-                lebEncodeU32(arena, &sec, fidx) catch return error.OutOfMemory;
+            if (elem.is_expr_style) {
+                for (elem.func_indices) |fi| {
+                    if (fi == .num and fi.num == 0xFFFFFFFF) {
+                        // ref.null funcref
+                        sec.append(arena, 0xD0) catch return error.OutOfMemory; // ref.null
+                        sec.append(arena, 0x70) catch return error.OutOfMemory; // funcref
+                        sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
+                    } else {
+                        const fidx = resolveNamedIndex(fi, func_names.items) catch return error.InvalidWat;
+                        sec.append(arena, 0xD2) catch return error.OutOfMemory; // ref.func
+                        lebEncodeU32(arena, &sec, fidx) catch return error.OutOfMemory;
+                        sec.append(arena, 0x0B) catch return error.OutOfMemory; // end
+                    }
+                }
+            } else {
+                for (elem.func_indices) |fi| {
+                    const fidx = resolveNamedIndex(fi, func_names.items) catch return error.InvalidWat;
+                    lebEncodeU32(arena, &sec, fidx) catch return error.OutOfMemory;
+                }
             }
         }
         writeSection(arena, &out, 9, sec.items) catch return error.OutOfMemory;
@@ -3680,13 +3787,18 @@ fn encodeInstr(
             } else {
                 lebEncodeU32(alloc, out, 0) catch return error.OutOfMemory;
             }
-            lebEncodeU32(alloc, out, data.table_idx) catch return error.OutOfMemory;
+            const tbl_idx = resolveNamedIndex(data.table_idx, table_names) catch return error.InvalidWat;
+            lebEncodeU32(alloc, out, tbl_idx) catch return error.OutOfMemory;
         },
         .select_t => |types| {
-            out.append(alloc, 0x1C) catch return error.OutOfMemory;
-            lebEncodeU32(alloc, out, @intCast(types.len)) catch return error.OutOfMemory;
-            for (types) |vt| {
-                encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
+            if (types.len == 0) {
+                out.append(alloc, 0x1B) catch return error.OutOfMemory;
+            } else {
+                out.append(alloc, 0x1C) catch return error.OutOfMemory;
+                lebEncodeU32(alloc, out, @intCast(types.len)) catch return error.OutOfMemory;
+                for (types) |vt| {
+                    encodeValType(alloc, out, vt, type_names) catch return error.OutOfMemory;
+                }
             }
         },
         .ref_null => |ht| {
@@ -3805,8 +3917,13 @@ fn parseIntLiteral(comptime T: type, text: []const u8) !T {
 
     // Decimal
     if (@typeInfo(T).int.signedness == .signed) {
-        const val = std.fmt.parseInt(T, clean, 10) catch return error.Overflow;
-        return if (negative) -val else val;
+        if (negative) {
+            // Parse as unsigned to handle INT_MIN (e.g. -2147483648 for i32)
+            const U = std.meta.Int(.unsigned, @typeInfo(T).int.bits);
+            const uval = std.fmt.parseInt(U, clean, 10) catch return error.Overflow;
+            return @bitCast(-%uval);
+        }
+        return std.fmt.parseInt(T, clean, 10) catch return error.Overflow;
     } else {
         return std.fmt.parseInt(T, clean, 10) catch return error.Overflow;
     }
@@ -3821,7 +3938,34 @@ fn parseFloatLiteral(comptime T: type, text: []const u8) !T {
     if (std.mem.eql(u8, text, "-inf")) return -std.math.inf(T);
 
     // Handle nan:0xN canonical NaN payload
-    if (std.mem.startsWith(u8, text, "nan:0x")) return std.math.nan(T);
+    const nan_prefix = if (std.mem.startsWith(u8, text, "nan:0x"))
+        @as(usize, 0)
+    else if (std.mem.startsWith(u8, text, "+nan:0x"))
+        @as(usize, 1)
+    else if (std.mem.startsWith(u8, text, "-nan:0x"))
+        @as(usize, 1)
+    else
+        null;
+    if (nan_prefix) |_| {
+        const is_neg = text[0] == '-';
+        const hex_start = if (text[0] == '+' or text[0] == '-') @as(usize, 6) else @as(usize, 6);
+        _ = hex_start;
+        const colon_pos = std.mem.indexOf(u8, text, ":0x") orelse unreachable;
+        const hex_str = text[colon_pos + 3 ..];
+        if (T == f32) {
+            const payload = std.fmt.parseUnsigned(u32, hex_str, 16) catch return error.Overflow;
+            // f32 NaN: exponent=0xFF, payload in bits [22:0], quiet bit = bit 22
+            var bits: u32 = 0x7F800000 | (payload & 0x7FFFFF);
+            if (is_neg) bits |= 0x80000000;
+            return @bitCast(bits);
+        } else {
+            const payload = std.fmt.parseUnsigned(u64, hex_str, 16) catch return error.Overflow;
+            // f64 NaN: exponent=0x7FF, payload in bits [51:0], quiet bit = bit 51
+            var bits: u64 = 0x7FF0000000000000 | (payload & 0xFFFFFFFFFFFFF);
+            if (is_neg) bits |= 0x8000000000000000;
+            return @bitCast(bits);
+        }
+    }
 
     // Remove underscores
     var buf: [128]u8 = undefined;
