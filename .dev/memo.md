@@ -31,8 +31,8 @@ Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
 See `private/roadmap-production.md` Phase 45 for full detail. Resolves W32.
 
-- [ ] 45.1: SIMD microbenchmark suite
-- [ ] 45.2: Baseline recording
+- [x] 45.1: SIMD microbenchmark suite
+- [x] 45.2: Baseline recording
 - [ ] 45.3: Bottleneck analysis
 - [ ] 45.4: Interpreter fast-path
 - [ ] 45.5: JIT SIMD feasibility study
@@ -40,11 +40,11 @@ See `private/roadmap-production.md` Phase 45 for full detail. Resolves W32.
 
 ## Current Task
 
-45.1: SIMD microbenchmark suite
+45.3: Bottleneck analysis
 
 ## Previous Task
 
-Stage 44 complete (WAT Parser Spec Parity). Merged to main. WAT roundtrip 99.9% (62,101/62,156). W30+W31 resolved.
+45.2: Baseline recording — zwasm SIMD ~43x slower than wasmtime (geo mean). Scalar ~1.7x slower. SIMD penalty in zwasm: ~10x vs scalar. wasmtime SIMD ~2.5x faster than its scalar.
 
 ## Wasm 3.0 Coverage
 
