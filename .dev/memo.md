@@ -36,16 +36,16 @@ See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W
 - [x] 44.3: Fix highest-count failure category (CORE: block (type N) + named type_use)
 - [x] 44.4: Fix second category (MEM64 syntax + import memory64)
 - [x] 44.5: Continue until all fixable gaps resolved
-- [ ] 44.6: Input validation hardening (W31)
+- [x] 44.6: Input validation hardening (W31)
 - [ ] 44.7: GC type annotation parsing (W30)
 
 ## Current Task
 
-44.6: Input validation hardening (W31)
+44.7: GC type annotation parsing (W30)
 
 ## Previous Task
 
-44.5: WAT roundtrip 95.1% → 99.0% (2,412 recovered). Fixes: Unicode \u{} escapes, export/import name decoding, batch WAT loading, two_index (table.copy/init, memory.copy/init), multi-memory memarg, table64, (ref null $t) in elem, return_call_indirect opcode, data/elem named segments, -nan sign bit, memory.init single-arg. Remaining 626: ~490 GC (→44.7), 48 EH (W33), 10 multi-module batch, 15 edge cases.
+44.6: Limits overflow fix (std.math.cast vs @intCast). 150+ random fuzz + 30 targeted adversarial inputs, 0 crashes. W31 resolved.
 
 ## Wasm 3.0 Coverage
 
