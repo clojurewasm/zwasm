@@ -32,7 +32,7 @@ Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W33.
 
 - [x] 44.1: WAT roundtrip audit script — `run_spec.py --wat-mode`
-- [ ] 44.2: Gap triage report — `.dev/wat-gap-report.md`
+- [x] 44.2: Gap triage report — `.dev/wat-gap-report.md`
 - [ ] 44.3: Fix highest-count failure category
 - [ ] 44.4: Fix second category
 - [ ] 44.5: Continue until all fixable gaps resolved
@@ -41,12 +41,12 @@ See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W
 
 ## Current Task
 
-44.2: Gap triage report — `.dev/wat-gap-report.md`
+44.3: Fix highest-count failure category (CORE block types, 2,754 failures)
 - Key change: `run_test_file()` gets `wat_mode` param, converts path before loading
 
 ## Previous Task
 
-44.1: WAT roundtrip audit script — 91.0% pass rate (56,624/62,196), 5,572 failures, 708 conv-fail.
+44.2: Gap triage report — 7 categories identified, CORE block types (2,754) is highest-impact.
 
 ## Wasm 3.0 Coverage
 
