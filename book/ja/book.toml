@@ -11,3 +11,4 @@ build-dir = "../../docs/book/ja"
 [output.html]
 git-repository-url = "https://github.com/clojurewasm/zwasm"
 additional-css = ["custom.css"]
+additional-js = ["lang-switcher.js"]
