@@ -17,10 +17,37 @@ import subprocess
 import sys
 import glob
 import argparse
+import tempfile
+import shutil
 
 ZWASM = "./zig-out/bin/zwasm"
 SPEC_DIR = "test/spec/json"
 SPECTEST_WASM = "test/spec/spectest.wasm"
+
+
+def convert_wasm_to_wat(wasm_path, wat_dir):
+    """Convert .wasm binary to .wat text via wasm-tools print.
+
+    Returns (wat_path, error_msg). On success error_msg is None.
+    wat_dir is a temp directory for storing generated .wat files.
+    """
+    basename = os.path.basename(wasm_path)
+    # Use full path hash to avoid collisions between test dirs
+    unique = f"{hash(wasm_path) & 0xFFFFFFFF:08x}_{basename}"
+    wat_path = os.path.join(wat_dir, unique.replace(".wasm", ".wat"))
+    try:
+        result = subprocess.run(
+            ["wasm-tools", "print", wasm_path, "-o", wat_path],
+            capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            return None, result.stderr.strip()
+        return wat_path, None
+    except FileNotFoundError:
+        return None, "wasm-tools not found"
+    except subprocess.TimeoutExpired:
+        return None, "wasm-tools print timed out"
+    except Exception as e:
+        return None, str(e)
 
 
 def v128_lanes_to_u64_pair(lane_type, lanes):
@@ -707,8 +734,12 @@ def _resolve_target(mod_name, last_internal_name, module_reg_names, module_runne
     return None
 
 
-def run_test_file(json_path, verbose=False):
-    """Run all commands in a spec test JSON file. Returns (passed, failed, skipped)."""
+def run_test_file(json_path, verbose=False, wat_mode=False, wat_dir=None):
+    """Run all commands in a spec test JSON file. Returns (passed, failed, skipped, wat_stats).
+
+    wat_stats is a dict with keys: conv_ok, conv_fail, conv_fail_files (list).
+    Only populated when wat_mode=True.
+    """
     with open(json_path) as f:
         data = json.load(f)
 
@@ -718,6 +749,9 @@ def run_test_file(json_path, verbose=False):
     passed = 0
     failed = 0
     skipped = 0
+    wat_stats = {"conv_ok": 0, "conv_fail": 0, "conv_fail_files": []}
+    # Cache: original .wasm path -> converted .wat path (or None if failed)
+    wat_cache = {}
 
     # Multi-module support: registered_modules maps name -> wasm_path (for imports)
     registered_modules = {}
@@ -739,6 +773,32 @@ def run_test_file(json_path, verbose=False):
     reg_runners = {}
     # Maps internal name -> registration name for shared-store modules
     shared_module_names = {}
+
+    def resolve_load_path(wasm_path):
+        """In WAT mode, convert .wasm to .wat and return the .wat path.
+        Returns the original path in binary mode or if conversion fails."""
+        if not wat_mode or not wat_dir or not wasm_path:
+            return wasm_path
+        if wasm_path in wat_cache:
+            cached = wat_cache[wasm_path]
+            return cached if cached else wasm_path
+        # Don't convert spectest.wasm — it's a helper, not a spec test module
+        if wasm_path == SPECTEST_WASM or os.path.basename(wasm_path) == "spectest.wasm":
+            return wasm_path
+        # Only convert .wasm files
+        if not wasm_path.endswith(".wasm"):
+            return wasm_path
+        wat_path, err = convert_wasm_to_wat(wasm_path, wat_dir)
+        if wat_path:
+            wat_cache[wasm_path] = wat_path
+            wat_stats["conv_ok"] += 1
+            return wat_path
+        else:
+            wat_cache[wasm_path] = None
+            wat_stats["conv_fail"] += 1
+            wat_stats["conv_fail_files"].append(
+                (os.path.basename(wasm_path), err))
+            return wasm_path  # fall back to binary
 
     # Check if test has thread blocks (needs concurrent execution)
     has_threads = any(cmd["type"] == "thread" for cmd in data.get("commands", []))
@@ -817,7 +877,7 @@ def run_test_file(json_path, verbose=False):
                                 target_runner.register_module("spectest")
                                 registered_modules["spectest"] = SPECTEST_WASM
                         load_name = internal_name.lstrip("$") if internal_name else f"_mod{line}"
-                        ok, resp = target_runner.load_module(load_name, current_wasm)
+                        ok, resp = target_runner.load_module(load_name, resolve_load_path(current_wasm))
                         if ok:
                             # Save current runner if needed
                             prev_is_shared = runner and any(r is runner for r in reg_runners.values())
@@ -847,9 +907,9 @@ def run_test_file(json_path, verbose=False):
                     link_mods = {}
                     if any_needs_spectest and "spectest" not in registered_modules:
                         link_mods["spectest"] = SPECTEST_WASM
-                    link_mods.update(registered_modules)
+                    link_mods.update({k: resolve_load_path(v) for k, v in registered_modules.items()})
                     try:
-                        runner = BatchRunner(current_wasm, link_mods)
+                        runner = BatchRunner(resolve_load_path(current_wasm), link_mods)
                         if _enable_runner_debug:
                             runner._debug = True
                     except Exception:
@@ -913,7 +973,7 @@ def run_test_file(json_path, verbose=False):
                     if twasm:
                         twasm_path = os.path.join(test_dir, twasm)
                         thread_module_name = f"_thread_{thread_name}"
-                        ok, resp = runner.load_module(thread_module_name, twasm_path)
+                        ok, resp = runner.load_module(thread_module_name, resolve_load_path(twasm_path))
                         if not ok:
                             if verbose:
                                 print(f"  thread {thread_name}: module load failed: {resp}")
@@ -941,7 +1001,7 @@ def run_test_file(json_path, verbose=False):
                                 print(f"  PASS line {tline}: assert_unlinkable (thread missing: {unresolvable})")
                         else:
                             tmod_name = f"_tunlink_{thread_name}_{tline}"
-                            ok, resp = runner.load_module(tmod_name, twasm_path)
+                            ok, resp = runner.load_module(tmod_name, resolve_load_path(twasm_path))
                             if not ok:
                                 passed += 1
                                 if verbose:
@@ -1073,9 +1133,9 @@ def run_test_file(json_path, verbose=False):
                 named_module_wasm[instance_name] = wasm_path
                 # Load into existing runner (shared store) or create one
                 if runner and runner.proc and runner.proc.poll() is None:
-                    ok, _ = runner.load_module(instance_name, wasm_path)
+                    ok, _ = runner.load_module(instance_name, resolve_load_path(wasm_path))
                 else:
-                    runner = BatchRunner(wasm_path, {})
+                    runner = BatchRunner(resolve_load_path(wasm_path), {})
                 # Track instance → runner for register and invoke routing
                 module_runners[instance_name] = runner
             continue
@@ -1266,7 +1326,7 @@ def run_test_file(json_path, verbose=False):
                         pass
                     if target_runner and target_runner.proc and target_runner.proc.poll() is None:
                         load_name = f"_uninst{line}"
-                        ok, resp = target_runner.load_module(load_name, wasm_path)
+                        ok, resp = target_runner.load_module(load_name, resolve_load_path(wasm_path))
                         if not ok:
                             passed += 1  # Correctly rejected
                             shared_loaded = True
@@ -1275,10 +1335,10 @@ def run_test_file(json_path, verbose=False):
                     # Fallback: attempt instantiation in separate process
                     link_args = []
                     for name, path in registered_modules.items():
-                        link_args.extend(["--link", f"{name}={path}"])
+                        link_args.extend(["--link", f"{name}={resolve_load_path(path)}"])
                     try:
                         result = subprocess.run(
-                            [ZWASM, "run", wasm_path] + link_args,
+                            [ZWASM, "run", resolve_load_path(wasm_path)] + link_args,
                             capture_output=True, text=True, timeout=5)
                         if result.returncode != 0:
                             passed += 1  # Correctly rejected at link/instantiation
@@ -1289,7 +1349,7 @@ def run_test_file(json_path, verbose=False):
             else:
                 try:
                     result = subprocess.run(
-                        [ZWASM, "validate", wasm_path],
+                        [ZWASM, "validate", resolve_load_path(wasm_path)],
                         capture_output=True, text=True, timeout=5)
                     if result.returncode != 0 or "error" in result.stderr:
                         passed += 1
@@ -1345,7 +1405,7 @@ def run_test_file(json_path, verbose=False):
     for r in module_runners.values():
         r.close()
 
-    return (passed, failed, skipped)
+    return (passed, failed, skipped, wat_stats)
 
 
 def main():
@@ -1361,6 +1421,9 @@ def main():
                         help="Build zwasm (ReleaseSafe) before running tests")
     parser.add_argument("--debug-build", action="store_true",
                         help="Build zwasm (Debug) before running tests")
+    parser.add_argument("--wat-mode", action="store_true",
+                        help="WAT roundtrip audit: convert .wasm to .wat via wasm-tools, "
+                             "then run through zwasm WAT parser")
     args = parser.parse_args()
 
     if args.build or args.debug_build:
@@ -1371,6 +1434,15 @@ def main():
         if result.returncode != 0:
             print("Build failed")
             sys.exit(1)
+
+    if args.wat_mode:
+        # Verify wasm-tools is available
+        try:
+            subprocess.run(["wasm-tools", "--version"], capture_output=True, check=True)
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            print("Error: wasm-tools not found. Install via: cargo install wasm-tools")
+            sys.exit(1)
+        print("WAT roundtrip audit mode: .wasm -> .wat -> zwasm WAT parser")
 
     test_dir = args.dir if args.dir else SPEC_DIR
 
@@ -1388,30 +1460,58 @@ def main():
     total_passed = 0
     total_failed = 0
     total_skipped = 0
+    total_wat_conv_ok = 0
+    total_wat_conv_fail = 0
+    all_wat_conv_fails = []
     file_results = []
 
-    for jf in json_files:
-        name = os.path.basename(jf).replace(".json", "")
-        p, f, s = run_test_file(jf, verbose=args.verbose)
-        total_passed += p
-        total_failed += f
-        total_skipped += s
+    # Create temp directory for .wat files (WAT mode only)
+    wat_dir = None
+    if args.wat_mode:
+        wat_dir = tempfile.mkdtemp(prefix="zwasm_wat_audit_")
 
-        if args.summary or args.verbose:
-            status = "PASS" if f == 0 else "FAIL"
-            print(f"  {status} {name}: {p} passed, {f} failed, {s} skipped")
+    try:
+        for jf in json_files:
+            name = os.path.basename(jf).replace(".json", "")
+            p, f, s, ws = run_test_file(jf, verbose=args.verbose,
+                                         wat_mode=args.wat_mode, wat_dir=wat_dir)
+            total_passed += p
+            total_failed += f
+            total_skipped += s
+            total_wat_conv_ok += ws["conv_ok"]
+            total_wat_conv_fail += ws["conv_fail"]
+            all_wat_conv_fails.extend(ws["conv_fail_files"])
 
-        file_results.append((name, p, f, s))
+            if args.summary or args.verbose:
+                status = "PASS" if f == 0 else "FAIL"
+                wat_info = ""
+                if args.wat_mode and (ws["conv_ok"] or ws["conv_fail"]):
+                    wat_info = f" [wat: {ws['conv_ok']} ok, {ws['conv_fail']} conv-fail]"
+                print(f"  {status} {name}: {p} passed, {f} failed, {s} skipped{wat_info}")
+
+            file_results.append((name, p, f, s))
+    finally:
+        # Cleanup temp .wat files
+        if wat_dir and os.path.exists(wat_dir):
+            shutil.rmtree(wat_dir, ignore_errors=True)
 
     total = total_passed + total_failed
     rate = (total_passed / total * 100) if total > 0 else 0
 
     print(f"\n{'='*60}")
-    print(f"Spec test results: {total_passed}/{total} passed ({rate:.1f}%)")
+    if args.wat_mode:
+        print(f"WAT roundtrip audit: {total_passed}/{total} passed ({rate:.1f}%)")
+    else:
+        print(f"Spec test results: {total_passed}/{total} passed ({rate:.1f}%)")
     print(f"  Files: {len(json_files)}")
     print(f"  Passed: {total_passed}")
     print(f"  Failed: {total_failed}")
     print(f"  Skipped: {total_skipped}")
+    if args.wat_mode:
+        total_conv = total_wat_conv_ok + total_wat_conv_fail
+        print(f"  WAT conversions: {total_wat_conv_ok}/{total_conv} succeeded")
+        if total_wat_conv_fail > 0:
+            print(f"  WAT conversion failures: {total_wat_conv_fail}")
     print(f"{'='*60}")
 
     # Show top failing files
@@ -1421,6 +1521,14 @@ def main():
         print(f"\nTop failing files:")
         for name, p, f, s in failing[:15]:
             print(f"  {name}: {f} failures ({p} passed)")
+
+    # Show WAT conversion failures
+    if args.wat_mode and all_wat_conv_fails:
+        print(f"\nWAT conversion failures ({len(all_wat_conv_fails)}):")
+        for fname, err in all_wat_conv_fails[:20]:
+            print(f"  {fname}: {err[:100]}")
+        if len(all_wat_conv_fails) > 20:
+            print(f"  ... and {len(all_wat_conv_fails) - 20} more")
 
     sys.exit(1 if total_failed > args.allow_failures else 0)
 

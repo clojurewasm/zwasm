@@ -27,29 +27,25 @@ Stage 35 note: 35.4 overnight fuzz — run `nohup bash test/fuzz/fuzz_overnight.
   then check `.dev/fuzz-overnight-result.txt` next session. Run after all stages complete (user schedules).
 Stage 37 note: 37.3 SHOULD deferred (validation context diagnostics).
 
-## Task Queue (Stage 43: v1.0.0 Release)
+## Task Queue (Stage 44: WAT Parser Spec Parity)
 
-See `private/roadmap-production.md` Phase 43 for full detail.
+See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W33.
 
-- [x] 43.1: Test suite pass: unit (425) + spec (62,158) + E2E (356) — PASS. Fuzz: 847,477 modules, 0 crashes, PASS (2026-02-17, 466min).
-- [x] 43.2: Security audit: Phase 36 complete (SECURITY.md, docs/security.md, docs/audit-36.md)
-- [x] 43.3: Documentation: Phase 39 complete (12-chapter book, API boundary, embedding guide)
-- [x] 43.4: Cross-platform: Ubuntu unit tests PASS, spec 62,158/62,158 (100%). Bench timeout (known hyperfine issue, not a bug).
-- [x] 43.5: Performance baseline recorded (v1.0.0-baseline, 23 benchmarks)
-- [x] 43.6: Binary audit: 1.28MB, no debug symbols, no secrets in ReleaseSafe
-- [x] 43.7: CHANGELOG updated for v1.0.0
-- [x] 43.8: Tag v1.0.0 + publish
-- [x] 43.9: Restrictive library API defaults — loadWasi() → cli_default (see .dev/security-hardening.md)
-- [x] 43.10: --sandbox CLI flag — deny-all + fuel 1B + memory 256MB
-- [x] 43.11: --env=KEY=VALUE individual env injection
+- [x] 44.1: WAT roundtrip audit script — `run_spec.py --wat-mode`
+- [x] 44.2: Gap triage report — `.dev/wat-gap-report.md`
+- [x] 44.3: Fix highest-count failure category (CORE: block (type N) + named type_use)
+- [x] 44.4: Fix second category (MEM64 syntax + import memory64)
+- [x] 44.5: Continue until all fixable gaps resolved
+- [x] 44.6: Input validation hardening (W31)
+- [x] 44.7: GC type annotation parsing (W30)
 
 ## Current Task
 
-Stage 43 complete. v1.0.0 released.
+Stage 44 complete. Next: merge to main via Merge Gate Checklist, then Stage 45.
 
 ## Previous Task
 
-43.8: Tag v1.0.0 — version bumped, docs updated, tag pushed.
+44.7: GC type annotation parsing — WAT roundtrip 99.0% → 99.9% (62,101/62,156). Fixed: sub type parsing, parenthesized reftype, i8/i16 packed storage types, (ref ...) global type, nullexnref, named data/elem segment resolution, throw tag resolution, table init expressions, elem GC reftype + (item ...) syntax, passive elem mode, arbitrary elem expressions, try_table catch label depth, has_else encoding. Remaining 55 are import chain "no response" (not parser bugs). W30 resolved.
 
 ## Wasm 3.0 Coverage
 
