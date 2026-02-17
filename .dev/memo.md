@@ -38,18 +38,18 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 - [x] 43.5: Performance baseline recorded (v1.0.0-baseline, 23 benchmarks)
 - [x] 43.6: Binary audit: 1.28MB, no debug symbols, no secrets in ReleaseSafe
 - [x] 43.7: CHANGELOG updated for v1.0.0
-- [ ] 43.8: Tag v1.0.0 + publish — after 43.9-43.11 complete + fuzz PASS
+- [x] 43.8: Tag v1.0.0 + publish
 - [x] 43.9: Restrictive library API defaults — loadWasi() → cli_default (see .dev/security-hardening.md)
 - [x] 43.10: --sandbox CLI flag — deny-all + fuel 1B + memory 256MB
 - [x] 43.11: --env=KEY=VALUE individual env injection
 
 ## Current Task
 
-43.8: Tag v1.0.0 + publish — all pre-requisites (43.9-43.11) complete.
+Stage 43 complete. v1.0.0 released.
 
 ## Previous Task
 
-43.11: --env=KEY=VALUE works without --allow-env when env vars are explicitly injected.
+43.8: Tag v1.0.0 — version bumped, docs updated, tag pushed.
 
 ## Wasm 3.0 Coverage
 

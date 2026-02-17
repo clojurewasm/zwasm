@@ -5,7 +5,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-02-16
+## [1.0.0] - 2026-02-17
 
 First stable release. API frozen under SemVer guarantees.
 
