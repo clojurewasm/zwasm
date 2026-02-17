@@ -204,7 +204,11 @@ fn getFaultAddress(info: *const posix.siginfo_t) usize {
 
 fn getPc(ctx: *align(1) posix.ucontext_t) usize {
     if (comptime builtin.cpu.arch == .aarch64) {
-        return ctx.mcontext.ss.pc;
+        if (comptime builtin.os.tag == .macos) {
+            return ctx.mcontext.ss.pc;
+        } else {
+            return ctx.mcontext.pc;
+        }
     } else if (comptime builtin.cpu.arch == .x86_64) {
         if (comptime builtin.os.tag == .macos) {
             return ctx.mcontext.ss.rip;
@@ -218,7 +222,11 @@ fn getPc(ctx: *align(1) posix.ucontext_t) usize {
 
 fn setPc(ctx: *align(1) posix.ucontext_t, pc: usize) void {
     if (comptime builtin.cpu.arch == .aarch64) {
-        ctx.mcontext.ss.pc = pc;
+        if (comptime builtin.os.tag == .macos) {
+            ctx.mcontext.ss.pc = pc;
+        } else {
+            ctx.mcontext.pc = pc;
+        }
     } else if (comptime builtin.cpu.arch == .x86_64) {
         if (comptime builtin.os.tag == .macos) {
             ctx.mcontext.ss.rip = pc;
@@ -230,7 +238,11 @@ fn setPc(ctx: *align(1) posix.ucontext_t, pc: usize) void {
 
 fn setReturnReg(ctx: *align(1) posix.ucontext_t, value: u64) void {
     if (comptime builtin.cpu.arch == .aarch64) {
-        ctx.mcontext.ss.regs[0] = value; // x0
+        if (comptime builtin.os.tag == .macos) {
+            ctx.mcontext.ss.regs[0] = value; // x0
+        } else {
+            ctx.mcontext.regs[0] = value; // x0
+        }
     } else if (comptime builtin.cpu.arch == .x86_64) {
         if (comptime builtin.os.tag == .macos) {
             ctx.mcontext.ss.rax = value;
