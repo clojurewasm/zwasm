@@ -75,8 +75,8 @@ cp zig-out/bin/zwasm ~/.local/bin/
 # Or use the install script
 curl -fsSL https://raw.githubusercontent.com/clojurewasm/zwasm/main/install.sh | bash
 
-# Or via Homebrew (macOS/Linux)
-brew install clojurewasm/tap/zwasm
+# Or via Homebrew (macOS/Linux) — coming soon
+# brew install clojurewasm/tap/zwasm
 ```
 
 ## Usage

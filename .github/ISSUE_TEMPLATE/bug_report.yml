@@ -24,7 +24,7 @@ body:
     attributes:
       label: zwasm version
       description: Output of `zwasm version`
-      placeholder: "0.3.0"
+      placeholder: "1.0.0"
     validations:
       required: true
   - type: dropdown

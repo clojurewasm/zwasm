@@ -9,7 +9,7 @@
 class Zwasm < Formula
   desc "Small, fast WebAssembly runtime written in Zig"
   homepage "https://github.com/clojurewasm/zwasm"
-  version "0.3.0"
+  version "1.0.0"
   license "MIT"
 
   on_macos do

@@ -6,7 +6,7 @@ runs: 3
 warmup: 1
 runtimes:
   zwasm:
-    version: "zwasm 0.3.0"
+    version: "zwasm 1.0.0"
     binary_size_bytes: 1258664
     binary_size_mb: 1.2
   wasmtime:

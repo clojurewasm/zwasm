@@ -28,10 +28,10 @@ cp zig-out/bin/zwasm ~/.local/bin/
 curl -fsSL https://raw.githubusercontent.com/clojurewasm/zwasm/main/install.sh | bash
 ```
 
-### Homebrew (macOS/Linux)
+### Homebrew (macOS/Linux) — coming soon
 
 ```bash
-brew install clojurewasm/tap/zwasm
+brew install clojurewasm/tap/zwasm  # not yet available
 ```
 
 ### Verify installation
@@ -98,7 +98,7 @@ Add zwasm as a dependency in your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zwasm = .{
-        .url = "https://github.com/clojurewasm/zwasm/archive/refs/tags/v0.3.0.tar.gz",
+        .url = "https://github.com/clojurewasm/zwasm/archive/refs/tags/v1.0.0.tar.gz",
         .hash = "...",  // zig build will tell you the correct hash
     },
 },
