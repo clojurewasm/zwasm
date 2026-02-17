@@ -45,7 +45,7 @@ See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W
 
 ## Previous Task
 
-44.5 batch 1: typed select, NaN payloads, INT_MIN, elem declare/passive, call_indirect named table — 94.2% → 94.5% (166 recovered).
+44.5: typed select, NaN/inf keywords, INT_MIN, elem declare/passive, call_indirect named table, i8x16.shuffle — 94.2% → 95.1% (530 recovered).
 
 ## Wasm 3.0 Coverage
 

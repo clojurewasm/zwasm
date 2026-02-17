@@ -339,6 +339,8 @@ pub const WatInstr = union(enum) {
     v128_const: [16]u8,
     // SIMD lane operations (extract_lane, replace_lane)
     simd_lane: struct { op: []const u8, lane: u8 },
+    // SIMD shuffle (i8x16.shuffle with 16 lane indices)
+    simd_shuffle: [16]u8,
     // SIMD load/store lane operations (memarg + lane)
     simd_mem_lane: struct { op: []const u8, mem_arg: MemArg, lane: u8 },
     // Memory operations (load/store)
@@ -1576,6 +1578,7 @@ pub const Parser = struct {
         if_type, // if
         try_table_type, // try_table
         simd_lane, // extract_lane, replace_lane
+        simd_shuffle, // i8x16.shuffle
         simd_mem_lane, // v128.load*_lane, v128.store*_lane
         br_table,
         call_indirect,
@@ -1697,6 +1700,9 @@ pub const Parser = struct {
         if (std.mem.eql(u8, name, "br_on_cast") or
             std.mem.eql(u8, name, "br_on_cast_fail"))
             return .gc_br_on_cast;
+
+        // SIMD shuffle (16 lane immediates)
+        if (std.mem.eql(u8, name, "i8x16.shuffle")) return .simd_shuffle;
 
         // SIMD lane ops (extract_lane, replace_lane)
         if (isSimdLaneOp(name)) return .simd_lane;
@@ -2134,6 +2140,14 @@ pub const Parser = struct {
             .f64_const => .{ .f64_const = try self.parseF64() },
             .v128_const => .{ .v128_const = try self.parseV128Const() },
             .mem_imm => .{ .mem_op = .{ .op = op_name, .mem_arg = try self.parseMemArg() } },
+            .simd_shuffle => blk: {
+                var lanes: [16]u8 = undefined;
+                for (&lanes) |*lane| {
+                    if (self.current.tag != .integer) return error.InvalidWat;
+                    lane.* = std.fmt.parseInt(u8, self.advance().text, 10) catch return error.InvalidWat;
+                }
+                break :blk .{ .simd_shuffle = lanes };
+            },
             .simd_lane => blk: {
                 if (self.current.tag != .integer) return error.InvalidWat;
                 const lane_text = self.advance().text;
@@ -3711,6 +3725,11 @@ fn encodeInstr(
             out.append(alloc, 0xFD) catch return error.OutOfMemory; // SIMD prefix
             lebEncodeU32(alloc, out, 0x0C) catch return error.OutOfMemory; // v128.const
             out.appendSlice(alloc, &val) catch return error.OutOfMemory;
+        },
+        .simd_shuffle => |lanes| {
+            out.append(alloc, 0xFD) catch return error.OutOfMemory;
+            lebEncodeU32(alloc, out, 0x0D) catch return error.OutOfMemory; // i8x16.shuffle
+            out.appendSlice(alloc, &lanes) catch return error.OutOfMemory;
         },
         .simd_lane => |data| {
             const subop = simdInstrOpcode(data.op) orelse return error.InvalidWat;
