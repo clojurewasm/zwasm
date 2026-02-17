@@ -33,7 +33,7 @@ See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W
 
 - [x] 44.1: WAT roundtrip audit script — `run_spec.py --wat-mode`
 - [x] 44.2: Gap triage report — `.dev/wat-gap-report.md`
-- [ ] 44.3: Fix highest-count failure category
+- [x] 44.3: Fix highest-count failure category (CORE: block (type N) + named type_use)
 - [ ] 44.4: Fix second category
 - [ ] 44.5: Continue until all fixable gaps resolved
 - [ ] 44.6: Input validation hardening (W31)
@@ -41,12 +41,12 @@ See `private/roadmap-production.md` Phase 44 for full detail. Resolves W30/W31/W
 
 ## Current Task
 
-44.3: Fix highest-count failure category (CORE block types, 2,754 failures)
+44.4: Fix second category (MEM64 syntax, 1,503 failures)
 - Key change: `run_test_file()` gets `wat_mode` param, converts path before loading
 
 ## Previous Task
 
-44.2: Gap triage report — 7 categories identified, CORE block types (2,754) is highest-impact.
+44.3: CORE block types + named type_use — 91.0% → 92.9% (1,142 recovered).
 
 ## Wasm 3.0 Coverage
 
