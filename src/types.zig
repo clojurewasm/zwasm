@@ -173,8 +173,9 @@ pub const WasiOptions = struct {
     env_vals: []const []const u8 = &.{},
     /// Preopened directories. Each entry maps a WASI fd to a host path.
     preopen_paths: []const []const u8 = &.{},
-    /// WASI capability flags. Default: all capabilities granted.
-    caps: rt.wasi.Capabilities = rt.wasi.Capabilities.all,
+    /// WASI capability flags. Default: cli_default (stdio, clock, random, proc_exit).
+    /// Use `.caps = Capabilities.all` for full access.
+    caps: rt.wasi.Capabilities = rt.wasi.Capabilities.cli_default,
 };
 
 // ============================================================
@@ -379,7 +380,7 @@ pub const WasmModule = struct {
         if (wasi) {
             try rt.wasi.registerAll(&self.store, &self.module);
             self.wasi_ctx = rt.wasi.WasiContext.init(allocator);
-            self.wasi_ctx.?.caps = rt.wasi.Capabilities.all;
+            self.wasi_ctx.?.caps = rt.wasi.Capabilities.cli_default;
         } else {
             self.wasi_ctx = null;
         }
@@ -1278,4 +1279,49 @@ test "WAT round-trip — return_call mutual recursion" {
     var args5 = [_]u64{5};
     try wasm_mod.invoke("even", &args5, &results);
     try testing.expectEqual(@as(u64, 0), results[0]);
+}
+
+test "loadWasi uses cli_default capabilities" {
+    // Minimal valid wasm module (magic + version)
+    const wasm_bytes = &[_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
+    var wasm_mod = try WasmModule.loadWasi(testing.allocator, wasm_bytes);
+    defer wasm_mod.deinit();
+
+    const caps = wasm_mod.wasi_ctx.?.caps;
+    // cli_default: stdio, clock, random, proc_exit = ON
+    try testing.expect(caps.allow_stdio);
+    try testing.expect(caps.allow_clock);
+    try testing.expect(caps.allow_random);
+    try testing.expect(caps.allow_proc_exit);
+    // read, write, env, path = OFF (restrictive default)
+    try testing.expect(!caps.allow_read);
+    try testing.expect(!caps.allow_write);
+    try testing.expect(!caps.allow_env);
+    try testing.expect(!caps.allow_path);
+}
+
+test "loadWasiWithOptions defaults to cli_default capabilities" {
+    const wasm_bytes = &[_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
+    var wasm_mod = try WasmModule.loadWasiWithOptions(testing.allocator, wasm_bytes, .{});
+    defer wasm_mod.deinit();
+
+    const caps = wasm_mod.wasi_ctx.?.caps;
+    try testing.expect(!caps.allow_read);
+    try testing.expect(!caps.allow_write);
+    try testing.expect(!caps.allow_env);
+    try testing.expect(!caps.allow_path);
+}
+
+test "loadWasiWithOptions explicit all grants full access" {
+    const wasm_bytes = &[_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
+    var wasm_mod = try WasmModule.loadWasiWithOptions(testing.allocator, wasm_bytes, .{
+        .caps = rt.wasi.Capabilities.all,
+    });
+    defer wasm_mod.deinit();
+
+    const caps = wasm_mod.wasi_ctx.?.caps;
+    try testing.expect(caps.allow_read);
+    try testing.expect(caps.allow_write);
+    try testing.expect(caps.allow_env);
+    try testing.expect(caps.allow_path);
 }
