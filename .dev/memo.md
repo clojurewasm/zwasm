@@ -40,11 +40,11 @@ See `private/roadmap-production.md` Phase 46 for full detail.
 
 ## Current Task
 
-Stage 46 complete — merge gate pending.
+47: WAT roundtrip 100% — complete. 3 bugs fixed, 62,156/62,156 passed.
 
 ## Previous Task
 
-46.6: README update — linked both language versions in Documentation section.
+Stage 46 merged to main. SIMD parity plan written to simd-analysis.md.
 
 ## Wasm 3.0 Coverage
 
