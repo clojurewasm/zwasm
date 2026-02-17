@@ -1,78 +1,78 @@
-# Performance
+# パフォーマンス
 
-## Execution tiers
+## 実行ティア
 
-zwasm uses tiered execution:
+zwasm は階層型実行を採用しています:
 
-1. **Interpreter**: All functions start as register IR, executed by a dispatch loop. Fast startup, no compilation overhead.
-2. **JIT (ARM64/x86_64)**: Hot functions are compiled to native code when call count or back-edge count exceeds a threshold.
+1. **インタープリタ**: すべての関数はレジスタ IR として開始され、ディスパッチループで実行されます。起動が速く、コンパイルのオーバーヘッドがありません。
+2. **JIT (ARM64/x86_64)**: ホットな関数は、呼び出し回数またはバックエッジ回数がしきい値を超えるとネイティブコードにコンパイルされます。
 
-### When JIT kicks in
+### JIT が発動する条件
 
-- **Call threshold**: After ~8 calls to the same function
-- **Back-edge counting**: Hot loops trigger JIT faster (loop iterations count toward the threshold)
-- **Adaptive**: The threshold adjusts based on function characteristics
+- **呼び出しのしきい値**: 同じ関数が約8回呼び出された後
+- **バックエッジカウント**: ホットなループは JIT をより早くトリガーします（ループの反復回数がしきい値にカウントされます）
+- **適応型**: しきい値は関数の特性に基づいて調整されます
 
-Once JIT-compiled, all subsequent calls to that function execute native machine code directly, bypassing the interpreter.
+JIT コンパイルが完了すると、その関数への以降のすべての呼び出しはインタープリタをバイパスし、ネイティブマシンコードを直接実行します。
 
-## Binary size and memory
+## バイナリサイズとメモリ
 
-| Metric | Value |
-|--------|-------|
-| Binary size (ReleaseSafe) | 1.28 MB |
-| Runtime memory (fib benchmark) | 3.57 MB RSS |
-| wasmtime binary for comparison | 56.3 MB |
+| 指標 | 値 |
+|------|-----|
+| バイナリサイズ (ReleaseSafe) | 1.28 MB |
+| ランタイムメモリ (fib ベンチマーク) | 3.57 MB RSS |
+| wasmtime バイナリ（比較用） | 56.3 MB |
 
-zwasm is ~44x smaller than wasmtime.
+zwasm は wasmtime の約1/44のサイズです。
 
-## Benchmark results
+## ベンチマーク結果
 
-Representative benchmarks comparing zwasm against wasmtime, Bun, and Node.js on Apple M4 Pro:
+Apple M4 Pro 上で zwasm を wasmtime、Bun、Node.js と比較した代表的なベンチマーク:
 
-| Benchmark | zwasm | wasmtime | Bun | Node |
-|-----------|-------|----------|-----|------|
+| ベンチマーク | zwasm | wasmtime | Bun | Node |
+|-------------|-------|----------|-----|------|
 | fib(35) | 54 ms | 51 ms | 33 ms | 44 ms |
 | tak(24,16,8) | 7 ms | 11 ms | 17 ms | 26 ms |
 | sieve(1M) | 4 ms | 6 ms | 16 ms | 27 ms |
 | nbody(1M) | 10 ms | 21 ms | 33 ms | 34 ms |
 | nqueens(8) | 2 ms | 5 ms | 14 ms | 22 ms |
 
-zwasm is competitive with wasmtime on most benchmarks and faster on several, while using a fraction of the memory.
+zwasm はほとんどのベンチマークで wasmtime と同等の性能を示し、いくつかのベンチマークではより高速でありながら、メモリ使用量はごくわずかです。
 
-## Benchmark methodology
+## ベンチマーク手法
 
-All measurements use [hyperfine](https://github.com/sharkdp/hyperfine) with ReleaseSafe builds:
+すべての測定は [hyperfine](https://github.com/sharkdp/hyperfine) を使用し、ReleaseSafe ビルドで行っています:
 
 ```bash
-# Quick check (1 run, no warmup)
+# クイックチェック（1回実行、ウォームアップなし）
 bash bench/run_bench.sh --quick
 
-# Full measurement (3 runs, 1 warmup)
+# 完全な測定（3回実行、1回ウォームアップ）
 bash bench/run_bench.sh
 
-# Record to history
+# 履歴に記録
 bash bench/record.sh --id="X" --reason="description"
 ```
 
-### Benchmark layers
+### ベンチマークレイヤー
 
-| Layer | Count | Description |
-|-------|-------|-------------|
-| WAT micro | 5 | Hand-written: fib, tak, sieve, nbody, nqueens |
-| TinyGo | 11 | TinyGo compiler output: same algorithms + string ops |
-| Shootout | 5 | Sightglass shootout suite (WASI) |
-| GC | 2 | GC proposal: struct allocation, tree traversal |
+| レイヤー | 数 | 説明 |
+|---------|-----|------|
+| WAT micro | 5 | 手書き: fib, tak, sieve, nbody, nqueens |
+| TinyGo | 11 | TinyGo コンパイラ出力: 同じアルゴリズム + 文字列操作 |
+| Shootout | 5 | Sightglass shootout スイート (WASI) |
+| GC | 2 | GC プロポーザル: 構造体アロケーション、木の走査 |
 
-### CI regression detection
+### CI によるリグレッション検出
 
-PRs are automatically checked for performance regressions:
-- 6 representative benchmarks run on both base and PR branch
-- Fails if any benchmark regresses by more than 20%
-- Same runner ensures fair comparison
+PR は自動的にパフォーマンスリグレッションがチェックされます:
+- 6つの代表的なベンチマークがベースブランチと PR ブランチの両方で実行されます
+- いずれかのベンチマークが20%以上リグレッションした場合、失敗となります
+- 同一ランナーにより公平な比較が保証されます
 
-## Performance tips
+## パフォーマンスのヒント
 
-- **ReleaseSafe**: Always use for production. Debug is 5-10x slower.
-- **Hot functions**: Functions called frequently will be JIT-compiled automatically.
-- **Fuel limit**: `--fuel` adds overhead per instruction. Only use for untrusted code.
-- **Memory**: Wasm modules with linear memory allocate guard pages. Initial RSS is ~3.5 MB regardless of module size.
+- **ReleaseSafe**: 本番環境では必ず使用してください。Debug は5〜10倍遅くなります。
+- **ホットな関数**: 頻繁に呼び出される関数は自動的に JIT コンパイルされます。
+- **Fuel 制限**: `--fuel` は命令ごとにオーバーヘッドが加わります。信頼できないコードにのみ使用してください。
+- **メモリ**: リニアメモリを持つ Wasm モジュールはガードページを割り当てます。初期 RSS はモジュールサイズに関係なく約 3.5 MB です。

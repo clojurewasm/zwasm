@@ -1,37 +1,37 @@
-# Comparison
+# 他のランタイムとの比較
 
-How zwasm compares to other WebAssembly runtimes.
+zwasm と他の WebAssembly ランタイムの比較です。
 
-## Overview
+## 概要
 
-| Feature | zwasm | wasmtime | wasm3 | wasmer |
-|---------|-------|----------|-------|--------|
-| Language | Zig | Rust | C | Rust/C |
-| Binary size | 1.3 MB | 56 MB | ~100 KB | 30+ MB |
-| Memory (fib) | 3.5 MB | 12 MB | ~1 MB | 15+ MB |
-| Execution | Interp + JIT | AOT/JIT | Interpreter | AOT/JIT |
-| Wasm 3.0 | Full | Full | Partial | Partial |
-| GC proposal | Yes | Yes | No | No |
-| SIMD | Full (256 ops) | Full | Partial | Full |
-| WASI | P1 (46 syscalls) | P1 + P2 | P1 (partial) | P1 + P2 |
-| Platforms | macOS, Linux | macOS, Linux, Windows | Many (no JIT) | macOS, Linux, Windows |
+| 特徴 | zwasm | wasmtime | wasm3 | wasmer |
+|------|-------|----------|-------|--------|
+| 言語 | Zig | Rust | C | Rust/C |
+| バイナリサイズ | 1.3 MB | 56 MB | ~100 KB | 30+ MB |
+| メモリ (fib) | 3.5 MB | 12 MB | ~1 MB | 15+ MB |
+| 実行方式 | Interp + JIT | AOT/JIT | Interpreter | AOT/JIT |
+| Wasm 3.0 | 完全対応 | 完全対応 | 部分対応 | 部分対応 |
+| GC プロポーザル | 対応 | 対応 | 非対応 | 非対応 |
+| SIMD | 完全対応 (256 ops) | 完全対応 | 部分対応 | 完全対応 |
+| WASI | P1 (46 syscalls) | P1 + P2 | P1 (部分的) | P1 + P2 |
+| プラットフォーム | macOS, Linux | macOS, Linux, Windows | 多数 (JIT なし) | macOS, Linux, Windows |
 
-## When to choose zwasm
+## zwasm を選ぶべきとき
 
-**Small footprint**: When binary size and memory usage matter. zwasm is 44x smaller than wasmtime.
+**小さなフットプリント**: バイナリサイズとメモリ使用量が重要な場合。zwasm は wasmtime の 44 分の 1 のサイズです。
 
-**Zig ecosystem**: When embedding in a Zig application. zwasm integrates as a native `zig build` dependency with zero C dependencies.
+**Zig エコシステム**: Zig アプリケーションに組み込む場合。zwasm は C 依存なしのネイティブな `zig build` 依存関係として統合できます。
 
-**Spec completeness**: When you need full Wasm 3.0 support including GC, SIMD, threads, and exception handling in a small runtime.
+**仕様の完全性**: GC、SIMD、スレッド、例外処理を含む完全な Wasm 3.0 サポートを小さなランタイムで必要とする場合。
 
-**Fast startup**: The interpreter starts executing immediately. JIT compilation happens in the background for hot functions.
+**高速な起動**: インタプリタが即座に実行を開始します。JIT コンパイルはホットな関数に対してバックグラウンドで行われます。
 
-## When to choose alternatives
+## 他のランタイムを選ぶべきとき
 
-**Maximum throughput**: wasmtime's Cranelift AOT compiler produces highly optimized native code. For long-running compute-heavy workloads, wasmtime may be faster.
+**最大スループット**: wasmtime の Cranelift AOT コンパイラは高度に最適化されたネイティブコードを生成します。長時間の計算負荷が高いワークロードでは、wasmtime のほうが高速な場合があります。
 
-**Windows support**: zwasm currently supports macOS and Linux. For Windows, use wasmtime or wasmer.
+**Windows サポート**: zwasm は現在 macOS と Linux をサポートしています。Windows で使用する場合は wasmtime または wasmer を選択してください。
 
-**Minimal size**: wasm3 is ~100 KB and runs on microcontrollers. If you need the absolute smallest runtime without JIT, wasm3 may be a better fit.
+**最小サイズ**: wasm3 は約 100 KB でマイクロコントローラ上でも動作します。JIT なしで最も小さなランタイムが必要な場合は、wasm3 のほうが適しているかもしれません。
 
-**WASI Preview 2**: wasmtime has the most complete WASI P2 implementation. zwasm's P2 support is via a P1 adapter layer.
+**WASI Preview 2**: wasmtime は最も完全な WASI P2 実装を備えています。zwasm の P2 サポートは P1 アダプタレイヤーを介して提供されます。

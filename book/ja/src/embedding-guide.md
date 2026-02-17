@@ -1,10 +1,10 @@
-# Embedding Guide
+# 組み込みガイド
 
-Use zwasm as a Zig library to load and execute WebAssembly modules in your application.
+zwasm を Zig ライブラリとして使用し、アプリケーション内で WebAssembly モジュールをロード・実行できます。
 
-## Setup
+## セットアップ
 
-Add zwasm to your `build.zig.zon`:
+`build.zig.zon` に zwasm を追加します:
 
 ```zig
 .dependencies = .{
@@ -15,7 +15,7 @@ Add zwasm to your `build.zig.zon`:
 },
 ```
 
-In `build.zig`:
+`build.zig` に以下を記述します:
 
 ```zig
 const zwasm_dep = b.dependency("zwasm", .{
@@ -25,7 +25,7 @@ const zwasm_dep = b.dependency("zwasm", .{
 exe.root_module.addImport("zwasm", zwasm_dep.module("zwasm"));
 ```
 
-## Basic usage
+## 基本的な使い方
 
 ```zig
 const zwasm = @import("zwasm");
@@ -43,21 +43,21 @@ try mod.invoke("add", &args, &results);
 const sum: i32 = @bitCast(@as(u32, @truncate(results[0])));
 ```
 
-## Loading variants
+## ロードのバリエーション
 
-| Method | Use case |
+| メソッド | 用途 |
 |--------|----------|
-| `load(alloc, bytes)` | Basic module, no WASI |
-| `loadFromWat(alloc, wat_src)` | Load from WAT text format |
-| `loadWasi(alloc, bytes)` | Module with WASI (cli_default caps) |
-| `loadWasiWithOptions(alloc, bytes, opts)` | WASI with custom config |
-| `loadWithImports(alloc, bytes, imports)` | Module with host functions |
-| `loadWasiWithImports(alloc, bytes, imports, opts)` | Both WASI and host functions |
-| `loadWithFuel(alloc, bytes, fuel)` | With instruction fuel limit |
+| `load(alloc, bytes)` | 基本的なモジュール、WASI なし |
+| `loadFromWat(alloc, wat_src)` | WAT テキスト形式からロード |
+| `loadWasi(alloc, bytes)` | WASI 付きモジュール (cli_default ケーパビリティ) |
+| `loadWasiWithOptions(alloc, bytes, opts)` | カスタム設定の WASI |
+| `loadWithImports(alloc, bytes, imports)` | ホスト関数付きモジュール |
+| `loadWasiWithImports(alloc, bytes, imports, opts)` | WASI とホスト関数の両方 |
+| `loadWithFuel(alloc, bytes, fuel)` | 命令フューエル制限付き |
 
-## Host functions
+## ホスト関数
 
-Provide native Zig functions as Wasm imports:
+ネイティブの Zig 関数を Wasm インポートとして提供できます:
 
 ```zig
 const zwasm = @import("zwasm");
@@ -86,7 +86,7 @@ const imports = [_]zwasm.ImportEntry{
 const mod = try WasmModule.loadWithImports(allocator, wasm_bytes, &imports);
 ```
 
-## WASI configuration
+## WASI 設定
 
 ```zig
 // loadWasi() defaults to cli_default caps (stdio, clock, random, proc_exit).
@@ -102,9 +102,9 @@ const opts = zwasm.WasiOptions{
 const mod = try WasmModule.loadWasiWithOptions(allocator, wasm_bytes, opts);
 ```
 
-## Memory access
+## メモリアクセス
 
-Read from and write to the module's linear memory:
+モジュールのリニアメモリに対して読み書きできます:
 
 ```zig
 // Read 100 bytes starting at offset 0
@@ -115,9 +115,9 @@ defer allocator.free(data);
 try mod.memoryWrite(256, &.{ 0x48, 0x65, 0x6C, 0x6C, 0x6F });
 ```
 
-## Module linking
+## モジュールリンク
 
-Link multiple modules together:
+複数のモジュールをリンクできます:
 
 ```zig
 // Load the "math" module and register its exports
@@ -133,9 +133,9 @@ const app_mod = try WasmModule.loadWithImports(allocator, app_bytes, &imports);
 defer app_mod.deinit();
 ```
 
-## Inspecting imports
+## インポートの検査
 
-Check what a module needs before instantiation:
+インスタンス化の前に、モジュールが必要とするインポートを確認できます:
 
 ```zig
 const import_infos = try zwasm.inspectImportFunctions(allocator, wasm_bytes);
@@ -148,9 +148,9 @@ for (import_infos) |info| {
 }
 ```
 
-## Resource limits
+## リソース制限
 
-Control resource usage:
+リソース使用量を制御できます:
 
 ```zig
 // Fuel limit: traps after N instructions
@@ -159,23 +159,23 @@ const mod = try WasmModule.loadWithFuel(allocator, wasm_bytes, 1_000_000);
 // Memory limit: via WASI options or direct Vm access
 ```
 
-## Error handling
+## エラーハンドリング
 
-All loading and execution methods return error unions. Key error types:
+すべてのロード・実行メソッドはエラーユニオンを返します。主要なエラー型は以下のとおりです:
 
-- **`error.InvalidWasm`** — Binary format is invalid
-- **`error.ImportNotFound`** — Required import not provided
-- **`error.Trap`** — Unreachable instruction executed
-- **`error.StackOverflow`** — Call depth exceeded 1024
-- **`error.OutOfBoundsMemoryAccess`** — Memory access out of bounds
-- **`error.OutOfMemory`** — Allocator failed
-- **`error.FuelExhausted`** — Instruction fuel limit hit
+- **`error.InvalidWasm`** --- バイナリ形式が不正
+- **`error.ImportNotFound`** --- 必要なインポートが提供されていない
+- **`error.Trap`** --- unreachable 命令が実行された
+- **`error.StackOverflow`** --- 呼び出し深度が 1024 を超過
+- **`error.OutOfBoundsMemoryAccess`** --- メモリアクセスが範囲外
+- **`error.OutOfMemory`** --- アロケータが失敗
+- **`error.FuelExhausted`** --- 命令フューエル制限に到達
 
-See [Error Reference](../docs/errors.md) for the complete list.
+完全なリストは [エラーリファレンス](../docs/errors.md) を参照してください。
 
-## Allocator control
+## アロケータの制御
 
-zwasm takes a `std.mem.Allocator` at load time and uses it for all internal allocations. You control the allocator:
+zwasm はロード時に `std.mem.Allocator` を受け取り、すべての内部メモリ確保に使用します。アロケータはユーザーが制御できます:
 
 ```zig
 // Use the general purpose allocator
@@ -189,14 +189,14 @@ defer arena.deinit();
 const mod = try WasmModule.load(arena.allocator(), wasm_bytes);
 ```
 
-## API stability
+## API の安定性
 
-Types and functions are classified into three stability levels:
+型と関数は 3 つの安定性レベルに分類されます:
 
-- **Stable**: Covered by SemVer. Will not break in minor/patch releases. Includes: `WasmModule`, `WasmFn`, `WasmValType`, `ExportInfo`, `ImportEntry`, `HostFnEntry`, `WasiOptions`, and all their public methods.
+- **Stable**: SemVer に準拠します。マイナー/パッチリリースで破壊的変更はありません。対象: `WasmModule`、`WasmFn`、`WasmValType`、`ExportInfo`、`ImportEntry`、`HostFnEntry`、`WasiOptions`、およびそれらのすべてのパブリックメソッド。
 
-- **Experimental**: May change in minor releases. Includes: `runtime.Store`, `runtime.Module`, `runtime.Instance`, `loadLinked`, WIT-related functions.
+- **Experimental**: マイナーリリースで変更される可能性があります。対象: `runtime.Store`、`runtime.Module`、`runtime.Instance`、`loadLinked`、WIT 関連関数。
 
-- **Internal**: Not accessible to library consumers. All types in source files other than `types.zig`.
+- **Internal**: ライブラリ利用者からはアクセスできません。`types.zig` 以外のソースファイル内のすべての型が対象です。
 
-See [docs/api-boundary.md](https://github.com/clojurewasm/zwasm/blob/main/docs/api-boundary.md) for the complete list.
+完全なリストは [docs/api-boundary.md](https://github.com/clojurewasm/zwasm/blob/main/docs/api-boundary.md) を参照してください。

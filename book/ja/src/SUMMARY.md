@@ -1,23 +1,23 @@
-# Summary
+# 目次
 
-[Introduction](./introduction.md)
+[はじめに](./introduction.md)
 
-# User Guide
+# ユーザーガイド
 
-- [Getting Started](./getting-started.md)
-- [CLI Reference](./cli-reference.md)
-- [Embedding Guide](./embedding-guide.md)
-- [FAQ & Troubleshooting](./faq.md)
+- [クイックスタート](./getting-started.md)
+- [CLI リファレンス](./cli-reference.md)
+- [組み込みガイド](./embedding-guide.md)
+- [FAQ・トラブルシューティング](./faq.md)
 
-# Technical Reference
+# 技術リファレンス
 
-- [Architecture](./architecture.md)
-- [Spec Coverage](./spec-coverage.md)
-- [Security Model](./security-model.md)
-- [Performance](./performance.md)
-- [Memory Model](./memory-model.md)
-- [Comparison](./comparison.md)
+- [アーキテクチャ](./architecture.md)
+- [仕様カバレッジ](./spec-coverage.md)
+- [セキュリティモデル](./security-model.md)
+- [パフォーマンス](./performance.md)
+- [メモリモデル](./memory-model.md)
+- [他ランタイムとの比較](./comparison.md)
 
-# Contributing
+# コントリビュート
 
-- [Contributor Guide](./contributing.md)
+- [コントリビューターガイド](./contributing.md)

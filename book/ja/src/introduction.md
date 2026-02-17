@@ -1,28 +1,28 @@
 # zwasm
 
-A standalone WebAssembly runtime written in Zig. Runs Wasm modules as a CLI tool or embeds as a Zig library.
+Zig で書かれたスタンドアロンの WebAssembly ランタイムです。CLI ツールとして Wasm モジュールを実行したり、Zig ライブラリとして組み込むことができます。
 
-## Features
+## 特徴
 
-- **Full Wasm 3.0 support**: Core spec + 9 proposals (GC, exception handling, tail calls, SIMD, threads, and more)
-- **62,158 spec tests passing**: 100% on macOS ARM64 and Linux x86_64
-- **4-tier execution**: Interpreter with register IR and ARM64/x86_64 JIT compilation
-- **WASI Preview 1**: 46 syscalls with deny-by-default capability model
-- **Small footprint**: 1.28 MB binary, 3.57 MB runtime memory
-- **Library and CLI**: Use as a `zig build` dependency or run modules from the command line
-- **WAT support**: Run `.wat` text format files directly
+- **Wasm 3.0 完全対応**: コア仕様 + 9 つのプロポーザル (GC、例外処理、末尾呼び出し、SIMD、スレッドなど)
+- **62,158 件のスペックテストに合格**: macOS ARM64 および Linux x86_64 で 100%
+- **4 段階の実行方式**: レジスタ IR を備えたインタプリタと ARM64/x86_64 JIT コンパイル
+- **WASI Preview 1**: デフォルト拒否のケーパビリティモデルによる 46 のシステムコール
+- **小さなフットプリント**: バイナリ 1.28 MB、ランタイムメモリ 3.57 MB
+- **ライブラリと CLI**: `zig build` の依存関係として使用するか、コマンドラインからモジュールを実行
+- **WAT サポート**: `.wat` テキスト形式のファイルを直接実行可能
 
-## Quick Start
+## クイックスタート
 
 ```bash
-# Run a WebAssembly module
+# WebAssembly モジュールを実行
 zwasm hello.wasm
 
-# Invoke a specific function
+# 特定の関数を呼び出す
 zwasm math.wasm --invoke add 2 3
 
-# Run a WAT text file
+# WAT テキストファイルを実行
 zwasm program.wat
 ```
 
-See [Getting Started](./getting-started.md) for installation instructions.
+インストール方法については[はじめに](./getting-started.md)を参照してください。

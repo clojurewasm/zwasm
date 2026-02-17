@@ -1,48 +1,49 @@
-# Memory Model
+# メモリモデル
 
-## Linear memory
+## リニアメモリ
 
-Each Wasm module instance has up to one linear memory (or multiple with the multi-memory proposal). Linear memory is a contiguous byte array accessed by Wasm load/store instructions.
+各 Wasm モジュールインスタンスは最大1つのリニアメモリを持ちます（multi-memory プロポーザルにより複数持つことも可能です）。リニアメモリは連続したバイト配列であり、Wasm の load/store 命令によってアクセスされます。
 
-### Allocation
+### アロケーション
 
-- Initial size specified in the module (e.g., 1 page = 64 KiB)
-- `memory.grow` extends the memory by the requested number of pages
-- Maximum size can be specified in the module or limited by `--max-memory`
+- 初期サイズはモジュール内で指定されます（例: 1ページ = 64 KiB）
+- `memory.grow` により、指定したページ数だけメモリを拡張できます
+- 最大サイズはモジュール内で指定するか、`--max-memory` で制限できます
 
-### Guard pages
+### ガードページ
 
-zwasm allocates a 4 GiB + 64 KiB PROT_NONE region beyond the linear memory. Any out-of-bounds access lands in this guard region and is caught by the signal handler, which converts the fault to a Wasm trap. This avoids per-instruction bounds checks for most memory operations.
+zwasm はリニアメモリの先に 4 GiB + 64 KiB の PROT_NONE 領域を確保します。範囲外アクセスはこのガード領域に到達し、シグナルハンドラによって捕捉されて Wasm トラップに変換されます。これにより、ほとんどのメモリ操作で命令ごとの境界チェックが不要になります。
 
-### Addressing
+### アドレッシング
 
-All memory addresses use u33 arithmetic (32-bit address + 32-bit offset) to prevent overflow. This ensures that `address + offset` never wraps around to access valid memory.
+すべてのメモリアドレスは u33 演算（32ビットアドレス + 32ビットオフセット）を使用し、オーバーフローを防止します。これにより、`address + offset` がラップアラウンドして有効なメモリにアクセスしてしまうことがなくなります。
 
-## GC heap
+## GC ヒープ
 
-The GC proposal introduces managed heap objects (structs, arrays, i31ref). These live in a separate arena managed by zwasm:
+GC プロポーザルはマネージドヒープオブジェクト（structs、arrays、i31ref）を導入します。これらは zwasm が管理する別のアリーナに存在します:
 
-- **Arena allocator**: Objects are allocated from a pre-allocated arena
-- **Adaptive threshold**: GC collection triggers based on allocation pressure
-- **Reference encoding**: GC references on the operand stack use tagged u64 values
+- **アリーナアロケータ**: オブジェクトは事前に確保されたアリーナから割り当てられます
+- **適応的しきい値**: GC コレクションはアロケーション圧に基づいてトリガーされます
+- **リファレンスエンコーディング**: オペランドスタック上の GC リファレンスはタグ付き u64 値を使用します
 
-GC objects are not accessible from linear memory and vice versa. They exist in a separate address space.
+GC オブジェクトはリニアメモリからアクセスできず、その逆も同様です。これらは別のアドレス空間に存在します。
 
-## Allocator parameterization
+## アロケータのパラメータ化
 
-zwasm takes a `std.mem.Allocator` at load time. All internal allocations (module metadata, register IR, tables, etc.) go through this allocator. The linear memory itself uses `mmap` directly for guard page support.
+zwasm はロード時に `std.mem.Allocator` を受け取ります。すべての内部アロケーション（モジュールメタデータ、レジスタ IR、テーブルなど）はこのアロケータを経由します。リニアメモリ自体はガードページのサポートのために `mmap` を直接使用します。
 
-This means you can:
-- Use a general-purpose allocator for normal usage
-- Use an arena allocator for batch processing (load, run, free everything)
-- Use a tracking allocator to monitor memory usage
-- Use a fixed-buffer allocator for embedded/constrained environments
+これにより、以下のような使い方が可能です:
 
-## Memory limits
+- 通常の用途には汎用アロケータを使用する
+- バッチ処理（ロード、実行、全解放）にはアリーナアロケータを使用する
+- メモリ使用量の監視にはトラッキングアロケータを使用する
+- 組み込み/制約のある環境には固定バッファアロケータを使用する
 
-| Resource | Default limit | CLI flag |
+## メモリ制限
+
+| リソース | デフォルト制限 | CLI フラグ |
 |----------|--------------|----------|
-| Linear memory | Module-defined max | `--max-memory <bytes>` |
-| Call stack depth | 1024 | Not configurable |
-| Operand stack | Fixed size | Not configurable |
-| GC heap | Unbounded (arena) | Not configurable |
+| リニアメモリ | モジュール定義の最大値 | `--max-memory <bytes>` |
+| コールスタック深度 | 1024 | 設定不可 |
+| オペランドスタック | 固定サイズ | 設定不可 |
+| GC ヒープ | 無制限（アリーナ） | 設定不可 |

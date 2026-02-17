@@ -1,14 +1,14 @@
-# Getting Started
+# はじめに
 
-This guide gets you from zero to running a WebAssembly module in under 5 minutes.
+このガイドでは、ゼロから WebAssembly モジュールを実行するまでを 5 分以内で解説します。
 
-## Prerequisites
+## 前提条件
 
-- [Zig 0.15.2](https://ziglang.org/download/) or later
+- [Zig 0.15.2](https://ziglang.org/download/) 以降
 
-## Install
+## インストール
 
-### Build from source
+### ソースからビルド
 
 ```bash
 git clone https://github.com/clojurewasm/zwasm.git
@@ -16,35 +16,35 @@ cd zwasm
 zig build -Doptimize=ReleaseSafe
 ```
 
-The binary is at `zig-out/bin/zwasm`. Copy it to your PATH:
+バイナリは `zig-out/bin/zwasm` に生成されます。PATH の通ったディレクトリにコピーしてください:
 
 ```bash
 cp zig-out/bin/zwasm ~/.local/bin/
 ```
 
-### Install script
+### インストールスクリプト
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/clojurewasm/zwasm/main/install.sh | bash
 ```
 
-### Homebrew (macOS/Linux) — coming soon
+### Homebrew (macOS/Linux) — 近日公開予定
 
 ```bash
 brew install clojurewasm/tap/zwasm  # not yet available
 ```
 
-### Verify installation
+### インストールの確認
 
 ```bash
 zwasm version
 ```
 
-## Run your first module
+## 最初のモジュールを実行する
 
-### 1. From a WAT file
+### 1. WAT ファイルから実行
 
-Create `hello.wat`:
+`hello.wat` を作成します:
 
 ```wat
 (module
@@ -54,46 +54,46 @@ Create `hello.wat`:
     i32.add))
 ```
 
-Run it:
+実行します:
 
 ```bash
 zwasm hello.wat --invoke add 2 3
 # Output: 5
 ```
 
-### 2. WASI module
+### 2. WASI モジュール
 
-For modules that use WASI (filesystem, stdout, etc.):
+WASI（ファイルシステム、標準出力など）を使用するモジュールの場合:
 
 ```bash
 zwasm hello_wasi.wasm --allow-all
 ```
 
-Grant only the capabilities you need:
+必要な権限のみを付与することもできます:
 
 ```bash
 zwasm hello_wasi.wasm --allow-read --dir ./data
 ```
 
-### 3. Inspect a module
+### 3. モジュールの検査
 
-See what a module exports and imports:
+モジュールのエクスポートとインポートを確認します:
 
 ```bash
 zwasm inspect hello.wasm
 ```
 
-### 4. Validate a module
+### 4. モジュールの検証
 
-Check if a module is valid without running it:
+モジュールを実行せずに有効性を検証します:
 
 ```bash
 zwasm validate hello.wasm
 ```
 
-## Use as a Zig library
+## Zig ライブラリとして使う
 
-Add zwasm as a dependency in your `build.zig.zon`:
+`build.zig.zon` に zwasm を依存関係として追加します:
 
 ```zig
 .dependencies = .{
@@ -104,7 +104,7 @@ Add zwasm as a dependency in your `build.zig.zon`:
 },
 ```
 
-Then in `build.zig`:
+次に `build.zig` で以下を記述します:
 
 ```zig
 const zwasm_dep = b.dependency("zwasm", .{
@@ -114,11 +114,11 @@ const zwasm_dep = b.dependency("zwasm", .{
 exe.root_module.addImport("zwasm", zwasm_dep.module("zwasm"));
 ```
 
-See the [Embedding Guide](./embedding-guide.md) for API usage.
+API の使い方については[埋め込みガイド](./embedding-guide.md)を参照してください。
 
-## More examples
+## その他のサンプル
 
-The repository includes 33 numbered WAT examples in `examples/wat/`, ordered from beginner to advanced:
+リポジトリには、初級から上級まで順に並んだ 33 個の WAT サンプルが `examples/wat/` にあります:
 
 ```bash
 zwasm examples/wat/01_hello_add.wat --invoke add 2 3      # basics
@@ -131,10 +131,10 @@ zwasm examples/wat/30_wasi_hello.wat --allow-all           # WASI → Hi!
 zwasm examples/wat/32_wasi_args.wat --allow-all -- hi      # WASI args
 ```
 
-Each file includes run instructions in its header comment. Zig embedding examples are in `examples/zig/`.
+各ファイルのヘッダーコメントに実行方法が記載されています。Zig での埋め込みサンプルは `examples/zig/` にあります。
 
-## Next steps
+## 次のステップ
 
-- [CLI Reference](./cli-reference.md) — all commands and flags
-- [Embedding Guide](./embedding-guide.md) — use zwasm as a Zig library
-- [Spec Coverage](./spec-coverage.md) — supported Wasm proposals
+- [CLI リファレンス](./cli-reference.md) — すべてのコマンドとフラグ
+- [埋め込みガイド](./embedding-guide.md) — zwasm を Zig ライブラリとして使う
+- [仕様カバレッジ](./spec-coverage.md) — サポートされている Wasm プロポーザル

@@ -1,8 +1,8 @@
-# Security Model
+# セキュリティモデル
 
-zwasm enforces a clear boundary between guest (WebAssembly module) and host (embedding application or CLI).
+zwasm は、ゲスト（WebAssembly モジュール）とホスト（組み込みアプリケーションまたは CLI）の間に明確な境界を設けています。
 
-## Trust boundary
+## 信頼境界
 
 ```
 +-------------------+    WASI capabilities    +------------------+
@@ -14,86 +14,86 @@ zwasm enforces a clear boundary between guest (WebAssembly module) and host (emb
 +-------------------+                         +------------------+
 ```
 
-A valid Wasm module, no matter how adversarial, cannot:
+正当な Wasm モジュールは、どれほど悪意のあるものであっても、以下のことはできません:
 
-- Read or write host memory outside its own linear memory
-- Call host functions not explicitly imported
-- Bypass WASI capability restrictions
-- Execute code outside its validated instruction stream
-- Overflow the call stack or value stack without trapping
+- 自身のリニアメモリ外のホストメモリを読み書きする
+- 明示的にインポートされていないホスト関数を呼び出す
+- WASI のケーパビリティ制限を回避する
+- バリデーション済みの命令ストリーム外のコードを実行する
+- トラップを発生させずにコールスタックまたはバリュースタックをオーバーフローさせる
 
-## Defense layers
+## 防御レイヤー
 
-### Module decoding
+### モジュールデコード
 
-All binary input is bounds-checked. Resource limits prevent excessive allocation:
+すべてのバイナリ入力は境界チェックされます。リソース制限により過剰なアロケーションを防止します:
 
-- Section counts: 100-100,000 per section type
-- Per-function locals: 50,000 max (saturating arithmetic for overflow)
-- Block nesting depth: 500
-- LEB128 reads bounds-checked against binary slice
+- セクション数: セクションタイプごとに 100〜100,000
+- 関数あたりのローカル変数: 最大 50,000（オーバーフロー対策として飽和演算を使用）
+- ブロックのネスト深度: 500
+- LEB128 の読み取りはバイナリスライスに対して境界チェック済み
 
-### Validation
+### バリデーション
 
-Full Wasm 3.0 type checking before any code executes. 62,158 spec tests verify correctness.
+コード実行前に Wasm 3.0 の完全な型チェックを行います。62,158 件の spec テストにより正確性を検証しています。
 
-### Linear memory isolation
+### リニアメモリの分離
 
-- Every load/store uses u33 arithmetic (address + offset) to prevent 32-bit overflow
-- Guard pages: 4 GiB + 64 KiB PROT_NONE region catches all out-of-bounds access
-- Signal handler converts memory faults to Wasm traps
+- すべての load/store は u33 演算（address + offset）を使用し、32 ビットオーバーフローを防止
+- ガードページ: 4 GiB + 64 KiB の PROT_NONE 領域により、すべての範囲外アクセスを捕捉
+- シグナルハンドラがメモリフォルトを Wasm トラップに変換
 
-### JIT security
+### JIT セキュリティ
 
-- **W^X**: Code pages are RW during compilation, then switched to RX before execution. Never simultaneously writable and executable.
-- All branch targets validated against the register IR
-- Signal handler translates faults in JIT code to Wasm traps
+- **W^X**: コードページはコンパイル中は RW で、実行前に RX に切り替え。書き込み可能と実行可能が同時に有効になることはありません。
+- すべての分岐ターゲットはレジスタ IR に対してバリデーション済み
+- シグナルハンドラが JIT コード内のフォルトを Wasm トラップに変換
 
-### WASI capabilities
+### WASI ケーパビリティ
 
-Deny-by-default model with 8 capability flags:
+デフォルト拒否モデルで、8 つのケーパビリティフラグがあります:
 
-| Flag | Controls |
+| フラグ | 制御対象 |
 |------|----------|
-| `allow-read` | Filesystem read |
-| `allow-write` | Filesystem write |
-| `allow-env` | Environment variables |
-| `allow-path` | Path operations (open, mkdir, unlink) |
-| `allow-clock` | Clock access |
-| `allow-random` | Random number generation |
-| `allow-proc` | Process operations |
-| `allow-all` | All of the above |
+| `allow-read` | ファイルシステムの読み取り |
+| `allow-write` | ファイルシステムの書き込み |
+| `allow-env` | 環境変数 |
+| `allow-path` | パス操作（open, mkdir, unlink） |
+| `allow-clock` | クロックアクセス |
+| `allow-random` | 乱数生成 |
+| `allow-proc` | プロセス操作 |
+| `allow-all` | 上記すべて |
 
-32 of 46 WASI functions check capabilities before executing. The remaining 14 are safe operations (args size queries, fd_close, etc.).
+46 個の WASI 関数のうち 32 個が実行前にケーパビリティをチェックします。残りの 14 個は安全な操作（args のサイズ照会、fd_close など）です。
 
-**Library API defaults** (`loadWasi()`): `cli_default` — only stdio, clock, random, and proc_exit. Embedders needing full access use `loadWasiWithOptions(.{ .caps = .all })`.
+**ライブラリ API のデフォルト**（`loadWasi()`）: `cli_default` — stdio、clock、random、proc_exit のみ。フルアクセスが必要なエンベッダは `loadWasiWithOptions(.{ .caps = .all })` を使用します。
 
-**`--sandbox` mode**: Denies all capabilities, sets fuel to 1 billion instructions and memory ceiling to 256MB. Combine with `--allow-*` flags for selective access:
+**`--sandbox` モード**: すべてのケーパビリティを拒否し、fuel を 10 億命令に設定し、メモリ上限を 256MB に制限します。`--allow-*` フラグと組み合わせて選択的にアクセスを許可できます:
 
 ```bash
 zwasm untrusted.wasm --sandbox --allow-read --dir ./data
 ```
 
-**`--env KEY=VALUE`**: Injected environment variables are always accessible to the guest, even without `--allow-env`. The `--allow-env` flag controls access to host environment passthrough.
+**`--env KEY=VALUE`**: 注入された環境変数は、`--allow-env` がなくてもゲストから常にアクセス可能です。`--allow-env` フラグはホスト環境のパススルーアクセスを制御します。
 
-### Stack protection
+### スタック保護
 
-- Call depth limit: 1024 (checked on every call)
-- Operand stack: fixed-size array, bounds-checked
-- Label stack: bounds-checked
+- コール深度の制限: 1024（すべての呼び出し時にチェック）
+- オペランドスタック: 固定サイズ配列、境界チェック済み
+- ラベルスタック: 境界チェック済み
 
-## What zwasm does NOT protect against
+## zwasm が保護しないもの
 
-- **Timing side channels**: No constant-time guarantees
-- **Resource exhaustion**: A module can loop forever (use `--fuel` to mitigate)
-- **Host function bugs**: If your host functions have vulnerabilities, Wasm code can trigger them
-- **Spectre/Meltdown**: No hardware-level mitigations
-- **Information leakage via timing**: JIT compilation time may vary with code structure
+- **タイミングサイドチャネル**: 定数時間の保証なし
+- **リソース枯渇**: モジュールが無限ループする可能性あり（`--fuel` で軽減）
+- **ホスト関数のバグ**: ホスト関数に脆弱性がある場合、Wasm コードがそれを引き起こす可能性あり
+- **Spectre/Meltdown**: ハードウェアレベルの軽減策なし
+- **タイミングによる情報漏洩**: JIT コンパイル時間はコード構造によって異なる可能性あり
 
-## Recommendations
+## 推奨事項
 
-- Build with `ReleaseSafe` for production (Zig's bounds checks + overflow detection)
-- Use `--fuel` for untrusted modules to prevent infinite loops
-- Use `--max-memory` to cap memory usage
-- Grant only the WASI capabilities the module needs
-- See [SECURITY.md](https://github.com/clojurewasm/zwasm/blob/main/SECURITY.md) for vulnerability reporting
+- 本番環境では `ReleaseSafe` でビルド（Zig の境界チェック + オーバーフロー検出）
+- 信頼できないモジュールには `--fuel` を使用して無限ループを防止
+- `--max-memory` でメモリ使用量を制限
+- モジュールに必要な WASI ケーパビリティのみを付与
+- 脆弱性の報告については [SECURITY.md](https://github.com/clojurewasm/zwasm/blob/main/SECURITY.md) を参照

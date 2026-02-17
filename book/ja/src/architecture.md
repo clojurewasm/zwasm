@@ -1,8 +1,8 @@
-# Architecture
+# アーキテクチャ
 
-zwasm processes a WebAssembly module through a multi-stage pipeline: decode, validate, predecode to register IR, and execute via interpreter or JIT.
+zwasm は WebAssembly モジュールを複数段のパイプラインで処理します。デコード、バリデーション、レジスタ IR へのプリデコード、そしてインタプリタまたは JIT による実行です。
 
-## Pipeline
+## パイプライン
 
 ```
 .wasm binary
@@ -40,59 +40,60 @@ zwasm processes a WebAssembly module through a multi-stage pipeline: decode, val
 +----------------------+
 ```
 
-## Execution tiers
+## 実行ティア
 
-zwasm uses tiered execution with automatic promotion:
+zwasm は自動昇格を備えた階層型実行を採用しています。
 
-1. **Interpreter** — Executes register IR instructions directly. All functions start here.
-2. **JIT (ARM64/x86_64)** — When a function's call count or back-edge count exceeds a threshold, the register IR is compiled to native machine code. Subsequent calls execute the native code directly.
+1. **インタプリタ** — レジスタ IR 命令を直接実行します。すべての関数はここからスタートします。
+2. **JIT (ARM64/x86_64)** — 関数の呼び出し回数またはバックエッジ回数が閾値を超えると、レジスタ IR がネイティブマシンコードにコンパイルされます。以降の呼び出しではネイティブコードが直接実行されます。
 
-The JIT threshold is adaptive: hot loops trigger compilation faster via back-edge counting.
+JIT の閾値はアダプティブです。ホットループはバックエッジカウントにより、より速くコンパイルがトリガーされます。
 
-## Source map
+## ソースマップ
 
-| File | Role | LOC |
+| ファイル | 役割 | LOC |
 |------|------|-----|
-| `module.zig` | Binary decoder, section parsing, LEB128 | ~2K |
-| `validate.zig` | Type checker, operand stack simulation | ~1.7K |
-| `predecode.zig` | Stack IR → register IR conversion | ~2K |
-| `regalloc.zig` | Virtual → physical register allocation | ~1.8K |
-| `vm.zig` | Interpreter, execution engine, store | ~7.3K |
-| `jit.zig` | ARM64 JIT backend | ~4.9K |
-| `x86.zig` | x86_64 JIT backend | ~3.9K |
-| `types.zig` | Core type definitions, value types | ~1.3K |
-| `opcode.zig` | Opcode definitions (523 total) | ~1.3K |
-| `wasi.zig` | WASI Preview 1 (46 syscalls) | ~2.5K |
-| `gc.zig` | GC proposal: heap, struct/array types | ~1.4K |
-| `wat.zig` | WAT text format parser | ~3K |
-| `cli.zig` | CLI frontend | ~1.9K |
-| `instance.zig` | Module instantiation, linking | ~1K |
+| `module.zig` | バイナリデコーダ、セクションパース、LEB128 | ~2K |
+| `validate.zig` | 型チェッカー、オペランドスタックシミュレーション | ~1.7K |
+| `predecode.zig` | スタック IR → レジスタ IR 変換 | ~2K |
+| `regalloc.zig` | 仮想レジスタ → 物理レジスタ割り当て | ~1.8K |
+| `vm.zig` | インタプリタ、実行エンジン、ストア | ~7.3K |
+| `jit.zig` | ARM64 JIT バックエンド | ~4.9K |
+| `x86.zig` | x86_64 JIT バックエンド | ~3.9K |
+| `types.zig` | コア型定義、値型 | ~1.3K |
+| `opcode.zig` | オペコード定義 (全523個) | ~1.3K |
+| `wasi.zig` | WASI Preview 1 (46 システムコール) | ~2.5K |
+| `gc.zig` | GC プロポーザル: ヒープ、struct/array 型 | ~1.4K |
+| `wat.zig` | WAT テキストフォーマットパーサー | ~3K |
+| `cli.zig` | CLI フロントエンド | ~1.9K |
+| `instance.zig` | モジュールインスタンス化、リンク | ~1K |
 
-## Register IR
+## レジスタ IR
 
-Instead of interpreting the WebAssembly stack machine directly, zwasm converts each function body to a register-based intermediate representation (IR) during predecode. This eliminates operand stack bookkeeping at runtime:
+zwasm は WebAssembly のスタックマシンを直接インタプリトする代わりに、プリデコード時に各関数本体をレジスタベースの中間表現 (IR) に変換します。これにより、実行時のオペランドスタック管理が不要になります。
 
-- **Stack IR**: `local.get 0` / `local.get 1` / `i32.add` (3 stack operations)
-- **Register IR**: `add r2, r0, r1` (1 instruction)
+- **スタック IR**: `local.get 0` / `local.get 1` / `i32.add` (3つのスタック操作)
+- **レジスタ IR**: `add r2, r0, r1` (1命令)
 
-The register IR uses virtual registers, which are then mapped to physical registers by the register allocator. Functions with few locals map directly; functions with many locals spill to memory.
+レジスタ IR は仮想レジスタを使用し、レジスタアロケータによって物理レジスタにマッピングされます。ローカル変数が少ない関数は直接マッピングされ、多い関数はメモリにスピルされます。
 
-## JIT compilation
+## JIT コンパイル
 
-The JIT compiler translates register IR to native machine code:
+JIT コンパイラはレジスタ IR をネイティブマシンコードに変換します。
 
-- **ARM64**: Full support — arithmetic, control flow, floating point, memory, call_indirect, SIMD
-- **x86_64**: Full support — same coverage as ARM64
+- **ARM64**: フルサポート — 算術演算、制御フロー、浮動小数点、メモリ、call_indirect、SIMD
+- **x86_64**: フルサポート — ARM64 と同等のカバレッジ
 
-Key JIT optimizations:
-- Inline self-calls (recursive functions call themselves without trampoline overhead)
-- Smart spill/reload (only spill registers that are live across calls)
-- Direct function calls (bypass function table lookup for known targets)
-- Depth guard caching (call depth check in register instead of memory)
+主な JIT 最適化:
 
-The JIT uses W^X memory protection: code is written to RW pages, then switched to RX before execution. A signal handler converts memory faults in JIT code back to Wasm traps.
+- インライン自己呼び出し (再帰関数がトランポリンのオーバーヘッドなしに自身を呼び出し)
+- スマートスピル/リロード (コールをまたいで生存しているレジスタのみスピル)
+- ダイレクト関数呼び出し (既知のターゲットに対して関数テーブルルックアップをバイパス)
+- デプスガードキャッシング (呼び出し深度チェックをメモリではなくレジスタで実行)
 
-## Module instantiation
+JIT は W^X メモリ保護を使用します。コードは RW ページに書き込まれ、実行前に RX に切り替えられます。シグナルハンドラが JIT コード内のメモリフォルトを Wasm トラップに変換します。
+
+## モジュールのインスタンス化
 
 ```
 WasmModule.load(bytes)       -> decode + validate + predecode
@@ -104,4 +105,4 @@ Instance.instantiate(store)  -> link imports, init memory/tables/globals
 Vm.invoke(func_name, args)   -> execute via interpreter or JIT
 ```
 
-The `Store` holds all runtime state: memories, tables, globals, function instances. Multiple module instances can share a store for cross-module linking.
+`Store` はすべてのランタイム状態を保持します。メモリ、テーブル、グローバル変数、関数インスタンスです。複数のモジュールインスタンスがストアを共有することで、クロスモジュールリンクが可能です。

@@ -1,59 +1,59 @@
-# Spec Coverage
+# 仕様カバレッジ
 
-zwasm targets full WebAssembly 3.0 compliance. All spec tests pass on macOS ARM64 and Linux x86_64.
+zwasm は WebAssembly 3.0 への完全準拠を目指しています。すべての仕様テストが macOS ARM64 および Linux x86_64 で合格しています。
 
-**Test results**: 62,158 / 62,158 (100.0%)
+**テスト結果**: 62,158 / 62,158 (100.0%)
 
-## Core specification
+## コア仕様
 
-| Feature | Opcodes | Status |
-|---------|---------|--------|
-| MVP (core) | 172 | Complete |
-| Sign extension | 7 | Complete |
-| Non-trapping float-to-int | 8 | Complete |
-| Bulk memory | 9 | Complete |
-| Reference types | 5 | Complete |
-| Multi-value | - | Complete |
-| **Total core** | **201+** | **100%** |
+| 機能 | オペコード数 | ステータス |
+|------|-------------|-----------|
+| MVP (core) | 172 | 完了 |
+| Sign extension | 7 | 完了 |
+| Non-trapping float-to-int | 8 | 完了 |
+| Bulk memory | 9 | 完了 |
+| Reference types | 5 | 完了 |
+| Multi-value | - | 完了 |
+| **コア合計** | **201+** | **100%** |
 
 ## SIMD
 
-| Feature | Opcodes | Status |
-|---------|---------|--------|
-| SIMD (v128) | 236 | Complete |
-| Relaxed SIMD | 20 | Complete |
-| **Total SIMD** | **256** | **100%** |
+| 機能 | オペコード数 | ステータス |
+|------|-------------|-----------|
+| SIMD (v128) | 236 | 完了 |
+| Relaxed SIMD | 20 | 完了 |
+| **SIMD 合計** | **256** | **100%** |
 
-## Wasm 3.0 proposals
+## Wasm 3.0 プロポーザル
 
-All 9 Wasm 3.0 proposals are fully implemented:
+9 つの Wasm 3.0 プロポーザルすべてが完全に実装されています:
 
-| Proposal | Opcodes | Spec tests | Status |
-|----------|---------|------------|--------|
-| Memory64 | extends existing | Pass | Complete |
-| Tail calls | 2 | Pass | Complete |
-| Extended const | extends existing | Pass | Complete |
-| Branch hinting | metadata section | Pass | Complete |
-| Multi-memory | extends existing | Pass | Complete |
-| Relaxed SIMD | 20 | 85/85 | Complete |
-| Exception handling | 3 | Pass | Complete |
-| Function references | 5 | 104/106 | Complete |
-| GC | 31 | Pass | Complete |
+| プロポーザル | オペコード数 | 仕様テスト | ステータス |
+|-------------|-------------|-----------|-----------|
+| Memory64 | 既存を拡張 | Pass | 完了 |
+| Tail calls | 2 | Pass | 完了 |
+| Extended const | 既存を拡張 | Pass | 完了 |
+| Branch hinting | メタデータセクション | Pass | 完了 |
+| Multi-memory | 既存を拡張 | Pass | 完了 |
+| Relaxed SIMD | 20 | 85/85 | 完了 |
+| Exception handling | 3 | Pass | 完了 |
+| Function references | 5 | 104/106 | 完了 |
+| GC | 31 | Pass | 完了 |
 
-## Additional proposals
+## 追加プロポーザル
 
-| Proposal | Opcodes | Status |
-|----------|---------|--------|
-| Threads | 79 (0xFE prefix) | Complete (310/310 spec) |
-| Wide arithmetic | 4 | Complete (99/99 e2e) |
-| Custom page sizes | - | Complete (18/18 e2e) |
+| プロポーザル | オペコード数 | ステータス |
+|-------------|-------------|-----------|
+| Threads | 79 (0xFE prefix) | 完了 (310/310 spec) |
+| Wide arithmetic | 4 | 完了 (99/99 e2e) |
+| Custom page sizes | - | 完了 (18/18 e2e) |
 
 ## WASI Preview 1
 
-46 / 46 syscalls implemented (100%):
+46 / 46 システムコール実装済み (100%):
 
-| Category | Count | Functions |
-|----------|-------|-----------|
+| カテゴリ | 数 | 関数 |
+|---------|-----|------|
 | args | 2 | args_get, args_sizes_get |
 | environ | 2 | environ_get, environ_sizes_get |
 | clock | 2 | clock_time_get, clock_res_get |
@@ -62,39 +62,39 @@ All 9 Wasm 3.0 proposals are fully implemented:
 | proc | 2 | exit, raise |
 | random | 1 | random_get |
 | poll | 1 | poll_oneoff |
-| sock | 4 | NOSYS stubs |
+| sock | 4 | NOSYS スタブ |
 
 ## Component Model
 
-| Feature | Status |
-|---------|--------|
-| WIT parser | Complete |
-| Binary decoder | Complete |
-| Canonical ABI | Complete |
-| WASI P2 adapter | Complete |
-| CLI support | Complete |
+| 機能 | ステータス |
+|------|-----------|
+| WIT パーサー | 完了 |
+| バイナリデコーダー | 完了 |
+| Canonical ABI | 完了 |
+| WASI P2 アダプター | 完了 |
+| CLI サポート | 完了 |
 
-121 Component Model tests pass.
+121 件の Component Model テストが合格しています。
 
-## WAT parser
+## WAT パーサー
 
-The text format parser supports:
-- All value types including v128
-- Named locals, globals, functions, types
-- Inline exports and imports
-- S-expression and flat syntax
-- Data and element sections
-- All prefix opcodes: 0xFC (bulk memory, trunc_sat), 0xFD (SIMD + lane ops), 0xFE (atomics)
-- Wasm 3.0 opcodes: try_table, call_ref, br_on_null, throw_ref, etc.
-- GC prefix (0xFB) deferred — requires type annotation parser extensions
+テキストフォーマットパーサーは以下をサポートしています:
+- v128 を含むすべての値型
+- 名前付きローカル、グローバル、関数、型
+- インラインエクスポートとインポート
+- S 式構文とフラット構文
+- データセクションと要素セクション
+- すべてのプレフィックスオペコード: 0xFC (bulk memory, trunc_sat), 0xFD (SIMD + lane ops), 0xFE (atomics)
+- Wasm 3.0 オペコード: try_table, call_ref, br_on_null, throw_ref など
+- GC プレフィックス (0xFB) は保留 — 型アノテーションパーサーの拡張が必要
 
-## Total opcode count
+## オペコード総数
 
-| Category | Count |
-|----------|-------|
+| カテゴリ | 数 |
+|---------|-----|
 | Core | 201+ |
 | SIMD | 256 |
 | GC | 31 |
 | Threads | 79 |
-| Others | 14+ |
-| **Total** | **581+** |
+| その他 | 14+ |
+| **合計** | **581+** |

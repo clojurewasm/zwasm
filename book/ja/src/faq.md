@@ -1,48 +1,48 @@
-# FAQ & Troubleshooting
+# FAQ & トラブルシューティング
 
-## General
+## 一般
 
-### What Wasm proposals does zwasm support?
+### zwasm はどの Wasm プロポーザルに対応していますか?
 
-All 9 Wasm 3.0 proposals plus threads, wide arithmetic, and custom page sizes. See [Spec Coverage](./spec-coverage.md) for details.
+Wasm 3.0 の全 9 プロポーザルに加え、threads、wide arithmetic、custom page sizes に対応しています。詳細は [Spec Coverage](./spec-coverage.md) をご覧ください。
 
-### Does zwasm support Windows?
+### zwasm は Windows に対応していますか?
 
-Not currently. zwasm runs on macOS (ARM64) and Linux (x86_64, aarch64). The JIT and memory guard pages use POSIX APIs (mmap, mprotect, signal handlers).
+現時点では対応していません。zwasm は macOS (ARM64) および Linux (x86_64, aarch64) で動作します。JIT とメモリガードページは POSIX API (mmap, mprotect, シグナルハンドラ) を使用しています。
 
-### Can I use zwasm without JIT?
+### JIT なしで zwasm を使えますか?
 
-Yes. The interpreter handles all functions by default. JIT is only triggered for hot functions. There is no way to disable JIT for specific functions, but functions that are called fewer than ~8 times will always use the interpreter.
+はい。デフォルトではインタープリタがすべての関数を処理します。JIT はホットな関数に対してのみ起動されます。特定の関数に対して JIT を無効にする方法はありませんが、呼び出し回数が約 8 回未満の関数は常にインタープリタで実行されます。
 
-### What is the WAT parser?
+### WAT パーサとは何ですか?
 
-zwasm can run `.wat` text format files directly: `zwasm run program.wat`. The WAT parser can be disabled at compile time with `-Dwat=false` to reduce binary size.
+zwasm は `.wat` テキスト形式のファイルを直接実行できます: `zwasm run program.wat`。WAT パーサはコンパイル時に `-Dwat=false` を指定することで無効化でき、バイナリサイズを削減できます。
 
-## Troubleshooting
+## トラブルシューティング
 
 ### "trap: out-of-bounds memory access"
 
-The Wasm module tried to read or write memory outside its linear memory bounds. This is a bug in the Wasm module, not in zwasm. Check that the module's memory is large enough for its data.
+Wasm モジュールがリニアメモリの範囲外のメモリを読み書きしようとしました。これは zwasm ではなく Wasm モジュール側のバグです。モジュールのメモリがデータに対して十分な大きさがあるか確認してください。
 
 ### "trap: call stack overflow (depth > 1024)"
 
-Recursive function calls exceeded the 1024 depth limit. This is typically caused by infinite recursion in the Wasm module.
+再帰的な関数呼び出しが深さ 1024 の制限を超えました。これは通常、Wasm モジュール内の無限再帰が原因です。
 
 ### "required import not found"
 
-The module requires an import that was not provided. Use `zwasm inspect` to see what imports the module needs, then provide them with `--link` or host functions.
+モジュールが必要とするインポートが提供されていません。`zwasm inspect` を使用してモジュールに必要なインポートを確認し、`--link` またはホスト関数で提供してください。
 
 ### "invalid wasm binary"
 
-The file is not a valid WebAssembly binary. Check that it starts with the magic bytes `\0asm` and version `\01\00\00\00`. WAT files should use the `.wat` extension.
+ファイルが有効な WebAssembly バイナリではありません。マジックバイト `\0asm` とバージョン `\01\00\00\00` で始まっているか確認してください。WAT ファイルには `.wat` 拡張子を使用してください。
 
-### Slow performance
+### パフォーマンスが遅い
 
-- Make sure you build with `zig build -Doptimize=ReleaseSafe`. Debug builds are 5-10x slower.
-- Hot functions (called many times) are JIT-compiled automatically. Short-running programs may not benefit from JIT.
-- Use `--profile` to see opcode frequency and call counts.
+- `zig build -Doptimize=ReleaseSafe` でビルドしていることを確認してください。デバッグビルドは 5〜10 倍遅くなります。
+- ホットな関数 (多数回呼び出される関数) は自動的に JIT コンパイルされます。実行時間の短いプログラムでは JIT の恩恵を受けられない場合があります。
+- `--profile` を使用してオペコードの頻度と呼び出し回数を確認できます。
 
-### High memory usage
+### メモリ使用量が多い
 
-- Every Wasm module with linear memory allocates guard pages (~4 GiB virtual, not physical). This is normal and shows up as large VSIZE but small RSS.
-- Use `--max-memory` to cap the actual memory a module can allocate.
+- リニアメモリを持つすべての Wasm モジュールはガードページ (仮想メモリ約 4 GiB、物理メモリではない) を確保します。これは正常な動作で、VSIZE は大きく表示されますが RSS は小さいままです。
+- `--max-memory` を使用してモジュールが確保できる実際のメモリ量を制限できます。
