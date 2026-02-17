@@ -33,18 +33,18 @@ See `private/roadmap-production.md` Phase 45 for full detail. Resolves W32.
 
 - [x] 45.1: SIMD microbenchmark suite
 - [x] 45.2: Baseline recording
-- [ ] 45.3: Bottleneck analysis
+- [x] 45.3: Bottleneck analysis
 - [ ] 45.4: Interpreter fast-path
 - [ ] 45.5: JIT SIMD feasibility study
 - [ ] 45.6: Implement chosen optimization
 
 ## Current Task
 
-45.3: Bottleneck analysis
+45.4: Interpreter fast-path
 
 ## Previous Task
 
-45.2: Baseline recording — zwasm SIMD ~43x slower than wasmtime (geo mean). Scalar ~1.7x slower. SIMD penalty in zwasm: ~10x vs scalar. wasmtime SIMD ~2.5x faster than its scalar.
+45.3: Bottleneck analysis — 16x dispatch overhead (stack vs RegIR). 88% of SIMD function instructions are non-SIMD overhead. Recommended: hybrid RegIR v128 extension + selective JIT NEON. See `.dev/simd-analysis.md`.
 
 ## Wasm 3.0 Coverage
 
