@@ -180,6 +180,9 @@ pub const Capabilities = packed struct {
         .allow_random = true,
         .allow_proc_exit = true,
     };
+
+    /// Sandbox preset: all capabilities denied.
+    pub const sandbox = Capabilities{};
 };
 
 // ============================================================
@@ -2488,4 +2491,16 @@ test "WASI — env.memory shared import" {
     // Should be resolvable as an import
     const handle = try store_inst.lookupImport("env", "memory", .memory);
     try testing.expect(handle < store_inst.memories.items.len);
+}
+
+test "Capabilities.sandbox denies all" {
+    const caps = Capabilities.sandbox;
+    try testing.expect(!caps.allow_stdio);
+    try testing.expect(!caps.allow_read);
+    try testing.expect(!caps.allow_write);
+    try testing.expect(!caps.allow_env);
+    try testing.expect(!caps.allow_clock);
+    try testing.expect(!caps.allow_random);
+    try testing.expect(!caps.allow_proc_exit);
+    try testing.expect(!caps.allow_path);
 }

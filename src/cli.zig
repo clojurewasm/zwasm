@@ -101,6 +101,7 @@ fn printUsage(w: *std.Io.Writer) void {
         \\  --dir <path>        Preopen a host directory (repeatable)
         \\  --env KEY=VALUE     Set a WASI environment variable (repeatable)
         \\  --profile           Print execution profile (opcode frequency, call counts)
+        \\  --sandbox           Deny all capabilities + fuel 1B + memory 256MB
         \\  --allow-read        Grant filesystem read capability
         \\  --allow-write       Grant filesystem write capability
         \\  --allow-env         Grant environment variable access
@@ -211,6 +212,10 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 try stderr.flush();
                 return false;
             };
+        } else if (std.mem.eql(u8, args[i], "--sandbox")) {
+            caps = types.Capabilities.sandbox;
+            fuel = 1_000_000_000;
+            max_memory_bytes = 268_435_456; // 256 MB
         } else if (std.mem.eql(u8, args[i], "--allow-read")) {
             caps.allow_read = true;
         } else if (std.mem.eql(u8, args[i], "--allow-write")) {
