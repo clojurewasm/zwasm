@@ -376,12 +376,14 @@ pub fn environ_sizes_get(ctx: *anyopaque, _: usize) anyerror!void {
     const buf_size_ptr = vm.popOperandU32();
     const count_ptr = vm.popOperandU32();
 
-    if (!hasCap(vm, .allow_env)) return pushErrno(vm, .ACCES);
-
     const wasi = getWasi(vm) orelse {
         try pushErrno(vm, .NOSYS);
         return;
     };
+
+    // Allow access if allow_env is set OR there are explicitly injected env vars
+    if (!hasCap(vm, .allow_env) and wasi.environ_keys.items.len == 0)
+        return pushErrno(vm, .ACCES);
 
     const memory = try vm.getMemory(0);
     const count: u32 = @intCast(wasi.environ_keys.items.len);
@@ -402,12 +404,14 @@ pub fn environ_get(ctx: *anyopaque, _: usize) anyerror!void {
     const environ_buf_ptr = vm.popOperandU32();
     const environ_ptr = vm.popOperandU32();
 
-    if (!hasCap(vm, .allow_env)) return pushErrno(vm, .ACCES);
-
     const wasi = getWasi(vm) orelse {
         try pushErrno(vm, .NOSYS);
         return;
     };
+
+    // Allow access if allow_env is set OR there are explicitly injected env vars
+    if (!hasCap(vm, .allow_env) and wasi.environ_keys.items.len == 0)
+        return pushErrno(vm, .ACCES);
 
     const memory = try vm.getMemory(0);
     const data = memory.memory();
@@ -2491,6 +2495,48 @@ test "WASI — env.memory shared import" {
     // Should be resolvable as an import
     const handle = try store_inst.lookupImport("env", "memory", .memory);
     try testing.expect(handle < store_inst.memories.items.len);
+}
+
+test "injected env vars accessible without allow_env" {
+    const alloc = testing.allocator;
+
+    const wasm_bytes = try readTestFile("07_wasi_hello.wasm");
+    defer alloc.free(wasm_bytes);
+
+    var module = Module.init(alloc, wasm_bytes);
+    defer module.deinit();
+    try module.decode();
+
+    var store_inst = Store.init(alloc);
+    defer store_inst.deinit();
+    try registerAll(&store_inst, &module);
+
+    var instance = instance_mod.Instance.init(alloc, &store_inst, &module);
+    defer instance.deinit();
+
+    var wasi_ctx = WasiContext.init(alloc);
+    defer wasi_ctx.deinit();
+    // allow_env = false (default), but inject a variable
+    wasi_ctx.caps = Capabilities.cli_default;
+    try wasi_ctx.addEnv("MY_VAR", "hello");
+    instance.wasi = &wasi_ctx;
+
+    try instance.instantiate();
+
+    var vm_inst = Vm.init(alloc);
+    vm_inst.current_instance = &instance;
+
+    // environ_sizes_get should succeed and report 1 variable
+    try vm_inst.pushOperand(200); // count_ptr
+    try vm_inst.pushOperand(204); // buf_size_ptr
+    try environ_sizes_get(@ptrCast(&vm_inst), 0);
+
+    const errno = vm_inst.popOperand();
+    try testing.expectEqual(@as(u64, 0), errno); // SUCCESS
+
+    const memory = try instance.getMemory(0);
+    const count = try memory.read(u32, 200, 0);
+    try testing.expectEqual(@as(u32, 1), count);
 }
 
 test "Capabilities.sandbox denies all" {

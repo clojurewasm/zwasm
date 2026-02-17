@@ -5,7 +5,7 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-42 — ALL COMPLETE (... → Distribution → Community Preparation)
-- Source: ~38K LOC, 24 files, 429 unit tests all pass
+- Source: ~38K LOC, 24 files, 430 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
 - Spec: 62,158/62,158 Mac + Ubuntu (100.0%). GC+EH integrated, threads 310/310, E2E: 356/356
@@ -41,16 +41,15 @@ See `private/roadmap-production.md` Phase 43 for full detail.
 - [ ] 43.8: Tag v1.0.0 + publish — after 43.9-43.11 complete + fuzz PASS
 - [x] 43.9: Restrictive library API defaults — loadWasi() → cli_default (see .dev/security-hardening.md)
 - [x] 43.10: --sandbox CLI flag — deny-all + fuel 1B + memory 256MB
-- [ ] 43.11: --env=KEY=VALUE individual env injection
+- [x] 43.11: --env=KEY=VALUE individual env injection
 
 ## Current Task
 
-43.11: --env=KEY=VALUE individual env injection.
-Design: .dev/security-hardening.md
+43.8: Tag v1.0.0 + publish — all pre-requisites (43.9-43.11) complete.
 
 ## Previous Task
 
-43.10: --sandbox CLI flag — deny-all caps + fuel 1B + memory 256MB.
+43.11: --env=KEY=VALUE works without --allow-env when env vars are explicitly injected.
 
 ## Wasm 3.0 Coverage
 
