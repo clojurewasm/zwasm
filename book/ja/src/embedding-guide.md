@@ -9,7 +9,7 @@ zwasm を Zig ライブラリとして使用し、アプリケーション内で
 ```zig
 .dependencies = .{
     .zwasm = .{
-        .url = "https://github.com/clojurewasm/zwasm/archive/refs/tags/v1.0.0.tar.gz",
+        .url = "https://github.com/clojurewasm/zwasm/archive/refs/tags/v1.1.0.tar.gz",
         .hash = "...",  // zig build will provide the correct hash
     },
 },

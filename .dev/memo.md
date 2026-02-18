@@ -16,7 +16,7 @@ Session handover document. Read at session start.
 - WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
-- **main = stable**: CW depends on main via GitHub URL (v1.0.0 tag).
+- **main = stable**: CW depends on main via GitHub URL (v1.1.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
 - **Size guard**: Binary ≤ 1.5MB, Memory ≤ 4.5MB (fib RSS). Current: 1.31MB / 3.44MB.
 
