@@ -8,11 +8,11 @@ A small, fast WebAssembly runtime written in Zig. Library and CLI.
 
 ## Why zwasm
 
-Most Wasm runtimes are either fast but large (wasmtime ~56MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1.2MB with ARM64 + x86_64 JIT compilation**.
+Most Wasm runtimes are either fast but large (wasmtime ~56MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1.3MB with ARM64 + x86_64 JIT compilation**.
 
 | Runtime  | Binary  | Memory | JIT            |
 |----------|--------:|-------:|----------------|
-| zwasm    | 1.2MB   | ~3MB   | ARM64 + x86_64 |
+| zwasm    | 1.3MB   | ~3.4MB | ARM64 + x86_64 |
 | wasmtime | 56MB    | ~12MB  | Cranelift      |
 | wasm3    | 0.3MB   | ~1MB   | None           |
 
@@ -45,25 +45,29 @@ All ratified Wasm proposals through 3.0 are implemented.
 | Phase 4  | Threads (79 atomics)                                                             | Complete     |
 | Layer    | Component Model (WIT, Canon ABI, WASI P2)                                       | Complete     |
 
-18/18 proposals complete. 425 unit tests, 356/356 E2E tests.
+18/18 proposals complete. 510 unit tests, 356/356 E2E tests.
 
 ## Performance
 
 Benchmarked on Apple M4 Pro against wasmtime 41.0.1 (Cranelift JIT).
-13 of 21 benchmarks match or beat wasmtime. 20/21 within 2x.
-Memory usage 3-4x lower across all benchmarks.
+14 of 23 benchmarks match or beat wasmtime. 21/23 within 2x.
+Memory usage 3-4x lower than wasmtime, 8-12x lower than Bun/Node.
 
-| Benchmark       | zwasm   | wasmtime | Ratio    |
-|-----------------|--------:|---------:|---------:|
-| nqueens(8)      | 2.4ms   | 4.6ms    | **0.5x** |
-| nbody(1M)       | 9.7ms   | 20.8ms   | **0.5x** |
-| gcd(1B)         | 2.3ms   | 5.1ms    | **0.5x** |
-| sieve(1M)       | 4.4ms   | 5.9ms    | **0.7x** |
-| tak(24,16,8)    | 7.3ms   | 10.7ms   | **0.7x** |
-| fib(35)         | 54ms    | 51ms     | 1.1x     |
-| st_fib2(40)     | 1033ms  | 673ms    | 1.5x     |
+| Benchmark       | zwasm  | wasmtime | Bun    | Node   |
+|-----------------|-------:|---------:|-------:|-------:|
+| nqueens(8)      | 2ms    | 5ms      | 14ms   | 22ms   |
+| nbody(1M)       | 11ms   | 21ms     | 32ms   | 36ms   |
+| gcd(12K,67K)    | 2ms    | 4ms      | 15ms   | 22ms   |
+| sieve(1M)       | 4ms    | 7ms      | 16ms   | 26ms   |
+| tak(24,16,8)    | 7ms    | 10ms     | 17ms   | 25ms   |
+| fib(35)         | 51ms   | 49ms     | 31ms   | 46ms   |
+| st_fib2         | 1014ms | 656ms    | 345ms  | 375ms  |
 
-Full results (21 benchmarks): `bench/runtime_comparison.yaml`
+Full results (23 benchmarks): `bench/runtime_comparison.yaml`
+
+> **Note**: SIMD benchmarks are not included above. SIMD operations currently run on the
+> stack interpreter (no JIT), resulting in ~22x slower than wasmtime for SIMD-heavy workloads.
+> See [SIMD Performance](#known-limitations) below.
 
 ## Install
 
@@ -145,7 +149,7 @@ Requires Zig 0.15.2.
 
 ```bash
 zig build              # Build (Debug)
-zig build test         # Run all tests (425 tests)
+zig build test         # Run all tests (510 tests)
 ./zig-out/bin/zwasm run file.wasm
 ```
 
@@ -209,8 +213,25 @@ The spec test suite runs on every change.
 - [x] Stage 32: 100% spec conformance (62,158/62,158 on Mac + Ubuntu)
 - [x] Stage 33: Fuzz testing (differential testing, extended fuzz campaign, 0 crashes)
 - [x] Stages 35-41: Production hardening (crash safety, CI/CD, docs, API stability, distribution)
-- [ ] Stage 42-43: Community preparation, v1.0.0 release
-- [ ] Future: WASI P3/async, GC collector upgrade, liveness-based regalloc
+- [x] Stages 42-43: Community preparation, v1.0.0 release
+- [x] Stages 44-47: WAT parser spec parity, SIMD perf analysis, book i18n, WAT roundtrip 100%
+- [ ] Future: SIMD JIT (NEON/SSE), WASI P3/async, GC collector upgrade, liveness-based regalloc
+
+## Known Limitations
+
+### SIMD Performance
+
+SIMD (v128) operations are functionally complete (256 opcodes, 100% spec tests) but run on the
+stack interpreter tier, not the register IR or JIT tiers. This results in ~22x slower SIMD
+execution compared to wasmtime's Cranelift NEON/SSE backend.
+
+**Root cause**: The register IR uses a `u64` register file that cannot hold 128-bit values.
+SIMD functions fall back to the slower stack interpreter with per-instruction dispatch overhead.
+
+**Planned fix**: Extend register IR with `v128` register support (Phase 1), then add selective
+JIT NEON/SSE emission (Phase 2). See `.dev/simd-analysis.md` for the detailed roadmap.
+
+Scalar (non-SIMD) performance is unaffected — 14/23 scalar benchmarks beat wasmtime.
 
 ## Versioning
 

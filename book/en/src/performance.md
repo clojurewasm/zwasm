@@ -19,25 +19,36 @@ Once JIT-compiled, all subsequent calls to that function execute native machine 
 
 | Metric | Value |
 |--------|-------|
-| Binary size (ReleaseSafe) | 1.28 MB |
-| Runtime memory (fib benchmark) | 3.57 MB RSS |
+| Binary size (ReleaseSafe) | 1.31 MB |
+| Runtime memory (fib benchmark) | 3.44 MB RSS |
 | wasmtime binary for comparison | 56.3 MB |
 
-zwasm is ~44x smaller than wasmtime.
+zwasm is ~43x smaller than wasmtime.
 
 ## Benchmark results
 
-Representative benchmarks comparing zwasm against wasmtime, Bun, and Node.js on Apple M4 Pro:
+Representative benchmarks comparing zwasm against wasmtime 41.0.1, Bun 1.3.8, and Node v24.13.0 on Apple M4 Pro.
+14 of 23 benchmarks match or beat wasmtime. 21/23 within 2x.
 
 | Benchmark | zwasm | wasmtime | Bun | Node |
-|-----------|-------|----------|-----|------|
-| fib(35) | 54 ms | 51 ms | 33 ms | 44 ms |
-| tak(24,16,8) | 7 ms | 11 ms | 17 ms | 26 ms |
-| sieve(1M) | 4 ms | 6 ms | 16 ms | 27 ms |
-| nbody(1M) | 10 ms | 21 ms | 33 ms | 34 ms |
+|-----------|------:|---------:|----:|-----:|
 | nqueens(8) | 2 ms | 5 ms | 14 ms | 22 ms |
+| nbody(1M) | 11 ms | 21 ms | 32 ms | 36 ms |
+| gcd(12K,67K) | 2 ms | 4 ms | 15 ms | 22 ms |
+| tak(24,16,8) | 7 ms | 10 ms | 17 ms | 25 ms |
+| sieve(1M) | 4 ms | 7 ms | 16 ms | 26 ms |
+| fib(35) | 51 ms | 49 ms | 31 ms | 46 ms |
+| st_fib2 | 1014 ms | 656 ms | 345 ms | 375 ms |
 
-zwasm is competitive with wasmtime on most benchmarks and faster on several, while using a fraction of the memory.
+zwasm uses 3-4x less memory than wasmtime and 8-12x less than Bun/Node.
+
+Full results (23 benchmarks): `bench/runtime_comparison.yaml`
+
+### SIMD performance
+
+SIMD operations are functionally complete (256 opcodes, 100% spec) but run on the stack
+interpreter, not the register IR or JIT. This results in ~22x slower SIMD execution vs
+wasmtime. Planned improvement: extend register IR for v128, then selective JIT NEON/SSE.
 
 ## Benchmark methodology
 

@@ -5,6 +5,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-02-18
+
+### Added
+- WAT parser spec parity: GC type annotations, memory64 syntax, typed select, NaN payloads
+- WAT roundtrip 100%: 62,156/62,156 spec test modules parse and re-encode correctly
+- SIMD interpreter fast-path: predecoded IR dispatch for v128 ops (~2x improvement)
+- SIMD performance analysis and 3-phase optimization roadmap
+- Japanese documentation (book/ja/) with language switcher
+- GC benchmarks in runtime comparison recording
+
+### Changed
+- Binary size: 1.31 MB (ReleaseSafe, from 1.28 MB — WAT parser improvements)
+- Runtime memory: 3.44 MB RSS (fib benchmark)
+- Benchmark results: 14/23 match or beat wasmtime (up from 13/21)
+- Updated all documentation with fresh benchmark data
+
+### Known Limitations
+- SIMD operations run on stack interpreter (~22x slower than wasmtime). Planned: RegIR v128 extension + selective JIT NEON/SSE.
+
 ## [1.0.0] - 2026-02-17
 
 First stable release. API frozen under SemVer guarantees.

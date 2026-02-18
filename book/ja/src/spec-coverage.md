@@ -86,7 +86,8 @@ zwasm は WebAssembly 3.0 への完全準拠を目指しています。すべて
 - データセクションと要素セクション
 - すべてのプレフィックスオペコード: 0xFC (bulk memory, trunc_sat), 0xFD (SIMD + lane ops), 0xFE (atomics)
 - Wasm 3.0 オペコード: try_table, call_ref, br_on_null, throw_ref など
-- GC プレフィックス (0xFB) は保留 — 型アノテーションパーサーの拡張が必要
+- GC プレフィックス (0xFB): GC 型アノテーションと struct/array エンコーディング
+- 100% WAT ラウンドトリップ: 62,156/62,156 の仕様テストモジュールが正しくパース・再エンコード
 
 ## オペコード総数
 

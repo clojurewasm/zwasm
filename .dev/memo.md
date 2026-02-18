@@ -5,7 +5,7 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-42 — ALL COMPLETE (... → Distribution → Community Preparation)
-- Source: ~38K LOC, 24 files, 430 unit tests all pass
+- Source: ~38K LOC, 24 files, 510 unit tests all pass
 - Component Model: WIT parser, binary decoder, Canonical ABI, WASI P2 adapter, CLI support (121 CM tests)
 - Opcode: 236 core + 256 SIMD (236 + 20 relaxed) + 31 GC = 523, WASI: 46/46 (100%)
 - Spec: 62,158/62,158 Mac + Ubuntu (100.0%). GC+EH integrated, threads 310/310, E2E: 356/356
@@ -16,9 +16,9 @@ Session handover document. Read at session start.
 - WAT parser: `zwasm run file.wat`, `WasmModule.loadFromWat()`, `-Dwat=false`
 - Debug trace: --trace, --dump-regir, --dump-jit (zero-cost when disabled)
 - Library consumer: ClojureWasm (uses zwasm as zig dependency)
-- **main = stable**: CW depends on main via GitHub URL (v0.3.0 tag).
+- **main = stable**: CW depends on main via GitHub URL (v1.0.0 tag).
   All dev on feature branches. Merge gate: zwasm tests + CW tests + e2e.
-- **Size guard**: Binary ≤ 1.5MB, Memory ≤ 4.5MB (fib RSS). Current: 1.28MB / 3.57MB.
+- **Size guard**: Binary ≤ 1.5MB, Memory ≤ 4.5MB (fib RSS). Current: 1.31MB / 3.44MB.
 
 ## Completed Stages
 

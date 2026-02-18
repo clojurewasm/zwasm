@@ -86,7 +86,8 @@ The text format parser supports:
 - Data and element sections
 - All prefix opcodes: 0xFC (bulk memory, trunc_sat), 0xFD (SIMD + lane ops), 0xFE (atomics)
 - Wasm 3.0 opcodes: try_table, call_ref, br_on_null, throw_ref, etc.
-- GC prefix (0xFB) deferred — requires type annotation parser extensions
+- GC prefix (0xFB): GC type annotations and struct/array encoding
+- 100% WAT roundtrip: 62,156/62,156 spec test modules parse and re-encode correctly
 
 ## Total opcode count
 

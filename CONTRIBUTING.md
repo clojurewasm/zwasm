@@ -7,7 +7,7 @@ Thank you for your interest in contributing!
 ```bash
 git clone https://github.com/clojurewasm/zwasm.git
 cd zwasm
-zig build test    # Run all tests (~425)
+zig build test    # Run all tests (~510)
 ```
 
 Requires **Zig 0.15.2**. See [Requirements](#requirements) for optional tools.

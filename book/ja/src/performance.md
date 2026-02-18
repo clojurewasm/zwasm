@@ -19,25 +19,34 @@ JIT コンパイルが完了すると、その関数への以降のすべての�
 
 | 指標 | 値 |
 |------|-----|
-| バイナリサイズ (ReleaseSafe) | 1.28 MB |
-| ランタイムメモリ (fib ベンチマーク) | 3.57 MB RSS |
+| バイナリサイズ (ReleaseSafe) | 1.31 MB |
+| ランタイムメモリ (fib ベンチマーク) | 3.44 MB RSS |
 | wasmtime バイナリ（比較用） | 56.3 MB |
 
-zwasm は wasmtime の約1/44のサイズです。
+zwasm は wasmtime の約1/43のサイズです。
 
 ## ベンチマーク結果
 
-Apple M4 Pro 上で zwasm を wasmtime、Bun、Node.js と比較した代表的なベンチマーク:
+Apple M4 Pro 上で zwasm を wasmtime 41.0.1、Bun 1.3.8、Node v24.13.0 と比較した代表的なベンチマーク。
+23 個中 14 個のベンチマークで wasmtime と同等以上の性能。23 個中 21 個が 2 倍以内。
 
 | ベンチマーク | zwasm | wasmtime | Bun | Node |
-|-------------|-------|----------|-----|------|
-| fib(35) | 54 ms | 51 ms | 33 ms | 44 ms |
-| tak(24,16,8) | 7 ms | 11 ms | 17 ms | 26 ms |
-| sieve(1M) | 4 ms | 6 ms | 16 ms | 27 ms |
-| nbody(1M) | 10 ms | 21 ms | 33 ms | 34 ms |
+|-------------|------:|---------:|----:|-----:|
 | nqueens(8) | 2 ms | 5 ms | 14 ms | 22 ms |
+| nbody(1M) | 11 ms | 21 ms | 32 ms | 36 ms |
+| gcd(12K,67K) | 2 ms | 4 ms | 15 ms | 22 ms |
+| tak(24,16,8) | 7 ms | 10 ms | 17 ms | 25 ms |
+| sieve(1M) | 4 ms | 7 ms | 16 ms | 26 ms |
+| fib(35) | 51 ms | 49 ms | 31 ms | 46 ms |
+| st_fib2 | 1014 ms | 656 ms | 345 ms | 375 ms |
 
-zwasm はほとんどのベンチマークで wasmtime と同等の性能を示し、いくつかのベンチマークではより高速でありながら、メモリ使用量はごくわずかです。
+メモリ使用量は wasmtime の 3〜4 分の 1、Bun/Node の 8〜12 分の 1 です。
+
+全結果（23 ベンチマーク）: `bench/runtime_comparison.yaml`
+
+### SIMD パフォーマンス
+
+SIMD 操作は機能的に完全です（256 オペコード、仕様テスト 100%）が、レジスタ IR や JIT ではなくスタックインタプリタで実行されます。その結果、SIMD 実行は wasmtime の約 22 倍遅くなります。改善計画: レジスタ IR の v128 拡張、その後選択的な JIT NEON/SSE エミッション。
 
 ## ベンチマーク手法
 

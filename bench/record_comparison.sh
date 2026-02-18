@@ -109,6 +109,14 @@ build_cmd() {
         node)     echo "node $RUNNER $wasm $func $args" ;;
       esac
       ;;
+    gc_invoke)
+      case "$rt" in
+        zwasm)    echo "$ZWASM run --invoke $func $wasm $args" ;;
+        wasmtime) echo "wasmtime run --wasm gc --invoke $func $wasm $args" ;;
+        bun)      echo "bun $RUNNER $wasm $func $args" ;;
+        node)     echo "node $RUNNER $wasm $func $args" ;;
+      esac
+      ;;
     wasi)
       case "$rt" in
         zwasm)    echo "$ZWASM run $wasm" ;;
@@ -159,6 +167,9 @@ BENCHMARKS=(
   # ed25519 excluded (crypto, very slow on interpreter)
   #"st_ed25519:bench/wasm/shootout/shootout-ed25519.wasm::_start:wasi"
   "st_matrix:bench/wasm/shootout/shootout-matrix.wasm::_start:wasi"
+  # Layer 4: GC
+  "gc_alloc:bench/wasm/gc_alloc.wasm:gc_bench:100000:gc_invoke"
+  "gc_tree:bench/wasm/gc_tree.wasm:gc_tree_bench:18:gc_invoke"
 )
 
 TMPDIR_BENCH=$(mktemp -d)

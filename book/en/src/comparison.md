@@ -18,7 +18,7 @@ How zwasm compares to other WebAssembly runtimes.
 
 ## When to choose zwasm
 
-**Small footprint**: When binary size and memory usage matter. zwasm is 44x smaller than wasmtime.
+**Small footprint**: When binary size and memory usage matter. zwasm is 43x smaller than wasmtime.
 
 **Zig ecosystem**: When embedding in a Zig application. zwasm integrates as a native `zig build` dependency with zero C dependencies.
 
@@ -28,7 +28,7 @@ How zwasm compares to other WebAssembly runtimes.
 
 ## When to choose alternatives
 
-**Maximum throughput**: wasmtime's Cranelift AOT compiler produces highly optimized native code. For long-running compute-heavy workloads, wasmtime may be faster.
+**Maximum throughput**: wasmtime's Cranelift AOT compiler produces highly optimized native code. For long-running compute-heavy workloads, wasmtime may be faster. In particular, SIMD-heavy workloads are currently ~22x slower on zwasm (stack interpreter, no SIMD JIT yet).
 
 **Windows support**: zwasm currently supports macOS and Linux. For Windows, use wasmtime or wasmer.
 
