@@ -55,6 +55,10 @@ const JsonCommand = struct {
     action: ?JsonAction = null,
     expected: ?[]const JsonValue = null,
     @"as": ?[]const u8 = null,
+    // Thread support: sub-commands within a thread block
+    commands: ?[]const JsonCommand = null,
+    shared_module: ?[]const u8 = null,
+    thread: ?[]const u8 = null,
 };
 
 const JsonTestFile = struct {
@@ -500,6 +504,52 @@ const TestRunner = struct {
         return bytes;
     }
 
+    fn dispatchCommands(self: *TestRunner, commands: []const JsonCommand) void {
+        for (commands) |*cmd| {
+            if (std.mem.eql(u8, cmd.type, "module")) {
+                self.handleModule(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "register")) {
+                self.handleRegister(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "assert_return")) {
+                self.handleAssertReturn(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "assert_trap")) {
+                self.handleAssertTrap(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "assert_exhaustion")) {
+                self.handleAssertExhaustion(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "assert_invalid")) {
+                self.handleAssertInvalid(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "assert_malformed")) {
+                self.handleAssertMalformed(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "assert_unlinkable")) {
+                self.handleAssertUnlinkable(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "assert_uninstantiable")) {
+                self.handleAssertUninstantiable(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "action")) {
+                self.handleAction(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "thread")) {
+                self.handleThread(cmd);
+            } else if (std.mem.eql(u8, cmd.type, "wait")) {
+                // No-op: single-threaded runtime, threads run sequentially
+            }
+        }
+    }
+
+    fn handleThread(self: *TestRunner, cmd: *const JsonCommand) void {
+        // Run thread sub-commands sequentially (single-threaded simulation).
+        // Only process register/module/action — skip assert types to avoid
+        // deadlocks from atomic.wait in a single-threaded context.
+        const sub_commands = cmd.commands orelse return;
+        for (sub_commands) |*sub| {
+            if (std.mem.eql(u8, sub.type, "module")) {
+                self.handleModule(sub);
+            } else if (std.mem.eql(u8, sub.type, "register")) {
+                self.handleRegister(sub);
+            } else if (std.mem.eql(u8, sub.type, "action")) {
+                self.handleAction(sub);
+            }
+        }
+    }
+
     fn runFile(self: *TestRunner, json_path: []const u8) !struct { passed: u32, failed: u32, skipped: u32 } {
         const old_passed = self.passed;
         const old_failed = self.failed;
@@ -524,29 +574,7 @@ const TestRunner = struct {
         // Reset module state for this test file
         self.resetState();
 
-        for (parsed.value.commands) |*cmd| {
-            if (std.mem.eql(u8, cmd.type, "module")) {
-                self.handleModule(cmd);
-            } else if (std.mem.eql(u8, cmd.type, "register")) {
-                self.handleRegister(cmd);
-            } else if (std.mem.eql(u8, cmd.type, "assert_return")) {
-                self.handleAssertReturn(cmd);
-            } else if (std.mem.eql(u8, cmd.type, "assert_trap")) {
-                self.handleAssertTrap(cmd);
-            } else if (std.mem.eql(u8, cmd.type, "assert_exhaustion")) {
-                self.handleAssertExhaustion(cmd);
-            } else if (std.mem.eql(u8, cmd.type, "assert_invalid")) {
-                self.handleAssertInvalid(cmd);
-            } else if (std.mem.eql(u8, cmd.type, "assert_malformed")) {
-                self.handleAssertMalformed(cmd);
-            } else if (std.mem.eql(u8, cmd.type, "assert_unlinkable")) {
-                self.handleAssertUnlinkable(cmd);
-            } else if (std.mem.eql(u8, cmd.type, "assert_uninstantiable")) {
-                self.handleAssertUninstantiable(cmd);
-            } else if (std.mem.eql(u8, cmd.type, "action")) {
-                self.handleAction(cmd);
-            }
-        }
+        self.dispatchCommands(parsed.value.commands);
 
         return .{
             .passed = self.passed - old_passed,
