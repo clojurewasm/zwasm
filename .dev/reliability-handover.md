@@ -39,7 +39,18 @@
 - [ ] H.3: Update benchmark table
 
 ## Current Phase
-A.2 complete. Proceeding to B (Real-World Wasm Compilation).
+B complete. C.1 done (first run). Proceeding to C.2 (fix failures).
+
+## Compatibility Test Results (Mac, first run)
+12 real-world wasm binaries. 3 PASS, 9 DIFF, 0 CRASH.
+
+Categories of failures:
+1. **Test script `--` handling** (3): hello_wasi (C/Go/Rust) — wasmtime receives `--` as argv, zwasm strips it. Fix the test runner.
+2. **JIT back-edge bug (W34)** (4): c_matrix_multiply, c_string_processing, cpp_vector_sort, cpp_string_ops — nested loops exceed BACK_EDGE_THRESHOLD (1000), JIT compiles buggy native code, hits unreachable trap. **CRITICAL**: This affects ALL real-world programs with nested loops.
+3. **FP precision difference** (1): c_math_compute — 21304744.877962 vs 21304744.878669. Small difference, likely expected.
+4. **WASI file I/O** (1): rust_file_io — needs investigation (may also be JIT-related).
+
+**W34 is the #1 priority.** It silently breaks real-world wasm programs from C/C++ when loops iterate enough to trigger back-edge JIT.
 
 ## Notes
 - Rust: system rustup with wasm32-wasip1 target (not in nix)
