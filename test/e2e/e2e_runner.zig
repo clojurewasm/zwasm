@@ -573,7 +573,13 @@ fn parseValue(v: JsonValue) u64 {
             const signed = std.fmt.parseInt(i64, s, 10) catch return 0;
             return @bitCast(signed);
         };
-    } else if (std.mem.eql(u8, v.type, "externref") or std.mem.eql(u8, v.type, "funcref") or
+    } else if (std.mem.eql(u8, v.type, "externref")) {
+        if (std.mem.eql(u8, s, "null")) return 0;
+        // Encode externref with EXTERN_TAG: (N + 1) | EXTERN_TAG
+        const EXTERN_TAG: u64 = @as(u64, 0x02) << 32;
+        const n = std.fmt.parseInt(u64, s, 10) catch return 0;
+        return (n + 1) | EXTERN_TAG;
+    } else if (std.mem.eql(u8, v.type, "funcref") or
         std.mem.eql(u8, v.type, "anyref") or std.mem.eql(u8, v.type, "structref") or
         std.mem.eql(u8, v.type, "arrayref") or std.mem.eql(u8, v.type, "eqref") or
         std.mem.eql(u8, v.type, "i31ref") or std.mem.eql(u8, v.type, "nullref") or
@@ -615,7 +621,10 @@ fn valuesMatch(expected: JsonValue, actual: u64) bool {
         return actual == exp_bits;
     } else if (std.mem.eql(u8, expected.type, "externref")) {
         if (std.mem.eql(u8, s, "null")) return actual == 0;
-        return actual == (std.fmt.parseInt(u64, s, 10) catch return false);
+        // Decode externref: actual is (N + 1) | EXTERN_TAG
+        const EXTERN_TAG: u64 = @as(u64, 0x02) << 32;
+        const decoded = (actual & ~EXTERN_TAG) -| 1;
+        return decoded == (std.fmt.parseInt(u64, s, 10) catch return false);
     } else if (std.mem.eql(u8, expected.type, "funcref")) {
         if (std.mem.eql(u8, s, "null")) return actual == 0;
         return actual != 0;

@@ -138,7 +138,10 @@ pub const GcHeap = struct {
     }
 
     /// Allocate an array object, returns gc_addr.
+    /// Traps on allocation sizes that would exceed reasonable limits.
     pub fn allocArray(self: *GcHeap, type_idx: u32, len: u32, init_val: StackVal) !u32 {
+        // Guard against unreasonably large allocations (spec: "allocation size too large")
+        if (len > 1024 * 1024 * 128) return error.Trap; // 128M elements max
         const elements = try self.arena.allocFields(len);
         @memset(elements, init_val);
         return self.allocSlot(.{ .array_obj = .{ .type_idx = type_idx, .elements = elements } });
