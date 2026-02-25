@@ -49,22 +49,25 @@ run_test() {
   local extra_args=""
   local zwasm_flags="--allow-all"
 
+  # Per-program configuration
+  local wt_extra=""  # wasmtime-specific flags
+  local zw_extra=""  # zwasm-specific flags
   case "$name" in
-    *hello_wasi*) extra_args="-- arg1 arg2" ;;
-    *file_io*)    zwasm_flags="--allow-all" ;;
+    *hello_wasi*) extra_args="arg1 arg2" ;;
+    *file_io*)    wt_extra="--dir /tmp"; zw_extra="--dir /tmp" ;;
   esac
 
   # Run wasmtime
   local wt_exit=0
-  if [[ "$name" == *file_io* ]]; then
-    wasmtime run --dir /tmp "$wasm" $extra_args > "$wasmtime_out" 2> "$wasmtime_err" || wt_exit=$?
-  else
-    wasmtime run "$wasm" $extra_args > "$wasmtime_out" 2> "$wasmtime_err" || wt_exit=$?
-  fi
+  wasmtime run $wt_extra "$wasm" $extra_args > "$wasmtime_out" 2> "$wasmtime_err" || wt_exit=$?
 
   # Run zwasm
   local zw_exit=0
-  $ZWASM run $zwasm_flags "$wasm" $extra_args > "$zwasm_out" 2> "$zwasm_err" || zw_exit=$?
+  $ZWASM run $zwasm_flags $zw_extra "$wasm" $extra_args > "$zwasm_out" 2> "$zwasm_err" || zw_exit=$?
+
+  # Normalize outputs: strip path from argv[0] (wasmtime uses basename, zwasm uses full path)
+  sed 's|argv\[0\] = .*/|argv[0] = |' "$wasmtime_out" > "$TMP_DIR/${name}_wt_norm"
+  sed 's|argv\[0\] = .*/|argv[0] = |' "$zwasm_out" > "$TMP_DIR/${name}_zw_norm"
 
   # Compare
   local status=""
@@ -72,7 +75,7 @@ run_test() {
     status="CRASH"
     CRASH=$((CRASH + 1))
     RESULTS="$RESULTS\n  CRASH: $name (signal $((zw_exit - 128)))"
-  elif diff -q "$wasmtime_out" "$zwasm_out" > /dev/null 2>&1; then
+  elif diff -q "$TMP_DIR/${name}_wt_norm" "$TMP_DIR/${name}_zw_norm" > /dev/null 2>&1; then
     if [ $wt_exit -eq $zw_exit ]; then
       status="PASS"
       PASS=$((PASS + 1))
@@ -86,12 +89,12 @@ run_test() {
     FAIL=$((FAIL + 1))
     RESULTS="$RESULTS\n  DIFF: $name"
     if [ $VERBOSE -eq 1 ]; then
-      echo "    wasmtime stdout:"
-      cat "$wasmtime_out" | head -20
-      echo "    zwasm stdout:"
-      cat "$zwasm_out" | head -20
+      echo "    wasmtime stdout (normalized):"
+      cat "$TMP_DIR/${name}_wt_norm" | head -20
+      echo "    zwasm stdout (normalized):"
+      cat "$TMP_DIR/${name}_zw_norm" | head -20
       echo "    diff:"
-      diff "$wasmtime_out" "$zwasm_out" | head -20 || true
+      diff "$TMP_DIR/${name}_wt_norm" "$TMP_DIR/${name}_zw_norm" | head -20 || true
     fi
   fi
 

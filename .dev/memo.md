@@ -40,13 +40,16 @@ See `private/roadmap-production.md` Phase 46 for full detail.
 
 ## Current Task
 
-Reliability improvement (branch: `strictly-check/reliability`).
+Reliability improvement (branch: `strictly-check/reliability-001`).
 Plan: `.dev/reliability-plan.md`. Progress: `.dev/reliability-handover.md`.
-Phase A (env setup) done. Proceeding to Phase B (real-world wasm compilation).
+Phases A-C complete, F.3 done. W34 root cause fixed (reentry guard detection).
+Next: merge to main, then D.1 (E2E failures).
 
 ## Previous Task
 
-47: WAT roundtrip 100% — complete. 3 bugs fixed, 62,156/62,156 passed.
+W34 JIT back-edge reentry bug — FIXED. Root cause: C/C++ `__wasm_call_ctors` reentry guard
+traps when back-edge JIT restarts function. Fix: `hasReentryGuard()` in vm.zig detects
+early branch-to-unreachable and skips back-edge JIT. 12/13 compat pass, 0 benchmark regression.
 
 ## Wasm 3.0 Coverage
 
@@ -55,10 +58,7 @@ GC spec tests now from main testsuite (no gc- prefix). 17 GC files + type-subtyp
 
 ## Known Bugs
 
-JIT: Nested loop functions with 9+ virtual registers produce wrong results when
-back-edge JIT triggers (e.g., 32x32+ matrix multiply). 16x16 works, 32x32 doesn't.
-Spec tests unaffected (all pass). Workaround: use smaller sizes or split into sub-functions.
-Mac 62,158/62,158 (100%), Ubuntu 62,158/62,158 (100%). Zero spec failures.
+None. W34 (back-edge JIT reentry) fixed. Mac 62,158/62,158 (100%), Ubuntu 62,158/62,158 (100%).
 
 ## References
 

@@ -14,8 +14,10 @@ Prefix: W## (to distinguish from CW's F## items).
 - [x] W32: SIMD performance — RESOLVED in Stage 45. Predecoded IR fast-path (45.4) gives ~2x speedup.
   SIMD penalty reduced from 10.2x to 4.0x vs scalar. Gap vs wasmtime: 42.8x → 22.3x.
   Further improvement (RegIR v128 + JIT NEON) deferred per D122.
-- [ ] W34: JIT nested loop bug — functions with 9+ virtual registers and deeply nested loops
-  produce wrong results when back-edge JIT triggers (32x32+ matmul). Spec tests unaffected.
+- [x] W34: JIT back-edge reentry bug — C/C++ WASI `_start` has a reentry guard
+  (`__wasm_call_ctors`) that traps when back-edge JIT restarts the function.
+  Fixed: `hasReentryGuard()` detects early-branch-to-unreachable pattern and
+  skips back-edge JIT. No performance regression (benchmarks unaffected).
 
 ## Resolved items (summary, details in git history)
 
