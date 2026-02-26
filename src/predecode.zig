@@ -38,6 +38,7 @@ pub const OP_IF_DATA: u16 = 0xFF00;
 pub const OP_BR_TABLE_ENTRY: u16 = 0xFF01;
 
 // Prefix bases for flattened opcodes
+pub const GC_BASE: u16 = 0xFB00;
 pub const MISC_BASE: u16 = 0xFC00;
 pub const SIMD_BASE: u16 = 0xFD00;
 
@@ -283,11 +284,14 @@ pub fn predecode(alloc: Allocator, bytecode: []const u8) PredecodeError!?*IrFunc
                 if (!try predecodeMisc(alloc, &code, &reader)) return error.InvalidWasm;
             },
 
-            // -- GC prefix (0xFB) — not supported, fall back --
+            // -- GC prefix (0xFB) --
             0xFB => {
-                code.deinit(alloc);
-                pool64.deinit(alloc);
-                return null;
+                if (!try predecodeGc(alloc, &code, &reader)) {
+                    // Unsupported GC sub-opcode — bail to interpreter
+                    code.deinit(alloc);
+                    pool64.deinit(alloc);
+                    return null;
+                }
             },
 
             // -- SIMD prefix (0xFD) --
@@ -342,6 +346,50 @@ fn readBlockTypeEncoded(reader: *Reader) !u16 {
     }
     const idx = try reader.readI33();
     return ARITY_TYPE_INDEX_FLAG | @as(u16, @intCast(@as(u32, @intCast(idx))));
+}
+
+fn predecodeGc(alloc: Allocator, code: *std.ArrayList(PreInstr), reader: *Reader) !bool {
+    const sub = reader.readU32() catch return false;
+    const ir_op: u16 = GC_BASE | @as(u16, @intCast(sub & 0xFF));
+    switch (sub) {
+        // struct.new type_idx — pop N fields, push ref
+        0x00 => {
+            const type_idx = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = type_idx });
+        },
+        // struct.new_default type_idx — push ref (no pops, fields zeroed)
+        0x01 => {
+            const type_idx = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = 0, .operand = type_idx });
+        },
+        // struct.get type_idx field_idx — pop ref, push value
+        0x02 => {
+            const type_idx = reader.readU32() catch return false;
+            const field_idx = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = @intCast(field_idx), .operand = type_idx });
+        },
+        // struct.get_s type_idx field_idx
+        0x03 => {
+            const type_idx = reader.readU32() catch return false;
+            const field_idx = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = @intCast(field_idx), .operand = type_idx });
+        },
+        // struct.get_u type_idx field_idx
+        0x04 => {
+            const type_idx = reader.readU32() catch return false;
+            const field_idx = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = @intCast(field_idx), .operand = type_idx });
+        },
+        // struct.set type_idx field_idx — pop ref + value
+        0x05 => {
+            const type_idx = reader.readU32() catch return false;
+            const field_idx = reader.readU32() catch return false;
+            try code.append(alloc, .{ .opcode = ir_op, .extra = @intCast(field_idx), .operand = type_idx });
+        },
+        // Unsupported GC sub-opcode — bail
+        else => return false,
+    }
+    return true;
 }
 
 fn predecodeMisc(alloc: Allocator, code: *std.ArrayList(PreInstr), reader: *Reader) !bool {
@@ -653,4 +701,39 @@ test "predecode SIMD relaxed ops (sub >= 0x100)" {
     // Verify they are distinct from sub=0x00 (v128.load) and sub=0x01 (v128.load8x8_s)
     try testing.expect(ir.?.code[0].opcode != SIMD_BASE + 0x00);
     try testing.expect(ir.?.code[1].opcode != SIMD_BASE + 0x01);
+}
+
+test "predecode GC struct.new does not bail" {
+    // Function body: struct.new type_idx=0, end
+    const bytecode = [_]u8{
+        0xFB, 0x00, 0x00, // gc_prefix + struct_new + type_idx=0 (LEB128)
+        0x0B, // end
+    };
+    const ir = try predecode(testing.allocator, &bytecode);
+    try testing.expect(ir != null);
+    defer {
+        ir.?.deinit();
+        testing.allocator.destroy(ir.?);
+    }
+    try testing.expectEqual(@as(usize, 2), ir.?.code.len);
+    try testing.expectEqual(GC_BASE + 0x00, ir.?.code[0].opcode); // struct.new
+    try testing.expectEqual(@as(u32, 0), ir.?.code[0].operand); // type_idx=0
+}
+
+test "predecode GC struct.get does not bail" {
+    // Function body: struct.get type_idx=0 field_idx=1, end
+    const bytecode = [_]u8{
+        0xFB, 0x02, 0x00, 0x01, // gc_prefix + struct_get + type_idx=0 + field_idx=1
+        0x0B, // end
+    };
+    const ir = try predecode(testing.allocator, &bytecode);
+    try testing.expect(ir != null);
+    defer {
+        ir.?.deinit();
+        testing.allocator.destroy(ir.?);
+    }
+    try testing.expectEqual(@as(usize, 2), ir.?.code.len);
+    try testing.expectEqual(GC_BASE + 0x02, ir.?.code[0].opcode); // struct.get
+    try testing.expectEqual(@as(u32, 0), ir.?.code[0].operand); // type_idx=0
+    try testing.expectEqual(@as(u16, 1), ir.?.code[0].extra); // field_idx=1
 }

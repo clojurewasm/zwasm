@@ -32,6 +32,7 @@ const Instance = @import("instance.zig").Instance;
 const ValType = @import("opcode.zig").ValType;
 const WasmMemory = @import("memory.zig").Memory;
 const trace_mod = @import("trace.zig");
+const predecode_mod = @import("predecode.zig");
 
 /// JIT-compiled function pointer type.
 /// Args: regs_ptr, vm_ptr, instance_ptr.
@@ -886,6 +887,7 @@ pub const Compiler = struct {
     mem_fill_addr: u64,
     mem_copy_addr: u64,
     call_indirect_addr: u64,
+    gc_trampoline_addr: u64,
     pool64: []const u64,
     has_memory: bool,
     has_self_call: bool,
@@ -991,6 +993,7 @@ pub const Compiler = struct {
             .mem_fill_addr = 0,
             .mem_copy_addr = 0,
             .call_indirect_addr = 0,
+            .gc_trampoline_addr = 0,
             .pool64 = &.{},
             .has_memory = false,
             .has_self_call = false,
@@ -1232,14 +1235,22 @@ pub const Compiler = struct {
         }
     }
 
-    /// Load VM pointer from memory slot into dst register.
+    /// Load VM pointer from memory slot (or cached x20) into dst register.
     fn emitLoadVmPtr(self: *Compiler, dst: u5) void {
-        self.emit(a64.ldr64(dst, REGS_PTR, @intCast((@as(u32, self.reg_count) + 2) * 8)));
+        if (self.vm_ptr_cached and dst != 20) {
+            self.emit(a64.mov64(dst, 20)); // x20 holds vm_ptr
+        } else {
+            self.emit(a64.ldr64(dst, REGS_PTR, @intCast((@as(u32, self.reg_count) + 2) * 8)));
+        }
     }
 
-    /// Load instance pointer from memory slot into dst register.
+    /// Load instance pointer from memory slot (or cached x21) into dst register.
     fn emitLoadInstPtr(self: *Compiler, dst: u5) void {
-        self.emit(a64.ldr64(dst, REGS_PTR, @intCast((@as(u32, self.reg_count) + 3) * 8)));
+        if (self.inst_ptr_cached and dst != 21) {
+            self.emit(a64.mov64(dst, 21)); // x21 holds inst_ptr
+        } else {
+            self.emit(a64.ldr64(dst, REGS_PTR, @intCast((@as(u32, self.reg_count) + 3) * 8)));
+        }
     }
 
     /// Spill caller-saved virtual regs (r5-r11 → x9-x15, r14-r19 → x2-x7) to memory.
@@ -1338,8 +1349,11 @@ pub const Compiler = struct {
 
             // Check uses first (rs1, rs2) — if used before defined, vreg is live
             // Note: OP_CALL rs1 = n_args (not a vreg), skip it.
+            // GC struct.new rs1 = n_fields (not a vreg), skip it.
             // OP_CALL_INDIRECT rs1 = elem_idx_reg (IS a vreg), don't skip.
-            if (instr.op != regalloc_mod.OP_CALL) {
+            if (instr.op != regalloc_mod.OP_CALL and
+                instr.op != (predecode_mod.GC_BASE | 0x00))
+            {
                 markCallerSavedUse(&live, &resolved, instr.rs1);
             }
             // rs2 for binary ops (op uses operand low byte as rs2)
@@ -1421,6 +1435,8 @@ pub const Compiler = struct {
             // Memory stores use rd as VALUE source, not a definition
             0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
             => false,
+            // GC struct.set: rd = ref_reg (a use, not a definition)
+            predecode_mod.GC_BASE | 0x05 => false,
             else => true,
         };
     }
@@ -1817,12 +1833,13 @@ pub const Compiler = struct {
         } else if (self.has_self_call) {
             // Normal entry: load reg_ptr, depth, vm/inst into cached registers.
             // Self-call entry bypasses this (registers preserved from caller).
+            // Load cached vm/inst ptrs FIRST — emitLoadRegPtrAddr uses cached x20.
+            if (self.vm_ptr_cached) self.emitLoadVmPtr(20); // x20 = vm_ptr
+            if (self.inst_ptr_cached) self.emitLoadInstPtr(21); // x21 = inst_ptr
             self.emitLoadRegPtrAddr(SCRATCH);
             self.emit(a64.ldr64(REG_PTR_VAL, SCRATCH, 0)); // x27 = vm.reg_ptr value
             self.emit(a64.str64(SCRATCH, REGS_PTR, @intCast(@as(u16, self.reg_count) * 8)));
             self.emit(a64.ldr64(28, SCRATCH, 8)); // x28 = vm.call_depth
-            if (self.vm_ptr_cached) self.emitLoadVmPtr(20); // x20 = vm_ptr
-            if (self.inst_ptr_cached) self.emitLoadInstPtr(21); // x21 = inst_ptr
         }
 
         // --- Vreg loading (self-call B target) ---
@@ -2163,6 +2180,8 @@ pub const Compiler = struct {
                 }
             } else if (instr.op == regalloc_mod.OP_CALL_INDIRECT) {
                 found_other_call = true;
+            } else if (instr.op >= predecode_mod.GC_BASE and instr.op <= predecode_mod.GC_BASE + 0x05) {
+                found_other_call = true; // GC ops use BLR trampoline
             }
         }
         self.has_self_call = found_self_call;
@@ -2774,6 +2793,36 @@ pub const Compiler = struct {
             0xFC04, 0xFC05, // i64.trunc_sat_f32_s/u
             0xFC06, 0xFC07, // i64.trunc_sat_f64_s/u
             => self.emitTruncSat(instr),
+
+            // --- ref.null / ref.is_null ---
+            regalloc_mod.OP_REF_NULL => {
+                const d = destReg(instr.rd);
+                self.emit(a64.movz64(d, 0, 0)); // null ref = 0
+                self.storeVreg(instr.rd, d);
+            },
+            regalloc_mod.OP_REF_IS_NULL => {
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                const d = destReg(instr.rd);
+                self.emit(a64.cmp64(src, 31)); // CMP Xn, XZR
+                self.emit(a64.cset64(d, .eq)); // rd = (src == 0) ? 1 : 0
+                self.storeVreg(instr.rd, d);
+            },
+
+            // --- GC struct operations (BLR to runtime helper) ---
+            predecode_mod.GC_BASE | 0x00 => { // struct.new
+                const n_fields: u16 = instr.rs1;
+                const call_pc = pc.* - 1;
+                const data = ir[pc.*]; pc.* += 1;
+                const has_data2 = (pc.* < ir.len and ir[pc.*].op == regalloc_mod.OP_NOP);
+                var data2: RegInstr = undefined;
+                if (has_data2) { data2 = ir[pc.*]; pc.* += 1; }
+                self.emitGcStructNew(instr.rd, instr.operand, n_fields, data, if (has_data2) data2 else null, ir, call_pc);
+            },
+            predecode_mod.GC_BASE | 0x01 => self.emitGcSimple(instr, ir, pc.* - 1), // struct.new_default
+            predecode_mod.GC_BASE | 0x02 => self.emitGcSimple(instr, ir, pc.* - 1), // struct.get
+            predecode_mod.GC_BASE | 0x03 => self.emitGcSimple(instr, ir, pc.* - 1), // struct.get_s
+            predecode_mod.GC_BASE | 0x04 => self.emitGcSimple(instr, ir, pc.* - 1), // struct.get_u
+            predecode_mod.GC_BASE | 0x05 => self.emitGcSimple(instr, ir, pc.* - 1), // struct.set
 
             // Unsupported opcode — bail out, function can't be JIT compiled
             else => return false,
@@ -3725,6 +3774,123 @@ pub const Compiler = struct {
         // 6. Reload caller-saved regs AFTER all BLRs, then result register
         self.reloadCallerSaved();
         self.reloadVreg(instr.rd);
+    }
+
+    /// Emit GC struct.new via BLR to runtime helper.
+    /// Similar to emitCall: spill, set up trampoline args, BLR, error check, reload.
+    fn emitGcStructNew(self: *Compiler, rd: u16, type_idx: u32, n_fields: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
+        // 1. Spill caller-saved regs + field vregs
+        self.fpCacheEvictAll();
+        self.spillCallerSavedLive(ir, call_pc);
+        // Spill all field vregs (trampoline reads from regs[])
+        if (n_fields > 0) self.spillVreg(data.rd);
+        if (n_fields > 1) self.spillVreg(data.rs1);
+        if (n_fields > 2) self.spillVreg(data.rs2_field);
+        if (n_fields > 3) self.spillVreg(@truncate(data.operand));
+        if (n_fields > 4) {
+            if (data2) |d2| {
+                if (n_fields > 4) self.spillVreg(d2.rd);
+                if (n_fields > 5) self.spillVreg(d2.rs1);
+                if (n_fields > 6) self.spillVreg(d2.rs2_field);
+                if (n_fields > 7) self.spillVreg(@truncate(d2.operand));
+            }
+        }
+
+        // 2. Set up GC trampoline args (C ABI):
+        //    x0 = instance, x1 = regs, w2 = sub_op(0x00), w3 = type_idx,
+        //    w4 = rd, w5 = n_fields, w6 = 0 (field_idx unused), x7 = data_raw
+        self.emitLoadInstPtr(0);
+        self.emit(a64.mov64(1, REGS_PTR));
+        self.emit(a64.movz32(2, 0x00, 0)); // sub_op = struct.new
+        if (type_idx <= 0xFFFF) {
+            self.emit(a64.movz32(3, @truncate(type_idx), 0));
+        } else {
+            self.emit(a64.movz32(3, @truncate(type_idx), 0));
+            self.emit(a64.movk64(3, @truncate(type_idx >> 16), 1));
+        }
+        self.emit(a64.movz32(4, rd, 0));
+        self.emit(a64.movz32(5, n_fields, 0));
+        self.emit(a64.movz32(6, 0, 0)); // field_idx unused
+        const data_u64 = packDataWord(data);
+        const d_instrs = a64.loadImm64(7, data_u64);
+        for (d_instrs) |inst| self.emit(inst);
+
+        // 3. BLR to GC trampoline
+        const t_instrs = a64.loadImm64(SCRATCH, self.gc_trampoline_addr);
+        for (t_instrs) |inst| self.emit(inst);
+        self.emit(a64.blr(SCRATCH));
+
+        // 4. Error check
+        const error_branch = self.currentIdx();
+        self.emit(a64.cbnz64(0, 0));
+        self.error_stubs.append(self.alloc, .{
+            .branch_idx = error_branch,
+            .error_code = 0,
+            .kind = .cbnz64,
+            .cond = .eq,
+        }) catch {};
+
+        // 5. Reload memory + caller-saved regs + result
+        if (self.has_memory) self.emitLoadMemCache();
+        self.reloadCallerSavedLive();
+        self.reloadVreg(rd);
+    }
+
+    /// Emit simple GC op (struct.get/set/new_default) via BLR to runtime helper.
+    fn emitGcSimple(self: *Compiler, instr: RegInstr, ir: []const RegInstr, call_pc: u32) void {
+        const sub_op: u16 = instr.op - predecode_mod.GC_BASE;
+
+        // 1. Spill caller-saved + operand vregs
+        self.fpCacheEvictAll();
+        self.spillCallerSavedLive(ir, call_pc);
+        // Spill operand vregs so trampoline can read them
+        if (sub_op >= 0x02 and sub_op <= 0x04) {
+            // struct.get: rs1 = ref_reg
+            self.spillVreg(instr.rs1);
+        } else if (sub_op == 0x05) {
+            // struct.set: rd = ref_reg, rs1 = val_reg
+            self.spillVreg(instr.rd);
+            self.spillVreg(instr.rs1);
+        }
+
+        // 2. Set up GC trampoline args:
+        //    x0 = instance, x1 = regs, w2 = sub_op, w3 = type_idx,
+        //    w4 = rd, w5 = rs1, w6 = field_idx (rs2_field), x7 = 0
+        self.emitLoadInstPtr(0);
+        self.emit(a64.mov64(1, REGS_PTR));
+        self.emit(a64.movz32(2, sub_op, 0));
+        const type_idx = instr.operand;
+        if (type_idx <= 0xFFFF) {
+            self.emit(a64.movz32(3, @truncate(type_idx), 0));
+        } else {
+            self.emit(a64.movz32(3, @truncate(type_idx), 0));
+            self.emit(a64.movk64(3, @truncate(type_idx >> 16), 1));
+        }
+        self.emit(a64.movz32(4, instr.rd, 0));
+        self.emit(a64.movz32(5, instr.rs1, 0));
+        self.emit(a64.movz32(6, instr.rs2_field, 0)); // field_idx
+        self.emit(a64.movz64(7, 0, 0)); // data_raw unused
+
+        // 3. BLR to GC trampoline
+        const t_instrs = a64.loadImm64(SCRATCH, self.gc_trampoline_addr);
+        for (t_instrs) |inst| self.emit(inst);
+        self.emit(a64.blr(SCRATCH));
+
+        // 4. Error check
+        const error_branch = self.currentIdx();
+        self.emit(a64.cbnz64(0, 0));
+        self.error_stubs.append(self.alloc, .{
+            .branch_idx = error_branch,
+            .error_code = 0,
+            .kind = .cbnz64,
+            .cond = .eq,
+        }) catch {};
+
+        // 5. Reload
+        if (self.has_memory) self.emitLoadMemCache();
+        self.reloadCallerSavedLive();
+        // Reload result register (for get ops and struct.new_default)
+        if (sub_op <= 0x04) self.reloadVreg(instr.rd);
     }
 
     /// Inline self-call: direct BL to function entry, bypassing trampoline.
@@ -4743,6 +4909,114 @@ fn wasmErrorToCode(err: vm_mod.WasmError) u64 {
 }
 
 // ================================================================
+// GC trampoline — called from JIT code for struct operations
+// ================================================================
+
+/// Unified GC struct trampoline: handles struct.new, struct.new_default,
+/// struct.get/get_s/get_u, struct.set. Returns 0 on success, 1 on error.
+pub fn jitGcTrampoline(
+    instance_opaque: *anyopaque,
+    regs: [*]u64,
+    sub_op: u32,
+    type_idx: u32,
+    rd: u32,
+    rs1_or_nfields: u32,
+    field_idx: u32,
+    data_raw: u64,
+) callconv(.c) u64 {
+    const gc_mod = @import("gc.zig");
+    const module_mod = @import("module.zig");
+    const instance: *Instance = @ptrCast(@alignCast(instance_opaque));
+
+    switch (sub_op) {
+        0x00 => { // struct.new: pop N fields from regs, push ref
+            const n_fields: usize = rs1_or_nfields;
+            // Unpack field vreg numbers from data_raw
+            const data = unpackDataWord(data_raw);
+            var field_vals: [8]u64 = undefined;
+            if (n_fields > 0) field_vals[0] = regs[data.r0];
+            if (n_fields > 1) field_vals[1] = regs[data.r1];
+            if (n_fields > 2) field_vals[2] = regs[data.r2];
+            if (n_fields > 3) field_vals[3] = regs[data.r3];
+            // Note: data2 not passed for now (max 4 fields via single data word)
+            // Structs with > 4 fields would need extension
+            const addr = instance.store.gc_heap.allocStruct(type_idx, field_vals[0..n_fields]) catch return 1;
+            regs[rd] = gc_mod.GcHeap.encodeRef(addr);
+        },
+        0x01 => { // struct.new_default
+            if (type_idx >= instance.module.types.items.len) return 1;
+            const n = switch (instance.module.types.items[type_idx].composite) {
+                .struct_type => |st| st.fields.len,
+                else => return 1,
+            };
+            var fields_buf: [256]u64 = undefined;
+            @memset(fields_buf[0..n], 0);
+            const addr = instance.store.gc_heap.allocStruct(type_idx, fields_buf[0..n]) catch return 1;
+            regs[rd] = gc_mod.GcHeap.encodeRef(addr);
+        },
+        0x02 => { // struct.get
+            const ref_val = regs[rs1_or_nfields];
+            const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return 1;
+            const obj = instance.store.gc_heap.getObject(addr) catch return 1;
+            const s = switch (obj.*) { .struct_obj => |so| so, else => return 1 };
+            if (field_idx >= s.fields.len) return 1;
+            regs[rd] = s.fields[field_idx];
+        },
+        0x03 => { // struct.get_s
+            const ref_val = regs[rs1_or_nfields];
+            const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return 1;
+            const obj = instance.store.gc_heap.getObject(addr) catch return 1;
+            const s = switch (obj.*) { .struct_obj => |so| so, else => return 1 };
+            if (field_idx >= s.fields.len) return 1;
+            const raw: u32 = @truncate(s.fields[field_idx]);
+            if (type_idx >= instance.module.types.items.len) return 1;
+            const stype: module_mod.StructType = switch (instance.module.types.items[type_idx].composite) {
+                .struct_type => |st| st,
+                else => return 1,
+            };
+            if (field_idx >= stype.fields.len) return 1;
+            const result: i32 = switch (stype.fields[field_idx].storage) {
+                .i8 => @as(i32, @as(i8, @bitCast(@as(u8, @truncate(raw))))),
+                .i16 => @as(i32, @as(i16, @bitCast(@as(u16, @truncate(raw))))),
+                else => @bitCast(raw),
+            };
+            regs[rd] = @as(u32, @bitCast(result));
+        },
+        0x04 => { // struct.get_u
+            const ref_val = regs[rs1_or_nfields];
+            const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return 1;
+            const obj = instance.store.gc_heap.getObject(addr) catch return 1;
+            const s = switch (obj.*) { .struct_obj => |so| so, else => return 1 };
+            if (field_idx >= s.fields.len) return 1;
+            const raw: u32 = @truncate(s.fields[field_idx]);
+            if (type_idx >= instance.module.types.items.len) return 1;
+            const stype: module_mod.StructType = switch (instance.module.types.items[type_idx].composite) {
+                .struct_type => |st| st,
+                else => return 1,
+            };
+            if (field_idx >= stype.fields.len) return 1;
+            const result: u32 = switch (stype.fields[field_idx].storage) {
+                .i8 => @as(u32, @as(u8, @truncate(raw))),
+                .i16 => @as(u32, @as(u16, @truncate(raw))),
+                else => raw,
+            };
+            regs[rd] = result;
+        },
+        0x05 => { // struct.set: rd=ref_reg, rs1=val_reg, rs2=field_idx
+            const ref_val = regs[rd];
+            const val = regs[rs1_or_nfields];
+            const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return 1;
+            const obj = instance.store.gc_heap.getObject(addr) catch return 1;
+            const s = switch (obj.*) { .struct_obj => |so| so, else => return 1 };
+            if (field_idx >= s.fields.len) return 1;
+            s.fields[field_idx] = val;
+        },
+        else => return 1,
+    }
+    return 0; // success
+}
+
+// ================================================================
 // Memory info helper — called from JIT code
 // ================================================================
 
@@ -4851,10 +5125,13 @@ pub fn compileFunction(
     const call_indirect_addr = @intFromPtr(&jitCallIndirectTrampoline);
     const reg_ptr_offset: u32 = @intCast(@offsetOf(vm_mod.Vm, "reg_ptr"));
 
+    const gc_trampoline_addr = @intFromPtr(&jitGcTrampoline);
+
     var compiler = Compiler.init(alloc);
     compiler.min_memory_bytes = min_memory_bytes;
     compiler.use_guard_pages = use_guard_pages;
     compiler.osr_target_pc = osr_target_pc;
+    compiler.gc_trampoline_addr = gc_trampoline_addr;
 
     // Dump JIT code before deinit (pc_map still alive, one-shot)
     if (trace) |tc| {

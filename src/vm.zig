@@ -455,6 +455,16 @@ pub const Vm = struct {
                                 };
                             }
                         }.resolve,
+                        .resolve_gc_field_count_fn = struct {
+                            fn resolve(ctx: *anyopaque, type_idx: u32) ?u16 {
+                                const i: *Instance = @ptrCast(@alignCast(ctx));
+                                if (type_idx >= i.module.types.items.len) return null;
+                                return switch (i.module.types.items[type_idx].composite) {
+                                    .struct_type => |st| @intCast(st.fields.len),
+                                    else => null,
+                                };
+                            }
+                        }.resolve,
                     };
                     wf.reg_ir = regalloc_mod.convert(
                         self.alloc,
@@ -4252,6 +4262,100 @@ pub const Vm = struct {
                 predecode_mod.MISC_BASE | 0x06 => { const a: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = @bitCast(truncSatClamp(i64, f64, a)); },
                 predecode_mod.MISC_BASE | 0x07 => { const a: f64 = @bitCast(regs[instr.rs1]); regs[instr.rd] = truncSatClamp(u64, f64, a); },
 
+                // ---- ref.null / ref.is_null ----
+                regalloc_mod.OP_REF_NULL => regs[instr.rd] = 0,
+                regalloc_mod.OP_REF_IS_NULL => regs[instr.rd] = if (regs[instr.rs1] == 0) 1 else 0,
+
+                // ---- GC struct operations ----
+                predecode_mod.GC_BASE | 0x00 => { // struct.new: rs1=n_fields, operand=type_idx
+                    const gc_mod = @import("gc.zig");
+                    const n_fields: usize = instr.rs1;
+                    const type_idx = instr.operand;
+                    // Read field regs from following NOP data words
+                    var field_vals: [8]u64 = undefined;
+                    const nop1 = code[pc]; pc += 1;
+                    if (n_fields > 0) field_vals[0] = regs[nop1.rd];
+                    if (n_fields > 1) field_vals[1] = regs[nop1.rs1];
+                    if (n_fields > 2) field_vals[2] = regs[nop1.rs2_field];
+                    if (n_fields > 3) field_vals[3] = regs[@as(u16, @truncate(nop1.operand))];
+                    if (n_fields > 4) {
+                        const nop2 = code[pc]; pc += 1;
+                        if (n_fields > 4) field_vals[4] = regs[nop2.rd];
+                        if (n_fields > 5) field_vals[5] = regs[nop2.rs1];
+                        if (n_fields > 6) field_vals[6] = regs[nop2.rs2_field];
+                        if (n_fields > 7) field_vals[7] = regs[@as(u16, @truncate(nop2.operand))];
+                    }
+                    const addr = instance.store.gc_heap.allocStruct(type_idx, field_vals[0..n_fields]) catch return error.Trap;
+                    regs[instr.rd] = gc_mod.GcHeap.encodeRef(addr);
+                },
+                predecode_mod.GC_BASE | 0x01 => { // struct.new_default: operand=type_idx
+                    const gc_mod = @import("gc.zig");
+                    const type_idx = instr.operand;
+                    const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                    const n = stype.fields.len;
+                    var fields_buf: [256]u64 = undefined;
+                    @memset(fields_buf[0..n], 0);
+                    const addr = instance.store.gc_heap.allocStruct(type_idx, fields_buf[0..n]) catch return error.Trap;
+                    regs[instr.rd] = gc_mod.GcHeap.encodeRef(addr);
+                },
+                predecode_mod.GC_BASE | 0x02 => { // struct.get: rs1=ref_reg, rs2=field_idx, operand=type_idx
+                    const gc_mod = @import("gc.zig");
+                    const field_idx: u32 = instr.rs2_field;
+                    const ref_val = regs[instr.rs1];
+                    const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                    const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                    const s = switch (obj.*) { .struct_obj => |so| so, else => return error.Trap };
+                    if (field_idx >= s.fields.len) return error.Trap;
+                    regs[instr.rd] = s.fields[field_idx];
+                },
+                predecode_mod.GC_BASE | 0x03 => { // struct.get_s: rs1=ref_reg, rs2=field_idx, operand=type_idx
+                    const gc_mod = @import("gc.zig");
+                    const type_idx = instr.operand;
+                    const field_idx: u32 = instr.rs2_field;
+                    const ref_val = regs[instr.rs1];
+                    const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                    const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                    const s = switch (obj.*) { .struct_obj => |so| so, else => return error.Trap };
+                    if (field_idx >= s.fields.len) return error.Trap;
+                    const raw: u32 = @truncate(s.fields[field_idx]);
+                    const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                    const result: i32 = switch (stype.fields[field_idx].storage) {
+                        .i8 => @as(i32, @as(i8, @bitCast(@as(u8, @truncate(raw))))),
+                        .i16 => @as(i32, @as(i16, @bitCast(@as(u16, @truncate(raw))))),
+                        else => @bitCast(raw),
+                    };
+                    regs[instr.rd] = @as(u32, @bitCast(result));
+                },
+                predecode_mod.GC_BASE | 0x04 => { // struct.get_u: rs1=ref_reg, rs2=field_idx, operand=type_idx
+                    const gc_mod = @import("gc.zig");
+                    const type_idx = instr.operand;
+                    const field_idx: u32 = instr.rs2_field;
+                    const ref_val = regs[instr.rs1];
+                    const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                    const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                    const s = switch (obj.*) { .struct_obj => |so| so, else => return error.Trap };
+                    if (field_idx >= s.fields.len) return error.Trap;
+                    const raw: u32 = @truncate(s.fields[field_idx]);
+                    const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                    const result: u32 = switch (stype.fields[field_idx].storage) {
+                        .i8 => @as(u32, @as(u8, @truncate(raw))),
+                        .i16 => @as(u32, @as(u16, @truncate(raw))),
+                        else => raw,
+                    };
+                    regs[instr.rd] = result;
+                },
+                predecode_mod.GC_BASE | 0x05 => { // struct.set: rd=ref_reg, rs1=val_reg, rs2=field_idx, operand=type_idx
+                    const gc_mod = @import("gc.zig");
+                    const field_idx: u32 = instr.rs2_field;
+                    const ref_val = regs[instr.rd];
+                    const val = regs[instr.rs1];
+                    const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                    const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                    const s = switch (obj.*) { .struct_obj => |so| so, else => return error.Trap };
+                    if (field_idx >= s.fields.len) return error.Trap;
+                    s.fields[field_idx] = val;
+                },
+
                 // ---- Unreachable ----
                 0x00 => return error.Unreachable,
 
@@ -4786,6 +4890,11 @@ pub const Vm = struct {
                     pc += 2;
                 },
 
+                // ---- GC prefix (predecoded) ----
+                predecode_mod.GC_BASE + 0x00...predecode_mod.GC_BASE + 0x05 => {
+                    try self.executeGcIR(instr, instance);
+                },
+
                 // ---- SIMD prefix (predecoded) ----
                 predecode_mod.SIMD_BASE...predecode_mod.SIMD_BASE + 0x113 => {
                     try self.executeSimdIR(instr, pool64, instance, cached_mem);
@@ -5060,6 +5169,16 @@ pub const Vm = struct {
                                     };
                                 }
                             }.resolve,
+                            .resolve_gc_field_count_fn = struct {
+                                fn resolve(ctx: *anyopaque, type_idx: u32) ?u16 {
+                                    const i: *Instance = @ptrCast(@alignCast(ctx));
+                                    if (type_idx >= i.module.types.items.len) return null;
+                                    return switch (i.module.types.items[type_idx].composite) {
+                                        .struct_type => |st| @intCast(st.fields.len),
+                                        else => null,
+                                    };
+                                }
+                            }.resolve,
                         };
                         wf.reg_ir = regalloc_mod.convert(
                             self.alloc,
@@ -5199,6 +5318,109 @@ pub const Vm = struct {
                 },
             }
             return;
+        }
+    }
+
+    fn executeGcIR(self: *Vm, instr: PreInstr, instance: *Instance) WasmError!void {
+        const gc_mod = @import("gc.zig");
+        const sub = instr.opcode - predecode_mod.GC_BASE;
+        switch (sub) {
+            // struct.new: operand=type_idx, pop N fields, push ref
+            0x00 => {
+                const type_idx = instr.operand;
+                const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                const n = stype.fields.len;
+                var fields_buf: [256]u64 = undefined;
+                if (n > fields_buf.len) return error.Trap;
+                var i: usize = n;
+                while (i > 0) {
+                    i -= 1;
+                    fields_buf[i] = self.pop();
+                }
+                const addr = instance.store.gc_heap.allocStruct(type_idx, fields_buf[0..n]) catch return error.Trap;
+                try self.push(gc_mod.GcHeap.encodeRef(addr));
+            },
+            // struct.new_default: operand=type_idx, push ref
+            0x01 => {
+                const type_idx = instr.operand;
+                const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                const n = stype.fields.len;
+                var fields_buf: [256]u64 = undefined;
+                if (n > fields_buf.len) return error.Trap;
+                @memset(fields_buf[0..n], 0);
+                const addr = instance.store.gc_heap.allocStruct(type_idx, fields_buf[0..n]) catch return error.Trap;
+                try self.push(gc_mod.GcHeap.encodeRef(addr));
+            },
+            // struct.get: operand=type_idx, extra=field_idx, pop ref, push value
+            0x02 => {
+                const field_idx: u32 = instr.extra;
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const s = switch (obj.*) {
+                    .struct_obj => |so| so,
+                    else => return error.Trap,
+                };
+                if (field_idx >= s.fields.len) return error.Trap;
+                try self.push(s.fields[field_idx]);
+            },
+            // struct.get_s: operand=type_idx, extra=field_idx
+            0x03 => {
+                const type_idx = instr.operand;
+                const field_idx: u32 = instr.extra;
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const s = switch (obj.*) {
+                    .struct_obj => |so| so,
+                    else => return error.Trap,
+                };
+                if (field_idx >= s.fields.len) return error.Trap;
+                const raw: u32 = @truncate(s.fields[field_idx]);
+                const stype = self.getStructType(instance, type_idx) orelse return error.Trap;
+                const result: i32 = switch (stype.fields[field_idx].storage) {
+                    .i8 => @as(i32, @as(i8, @bitCast(@as(u8, @truncate(raw))))),
+                    .i16 => @as(i32, @as(i16, @bitCast(@as(u16, @truncate(raw))))),
+                    else => @bitCast(raw),
+                };
+                try self.pushI32(result);
+            },
+            // struct.get_u: operand=type_idx, extra=field_idx
+            0x04 => {
+                const type_idx_u = instr.operand;
+                const field_idx: u32 = instr.extra;
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const s = switch (obj.*) {
+                    .struct_obj => |so| so,
+                    else => return error.Trap,
+                };
+                if (field_idx >= s.fields.len) return error.Trap;
+                const raw: u32 = @truncate(s.fields[field_idx]);
+                const stype = self.getStructType(instance, type_idx_u) orelse return error.Trap;
+                const result: u32 = switch (stype.fields[field_idx].storage) {
+                    .i8 => @as(u32, @as(u8, @truncate(raw))),
+                    .i16 => @as(u32, @as(u16, @truncate(raw))),
+                    else => raw,
+                };
+                try self.pushI32(@bitCast(result));
+            },
+            // struct.set: operand=type_idx, extra=field_idx, pop ref + value
+            0x05 => {
+                const field_idx: u32 = instr.extra;
+                const val = self.pop();
+                const ref_val = self.pop();
+                const addr = gc_mod.GcHeap.decodeRef(ref_val) catch return error.Trap;
+                const obj = instance.store.gc_heap.getObject(addr) catch return error.Trap;
+                const s = switch (obj.*) {
+                    .struct_obj => |so| so,
+                    else => return error.Trap,
+                };
+                if (field_idx >= s.fields.len) return error.Trap;
+                s.fields[field_idx] = val;
+            },
+            else => return error.Trap,
         }
     }
 

@@ -20,18 +20,18 @@ Plan: `@./.dev/reliability-plan.md`. Progress: `@./.dev/reliability-handover.md`
 - [x] P1: rw_c_string hang fix — skip back-edge JIT for reentry guard (20.2ms)
 - [x] P2: nbody FP cache fix — expand D-reg cache D2-D15, FP-aware MOV (23.1ms, 0.97x wasmtime)
 - [x] P3: rw_c_math — accepted as regalloc limit (58ms, 4.92x, 136 regs)
-- P4: GC JIT basic implementation (Priority B)
+- [x] P4: GC JIT — predecode+regalloc+JIT for struct ops (gc_alloc 0.50x, gc_tree 0.73x wasmtime)
 - P5: st_matrix accept as exception (Priority C)
 
-**Active: P4 (GC JIT basic implementation)**
-JIT-compile struct.new, struct.get, struct.set, array.new, array.get, array.set.
-Target: gc_alloc ≤1.5x, gc_tree ≤2x wasmtime.
+**Active: P5 (st_matrix accept as exception)**
+st_matrix: 296.4ms, 3.23x wasmtime. Regalloc limit (too many regs for single-pass).
+Accept ≤3.5x as exception.
 
 ## Previous Task
 
-P2: Fix nbody FP cache regression — expanded D-reg cache from D2-D7 to D2-D15
-using callee-saved registers, plus FP-cache-aware MOV. 43.8ms → 23.1ms (0.97x wasmtime).
-register IR interpreter (20.2ms, was timeout).
+P4: GC JIT — predecode→regalloc→JIT pipeline for struct.new/get/set/new_default,
+ref.null/is_null. BLR trampoline to unified jitGcTrampoline. Fix: emitPrologue must load
+cached vm/inst ptrs BEFORE emitLoadRegPtrAddr. gc_alloc 19.2→5.4ms, gc_tree 138→22.8ms.
 
 ## Known Bugs
 

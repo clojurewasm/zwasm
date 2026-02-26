@@ -2209,3 +2209,38 @@ entries:
       rw_c_string: {time_ms: 18.9}
       rw_cpp_string: {time_ms: 6.9}
       rw_cpp_sort: {time_ms: 3.2}
+  - id: "P4"
+    date: "2026-02-27"
+    reason: "P4: GC JIT implementation (struct.new/get/set + ref.null/is_null)"
+    commit: "244f2bf"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 47.8}
+      tak: {time_ms: 6.0}
+      sieve: {time_ms: 4.4}
+      nbody: {time_ms: 22.7}
+      nqueens: {time_ms: 2.7}
+      tgo_fib: {time_ms: 34.6}
+      tgo_tak: {time_ms: 3.0}
+      tgo_arith: {time_ms: 1.9}
+      tgo_sieve: {time_ms: 3.4}
+      tgo_fib_loop: {time_ms: 2.2}
+      tgo_gcd: {time_ms: 2.4}
+      tgo_nqueens: {time_ms: 45.5}
+      tgo_mfr: {time_ms: 48.6}
+      tgo_list: {time_ms: 37.9}
+      tgo_rwork: {time_ms: 7.1}
+      tgo_strops: {time_ms: 31.8}
+      st_fib2: {time_ms: 958.0}
+      st_sieve: {time_ms: 197.2}
+      st_nestedloop: {time_ms: 2.6}
+      st_ackermann: {time_ms: 5.0}
+      st_matrix: {time_ms: 296.4}
+      gc_alloc: {time_ms: 5.4}
+      gc_tree: {time_ms: 22.8}
+      rw_rust_fib: {time_ms: 37.8}
+      rw_c_matrix: {time_ms: 18.2}
+      rw_c_math: {time_ms: 59.7}
+      rw_c_string: {time_ms: 22.2}
+      rw_cpp_string: {time_ms: 6.8}
+      rw_cpp_sort: {time_ms: 3.9}

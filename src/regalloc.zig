@@ -117,6 +117,10 @@ pub const OP_CALL_INDIRECT: u16 = 0xE0;
 pub const OP_MEMORY_FILL: u16 = 0xE1;
 /// memory_copy rd(dst), rs1(src), rs2(n): copy memory[src..src+n] to [dst..dst+n]
 pub const OP_MEMORY_COPY: u16 = 0xE2;
+/// ref_null rd, type: regs[rd] = 0 (null ref of given type)
+pub const OP_REF_NULL: u16 = 0xE3;
+/// ref_is_null rd, rs1: regs[rd] = (regs[rs1] == 0) ? 1 : 0
+pub const OP_REF_IS_NULL: u16 = 0xE4;
 
 /// Function type info needed during conversion for call instructions.
 pub const FuncTypeInfo = struct {
@@ -132,6 +136,9 @@ pub const ParamResolver = struct {
     /// Resolves type index to type info (for call_indirect).
     /// Optional — if null, call_indirect bails out.
     resolve_type_fn: ?*const fn (*anyopaque, u32) ?FuncTypeInfo = null,
+    /// Resolves GC type index to struct field count (for struct.new).
+    /// Optional — if null, struct.new bails out.
+    resolve_gc_field_count_fn: ?*const fn (*anyopaque, u32) ?u16 = null,
 };
 
 /// Conversion error.
@@ -1130,6 +1137,79 @@ pub fn convert(
                 try vstack.append(alloc, rd);
             },
 
+            // ---- GC struct operations ----
+            predecode.GC_BASE | 0x00 => { // struct.new: pop N fields, push ref
+                const type_idx = instr.operand;
+                const res = resolver orelse return null;
+                const resolve_gc = res.resolve_gc_field_count_fn orelse return null;
+                const n_fields: usize = resolve_gc(res.ctx, type_idx) orelse return null;
+                if (n_fields > 8 or vstack.items.len < n_fields) return null;
+
+                const rd = temps.alloc();
+                try code.append(alloc, .{ .op = predecode.GC_BASE | 0x00, .rd = rd, .rs1 = @intCast(n_fields), .operand = type_idx });
+
+                // Pack field registers into NOP data words (same as OP_CALL)
+                var arg_regs: [8]u16 = .{0} ** 8;
+                const arg_start = vstack.items.len - n_fields;
+                for (0..n_fields) |i| {
+                    arg_regs[i] = vstack.items[arg_start + i];
+                }
+                try code.append(alloc, .{
+                    .op = OP_NOP,
+                    .rd = arg_regs[0],
+                    .rs1 = arg_regs[1],
+                    .rs2_field = arg_regs[2],
+                    .operand = arg_regs[3],
+                });
+                if (n_fields > 4) {
+                    try code.append(alloc, .{
+                        .op = OP_NOP,
+                        .rd = arg_regs[4],
+                        .rs1 = arg_regs[5],
+                        .rs2_field = arg_regs[6],
+                        .operand = arg_regs[7],
+                    });
+                }
+
+                temps.shrinkFree(&vstack, vstack.items.len - n_fields);
+                try vstack.append(alloc, rd);
+            },
+            predecode.GC_BASE | 0x01 => { // struct.new_default: push ref (no pops)
+                const rd = temps.alloc();
+                try code.append(alloc, .{ .op = predecode.GC_BASE | 0x01, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                try vstack.append(alloc, rd);
+            },
+            predecode.GC_BASE | 0x02, // struct.get
+            predecode.GC_BASE | 0x03, // struct.get_s
+            predecode.GC_BASE | 0x04, // struct.get_u
+            => { // pop ref, push value
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
+                try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = src, .rs2_field = @intCast(instr.extra), .operand = instr.operand });
+                try vstack.append(alloc, rd);
+            },
+            predecode.GC_BASE | 0x05 => { // struct.set: pop val + ref
+                if (vstack.items.len < 2) return null;
+                const val_reg = temps.popFree(&vstack).?;
+                const ref_reg = temps.popFree(&vstack).?;
+                try code.append(alloc, .{ .op = predecode.GC_BASE | 0x05, .rd = ref_reg, .rs1 = val_reg, .rs2_field = @intCast(instr.extra), .operand = instr.operand });
+            },
+
+            // ---- ref.null / ref.is_null ----
+            // Note: wasm 0xD0/0xD1 collide with OP_ADDI32/OP_SUBI32 in RegIR space,
+            // so we remap to OP_REF_NULL/OP_REF_IS_NULL.
+            0xD0 => { // ref.null — push null ref
+                const rd = temps.alloc();
+                try code.append(alloc, .{ .op = OP_REF_NULL, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                try vstack.append(alloc, rd);
+            },
+            0xD1 => { // ref.is_null — pop ref, push i32
+                const src = temps.popFree(&vstack).?;
+                const rd = temps.alloc();
+                try code.append(alloc, .{ .op = OP_REF_IS_NULL, .rd = rd, .rs1 = src, .operand = 0 });
+                try vstack.append(alloc, rd);
+            },
+
             // ---- Anything else: bail ----
             else => return null,
         }
@@ -1217,6 +1297,8 @@ fn copyPropagate(code: []RegInstr, local_count: u16) void {
             => continue,
             // Store instructions use rd as value source, not destination
             0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E => continue,
+            // GC struct.set: rd = ref_reg (a use, not a destination)
+            predecode.GC_BASE | 0x05 => continue,
             else => {},
         }
 
@@ -1842,4 +1924,88 @@ test "compactCode — br_table NOP targets adjusted on DELETED removal" {
     // The two targets should be different (entry 0→$b end, default→$a end)
     // $a's end is >= $b's end since $a contains $b
     try testing.expect(entry1.operand >= entry0.operand);
+}
+
+test "convert — GC struct.new uses call-like arg packing" {
+    // struct.new type_idx=0 (2 fields): pop 2 values, push 1 ref
+    // Pattern: i32.const 10, i32.const 20, struct.new 0, return
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x41, .extra = 0, .operand = 10 }, // i32.const 10
+        .{ .opcode = 0x41, .extra = 0, .operand = 20 }, // i32.const 20
+        .{ .opcode = predecode.GC_BASE | 0x00, .extra = 0, .operand = 0 }, // struct.new type_idx=0
+        .{ .opcode = 0x0F, .extra = 0, .operand = 0 }, // return
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    // Mock resolver: type_idx 0 → 2 fields
+    const MockCtx = struct {
+        fn resolveGcFieldCount(_: *anyopaque, type_idx: u32) ?u16 {
+            return if (type_idx == 0) 2 else null;
+        }
+        fn resolveFn(_: *anyopaque, _: u32) ?FuncTypeInfo {
+            return null;
+        }
+    };
+    var dummy: u8 = 0;
+    const resolver = ParamResolver{
+        .ctx = @ptrCast(&dummy),
+        .resolve_fn = MockCtx.resolveFn,
+        .resolve_gc_field_count_fn = MockCtx.resolveGcFieldCount,
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 0, 0, resolver);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+    const code = result.?.code;
+
+    // Find struct.new instruction
+    var found = false;
+    for (code, 0..) |c, i| {
+        if (c.op == predecode.GC_BASE | 0x00) {
+            try testing.expectEqual(@as(u16, 2), c.rs1); // n_fields = 2
+            try testing.expectEqual(@as(u32, 0), c.operand); // type_idx = 0
+            // Next instruction should be NOP with packed arg regs
+            try testing.expectEqual(OP_NOP, code[i + 1].op);
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "convert — GC struct.get produces unary register op" {
+    // struct.get type_idx=0 field_idx=1: pop 1 ref, push 1 value
+    // Pattern: local.get 0, struct.get 0/1, return
+    const ir = [_]PreInstr{
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0
+        .{ .opcode = predecode.GC_BASE | 0x02, .extra = 1, .operand = 0 }, // struct.get type=0 field=1
+        .{ .opcode = 0x0F, .extra = 0, .operand = 0 }, // return
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    const result = try convert(testing.allocator, &ir, &.{}, 1, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+    const code = result.?.code;
+
+    // Find struct.get instruction
+    var found = false;
+    for (code) |c| {
+        if (c.op == predecode.GC_BASE | 0x02) {
+            try testing.expectEqual(@as(u16, 0), c.rs1); // ref from r0 (local.get 0)
+            try testing.expectEqual(@as(u16, 1), c.rs2_field); // field_idx = 1
+            try testing.expectEqual(@as(u32, 0), c.operand); // type_idx = 0
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
 }
