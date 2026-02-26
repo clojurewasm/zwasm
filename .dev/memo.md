@@ -15,21 +15,21 @@ Session handover document. Read at session start.
 Reliability improvement (branch: `strictly-check/reliability-003`).
 Plan: `@./.dev/reliability-plan.md`. Progress: `@./.dev/reliability-handover.md`.
 
-Phases A-K complete. E2E 792/792 (100%), x86_64 JIT bugs fixed + trunc_sat fix.
-**Phase K** (perf): div-by-constant, FP-direct load/store, const-folded ADD/SUB,
-self-call optimization, x86_64 trunc_sat edge cases. K.5 benchmarks recorded.
+Phases A-K complete. E2E 792/792 (100%), x86_64 JIT fully optimized.
+**Phase K** (perf): All ARM64 optimizations ported to x86_64:
+self-call (inline CALL, marker-based epilogue), div-by-constant (IMUL+SHR),
+trunc_sat edge cases, FP-direct, const-folded ADD/SUB.
 **Phase H Gate**: conditions 1-5,8 met. Conditions 6-7 (≤1.5x) blocked:
-Mac: st_matrix 3.21x (regalloc), rw_c_* (OSR), gc_tree (GC JIT).
-Ubuntu: x86_64 JIT needs optimization parity with ARM64.
-Next: x86_64 JIT optimization (port ARM64 div-by-constant, self-call to x86).
+Mac: st_matrix 3.14x (regalloc), rw_c_* (OSR), gc_tree (GC JIT), nbody 1.54x.
+Next: Phase H Gate blockers, then Phase H (documentation audit).
 
 ## Previous Task
 
-J.1-J.3: Phase J complete. x86_64 JIT bug fixes:
-- Division safety (SIGFPE): zero check, overflow, signed rem fixup
-- ABI register clobbering: global.set, mem ops read vregs before clobbering RDI
-- SCRATCH2/vreg10 alias: R11 reserved exclusively for SCRATCH2 (10→9 phys regs)
-- Call liveness: rd treated as USE for return/store/branch in computeCallLiveSet
+K.6-K.7: x86_64 JIT self-call + div-by-constant:
+- Self-call: [RSP] marker (0=self, 1=normal), inline CALL to lightweight entry
+- Bugs fixed: RAX clobber (save to RCX), R12 restore, result propagation
+- Div-by-constant: computeMagicU32 + IMUL r64 + SHR r64
+- Ubuntu recursive benchmarks: fib 3x→1x, tak 3.3x→1.2x, tgo_fib 3.2x→1x
 
 ## Known Bugs
 
