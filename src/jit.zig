@@ -221,6 +221,11 @@ const a64 = struct {
         return 0x9AC00800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | rd;
     }
 
+    /// UMULL Xd, Wn, Wm — unsigned 32×32→64 multiply (alias for UMADDL Xd, Wn, Wm, XZR)
+    fn umull(xd: u5, wn: u5, wm: u5) u32 {
+        return 0x9BA07C00 | (@as(u32, wm) << 16) | (@as(u32, wn) << 5) | xd;
+    }
+
     /// MSUB Wd, Wn, Wm, Wa (rd = ra - rn*rm, 32-bit) — for remainder
     fn msub32(rd: u5, rn: u5, rm: u5, ra: u5) u32 {
         return 0x1B008000 | (@as(u32, rm) << 16) | (@as(u32, ra) << 10) | (@as(u32, rn) << 5) | rd;
@@ -602,6 +607,11 @@ const a64 = struct {
     /// LSR Xd, Xn, #shift  ≡  UBFM Xd, Xn, #shift, #63
     fn lsr64Imm(xd: u5, xn: u5, shift: u6) u32 {
         return 0xD340FC00 | (@as(u32, shift) << 16) | (@as(u32, xn) << 5) | xd;
+    }
+
+    /// LSR Wd, Wn, #shift  ≡  UBFM Wd, Wn, #shift, #31
+    fn lsr32Imm(wd: u5, wn: u5, shift: u5) u32 {
+        return 0x53007C00 | (@as(u32, shift) << 16) | (@as(u32, wn) << 5) | wd;
     }
 
     // --- NEON/AdvSIMD (for popcnt) ---
@@ -2812,7 +2822,41 @@ pub const Compiler = struct {
 
     const Signedness = enum { signed, unsigned };
 
+    const MagicU32 = struct { magic: u32, shift: u6 };
+
+    /// Compute magic multiplier for unsigned 32-bit division by constant.
+    /// Returns (magic, shift) such that: floor(n/d) = floor((u64(n) * magic) >> shift)
+    /// Returns null for divisors that require the "add fixup" (not handled).
+    fn computeMagicU32(d: u32) ?MagicU32 {
+        if (d < 2) return null;
+        // Power of 2: handled separately by caller
+        if (d & (d - 1) == 0) return null;
+        // Find smallest p >= 32 where ceil(2^p/d) fits in u32 and is correct
+        for (32..64) |p| {
+            const two_p: u64 = @as(u64, 1) << @intCast(p);
+            const magic: u64 = (two_p + d - 1) / d; // ceil(2^p / d)
+            if (magic > 0xFFFFFFFF) continue;
+            // Correctness condition: (d - remainder) * (2^32 - 1) < 2^p
+            const rem = two_p % d;
+            const err = if (rem == 0) 0 else d - @as(u32, @intCast(rem));
+            if (@as(u64, err) * 0xFFFFFFFF < two_p) {
+                return .{ .magic = @intCast(magic), .shift = @intCast(p) };
+            }
+        }
+        return null;
+    }
+
     fn emitDiv32(self: *Compiler, sign: Signedness, instr: RegInstr) void {
+        // Fast path: unsigned division by known constant
+        if (sign == .unsigned) {
+            const rs2_vreg = instr.rs2();
+            if (rs2_vreg < 128) {
+                if (self.known_consts[rs2_vreg]) |divisor| {
+                    if (divisor >= 2 and self.tryEmitDivByConstU32(instr, divisor))
+                        return;
+                }
+            }
+        }
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
         const d = destReg(instr.rd);
@@ -2843,7 +2887,43 @@ pub const Compiler = struct {
         self.storeVreg(instr.rd, d);
     }
 
+    /// Emit unsigned division by known constant using multiply-by-reciprocal.
+    fn tryEmitDivByConstU32(self: *Compiler, instr: RegInstr, divisor: u32) bool {
+        // Power of 2: just LSR
+        if (divisor & (divisor - 1) == 0) {
+            const shift: u5 = @intCast(@ctz(divisor));
+            const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+            const d = destReg(instr.rd);
+            self.emit(a64.lsr32Imm(d, rs1, shift));
+            self.storeVreg(instr.rd, d);
+            return true;
+        }
+        const m = computeMagicU32(divisor) orelse return false;
+        // Codegen: MOVZ+MOVK magic → UMULL → LSR
+        const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emitLoadImm(SCRATCH2, m.magic);
+        // UMULL Xscratch, Wrs1, Wscratch2 — 32×32→64
+        self.emit(a64.umull(SCRATCH, rs1, SCRATCH2));
+        self.scratch_vreg = null; // UMULL clobbers SCRATCH
+        // LSR Xscratch, Xscratch, #shift — extract quotient
+        self.emit(a64.lsr64Imm(SCRATCH, SCRATCH, m.shift));
+        const d = destReg(instr.rd);
+        if (d != SCRATCH) self.emit(a64.mov32(d, SCRATCH));
+        self.storeVreg(instr.rd, d);
+        return true;
+    }
+
     fn emitRem32(self: *Compiler, sign: Signedness, instr: RegInstr) void {
+        // Fast path: unsigned remainder by known constant
+        if (sign == .unsigned) {
+            const rs2_vreg = instr.rs2();
+            if (rs2_vreg < 128) {
+                if (self.known_consts[rs2_vreg]) |divisor| {
+                    if (divisor >= 2 and self.tryEmitRemByConstU32(instr, divisor))
+                        return;
+                }
+            }
+        }
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
         const d = destReg(instr.rd);
@@ -2858,6 +2938,35 @@ pub const Compiler = struct {
         }
         self.emit(a64.msub32(d, d, rs2, rs1));
         self.storeVreg(instr.rd, d);
+    }
+
+    /// Emit unsigned remainder by known constant: r = n - (n/d)*d
+    fn tryEmitRemByConstU32(self: *Compiler, instr: RegInstr, divisor: u32) bool {
+        // Power of 2: AND with (d-1)
+        if (divisor & (divisor - 1) == 0) {
+            const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+            const d = destReg(instr.rd);
+            self.emitLoadImm(SCRATCH2, divisor - 1);
+            self.emit(a64.and32(d, rs1, SCRATCH2));
+            self.storeVreg(instr.rd, d);
+            return true;
+        }
+        const m = computeMagicU32(divisor) orelse return false;
+        // 1. Compute quotient: q = (n * magic) >> shift
+        const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
+        self.emitLoadImm(SCRATCH2, m.magic);
+        self.emit(a64.umull(SCRATCH, rs1, SCRATCH2));
+        self.scratch_vreg = null; // UMULL clobbers SCRATCH
+        self.emit(a64.lsr64Imm(SCRATCH, SCRATCH, m.shift));
+        // 2. Compute q * d (clobbers quotient, no longer needed)
+        self.emitLoadImm(SCRATCH2, divisor);
+        self.emit(a64.mul32(SCRATCH, SCRATCH, SCRATCH2));
+        // 3. Remainder: r = n - q*d. SCRATCH2 is now free for reloading rs1.
+        const rs1b = self.getOrLoad(instr.rs1, SCRATCH2);
+        const d = destReg(instr.rd);
+        self.emit(a64.sub32(d, rs1b, SCRATCH));
+        self.storeVreg(instr.rd, d);
+        return true;
     }
 
     fn emitDiv64(self: *Compiler, sign: Signedness, instr: RegInstr) void {
@@ -5126,4 +5235,133 @@ test "constant materialization uses MOVN for negative values" {
     try testing.expect(jit_neg.code_len < jit_pos.code_len);
 }
 
+test "computeMagicU32 correctness" {
+    // d=10: magic=0xCCCCCCCD, shift=35
+    {
+        const m = Compiler.computeMagicU32(10).?;
+        try testing.expectEqual(@as(u32, 0xCCCCCCCD), m.magic);
+        try testing.expectEqual(@as(u6, 35), m.shift);
+        // Verify for representative values
+        for ([_]u32{ 0, 1, 9, 10, 99, 100, 255, 1000, 0xFFFFFFFF }) |n| {
+            const expected = n / 10;
+            const actual: u32 = @truncate((@as(u64, n) * m.magic) >> m.shift);
+            try testing.expectEqual(expected, actual);
+        }
+    }
+    // d=3: magic=0xAAAAAAAB, shift=33
+    {
+        const m = Compiler.computeMagicU32(3).?;
+        try testing.expectEqual(@as(u32, 0xAAAAAAAB), m.magic);
+        try testing.expectEqual(@as(u6, 33), m.shift);
+        for ([_]u32{ 0, 1, 2, 3, 100, 0xFFFFFFFF }) |n| {
+            const expected = n / 3;
+            const actual: u32 = @truncate((@as(u64, n) * m.magic) >> m.shift);
+            try testing.expectEqual(expected, actual);
+        }
+    }
+    // d=5: magic=0xCCCCCCCD, shift=34
+    {
+        const m = Compiler.computeMagicU32(5).?;
+        try testing.expectEqual(@as(u32, 0xCCCCCCCD), m.magic);
+        try testing.expectEqual(@as(u6, 34), m.shift);
+    }
+    // d=1: should return null (identity division)
+    try testing.expect(Compiler.computeMagicU32(1) == null);
+    // d=0: should return null
+    try testing.expect(Compiler.computeMagicU32(0) == null);
+    // Powers of 2: should return null (handled by LSR)
+    try testing.expect(Compiler.computeMagicU32(2) == null);
+    try testing.expect(Compiler.computeMagicU32(4) == null);
+    try testing.expect(Compiler.computeMagicU32(256) == null);
+}
+
+test "div-by-constant JIT: unsigned i32.div_u by known 10" {
+    if (builtin.cpu.arch != .aarch64) return;
+
+    const alloc = testing.allocator;
+    // r1 = 10 (const); r2 = r0 / r1 (div_u with known const divisor)
+    var code = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 10 },
+        .{ .op = 0x6E, .rd = 2, .rs1 = 0, .rs2_field = 1 }, // i32.div_u r2, r0, r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
+    };
+    var rf = RegFunc{ .code = &code, .pool64 = &.{}, .reg_count = 3, .local_count = 1, .alloc = alloc };
+    const jit = compileFunction(alloc, &rf, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit.deinit(alloc);
+
+    for ([_]u32{ 0, 1, 9, 10, 99, 100, 12345, 0xFFFFFFFF }) |n| {
+        var regs: [7]u64 = .{ n, 0, 0, 0, 0, 0, 0 };
+        const result = jit.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0), result); // no error
+        try testing.expectEqual(@as(u64, n / 10), regs[0]);
+    }
+}
+
+test "div-by-constant JIT: power-of-2 divisor uses LSR" {
+    if (builtin.cpu.arch != .aarch64) return;
+
+    const alloc = testing.allocator;
+    // r1 = 8 (power of 2); r2 = r0 / r1
+    var code = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 8 },
+        .{ .op = 0x6E, .rd = 2, .rs1 = 0, .rs2_field = 1 }, // i32.div_u r2, r0, r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
+    };
+    var rf = RegFunc{ .code = &code, .pool64 = &.{}, .reg_count = 3, .local_count = 1, .alloc = alloc };
+    const jit = compileFunction(alloc, &rf, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit.deinit(alloc);
+
+    for ([_]u32{ 0, 7, 8, 64, 100, 0xFFFFFFFF }) |n| {
+        var regs: [7]u64 = .{ n, 0, 0, 0, 0, 0, 0 };
+        const result = jit.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0), result);
+        try testing.expectEqual(@as(u64, n / 8), regs[0]);
+    }
+}
+
+test "rem-by-constant JIT: unsigned i32.rem_u by known 10" {
+    if (builtin.cpu.arch != .aarch64) return;
+
+    const alloc = testing.allocator;
+    var code = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 10 },
+        .{ .op = 0x70, .rd = 2, .rs1 = 0, .rs2_field = 1 }, // i32.rem_u r2, r0, r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
+    };
+    var rf = RegFunc{ .code = &code, .pool64 = &.{}, .reg_count = 3, .local_count = 1, .alloc = alloc };
+    const jit = compileFunction(alloc, &rf, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit.deinit(alloc);
+
+    for ([_]u32{ 0, 1, 9, 10, 99, 100, 12345, 0xFFFFFFFF }) |n| {
+        var regs: [7]u64 = .{ n, 0, 0, 0, 0, 0, 0 };
+        const result = jit.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0), result);
+        try testing.expectEqual(@as(u64, n % 10), regs[0]);
+    }
+}
+
+test "rem-by-constant JIT: power-of-2 divisor uses AND" {
+    if (builtin.cpu.arch != .aarch64) return;
+
+    const alloc = testing.allocator;
+    var code = [_]RegInstr{
+        .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 16 },
+        .{ .op = 0x70, .rd = 2, .rs1 = 0, .rs2_field = 1 }, // i32.rem_u r2, r0, r1
+        .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
+    };
+    var rf = RegFunc{ .code = &code, .pool64 = &.{}, .reg_count = 3, .local_count = 1, .alloc = alloc };
+    const jit = compileFunction(alloc, &rf, &.{}, 0, 0, 1, null, 0, false) orelse
+        return error.CompilationFailed;
+    defer jit.deinit(alloc);
+
+    for ([_]u32{ 0, 1, 15, 16, 31, 32, 255, 0xFFFFFFFF }) |n| {
+        var regs: [7]u64 = .{ n, 0, 0, 0, 0, 0, 0 };
+        const result = jit.entry(&regs, undefined, undefined);
+        try testing.expectEqual(@as(u64, 0), result);
+        try testing.expectEqual(@as(u64, n % 16), regs[0]);
+    }
+}
 
