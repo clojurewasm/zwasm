@@ -11,10 +11,10 @@ No regressions allowed on main. After P1+P2: Merge Gate check → merge → reli
 ## Current: Plan A — Incremental regression fix + feature implementation
 
 ### Active Phase
-**Phase 1: rw_c_string hang fix** (Priority A)
+**Phase 2: nbody FP cache fix** (Priority C)
 
 ### Phase Checklist
-- [ ] **P1**: rw_c_string hang fix — investigate OSR misjudgment
+- [x] **P1**: rw_c_string hang fix — skip back-edge JIT for reentry guard functions (20.2ms, was timeout)
 - [ ] **P2**: nbody FP cache fix — resolve be466a0 regression (43ms → ≤15ms)
 - [ ] **P3**: rw_c_math re-measure — check P2 ripple effect, decide on further optimization
 - [ ] **P4**: GC JIT basic implementation — JIT-compile struct/array ops
@@ -41,7 +41,7 @@ No regressions allowed on main. After P1+P2: Merge Gate check → merge → reli
 | gc_alloc | 19.2 | 10.7 | 1.79x | P4 |
 | gc_tree | 138.1 | 31.4 | 4.40x | P4 |
 | st_matrix | 296.3 | 91.7 | 3.23x | P5 (exception) |
-| rw_c_string | timeout | 9.3 | hang | P1 |
+| rw_c_string | 20.2 | 9.3 | 2.17x | P1 done |
 
 ### ≤1.5x wasmtime (OK — 23 benchmarks)
 fib 0.88x, tak 0.86x, sieve 0.51x, nqueens 0.65x, tgo_tak 0.62x,

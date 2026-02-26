@@ -2104,3 +2104,38 @@ entries:
       rw_c_math: {time_ms: 19.0}
       rw_cpp_string: {time_ms: 4.0}
       rw_cpp_sort: {time_ms: 2.9}
+  - id: "P1"
+    date: "2026-02-26"
+    reason: "Fix rw_c_string hang: skip back-edge JIT for reentry guard functions"
+    commit: "b380c57"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 47.9}
+      tak: {time_ms: 6.2}
+      sieve: {time_ms: 4.2}
+      nbody: {time_ms: 40.7}
+      nqueens: {time_ms: 3.0}
+      tgo_fib: {time_ms: 34.1}
+      tgo_tak: {time_ms: 6.3}
+      tgo_arith: {time_ms: 2.5}
+      tgo_sieve: {time_ms: 3.4}
+      tgo_fib_loop: {time_ms: 2.5}
+      tgo_gcd: {time_ms: 2.1}
+      tgo_nqueens: {time_ms: 44.2}
+      tgo_mfr: {time_ms: 50.0}
+      tgo_list: {time_ms: 38.7}
+      tgo_rwork: {time_ms: 6.4}
+      tgo_strops: {time_ms: 31.9}
+      st_fib2: {time_ms: 947.3}
+      st_sieve: {time_ms: 193.8}
+      st_nestedloop: {time_ms: 2.2}
+      st_ackermann: {time_ms: 4.6}
+      st_matrix: {time_ms: 294.2}
+      gc_alloc: {time_ms: 18.4}
+      gc_tree: {time_ms: 137.3}
+      rw_rust_fib: {time_ms: 38.2}
+      rw_c_matrix: {time_ms: 17.5}
+      rw_c_math: {time_ms: 55.8}
+      rw_c_string: {time_ms: 20.2}
+      rw_cpp_string: {time_ms: 7.3}
+      rw_cpp_sort: {time_ms: 3.9}
