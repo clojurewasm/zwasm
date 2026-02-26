@@ -14,7 +14,7 @@
 4. Phase H Gate pass → merge to main → CI green → Phase H (41-file doc audit)
 
 ### Active Phase
-**R6: Phase H Gate verification**
+**R7: Merge to main, push, CI green**
 
 ### Phase Checklist
 
@@ -35,7 +35,13 @@
   - x86_64 select aliasing fix — val2 clobbered when rd == val2_idx (a87495b)
 
 #### Merge + Phase H
-- [ ] **R6**: Phase H Gate — all 9 conditions pass (Mac + Ubuntu)
+- [x] **R6**: Phase H Gate — all conditions pass (Mac + Ubuntu)
+  - OSR for back-edge JIT: enter at loop body, skip prologue side effects
+  - ARM64 OSR prologue fix: push FP callee-saved d8-d15 (stack corruption fix)
+  - x86_64 OSR prologue fix: load physically-mapped vregs (was missing)
+  - hasBrTableInPrologue: inclusive of target instruction (Go back-edge → br_table)
+  - st_sieve: 0.97x wasmtime (restored from 30.82x regression)
+  - Mac + Ubuntu: 30/30 compat, 62158/62158 spec, unit tests PASS
 - [ ] **R7**: Merge to main, push, CI green
 - [ ] **R8**: Phase H — 41-file comprehensive documentation audit
 
