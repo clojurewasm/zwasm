@@ -182,26 +182,33 @@ const TestRunner = struct {
             self.addFailure("line {d}: failed to read {s}", .{ cmd.line, filename });
             return;
         };
-        errdefer self.allocator.free(wasm_bytes);
 
-        const mod = self.allocator.create(Module) catch return;
-        errdefer self.allocator.destroy(mod);
+        const mod = self.allocator.create(Module) catch {
+            self.allocator.free(wasm_bytes);
+            return;
+        };
         mod.* = Module.init(self.allocator, wasm_bytes);
         mod.decode() catch |err| {
             mod.deinit();
             self.allocator.destroy(mod);
+            self.allocator.free(wasm_bytes);
             self.addFailure("line {d}: decode error: {s}", .{ cmd.line, @errorName(err) });
             return;
         };
 
-        const inst = self.allocator.create(Instance) catch return;
-        errdefer self.allocator.destroy(inst);
+        const inst = self.allocator.create(Instance) catch {
+            mod.deinit();
+            self.allocator.destroy(mod);
+            self.allocator.free(wasm_bytes);
+            return;
+        };
         inst.* = Instance.init(self.allocator, self.store, mod);
         inst.instantiate() catch |err| {
             inst.deinit();
             self.allocator.destroy(inst);
             mod.deinit();
             self.allocator.destroy(mod);
+            self.allocator.free(wasm_bytes);
             self.addFailure("line {d}: instantiate error: {s}", .{ cmd.line, @errorName(err) });
             return;
         };
@@ -214,13 +221,21 @@ const TestRunner = struct {
                 self.allocator.destroy(inst);
                 mod.deinit();
                 self.allocator.destroy(mod);
+                self.allocator.free(wasm_bytes);
                 self.addFailure("line {d}: start function error: {s}", .{ cmd.line, @errorName(err) });
                 return;
             };
         }
 
         const entry = ModuleEntry{ .instance = inst, .module = mod, .wasm_bytes = wasm_bytes };
-        self.all_modules.append(self.allocator, entry) catch return;
+        self.all_modules.append(self.allocator, entry) catch {
+            inst.deinit();
+            self.allocator.destroy(inst);
+            mod.deinit();
+            self.allocator.destroy(mod);
+            self.allocator.free(wasm_bytes);
+            return;
+        };
 
         if (cmd.name) |name| {
             self.named_modules.put(name, entry) catch return;
