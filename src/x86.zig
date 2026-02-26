@@ -1610,9 +1610,9 @@ pub const Compiler = struct {
     fn emitOsrPrologue(self: *Compiler, target_pc: u32) void {
         self.osr_prologue_offset = self.currentOffset();
 
-        // Same callee-saved pushes as normal prologue (must match epilogue)
-        Enc.push(&self.code, self.alloc, .rbp);
+        // Same callee-saved pushes as normal prologue (must match epilogue order)
         Enc.push(&self.code, self.alloc, .rbx);
+        Enc.push(&self.code, self.alloc, .rbp);
         Enc.push(&self.code, self.alloc, .r12);
         Enc.push(&self.code, self.alloc, .r13);
         Enc.push(&self.code, self.alloc, .r14);

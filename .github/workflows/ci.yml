@@ -130,8 +130,8 @@ jobs:
           ARCHIVE="wasi-sdk-${WASI_SDK_VERSION}.0-${ARCH}-${OS}.tar.gz"
           curl -L -o /tmp/wasi-sdk.tar.gz \
             "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/${ARCHIVE}"
-          mkdir -p /opt/wasi-sdk
-          tar xzf /tmp/wasi-sdk.tar.gz -C /opt/wasi-sdk --strip-components=1
+          sudo mkdir -p /opt/wasi-sdk
+          sudo tar xzf /tmp/wasi-sdk.tar.gz -C /opt/wasi-sdk --strip-components=1
 
       - name: Setup Rust wasm32-wasip1 target
         run: rustup target add wasm32-wasip1
