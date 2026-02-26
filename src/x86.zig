@@ -1611,12 +1611,12 @@ pub const Compiler = struct {
         self.osr_prologue_offset = self.currentOffset();
 
         // Same callee-saved pushes as normal prologue (must match epilogue)
-        Enc.pushReg(&self.code, self.alloc, .rbp);
-        Enc.pushReg(&self.code, self.alloc, .rbx);
-        Enc.pushReg(&self.code, self.alloc, .r12);
-        Enc.pushReg(&self.code, self.alloc, .r13);
-        Enc.pushReg(&self.code, self.alloc, .r14);
-        Enc.pushReg(&self.code, self.alloc, .r15);
+        Enc.push(&self.code, self.alloc, .rbp);
+        Enc.push(&self.code, self.alloc, .rbx);
+        Enc.push(&self.code, self.alloc, .r12);
+        Enc.push(&self.code, self.alloc, .r13);
+        Enc.push(&self.code, self.alloc, .r14);
+        Enc.push(&self.code, self.alloc, .r15);
 
         // Sub 8 to restore 16-byte alignment (6 pushes = 48 bytes + 8 from CALL = 56, +8 = 64)
         Enc.subImm32(&self.code, self.alloc, .rsp, 8);
@@ -3193,6 +3193,8 @@ pub const Compiler = struct {
                 self.error_stubs.append(self.alloc, .{
                     .rel32_offset = jmp_off,
                     .error_code = 0, // RAX already set, patch JMP to shared exit
+                    .kind = .jne,
+                    .cond = .ne,
                 }) catch return false;
             },
 
@@ -4654,7 +4656,7 @@ test "x86_64 unreachable opcode emits trap error" {
         .{ .op = regalloc_mod.OP_CONST32, .rd = 1, .rs1 = 0, .operand = 42 },
         .{ .op = regalloc_mod.OP_RETURN, .rd = 1, .rs1 = 0, .operand = 0 },
     };
-    var rf = RegFunc{ .code = &code, .reg_count = 4, .local_count = 2 };
+    var rf = RegFunc{ .code = &code, .pool64 = &.{}, .reg_count = 4, .local_count = 2, .alloc = alloc };
     const jit_code = compileFunction(alloc, &rf, &.{}, 0, 1, 1, null, 0, false, null) orelse
         return error.SkipZigTest;
     defer jit_code.deinit(alloc);
