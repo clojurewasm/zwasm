@@ -118,52 +118,52 @@ For each file: read → compare against actual codebase/test results → update/
 ### Checklist (41 files)
 
 #### Root (6 files)
-- [ ] `README.md` — benchmark table, feature matrix, supported proposals, install instructions
-- [ ] `CHANGELOG.md` — entries for all changes since last release
-- [ ] `LICENSE` — year, copyright holder
-- [ ] `SECURITY.md` — threat model accuracy, disclosure process
-- [ ] `CONTRIBUTING.md` — TDD rules, test commands, PR process match current workflow
-- [ ] `CODE_OF_CONDUCT.md` — links, contact info
+- [x] `README.md` — updated benchmarks, feature counts, binary/memory sizes
+- [x] `CHANGELOG.md` — added [Unreleased] section with reliability improvements
+- [x] `LICENSE` — OK (2026, correct copyright)
+- [x] `SECURITY.md` — updated version support, DoS scope
+- [x] `CONTRIBUTING.md` — updated test counts, added missing source files
+- [x] `CODE_OF_CONDUCT.md` — OK
 
 #### docs/ (5 files)
-- [ ] `docs/usage.md` — CLI flags, WASI capabilities, examples match current binary
-- [ ] `docs/security.md` — threat model, memory isolation guarantees
-- [ ] `docs/errors.md` — error codes match actual API
-- [ ] `docs/api-boundary.md` — stable API surface, SemVer guarantees
-- [ ] `docs/audit-36.md` — audit findings still relevant
+- [x] `docs/usage.md` — OK (accurate)
+- [x] `docs/security.md` — fixed resource exhaustion text, DoS section
+- [x] `docs/errors.md` — OK
+- [x] `docs/api-boundary.md` — OK
+- [x] `docs/audit-36.md` — updated binary size, test count
 
 #### mdBook English — book/en/src/ (13 files)
-- [ ] `SUMMARY.md` — table of contents matches actual chapters
-- [ ] `introduction.md` — feature overview, quick start
-- [ ] `getting-started.md` — installation, setup, first run
-- [ ] `cli-reference.md` — all commands, flags, examples
-- [ ] `embedding-guide.md` — Zig library API, code samples compile
-- [ ] `faq.md` — answers still accurate
-- [ ] `architecture.md` — component diagram, module descriptions
-- [ ] `spec-coverage.md` — proposal support status, pass counts
-- [ ] `security-model.md` — security guarantees, trust boundaries
-- [ ] `performance.md` — benchmark numbers, methodology, comparison charts
-- [ ] `memory-model.md` — memory layout, limits
-- [ ] `comparison.md` — other runtimes comparison, numbers
-- [ ] `contributing.md` — workflow, commands
+- [x] `SUMMARY.md` — OK
+- [x] `introduction.md` — updated binary/memory sizes
+- [x] `getting-started.md` — OK
+- [x] `cli-reference.md` — OK
+- [x] `embedding-guide.md` — OK
+- [x] `faq.md` — OK
+- [x] `architecture.md` — updated LOC, opcode count, added component model files
+- [x] `spec-coverage.md` — OK (numbers match)
+- [x] `security-model.md` — OK
+- [x] `performance.md` — updated benchmarks 16/29, binary/memory, benchmark layers
+- [x] `memory-model.md` — OK
+- [x] `comparison.md` — updated binary size, size ratio
+- [x] `contributing.md` — updated E2E count, added realworld tests
 
 #### mdBook Japanese — book/ja/src/ (13 files)
-- [ ] `SUMMARY.md`
-- [ ] `introduction.md`
-- [ ] `getting-started.md`
-- [ ] `cli-reference.md`
-- [ ] `embedding-guide.md`
-- [ ] `faq.md`
-- [ ] `architecture.md`
-- [ ] `spec-coverage.md`
-- [ ] `security-model.md`
-- [ ] `performance.md`
-- [ ] `memory-model.md`
-- [ ] `comparison.md`
-- [ ] `contributing.md`
+- [x] `SUMMARY.md` — OK
+- [x] `introduction.md` — mirrored EN update
+- [x] `getting-started.md` — OK
+- [x] `cli-reference.md` — OK
+- [x] `embedding-guide.md` — OK
+- [x] `faq.md` — OK
+- [x] `architecture.md` — mirrored EN update
+- [x] `spec-coverage.md` — OK
+- [x] `security-model.md` — OK
+- [x] `performance.md` — mirrored EN update
+- [x] `memory-model.md` — OK
+- [x] `comparison.md` — mirrored EN update
+- [x] `contributing.md` — mirrored EN update
 
 #### GitHub .github/ (4 files)
-- [ ] `FUNDING.yml` — sponsor links
-- [ ] `ISSUE_TEMPLATE/bug_report.yml` — fields, labels
-- [ ] `ISSUE_TEMPLATE/feature_request.yml` — fields, labels
-- [ ] `workflows/book.yml` — mdBook build still works
+- [x] `FUNDING.yml` — OK
+- [x] `ISSUE_TEMPLATE/bug_report.yml` — OK
+- [x] `ISSUE_TEMPLATE/feature_request.yml` — OK
+- [x] `workflows/book.yml` — OK
