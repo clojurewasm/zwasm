@@ -868,6 +868,9 @@ pub const Compiler = struct {
     pool64: []const u64,
     has_memory: bool,
     has_self_call: bool,
+    /// True when the only calls are self-calls (no trampoline/indirect calls).
+    /// Enables aggressive self-call optimization: skip reg_ptr memory sync.
+    self_call_only: bool,
     self_func_idx: u32,
     param_count: u16,
     result_count: u16,
@@ -960,6 +963,7 @@ pub const Compiler = struct {
             .pool64 = &.{},
             .has_memory = false,
             .has_self_call = false,
+            .self_call_only = false,
             .self_func_idx = 0,
             .param_count = 0,
             .result_count = 0,
@@ -1653,6 +1657,14 @@ pub const Compiler = struct {
     // --- Prologue / Epilogue ---
 
     fn emitPrologue(self: *Compiler) void {
+        // Precompute caching flags for non-memory self-call functions.
+        // Must be set before emitting self-call entry block (used by emitLoadRegPtrAddr).
+        if (!self.has_memory and self.has_self_call) {
+            self.depth_reg_cached = true;
+            if (self.reg_count <= 12) self.vm_ptr_cached = true;
+            if (self.reg_count <= 13) self.inst_ptr_cached = true;
+        }
+
         // Save callee-saved registers and set up frame.
         // stp x29, x30, [sp, #-16]!
         self.emit(a64.stpPre(29, 30, 31, -2)); // -2 * 8 = -16
@@ -1666,6 +1678,8 @@ pub const Compiler = struct {
         self.emit(a64.stpPre(25, 26, 31, -2));
         // stp x27, x28, [sp, #-16]!
         self.emit(a64.stpPre(27, 28, 31, -2));
+
+        var b_vreg_load_idx: u32 = 0; // Patched later: self-call B to vreg loading
 
         if (self.has_self_call) {
             // Normal entry: x29 = SP (nonzero) — epilogue does full LDP x19-x28.
@@ -1692,13 +1706,37 @@ pub const Compiler = struct {
             self.emit(a64.stpPre(29, 30, 31, -2));
             self.emit(a64.movz64(29, 0, 0)); // MOV x29, #0 (zero = self-call entry)
 
+            // --- Minimal self-call setup (bypass shared setup) ---
+            // Self-call preserves callee-saved: x19-x28 unchanged from caller.
+            // Only need to set REGS_PTR to callee's frame.
+            self.emit(a64.mov64(REGS_PTR, 0)); // x19 = callee regs (from x0)
+
+            // Store vm/inst ptrs to callee frame only when not register-cached.
+            // When cached (x20/x21), callee-saved regs are preserved across self-call.
+            if (!self.vm_ptr_cached) {
+                self.emit(a64.str64(1, REGS_PTR, @intCast((@as(u32, self.reg_count) + 2) * 8)));
+            }
+            if (!self.inst_ptr_cached) {
+                self.emit(a64.str64(2, REGS_PTR, @intCast((@as(u32, self.reg_count) + 3) * 8)));
+            }
+
+            // Cache &vm.reg_ptr only when function has non-self calls (trampoline needs it).
+            if (!self.self_call_only) {
+                self.emitLoadRegPtrAddr(SCRATCH);
+                self.emit(a64.str64(SCRATCH, REGS_PTR, @intCast(@as(u16, self.reg_count) * 8)));
+            }
+
+            // Branch over shared setup to vreg loading (patched below).
+            b_vreg_load_idx = self.currentIdx();
+            self.emit(0x14000000); // B placeholder
+
             // Patch B to shared setup (current position).
             const shared_setup = self.currentIdx();
             const b_offset: i26 = @intCast(@as(i32, @intCast(shared_setup)) - @as(i32, @intCast(b_shared_idx)));
             self.code.items[b_shared_idx] = a64.b(b_offset);
         }
 
-        // --- Shared setup (normal + self-call entries converge here) ---
+        // --- Shared setup (normal entry only when has_self_call) ---
 
         // Save args: x0 = regs (→ callee-saved x19), x1 = vm, x2 = instance (→ memory slots)
         self.emit(a64.mov64(REGS_PTR, 0)); // x19 = regs
@@ -1713,28 +1751,22 @@ pub const Compiler = struct {
         if (self.has_memory) {
             self.emitLoadMemCache();
         } else if (self.has_self_call) {
-            // Cache vm.reg_ptr VALUE in x27 for inline self-calls (non-memory functions).
-            // Also cache &vm.reg_ptr in regs[reg_count] to avoid recomputing the large offset
-            // on every self-call (non-memory functions don't use regs[reg_count] for mem cache).
+            // Normal entry: load reg_ptr, depth, vm/inst into cached registers.
+            // Self-call entry bypasses this (registers preserved from caller).
             self.emitLoadRegPtrAddr(SCRATCH);
             self.emit(a64.ldr64(REG_PTR_VAL, SCRATCH, 0)); // x27 = vm.reg_ptr value
-            // Store &vm.reg_ptr in regs[reg_count] for fast access in self-calls
             self.emit(a64.str64(SCRATCH, REGS_PTR, @intCast(@as(u16, self.reg_count) * 8)));
-            // Cache vm.call_depth in x28 for fast depth tracking.
-            // Only load from memory at normal entry (x29 != 0). Self-call entry
-            // (x29 == 0) preserves x28 from the caller — skip the reload.
-            self.emit(a64.cbz64(29, 2)); // self-call: skip LDR
-            self.emit(a64.ldr64(28, SCRATCH, 8)); // normal entry: x28 = vm.call_depth
-            self.depth_reg_cached = true;
-            // Cache vm_ptr/inst_ptr in callee-saved regs when vreg slots are unused.
-            if (self.reg_count <= 12) {
-                self.emitLoadVmPtr(20); // x20 = vm_ptr
-                self.vm_ptr_cached = true;
-            }
-            if (self.reg_count <= 13) {
-                self.emitLoadInstPtr(21); // x21 = inst_ptr
-                self.inst_ptr_cached = true;
-            }
+            self.emit(a64.ldr64(28, SCRATCH, 8)); // x28 = vm.call_depth
+            if (self.vm_ptr_cached) self.emitLoadVmPtr(20); // x20 = vm_ptr
+            if (self.inst_ptr_cached) self.emitLoadInstPtr(21); // x21 = inst_ptr
+        }
+
+        // --- Vreg loading (self-call B target) ---
+        if (self.has_self_call) {
+            // Patch B from self-call path to here.
+            const vreg_load_start = self.currentIdx();
+            const b_vreg_offset: i26 = @intCast(@as(i32, @intCast(vreg_load_start)) - @as(i32, @intCast(b_vreg_load_idx)));
+            self.code.items[b_vreg_load_idx] = a64.b(b_vreg_offset);
         }
 
         // Load virtual registers from regs[] into physical registers.
@@ -1997,11 +2029,23 @@ pub const Compiler = struct {
         self.result_count = result_count;
         self.reg_ptr_offset = reg_ptr_offset;
 
-        // Scan IR for memory opcodes and self-calls
+        // Scan IR for memory opcodes, self-calls, and non-self calls
         self.has_memory = scanForMemoryOps(reg_func.code);
-        self.has_self_call = for (reg_func.code) |instr| {
-            if (instr.op == regalloc_mod.OP_CALL and instr.operand == self_func_idx) break true;
-        } else false;
+        var found_self_call = false;
+        var found_other_call = false;
+        for (reg_func.code) |instr| {
+            if (instr.op == regalloc_mod.OP_CALL) {
+                if (instr.operand == self_func_idx) {
+                    found_self_call = true;
+                } else {
+                    found_other_call = true;
+                }
+            } else if (instr.op == regalloc_mod.OP_CALL_INDIRECT) {
+                found_other_call = true;
+            }
+        }
+        self.has_self_call = found_self_call;
+        self.self_call_only = found_self_call and !found_other_call;
 
         // Pre-scan: compute which vregs need loading in prologue
         self.prologue_load_mask = computePrologueLoads(self.local_count);
@@ -3575,7 +3619,6 @@ pub const Compiler = struct {
             self.emit(a64.str64(SCRATCH2, SCRATCH, 0)); // Store back through address
         } else {
             // Non-memory path: x27 = reg_ptr VALUE, operate directly in register.
-            // Must store updated value to memory so callee's prologue can read it.
             if (needed <= 0xFFF) {
                 self.emit(a64.addImm64(REG_PTR_VAL, REG_PTR_VAL, @intCast(needed)));
             } else {
@@ -3587,10 +3630,12 @@ pub const Compiler = struct {
             self.emit(a64.movz64(SCRATCH, vm_mod.REG_STACK_SIZE, 0));
             self.emit(a64.cmp64(REG_PTR_VAL, SCRATCH));
             self.emitCondError(.hi, 2); // StackOverflow if new > max
-            // Write updated reg_ptr to memory (callee prologue reads from memory).
-            // Load cached &vm.reg_ptr from regs[reg_count] (stored in prologue).
-            self.emit(a64.ldr64(SCRATCH, REGS_PTR, @intCast(@as(u16, self.reg_count) * 8)));
-            self.emit(a64.str64(REG_PTR_VAL, SCRATCH, 0));
+            if (!self.self_call_only) {
+                // Write updated reg_ptr to memory for trampoline calls to read.
+                // Self-call-only functions keep reg_ptr purely in x27 (no memory sync).
+                self.emit(a64.ldr64(SCRATCH, REGS_PTR, @intCast(@as(u16, self.reg_count) * 8)));
+                self.emit(a64.str64(REG_PTR_VAL, SCRATCH, 0));
+            }
         }
 
         // 3. Compute callee REGS_PTR: x0 = REGS_PTR + needed*8
@@ -3626,15 +3671,21 @@ pub const Compiler = struct {
         }
 
         // 6. Set up BL args: x0 = callee regs (already), x1 = vm, x2 = instance
-        if (self.vm_ptr_cached) {
-            self.emit(a64.mov64(1, 20)); // x1 = x20 (cached vm_ptr)
-        } else {
-            self.emitLoadVmPtr(1);
+        // Self-call-only with cached ptrs: callee's self-call path skips STR x1/x2,
+        // so these MOVs are unnecessary (callee uses x20/x21 directly).
+        if (!self.self_call_only or !self.vm_ptr_cached) {
+            if (self.vm_ptr_cached) {
+                self.emit(a64.mov64(1, 20)); // x1 = x20 (cached vm_ptr)
+            } else {
+                self.emitLoadVmPtr(1);
+            }
         }
-        if (self.inst_ptr_cached) {
-            self.emit(a64.mov64(2, 21)); // x2 = x21 (cached inst_ptr)
-        } else {
-            self.emitLoadInstPtr(2);
+        if (!self.self_call_only or !self.inst_ptr_cached) {
+            if (self.inst_ptr_cached) {
+                self.emit(a64.mov64(2, 21)); // x2 = x21 (cached inst_ptr)
+            } else {
+                self.emitLoadInstPtr(2);
+            }
         }
 
         // 7. BL to self-call entry (skips callee-saved STP x19-x28)
