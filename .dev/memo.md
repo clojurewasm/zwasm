@@ -5,32 +5,28 @@ Session handover document. Read at session start.
 ## Current State
 
 - Stages 0-46 complete. v1.1.0 released. ~50K LOC, 521 unit tests.
-- Spec: 62,158/62,158 Mac + Ubuntu (100.0%). E2E: 792/792 (100.0%).
+- Spec: 62,263/62,263 Mac (100.0%, 0 skip). E2E: 792/792 (100.0%, 0 leak).
 - Wasm 3.0: all 9 proposals. WASI: 46/46 (100%). WAT parser complete.
 - JIT: Register IR + ARM64/x86_64. Size: ~1.4MB / ~3.5MB RSS.
 - **main = stable**: ClojureWasm depends on main (v1.1.0 tag).
 
 ## Current Task
 
-Reliability improvement (branch: `strictly-check/reliability-005`).
-Plan: `@./.dev/reliability-plan.md`. Progress: `@./.dev/reliability-handover.md`.
+Gate hardening (branch: `strictly-check/gate-hardening`). Ready for merge.
 
-**reliability-005: Real-world DIFF fix + test expansion + Phase H**
-- [x] R0: CI + gate update (E2E/compat in gates, memory check, WASI SDK in CI)
-- [x] R1: E2E segfault fix — JIT self-call stack overflow use-after-free (d289d44)
-- [x] R2: Go WASI fix — back-edge JIT restart side-effect detection (806cb7d)
-- [x] R3: cpp_string_ops Ubuntu fix — same root cause as R2
-- [x] R4: c_hello_wasi Ubuntu fix — same root cause as R2
-- [x] R5: 18 new real-world tests + JIT IR limit + x86 select fix (30/30 Mac+Ubuntu)
-- [x] R6: OSR for back-edge JIT — st_sieve 0.97x restored, all gates pass
-- [x] R7: Merged to main (cf1c259), CI green (run 22459949055)
-  - x86 OSR prologue register push order fix + macOS CI WASI SDK permission fix
-- [x] R8: Phase H — 41-file documentation audit (complete)
+**gate-hardening: Zero-skip/zero-leak + gate enforcement**
+- [x] T1: nightly.yml — Debug spec test → ReleaseSafe (eliminates 11 tail-call timeouts)
+- [x] T2: E2E runner memory leak fix (errdefer in void function was no-op)
+- [x] T3: Fix all 87 spec validation skips (validate.zig: GC types, subtyping, tables, exceptions)
+- [x] T4: Fix all 18 spec infra skips (run_spec.py: add assert_exception handler)
+- [x] T5: Harden gate docs (CLAUDE.md, SKILL.md, bench/record.sh)
+- [x] T6: Add --strict mode to run_spec.py, enable in CI
 
 ## Previous Task
 
-reliability-004 (P1-P5): rw_c_string hang fix, nbody FP cache, rw_c_math/st_matrix
-regalloc limits, GC JIT. All merged to main at f654cc9.
+reliability-005 (R0-R8): E2E segfault fix, Go/C++/C WASI back-edge JIT fixes,
+18 new real-world tests, OSR for back-edge JIT, x86 OSR fixes, Phase H doc audit.
+All merged to main at 48b3202.
 
 ## Known Bugs
 
