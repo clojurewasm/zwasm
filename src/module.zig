@@ -101,6 +101,7 @@ pub const TableDef = struct {
     reftype: opcode.RefType,
     limits: opcode.Limits,
     init_expr: ?[]const u8 = null, // table init expression (function-references proposal)
+    full_reftype: opcode.ValType = .funcref, // Full type for validation (preserves nullability and type index)
 };
 
 /// Memory definition.
@@ -145,6 +146,7 @@ pub const ElementSegment = struct {
     mode: ElementMode,
     reftype: opcode.RefType,
     init: ElementInit,
+    full_reftype: opcode.ValType = .funcref, // Full type for validation
 };
 
 pub const ElementMode = union(enum) {
@@ -716,7 +718,7 @@ pub const Module = struct {
             },
             5 => {
                 // Passive, explicit reftype, expressions
-                const reftype = try readRefTypeGC(reader);
+                const rt = try readRefTypeFull(reader);
                 const num = try reader.readU32();
                 const exprs = try self.alloc.alloc([]const u8, num);
                 for (exprs) |*expr| {
@@ -727,8 +729,9 @@ pub const Module = struct {
 
                 return .{
                     .mode = .passive,
-                    .reftype = reftype,
+                    .reftype = rt.simple,
                     .init = .{ .expressions = exprs },
+                    .full_reftype = rt.full,
                 };
             },
             6 => {
@@ -737,7 +740,7 @@ pub const Module = struct {
                 const offset_start = reader.pos;
                 try skipInitExpr(reader);
                 const offset_end = reader.pos;
-                const reftype = try readRefTypeGC(reader);
+                const rt = try readRefTypeFull(reader);
                 const num = try reader.readU32();
                 const exprs = try self.alloc.alloc([]const u8, num);
                 for (exprs) |*expr| {
@@ -751,13 +754,14 @@ pub const Module = struct {
                         .table_idx = table_idx,
                         .offset_expr = reader.bytes[offset_start..offset_end],
                     } },
-                    .reftype = reftype,
+                    .reftype = rt.simple,
                     .init = .{ .expressions = exprs },
+                    .full_reftype = rt.full,
                 };
             },
             7 => {
                 // Declarative, explicit reftype, expressions
-                const reftype = try readRefTypeGC(reader);
+                const rt = try readRefTypeFull(reader);
                 const num = try reader.readU32();
                 const exprs = try self.alloc.alloc([]const u8, num);
                 for (exprs) |*expr| {
@@ -768,8 +772,9 @@ pub const Module = struct {
 
                 return .{
                     .mode = .declarative,
-                    .reftype = reftype,
+                    .reftype = rt.simple,
                     .init = .{ .expressions = exprs },
+                    .full_reftype = rt.full,
                 };
             },
             else => return error.InvalidWasm,
@@ -1139,21 +1144,51 @@ fn readRefTypeGC(reader: *Reader) !opcode.RefType {
     return .externref;
 }
 
+/// Read a reftype preserving full type info (nullability, type index, abstract heap type).
+/// Returns both the simplified RefType (for runtime) and the full ValType (for validation).
+fn readRefTypeFull(reader: *Reader) !struct { simple: opcode.RefType, full: opcode.ValType } {
+    const first_byte = try reader.readByte();
+    if (first_byte == 0x63 or first_byte == 0x64) {
+        const nullable = (first_byte == 0x63);
+        const ht = try reader.readI33();
+        const full_vt = opcode.ValType.fromI33HeapType(ht, nullable);
+        const simple: opcode.RefType = if (ht == -16) .funcref else .externref;
+        return .{ .simple = simple, .full = full_vt };
+    }
+    if (first_byte == 0x70) return .{ .simple = .funcref, .full = .funcref };
+    if (first_byte == 0x6F) return .{ .simple = .externref, .full = .externref };
+    // GC shorthand reftypes
+    const full_vt = switch (first_byte) {
+        0x6E => opcode.ValType{ .ref_null_type = opcode.ValType.HEAP_ANY },
+        0x6D => opcode.ValType{ .ref_null_type = opcode.ValType.HEAP_EQ },
+        0x6C => opcode.ValType{ .ref_null_type = opcode.ValType.HEAP_I31 },
+        0x6B => opcode.ValType{ .ref_null_type = opcode.ValType.HEAP_STRUCT },
+        0x6A => opcode.ValType{ .ref_null_type = opcode.ValType.HEAP_ARRAY },
+        0x69 => opcode.ValType.exnref,
+        0x71 => opcode.ValType{ .ref_null_type = opcode.ValType.HEAP_NONE },
+        0x73 => opcode.ValType{ .ref_null_type = opcode.ValType.HEAP_NOFUNC },
+        0x72 => opcode.ValType{ .ref_null_type = opcode.ValType.HEAP_NOEXTERN },
+        0x74 => opcode.ValType{ .ref_null_type = opcode.ValType.HEAP_NOEXN },
+        else => opcode.ValType.externref,
+    };
+    return .{ .simple = .externref, .full = full_vt };
+}
+
 fn readTableDef(reader: *Reader) !TableDef {
     // Check for function-references encoding: 0x40 0x00 reftype limits init_expr
     if (reader.pos < reader.bytes.len and reader.bytes[reader.pos] == 0x40) {
         _ = try reader.readByte(); // consume 0x40
         _ = try reader.readByte(); // consume flags (0x00)
-        const reftype = try readRefTypeGC(reader);
+        const rt = try readRefTypeFull(reader);
         const limits = try readLimits(reader);
         const init_start = reader.pos;
         try skipInitExpr(reader);
         const init_end = reader.pos;
-        return .{ .reftype = reftype, .limits = limits, .init_expr = reader.bytes[init_start..init_end] };
+        return .{ .reftype = rt.simple, .limits = limits, .init_expr = reader.bytes[init_start..init_end], .full_reftype = rt.full };
     }
-    const reftype = try readRefTypeGC(reader);
+    const rt = try readRefTypeFull(reader);
     const limits = try readLimits(reader);
-    return .{ .reftype = reftype, .limits = limits };
+    return .{ .reftype = rt.simple, .limits = limits, .full_reftype = rt.full };
 }
 
 fn readMemoryDef(reader: *Reader) !MemoryDef {

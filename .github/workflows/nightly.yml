@@ -35,8 +35,8 @@ jobs:
       - name: Convert spec tests
         run: bash test/spec/convert.sh /tmp/wasm-spec/test/core
 
-      - name: Spec tests (Debug)
-        run: python3 test/spec/run_spec.py --debug-build --summary
+      - name: Spec tests (ReleaseSafe, strict)
+        run: python3 test/spec/run_spec.py --build --summary --strict
         timeout-minutes: 30
 
       - name: Download wasmtime misc_testsuite

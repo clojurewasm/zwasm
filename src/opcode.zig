@@ -101,6 +101,33 @@ pub const ValType = union(enum) {
         return if (nullable) ValType{ .ref_null_type = heap_sentinel } else ValType{ .ref_type = heap_sentinel };
     }
 
+    /// Construct ValType from an i33-encoded heap type (used by br_on_cast, table types, etc.)
+    pub fn fromI33HeapType(ht: i64, nullable: bool) ValType {
+        if (ht >= 0) {
+            const idx: u32 = @intCast(ht);
+            return if (nullable) ValType{ .ref_null_type = idx } else ValType{ .ref_type = idx };
+        }
+        const heap_sentinel: u32 = switch (ht) {
+            -16 => HEAP_FUNC,
+            -17 => HEAP_EXTERN,
+            -18 => HEAP_ANY,
+            -19 => HEAP_EQ,
+            -20 => HEAP_I31,
+            -21 => HEAP_STRUCT,
+            -22 => HEAP_ARRAY,
+            -15 => HEAP_NONE,
+            -13 => HEAP_NOFUNC,
+            -14 => HEAP_NOEXTERN,
+            -23 => HEAP_EXN,
+            -12 => HEAP_NOEXN,
+            else => HEAP_ANY,
+        };
+        if (nullable and heap_sentinel == HEAP_FUNC) return .funcref;
+        if (nullable and heap_sentinel == HEAP_EXTERN) return .externref;
+        if (nullable and heap_sentinel == HEAP_EXN) return .exnref;
+        return if (nullable) ValType{ .ref_null_type = heap_sentinel } else ValType{ .ref_type = heap_sentinel };
+    }
+
     /// Decode ValType from a single-byte binary encoding (MVP types).
     pub fn fromByte(byte: u8) ?ValType {
         return switch (byte) {

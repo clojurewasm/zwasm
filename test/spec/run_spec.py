@@ -1397,6 +1397,42 @@ def run_test_file(json_path, verbose=False, wat_mode=False, wat_dir=None):
                     print(f"  FAIL line {line}: {func_name} should have exhausted but returned {results}")
                 failed += 1
 
+        elif cmd_type == "assert_exception":
+            # assert_exception: invoke should trigger an unhandled exception (similar to assert_trap)
+            action = cmd.get("action", {})
+            mod_name = action.get("module")
+
+            if action.get("type") != "invoke":
+                skipped += 1
+                continue
+
+            target = _resolve_target(mod_name, last_internal_name, module_reg_names, module_runners, runner,
+                                     shared_module_names=shared_module_names, reg_runners=reg_runners)
+            if target is None:
+                skipped += 1
+                continue
+            target_kind, target_runner = target
+
+            func_name = action["field"]
+            args = [parse_value(a) for a in action.get("args", [])]
+            if has_unsupported(args):
+                skipped += 1
+                continue
+
+            if target_kind == "invoke_on":
+                ok, results = target_runner.invoke_on(module_reg_names[mod_name], func_name, args)
+            elif target_kind == "invoke_on_shared":
+                ok, results = target_runner.invoke_on(shared_module_names[mod_name], func_name, args)
+            else:
+                ok, results = target_runner.invoke(func_name, args)
+
+            if not ok:
+                passed += 1
+            else:
+                if verbose:
+                    print(f"  FAIL line {line}: {func_name} should have thrown exception but returned {results}")
+                failed += 1
+
         else:
             skipped += 1
 
@@ -1421,6 +1457,8 @@ def main():
                         help="Build zwasm (ReleaseSafe) before running tests")
     parser.add_argument("--debug-build", action="store_true",
                         help="Build zwasm (Debug) before running tests")
+    parser.add_argument("--strict", action="store_true",
+                        help="Exit non-zero if any tests are skipped (for CI gate enforcement)")
     parser.add_argument("--wat-mode", action="store_true",
                         help="WAT roundtrip audit: convert .wasm to .wat via wasm-tools, "
                              "then run through zwasm WAT parser")
@@ -1530,7 +1568,9 @@ def main():
         if len(all_wat_conv_fails) > 20:
             print(f"  ... and {len(all_wat_conv_fails) - 20} more")
 
-    sys.exit(1 if total_failed > args.allow_failures else 0)
+    has_failures = total_failed > args.allow_failures
+    has_skips = args.strict and total_skipped > 0
+    sys.exit(1 if (has_failures or has_skips) else 0)
 
 
 if __name__ == "__main__":

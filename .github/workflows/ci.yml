@@ -57,8 +57,8 @@ jobs:
       - name: Convert spec tests
         run: bash test/spec/convert.sh /tmp/wasm-spec/test/core
 
-      - name: Run spec tests
-        run: python3 test/spec/run_spec.py --build --summary
+      - name: Run spec tests (strict)
+        run: python3 test/spec/run_spec.py --build --summary --strict
 
       - name: Download wasmtime misc_testsuite
         run: |

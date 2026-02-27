@@ -84,20 +84,27 @@ When in doubt, **continue**.
 ### Commit Gate Checklist
 
 0. **TDD**: Test written/updated BEFORE production code (skip for doc-only)
-1. **Tests**: `zig build test` passes
-2. **Spec tests**: Required when modifying vm.zig, predecode.zig, regalloc.zig, opcode.zig, module.zig, wasi.zig
-3. **E2E tests**: `bash test/e2e/run_e2e.sh --convert --summary` (when modifying interpreter/opcodes)
-4. **Real-world compat**: `bash test/realworld/run_compat.sh` — no regressions (when modifying vm/wasi/JIT)
+1. **Tests**: `zig build test` — all pass, 0 fail, 0 leak
+2. **Spec tests**: `python3 test/spec/run_spec.py --build --summary` — fail=0, skip=0
+   (Required when modifying vm.zig, predecode.zig, regalloc.zig, opcode.zig, module.zig, wasi.zig, validate.zig)
+3. **E2E tests**: `bash test/e2e/run_e2e.sh --convert --summary` — fail=0, leak=0
+   (Required when modifying interpreter/opcodes)
+4. **Real-world compat**: `bash test/realworld/run_compat.sh` — PASS=30, FAIL=0, CRASH=0
+   (Required when modifying vm/wasi/JIT)
 5. **Benchmarks**: Required for optimization/JIT tasks.
    - Quick check: `bash bench/run_bench.sh --quick`
    - **Record**: `bash bench/record.sh --id=ID --reason="REASON"` (appends to history.yaml)
-6. **Size guard**: Binary ≤ 1.5MB, memory ≤ 4.5MB
+6. **Size guard**: Binary ≤ 1.5MB (stripped), memory ≤ 4.5MB RSS
 7. **decisions.md / checklist.md / spec-support.md / memo.md**: Update as needed
 
 ### Merge Gate Checklist
 
-**Local (Mac):** tests + spec + E2E + real-world compat + benchmarks pass.
-**Ubuntu x86_64** (see `@./.dev/ubuntu-x86_64.md`): tests + spec + E2E + real-world compat + benchmarks pass.
+**Mac AND Ubuntu x86_64** (see `@./.dev/ubuntu-x86_64.md`):
+- `zig build test` — all pass, 0 fail, 0 leak
+- `python3 test/spec/run_spec.py --build --summary` — fail=0, skip=0
+- `bash test/e2e/run_e2e.sh --convert --summary` — fail=0, leak=0
+- `bash test/realworld/run_compat.sh` — PASS=30, FAIL=0, CRASH=0
+- Benchmarks pass (no regression)
 Fix root cause before merging if Ubuntu reveals new failures.
 
 ## Build & Test

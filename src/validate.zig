@@ -146,6 +146,75 @@ const Validator = struct {
         _ = try self.popExpecting(.v128);
     }
 
+    /// Pop a value that must be a subtype of eqref.
+    fn popExpectingEqRef(self: *Validator) !void {
+        const actual = try self.popOperand();
+        switch (actual) {
+            .unknown => {}, // OK after unreachable
+            .known => |vt| {
+                // eqref subtypes: eqref, i31ref, structref, arrayref, nullref, none,
+                // or any (ref null $t) where $t is struct/array/i31
+                if (!isEqRefSubtype(vt)) return error.TypeMismatch;
+            },
+        }
+    }
+
+    fn isEqRefSubtype(vt: ValType) bool {
+        const ht = heapType(vt) orelse return false;
+        const H = ValType;
+        return ht == H.HEAP_EQ or ht == H.HEAP_I31 or ht == H.HEAP_STRUCT or
+            ht == H.HEAP_ARRAY or ht == H.HEAP_NONE or
+            ht < H.HEAP_NOEXN; // concrete type indices (struct/array) are subtypes of eq
+    }
+
+    /// Check if a function index is "declared" for ref.func usage.
+    /// A function is declared if it appears in element segments or exports.
+    fn isFuncDeclared(self: *Validator, func_idx: u32) bool {
+        // Check exports
+        for (self.module.exports.items) |exp| {
+            if (exp.kind == .func and exp.index == func_idx) return true;
+        }
+        // Check element segment func_indices
+        for (self.module.elements.items) |seg| {
+            switch (seg.init) {
+                .func_indices => |indices| {
+                    for (indices) |idx| {
+                        if (idx == func_idx) return true;
+                    }
+                },
+                .expressions => |exprs| {
+                    for (exprs) |expr| {
+                        // Check for ref.func within the expression
+                        if (exprContainsRefFunc(expr, func_idx)) return true;
+                    }
+                },
+            }
+        }
+        return false;
+    }
+
+    /// Pop a value that must be a func-typed reference compatible with type_idx.
+    fn popExpectingFuncRef(self: *Validator, type_idx: u32) !void {
+        const actual = try self.popOperand();
+        switch (actual) {
+            .unknown => {}, // OK after unreachable
+            .known => |vt| {
+                // Must be a typed func ref: (ref null $t), (ref $t), or nofuncref
+                const ht = heapType(vt) orelse return error.TypeMismatch;
+                if (ht == ValType.HEAP_NOFUNC) return; // bottom type, subtype of all func types
+                if (ht == ValType.HEAP_FUNC) return error.TypeMismatch; // supertype, not subtype
+                if (ht == type_idx) return; // exact type match
+                // Check if ht is a subtype of type_idx via super_types chain
+                if (ht < ValType.HEAP_NOEXN) {
+                    // concrete type index — check supertype chain
+                    if (isConcreteSubtype(self.module, ht, type_idx)) return;
+                    return error.TypeMismatch;
+                }
+                return error.TypeMismatch;
+            },
+        }
+    }
+
     // ---- Control stack ----
 
     fn pushCtrl(self: *Validator, kind: FrameKind, in_types: []const ValType, out_types: []const ValType) !void {
@@ -280,6 +349,27 @@ const Validator = struct {
         return .i32;
     }
 
+    fn tableAddrType(self: *Validator, table_idx: u32) ValType {
+        if (table_idx < self.module.num_imported_tables) {
+            var count: u32 = 0;
+            for (self.module.imports.items) |imp| {
+                if (imp.kind == .table) {
+                    if (count == table_idx) {
+                        if (imp.table_type) |t| return if (t.limits.is_64) .i64 else .i32;
+                        return .i32;
+                    }
+                    count += 1;
+                }
+            }
+            return .i32;
+        }
+        const def_idx = table_idx - self.module.num_imported_tables;
+        if (def_idx < self.module.tables.items.len) {
+            return if (self.module.tables.items[def_idx].limits.is_64) .i64 else .i32;
+        }
+        return .i32;
+    }
+
     // ---- Main validation for a single function ----
 
     fn validateFunction(self: *Validator, func_idx: usize) !void {
@@ -301,6 +391,10 @@ const Validator = struct {
             try self.local_inits.append(self.alloc, true); // params are always initialized
         }
         for (code.locals) |local_decl| {
+            // Check type index bounds for typed ref locals
+            if (isTypeIndexRef(local_decl.valtype)) |tidx| {
+                if (tidx >= self.module.types.items.len) return error.UnknownType;
+            }
             const defaultable = local_decl.valtype.isDefaultable();
             if (!defaultable) self.has_non_defaultable = true;
             for (0..local_decl.count) |_| {
@@ -496,7 +590,8 @@ const Validator = struct {
             .call_ref => {
                 const type_idx = try reader.readU32();
                 if (type_idx >= self.module.types.items.len) return error.UnknownType;
-                _ = try self.popExpecting(.funcref); // pop nullable typed ref (treat as funcref)
+                // Pop (ref null $type_idx) — must be a func-typed ref
+                try self.popExpectingFuncRef(type_idx);
                 const ft = self.module.types.items[type_idx].getFunc() orelse return error.UnknownType;
                 try self.popExpectingTypes(ft.params);
                 try self.pushTypes(ft.results);
@@ -504,7 +599,7 @@ const Validator = struct {
             .return_call_ref => {
                 const type_idx = try reader.readU32();
                 if (type_idx >= self.module.types.items.len) return error.UnknownType;
-                _ = try self.popExpecting(.funcref);
+                try self.popExpectingFuncRef(type_idx);
                 const ft = self.module.types.items[type_idx].getFunc() orelse return error.UnknownType;
                 const caller_results = self.ctrl_stack.items[0].end_types;
                 if (ft.results.len != caller_results.len) return error.TypeMismatch;
@@ -537,7 +632,17 @@ const Validator = struct {
             // ---- Exception handling ----
             .throw => {
                 const tag_idx = try reader.readU32();
-                _ = tag_idx; // TODO: validate tag index and params
+                const total_tags = self.module.num_imported_tags + @as(u32, @intCast(self.module.tags.items.len));
+                if (tag_idx >= total_tags) return error.UnknownType;
+                // Pop tag params
+                const tag_type_idx = self.getTagTypeIdx(tag_idx);
+                if (tag_type_idx) |tidx| {
+                    if (tidx < self.module.types.items.len) {
+                        if (self.module.types.items[tidx].getFunc()) |ft| {
+                            try self.popExpectingTypes(ft.params);
+                        }
+                    }
+                }
                 self.setUnreachable();
             },
             .throw_ref => {
@@ -548,11 +653,44 @@ const Validator = struct {
                 const bt = try self.resolveBlockType(reader);
                 const handler_count = try reader.readU32();
                 for (0..handler_count) |_| {
-                    _ = try reader.readByte(); // catch kind
-                    // catch/catch_ref have tag index, catch_all/catch_all_ref don't
-                    const kind = reader.bytes[reader.pos - 1];
-                    if (kind == 0 or kind == 1) _ = try reader.readU32(); // tag_idx
-                    _ = try reader.readU32(); // label
+                    const kind = try reader.readByte();
+                    var tag_params: []const ValType = &.{};
+                    if (kind == 0 or kind == 1) {
+                        // catch / catch_ref — have tag index
+                        const tag_idx = try reader.readU32();
+                        const total_tags = self.module.num_imported_tags + @as(u32, @intCast(self.module.tags.items.len));
+                        if (tag_idx < total_tags) {
+                            if (self.getTagTypeIdx(tag_idx)) |tidx| {
+                                if (tidx < self.module.types.items.len) {
+                                    if (self.module.types.items[tidx].getFunc()) |ft| {
+                                        tag_params = ft.params;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    const label_idx = try reader.readU32();
+                    // Validate: catch clause types must match label types
+                    if (label_idx < self.ctrl_stack.items.len) {
+                        const target = self.ctrl_stack.items[self.ctrl_stack.items.len - 1 - label_idx];
+                        const label_types = labelTypes(target);
+                        // Build expected types from catch clause
+                        // catch: tag params
+                        // catch_ref: tag params + exnref
+                        // catch_all: (empty)
+                        // catch_all_ref: exnref
+                        const has_exnref = (kind == 1 or kind == 3); // catch_ref or catch_all_ref
+                        const expected_len = tag_params.len + @as(usize, if (has_exnref) 1 else 0);
+                        if (expected_len != label_types.len) return error.TypeMismatch;
+                        // Check tag params match prefix of label types
+                        for (tag_params, 0..) |tp, i| {
+                            if (!tp.eql(label_types[i])) return error.TypeMismatch;
+                        }
+                        // Check exnref at the end if applicable
+                        if (has_exnref) {
+                            if (!label_types[label_types.len - 1].eql(.exnref)) return error.TypeMismatch;
+                        }
+                    }
                 }
                 try self.popExpectingTypes(bt.params);
                 try self.pushCtrl(.block, bt.params, bt.results);
@@ -576,8 +714,8 @@ const Validator = struct {
                             .unknown => try self.pushVal(vt1),
                             .known => |vt2| {
                                 if (!vt1.eql(vt2)) return error.TypeMismatch;
-                                // select (without type) only works on numeric types
-                                if (vt1.eql(.funcref) or vt1.eql(.externref) or vt1.eql(.v128)) return error.TypeMismatch;
+                                // select (without type) only works on numeric types (not ref or v128)
+                                if (vt1.isRef() or vt1.eql(.v128)) return error.TypeMismatch;
                                 try self.pushVal(vt1);
                             },
                         }
@@ -787,14 +925,17 @@ const Validator = struct {
                 try self.pushVal(.i32);
             },
             .ref_eq => {
-                _ = try self.popOperand(); // eqref
-                _ = try self.popOperand(); // eqref
+                // Both operands must be subtypes of eqref
+                try self.popExpectingEqRef();
+                try self.popExpectingEqRef();
                 try self.pushVal(.i32);
             },
             .ref_func => {
                 const idx = try reader.readU32();
                 const total = self.module.num_imported_funcs + self.module.functions.items.len;
                 if (idx >= total) return error.UnknownFunction;
+                // ref.func requires the function to be "declared" (in elem segments or exports)
+                if (!self.isFuncDeclared(idx)) return error.UnknownFunction;
                 try self.pushVal(.funcref);
             },
 
@@ -826,6 +967,8 @@ const Validator = struct {
 
     fn validateMemOp(self: *Validator, op: Opcode, reader: *Reader, result_type: ValType) !void {
         const align_byte = try reader.readU32();
+        // Bits 7+ are reserved and must be 0
+        if (align_byte >= 0x80) return error.InvalidAlignment;
         const align_val = align_byte & 0x3F;
         const has_memidx = (align_byte & 0x40) != 0;
         const memidx: u32 = if (has_memidx) try reader.readU32() else 0;
@@ -843,6 +986,7 @@ const Validator = struct {
 
     fn validateMemStore(self: *Validator, op: Opcode, reader: *Reader, value_type: ValType) !void {
         const align_byte = try reader.readU32();
+        if (align_byte >= 0x80) return error.InvalidAlignment;
         const align_val = align_byte & 0x3F;
         const has_memidx = (align_byte & 0x40) != 0;
         const memidx: u32 = if (has_memidx) try reader.readU32() else 0;
@@ -938,7 +1082,20 @@ const Validator = struct {
                 const src_idx = try reader.readU32();
                 const total_tables = self.module.num_imported_tables + self.module.tables.items.len;
                 if (dst_idx >= total_tables or src_idx >= total_tables) return error.UnknownTable;
-                try self.popI32(); try self.popI32(); try self.popI32();
+                // Source element type must be subtype of destination element type
+                if (getTableFullRefType(self.module, dst_idx)) |dst_frt| {
+                    if (getTableFullRefType(self.module, src_idx)) |src_frt| {
+                        if (!isValTypeSubtype(src_frt, dst_frt)) return error.TypeMismatch;
+                    }
+                }
+                // Operands: len src_offset dst_offset (in stack order: dst, src, len)
+                const dst_at = self.tableAddrType(dst_idx);
+                const src_at = self.tableAddrType(src_idx);
+                // len uses min(dst_at, src_at) — i64 only if both tables are i64
+                const len_at: ValType = if (dst_at.eql(.i64) and src_at.eql(.i64)) .i64 else .i32;
+                _ = try self.popExpecting(len_at); // n (length)
+                _ = try self.popExpecting(src_at); // s (source offset)
+                _ = try self.popExpecting(dst_at); // d (dest offset)
             },
             // table.grow
             15 => {
@@ -970,9 +1127,6 @@ const Validator = struct {
     }
 
     fn validateGcOp(self: *Validator, reader: *Reader) !void {
-        // Skip GC instruction immediates without full type checking.
-        // Runtime type safety is enforced by the bytecode interpreter.
-        _ = self;
         const sub_op = try reader.readU32();
         switch (sub_op) {
             0x00, 0x01 => _ = try reader.readU32(), // struct.new/new_default (typeidx)
@@ -993,8 +1147,12 @@ const Validator = struct {
             0x18, 0x19 => { // br_on_cast/br_on_cast_fail
                 _ = try reader.readByte(); // flags
                 _ = try reader.readU32(); // labelidx
-                _ = try reader.readI33(); // heaptype1
-                _ = try reader.readI33(); // heaptype2
+                const ht1_raw = try reader.readI33(); // heaptype1 (source)
+                const ht2_raw = try reader.readI33(); // heaptype2 (target)
+                const ht1 = i33ToHeapType(ht1_raw);
+                const ht2 = i33ToHeapType(ht2_raw);
+                // target must be a subtype of source
+                if (!isHeapSubtypeOf(self.module, ht2, ht1)) return error.TypeMismatch;
             },
             0x1A, 0x1B => {}, // any.convert_extern, extern.convert_any
             0x1C, 0x1D, 0x1E => {}, // ref.i31, i31.get_s, i31.get_u
@@ -1003,7 +1161,6 @@ const Validator = struct {
     }
 
     fn validateAtomicOp(self: *Validator, reader: *Reader) !void {
-        _ = self;
         const sub_op = try reader.readU32();
         if (sub_op == 0x03) {
             // atomic.fence
@@ -1013,9 +1170,50 @@ const Validator = struct {
         }
         if (sub_op > 0x4E) return error.IllegalOpcode;
         // All other atomic ops have memarg
-        _ = try reader.readU32(); // align
+        const align_byte = try reader.readU32();
+        const align_val = align_byte & 0x3F;
+        const has_memidx = (align_byte & 0x40) != 0;
+        const memidx: u32 = if (has_memidx) try reader.readU32() else 0;
         _ = try reader.readU32(); // offset
-        // TODO: full validation (type checking) in 21.5
+
+        // Check memory index
+        const total_mems = self.module.num_imported_memories + self.module.memories.items.len;
+        if (memidx >= total_mems) return error.UnknownMemory;
+
+        // Check natural alignment for atomic ops
+        const nat_align = atomicNaturalAlignment(sub_op);
+        if (align_val != nat_align) return error.InvalidAlignment;
+    }
+
+    /// Return the required (exact) alignment for atomic operations.
+    fn atomicNaturalAlignment(sub_op: u32) u32 {
+        return switch (sub_op) {
+            // *.atomic.load8_u, *.atomic.store8, *.atomic.rmw8.*_u, *.atomic.rmw8.cmpxchg_u
+            0x12, 0x19, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x27,
+            0x2E, 0x2F, 0x30, 0x31, 0x32, 0x33, 0x35,
+            0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x43,
+            0x4A, 0x4B, 0x4C, 0x4D, 0x4E,
+            => 0, // 1 byte = 2^0
+            // *.atomic.load16_u, *.atomic.store16, *.atomic.rmw16.*_u, *.atomic.rmw16.cmpxchg_u
+            0x13, 0x1A, 0x26, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D,
+            0x34, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B,
+            0x42, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+            => 1, // 2 bytes = 2^1
+            // i32.atomic.load, i32.atomic.store, i32.atomic.rmw.*, i32.atomic.rmw.cmpxchg
+            // i64.atomic.load32_u, i64.atomic.store32, i64.atomic.rmw32.*
+            0x10, 0x17, 0x1E, 0x1F,
+            0x14, 0x1B,
+            => 2, // 4 bytes = 2^2
+            // i64.atomic.load, i64.atomic.store, i64.atomic.rmw.*, i64.atomic.rmw.cmpxchg
+            0x11, 0x18, 0x1C, 0x1D,
+            0x15, 0x16,
+            => 3, // 8 bytes = 2^3
+            // memory.atomic.notify (i32), memory.atomic.wait32 (i32), memory.atomic.wait64 (i64)
+            0x00 => 2, // i32 = 4 bytes
+            0x01 => 2, // i32 wait
+            0x02 => 3, // i64 wait
+            else => 0,
+        };
     }
 
     fn validateSimdOp(self: *Validator, reader: *Reader) !void {
@@ -1247,6 +1445,22 @@ const Validator = struct {
         return self.module.getFuncType(func_idx);
     }
 
+    fn getTagTypeIdx(self: *Validator, tag_idx: u32) ?u32 {
+        if (tag_idx < self.module.num_imported_tags) {
+            var import_tag_idx: u32 = 0;
+            for (self.module.imports.items) |imp| {
+                if (imp.kind == .tag) {
+                    if (import_tag_idx == tag_idx) return imp.index;
+                    import_tag_idx += 1;
+                }
+            }
+            return null;
+        }
+        const local_idx = tag_idx - self.module.num_imported_tags;
+        if (local_idx >= self.module.tags.items.len) return null;
+        return self.module.tags.items[local_idx].type_idx;
+    }
+
     fn getTableRefType(self: *Validator, idx: u32) ValType {
         if (idx < self.module.num_imported_tables) {
             var import_table_idx: u32 = 0;
@@ -1294,11 +1508,15 @@ const Validator = struct {
 /// Validate all functions and module sections.
 pub fn validateModule(alloc: Allocator, mod: *const Module) ValidateError!void {
     // Section-level validation
+    try validateTypeDefinitions(mod);
     try validateImports(mod);
     try validateExports(mod);
     try validateStart(mod);
+    try validateTags(mod);
+    try validateTables(mod);
     try validateDataSegments(mod);
     try validateElementSegments(mod);
+    try validateElementSegmentTypes(mod);
     try validateGlobalInits(mod);
 
     // Check data count section required
@@ -1668,6 +1886,475 @@ fn getGlobalInfo(mod: *const Module, idx: u32) ?ConstGlobalInfo {
 fn validateGlobalInitExpr(mod: *const Module, expr: []const u8, expected_type: ValType, num_imported_globals: u32) ValidateError!void {
     // For global init, only imported globals are allowed (not same-module globals)
     try validateTypedConstExpr(mod, expr, expected_type, num_imported_globals);
+}
+
+/// Validate type definitions: type index bounds, supertype compatibility.
+fn validateTypeDefinitions(mod: *const Module) ValidateError!void {
+    // Build a mapping: for each type index, what is the end of its rec group?
+    // Types can only reference indices within their own rec group or earlier groups.
+    for (mod.types.items, 0..) |td, i| {
+        // Find which rec group this type belongs to
+        const max_valid_idx = recGroupEndForType(mod, @intCast(i));
+
+        // Check supertype indices are valid
+        for (td.super_types) |super_idx| {
+            if (super_idx >= max_valid_idx) return error.UnknownType;
+            // Super must have same composite kind and must not be final
+            const super_td = mod.types.items[super_idx];
+            if (super_td.is_final) return error.TypeMismatch; // can't subtype a final type
+            // Check structural compatibility
+            if (!isValidSubtype(mod, td, super_td)) return error.TypeMismatch;
+        }
+
+        // Check type index references within composite types
+        switch (td.composite) {
+            .struct_type => |st| {
+                for (st.fields) |field| {
+                    if (storageTypeIndex(field.storage)) |tidx| {
+                        if (tidx >= max_valid_idx) return error.UnknownType;
+                    }
+                }
+            },
+            .array_type => |at| {
+                if (storageTypeIndex(at.field.storage)) |tidx| {
+                    if (tidx >= max_valid_idx) return error.UnknownType;
+                }
+            },
+            .func => |ft| {
+                for (ft.params) |p| {
+                    if (isTypeIndexRef(p)) |tidx| {
+                        if (tidx >= max_valid_idx) return error.UnknownType;
+                    }
+                }
+                for (ft.results) |r| {
+                    if (isTypeIndexRef(r)) |tidx| {
+                        if (tidx >= max_valid_idx) return error.UnknownType;
+                    }
+                }
+            },
+        }
+    }
+}
+
+/// Get the end index (exclusive) of valid type references for a type at the given index.
+/// Types can reference: all types in their own rec group + all earlier rec groups.
+fn recGroupEndForType(mod: *const Module, type_idx: u32) u32 {
+    for (mod.rec_groups.items) |rg| {
+        if (type_idx >= rg.start and type_idx < rg.start + rg.count) {
+            return rg.start + rg.count; // end of current rec group
+        }
+    }
+    // Fallback: if no rec group info, allow all types
+    return @intCast(mod.types.items.len);
+}
+
+/// Check if a ValType references a type index, return it if so.
+fn isTypeIndexRef(vt: ValType) ?u32 {
+    return switch (vt) {
+        .ref_type => |idx| if (idx < ValType.HEAP_NOEXN) idx else null,
+        .ref_null_type => |idx| if (idx < ValType.HEAP_NOEXN) idx else null,
+        else => null,
+    };
+}
+
+/// Check if a StorageType contains a type index reference.
+fn storageTypeIndex(st: module_mod.StorageType) ?u32 {
+    return switch (st) {
+        .val => |vt| isTypeIndexRef(vt),
+        .i8, .i16 => null,
+    };
+}
+
+/// Check if sub_td is a valid structural subtype of super_td.
+fn isValidSubtype(mod: *const Module, sub_td: module_mod.TypeDef, super_td: module_mod.TypeDef) bool {
+    _ = mod;
+    return switch (sub_td.composite) {
+        .func => |sub_ft| switch (super_td.composite) {
+            .func => |super_ft| {
+                // Function subtypes: params contravariant, results covariant
+                if (sub_ft.params.len != super_ft.params.len) return false;
+                if (sub_ft.results.len != super_ft.results.len) return false;
+                for (sub_ft.params, super_ft.params) |a, b| {
+                    if (!isValTypeSubtype(a, b)) return false;
+                }
+                for (sub_ft.results, super_ft.results) |a, b| {
+                    if (!isValTypeSubtype(a, b)) return false;
+                }
+                return true;
+            },
+            else => false,
+        },
+        .struct_type => |sub_st| switch (super_td.composite) {
+            .struct_type => |super_st| {
+                // Struct subtypes: must have at least as many fields, first N must match
+                if (sub_st.fields.len < super_st.fields.len) return false;
+                for (super_st.fields, sub_st.fields[0..super_st.fields.len]) |super_f, sub_f| {
+                    if (!fieldTypeMatch(sub_f, super_f)) return false;
+                }
+                return true;
+            },
+            else => false,
+        },
+        .array_type => |sub_at| switch (super_td.composite) {
+            .array_type => |super_at| {
+                return fieldTypeMatch(sub_at.field, super_at.field);
+            },
+            else => false,
+        },
+    };
+}
+
+/// Check if sub_field is a valid subtype of super_field.
+fn fieldTypeMatch(sub_f: module_mod.FieldType, super_f: module_mod.FieldType) bool {
+    if (sub_f.mutable != super_f.mutable) return false;
+    if (sub_f.mutable) {
+        // Mutable: storage types must be exactly equal
+        return storageTypeEql(sub_f.storage, super_f.storage);
+    } else {
+        // Immutable: covariant (subtype relationship)
+        return storageTypeSubtype(sub_f.storage, super_f.storage);
+    }
+}
+
+fn storageTypeEql(a: module_mod.StorageType, b: module_mod.StorageType) bool {
+    const tag_a: @typeInfo(module_mod.StorageType).@"union".tag_type.? = a;
+    const tag_b: @typeInfo(module_mod.StorageType).@"union".tag_type.? = b;
+    if (tag_a != tag_b) return false;
+    return switch (a) {
+        .val => |va| va.eql(b.val),
+        .i8, .i16 => true, // same packed type
+    };
+}
+
+fn storageTypeSubtype(sub: module_mod.StorageType, sup: module_mod.StorageType) bool {
+    const tag_sub: @typeInfo(module_mod.StorageType).@"union".tag_type.? = sub;
+    const tag_sup: @typeInfo(module_mod.StorageType).@"union".tag_type.? = sup;
+    if (tag_sub != tag_sup) return false;
+    return switch (sub) {
+        .val => |va| isValTypeSubtype(va, sup.val),
+        .i8, .i16 => true,
+    };
+}
+
+/// Check if val type a is a subtype of val type b (a <: b).
+fn isValTypeSubtype(a: ValType, b: ValType) bool {
+    // Same type is always a subtype
+    if (a.eql(b)) return true;
+    // Bottom types are subtypes of everything in their hierarchy
+    // none <: any/eq/i31/struct/array/func/extern (actually only same hierarchy)
+    // Check heap type subtyping for ref types
+    const a_heap = heapType(a);
+    const b_heap = heapType(b);
+    if (a_heap != null and b_heap != null) {
+        // Nullable subtype of nullable, non-null subtype of nullable or non-null
+        const a_null = isNullable(a);
+        const b_null = isNullable(b);
+        if (a_null and !b_null) return false; // nullable NOT <: non-nullable
+        return isHeapSubtype(a_heap.?, b_heap.?);
+    }
+    return false;
+}
+
+fn heapType(vt: ValType) ?u32 {
+    return switch (vt) {
+        .funcref => ValType.HEAP_FUNC,
+        .externref => ValType.HEAP_EXTERN,
+        .exnref => ValType.HEAP_EXN,
+        .ref_type => |idx| idx,
+        .ref_null_type => |idx| idx,
+        else => null,
+    };
+}
+
+fn isNullable(vt: ValType) bool {
+    return switch (vt) {
+        .funcref, .externref, .exnref, .ref_null_type => true,
+        .ref_type => false,
+        else => false,
+    };
+}
+
+/// Check if heap type a is a subtype of heap type b.
+fn isHeapSubtype(a: u32, b: u32) bool {
+    if (a == b) return true;
+    const H = ValType;
+    // Bottom types
+    if (a == H.HEAP_NONE) return b == H.HEAP_ANY or b == H.HEAP_EQ or b == H.HEAP_I31 or
+        b == H.HEAP_STRUCT or b == H.HEAP_ARRAY or b == H.HEAP_NONE;
+    if (a == H.HEAP_NOFUNC) return b == H.HEAP_FUNC or b == H.HEAP_NOFUNC;
+    if (a == H.HEAP_NOEXTERN) return b == H.HEAP_EXTERN or b == H.HEAP_NOEXTERN;
+    if (a == H.HEAP_NOEXN) return b == H.HEAP_EXN or b == H.HEAP_NOEXN;
+    // i31, struct, array <: eq <: any
+    if (a == H.HEAP_I31) return b == H.HEAP_EQ or b == H.HEAP_ANY;
+    if (a == H.HEAP_STRUCT) return b == H.HEAP_EQ or b == H.HEAP_ANY;
+    if (a == H.HEAP_ARRAY) return b == H.HEAP_EQ or b == H.HEAP_ANY;
+    if (a == H.HEAP_EQ) return b == H.HEAP_ANY;
+    // Concrete type indices: $t <: struct/array/func/eq/any depending on composite kind
+    if (a < H.HEAP_NOEXN) {
+        // a is a concrete type index — it's a subtype of its abstract parent
+        if (b == H.HEAP_ANY or b == H.HEAP_EQ) return true; // TODO: only if not func/extern
+        if (b == H.HEAP_FUNC or b == H.HEAP_STRUCT or b == H.HEAP_ARRAY) return true;
+        // Also check if b is a concrete type that a extends (via super_types chain)
+        // For now: concrete <: abstract only
+        return false;
+    }
+    return false;
+}
+
+/// Check if concrete type index `sub_idx` is a subtype of `super_idx` via supertype chain.
+fn isConcreteSubtype(mod: *const Module, sub_idx: u32, super_idx: u32) bool {
+    if (sub_idx == super_idx) return true;
+    if (sub_idx >= mod.types.items.len) return false;
+    // Walk supertype chain (max depth = number of types to prevent infinite loops)
+    var current = sub_idx;
+    var depth: u32 = 0;
+    const max_depth = @as(u32, @intCast(mod.types.items.len));
+    while (depth < max_depth) : (depth += 1) {
+        if (current >= mod.types.items.len) return false;
+        const td = mod.types.items[current];
+        if (td.super_types.len == 0) return false;
+        const parent = td.super_types[0];
+        if (parent == super_idx) return true;
+        current = parent;
+    }
+    return false;
+}
+
+/// Convert i33 heap type immediate to internal HEAP_* sentinel or concrete type index.
+fn i33ToHeapType(raw: i64) u32 {
+    if (raw >= 0) return @intCast(raw); // concrete type index
+    const H = ValType;
+    return switch (raw) {
+        -16 => H.HEAP_FUNC,
+        -17 => H.HEAP_EXTERN,
+        -18 => H.HEAP_ANY,
+        -19 => H.HEAP_EQ,
+        -20 => H.HEAP_I31,
+        -21 => H.HEAP_STRUCT,
+        -22 => H.HEAP_ARRAY,
+        -15 => H.HEAP_NONE,
+        -13 => H.HEAP_NOFUNC,
+        -14 => H.HEAP_NOEXTERN,
+        -23 => H.HEAP_EXN,
+        -12 => H.HEAP_NOEXN,
+        else => H.HEAP_ANY, // fallback
+    };
+}
+
+/// Check if heap type `a` is a subtype of `b`, supporting both abstract and concrete types.
+fn isHeapSubtypeOf(mod: *const Module, a: u32, b: u32) bool {
+    if (a == b) return true;
+    // If both are abstract, use abstract hierarchy
+    if (a >= ValType.HEAP_NOEXN and b >= ValType.HEAP_NOEXN) return isHeapSubtype(a, b);
+    // If a is concrete and b is abstract
+    if (a < ValType.HEAP_NOEXN and b >= ValType.HEAP_NOEXN) {
+        // Check what kind of composite type a is
+        if (a < mod.types.items.len) {
+            const td = mod.types.items[a];
+            return switch (td.composite) {
+                .func => b == ValType.HEAP_FUNC,
+                .struct_type => isHeapSubtype(ValType.HEAP_STRUCT, b),
+                .array_type => isHeapSubtype(ValType.HEAP_ARRAY, b),
+            };
+        }
+        return false;
+    }
+    // If a is concrete and b is concrete
+    if (a < ValType.HEAP_NOEXN and b < ValType.HEAP_NOEXN) {
+        return isConcreteSubtype(mod, a, b);
+    }
+    // a is abstract, b is concrete — never a subtype
+    return false;
+}
+
+/// Check if a constant expression contains ref.func for a specific function index.
+fn exprContainsRefFunc(expr: []const u8, func_idx: u32) bool {
+    var reader = Reader.init(expr);
+    while (reader.hasMore()) {
+        const byte = reader.readByte() catch return false;
+        if (byte == 0xD2) { // ref.func
+            const idx = reader.readU32() catch return false;
+            if (idx == func_idx) return true;
+        } else if (byte == 0xD0) { // ref.null — skip heap type
+            _ = reader.readByte() catch return false;
+        } else if (byte == 0x23) { // global.get
+            _ = reader.readU32() catch return false;
+        }
+        // 0x0B (end) or other: continue
+    }
+    return false;
+}
+
+/// Validate tag definitions: result type must be empty.
+fn validateTags(mod: *const Module) ValidateError!void {
+    // Check imported tags
+    for (mod.imports.items) |imp| {
+        if (imp.kind == .tag) {
+            if (imp.index >= mod.types.items.len) return error.UnknownType;
+            const ft = mod.types.items[imp.index].getFunc() orelse return error.TypeMismatch;
+            if (ft.results.len != 0) return error.TypeMismatch;
+        }
+    }
+    // Check local tags
+    for (mod.tags.items) |tag| {
+        if (tag.type_idx >= mod.types.items.len) return error.UnknownType;
+        const ft = mod.types.items[tag.type_idx].getFunc() orelse return error.TypeMismatch;
+        // Tags must have empty result type (exception handling spec)
+        if (ft.results.len != 0) return error.TypeMismatch;
+    }
+}
+
+/// Validate tables: type index bounds, non-nullable constraints, init expression type.
+fn validateTables(mod: *const Module) ValidateError!void {
+    const num_imported_globals = mod.num_imported_globals;
+    // Validate imported tables
+    for (mod.imports.items) |imp| {
+        if (imp.kind == .table) {
+            if (imp.table_type) |table| {
+                if (isTypeIndexRef(table.full_reftype)) |tidx| {
+                    if (tidx >= mod.types.items.len) return error.UnknownType;
+                }
+            }
+        }
+    }
+    // Validate local tables
+    for (mod.tables.items) |table| {
+        // Check type index bounds in full reftype
+        if (isTypeIndexRef(table.full_reftype)) |tidx| {
+            if (tidx >= mod.types.items.len) return error.UnknownType;
+        }
+        // Non-nullable ref types require either init expression or zero-size table
+        const frt = table.full_reftype;
+        const is_non_nullable = switch (frt) {
+            .ref_type => true,
+            else => false,
+        };
+        if (is_non_nullable) {
+            if (table.init_expr == null) {
+                // No init expression — only valid if table size is 0
+                // Any non-nullable table without initializer is invalid per spec
+                return error.TypeMismatch;
+            }
+        }
+        if (table.init_expr) |init_expr| {
+            // Table init expression must produce a value that is a subtype of table element type
+            validateTableInitExpr(mod, init_expr, table.full_reftype, num_imported_globals) catch return error.TypeMismatch;
+        }
+    }
+}
+
+/// Validate element segments: reftype must be subtype of target table's element type.
+fn validateElementSegmentTypes(mod: *const Module) ValidateError!void {
+    const total_tables = mod.num_imported_tables + @as(u32, @intCast(mod.tables.items.len));
+    for (mod.elements.items) |seg| {
+        // Check type index bounds in element reftype
+        if (isTypeIndexRef(seg.full_reftype)) |tidx| {
+            if (tidx >= mod.types.items.len) return error.UnknownType;
+        }
+        switch (seg.mode) {
+            .active => |active| {
+                if (active.table_idx >= total_tables) continue; // bounds checked elsewhere
+                // Get target table's full reftype
+                const table_frt = getTableFullRefType(mod, active.table_idx) orelse continue;
+                // Element segment reftype must be a subtype of table element type
+                if (!isValTypeSubtype(seg.full_reftype, table_frt)) return error.TypeMismatch;
+            },
+            else => {},
+        }
+    }
+}
+
+/// Get the full_reftype for a table by index (imported or local).
+fn getTableFullRefType(mod: *const Module, idx: u32) ?ValType {
+    if (idx < mod.num_imported_tables) {
+        var table_count: u32 = 0;
+        for (mod.imports.items) |imp| {
+            if (imp.kind == .table) {
+                if (table_count == idx) {
+                    if (imp.table_type) |t| return t.full_reftype;
+                    return null;
+                }
+                table_count += 1;
+            }
+        }
+        return null;
+    }
+    const local_idx = idx - mod.num_imported_tables;
+    if (local_idx < mod.tables.items.len) return mod.tables.items[local_idx].full_reftype;
+    return null;
+}
+
+/// Validate table_copy: source and destination table element types must be compatible.
+fn validateTableCopyTypes(mod: *const Module) ValidateError!void {
+    _ = mod;
+    // table.copy type checking is done in opcode validation (validateMiscOp)
+}
+
+/// Validate table init expression type against the table's full element type.
+fn validateTableInitExpr(mod: *const Module, expr: []const u8, expected: ValType, total_globals: u32) ValidateError!void {
+    if (expr.len == 0) return;
+    var reader = Reader.init(expr);
+    while (reader.hasMore()) {
+        const byte = reader.readByte() catch return;
+        switch (byte) {
+            0xD0 => { // ref.null — produces nullable ref
+                const ht_byte = reader.readByte() catch return;
+                // ref.null produces a nullable ref. If expected is non-nullable, it's a mismatch.
+                if (!isNullable(expected)) return error.TypeMismatch;
+                // Check heap type family compatibility
+                const null_ht = refNullHeapType(ht_byte);
+                const exp_ht = heapType(expected) orelse return error.TypeMismatch;
+                if (!isHeapSubtypeOf(mod, null_ht, exp_ht)) return error.TypeMismatch;
+            },
+            0xD2 => { // ref.func — produces (ref func_type)
+                const idx = reader.readU32() catch return;
+                const total_funcs = mod.num_imported_funcs + mod.functions.items.len;
+                if (idx >= total_funcs) return error.UnknownFunction;
+                // ref.func produces a non-nullable typed func ref
+                // Check if that's compatible with expected table type
+                const exp_ht = heapType(expected) orelse return error.TypeMismatch;
+                if (exp_ht != ValType.HEAP_FUNC and exp_ht != ValType.HEAP_ANY and exp_ht != ValType.HEAP_EQ) {
+                    // Expected is a concrete type — check func's type matches
+                    if (exp_ht < ValType.HEAP_NOEXN) {
+                        // Expected is a concrete type index; would need to check func's type
+                        // For now accept if both are in the func family
+                    }
+                }
+            },
+            0x23 => { // global.get
+                const idx = reader.readU32() catch return;
+                if (idx >= total_globals) return error.UnknownGlobal;
+                const gt = getGlobalInfo(mod, idx) orelse return error.UnknownGlobal;
+                if (gt.mutability != 0) return error.ConstantExprRequired;
+                if (!isValTypeSubtype(gt.valtype, expected)) return error.TypeMismatch;
+            },
+            0xFB => { // GC prefix
+                _ = reader.readU32() catch return; // sub-opcode
+                // GC const exprs (struct.new, array.new_fixed, etc.) — skip validation
+            },
+            0x0B => return, // end
+            else => return error.ConstantExprRequired,
+        }
+    }
+}
+
+/// Get the heap type sentinel from a ref.null's type byte.
+fn refNullHeapType(byte: u8) u32 {
+    return switch (byte) {
+        0x70 => ValType.HEAP_FUNC,
+        0x6F => ValType.HEAP_EXTERN,
+        0x69 => ValType.HEAP_EXN,
+        0x6E => ValType.HEAP_ANY,
+        0x6D => ValType.HEAP_EQ,
+        0x6C => ValType.HEAP_I31,
+        0x6B => ValType.HEAP_STRUCT,
+        0x6A => ValType.HEAP_ARRAY,
+        0x71 => ValType.HEAP_NONE,
+        0x73 => ValType.HEAP_NOFUNC,
+        0x72 => ValType.HEAP_NOEXTERN,
+        0x74 => ValType.HEAP_NOEXN,
+        else => ValType.HEAP_ANY,
+    };
 }
 
 // ---- Tests ----
