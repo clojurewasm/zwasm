@@ -177,6 +177,71 @@ export fn zwasm_module_invoke_start(module: *zwasm_module_t) bool {
     return true;
 }
 
+// ============================================================
+// Memory access
+// ============================================================
+
+/// Return a direct pointer to linear memory (memory index 0).
+/// Returns null if the module has no memory.
+/// WARNING: Pointer is invalidated by memory growth (any call that may grow memory).
+export fn zwasm_module_memory_data(module: *zwasm_module_t) ?[*]u8 {
+    const mem = module.module.instance.getMemory(0) catch return null;
+    const bytes = mem.memory();
+    if (bytes.len == 0) return null;
+    return bytes.ptr;
+}
+
+/// Return the current size of linear memory in bytes.
+/// Returns 0 if the module has no memory.
+export fn zwasm_module_memory_size(module: *zwasm_module_t) usize {
+    const mem = module.module.instance.getMemory(0) catch return 0;
+    return mem.memory().len;
+}
+
+/// Read bytes from linear memory into out_buf. Returns false on out-of-bounds.
+export fn zwasm_module_memory_read(
+    module: *zwasm_module_t,
+    offset: u32,
+    len: u32,
+    out_buf: [*]u8,
+) bool {
+    clearError();
+    const mem = module.module.instance.getMemory(0) catch |err| {
+        setError(err);
+        return false;
+    };
+    const bytes = mem.memory();
+    const end = @as(u64, offset) + @as(u64, len);
+    if (end > bytes.len) {
+        setError(error.OutOfBoundsMemoryAccess);
+        return false;
+    }
+    @memcpy(out_buf[0..len], bytes[offset..][0..len]);
+    return true;
+}
+
+/// Write bytes from data into linear memory. Returns false on out-of-bounds.
+export fn zwasm_module_memory_write(
+    module: *zwasm_module_t,
+    offset: u32,
+    data: [*]const u8,
+    len: u32,
+) bool {
+    clearError();
+    const mem = module.module.instance.getMemory(0) catch |err| {
+        setError(err);
+        return false;
+    };
+    const bytes = mem.memory();
+    const end = @as(u64, offset) + @as(u64, len);
+    if (end > bytes.len) {
+        setError(error.OutOfBoundsMemoryAccess);
+        return false;
+    }
+    @memcpy(bytes[offset..][0..len], data[0..len]);
+    return true;
+}
+
 /// Return the last error message as a null-terminated C string.
 /// Returns an empty string if no error has occurred.
 /// The pointer is valid until the next C API call on the same thread.
@@ -252,6 +317,48 @@ test "c_api: invoke nonexistent function returns false" {
     try testing.expect(!zwasm_module_invoke(module, "nonexistent", null, 0, null, 0));
     const msg = zwasm_last_error_message();
     try testing.expect(msg[0] != 0);
+}
+
+// Module with 1-page memory exported as "memory" + function "store42" that stores 42 at offset 0
+const MEMORY_WASM = "\x00\x61\x73\x6d\x01\x00\x00\x00" ++
+    "\x01\x04\x01\x60\x00\x00" ++ // type: () -> ()
+    "\x03\x02\x01\x00" ++ // func section
+    "\x05\x03\x01\x00\x01" ++ // memory: min=0, max=1
+    "\x07\x0d\x02\x01\x6d\x02\x00" ++ // export "m" = memory 0
+    "\x01\x66\x00\x00" ++ // export "f" = func 0
+    "\x0a\x0b\x01\x09\x00\x41\x00\x41\x2a\x36\x02\x00\x0b"; // code: i32.const 0, i32.const 42, i32.store, end
+
+test "c_api: memory_data and memory_size" {
+    const module = zwasm_module_new(MEMORY_WASM.ptr, MEMORY_WASM.len).?;
+    defer zwasm_module_delete(module);
+
+    const size = zwasm_module_memory_size(module);
+    try testing.expect(size > 0); // At least 1 page = 65536 bytes
+
+    const data = zwasm_module_memory_data(module);
+    try testing.expect(data != null);
+}
+
+test "c_api: memory_write and memory_read" {
+    const module = zwasm_module_new(MEMORY_WASM.ptr, MEMORY_WASM.len).?;
+    defer zwasm_module_delete(module);
+
+    // Write data
+    const write_data = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+    try testing.expect(zwasm_module_memory_write(module, 0, &write_data, 4));
+
+    // Read it back
+    var read_buf: [4]u8 = undefined;
+    try testing.expect(zwasm_module_memory_read(module, 0, 4, &read_buf));
+    try testing.expectEqualSlices(u8, &write_data, &read_buf);
+}
+
+test "c_api: memory_read out of bounds" {
+    const module = zwasm_module_new(MEMORY_WASM.ptr, MEMORY_WASM.len).?;
+    defer zwasm_module_delete(module);
+
+    var buf: [1]u8 = undefined;
+    try testing.expect(!zwasm_module_memory_read(module, 0xFFFFFFFF, 1, &buf));
 }
 
 test "c_api: last_error_message is empty after success" {
