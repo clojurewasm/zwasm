@@ -120,6 +120,25 @@ try module.invoke("fib", &args, &results);
 
 See [docs/usage.md](docs/usage.md) for detailed library and CLI documentation.
 
+### C API
+
+zwasm also exposes a C API for use from any FFI-capable language (C, Python, Rust, Go, etc.):
+
+```bash
+zig build lib    # Build libzwasm (.dylib / .so / .a)
+```
+
+```c
+#include "zwasm.h"
+
+zwasm_module_t *mod = zwasm_module_new(wasm_bytes, len);
+uint64_t results[1] = {0};
+zwasm_module_invoke(mod, "f", NULL, 0, results, 1);
+zwasm_module_delete(mod);
+```
+
+See the [C API chapter](https://clojurewasm.github.io/zwasm/en/c-api.html) in the book for the full API reference.
+
 ## Examples
 
 ### WAT examples (`examples/wat/`)
@@ -148,6 +167,14 @@ zwasm examples/wat/30_wasi_hello.wat --allow-all       # → Hi!
 
 5 examples showing the library API: `basic`, `memory`, `inspect`, `host_functions`, `wasi`.
 
+### C API examples (`examples/c/`)
+
+C example using `libzwasm`: load a module, invoke an export, read the result.
+
+### Python examples (`examples/python/`)
+
+Python ctypes example: same workflow as C, no compiled bindings needed.
+
 ## Build
 
 Requires Zig 0.15.2.
@@ -157,6 +184,21 @@ zig build              # Build (Debug)
 zig build test         # Run all tests (521 tests)
 ./zig-out/bin/zwasm run file.wasm
 ```
+
+### Feature flags
+
+Strip features at compile time to reduce binary size:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-Djit=false` | Disable JIT compiler | `true` |
+| `-Dcomponent=false` | Disable Component Model | `true` |
+| `-Dwat=false` | Disable WAT parser | `true` |
+| `-Dsimd=false` | Disable SIMD opcodes | `true` |
+| `-Dgc=false` | Disable GC proposal | `true` |
+| `-Dthreads=false` | Disable threads/atomics | `true` |
+
+Minimal build (~940 KB, −24%): `zig build -Doptimize=ReleaseSafe -Djit=false -Dcomponent=false -Dwat=false`
 
 ## Architecture
 

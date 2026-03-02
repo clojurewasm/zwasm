@@ -292,9 +292,33 @@ if (module.getWasiExitCode()) |code| {
 
 ```bash
 zig build                          # Debug build
-zig build -Doptimize=ReleaseSafe   # ReleaseSafe (~1.1MB binary)
+zig build -Doptimize=ReleaseSafe   # ReleaseSafe (~1.2MB binary)
 zig build -Doptimize=ReleaseFast   # ReleaseFast (max speed)
-zig build -Dwat=false              # Disable WAT parser (smaller binary)
 zig build test                     # Run all tests
 zig build test -- "test name"      # Run specific test
 ```
+
+### Feature flags
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-Djit=false` | Disable JIT compiler (ARM64/x86_64). Interpreter only. | `true` |
+| `-Dcomponent=false` | Disable Component Model (WIT, Canon ABI, WASI P2). | `true` |
+| `-Dwat=false` | Disable WAT text format parser. | `true` |
+| `-Dsimd=false` | Disable SIMD opcodes (v128 operations). | `true` |
+| `-Dgc=false` | Disable GC proposal (struct/array types). | `true` |
+| `-Dthreads=false` | Disable threads and atomics. | `true` |
+
+Flags can be combined. Minimal build: `zig build -Doptimize=ReleaseSafe -Djit=false -Dcomponent=false -Dwat=false` (~940 KB stripped, −24%).
+
+### Library build (C API)
+
+```bash
+zig build lib                              # Build libzwasm (.dylib / .so / .a)
+zig build lib -Doptimize=ReleaseSafe       # Optimized library build
+zig build lib -Djit=false                  # Library without JIT
+```
+
+Outputs: `zig-out/lib/libzwasm.{dylib,so,a}`. Header: `include/zwasm.h`.
+
+Feature flags apply to library builds. See the [C API chapter](https://clojurewasm.github.io/zwasm/en/c-api.html) in the book for usage details.
