@@ -103,31 +103,35 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(bench);
 
-    // Fuzz loader executable (reads wasm from stdin, compatible with AFL++/honggfuzz)
-    const fuzz_mod = b.createModule(.{
-        .root_source_file = b.path("src/fuzz_loader.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    fuzz_mod.addImport("zwasm", mod);
-    const fuzz = b.addExecutable(.{
-        .name = "fuzz_loader",
-        .root_module = fuzz_mod,
-    });
-    b.installArtifact(fuzz);
+    // Fuzz loader executables — only built via "fuzz" step (not default install)
+    // to keep default artifact count low and avoid Zig 0.15.2 build runner
+    // shuffle bug on some platforms.
+    const fuzz_step = b.step("fuzz", "Build fuzz loader executables");
+    {
+        const fuzz_mod = b.createModule(.{
+            .root_source_file = b.path("src/fuzz_loader.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        fuzz_mod.addImport("zwasm", mod);
+        const fuzz = b.addExecutable(.{
+            .name = "fuzz_loader",
+            .root_module = fuzz_mod,
+        });
+        fuzz_step.dependOn(&b.addInstallArtifact(fuzz, .{}).step);
 
-    // WAT fuzz loader executable (reads WAT text from stdin)
-    const fuzz_wat_mod = b.createModule(.{
-        .root_source_file = b.path("src/fuzz_wat_loader.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    fuzz_wat_mod.addImport("zwasm", mod);
-    const fuzz_wat = b.addExecutable(.{
-        .name = "fuzz_wat_loader",
-        .root_module = fuzz_wat_mod,
-    });
-    b.installArtifact(fuzz_wat);
+        const fuzz_wat_mod = b.createModule(.{
+            .root_source_file = b.path("src/fuzz_wat_loader.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        fuzz_wat_mod.addImport("zwasm", mod);
+        const fuzz_wat = b.addExecutable(.{
+            .name = "fuzz_wat_loader",
+            .root_module = fuzz_wat_mod,
+        });
+        fuzz_step.dependOn(&b.addInstallArtifact(fuzz_wat, .{}).step);
+    }
 
     // Shared library (libzwasm.dylib / libzwasm.so)
     const lib_shared_mod = b.createModule(.{
@@ -181,7 +185,9 @@ pub fn build(b: *std.Build) void {
             .name = ct.name,
             .root_module = ct_mod,
         });
-        b.installArtifact(ct_exe);
+        // Install only via c-test step (not default install) to keep artifact count
+        // below Zig 0.15.2 build runner shuffle bug threshold on some platforms.
+        c_test_step.dependOn(&b.addInstallArtifact(ct_exe, .{}).step);
         const run_ct = b.addRunArtifact(ct_exe);
         c_test_step.dependOn(&run_ct.step);
     }
