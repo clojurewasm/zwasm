@@ -4,13 +4,23 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Build options
+    // Build options — feature flags for conditional compilation
     const enable_wat = b.option(bool, "wat", "Enable WAT text format parser (default: true)") orelse true;
+    const enable_jit = b.option(bool, "jit", "Enable JIT compiler (default: true)") orelse true;
+    const enable_simd = b.option(bool, "simd", "Enable SIMD opcodes (default: true)") orelse true;
+    const enable_gc = b.option(bool, "gc", "Enable GC proposal (default: true)") orelse true;
+    const enable_threads = b.option(bool, "threads", "Enable threads/atomics (default: true)") orelse true;
+    const enable_component = b.option(bool, "component", "Enable component model (default: true)") orelse true;
 
     const build_zon = @import("build.zig.zon");
 
     const options = b.addOptions();
     options.addOption(bool, "enable_wat", enable_wat);
+    options.addOption(bool, "enable_jit", enable_jit);
+    options.addOption(bool, "enable_simd", enable_simd);
+    options.addOption(bool, "enable_gc", enable_gc);
+    options.addOption(bool, "enable_threads", enable_threads);
+    options.addOption(bool, "enable_component", enable_component);
     options.addOption([]const u8, "version", build_zon.version);
 
     // Library module (for use as dependency and test root)
