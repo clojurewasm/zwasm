@@ -30,6 +30,8 @@ fooding target: improvements to zwasm directly accelerate CW's Wasm FFI.
 - Public API must be CW-agnostic (no Clojure concepts in interface)
 - CW becomes a consumer via build.zig.zon dependency
 
+Affected files: all `src/*.zig` (initial extraction)
+
 ---
 
 ## D101: Engine / Module / Instance API Pattern
@@ -47,6 +49,8 @@ Instance — instantiated module with memory, tables, globals (mutable)
 - Matches Wasm spec terminology (Module, Instance, Store)
 - Clean separation: decode once → instantiate many
 
+Affected files: `src/types.zig`, `src/store.zig`, `src/instance.zig`, `src/module.zig`
+
 ---
 
 ## D102: Allocator-Parameterized Design
@@ -57,6 +61,8 @@ Instance — instantiated module with memory, tables, globals (mutable)
 - Follows CW's D3 (no global mutable state)
 - Enables: arena allocator for short-lived modules, GPA for debugging, fixed-buffer for embedded
 - Zig idiom: caller controls allocation strategy
+
+Affected files: all `src/*.zig` (pervasive allocator threading)
 
 ---
 
@@ -158,6 +164,8 @@ pub const HostFnEntry = struct {
 };
 ```
 
+Affected files: `src/types.zig`, `src/store.zig`, `src/instance.zig`
+
 ---
 
 ## D104: Register IR — Stack-to-Register Conversion
@@ -197,6 +205,8 @@ RegInstr[] + register file metadata
 Execution with virtual register file
 ```
 
+Affected files: `src/regalloc.zig`, `src/vm.zig`, `src/predecode.zig`
+
 ---
 
 ## D105: ARM64 JIT — Function-Level Codegen Architecture
@@ -226,12 +236,16 @@ Tier 3: ARM64 JIT                — after N calls (hot functions)
 | x30      | Link register (LR)                     |
 | SP       | Stack pointer                          |
 
+Affected files: `src/jit.zig`, `src/vm.zig`, `src/store.zig`
+
 ---
 
 ## D106: Build-time Feature Flags
 
 **Decision**: Zig build options. `-Dwat=false` excludes WAT parser code.
 `build_options.enable_wat` checked at comptime for dead code elimination.
+
+Affected files: `build.zig`, `src/wat.zig`, `src/types.zig`
 
 ---
 
@@ -242,12 +256,16 @@ Tier 3: ARM64 JIT                — after N calls (hot functions)
 `getTypeFunc(idx) ?FuncType` helper for safe extraction at call sites.
 Impact: 9 files, ~80 call sites.
 
+Affected files: `src/module.zig`, `src/validate.zig`, `src/store.zig`, `src/instance.zig`, `src/vm.zig`, `src/predecode.zig`, `src/regalloc.zig`, `src/type_registry.zig`
+
 ---
 
 ## D111: GC heap — no-collect allocator
 
 **Decision**: No-collect allocator (append-only). `GcHeap` with `allocStruct/allocArray/getObject`.
 Collector interface deferred to W20.
+
+Affected files: `src/gc.zig`, `src/store.zig`, `src/vm.zig`
 
 ---
 
@@ -256,6 +274,8 @@ Collector interface deferred to W20.
 **Decision**: Encode on operand stack u128: bit 63 = 1 (i31 tag), bits 0-30 = value.
 Null i31ref = 0. No heap interaction.
 
+Affected files: `src/vm.zig`, `src/gc.zig`
+
 ---
 
 ## D113: GC ref encoding on operand stack
@@ -263,12 +283,16 @@ Null i31ref = 0. No heap interaction.
 **Decision**: `(gc_heap_index + 1) | (GC_TAG << 32)`. Tag bits distinguish GC refs
 from funcref. Zero = null.
 
+Affected files: `src/vm.zig`, `src/gc.zig`
+
 ---
 
 ## D114: Subtype checking — linear scan
 
 **Decision**: Linear scan of `TypeDef.super_types` chain. Type counts are small.
 Display vector optimization deferred to W20.
+
+Affected files: `src/type_registry.zig`, `src/vm.zig`, `src/validate.zig`
 
 ---
 
@@ -278,3 +302,5 @@ Display vector optimization deferred to W20.
 allowing `FADD Dd, Dn, Dm` directly without GPR round-trips. Eviction writes back
 via `FMOV Xscratch, Dn` + `storeVreg()`. Evict all before: branches, BLR calls.
 Result: nbody 43ms→8ms (5.4x), 2.4x faster than wasmtime.
+
+Affected files: `src/jit.zig`, `src/vm.zig`

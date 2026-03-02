@@ -21,6 +21,8 @@ vs wasmtime on memory-bound (st_matrix 3.2x) and recursive (fib 1.8x) benchmarks
 in wasm code (i32.add), not as static offsets. Recursive functions use all 6
 callee-saved pairs. Abandoned.
 
+Affected files: `src/jit.zig`
+
 ---
 
 ## D117: Lightweight self-call — caller-saves-all for recursive calls
@@ -34,6 +36,8 @@ does STP x29,x30 + MOV x29,#0. Epilogue CBZ x29 conditionally skips LDP x19-x28.
 Caller saves only live callee-saved vregs to regs[] via liveness analysis.
 
 **Results**: fib 90.6→57.5ms (-37%), 1.03x faster than wasmtime.
+
+Affected files: `src/jit.zig`, `src/x86.zig`, `src/regalloc.zig`
 
 ---
 
@@ -51,6 +55,8 @@ Phase 2: MOV elimination via copy propagation. Phase 3: constant materialization
 **Rejected**: Multi-pass regalloc (LIRA) — would fix st_matrix but conflicts with
 small/fast philosophy. Post-emission peephole — adds second pass over emitted code.
 
+Affected files: `src/jit.zig`, `src/x86.zig`
+
 ---
 
 ## D119: wasmer benchmark invalidation — TinyGo invoke bug
@@ -63,6 +69,8 @@ WAT benchmarks (no WASI imports) and shootout (_start entry) work correctly.
 
 **Decision**: Remove wasmer entirely from benchmark infrastructure (scripts,
 YAML, flake.nix). Comparison targets: wasmtime, bun, node.
+
+Affected files: `bench/run_bench.sh`, `bench/compare_runtimes.sh`
 
 ---
 
@@ -81,6 +89,8 @@ JIT trampoline pack/unpack via explicit helpers (no @bitCast with 12-byte struct
 
 **Rejected**: Smarter register reuse alone — 42 locals consume 42 base regs, leaving
 213 for temps in a 4766-instruction function. Would require full liveness analysis.
+
+Affected files: `src/regalloc.zig`, `src/jit.zig`, `src/x86.zig`, `src/vm.zig`
 
 ---
 
@@ -114,6 +124,8 @@ Still uses stack-based value manipulation for SIMD ops.
 **If revisited**: Start with RegIR v128 type tagging (extend RegInstr with
 reg_class bits, add v128_regs parallel to u64 regs), then selective NEON for the
 20 hot ops. See `roadmap.md` Phase 13 (SIMD JIT) for the plan.
+
+Affected files: `src/predecode.zig`, `src/vm.zig`
 
 ## D121: GC heap — arena allocator + adaptive threshold
 
@@ -149,6 +161,8 @@ production runtimes (V8, wasmtime) handle short-lived GC objects.
 split requires write barriers and remembered sets. The adaptive threshold gives most of
 the benefit (avoiding useless collections) without the complexity.
 
+Affected files: `src/gc.zig`, `src/store.zig`
+
 ---
 
 ## D124: Module cache — predecoded IR serialization
@@ -181,6 +195,8 @@ immutable artifacts. Version field allows future format changes without silent c
 **Not cached**: RegIR and JIT native code. RegIR depends on runtime state (function
 indices, memory layout). JIT code contains absolute addresses. Both regenerated at
 runtime from predecoded IR (fast: <1ms per function).
+
+Affected files: `src/cache.zig`, `src/cli.zig`, `src/types.zig`
 
 ---
 
