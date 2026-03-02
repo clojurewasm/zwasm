@@ -86,7 +86,90 @@ const CApiModule = struct {
 };
 
 // ============================================================
-// Opaque type (C sees zwasm_module_t*)
+// Host function import support
+// ============================================================
+
+/// C callback type for host functions.
+/// env: user-provided context pointer
+/// args: input parameters as uint64_t array (nargs elements)
+/// results: output buffer as uint64_t array (nresults elements)
+/// Returns true on success, false on error.
+pub const zwasm_host_fn_callback_t = *const fn (?*anyopaque, [*]const u64, [*]u64) callconv(.c) bool;
+
+/// A single host function registration.
+const CHostFn = struct {
+    callback: zwasm_host_fn_callback_t,
+    env: ?*anyopaque,
+    param_count: u32,
+    result_count: u32,
+};
+
+/// Import collection — stores module_name → function_name → CHostFn mappings.
+const CApiImports = struct {
+    alloc: std.mem.Allocator,
+    /// Flat list of (module_name, func_name, host_fn) tuples
+    entries: std.ArrayList(ImportItem),
+
+    const ImportItem = struct {
+        module_name: []const u8,
+        func_name: []const u8,
+        host_fn: CHostFn,
+    };
+
+    fn init(alloc: std.mem.Allocator) CApiImports {
+        return .{
+            .alloc = alloc,
+            .entries = std.ArrayList(ImportItem).init(alloc),
+        };
+    }
+
+    fn deinit(self: *CApiImports) void {
+        self.entries.deinit();
+    }
+};
+
+pub const zwasm_imports_t = CApiImports;
+
+/// Trampoline context stored per-import for bridging C callbacks to Zig HostFn.
+/// These are stored in a global registry so the trampoline can look them up.
+var trampoline_registry: std.ArrayList(CHostFn) = .empty;
+var trampoline_registry_alloc: ?std.mem.Allocator = null;
+
+fn ensureTrampolineRegistry(alloc: std.mem.Allocator) void {
+    if (trampoline_registry_alloc == null) {
+        trampoline_registry = std.ArrayList(CHostFn).init(alloc);
+        trampoline_registry_alloc = alloc;
+    }
+}
+
+/// The HostFn trampoline: called by the Wasm VM, bridges to C callback.
+fn hostFnTrampoline(ctx_ptr: *anyopaque, context_id: usize) anyerror!void {
+    const vm: *types.Vm = @ptrCast(@alignCast(ctx_ptr));
+    if (context_id >= trampoline_registry.items.len) return error.InvalidContext;
+    const host_fn = trampoline_registry.items[context_id];
+
+    // Pop args from VM stack (in reverse order — last arg is on top)
+    var args_buf: [32]u64 = undefined;
+    const nargs = host_fn.param_count;
+    var i: u32 = nargs;
+    while (i > 0) {
+        i -= 1;
+        args_buf[i] = vm.popOperand();
+    }
+
+    // Call C callback
+    var results_buf: [32]u64 = undefined;
+    const ok = host_fn.callback(host_fn.env, &args_buf, &results_buf);
+    if (!ok) return error.HostFunctionError;
+
+    // Push results onto VM stack
+    for (0..host_fn.result_count) |ri| {
+        try vm.pushOperand(results_buf[ri]);
+    }
+}
+
+// ============================================================
+// Opaque types (C sees zwasm_module_t*, zwasm_imports_t*, etc.)
 // ============================================================
 
 pub const zwasm_module_t = CApiModule;
@@ -380,6 +463,133 @@ export fn zwasm_module_new_wasi_configured(
 }
 
 // ============================================================
+// Host function imports
+// ============================================================
+
+/// Create a new import collection.
+export fn zwasm_import_new() ?*zwasm_imports_t {
+    const alloc = std.heap.page_allocator;
+    const imports = alloc.create(CApiImports) catch return null;
+    imports.* = CApiImports.init(alloc);
+    return imports;
+}
+
+/// Free an import collection.
+export fn zwasm_import_delete(imports: *zwasm_imports_t) void {
+    const alloc = imports.alloc;
+    imports.deinit();
+    alloc.destroy(imports);
+}
+
+/// Register a host function in the import collection.
+export fn zwasm_import_add_fn(
+    imports: *zwasm_imports_t,
+    module_name: [*:0]const u8,
+    func_name: [*:0]const u8,
+    callback: zwasm_host_fn_callback_t,
+    env: ?*anyopaque,
+    param_count: u32,
+    result_count: u32,
+) void {
+    imports.entries.append(.{
+        .module_name = std.mem.sliceTo(module_name, 0),
+        .func_name = std.mem.sliceTo(func_name, 0),
+        .host_fn = .{
+            .callback = callback,
+            .env = env,
+            .param_count = param_count,
+            .result_count = result_count,
+        },
+    }) catch {};
+}
+
+/// Create a new module with host function imports.
+/// Returns null on error.
+export fn zwasm_module_new_with_imports(
+    wasm_ptr: [*]const u8,
+    len: usize,
+    imports: *zwasm_imports_t,
+) ?*zwasm_module_t {
+    clearError();
+
+    // Build ImportEntry array from CApiImports
+    // Group entries by module_name
+    const alloc = std.heap.page_allocator;
+    ensureTrampolineRegistry(alloc);
+
+    // Collect unique module names
+    var module_names = std.ArrayList([]const u8).init(alloc);
+    defer module_names.deinit();
+    for (imports.entries.items) |entry| {
+        var found = false;
+        for (module_names.items) |name| {
+            if (std.mem.eql(u8, name, entry.module_name)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) module_names.append(entry.module_name) catch {};
+    }
+
+    // Build HostFnEntry slices per module, registering trampolines
+    var import_entries = alloc.alloc(types.ImportEntry, module_names.items.len) catch {
+        setError(error.OutOfMemory);
+        return null;
+    };
+    defer alloc.free(import_entries);
+
+    for (module_names.items, 0..) |mod_name, mi| {
+        // Count functions for this module
+        var count: usize = 0;
+        for (imports.entries.items) |entry| {
+            if (std.mem.eql(u8, entry.module_name, mod_name)) count += 1;
+        }
+
+        const host_fns = alloc.alloc(types.HostFnEntry, count) catch {
+            setError(error.OutOfMemory);
+            return null;
+        };
+
+        var fi: usize = 0;
+        for (imports.entries.items) |entry| {
+            if (!std.mem.eql(u8, entry.module_name, mod_name)) continue;
+            // Register trampoline
+            const trampoline_id = trampoline_registry.items.len;
+            trampoline_registry.append(entry.host_fn) catch {
+                setError(error.OutOfMemory);
+                return null;
+            };
+            host_fns[fi] = .{
+                .name = entry.func_name,
+                .callback = hostFnTrampoline,
+                .context = trampoline_id,
+            };
+            fi += 1;
+        }
+
+        import_entries[mi] = .{
+            .module = mod_name,
+            .source = .{ .host_fns = host_fns },
+        };
+    }
+
+    const result = CApiModule.createWithImports(wasm_ptr[0..len], import_entries) catch |err| {
+        setError(err);
+        return null;
+    };
+
+    // Free temporary HostFnEntry slices (module has copied what it needs)
+    for (import_entries) |ie| {
+        switch (ie.source) {
+            .host_fns => |hfs| alloc.free(hfs),
+            else => {},
+        }
+    }
+
+    return result;
+}
+
+// ============================================================
 // Memory access
 // ============================================================
 
@@ -584,6 +794,49 @@ test "c_api: wasi config lifecycle" {
     const config = zwasm_wasi_config_new();
     try testing.expect(config != null);
     zwasm_wasi_config_delete(config.?);
+}
+
+test "c_api: host function imports" {
+    // Module that imports "env" "add" (i32, i32) -> i32
+    // and exports "call_add" which calls add(3, 4) and returns result
+    const IMPORT_WASM = "\x00\x61\x73\x6d\x01\x00\x00\x00" ++
+        "\x01\x07\x01\x60\x02\x7f\x7f\x01\x7f" ++ // type: (i32, i32) -> i32
+        "\x02\x0b\x01\x03\x65\x6e\x76\x03\x61\x64\x64\x00\x00" ++ // import "env" "add" type 0
+        "\x03\x02\x01\x00" ++ // func section: func 1 uses type 0
+        "\x07\x0c\x01\x08\x63\x61\x6c\x6c\x5f\x61\x64\x64\x00\x01" ++ // export "call_add" = func 1
+        "\x0a\x0a\x01\x08\x00\x41\x03\x41\x04\x10\x00\x0b"; // code: i32.const 3, i32.const 4, call 0, end
+
+    const imports = zwasm_import_new().?;
+    defer zwasm_import_delete(imports);
+
+    const S = struct {
+        fn addCallback(_: ?*anyopaque, args: [*]const u64, results: [*]u64) callconv(.c) bool {
+            const a: i32 = @truncate(@as(i64, @bitCast(args[0])));
+            const b: i32 = @truncate(@as(i64, @bitCast(args[1])));
+            results[0] = @bitCast(@as(i64, a + b));
+            return true;
+        }
+    };
+
+    zwasm_import_add_fn(imports, "env", "add", S.addCallback, null, 2, 1);
+
+    const module = zwasm_module_new_with_imports(IMPORT_WASM.ptr, IMPORT_WASM.len, imports);
+    if (module == null) {
+        const msg = zwasm_last_error_message();
+        std.debug.print("Error: {s}\n", .{std.mem.sliceTo(msg, 0)});
+    }
+    try testing.expect(module != null);
+    defer zwasm_module_delete(module.?);
+
+    var results = [_]u64{0};
+    try testing.expect(zwasm_module_invoke(module.?, "call_add", null, 0, &results, 1));
+    try testing.expectEqual(@as(u64, 7), results[0]);
+}
+
+test "c_api: import collection lifecycle" {
+    const imports = zwasm_import_new();
+    try testing.expect(imports != null);
+    zwasm_import_delete(imports.?);
 }
 
 test "c_api: last_error_message is empty after success" {
