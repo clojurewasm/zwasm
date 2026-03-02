@@ -127,6 +127,28 @@ else
 fi
 
 echo ""
+echo "=== Building TinyGo programs (wasip1) ==="
+if command -v tinygo &>/dev/null; then
+  for dir in "$SCRIPT_DIR"/tinygo/*/; do
+    name=$(basename "$dir")
+    out="$WASM_DIR/tinygo_${name}.wasm"
+    src="$dir/main.go"
+    if up_to_date "$src" "$out"; then
+      log_skip "tinygo_${name}" "up to date"
+      continue
+    fi
+    if (cd "$dir" && tinygo build -o "$out" -target=wasip1 -scheduler=none .) 2>/tmp/build_err_$$; then
+      log_pass "tinygo_${name}"
+    else
+      log_fail "tinygo_${name}" "$(cat /tmp/build_err_$$)"
+    fi
+    rm -f /tmp/build_err_$$
+  done
+else
+  log_skip "tinygo_*" "tinygo not found"
+fi
+
+echo ""
 echo "=== Summary ==="
 echo "PASS: $PASS  FAIL: $FAIL  SKIP: $SKIP"
 if [ -n "$ERRORS" ]; then

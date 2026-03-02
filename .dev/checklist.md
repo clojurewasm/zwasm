@@ -11,7 +11,9 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open items
 
-(none)
+- [ ] W30: JIT out-of-bounds on TinyGo programs with heavy interface dispatch
+  (sort.Ints 250+ random items, encoding/json). Works in interpreter mode.
+  Likely OSR/call_indirect interaction with deeply-nested call stacks.
 
 ## Resolved items (summary, details in git history)
 

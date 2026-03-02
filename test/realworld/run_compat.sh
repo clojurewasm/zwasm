@@ -53,7 +53,7 @@ run_test() {
   local wt_extra=""  # wasmtime-specific flags
   local zw_extra=""  # zwasm-specific flags
   case "$name" in
-    *hello_wasi*) extra_args="arg1 arg2" ;;
+    *hello_wasi*|tinygo_hello) extra_args="arg1 arg2" ;;
     *file_io*)    wt_extra="--dir /tmp"; zw_extra="--dir /tmp" ;;
   esac
 
