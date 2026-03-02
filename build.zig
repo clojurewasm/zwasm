@@ -151,4 +151,28 @@ pub fn build(b: *std.Build) void {
     const lib_step = b.step("lib", "Build shared and static libraries");
     lib_step.dependOn(&b.addInstallArtifact(lib_shared, .{}).step);
     lib_step.dependOn(&b.addInstallArtifact(lib_static, .{}).step);
+
+    // C API test executables (link against static library)
+    const c_tests = [_]struct { name: []const u8, src: []const u8 }{
+        .{ .name = "test_c_api_basic", .src = "test/c_api/test_basic.c" },
+        .{ .name = "example_c_hello", .src = "examples/c/hello.c" },
+    };
+    const c_test_step = b.step("c-test", "Build and run C API tests");
+    for (c_tests) |ct| {
+        const ct_mod = b.createModule(.{
+            .root_source_file = null,
+            .target = target,
+            .optimize = optimize,
+        });
+        ct_mod.addCSourceFile(.{ .file = b.path(ct.src) });
+        ct_mod.addIncludePath(b.path("include"));
+        ct_mod.linkLibrary(lib_static);
+        const ct_exe = b.addExecutable(.{
+            .name = ct.name,
+            .root_module = ct_mod,
+        });
+        b.installArtifact(ct_exe);
+        const run_ct = b.addRunArtifact(ct_exe);
+        c_test_step.dependOn(&run_ct.step);
+    }
 }
