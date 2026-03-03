@@ -52,9 +52,9 @@ src/
   wit.zig         WIT type system
   canon_abi.zig   Canonical ABI
 test/
-  spec/           WebAssembly spec tests (62,158 tests)
+  spec/           WebAssembly spec tests (62,263 tests)
   e2e/            End-to-end tests (792 assertions)
-  realworld/      Real-world compatibility tests (30 programs)
+  realworld/      Real-world compatibility tests (50 programs)
   fuzz/           Fuzz testing infrastructure
 bench/
   run_bench.sh    Benchmark runner
@@ -69,7 +69,7 @@ examples/
 PRs are automatically checked for:
 
 - Unit tests pass (macOS + Ubuntu)
-- Spec tests pass (62,158 tests)
+- Spec tests pass (62,263 tests)
 - E2E tests pass (792 assertions)
 - Binary size <= 1.5 MB
 - No benchmark regression > 20%

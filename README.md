@@ -1,7 +1,7 @@
 # zwasm
 
 [![CI](https://github.com/clojurewasm/zwasm/actions/workflows/ci.yml/badge.svg)](https://github.com/clojurewasm/zwasm/actions/workflows/ci.yml)
-[![Spec Tests](https://img.shields.io/badge/spec_tests-62%2C158%2F62%2C158-brightgreen)](https://github.com/clojurewasm/zwasm)
+[![Spec Tests](https://img.shields.io/badge/spec_tests-62%2C263%2F62%2C263-brightgreen)](https://github.com/clojurewasm/zwasm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/chaploud?logo=githubsponsors&logoColor=white&color=ea4aaa)](https://github.com/sponsors/chaploud)
 
@@ -13,11 +13,11 @@ A small, fast WebAssembly runtime written in Zig. Library and CLI.
 > testing and benchmark verification are ongoing. The API and behavior may
 > change between releases. Not yet recommended for production use.
 
-Most Wasm runtimes are either fast but large (wasmtime ~56MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1.4MB with ARM64 + x86_64 JIT compilation**.
+Most Wasm runtimes are either fast but large (wasmtime ~56MB) or small but slow (wasm3 ~0.3MB, interpreter only). zwasm targets the gap between them: **~1.2MB with ARM64 + x86_64 JIT compilation**.
 
 | Runtime  | Binary  | Memory | JIT            |
 |----------|--------:|-------:|----------------|
-| zwasm    | 1.4MB   | ~3.5MB | ARM64 + x86_64 |
+| zwasm    | 1.2MB   | ~4.5MB | ARM64 + x86_64 |
 | wasmtime | 56MB    | ~12MB  | Cranelift      |
 | wasm3    | 0.3MB   | ~1MB   | None           |
 
@@ -27,7 +27,7 @@ zwasm was extracted from [ClojureWasm](https://github.com/clojurewasm/ClojureWas
 
 - **581+ opcodes**: Full MVP + SIMD (236 + 20 relaxed) + Exception handling + Function references + GC + Threads (79 atomics)
 - **4-tier execution**: bytecode > predecoded IR > register IR > ARM64/x86_64 JIT
-- **100% spec conformance**: 62,158/62,158 spec tests, 792/792 E2E tests (Mac + Ubuntu)
+- **100% spec conformance**: 62,263/62,263 spec tests, 792/792 E2E tests, 50 real-world programs (Mac + Ubuntu)
 - **All Wasm 3.0 proposals**: See [Spec Coverage](#wasm-spec-coverage) below
 - **Component Model**: WIT parser, Canonical ABI, component linking, WASI P2 adapter
 - **WAT support**: `zwasm file.wat`, build-time optional (`-Dwat=false`)
@@ -50,7 +50,7 @@ All ratified Wasm proposals through 3.0 are implemented.
 | Phase 4  | Threads (79 atomics)                                                             | Complete     |
 | Layer    | Component Model (WIT, Canon ABI, WASI P2)                                       | Complete     |
 
-18/18 proposals complete. 521 unit tests, 792/792 E2E tests, 30 real-world compatibility tests.
+18/18 proposals complete. 521 unit tests, 792/792 E2E tests, 50 real-world compatibility tests.
 
 ## Performance
 
@@ -257,13 +257,14 @@ The spec test suite runs on every change.
 - [x] Stage 23: JIT optimization (smart spill, direct call, FP cache, self-call inline)
 - [x] Stage 25: Lightweight self-call (fib now matches wasmtime)
 - [x] Stages 26-31: JIT peephole, platform verification, spec cleanup, GC benchmarks
-- [x] Stage 32: 100% spec conformance (62,158/62,158 on Mac + Ubuntu)
+- [x] Stage 32: 100% spec conformance (62,263/62,263 on Mac + Ubuntu)
 - [x] Stage 33: Fuzz testing (differential testing, extended fuzz campaign, 0 crashes)
 - [x] Stages 35-41: Production hardening (crash safety, CI/CD, docs, API stability, distribution)
 - [x] Stages 42-43: Community preparation, v1.0.0 release
 - [x] Stages 44-47: WAT parser spec parity, SIMD perf analysis, book i18n, WAT roundtrip 100%
-- [x] Reliability: Cross-platform verification (30 real-world programs), JIT correctness (OSR, back-edge safety)
-- [ ] Future: SIMD JIT (NEON/SSE), WASI P3/async, GC collector upgrade, liveness-based regalloc
+- [x] Reliability: Cross-platform verification (50 real-world programs), JIT correctness (OSR, back-edge, guard pages)
+- [x] Phase 8: Real-world coverage (50 programs), WAT parity 100%, 5 JIT codegen fixes
+- [ ] Future: SIMD JIT (NEON/SSE), Windows port, WASI P3/async
 
 ## Known Limitations
 

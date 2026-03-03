@@ -2,7 +2,7 @@
 
 zwasm targets full WebAssembly 3.0 compliance. All spec tests pass on macOS ARM64 and Linux x86_64.
 
-**Test results**: 62,158 / 62,158 (100.0%)
+**Test results**: 62,263 / 62,263 (100.0%)
 
 ## Core specification
 

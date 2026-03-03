@@ -48,7 +48,7 @@ A valid Wasm module, no matter how adversarial, cannot:
 **Threat**: Invalid module passes validation and causes undefined behavior at runtime.
 
 **Mitigations**:
-- Full Wasm 3.0 spec compliance: 62,158/62,158 spec tests pass
+- Full Wasm 3.0 spec compliance: 62,263/62,263 spec tests pass
 - Type checking for all instructions including GC, SIMD, exception handling
 - Control flow integrity verified (block/loop/if nesting, branch targets)
 
@@ -167,4 +167,4 @@ Full Wasm 3.0 compliance (9 proposals):
 - branch_hinting, multi_memory, relaxed_simd
 - function_references, gc
 
-Spec test results: 62,158/62,158 (100.0%) on both macOS ARM64 and Ubuntu x86_64.
+Spec test results: 62,263/62,263 (100.0%) on both macOS ARM64 and Ubuntu x86_64.

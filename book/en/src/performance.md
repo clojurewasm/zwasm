@@ -19,8 +19,8 @@ Once JIT-compiled, all subsequent calls to that function execute native machine 
 
 | Metric | Value |
 |--------|-------|
-| Binary size (ReleaseSafe) | ~1.4 MB |
-| Runtime memory (fib benchmark) | ~3.5 MB RSS |
+| Binary size (ReleaseSafe) | ~1.2 MB |
+| Runtime memory (fib benchmark) | ~4.5 MB RSS |
 | wasmtime binary for comparison | 56.3 MB |
 
 zwasm is ~40x smaller than wasmtime.
@@ -87,4 +87,4 @@ PRs are automatically checked for performance regressions:
 - **ReleaseSafe**: Always use for production. Debug is 5-10x slower.
 - **Hot functions**: Functions called frequently will be JIT-compiled automatically.
 - **Fuel limit**: `--fuel` adds overhead per instruction. Only use for untrusted code.
-- **Memory**: Wasm modules with linear memory allocate guard pages. Initial RSS is ~3.5 MB regardless of module size.
+- **Memory**: Wasm modules with linear memory allocate guard pages. Initial RSS is ~4.5 MB regardless of module size.

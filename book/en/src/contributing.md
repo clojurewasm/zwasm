@@ -78,7 +78,7 @@ bench/
 
 PRs are automatically checked for:
 - Unit test pass (macOS + Ubuntu)
-- Spec test pass (62,158 tests)
+- Spec test pass (62,263 tests)
 - E2E test pass (792 assertions)
 - Binary size <= 1.5 MB
 - No benchmark regression > 20%

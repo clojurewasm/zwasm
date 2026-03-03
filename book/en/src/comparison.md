@@ -7,8 +7,8 @@ How zwasm compares to other WebAssembly runtimes.
 | Feature | zwasm | wasmtime | wasm3 | wasmer |
 |---------|-------|----------|-------|--------|
 | Language | Zig | Rust | C | Rust/C |
-| Binary size | ~1.4 MB | 56 MB | ~100 KB | 30+ MB |
-| Memory (fib) | 3.5 MB | 12 MB | ~1 MB | 15+ MB |
+| Binary size | ~1.2 MB | 56 MB | ~100 KB | 30+ MB |
+| Memory (fib) | 4.5 MB | 12 MB | ~1 MB | 15+ MB |
 | Execution | Interp + JIT | AOT/JIT | Interpreter | AOT/JIT |
 | Wasm 3.0 | Full | Full | Partial | Partial |
 | GC proposal | Yes | Yes | No | No |

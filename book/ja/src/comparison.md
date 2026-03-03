@@ -7,8 +7,8 @@ zwasm と他の WebAssembly ランタイムの比較です。
 | 特徴 | zwasm | wasmtime | wasm3 | wasmer |
 |------|-------|----------|-------|--------|
 | 言語 | Zig | Rust | C | Rust/C |
-| バイナリサイズ | 約 1.4 MB | 56 MB | ~100 KB | 30+ MB |
-| メモリ (fib) | 3.5 MB | 12 MB | ~1 MB | 15+ MB |
+| バイナリサイズ | 約 1.2 MB | 56 MB | ~100 KB | 30+ MB |
+| メモリ (fib) | 4.5 MB | 12 MB | ~1 MB | 15+ MB |
 | 実行方式 | Interp + JIT | AOT/JIT | Interpreter | AOT/JIT |
 | Wasm 3.0 | 完全対応 | 完全対応 | 部分対応 | 部分対応 |
 | GC プロポーザル | 対応 | 対応 | 非対応 | 非対応 |

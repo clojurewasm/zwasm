@@ -35,7 +35,7 @@ All binary input is bounds-checked. Resource limits prevent excessive allocation
 
 ### Validation
 
-Full Wasm 3.0 type checking before any code executes. 62,158 spec tests verify correctness.
+Full Wasm 3.0 type checking before any code executes. 62,263 spec tests verify correctness.
 
 ### Linear memory isolation
 

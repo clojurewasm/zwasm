@@ -12,8 +12,8 @@ Stages 0-46 complete. Details: `roadmap-archive.md`.
 
 - Wasm 3.0: all 9 proposals (581+ opcodes). WASI P1 46/46. WAT parser.
 - JIT: Register IR + ARM64/x86_64. Spec: 62,263/62,263 (100%, 0 skip).
-- E2E: 792/792 (0 leak). Real-world: 30/30. Fuzz: 10K+ iterations, 0 crashes.
-- Size: 1.19MB stripped / 1.52MB RSS. Mac + Ubuntu x86_64.
+- E2E: 792/792 (0 leak). Real-world: 50/50. Fuzz: 10K+ iterations, 0 crashes.
+- Size: 1.20MB stripped / 4.48MB RSS. Mac + Ubuntu x86_64.
 
 ## Future Phases (zwasm only)
 
@@ -35,7 +35,7 @@ cli.zig (signal handler install).
 - `cache.zig`: serialize predecoded IR to `~/.cache/zwasm/<hash>.zwcache`
 - `zwasm run --cache` option + `zwasm compile` command
 - Cache invalidation: SHA-256 hash + version field
-- All tests pass (spec 62,263/62,263, E2E 792/792, real-world 30/30)
+- All tests pass (spec 62,263/62,263, E2E 792/792, real-world 50/50)
 
 **Gate**: PASSED. zwasm v1.3.0 candidate.
 
