@@ -145,15 +145,11 @@ jobs:
 
       - name: Setup Rust wasm32-wasip1 target
         run: |
+          source .github/tool-versions
+          rustup install "$RUST_VERSION" --no-self-update
+          rustup default "$RUST_VERSION"
           rustup target add wasm32-wasip1
           rustc --version
-
-      - name: Setup Go
-        if: runner.os == 'macOS'
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-          cache: false
 
       - name: Build real-world wasm programs
         env:
@@ -163,7 +159,7 @@ jobs:
       - name: Run real-world compat tests
         run: |
           export PATH="$HOME/.wasmtime/bin:$PATH"
-          bash test/realworld/run_compat.sh --verbose
+          bash test/realworld/run_compat.sh
 
   size-matrix:
     runs-on: ubuntu-latest

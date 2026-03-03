@@ -23,6 +23,13 @@ Prefix: W## (to distinguish from CW's F## items).
   Fix: corrected expected hash for "Hello, SHA-256!" in main.go.
   50/50 PASS (go_crypto_sha256 + go_regex) after fix. No JIT bug.
 
+- [ ] W35: ARM64 JIT OOB memory access with rustc 1.93.1 / Go 1.26.0 wasm
+  Symptom: OOB trap in JIT-compiled code. Works without JIT (interpreter).
+  Works on x86_64 JIT. Only ARM64 JIT affected.
+  Triggered by wasm codegen differences in newer compiler versions.
+  CI pinned to Rust 1.92.0 as workaround. Go not installed on macOS CI.
+  Reproduce: `rustup run 1.93.1 cargo build` serde_json, run with zwasm ARM64.
+
 ## Resolved items (summary, details in git history)
 
 W2 (table.init), W4 (fd_readdir), W5 (sock_*), W7 (Component Model Stage 22),
