@@ -12,11 +12,14 @@ Prefix: W## (to distinguish from CW's F## items).
 ## Open items
 
 - [x] W30: JIT out-of-bounds on complex real-world programs — **FIXED**
-  Root cause: three JIT codegen bugs:
+  Root cause: four JIT codegen bugs:
   1. Guard page recovery not saved/restored across nested JIT calls (SIGBUS crashes)
   2. instrDefinesRd wrong for global.set/memory.fill/memory.copy (rd is USE not DEF)
   3. computeCalleeSavedLiveSet missing rd-as-USE and select condition vreg
-  Mac: 50/50 PASS, 0 CRASH. Ubuntu: pending merge gate verification.
+  4. x86 emitCall: liveness-aware spill/reload left garbage in physical registers
+  Mac + Ubuntu: spec 62,263/62,263, E2E 792/792, compat 50/50 (Ubuntu).
+- [ ] W31: Intermittent ARM64 JIT crash in Go wasm programs (go_regex, go_crypto_sha256)
+  Pre-existing on main. Programs sometimes produce empty stdout. Low priority.
 
 ## Resolved items (summary, details in git history)
 
