@@ -55,16 +55,18 @@ echo ""
 echo "[2/4] Testing existing corpus..."
 corpus_count=0
 corpus_crash=0
-for f in "$CORPUS_DIR"/*.wasm; do
-    corpus_count=$((corpus_count + 1))
-    if ! timeout 2 "$FUZZ_BIN" < "$f" 2>/dev/null; then
-        exit_code=$?
-        if [ "$exit_code" -gt 128 ]; then
-            corpus_crash=$((corpus_crash + 1))
-            echo "  CRASH: $(basename "$f") (signal $((exit_code - 128)))"
+if compgen -G "$CORPUS_DIR"/*.wasm > /dev/null 2>&1; then
+    for f in "$CORPUS_DIR"/*.wasm; do
+        corpus_count=$((corpus_count + 1))
+        if ! timeout 2 "$FUZZ_BIN" < "$f" 2>/dev/null; then
+            exit_code=$?
+            if [ "$exit_code" -gt 128 ]; then
+                corpus_crash=$((corpus_crash + 1))
+                echo "  CRASH: $(basename "$f") (signal $((exit_code - 128)))"
+            fi
         fi
-    fi
-done
+    done
+fi
 total_tested=$((total_tested + corpus_count))
 total_crashes=$((total_crashes + corpus_crash))
 echo "  Corpus: $corpus_count tested, $corpus_crash crashes"
@@ -135,6 +137,7 @@ echo "[4/4] Mutation testing (bit flips on corpus)..."
 mut_count=0
 mut_crash=0
 
+if compgen -G "$CORPUS_DIR"/*.wasm > /dev/null 2>&1; then
 for f in "$CORPUS_DIR"/*.wasm; do
     if ! time_remaining; then break; fi
 
@@ -181,6 +184,7 @@ for f in "$CORPUS_DIR"/*.wasm; do
         rm -f "$tmpfile"
     done
 done
+fi
 total_tested=$((total_tested + mut_count))
 total_crashes=$((total_crashes + mut_crash))
 echo "  Mutation: $mut_count tested, $mut_crash crashes"
