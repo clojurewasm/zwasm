@@ -309,3 +309,58 @@ opcodes always compiled.
 
 Affected files: `build.zig`, `src/vm.zig`, `src/store.zig`, `src/types.zig`,
 `.github/workflows/ci.yml`
+
+## D128: Allocator Injection — Host-Driven Memory Management
+
+**Date**: 2026-03-08
+**Status**: Future (target: next major version)
+**Decision**: zwasm will accept `std.mem.Allocator` from the caller instead of
+owning its own GC/Arena internally. This is the Zig-idiomatic approach and
+eliminates dual-GC problems when zwasm is embedded in a host with its own GC
+(e.g., ClojureWasm, cw-new).
+
+**Problem**: When a GC-managed host (CW) embeds zwasm, two independent GC systems
+coexist. The host GC collects wasm Value objects, but zwasm's internal Arena
+retains the underlying memory. This creates a lifecycle mismatch — CW GC cannot
+reclaim zwasm-allocated memory.
+
+**Design**:
+
+```zig
+// Zig API: caller provides allocator directly
+pub fn Engine.init(allocator: std.mem.Allocator) Engine { ... }
+
+// C API: optional malloc/free callback injection (default: page_allocator)
+export fn zwasm_engine_new(config: ?*const ZwasmConfig) *Engine {
+    const allocator = if (config) |c|
+        wrapCAllocator(c.alloc_fn, c.free_fn, c.user_data)
+    else
+        std.heap.page_allocator;
+    return Engine.init(allocator);
+}
+```
+
+**Scope**: Allocator injection covers zwasm's internal bookkeeping only:
+- Module metadata, function tables, import/export tables
+- Instance state, global variables
+- Internal data structures
+
+Wasm **linear memory** (memory.grow) remains separately managed per Wasm spec —
+this is unaffected by host allocator choice.
+
+**Usage matrix**:
+
+| Caller              | Allocator source                                |
+|---------------------|-------------------------------------------------|
+| Zig host (CW/cw-new) | Host's `std.mem.Allocator` (GC-managed)          |
+| C host (via C API)  | `malloc/free` function pointers or default        |
+| Standalone CLI      | Internal `page_allocator` or `GeneralPurposeAllocator` |
+
+**Migration**: Internal Arena usage → accept Allocator parameter. Existing C API
+(`zwasm_engine_new`) gains optional config struct with alloc/free callbacks.
+Backward compatible — NULL config uses default allocator.
+
+**Precedents**: SQLite (`SQLITE_CONFIG_MALLOC`), Lua (`lua_newstate(alloc_fn, ud)`),
+jemalloc, mimalloc — all accept custom allocators from the host.
+
+Related: D126 (C API), D127 (conditional compilation), CW D110, cw-new D13.

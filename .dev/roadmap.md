@@ -110,6 +110,32 @@ cli.zig (signal handler install).
 
 **Gate**: All test suites pass. No regressions.
 
+### Phase 11: Allocator Injection + Embedding (D128, 2 days)
+
+Host-driven memory management for embedding scenarios.
+Design reference: `.dev/references/allocator-injection-plan.md`.
+
+**11.1 CW Finalizer (ClojureWasm side)**
+
+- Add `deinit()` call in CW GC sweep for `wasm_module` tagged Values
+- Fixes memory leak: zwasm internal memory released when CW GC collects wrapper
+- Keep `smp_allocator` (non-GC) — do NOT inject CW GC allocator into zwasm
+
+**11.2 C API Config + Allocator Callback Injection**
+
+- `zwasm_config_t` with `set_allocator(alloc_fn, free_fn, ctx)`
+- `zwasm_module_new_configured(bytes, len, config)` — NULL config = default GPA
+- Wrap C function pointers as `std.mem.Allocator` (vtable adapter)
+- Test: counting allocator verifying all allocs freed on module delete
+
+**11.3 Documentation**
+
+- ARCHITECTURE.md: allocator flow diagram + embedding section
+- `docs/embedding.md`: Zig/C/Python/Go embedding guide, GC host pattern
+- Book chapter (merges with Phase 18.1)
+
+**Gate**: C API allocator test passes. CW finalizer test passes. Docs reviewed.
+
 ### Phase 13: SIMD JIT (5 days)
 
 Largest technical challenge.
@@ -153,13 +179,14 @@ JIT deferred to first call. Trampoline → direct jump patch.
 
 ## Future (timeline TBD)
 
-| Item | Condition |
-|------|-----------|
-| Stack Switching | Proposal reaches Phase 4 |
-| WASI P3 / Async | After wasmtime stabilizes |
-| Copy-and-Patch JIT | When technique matures |
-| GC collector upgrade (generational/Immix) | D121 arena approach sufficient for now |
-| Liveness-based regalloc / LIRA | Rejected (D116/D120), single-pass sufficient |
+| Item                                       | Condition                                       |
+|--------------------------------------------|--------------------------------------------------|
+| WasmGC ref type bridge (11.4)              | After Phase 11; externref/funcref host interop    |
+| Stack Switching                            | Proposal reaches Phase 4                         |
+| WASI P3 / Async                            | After wasmtime stabilizes                        |
+| Copy-and-Patch JIT                         | When technique matures                           |
+| GC collector upgrade (generational/Immix)  | D121 arena approach sufficient for now            |
+| Liveness-based regalloc / LIRA             | Rejected (D116/D120), single-pass sufficient     |
 
 ## Version Milestones
 
@@ -167,7 +194,8 @@ JIT deferred to first call. Trampoline → direct jump patch.
 |---------|--------|-------------|
 | **v1.3.0** | 1, 3 | Guard pages, cache, CI automation, ARCHITECTURE.md |
 | **v1.4.0** | 5, 8 | C API, conditional compilation, 50+ real-world, WAT parity |
-| **v2.0.0** | 13, 15 | SIMD JIT, Windows, 3-OS support |
+| **v1.5.0** | 11     | Allocator injection, C API config, embedding docs |
+| **v2.0.0** | 13, 15 | SIMD JIT, Windows, 3-OS support                   |
 
 ## Benchmark History
 
