@@ -134,7 +134,7 @@ Design reference: `.dev/references/allocator-injection-plan.md`.
 - `docs/embedding.md`: Zig/C/Python/Go embedding guide, GC host pattern
 - Book chapter (merges with Phase 18.1)
 
-**Gate**: C API allocator test passes. CW finalizer test passes. Docs reviewed.
+**Gate**: PASSED. Mac + Ubuntu all tests pass. v1.5.0 tagged.
 
 ### Phase 13: SIMD JIT (5 days)
 

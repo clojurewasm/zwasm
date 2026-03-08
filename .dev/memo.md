@@ -13,7 +13,8 @@ Session handover document. Read at session start.
 - **Conditional compilation**: `-Djit=false`, `-Dcomponent=false`, `-Dwat=false` (D127).
   Minimal build: ~940KB stripped (24% reduction).
 - **Phase 8 merged to main** (d770bfe). Real-world compat: 50/50 (Mac+Ubuntu).
-- **main = stable**: v1.3.0 tagged. ClojureWasm updated to v1.3.0.
+- **Phase 11 merged to main** (49f99e5). C API allocator injection (D128).
+- **main = stable**: v1.5.0 tagged (48342ab). ClojureWasm updated to v1.5.0.
 
 ## Current Task
 
@@ -25,7 +26,7 @@ Design: `@./.dev/references/allocator-injection-plan.md`.
 - [x] **11.3** Docs — ARCHITECTURE.md allocator flow, `docs/embedding.md` (d5709f5)
 - [x] **11.1** CW finalizer — GC finalizer registry + WasmModule deinit (CW 4a12e1d)
 
-**Next**: Merge Gate (Mac + Ubuntu) → merge to main → tag v1.5.0.
+**Done**. v1.5.0 released. CW updated (e41ee70). Next: check roadmap for next phase.
 
 ## References
 
