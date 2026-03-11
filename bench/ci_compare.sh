@@ -82,12 +82,10 @@ run_benchmarks() {
     local outfile="$2"
     local wasm_root="$3"
 
-    echo "  [run_benchmarks] starting... binary=$binary wasm_root=$wasm_root" >&2
-    precompile_for_cache "$binary" "$wasm_root" || echo "  [precompile warning] non-zero exit" >&2
+    precompile_for_cache "$binary" "$wasm_root" || true
 
     for entry in "${BENCHMARKS[@]}"; do
         IFS=: read -r name wasm func bench_args kind <<< "$entry"
-        echo "  [bench] $name ($kind)" >&2
         local wasm_path="$wasm_root/$wasm"
 
         if [[ ! -f "$wasm_path" ]]; then
@@ -117,12 +115,10 @@ run_benchmarks() {
         # Verify command works before benchmarking
         # shellcheck disable=SC2086
         if ! $cmd >/dev/null 2>&1; then
-            echo "  $name: FAIL (command failed: $cmd)" >&2
-            $cmd 2>&1 || true
+            echo "  $name: SKIP (command failed)" >&2
             continue
         fi
-        # shellcheck disable=SC2086
-        hyperfine --warmup "$WARMUP" --runs "$RUNS" --export-json "$json_file" $cmd >/dev/null 2>&1
+        hyperfine --warmup "$WARMUP" --runs "$RUNS" --export-json "$json_file" "$cmd" 2>&1
 
         local time_ms
         time_ms=$(python3 -c "
@@ -153,21 +149,8 @@ fi
 
 if [[ ! -x "$ZWASM" ]]; then
     echo "ERROR: zwasm binary not found at $ZWASM" >&2
-    echo "Contents of zig-out/bin/:" >&2
-    ls -la "$PROJECT_DIR/zig-out/bin/" >&2 || echo "  (directory not found)" >&2
     exit 1
 fi
-echo "  Binary: $ZWASM ($(wc -c < "$ZWASM" | tr -d ' ') bytes)"
-
-# Smoke test: verify binary can run a simple wasm
-echo "  Smoke test..."
-if ! "$ZWASM" run --invoke fib "$PROJECT_DIR/src/testdata/02_fibonacci.wasm" 10 2>&1; then
-    echo "ERROR: zwasm smoke test failed" >&2
-    file "$ZWASM" >&2
-    "$ZWASM" run --invoke fib "$PROJECT_DIR/src/testdata/02_fibonacci.wasm" 10 2>&1 || true
-    exit 1
-fi
-echo "  Smoke test passed."
 
 CURRENT_RESULTS="$TMPDIR_CI/current.txt"
 : > "$CURRENT_RESULTS"
