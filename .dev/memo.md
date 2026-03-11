@@ -18,15 +18,33 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**Phase 11: Allocator Injection + Embedding (D128)**
+**Fix JIT fuel bypass + PR #6 timeout merge**
 
-Design: `@./.dev/references/allocator-injection-plan.md`.
+Checklist: `@./.dev/checklist-jit-fuel-timeout.md`
+PR review: `@./private/pr6-timeout-review.md`
 
-- [x] **11.2** C API config — `zwasm_config_t` + `set_allocator()` + `new_configured()` (3d4db98)
-- [x] **11.3** Docs — ARCHITECTURE.md allocator flow, `docs/embedding.md` (d5709f5)
-- [x] **11.1** CW finalizer — GC finalizer registry + WasmModule deinit (CW 4a12e1d)
+### Phase A: Fix JIT fuel bypass (branch: `fix/jit-fuel-bypass`)
+- [x] A1. Add `jitSuppressed()` — suppress JIT when `fuel != null` (6 locations in vm.zig)
+- [x] A2. Test: infinite loop with fuel=1M terminates (`30_infinite_loop.wasm`)
+- [ ] A3. Commit Gate: `zig build test` pass, spec/e2e/realworld/bench (running)
+- [ ] A4. Merge Gate (Mac + Ubuntu)
 
-**Done**. v1.5.0 released. CW updated (e41ee70). Next: check roadmap for next phase.
+### Phase B: Merge timeout support (PR #6 + additions)
+- [ ] B1. Apply PR #6 changes (TimeoutExceeded, deadline, consumeInstructionBudget)
+- [ ] B2. Add `--timeout <ms>` CLI option
+- [ ] B3. Tests + verify with JIT enabled
+- [ ] B4. Commit + Merge Gate
+- [ ] B5. Comment on PR #6, credit DeanoC
+
+## Handover Notes
+
+### JIT fuel/timeout suppression — current fix vs proper solution
+- **Current fix**: `jitSuppressed()` disables JIT entirely when `fuel != null`. Simple, correct, zero impact on normal execution.
+- **Proper solution**: Emit fuel/deadline checks at JIT loop back-edges (like wasmtime). This preserves JIT performance even with fuel/timeout.
+  - wasmtime uses negative-accumulation fuel (increment toward 0, sign check) + epoch-based timeout (atomic counter at loop headers).
+  - zwasm JIT caches `vm_ptr` in x20 (ARM64) — inline `vm->fuel` decrement + conditional trampoline exit is feasible.
+  - Separate future task. See `@./private/pr6-timeout-review.md` §Fix Options and wasmtime research in `~/Documents/OSS/wasmtime/crates/cranelift/src/func_environ.rs`.
+- **Flaky compat tests**: W36 in checklist.md — `go_crypto_sha256`/`go_regex` intermittent DIFF on base code (pre-existing, likely W35-related).
 
 ## References
 

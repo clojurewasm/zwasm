@@ -30,6 +30,10 @@ Prefix: W## (to distinguish from CW's F## items).
   CI pinned to Rust 1.92.0 as workaround. Go not installed on macOS CI.
   Reproduce: `rustup run 1.93.1 cargo build` serde_json, run with zwasm ARM64.
 
+- [ ] W36: Flaky real-world compat: go_crypto_sha256 / go_regex intermittent DIFF
+  Reproduced on base code (no local changes). Non-deterministic — passes ~50% of runs.
+  Likely related to W35 (ARM64 JIT OOB). Not blocking current work.
+
 ## Resolved items (summary, details in git history)
 
 W2 (table.init), W4 (fd_readdir), W5 (sock_*), W7 (Component Model Stage 22),

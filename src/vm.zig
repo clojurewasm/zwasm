@@ -423,6 +423,13 @@ pub const Vm = struct {
         self.call_depth = 0;
     }
 
+    /// Returns true when JIT must be suppressed because fuel metering is active.
+    /// JIT-compiled native code does not check fuel, so we fall back to the
+    /// interpreter to honour the fuel budget.
+    pub inline fn jitSuppressed(self: *const Vm) bool {
+        return self.fuel != null;
+    }
+
     /// Store an exception and return its exnref value (index + 1).
     fn storeExnref(self: *Vm, exc: PendingException) u64 {
         if (self.exn_store_count >= MAX_EXNREF_STORE) {
@@ -564,9 +571,9 @@ pub const Vm = struct {
                         }
                     }
 
-                    // JIT compilation: check hot threshold (skip when profiling)
+                    // JIT compilation: check hot threshold (skip when profiling or fuel metering)
                     if (comptime jit_mod.jitSupported()) {
-                        if (self.profile == null and
+                        if (self.profile == null and !self.jitSuppressed() and
                             wf.jit_code == null and !wf.jit_failed)
                         {
                             wf.call_count += 1;
@@ -590,8 +597,8 @@ pub const Vm = struct {
                         }
                     }
 
-                    // JIT path: execute native code (skip when profiling)
-                    if (self.profile == null) {
+                    // JIT path: execute native code (skip when profiling or fuel metering)
+                    if (self.profile == null and !self.jitSuppressed()) {
                         if (wf.jit_code) |jc| {
                             if (self.trace) |tc| trace_mod.traceExecTier(tc, wf.func_idx, "jit", wf.call_count);
                             try self.executeJIT(jc, reg, inst, func_ptr, args, results);
@@ -604,16 +611,18 @@ pub const Vm = struct {
                     if (self.trace) |tc| trace_mod.traceExecTier(tc, wf.func_idx, "regir", wf.call_count);
                     self.executeRegIR(reg, wf.ir.?.pool64, inst, func_ptr, args, results) catch |err| {
                         if (err == error.JitRestart) {
-                            if (wf.jit_code) |jc| {
-                                if (self.trace) |tc| trace_mod.traceJitRestart(tc, wf.func_idx);
-                                // OSR: use osr_entry (enters at loop body, bypassing init)
-                                // Normal: use entry (starts at pc=0)
-                                if (jc.osr_entry) |osr| {
-                                    try self.executeJITOsr(jc, osr, reg, inst, results);
-                                } else {
-                                    try self.executeJIT(jc, reg, inst, func_ptr, args, results);
+                            if (!self.jitSuppressed()) {
+                                if (wf.jit_code) |jc| {
+                                    if (self.trace) |tc| trace_mod.traceJitRestart(tc, wf.func_idx);
+                                    // OSR: use osr_entry (enters at loop body, bypassing init)
+                                    // Normal: use entry (starts at pc=0)
+                                    if (jc.osr_entry) |osr| {
+                                        try self.executeJITOsr(jc, osr, reg, inst, results);
+                                    } else {
+                                        try self.executeJIT(jc, reg, inst, func_ptr, args, results);
+                                    }
+                                    return;
                                 }
-                                return;
                             }
                         }
                         return err;
@@ -4445,7 +4454,7 @@ pub const Vm = struct {
             &func_ptr.subtype.wasm_function
         else
             null;
-        const jit_eligible = if (!comptime jit_mod.jitSupported()) false else self.profile == null and wf != null and wf.?.jit_code == null and !wf.?.jit_failed;
+        const jit_eligible = if (!comptime jit_mod.jitSupported()) false else self.profile == null and !self.jitSuppressed() and wf != null and wf.?.jit_code == null and !wf.?.jit_failed;
         const jit_param_count: u16 = @intCast(func_ptr.params.len);
         const jit_result_count: u16 = @intCast(func_ptr.results.len);
         const jit_min_mem_bytes: u32 = jit_mod.getMinMemoryBytes(instance);
@@ -6763,7 +6772,7 @@ pub const Vm = struct {
                     // JIT compilation + fast execution for hot callees.
                     if (wf.reg_ir) |reg| {
                         if (comptime jit_mod.jitSupported()) {
-                            if (self.profile == null and
+                            if (self.profile == null and !self.jitSuppressed() and
                                 wf.jit_code == null and !wf.jit_failed)
                             {
                                 wf.call_count += 1;
@@ -6785,7 +6794,7 @@ pub const Vm = struct {
                             }
                         }
 
-                        if (self.profile == null) {
+                        if (self.profile == null and !self.jitSuppressed()) {
                             if (wf.jit_code) |jc| {
                                 if (param_count <= 16) {
                                     var arg_buf: [16]u64 = undefined;
@@ -9664,6 +9673,34 @@ test "Resource limits — fuel metering" {
     var results = [_]u64{0};
     // memory_size needs at least 1 instruction, should exhaust fuel
     try testing.expectError(error.FuelExhausted, vm.invoke(&inst, "memory_size", &.{}, &results));
+}
+
+test "Resource limits — fuel metering with infinite loop (JIT suppression)" {
+    // Infinite loop function — without JIT suppression, a high fuel value
+    // would allow JIT to compile the loop and bypass fuel checks forever.
+    const wasm = try readTestFile(testing.allocator, "30_infinite_loop.wasm");
+    defer testing.allocator.free(wasm);
+
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    // High fuel — enough to exceed JIT hot threshold, but must still exhaust
+    vm.fuel = 1_000_000;
+
+    var results = [_]u64{0};
+    try testing.expectError(error.FuelExhausted, vm.invoke(&inst, "loop", &.{}, &results));
+
+    // Verify fuel was fully consumed
+    try testing.expectEqual(@as(u64, 0), vm.fuel.?);
 }
 
 test "Back-edge JIT — hasPrologueSideEffects" {
