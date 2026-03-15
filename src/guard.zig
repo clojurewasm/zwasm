@@ -204,7 +204,8 @@ fn windowsHandler(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_long {
     setWindowsPc(ctx, rec.oob_exit_pc);
     setWindowsReturnReg(ctx, 6);
     rec.active = false;
-    return @as(c_long, -1); // EXCEPTION_CONTINUE_EXECUTION
+    const EXCEPTION_CONTINUE_EXECUTION: c_long = -1;
+    return EXCEPTION_CONTINUE_EXECUTION;
 }
 
 fn resetAndReraise() void {

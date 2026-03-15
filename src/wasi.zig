@@ -158,13 +158,10 @@ const HostHandle = struct {
 
     fn close(self: HostHandle) void {
         switch (self.kind) {
-            .file => {
-                var host_file = self.file();
-                host_file.close();
-            },
+            .file => self.file().close(),
             .dir => {
-                var host_dir = self.dir();
-                host_dir.close();
+                var d = self.dir();
+                d.close();
             },
         }
     }
@@ -359,6 +356,7 @@ pub const WasiContext = struct {
         return .{ .fd = host.raw };
     }
 
+    /// Allocate a new WASI fd. All preopens must be added before the first call.
     fn allocFd(self: *WasiContext, host: HostHandle, append: bool) !i32 {
         // Compute fd_base lazily (after all preopens are added)
         if (self.fd_base == 0) {
@@ -2013,7 +2011,7 @@ pub fn fd_renumber(ctx: *anyopaque, _: usize) anyerror!void {
             } else {
                 while (wasi.fd_table.items.len < idx) {
                     wasi.fd_table.append(wasi.alloc, .{
-                        .host = .{ .raw = undefined, .kind = .file },
+                        .host = .{ .raw = undefined, .kind = .file }, // placeholder, never accessed
                         .is_open = false,
                     }) catch {
                         new_host.close();
@@ -2073,7 +2071,7 @@ pub fn fd_renumber(ctx: *anyopaque, _: usize) anyerror!void {
             // Extend table to fit
             while (wasi.fd_table.items.len < idx) {
                 wasi.fd_table.append(wasi.alloc, .{
-                    .host = .{ .raw = undefined, .kind = .file },
+                    .host = .{ .raw = undefined, .kind = .file }, // placeholder, never accessed
                     .is_open = false,
                 }) catch {
                     posix.close(new_host);
