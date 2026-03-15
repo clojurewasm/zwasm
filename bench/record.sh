@@ -158,16 +158,15 @@ echo ""
 precompile_for_cache() {
   echo "Pre-compiling modules for cache..."
   rm -rf ~/.cache/zwasm/
-  declare -A seen
+  local seen_list=""
   for entry in "${BENCHMARKS[@]}"; do
     IFS=: read -r _name wasm _func _args _kind <<< "$entry"
     if [[ -n "$BENCH_FILTER" && "$_name" != "$BENCH_FILTER" ]]; then continue; fi
     local wasm_path="$PROJECT_ROOT/$wasm"
     if [[ ! -f "$wasm_path" ]]; then continue; fi
-    if [[ -z "${seen[$wasm_path]+x}" ]]; then
-      seen["$wasm_path"]=1
-      $ZWASM compile "$wasm_path" >/dev/null 2>&1 || true
-    fi
+    case "$seen_list" in *"|$wasm_path|"*) continue ;; esac
+    seen_list="${seen_list}|${wasm_path}|"
+    $ZWASM compile "$wasm_path" >/dev/null 2>&1 || true
   done
   echo ""
 }
@@ -180,8 +179,8 @@ fi
 TMPDIR_BENCH=$(mktemp -d)
 trap "rm -rf $TMPDIR_BENCH" EXIT
 
-declare -A BENCH_RESULTS  # bench_name -> time_ms
-declare -A BENCH_RESULTS_CACHED  # bench_name_cached -> time_ms
+RESULTS_DIR="$TMPDIR_BENCH/results"
+mkdir -p "$RESULTS_DIR" "$RESULTS_DIR/cached"
 
 for entry in "${BENCHMARKS[@]}"; do
   IFS=: read -r name wasm func bench_args kind <<< "$entry"
@@ -225,7 +224,7 @@ print(round(r['mean'] * 1000, 1))
 
     if [[ -n "$time_ms" ]]; then
       printf "%8s ms\n" "$time_ms"
-      BENCH_RESULTS["$name"]="$time_ms"
+      echo "$time_ms" > "$RESULTS_DIR/$name"
     else
       echo "PARSE_ERR"
     fi
@@ -280,7 +279,7 @@ print(round(r['mean'] * 1000, 1))
 
       if [[ -n "$time_ms" ]]; then
         printf "%8s ms\n" "$time_ms"
-        BENCH_RESULTS_CACHED["$cached_name"]="$time_ms"
+        echo "$time_ms" > "$RESULTS_DIR/cached/$cached_name"
       else
         echo "PARSE_ERR"
       fi
@@ -328,12 +327,12 @@ results:
 ENTRYEOF
 
 for key in "${BENCH_ORDER[@]}"; do
-  if [[ -v "BENCH_RESULTS[$key]" ]]; then
-    echo "  $key: {time_ms: ${BENCH_RESULTS[$key]}}" >> "$ENTRY_FILE"
+  if [[ -f "$RESULTS_DIR/$key" ]]; then
+    echo "  $key: {time_ms: $(cat "$RESULTS_DIR/$key")}" >> "$ENTRY_FILE"
   fi
   cached_key="${key}_cached"
-  if [[ -v "BENCH_RESULTS_CACHED[$cached_key]" ]]; then
-    echo "  $cached_key: {time_ms: ${BENCH_RESULTS_CACHED[$cached_key]}}" >> "$ENTRY_FILE"
+  if [[ -f "$RESULTS_DIR/cached/$cached_key" ]]; then
+    echo "  $cached_key: {time_ms: $(cat "$RESULTS_DIR/cached/$cached_key")}" >> "$ENTRY_FILE"
   fi
 done
 
@@ -341,6 +340,8 @@ done
 yq -i ".entries += [load(\"$ENTRY_FILE\")]" "$HISTORY_FILE"
 rm -f "$ENTRY_FILE"
 
-total_count=$(( ${#BENCH_RESULTS[@]} + ${#BENCH_RESULTS_CACHED[@]} ))
-echo "Recorded entry '$ID' ($total_count benchmarks: ${#BENCH_RESULTS[@]} uncached + ${#BENCH_RESULTS_CACHED[@]} cached)"
+uncached_count=$(find "$RESULTS_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')
+cached_count=$(find "$RESULTS_DIR/cached" -type f 2>/dev/null | wc -l | tr -d ' ')
+total_count=$(( uncached_count + cached_count ))
+echo "Recorded entry '$ID' ($total_count benchmarks: $uncached_count uncached + $cached_count cached)"
 echo "Done. Results in $HISTORY_FILE"

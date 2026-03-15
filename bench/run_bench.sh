@@ -34,15 +34,14 @@ precompile_for_cache() {
   echo "Pre-compiling modules for cache..."
   rm -rf ~/.cache/zwasm/
   # Collect unique wasm files from BENCHMARKS
-  declare -A seen
+  local seen_list=""
   for entry in "${BENCHMARKS[@]}"; do
     IFS=: read -r _name wasm _func _args _kind <<< "$entry"
     if [[ -n "$BENCH" && "$_name" != "$BENCH" ]]; then continue; fi
     if [[ ! -f "$wasm" ]]; then continue; fi
-    if [[ -z "${seen[$wasm]+x}" ]]; then
-      seen["$wasm"]=1
-      $ZWASM compile "$wasm" >/dev/null 2>&1 || true
-    fi
+    case "$seen_list" in *"|$wasm|"*) continue ;; esac
+    seen_list="${seen_list}|${wasm}|"
+    $ZWASM compile "$wasm" >/dev/null 2>&1 || true
   done
   echo ""
 }
