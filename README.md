@@ -273,14 +273,14 @@ The spec test suite runs on every change.
 - [x] Stage 25: Lightweight self-call (fib now matches wasmtime)
 - [x] Stages 26-31: JIT peephole, platform verification, spec cleanup, GC benchmarks
 - [x] Stage 32: 100% spec conformance (62,263/62,263 on macOS + Linux)
-- [x] Stage 33: Windows x86_64 native support (build, test, JIT, C API, release artifacts)
 - [x] Stage 33: Fuzz testing (differential testing, extended fuzz campaign, 0 crashes)
+- [x] Stage 34: Windows x86_64 native support (build, test, JIT, C API, release artifacts)
 - [x] Stages 35-41: Production hardening (crash safety, CI/CD, docs, API stability, distribution)
 - [x] Stages 42-43: Community preparation, v1.0.0 release
 - [x] Stages 44-47: WAT parser spec parity, SIMD perf analysis, book i18n, WAT roundtrip 100%
 - [x] Reliability: Cross-platform verification (50 real-world programs), JIT correctness (OSR, back-edge, guard pages)
 - [x] Phase 8: Real-world coverage (50 programs), WAT parity 100%, 5 JIT codegen fixes
-- [ ] Future: SIMD JIT (NEON/SSE), Windows port, WASI P3/async
+- [ ] Future: SIMD JIT (NEON/SSE), WASI P3/async
 
 ## Known Limitations
 

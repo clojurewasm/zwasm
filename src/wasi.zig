@@ -612,6 +612,7 @@ pub fn fd_close(ctx: *anyopaque, _: usize) anyerror!void {
     const vm = getVm(ctx);
     const fd = vm.popOperandI32();
 
+    // stdio fds: return SUCCESS without closing (matches wasmtime behavior)
     if (fd >= 0 and fd <= 2) {
         try pushErrno(vm, .SUCCESS);
         return;
@@ -1057,6 +1058,7 @@ fn wasiTimestamp(fst_flags: u32, set_bit: u32, now_bit: u32, provided_ns: i64, f
 }
 
 /// Write a WASI filestat struct (64 bytes) from a portable file stat to memory.
+/// Note: nlink is always 1 because std.fs.File.Stat does not expose link count.
 fn writeFilestat(memory: *WasmMemory, ptr: u32, stat: std.fs.File.Stat) !void {
     const data = memory.memory();
     if (ptr + 64 > data.len) return error.OutOfBoundsMemoryAccess;
@@ -1064,11 +1066,42 @@ fn writeFilestat(memory: *WasmMemory, ptr: u32, stat: std.fs.File.Stat) !void {
     // dev(u64)=0, ino(u64)=8, filetype(u8)=16, pad=17..23, nlink(u64)=24, size(u64)=32, atim(u64)=40, mtim(u64)=48, ctim(u64)=56
     try memory.write(u64, ptr, 8, @bitCast(@as(i64, @intCast(stat.inode))));
     data[ptr + 16] = wasiFiletypeFromKind(stat.kind);
-    try memory.write(u64, ptr, 24, 1);
+    try memory.write(u64, ptr, 24, 1); // nlink unavailable in portable Stat
     try memory.write(u64, ptr, 32, stat.size);
     try memory.write(u64, ptr, 40, wasiNanos(stat.atime));
     try memory.write(u64, ptr, 48, wasiNanos(stat.mtime));
     try memory.write(u64, ptr, 56, wasiNanos(stat.ctime));
+}
+
+/// Write a WASI filestat struct from a POSIX fstatat result (preserves nlink).
+/// Used on non-Windows for path_filestat_get where fstatat is needed for symlink control.
+fn writeFilestatPosix(memory: *WasmMemory, ptr: u32, stat: posix.Stat) !void {
+    if (comptime builtin.os.tag == .windows) @compileError("writeFilestatPosix not available on Windows");
+    const data = memory.memory();
+    if (ptr + 64 > data.len) return error.OutOfBoundsMemoryAccess;
+    @memset(data[ptr .. ptr + 64], 0);
+    try memory.write(u64, ptr, 8, @bitCast(@as(i64, @intCast(stat.ino))));
+    const S = posix.S;
+    data[ptr + 16] = if (S.ISDIR(stat.mode))
+        @intFromEnum(Filetype.DIRECTORY)
+    else if (S.ISLNK(stat.mode))
+        @intFromEnum(Filetype.SYMBOLIC_LINK)
+    else if (S.ISREG(stat.mode))
+        @intFromEnum(Filetype.REGULAR_FILE)
+    else if (S.ISBLK(stat.mode))
+        @intFromEnum(Filetype.BLOCK_DEVICE)
+    else if (S.ISCHR(stat.mode))
+        @intFromEnum(Filetype.CHARACTER_DEVICE)
+    else
+        @intFromEnum(Filetype.UNKNOWN);
+    try memory.write(u64, ptr, 24, @bitCast(@as(i64, @intCast(stat.nlink))));
+    try memory.write(u64, ptr, 32, @bitCast(@as(i64, @intCast(stat.size))));
+    const at = stat.atime();
+    const mt = stat.mtime();
+    const ct = stat.ctime();
+    try memory.write(u64, ptr, 40, @bitCast(@as(i64, at.sec) * 1_000_000_000 + at.nsec));
+    try memory.write(u64, ptr, 48, @bitCast(@as(i64, mt.sec) * 1_000_000_000 + mt.nsec));
+    try memory.write(u64, ptr, 56, @bitCast(@as(i64, ct.sec) * 1_000_000_000 + ct.nsec));
 }
 
 fn wasiFiletype(kind: std.fs.Dir.Entry.Kind) u8 {
@@ -1108,13 +1141,22 @@ pub fn path_filestat_get(ctx: *anyopaque, _: usize) anyerror!void {
     if (path_ptr + path_len > data.len) return error.OutOfBoundsMemoryAccess;
 
     const path = data[path_ptr .. path_ptr + path_len];
-    _ = flags;
-    const stat = dir.statFile(path) catch |err| {
-        try pushErrno(vm, toWasiErrno(err));
-        return;
-    };
-
-    try writeFilestat(memory, filestat_ptr, stat);
+    if (comptime builtin.os.tag == .windows) {
+        // Windows: Dir.statFile always follows symlinks (no lstat equivalent)
+        const stat = dir.statFile(path) catch |err| {
+            try pushErrno(vm, toWasiErrno(err));
+            return;
+        };
+        try writeFilestat(memory, filestat_ptr, stat);
+    } else {
+        // POSIX: respect SYMLINK_FOLLOW flag via fstatat (preserves nlink, mode)
+        const nofollow: u32 = if (flags & 0x01 == 0) posix.AT.SYMLINK_NOFOLLOW else 0;
+        const stat = posix.fstatat(dir.fd, path, nofollow) catch |err| {
+            try pushErrno(vm, toWasiErrno(err));
+            return;
+        };
+        try writeFilestatPosix(memory, filestat_ptr, stat);
+    }
     try pushErrno(vm, .SUCCESS);
 }
 

@@ -23,7 +23,7 @@ import queue
 import threading
 import time
 
-ZWASM = "./zig-out/bin/zwasm"
+ZWASM = "./zig-out/bin/zwasm.exe" if sys.platform == "win32" else "./zig-out/bin/zwasm"
 SPEC_DIR = "test/spec/json"
 SPECTEST_WASM = "test/spec/spectest.wasm"
 
