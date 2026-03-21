@@ -16,7 +16,7 @@ unsafe extern "C" {
     fn zwasm_module_invoke(
         module: *mut zwasm_module_t,
         name: *const std::ffi::c_char,
-        args: *const u64,
+        args: *mut u64,
         nargs: u32,
         results: *mut u64,
         nresults: u32,
@@ -48,7 +48,7 @@ fn main() {
         let ok = zwasm_module_invoke(
             module,
             name.as_ptr(),
-            std::ptr::null(),
+            std::ptr::null_mut(),
             0,
             results.as_mut_ptr(),
             results.len() as u32,

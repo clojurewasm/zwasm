@@ -187,6 +187,10 @@ C example using `libzwasm`: load a module, invoke an export, read the result.
 
 Python ctypes example: same workflow as C, no compiled bindings needed.
 
+### Rust examples (`examples/rust/`)
+
+Rust FFI example: same workflow as C, using `extern "C"` bindings.
+
 ## Build
 
 Requires Zig 0.15.2.
