@@ -12,6 +12,10 @@ zig-cache/
 # Python
 __pycache__/
 
+# Rust
+target/
+Cargo.lock
+
 # Editor
 *.swp
 *~
