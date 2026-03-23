@@ -1122,6 +1122,26 @@ const Validator = struct {
                 _ = try self.popExpecting(self.getTableRefType(table_idx)); // val
                 try self.popI32(); // idx
             },
+            // i64.add128: [i64 i64 i64 i64] -> [i64 i64]
+            0x13 => {
+                try self.popI64(); try self.popI64(); try self.popI64(); try self.popI64();
+                try self.pushVal(.i64); try self.pushVal(.i64);
+            },
+            // i64.sub128: [i64 i64 i64 i64] -> [i64 i64]
+            0x14 => {
+                try self.popI64(); try self.popI64(); try self.popI64(); try self.popI64();
+                try self.pushVal(.i64); try self.pushVal(.i64);
+            },
+            // i64.mul_wide_s: [i64 i64] -> [i64 i64]
+            0x15 => {
+                try self.popI64(); try self.popI64();
+                try self.pushVal(.i64); try self.pushVal(.i64);
+            },
+            // i64.mul_wide_u: [i64 i64] -> [i64 i64]
+            0x16 => {
+                try self.popI64(); try self.popI64();
+                try self.pushVal(.i64); try self.pushVal(.i64);
+            },
             else => return error.IllegalOpcode,
         }
     }

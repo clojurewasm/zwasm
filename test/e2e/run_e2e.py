@@ -39,7 +39,10 @@ def main() -> int:
     runner = ROOT / "zig-out" / "bin" / exe_name
     if not runner.is_file():
         print("Building e2e_runner...")
-        result = subprocess.run(["zig", "build", "e2e"], cwd=ROOT, check=False)
+        result = subprocess.run(
+            ["zig", "build", "e2e", "-Doptimize=ReleaseSafe"],
+            cwd=ROOT, check=False,
+        )
         if result.returncode != 0:
             return result.returncode
 
