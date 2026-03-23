@@ -37,11 +37,10 @@ Session handover document. Read at session start.
   - v128.any_true, all_true (i8x16/i16x8/i32x4/i64x2), i32x4.dot_i16x8_s
   - v128.load/store/const, splat, bitwise, demote/promote, f64x2 convert
   - SIMD bench: image_blend 5.2x faster than scalar, matrix_mul 1.4x
-  - **Remaining** (~29 ops): load/store lane (8), shuffle (1), relaxed ops (20)
+  - **Remaining** (~21 ops): shuffle (1), relaxed ops (20) — all trampoline-safe
   - **Next priorities**:
-    1. load/store lane (8 ops)
-    2. x86 SSE port
-    3. Long-term: NEON register allocator or contiguous v128 storage
+    1. x86 SSE port
+    2. Long-term: NEON register allocator or contiguous v128 storage
 - See `@./.dev/roadmap.md` Phase 13 for step breakdown (13.0-13.8)
 
 ### Key Design (D130)
