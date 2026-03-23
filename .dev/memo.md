@@ -14,18 +14,24 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**Merged to main** — W40 + W37 + W39 complete.
+**W38 investigation** — on branch `perf/w38-simd-compiler-patterns`.
 
-- W40 (D131): Epoch-based JIT timeout — JIT+deadline coexistence
-- W37: Contiguous v128 storage — LDR Q/MOVDQU single-instruction SIMD
-- W39: Multi-value return JIT — OP_RETURN_MULTI, guard removed
+ARM64 JIT v128 sync fix committed: MOV copies simd_v128, CONST clears it.
+Reentry guard OSR attempted but blocked by v128 state transfer issues.
+
+### Investigation Summary
+
+Root cause of 13-131x gap: C-compiled functions have reentry guards that
+prevent JIT. Hot loops run entirely in register IR interpreter.
+OSR (On-Stack Replacement) can bypass guards but SIMD v128 state doesn't
+transfer correctly from interpreter to JIT for complex C functions.
 
 ### Open Work Items
 
-| Item     | Description                        |
-|----------|------------------------------------|
-| W38      | Compiler-generated SIMD patterns   |
-| Phase 18 | Lazy Compilation + CLI Extensions  |
+| Item     | Description                          | Status       |
+|----------|--------------------------------------|--------------|
+| W38      | Compiler-generated SIMD patterns     | Investigated |
+| Phase 18 | Lazy Compilation + CLI Extensions    | Not started  |
 
 ## Completed Phases (summary)
 
