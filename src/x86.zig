@@ -1152,6 +1152,54 @@ const Enc = struct {
     /// PUNPCKLQDQ xmm, xmm: 66 0F 6C /r (interleave low qwords)
     fn punpcklqdq(buf: *std.ArrayList(u8), alloc: Allocator, dst: u4, src: u4) void { ssePacked(buf, alloc, 0x6C, dst, src); }
 
+    /// SSE4.1 insert/extract with imm8: 66 [REX] 0F 3A opcode ModRM imm8
+    fn sse41OpImm(buf: *std.ArrayList(u8), alloc: Allocator, op: u8, xmm: u4, gpr: Reg, imm8: u8) void {
+        buf.append(alloc, 0x66) catch {};
+        var r: u8 = 0x40;
+        if (xmm >= 8) r |= 0x04;
+        if (gpr.isExt()) r |= 0x01;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x3A, op }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+        buf.append(alloc, imm8) catch {};
+    }
+    /// SSE4.1 insert/extract with REX.W + imm8: 66 REX.W 0F 3A opcode ModRM imm8
+    fn sse41OpWImm(buf: *std.ArrayList(u8), alloc: Allocator, op: u8, xmm: u4, gpr: Reg, imm8: u8) void {
+        buf.append(alloc, 0x66) catch {};
+        var r: u8 = 0x48; // REX.W
+        if (xmm >= 8) r |= 0x04;
+        if (gpr.isExt()) r |= 0x01;
+        buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0x3A, op }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+        buf.append(alloc, imm8) catch {};
+    }
+    // PINSRB xmm, r32, imm8 (SSE4.1): 66 0F 3A 20
+    fn pinsrb(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg, imm8: u8) void { sse41OpImm(buf, alloc, 0x20, xmm, gpr, imm8); }
+    // PINSRW xmm, r32, imm8 (SSE2): 66 0F C4
+    fn pinsrw(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg, imm8: u8) void {
+        buf.append(alloc, 0x66) catch {};
+        var r: u8 = 0x40;
+        if (xmm >= 8) r |= 0x04;
+        if (gpr.isExt()) r |= 0x01;
+        if (r != 0x40) buf.append(alloc, r) catch {};
+        buf.appendSlice(alloc, &[_]u8{ 0x0F, 0xC4 }) catch {};
+        buf.append(alloc, modrm(3, @truncate(xmm), gpr.low3())) catch {};
+        buf.append(alloc, imm8) catch {};
+    }
+    // PINSRD xmm, r32, imm8 (SSE4.1): 66 0F 3A 22
+    fn pinsrd(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg, imm8: u8) void { sse41OpImm(buf, alloc, 0x22, xmm, gpr, imm8); }
+    // PINSRQ xmm, r64, imm8 (SSE4.1): 66 REX.W 0F 3A 22
+    fn pinsrqReg(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg, imm8: u8) void { sse41OpWImm(buf, alloc, 0x22, xmm, gpr, imm8); }
+    // PEXTRB r32, xmm, imm8 (SSE4.1): 66 0F 3A 14
+    fn pextrb(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4, imm8: u8) void { sse41OpImm(buf, alloc, 0x14, xmm, gpr, imm8); }
+    // PEXTRW r32, xmm, imm8 (SSE4.1): 66 0F 3A 15
+    fn pextrw41(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4, imm8: u8) void { sse41OpImm(buf, alloc, 0x15, xmm, gpr, imm8); }
+    // PEXTRD r32, xmm, imm8 (SSE4.1): 66 0F 3A 16
+    fn pextrd(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4, imm8: u8) void { sse41OpImm(buf, alloc, 0x16, xmm, gpr, imm8); }
+    // PEXTRQ r64, xmm, imm8 (SSE4.1): 66 REX.W 0F 3A 16
+    fn pextrqReg(buf: *std.ArrayList(u8), alloc: Allocator, gpr: Reg, xmm: u4, imm8: u8) void { sse41OpWImm(buf, alloc, 0x16, xmm, gpr, imm8); }
+
     /// CVTSI2SD xmm, r64: F2 REX.W 0F 2A /r (signed i64 → f64)
     fn cvtsi2sd64(buf: *std.ArrayList(u8), alloc: Allocator, xmm: u4, gpr: Reg) void {
         buf.append(alloc, 0xF2) catch {};
@@ -3576,7 +3624,6 @@ pub const Compiler = struct {
     }
 
     fn emitSimdNativeX86(self: *Compiler, instr: RegInstr, sub: u32, extra: u16) bool {
-        _ = extra;
         switch (sub) {
             // --- v128 bitwise ---
             0x4E => { self.emitSimdBinarySse(instr, &Enc.pand); return true; }, // v128.and
@@ -3785,6 +3832,132 @@ pub const Compiler = struct {
             // --- avgr_u ---
             0x7B => { self.emitSimdBinarySse(instr, &Enc.pavgb); return true; }, // i8x16.avgr_u
             0x9B => { self.emitSimdBinarySse(instr, &Enc.pavgw); return true; }, // i16x8.avgr_u
+
+            // --- v128.load ---
+            0x00 => {
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                Enc.movRegReg32(&self.code, self.alloc, SCRATCH, addr_reg); // zero-extend
+                self.emitAddOffset(instr.operand);
+                if (!self.use_guard_pages) {
+                    Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
+                    Enc.addImm32(&self.code, self.alloc, SCRATCH2, 16);
+                    Enc.cmpRegReg(&self.code, self.alloc, SCRATCH2, MEM_SIZE);
+                    self.emitCondError(.a, 6);
+                }
+                Enc.movdquLoad(&self.code, self.alloc, SIMD_SCRATCH0, MEM_BASE, SCRATCH);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // --- v128.store ---
+            0x0B => {
+                if (!self.has_memory) return false;
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rd);
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                Enc.movRegReg32(&self.code, self.alloc, SCRATCH, addr_reg);
+                self.emitAddOffset(instr.operand);
+                if (!self.use_guard_pages) {
+                    Enc.movRegReg(&self.code, self.alloc, SCRATCH2, SCRATCH);
+                    Enc.addImm32(&self.code, self.alloc, SCRATCH2, 16);
+                    Enc.cmpRegReg(&self.code, self.alloc, SCRATCH2, MEM_SIZE);
+                    self.emitCondError(.a, 6);
+                }
+                Enc.movdquStore(&self.code, self.alloc, MEM_BASE, SCRATCH, SIMD_SCRATCH0);
+                return true;
+            },
+            // --- v128.const ---
+            0x0C => {
+                const pool_idx = instr.operand;
+                if (pool_idx + 1 < self.pool64.len) {
+                    const lo = self.pool64[pool_idx];
+                    const hi = self.pool64[pool_idx + 1];
+                    // Load lo into SCRATCH, move to XMM
+                    self.emitLoadImm64(SCRATCH, lo);
+                    Enc.movqToXmm(&self.code, self.alloc, SIMD_SCRATCH0, SCRATCH);
+                    // Load hi, insert into high qword
+                    self.emitLoadImm64(SCRATCH, hi);
+                    Enc.pinsrqReg(&self.code, self.alloc, SIMD_SCRATCH0, SCRATCH, 1);
+                    self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                    return true;
+                }
+                return false;
+            },
+
+            // --- extract_lane ---
+            0x1B, 0x1F => { // i32x4/f32x4.extract_lane
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.pextrd(&self.code, self.alloc, d, SIMD_SCRATCH0, @truncate(extra));
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x1D, 0x21 => { // i64x2/f64x2.extract_lane
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.pextrqReg(&self.code, self.alloc, d, SIMD_SCRATCH0, @truncate(extra));
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x15 => { // i8x16.extract_lane_s: PEXTRB + sign-extend
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.pextrb(&self.code, self.alloc, d, SIMD_SCRATCH0, @truncate(extra));
+                self.emitMovsxByte32(d, d);
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x16 => { // i8x16.extract_lane_u: PEXTRB (zero-extended)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.pextrb(&self.code, self.alloc, d, SIMD_SCRATCH0, @truncate(extra));
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x18 => { // i16x8.extract_lane_s: PEXTRW + sign-extend
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.pextrw41(&self.code, self.alloc, d, SIMD_SCRATCH0, @truncate(extra));
+                self.emitMovsxWord32(d, d);
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x19 => { // i16x8.extract_lane_u: PEXTRW (zero-extended)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = vregToPhys(instr.rd) orelse SCRATCH;
+                Enc.pextrw41(&self.code, self.alloc, d, SIMD_SCRATCH0, @truncate(extra));
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+
+            // --- replace_lane ---
+            0x17 => { // i8x16.replace_lane
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const src = self.getOrLoad(instr.rs2_field, SCRATCH);
+                Enc.pinsrb(&self.code, self.alloc, SIMD_SCRATCH0, src, @truncate(extra));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x1A => { // i16x8.replace_lane
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const src = self.getOrLoad(instr.rs2_field, SCRATCH);
+                Enc.pinsrw(&self.code, self.alloc, SIMD_SCRATCH0, src, @truncate(extra));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x1C, 0x20 => { // i32x4/f32x4.replace_lane
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const src = self.getOrLoad(instr.rs2_field, SCRATCH);
+                Enc.pinsrd(&self.code, self.alloc, SIMD_SCRATCH0, src, @truncate(extra));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x1E, 0x22 => { // i64x2/f64x2.replace_lane
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const src = self.getOrLoad(instr.rs2_field, SCRATCH);
+                Enc.pinsrqReg(&self.code, self.alloc, SIMD_SCRATCH0, src, @truncate(extra));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
 
             // --- splat ---
             0x11 => { // i32x4.splat: MOVD + PSHUFD 0x00
