@@ -127,6 +127,17 @@ BENCHMARKS=(
   "rw_c_string:test/realworld/wasm/c_string_processing.wasm::_start:wasi"
   "rw_cpp_string:test/realworld/wasm/cpp_string_ops.wasm::_start:wasi"
   "rw_cpp_sort:test/realworld/wasm/cpp_vector_sort.wasm::_start:wasi"
+  # Layer 6: SIMD (C with -msimd128, scalar vs SIMD modes via argv)
+  "simd_grayscale_s:bench/wasm/simd/grayscale.wasm::scalar:wasi_args"
+  "simd_grayscale_v:bench/wasm/simd/grayscale.wasm::simd:wasi_args"
+  "simd_blur_s:bench/wasm/simd/box_blur.wasm::scalar:wasi_args"
+  "simd_blur_v:bench/wasm/simd/box_blur.wasm::simd:wasi_args"
+  "simd_reduce_s:bench/wasm/simd/sum_reduce.wasm::scalar:wasi_args"
+  "simd_reduce_v:bench/wasm/simd/sum_reduce.wasm::simd:wasi_args"
+  "simd_freq_s:bench/wasm/simd/byte_freq.wasm::scalar:wasi_args"
+  "simd_freq_v:bench/wasm/simd/byte_freq.wasm::simd:wasi_args"
+  "simd_nbody_s:bench/wasm/simd/nbody_simd.wasm::scalar:wasi_args"
+  "simd_nbody_v:bench/wasm/simd/nbody_simd.wasm::simd:wasi_args"
 )
 
 RUNS=5
@@ -199,6 +210,15 @@ build_cmd() {
         wasmtime) echo "wasmtime${wt_cache_flag} $wasm" ;;
         bun)      echo "bun bench/run_wasm_wasi.mjs $wasm" ;;
         node)     echo "node bench/run_wasm_wasi.mjs $wasm" ;;
+      esac
+      ;;
+    wasi_args)
+      # WASI programs that take arguments (e.g., scalar/simd mode)
+      case "$rt" in
+        zwasm)    echo "./zig-out/bin/zwasm run${zwasm_cache_flag} $wasm -- $bench_args" ;;
+        wasmtime) echo "wasmtime${wt_cache_flag} $wasm -- $bench_args" ;;
+        bun)      echo "bun bench/run_wasm_wasi.mjs $wasm $bench_args" ;;
+        node)     echo "node bench/run_wasm_wasi.mjs $wasm $bench_args" ;;
       esac
       ;;
   esac

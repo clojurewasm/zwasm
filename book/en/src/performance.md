@@ -46,9 +46,24 @@ Full results (29 benchmarks): `bench/runtime_comparison.yaml`
 
 ### SIMD performance
 
-SIMD operations are functionally complete (256 opcodes, 100% spec) but run on the stack
-interpreter, not the register IR or JIT. This results in ~22x slower SIMD execution vs
-wasmtime. Planned improvement: extend register IR for v128, then selective JIT NEON/SSE.
+SIMD (v128) operations are JIT-compiled to native NEON (ARM64, 253/256 opcodes) and SSE
+(x86_64, 244/256 opcodes). v128 values are stored as split 64-bit halves in the register file.
+
+| Benchmark              | zwasm scalar | zwasm SIMD | wasmtime SIMD | SIMD speedup |
+|------------------------|-------------:|-----------:|--------------:|-------------:|
+| image_blend (128x128)  | 73 ms        | 16 ms      | 12 ms         | **4.7x**     |
+| matrix_mul (16x16)     | 10 ms        | 6 ms       | 8 ms          | **1.6x**     |
+| byte_search (64KB)     | 52 ms        | 43 ms      | 5 ms          | **1.2x**     |
+| dot_product (4096)     | 142 ms       | 190 ms     | 15 ms         | 0.75x        |
+
+matrix_mul beats wasmtime. image_blend within 1.3x. dot_product is slower due to
+v128.load-heavy inner loop and split storage overhead.
+
+Compiler-generated SIMD code (C `-msimd128`) shows larger gaps due to patterns like
+`i16x8.replace_lane` that are expensive with split v128 storage. Future work: contiguous
+v128 register storage (W37) to eliminate this overhead.
+
+Full data: `bench/simd_comparison.yaml`
 
 ## Benchmark methodology
 
@@ -69,11 +84,12 @@ bash bench/record.sh --id="X" --reason="description"
 
 | Layer | Count | Description |
 |-------|-------|-------------|
-| WAT micro | 5 | Hand-written: fib, tak, sieve, nbody, nqueens |
-| TinyGo | 11 | TinyGo compiler output: same algorithms + string ops |
-| Shootout | 5 | Sightglass shootout suite (WASI) |
-| Real-world | 6 | Rust, C, C++ compiled to Wasm (matrix, math, string, sort) |
-| GC | 2 | GC proposal: struct allocation, tree traversal |
+| WAT micro  | 5  | Hand-written: fib, tak, sieve, nbody, nqueens                |
+| TinyGo     | 11 | TinyGo compiler output: same algorithms + string ops         |
+| Shootout   | 5  | Sightglass shootout suite (WASI)                             |
+| Real-world | 6  | Rust, C, C++ compiled to Wasm (matrix, math, string, sort)   |
+| GC         | 2  | GC proposal: struct allocation, tree traversal               |
+| SIMD       | 10 | WAT microbench (4) + C -msimd128 real-world (5), scalar/SIMD |
 
 ### CI regression detection
 

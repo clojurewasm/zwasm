@@ -118,3 +118,32 @@ JIT state (jit_code, jit_failed, call_count) to prevent double-free.
 
 Skip JIT compilation and dispatch when profiling is active
 (`self.profile != null`) to ensure opcode counters are updated.
+
+## 8. SIMD JIT (Phase 13)
+
+### v128 Storage Model
+v128 values stored as regs[vreg] (lower 64 bits) + Vm.simd_hi[vreg] (upper 64 bits).
+Non-contiguous → every SIMD op needs 3-instruction load and 3-instruction store:
+```
+Load:  LDR Dd [REGS_PTR, #vreg*8] + LDR X8 [VM, #simd_hi+vreg*8] + INS Vd.D[1] X8
+Store: STR Dd [REGS_PTR, #vreg*8] + UMOV X8 Vd.D[1] + STR X8 [VM, #simd_hi+vreg*8]
+```
+Binary op total: 10 instructions (vs wasmtime's 1). This is the main gap source.
+Future: contiguous v128 storage or NEON register allocation would eliminate this.
+
+### v128.load/store and Guard Pages
+Native v128.load/store uses explicit bounds check (addr+16 > mem_size),
+NOT guard pages. Guard page signal handler correctly recognizes NEON LDR Q
+within JIT code range, but explicit bounds check was chosen for consistency
+and to avoid needing separate guard page integration for 128-bit loads.
+
+### Trampoline Fallback
+Unimplemented SIMD opcodes fall back to jitSimdTrampoline (vm.zig).
+Trampoline marshals regs[]/simd_hi[] ↔ op_stack and calls executeSimdIR.
+Per-instruction C function call overhead — acceptable for rare ops,
+but hot loops need native codegen.
+
+### OP_MOV and simd_hi
+OP_MOV must copy simd_hi[rd] = simd_hi[rs1] for v128 correctness.
+OP_CONST32/64 must clear simd_hi[rd] = 0 to prevent stale upper bits.
+Bug found 2026-03-22: upper 64 bits lost through OP_MOV (fixed).

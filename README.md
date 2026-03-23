@@ -76,9 +76,16 @@ Memory usage 3-4x lower than wasmtime, 8-10x lower than Bun/Node.
 
 Full results (29 benchmarks): `bench/runtime_comparison.yaml`
 
-> **Note**: SIMD benchmarks are not included above. SIMD operations currently run on the
-> stack interpreter (no JIT), resulting in ~22x slower than wasmtime for SIMD-heavy workloads.
-> See [SIMD Performance](#known-limitations) below.
+SIMD benchmarks (ARM64 NEON / x86_64 SSE JIT):
+
+| Benchmark              | zwasm scalar | zwasm SIMD | wasmtime SIMD | SIMD speedup |
+|------------------------|-------------:|-----------:|--------------:|-------------:|
+| image_blend (128x128)  | 73 ms        | 16 ms      | 12 ms         | **4.7x**     |
+| matrix_mul (16x16)     | 10 ms        | 6 ms       | 8 ms          | **1.6x**     |
+| byte_search (64KB)     | 52 ms        | 43 ms      | 5 ms          | **1.2x**     |
+
+matrix_mul beats wasmtime. image_blend within 1.3x of wasmtime.
+Full SIMD results: `bench/simd_comparison.yaml`
 
 ## Install
 
@@ -284,23 +291,23 @@ The spec test suite runs on every change.
 - [x] Stages 44-47: WAT parser spec parity, SIMD perf analysis, book i18n, WAT roundtrip 100%
 - [x] Reliability: Cross-platform verification (50 real-world programs), JIT correctness (OSR, back-edge, guard pages)
 - [x] Phase 8: Real-world coverage (50 programs), WAT parity 100%, 5 JIT codegen fixes
-- [ ] Future: SIMD JIT (NEON/SSE), WASI P3/async
+- [x] Phase 13: SIMD JIT (ARM64 NEON 253/256 native, x86_64 SSE 244/256 native)
+- [ ] Future: WASI P3/async, contiguous v128 storage
 
 ## Known Limitations
 
 ### SIMD Performance
 
-SIMD (v128) operations are functionally complete (256 opcodes, 100% spec tests) but run on the
-stack interpreter tier, not the register IR or JIT tiers. This results in ~22x slower SIMD
-execution compared to wasmtime's Cranelift NEON/SSE backend.
+SIMD (v128) operations are JIT-compiled to native NEON (ARM64) and SSE (x86_64) instructions.
+253/256 opcodes are native on ARM64, 244/256 on x86_64. Hand-written SIMD microbenchmarks
+show strong results: matrix_mul beats wasmtime, image_blend within 1.3x.
 
-**Root cause**: The register IR uses a `u64` register file that cannot hold 128-bit values.
-SIMD functions fall back to the slower stack interpreter with per-instruction dispatch overhead.
+**Current gap**: Compiler-generated SIMD code (C `-msimd128`) shows larger gaps (13-131x vs
+wasmtime for scalar, wider for SIMD). Root cause is split v128 storage — each 128-bit vector
+is stored as two 64-bit halves, adding overhead on every load/store.
 
-**Planned fix**: Extend register IR with `v128` register support (Phase 1), then add selective
-JIT NEON/SSE emission (Phase 2). See `.dev/roadmap.md` Phase 13 for the detailed plan.
-
-Scalar (non-SIMD) performance is unaffected — 16/29 scalar benchmarks beat wasmtime.
+**Planned improvement**: Contiguous v128 register storage (W37) and compiler-pattern
+optimization (W38). See `.dev/checklist.md` for details.
 
 ## Versioning
 

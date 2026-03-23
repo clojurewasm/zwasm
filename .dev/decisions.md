@@ -411,3 +411,46 @@ Windows requires VirtualAlloc, VEH, HANDLE-based I/O.
 - Binary size/memory checks skipped on Windows CI (no strip/time -v equivalents)
 
 Related: D126 (C API), D127 (conditional compilation), CW D110, cw-new D13.
+
+---
+
+## D130: SIMD JIT Architecture
+
+**Context**: Phase 13 — JIT compilation of wasm SIMD (v128) opcodes.
+252 SIMD opcodes already implemented in interpreter. JIT has zero SIMD support;
+any function with SIMD falls back to interpreter. SIMD benchmark shows
+interpreter-only execution 2.6-7.7x slower than scalar JIT.
+
+**Research**: `.dev/references/simd-jit-research.md` (runtime survey, usage patterns).
+
+**Design Decisions**:
+
+1. **Float register class (A1)**: Add `RegClass.Float` alongside existing GP class.
+   All runtimes (Cranelift, V8, SpiderMonkey, Wasmer) use this model.
+   Float and v128 share the same physical registers (XMM on x86, V on ARM64).
+
+2. **x86 minimum ISA (D1)**: SSE4.1. Industry standard (Cranelift, V8, SpiderMonkey).
+   Provides `pblendvb` (bitselect), `ptest` (any_true), `roundps/pd` (ceil/floor),
+   `pmovsx/zx` (extending loads). SSE4.1-incapable x86_64 CPUs are pre-2008.
+
+3. **Spill slots (D2)**: Class-separate. GP = 8 bytes, Float = 16 bytes.
+   Avoids 2x stack bloat for non-SIMD functions.
+
+4. **Fallback strategy (D3)**: Full opcode coverage before real-world benefit.
+   Real-world SIMD is scattered in large mixed functions (70-80%, LLVM inlines
+   before vectorizing). Partial JIT helps only hand-written WAT (~5-10%).
+   Mechanism: regalloc returns null for unimplemented opcodes → function fallback.
+
+5. **Shuffle strategy (D4)**: Generic fallback first (ARM64: `tbl`, x86: `pshufb`).
+   Cranelift's 14+ priority rules accumulated over years. Start correct, optimize later.
+
+6. **Build flag (D5)**: `-Dsimd=false` excludes SIMD codegen via `comptime if`.
+   New files (`simd_arm64.zig`, `simd_x86.zig`) not imported. Minimal build unaffected.
+
+7. **ISA parity (D6)**: Implement each opcode group on ARM64 + x86 simultaneously.
+   Prevents "big bang porting" bugs (lesson from W35 ARM64-specific clobber bug).
+
+**Affected files**: regalloc.zig, jit.zig, x86.zig, predecode.zig, vm.zig, build.zig,
+simd_arm64.zig (new), simd_x86.zig (new).
+
+Related: D127 (conditional compilation), `.dev/references/simd-jit-research.md`.

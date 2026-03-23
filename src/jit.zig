@@ -647,7 +647,7 @@ const a64 = struct {
         return 0x53007C00 | (@as(u32, shift) << 16) | (@as(u32, wn) << 5) | wd;
     }
 
-    // --- NEON/AdvSIMD (for popcnt) ---
+    // --- NEON/AdvSIMD ---
 
     /// CNT V<d>.8B, V<n>.8B — count set bits per byte (8-bit lanes)
     fn cntV8b(vd: u5, vn: u5) u32 {
@@ -657,6 +657,120 @@ const a64 = struct {
     /// ADDV Bd, V<n>.8B — add across vector (sum all bytes into scalar)
     fn addvB(vd: u5, vn: u5) u32 {
         return 0x0E31B800 | (@as(u32, vn) << 5) | vd;
+    }
+
+    // --- NEON v128 (128-bit SIMD) ---
+
+    /// LDR Qt, [Xn, #imm] — load 128-bit vector, unsigned offset (imm is byte offset / 16)
+    fn ldrQ(qt: u5, xn: u5, imm_div16: u12) u32 {
+        return 0x3DC00000 | (@as(u32, imm_div16) << 10) | (@as(u32, xn) << 5) | qt;
+    }
+
+    /// STR Qt, [Xn, #imm] — store 128-bit vector, unsigned offset (imm is byte offset / 16)
+    fn strQ(qt: u5, xn: u5, imm_div16: u12) u32 {
+        return 0x3D800000 | (@as(u32, imm_div16) << 10) | (@as(u32, xn) << 5) | qt;
+    }
+
+    /// LDR Qt, [Xn, Xm] — load 128-bit vector, register offset
+    fn ldrQreg(qt: u5, xn: u5, xm: u5) u32 {
+        return 0x3CE06800 | (@as(u32, xm) << 16) | (@as(u32, xn) << 5) | qt;
+    }
+
+    /// STR Qt, [Xn, Xm] — store 128-bit vector, register offset
+    fn strQreg(qt: u5, xn: u5, xm: u5) u32 {
+        return 0x3CA06800 | (@as(u32, xm) << 16) | (@as(u32, xn) << 5) | qt;
+    }
+
+    /// MOVI Vd.2D, #0 — zero 128-bit vector
+    fn moviV2d_zero(vd: u5) u32 {
+        return 0x6F00E400 | @as(u32, vd);
+    }
+
+    /// FADD Vd.4S, Vn.4S, Vm.4S — f32x4 add
+    fn faddV4s(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x4E20D400 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// FSUB Vd.4S, Vn.4S, Vm.4S — f32x4 sub
+    fn fsubV4s(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x4EA0D400 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// FMUL Vd.4S, Vn.4S, Vm.4S — f32x4 mul
+    fn fmulV4s(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x6E20DC00 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// FDIV Vd.4S, Vn.4S, Vm.4S — f32x4 div
+    fn fdivV4s(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x6E20FC00 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// ADD Vd.4S, Vn.4S, Vm.4S — i32x4 add
+    fn addV4s(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x4EA08400 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// SUB Vd.4S, Vn.4S, Vm.4S — i32x4 sub
+    fn subV4s(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x6EA08400 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// FADD Vd.2D, Vn.2D, Vm.2D — f64x2 add
+    fn faddV2d(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x4E60D400 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// FMUL Vd.2D, Vn.2D, Vm.2D — f64x2 mul
+    fn fmulV2d(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x6E60DC00 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// ORR Vd.16B, Vn.16B, Vm.16B — bitwise OR (v128.or)
+    fn orrV16b(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x4EA01C00 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// AND Vd.16B, Vn.16B, Vm.16B — bitwise AND (v128.and)
+    fn andV16b(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x4E201C00 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// EOR Vd.16B, Vn.16B, Vm.16B — bitwise XOR (v128.xor)
+    fn eorV16b(vd: u5, vn: u5, vm: u5) u32 {
+        return 0x6E201C00 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// NOT Vd.16B, Vn.16B — bitwise NOT (v128.not)
+    fn notV16b(vd: u5, vn: u5) u32 {
+        return 0x6E205800 | (@as(u32, vn) << 5) | vd;
+    }
+
+    /// INS Vd.D[1], Xn — insert GP register into vector lane D[1] (upper 64 bits)
+    fn insVdD1(vd: u5, xn: u5) u32 {
+        return 0x4E180000 | (@as(u32, xn) << 5) | @as(u32, vd);
+    }
+
+    /// UMOV Xd, Vn.D[1] — extract vector lane D[1] to GP register
+    fn umovXdD1(xd: u5, vn: u5) u32 {
+        return 0x4E183C00 | (@as(u32, vn) << 5) | @as(u32, xd);
+    }
+
+    /// LDR Dt, [Xn, #imm] — load 64-bit FP/SIMD, unsigned offset (imm_bytes / 8)
+    fn ldrFp64(dt: u5, xn: u5, imm_bytes: u16) u32 {
+        const imm12: u12 = @intCast(imm_bytes / 8);
+        return 0xFD400000 | (@as(u32, imm12) << 10) | (@as(u32, xn) << 5) | dt;
+    }
+
+    /// STR Dt, [Xn, #imm] — store 64-bit FP/SIMD, unsigned offset (imm_bytes / 8)
+    fn strFp64(dt: u5, xn: u5, imm_bytes: u16) u32 {
+        const imm12: u12 = @intCast(imm_bytes / 8);
+        return 0xFD000000 | (@as(u32, imm12) << 10) | (@as(u32, xn) << 5) | dt;
+    }
+
+    /// MOV Vd.16B, Vn.16B — copy 128-bit vector (alias for ORR Vd, Vn, Vn)
+    fn movV16b(vd: u5, vn: u5) u32 {
+        return orrV16b(vd, vn, vn);
     }
 
     // --- Floating-point (double-precision, f64) ---
@@ -924,6 +1038,7 @@ pub const Compiler = struct {
     result_count: u16,
     reg_ptr_offset: u32,
     jit_fuel_offset: u32,
+    simd_hi_offset: u32,
     min_memory_bytes: u32,
     /// Bitmask of vregs that need loading in the prologue.
     /// Bit N = 1 means vreg N is read before written and must be loaded.
@@ -1026,6 +1141,7 @@ pub const Compiler = struct {
             .result_count = 0,
             .reg_ptr_offset = 0,
             .jit_fuel_offset = 0,
+            .simd_hi_offset = 0,
             .min_memory_bytes = 0,
             .prologue_load_mask = 0xFFFFF, // default: load all (20 vregs)
             .known_consts = .{null} ** 128,
@@ -2885,6 +3001,13 @@ pub const Compiler = struct {
             predecode_mod.GC_BASE | 0x04 => self.emitGcSimple(instr, ir, pc.* - 1), // struct.get_u
             predecode_mod.GC_BASE | 0x05 => self.emitGcSimple(instr, ir, pc.* - 1), // struct.set
 
+            // ---- SIMD opcodes: native NEON or trampoline fallback ----
+            predecode_mod.SIMD_BASE...predecode_mod.SIMD_BASE + 0x113 => {
+                if (!self.emitSimdNative(instr, ir, pc)) {
+                    self.emitSimdTrampoline(instr, ir, pc);
+                }
+            },
+
             // Unsupported opcode — bail out, function can't be JIT compiled
             else => return false,
         }
@@ -3988,6 +4111,1687 @@ pub const Compiler = struct {
         self.reloadCallerSavedLive();
         // Reload result register (for get ops and struct.new_default)
         if (sub_op <= 0x04) self.reloadVreg(instr.rd);
+    }
+
+    // --- SIMD v128 helpers ---
+
+    /// NEON scratch registers for SIMD. Using Q0/Q1 (caller-saved, volatile).
+    const SIMD_SCRATCH0: u5 = 0; // V0/Q0
+    const SIMD_SCRATCH1: u5 = 1; // V1/Q1
+
+    /// Load v128 from regs[vreg] + simd_hi[vreg] into NEON Q register.
+    /// Uses SCRATCH (x8) as temp. 3 instructions.
+    fn emitLoadV128(self: *Compiler, qd: u5, vreg: u16) void {
+        const vreg_offset: u16 = vreg * 8;
+        // Step 1: LDR Dd, [REGS_PTR, #vreg*8] — load lower 64 bits into D register
+        //         (upper 64 bits of Qd are zeroed by LDR D)
+        self.emit(a64.ldrFp64(qd, REGS_PTR, vreg_offset));
+        // Step 2: LDR X8, [VM_PTR, #simd_hi_offset + vreg*8] — load upper 64 bits to GP
+        self.emitLoadVmPtr(SCRATCH);
+        const hi_offset = self.simd_hi_offset + @as(u32, vreg) * 8;
+        if (hi_offset <= 32760) {
+            self.emit(a64.ldr64(SCRATCH, SCRATCH, @intCast(hi_offset)));
+        } else {
+            // Large offset: use SCRATCH2 for address
+            const hi_instrs = a64.loadImm64(SCRATCH2, hi_offset);
+            for (hi_instrs) |inst| self.emit(inst);
+            self.emit(a64.add64(SCRATCH, SCRATCH, SCRATCH2));
+            self.emit(a64.ldr64(SCRATCH, SCRATCH, 0));
+        }
+        // Step 3: INS Vd.D[1], X8 — insert upper half
+        self.emit(a64.insVdD1(qd, SCRATCH));
+    }
+
+    /// Store NEON Q register to regs[vreg] + simd_hi[vreg].
+    /// Uses SCRATCH (x8) as temp. 3 instructions.
+    fn emitStoreV128(self: *Compiler, qs: u5, vreg: u16) void {
+        const vreg_offset: u16 = vreg * 8;
+        // Step 1: STR Ds, [REGS_PTR, #vreg*8] — store lower 64 bits from D register
+        self.emit(a64.strFp64(qs, REGS_PTR, vreg_offset));
+        // Step 2: UMOV X8, Vs.D[1] — extract upper 64 bits to GP
+        self.emit(a64.umovXdD1(SCRATCH, qs));
+        // Step 3: STR X8, [VM_PTR, #simd_hi_offset + vreg*8] — store upper 64 bits
+        self.emitLoadVmPtr(SCRATCH2);
+        const hi_offset = self.simd_hi_offset + @as(u32, vreg) * 8;
+        if (hi_offset <= 32760) {
+            self.emit(a64.str64(SCRATCH, SCRATCH2, @intCast(hi_offset)));
+        } else {
+            const hi_instrs = a64.loadImm64(17, hi_offset); // use x17 as temp
+            for (hi_instrs) |inst| self.emit(inst);
+            self.emit(a64.add64(SCRATCH2, SCRATCH2, 17));
+            self.emit(a64.str64(SCRATCH, SCRATCH2, 0));
+        }
+    }
+
+    /// Emit native NEON instruction for a binary v128 op.
+    /// Pattern: load rs1 → Q0, load rs2 → Q1, op Q0 ← Q0,Q1, store Q0 → rd.
+    fn emitSimdBinaryNeon(self: *Compiler, instr: RegInstr, neon_insn: u32) void {
+        self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+        self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+        // Replace Vd/Vn/Vm fields in neon_insn with SCRATCH0/SCRATCH1
+        const insn = (neon_insn & 0xFFE0FC00) | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0;
+        self.emit(insn);
+        self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+    }
+
+    /// Emit native NEON instruction for a unary v128 op.
+    fn emitSimdUnaryNeon(self: *Compiler, instr: RegInstr, neon_insn: u32) void {
+        self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+        const insn = (neon_insn & 0xFFFFFC00) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0;
+        self.emit(insn);
+        self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+    }
+
+    /// Try to emit native NEON for a SIMD opcode. Returns true if handled.
+    fn emitSimdNative(self: *Compiler, instr: RegInstr, ir: []const RegInstr, pc: *u32) bool {
+        const sub: u32 = instr.op - predecode_mod.SIMD_BASE;
+
+        // Peek at trailing NOP for extra metadata (lane index etc.)
+        var extra: u16 = 0;
+        const has_nop = pc.* < ir.len and ir[pc.*].op == regalloc_mod.OP_NOP;
+        if (has_nop) extra = ir[pc.*].rd;
+
+        const handled = self.emitSimdNativeInner(instr, sub, extra);
+        if (handled and has_nop) pc.* += 1; // consume NOP
+        return handled;
+    }
+
+    fn emitSimdNativeInner(self: *Compiler, instr: RegInstr, sub: u32, extra: u16) bool {
+        switch (sub) {
+            // --- f32x4 arithmetic ---
+            0xE4 => { self.emitSimdBinaryNeon(instr, a64.faddV4s(0, 0, 0)); return true; }, // f32x4.add
+            0xE5 => { self.emitSimdBinaryNeon(instr, a64.fsubV4s(0, 0, 0)); return true; }, // f32x4.sub
+            0xE6 => { self.emitSimdBinaryNeon(instr, a64.fmulV4s(0, 0, 0)); return true; }, // f32x4.mul
+            0xE7 => { self.emitSimdBinaryNeon(instr, a64.fdivV4s(0, 0, 0)); return true; }, // f32x4.div
+            // --- f64x2 arithmetic ---
+            0xF0 => { self.emitSimdBinaryNeon(instr, a64.faddV2d(0, 0, 0)); return true; }, // f64x2.add
+            0xF2 => { self.emitSimdBinaryNeon(instr, a64.fmulV2d(0, 0, 0)); return true; }, // f64x2.mul
+            // --- i32x4 arithmetic ---
+            0xAE => { self.emitSimdBinaryNeon(instr, a64.addV4s(0, 0, 0)); return true; }, // i32x4.add
+            0xB1 => { self.emitSimdBinaryNeon(instr, a64.subV4s(0, 0, 0)); return true; }, // i32x4.sub
+            // --- v128 bitwise ---
+            0x4E => { self.emitSimdBinaryNeon(instr, a64.andV16b(0, 0, 0)); return true; }, // v128.and
+            0x4F => { // v128.andnot — ARM64: BIC Vd, Vn, Vm (= Vn AND NOT Vm)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                // BIC Vd.16B, Vn.16B, Vm.16B = 0x4E601C00
+                self.emit(0x4E601C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x50 => { self.emitSimdBinaryNeon(instr, a64.orrV16b(0, 0, 0)); return true; }, // v128.or
+            0x51 => { self.emitSimdBinaryNeon(instr, a64.eorV16b(0, 0, 0)); return true; }, // v128.xor
+            0x4D => { self.emitSimdUnaryNeon(instr, a64.notV16b(0, 0)); return true; }, // v128.not
+
+            // --- splat ---
+            0x0F => { // i8x16.splat
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                // DUP V0.16B, Wn = 0x4E010C00 | (Rn << 5) | Vd
+                self.emit(0x4E010C00 | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x10 => { // i16x8.splat
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                // DUP V0.8H, Wn = 0x4E020C00
+                self.emit(0x4E020C00 | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x11 => { // i32x4.splat
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                // DUP V0.4S, Wn = 0x4E040C00
+                self.emit(0x4E040C00 | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x12 => { // i64x2.splat
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                // DUP V0.2D, Xn = 0x4E080C00
+                self.emit(0x4E080C00 | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x13 => { // f32x4.splat — same as i32x4.splat (bit pattern)
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(0x4E040C00 | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x14 => { // f64x2.splat — same as i64x2.splat
+                const src = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(0x4E080C00 | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- extract_lane ---
+            0x15 => { // i8x16.extract_lane_s — SMOV Wd, Vn.B[lane]
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = destReg(instr.rd);
+                self.emit(0x0E012C00 | (@as(u32, @as(u4, @truncate(extra))) << 17) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x16 => { // i8x16.extract_lane_u — UMOV Wd, Vn.B[lane]
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = destReg(instr.rd);
+                self.emit(0x0E013C00 | (@as(u32, @as(u4, @truncate(extra))) << 17) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x18 => { // i16x8.extract_lane_s — SMOV Wd, Vn.H[lane]
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = destReg(instr.rd);
+                self.emit(0x0E022C00 | (@as(u32, @as(u3, @truncate(extra))) << 19) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x19 => { // i16x8.extract_lane_u — UMOV Wd, Vn.H[lane]
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = destReg(instr.rd);
+                self.emit(0x0E023C00 | (@as(u32, @as(u3, @truncate(extra))) << 19) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x1B, 0x1F => { // i32x4/f32x4.extract_lane — UMOV Wd, Vn.S[lane]
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = destReg(instr.rd);
+                self.emit(0x0E043C00 | (@as(u32, @as(u2, @truncate(extra))) << 21) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x1D, 0x21 => { // i64x2/f64x2.extract_lane — UMOV Xd, Vn.D[lane]
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const d = destReg(instr.rd);
+                // UMOV Xd, Vn.D[lane] (Q=1) = 0x4E083C00
+                self.emit(0x4E083C00 | (@as(u32, @as(u1, @truncate(extra))) << 20) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+
+            // --- replace_lane ---
+            0x17 => { // i8x16.replace_lane — INS Vd.B[lane], Wn
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const src = self.getOrLoad(instr.rs2_field, SCRATCH);
+                const imm5 = (@as(u32, @as(u4, @truncate(extra))) << 1) | 1;
+                self.emit(0x4E001C00 | (imm5 << 16) | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x1A => { // i16x8.replace_lane — INS Vd.H[lane], Wn
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const src = self.getOrLoad(instr.rs2_field, SCRATCH);
+                const imm5 = (@as(u32, @as(u3, @truncate(extra))) << 2) | 2;
+                self.emit(0x4E001C00 | (imm5 << 16) | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x1C, 0x20 => { // i32x4/f32x4.replace_lane — INS Vd.S[lane], Wn
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const src = self.getOrLoad(instr.rs2_field, SCRATCH);
+                const imm5 = (@as(u32, @as(u2, @truncate(extra))) << 3) | 4;
+                self.emit(0x4E001C00 | (imm5 << 16) | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x1E, 0x22 => { // i64x2/f64x2.replace_lane — INS Vd.D[lane], Xn
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const src = self.getOrLoad(instr.rs2_field, SCRATCH);
+                const imm5 = (@as(u32, @as(u1, @truncate(extra))) << 4) | 8;
+                self.emit(0x4E001C00 | (imm5 << 16) | (@as(u32, src) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i8x16 comparisons ---
+            0x23 => { self.emitSimdBinaryNeon(instr, 0x6E208C00); return true; }, // i8x16.eq — CMEQ .16B
+            0x24 => { // i8x16.ne — CMEQ + NOT
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                self.emit(0x6E208C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emit(a64.notV16b(SIMD_SCRATCH0, SIMD_SCRATCH0));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x27 => { self.emitSimdBinaryNeon(instr, 0x4E203400); return true; }, // i8x16.gt_s — CMGT .16B
+            0x28 => { self.emitSimdBinaryNeon(instr, 0x6E203400); return true; }, // i8x16.gt_u — CMHI .16B
+            0x2B => { self.emitSimdBinaryNeon(instr, 0x4E203C00); return true; }, // i8x16.ge_s — CMGE .16B
+            0x2C => { self.emitSimdBinaryNeon(instr, 0x6E203C00); return true; }, // i8x16.ge_u — CMHS .16B
+            0x25 => { // i8x16.lt_s — CMGT swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x4E203400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x26 => { // i8x16.lt_u — CMHI swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x6E203400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x29 => { // i8x16.le_s — CMGE swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x4E203C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x2A => { // i8x16.le_u — CMHS swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x6E203C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i16x8 comparisons ---
+            0x2D => { self.emitSimdBinaryNeon(instr, 0x6E608C00); return true; }, // i16x8.eq — CMEQ .8H
+            0x2E => { // i16x8.ne — CMEQ + NOT
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                self.emit(0x6E608C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emit(a64.notV16b(SIMD_SCRATCH0, SIMD_SCRATCH0));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x31 => { self.emitSimdBinaryNeon(instr, 0x4E603400); return true; }, // i16x8.gt_s — CMGT .8H
+            0x32 => { self.emitSimdBinaryNeon(instr, 0x6E603400); return true; }, // i16x8.gt_u — CMHI .8H
+            0x35 => { self.emitSimdBinaryNeon(instr, 0x4E603C00); return true; }, // i16x8.ge_s — CMGE .8H
+            0x36 => { self.emitSimdBinaryNeon(instr, 0x6E603C00); return true; }, // i16x8.ge_u — CMHS .8H
+            0x2F => { // i16x8.lt_s — CMGT swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x4E603400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x30 => { // i16x8.lt_u — CMHI swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x6E603400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x33 => { // i16x8.le_s — CMGE swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x4E603C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x34 => { // i16x8.le_u — CMHS swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x6E603C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i64x2.mul (5-instr sequence: REV64+MUL+ADDP+SHL+UMLAL) ---
+            0xD5 => {
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1); // a → V0
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field); // b → V1
+                const V2: u5 = 2;
+                // REV64 V2.4S, V1.4S — swap 32-bit halves within each 64-bit lane
+                self.emit(0x4EA00800 | (@as(u32, SIMD_SCRATCH1) << 5) | V2);
+                // MUL V2.4S, V2.4S, V0.4S — cross products [a_lo*b_hi, a_hi*b_lo]
+                self.emit(0x4EA09C00 | (@as(u32, SIMD_SCRATCH0) << 16) | (@as(u32, V2) << 5) | V2);
+                // ADDP V2.4S, V2.4S, V2.4S — pairwise: cross_sum per lane in S[0],S[1]
+                self.emit(0x4EA0BC00 | (@as(u32, V2) << 16) | (@as(u32, V2) << 5) | V2);
+                // SHL V2.2D, V2.2D, #32 — shift cross terms left 32
+                self.emit(0x4F605400 | (@as(u32, V2) << 5) | V2);
+                // UMLAL V2.2D, V0.2S, V1.2S — accumulate a_lo * b_lo (widening)
+                self.emit(0x2EA08000 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | V2);
+                self.emitStoreV128(V2, instr.rd);
+                return true;
+            },
+
+            // --- i64x2 extmul ---
+            0xDC => { self.emitSimdBinaryNeon(instr, 0x0EA0C000); return true; }, // i64x2.extmul_low_i32x4_s — SMULL .2D
+            0xDD => { self.emitSimdBinaryNeon(instr, 0x4EA0C000); return true; }, // i64x2.extmul_high_i32x4_s — SMULL2 .2D
+            0xDE => { self.emitSimdBinaryNeon(instr, 0x2EA0C000); return true; }, // i64x2.extmul_low_i32x4_u — UMULL .2D
+            0xDF => { self.emitSimdBinaryNeon(instr, 0x6EA0C000); return true; }, // i64x2.extmul_high_i32x4_u — UMULL2 .2D
+
+            // --- i64x2 comparisons (signed only, no unsigned in wasm) ---
+            0xD6 => { self.emitSimdBinaryNeon(instr, 0x6EE08C00); return true; }, // i64x2.eq — CMEQ .2D
+            0xD7 => { // i64x2.ne — CMEQ + NOT
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                self.emit(0x6EE08C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emit(a64.notV16b(SIMD_SCRATCH0, SIMD_SCRATCH0));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xD9 => { self.emitSimdBinaryNeon(instr, 0x4EE03400); return true; }, // i64x2.gt_s — CMGT .2D
+            0xDB => { self.emitSimdBinaryNeon(instr, 0x4EE03C00); return true; }, // i64x2.ge_s — CMGE .2D
+            0xD8 => { // i64x2.lt_s — CMGT swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x4EE03400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xDA => { // i64x2.le_s — CMGE swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x4EE03C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- bitmask ---
+            0x64 => { // i8x16.bitmask — SSHR + USHR/SLI ladder + extract
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // SSHR V0.16B, V0.16B, #7 — sign bits → 0xFF/0x00
+                self.emit(0x4F090400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // Pack 2 bits per 16-bit lane
+                self.emit(0x6F190400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH1); // USHR V1.8H, V0.8H, #7
+                self.emit(0x6F115400 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0); // SLI V0.8H, V1.8H, #1
+                // Pack 4 bits per 32-bit lane
+                self.emit(0x6F320400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH1); // USHR V1.4S, V0.4S, #14
+                self.emit(0x6F225400 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0); // SLI V0.4S, V1.4S, #2
+                // Pack 8 bits per 64-bit lane
+                self.emit(0x6F640400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH1); // USHR V1.2D, V0.2D, #28
+                self.emit(0x6F445400 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0); // SLI V0.2D, V1.2D, #4
+                // Extract and combine: UMOV lo + hi, ORR
+                const d = destReg(instr.rd);
+                self.emit(0x0E013C00 | (@as(u32, SIMD_SCRATCH0) << 5) | d); // UMOV Wd, V0.B[0]
+                self.emit(0x0E013C00 | (8 << 17) | (@as(u32, SIMD_SCRATCH0) << 5) | SCRATCH); // UMOV W_SCRATCH, V0.B[8]
+                // ORR Wd, Wd, W_SCRATCH, LSL #8
+                self.emit(0x2A000000 | (@as(u32, SCRATCH) << 16) | (8 << 10) | (@as(u32, d) << 5) | d);
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x84 => { // i16x8.bitmask
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x4F110400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // SSHR V0.8H, #15
+                self.emit(0x6F310400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH1); // USHR V1.4S, V0.4S, #15
+                self.emit(0x6F215400 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0); // SLI V0.4S, V1.4S, #1
+                self.emit(0x6F620400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH1); // USHR V1.2D, V0.2D, #30
+                self.emit(0x6F425400 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0); // SLI V0.2D, V1.2D, #2
+                const d = destReg(instr.rd);
+                self.emit(0x0E013C00 | (@as(u32, SIMD_SCRATCH0) << 5) | d); // UMOV Wd, V0.B[0]
+                self.emit(0x0E013C00 | (8 << 17) | (@as(u32, SIMD_SCRATCH0) << 5) | SCRATCH); // UMOV W, V0.B[8]
+                self.emit(0x2A000000 | (@as(u32, SCRATCH) << 16) | (4 << 10) | (@as(u32, d) << 5) | d); // ORR Wd, Wd, W, LSL #4
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0xA4 => { // i32x4.bitmask
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x4F210400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // SSHR V0.4S, #31
+                self.emit(0x6F610400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH1); // USHR V1.2D, V0.2D, #31
+                self.emit(0x6F415400 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0); // SLI V0.2D, V1.2D, #1
+                const d = destReg(instr.rd);
+                self.emit(0x0E013C00 | (@as(u32, SIMD_SCRATCH0) << 5) | d); // UMOV Wd, V0.B[0]
+                self.emit(0x0E013C00 | (8 << 17) | (@as(u32, SIMD_SCRATCH0) << 5) | SCRATCH); // UMOV W, V0.B[8]
+                self.emit(0x2A000000 | (@as(u32, SCRATCH) << 16) | (2 << 10) | (@as(u32, d) << 5) | d); // ORR Wd, Wd, W, LSL #2
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0xC4 => { // i64x2.bitmask
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x6F410400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // USHR V0.2D, #63
+                const d = destReg(instr.rd);
+                self.emit(0x0E043C00 | (@as(u32, SIMD_SCRATCH0) << 5) | d); // UMOV Wd, V0.S[0]
+                // V0.S[2] = low 32 bits of V0.D[1] (lane index 2 for .S)
+                self.emit(0x0E043C00 | (@as(u32, 2) << 21) | (@as(u32, SIMD_SCRATCH0) << 5) | SCRATCH); // UMOV W, V0.S[2]
+                self.emit(0x2A000000 | (@as(u32, SCRATCH) << 16) | (1 << 10) | (@as(u32, d) << 5) | d); // ORR Wd, Wd, W, LSL #1
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+
+            // --- v128.any_true ---
+            0x53 => { // v128.any_true — UMAXV + check
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // UMAXV Bd, V0.16B = 0x6E30A800
+                self.emit(0x6E30A800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // UMOV Wd, V0.B[0] = 0x0E013C00
+                const d = destReg(instr.rd);
+                self.emit(0x0E013C00 | (@as(u32, SIMD_SCRATCH0) << 5) | d);
+                // CMP Wd, #0 → CSET Wd, ne
+                self.emit(a64.cmpImm32(d, 0));
+                self.emit(a64.cset32(d, .ne));
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+
+            // --- all_true ---
+            0x63 => { // i8x16.all_true — UMINV + check
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // UMINV Bd, V0.16B = 0x6E31A800
+                self.emit(0x6E31A800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                const d = destReg(instr.rd);
+                self.emit(0x0E013C00 | (@as(u32, SIMD_SCRATCH0) << 5) | d); // UMOV Wd, V0.B[0]
+                self.emit(a64.cmpImm32(d, 0));
+                self.emit(a64.cset32(d, .ne));
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0x83 => { // i16x8.all_true — UMINV + check
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // UMINV Hd, V0.8H = 0x6E71A800
+                self.emit(0x6E71A800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                const d = destReg(instr.rd);
+                self.emit(0x0E023C00 | (@as(u32, SIMD_SCRATCH0) << 5) | d); // UMOV Wd, V0.H[0]
+                self.emit(a64.cmpImm32(d, 0));
+                self.emit(a64.cset32(d, .ne));
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0xA3 => { // i32x4.all_true — UMINV + check
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // UMINV Sd, V0.4S = 0x6EB1A800
+                self.emit(0x6EB1A800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                const d = destReg(instr.rd);
+                self.emit(0x0E043C00 | (@as(u32, SIMD_SCRATCH0) << 5) | d); // UMOV Wd, V0.S[0]
+                self.emit(a64.cmpImm32(d, 0));
+                self.emit(a64.cset32(d, .ne));
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+            0xC3 => { // i64x2.all_true — CMEQ zero + UMAXV + check
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // CMEQ V0.2D, V0.2D, #0 = 0x4EE09800 (marks zero lanes as all-ones)
+                self.emit(0x4EE09800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // UMAXV Bd, V0.16B → if any byte set, a lane was zero
+                self.emit(0x6E30A800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                const d = destReg(instr.rd);
+                self.emit(0x0E013C00 | (@as(u32, SIMD_SCRATCH0) << 5) | d); // UMOV Wd, V0.B[0]
+                self.emit(a64.cmpImm32(d, 0));
+                self.emit(a64.cset32(d, .eq)); // eq means no zero lanes found → all_true
+                self.storeVreg(instr.rd, d);
+                return true;
+            },
+
+            // --- i8x16 ops ---
+            0x6E => { self.emitSimdBinaryNeon(instr, 0x4E208400); return true; }, // i8x16.add — ADD .16B
+            0x71 => { self.emitSimdBinaryNeon(instr, 0x6E208400); return true; }, // i8x16.sub — SUB .16B
+            0x60 => { self.emitSimdUnaryNeon(instr, 0x4E20B800); return true; }, // i8x16.abs — ABS .16B
+            0x61 => { self.emitSimdUnaryNeon(instr, 0x6E20B800); return true; }, // i8x16.neg — NEG .16B
+            0x76 => { self.emitSimdBinaryNeon(instr, 0x4E206C00); return true; }, // i8x16.min_s — SMIN .16B
+            0x77 => { self.emitSimdBinaryNeon(instr, 0x6E206C00); return true; }, // i8x16.min_u — UMIN .16B
+            0x78 => { self.emitSimdBinaryNeon(instr, 0x4E206400); return true; }, // i8x16.max_s — SMAX .16B
+            0x79 => { self.emitSimdBinaryNeon(instr, 0x6E206400); return true; }, // i8x16.max_u — UMAX .16B
+            0x6F => { self.emitSimdBinaryNeon(instr, 0x4E200C00); return true; }, // i8x16.add_sat_s — SQADD .16B
+            0x70 => { self.emitSimdBinaryNeon(instr, 0x6E200C00); return true; }, // i8x16.add_sat_u — UQADD .16B
+            0x72 => { self.emitSimdBinaryNeon(instr, 0x4E202C00); return true; }, // i8x16.sub_sat_s — SQSUB .16B
+            0x73 => { self.emitSimdBinaryNeon(instr, 0x6E202C00); return true; }, // i8x16.sub_sat_u — UQSUB .16B
+            // --- i16x8 arithmetic ---
+            0x8E => { self.emitSimdBinaryNeon(instr, 0x4E608400); return true; }, // i16x8.add — ADD .8H
+            0x91 => { self.emitSimdBinaryNeon(instr, 0x6E608400); return true; }, // i16x8.sub — SUB .8H
+            0x95 => { self.emitSimdBinaryNeon(instr, 0x4E609C00); return true; }, // i16x8.mul — MUL .8H
+            0x80 => { self.emitSimdUnaryNeon(instr, 0x4E60B800); return true; }, // i16x8.abs — ABS .8H
+            0x81 => { self.emitSimdUnaryNeon(instr, 0x6E60B800); return true; }, // i16x8.neg — NEG .8H
+            0x96 => { self.emitSimdBinaryNeon(instr, 0x4E606C00); return true; }, // i16x8.min_s — SMIN .8H
+            0x97 => { self.emitSimdBinaryNeon(instr, 0x6E606C00); return true; }, // i16x8.min_u — UMIN .8H
+            0x98 => { self.emitSimdBinaryNeon(instr, 0x4E606400); return true; }, // i16x8.max_s — SMAX .8H
+            0x99 => { self.emitSimdBinaryNeon(instr, 0x6E606400); return true; }, // i16x8.max_u — UMAX .8H
+            0x82 => { self.emitSimdBinaryNeon(instr, 0x6E60B400); return true; }, // i16x8.q15mulr_sat_s — SQRDMULH .8H
+            0x94 => { self.emitSimdUnaryNeon(instr, 0x4E618800); return true; }, // f64x2.nearest — FRINTN .2D
+            0x9B => { self.emitSimdBinaryNeon(instr, 0x6E601400); return true; }, // i16x8.avgr_u — URHADD .8H
+            // --- i16x8 extmul ---
+            0x9C => { self.emitSimdBinaryNeon(instr, 0x0E20C000); return true; }, // i16x8.extmul_low_i8x16_s — SMULL .8H
+            0x9D => { self.emitSimdBinaryNeon(instr, 0x4E20C000); return true; }, // i16x8.extmul_high_i8x16_s — SMULL2 .8H
+            0x9E => { self.emitSimdBinaryNeon(instr, 0x2E20C000); return true; }, // i16x8.extmul_low_i8x16_u — UMULL .8H
+            0x9F => { self.emitSimdBinaryNeon(instr, 0x6E20C000); return true; }, // i16x8.extmul_high_i8x16_u — UMULL2 .8H
+            0x8F => { self.emitSimdBinaryNeon(instr, 0x4E600C00); return true; }, // i16x8.add_sat_s — SQADD .8H
+            0x90 => { self.emitSimdBinaryNeon(instr, 0x6E600C00); return true; }, // i16x8.add_sat_u — UQADD .8H
+            0x92 => { self.emitSimdBinaryNeon(instr, 0x4E602C00); return true; }, // i16x8.sub_sat_s — SQSUB .8H
+            0x93 => { self.emitSimdBinaryNeon(instr, 0x6E602C00); return true; }, // i16x8.sub_sat_u — UQSUB .8H
+
+            // --- i32x4 extend from i16x8 ---
+            0xA7 => { // i32x4.extend_low_i16x8_s — SSHLL .4S, .4H, #0
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x0F10A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xA8 => { // i32x4.extend_high_i16x8_s — SSHLL2
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x4F10A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xA9 => { // i32x4.extend_low_i16x8_u — USHLL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x2F10A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xAA => { // i32x4.extend_high_i16x8_u — USHLL2
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x6F10A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i64x2 extend from i32x4 ---
+            0xC7 => { // i64x2.extend_low_i32x4_s — SSHLL .2D, .2S, #0
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x0F20A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xC8 => { // i64x2.extend_high_i32x4_s — SSHLL2
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x4F20A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xC9 => { // i64x2.extend_low_i32x4_u — USHLL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x2F20A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xCA => { // i64x2.extend_high_i32x4_u — USHLL2
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x6F20A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i16x8 narrow from i32x4 ---
+            0x85 => { // i16x8.narrow_i32x4_s — SQXTN + SQXTN2
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                self.emit(0x0E614800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // SQXTN .4H
+                self.emit(0x4E614800 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0); // SQXTN2 .8H
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x86 => { // i16x8.narrow_i32x4_u — SQXTUN + SQXTUN2
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                self.emit(0x2E612800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // SQXTUN .4H
+                self.emit(0x6E612800 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0); // SQXTUN2 .8H
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i8x16.swizzle — TBL ---
+            0x0E => { // i8x16.swizzle — TBL Vd.16B, {Vn.16B}, Vm.16B
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1); // table
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field); // indices
+                // TBL Vd.16B, {Vn.16B}, Vm.16B = 0x4E000000
+                self.emit(0x4E000000 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i8x16.popcnt — CNT ---
+            0x62 => { self.emitSimdUnaryNeon(instr, 0x4E205800); return true; }, // i8x16.popcnt — CNT .16B
+
+            // --- v128.bitselect — BSL ---
+            0x52 => { // v128.bitselect(v1, v2, mask) — BSL Vd, Vn, Vm
+                // mask (c) is in trailing NOP rd field
+                self.emitLoadV128(SIMD_SCRATCH0, extra); // mask → V0
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1); // v1 → V1
+                const SIMD_SCRATCH2_V: u5 = 2; // use V2 as third scratch
+                self.emitLoadV128(SIMD_SCRATCH2_V, instr.rs2_field); // v2 → V2
+                // BSL V0.16B, V1.16B, V2.16B = 0x6E601C00 | (Vm << 16) | (Vn << 5) | Vd
+                self.emit(0x6E601C00 | (@as(u32, SIMD_SCRATCH2_V) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i16x8 extend (unary) ---
+            0x87 => { // i16x8.extend_low_i8x16_s — SXTL V.8H, V.8B
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // SSHLL Vd.8H, Vn.8B, #0 = 0x0F08A400
+                self.emit(0x0F08A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x88 => { // i16x8.extend_high_i8x16_s — SSHLL2 V.8H, V.16B, #0
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // SSHLL2 = 0x4F08A400
+                self.emit(0x4F08A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x89 => { // i16x8.extend_low_i8x16_u — USHLL V.8H, V.8B, #0
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // USHLL = 0x2F08A400
+                self.emit(0x2F08A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x8A => { // i16x8.extend_high_i8x16_u — USHLL2 V.8H, V.16B, #0
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // USHLL2 = 0x6F08A400
+                self.emit(0x6F08A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i8x16 narrow (binary → unary-like: takes 2 v128, produces 1) ---
+            0x65 => { // i8x16.narrow_i16x8_s — SQXTN + SQXTN2
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1); // lower half source
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field); // upper half source
+                // SQXTN Vd.8B, Vn.8H = 0x0E214800
+                self.emit(0x0E214800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // SQXTN2 Vd.16B, Vn.8H = 0x4E214800 (appends to upper half)
+                self.emit(0x4E214800 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x66 => { // i8x16.narrow_i16x8_u — SQXTUN + SQXTUN2
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                // SQXTUN Vd.8B, Vn.8H = 0x2E212800
+                self.emit(0x2E212800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // SQXTUN2 Vd.16B, Vn.8H = 0x6E212800
+                self.emit(0x6E212800 | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- extadd_pairwise ---
+            0x7C => { self.emitSimdUnaryNeon(instr, 0x4E202800); return true; }, // i16x8.extadd_pairwise_i8x16_s — SADDLP .8H
+            0x7D => { self.emitSimdUnaryNeon(instr, 0x6E202800); return true; }, // i16x8.extadd_pairwise_i8x16_u — UADDLP .8H
+            0x7E => { self.emitSimdUnaryNeon(instr, 0x4E602800); return true; }, // i32x4.extadd_pairwise_i16x8_s — SADDLP .4S
+            0x7F => { self.emitSimdUnaryNeon(instr, 0x6E602800); return true; }, // i32x4.extadd_pairwise_i16x8_u — UADDLP .4S
+
+            // --- i16x8 shift ---
+            0x8B => { // i16x8.shl — SSHL (actually SHL by scalar)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                // DUP V1.8H, Wn (broadcast shift amount)
+                self.emit(0x4E020C00 | (@as(u32, shift_reg) << 5) | SIMD_SCRATCH1);
+                // SSHL Vd.8H, Vn.8H, Vm.8H = 0x4E604400
+                self.emit(0x4E604400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x8C => { // i16x8.shr_s — negate shift amount + SSHL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(a64.sub32(SCRATCH, 31, shift_reg)); // negate: 0 - shift (wrap to mod 16)
+                self.emit(0x4E020C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH1);
+                self.emit(0x4E604400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x8D => { // i16x8.shr_u — negate shift amount + USHL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(a64.sub32(SCRATCH, 31, shift_reg));
+                self.emit(0x4E020C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH1);
+                // USHL Vd.8H, Vn.8H, Vm.8H = 0x6E604400
+                self.emit(0x6E604400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- f32x4 rounding ---
+            0x67 => { self.emitSimdUnaryNeon(instr, 0x4EA18800); return true; }, // f32x4.ceil — FRINTP .4S
+            0x68 => { self.emitSimdUnaryNeon(instr, 0x4E219800); return true; }, // f32x4.floor — FRINTM .4S
+            0x69 => { self.emitSimdUnaryNeon(instr, 0x4EA19800); return true; }, // f32x4.trunc — FRINTZ .4S
+            0x6A => { self.emitSimdUnaryNeon(instr, 0x4E218800); return true; }, // f32x4.nearest — FRINTN .4S
+
+            // --- f64x2 rounding (some subs split across ranges) ---
+            0x74 => { self.emitSimdUnaryNeon(instr, 0x4EE18800); return true; }, // f64x2.ceil — FRINTP .2D
+            0x75 => { self.emitSimdUnaryNeon(instr, 0x4E619800); return true; }, // f64x2.floor — FRINTM .2D
+            0x7A => { self.emitSimdUnaryNeon(instr, 0x4EE19800); return true; }, // f64x2.trunc — FRINTZ .2D
+
+            // --- i8x16 shift ---
+            0x6B => { // i8x16.shl — DUP + SSHL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(0x4E010C00 | (@as(u32, shift_reg) << 5) | SIMD_SCRATCH1); // DUP V1.16B, Wn
+                self.emit(0x4E204400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // SSHL .16B
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x6C => { // i8x16.shr_s — negate + DUP + SSHL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(a64.sub32(SCRATCH, 31, shift_reg));
+                self.emit(0x4E010C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH1);
+                self.emit(0x4E204400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x6D => { // i8x16.shr_u — negate + DUP + USHL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(a64.sub32(SCRATCH, 31, shift_reg));
+                self.emit(0x4E010C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH1);
+                self.emit(0x6E204400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // USHL .16B
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            0x7B => { // i8x16.avgr_u — URHADD V.16B
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                // URHADD Vd.16B, Vn.16B, Vm.16B = 0x6E201400
+                self.emit(0x6E201400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i32x4 comparisons ---
+            0x37 => { // i32x4.eq — CMEQ Vd.4S
+                self.emitSimdBinaryNeon(instr, 0x6EA08C00);
+                return true;
+            },
+            0x38 => { // i32x4.ne — CMEQ + NOT
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                // CMEQ Vd.4S, Vn.4S, Vm.4S = 0x6EA08C00
+                self.emit(0x6EA08C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // NOT Vd.16B, Vn.16B = 0x6E205800
+                self.emit(a64.notV16b(SIMD_SCRATCH0, SIMD_SCRATCH0));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x3B => { // i32x4.gt_s — CMGT Vd.4S (signed)
+                self.emitSimdBinaryNeon(instr, 0x4EA03400);
+                return true;
+            },
+            0x3C => { // i32x4.gt_u — CMHI Vd.4S (unsigned)
+                self.emitSimdBinaryNeon(instr, 0x6EA03400);
+                return true;
+            },
+            0x3F => { // i32x4.ge_s — CMGE Vd.4S (signed)
+                self.emitSimdBinaryNeon(instr, 0x4EA03C00);
+                return true;
+            },
+            0x40 => { // i32x4.ge_u — CMHS Vd.4S (unsigned)
+                self.emitSimdBinaryNeon(instr, 0x6EA03C00);
+                return true;
+            },
+            0x39 => { // i32x4.lt_s — CMGT with swapped operands
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field); // swap: rs2 as Vn
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1); // swap: rs1 as Vm
+                // CMGT Vd.4S, Vn.4S, Vm.4S = 0x4EA03400
+                self.emit(0x4EA03400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x3A => { // i32x4.lt_u — CMHI with swapped operands
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                // CMHI Vd.4S = 0x6EA03400
+                self.emit(0x6EA03400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x3D => { // i32x4.le_s — CMGE with swapped operands
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                // CMGE Vd.4S = 0x4EA03C00
+                self.emit(0x4EA03C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x3E => { // i32x4.le_u — CMHS with swapped operands
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                // CMHS Vd.4S = 0x6EA03C00
+                self.emit(0x6EA03C00 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i32x4 arithmetic ---
+            0xB5 => { self.emitSimdBinaryNeon(instr, 0x4EA09C00); return true; }, // i32x4.mul — MUL .4S
+            0xA0 => { self.emitSimdUnaryNeon(instr, 0x4EA0B800); return true; }, // i32x4.abs — ABS .4S
+            0xA1 => { self.emitSimdUnaryNeon(instr, 0x6EA0B800); return true; }, // i32x4.neg — NEG .4S
+            0xB6 => { self.emitSimdBinaryNeon(instr, 0x4EA06C00); return true; }, // i32x4.min_s — SMIN .4S
+            0xB7 => { self.emitSimdBinaryNeon(instr, 0x6EA06C00); return true; }, // i32x4.min_u — UMIN .4S
+            0xB8 => { self.emitSimdBinaryNeon(instr, 0x4EA06400); return true; }, // i32x4.max_s — SMAX .4S
+            0xB9 => { self.emitSimdBinaryNeon(instr, 0x6EA06400); return true; }, // i32x4.max_u — UMAX .4S
+            // --- i32x4 shift ---
+            0xAB => { // i32x4.shl
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(0x4E040C00 | (@as(u32, shift_reg) << 5) | SIMD_SCRATCH1); // DUP V1.4S, Wn
+                self.emit(0x4EA04400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // SSHL .4S
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xAC => { // i32x4.shr_s
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(a64.sub32(SCRATCH, 31, shift_reg));
+                self.emit(0x4E040C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH1);
+                self.emit(0x4EA04400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xAD => { // i32x4.shr_u
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(a64.sub32(SCRATCH, 31, shift_reg));
+                self.emit(0x4E040C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH1);
+                self.emit(0x6EA04400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // USHL .4S
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i32x4.dot_i16x8_s — SMULL + SMULL2 + ADDP ---
+            0xBA => {
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1); // a → V0
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field); // b → V1
+                const SIMD_SCRATCH2_V: u5 = 2;
+                // SMULL V2.4S, V0.4H, V1.4H = 0x0E60C000 (lower half multiply)
+                self.emit(0x0E60C000 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH2_V);
+                // SMULL2 V0.4S, V0.8H, V1.8H = 0x4E60C000 (upper half multiply)
+                self.emit(0x4E60C000 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // ADDP V0.4S, V2.4S, V0.4S = 0x4EA0BC00 (pairwise add)
+                self.emit(0x4EA0BC00 | (@as(u32, SIMD_SCRATCH0) << 16) | (@as(u32, SIMD_SCRATCH2_V) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- i32x4 extmul ---
+            0xBC => { self.emitSimdBinaryNeon(instr, 0x0E60C000); return true; }, // i32x4.extmul_low_i16x8_s — SMULL .4S
+            0xBD => { self.emitSimdBinaryNeon(instr, 0x4E60C000); return true; }, // i32x4.extmul_high_i16x8_s — SMULL2 .4S
+            0xBE => { self.emitSimdBinaryNeon(instr, 0x2E60C000); return true; }, // i32x4.extmul_low_i16x8_u — UMULL .4S
+            0xBF => { self.emitSimdBinaryNeon(instr, 0x6E60C000); return true; }, // i32x4.extmul_high_i16x8_u — UMULL2 .4S
+
+            // --- i64x2 arithmetic ---
+            0xCE => { self.emitSimdBinaryNeon(instr, 0x4EE08400); return true; }, // i64x2.add — ADD .2D
+            0xD1 => { self.emitSimdBinaryNeon(instr, 0x6EE08400); return true; }, // i64x2.sub — SUB .2D
+            0xC0 => { self.emitSimdUnaryNeon(instr, 0x4EE0B800); return true; }, // i64x2.abs — ABS .2D
+            0xC1 => { self.emitSimdUnaryNeon(instr, 0x6EE0B800); return true; }, // i64x2.neg — NEG .2D
+            // --- i64x2 shift ---
+            0xCB => { // i64x2.shl
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(0x4E080C00 | (@as(u32, shift_reg) << 5) | SIMD_SCRATCH1); // DUP V1.2D, Xn
+                self.emit(0x4EE04400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // SSHL .2D
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xCC => { // i64x2.shr_s
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(a64.sub32(SCRATCH, 31, shift_reg));
+                self.emit(0x4E080C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH1);
+                self.emit(0x4EE04400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xCD => { // i64x2.shr_u
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                const shift_reg = self.getOrLoad(instr.rs2_field, SCRATCH);
+                self.emit(a64.sub32(SCRATCH, 31, shift_reg));
+                self.emit(0x4E080C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH1);
+                self.emit(0x6EE04400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0); // USHL .2D
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- f32x4 comparisons ---
+            0x41 => { self.emitSimdBinaryNeon(instr, 0x4E20E400); return true; }, // f32x4.eq — FCMEQ .4S
+            0x42 => { // f32x4.ne — FCMEQ + NOT
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                self.emit(0x4E20E400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emit(a64.notV16b(SIMD_SCRATCH0, SIMD_SCRATCH0));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x44 => { self.emitSimdBinaryNeon(instr, 0x6EA0E400); return true; }, // f32x4.gt — FCMGT .4S
+            0x46 => { self.emitSimdBinaryNeon(instr, 0x6E20E400); return true; }, // f32x4.ge — FCMGE .4S
+            0x43 => { // f32x4.lt — FCMGT swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x6EA0E400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x45 => { // f32x4.le — FCMGE swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x6E20E400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- f64x2 comparisons ---
+            0x47 => { self.emitSimdBinaryNeon(instr, 0x4E60E400); return true; }, // f64x2.eq — FCMEQ .2D
+            0x48 => { // f64x2.ne — FCMEQ + NOT
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                self.emit(0x4E60E400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emit(a64.notV16b(SIMD_SCRATCH0, SIMD_SCRATCH0));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x4A => { self.emitSimdBinaryNeon(instr, 0x6EE0E400); return true; }, // f64x2.gt — FCMGT .2D
+            0x4C => { self.emitSimdBinaryNeon(instr, 0x6E60E400); return true; }, // f64x2.ge — FCMGE .2D
+            0x49 => { // f64x2.lt — FCMGT swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x6EE0E400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x4B => { // f64x2.le — FCMGE swapped
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                self.emit(0x6E60E400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- f32x4/f64x2 pmin/pmax ---
+            0xEA => { // f32x4.pmin — FCMGT + BSL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1); // a → V0
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field); // b → V1
+                const SIMD_SCRATCH2_V: u5 = 2;
+                // FCMGT V2.4S, V0.4S, V1.4S → mask where a > b
+                self.emit(0x6EA0E400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH2_V);
+                // BSL V2.16B, V1.16B, V0.16B → b where a>b, else a = pmin
+                self.emit(0x6E601C00 | (@as(u32, SIMD_SCRATCH0) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH2_V);
+                self.emitStoreV128(SIMD_SCRATCH2_V, instr.rd);
+                return true;
+            },
+            0xEB => { // f32x4.pmax — FCMGT(b,a) + BSL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1); // a → V0
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field); // b → V1
+                const SIMD_SCRATCH2_V: u5 = 2;
+                // FCMGT V2.4S, V1.4S, V0.4S → mask where b > a
+                self.emit(0x6EA0E400 | (@as(u32, SIMD_SCRATCH0) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH2_V);
+                // BSL V2.16B, V1.16B, V0.16B → b where b>a, else a = pmax
+                self.emit(0x6E601C00 | (@as(u32, SIMD_SCRATCH0) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH2_V);
+                self.emitStoreV128(SIMD_SCRATCH2_V, instr.rd);
+                return true;
+            },
+            0xF6 => { // f64x2.pmin — FCMGT + BSL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                const SIMD_SCRATCH2_V: u5 = 2;
+                self.emit(0x6EE0E400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH2_V);
+                self.emit(0x6E601C00 | (@as(u32, SIMD_SCRATCH0) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH2_V);
+                self.emitStoreV128(SIMD_SCRATCH2_V, instr.rd);
+                return true;
+            },
+            0xF7 => { // f64x2.pmax — FCMGT(b,a) + BSL
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                const SIMD_SCRATCH2_V: u5 = 2;
+                self.emit(0x6EE0E400 | (@as(u32, SIMD_SCRATCH0) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH2_V);
+                self.emit(0x6E601C00 | (@as(u32, SIMD_SCRATCH0) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH2_V);
+                self.emitStoreV128(SIMD_SCRATCH2_V, instr.rd);
+                return true;
+            },
+
+            // --- f32x4 min/max/abs/neg/sqrt ---
+            0xE8 => { self.emitSimdBinaryNeon(instr, 0x4EA0F400); return true; }, // f32x4.min — FMIN Vd.4S
+            0xE9 => { self.emitSimdBinaryNeon(instr, 0x4E20F400); return true; }, // f32x4.max — FMAX Vd.4S
+            0xE0 => { self.emitSimdUnaryNeon(instr, 0x4EA0F800); return true; }, // f32x4.abs — FABS Vd.4S
+            0xE1 => { self.emitSimdUnaryNeon(instr, 0x6EA0F800); return true; }, // f32x4.neg — FNEG Vd.4S
+            0xE3 => { self.emitSimdUnaryNeon(instr, 0x6EA1F800); return true; }, // f32x4.sqrt — FSQRT Vd.4S
+
+            // --- f64x2 sub/div/min/max/abs/neg/sqrt ---
+            0xF1 => { self.emitSimdBinaryNeon(instr, 0x4EE0D400); return true; }, // f64x2.sub — FSUB Vd.2D
+            0xF3 => { self.emitSimdBinaryNeon(instr, 0x6E60FC00); return true; }, // f64x2.div — FDIV Vd.2D
+            0xF4 => { self.emitSimdBinaryNeon(instr, 0x4EE0F400); return true; }, // f64x2.min — FMIN Vd.2D
+            0xF5 => { self.emitSimdBinaryNeon(instr, 0x4E60F400); return true; }, // f64x2.max — FMAX Vd.2D
+            0xEC => { self.emitSimdUnaryNeon(instr, 0x4EE0F800); return true; }, // f64x2.abs — FABS Vd.2D
+            0xED => { self.emitSimdUnaryNeon(instr, 0x6EE0F800); return true; }, // f64x2.neg — FNEG Vd.2D
+            0xEF => { self.emitSimdUnaryNeon(instr, 0x6EE1F800); return true; }, // f64x2.sqrt — FSQRT Vd.2D
+
+            // --- trunc/convert ---
+            0xF8 => { self.emitSimdUnaryNeon(instr, 0x4EA1B800); return true; }, // i32x4.trunc_sat_f32x4_s — FCVTZS .4S
+            0xF9 => { self.emitSimdUnaryNeon(instr, 0x6EA1B800); return true; }, // i32x4.trunc_sat_f32x4_u — FCVTZU .4S
+            0xFA => { self.emitSimdUnaryNeon(instr, 0x4E21B800); return true; }, // f32x4.convert_i32x4_s — SCVTF .4S
+            0xFB => { self.emitSimdUnaryNeon(instr, 0x6E21B800); return true; }, // f32x4.convert_i32x4_u — UCVTF .4S
+
+            // --- i32x4_trunc_sat_f64x2 ---
+            0xFC => { // i32x4_trunc_sat_f64x2_s_zero — FCVTZS .2D + SQXTN .2S
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // FCVTZS V0.2D, V0.2D = 0x4EE1B800
+                self.emit(0x4EE1B800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // SQXTN V0.2S, V0.2D = 0x0EA14800 (Q=0 zeroes upper half)
+                self.emit(0x0EA14800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xFD => { // i32x4_trunc_sat_f64x2_u_zero — FCVTZU .2D + UQXTN .2S
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // FCVTZU V0.2D, V0.2D = 0x6EE1B800
+                self.emit(0x6EE1B800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // UQXTN V0.2S, V0.2D = 0x2EA14800 (Q=0 zeroes upper half)
+                self.emit(0x2EA14800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- f32x4 demote / f64x2 promote ---
+            0x5E => { // f32x4.demote_f64x2_zero — FCVTN Vd.2S, Vn.2D (upper zeroed)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // FCVTN Vd.2S, Vn.2D = 0x0E616800 (Q=0 zeroes upper)
+                self.emit(0x0E616800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x5F => { // f64x2.promote_low_f32x4 — FCVTL Vd.2D, Vn.2S
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // FCVTL Vd.2D, Vn.2S = 0x0E617800
+                self.emit(0x0E617800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- f64x2 convert from low i32x4 ---
+            0xFE => { // f64x2.convert_low_i32x4_s — SSHLL + SCVTF
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // SSHLL Vd.2D, Vn.2S, #0 = 0x0F20A400
+                self.emit(0x0F20A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // SCVTF Vd.2D, Vn.2D = 0x4E61B800
+                self.emit(0x4E61B800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0xFF => { // f64x2.convert_low_i32x4_u — USHLL + UCVTF
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                // USHLL Vd.2D, Vn.2S, #0 = 0x2F20A400
+                self.emit(0x2F20A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                // UCVTF Vd.2D, Vn.2D = 0x6E61B800
+                self.emit(0x6E61B800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // --- i8x16.shuffle: TBL with 2-register table ---
+            0x0D => {
+                // Load both v128 inputs into consecutive V registers (V0, V1)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1); // table[0] → V0
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field); // table[1] → V1
+                // Load shuffle mask from pool64 into V2
+                const pool_idx = instr.operand;
+                if (pool_idx + 1 < self.pool64.len) {
+                    const V2: u5 = 2;
+                    const lo = self.pool64[pool_idx];
+                    const hi = self.pool64[pool_idx + 1];
+                    const lo_instrs = a64.loadImm64(SCRATCH, lo);
+                    for (lo_instrs) |inst| self.emit(inst);
+                    self.emit(a64.movz64(SCRATCH2, 0, 0)); // clear SCRATCH2 for hi
+                    // MOVQ to V2: use GP→NEON
+                    // FMOV Dd, Xn = 0x9E670000 | (Xn << 5) | Vd
+                    self.emit(0x9E670000 | (@as(u32, SCRATCH) << 5) | V2);
+                    const hi_instrs = a64.loadImm64(SCRATCH, hi);
+                    for (hi_instrs) |inst| self.emit(inst);
+                    // INS V2.D[1], SCRATCH
+                    self.emit(a64.insVdD1(V2, SCRATCH));
+                    // TBL Vd.16B, {V0.16B, V1.16B}, V2.16B
+                    // TBL 2-register: 0x4E000000 | (len=01 << 13) | (Vm << 16) | (Vn << 5) | Vd
+                    // len=01 means 2 consecutive registers starting from Vn
+                    self.emit(0x4E002000 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                    self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                    return true;
+                }
+                return false;
+            },
+
+            // --- relaxed ops: map to non-relaxed equivalents ---
+            // relaxed_swizzle (0x100) = same as swizzle (0x0E)
+            0x100 => {
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                self.emit(0x4E000000 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // relaxed_trunc (0x101-0x104) = same as trunc_sat
+            0x101 => { self.emitSimdUnaryNeon(instr, 0x4EA1B800); return true; }, // relaxed i32x4.trunc_sat_f32x4_s
+            0x102 => { self.emitSimdUnaryNeon(instr, 0x6EA1B800); return true; }, // relaxed i32x4.trunc_sat_f32x4_u
+            // relaxed_madd (0x105,0x107): FMA — load c, FMLA Vd+=Vn*Vm
+            0x105 => { // f32x4.relaxed_madd(a,b,c) = a*b+c
+                self.emitLoadV128(SIMD_SCRATCH0, extra); // c → V0 (accumulator)
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1); // a → V1
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field); // b → V2
+                // FMLA V0.4S, V1.4S, V2.4S = 0x4E20CC00
+                self.emit(0x4E20CC00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x107 => { // f64x2.relaxed_madd
+                self.emitLoadV128(SIMD_SCRATCH0, extra);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field);
+                // FMLA V0.2D = 0x4E60CC00
+                self.emit(0x4E60CC00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x106 => { // f32x4.relaxed_nmadd(a,b,c) = c - a*b
+                self.emitLoadV128(SIMD_SCRATCH0, extra);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field);
+                // FMLS V0.4S = 0x4EA0CC00
+                self.emit(0x4EA0CC00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x108 => { // f64x2.relaxed_nmadd
+                self.emitLoadV128(SIMD_SCRATCH0, extra);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field);
+                // FMLS V0.2D = 0x4EE0CC00
+                self.emit(0x4EE0CC00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // relaxed_laneselect (0x109-0x10C): same as bitselect (BSL)
+            0x109, 0x10A, 0x10B, 0x10C => {
+                self.emitLoadV128(SIMD_SCRATCH0, extra); // mask → V0
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1); // v1 → V1
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field); // v2 → V2
+                self.emit(0x6E601C00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // relaxed_q15mulr (0x111): same as non-relaxed
+            0x111 => {
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                // SQRDMULH .8H = 0x6E60B400
+                self.emit(0x6E60B400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // relaxed_trunc_f64x2 (0x103-0x104): same as non-relaxed trunc_sat
+            0x103 => { // FCVTZS .2D + SQXTN .2S (same as 0xFC)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x4EE1B800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emit(0x0EA14800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x104 => { // FCVTZU .2D + UQXTN .2S (same as 0xFD)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x6EE1B800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emit(0x2EA14800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // relaxed_min/max (0x10D-0x110): same as min/max
+            0x10D => { self.emitSimdBinaryNeon(instr, 0x4EA0F400); return true; }, // f32x4.relaxed_min = fmin
+            0x10E => { self.emitSimdBinaryNeon(instr, 0x4E20F400); return true; }, // f32x4.relaxed_max = fmax
+            0x10F => { self.emitSimdBinaryNeon(instr, 0x4EE0F400); return true; }, // f64x2.relaxed_min
+            0x110 => { self.emitSimdBinaryNeon(instr, 0x4E60F400); return true; }, // f64x2.relaxed_max
+            // relaxed_q15mulr (0x111) = same as q15mulr
+            // relaxed_dot (0x112-0x113): trampoline (ternary)
+
+            // --- v128.load ---
+            0x00 => {
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                // Always emit explicit bounds check for v128 (16 bytes)
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 16));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6); // OutOfBoundsMemoryAccess
+                // LDR Q0, [MEM_BASE, SCRATCH]
+                self.emit(a64.ldrQreg(SIMD_SCRATCH0, MEM_BASE, SCRATCH));
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // --- v128.store ---
+            0x0B => {
+                if (!self.has_memory) return false;
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rd);
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                // Always emit explicit bounds check for v128 (16 bytes)
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 16));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                // STR Q0, [MEM_BASE, SCRATCH]
+                self.emit(a64.strQreg(SIMD_SCRATCH0, MEM_BASE, SCRATCH));
+                return true;
+            },
+            // --- v128.load_splat ---
+            0x07 => { // v128.load8_splat: load 1 byte, splat to 16 lanes
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 1));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldrbReg(SCRATCH, MEM_BASE, SCRATCH));
+                // DUP V0.16B, Wn = 0x4E010C00
+                self.emit(0x4E010C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x08 => { // v128.load16_splat: load 2 bytes, splat to 8 lanes
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 2));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldrhReg(SCRATCH, MEM_BASE, SCRATCH));
+                // DUP V0.8H, Wn = 0x4E020C00
+                self.emit(0x4E020C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x09 => { // v128.load32_splat: load 4 bytes, splat to 4 lanes
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 4));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldr32Reg(SCRATCH, MEM_BASE, SCRATCH));
+                // DUP V0.4S, Wn = 0x4E040C00
+                self.emit(0x4E040C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x0A => { // v128.load64_splat: load 8 bytes, splat to 2 lanes
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldr64Reg(SCRATCH, MEM_BASE, SCRATCH));
+                // DUP V0.2D, Xn = 0x4E080C00
+                self.emit(0x4E080C00 | (@as(u32, SCRATCH) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- v128.load_zero ---
+            0x5C => { // v128.load32_zero: load 4 bytes into lane 0, zero rest
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 4));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldr32Reg(SCRATCH, MEM_BASE, SCRATCH));
+                // Store as GP vreg (lo = value, hi = 0)
+                const d = destReg(instr.rd);
+                self.emit(a64.mov32(d, SCRATCH));
+                self.storeVreg(instr.rd, d);
+                // Zero simd_hi
+                self.emitLoadVmPtr(SCRATCH2);
+                const hi_offset = self.simd_hi_offset + @as(u32, instr.rd) * 8;
+                if (hi_offset <= 32760) {
+                    self.emit(a64.str64(31, SCRATCH2, @intCast(hi_offset))); // XZR
+                } else {
+                    const off_instrs = a64.loadImm64(SCRATCH, hi_offset);
+                    for (off_instrs) |inst| self.emit(inst);
+                    self.emit(a64.add64(SCRATCH2, SCRATCH2, SCRATCH));
+                    self.emit(a64.str64(31, SCRATCH2, 0));
+                }
+                return true;
+            },
+            0x5D => { // v128.load64_zero: load 8 bytes into lane 0, zero rest
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldr64Reg(SCRATCH, MEM_BASE, SCRATCH));
+                // Store as GP vreg (lo = value, hi = 0)
+                const d = destReg(instr.rd);
+                self.emit(a64.mov64(d, SCRATCH));
+                self.storeVreg(instr.rd, d);
+                // Zero simd_hi
+                self.emitLoadVmPtr(SCRATCH2);
+                const hi_offset = self.simd_hi_offset + @as(u32, instr.rd) * 8;
+                if (hi_offset <= 32760) {
+                    self.emit(a64.str64(31, SCRATCH2, @intCast(hi_offset)));
+                } else {
+                    const off_instrs = a64.loadImm64(SCRATCH, hi_offset);
+                    for (off_instrs) |inst| self.emit(inst);
+                    self.emit(a64.add64(SCRATCH2, SCRATCH2, SCRATCH));
+                    self.emit(a64.str64(31, SCRATCH2, 0));
+                }
+                return true;
+            },
+
+            // --- v128.load_lane ---
+            0x54 => { // v128.load8_lane: load 1 byte into lane
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 1));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field); // existing v128
+                self.emit(a64.ldrbReg(SCRATCH2, MEM_BASE, SCRATCH)); // load byte
+                // INS Vd.B[lane], Wn: imm5 = (lane << 1) | 1
+                const lane = extra;
+                const imm5 = (@as(u32, @as(u4, @truncate(lane))) << 1) | 1;
+                self.emit(0x4E001C00 | (imm5 << 16) | (@as(u32, SCRATCH2) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x55 => { // v128.load16_lane
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 2));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emit(a64.ldrhReg(SCRATCH2, MEM_BASE, SCRATCH));
+                const imm5 = (@as(u32, @as(u3, @truncate(extra))) << 2) | 2;
+                self.emit(0x4E001C00 | (imm5 << 16) | (@as(u32, SCRATCH2) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x56 => { // v128.load32_lane
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 4));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emit(a64.ldr32Reg(SCRATCH2, MEM_BASE, SCRATCH));
+                const imm5 = (@as(u32, @as(u2, @truncate(extra))) << 3) | 4;
+                self.emit(0x4E001C00 | (imm5 << 16) | (@as(u32, SCRATCH2) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x57 => { // v128.load64_lane
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs2_field);
+                self.emit(a64.ldr64Reg(SCRATCH2, MEM_BASE, SCRATCH));
+                const imm5 = (@as(u32, @as(u1, @truncate(extra))) << 4) | 8;
+                self.emit(0x4E001C00 | (imm5 << 16) | (@as(u32, SCRATCH2) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- v128.store_lane ---
+            0x58 => { // v128.store8_lane
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 1));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rd); // v128 value
+                // UMOV Wd, Vn.B[lane]
+                self.emit(0x0E013C00 | (@as(u32, @as(u4, @truncate(extra))) << 17) | (@as(u32, SIMD_SCRATCH0) << 5) | SCRATCH2);
+                self.emit(a64.strbReg(SCRATCH2, MEM_BASE, SCRATCH));
+                return true;
+            },
+            0x59 => { // v128.store16_lane
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 2));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rd);
+                // UMOV Wd, Vn.H[lane]
+                self.emit(0x0E023C00 | (@as(u32, @as(u3, @truncate(extra))) << 19) | (@as(u32, SIMD_SCRATCH0) << 5) | SCRATCH2);
+                self.emit(a64.strhReg(SCRATCH2, MEM_BASE, SCRATCH));
+                return true;
+            },
+            0x5A => { // v128.store32_lane
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 4));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rd);
+                // UMOV Wd, Vn.S[lane]
+                self.emit(0x0E043C00 | (@as(u32, @as(u2, @truncate(extra))) << 21) | (@as(u32, SIMD_SCRATCH0) << 5) | SCRATCH2);
+                self.emit(a64.str32Reg(SCRATCH2, MEM_BASE, SCRATCH));
+                return true;
+            },
+            0x5B => { // v128.store64_lane
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rd);
+                // UMOV Xd, Vn.D[lane] (Q=1)
+                self.emit(0x4E083C00 | (@as(u32, @as(u1, @truncate(extra))) << 20) | (@as(u32, SIMD_SCRATCH0) << 5) | SCRATCH2);
+                self.emit(a64.str64Reg(SCRATCH2, MEM_BASE, SCRATCH));
+                return true;
+            },
+
+            // --- v128.load_extend ---
+            0x01 => { // v128.load8x8_s: load 8 bytes, sign-extend to 8 halfwords
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                // LDR D0, [MEM_BASE, SCRATCH] — load 64 bits into lower half
+                self.emit(a64.ldrFp64Reg(SIMD_SCRATCH0, MEM_BASE, SCRATCH));
+                // SSHLL V0.8H, V0.8B, #0 = 0x0F08A400
+                self.emit(0x0F08A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x02 => { // v128.load8x8_u: load 8 bytes, zero-extend to 8 halfwords
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldrFp64Reg(SIMD_SCRATCH0, MEM_BASE, SCRATCH));
+                // USHLL V0.8H, V0.8B, #0 = 0x2F08A400
+                self.emit(0x2F08A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x03 => { // v128.load16x4_s: load 8 bytes, sign-extend 4 halfwords to 4 words
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldrFp64Reg(SIMD_SCRATCH0, MEM_BASE, SCRATCH));
+                // SSHLL V0.4S, V0.4H, #0 = 0x0F10A400
+                self.emit(0x0F10A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x04 => { // v128.load16x4_u
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldrFp64Reg(SIMD_SCRATCH0, MEM_BASE, SCRATCH));
+                // USHLL V0.4S, V0.4H, #0 = 0x2F10A400
+                self.emit(0x2F10A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x05 => { // v128.load32x2_s: load 8 bytes, sign-extend 2 words to 2 doublewords
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldrFp64Reg(SIMD_SCRATCH0, MEM_BASE, SCRATCH));
+                // SSHLL V0.2D, V0.2S, #0 = 0x0F20A400
+                self.emit(0x0F20A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x06 => { // v128.load32x2_u
+                if (!self.has_memory) return false;
+                const addr_reg = self.getOrLoad(instr.rs1, SCRATCH);
+                self.emit(a64.uxtw(SCRATCH, addr_reg));
+                self.emitAddOffset(SCRATCH, instr.operand);
+                self.emit(a64.addImm64(SCRATCH2, SCRATCH, 8));
+                self.emit(a64.cmp64(SCRATCH2, MEM_SIZE));
+                self.emitCondError(.hi, 6);
+                self.emit(a64.ldrFp64Reg(SIMD_SCRATCH0, MEM_BASE, SCRATCH));
+                // USHLL V0.2D, V0.2S, #0 = 0x2F20A400
+                self.emit(0x2F20A400 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+
+            // --- v128.const ---
+            0x0C => {
+                // Load 128-bit constant from pool64[operand] (2x u64)
+                const pool_idx = instr.operand;
+                if (pool_idx + 1 < self.pool64.len) {
+                    const lo = self.pool64[pool_idx];
+                    const hi = self.pool64[pool_idx + 1];
+                    // Store lo to regs[rd], hi to simd_hi[rd]
+                    const d = destReg(instr.rd);
+                    const lo_instrs = a64.loadImm64(d, lo);
+                    for (lo_instrs) |inst| self.emit(inst);
+                    self.storeVreg(instr.rd, d);
+                    // Store hi to simd_hi[rd]
+                    const hi_instrs = a64.loadImm64(SCRATCH, hi);
+                    for (hi_instrs) |inst| self.emit(inst);
+                    self.emitLoadVmPtr(SCRATCH2);
+                    const hi_offset = self.simd_hi_offset + @as(u32, instr.rd) * 8;
+                    if (hi_offset <= 32760) {
+                        self.emit(a64.str64(SCRATCH, SCRATCH2, @intCast(hi_offset)));
+                    } else {
+                        const off_instrs = a64.loadImm64(17, hi_offset);
+                        for (off_instrs) |inst| self.emit(inst);
+                        self.emit(a64.add64(SCRATCH2, SCRATCH2, 17));
+                        self.emit(a64.str64(SCRATCH, SCRATCH2, 0));
+                    }
+                    return true;
+                }
+                return false;
+            },
+            else => return false,
+        }
+    }
+
+    /// Emit SIMD trampoline call: spill → set up args → BLR → error check → reload.
+    fn emitSimdTrampoline(self: *Compiler, instr: RegInstr, ir: []const RegInstr, pc: *u32) void {
+        const sub = instr.op - predecode_mod.SIMD_BASE;
+        const effect = regalloc_mod.simdStackEffect(sub) orelse return;
+
+        // Check for trailing NOP (extra metadata)
+        var extra: u16 = 0;
+        var third_operand: u16 = 0;
+        if (pc.* < ir.len and ir[pc.*].op == regalloc_mod.OP_NOP) {
+            const nop = ir[pc.*];
+            if (effect.pop == 3) {
+                third_operand = nop.rd;
+                extra = nop.rs1;
+            } else {
+                extra = nop.rd;
+            }
+            pc.* += 1;
+        }
+
+        // 1. Spill all caller-saved regs
+        self.fpCacheEvictAll();
+        self.spillCallerSavedLive(ir, pc.* - 1);
+        // Spill operand vregs
+        if (effect.pop >= 1) self.spillVreg(instr.rs1);
+        if (effect.pop >= 2) self.spillVreg(instr.rs2_field);
+        if (effect.push == 0 and effect.pop == 2) self.spillVreg(instr.rd); // store: rd is value
+
+        // 2. Set up trampoline args (ARM64 C ABI: x0-x7)
+        //    x0 = vm_ptr, x1 = instance_ptr, x2 = regs_ptr
+        self.emitLoadVmPtr(0);
+        self.emitLoadInstPtr(1);
+        self.emit(a64.mov64(2, REGS_PTR));
+
+        //    x3 = opcode | (extra << 32)
+        const op_extra_lo: u16 = @truncate(instr.op);
+        self.emit(a64.movz64(3, op_extra_lo, 0));
+        if (extra != 0) {
+            self.emit(a64.movk64(3, extra, 2)); // bits 32-47
+        }
+
+        //    x4 = rd | (rs1 << 16) | (rs2 << 32) | (third << 48)
+        self.emit(a64.movz64(4, instr.rd, 0));
+        self.emit(a64.movk64(4, instr.rs1, 1));
+        if (effect.pop >= 2) self.emit(a64.movk64(4, instr.rs2_field, 2));
+        if (effect.pop == 3) self.emit(a64.movk64(4, third_operand, 3));
+
+        //    w5 = operand
+        if (instr.operand <= 0xFFFF) {
+            self.emit(a64.movz32(5, @truncate(instr.operand), 0));
+        } else {
+            self.emit(a64.movz32(5, @truncate(instr.operand), 0));
+            self.emit(a64.movk64(5, @truncate(instr.operand >> 16), 1));
+        }
+
+        //    x6 = pool64 ptr, x7 = pool64 len
+        const pool64_instrs = a64.loadImm64(6, @intFromPtr(self.pool64.ptr));
+        for (pool64_instrs) |inst| self.emit(inst);
+        const pool64_len_instrs = a64.loadImm64(7, self.pool64.len);
+        for (pool64_len_instrs) |inst| self.emit(inst);
+
+        // 3. BLR to SIMD trampoline
+        const simd_trampoline_addr = @intFromPtr(&jitSimdTrampoline);
+        const t_instrs = a64.loadImm64(SCRATCH, simd_trampoline_addr);
+        for (t_instrs) |inst| self.emit(inst);
+        self.emit(a64.blr(SCRATCH));
+
+        // 4. Error check (x0 = 0 success, 1 error)
+        const error_branch = self.currentIdx();
+        self.emit(a64.cbnz64(0, 0));
+        self.error_stubs.append(self.alloc, .{
+            .branch_idx = error_branch,
+            .error_code = 0,
+            .kind = .cbnz64,
+            .cond = .eq,
+        }) catch {};
+
+        // 5. Reload
+        if (self.has_memory) self.emitLoadMemCache();
+        self.reloadCallerSavedLive();
+        if (effect.push == 1) self.reloadVreg(instr.rd);
     }
 
     /// Inline self-call: direct BL to function entry, bypassing trampoline.
@@ -5210,6 +7014,9 @@ pub fn jitMemCopy(instance_opaque: *anyopaque, dst: u32, src: u32, n: u32) callc
     return 0;
 }
 
+// SIMD trampoline is in vm.zig (needs access to Vm internals)
+const jitSimdTrampoline = vm_mod.Vm.jitSimdTrampoline;
+
 // ================================================================
 // Public API
 // ================================================================
@@ -5269,6 +7076,7 @@ pub fn compileFunction(
     compiler.osr_target_pc = osr_target_pc;
     compiler.gc_trampoline_addr = gc_trampoline_addr;
     compiler.jit_fuel_offset = @intCast(@offsetOf(vm_mod.Vm, "jit_fuel"));
+    compiler.simd_hi_offset = @intCast(@offsetOf(vm_mod.Vm, "simd_hi"));
 
     // Dump JIT code before deinit (pc_map still alive, one-shot)
     if (trace) |tc| {
@@ -5994,5 +7802,24 @@ test "rem-by-constant JIT: power-of-2 divisor uses AND" {
         try testing.expectEqual(@as(u64, 0), result);
         try testing.expectEqual(@as(u64, n % 16), regs[0]);
     }
+}
+
+test "NEON instruction encoding — v128 ops" {
+    if (builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+
+    // LDR Q0, [X1, #0] = 0x3DC00020
+    try testing.expectEqual(@as(u32, 0x3DC00020), a64.ldrQ(0, 1, 0));
+    // LDR Q2, [X3, #16] = offset 16/16=1 → 0x3DC00462
+    try testing.expectEqual(@as(u32, 0x3DC00462), a64.ldrQ(2, 3, 1));
+    // STR Q0, [X1, #0] = 0x3D800020
+    try testing.expectEqual(@as(u32, 0x3D800020), a64.strQ(0, 1, 0));
+    // MOVI V0.2D, #0 = 0x6F00E400
+    try testing.expectEqual(@as(u32, 0x6F00E400), a64.moviV2d_zero(0));
+    // FADD V0.4S, V1.4S, V2.4S = 0x4E22D420
+    try testing.expectEqual(@as(u32, 0x4E22D420), a64.faddV4s(0, 1, 2));
+    // FMUL V3.4S, V4.4S, V5.4S = 0x6E25DC83
+    try testing.expectEqual(@as(u32, 0x6E25DC83), a64.fmulV4s(3, 4, 5));
+    // NOT V0.16B, V1.16B = 0x6E205820
+    try testing.expectEqual(@as(u32, 0x6E205820), a64.notV16b(0, 1));
 }
 

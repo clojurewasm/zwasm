@@ -33,6 +33,19 @@ Prefix: W## (to distinguish from CW's F## items).
   Root cause: W35 ARM64 JIT `emitGlobalSet` ABI clobber caused non-deterministic OOB.
   After W35 fix (commit 1429f81), 3 consecutive runs 50/50 PASS. No independent bug.
 
+- [ ] W37: SIMD JIT — contiguous v128 storage
+  Current split storage (regs[vreg] lo + simd_hi[vreg] hi) adds overhead on every
+  v128 load/store/local.get/local.set. Contiguous 128-bit register storage would
+  eliminate this, improving load-heavy workloads (dot_product 0.75x → expected >2x).
+  Requires register allocator redesign (GP + FP register classes with different widths).
+  Phase 13.7 data: `bench/simd_comparison.yaml`.
+
+- [ ] W38: SIMD JIT — compiler-generated code performance
+  C compiler patterns (wasm_i16x8_make → 8x i16x8.replace_lane) are much slower
+  than hand-written WAT. Scalar gap vs wasmtime on real-world C code is 13-131x
+  (vs 1.2-3.8x on microbenchmarks). Investigate: JIT for WASI C runtime overhead,
+  replace_lane fusion, and SIMD pattern recognition.
+
 ## Resolved items (summary, details in git history)
 
 W2 (table.init), W4 (fd_readdir), W5 (sock_*), W7 (Component Model Stage 22),

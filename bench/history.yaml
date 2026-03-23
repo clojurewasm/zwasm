@@ -2797,3 +2797,195 @@ entries:
       rw_cpp_string_cached: {time_ms: 38.0}
       rw_cpp_sort: {time_ms: 7.4}
       rw_cpp_sort_cached: {time_ms: 0.0}
+  - id: "simd-198-native"
+    date: "2026-03-23"
+    reason: "198/256 SIMD opcodes native NEON (77% coverage)"
+    commit: "f5e8a34"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 50.7}
+      fib_cached: {time_ms: 49.8}
+      tak: {time_ms: 6.2}
+      tak_cached: {time_ms: 6.2}
+      sieve: {time_ms: 7.3}
+      sieve_cached: {time_ms: 4.9}
+      nbody: {time_ms: 23.5}
+      nbody_cached: {time_ms: 23.9}
+      nqueens: {time_ms: 2.1}
+      nqueens_cached: {time_ms: 1.9}
+      tgo_fib: {time_ms: 39.1}
+      tgo_fib_cached: {time_ms: 36.7}
+      tgo_tak: {time_ms: 8.6}
+      tgo_tak_cached: {time_ms: 7.4}
+      tgo_arith: {time_ms: 4.1}
+      tgo_arith_cached: {time_ms: 8.2}
+      tgo_sieve: {time_ms: 4.0}
+      tgo_sieve_cached: {time_ms: 3.2}
+      tgo_fib_loop: {time_ms: 2.4}
+      tgo_fib_loop_cached: {time_ms: 2.5}
+      tgo_gcd: {time_ms: 4.7}
+      tgo_gcd_cached: {time_ms: 3.2}
+      tgo_nqueens: {time_ms: 50.8}
+      tgo_nqueens_cached: {time_ms: 48.6}
+      tgo_mfr: {time_ms: 49.4}
+      tgo_mfr_cached: {time_ms: 51.4}
+      tgo_list: {time_ms: 52.4}
+      tgo_list_cached: {time_ms: 52.9}
+      tgo_rwork: {time_ms: 7.5}
+      tgo_rwork_cached: {time_ms: 10.5}
+      tgo_strops: {time_ms: 99.0}
+      tgo_strops_cached: {time_ms: 48.5}
+      st_fib2: {time_ms: 954.2}
+      st_fib2_cached: {time_ms: 963.1}
+      st_sieve: {time_ms: 202.9}
+      st_sieve_cached: {time_ms: 204.8}
+      st_nestedloop: {time_ms: 2.2}
+      st_nestedloop_cached: {time_ms: 2.0}
+      st_ackermann: {time_ms: 4.6}
+      st_ackermann_cached: {time_ms: 4.8}
+      st_matrix: {time_ms: 304.1}
+      st_matrix_cached: {time_ms: 301.6}
+      gc_alloc: {time_ms: 5.4}
+      gc_alloc_cached: {time_ms: 6.2}
+      gc_tree: {time_ms: 23.7}
+      gc_tree_cached: {time_ms: 23.9}
+      rw_rust_fib: {time_ms: 36.7}
+      rw_rust_fib_cached: {time_ms: 37.5}
+      rw_c_matrix: {time_ms: 21.6}
+      rw_c_matrix_cached: {time_ms: 24.6}
+      rw_c_math: {time_ms: 87.9}
+      rw_c_math_cached: {time_ms: 76.2}
+      rw_c_string: {time_ms: 51.8}
+      rw_c_string_cached: {time_ms: 54.2}
+      rw_cpp_string: {time_ms: 11.4}
+      rw_cpp_string_cached: {time_ms: 8.9}
+      rw_cpp_sort: {time_ms: 8.6}
+      rw_cpp_sort_cached: {time_ms: 8.7}
+  - id: "simd-235-native"
+    date: "2026-03-23"
+    reason: "235/256 SIMD native (92%), all non-relaxed except shuffle"
+    commit: "1c52db8"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 53.5}
+      fib_cached: {time_ms: 52.8}
+      tak: {time_ms: 7.3}
+      tak_cached: {time_ms: 6.7}
+      sieve: {time_ms: 6.7}
+      sieve_cached: {time_ms: 3.8}
+      nbody: {time_ms: 23.8}
+      nbody_cached: {time_ms: 23.4}
+      nqueens: {time_ms: 2.5}
+      nqueens_cached: {time_ms: 1.7}
+      tgo_fib: {time_ms: 36.1}
+      tgo_fib_cached: {time_ms: 37.3}
+      tgo_tak: {time_ms: 5.8}
+      tgo_tak_cached: {time_ms: 5.8}
+      tgo_arith: {time_ms: 4.4}
+      tgo_arith_cached: {time_ms: 3.2}
+      tgo_sieve: {time_ms: 3.6}
+      tgo_sieve_cached: {time_ms: 4.5}
+      tgo_fib_loop: {time_ms: 2.5}
+      tgo_fib_loop_cached: {time_ms: 2.3}
+      tgo_gcd: {time_ms: 0.6}
+      tgo_gcd_cached: {time_ms: 2.5}
+      tgo_nqueens: {time_ms: 51.0}
+      tgo_nqueens_cached: {time_ms: 51.1}
+      tgo_mfr: {time_ms: 51.1}
+      tgo_mfr_cached: {time_ms: 51.0}
+      tgo_list: {time_ms: 51.8}
+      tgo_list_cached: {time_ms: 50.6}
+      tgo_rwork: {time_ms: 6.3}
+      tgo_rwork_cached: {time_ms: 6.3}
+      tgo_strops: {time_ms: 52.0}
+      tgo_strops_cached: {time_ms: 52.4}
+      st_fib2: {time_ms: 954.6}
+      st_fib2_cached: {time_ms: 972.5}
+      st_sieve: {time_ms: 217.7}
+      st_sieve_cached: {time_ms: 205.1}
+      st_nestedloop: {time_ms: 4.6}
+      st_nestedloop_cached: {time_ms: 2.6}
+      st_ackermann: {time_ms: 5.7}
+      st_ackermann_cached: {time_ms: 4.5}
+      st_matrix: {time_ms: 301.8}
+      st_matrix_cached: {time_ms: 310.0}
+      gc_alloc: {time_ms: 5.7}
+      gc_alloc_cached: {time_ms: 5.6}
+      gc_tree: {time_ms: 40.7}
+      gc_tree_cached: {time_ms: 24.0}
+      rw_rust_fib: {time_ms: 37.4}
+      rw_rust_fib_cached: {time_ms: 36.8}
+      rw_c_matrix: {time_ms: 24.4}
+      rw_c_matrix_cached: {time_ms: 24.2}
+      rw_c_math: {time_ms: 70.7}
+      rw_c_math_cached: {time_ms: 72.0}
+      rw_c_string: {time_ms: 53.2}
+      rw_c_string_cached: {time_ms: 55.6}
+      rw_cpp_string: {time_ms: 0.5}
+      rw_cpp_string_cached: {time_ms: 6.2}
+      rw_cpp_sort: {time_ms: 7.8}
+      rw_cpp_sort_cached: {time_ms: 5.5}
+  - id: "13.7"
+    date: "2026-03-23"
+    reason: "Phase 13.7: SIMD JIT benchmarks & wasmtime comparison"
+    commit: "5ade595"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 50.8}
+      fib_cached: {time_ms: 48.5}
+      tak: {time_ms: 5.7}
+      tak_cached: {time_ms: 9.2}
+      sieve: {time_ms: 6.9}
+      sieve_cached: {time_ms: 6.0}
+      nbody: {time_ms: 23.9}
+      nbody_cached: {time_ms: 23.3}
+      nqueens: {time_ms: 2.2}
+      nqueens_cached: {time_ms: 3.8}
+      tgo_fib: {time_ms: 36.8}
+      tgo_fib_cached: {time_ms: 41.1}
+      tgo_tak: {time_ms: 30.9}
+      tgo_tak_cached: {time_ms: 12.3}
+      tgo_arith: {time_ms: 3.5}
+      tgo_arith_cached: {time_ms: 2.2}
+      tgo_sieve: {time_ms: 0.0}
+      tgo_sieve_cached: {time_ms: 3.6}
+      tgo_fib_loop: {time_ms: 0.5}
+      tgo_fib_loop_cached: {time_ms: 4.0}
+      tgo_gcd: {time_ms: 3.2}
+      tgo_gcd_cached: {time_ms: 0.5}
+      tgo_nqueens: {time_ms: 49.0}
+      tgo_nqueens_cached: {time_ms: 50.2}
+      tgo_mfr: {time_ms: 50.5}
+      tgo_mfr_cached: {time_ms: 48.8}
+      tgo_list: {time_ms: 42.7}
+      tgo_list_cached: {time_ms: 51.1}
+      tgo_rwork: {time_ms: 1.9}
+      tgo_rwork_cached: {time_ms: 6.9}
+      tgo_strops: {time_ms: 57.9}
+      tgo_strops_cached: {time_ms: 50.8}
+      st_fib2: {time_ms: 968.8}
+      st_fib2_cached: {time_ms: 949.7}
+      st_sieve: {time_ms: 205.4}
+      st_sieve_cached: {time_ms: 202.5}
+      st_nestedloop: {time_ms: 3.8}
+      st_nestedloop_cached: {time_ms: 3.3}
+      st_ackermann: {time_ms: 5.5}
+      st_ackermann_cached: {time_ms: 6.5}
+      st_matrix: {time_ms: 304.1}
+      st_matrix_cached: {time_ms: 299.7}
+      gc_alloc: {time_ms: 5.7}
+      gc_alloc_cached: {time_ms: 6.2}
+      gc_tree: {time_ms: 30.5}
+      gc_tree_cached: {time_ms: 26.4}
+      rw_rust_fib: {time_ms: 37.5}
+      rw_rust_fib_cached: {time_ms: 37.5}
+      rw_c_matrix: {time_ms: 24.0}
+      rw_c_matrix_cached: {time_ms: 24.8}
+      rw_c_math: {time_ms: 74.7}
+      rw_c_math_cached: {time_ms: 72.1}
+      rw_c_string: {time_ms: 53.8}
+      rw_c_string_cached: {time_ms: 54.9}
+      rw_cpp_string: {time_ms: 0.0}
+      rw_cpp_string_cached: {time_ms: 8.2}
+      rw_cpp_sort: {time_ms: 11.3}
+      rw_cpp_sort_cached: {time_ms: 8.3}

@@ -215,6 +215,114 @@ const TempAlloc = struct {
     }
 };
 
+/// SIMD opcode stack effect: how many values are popped/pushed.
+/// Returns null for unknown sub-opcodes (bail).
+///
+/// Classification based on wasm SIMD spec stack signatures.
+/// Default for unrecognized-but-in-range: binary (pop 2, push 1).
+pub fn simdStackEffect(sub: u32) ?struct { pop: u8, push: u8 } {
+    return switch (sub) {
+        // --- Memory loads: pop 1 addr, push 1 v128 ---
+        0x00...0x0A, 0x5C, 0x5D => .{ .pop = 1, .push = 1 },
+        // --- v128.store: pop v128 + addr ---
+        0x0B => .{ .pop = 2, .push = 0 },
+        // --- v128.const: push 1 ---
+        0x0C => .{ .pop = 0, .push = 1 },
+        // --- shuffle, swizzle: pop 2, push 1 ---
+        0x0D, 0x0E => .{ .pop = 2, .push = 1 },
+        // --- splat: pop 1 scalar, push 1 v128 ---
+        0x0F...0x14 => .{ .pop = 1, .push = 1 },
+        // --- extract_lane / replace_lane (interleaved) ---
+        0x15, 0x16 => .{ .pop = 1, .push = 1 }, // i8x16 extract s/u
+        0x17 => .{ .pop = 2, .push = 1 }, // i8x16 replace
+        0x18, 0x19 => .{ .pop = 1, .push = 1 }, // i16x8 extract s/u
+        0x1A => .{ .pop = 2, .push = 1 }, // i16x8 replace
+        0x1B => .{ .pop = 1, .push = 1 }, // i32x4 extract
+        0x1C => .{ .pop = 2, .push = 1 }, // i32x4 replace
+        0x1D => .{ .pop = 1, .push = 1 }, // i64x2 extract
+        0x1E => .{ .pop = 2, .push = 1 }, // i64x2 replace
+        0x1F => .{ .pop = 1, .push = 1 }, // f32x4 extract
+        0x20 => .{ .pop = 2, .push = 1 }, // f32x4 replace
+        0x21 => .{ .pop = 1, .push = 1 }, // f64x2 extract
+        0x22 => .{ .pop = 2, .push = 1 }, // f64x2 replace
+        // --- comparison (all binary): pop 2, push 1 ---
+        0x23...0x4C => .{ .pop = 2, .push = 1 },
+        // --- v128 bitwise ---
+        0x4D => .{ .pop = 1, .push = 1 }, // not (unary)
+        0x4E...0x51 => .{ .pop = 2, .push = 1 }, // and, andnot, or, xor
+        // --- v128.bitselect: pop 3, push 1 ---
+        0x52 => .{ .pop = 3, .push = 1 },
+        // --- v128.any_true: unary ---
+        0x53 => .{ .pop = 1, .push = 1 },
+        // --- lane load/store ---
+        0x54...0x57 => .{ .pop = 2, .push = 1 }, // lane load
+        0x58...0x5B => .{ .pop = 2, .push = 0 }, // lane store
+        // --- float conversion (unary) ---
+        0x5E, 0x5F => .{ .pop = 1, .push = 1 },
+        // --- i8x16 ops ---
+        0x60, 0x61, 0x62 => .{ .pop = 1, .push = 1 }, // abs, neg, popcnt
+        0x63, 0x64 => .{ .pop = 1, .push = 1 }, // all_true, bitmask
+        0x65, 0x66 => .{ .pop = 2, .push = 1 }, // narrow (BINARY!)
+        0x67, 0x68, 0x69, 0x6A => .{ .pop = 1, .push = 1 }, // f32x4 ceil/floor/trunc/nearest
+        0x6B, 0x6C, 0x6D => .{ .pop = 2, .push = 1 }, // shl, shr_s, shr_u (v128+i32)
+        0x6E...0x73 => .{ .pop = 2, .push = 1 }, // add, add_sat, sub, sub_sat
+        0x74, 0x75 => .{ .pop = 1, .push = 1 }, // f64x2 ceil, floor
+        0x76...0x79 => .{ .pop = 2, .push = 1 }, // min_s/u, max_s/u
+        0x7A => .{ .pop = 1, .push = 1 }, // f64x2 trunc
+        0x7B => .{ .pop = 2, .push = 1 }, // avgr_u
+        0x7C...0x7F => .{ .pop = 1, .push = 1 }, // extadd_pairwise (unary)
+        // --- i16x8 ops ---
+        0x80, 0x81 => .{ .pop = 1, .push = 1 }, // abs, neg
+        0x82 => .{ .pop = 2, .push = 1 }, // q15mulr_sat_s (binary)
+        0x83, 0x84 => .{ .pop = 1, .push = 1 }, // all_true, bitmask
+        0x85, 0x86 => .{ .pop = 2, .push = 1 }, // narrow (BINARY!)
+        0x87...0x8A => .{ .pop = 1, .push = 1 }, // extend low/high (unary)
+        0x8B, 0x8C, 0x8D => .{ .pop = 2, .push = 1 }, // shl, shr_s, shr_u
+        0x8E...0x93 => .{ .pop = 2, .push = 1 }, // add, add_sat, sub, sub_sat
+        0x94 => .{ .pop = 1, .push = 1 }, // f64x2 nearest
+        0x95...0x99 => .{ .pop = 2, .push = 1 }, // mul, min, max
+        0x9B...0x9F => .{ .pop = 2, .push = 1 }, // avgr_u, extmul
+        // --- i32x4 ops ---
+        0xA0, 0xA1 => .{ .pop = 1, .push = 1 }, // abs, neg
+        0xA3, 0xA4 => .{ .pop = 1, .push = 1 }, // all_true, bitmask
+        0xA7...0xAA => .{ .pop = 1, .push = 1 }, // extend low/high (unary)
+        0xAB, 0xAC, 0xAD => .{ .pop = 2, .push = 1 }, // shl, shr_s, shr_u
+        0xAE => .{ .pop = 2, .push = 1 }, // add
+        0xB1 => .{ .pop = 2, .push = 1 }, // sub
+        0xB5...0xBF => .{ .pop = 2, .push = 1 }, // mul, min, max, dot, extmul
+        // --- i64x2 ops ---
+        0xC0, 0xC1 => .{ .pop = 1, .push = 1 }, // abs, neg
+        0xC3, 0xC4 => .{ .pop = 1, .push = 1 }, // all_true, bitmask
+        0xC7...0xCA => .{ .pop = 1, .push = 1 }, // extend low/high (unary)
+        0xCB, 0xCC, 0xCD => .{ .pop = 2, .push = 1 }, // shl, shr_s, shr_u
+        0xCE => .{ .pop = 2, .push = 1 }, // add
+        0xD1 => .{ .pop = 2, .push = 1 }, // sub
+        0xD5 => .{ .pop = 2, .push = 1 }, // mul
+        0xD6...0xDB => .{ .pop = 2, .push = 1 }, // comparison (binary)
+        0xDC...0xDF => .{ .pop = 2, .push = 1 }, // extmul
+        // --- f32x4 arithmetic ---
+        0xE0, 0xE1 => .{ .pop = 1, .push = 1 }, // abs, neg
+        0xE3 => .{ .pop = 1, .push = 1 }, // sqrt
+        0xE4...0xEB => .{ .pop = 2, .push = 1 }, // add, sub, mul, div, min, max, pmin, pmax
+        // --- f64x2 arithmetic ---
+        0xEC, 0xED => .{ .pop = 1, .push = 1 }, // abs, neg
+        0xEF => .{ .pop = 1, .push = 1 }, // sqrt
+        0xF0...0xF7 => .{ .pop = 2, .push = 1 }, // add, sub, mul, div, min, max, pmin, pmax
+        // --- Conversion (all unary) ---
+        0xF8...0xFF => .{ .pop = 1, .push = 1 },
+        // --- Relaxed SIMD ---
+        0x100 => .{ .pop = 2, .push = 1 }, // relaxed_swizzle (binary)
+        0x101...0x104 => .{ .pop = 1, .push = 1 }, // relaxed_trunc (unary)
+        0x105...0x108 => .{ .pop = 3, .push = 1 }, // relaxed madd/nmadd (ternary)
+        0x109...0x10C => .{ .pop = 3, .push = 1 }, // relaxed laneselect (ternary)
+        0x10D...0x110 => .{ .pop = 2, .push = 1 }, // relaxed min/max (binary)
+        0x111 => .{ .pop = 2, .push = 1 }, // relaxed_q15mulr_s
+        0x112 => .{ .pop = 2, .push = 1 }, // relaxed_dot
+        0x113 => .{ .pop = 3, .push = 1 }, // relaxed_dot_add (ternary)
+        else => null,
+    };
+}
+
 /// Convert PreInstr[] to RegInstr[].
 /// Returns null if conversion fails (unsupported opcodes).
 pub fn convert(
@@ -1210,6 +1318,57 @@ pub fn convert(
                 try vstack.append(alloc, rd);
             },
 
+            // ---- SIMD opcodes: pass through with stack effect ----
+            // Encoding: main instr has rd/rs1/rs2_field/operand.
+            // Extra metadata (lane index, memidx) carried in trailing NOP:
+            //   NOP.rd = extra_data, NOP.rs1 = third operand (for 3-input ops).
+            // Adapter reads NOP to reconstruct PreInstr.extra for stack interpreter.
+            predecode.SIMD_BASE...predecode.SIMD_BASE + 0x113 => {
+                const sub = instr.opcode - predecode.SIMD_BASE;
+                const effect = simdStackEffect(sub) orelse return null;
+                const has_extra = instr.extra != 0;
+
+                if (vstack.items.len < effect.pop) return null;
+
+                if (effect.pop == 3) {
+                    // 3-input ops (bitselect): pop c, b, a → op(a, b, c)
+                    const c_reg = temps.popFree(&vstack).?;
+                    const b_reg = temps.popFree(&vstack).?;
+                    const a_reg = temps.popFree(&vstack).?;
+                    const rd = temps.alloc();
+                    try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = a_reg, .rs2_field = b_reg, .operand = instr.operand });
+                    try code.append(alloc, .{ .op = OP_NOP, .rd = c_reg, .rs1 = @intCast(instr.extra), .operand = 0 });
+                    try vstack.append(alloc, rd);
+                } else if (effect.push == 0) {
+                    // Store ops: pop value + addr
+                    const val_reg = temps.popFree(&vstack).?;
+                    const addr_reg = if (effect.pop >= 2) temps.popFree(&vstack).? else 0;
+                    try code.append(alloc, .{ .op = instr.opcode, .rd = val_reg, .rs1 = addr_reg, .operand = instr.operand });
+                    if (has_extra) try code.append(alloc, .{ .op = OP_NOP, .rd = @intCast(instr.extra), .rs1 = 0, .operand = 0 });
+                } else if (effect.pop == 0) {
+                    // v128.const: push result
+                    const rd = temps.alloc();
+                    try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = 0, .operand = instr.operand });
+                    if (has_extra) try code.append(alloc, .{ .op = OP_NOP, .rd = @intCast(instr.extra), .rs1 = 0, .operand = 0 });
+                    try vstack.append(alloc, rd);
+                } else if (effect.pop == 1) {
+                    // Unary: pop 1, push 1
+                    const src = temps.popFree(&vstack).?;
+                    const rd = temps.alloc();
+                    try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = src, .operand = instr.operand });
+                    if (has_extra) try code.append(alloc, .{ .op = OP_NOP, .rd = @intCast(instr.extra), .rs1 = 0, .operand = 0 });
+                    try vstack.append(alloc, rd);
+                } else {
+                    // Binary: pop 2, push 1
+                    const rs2 = temps.popFree(&vstack).?;
+                    const rs1 = temps.popFree(&vstack).?;
+                    const rd = temps.alloc();
+                    try code.append(alloc, .{ .op = instr.opcode, .rd = rd, .rs1 = rs1, .rs2_field = rs2, .operand = instr.operand });
+                    if (has_extra) try code.append(alloc, .{ .op = OP_NOP, .rd = @intCast(instr.extra), .rs1 = 0, .operand = 0 });
+                    try vstack.append(alloc, rd);
+                }
+            },
+
             // ---- Anything else: bail ----
             else => return null,
         }
@@ -2008,4 +2167,94 @@ test "convert — GC struct.get produces unary register op" {
         }
     }
     try testing.expect(found);
+}
+
+test "simdStackEffect — correct stack effects for key opcodes" {
+    // v128.load: pop 1 addr, push 1 v128
+    try testing.expectEqual(@as(u8, 1), simdStackEffect(0x00).?.pop);
+    try testing.expectEqual(@as(u8, 1), simdStackEffect(0x00).?.push);
+    // v128.store: pop 2, push 0
+    try testing.expectEqual(@as(u8, 2), simdStackEffect(0x0B).?.pop);
+    try testing.expectEqual(@as(u8, 0), simdStackEffect(0x0B).?.push);
+    // v128.const: pop 0, push 1
+    try testing.expectEqual(@as(u8, 0), simdStackEffect(0x0C).?.pop);
+    try testing.expectEqual(@as(u8, 1), simdStackEffect(0x0C).?.push);
+    // shuffle: pop 2, push 1
+    try testing.expectEqual(@as(u8, 2), simdStackEffect(0x0D).?.pop);
+    // splat: pop 1, push 1
+    try testing.expectEqual(@as(u8, 1), simdStackEffect(0x0F).?.pop);
+    // extract_lane: pop 1, push 1
+    try testing.expectEqual(@as(u8, 1), simdStackEffect(0x15).?.pop);
+    // replace_lane (i32x4_replace_lane = 0x1C): pop 2, push 1
+    try testing.expectEqual(@as(u8, 2), simdStackEffect(0x1C).?.pop);
+    // i64x2_extract_lane (0x1D): pop 1, push 1
+    try testing.expectEqual(@as(u8, 1), simdStackEffect(0x1D).?.pop);
+    // bitselect: pop 3, push 1
+    try testing.expectEqual(@as(u8, 3), simdStackEffect(0x52).?.pop);
+    try testing.expectEqual(@as(u8, 1), simdStackEffect(0x52).?.push);
+    // lane store: pop 2, push 0
+    try testing.expectEqual(@as(u8, 2), simdStackEffect(0x58).?.pop);
+    try testing.expectEqual(@as(u8, 0), simdStackEffect(0x58).?.push);
+    // i32x4.add (0x6E in binary range): default binary — pop 2, push 1
+    try testing.expectEqual(@as(u8, 2), simdStackEffect(0x6E).?.pop);
+    try testing.expectEqual(@as(u8, 1), simdStackEffect(0x6E).?.push);
+    // Out of range: null
+    try testing.expect(simdStackEffect(0x114) == null);
+}
+
+test "convert — v128.const + v128.store passes through regalloc" {
+    const SIMD_BASE = predecode.SIMD_BASE;
+    const pool = [_]u64{ 0x0102030405060708, 0x090A0B0C0D0E0F10 };
+    const ir = [_]PreInstr{
+        .{ .opcode = SIMD_BASE + 0x0C, .extra = 0, .operand = 0 }, // v128.const pool_idx=0
+        .{ .opcode = 0x20, .extra = 0, .operand = 0 }, // local.get 0 (i32 addr)
+        .{ .opcode = SIMD_BASE + 0x0B, .extra = 0, .operand = 0 }, // v128.store offset=0
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    const result = try convert(testing.allocator, &ir, &pool, 1, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    const code = result.?.code;
+    var found_const = false;
+    var found_store = false;
+    for (code) |instr| {
+        if (instr.op == SIMD_BASE + 0x0C) found_const = true;
+        if (instr.op == SIMD_BASE + 0x0B) found_store = true;
+    }
+    try testing.expect(found_const);
+    try testing.expect(found_store);
+}
+
+test "convert — f32x4.add binary passes through regalloc" {
+    const SIMD_BASE = predecode.SIMD_BASE;
+    const pool = [_]u64{ 0, 0, 0, 0 }; // 2x v128.const
+    const ir = [_]PreInstr{
+        .{ .opcode = SIMD_BASE + 0x0C, .extra = 0, .operand = 0 }, // v128.const a
+        .{ .opcode = SIMD_BASE + 0x0C, .extra = 0, .operand = 2 }, // v128.const b
+        .{ .opcode = SIMD_BASE + 0xE4, .extra = 0, .operand = 0 }, // f32x4.add
+        .{ .opcode = 0x1A, .extra = 0, .operand = 0 }, // drop
+        .{ .opcode = 0x0B, .extra = 0, .operand = 0 }, // end
+    };
+
+    const result = try convert(testing.allocator, &ir, &pool, 0, 0, null);
+    try testing.expect(result != null);
+    defer {
+        var r = result.?;
+        r.deinit();
+        testing.allocator.destroy(r);
+    }
+
+    var found_add = false;
+    for (result.?.code) |instr| {
+        if (instr.op == SIMD_BASE + 0xE4) {
+            found_add = true;
+        }
+    }
+    try testing.expect(found_add);
 }

@@ -46,7 +46,23 @@ Apple M4 Pro 上で zwasm を wasmtime 41.0.1、Bun 1.3.8、Node v24.13.0 と比
 
 ### SIMD パフォーマンス
 
-SIMD 操作は機能的に完全です（256 オペコード、仕様テスト 100%）が、レジスタ IR や JIT ではなくスタックインタプリタで実行されます。その結果、SIMD 実行は wasmtime の約 22 倍遅くなります。改善計画: レジスタ IR の v128 拡張、その後選択的な JIT NEON/SSE エミッション。
+SIMD (v128) 命令はネイティブの NEON (ARM64, 253/256 命令) および SSE (x86_64, 244/256 命令) に
+JIT コンパイルされます。v128 値はレジスタファイル内で 64 ビット×2 の分割格納方式を採用しています。
+
+| ベンチマーク              | zwasm スカラー | zwasm SIMD | wasmtime SIMD | SIMD 高速化 |
+|---------------------------|---------------:|-----------:|--------------:|------------:|
+| image_blend (128x128)     | 73 ms          | 16 ms      | 12 ms         | **4.7x**    |
+| matrix_mul (16x16)        | 10 ms          | 6 ms       | 8 ms          | **1.6x**    |
+| byte_search (64KB)        | 52 ms          | 43 ms      | 5 ms          | **1.2x**    |
+| dot_product (4096)        | 142 ms         | 190 ms     | 15 ms         | 0.75x       |
+
+matrix_mul は wasmtime を上回り、image_blend は 1.3 倍差でほぼ互角です。dot_product は
+v128.load の多いループで分割格納のオーバーヘッドにより低下しています。
+
+コンパイラ生成の SIMD コード (C `-msimd128`) では、`i16x8.replace_lane` 等のパターンにより
+より大きな差が生じます。今後の改善: 連続 v128 レジスタ格納 (W37) によるオーバーヘッド解消。
+
+全データ: `bench/simd_comparison.yaml`
 
 ## ベンチマーク手法
 
@@ -67,11 +83,12 @@ bash bench/record.sh --id="X" --reason="description"
 
 | レイヤー | 数 | 説明 |
 |---------|-----|------|
-| WAT micro | 5 | 手書き: fib, tak, sieve, nbody, nqueens |
-| TinyGo | 11 | TinyGo コンパイラ出力: 同じアルゴリズム + 文字列操作 |
-| Shootout | 5 | Sightglass shootout スイート (WASI) |
-| Real-world | 6 | Rust, C, C++ を Wasm にコンパイル (行列、数学、文字列、ソート) |
-| GC | 2 | GC プロポーザル: 構造体アロケーション、木の走査 |
+| WAT micro  | 5  | 手書き: fib, tak, sieve, nbody, nqueens                      |
+| TinyGo     | 11 | TinyGo コンパイラ出力: 同じアルゴリズム + 文字列操作         |
+| Shootout   | 5  | Sightglass shootout スイート (WASI)                          |
+| Real-world | 6  | Rust, C, C++ を Wasm にコンパイル (行列、数学、文字列、ソート) |
+| GC         | 2  | GC プロポーザル: 構造体アロケーション、木の走査              |
+| SIMD       | 10 | WAT マイクロ (4) + C -msimd128 実世界 (5)、スカラー/SIMD    |
 
 ### CI によるリグレッション検出
 

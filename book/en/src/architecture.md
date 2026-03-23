@@ -58,8 +58,8 @@ The JIT threshold is adaptive: hot loops trigger compilation faster via back-edg
 | `predecode.zig` | Stack IR → register IR conversion | ~0.7K |
 | `regalloc.zig` | Virtual → physical register allocation | ~2K |
 | `vm.zig` | Interpreter, execution engine, store | ~8K |
-| `jit.zig` | ARM64 JIT backend | ~5.9K |
-| `x86.zig` | x86_64 JIT backend | ~4.7K |
+| `jit.zig` | ARM64 JIT backend (incl. NEON SIMD) | ~7.8K |
+| `x86.zig` | x86_64 JIT backend (incl. SSE SIMD) | ~7.2K |
 | `types.zig` | Core type definitions, value types | ~1.3K |
 | `opcode.zig` | Opcode definitions (581+ total) | ~1.3K |
 | `wasi.zig` | WASI Preview 1 (46 syscalls) | ~2.6K |
@@ -84,8 +84,8 @@ The register IR uses virtual registers, which are then mapped to physical regist
 
 The JIT compiler translates register IR to native machine code:
 
-- **ARM64**: Full support — arithmetic, control flow, floating point, memory, call_indirect, SIMD
-- **x86_64**: Full support — same coverage as ARM64
+- **ARM64**: Full support — arithmetic, control flow, floating point, memory, call_indirect, SIMD (253/256 NEON native)
+- **x86_64**: Full support — same coverage, SIMD (244/256 SSE native, SSE4.1 minimum)
 
 Key JIT optimizations:
 - Inline self-calls (recursive functions call themselves without trampoline overhead)

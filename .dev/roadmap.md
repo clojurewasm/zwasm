@@ -136,15 +136,95 @@ Design reference: `.dev/references/allocator-injection-plan.md`.
 
 **Gate**: PASSED. Mac + Ubuntu all tests pass. v1.5.0 tagged.
 
-### Phase 13: SIMD JIT (5 days)
+### Phase 13: SIMD JIT (D130)
 
-Largest technical challenge.
+Largest technical challenge. Long-lived branch: `phase13/simd-jit`.
+Research: `.dev/references/simd-jit-research.md`.
+Rules: `.claude/rules/simd-jit.md`.
 
-- SIMD microbenchmark suite
-- RegIR v128 register class extension
-- ARM64 NEON + x86 SSE codegen (top 20 instructions)
-- Target: st_matrix gap 22.3x → ≤ 5x
-- Size guard ≤ 1.5MB
+Each step implements ARM64 + x86 simultaneously. 252 opcodes total.
+Real-world benefit arrives only after near-full coverage (D3 finding).
+
+**13.0 Foundation: Float register class + infrastructure**
+
+- Add `RegClass.Float` to regalloc.zig (v128 + FP share physical regs)
+- Float spill slots (16 bytes) separate from GP spill (8 bytes)
+- `comptime if (enable_simd)` scaffolding in jit.zig, build.zig
+- Create `simd_arm64.zig`, `simd_x86.zig` (empty stubs)
+- Verify: `-Dsimd=false` still works, no regression
+
+**13.1 v128 load/store/const**
+
+- `v128.load`, `v128.store`, `v128.const`
+- Splat loads: `v128.load8/16/32/64_splat`
+- Extending loads: `v128.load8x8_s/u`, `v128.load16x4_s/u`, `v128.load32x2_s/u`
+- Zero-extending: `v128.load32_zero`, `v128.load64_zero`
+- Lane load/store: `v128.load/store{8,16,32,64}_lane`
+- ARM64: LDR Q / STR Q / LDP / STP / DUP / MOV
+- x86: MOVDQU / MOVDQA / MOVD / PINSRB etc.
+
+**13.2 Integer arithmetic + bitwise**
+
+- i8x16/i16x8/i32x4/i64x2: add, sub, mul, neg, abs
+- Saturating: add_sat, sub_sat (i8x16, i16x8)
+- Min/max: min_s/u, max_s/u
+- Shifts: shl, shr_s, shr_u
+- Bitwise: v128.and, or, xor, not, andnot, bitselect, any_true
+- All-true: i8x16.all_true, i16x8.all_true, etc.
+- Popcnt: i8x16.popcnt
+- ARM64: ADD.16B/8H/4S/2D, SSHL, USHL, CNT, etc.
+- x86: PADDB/W/D/Q, PMULLW/D, PAND, POR, PXOR, PCMPEQ, PTEST, etc.
+
+**13.3 Float arithmetic**
+
+- f32x4/f64x2: add, sub, mul, div, neg, abs, sqrt
+- Min/max: min, max, pmin, pmax
+- Rounding: ceil, floor, trunc, nearest
+- ARM64: FADD.4S/2D, FMUL, FDIV, FSQRT, FRINTX, etc.
+- x86: ADDPS/PD, MULPS/PD, DIVPS/PD, SQRTPS/PD, ROUNDPS/PD, etc.
+
+**13.4 Comparison + select + splat + lane ops**
+
+- i8x16/i16x8/i32x4/i64x2: eq, ne, lt_s/u, le_s/u, gt_s/u, ge_s/u
+- f32x4/f64x2: eq, ne, lt, le, gt, ge
+- Splat: i8x16/i16x8/i32x4/i64x2/f32x4/f64x2.splat
+- Extract/replace lane (14 ops)
+- ARM64: CMEQ, CMGT, CMHI, FCMEQ, FCMGT, DUP, INS, UMOV/SMOV
+- x86: PCMPEQB/W/D, PCMPGTB/W/D, CMPEQPS/PD, PEXTRB/W/D/Q, PINSRB/W/D/Q
+
+**13.5 Type conversion**
+
+- Extend: i16x8.extend_low/high_i8x16_s/u, i32x4.extend_*, i64x2.extend_*
+- Narrow: i8x16.narrow_i16x8_s/u, i16x8.narrow_i32x4_s/u
+- Convert: f32x4.convert_i32x4_s/u, i32x4.trunc_sat_f32x4_s/u
+- Promote/demote: f64x2.promote_low_f32x4, f32x4.demote_f64x2_zero
+- ARM64: SXTL, UXTL, XTN, SQXTN, FCVTZS, SCVTF, FCVTL, FCVTN
+- x86: PMOVSXBW/WD/DQ, PMOVZXBW, PACKSS/USWB, CVTDQ2PS, CVTTPS2DQ, etc.
+
+**13.6 Shuffle/swizzle**
+
+- `i8x16.shuffle` (16 immediate lane indices)
+- `i8x16.swizzle` (runtime lane indices)
+- ARM64: `TBL` (general), `DUP`/`EXT`/`UZP1`/`UZP2` (special patterns later)
+- x86: `PSHUFB` (general fallback, requires SSSE3 ⊂ SSE4.1)
+  Two-register shuffle: pshufb×2 + por. Special patterns deferred.
+- Relaxed SIMD: i16x8.relaxed_q15mulr_s, relaxed_dot variants
+
+**13.7 Real-world SIMD benchmark expansion**
+
+- Collect SIMD-enabled wasm binaries (Emscripten -msimd128, Rust wasm32-wasi)
+- Add to real-world compat suite (target: 5+ SIMD programs)
+- wasmtime comparison: `bash bench/compare_runtimes.sh` with SIMD items
+- Target: SIMD bench faster than scalar, gap vs wasmtime ≤ 5x
+
+**13.8 Gate**
+
+- Spec: 62,263+ pass (SIMD spec tests JIT-compiled, not interpreter fallback)
+- SIMD bench: all 4 benchmarks SIMD faster than scalar
+- `-Dsimd=false`: minimal build passes, binary ≤ 1.0 MB
+- Full build: binary ≤ 1.5 MB, memory ≤ 4.5 MB RSS
+- Mac + Ubuntu + Windows: all tests pass
+- Benchmarks recorded: `bash bench/record.sh --id=13.8 --reason="SIMD JIT gate"`
 
 **Gate**: SIMD bench faster than scalar. zwasm v2.0.0 candidate.
 
