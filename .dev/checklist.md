@@ -10,12 +10,9 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open Items
 
-- [ ] W37: SIMD JIT — contiguous v128 storage
-  Current split storage (regs[vreg] lo + simd_hi[vreg] hi) adds overhead on every
-  v128 load/store/local.get/local.set. Contiguous 128-bit register storage would
-  eliminate this, improving load-heavy workloads (dot_product 0.75x → expected >2x).
-  Requires register allocator redesign (GP + FP register classes with different widths).
-  Data: `bench/simd_comparison.yaml`.
+- [x] W37: SIMD JIT — contiguous v128 storage (DONE)
+  Replaced split storage with contiguous simd_v128[512][2]u64. JIT uses LDR Q/STR Q
+  (ARM64) and MOVDQU (x86) for single-instruction 128-bit access.
 
 - [ ] W38: SIMD JIT — compiler-generated code performance
   C compiler patterns (wasm_i16x8_make → 8x i16x8.replace_lane) are much slower

@@ -16,14 +16,14 @@ Session handover document. Read at session start.
 
 **Performance & reliability** — Branch `perf/epoch-jit-timeout`.
 
-W40 complete: epoch-based JIT timeout (D131). JIT now coexists with deadline
-timeouts via fuel check helper. Next: W37 (contiguous v128 storage).
+W40 + W37 complete. JIT now coexists with deadline timeouts (D131) and uses
+contiguous v128 storage for single-instruction SIMD load/store. Next: W39.
 
 ### Open Work Items
 
 | Item     | Description                            |
 |----------|----------------------------------------|
-| W37      | Contiguous v128 storage (SIMD perf)    |
+| ~~W37~~  | Contiguous v128 storage (DONE)          |
 | W38      | Compiler-generated SIMD patterns       |
 | W39      | Multi-value return JIT                 |
 | Phase 18 | Lazy Compilation + CLI Extensions      |
