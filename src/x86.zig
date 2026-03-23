@@ -5369,6 +5369,84 @@ pub const Compiler = struct {
             0x10F => { self.emitSimdBinarySse(instr, &Enc.minpd); return true; }, // relaxed f64x2.min
             0x110 => { self.emitSimdBinarySse(instr, &Enc.maxpd); return true; }, // relaxed f64x2.max
             0x111 => { self.emitSimdBinarySse(instr, &Enc.pmulhrsw); return true; }, // relaxed q15mulr
+            // relaxed_madd (0x105,0x107): mul + add (no FMA3 needed, relaxed allows)
+            0x105 => { // f32x4.relaxed_madd(a,b,c) = a*b+c
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1); // a
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field); // b
+                Enc.mulps(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_SCRATCH1); // a*b
+                self.emitLoadV128(SIMD_SCRATCH1, extra); // c
+                Enc.addps(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_SCRATCH1); // a*b+c
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x107 => { // f64x2.relaxed_madd
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                Enc.mulpd(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_SCRATCH1);
+                self.emitLoadV128(SIMD_SCRATCH1, extra);
+                Enc.addpd(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_SCRATCH1);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x106 => { // f32x4.relaxed_nmadd(a,b,c) = c - a*b
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                Enc.mulps(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_SCRATCH1);
+                self.emitLoadV128(SIMD_SCRATCH1, extra); // c
+                Enc.subps(&self.code, self.alloc, SIMD_SCRATCH1, SIMD_SCRATCH0); // c - a*b
+                self.emitStoreV128(SIMD_SCRATCH1, instr.rd);
+                return true;
+            },
+            0x108 => { // f64x2.relaxed_nmadd
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                Enc.mulpd(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_SCRATCH1);
+                self.emitLoadV128(SIMD_SCRATCH1, extra);
+                Enc.subpd(&self.code, self.alloc, SIMD_SCRATCH1, SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH1, instr.rd);
+                return true;
+            },
+            // relaxed_laneselect (0x109-0x10C): same as bitselect
+            0x109, 0x10A, 0x10B, 0x10C => {
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1); // v1
+                const SIMD_X5: u4 = 5;
+                self.emitLoadV128(SIMD_X5, instr.rs2_field); // v2
+                self.emitLoadV128(SIMD_SCRATCH0, extra); // mask
+                Enc.pand(&self.code, self.alloc, SIMD_SCRATCH1, SIMD_SCRATCH0);
+                Enc.pandn(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_X5);
+                Enc.por(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_SCRATCH1);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // relaxed_trunc_f64x2 (0x103): same as non-relaxed
+            0x103 => { self.emitSimdUnarySse(instr, &Enc.cvttpd2dq); return true; },
+            // f64x2.convert_low_i32x4_u (0xFF): CVTDQ2PD covers positive i32
+            0xFF => { self.emitSimdUnarySse(instr, &Enc.cvtdq2pd); return true; },
+
+            // --- i64x2.mul (x86: PSHUFD + PMULUDQ + shift + add, same algo as ARM64) ---
+            0xD5 => {
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1); // a
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field); // b
+                const SIMD_X5: u4 = 5;
+                // Save a copy of a for PMULUDQ later
+                Enc.movaps(&self.code, self.alloc, SIMD_X5, SIMD_SCRATCH0);
+                // Swap 32-bit halves within 64-bit lanes: PSHUFD b, imm=0xB1 [1,0,3,2]
+                const SIMD_X6: u4 = 6;
+                Enc.pshufd(&self.code, self.alloc, SIMD_X6, SIMD_SCRATCH1, 0xB1);
+                // Cross multiply: MUL a.4s × swapped_b.4s
+                Enc.pmulld(&self.code, self.alloc, SIMD_X6, SIMD_SCRATCH0); // [a0*b1, a1*b0, a2*b3, a3*b2]
+                // Pairwise add within 64-bit lanes: PSHUFD + PADDD
+                Enc.pshufd(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_X6, 0xB1);
+                Enc.paddd(&self.code, self.alloc, SIMD_X6, SIMD_SCRATCH0); // cross_sum in even lanes
+                // Shift cross sum left 32: PSLLQ 32
+                Enc.psllq_imm(&self.code, self.alloc, SIMD_X6, 32);
+                // Low multiply: PMULUDQ a, b
+                Enc.pmuludq(&self.code, self.alloc, SIMD_X5, SIMD_SCRATCH1); // a_lo * b_lo
+                // Add: result = low + cross<<32
+                Enc.paddq(&self.code, self.alloc, SIMD_X5, SIMD_X6);
+                self.emitStoreV128(SIMD_X5, instr.rd);
+                return true;
+            },
 
             // --- v128.bitselect (PAND+PANDN+POR, uses 3 XMM regs) ---
             0x52 => {

@@ -5245,8 +5245,81 @@ pub const Compiler = struct {
             // relaxed_trunc (0x101-0x104) = same as trunc_sat
             0x101 => { self.emitSimdUnaryNeon(instr, 0x4EA1B800); return true; }, // relaxed i32x4.trunc_sat_f32x4_s
             0x102 => { self.emitSimdUnaryNeon(instr, 0x6EA1B800); return true; }, // relaxed i32x4.trunc_sat_f32x4_u
-            // relaxed_madd/nmadd (0x105-0x108): trampoline (ternary, complex)
-            // relaxed_laneselect (0x109-0x10C): same as bitselect
+            // relaxed_madd (0x105,0x107): FMA — load c, FMLA Vd+=Vn*Vm
+            0x105 => { // f32x4.relaxed_madd(a,b,c) = a*b+c
+                self.emitLoadV128(SIMD_SCRATCH0, extra); // c → V0 (accumulator)
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1); // a → V1
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field); // b → V2
+                // FMLA V0.4S, V1.4S, V2.4S = 0x4E20CC00
+                self.emit(0x4E20CC00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x107 => { // f64x2.relaxed_madd
+                self.emitLoadV128(SIMD_SCRATCH0, extra);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field);
+                // FMLA V0.2D = 0x4E60CC00
+                self.emit(0x4E60CC00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x106 => { // f32x4.relaxed_nmadd(a,b,c) = c - a*b
+                self.emitLoadV128(SIMD_SCRATCH0, extra);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field);
+                // FMLS V0.4S = 0x4EA0CC00
+                self.emit(0x4EA0CC00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x108 => { // f64x2.relaxed_nmadd
+                self.emitLoadV128(SIMD_SCRATCH0, extra);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1);
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field);
+                // FMLS V0.2D = 0x4EE0CC00
+                self.emit(0x4EE0CC00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // relaxed_laneselect (0x109-0x10C): same as bitselect (BSL)
+            0x109, 0x10A, 0x10B, 0x10C => {
+                self.emitLoadV128(SIMD_SCRATCH0, extra); // mask → V0
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs1); // v1 → V1
+                const V2: u5 = 2;
+                self.emitLoadV128(V2, instr.rs2_field); // v2 → V2
+                self.emit(0x6E601C00 | (@as(u32, V2) << 16) | (@as(u32, SIMD_SCRATCH1) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // relaxed_q15mulr (0x111): same as non-relaxed
+            0x111 => {
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
+                // SQRDMULH .8H = 0x6E60B400
+                self.emit(0x6E60B400 | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            // relaxed_trunc_f64x2 (0x103-0x104): same as non-relaxed trunc_sat
+            0x103 => { // FCVTZS .2D + SQXTN .2S (same as 0xFC)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x4EE1B800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emit(0x0EA14800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
+            0x104 => { // FCVTZU .2D + UQXTN .2S (same as 0xFD)
+                self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
+                self.emit(0x6EE1B800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emit(0x2EA14800 | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0);
+                self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+                return true;
+            },
             // relaxed_min/max (0x10D-0x110): same as min/max
             0x10D => { self.emitSimdBinaryNeon(instr, 0x4EA0F400); return true; }, // f32x4.relaxed_min = fmin
             0x10E => { self.emitSimdBinaryNeon(instr, 0x4E20F400); return true; }, // f32x4.relaxed_max = fmax
