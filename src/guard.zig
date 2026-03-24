@@ -18,6 +18,7 @@ const page_size = std.heap.page_size_min;
 
 const posix = std.posix;
 const windows = std.os.windows;
+
 const kernel32 = std.os.windows.kernel32;
 
 /// Guard region size: 4 GiB + 64 KiB.
@@ -149,7 +150,6 @@ pub fn installSignalHandler() void {
                 resetAndReraise();
                 return;
             }
-
 
             // Redirect execution to OOB error return
             setPc(ctx, rec.oob_exit_pc);

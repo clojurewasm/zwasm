@@ -2482,7 +2482,7 @@ pub const Compiler = struct {
     // --- Call emitters ---
 
     /// Emit a function call via trampoline.
-    fn emitCall(self: *Compiler, rd: u16, func_idx: u32, n_args: u16, data: RegInstr, data2: ?RegInstr, _: []const RegInstr, _: u32) void {
+    fn emitCall(self: *Compiler, rd: u16, func_idx: u32, n_args: u16, n_results: u16, data: RegInstr, data2: ?RegInstr, _: []const RegInstr, _: u32) void {
         // 1. Spill ALL caller-saved regs (non-live-aware: avoids stale physical
         // registers after reload, preventing corruption by subsequent spillCallerSaved).
         self.spillCallerSaved();
@@ -2560,7 +2560,7 @@ pub const Compiler = struct {
 
         // 7. Reload ALL caller-saved regs, then load result
         self.reloadCallerSaved();
-        self.reloadVreg(rd);
+        if (n_results > 0) self.reloadVreg(rd);
     }
 
     /// Emit call_indirect via trampoline.
@@ -2648,7 +2648,7 @@ pub const Compiler = struct {
 
         // 7. Reload and load result
         self.reloadCallerSaved();
-        self.reloadVreg(instr.rd);
+        if (instr.rs2_field > 0) self.reloadVreg(instr.rd);
     }
 
     /// Emit inline self-call: bypass trampoline, call directly to self_call_entry.
@@ -5934,7 +5934,8 @@ pub const Compiler = struct {
                 if (self.has_self_call and func_idx == self.self_func_idx) {
                     self.emitInlineSelfCall(instr.rd, data, if (has_data2) data2 else null, ir, call_pc);
                 } else {
-                    self.emitCall(instr.rd, func_idx, n_args, data, if (has_data2) data2 else null, ir, call_pc);
+                    const n_results: u16 = instr.rs2_field;
+                    self.emitCall(instr.rd, func_idx, n_args, n_results, data, if (has_data2) data2 else null, ir, call_pc);
                 }
             },
             regalloc_mod.OP_CALL_INDIRECT => {

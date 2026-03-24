@@ -854,7 +854,7 @@ pub fn convert(
 
                 const rd = if (n_results > 0) temps.alloc() else 0;
 
-                try code.append(alloc, .{ .op = OP_CALL, .rd = rd, .rs1 = @intCast(n_args), .operand = func_idx });
+                try code.append(alloc, .{ .op = OP_CALL, .rd = rd, .rs1 = @intCast(n_args), .rs2_field = @intCast(n_results), .operand = func_idx });
 
                 // Pack arg registers into data words (up to 4 per word)
                 var arg_regs: [8]u16 = .{0} ** 8;
@@ -1181,6 +1181,7 @@ pub fn convert(
                     .op = OP_CALL_INDIRECT,
                     .rd = rd,
                     .rs1 = elem_idx_reg,
+                    .rs2_field = @intCast(n_results),
                     .operand = type_idx | (@as(u32, table_idx) << 24),
                 });
 
