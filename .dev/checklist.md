@@ -10,30 +10,30 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open Items
 
-- [x] W38: SIMD JIT — compiler-generated code performance (2026-03-24)
-  **Resolved via Lazy AOT approach** on branch `perf/w38-lazy-aot`:
-  - HOT_THRESHOLD 10 → 3: earlier JIT compilation
-  - `back_edge_bailed` flag: reentry guard bail no longer poisons call-path JIT
-  - ARM64 extract_lane encoding fix (imm5 shift + upper-half memory load)
-  - JIT memory_grow64 u32 → u64 (memory64 `-1` return fix)
-  - JIT trampoline cross-module instance fix (callee's instance, not caller's)
-  - Spec: 62,263/62,263 (100%). Benchmarks: no regression.
+- [ ] W41: JIT real-world correctness — remaining bugs after void-call fix
+  Phase 20 fixed void-call reloadVreg (Mac 41→46, Ubuntu 48). Remaining:
 
-- [ ] W41: JIT real-world correctness — OOB/wrong results at HOT_THRESHOLD=3
-  6 real-world programs produce wrong JIT output (correct with `--interp`):
-  - `rust_compression`: OOB at test 2 (**T=10 でも再現、back-edge JIT バグ**)
-  - `rust_enum_match`: float formatting garbage (T=3 で露出)
-  - `rust_serde_json`: OOB (T=3 で露出)
-  - `tinygo_hello`: OOB (T=3 で露出)
-  - `tinygo_json`: OOB (T=3 で露出)
-  - `tinygo_sort`: 出力差異 (T=3 で露出)
-  Spec tests (62,263) all pass — these are code patterns spec tests don't cover.
-  Likely root cause: JIT codegen for complex Rust/Go/TinyGo patterns (large
-  functions, complex control flow, specific memory access patterns).
+  **Mac failures (4 DIFF):**
+  - `tinygo_hello`: TWO bugs:
+    1. func#99 (57 regs, 614 IR): type confusion `%!s(int=1)` vs `arg1`
+       → high reg_count specific, 34 spill-only vregs
+    2. func#154 (12 regs): crash "type assert failed" → unreachable
+  - `tinygo_json`: interface type confusion (likely same root cause as func#99)
+  - `tinygo_sort`: sort result `false` instead of `true`
+  - `rust_file_io`: output diff (needs investigation)
+
+  **Ubuntu failures (2 DIFF):**
+  - `tinygo_hello`, `tinygo_json` (same as Mac)
+
+  **Next steps:**
+  1. Investigate func#99 (57 regs): largest impact, likely shared with tinygo_json
+     - Dump JIT disassembly, compare store values JIT vs interpreter
+     - Focus on spill-only vreg handling (>= 23) and scratch register management
+  2. Then func#154 (12 regs): separate crash
+  3. rust_file_io and tinygo_sort: lower priority
 
 - [ ] W42: wasmtime 互換性差異 (JIT 無関係)
-  3 Go programs produce different output from wasmtime (same in interp and JIT):
-  - `go_crypto_sha256`, `go_math_big`, `go_regex`
+  go_math_big — different output from wasmtime (same in interp and JIT).
   Likely Go runtime behavior differences (env, args, or WASI capability gaps).
 
 ## Resolved (summary)
@@ -42,5 +42,8 @@ W37: Contiguous v128 storage. W39: Multi-value return JIT (guard removed).
 W40: Epoch-based JIT timeout (D131).
 W38: SIMD JIT C-compiled perf — Lazy AOT (HOT_THRESHOLD 10→3, back_edge_bailed,
      extract_lane fix, memory_grow64 fix, cross-module instance fix).
+W41 (partial): void-call reloadVreg fix — emitCall/emitCallIndirect skips
+     reloadVreg(rd) when n_results=0. Fixes rust_compression, rust_serde_json,
+     rust_enum_match (+3 Mac, stable Ubuntu). n_results encoded in rs2_field.
 
 W2-W36: See git history. All resolved through Stages 0-47 and Phases 1-19.
