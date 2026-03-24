@@ -7,7 +7,7 @@ Session handover document. Read at session start.
 - Stages 0-46 + Phase 1, 3, 5, 8, 10, 11, 13, 15, 19, **20 (partial)** complete.
 - Spec: 62,263/62,263 Mac+Ubuntu (100.0%, 0 skip).
 - E2E: 792/792 (Mac+Ubuntu).
-- Real-world: Mac 47/50, Ubuntu TBD (pending merge gate).
+- Real-world: Mac 48/50 (tinygo_sort fixed), Ubuntu TBD (pending merge gate).
 - JIT: Register IR + ARM64/x86_64 + SIMD (NEON 253/256, SSE 244/256).
 - HOT_THRESHOLD=3 (lowered from 10 in W38).
 - Binary: 1.29MB stripped. Memory: ~3.5MB RSS.
@@ -18,48 +18,9 @@ Session handover document. Read at session start.
 
 **Phase 20: JIT Correctness Sweep — remaining W41 bugs**
 
-Branch: `phase20/func99-type-confusion`. Two fixes committed, ready for merge gate.
+Branch: `phase20/tinygo-sort-fix`. tinygo_sort FIXED, ready for merge gate.
 
-### Completed fixes (this branch)
-
-| Fix                                            | Impact                      |
-|------------------------------------------------|-----------------------------|
-| written_vregs pre-scan (ARM64 + x86)           | +2 Mac (tinygo_hello, json) |
-| void self-call result clobber (ARM64 + x86)    | Preventive (void self-calls)|
-
-**Root cause 1 — written_vregs loop bug**: `written_vregs` bitset was built
-incrementally during compilation, so at call sites, only vregs written BEFORE
-that PC were tracked. In loops where a vreg is written AFTER a call, the spill
-was skipped on later iterations, causing stale values after reload.
-Fix: pre-scan ALL instructions before the compile loop.
-
-**Root cause 2 — void self-call result clobber**: `emitInlineSelfCall` used
-`self.result_count` (function's declared result count) instead of `n_results`
-(actual call-site result count). For void calls to functions that return values,
-this loaded the callee's result into rd=0 (vreg 0, x22), clobbering a live reg.
-
-### Next: tinygo_sort func#87 (89 regs, quicksort)
-
-**What**: `sorted 200 integers: false` — sort produces correct first/last values
-but some interior elements are out of order. Consistently reproducible.
-
-**Confirmed**: Skipping func#87 from JIT → correct output. Disabling inline
-self-calls does NOT fix it (bug is in regular codegen, not self-call path).
-
-**Key facts**:
-- 89 regs = 23 physical + 66 spill-only
-- 727 IR instructions, 28 locals, 4 params
-- Self-recursive (quicksort), void function
-- written_vregs pre-scan already applied — not the same bug
-- Inner loop has swap ops (lines 113-117) and comparisons
-- Needs different debugging approach (memory comparison or targeted tracing)
-
-### Also remaining
-
-- `rust_enum_match`: garbage f64 values in Triangle coordinates — FP-related JIT bug
-- W42: `go_math_big` wasmtime compat diff (env-dependent, not JIT-related)
-
-### All Phase 20 fixes
+### Completed fixes (all Phase 20)
 
 | Fix                                              | Impact                    |
 |--------------------------------------------------|---------------------------|
@@ -67,12 +28,25 @@ self-calls does NOT fix it (bug is in regular codegen, not self-call path).
 | ARM64 emitMemFill/emitMemCopy/emitMemGrow ABI    | ARM64 memory ops          |
 | written_vregs pre-scan (ARM64 + x86)             | +2 Mac (tinygo_hello/json) |
 | void self-call result clobber (ARM64 + x86)      | Preventive fix             |
+| **ARM64 fuel check x0 clobber** (this branch)    | **tinygo_sort FIXED**      |
+
+**Root cause — fuel check clobbered vreg 20 (x0)**: The ARM64 `emitFuelCheck`
+used x0 as a temporary for the fuel counter. But x0 maps to vreg 20 when
+reg_count > 20. At loop back-edges, this clobbered vreg 20's live value,
+causing incorrect results in the partition loop (wrong sort output).
+Fix: use SCRATCH2 (x16/IP0) instead of x0. x86 backend was already correct
+(push/pop rax around fuel check).
+
+### Remaining
+
+- `rust_enum_match`: garbage f64 values in Triangle coordinates — FP-related JIT bug
+- W42: `go_math_big` wasmtime compat diff (env-dependent, not JIT-related)
 
 ### Open Work Items
 
 | Item     | Description                                       | Status         |
 |----------|---------------------------------------------------|----------------|
-| W41      | JIT real-world: tinygo_sort, rust_enum_match      | **Next**       |
+| W41      | JIT real-world: rust_enum_match                   | **Next**       |
 | W42      | wasmtime 互換性差異 (go_math_big, Mac)             | Low priority   |
 | Phase 18 | Lazy Compilation + CLI Extensions                 | Future         |
 

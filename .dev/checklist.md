@@ -10,17 +10,11 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open Items
 
-- [ ] W41: JIT real-world correctness — 2 remaining bugs (Mac 47/50)
-  Phase 20 fixed: void-call reloadVreg, written_vregs pre-scan, void self-call result.
-  rust_file_io now PASS. tinygo_hello/json fixed by written_vregs pre-scan.
+- [ ] W41: JIT real-world correctness — 1 remaining bug (Mac 48/50)
+  Phase 20 fixed: void-call reloadVreg, written_vregs pre-scan, void self-call result,
+  **ARM64 fuel check x0 clobber** (tinygo_sort fixed).
 
-  **Mac remaining (2 JIT DIFF):**
-  - `tinygo_sort`: func#87 (89 regs, 727 IR, quicksort) — `sorted: false`
-    - Bug triggers only when reg_count > 50 (confirmed by threshold test)
-    - NOT: written_vregs (pre-scan already applied), NOT: self-call path
-    - Likely: spill-only vreg handling bug specific to high reg_count
-    - Approach: ARM64 disassembly (capstone), runtime mem comparison,
-      or reg_count bisection (50-89) to find minimum reproducer
+  **Mac remaining (1 JIT DIFF):**
   - `rust_enum_match`: garbage f64 in Triangle coords
     - FP-related JIT bug, needs separate investigation
 
