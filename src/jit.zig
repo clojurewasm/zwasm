@@ -3570,7 +3570,9 @@ pub const Compiler = struct {
         if (self.jit_fuel_offset == 0) return;
         // Load vm_ptr → SCRATCH (x8)
         self.emitLoadVmPtr(SCRATCH);
-        const fuel_reg: u5 = 0; // x0: safe — not mapped to any vreg
+        // Use SCRATCH2 (x16/IP0) for fuel value — NOT x0, which maps to vreg 20
+        // when reg_count > 20. Using x0 clobbered vreg 20 at loop back-edges.
+        const fuel_tmp: u5 = SCRATCH2;
         // Compute address of jit_fuel: ADD SCRATCH, SCRATCH, #offset
         // jit_fuel offset exceeds u16 (Vm struct is >500KB), so use ADD imm.
         const fuel_off = self.jit_fuel_offset;
@@ -3578,17 +3580,16 @@ pub const Compiler = struct {
         if (fuel_off <= 4095) {
             self.emit(a64.addImm64(SCRATCH, SCRATCH, @intCast(fuel_off)));
         } else {
-            // MOVZ x0, #(fuel_off & 0xFFFF), LSL#0
-            self.emit(a64.movz64(fuel_reg, @truncate(fuel_off), 0));
+            self.emit(a64.movz64(fuel_tmp, @truncate(fuel_off), 0));
             if (fuel_off > 0xFFFF) {
-                self.emit(a64.movk64(fuel_reg, @truncate(fuel_off >> 16), 1));
+                self.emit(a64.movk64(fuel_tmp, @truncate(fuel_off >> 16), 1));
             }
-            self.emit(a64.add64(SCRATCH, SCRATCH, fuel_reg));
+            self.emit(a64.add64(SCRATCH, SCRATCH, fuel_tmp));
         }
         // Now SCRATCH points to &vm.jit_fuel
-        self.emit(a64.ldr64(fuel_reg, SCRATCH, 0));
-        self.emit(a64.subsImm64(fuel_reg, fuel_reg, 1));
-        self.emit(a64.str64(fuel_reg, SCRATCH, 0));
+        self.emit(a64.ldr64(fuel_tmp, SCRATCH, 0));
+        self.emit(a64.subsImm64(fuel_tmp, fuel_tmp, 1));
+        self.emit(a64.str64(fuel_tmp, SCRATCH, 0));
         self.scratch_vreg = null;
         // Fast path: fuel >= 0, skip the slow path
         const skip_idx = self.currentIdx();
