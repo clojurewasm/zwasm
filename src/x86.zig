@@ -189,6 +189,13 @@ const Enc = struct {
         buf.append(alloc, modrmReg(src, dst)) catch {};
     }
 
+    /// MOV r64, r64 (REX.W prefix for 64-bit operand)
+    fn movRegReg64(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, src: Reg) void {
+        buf.append(alloc, rex(true, src.isExt(), false, dst.isExt())) catch {};
+        buf.append(alloc, 0x89) catch {};
+        buf.append(alloc, modrmReg(src, dst)) catch {};
+    }
+
     /// MOV r64, imm64 (10 bytes): REX.W B8+rd io
     fn movImm64(buf: *std.ArrayList(u8), alloc: Allocator, dst: Reg, imm: u64) void {
         buf.append(alloc, rexW1(dst)) catch {};
