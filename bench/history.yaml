@@ -3245,3 +3245,67 @@ entries:
       rw_cpp_string_cached: {time_ms: 7.3}
       rw_cpp_sort: {time_ms: 4.3}
       rw_cpp_sort_cached: {time_ms: 4.7}
+  - id: "phase20-rem-fix"
+    date: "2026-03-25"
+    reason: "Phase 20 complete: remainder aliasing fix, Mac+Ubuntu 50/50"
+    commit: "65db814"
+    build: ReleaseSafe
+    results:
+      fib: {time_ms: 48.4}
+      fib_cached: {time_ms: 46.5}
+      tak: {time_ms: 6.6}
+      tak_cached: {time_ms: 6.1}
+      sieve: {time_ms: 6.4}
+      sieve_cached: {time_ms: 4.8}
+      nbody: {time_ms: 23.3}
+      nbody_cached: {time_ms: 23.1}
+      nqueens: {time_ms: 3.2}
+      nqueens_cached: {time_ms: 2.5}
+      tgo_fib: {time_ms: 35.1}
+      tgo_fib_cached: {time_ms: 32.7}
+      tgo_tak: {time_ms: 6.6}
+      tgo_tak_cached: {time_ms: 6.4}
+      tgo_arith: {time_ms: 2.2}
+      tgo_arith_cached: {time_ms: 2.3}
+      tgo_sieve: {time_ms: 5.1}
+      tgo_sieve_cached: {time_ms: 3.7}
+      tgo_fib_loop: {time_ms: 2.2}
+      tgo_fib_loop_cached: {time_ms: 2.7}
+      tgo_gcd: {time_ms: 2.9}
+      tgo_gcd_cached: {time_ms: 2.4}
+      tgo_nqueens: {time_ms: 54.1}
+      tgo_nqueens_cached: {time_ms: 56.2}
+      tgo_mfr: {time_ms: 48.6}
+      tgo_mfr_cached: {time_ms: 48.9}
+      tgo_list: {time_ms: 55.5}
+      tgo_list_cached: {time_ms: 63.9}
+      tgo_rwork: {time_ms: 6.4}
+      tgo_rwork_cached: {time_ms: 6.6}
+      tgo_strops: {time_ms: 82.7}
+      tgo_strops_cached: {time_ms: 87.9}
+      st_fib2: {time_ms: 887.3}
+      st_fib2_cached: {time_ms: 901.6}
+      st_sieve: {time_ms: 181.9}
+      st_sieve_cached: {time_ms: 185.4}
+      st_nestedloop: {time_ms: 2.8}
+      st_nestedloop_cached: {time_ms: 2.6}
+      st_ackermann: {time_ms: 5.8}
+      st_ackermann_cached: {time_ms: 5.6}
+      st_matrix: {time_ms: 289.0}
+      st_matrix_cached: {time_ms: 292.7}
+      gc_alloc: {time_ms: 6.3}
+      gc_alloc_cached: {time_ms: 8.8}
+      gc_tree: {time_ms: 23.2}
+      gc_tree_cached: {time_ms: 23.7}
+      rw_rust_fib: {time_ms: 37.1}
+      rw_rust_fib_cached: {time_ms: 40.5}
+      rw_c_matrix: {time_ms: 20.8}
+      rw_c_matrix_cached: {time_ms: 23.1}
+      rw_c_math: {time_ms: 68.1}
+      rw_c_math_cached: {time_ms: 67.4}
+      rw_c_string: {time_ms: 52.0}
+      rw_c_string_cached: {time_ms: 50.5}
+      rw_cpp_string: {time_ms: 7.8}
+      rw_cpp_string_cached: {time_ms: 6.8}
+      rw_cpp_sort: {time_ms: 4.3}
+      rw_cpp_sort_cached: {time_ms: 4.3}
