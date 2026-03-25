@@ -18,6 +18,8 @@ SOURCES=(
     sum_reduce
     byte_freq
     nbody_simd
+    mandelbrot
+    matmul
 )
 
 echo "=== Building SIMD benchmarks ==="
