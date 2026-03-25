@@ -1536,6 +1536,11 @@ const Cond = enum(u4) {
 // Virtual register mapping
 // ================================================================
 
+/// SIMD XMM register cache: XMM6-XMM15 for v128 values (10 registers).
+/// All XMM registers are caller-saved on x86-64 (both SysV and Win64).
+const SIMD_XREG_BASE: u4 = 6;
+const SIMD_XREG_COUNT: usize = 10;
+
 /// Map virtual register index to x86_64 physical register.
 /// r0-r2 → RBX, RBP, R15 (callee-saved)
 /// r3-r10 → RCX, RDI, RSI, RDX, R8, R9, R10, R11 (caller-saved)
@@ -1701,6 +1706,10 @@ pub const Compiler = struct {
     written_vregs: u128,
     /// Bitset of vregs that hold v128 values (produced by SIMD ops with v128 result).
     v128_vregs: u128,
+    /// SIMD XMM register cache: maps XMM6-XMM15 slots to vregs holding v128 values.
+    simd_xreg: [SIMD_XREG_COUNT]?u16,
+    simd_xreg_dirty: [SIMD_XREG_COUNT]bool,
+    simd_xreg_lru: u8,
     scratch_vreg: ?u16,
     /// Offset of Vm.simd_v128 field (contiguous v128 storage).
     simd_v128_offset: u32,
@@ -1771,6 +1780,9 @@ pub const Compiler = struct {
             .known_consts = .{null} ** 128,
             .written_vregs = 0,
             .v128_vregs = 0,
+            .simd_xreg = .{null} ** SIMD_XREG_COUNT,
+            .simd_xreg_dirty = .{false} ** SIMD_XREG_COUNT,
+            .simd_xreg_lru = 0,
             .scratch_vreg = null,
             .simd_v128_offset = 0,
             .has_simd = false,
@@ -2436,6 +2448,7 @@ pub const Compiler = struct {
 
     /// global.get: call jitGlobalGet(instance, idx) → u64
     fn emitGlobalGet(self: *Compiler, instr: RegInstr) void {
+        self.simdXregEvictAll();
         self.spillCallerSaved();
         if (builtin.os.tag == .windows) {
             self.emitLoadInstPtr(.rcx);
@@ -2458,6 +2471,7 @@ pub const Compiler = struct {
 
     /// global.set: call jitGlobalSet(instance, idx, val)
     fn emitGlobalSet(self: *Compiler, instr: RegInstr) void {
+        self.simdXregEvictAll();
         self.spillCallerSaved();
         const val_reg = self.getOrLoad(instr.rd, SCRATCH);
         if (builtin.os.tag == .windows) {
@@ -2488,6 +2502,7 @@ pub const Compiler = struct {
     fn emitCall(self: *Compiler, rd: u16, func_idx: u32, n_args: u16, n_results: u16, data: RegInstr, data2: ?RegInstr, _: []const RegInstr, _: u32) void {
         // 1. Spill ALL caller-saved regs (non-live-aware: avoids stale physical
         // registers after reload, preventing corruption by subsequent spillCallerSaved).
+        self.simdXregEvictAll();
         self.spillCallerSaved();
         // Trampoline reads args from regs[] — spill ALL arg vregs unconditionally.
         if (n_args > 0) self.spillVreg(data.rd);
@@ -2569,6 +2584,7 @@ pub const Compiler = struct {
     /// Emit call_indirect via trampoline.
     fn emitCallIndirect(self: *Compiler, instr: RegInstr, data: RegInstr, data2: ?RegInstr) void {
         // 1. Spill caller-saved regs + arg vregs
+        self.simdXregEvictAll();
         self.spillCallerSaved();
         // Trampoline reads args from regs[] — spill ALL arg vregs unconditionally.
         self.spillVreg(data.rd);
@@ -2662,6 +2678,7 @@ pub const Compiler = struct {
         const n_args = self.param_count;
 
         // 1. Spill ALL caller-saved vregs (including callee-saved vregs 0-2)
+        self.simdXregEvictAll();
         self.spillCallerSaved();
         // Spill callee-saved vregs — self-call entry doesn't save/restore them.
         for (0..@min(self.reg_count, FIRST_CALLER_SAVED_VREG)) |i| {
@@ -2824,6 +2841,7 @@ pub const Compiler = struct {
 
     /// Emit memory.grow via trampoline call.
     fn emitMemGrow(self: *Compiler, instr: RegInstr) void {
+        self.simdXregEvictAll();
         self.spillCallerSaved();
         const pages_reg = self.getOrLoad(instr.rs1, SCRATCH);
         if (builtin.os.tag == .windows) {
@@ -2855,6 +2873,7 @@ pub const Compiler = struct {
 
     /// Emit memory.fill via trampoline call.
     fn emitMemFill(self: *Compiler, instr: RegInstr) void {
+        self.simdXregEvictAll();
         self.spillCallerSaved();
         // Spill all arg vregs then load from memory to avoid register conflicts.
         // getOrLoad returns physical registers that may alias ABI arg registers;
@@ -2889,6 +2908,7 @@ pub const Compiler = struct {
 
     /// Emit memory.copy via trampoline call.
     fn emitMemCopy(self: *Compiler, instr: RegInstr) void {
+        self.simdXregEvictAll();
         self.spillCallerSaved();
         // Spill all arg vregs then load from memory to avoid register conflicts.
         self.spillVreg(instr.rd);
@@ -3850,6 +3870,11 @@ pub const Compiler = struct {
         }
 
         while (pc < ir.len) {
+            // Evict SIMD XMM cache at branch targets (merge points)
+            if (pc < branch_targets.len and branch_targets[pc]) {
+                self.simdXregEvictAll();
+                self.scratch_vreg = null;
+            }
             self.pc_map.items[pc] = self.currentOffset();
             const instr = ir[pc];
             pc += 1;
@@ -3879,64 +3904,156 @@ pub const Compiler = struct {
         return self.finalize();
     }
 
+    // --- SIMD XMM register cache (XMM6-XMM15) ---
+
+    fn simdXregFind(self: *Compiler, vreg: u16) ?usize {
+        for (self.simd_xreg, 0..) |entry, i| {
+            if (entry != null and entry.? == vreg) return i;
+        }
+        return null;
+    }
+
+    fn simdXregAllocSlot(self: *Compiler, vreg: u16) usize {
+        if (self.simdXregFind(vreg)) |slot| return slot;
+        for (self.simd_xreg, 0..) |entry, i| {
+            if (entry == null) {
+                self.simd_xreg[i] = vreg;
+                self.simd_xreg_dirty[i] = false;
+                return i;
+            }
+        }
+        const slot = self.simd_xreg_lru % SIMD_XREG_COUNT;
+        self.simd_xreg_lru +%= 1;
+        self.simdXregEvictSlot(slot);
+        self.simd_xreg[slot] = vreg;
+        self.simd_xreg_dirty[slot] = false;
+        return slot;
+    }
+
+    fn simdXregGetOrLoad(self: *Compiler, vreg: u16) u4 {
+        if (self.simdXregFind(vreg)) |slot| {
+            return @intCast(@as(u5, SIMD_XREG_BASE) + @as(u5, @intCast(slot)));
+        }
+        const slot = self.simdXregAllocSlot(vreg);
+        const xreg: u4 = @intCast(@as(u5, SIMD_XREG_BASE) + @as(u5, @intCast(slot)));
+        self.emitLoadV128Raw(xreg, vreg);
+        return xreg;
+    }
+
+    fn simdXregEvictSlot(self: *Compiler, slot: usize) void {
+        if (self.simd_xreg[slot]) |vreg| {
+            if (self.simd_xreg_dirty[slot]) {
+                const xreg: u4 = @intCast(@as(u5, SIMD_XREG_BASE) + @as(u5, @intCast(slot)));
+                self.emitStoreV128Raw(xreg, vreg);
+            }
+            self.simd_xreg[slot] = null;
+            self.simd_xreg_dirty[slot] = false;
+        }
+    }
+
+    fn simdXregEvictAll(self: *Compiler) void {
+        for (0..SIMD_XREG_COUNT) |i| {
+            self.simdXregEvictSlot(i);
+        }
+    }
+
+    fn simdXregInvalidate(self: *Compiler, vreg: u16) void {
+        if (self.simdXregFind(vreg)) |slot| {
+            self.simd_xreg[slot] = null;
+            self.simd_xreg_dirty[slot] = false;
+        }
+    }
+
+    fn simdXregFlushVreg(self: *Compiler, vreg: u16) void {
+        if (self.simdXregFind(vreg)) |slot| {
+            if (self.simd_xreg_dirty[slot]) {
+                const xreg: u4 = @intCast(@as(u5, SIMD_XREG_BASE) + @as(u5, @intCast(slot)));
+                self.emitStoreV128Raw(xreg, vreg);
+                self.simd_xreg_dirty[slot] = false;
+            }
+        }
+    }
+
     // --- SIMD v128 helpers ---
 
     const SIMD_SCRATCH0: u4 = 3; // XMM3
     const SIMD_SCRATCH1: u4 = 4; // XMM4
 
     // --- v128 load/store (contiguous simd_v128 storage) ---
-    /// Compute the base address of simd_v128[vreg] into SCRATCH2.
     fn emitSimdV128Addr(self: *Compiler, vreg: u16) void {
         self.emitLoadVmPtr(SCRATCH2);
         const byte_offset: i32 = @as(i32, @intCast(self.simd_v128_offset)) + @as(i32, vreg) * 16;
         Enc.addImm32(&self.code, self.alloc, SCRATCH2, byte_offset);
     }
 
-    /// Load v128 from simd_v128[vreg] into XMM register (contiguous 128-bit).
+    /// Load v128: cache-aware. If cached, emit MOVAPS from XMM cache. Otherwise load from memory.
     fn emitLoadV128(self: *Compiler, xmm: u4, vreg: u16) void {
+        if (self.simdXregFind(vreg)) |slot| {
+            const x_cached: u4 = @intCast(@as(u5, SIMD_XREG_BASE) + @as(u5, @intCast(slot)));
+            if (x_cached != xmm) Enc.movaps(&self.code, self.alloc, xmm, x_cached);
+            return;
+        }
+        self.emitLoadV128Raw(xmm, vreg);
+    }
+
+    /// Load v128 directly from simd_v128[] (bypasses cache). Used by cache internals.
+    fn emitLoadV128Raw(self: *Compiler, xmm: u4, vreg: u16) void {
         self.emitSimdV128Addr(vreg);
-        // MOVDQU xmm, [SCRATCH2] — unaligned 128-bit load
         Enc.movdquFromMem(&self.code, self.alloc, xmm, SCRATCH2, 0);
     }
 
-    /// Store XMM register to simd_v128[vreg] (contiguous 128-bit).
-    /// Also writes lo half to regs[vreg] for trampoline/interpreter compatibility.
+    /// Store v128: cache-aware with lazy writeback.
     fn emitStoreV128(self: *Compiler, xmm: u4, vreg: u16) void {
+        const slot = self.simdXregAllocSlot(vreg);
+        const x_cached: u4 = @intCast(@as(u5, SIMD_XREG_BASE) + @as(u5, @intCast(slot)));
+        if (x_cached != xmm) Enc.movaps(&self.code, self.alloc, x_cached, xmm);
+        self.simd_xreg_dirty[slot] = true;
+    }
+
+    /// Store v128 directly to simd_v128[] + lo half to regs[]. Used by cache flush.
+    fn emitStoreV128Raw(self: *Compiler, xmm: u4, vreg: u16) void {
         self.emitSimdV128Addr(vreg);
-        // MOVDQU [SCRATCH2], xmm — unaligned 128-bit store
         Enc.movdquToMem(&self.code, self.alloc, SCRATCH2, 0, xmm);
-        // Also store lo half to regs[vreg] for cross-tier compatibility
         const lo_disp: i32 = @as(i32, vreg) * 8;
         Enc.movqXmmToMem(&self.code, self.alloc, REGS_PTR, lo_disp, xmm);
     }
 
-    /// Copy simd_v128[rd] = simd_v128[rs1] (for OP_MOV).
+    /// Copy v128 between vregs (cache-aware).
     fn emitCopySimdV128(self: *Compiler, rd: u16, rs1: u16) void {
-        // Load full v128 from rs1
-        self.emitLoadV128(0, rs1); // xmm0
-        // Store to rd
-        self.emitStoreV128(0, rd);
+        if (rd == rs1) return;
+        if (self.simdXregFind(rs1)) |src_slot| {
+            const x_src: u4 = @intCast(@as(u5, SIMD_XREG_BASE) + @as(u5, @intCast(src_slot)));
+            const dst_slot = self.simdXregAllocSlot(rd);
+            const x_dst: u4 = @intCast(@as(u5, SIMD_XREG_BASE) + @as(u5, @intCast(dst_slot)));
+            if (x_dst != x_src) Enc.movaps(&self.code, self.alloc, x_dst, x_src);
+            self.simd_xreg_dirty[dst_slot] = true;
+        } else {
+            const dst_slot = self.simdXregAllocSlot(rd);
+            const x_dst: u4 = @intCast(@as(u5, SIMD_XREG_BASE) + @as(u5, @intCast(dst_slot)));
+            self.emitLoadV128Raw(x_dst, rs1);
+            self.simd_xreg_dirty[dst_slot] = true;
+        }
     }
 
-    /// Clear simd_v128[rd] = {0, 0} (for scalar ops that need to zero the v128 slot).
-    /// Does NOT touch regs[rd] — caller already set the scalar value there.
+    /// Clear simd_v128[rd] (invalidate Q cache, then zero memory).
     fn emitClearSimdV128(self: *Compiler, rd: u16) void {
-        // PXOR xmm0, xmm0 then MOVDQU [addr], xmm0
+        self.simdXregInvalidate(rd);
         Enc.pxor(&self.code, self.alloc, 0, 0);
         self.emitSimdV128Addr(rd);
         Enc.movdquToMem(&self.code, self.alloc, SCRATCH2, 0, 0);
     }
 
-    /// Try to emit native SSE for a SIMD opcode. Returns true if handled.
-    /// Emit native SSE binary op: load rs1 → XMM3, load rs2 → XMM4, op XMM3,XMM4, store → rd.
+    /// Emit native SSE binary op: uses XMM cache for direct register ops.
     fn emitSimdBinarySse(self: *Compiler, instr: RegInstr, encodeFn: *const fn (*std.ArrayList(u8), Allocator, u4, u4) void) void {
+        // SSE binary ops are destructive (dst = dst OP src), so we can't operate
+        // directly on cached regs without risking source clobber. Use scratch regs.
         self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
         self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
         encodeFn(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_SCRATCH1);
         self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
     }
 
-    /// Emit native SSE unary op: load rs1 → XMM3, op XMM3,XMM3, store → rd.
+    /// Emit native SSE unary op.
     fn emitSimdUnarySse(self: *Compiler, instr: RegInstr, encodeFn: *const fn (*std.ArrayList(u8), Allocator, u4, u4) void) void {
         self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
         encodeFn(&self.code, self.alloc, SIMD_SCRATCH0, SIMD_SCRATCH0);
@@ -5709,6 +5826,7 @@ pub const Compiler = struct {
         }
 
         // 1. Spill caller-saved regs
+        self.simdXregEvictAll();
         self.spillCallerSaved();
         // Spill SIMD operand vregs (ensure they're in memory for trampoline)
         if (effect.pop >= 1) self.spillVreg(instr.rs1);
@@ -5845,12 +5963,17 @@ pub const Compiler = struct {
                 }) catch return false;
             },
             regalloc_mod.OP_RETURN => {
+                self.simdXregEvictAll();
                 self.emitEpilogue(if (self.result_count > 0) instr.rd else null);
             },
             regalloc_mod.OP_RETURN_MULTI => {
+                self.simdXregEvictAll();
                 self.emitEpilogueMulti(instr, ir, pc);
             },
-            regalloc_mod.OP_RETURN_VOID => self.emitEpilogue(null),
+            regalloc_mod.OP_RETURN_VOID => {
+                self.simdXregEvictAll();
+                self.emitEpilogue(null);
+            },
             regalloc_mod.OP_NOP, regalloc_mod.OP_BLOCK_END, regalloc_mod.OP_DELETED => {},
 
             // --- Unreachable ---
