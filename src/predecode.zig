@@ -42,6 +42,22 @@ pub const GC_BASE: u16 = 0xFB00;
 pub const MISC_BASE: u16 = 0xFC00;
 pub const SIMD_BASE: u16 = 0xFD00;
 
+/// Returns true if a SIMD sub-opcode (relative to SIMD_BASE) produces a v128 result.
+/// Returns false for extract_lane, any_true, all_true, bitmask (which produce i32/i64/f32/f64).
+pub fn simdResultIsV128(sub: u32) bool {
+    return switch (sub) {
+        // extract_lane → scalar (i32/i64/f32/f64)
+        0x15, 0x16, 0x18, 0x19, 0x1B, 0x1D, 0x1F, 0x21 => false,
+        // v128.any_true → i32
+        0x53 => false,
+        // all_true → i32
+        0x63, 0x83, 0xA3, 0xC3 => false,
+        // bitmask → i32
+        0x64, 0x84, 0xA4, 0xC4 => false,
+        else => true,
+    };
+}
+
 /// Block arity encoding in extra field:
 /// - bits 14:0 = arity value (0 or 1 for simple cases)
 /// - bit 15 = 1 if value is a type_index (resolve arity at runtime)
@@ -701,6 +717,30 @@ test "predecode SIMD relaxed ops (sub >= 0x100)" {
     // Verify they are distinct from sub=0x00 (v128.load) and sub=0x01 (v128.load8x8_s)
     try testing.expect(ir.?.code[0].opcode != SIMD_BASE + 0x00);
     try testing.expect(ir.?.code[1].opcode != SIMD_BASE + 0x01);
+}
+
+test "simdResultIsV128 — scalar vs v128 classification" {
+    // extract_lane → scalar
+    try testing.expect(!simdResultIsV128(0x15)); // i8x16.extract_lane_s
+    try testing.expect(!simdResultIsV128(0x16)); // i8x16.extract_lane_u
+    try testing.expect(!simdResultIsV128(0x1B)); // i32x4.extract_lane
+    try testing.expect(!simdResultIsV128(0x1D)); // i64x2.extract_lane
+    try testing.expect(!simdResultIsV128(0x1F)); // f32x4.extract_lane
+    try testing.expect(!simdResultIsV128(0x21)); // f64x2.extract_lane
+    // any_true, all_true, bitmask → scalar
+    try testing.expect(!simdResultIsV128(0x53)); // v128.any_true
+    try testing.expect(!simdResultIsV128(0x63)); // i8x16.all_true
+    try testing.expect(!simdResultIsV128(0x64)); // i8x16.bitmask
+    try testing.expect(!simdResultIsV128(0xA3)); // i32x4.all_true
+    try testing.expect(!simdResultIsV128(0xC4)); // i64x2.bitmask
+    // v128-producing ops → true
+    try testing.expect(simdResultIsV128(0x0C)); // v128.const
+    try testing.expect(simdResultIsV128(0x0F)); // i8x16.splat
+    try testing.expect(simdResultIsV128(0x17)); // i8x16.replace_lane
+    try testing.expect(simdResultIsV128(0x4E)); // v128.and
+    try testing.expect(simdResultIsV128(0xE4)); // f32x4.add
+    try testing.expect(simdResultIsV128(0x52)); // v128.bitselect
+    try testing.expect(simdResultIsV128(0x00)); // v128.load
 }
 
 test "predecode GC struct.new does not bail" {

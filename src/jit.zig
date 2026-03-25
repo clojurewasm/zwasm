@@ -1042,6 +1042,11 @@ const SIMD_BASE_REG: u5 = 17; // x17 (IP1)
 const FP_SCRATCH0: u5 = 0; // d0
 const FP_SCRATCH1: u5 = 1; // d1
 
+/// SIMD Q-register cache: Q16-Q31 for v128 values (16 registers).
+/// All caller-saved on ARM64, so flushed before every call.
+const SIMD_QREG_BASE: u5 = 16;
+const SIMD_QREG_COUNT: usize = 16;
+
 // ================================================================
 // JIT Compiler
 // ================================================================
@@ -1099,6 +1104,15 @@ pub const Compiler = struct {
     known_consts: [128]?u32,
     /// Bitset of vregs that have been written to (for spill optimization).
     written_vregs: u128,
+    /// Bitset of vregs that hold v128 values (produced by SIMD ops with v128 result).
+    /// Used by SIMD register class allocation to map v128 vregs to Q16-Q31.
+    v128_vregs: u128,
+    /// SIMD Q-register cache: maps Q16-Q31 slots to vregs holding v128 values.
+    /// Null means the slot is free. Dirty flag means the Q reg has unsaved changes.
+    simd_qreg: [SIMD_QREG_COUNT]?u16,
+    simd_qreg_dirty: [SIMD_QREG_COUNT]bool,
+    /// Round-robin counter for Q-reg eviction when cache is full.
+    simd_qreg_lru: u8,
     /// Which memory-backed vreg's value is currently in SCRATCH (x8).
     /// Valid only at instruction boundaries — used to skip redundant loads.
     scratch_vreg: ?u16,
@@ -1203,6 +1217,10 @@ pub const Compiler = struct {
             .prologue_load_mask = 0xFFFFF, // default: load all (20 vregs)
             .known_consts = .{null} ** 128,
             .written_vregs = 0,
+            .v128_vregs = 0,
+            .simd_qreg = .{null} ** SIMD_QREG_COUNT,
+            .simd_qreg_dirty = .{false} ** SIMD_QREG_COUNT,
+            .simd_qreg_lru = 0,
             .scratch_vreg = null,
             .fp_dreg = .{null} ** FP_CACHE_SIZE,
             .fp_dreg_dirty = .{false} ** FP_CACHE_SIZE,
@@ -1368,6 +1386,14 @@ pub const Compiler = struct {
         for (0..FP_CACHE_SIZE) |i| {
             self.fpCacheEvictSlot(i);
         }
+    }
+
+    /// Evict all value caches (FP D-reg + SIMD Q-reg).
+    /// Must be called before any operation that invalidates both caches:
+    /// branch targets, function calls, return, trampoline.
+    fn evictAllCaches(self: *Compiler) void {
+        self.fpCacheEvictAll();
+        self.simdQregEvictAll();
     }
 
     /// Evict only caller-saved FP cache entries (D2-D7, slots 0-5).
@@ -2170,7 +2196,7 @@ pub const Compiler = struct {
         const count = instr.operand;
         if (count > 4095) return false; // Too many cases for CMP imm12
         const idx_reg = self.getOrLoad(instr.rd, SCRATCH);
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
 
         var i: u32 = 0;
         while (i < count + 1 and pc.* < ir.len) : (i += 1) {
@@ -2559,6 +2585,13 @@ pub const Compiler = struct {
                 if (!self.isControlFlowOp(op) or op == regalloc_mod.OP_CALL or op == regalloc_mod.OP_CALL_INDIRECT) {
                     self.written_vregs |= @as(u128, 1) << @as(u7, @intCast(scan_instr.rd));
                 }
+                // Track v128-producing SIMD ops for register class allocation
+                if (op >= predecode_mod.SIMD_BASE and op <= predecode_mod.SIMD_BASE + 0x113) {
+                    const sub = op - predecode_mod.SIMD_BASE;
+                    if (predecode_mod.simdResultIsV128(sub)) {
+                        self.v128_vregs |= @as(u128, 1) << @as(u7, @intCast(scan_instr.rd));
+                    }
+                }
             }
         }
 
@@ -2571,7 +2604,7 @@ pub const Compiler = struct {
             if (pc < branch_targets.len and branch_targets[pc]) {
                 self.known_consts = .{null} ** 128;
                 self.scratch_vreg = null;
-                self.fpCacheEvictAll();
+                self.evictAllCaches();
             }
 
             // Record ARM64 code offset AFTER eviction — branches jump here.
@@ -2588,7 +2621,7 @@ pub const Compiler = struct {
                 // After branches/calls, clear all — next basic block starts fresh
                 self.known_consts = .{null} ** 128;
                 self.scratch_vreg = null;
-                self.fpCacheEvictAll();
+                self.evictAllCaches();
             } else if (instr.rd < 128) {
                 // Non-const write to rd invalidates that vreg's known const
                 self.known_consts[instr.rd] = null;
@@ -2669,7 +2702,7 @@ pub const Compiler = struct {
 
             // --- Control flow ---
             regalloc_mod.OP_BR => {
-                self.fpCacheEvictAll();
+                self.evictAllCaches();
                 const target = instr.operand;
                 // Fuel check at back-edges (target <= current pc)
                 if (target <= pc.* - 1) self.emitFuelCheck();
@@ -2682,7 +2715,7 @@ pub const Compiler = struct {
                 }) catch return false;
             },
             regalloc_mod.OP_BR_IF => {
-                self.fpCacheEvictAll();
+                self.evictAllCaches();
                 // Fuel check at back-edges (before the conditional branch)
                 if (instr.operand <= pc.* - 1) self.emitFuelCheck();
                 // Branch if rd != 0
@@ -2696,7 +2729,7 @@ pub const Compiler = struct {
                 }) catch return false;
             },
             regalloc_mod.OP_BR_IF_NOT => {
-                self.fpCacheEvictAll();
+                self.evictAllCaches();
                 // Fuel check at back-edges
                 if (instr.operand <= pc.* - 1) self.emitFuelCheck();
                 const cond_reg = self.getOrLoad(instr.rd, SCRATCH);
@@ -2709,15 +2742,15 @@ pub const Compiler = struct {
                 }) catch return false;
             },
             regalloc_mod.OP_RETURN => {
-                self.fpCacheEvictAll();
+                self.evictAllCaches();
                 self.emitEpilogue(instr.rd);
             },
             regalloc_mod.OP_RETURN_MULTI => {
-                self.fpCacheEvictAll();
+                self.evictAllCaches();
                 self.emitEpilogueMulti(instr, ir, pc);
             },
             regalloc_mod.OP_RETURN_VOID => {
-                self.fpCacheEvictAll();
+                self.evictAllCaches();
                 self.emitEpilogue(null);
             },
 
@@ -3306,7 +3339,7 @@ pub const Compiler = struct {
         if (pc.* < self.branch_targets_slice.len and self.branch_targets_slice[pc.*]) return false;
 
         // Fuse: emit B.cond instead of CSET + CBNZ/CBZ
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         const actual_cond = if (next.op == regalloc_mod.OP_BR_IF) cond else cond.invert();
         const arm_idx = self.currentIdx();
         self.emit(a64.bCond(actual_cond, 0)); // placeholder
@@ -3885,7 +3918,7 @@ pub const Compiler = struct {
 
     /// global.get: call jitGlobalGet(instance, idx) → u64
     fn emitGlobalGet(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll(); // D-cache → GPR/regs[] before BLR clobbers D-regs
+        self.evictAllCaches(); // D-cache → GPR/regs[] before BLR clobbers D-regs
         self.spillCallerSaved();
         // Args: x0 = instance, w1 = global_idx
         self.emitLoadInstPtr(0);
@@ -3906,7 +3939,7 @@ pub const Compiler = struct {
 
     /// global.set: call jitGlobalSet(instance, idx, val)
     fn emitGlobalSet(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         self.spillCallerSaved();
         // Read value FIRST — ABI arg setup clobbers x0/x1 which are vregs r20/r21
         // when reg_count > 20. Reading after movz32(1,...) would get the clobbered value.
@@ -3928,7 +3961,7 @@ pub const Compiler = struct {
     /// memory.grow: call jitMemGrow(instance, pages) → old_pages or -1
     /// Then reload mem cache since memory may have grown.
     fn emitMemGrow(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         self.spillCallerSaved();
         // Spill rs1 then load from memory to avoid ABI register conflicts.
         self.spillVreg(instr.rs1);
@@ -3954,7 +3987,7 @@ pub const Compiler = struct {
 
     /// memory.fill: call jitMemFill(instance, dst, val, n)
     fn emitMemFill(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         self.spillCallerSaved();
         // Spill all arg vregs then load from memory to avoid ABI register conflicts.
         // getOrLoad returns physical registers that may alias ABI arg registers (x0-x3);
@@ -3980,7 +4013,7 @@ pub const Compiler = struct {
 
     /// memory.copy: call jitMemCopy(instance, dst, src, n)
     fn emitMemCopy(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         self.spillCallerSaved();
         // Spill all arg vregs then load from memory to avoid ABI register conflicts.
         self.spillVreg(instr.rd);
@@ -4035,7 +4068,7 @@ pub const Compiler = struct {
         }
 
         // 1. Spill caller-saved regs + arg vregs needed by trampoline
-        self.fpCacheEvictAll(); // Write back D-cache before BLR clobbers D-regs
+        self.evictAllCaches(); // Write back D-cache before BLR clobbers D-regs
         self.spillCallerSavedLive(ir, call_pc);
         // Trampoline reads args from regs[] — spill ALL arg vregs unconditionally.
         // spillCallerSavedLive only spills live-after-call vregs, but call args may be
@@ -4117,7 +4150,7 @@ pub const Compiler = struct {
     /// instr: rd=result_reg, rs1=elem_idx_reg, operand=type_idx|(table_idx<<24)
     fn emitCallIndirect(self: *Compiler, instr: RegInstr, data: RegInstr, data2: ?RegInstr) void {
         // 1. Spill caller-saved regs + arg vregs
-        self.fpCacheEvictAll(); // Write back D-cache before BLR clobbers D-regs
+        self.evictAllCaches(); // Write back D-cache before BLR clobbers D-regs
         self.spillCallerSaved();
         self.spillVregIfCalleeSaved(data.rd);
         self.spillVregIfCalleeSaved(data.rs1);
@@ -4200,7 +4233,7 @@ pub const Compiler = struct {
     /// Similar to emitCall: spill, set up trampoline args, BLR, error check, reload.
     fn emitGcStructNew(self: *Compiler, rd: u16, type_idx: u32, n_fields: u16, data: RegInstr, data2: ?RegInstr, ir: []const RegInstr, call_pc: u32) void {
         // 1. Spill caller-saved regs + field vregs
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         self.spillCallerSavedLive(ir, call_pc);
         // Spill all field vregs (trampoline reads from regs[])
         if (n_fields > 0) self.spillVreg(data.rd);
@@ -4261,7 +4294,7 @@ pub const Compiler = struct {
         const sub_op: u16 = instr.op - predecode_mod.GC_BASE;
 
         // 1. Spill caller-saved + operand vregs
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         self.spillCallerSavedLive(ir, call_pc);
         // Spill operand vregs so trampoline can read them
         if (sub_op >= 0x02 and sub_op <= 0x04) {
@@ -4313,6 +4346,94 @@ pub const Compiler = struct {
         if (sub_op <= 0x04) self.reloadVreg(instr.rd);
     }
 
+    // --- SIMD Q-register cache (Q16-Q31) ---
+    //
+    // Caches v128 values in NEON Q registers to avoid repeated simd_v128[] memory traffic.
+    // Pattern mirrors fp_dreg cache: allocate on produce, evict at branch targets / calls.
+    // All Q16-Q31 are caller-saved → flush+evict before every BLR.
+
+    /// Find Q-reg cache slot holding vreg, or null if not cached.
+    fn simdQregFind(self: *Compiler, vreg: u16) ?usize {
+        for (self.simd_qreg, 0..) |entry, i| {
+            if (entry != null and entry.? == vreg) return i;
+        }
+        return null;
+    }
+
+    /// Allocate a Q-reg cache slot for vreg. Returns slot index (0-15).
+    /// If vreg is already cached, returns existing slot. Otherwise evicts if needed.
+    fn simdQregAllocSlot(self: *Compiler, vreg: u16) usize {
+        // Already cached?
+        if (self.simdQregFind(vreg)) |slot| return slot;
+        // Find free slot
+        for (self.simd_qreg, 0..) |entry, i| {
+            if (entry == null) {
+                self.simd_qreg[i] = vreg;
+                self.simd_qreg_dirty[i] = false;
+                return i;
+            }
+        }
+        // No free slot — evict using round-robin
+        const slot = self.simd_qreg_lru % SIMD_QREG_COUNT;
+        self.simd_qreg_lru +%= 1;
+        self.simdQregEvictSlot(slot);
+        self.simd_qreg[slot] = vreg;
+        self.simd_qreg_dirty[slot] = false;
+        return slot;
+    }
+
+    /// Get Q reg (16-31) for a vreg. If cached, return it. If not, load from simd_v128[].
+    fn simdQregGetOrLoad(self: *Compiler, vreg: u16) u5 {
+        if (self.simdQregFind(vreg)) |slot| {
+            return @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(slot)));
+        }
+        // Not cached — allocate slot and load from memory
+        const slot = self.simdQregAllocSlot(vreg);
+        const qreg: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(slot)));
+        self.emitLoadV128Raw(qreg, vreg);
+        return qreg;
+    }
+
+    /// Evict a single Q-reg cache slot. Stores to simd_v128[] if dirty.
+    fn simdQregEvictSlot(self: *Compiler, slot: usize) void {
+        if (self.simd_qreg[slot]) |vreg| {
+            if (self.simd_qreg_dirty[slot]) {
+                const qreg: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(slot)));
+                self.emitStoreV128Raw(qreg, vreg);
+            }
+            self.simd_qreg[slot] = null;
+            self.simd_qreg_dirty[slot] = false;
+        }
+    }
+
+    /// Evict all Q-reg cache entries. Flush dirty entries to simd_v128[].
+    fn simdQregEvictAll(self: *Compiler) void {
+        for (0..SIMD_QREG_COUNT) |i| {
+            self.simdQregEvictSlot(i);
+        }
+    }
+
+    /// Flush a specific vreg from Q cache to simd_v128[] if dirty, keeping cache entry valid.
+    /// Used before direct simd_v128[] memory reads (e.g., extract_lane upper-half fallback).
+    fn simdQregFlushVreg(self: *Compiler, vreg: u16) void {
+        if (self.simdQregFind(vreg)) |slot| {
+            if (self.simd_qreg_dirty[slot]) {
+                const qreg: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(slot)));
+                self.emitStoreV128Raw(qreg, vreg);
+                self.simd_qreg_dirty[slot] = false;
+            }
+        }
+    }
+
+    /// Invalidate a vreg from Q cache (called when scalar op overwrites the vreg).
+    /// Does NOT write back — the scalar op will provide a new value.
+    fn simdQregInvalidate(self: *Compiler, vreg: u16) void {
+        if (self.simdQregFind(vreg)) |slot| {
+            self.simd_qreg[slot] = null;
+            self.simd_qreg_dirty[slot] = false;
+        }
+    }
+
     // --- SIMD v128 helpers ---
 
     /// NEON scratch registers for SIMD. Using Q0/Q1 (caller-saved, volatile).
@@ -4350,58 +4471,85 @@ pub const Compiler = struct {
     }
 
     /// Load v128 from simd_v128[vreg] into NEON Q register (contiguous 128-bit).
+    /// Cache-aware: if vreg is in Q cache, emits MOV instead of memory load.
     fn emitLoadV128(self: *Compiler, qd: u5, vreg: u16) void {
+        if (self.simdQregFind(vreg)) |slot| {
+            const q_cached: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(slot)));
+            if (q_cached != qd) self.emit(a64.movV16b(qd, q_cached));
+            return;
+        }
+        self.emitLoadV128Raw(qd, vreg);
+    }
+
+    /// Load v128 directly from simd_v128[vreg] (bypasses Q cache). Used by cache internals.
+    fn emitLoadV128Raw(self: *Compiler, qd: u5, vreg: u16) void {
         self.emitSimdV128Addr(vreg);
-        // LDR Q, [SCRATCH] — single 128-bit load
         self.emit(a64.ldrFp128(qd, SCRATCH, 0));
     }
 
-    /// Copy simd_v128[dst] = simd_v128[src] (128-bit). Used by OP_MOV to keep
-    /// v128 state consistent with the interpreter (which copies both regs[] and simd_v128[]).
+    /// Copy v128 between vregs. Cache-aware: uses Q regs when available.
     fn emitCopyV128(self: *Compiler, dst: u16, src: u16) void {
         if (dst == src) return;
-        self.emitSimdV128Addr(src);
-        self.emit(a64.ldrFp128(SIMD_SCRATCH0, SCRATCH, 0));
-        self.emitSimdV128Addr(dst);
-        self.emit(a64.strFp128(SIMD_SCRATCH0, SCRATCH, 0));
+        if (self.simdQregFind(src)) |src_slot| {
+            // Source is in Q cache — allocate dst in cache and MOV
+            const q_src: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(src_slot)));
+            const dst_slot = self.simdQregAllocSlot(dst);
+            const q_dst: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(dst_slot)));
+            if (q_dst != q_src) self.emit(a64.movV16b(q_dst, q_src));
+            self.simd_qreg_dirty[dst_slot] = true;
+        } else {
+            // Source not cached — load from memory, cache in dst
+            const dst_slot = self.simdQregAllocSlot(dst);
+            const q_dst: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(dst_slot)));
+            self.emitLoadV128Raw(q_dst, src);
+            self.simd_qreg_dirty[dst_slot] = true;
+        }
     }
 
-    /// Clear simd_v128[rd] = {0, 0}. Used when scalar ops (const32/const64) write
-    /// to a vreg, invalidating any stale v128 high bits.
+    /// Clear v128 for a vreg: invalidate Q cache entry (scalar overwrite).
     fn emitClearV128(self: *Compiler, rd: u16) void {
+        self.simdQregInvalidate(rd);
         self.emitSimdV128Addr(rd);
-        // STR XZR, [SCRATCH, #0] + STR XZR, [SCRATCH, #8] — zero 16 bytes
-        self.emit(a64.str64(31, SCRATCH, 0)); // xzr → [scratch]
-        self.emit(a64.str64(31, SCRATCH, 8)); // xzr → [scratch+8]
+        self.emit(a64.str64(31, SCRATCH, 0));
+        self.emit(a64.str64(31, SCRATCH, 8));
     }
 
-    /// Store NEON Q register to simd_v128[vreg] (contiguous 128-bit).
-    /// Also writes lo half to regs[vreg] for trampoline/interpreter compatibility.
+    /// Store v128 to Q cache with lazy writeback. No memory write until flush.
     fn emitStoreV128(self: *Compiler, qs: u5, vreg: u16) void {
+        const slot = self.simdQregAllocSlot(vreg);
+        const q_cached: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(slot)));
+        if (q_cached != qs) self.emit(a64.movV16b(q_cached, qs));
+        self.simd_qreg_dirty[slot] = true;
+    }
+
+    /// Store v128 directly to simd_v128[vreg] + lo half to regs[]. Used by cache flush.
+    fn emitStoreV128Raw(self: *Compiler, qs: u5, vreg: u16) void {
         self.emitSimdV128Addr(vreg);
-        // STR Q, [SCRATCH] — single 128-bit store
         self.emit(a64.strFp128(qs, SCRATCH, 0));
-        // Also store lo half to regs[vreg] for cross-tier compatibility
         self.emit(a64.strFp64(qs, REGS_PTR, @as(u16, vreg) * 8));
     }
 
     /// Emit native NEON instruction for a binary v128 op.
-    /// Pattern: load rs1 → Q0, load rs2 → Q1, op Q0 ← Q0,Q1, store Q0 → rd.
+    /// Operates directly on Q-cached registers when possible (0 memory traffic).
     fn emitSimdBinaryNeon(self: *Compiler, instr: RegInstr, neon_insn: u32) void {
-        self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
-        self.emitLoadV128(SIMD_SCRATCH1, instr.rs2_field);
-        // Replace Vd/Vn/Vm fields in neon_insn with SCRATCH0/SCRATCH1
-        const insn = (neon_insn & 0xFFE0FC00) | (@as(u32, SIMD_SCRATCH1) << 16) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0;
+        const q_rs1 = self.simdQregGetOrLoad(instr.rs1);
+        const q_rs2 = self.simdQregGetOrLoad(instr.rs2_field);
+        const rd_slot = self.simdQregAllocSlot(instr.rd);
+        const q_rd: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(rd_slot)));
+        const insn = (neon_insn & 0xFFE0FC00) | (@as(u32, q_rs2) << 16) | (@as(u32, q_rs1) << 5) | q_rd;
         self.emit(insn);
-        self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+        self.simd_qreg_dirty[rd_slot] = true;
     }
 
     /// Emit native NEON instruction for a unary v128 op.
+    /// Operates directly on Q-cached registers when possible.
     fn emitSimdUnaryNeon(self: *Compiler, instr: RegInstr, neon_insn: u32) void {
-        self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
-        const insn = (neon_insn & 0xFFFFFC00) | (@as(u32, SIMD_SCRATCH0) << 5) | SIMD_SCRATCH0;
+        const q_rs1 = self.simdQregGetOrLoad(instr.rs1);
+        const rd_slot = self.simdQregAllocSlot(instr.rd);
+        const q_rd: u5 = @intCast(@as(u6, SIMD_QREG_BASE) + @as(u6, @intCast(rd_slot)));
+        const insn = (neon_insn & 0xFFFFFC00) | (@as(u32, q_rs1) << 5) | q_rd;
         self.emit(insn);
-        self.emitStoreV128(SIMD_SCRATCH0, instr.rd);
+        self.simd_qreg_dirty[rd_slot] = true;
     }
 
     /// Try to emit native NEON for a SIMD opcode. Returns true if handled.
@@ -4498,6 +4646,7 @@ pub const Compiler = struct {
                     self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
                     self.emit(0x0E012C00 | (@as(u32, lane) << 17) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
                 } else {
+                    self.simdQregFlushVreg(instr.rs1);
                     self.emitSimdV128Addr(instr.rs1);
                     self.emit(a64.ldrsb32(d, SCRATCH, lane));
                 }
@@ -4511,6 +4660,7 @@ pub const Compiler = struct {
                     self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
                     self.emit(0x0E013C00 | (@as(u32, lane) << 17) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
                 } else {
+                    self.simdQregFlushVreg(instr.rs1);
                     self.emitSimdV128Addr(instr.rs1);
                     self.emit(a64.ldrb(d, SCRATCH, lane));
                 }
@@ -4524,6 +4674,7 @@ pub const Compiler = struct {
                     self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
                     self.emit(0x0E022C00 | (@as(u32, lane) << 18) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
                 } else {
+                    self.simdQregFlushVreg(instr.rs1);
                     self.emitSimdV128Addr(instr.rs1);
                     self.emit(a64.ldrsh32(d, SCRATCH, @as(u16, lane) * 2));
                 }
@@ -4537,6 +4688,7 @@ pub const Compiler = struct {
                     self.emitLoadV128(SIMD_SCRATCH0, instr.rs1);
                     self.emit(0x0E023C00 | (@as(u32, lane) << 18) | (@as(u32, SIMD_SCRATCH0) << 5) | d);
                 } else {
+                    self.simdQregFlushVreg(instr.rs1);
                     self.emitSimdV128Addr(instr.rs1);
                     self.emit(a64.ldrh(d, SCRATCH, @as(u16, lane) * 2));
                 }
@@ -5967,7 +6119,7 @@ pub const Compiler = struct {
         }
 
         // 1. Spill all caller-saved regs
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         self.spillCallerSavedLive(ir, pc.* - 1);
         // Spill operand vregs
         if (effect.pop >= 1) self.spillVreg(instr.rs1);
@@ -6055,7 +6207,7 @@ pub const Compiler = struct {
         }
 
         // 1. Spill live regs before self-call.
-        self.fpCacheEvictAll(); // Write back D-cache before BL clobbers D-regs
+        self.evictAllCaches(); // Write back D-cache before BL clobbers D-regs
         // Callee-saved spill: lightweight self-call skips STP x19-x28 in callee,
         // so caller must save live callee-saved vregs to regs[] explicitly.
         const callee_exclude: ?u16 = if (n_results > 0 and self.isCalleeSavedVreg(rd)) rd else null;
@@ -6358,7 +6510,7 @@ pub const Compiler = struct {
 
     /// f32 binary: add/sub/mul/div. GPR→FPR, compute, FPR→GPR.
     fn emitFpBinop32(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll(); // f32 uses S0/S1 which alias D0/D1; also clobbers upper D bits
+        self.evictAllCaches(); // f32 uses S0/S1 which alias D0/D1; also clobbers upper D bits
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, rs1));
@@ -6378,7 +6530,7 @@ pub const Compiler = struct {
 
     /// f32 binary with direct FP instruction (min/max).
     fn emitFpBinopDirect32(self: *Compiler, fpOp: fn (u5, u5, u5) u32, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, rs1));
@@ -6391,7 +6543,7 @@ pub const Compiler = struct {
 
     /// f32 unary (sqrt/abs/neg).
     fn emitFpUnop32(self: *Compiler, fpOp: fn (u5, u5) u32, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
         self.emit(fpOp(FP_SCRATCH0, FP_SCRATCH0));
@@ -6402,7 +6554,7 @@ pub const Compiler = struct {
 
     /// f32 comparison: FCMP + CSET.
     fn emitFpCmp32(self: *Compiler, cond: a64.Cond, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
         const rs2 = self.getOrLoad(instr.rs2(), SCRATCH2);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, rs1));
@@ -6449,7 +6601,7 @@ pub const Compiler = struct {
 
     /// f64.promote_f32: FCVT Dd, Sn
     fn emitFpPromote(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll(); // f32 input uses S register
+        self.evictAllCaches(); // f32 input uses S register
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         const dd = self.fpAllocResult(instr.rd);
         self.emit(a64.fmovToFp32(FP_SCRATCH0, src));
@@ -6459,7 +6611,7 @@ pub const Compiler = struct {
 
     /// f32.convert_i32_s: SCVTF Sd, Wn
     fn emitFpConvert_f32_i32_s(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(0x1E220000 | (@as(u32, src) << 5) | FP_SCRATCH0);
         const d = self.destRegEff(instr.rd);
@@ -6469,7 +6621,7 @@ pub const Compiler = struct {
 
     /// f32.convert_i32_u: UCVTF Sd, Wn
     fn emitFpConvert_f32_i32_u(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(0x1E230000 | (@as(u32, src) << 5) | FP_SCRATCH0);
         const d = self.destRegEff(instr.rd);
@@ -6479,7 +6631,7 @@ pub const Compiler = struct {
 
     /// f32.convert_i64_s: SCVTF Sd, Xn
     fn emitFpConvert_f32_i64_s(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(0x9E220000 | (@as(u32, src) << 5) | FP_SCRATCH0);
         const d = self.destRegEff(instr.rd);
@@ -6489,7 +6641,7 @@ pub const Compiler = struct {
 
     /// f32.convert_i64_u: UCVTF Sd, Xn
     fn emitFpConvert_f32_i64_u(self: *Compiler, instr: RegInstr) void {
-        self.fpCacheEvictAll();
+        self.evictAllCaches();
         const src = self.getOrLoad(instr.rs1, SCRATCH);
         self.emit(0x9E230000 | (@as(u32, src) << 5) | FP_SCRATCH0);
         const d = self.destRegEff(instr.rd);
@@ -6502,10 +6654,10 @@ pub const Compiler = struct {
         // Load f64 source from D-cache or GPR
         if (self.fpCacheFind(instr.rs1)) |slot| {
             const dn = fpSlotToDreg(slot);
-            self.fpCacheEvictAll();
+            self.evictAllCaches();
             self.emit(a64.fcvt_s_d(FP_SCRATCH0, dn));
         } else {
-            self.fpCacheEvictAll();
+            self.evictAllCaches();
             const src = self.getOrLoad(instr.rs1, SCRATCH);
             self.emit(a64.fmovToFp64(FP_SCRATCH0, src));
             self.emit(a64.fcvt_s_d(FP_SCRATCH0, FP_SCRATCH0));

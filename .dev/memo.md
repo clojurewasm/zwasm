@@ -16,10 +16,10 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**W44: SIMD Register Class (D132 Phase B) — IN PROGRESS**
+**W44: SIMD Register Class (D132 Phase B) — ARM64 + x86 DONE (Mac verified)**
 
-Add a second register class for v128 values, mapping them to NEON Q registers
-(ARM64) or XMM registers (x86). Eliminates per-op load/store to `simd_v128[]`.
+Added SIMD register cache: Q16-Q31 (ARM64, 16 regs) and XMM6-XMM15 (x86, 10 regs).
+Eliminates per-op simd_v128[] memory traffic via lazy writeback with LRU eviction.
 
 ### Design (from D132 Phase B)
 
@@ -94,7 +94,7 @@ then const/load/store, then spill/reload, then x86.
 
 | Item       | Description                                       | Status         |
 |------------|---------------------------------------------------|----------------|
-| **W44**    | **SIMD register class (D132 Phase B)**            | **In Progress** |
+| **W44**    | **SIMD register class (D132 Phase B)**            | **Mac DONE, needs Ubuntu verify** |
 | Phase 18   | Lazy Compilation + CLI Extensions                 | Future         |
 | Zig 0.16   | API breaking changes                              | When released  |
 
