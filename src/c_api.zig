@@ -350,11 +350,39 @@ export fn zwasm_module_new_wasi_configured2(
         preopens[i] = ptr[0..l];
     }
 
+    const wasi = @import("wasi.zig");
+    const fd_count2 = wasi_config.preopen_fd_hosts.items.len;
+    const preopen_fds2 = alloc.alloc(types.PreopenFd, fd_count2) catch {
+        setError(error.OutOfMemory);
+        return null;
+    };
+    defer alloc.free(preopen_fds2);
+    for (0..fd_count2) |i| {
+        preopen_fds2[i] = .{
+            .host_fd = wasi_config.preopen_fd_hosts.items[i],
+            .guest_path = wasi_config.preopen_fd_guests.items[i][0..wasi_config.preopen_fd_guest_lens.items[i]],
+            .kind = if (wasi_config.preopen_fd_kinds.items[i] == 1) .dir else .file,
+            .ownership = if (wasi_config.preopen_fd_ownerships.items[i] == 1) .own else .borrow,
+        };
+    }
+
+    var stdio_fds2: [3]?std.fs.File.Handle = .{ null, null, null };
+    var stdio_ownership2: [3]wasi.Ownership = .{ .borrow, .borrow, .borrow };
+    for (0..3) |idx| {
+        if (wasi_config.stdio_fds[idx] >= 0) {
+            stdio_fds2[idx] = wasi_config.stdio_fds[idx];
+            stdio_ownership2[idx] = if (wasi_config.stdio_ownerships[idx] == 1) .own else .borrow;
+        }
+    }
+
     const opts = WasiOptions{
         .args = argv_slice,
         .env_keys = env_keys,
         .env_vals = env_vals,
         .preopen_paths = preopens,
+        .preopen_fds = preopen_fds2,
+        .stdio_fds = stdio_fds2,
+        .stdio_ownership = stdio_ownership2,
     };
 
     const custom_alloc = if (config) |c| c.getAllocator() else null;
@@ -483,6 +511,15 @@ const CApiWasiConfig = struct {
     preopen_guest: std.ArrayList([*]const u8) = .empty,
     preopen_host_lens: std.ArrayList(usize) = .empty,
     preopen_guest_lens: std.ArrayList(usize) = .empty,
+    // FD-based preopens
+    preopen_fd_hosts: std.ArrayList(i32) = .empty,
+    preopen_fd_guests: std.ArrayList([*]const u8) = .empty,
+    preopen_fd_guest_lens: std.ArrayList(usize) = .empty,
+    preopen_fd_kinds: std.ArrayList(u8) = .empty, // 0=file, 1=dir
+    preopen_fd_ownerships: std.ArrayList(u8) = .empty, // 0=borrow, 1=own
+    // Stdio overrides
+    stdio_fds: [3]i32 = .{ -1, -1, -1 }, // -1 = not set
+    stdio_ownerships: [3]u8 = .{ 0, 0, 0 }, // 0=borrow, 1=own
 
     fn deinit(self: *CApiWasiConfig) void {
         self.argv.deinit(page_alloc);
@@ -494,6 +531,11 @@ const CApiWasiConfig = struct {
         self.preopen_guest.deinit(page_alloc);
         self.preopen_host_lens.deinit(page_alloc);
         self.preopen_guest_lens.deinit(page_alloc);
+        self.preopen_fd_hosts.deinit(page_alloc);
+        self.preopen_fd_guests.deinit(page_alloc);
+        self.preopen_fd_guest_lens.deinit(page_alloc);
+        self.preopen_fd_kinds.deinit(page_alloc);
+        self.preopen_fd_ownerships.deinit(page_alloc);
     }
 };
 
@@ -555,6 +597,38 @@ export fn zwasm_wasi_config_preopen_dir(
     config.preopen_guest_lens.append(page_alloc, guest_path_len) catch {};
 }
 
+/// Add a preopened entry from an existing host file descriptor.
+/// kind: 0 = file, 1 = directory.
+/// ownership: 0 = borrow (caller keeps fd), 1 = own (runtime closes fd).
+export fn zwasm_wasi_config_preopen_fd(
+    config: *zwasm_wasi_config_t,
+    host_fd: i32,
+    guest_path: [*]const u8,
+    guest_path_len: usize,
+    kind: u8,
+    ownership: u8,
+) void {
+    config.preopen_fd_hosts.append(page_alloc, host_fd) catch {};
+    config.preopen_fd_guests.append(page_alloc, guest_path) catch {};
+    config.preopen_fd_guest_lens.append(page_alloc, guest_path_len) catch {};
+    config.preopen_fd_kinds.append(page_alloc, kind) catch {};
+    config.preopen_fd_ownerships.append(page_alloc, ownership) catch {};
+}
+
+/// Override a stdio file descriptor (0=stdin, 1=stdout, 2=stderr).
+/// ownership: 0 = borrow (caller keeps fd), 1 = own (runtime closes fd).
+export fn zwasm_wasi_config_set_stdio_fd(
+    config: *zwasm_wasi_config_t,
+    wasi_fd: u32,
+    host_fd: i32,
+    ownership: u8,
+) void {
+    if (wasi_fd < 3) {
+        config.stdio_fds[wasi_fd] = host_fd;
+        config.stdio_ownerships[wasi_fd] = ownership;
+    }
+}
+
 /// Create a new WASI module with custom configuration.
 /// Returns null on error.
 export fn zwasm_module_new_wasi_configured(
@@ -602,11 +676,41 @@ export fn zwasm_module_new_wasi_configured(
         preopens[i] = ptr[0..l];
     }
 
+    // FD-based preopens
+    const wasi = @import("wasi.zig");
+    const fd_count = config.preopen_fd_hosts.items.len;
+    const preopen_fds = alloc.alloc(types.PreopenFd, fd_count) catch {
+        setError(error.OutOfMemory);
+        return null;
+    };
+    defer alloc.free(preopen_fds);
+    for (0..fd_count) |i| {
+        preopen_fds[i] = .{
+            .host_fd = config.preopen_fd_hosts.items[i],
+            .guest_path = config.preopen_fd_guests.items[i][0..config.preopen_fd_guest_lens.items[i]],
+            .kind = if (config.preopen_fd_kinds.items[i] == 1) .dir else .file,
+            .ownership = if (config.preopen_fd_ownerships.items[i] == 1) .own else .borrow,
+        };
+    }
+
+    // Stdio overrides
+    var stdio_fds: [3]?std.fs.File.Handle = .{ null, null, null };
+    var stdio_ownership: [3]wasi.Ownership = .{ .borrow, .borrow, .borrow };
+    for (0..3) |idx| {
+        if (config.stdio_fds[idx] >= 0) {
+            stdio_fds[idx] = config.stdio_fds[idx];
+            stdio_ownership[idx] = if (config.stdio_ownerships[idx] == 1) .own else .borrow;
+        }
+    }
+
     const opts = WasiOptions{
         .args = argv_slice,
         .env_keys = env_keys,
         .env_vals = env_vals,
         .preopen_paths = preopens,
+        .preopen_fds = preopen_fds,
+        .stdio_fds = stdio_fds,
+        .stdio_ownership = stdio_ownership,
     };
 
     return CApiModule.createWasiConfigured(wasm_ptr[0..len], opts) catch |err| {
