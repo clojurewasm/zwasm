@@ -100,8 +100,8 @@ typedef void (*fn_import_add_fn)(zwasm_imports_t, const char *, const char *,
 /* WASI config */
 typedef zwasm_wasi_config_t (*fn_wasi_config_new)(void);
 typedef void (*fn_wasi_config_delete)(zwasm_wasi_config_t);
-typedef void (*fn_wasi_config_set_stdio_fd)(zwasm_wasi_config_t, uint32_t, int, uint8_t);
-typedef void (*fn_wasi_config_preopen_fd)(zwasm_wasi_config_t, int, const char *, size_t, uint8_t, uint8_t);
+typedef void (*fn_wasi_config_set_stdio_fd)(zwasm_wasi_config_t, uint32_t, intptr_t, uint8_t);
+typedef void (*fn_wasi_config_preopen_fd)(zwasm_wasi_config_t, intptr_t, const char *, size_t, uint8_t, uint8_t);
 typedef zwasm_module_t (*fn_module_new_wasi_configured)(const uint8_t *, size_t, zwasm_wasi_config_t);
 
 /* ------------------------------------------------------------------ */
@@ -502,18 +502,18 @@ static void test_wasi_config_fd_api(void) {
     ASSERT(pipe(stdout_pipe) == 0, "pipe() for stdout");
 
     /* Override stdout (fd 1) with write end of pipe, borrow mode */
-    api.wasi_config_set_stdio_fd(wc, 1, stdout_pipe[1], 0 /* borrow */);
+    api.wasi_config_set_stdio_fd(wc, 1, (intptr_t)stdout_pipe[1], 0 /* borrow */);
 
     /* Override stderr (fd 2) with write end as well, borrow mode */
-    api.wasi_config_set_stdio_fd(wc, 2, stdout_pipe[1], 0 /* borrow */);
+    api.wasi_config_set_stdio_fd(wc, 2, (intptr_t)stdout_pipe[1], 0 /* borrow */);
 
     /* Invalid fd index (>=3) should be silently ignored */
-    api.wasi_config_set_stdio_fd(wc, 5, stdout_pipe[0], 0);
+    api.wasi_config_set_stdio_fd(wc, 5, (intptr_t)stdout_pipe[0], 0);
 
     /* Add an FD-based preopen (borrow mode) */
     int dir_fd = open(".", O_RDONLY);
     ASSERT(dir_fd >= 0, "open(\".\") for preopen fd");
-    api.wasi_config_preopen_fd(wc, dir_fd, "/sandbox", 8,
+    api.wasi_config_preopen_fd(wc, (intptr_t)dir_fd, "/sandbox", 8,
                                1 /* dir */, 0 /* borrow */);
 
     api.wasi_config_delete(wc);

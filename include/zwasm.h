@@ -271,7 +271,7 @@ void zwasm_wasi_config_preopen_dir(zwasm_wasi_config_t *config,
  * @param ownership   0 = borrow (caller retains fd), 1 = own (runtime closes fd).
  */
 void zwasm_wasi_config_preopen_fd(zwasm_wasi_config_t *config,
-                                  int host_fd,
+                                  intptr_t host_fd,
                                   const char *guest_path,
                                   size_t guest_path_len,
                                   uint8_t kind, uint8_t ownership);
@@ -281,12 +281,12 @@ void zwasm_wasi_config_preopen_fd(zwasm_wasi_config_t *config,
  *
  * @param config      WASI config handle.
  * @param wasi_fd     0, 1, or 2.
- * @param host_fd     Open host file descriptor.
+ * @param host_fd     Open host file descriptor (fd on POSIX, HANDLE cast on Windows).
  * @param ownership   0 = borrow (caller retains fd), 1 = own (runtime closes fd).
  */
 void zwasm_wasi_config_set_stdio_fd(zwasm_wasi_config_t *config,
                                     uint32_t wasi_fd,
-                                    int host_fd, uint8_t ownership);
+                                    intptr_t host_fd, uint8_t ownership);
 
 /* ================================================================
  * Host function imports

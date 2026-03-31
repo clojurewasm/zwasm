@@ -13,9 +13,19 @@
 //! Custom allocators can be injected via zwasm_config_t.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const WasmModule = types.WasmModule;
 const WasiOptions = types.WasiOptions;
+
+/// Convert isize (C intptr_t) to platform File.Handle.
+fn isizeToHandle(v: isize) std.fs.File.Handle {
+    if (builtin.os.tag == .windows) {
+        return @ptrFromInt(@as(usize, @bitCast(v)));
+    } else {
+        return @intCast(v);
+    }
+}
 
 // ============================================================
 // Error handling — thread-local error message buffer
@@ -359,7 +369,7 @@ export fn zwasm_module_new_wasi_configured2(
     defer alloc.free(preopen_fds2);
     for (0..fd_count2) |i| {
         preopen_fds2[i] = .{
-            .host_fd = wasi_config.preopen_fd_hosts.items[i],
+            .host_fd = isizeToHandle(wasi_config.preopen_fd_hosts.items[i]),
             .guest_path = wasi_config.preopen_fd_guests.items[i][0..wasi_config.preopen_fd_guest_lens.items[i]],
             .kind = if (wasi_config.preopen_fd_kinds.items[i] == 1) .dir else .file,
             .ownership = if (wasi_config.preopen_fd_ownerships.items[i] == 1) .own else .borrow,
@@ -370,7 +380,7 @@ export fn zwasm_module_new_wasi_configured2(
     var stdio_ownership2: [3]wasi.Ownership = .{ .borrow, .borrow, .borrow };
     for (0..3) |idx| {
         if (wasi_config.stdio_fds[idx] >= 0) {
-            stdio_fds2[idx] = wasi_config.stdio_fds[idx];
+            stdio_fds2[idx] = isizeToHandle(wasi_config.stdio_fds[idx]);
             stdio_ownership2[idx] = if (wasi_config.stdio_ownerships[idx] == 1) .own else .borrow;
         }
     }
@@ -512,13 +522,13 @@ const CApiWasiConfig = struct {
     preopen_host_lens: std.ArrayList(usize) = .empty,
     preopen_guest_lens: std.ArrayList(usize) = .empty,
     // FD-based preopens
-    preopen_fd_hosts: std.ArrayList(i32) = .empty,
+    preopen_fd_hosts: std.ArrayList(isize) = .empty,
     preopen_fd_guests: std.ArrayList([*]const u8) = .empty,
     preopen_fd_guest_lens: std.ArrayList(usize) = .empty,
     preopen_fd_kinds: std.ArrayList(u8) = .empty, // 0=file, 1=dir
     preopen_fd_ownerships: std.ArrayList(u8) = .empty, // 0=borrow, 1=own
-    // Stdio overrides
-    stdio_fds: [3]i32 = .{ -1, -1, -1 }, // -1 = not set
+    // Stdio overrides (isize for cross-platform: fd on POSIX, HANDLE cast on Windows)
+    stdio_fds: [3]isize = .{ -1, -1, -1 }, // -1 = not set
     stdio_ownerships: [3]u8 = .{ 0, 0, 0 }, // 0=borrow, 1=own
 
     fn deinit(self: *CApiWasiConfig) void {
@@ -602,7 +612,7 @@ export fn zwasm_wasi_config_preopen_dir(
 /// ownership: 0 = borrow (caller keeps fd), 1 = own (runtime closes fd).
 export fn zwasm_wasi_config_preopen_fd(
     config: *zwasm_wasi_config_t,
-    host_fd: i32,
+    host_fd: isize,
     guest_path: [*]const u8,
     guest_path_len: usize,
     kind: u8,
@@ -620,7 +630,7 @@ export fn zwasm_wasi_config_preopen_fd(
 export fn zwasm_wasi_config_set_stdio_fd(
     config: *zwasm_wasi_config_t,
     wasi_fd: u32,
-    host_fd: i32,
+    host_fd: isize,
     ownership: u8,
 ) void {
     if (wasi_fd < 3) {
@@ -686,7 +696,7 @@ export fn zwasm_module_new_wasi_configured(
     defer alloc.free(preopen_fds);
     for (0..fd_count) |i| {
         preopen_fds[i] = .{
-            .host_fd = config.preopen_fd_hosts.items[i],
+            .host_fd = isizeToHandle(config.preopen_fd_hosts.items[i]),
             .guest_path = config.preopen_fd_guests.items[i][0..config.preopen_fd_guest_lens.items[i]],
             .kind = if (config.preopen_fd_kinds.items[i] == 1) .dir else .file,
             .ownership = if (config.preopen_fd_ownerships.items[i] == 1) .own else .borrow,
@@ -698,7 +708,7 @@ export fn zwasm_module_new_wasi_configured(
     var stdio_ownership: [3]wasi.Ownership = .{ .borrow, .borrow, .borrow };
     for (0..3) |idx| {
         if (config.stdio_fds[idx] >= 0) {
-            stdio_fds[idx] = config.stdio_fds[idx];
+            stdio_fds[idx] = isizeToHandle(config.stdio_fds[idx]);
             stdio_ownership[idx] = if (config.stdio_ownerships[idx] == 1) .own else .borrow;
         }
     }
