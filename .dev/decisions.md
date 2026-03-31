@@ -574,3 +574,30 @@ gap vs wasmtime for SIMD workloads.
 
 **Affected files**: jit.zig, x86.zig (v128 addr, prologue), vm.zig (simd_v128
 offset), regalloc.zig (Phase B only).
+
+## D133: FD-Based WASI Stdio and Preopen Configuration
+
+**Context**: Issue #17. Embedders that already manage host file descriptors need
+to pass them directly to WASI instances, rather than using path-based configuration.
+
+**Decision**: Add per-instance FD override for stdio (0/1/2) and FD-based preopen
+registration. Each FD has an explicit ownership mode: `borrow` (caller retains fd)
+or `own` (runtime closes on teardown).
+
+**API surface**:
+- `WasiContext.setStdioFd(fd, host_fd, ownership)` — override stdin/stdout/stderr
+- `WasiContext.stdioFile(fd)` — resolve stdio with override fallback
+- `WasiContext.addPreopenFd(wasi_fd, guest_path, host_fd, kind, ownership)` — register fd-based preopen
+- C API: `zwasm_wasi_config_set_stdio_fd()`, `zwasm_wasi_config_preopen_fd()`
+- `WasiOptions`: `stdio_fds`, `stdio_ownership`, `preopen_fds` fields
+
+**Design choices**:
+- `stdioFile` moved from free function to WasiContext method; `defaultStdioFile`
+  remains for non-WASI fallback paths.
+- Ownership tracked per-fd (not per-config) to allow mixed borrow/own in one instance.
+- `applyWasiOptions` helper extracts duplicated WASI setup logic from `loadWasiWithOptions`
+  and `loadWasiWithImports`.
+- C API uses integers for kind (0=file, 1=dir) and ownership (0=borrow, 1=own)
+  to keep the header cross-language friendly.
+
+**Affected files**: wasi.zig, types.zig, c_api.zig, include/zwasm.h, test_ffi.c.

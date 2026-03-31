@@ -139,7 +139,7 @@ pub const ClockId = enum(u32) {
 // Preopened directory
 // ============================================================
 
-const HandleKind = enum {
+pub const HandleKind = enum {
     file,
     dir,
 };
@@ -194,11 +194,20 @@ const HostHandle = struct {
     }
 };
 
+/// Ownership mode for file descriptors passed by the embedder.
+pub const Ownership = enum {
+    /// Runtime does NOT close the fd on teardown — caller retains ownership.
+    borrow,
+    /// Runtime closes the fd on teardown — ownership transferred.
+    own,
+};
+
 pub const Preopen = struct {
     wasi_fd: i32,
     path: []const u8,
     host: HostHandle,
     is_open: bool = true,
+    ownership: Ownership = .own,
 };
 
 /// Runtime file descriptor entry (for dynamically opened files).
@@ -259,6 +268,10 @@ pub const WasiContext = struct {
     exit_code: ?u32 = null,
     caps: Capabilities = .{}, // deny-by-default
 
+    // Stdio override: per-fd custom handle (null = use process default)
+    stdio_handles: [3]?std.fs.File.Handle = .{ null, null, null },
+    stdio_ownership: [3]Ownership = .{ .borrow, .borrow, .borrow },
+
     pub fn init(alloc: Allocator) WasiContext {
         return .{
             .args = &.{},
@@ -270,11 +283,22 @@ pub const WasiContext = struct {
         };
     }
 
+    fn closeHandle(handle: std.fs.File.Handle) void {
+        const f = std.fs.File{ .handle = handle };
+        f.close();
+    }
+
     pub fn deinit(self: *WasiContext) void {
+        // Close owned stdio overrides
+        for (self.stdio_handles, self.stdio_ownership) |maybe_handle, ownership| {
+            if (maybe_handle) |handle| {
+                if (ownership == .own) closeHandle(handle);
+            }
+        }
         self.environ_keys.deinit(self.alloc);
         self.environ_vals.deinit(self.alloc);
         for (self.preopens.items) |p| {
-            if (p.is_open) p.host.close();
+            if (p.is_open and p.ownership == .own) p.host.close();
         }
         self.preopens.deinit(self.alloc);
         for (self.fd_table.items) |entry| {
@@ -315,6 +339,38 @@ pub const WasiContext = struct {
         try self.addPreopen(wasi_fd, guest_path, dir);
     }
 
+    /// Register an existing host file descriptor as a preopened entry.
+    pub fn addPreopenFd(self: *WasiContext, wasi_fd: i32, guest_path: []const u8, host_fd: std.fs.File.Handle, kind: HandleKind, ownership: Ownership) !void {
+        try self.preopens.append(self.alloc, .{
+            .wasi_fd = wasi_fd,
+            .path = guest_path,
+            .host = .{ .raw = host_fd, .kind = kind },
+            .ownership = ownership,
+        });
+    }
+
+    /// Override a stdio file descriptor (0=stdin, 1=stdout, 2=stderr).
+    pub fn setStdioFd(self: *WasiContext, fd: i32, host_fd: std.fs.File.Handle, ownership: Ownership) void {
+        const idx: usize = @intCast(fd);
+        if (idx >= 3) return;
+        // Close previous owned override if any
+        if (self.stdio_handles[idx]) |prev| {
+            if (self.stdio_ownership[idx] == .own) closeHandle(prev);
+        }
+        self.stdio_handles[idx] = host_fd;
+        self.stdio_ownership[idx] = ownership;
+    }
+
+    /// Resolve a stdio fd (0-2) to a File, using override if set.
+    pub fn stdioFile(self: *const WasiContext, fd: i32) ?std.fs.File {
+        if (fd < 0 or fd > 2) return null;
+        const idx: usize = @intCast(fd);
+        if (self.stdio_handles[idx]) |handle| {
+            return .{ .handle = handle };
+        }
+        return defaultStdioFile(fd);
+    }
+
     fn getHostHandle(self: *WasiContext, wasi_fd: i32) ?HostHandle {
         for (self.preopens.items) |p| {
             if (p.wasi_fd == wasi_fd and p.is_open) return p.host;
@@ -329,7 +385,7 @@ pub const WasiContext = struct {
     }
 
     fn getHostFd(self: *WasiContext, wasi_fd: i32) ?std.fs.File.Handle {
-        if (stdioFile(wasi_fd)) |file| return file.handle;
+        if (self.stdioFile(wasi_fd)) |file| return file.handle;
         const host = self.getHostHandle(wasi_fd) orelse return null;
         return host.raw;
     }
@@ -342,7 +398,7 @@ pub const WasiContext = struct {
     }
 
     fn resolveFile(self: *WasiContext, wasi_fd: i32) ?std.fs.File {
-        return if (stdioFile(wasi_fd)) |file|
+        return if (self.stdioFile(wasi_fd)) |file|
             file
         else if (self.getHostHandle(wasi_fd)) |host|
             .{ .handle = host.raw }
@@ -426,7 +482,9 @@ inline fn hasCap(vm: *Vm, comptime field: std.meta.FieldEnum(Capabilities)) bool
     return @field(wasi.caps, @tagName(field));
 }
 
-fn stdioFile(fd: i32) ?std.fs.File {
+/// Default stdio mapping (process stdin/stdout/stderr). Used as fallback
+/// when no WasiContext is available or no override is set.
+fn defaultStdioFile(fd: i32) ?std.fs.File {
     return switch (fd) {
         0 => std.fs.File.stdin(),
         1 => std.fs.File.stdout(),
@@ -676,7 +734,7 @@ pub fn fd_filestat_get(ctx: *anyopaque, _: usize) anyerror!void {
     const file = if (wasi) |w| w.resolveFile(fd) orelse {
         try pushErrno(vm, .BADF);
         return;
-    } else if (stdioFile(fd)) |stdio| stdio else {
+    } else if (defaultStdioFile(fd)) |stdio| stdio else {
         try pushErrno(vm, .BADF);
         return;
     };
@@ -761,7 +819,7 @@ pub fn fd_read(ctx: *anyopaque, _: usize) anyerror!void {
     const file = if (wasi) |w| w.resolveFile(fd) orelse {
         try pushErrno(vm, .BADF);
         return;
-    } else if (stdioFile(fd)) |stdio| stdio else {
+    } else if (defaultStdioFile(fd)) |stdio| stdio else {
         try pushErrno(vm, .BADF);
         return;
     };
@@ -865,7 +923,7 @@ pub fn fd_write(ctx: *anyopaque, _: usize) anyerror!void {
     const file = if (wasi) |w| w.resolveFile(fd) orelse {
         try pushErrno(vm, .BADF);
         return;
-    } else if (stdioFile(fd)) |stdio| stdio else {
+    } else if (defaultStdioFile(fd)) |stdio| stdio else {
         try pushErrno(vm, .BADF);
         return;
     };
@@ -1779,7 +1837,7 @@ pub fn fd_filestat_set_times(ctx: *anyopaque, _: usize) anyerror!void {
             try pushErrno(vm, .NOSYS);
             return;
         };
-        const file = wasi.resolveFile(fd) orelse if (stdioFile(fd)) |stdio| stdio else {
+        const file = wasi.resolveFile(fd) orelse if (defaultStdioFile(fd)) |stdio| stdio else {
             try pushErrno(vm, .BADF);
             return;
         };
@@ -3073,4 +3131,89 @@ test "Capabilities.sandbox denies all" {
     try testing.expect(!caps.allow_random);
     try testing.expect(!caps.allow_proc_exit);
     try testing.expect(!caps.allow_path);
+}
+
+test "stdio override: default returns process stdio" {
+    const alloc = testing.allocator;
+    var ctx = WasiContext.init(alloc);
+    defer ctx.deinit();
+
+    // Without overrides, stdioFile returns process stdin/stdout/stderr
+    const stdin_file = ctx.stdioFile(0);
+    try testing.expect(stdin_file != null);
+    try testing.expectEqual(std.fs.File.stdin().handle, stdin_file.?.handle);
+
+    const stdout_file = ctx.stdioFile(1);
+    try testing.expect(stdout_file != null);
+    try testing.expectEqual(std.fs.File.stdout().handle, stdout_file.?.handle);
+
+    const stderr_file = ctx.stdioFile(2);
+    try testing.expect(stderr_file != null);
+    try testing.expectEqual(std.fs.File.stderr().handle, stderr_file.?.handle);
+
+    // Non-stdio fd returns null
+    try testing.expect(ctx.stdioFile(3) == null);
+}
+
+test "stdio override: custom fd replaces default" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    const alloc = testing.allocator;
+    var ctx = WasiContext.init(alloc);
+    defer ctx.deinit();
+
+    // Create a pipe to use as custom stdout
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+
+    // Set stdout (fd 1) to write end of pipe, with ownership (runtime closes it)
+    ctx.setStdioFd(1, pipe[1], .own);
+
+    const stdout_file = ctx.stdioFile(1);
+    try testing.expect(stdout_file != null);
+    try testing.expectEqual(pipe[1], stdout_file.?.handle);
+
+    // stdin and stderr remain default
+    try testing.expectEqual(std.fs.File.stdin().handle, ctx.stdioFile(0).?.handle);
+    try testing.expectEqual(std.fs.File.stderr().handle, ctx.stdioFile(2).?.handle);
+}
+
+test "stdio override: borrow mode does not close fd on deinit" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    const alloc = testing.allocator;
+
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    defer posix.close(pipe[1]);
+
+    {
+        var ctx = WasiContext.init(alloc);
+        ctx.setStdioFd(1, pipe[1], .borrow);
+        ctx.deinit();
+    }
+
+    // pipe[1] should still be valid (borrowed, not closed by deinit)
+    // Writing to it should succeed
+    const written = posix.write(pipe[1], "ok") catch 0;
+    try testing.expectEqual(@as(usize, 2), written);
+}
+
+test "addPreopenFd: registers fd-based preopen" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    const alloc = testing.allocator;
+    var ctx = WasiContext.init(alloc);
+    defer ctx.deinit();
+
+    // Open a real directory to get a valid fd
+    var dir = try std.fs.cwd().openDir(".", .{});
+    const dir_fd = dir.fd;
+    // Transfer ownership to WasiContext (which will close it)
+    dir = undefined;
+
+    try ctx.addPreopenFd(3, "/sandbox", dir_fd, .dir, .own);
+
+    try testing.expectEqual(@as(usize, 1), ctx.preopens.items.len);
+    try testing.expectEqual(@as(i32, 3), ctx.preopens.items[0].wasi_fd);
+    try testing.expect(std.mem.eql(u8, "/sandbox", ctx.preopens.items[0].path));
+    try testing.expectEqual(dir_fd, ctx.preopens.items[0].host.raw);
+    try testing.expectEqual(HandleKind.dir, ctx.preopens.items[0].host.kind);
 }

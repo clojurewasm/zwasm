@@ -16,6 +16,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <dlfcn.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 /* ------------------------------------------------------------------ */
 /* Test harness                                                        */
@@ -95,6 +97,13 @@ typedef void (*fn_import_add_fn)(zwasm_imports_t, const char *, const char *,
                                   zwasm_host_fn_callback_t, void *,
                                   uint32_t, uint32_t);
 
+/* WASI config */
+typedef zwasm_wasi_config_t (*fn_wasi_config_new)(void);
+typedef void (*fn_wasi_config_delete)(zwasm_wasi_config_t);
+typedef void (*fn_wasi_config_set_stdio_fd)(zwasm_wasi_config_t, uint32_t, intptr_t, uint8_t);
+typedef void (*fn_wasi_config_preopen_fd)(zwasm_wasi_config_t, intptr_t, const char *, size_t, uint8_t, uint8_t);
+typedef zwasm_module_t (*fn_module_new_wasi_configured)(const uint8_t *, size_t, zwasm_wasi_config_t);
+
 /* ------------------------------------------------------------------ */
 /* Resolved function pointers (filled by load_api)                     */
 /* ------------------------------------------------------------------ */
@@ -122,6 +131,11 @@ static struct {
     fn_import_new             import_new;
     fn_import_delete          import_delete;
     fn_import_add_fn          import_add_fn;
+    fn_wasi_config_new        wasi_config_new;
+    fn_wasi_config_delete     wasi_config_delete;
+    fn_wasi_config_set_stdio_fd wasi_config_set_stdio_fd;
+    fn_wasi_config_preopen_fd wasi_config_preopen_fd;
+    fn_module_new_wasi_configured module_new_wasi_configured;
 } api;
 
 static void *lib_handle = NULL;
@@ -162,6 +176,11 @@ static bool load_api(const char *path) {
     LOAD_SYM(import_new,             "zwasm_import_new");
     LOAD_SYM(import_delete,          "zwasm_import_delete");
     LOAD_SYM(import_add_fn,          "zwasm_import_add_fn");
+    LOAD_SYM(wasi_config_new,        "zwasm_wasi_config_new");
+    LOAD_SYM(wasi_config_delete,     "zwasm_wasi_config_delete");
+    LOAD_SYM(wasi_config_set_stdio_fd, "zwasm_wasi_config_set_stdio_fd");
+    LOAD_SYM(wasi_config_preopen_fd, "zwasm_wasi_config_preopen_fd");
+    LOAD_SYM(module_new_wasi_configured, "zwasm_module_new_wasi_configured");
     return true;
 }
 
@@ -471,6 +490,41 @@ static void test_multiple_modules(void) {
     if (m3) api.module_delete(m3);
 }
 
+static void test_wasi_config_fd_api(void) {
+    printf("-- WASI config FD API\n");
+
+    /* Basic lifecycle: create, configure, delete */
+    zwasm_wasi_config_t wc = api.wasi_config_new();
+    ASSERT(wc != NULL, "wasi_config_new returns non-null");
+
+    /* Set stdio overrides (use pipe fds) */
+    int stdout_pipe[2];
+    ASSERT(pipe(stdout_pipe) == 0, "pipe() for stdout");
+
+    /* Override stdout (fd 1) with write end of pipe, borrow mode */
+    api.wasi_config_set_stdio_fd(wc, 1, (intptr_t)stdout_pipe[1], 0 /* borrow */);
+
+    /* Override stderr (fd 2) with write end as well, borrow mode */
+    api.wasi_config_set_stdio_fd(wc, 2, (intptr_t)stdout_pipe[1], 0 /* borrow */);
+
+    /* Invalid fd index (>=3) should be silently ignored */
+    api.wasi_config_set_stdio_fd(wc, 5, (intptr_t)stdout_pipe[0], 0);
+
+    /* Add an FD-based preopen (borrow mode) */
+    int dir_fd = open(".", O_RDONLY);
+    ASSERT(dir_fd >= 0, "open(\".\") for preopen fd");
+    api.wasi_config_preopen_fd(wc, (intptr_t)dir_fd, "/sandbox", 8,
+                               1 /* dir */, 0 /* borrow */);
+
+    api.wasi_config_delete(wc);
+
+    /* Borrowed fds should still be valid */
+    ASSERT(write(stdout_pipe[1], "ok", 2) == 2, "borrowed stdout pipe still writable");
+    close(stdout_pipe[0]);
+    close(stdout_pipe[1]);
+    close(dir_fd);
+}
+
 static void test_repeated_create_destroy(void) {
     printf("-- repeated create/destroy (leak check)\n");
 
@@ -524,6 +578,7 @@ int main(int argc, char **argv) {
     test_host_imports();
     test_config_lifecycle();
     test_multiple_modules();
+    test_wasi_config_fd_api();
     test_repeated_create_destroy();
 
     printf("\n%d/%d passed, %d failed\n", tests_passed, tests_run, tests_failed);

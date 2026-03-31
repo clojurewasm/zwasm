@@ -172,6 +172,14 @@ pub fn inspectImportFunctions(allocator: Allocator, wasm_bytes: []const u8) ![]c
 pub const Capabilities = rt.wasi.Capabilities;
 
 /// Options for configuring WASI modules.
+/// FD-based preopen entry: binds an existing host fd to a WASI guest path.
+pub const PreopenFd = struct {
+    host_fd: std.fs.File.Handle,
+    guest_path: []const u8,
+    kind: rt.wasi.HandleKind,
+    ownership: rt.wasi.Ownership,
+};
+
 pub const WasiOptions = struct {
     /// Command-line arguments passed to the WASI module.
     args: []const [:0]const u8 = &.{},
@@ -180,6 +188,12 @@ pub const WasiOptions = struct {
     env_vals: []const []const u8 = &.{},
     /// Preopened directories. Each entry maps a WASI fd to a host path.
     preopen_paths: []const []const u8 = &.{},
+    /// FD-based preopens: bind existing host fds to WASI guest paths.
+    preopen_fds: []const PreopenFd = &.{},
+    /// Stdio fd overrides (null = use process default).
+    /// Index 0=stdin, 1=stdout, 2=stderr.
+    stdio_fds: [3]?std.fs.File.Handle = .{ null, null, null },
+    stdio_ownership: [3]rt.wasi.Ownership = .{ .borrow, .borrow, .borrow },
     /// WASI capability flags. Default: cli_default (stdio, clock, random, proc_exit).
     /// Use `.caps = Capabilities.all` for full access.
     caps: rt.wasi.Capabilities = rt.wasi.Capabilities.cli_default,
@@ -253,25 +267,45 @@ pub const WasmModule = struct {
         return loadCore(allocator, wasm_bytes, true, null, null);
     }
 
+    /// Apply WasiOptions to a WasiContext (shared logic for all WASI loaders).
+    fn applyWasiOptions(wc: *rt.wasi.WasiContext, opts: WasiOptions) !void {
+        wc.caps = opts.caps;
+        if (opts.args.len > 0) wc.setArgs(opts.args);
+
+        const count = @min(opts.env_keys.len, opts.env_vals.len);
+        for (0..count) |i| {
+            try wc.addEnv(opts.env_keys[i], opts.env_vals[i]);
+        }
+
+        // Path-based preopens (fd auto-assigned from 3)
+        for (opts.preopen_paths, 0..) |path, i| {
+            const fd: i32 = @intCast(3 + i);
+            const spec = splitPreopenSpec(path);
+            wc.addPreopenPath(fd, spec.guest, spec.host) catch continue;
+        }
+
+        // FD-based preopens (fd auto-assigned after path-based ones)
+        const fd_start: i32 = @intCast(3 + opts.preopen_paths.len);
+        for (opts.preopen_fds, 0..) |entry, i| {
+            const fd: i32 = fd_start + @as(i32, @intCast(i));
+            try wc.addPreopenFd(fd, entry.guest_path, entry.host_fd, entry.kind, entry.ownership);
+        }
+
+        // Stdio overrides
+        for (opts.stdio_fds, opts.stdio_ownership, 0..) |maybe_fd, ownership, idx| {
+            if (maybe_fd) |host_fd| {
+                wc.setStdioFd(@intCast(idx), host_fd, ownership);
+            }
+        }
+    }
+
     /// Load a WASI module with custom args, env, and preopened directories.
     pub fn loadWasiWithOptions(allocator: Allocator, wasm_bytes: []const u8, opts: WasiOptions) !*WasmModule {
         const self = try loadCore(allocator, wasm_bytes, true, null, null);
         errdefer self.deinit();
 
         if (self.wasi_ctx) |*wc| {
-            wc.caps = opts.caps;
-            if (opts.args.len > 0) wc.setArgs(opts.args);
-
-            const count = @min(opts.env_keys.len, opts.env_vals.len);
-            for (0..count) |i| {
-                try wc.addEnv(opts.env_keys[i], opts.env_vals[i]);
-            }
-
-            for (opts.preopen_paths, 0..) |path, i| {
-                const fd: i32 = @intCast(3 + i);
-                const spec = splitPreopenSpec(path);
-                wc.addPreopenPath(fd, spec.guest, spec.host) catch continue;
-            }
+            try applyWasiOptions(wc, opts);
         }
 
         return self;
@@ -288,19 +322,7 @@ pub const WasmModule = struct {
         errdefer self.deinit();
 
         if (self.wasi_ctx) |*wc| {
-            wc.caps = opts.caps;
-            if (opts.args.len > 0) wc.setArgs(opts.args);
-
-            const count = @min(opts.env_keys.len, opts.env_vals.len);
-            for (0..count) |i| {
-                try wc.addEnv(opts.env_keys[i], opts.env_vals[i]);
-            }
-
-            for (opts.preopen_paths, 0..) |path, ii| {
-                const fd: i32 = @intCast(3 + ii);
-                const spec = splitPreopenSpec(path);
-                wc.addPreopenPath(fd, spec.guest, spec.host) catch continue;
-            }
+            try applyWasiOptions(wc, opts);
         }
 
         return self;
