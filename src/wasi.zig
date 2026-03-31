@@ -283,11 +283,16 @@ pub const WasiContext = struct {
         };
     }
 
+    fn closeHandle(handle: std.fs.File.Handle) void {
+        const f = std.fs.File{ .handle = handle };
+        f.close();
+    }
+
     pub fn deinit(self: *WasiContext) void {
         // Close owned stdio overrides
         for (self.stdio_handles, self.stdio_ownership) |maybe_handle, ownership| {
             if (maybe_handle) |handle| {
-                if (ownership == .own) posix.close(handle);
+                if (ownership == .own) closeHandle(handle);
             }
         }
         self.environ_keys.deinit(self.alloc);
@@ -350,7 +355,7 @@ pub const WasiContext = struct {
         if (idx >= 3) return;
         // Close previous owned override if any
         if (self.stdio_handles[idx]) |prev| {
-            if (self.stdio_ownership[idx] == .own) posix.close(prev);
+            if (self.stdio_ownership[idx] == .own) closeHandle(prev);
         }
         self.stdio_handles[idx] = host_fd;
         self.stdio_ownership[idx] = ownership;
@@ -3151,6 +3156,7 @@ test "stdio override: default returns process stdio" {
 }
 
 test "stdio override: custom fd replaces default" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     const alloc = testing.allocator;
     var ctx = WasiContext.init(alloc);
     defer ctx.deinit();
@@ -3172,6 +3178,7 @@ test "stdio override: custom fd replaces default" {
 }
 
 test "stdio override: borrow mode does not close fd on deinit" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     const alloc = testing.allocator;
 
     const pipe = try posix.pipe();
@@ -3191,6 +3198,7 @@ test "stdio override: borrow mode does not close fd on deinit" {
 }
 
 test "addPreopenFd: registers fd-based preopen" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     const alloc = testing.allocator;
     var ctx = WasiContext.init(alloc);
     defer ctx.deinit();
