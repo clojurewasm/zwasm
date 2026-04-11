@@ -458,8 +458,9 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
 
         // Apply resource limits
         module.vm.max_memory_bytes = max_memory_bytes;
-        module.vm.fuel = fuel;
-        module.vm.force_interpreter = force_interpreter;
+        module.fuel = fuel;
+        module.timeout_ms = timeout_ms;
+        module.force_interpreter = force_interpreter;
         if (timeout_ms) |ms| module.vm.setDeadlineTimeoutMs(ms);
 
         // Lookup export info for type-aware parsing and validation
@@ -607,8 +608,9 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
 
         // Apply resource limits
         module.vm.max_memory_bytes = max_memory_bytes;
-        module.vm.fuel = fuel;
-        module.vm.force_interpreter = force_interpreter;
+        module.fuel = fuel;
+        module.timeout_ms = timeout_ms;
+        module.force_interpreter = force_interpreter;
         if (timeout_ms) |ms| module.vm.setDeadlineTimeoutMs(ms);
 
         var no_args = [_]u64{};

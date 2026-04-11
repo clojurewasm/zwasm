@@ -2059,7 +2059,7 @@ test "fuzz — full pipeline (load+instantiate) does not panic" {
                         var results: [1]u64 = .{0};
                         const result_slice = results[0..ei.result_types.len];
                         module.invoke(ei.name, &.{}, result_slice) catch continue;
-                        module.vm.fuel = 100_000;
+                        module.fuel = 100_000;
                     }
                 }
             }

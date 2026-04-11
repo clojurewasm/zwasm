@@ -64,8 +64,8 @@ fn fuzzOne(allocator: std.mem.Allocator, wat_source: []const u8) void {
 
         // Call multiple times to trigger JIT compilation
         for (0..JIT_CALLS) |_| {
-            module.invoke(ei.name, arg_slice, result_slice) catch break;
             module.vm.fuel = FUEL_LIMIT;
+            module.invoke(ei.name, arg_slice, result_slice) catch break;
         }
     }
 }

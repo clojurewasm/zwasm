@@ -48,7 +48,7 @@ fn loadModule(allocator: std.mem.Allocator, input: []const u8) ?*zwasm.WasmModul
     const m = zwasm.WasmModule.loadWasiWithOptions(allocator, input, .{
         .caps = zwasm.Capabilities.sandbox,
     }) catch return null;
-    m.vm.fuel = FUEL_LIMIT;
+    m.fuel = FUEL_LIMIT;
     return m;
 }
 
@@ -79,8 +79,8 @@ fn fuzzOne(allocator: std.mem.Allocator, input: []const u8) void {
 
         // Call multiple times to trigger JIT compilation
         for (0..JIT_CALLS) |_| {
-            module.invoke(ei.name, arg_slice, result_slice) catch break;
             module.vm.fuel = FUEL_LIMIT;
+            module.invoke(ei.name, arg_slice, result_slice) catch break;
         }
     }
 }
