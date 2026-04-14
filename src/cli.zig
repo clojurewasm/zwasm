@@ -156,7 +156,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     var max_memory_bytes: ?u64 = null;
     var fuel: ?u64 = null;
     var timeout_ms: ?u64 = null;
-    var force_interpreter = false;
+    var force_interpreter: ?bool = null;
 
     // Parse options
     var i: usize = 0;
@@ -461,7 +461,6 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         module.fuel = fuel;
         module.timeout_ms = timeout_ms;
         module.force_interpreter = force_interpreter;
-        if (timeout_ms) |ms| module.vm.setDeadlineTimeoutMs(ms);
 
         // Lookup export info for type-aware parsing and validation
         const export_info = module.getExportInfo(func_name);
@@ -611,7 +610,6 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         module.fuel = fuel;
         module.timeout_ms = timeout_ms;
         module.force_interpreter = force_interpreter;
-        if (timeout_ms) |ms| module.vm.setDeadlineTimeoutMs(ms);
 
         var no_args = [_]u64{};
         var no_results = [_]u64{};
