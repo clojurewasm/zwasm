@@ -20,6 +20,9 @@ examples/rust/Cargo.lock
 *.swp
 *~
 
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
+
 # Spec tests: tracked in git (avoids wabt version dependency across platforms)
 
 # E2E tests (generated from wasmtime misc_testsuite)
