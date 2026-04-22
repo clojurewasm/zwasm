@@ -394,7 +394,6 @@ pub const Module = struct {
                 try self.rec_groups.append(self.alloc, .{ .start = group_start, .count = 1 });
             }
         }
-
     }
 
     fn decodeSubType(self: *Module, reader: *Reader) !void {
@@ -869,9 +868,15 @@ pub const Module = struct {
                     for (0..count + 1) |_| _ = try r.readU32();
                 },
                 0x10, 0x12, 0x14, 0x15 => _ = try r.readU32(), // call, return_call, call_ref, return_call_ref
-                0x11, 0x13 => { _ = try r.readU32(); _ = try r.readU32(); }, // call_indirect, return_call_indirect
+                0x11, 0x13 => {
+                    _ = try r.readU32();
+                    _ = try r.readU32();
+                }, // call_indirect, return_call_indirect
                 0x08 => _ = try r.readU32(), // throw
-                0x1C => { const n = try r.readU32(); for (0..n) |_| _ = try r.readByte(); }, // select_t
+                0x1C => {
+                    const n = try r.readU32();
+                    for (0..n) |_| _ = try r.readByte();
+                }, // select_t
                 0x20, 0x21, 0x22 => _ = try r.readU32(), // local.get/set/tee
                 0x23, 0x24 => _ = try r.readU32(), // global.get/set
                 0x25, 0x26 => _ = try r.readU32(), // table.get/set
@@ -892,13 +897,25 @@ pub const Module = struct {
                     const sub = try r.readU32();
                     switch (sub) {
                         0...7 => {}, // trunc_sat
-                        8 => { _ = try r.readU32(); _ = try r.readU32(); }, // memory.init (dataidx, memidx)
+                        8 => {
+                            _ = try r.readU32();
+                            _ = try r.readU32();
+                        }, // memory.init (dataidx, memidx)
                         9 => _ = try r.readU32(), // data.drop
-                        10 => { _ = try r.readU32(); _ = try r.readU32(); }, // memory.copy (dest_memidx, src_memidx)
+                        10 => {
+                            _ = try r.readU32();
+                            _ = try r.readU32();
+                        }, // memory.copy (dest_memidx, src_memidx)
                         11 => _ = try r.readU32(), // memory.fill (memidx)
-                        12 => { _ = try r.readU32(); _ = try r.readU32(); }, // table.init
+                        12 => {
+                            _ = try r.readU32();
+                            _ = try r.readU32();
+                        }, // table.init
                         13 => _ = try r.readU32(), // elem.drop
-                        14 => { _ = try r.readU32(); _ = try r.readU32(); }, // table.copy
+                        14 => {
+                            _ = try r.readU32();
+                            _ = try r.readU32();
+                        }, // table.copy
                         15 => _ = try r.readU32(), // table.grow
                         16 => _ = try r.readU32(), // table.size
                         17 => _ = try r.readU32(), // table.fill
@@ -936,13 +953,25 @@ pub const Module = struct {
                             _ = try r.readU32(); // fieldidx
                         },
                         0x06, 0x07 => _ = try r.readU32(), // array.new/new_default (typeidx)
-                        0x08 => { _ = try r.readU32(); _ = try r.readU32(); }, // array.new_fixed (typeidx, N)
-                        0x09, 0x0A => { _ = try r.readU32(); _ = try r.readU32(); }, // array.new_data/elem
+                        0x08 => {
+                            _ = try r.readU32();
+                            _ = try r.readU32();
+                        }, // array.new_fixed (typeidx, N)
+                        0x09, 0x0A => {
+                            _ = try r.readU32();
+                            _ = try r.readU32();
+                        }, // array.new_data/elem
                         0x0B, 0x0C, 0x0D, 0x0E => _ = try r.readU32(), // array.get/get_s/get_u/set
                         0x0F => {}, // array.len (no immediates)
                         0x10 => _ = try r.readU32(), // array.fill (typeidx)
-                        0x11 => { _ = try r.readU32(); _ = try r.readU32(); }, // array.copy
-                        0x12, 0x13 => { _ = try r.readU32(); _ = try r.readU32(); }, // array.init_data/elem
+                        0x11 => {
+                            _ = try r.readU32();
+                            _ = try r.readU32();
+                        }, // array.copy
+                        0x12, 0x13 => {
+                            _ = try r.readU32();
+                            _ = try r.readU32();
+                        }, // array.init_data/elem
                         0x14, 0x15 => _ = try r.readI33(), // ref.test/ref.test_null (heaptype)
                         0x16, 0x17 => _ = try r.readI33(), // ref.cast/ref.cast_null (heaptype)
                         0x18, 0x19 => { // br_on_cast/br_on_cast_fail
@@ -1220,7 +1249,7 @@ fn sectionOrder(section_id: u8) u8 {
         12 => 11, // data_count (before code)
         10 => 12, // code
         11 => 13, // data
-        else => section_id + 100, // unknown sections get high order
+        else => std.math.maxInt(u8), // unknown sections get highest order
     };
 }
 
@@ -1286,15 +1315,22 @@ fn skipInitExpr(reader: *Reader) !void {
             .ref_null => _ = try reader.readI33(), // heap type (S33 LEB128)
             .ref_func => _ = try reader.readU32(),
             // Extended constant expressions (Wasm 3.0)
-            .i32_add, .i32_sub, .i32_mul,
-            .i64_add, .i64_sub, .i64_mul,
+            .i32_add,
+            .i32_sub,
+            .i32_mul,
+            .i64_add,
+            .i64_sub,
+            .i64_mul,
             => {},
             // GC prefix — struct/array constructors and conversions in init expressions
             .gc_prefix => {
                 const gc_op = try reader.readU32();
                 switch (gc_op) {
                     0x00, 0x01, 0x06, 0x07 => _ = try reader.readU32(), // struct.new/default, array.new/default (type_idx)
-                    0x08 => { _ = try reader.readU32(); _ = try reader.readU32(); }, // array.new_fixed (type_idx, count)
+                    0x08 => {
+                        _ = try reader.readU32();
+                        _ = try reader.readU32();
+                    }, // array.new_fixed (type_idx, count)
                     0x1A, 0x1B, 0x1C => {}, // any.convert_extern, extern.convert_any, ref.i31
                     else => return error.InvalidWasm,
                 }
@@ -1320,7 +1356,7 @@ fn skipInitExpr(reader: *Reader) !void {
 const testing = std.testing;
 
 /// Read a wasm test file at runtime (avoids @embedFile package path issues).
-fn readTestFile(alloc: Allocator, name: []const u8) ![]const u8 {
+fn readTestFile(alloc: Allocator, io: std.Io, name: []const u8) ![]const u8 {
     // Try relative path from project root (for `zig test` and `zig build test`)
     const prefixes = [_][]const u8{
         "src/testdata/",
@@ -1330,18 +1366,18 @@ fn readTestFile(alloc: Allocator, name: []const u8) ![]const u8 {
     for (prefixes) |prefix| {
         const path = try std.fmt.allocPrint(alloc, "{s}{s}", .{ prefix, name });
         defer alloc.free(path);
-        const file = std.fs.cwd().openFile(path, .{}) catch continue;
-        defer file.close();
-        const stat = try file.stat();
+        const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch continue;
+        defer file.close(io);
+        const stat = try file.stat(io);
         const data = try alloc.alloc(u8, stat.size);
-        const read = try file.readAll(data);
+        const read = try file.readPositionalAll(io, data, 0);
         return data[0..read];
     }
     return error.FileNotFound;
 }
 
 test "Module — decode 01_add.wasm" {
-    const wasm = try readTestFile(testing.allocator, "01_add.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "01_add.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1375,7 +1411,7 @@ test "Module — decode 01_add.wasm" {
 }
 
 test "Module — decode 02_fibonacci.wasm" {
-    const wasm = try readTestFile(testing.allocator, "02_fibonacci.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "02_fibonacci.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1385,7 +1421,7 @@ test "Module — decode 02_fibonacci.wasm" {
 }
 
 test "Module — decode 03_memory.wasm" {
-    const wasm = try readTestFile(testing.allocator, "03_memory.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "03_memory.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1397,7 +1433,7 @@ test "Module — decode 03_memory.wasm" {
 }
 
 test "Module — decode 04_imports.wasm" {
-    const wasm = try readTestFile(testing.allocator, "04_imports.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "04_imports.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1410,7 +1446,7 @@ test "Module — decode 04_imports.wasm" {
 }
 
 test "Module — decode 05_table_indirect_call.wasm" {
-    const wasm = try readTestFile(testing.allocator, "05_table_indirect_call.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "05_table_indirect_call.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1421,7 +1457,7 @@ test "Module — decode 05_table_indirect_call.wasm" {
 }
 
 test "Module — decode 06_globals.wasm" {
-    const wasm = try readTestFile(testing.allocator, "06_globals.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "06_globals.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1431,7 +1467,7 @@ test "Module — decode 06_globals.wasm" {
 }
 
 test "Module — decode 07_wasi_hello.wasm" {
-    const wasm = try readTestFile(testing.allocator, "07_wasi_hello.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "07_wasi_hello.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1442,7 +1478,7 @@ test "Module — decode 07_wasi_hello.wasm" {
 }
 
 test "Module — decode 08_multi_value.wasm" {
-    const wasm = try readTestFile(testing.allocator, "08_multi_value.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "08_multi_value.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1458,7 +1494,7 @@ test "Module — decode 08_multi_value.wasm" {
 }
 
 test "Module — decode 09_go_math.wasm (large TinyGo module)" {
-    const wasm = try readTestFile(testing.allocator, "09_go_math.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "09_go_math.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1469,7 +1505,7 @@ test "Module — decode 09_go_math.wasm (large TinyGo module)" {
 }
 
 test "Module — decode 10_greet.wasm" {
-    const wasm = try readTestFile(testing.allocator, "10_greet.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "10_greet.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1481,7 +1517,7 @@ test "Module — decode 10_greet.wasm" {
 }
 
 test "Module — data section in imports module" {
-    const wasm = try readTestFile(testing.allocator, "04_imports.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "04_imports.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1493,7 +1529,7 @@ test "Module — data section in imports module" {
 }
 
 test "Module — getExport nonexistent" {
-    const wasm = try readTestFile(testing.allocator, "01_add.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "01_add.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1503,7 +1539,7 @@ test "Module — getExport nonexistent" {
 }
 
 test "Module — getFuncType" {
-    const wasm = try readTestFile(testing.allocator, "01_add.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "01_add.wasm");
     defer testing.allocator.free(wasm);
     var mod = Module.init(testing.allocator, wasm);
     defer mod.deinit();
@@ -1901,7 +1937,7 @@ test "Module — type canonicalization: ref_test.1 GC struct types" {
     //   6: sub(0) struct()             — $t0' (NOT same as 0: has super=[0])
     //   7: sub(6) struct(i32, i32)     — $t4
     //   8: func() -> ()
-    const wasm = try std.fs.cwd().readFileAlloc(testing.allocator, "test/spec/json/ref_test.1.wasm", 1024 * 1024);
+    const wasm = try std.Io.Dir.cwd().readFileAlloc(testing.io, "test/spec/json/ref_test.1.wasm", testing.allocator, .limited(1024 * 1024));
     defer testing.allocator.free(wasm);
     var m = Module.init(testing.allocator, wasm);
     defer m.deinit();
@@ -2025,45 +2061,37 @@ pub const fuzz_corpus = &[_][]const u8{
 };
 
 test "fuzz — module decode does not panic on arbitrary input" {
-    const Ctx = struct { corpus: []const []const u8 };
-    try std.testing.fuzz(
-        Ctx{ .corpus = fuzz_corpus },
-        struct {
-            fn f(_: Ctx, input: []const u8) anyerror!void {
-                var m = Module.init(testing.allocator, input);
-                defer m.deinit();
-                m.decode() catch return;
-            }
-        }.f,
-        .{},
-    );
+    try std.testing.fuzz({}, struct {
+        fn f(_: void, smith: *std.testing.Smith) anyerror!void {
+            const input = smith.in orelse return;
+            var m = Module.init(testing.allocator, input);
+            defer m.deinit();
+            m.decode() catch return;
+        }
+    }.f, .{ .corpus = fuzz_corpus });
 }
 
 test "fuzz — full pipeline (load+instantiate) does not panic" {
-    const Ctx = struct { corpus: []const []const u8 };
-    try std.testing.fuzz(
-        Ctx{ .corpus = fuzz_corpus },
-        struct {
-            fn f(_: Ctx, input: []const u8) anyerror!void {
-                const zwasm = @import("types.zig");
-                const module = zwasm.WasmModule.loadWithFuel(
-                    testing.allocator,
-                    input,
-                    100_000,
-                ) catch return;
-                defer module.deinit();
+    try std.testing.fuzz({}, struct {
+        fn f(_: void, smith: *std.testing.Smith) anyerror!void {
+            const input = smith.in orelse return;
+            const zwasm = @import("types.zig");
+            const module = zwasm.WasmModule.loadWithFuel(
+                testing.allocator,
+                testing.io,
+                input,
+                100_000,
+            ) catch return;
+            defer module.deinit();
 
-                // Try invoking zero-arg exported functions
-                for (module.export_fns) |ei| {
-                    if (ei.param_types.len == 0 and ei.result_types.len <= 1) {
-                        var results: [1]u64 = .{0};
-                        const result_slice = results[0..ei.result_types.len];
-                        module.invoke(ei.name, &.{}, result_slice) catch continue;
-                        module.fuel = 100_000;
-                    }
+            for (module.export_fns) |ei| {
+                if (ei.param_types.len == 0 and ei.result_types.len <= 1) {
+                    var results: [1]u64 = .{0};
+                    const result_slice = results[0..ei.result_types.len];
+                    module.invoke(ei.name, &.{}, result_slice) catch continue;
+                    module.fuel = 100_000;
                 }
             }
-        }.f,
-        .{},
-    );
+        }
+    }.f, .{ .corpus = fuzz_corpus });
 }

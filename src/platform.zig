@@ -68,8 +68,8 @@ pub fn commitPages(region: []align(page_size) u8, prot: Protection) PageError!vo
         return;
     }
 
-    const posix = std.posix;
-    posix.mprotect(region, protectionToPosix(prot)) catch return error.PermissionDenied;
+    const result = std.posix.system.mprotect(@ptrCast(region.ptr), region.len, protectionToPosix(prot));
+    if (result != 0) return error.PermissionDenied;
 }
 
 pub fn protectPages(region: []align(page_size) u8, prot: Protection) PageError!void {
@@ -84,8 +84,8 @@ pub fn protectPages(region: []align(page_size) u8, prot: Protection) PageError!v
         return;
     }
 
-    const posix = std.posix;
-    posix.mprotect(region, protectionToPosix(prot)) catch return error.PermissionDenied;
+    const result = std.posix.system.mprotect(@ptrCast(region.ptr), region.len, protectionToPosix(prot));
+    if (result != 0) return error.PermissionDenied;
 }
 
 pub fn freePages(region: []align(page_size) u8) void {
@@ -122,8 +122,12 @@ pub fn appCacheDir(alloc: std.mem.Allocator, app_name: []const u8) ![]u8 {
         return std.fs.getAppDataDir(alloc, app_name);
     }
 
-    const home = std.posix.getenv("HOME") orelse return error.NoCacheDir;
-    return std.fmt.allocPrint(alloc, "{s}/.cache/{s}", .{ home, app_name });
+    if (try envPath(alloc, "HOME")) |home| {
+        defer alloc.free(home);
+        return std.fmt.allocPrint(alloc, "{s}/.cache/{s}", .{ home, app_name });
+    }
+
+    return std.fmt.allocPrint(alloc, "/tmp/{s}", .{app_name});
 }
 
 pub fn tempDirPath(alloc: std.mem.Allocator) ![]u8 {
@@ -141,10 +145,15 @@ pub fn tempDirPath(alloc: std.mem.Allocator) ![]u8 {
 }
 
 fn envPath(alloc: std.mem.Allocator, name: []const u8) !?[]u8 {
-    return std.process.getEnvVarOwned(alloc, name) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => null,
-        else => err,
-    };
+    if (builtin.os.tag == .windows) {
+        var env_map = try std.process.Environ.createMap(.{ .block = .global }, alloc);
+        defer env_map.deinit();
+
+        const value = env_map.get(name) orelse return null;
+        return alloc.dupe(u8, value);
+    }
+
+    return null;
 }
 
 fn protectionToWin(prot: Protection) windows.DWORD {
@@ -155,11 +164,11 @@ fn protectionToWin(prot: Protection) windows.DWORD {
     };
 }
 
-fn protectionToPosix(prot: Protection) u32 {
+fn protectionToPosix(prot: Protection) std.posix.PROT {
     return switch (prot) {
-        .none => @intCast(std.posix.PROT.NONE),
-        .read_write => @intCast(std.posix.PROT.READ | std.posix.PROT.WRITE),
-        .read_exec => @intCast(std.posix.PROT.READ | std.posix.PROT.EXEC),
+        .none => .{},
+        .read_write => .{ .READ = true, .WRITE = true },
+        .read_exec => .{ .READ = true, .EXEC = true },
     };
 }
 

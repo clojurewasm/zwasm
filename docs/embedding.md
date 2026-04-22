@@ -23,7 +23,7 @@ const zwasm = @import("zwasm");
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-    const wasm_bytes = try std.fs.cwd().readFileAlloc(allocator, "module.wasm", 10 * 1024 * 1024);
+    const wasm_bytes = try std.Io.Dir.cwd().readFileAlloc(allocator, "module.wasm", 10 * 1024 * 1024);
     defer allocator.free(wasm_bytes);
 
     var module = try zwasm.WasmModule.load(allocator, wasm_bytes);

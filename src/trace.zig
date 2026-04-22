@@ -61,10 +61,7 @@ pub fn parseCategories(input: []const u8) u8 {
 // ================================================================
 
 fn stderrPrint(comptime fmt: []const u8, args: anytype) void {
-    var buf: [4096]u8 = undefined;
-    var w = std.fs.File.stderr().writer(&buf);
-    w.interface.print(fmt, args) catch {};
-    w.interface.flush() catch {};
+    std.debug.print(fmt, args);
 }
 
 pub fn traceJitCompile(tc: *const TraceConfig, func_idx: u32, ir_count: u32, code_size: u32) void {
@@ -380,15 +377,24 @@ pub fn dumpRegIR(w: *std.Io.Writer, reg_func: *const RegFunc, pool64: []const u6
                 w.print("r{d} src=r{d} n=r{d}", .{ instr.rd, instr.rs1, instr.rs2() }) catch {};
             },
             // Immediate-fused ops
-            regalloc_mod.OP_ADDI32, regalloc_mod.OP_SUBI32, regalloc_mod.OP_MULI32,
-            regalloc_mod.OP_ANDI32, regalloc_mod.OP_ORI32, regalloc_mod.OP_XORI32,
+            regalloc_mod.OP_ADDI32,
+            regalloc_mod.OP_SUBI32,
+            regalloc_mod.OP_MULI32,
+            regalloc_mod.OP_ANDI32,
+            regalloc_mod.OP_ORI32,
+            regalloc_mod.OP_XORI32,
             regalloc_mod.OP_SHLI32,
             => {
                 w.print("r{d} = r{d} op {d}", .{ instr.rd, instr.rs1, instr.operand }) catch {};
             },
-            regalloc_mod.OP_LE_S_I32, regalloc_mod.OP_GE_S_I32, regalloc_mod.OP_LT_S_I32,
-            regalloc_mod.OP_GT_S_I32, regalloc_mod.OP_EQ_I32, regalloc_mod.OP_NE_I32,
-            regalloc_mod.OP_LT_U_I32, regalloc_mod.OP_GE_U_I32,
+            regalloc_mod.OP_LE_S_I32,
+            regalloc_mod.OP_GE_S_I32,
+            regalloc_mod.OP_LT_S_I32,
+            regalloc_mod.OP_GT_S_I32,
+            regalloc_mod.OP_EQ_I32,
+            regalloc_mod.OP_NE_I32,
+            regalloc_mod.OP_LT_U_I32,
+            regalloc_mod.OP_GE_U_I32,
             => {
                 w.print("r{d} = r{d} cmp {d}", .{ instr.rd, instr.rs1, instr.operand }) catch {};
             },
@@ -424,76 +430,66 @@ pub fn dumpJitCode(
     pc_map_items: []const u32,
     func_idx: u32,
 ) void {
-    var buf: [4096]u8 = undefined;
-    var ew = std.fs.File.stderr().writer(&buf);
-    const w = &ew.interface;
-
     const code_bytes = code_items.len * 4;
-    w.print("\n=== JIT: func#{d} ({d} ARM64 instrs, {d} bytes) ===\n", .{
+    std.debug.print("\n=== JIT: func#{d} ({d} ARM64 instrs, {d} bytes) ===\n", .{
         func_idx, code_items.len, code_bytes,
-    }) catch {};
+    });
 
     const tmp_dir = platform.tempDirPath(alloc) catch {
-        w.print("  (failed to resolve temp dir)\n", .{}) catch {};
-        w.flush() catch {};
+        std.debug.print("  (failed to resolve temp dir)\n", .{});
         return;
     };
     defer alloc.free(tmp_dir);
     const file_name = std.fmt.allocPrint(alloc, "zwasm_jit_{d}.bin", .{func_idx}) catch {
-        w.print("  (failed to format path)\n", .{}) catch {};
-        w.flush() catch {};
+        std.debug.print("  (failed to format path)\n", .{});
         return;
     };
     defer alloc.free(file_name);
     const bin_path = std.fs.path.join(alloc, &.{ tmp_dir, file_name }) catch {
-        w.print("  (failed to format path)\n", .{}) catch {};
-        w.flush() catch {};
+        std.debug.print("  (failed to format path)\n", .{});
         return;
     };
     defer alloc.free(bin_path);
 
     const file = std.fs.createFileAbsolute(bin_path, .{}) catch {
-        w.print("  (failed to create {s})\n", .{bin_path}) catch {};
-        w.flush() catch {};
+        std.debug.print("  (failed to create {s})\n", .{bin_path});
         return;
     };
     file.writeAll(std.mem.sliceAsBytes(code_items)) catch {
         file.close();
-        w.print("  (failed to write {s})\n", .{bin_path}) catch {};
-        w.flush() catch {};
+        std.debug.print("  (failed to write {s})\n", .{bin_path});
         return;
     };
     file.close();
 
-    w.print("  raw binary: {s}\n", .{bin_path}) catch {};
+    std.debug.print("  raw binary: {s}\n", .{bin_path});
 
     // Try llvm-objdump, then objdump
-    const tried = tryObjdump(alloc, bin_path, w);
+    const tried = tryObjdump(alloc, bin_path);
     if (!tried) {
         // Fallback: hex dump
-        w.print("  (objdump not available — hex dump)\n", .{}) catch {};
+        std.debug.print("  (objdump not available — hex dump)\n", .{});
         const max_show = @min(code_items.len, 32);
         for (code_items[0..max_show], 0..) |word, i| {
-            w.print("  {X:0>4}: {X:0>8}\n", .{ i * 4, word }) catch {};
+            std.debug.print("  {X:0>4}: {X:0>8}\n", .{ i * 4, word });
         }
         if (code_items.len > max_show) {
-            w.print("  ... ({d} more instructions)\n", .{code_items.len - max_show}) catch {};
+            std.debug.print("  ... ({d} more instructions)\n", .{code_items.len - max_show});
         }
     }
 
     // Print pc_map
-    w.print("\n  pc_map (RegIR PC -> ARM64 offset):\n", .{}) catch {};
+    std.debug.print("\n  pc_map (RegIR PC -> ARM64 offset):\n", .{});
     for (pc_map_items, 0..) |arm_idx, pc| {
         // Only print entries where something maps
         if (pc > 0 and arm_idx == pc_map_items[pc - 1]) continue;
-        w.print("    pc={d} -> 0x{X}\n", .{ pc, @as(usize, arm_idx) * 4 }) catch {};
+        std.debug.print("    pc={d} -> 0x{X}\n", .{ pc, @as(usize, arm_idx) * 4 });
     }
 
-    w.print("=== end JIT func#{d} ===\n\n", .{func_idx}) catch {};
-    w.flush() catch {};
+    std.debug.print("=== end JIT func#{d} ===\n\n", .{func_idx});
 }
 
-fn tryObjdump(alloc: Allocator, bin_path: []const u8, w: *std.Io.Writer) bool {
+fn tryObjdump(alloc: Allocator, bin_path: []const u8) bool {
     _ = alloc;
     // Try llvm-objdump first, then objdump
     const tool_configs = [_]struct { name: []const u8, args: []const []const u8 }{
@@ -521,8 +517,8 @@ fn tryObjdump(alloc: Allocator, bin_path: []const u8, w: *std.Io.Writer) bool {
         _ = child.wait() catch continue;
 
         if (total > 0) {
-            w.print("  disassembly ({s}):\n", .{tool.name}) catch {};
-            w.print("{s}", .{out_buf[0..total]}) catch {};
+            std.debug.print("  disassembly ({s}):\n", .{tool.name});
+            std.debug.print("{s}", .{out_buf[0..total]});
             return true;
         }
     }
@@ -596,16 +592,15 @@ test "dumpRegIR: basic output" {
         .{ .op = regalloc_mod.OP_CONST32, .rd = 2, .rs1 = 0, .operand = 42 },
         .{ .op = regalloc_mod.OP_RETURN, .rd = 2, .rs1 = 0, .operand = 0 },
     };
-    var reg_func = RegFunc{
-        .code = &code,
+    const reg_func = RegFunc{
+        .code = code[0..],
         .pool64 = &.{},
         .reg_count = 3,
         .local_count = 2,
         .alloc = testing.allocator,
     };
 
-    // Write to stderr (verifies no crash, output format tested manually)
     var err_buf: [4096]u8 = undefined;
-    var ew = std.fs.File.stderr().writer(&err_buf);
+    var ew = std.Io.File.stderr().writer(testing.io, &err_buf);
     dumpRegIR(&ew.interface, &reg_func, &.{}, 5);
 }

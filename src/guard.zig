@@ -21,6 +21,71 @@ const windows = std.os.windows;
 
 const kernel32 = std.os.windows.kernel32;
 
+/// Custom ucontext_t definitions for Zig 0.16.0 (ucontext_t was removed from std)
+/// Define minimal structures needed for signal handler PC/return register access
+const UContext = if (builtin.os.tag == .linux) Linux.UContext else if (builtin.os.tag == .macos or builtin.os.tag == .ios) Darwin.UContext else @compileError("unsupported OS for guard pages");
+
+const Linux = if (builtin.os.tag == .linux) struct {
+    const UContext = extern struct {
+        mcontext: MContext,
+        // ... other fields we don't use
+    };
+
+    const MContext = if (builtin.cpu.arch == .x86_64) extern struct {
+        gregs: [23]c_long,
+        // gregs[16] is RIP
+    } else if (builtin.cpu.arch == .aarch64) extern struct {
+        pc: u64,
+        regs: [31]u64,
+        sp: u64,
+        pstate: u64,
+    } else @compileError("unsupported Linux arch for guard pages");
+} else struct {};
+
+const Darwin = if (builtin.os.tag == .macos or builtin.os.tag == .ios) struct {
+    const UContext = extern struct {
+        mcontext: MContext,
+    };
+
+    const MContext = if (builtin.cpu.arch == .x86_64) extern struct {
+        ss: extern struct {
+            rax: u64,
+            rbx: u64,
+            rcx: u64,
+            rdx: u64,
+            rdi: u64,
+            rsi: u64,
+            rbp: u64,
+            rsp: u64,
+            r8: u64,
+            r9: u64,
+            r10: u64,
+            r11: u64,
+            r12: u64,
+            r13: u64,
+            r14: u64,
+            r15: u64,
+            rip: u64,
+            rflags: u64,
+            // ... additional fields not used
+        },
+    } else if (builtin.cpu.arch == .aarch64) extern struct {
+        ss: extern struct {
+            regs: [31]u64,
+            sp: u64,
+            lr: u64,
+            pc: u64,
+            cpsr: u32,
+            __pad: u32,
+            fpsimd: extern struct {
+                vregs: [32 * 2]u64,
+                fpsr: u32,
+                fpcr: u32,
+            },
+        },
+    } else @compileError("unsupported Darwin arch for guard pages");
+} else struct {};
+
 /// Guard region size: 4 GiB + 64 KiB.
 /// This ensures any 32-bit index (0..0xFFFFFFFF) + small offset (up to 64 KiB)
 /// falls within the mapped region (data + guard).
@@ -134,7 +199,12 @@ pub fn installSignalHandler() void {
     }
 
     const handler_fn = struct {
-        fn handler(_: i32, _: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+        fn handler(
+            sig: if (builtin.os.tag == .linux) std.os.linux.SIG else c_int,
+            _: *const std.posix.siginfo_t,
+            ctx_ptr: ?*anyopaque,
+        ) callconv(.c) void {
+            _ = sig; // Handle any signal type
             const rec = getRecovery();
             if (!rec.active) {
                 // Not in JIT code — re-raise with default handler
@@ -143,7 +213,7 @@ pub fn installSignalHandler() void {
             }
             // Verify faulting PC is within JIT code buffer
             // Kernel may place ucontext at non-16-byte-aligned address.
-            const ctx: *align(1) posix.ucontext_t = @ptrCast(ctx_ptr.?);
+            const ctx: *align(1) UContext = @ptrCast(ctx_ptr.?);
             const faulting_pc = getPc(ctx);
             if (faulting_pc < rec.jit_code_start or faulting_pc >= rec.jit_code_end) {
                 // PC not in JIT code — not our fault
@@ -159,9 +229,9 @@ pub fn installSignalHandler() void {
         }
     }.handler;
 
-    const act = posix.Sigaction{
-        .handler = .{ .sigaction = handler_fn },
-        .mask = std.mem.zeroes(posix.sigset_t),
+    const act = std.posix.Sigaction{
+        .handler = .{ .sigaction = @ptrCast(&handler_fn) },
+        .mask = std.mem.zeroes(std.posix.sigset_t),
         .flags = if (comptime builtin.os.tag == .macos or builtin.os.tag == .ios)
             @as(c_uint, 0x40) // SA_SIGINFO on macOS
         else
@@ -170,9 +240,9 @@ pub fn installSignalHandler() void {
 
     // Install for SIGBUS (macOS mmap faults) and SIGSEGV (Linux mmap faults)
     if (comptime builtin.os.tag == .macos or builtin.os.tag == .ios) {
-        posix.sigaction(posix.SIG.BUS, &act, null);
+        std.posix.sigaction(std.posix.SIG.BUS, &act, null);
     } else {
-        posix.sigaction(posix.SIG.SEGV, &act, null);
+        std.posix.sigaction(std.posix.SIG.SEGV, &act, null);
     }
 }
 
@@ -210,19 +280,19 @@ fn windowsHandler(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_long {
 
 fn resetAndReraise() void {
     // Reset to default handler and re-raise — this will crash as expected
-    const default_act = posix.Sigaction{
-        .handler = .{ .handler = posix.SIG.DFL },
-        .mask = std.mem.zeroes(posix.sigset_t),
+    const default_act = std.posix.Sigaction{
+        .handler = .{ .handler = std.posix.SIG.DFL },
+        .mask = std.mem.zeroes(std.posix.sigset_t),
         .flags = 0,
     };
     if (comptime builtin.os.tag == .macos or builtin.os.tag == .ios) {
-        posix.sigaction(posix.SIG.BUS, &default_act, null);
+        std.posix.sigaction(std.posix.SIG.BUS, &default_act, null);
     } else {
-        posix.sigaction(posix.SIG.SEGV, &default_act, null);
+        std.posix.sigaction(std.posix.SIG.SEGV, &default_act, null);
     }
 }
 
-fn getFaultAddress(info: *const posix.siginfo_t) usize {
+fn getFaultAddress(info: *const std.posix.siginfo_t) usize {
     if (comptime builtin.os.tag == .macos or builtin.os.tag == .ios) {
         return @intFromPtr(info.addr);
     } else {
@@ -231,7 +301,7 @@ fn getFaultAddress(info: *const posix.siginfo_t) usize {
     }
 }
 
-fn getPc(ctx: *align(1) posix.ucontext_t) usize {
+fn getPc(ctx: *align(1) UContext) usize {
     if (comptime builtin.cpu.arch == .aarch64) {
         if (comptime builtin.os.tag == .macos) {
             return ctx.mcontext.ss.pc;
@@ -242,14 +312,14 @@ fn getPc(ctx: *align(1) posix.ucontext_t) usize {
         if (comptime builtin.os.tag == .macos) {
             return ctx.mcontext.ss.rip;
         } else {
-            return ctx.mcontext.gregs[16]; // REG_RIP on Linux
+            return @intCast(@as(u64, @bitCast(@as(i64, ctx.mcontext.gregs[16])))); // REG_RIP on Linux (c_long to u64)
         }
     } else {
         @compileError("unsupported arch for guard pages");
     }
 }
 
-fn setPc(ctx: *align(1) posix.ucontext_t, pc: usize) void {
+fn setPc(ctx: *align(1) UContext, pc: usize) void {
     if (comptime builtin.cpu.arch == .aarch64) {
         if (comptime builtin.os.tag == .macos) {
             ctx.mcontext.ss.pc = pc;
@@ -260,12 +330,12 @@ fn setPc(ctx: *align(1) posix.ucontext_t, pc: usize) void {
         if (comptime builtin.os.tag == .macos) {
             ctx.mcontext.ss.rip = pc;
         } else {
-            ctx.mcontext.gregs[16] = pc; // REG_RIP on Linux
+            ctx.mcontext.gregs[16] = @bitCast(@as(i64, @intCast(pc))); // REG_RIP on Linux (u64 to c_long)
         }
     }
 }
 
-fn setReturnReg(ctx: *align(1) posix.ucontext_t, value: u64) void {
+fn setReturnReg(ctx: *align(1) UContext, value: u64) void {
     if (comptime builtin.cpu.arch == .aarch64) {
         if (comptime builtin.os.tag == .macos) {
             ctx.mcontext.ss.regs[0] = value; // x0
@@ -276,7 +346,7 @@ fn setReturnReg(ctx: *align(1) posix.ucontext_t, value: u64) void {
         if (comptime builtin.os.tag == .macos) {
             ctx.mcontext.ss.rax = value;
         } else {
-            ctx.mcontext.gregs[13] = value; // RAX on Linux
+            ctx.mcontext.gregs[13] = @bitCast(@as(i64, @intCast(value))); // RAX on Linux (u64 to c_long)
         }
     }
 }

@@ -24,25 +24,24 @@ const guard_mod = @import("guard.zig");
 const jit_mod = vm_mod.jit_mod;
 const cache_mod = @import("cache.zig");
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     // Install signal handler for JIT guard page OOB traps
     if (comptime jit_mod.jitSupported()) {
         guard_mod.installSignalHandler();
     }
 
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = init.gpa;
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try init.minimal.args.toSlice(allocator);
+
+    const io = init.io;
 
     var buf: [8192]u8 = undefined;
-    var writer = std.fs.File.stdout().writer(&buf);
+    var writer = std.Io.File.stdout().writer(io, &buf);
     const stdout = &writer.interface;
 
     var err_buf: [4096]u8 = undefined;
-    var err_writer = std.fs.File.stderr().writer(&err_buf);
+    var err_writer = std.Io.File.stderr().writer(io, &err_buf);
     const stderr = &err_writer.interface;
 
     if (args.len < 2) {
@@ -54,17 +53,17 @@ pub fn main() !void {
     const command = args[1];
 
     if (std.mem.eql(u8, command, "run")) {
-        const ok = try cmdRun(allocator, args[2..], stdout, stderr);
+        const ok = try cmdRun(io, allocator, args[2..], stdout, stderr);
         try stdout.flush();
         if (!ok) std.process.exit(1);
     } else if (std.mem.eql(u8, command, "inspect")) {
-        try cmdInspect(allocator, args[2..], stdout, stderr);
+        try cmdInspect(io, allocator, args[2..], stdout, stderr);
     } else if (std.mem.eql(u8, command, "validate")) {
-        const ok = try cmdValidate(allocator, args[2..], stdout, stderr);
+        const ok = try cmdValidate(io, allocator, args[2..], stdout, stderr);
         try stdout.flush();
         if (!ok) std.process.exit(1);
     } else if (std.mem.eql(u8, command, "compile")) {
-        const ok = try cmdCompile(allocator, args[2..], stdout, stderr);
+        const ok = try cmdCompile(io, allocator, args[2..], stdout, stderr);
         try stdout.flush();
         if (!ok) std.process.exit(1);
     } else if (std.mem.eql(u8, command, "features")) {
@@ -75,7 +74,7 @@ pub fn main() !void {
         try stdout.print("zwasm {s}\n", .{build_options.version});
     } else if (std.mem.endsWith(u8, command, ".wasm") or std.mem.endsWith(u8, command, ".wat")) {
         // zwasm file.wasm ... → shorthand for zwasm run file.wasm ...
-        const ok = try cmdRun(allocator, args[1..], stdout, stderr);
+        const ok = try cmdRun(io, allocator, args[1..], stdout, stderr);
         try stdout.flush();
         if (!ok) std.process.exit(1);
     } else {
@@ -130,7 +129,7 @@ fn printUsage(w: *std.Io.Writer) void {
 // zwasm run
 // ============================================================
 
-fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
+fn cmdRun(io: std.Io, allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
     var invoke_name: ?[]const u8 = null;
     var wasm_path: ?[]const u8 = null;
     var func_args_start: usize = 0;
@@ -315,7 +314,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         return false;
     };
 
-    const wasm_bytes = readWasmFile(allocator, path) catch |err| {
+    const wasm_bytes = readWasmFile(io, allocator, path) catch |err| {
         try stderr.print("error: cannot read '{s}': {s}\n", .{ path, @errorName(err) });
         try stderr.flush();
         return false;
@@ -324,7 +323,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
 
     // Auto-detect component vs core module
     if (component_mod.isComponent(wasm_bytes)) {
-        return runComponent(allocator, wasm_bytes, stdout, stderr);
+        return runComponent(allocator, io, wasm_bytes, stdout, stderr);
     }
 
     // Load linked modules
@@ -343,23 +342,23 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     defer import_entries.deinit(allocator);
 
     for (link_names.items, link_paths.items) |name, lpath| {
-        const link_bytes = readWasmFile(allocator, lpath) catch |err| {
+        const link_bytes = readWasmFile(io, allocator, lpath) catch |err| {
             try stderr.print("error: cannot read linked module '{s}': {s}\n", .{ lpath, @errorName(err) });
             try stderr.flush();
             return false;
         };
         // Load with already-loaded linked modules as imports (transitive chains)
         const lm = if (import_entries.items.len > 0)
-            types.WasmModule.loadWithImports(allocator, link_bytes, import_entries.items) catch
+            types.WasmModule.loadWithImports(allocator, io, link_bytes, import_entries.items) catch
                 // Retry without imports if the linked module doesn't need them
-                types.WasmModule.load(allocator, link_bytes) catch |err| {
+                types.WasmModule.load(allocator, io, link_bytes) catch |err| {
                 allocator.free(link_bytes);
                 try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, formatWasmError(err) });
                 try stderr.flush();
                 return false;
             }
         else
-            types.WasmModule.load(allocator, link_bytes) catch |err| {
+            types.WasmModule.load(allocator, io, link_bytes) catch |err| {
                 allocator.free(link_bytes);
                 try stderr.print("error: failed to load linked module '{s}': {s}\n", .{ lpath, formatWasmError(err) });
                 try stderr.flush();
@@ -374,7 +373,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
     }
 
     if (batch_mode) {
-        return cmdBatch(allocator, wasm_bytes, import_entries.items, link_names.items, linked_modules.items, stdout, stderr, trace_categories, dump_regir_func, dump_jit_func);
+        return cmdBatch(io, allocator, wasm_bytes, import_entries.items, link_names.items, linked_modules.items, stdout, stderr, trace_categories, dump_regir_func, dump_jit_func);
     }
 
     const imports_slice: ?[]const types.ImportEntry = if (import_entries.items.len > 0)
@@ -397,9 +396,9 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         const module = load_blk: {
             if (imports_slice != null) {
                 // With --link: try imports only, then imports + WASI
-                break :load_blk types.WasmModule.loadWithImports(allocator, wasm_bytes, imports_slice.?) catch |err| {
+                break :load_blk types.WasmModule.loadWithImports(allocator, io, wasm_bytes, imports_slice.?) catch |err| {
                     if (err == error.ImportNotFound) {
-                        break :load_blk types.WasmModule.loadWasiWithImports(allocator, wasm_bytes, imports_slice, wasi_opts) catch |err2| {
+                        break :load_blk types.WasmModule.loadWasiWithImports(allocator, io, wasm_bytes, imports_slice, wasi_opts) catch |err2| {
                             try stderr.print("error: failed to load module: {s}\n", .{formatWasmError(err2)});
                             try stderr.flush();
                             return false;
@@ -411,9 +410,9 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
                 };
             }
             // No --link: try plain, then WASI
-            break :load_blk types.WasmModule.load(allocator, wasm_bytes) catch |err| {
+            break :load_blk types.WasmModule.load(allocator, io, wasm_bytes) catch |err| {
                 if (err == error.ImportNotFound) {
-                    break :load_blk types.WasmModule.loadWasiWithOptions(allocator, wasm_bytes, wasi_opts) catch |err2| {
+                    break :load_blk types.WasmModule.loadWasiWithOptions(allocator, io, wasm_bytes, wasi_opts) catch |err2| {
                         try stderr.print("error: failed to load module: {s}\n", .{formatWasmError(err2)});
                         try stderr.flush();
                         return false;
@@ -572,7 +571,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .preopen_paths = preopen_paths.items,
             .caps = caps,
         };
-        var module = types.WasmModule.loadWasiWithImports(allocator, wasm_bytes, imports_slice, wasi_opts2) catch |err| {
+        var module = types.WasmModule.loadWasiWithImports(allocator, io, wasm_bytes, imports_slice, wasi_opts2) catch |err| {
             try stderr.print("error: failed to load WASI module: {s}\n", .{formatWasmError(err)});
             try stderr.flush();
             return false;
@@ -654,7 +653,7 @@ const store_mod = @import("store.zig");
 // zwasm compile
 // ============================================================
 
-fn cmdCompile(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
+fn cmdCompile(io: std.Io, allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
     _ = stdout;
     if (args.len == 0) {
         try stderr.print("error: no wasm file specified\nUsage: zwasm compile <file.wasm|.wat>\n", .{});
@@ -663,7 +662,7 @@ fn cmdCompile(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
     }
 
     const path = args[0];
-    const wasm_bytes = readWasmFile(allocator, path) catch |err| {
+    const wasm_bytes = readWasmFile(io, allocator, path) catch |err| {
         try stderr.print("error: cannot read '{s}': {s}\n", .{ path, @errorName(err) });
         try stderr.flush();
         return false;
@@ -671,7 +670,7 @@ fn cmdCompile(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
     defer allocator.free(wasm_bytes);
 
     // Load module (with WASI to handle any imports)
-    var module = types.WasmModule.loadWasi(allocator, wasm_bytes) catch |err| {
+    var module = types.WasmModule.loadWasi(allocator, io, wasm_bytes) catch |err| {
         try stderr.print("error: failed to load module: {s}\n", .{formatWasmError(err)});
         try stderr.flush();
         return false;
@@ -714,7 +713,7 @@ fn cmdCompile(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
 // Component Model execution
 // ============================================================
 
-fn runComponent(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
+fn runComponent(allocator: Allocator, io: std.Io, wasm_bytes: []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
     _ = stdout;
 
     // Decode the component
@@ -731,7 +730,7 @@ fn runComponent(allocator: Allocator, wasm_bytes: []const u8, stdout: *std.Io.Wr
     var instance = component_mod.ComponentInstance.init(allocator, &comp);
     defer instance.deinit();
 
-    instance.instantiate() catch |err| {
+    instance.instantiate(io) catch |err| {
         try stderr.print("error: failed to instantiate component: {s}\n", .{formatWasmError(err)});
         try stderr.flush();
         return false;
@@ -965,7 +964,7 @@ fn miscOpcodeName(sub: u8) []const u8 {
 // zwasm inspect
 // ============================================================
 
-fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !void {
+fn cmdInspect(io: std.Io, allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !void {
     var json_mode = false;
     var path: ?[]const u8 = null;
 
@@ -982,7 +981,7 @@ fn cmdInspect(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Wr
         try stderr.flush();
         return;
     };
-    const wasm_bytes = readWasmFile(allocator, file_path) catch |err| {
+    const wasm_bytes = readWasmFile(io, allocator, file_path) catch |err| {
         try stderr.print("error: cannot read '{s}': {s}\n", .{ file_path, @errorName(err) });
         try stderr.flush();
         return;
@@ -1234,16 +1233,16 @@ fn threadRunner(ctx: *ThreadCtx) void {
 /// Batch mode: read invocations from stdin, one per line.
 /// Protocol: "invoke <func> [arg1 arg2 ...]"
 /// Output: "ok [val1 val2 ...]" or "error <message>"
-fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types.ImportEntry, link_names: []const []const u8, linked_modules: []const *types.WasmModule, stdout: *std.Io.Writer, stderr: *std.Io.Writer, trace_categories: u8, dump_regir_func: ?u32, dump_jit_func: ?u32) !bool {
+fn cmdBatch(io: std.Io, allocator: Allocator, wasm_bytes: []const u8, imports: []const types.ImportEntry, link_names: []const []const u8, linked_modules: []const *types.WasmModule, stdout: *std.Io.Writer, stderr: *std.Io.Writer, trace_categories: u8, dump_regir_func: ?u32, dump_jit_func: ?u32) !bool {
     _ = stderr;
     var module = if (imports.len > 0)
-        types.WasmModule.loadWithImports(allocator, wasm_bytes, imports) catch |err| {
+        types.WasmModule.loadWithImports(allocator, io, wasm_bytes, imports) catch |err| {
             try stdout.print("error load {s}\n", .{@errorName(err)});
             try stdout.flush();
             return false;
         }
     else
-        types.WasmModule.load(allocator, wasm_bytes) catch |err| {
+        types.WasmModule.load(allocator, io, wasm_bytes) catch |err| {
             try stdout.print("error load {s}\n", .{@errorName(err)});
             try stdout.flush();
             return false;
@@ -1260,10 +1259,10 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
         module.vm.trace = &batch_trace_config;
     }
 
-    const stdin = std.fs.File.stdin();
-    var read_buf: [8192]u8 = undefined;
-    var reader = stdin.reader(&read_buf);
-    const r = &reader.interface;
+    const stdin = std.Io.File.stdin();
+    var stdin_buf: [4096]u8 = undefined;
+    var reader = stdin.reader(io, &stdin_buf);
+    const r = &reader;
 
     // Reusable buffers for args/results (400+ params needed for func-400-params test)
     var arg_buf: [512]u64 = undefined;
@@ -1309,11 +1308,12 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
     }
 
     while (true) {
-        const raw_line = r.takeDelimiter('\n') catch |err| switch (err) {
+        const raw_line = r.interface.takeDelimiter('\n') catch |err| switch (err) {
             error.StreamTooLong => continue,
             else => break,
-        } orelse break;
-        const line = std.mem.trimRight(u8, raw_line, "\r");
+        } orelse continue;
+        defer allocator.free(raw_line);
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
 
         // Skip empty lines
         if (line.len == 0) continue;
@@ -1364,7 +1364,7 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
                 continue;
             };
             const load_path = after_load[sp + 1 ..];
-            const load_bytes = readWasmFile(allocator, load_path) catch {
+            const load_bytes = readWasmFile(io, allocator, load_path) catch {
                 try stdout.print("error cannot read file\n", .{});
                 try stdout.flush();
                 continue;
@@ -1488,8 +1488,8 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
             };
             // Buffer invocations until thread_end
             while (true) {
-                const raw_tline = r.takeDelimiter('\n') catch break orelse break;
-                const tline = std.mem.trimRight(u8, raw_tline, "\r");
+                const raw_tline = r.interface.takeDelimiter('\n') catch break orelse break;
+                const tline = std.mem.trimEnd(u8, raw_tline, "\r");
                 if (std.mem.eql(u8, tline, "thread_end")) break;
                 if (!std.mem.startsWith(u8, tline, "invoke ")) continue;
                 // Parse: invoke <len>:<func> [args...]
@@ -1862,7 +1862,7 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
 // zwasm validate
 // ============================================================
 
-fn cmdValidate(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
+fn cmdValidate(io: std.Io, allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer, stderr: *std.Io.Writer) !bool {
     if (args.len < 1) {
         try stderr.print("error: no wasm file specified\n", .{});
         try stderr.flush();
@@ -1870,7 +1870,7 @@ fn cmdValidate(allocator: Allocator, args: []const []const u8, stdout: *std.Io.W
     }
 
     const path = args[0];
-    const wasm_bytes = readWasmFile(allocator, path) catch |err| {
+    const wasm_bytes = readWasmFile(io, allocator, path) catch |err| {
         try stderr.print("error: validation failed: {s}: {s}\n", .{ path, formatWasmError(err) });
         try stderr.flush();
         return false;
@@ -2056,13 +2056,25 @@ test "features list has expected entries" {
     try testing.expect(total >= 398);
 }
 
-fn readFile(allocator: Allocator, path: []const u8) ![]const u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const stat = try file.stat();
+fn readFile(io: std.Io, allocator: Allocator, path: []const u8) ![]const u8 {
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+    const stat = try file.stat(io);
     const data = try allocator.alloc(u8, stat.size);
-    const read = try file.readAll(data);
-    return data[0..read];
+    errdefer allocator.free(data);
+
+    var offset: usize = 0;
+    var temp_buf: [8192]u8 = undefined;
+
+    while (offset < stat.size) {
+        const to_read = @min(temp_buf.len, stat.size - offset);
+        const bytes_read = try file.readPositional(io, &.{temp_buf[0..to_read]}, offset);
+        if (bytes_read == 0) break;
+        @memcpy(data[offset .. offset + bytes_read], temp_buf[0..bytes_read]);
+        offset += bytes_read;
+    }
+
+    return data;
 }
 
 fn isWatFile(path: []const u8) bool {
@@ -2071,8 +2083,8 @@ fn isWatFile(path: []const u8) bool {
 
 /// Read a file and convert WAT to wasm binary if needed.
 /// Returns wasm bytes owned by caller.
-fn readWasmFile(allocator: Allocator, path: []const u8) ![]const u8 {
-    const file_bytes = try readFile(allocator, path);
+fn readWasmFile(io: std.Io, allocator: Allocator, path: []const u8) ![]const u8 {
+    const file_bytes = try readFile(io, allocator, path);
     if (isWatFile(path)) {
         defer allocator.free(file_bytes);
         if (!build_options.enable_wat) return error.WatNotEnabled;

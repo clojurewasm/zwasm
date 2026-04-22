@@ -54,7 +54,7 @@ const JsonCommand = struct {
     module_type: ?[]const u8 = null,
     action: ?JsonAction = null,
     expected: ?[]const JsonValue = null,
-    @"as": ?[]const u8 = null,
+    as: ?[]const u8 = null,
     // Thread support: sub-commands within a thread block
     commands: ?[]const JsonCommand = null,
     shared_module: ?[]const u8 = null,
@@ -284,7 +284,7 @@ const TestRunner = struct {
     }
 
     fn handleRegister(self: *TestRunner, cmd: *const JsonCommand) void {
-        const as_name = cmd.@"as" orelse return;
+        const as_name = cmd.as orelse return;
 
         const source = if (cmd.name) |name|
             self.named_modules.get(name)
@@ -504,7 +504,7 @@ const TestRunner = struct {
     fn loadWasmFile(self: *TestRunner, filename: []const u8) ?[]const u8 {
         const path = std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ self.dir, filename }) catch return null;
         defer self.allocator.free(path);
-        const file = std.fs.cwd().openFile(path, .{}) catch return null;
+        const file = std.Io.Dir.cwd().openFile(".", io, path) catch return null;
         defer file.close();
         const stat = file.stat() catch return null;
         const bytes = self.allocator.alloc(u8, stat.size) catch return null;
@@ -570,7 +570,7 @@ const TestRunner = struct {
         const old_failed = self.failed;
         const old_skipped = self.skipped;
 
-        const file = try std.fs.cwd().openFile(json_path, .{});
+        const file = try std.Io.Dir.cwd().openFile(json_path, .{});
         defer file.close();
         const stat = try file.stat();
         const content = try self.allocator.alloc(u8, stat.size);
@@ -757,7 +757,7 @@ pub fn main() !void {
     }
 
     if (dir) |d| {
-        var json_dir = std.fs.cwd().openDir(d, .{ .iterate = true }) catch {
+        var json_dir = std.Io.Dir.cwd().openDir(d, .{ .iterate = true }) catch {
             try stdout.print("ERROR: Cannot open directory: {s}\n", .{d});
             try stdout.flush();
             std.process.exit(1);

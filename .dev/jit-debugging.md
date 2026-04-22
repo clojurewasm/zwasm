@@ -12,7 +12,7 @@ wrap in a minimal ELF, and disassemble with LLVM objdump.
 ```zig
 // Add temporarily in Compiler.finalize(), after @memcpy:
 if (condition) { // e.g. self.reg_count == 11
-    const file = std.fs.cwd().createFile("/tmp/jit_dump.bin", .{}) catch null;
+    const file = std.Io.Dir.cwd().createFile("/tmp/jit_dump.bin", .{}) catch null;
     if (file) |f| { defer f.close(); f.writeAll(src_bytes) catch {}; }
 }
 ```

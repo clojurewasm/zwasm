@@ -168,7 +168,9 @@ pub fn wasmHash(wasm_bin: []const u8) [32]u8 {
 pub fn getCacheDir(alloc: Allocator) ![]u8 {
     const path = try platform.appCacheDir(alloc, "zwasm");
     // Ensure directory exists
-    std.fs.makeDirAbsolute(path) catch |err| switch (err) {
+    var io_instance: std.Io.Threaded = undefined;
+    const io = io_instance.io();
+    std.Io.Dir.createDirAbsolute(io, path, .default_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => {
             alloc.free(path);
@@ -199,22 +201,26 @@ pub fn saveToFile(alloc: Allocator, hash: [32]u8, ir_funcs: []const ?*const IrFu
     defer alloc.free(data);
     const path = try getCachePath(alloc, hash);
     defer alloc.free(path);
-    const file = try std.fs.createFileAbsolute(path, .{});
-    defer file.close();
-    try file.writeAll(data);
+    var io_instance: std.Io.Threaded = undefined;
+    const io = io_instance.io();
+    const file = try std.Io.Dir.createFileAbsolute(io, path, .{});
+    defer file.close(io);
+    try file.writeStreamingAll(io, data);
 }
 
 /// Load cached IR from disk. Returns null on miss or mismatch.
 pub fn loadFromFile(alloc: Allocator, hash: [32]u8) !?[]?*IrFunc {
     const path = getCachePath(alloc, hash) catch return null;
     defer alloc.free(path);
-    const file = std.fs.openFileAbsolute(path, .{}) catch return null;
-    defer file.close();
-    const stat = try file.stat();
+    var io_instance: std.Io.Threaded = undefined;
+    const io = io_instance.io();
+    const file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch return null;
+    defer file.close(io);
+    const stat = try file.stat(io);
     if (stat.size > 256 * 1024 * 1024) return null; // sanity limit: 256 MB
     const data = try alloc.alloc(u8, stat.size);
     defer alloc.free(data);
-    const bytes_read = try file.readAll(data);
+    const bytes_read = try file.readPositionalAll(io, data, 0);
     if (bytes_read != stat.size) return null;
     return deserialize(alloc, data, hash);
 }

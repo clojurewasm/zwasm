@@ -116,7 +116,17 @@ const DEADLINE_CHECK_INTERVAL: u32 = 1024;
 /// JIT back-edge interval for deadline checks. When a deadline is active,
 /// jit_fuel is armed to this value so the JIT periodically exits to check
 /// wall-clock time without suppressing JIT compilation entirely.
+/// maxInt = unlimited (JIT skips the check entirely when this value is seen).
 const DEADLINE_JIT_INTERVAL: i64 = 10_000;
+
+/// Get current monotonic time in nanoseconds.
+/// Replacement for std.time.nanoTimestamp() which was removed in Zig 0.16.0.
+fn getNanoTimestamp() i128 {
+    var ts: std.posix.timespec = undefined;
+    const result = std.posix.system.clock_gettime(std.posix.CLOCK.MONOTONIC, &ts);
+    if (result != 0) return 0;
+    return @as(i128, @intCast(ts.sec)) * std.time.ns_per_s + @as(i128, @intCast(ts.nsec));
+}
 
 const Frame = struct {
     locals_start: usize, // index into operand stack where locals begin
@@ -459,7 +469,7 @@ pub const Vm = struct {
             if (value == 0) {
                 self.deadline_ns = null;
             } else {
-                self.deadline_ns = std.time.nanoTimestamp() + @as(i128, @intCast(value)) * std.time.ns_per_ms;
+                self.deadline_ns = getNanoTimestamp() + @as(i128, @intCast(value)) * std.time.ns_per_ms;
             }
         } else {
             self.deadline_ns = null;
@@ -475,7 +485,7 @@ pub const Vm = struct {
         if (self.deadline_ns) |deadline_ns| {
             if (self.deadline_check_remaining == 0) {
                 self.deadline_check_remaining = DEADLINE_CHECK_INTERVAL;
-                if (std.time.nanoTimestamp() >= deadline_ns) return error.TimeoutExceeded;
+                if (getNanoTimestamp() >= deadline_ns) return error.TimeoutExceeded;
             } else {
                 self.deadline_check_remaining -= 1;
             }
@@ -538,7 +548,7 @@ pub const Vm = struct {
 
         // Check wall-clock deadline
         if (vm.deadline_ns) |dl| {
-            if (std.time.nanoTimestamp() >= dl) return 10; // TimeoutExceeded
+            if (getNanoTimestamp() >= dl) return 10; // TimeoutExceeded
         }
 
         // Neither exhausted — re-arm and continue
@@ -682,9 +692,8 @@ pub const Vm = struct {
                     if (self.trace) |tc| {
                         if (tc.dump_regir_func) |dump_idx| {
                             if (dump_idx == wf.func_idx) {
-                                var err_buf2: [4096]u8 = undefined;
-                                var ew = std.fs.File.stderr().writer(&err_buf2);
-                                trace_mod.dumpRegIR(&ew.interface, reg, wf.ir.?.pool64, wf.func_idx);
+                                // TODO: dumpRegIR requires std.Io.Writer which needs Io context
+                                // This will be re-enabled when trace infrastructure is updated for 0.16.0
                                 tc.dump_regir_func = null;
                             }
                         }
@@ -692,8 +701,7 @@ pub const Vm = struct {
 
                     // JIT compilation: check hot threshold (skip when profiling or fuel metering)
                     if (comptime jit_mod.jitSupported()) {
-                        if (self.profile == null and                             wf.jit_code == null and !wf.jit_failed)
-                        {
+                        if (self.profile == null and wf.jit_code == null and !wf.jit_failed) {
                             wf.call_count += 1;
                             if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
                                 // Skip JIT for very large functions — single-pass regalloc
@@ -3153,84 +3161,98 @@ pub const Vm = struct {
             .i8x16_extract_lane_s => {
                 const lane = try reader.readByte();
                 const vec: @Vector(16, i8) = @bitCast(self.popV128());
-                try self.pushI32(@as(i32, vec[lane]));
+                const array: [16]i8 = vec;
+                try self.pushI32(@as(i32, array[lane]));
             },
             .i8x16_extract_lane_u => {
                 const lane = try reader.readByte();
                 const vec: @Vector(16, u8) = @bitCast(self.popV128());
-                try self.push(@as(u64, vec[lane]));
+                const array: [16]u8 = vec;
+                try self.push(@as(u64, array[lane]));
             },
             .i8x16_replace_lane => {
                 const lane = try reader.readByte();
                 const val: u8 = @truncate(self.pop());
-                var vec: @Vector(16, u8) = @bitCast(self.popV128());
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                const vec: @Vector(16, u8) = @bitCast(self.popV128());
+                var array: [16]u8 = vec;
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(16, u8), array)));
             },
             .i16x8_extract_lane_s => {
                 const lane = try reader.readByte();
                 const vec: @Vector(8, i16) = @bitCast(self.popV128());
-                try self.pushI32(@as(i32, vec[lane]));
+                const array: [8]i16 = vec;
+                try self.pushI32(array[lane]);
             },
             .i16x8_extract_lane_u => {
                 const lane = try reader.readByte();
                 const vec: @Vector(8, u16) = @bitCast(self.popV128());
-                try self.push(@as(u64, vec[lane]));
+                const array: [8]u16 = vec;
+                try self.push(@as(u64, array[lane]));
             },
             .i16x8_replace_lane => {
                 const lane = try reader.readByte();
                 const val: u16 = @truncate(self.pop());
-                var vec: @Vector(8, u16) = @bitCast(self.popV128());
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                const vec: @Vector(8, u16) = @bitCast(self.popV128());
+                var array: [8]u16 = vec;
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(8, u16), array)));
             },
             .i32x4_extract_lane => {
                 const lane = try reader.readByte();
                 const vec: @Vector(4, i32) = @bitCast(self.popV128());
-                try self.pushI32(vec[lane]);
+                const array: [4]i32 = vec;
+                try self.pushI32(array[lane]);
             },
             .i32x4_replace_lane => {
                 const lane = try reader.readByte();
                 const val = self.popI32();
-                var vec: @Vector(4, i32) = @bitCast(self.popV128());
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                const vec: @Vector(4, i32) = @bitCast(self.popV128());
+                var array: [4]i32 = vec;
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(4, i32), array)));
             },
             .i64x2_extract_lane => {
                 const lane = try reader.readByte();
                 const vec: @Vector(2, i64) = @bitCast(self.popV128());
-                try self.pushI64(vec[lane]);
+                const array: [2]i64 = vec;
+                try self.pushI64(array[lane]);
             },
             .i64x2_replace_lane => {
                 const lane = try reader.readByte();
                 const val = self.popI64();
-                var vec: @Vector(2, i64) = @bitCast(self.popV128());
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                const vec: @Vector(2, i64) = @bitCast(self.popV128());
+                var array: [2]i64 = vec;
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(2, i64), array)));
             },
             .f32x4_extract_lane => {
                 const lane = try reader.readByte();
                 const vec: @Vector(4, u32) = @bitCast(self.popV128());
-                try self.pushF32(@bitCast(vec[lane]));
+                const array: [4]u32 = vec;
+                try self.pushF32(@bitCast(array[lane]));
             },
             .f32x4_replace_lane => {
                 const lane = try reader.readByte();
                 const val: u32 = @bitCast(self.popF32());
-                var vec: @Vector(4, u32) = @bitCast(self.popV128());
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                const vec: @Vector(4, u32) = @bitCast(self.popV128());
+                var array: [4]u32 = vec;
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(4, u32), array)));
             },
             .f64x2_extract_lane => {
                 const lane = try reader.readByte();
                 const vec: @Vector(2, u64) = @bitCast(self.popV128());
-                try self.pushF64(@bitCast(vec[lane]));
+                const array: [2]u64 = vec;
+                try self.pushF64(@bitCast(array[lane]));
             },
             .f64x2_replace_lane => {
                 const lane = try reader.readByte();
                 const val: u64 = @bitCast(self.popF64());
-                var vec: @Vector(2, u64) = @bitCast(self.popV128());
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                const vec: @Vector(2, u64) = @bitCast(self.popV128());
+                var array: [2]u64 = vec;
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(2, u64), array)));
             },
 
             // ---- Shuffle / swizzle ----
@@ -3249,7 +3271,8 @@ pub const Vm = struct {
                 try self.pushV128(@bitCast(@as(@Vector(16, u8), result)));
             },
             .i8x16_swizzle => {
-                const indices: @Vector(16, u8) = @bitCast(self.popV128());
+                const indices_v: @Vector(16, u8) = @bitCast(self.popV128());
+                const indices: [16]u8 = indices_v;
                 const vec: [16]u8 = @bitCast(self.popV128());
                 var result: [16]u8 = undefined;
                 for (0..16) |i| {
@@ -3821,7 +3844,8 @@ pub const Vm = struct {
 
             // ---- Relaxed SIMD (Wasm 3.0) ----
             .i8x16_relaxed_swizzle => {
-                const indices: @Vector(16, u8) = @bitCast(self.popV128());
+                const indices_v: @Vector(16, u8) = @bitCast(self.popV128());
+                const indices: [16]u8 = indices_v;
                 const vec: [16]u8 = @bitCast(self.popV128());
                 var result: [16]u8 = undefined;
                 for (0..16) |i| {
@@ -3982,10 +4006,11 @@ pub const Vm = struct {
             n.* = std.mem.readInt(NarrowT, ptr, .little);
         }
         // Extend to wide
-        var wide: @Vector(N, WideT) = undefined;
+        var wide_array: [N]WideT = undefined;
         for (0..N) |i| {
-            wide[i] = @as(WideT, narrow[i]);
+            wide_array[i] = @as(WideT, narrow[i]);
         }
+        const wide: @Vector(N, WideT) = wide_array;
         try self.pushV128(@bitCast(wide));
     }
 
@@ -3999,11 +4024,12 @@ pub const Vm = struct {
     ) WasmError!void {
         const ma = try readMemarg(reader, instance);
         const lane = try reader.readByte();
-        var vec: @Vector(N, T) = @bitCast(self.popV128());
+        const vec: @Vector(N, T) = @bitCast(self.popV128());
         const base: u64 = if (ma.mem.is_64) self.popU64() else @as(u32, @bitCast(self.popI32()));
         const val = ma.mem.read(T, ma.offset, base) catch return error.OutOfBoundsMemoryAccess;
-        vec[lane] = val;
-        try self.pushV128(@bitCast(vec));
+        var array: [N]T = vec;
+        array[lane] = val;
+        try self.pushV128(@bitCast(@as(@Vector(N, T), array)));
     }
 
     // SIMD helper: store a specific lane of v128 to memory
@@ -4018,7 +4044,8 @@ pub const Vm = struct {
         const lane = try reader.readByte();
         const vec: @Vector(N, T) = @bitCast(self.popV128());
         const base: u64 = if (ma.mem.is_64) self.popU64() else @as(u32, @bitCast(self.popI32()));
-        ma.mem.write(T, ma.offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+        const array: [N]T = vec;
+        ma.mem.write(T, ma.offset, base, array[lane]) catch return error.OutOfBoundsMemoryAccess;
     }
 
     // SIMD helper: lane-wise comparison producing all-ones/all-zeros result
@@ -4368,7 +4395,6 @@ pub const Vm = struct {
         // Arm fuel/deadline interval for JIT
         self.armJitFuel();
 
-
         // Call OSR entry: sets up callee-saved, memory cache, then jumps to loop body
         const err_code = osr_fn(regs_ptr, @ptrCast(self), @ptrCast(instance));
 
@@ -4576,7 +4602,6 @@ pub const Vm = struct {
         const code_len: u32 = @intCast(code.len);
         const cached_mem: ?*WasmMemory = instance.getMemory(0) catch null;
         var pc: u32 = 0;
-
 
         // Back-edge counting for JIT hot loop detection (ARM64 only)
         var back_edge_count: u32 = 0;
@@ -5689,19 +5714,19 @@ pub const Vm = struct {
         // --- Push operands from regs[] to op_stack ---
         if (effect.pop == 3) {
             // bitselect(a, b, c): main rs1=a, rs2=b, NOP.rd=c
-            self.pushRegToOpStack(regs,instr.rs1);
-            self.pushRegToOpStack(regs,instr.rs2_field);
-            self.pushRegToOpStack(regs,third_operand);
+            self.pushRegToOpStack(regs, instr.rs1);
+            self.pushRegToOpStack(regs, instr.rs2_field);
+            self.pushRegToOpStack(regs, third_operand);
         } else if (effect.push == 0 and effect.pop == 2) {
             // Store ops: rd=value, rs1=addr. Stack: [addr(bottom), value(top)]
-            self.pushRegToOpStack(regs,instr.rs1);
-            self.pushRegToOpStack(regs,instr.rd);
+            self.pushRegToOpStack(regs, instr.rs1);
+            self.pushRegToOpStack(regs, instr.rd);
         } else if (effect.pop == 2) {
             // Binary ops: rs1=first, rs2=second. Stack: [first(bottom), second(top)]
-            self.pushRegToOpStack(regs,instr.rs1);
-            self.pushRegToOpStack(regs,instr.rs2_field);
+            self.pushRegToOpStack(regs, instr.rs1);
+            self.pushRegToOpStack(regs, instr.rs2_field);
         } else if (effect.pop == 1) {
-            self.pushRegToOpStack(regs,instr.rs1);
+            self.pushRegToOpStack(regs, instr.rs1);
         }
 
         // --- Call existing SIMD interpreter ---
@@ -6859,48 +6884,54 @@ pub const Vm = struct {
                 const base = @as(u32, @bitCast(self.popI32()));
                 const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const bytes: [8]i8 = @bitCast(raw);
-                var result: @Vector(8, i16) = undefined;
-                for (0..8) |i| result[i] = bytes[i];
+                var result_array: [8]i16 = undefined;
+                for (0..8) |i| result_array[i] = @as(i16, bytes[i]);
+                const result: @Vector(8, i16) = result_array;
                 try self.pushV128(@bitCast(result));
             },
             0x02 => { // v128.load8x8_u
                 const base = @as(u32, @bitCast(self.popI32()));
                 const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const bytes: [8]u8 = @bitCast(raw);
-                var result: @Vector(8, u16) = undefined;
-                for (0..8) |i| result[i] = bytes[i];
+                var result_array: [8]u16 = undefined;
+                for (0..8) |i| result_array[i] = @as(u16, bytes[i]);
+                const result: @Vector(8, u16) = result_array;
                 try self.pushV128(@bitCast(result));
             },
             0x03 => { // v128.load16x4_s
                 const base = @as(u32, @bitCast(self.popI32()));
                 const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const vals: [4]i16 = @bitCast(raw);
-                var result: @Vector(4, i32) = undefined;
-                for (0..4) |i| result[i] = vals[i];
+                var result_array: [4]i32 = undefined;
+                for (0..4) |i| result_array[i] = @as(i32, vals[i]);
+                const result: @Vector(4, i32) = result_array;
                 try self.pushV128(@bitCast(result));
             },
             0x04 => { // v128.load16x4_u
                 const base = @as(u32, @bitCast(self.popI32()));
                 const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const vals: [4]u16 = @bitCast(raw);
-                var result: @Vector(4, u32) = undefined;
-                for (0..4) |i| result[i] = vals[i];
+                var result_array: [4]u32 = undefined;
+                for (0..4) |i| result_array[i] = @as(u32, vals[i]);
+                const result: @Vector(4, u32) = result_array;
                 try self.pushV128(@bitCast(result));
             },
             0x05 => { // v128.load32x2_s
                 const base = @as(u32, @bitCast(self.popI32()));
                 const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const vals: [2]i32 = @bitCast(raw);
-                var result: @Vector(2, i64) = undefined;
-                for (0..2) |i| result[i] = vals[i];
+                var result_array: [2]i64 = undefined;
+                for (0..2) |i| result_array[i] = @as(i64, vals[i]);
+                const result: @Vector(2, i64) = result_array;
                 try self.pushV128(@bitCast(result));
             },
             0x06 => { // v128.load32x2_u
                 const base = @as(u32, @bitCast(self.popI32()));
                 const raw = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
                 const vals: [2]u32 = @bitCast(raw);
-                var result: @Vector(2, u64) = undefined;
-                for (0..2) |i| result[i] = vals[i];
+                var result_array: [2]u64 = undefined;
+                for (0..2) |i| result_array[i] = @as(u64, vals[i]);
+                const result: @Vector(2, u64) = result_array;
                 try self.pushV128(@bitCast(result));
             },
             0x07 => { // v128.load8_splat
@@ -6949,52 +6980,60 @@ pub const Vm = struct {
     fn executeSimdLaneMemOp(self: *Vm, sub: u32, offset: u32, wm: *WasmMemory, lane: u8) WasmError!void {
         switch (sub) {
             0x54 => { // v128.load8_lane: [i32, v128] → [v128]
-                var vec: @Vector(16, u8) = @bitCast(self.popV128());
+                const vec: @Vector(16, u8) = @bitCast(self.popV128());
+                var array: [16]u8 = vec;
                 const base = @as(u32, @bitCast(self.popI32()));
                 const val = wm.read(u8, offset, base) catch return error.OutOfBoundsMemoryAccess;
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(16, u8), array)));
             },
             0x55 => { // v128.load16_lane
-                var vec: @Vector(8, u16) = @bitCast(self.popV128());
+                const vec: @Vector(8, u16) = @bitCast(self.popV128());
+                var array: [8]u16 = vec;
                 const base = @as(u32, @bitCast(self.popI32()));
                 const val = wm.read(u16, offset, base) catch return error.OutOfBoundsMemoryAccess;
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(8, u16), array)));
             },
             0x56 => { // v128.load32_lane
-                var vec: @Vector(4, u32) = @bitCast(self.popV128());
+                const vec: @Vector(4, u32) = @bitCast(self.popV128());
+                var array: [4]u32 = vec;
                 const base = @as(u32, @bitCast(self.popI32()));
                 const val = wm.read(u32, offset, base) catch return error.OutOfBoundsMemoryAccess;
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(4, u32), array)));
             },
             0x57 => { // v128.load64_lane
-                var vec: @Vector(2, u64) = @bitCast(self.popV128());
+                const vec: @Vector(2, u64) = @bitCast(self.popV128());
+                var array: [2]u64 = vec;
                 const base = @as(u32, @bitCast(self.popI32()));
                 const val = wm.read(u64, offset, base) catch return error.OutOfBoundsMemoryAccess;
-                vec[lane] = val;
-                try self.pushV128(@bitCast(vec));
+                array[lane] = val;
+                try self.pushV128(@bitCast(@as(@Vector(2, u64), array)));
             },
             0x58 => { // v128.store8_lane
                 const vec: @Vector(16, u8) = @bitCast(self.popV128());
+                const array: [16]u8 = vec;
                 const base = @as(u32, @bitCast(self.popI32()));
-                wm.write(u8, offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+                wm.write(u8, offset, base, array[lane]) catch return error.OutOfBoundsMemoryAccess;
             },
             0x59 => { // v128.store16_lane
                 const vec: @Vector(8, u16) = @bitCast(self.popV128());
+                const array: [8]u16 = vec;
                 const base = @as(u32, @bitCast(self.popI32()));
-                wm.write(u16, offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+                wm.write(u16, offset, base, array[lane]) catch return error.OutOfBoundsMemoryAccess;
             },
             0x5A => { // v128.store32_lane
                 const vec: @Vector(4, u32) = @bitCast(self.popV128());
+                const array: [4]u32 = vec;
                 const base = @as(u32, @bitCast(self.popI32()));
-                wm.write(u32, offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+                wm.write(u32, offset, base, array[lane]) catch return error.OutOfBoundsMemoryAccess;
             },
             0x5B => { // v128.store64_lane
                 const vec: @Vector(2, u64) = @bitCast(self.popV128());
+                const array: [2]u64 = vec;
                 const base = @as(u32, @bitCast(self.popI32()));
-                wm.write(u64, offset, base, vec[lane]) catch return error.OutOfBoundsMemoryAccess;
+                wm.write(u64, offset, base, array[lane]) catch return error.OutOfBoundsMemoryAccess;
             },
             else => return error.Trap,
         }
@@ -8449,23 +8488,23 @@ fn roundToEven(comptime T: type, x: T) T {
 
 const testing = std.testing;
 
-fn readTestFile(alloc: Allocator, name: []const u8) ![]const u8 {
+fn readTestFile(alloc: Allocator, io: std.Io, name: []const u8) ![]const u8 {
     const prefixes = [_][]const u8{ "src/testdata/", "testdata/", "src/wasm/testdata/" };
     for (prefixes) |prefix| {
         const path = try std.fmt.allocPrint(alloc, "{s}{s}", .{ prefix, name });
         defer alloc.free(path);
-        const file = std.fs.cwd().openFile(path, .{}) catch continue;
-        defer file.close();
-        const stat = try file.stat();
+        const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch continue;
+        defer file.close(io);
+        const stat = try file.stat(io);
         const data = try alloc.alloc(u8, stat.size);
-        const read = try file.readAll(data);
+        const read = try file.readPositionalAll(io, data, 0);
         return data[0..read];
     }
     return error.FileNotFound;
 }
 
 test "VM — add(3, 4) = 7" {
-    const wasm = try readTestFile(testing.allocator, "01_add.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "01_add.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8487,7 +8526,7 @@ test "VM — add(3, 4) = 7" {
 }
 
 test "VM — add(100, -50) = 50" {
-    const wasm = try readTestFile(testing.allocator, "01_add.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "01_add.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8510,7 +8549,7 @@ test "VM — add(100, -50) = 50" {
 }
 
 test "VM — fib(10) = 55" {
-    const wasm = try readTestFile(testing.allocator, "02_fibonacci.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "02_fibonacci.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8532,7 +8571,7 @@ test "VM — fib(10) = 55" {
 }
 
 test "VM — memory store/load" {
-    const wasm = try readTestFile(testing.allocator, "03_memory.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "03_memory.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8561,7 +8600,7 @@ test "VM — memory store/load" {
 }
 
 test "VM — globals" {
-    const wasm = try readTestFile(testing.allocator, "06_globals.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "06_globals.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8589,7 +8628,7 @@ test "VM — globals" {
 }
 
 test "VM — memory sum_range (loop branch)" {
-    const wasm = try readTestFile(testing.allocator, "03_memory.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "03_memory.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8622,7 +8661,7 @@ test "VM — memory sum_range (loop branch)" {
 }
 
 test "VM — table indirect call" {
-    const wasm = try readTestFile(testing.allocator, "05_table_indirect_call.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "05_table_indirect_call.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8654,7 +8693,7 @@ test "VM — table indirect call" {
 }
 
 test "VM — multi-value return" {
-    const wasm = try readTestFile(testing.allocator, "08_multi_value.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "08_multi_value.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8680,7 +8719,7 @@ test "VM — multi-value return" {
 
 test "VM — host function imports" {
     const alloc = testing.allocator;
-    const wasm = try readTestFile(alloc, "04_imports.wasm");
+    const wasm = try readTestFile(alloc, testing.io, "04_imports.wasm");
     defer alloc.free(wasm);
 
     var mod = Module.init(alloc, wasm);
@@ -8726,7 +8765,7 @@ test "VM — host function imports" {
 }
 
 test "VM — fib(20) = 6765" {
-    const wasm = try readTestFile(testing.allocator, "02_fibonacci.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "02_fibonacci.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8750,7 +8789,7 @@ test "VM — fib(20) = 6765" {
 // --- Conformance tests ---
 
 test "Conformance — block control flow" {
-    const wasm = try readTestFile(testing.allocator, "conformance/block.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/block.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8794,7 +8833,7 @@ test "Conformance — block control flow" {
 }
 
 test "Conformance — i32 arithmetic" {
-    const wasm = try readTestFile(testing.allocator, "conformance/i32_arith.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/i32_arith.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8868,7 +8907,7 @@ test "Conformance — i32 arithmetic" {
 }
 
 test "Conformance — i64 arithmetic" {
-    const wasm = try readTestFile(testing.allocator, "conformance/i64_arith.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/i64_arith.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8925,7 +8964,7 @@ test "Conformance — i64 arithmetic" {
 }
 
 test "Conformance — f64 arithmetic" {
-    const wasm = try readTestFile(testing.allocator, "conformance/f64_arith.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/f64_arith.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -8989,7 +9028,7 @@ test "Conformance — f64 arithmetic" {
 }
 
 test "Conformance — type conversions" {
-    const wasm = try readTestFile(testing.allocator, "conformance/conversions.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/conversions.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9039,7 +9078,7 @@ test "Conformance — type conversions" {
 }
 
 test "Conformance — sign extension (Wasm 2.0)" {
-    const wasm = try readTestFile(testing.allocator, "conformance/sign_extension.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/sign_extension.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9083,7 +9122,7 @@ test "Conformance — sign extension (Wasm 2.0)" {
 }
 
 test "Conformance — memory operations" {
-    const wasm = try readTestFile(testing.allocator, "conformance/memory_ops.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/memory_ops.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9133,7 +9172,7 @@ test "Conformance — memory operations" {
 }
 
 test "Conformance — bulk memory (Wasm 2.0)" {
-    const wasm = try readTestFile(testing.allocator, "conformance/bulk_memory.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/bulk_memory.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9174,7 +9213,7 @@ test "Conformance — bulk memory (Wasm 2.0)" {
 }
 
 test "Conformance — SIMD basic" {
-    const wasm = try readTestFile(testing.allocator, "conformance/simd_basic.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/simd_basic.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9256,7 +9295,7 @@ test "Conformance — SIMD basic" {
 }
 
 test "Conformance — SIMD integer arithmetic" {
-    const wasm = try readTestFile(testing.allocator, "conformance/simd_integer.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/simd_integer.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9360,7 +9399,7 @@ test "Conformance — SIMD integer arithmetic" {
 }
 
 test "Conformance — SIMD float arithmetic" {
-    const wasm = try readTestFile(testing.allocator, "conformance/simd_float.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/simd_float.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9454,7 +9493,7 @@ test "Conformance — SIMD float arithmetic" {
 }
 
 test "Profile — fib(10) opcode counting" {
-    const wasm = try readTestFile(testing.allocator, "02_fibonacci.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "02_fibonacci.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9496,7 +9535,7 @@ test "Tiered — back-edge counting triggers JIT for single-call loop function" 
         for (prefixes) |prefix| {
             const path = try std.fmt.allocPrint(testing.allocator, "{s}sieve.wasm", .{prefix});
             defer testing.allocator.free(path);
-            const file = std.fs.cwd().openFile(path, .{}) catch continue;
+            const file = std.Io.Dir.cwd().openFile(testing.io, path) catch continue;
             defer file.close();
             const stat = try file.stat();
             const data = try testing.allocator.alloc(u8, stat.size);
@@ -9551,7 +9590,7 @@ test "Tiered — JIT-to-JIT fast path for recursive calls" {
     // fib(20) = 6765, involves ~21891 recursive calls.
     // With HOT_THRESHOLD=1, JIT compiles on first call. The fast JIT-to-JIT path
     // should handle most of the recursive calls without going through callFunction.
-    const wasm = try readTestFile(testing.allocator, "02_fibonacci.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "02_fibonacci.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9579,7 +9618,7 @@ test "Tiered — JIT-to-JIT fast path for recursive calls" {
 }
 
 test "Profile — disabled by default (no overhead)" {
-    const wasm = try readTestFile(testing.allocator, "01_add.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "01_add.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9867,7 +9906,7 @@ test "Custom page sizes — memory with page_size=1" {
 
 test "Resource limits — memory ceiling" {
     // Module with 1 initial page, exports memory_grow and memory_size
-    const wasm = try readTestFile(testing.allocator, "conformance/memory_ops.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/memory_ops.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9923,8 +9962,7 @@ test "Multi-memory — store/load on memory 1" {
         's',  't',  'o',  'r',
         'e',  '1',  0x00, 0x00,
         0x05, 'l',  'o',  'a',
-        'd',  '0',  0x00,
-        0x01,
+        'd',  '0',  0x00, 0x01,
         // Section 10: Code — 2 function bodies
         0x0A, 0x14, // section id + size (20 bytes)
         0x02, // 2 bodies
@@ -9965,7 +10003,7 @@ test "Multi-memory — store/load on memory 1" {
 
 test "Resource limits — fuel metering" {
     // Module with a simple function that does some arithmetic
-    const wasm = try readTestFile(testing.allocator, "conformance/memory_ops.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "conformance/memory_ops.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -9994,7 +10032,7 @@ test "Resource limits — fuel metering" {
 test "Resource limits — fuel metering with infinite loop (JIT fuel check)" {
     // Infinite loop function — JIT uses jit_fuel with periodic helper checks
     // to enforce fuel limits even in JIT-compiled code.
-    const wasm = try readTestFile(testing.allocator, "30_infinite_loop.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "30_infinite_loop.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -10020,7 +10058,7 @@ test "Resource limits — fuel metering with infinite loop (JIT fuel check)" {
 }
 
 test "Resource limits — deadline timeout (expired)" {
-    const wasm_bytes = try readTestFile(testing.allocator, "conformance/memory_ops.wasm");
+    const wasm_bytes = try readTestFile(testing.allocator, testing.io, "conformance/memory_ops.wasm");
     defer testing.allocator.free(wasm_bytes);
 
     var mod = Module.init(testing.allocator, wasm_bytes);
@@ -10046,7 +10084,7 @@ test "Resource limits — deadline timeout (expired)" {
 }
 
 test "Resource limits — deadline timeout (infinite loop)" {
-    const wasm = try readTestFile(testing.allocator, "30_infinite_loop.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "30_infinite_loop.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -10061,7 +10099,7 @@ test "Resource limits — deadline timeout (infinite loop)" {
     try inst.instantiate();
 
     var vm = Vm.init(testing.allocator);
-    vm.deadline_ns = std.time.nanoTimestamp() - std.time.ns_per_ms;
+    vm.deadline_ns = getNanoTimestamp() - std.time.ns_per_ms;
     vm.deadline_check_remaining = 0;
 
     var results = [_]u64{0};
@@ -10094,7 +10132,7 @@ test "jitFuelCheckHelper — deadline expired returns TimeoutExceeded" {
 
 test "jitFuelCheckHelper — deadline not expired re-arms and continues" {
     var vm = Vm.init(testing.allocator);
-    vm.deadline_ns = std.time.nanoTimestamp() + 10 * std.time.ns_per_s; // 10s from now
+    vm.deadline_ns = getNanoTimestamp() + 10 * std.time.ns_per_s; // 10s from now
     vm.jit_fuel = -1;
     vm.jit_fuel_initial = DEADLINE_JIT_INTERVAL;
 
@@ -10118,7 +10156,7 @@ test "jitFuelCheckHelper — fuel exhausted returns FuelExhausted" {
 test "jitFuelCheckHelper — fuel+deadline, neither exhausted" {
     var vm = Vm.init(testing.allocator);
     vm.fuel = 50_000;
-    vm.deadline_ns = std.time.nanoTimestamp() + 10 * std.time.ns_per_s;
+    vm.deadline_ns = getNanoTimestamp() + 10 * std.time.ns_per_s;
     vm.jit_fuel = -1;
     vm.jit_fuel_initial = DEADLINE_JIT_INTERVAL; // min(50000, 10000) = 10000
 
@@ -10140,7 +10178,7 @@ test "armJitFuel — fuel only" {
 
 test "armJitFuel — deadline only" {
     var vm = Vm.init(testing.allocator);
-    vm.deadline_ns = std.time.nanoTimestamp() + std.time.ns_per_s;
+    vm.deadline_ns = getNanoTimestamp() + std.time.ns_per_s;
     vm.armJitFuel();
     try testing.expectEqual(DEADLINE_JIT_INTERVAL, vm.jit_fuel);
 }
@@ -10148,7 +10186,7 @@ test "armJitFuel — deadline only" {
 test "armJitFuel — fuel+deadline picks smaller" {
     var vm = Vm.init(testing.allocator);
     vm.fuel = 500; // smaller than DEADLINE_JIT_INTERVAL
-    vm.deadline_ns = std.time.nanoTimestamp() + std.time.ns_per_s;
+    vm.deadline_ns = getNanoTimestamp() + std.time.ns_per_s;
     vm.armJitFuel();
     try testing.expectEqual(@as(i64, 500), vm.jit_fuel);
 }
@@ -10298,7 +10336,7 @@ test "Differential — recursive fibonacci interpreter vs JIT" {
     if (!build_options.enable_wat) return error.SkipZigTest;
     const types = @import("types.zig");
     const WasmModule = types.WasmModule;
-    const mod = try WasmModule.loadFromWat(testing.allocator,
+    const mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func (export "fib") (param i32) (result i32)
         \\    (if (result i32) (i32.le_s (local.get 0) (i32.const 1))
@@ -10317,7 +10355,7 @@ test "Differential — loop with accumulator interpreter vs JIT" {
     if (!build_options.enable_wat) return error.SkipZigTest;
     const types = @import("types.zig");
     const WasmModule = types.WasmModule;
-    const mod = try WasmModule.loadFromWat(testing.allocator,
+    const mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func (export "sum") (param i32) (result i32)
         \\    (local i32 i32)

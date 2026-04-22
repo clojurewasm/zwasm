@@ -17,15 +17,22 @@ const guard_mod = @import("guard.zig");
 pub const PAGE_SIZE: u32 = 64 * 1024; // 64 KiB
 pub const MAX_PAGES: u32 = 64 * 1024; // 4 GiB theoretical max
 
+/// Get current monotonic time in nanoseconds (helper for Zig 0.16.0+)
+fn getNanoTimestamp() i64 {
+    var ts: std.posix.timespec = undefined;
+    const result = std.posix.system.clock_gettime(std.posix.CLOCK.MONOTONIC, &ts);
+    if (result != 0) return 0;
+    return @as(i64, @intCast(ts.sec)) * std.time.ns_per_s + @as(i64, @intCast(ts.nsec));
+}
+
 /// Per-address wait queue for memory.atomic.wait/notify.
-/// Uses a simple list of condition variables keyed by address.
+/// Uses a simple list of atomic notified flags keyed by address.
 pub const WaitQueue = struct {
-    mutex: std.Thread.Mutex = .{},
     waiters: std.ArrayList(Waiter) = .empty,
 
     const Waiter = struct {
         addr: u64,
-        cond: std.Thread.Condition = .{},
+        notified: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     };
 
     pub fn deinit(self: *WaitQueue, alloc: mem.Allocator) void {
@@ -219,32 +226,32 @@ pub const Memory = struct {
         if (loaded != expected) return 1; // not-equal
 
         const wq = self.ensureWaitQueue();
-        wq.mutex.lock();
 
-        // Add waiter
+        // Add waiter (use orderedRemove protection via re-reading index)
         const idx = wq.waiters.items.len;
         wq.waiters.append(self.alloc, .{ .addr = addr }) catch {
-            wq.mutex.unlock();
             return 2; // treat alloc failure as timeout
         };
         const waiter = &wq.waiters.items[idx];
 
-        if (timeout_ns < 0) {
-            // Wait forever
-            waiter.cond.wait(&wq.mutex);
-        } else {
-            const timeout: u64 = @intCast(timeout_ns);
-            waiter.cond.timedWait(&wq.mutex, timeout) catch {
-                // Timeout — remove self from waiters
-                self.removeWaiter(wq, idx);
-                wq.mutex.unlock();
-                return 2; // timed-out
-            };
+        const start = getNanoTimestamp();
+        const timeout: i64 = if (timeout_ns < 0) std.math.maxInt(i64) else timeout_ns;
+
+        // Poll for notification
+        while (!waiter.notified.load(.acquire)) {
+            if (timeout_ns >= 0) {
+                const elapsed = getNanoTimestamp() - start;
+                if (elapsed >= timeout) {
+                    // Timeout — remove self from waiters
+                    self.removeWaiter(wq, idx);
+                    return 2; // timed-out
+                }
+            }
+            _ = std.Thread.yield() catch {};
         }
 
         // Woken — remove self from waiters
         self.removeWaiter(wq, idx);
-        wq.mutex.unlock();
         return 0; // ok
     }
 
@@ -256,28 +263,29 @@ pub const Memory = struct {
         if (loaded != expected) return 1; // not-equal
 
         const wq = self.ensureWaitQueue();
-        wq.mutex.lock();
 
         const idx = wq.waiters.items.len;
         wq.waiters.append(self.alloc, .{ .addr = addr }) catch {
-            wq.mutex.unlock();
             return 2;
         };
         const waiter = &wq.waiters.items[idx];
 
-        if (timeout_ns < 0) {
-            waiter.cond.wait(&wq.mutex);
-        } else {
-            const timeout: u64 = @intCast(timeout_ns);
-            waiter.cond.timedWait(&wq.mutex, timeout) catch {
-                self.removeWaiter(wq, idx);
-                wq.mutex.unlock();
-                return 2;
-            };
+        const start = getNanoTimestamp();
+        const timeout: i64 = if (timeout_ns < 0) std.math.maxInt(i64) else timeout_ns;
+
+        // Poll for notification
+        while (!waiter.notified.load(.acquire)) {
+            if (timeout_ns >= 0) {
+                const elapsed = getNanoTimestamp() - start;
+                if (elapsed >= timeout) {
+                    self.removeWaiter(wq, idx);
+                    return 2;
+                }
+            }
+            _ = std.Thread.yield() catch {};
         }
 
         self.removeWaiter(wq, idx);
-        wq.mutex.unlock();
         return 0;
     }
 
@@ -290,14 +298,12 @@ pub const Memory = struct {
         const wq_opt = self.wait_queue;
         if (wq_opt == null) return 0;
         var wq = &self.wait_queue.?;
-        wq.mutex.lock();
-        defer wq.mutex.unlock();
 
         var woken: i32 = 0;
         var i: usize = 0;
         while (i < wq.waiters.items.len and woken < @as(i32, @intCast(count))) {
             if (wq.waiters.items[i].addr == addr) {
-                wq.waiters.items[i].cond.signal();
+                wq.waiters.items[i].notified.store(true, .release);
                 woken += 1;
             }
             i += 1;
@@ -583,7 +589,7 @@ test "Memory — atomicWait32 + notify cross-thread" {
     }.run, .{ &m, &wait_result });
 
     // Give the waiter thread time to enter wait state
-    std.Thread.sleep(10 * std.time.ns_per_ms);
+    try std.Io.sleep(testing.io, .fromMilliseconds(10), .awake);
 
     // Notify should wake the waiter
     const woken = try m.atomicNotify(0, 1);

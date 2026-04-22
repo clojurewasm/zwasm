@@ -692,24 +692,23 @@ pub fn evalInitExpr(expr: []const u8, instance: *Instance) !u128 {
 
 const testing = std.testing;
 
-fn readTestFile(alloc: Allocator, name: []const u8) ![]const u8 {
+fn readTestFile(alloc: Allocator, io: std.Io, name: []const u8) ![]const u8 {
     const prefixes = [_][]const u8{ "src/testdata/", "testdata/", "src/wasm/testdata/" };
     for (prefixes) |prefix| {
         const path = try std.fmt.allocPrint(alloc, "{s}{s}", .{ prefix, name });
         defer alloc.free(path);
-        const file = std.fs.cwd().openFile(path, .{}) catch continue;
-        defer file.close();
-        const stat = try file.stat();
+        const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch continue;
+        defer file.close(io);
+        const stat = try file.stat(io);
         const data = try alloc.alloc(u8, stat.size);
-        const read = try file.readAll(data);
+        const read = try file.readPositionalAll(io, data, 0);
         return data[0..read];
     }
     return error.FileNotFound;
 }
 
-
 test "Instance — instantiate 01_add.wasm" {
-    const wasm = try readTestFile(testing.allocator, "01_add.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "01_add.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -732,7 +731,7 @@ test "Instance — instantiate 01_add.wasm" {
 }
 
 test "Instance — instantiate 03_memory.wasm" {
-    const wasm = try readTestFile(testing.allocator, "03_memory.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "03_memory.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -753,7 +752,7 @@ test "Instance — instantiate 03_memory.wasm" {
 }
 
 test "Instance — instantiate 04_imports.wasm with host functions" {
-    const wasm = try readTestFile(testing.allocator, "04_imports.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "04_imports.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -768,10 +767,8 @@ test "Instance — instantiate 04_imports.wasm with host functions" {
         fn f(_: *anyopaque, _: usize) anyerror!void {}
     }.f));
 
-    try store.exposeHostFunction("env", "print_i32", dummy_fn, 0,
-        &[_]ValType{.i32}, &[_]ValType{});
-    try store.exposeHostFunction("env", "print_str", dummy_fn, 0,
-        &[_]ValType{ .i32, .i32 }, &[_]ValType{});
+    try store.exposeHostFunction("env", "print_i32", dummy_fn, 0, &[_]ValType{.i32}, &[_]ValType{});
+    try store.exposeHostFunction("env", "print_str", dummy_fn, 0, &[_]ValType{ .i32, .i32 }, &[_]ValType{});
 
     var inst = Instance.init(testing.allocator, &store, &mod);
     defer inst.deinit();
@@ -787,7 +784,7 @@ test "Instance — instantiate 04_imports.wasm with host functions" {
 }
 
 test "Instance — instantiate 06_globals.wasm" {
-    const wasm = try readTestFile(testing.allocator, "06_globals.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "06_globals.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -806,7 +803,7 @@ test "Instance — instantiate 06_globals.wasm" {
 }
 
 test "Instance — missing import returns error" {
-    const wasm = try readTestFile(testing.allocator, "04_imports.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "04_imports.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);
@@ -823,7 +820,7 @@ test "Instance — missing import returns error" {
 }
 
 test "Import validation — type mismatch" {
-    const wasm = try readTestFile(testing.allocator, "04_imports.wasm");
+    const wasm = try readTestFile(testing.allocator, testing.io, "04_imports.wasm");
     defer testing.allocator.free(wasm);
 
     var mod = Module.init(testing.allocator, wasm);

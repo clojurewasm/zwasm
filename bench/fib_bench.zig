@@ -4,10 +4,8 @@
 const std = @import("std");
 const types = @import("zwasm");
 
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     // Parse optional argument for N
     var n: u64 = 35;
@@ -35,8 +33,8 @@ pub fn main() !void {
     try stdout.flush();
 }
 
-fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
+fn readFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]const u8 {
+    const file = try std.Io.Dir.cwd().openFile(".", io, path);
     defer file.close();
     const stat = try file.stat();
     const data = try allocator.alloc(u8, stat.size);

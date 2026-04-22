@@ -22,10 +22,10 @@ pub const SectionId = enum(u8) {
     component = 4,
     instance = 5,
     alias = 6,
-    @"type" = 7,
+    type = 7,
     canonical = 8,
     start = 9,
-    @"import" = 10,
+    import = 10,
     @"export" = 11,
     _,
 };
@@ -36,7 +36,7 @@ pub const ExternKind = enum(u8) {
     core_module = 0x00,
     func = 0x01,
     value = 0x02,
-    @"type" = 0x03,
+    type = 0x03,
     component = 0x04,
     instance = 0x05,
     _,
@@ -370,10 +370,10 @@ pub const Component = struct {
                 .core_module => {
                     self.core_modules.append(self.alloc, payload) catch return error.OutOfMemory;
                 },
-                .@"type" => {
+                .type => {
                     self.decodeTypeSection(payload) catch {};
                 },
-                .@"import" => {
+                .import => {
                     self.decodeImportSection(payload) catch {};
                 },
                 .@"export" => {
@@ -875,13 +875,12 @@ pub const WasiAdapter = struct {
             .p2_interface = "wasi:filesystem/types",
             .p1_module = "wasi_snapshot_preview1",
             .p1_functions = &.{
-                "fd_read",           "fd_write",     "fd_close",
-                "fd_seek",           "fd_tell",      "fd_sync",
-                "fd_filestat_get",   "fd_readdir",   "path_open",
-                "path_create_directory",
-                "path_remove_directory",
-                "path_unlink_file",  "path_rename",  "path_filestat_get",
-                "fd_prestat_get",    "fd_prestat_dir_name",
+                "fd_read",               "fd_write",              "fd_close",
+                "fd_seek",               "fd_tell",               "fd_sync",
+                "fd_filestat_get",       "fd_readdir",            "path_open",
+                "path_create_directory", "path_remove_directory", "path_unlink_file",
+                "path_rename",           "path_filestat_get",     "fd_prestat_get",
+                "fd_prestat_dir_name",
             },
         },
         .{
@@ -1141,10 +1140,10 @@ pub const ComponentInstance = struct {
 
     /// Instantiate the component: load embedded core modules,
     /// process core instance declarations, and build export map.
-    pub fn instantiate(self: *ComponentInstance) !void {
+    pub fn instantiate(self: *ComponentInstance, io: std.Io) !void {
         // Phase 1: Load embedded core modules
         for (self.comp.core_modules.items) |mod_bytes| {
-            const m = try types.WasmModule.load(self.alloc, mod_bytes);
+            const m = try types.WasmModule.load(self.alloc, io, mod_bytes);
             self.core_modules.append(self.alloc, m) catch return error.OutOfMemory;
         }
 
@@ -1212,9 +1211,9 @@ test "isComponent — identifies component vs module" {
 test "SectionId — enum values" {
     try std.testing.expectEqual(@as(u8, 0), @intFromEnum(SectionId.core_custom));
     try std.testing.expectEqual(@as(u8, 1), @intFromEnum(SectionId.core_module));
-    try std.testing.expectEqual(@as(u8, 7), @intFromEnum(SectionId.@"type"));
+    try std.testing.expectEqual(@as(u8, 7), @intFromEnum(SectionId.type));
     try std.testing.expectEqual(@as(u8, 8), @intFromEnum(SectionId.canonical));
-    try std.testing.expectEqual(@as(u8, 10), @intFromEnum(SectionId.@"import"));
+    try std.testing.expectEqual(@as(u8, 10), @intFromEnum(SectionId.import));
     try std.testing.expectEqual(@as(u8, 11), @intFromEnum(SectionId.@"export"));
 }
 
@@ -1262,12 +1261,15 @@ test "Component.decode — multiple sections" {
         0x00, 0x61, 0x73, 0x6D, // magic
         0x0D, 0x00, 0x01, 0x00, // component version
         // Section 1: core_module (id=1), size=8
-        0x01, 0x08,
-        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x08, 0x00, 0x61,
+        0x73, 0x6D, 0x01, 0x00,
+        0x00, 0x00,
         // Section 2: type (id=7), size=2, payload=dummy
-        0x07, 0x02, 0xAA, 0xBB,
+        0x07, 0x02,
+        0xAA, 0xBB,
         // Section 3: canonical (id=8), size=1, payload=dummy
-        0x08, 0x01, 0xCC,
+        0x08, 0x01,
+        0xCC,
     };
     var comp = Component.init(std.testing.allocator, &bytes);
     defer comp.deinit();
@@ -1275,7 +1277,7 @@ test "Component.decode — multiple sections" {
 
     try std.testing.expectEqual(@as(usize, 3), comp.sections.items.len);
     try std.testing.expectEqual(SectionId.core_module, comp.sections.items[0].id);
-    try std.testing.expectEqual(SectionId.@"type", comp.sections.items[1].id);
+    try std.testing.expectEqual(SectionId.type, comp.sections.items[1].id);
     try std.testing.expectEqual(SectionId.canonical, comp.sections.items[2].id);
     try std.testing.expectEqual(@as(usize, 1), comp.core_modules.items.len);
 }
@@ -1295,7 +1297,7 @@ test "Component.decode — truncated section" {
 test "ExternKind — enum values" {
     try std.testing.expectEqual(@as(u8, 0x00), @intFromEnum(ExternKind.core_module));
     try std.testing.expectEqual(@as(u8, 0x01), @intFromEnum(ExternKind.func));
-    try std.testing.expectEqual(@as(u8, 0x03), @intFromEnum(ExternKind.@"type"));
+    try std.testing.expectEqual(@as(u8, 0x03), @intFromEnum(ExternKind.type));
     try std.testing.expectEqual(@as(u8, 0x05), @intFromEnum(ExternKind.instance));
 }
 
@@ -1309,11 +1311,14 @@ test "Component.decode — type section with primitive defined types" {
         0x07, // section size: 7 bytes
         0x03, // count: 3 types
         // Type 0: defined(bool)
-        0x40, 0x7f,
+        0x40,
+        0x7f,
         // Type 1: defined(string)
-        0x40, 0x73,
+        0x40,
+        0x73,
         // Type 2: defined(u32)
-        0x40, 0x79,
+        0x40,
+        0x79,
     };
     var comp = Component.init(std.testing.allocator, &bytes);
     defer comp.deinit();
@@ -1334,7 +1339,8 @@ test "Component.decode — type section with list and option" {
         0x09, // section size: 9 bytes
         0x03, // count: 3 types
         // Type 0: defined(u8)
-        0x40, 0x7d,
+        0x40,
+        0x7d,
         // Type 1: defined(list<type 0>)
         0x40, 0x70, 0x00, // list of type index 0
         // Type 2: defined(option<type 0>)
@@ -1359,11 +1365,14 @@ test "Component.decode — type section with result type" {
         0x0A, // section size
         0x03, // count: 3 types
         // Type 0: defined(u32)
-        0x40, 0x79,
+        0x40,
+        0x79,
         // Type 1: defined(string)
-        0x40, 0x73,
+        0x40,
+        0x73,
         // Type 2: defined(result<type 0, type 1>)
-        0x40, 0x6b,
+        0x40,
+        0x6b,
         0x00, 0x00, // ok = present, type idx 0
         0x00, 0x01, // err = present, type idx 1
     };
@@ -1386,7 +1395,8 @@ test "Component.decode — func type" {
         0x10, // section size
         0x02, // count: 2 types
         // Type 0: defined(string)
-        0x40, 0x73,
+        0x40,
+        0x73,
         // Type 1: func(name: type0) -> type0
         0x41,
         0x01, // 1 param
@@ -1480,11 +1490,17 @@ test "Component.decode — canonical resource ops" {
         0x0A, // section size
         0x03, // count: 3 canon funcs
         // resource.new(type=0)
-        0x02, 0x00, 0x00,
+        0x02,
+        0x00,
+        0x00,
         // resource.drop(type=0)
-        0x03, 0x00, 0x00,
+        0x03,
+        0x00,
+        0x00,
         // resource.rep(type=0)
-        0x04, 0x00, 0x00,
+        0x04,
+        0x00,
+        0x00,
     };
     var comp = Component.init(std.testing.allocator, &bytes);
     defer comp.deinit();
@@ -1782,7 +1798,14 @@ test "integration: full decode → instantiate pipeline" {
         // export section (id=11): 1 func export "compute"
         0x0B, 0x0D, 0x01,
         0x00, // kebab discriminant
-        0x07, 'c', 'o', 'm', 'p', 'u', 't', 'e',
+        0x07,
+        'c',
+        'o',
+        'm',
+        'p',
+        'u',
+        't',
+        'e',
         0x01, // kind: func
         0x00, // idx: 0
     };
@@ -1824,7 +1847,8 @@ test "integration: component with multiple sections roundtrip" {
         0x00, // type idx 0
         0x01, 0x00, // result: single unnamed type 0
         // canonical section: lift core_func=0, opts=[utf8, memory=0]
-        0x08, 0x08, 0x01,
+        0x08, 0x08,
+        0x01,
         0x00, 0x00, 0x00, // lift, sub=0x00, core_func_idx=0
         0x02, 0x00, 0x03, 0x00, // 2 opts: utf8, memory=0
     };

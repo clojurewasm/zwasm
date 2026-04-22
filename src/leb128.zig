@@ -97,29 +97,68 @@ pub const Reader = struct {
     }
 };
 
-/// Internal: adapter that makes Reader work with std.leb functions.
-const ByteReader = struct {
-    reader: *Reader,
+/// Decode unsigned LEB128 value
+fn readUleb128(comptime T: type, reader: *Reader) Error!T {
+    const U = if (@typeInfo(T).int.bits < 8) u8 else T;
+    const ShiftT = std.math.Log2Int(U);
 
-    pub fn readByte(self: *ByteReader) Error!u8 {
-        return self.reader.readByte();
+    const max_group = (@typeInfo(U).int.bits + 6) / 7;
+
+    var value: U = 0;
+    var group: ShiftT = 0;
+
+    while (group < max_group) : (group += 1) {
+        const byte = try reader.readByte();
+
+        const ov = @shlWithOverflow(@as(U, byte & 0x7f), group * 7);
+        if (ov[1] != 0) return error.Overflow;
+
+        value |= ov[0];
+        if (byte & 0x80 == 0) break;
+    } else {
+        return error.Overflow;
     }
-};
+
+    // only applies in the case that we extended to u8
+    if (U != T) {
+        if (value > std.math.maxInt(T)) return error.Overflow;
+    }
+
+    return @as(T, @truncate(value));
+}
+
+/// Decode signed LEB128 value (two's complement with sign extension)
+fn readIleb128(comptime T: type, reader: *Reader) Error!T {
+    var result: T = 0;
+    var shift: u8 = 0;
+    var byte: u8 = undefined;
+
+    while (true) {
+        byte = try reader.readByte();
+        const value: T = @intCast(byte & 0x7f);
+        const shift_amount: std.math.Log2Int(T) = @intCast(shift);
+        result |= value << shift_amount;
+        shift += 7;
+
+        if ((byte & 0x80) == 0) break;
+        if (shift >= @bitSizeOf(T)) return error.Overflow;
+    }
+
+    // Sign extend if the sign bit is set
+    if (shift < @bitSizeOf(T) and (byte & 0x40) != 0) {
+        const shift_amount: std.math.Log2Int(T) = @intCast(shift);
+        result |= -(@as(T, 1) << shift_amount);
+    }
+
+    return result;
+}
 
 fn readUnsigned(comptime T: type, reader: *Reader) Error!T {
-    var br = ByteReader{ .reader = reader };
-    return std.leb.readUleb128(T, &br) catch |err| switch (err) {
-        error.Overflow => return error.Overflow,
-        error.EndOfStream => return error.EndOfStream,
-    };
+    return readUleb128(T, reader);
 }
 
 fn readSigned(comptime T: type, reader: *Reader) Error!T {
-    var br = ByteReader{ .reader = reader };
-    return std.leb.readIleb128(T, &br) catch |err| switch (err) {
-        error.Overflow => return error.Overflow,
-        error.EndOfStream => return error.EndOfStream,
-    };
+    return readIleb128(T, reader);
 }
 
 // ============================================================
@@ -192,7 +231,7 @@ test "readU64 — large values" {
 
 test "readI64 — min/max" {
     // -1
-    var r = Reader.init(&[_]u8{ 0x7F });
+    var r = Reader.init(&[_]u8{0x7F});
     try testing.expectEqual(@as(i64, -1), try r.readI64());
 
     // i64 min (-0x8000000000000000)

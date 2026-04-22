@@ -1,0 +1,19 @@
+test
++- run test 398 pass, 3 skip, 1 fail, 1 timeout (403 total)
+error: 'wasi.test.WASI — random_get fills buffer' timed out after 25.023s
+error: 'leb128.test.overflow — value too large for u32' failed:
+       error: .{ .bytes = { 128, 128, 128, 128, 64 }, .pos = 0 }expected error.Overflow, found 0
+       /nix/store/rcl9v3y5112v9qxs0xlm2qksabj08sdv-zig-0.16.0/lib/std/testing.zig:65:9: 0x158db09 in expectError__anon_76846 (std.zig)
+               return error.TestExpectedError;
+               ^
+       /home/ewan/Documents/zig/zwasm/src/leb128.zig:307:5: 0x158dd27 in test.overflow — value too large for u32 (types.zig)
+           try testing.expectError(error.Overflow, r.readU32());
+           ^
+failed command: ./.zig-cache/o/c89ca94fdf9ec0715edc8cf4c6f4f1ff/test --cache-dir=./.zig-cache --seed=0xab20887d --listen=-
+
+Build Summary: 2/4 steps succeeded (1 failed); 398/403 tests passed (3 skipped, 1 failed, 1 timed out)
+test transitive failure
++- run test 398 pass, 3 skip, 1 fail, 1 timeout (403 total)
+
+error: the following build command failed with exit code 1:
+.zig-cache/o/2fc72a677a00554ba15517cfc4b0e718/build /nix/store/rcl9v3y5112v9qxs0xlm2qksabj08sdv-zig-0.16.0/bin/zig /nix/store/rcl9v3y5112v9qxs0xlm2qksabj08sdv-zig-0.16.0/lib /home/ewan/Documents/zig/zwasm .zig-cache /home/ewan/.cache/zig --seed 0xab20887d -Zdd23c543245b78a8 test --test-timeout 25s

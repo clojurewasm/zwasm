@@ -234,9 +234,32 @@ pub const Tokenizer = struct {
 
     fn isIdChar(c: u8) bool {
         return switch (c) {
-            'a'...'z', 'A'...'Z', '0'...'9',
-            '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '/',
-            ':', '<', '=', '>', '?', '@', '\\', '^', '_', '`', '|', '~',
+            'a'...'z',
+            'A'...'Z',
+            '0'...'9',
+            '!',
+            '#',
+            '$',
+            '%',
+            '&',
+            '\'',
+            '*',
+            '+',
+            '-',
+            '.',
+            '/',
+            ':',
+            '<',
+            '=',
+            '>',
+            '?',
+            '@',
+            '\\',
+            '^',
+            '_',
+            '`',
+            '|',
+            '~',
             => true,
             else => false,
         };
@@ -798,19 +821,7 @@ pub const Parser = struct {
         if (self.current.tag == .keyword) {
             const text = self.current.text;
             const result: ?RefTypeAnnotation =
-                if (std.mem.eql(u8, text, "anyref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_ANY }, .nullable = true }
-            else if (std.mem.eql(u8, text, "eqref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_EQ }, .nullable = true }
-            else if (std.mem.eql(u8, text, "funcref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_FUNC }, .nullable = true }
-            else if (std.mem.eql(u8, text, "externref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_EXTERN }, .nullable = true }
-            else if (std.mem.eql(u8, text, "structref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_STRUCT }, .nullable = true }
-            else if (std.mem.eql(u8, text, "arrayref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_ARRAY }, .nullable = true }
-            else if (std.mem.eql(u8, text, "i31ref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_I31 }, .nullable = true }
-            else if (std.mem.eql(u8, text, "nullref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NONE }, .nullable = true }
-            else if (std.mem.eql(u8, text, "nullfuncref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NOFUNC }, .nullable = true }
-            else if (std.mem.eql(u8, text, "nullexternref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NOEXTERN }, .nullable = true }
-            else if (std.mem.eql(u8, text, "nullexnref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NOEXN }, .nullable = true }
-            else if (std.mem.eql(u8, text, "exnref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_EXN }, .nullable = true }
-            else null;
+                if (std.mem.eql(u8, text, "anyref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_ANY }, .nullable = true } else if (std.mem.eql(u8, text, "eqref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_EQ }, .nullable = true } else if (std.mem.eql(u8, text, "funcref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_FUNC }, .nullable = true } else if (std.mem.eql(u8, text, "externref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_EXTERN }, .nullable = true } else if (std.mem.eql(u8, text, "structref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_STRUCT }, .nullable = true } else if (std.mem.eql(u8, text, "arrayref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_ARRAY }, .nullable = true } else if (std.mem.eql(u8, text, "i31ref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_I31 }, .nullable = true } else if (std.mem.eql(u8, text, "nullref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NONE }, .nullable = true } else if (std.mem.eql(u8, text, "nullfuncref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NOFUNC }, .nullable = true } else if (std.mem.eql(u8, text, "nullexternref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NOEXTERN }, .nullable = true } else if (std.mem.eql(u8, text, "nullexnref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_NOEXN }, .nullable = true } else if (std.mem.eql(u8, text, "exnref")) .{ .heap_type = .{ .num = opc.ValType.HEAP_EXN }, .nullable = true } else null;
             if (result) |r| {
                 _ = self.advance();
                 return r;
@@ -1612,8 +1623,7 @@ pub const Parser = struct {
             }
         }
         // Check for reftype keyword without paren (passive/declarative marker)
-        else if (self.current.tag == .keyword and isRefTypeKeyword(self.current.text))
-        {
+        else if (self.current.tag == .keyword and isRefTypeKeyword(self.current.text)) {
             mode = .passive;
         }
 
@@ -1632,8 +1642,7 @@ pub const Parser = struct {
             while (self.current.tag == .integer or self.current.tag == .ident) {
                 func_indices.append(self.alloc, try self.parseIndex()) catch return error.OutOfMemory;
             }
-        } else if (self.current.tag == .keyword and isRefTypeKeyword(self.current.text))
-        {
+        } else if (self.current.tag == .keyword and isRefTypeKeyword(self.current.text)) {
             is_expr_style = true;
             elem_reftype = try self.parseValType();
             while (self.current.tag == .lparen) {
@@ -1928,7 +1937,7 @@ pub const Parser = struct {
 
     fn isMemoryOp(name: []const u8) bool {
         const prefixes = [_][]const u8{
-            "i32.load", "i64.load", "f32.load", "f64.load",
+            "i32.load",  "i64.load",  "f32.load",  "f64.load",
             "i32.store", "i64.store", "f32.store", "f64.store",
         };
         for (prefixes) |prefix| {
@@ -1942,10 +1951,9 @@ pub const Parser = struct {
         const ops = [_][]const u8{
             "i8x16.extract_lane_s", "i8x16.extract_lane_u", "i8x16.replace_lane",
             "i16x8.extract_lane_s", "i16x8.extract_lane_u", "i16x8.replace_lane",
-            "i32x4.extract_lane", "i32x4.replace_lane",
-            "i64x2.extract_lane", "i64x2.replace_lane",
-            "f32x4.extract_lane", "f32x4.replace_lane",
-            "f64x2.extract_lane", "f64x2.replace_lane",
+            "i32x4.extract_lane",   "i32x4.replace_lane",   "i64x2.extract_lane",
+            "i64x2.replace_lane",   "f32x4.extract_lane",   "f32x4.replace_lane",
+            "f64x2.extract_lane",   "f64x2.replace_lane",
         };
         for (ops) |op| {
             if (std.mem.eql(u8, name, op)) return true;
@@ -1984,7 +1992,7 @@ pub const Parser = struct {
                 _ = self.advance();
                 if (self.current.tag == .keyword and
                     (std.mem.eql(u8, self.current.text, "param") or
-                    std.mem.eql(u8, self.current.text, "result")))
+                        std.mem.eql(u8, self.current.text, "result")))
                 {
                     // Skip tokens until matching )
                     var depth: u32 = 1;
@@ -2143,7 +2151,7 @@ pub const Parser = struct {
                     _ = self.advance();
                     if (self.current.tag == .keyword and
                         (std.mem.eql(u8, self.current.text, "then") or
-                        std.mem.eql(u8, self.current.text, "else")))
+                            std.mem.eql(u8, self.current.text, "else")))
                     {
                         self.tok.pos = saved_pos;
                         self.current = saved_current;
@@ -2538,7 +2546,7 @@ pub const Parser = struct {
         while (self.current.tag != .eof) {
             if (self.current.tag == .keyword and
                 (std.mem.eql(u8, self.current.text, "end") or
-                std.mem.eql(u8, self.current.text, "else")))
+                    std.mem.eql(u8, self.current.text, "else")))
             {
                 if (std.mem.eql(u8, self.current.text, "end")) {
                     _ = self.advance();
@@ -2558,11 +2566,26 @@ pub const Parser = struct {
 
     fn tryParseValType(self: *Parser) ?WatValType {
         if (self.current.tag != .keyword) return null;
-        if (std.mem.eql(u8, self.current.text, "i32")) { _ = self.advance(); return .i32; }
-        if (std.mem.eql(u8, self.current.text, "i64")) { _ = self.advance(); return .i64; }
-        if (std.mem.eql(u8, self.current.text, "f32")) { _ = self.advance(); return .f32; }
-        if (std.mem.eql(u8, self.current.text, "f64")) { _ = self.advance(); return .f64; }
-        if (std.mem.eql(u8, self.current.text, "v128")) { _ = self.advance(); return .v128; }
+        if (std.mem.eql(u8, self.current.text, "i32")) {
+            _ = self.advance();
+            return .i32;
+        }
+        if (std.mem.eql(u8, self.current.text, "i64")) {
+            _ = self.advance();
+            return .i64;
+        }
+        if (std.mem.eql(u8, self.current.text, "f32")) {
+            _ = self.advance();
+            return .f32;
+        }
+        if (std.mem.eql(u8, self.current.text, "f64")) {
+            _ = self.advance();
+            return .f64;
+        }
+        if (std.mem.eql(u8, self.current.text, "v128")) {
+            _ = self.advance();
+            return .v128;
+        }
         return null;
     }
 
@@ -5138,7 +5161,7 @@ test "WAT round-trip — v128.const SIMD" {
     defer testing.allocator.free(wasm);
     // Verify it loads and runs
     const types = @import("types.zig");
-    var module = try types.WasmModule.load(testing.allocator, wasm);
+    var module = try types.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{ 0, 0 };
@@ -5155,7 +5178,7 @@ test "WAT parser — memory.size default index" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5174,7 +5197,7 @@ test "WAT parser — memory.grow default index" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5195,7 +5218,7 @@ test "WAT parser — data section round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5215,7 +5238,7 @@ test "WAT parser — data section with escape sequences" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5235,7 +5258,7 @@ test "WAT parser — data section with offset keyword" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5258,7 +5281,7 @@ test "WAT parser — elem section round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args0 = [_]u64{0};
     var results = [_]u64{0};
@@ -5293,7 +5316,7 @@ test "WAT parser — i32.trunc_sat_f64_s round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     // 1e30 should clamp to i32.max = 2147483647
     var args = [_]u64{@bitCast(@as(f64, 1e30))};
@@ -5317,7 +5340,7 @@ test "WAT parser — memory.fill round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5341,7 +5364,7 @@ test "WAT parser — memory.copy round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5367,7 +5390,7 @@ test "WAT parser — table.fill round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5389,7 +5412,7 @@ test "WAT parser — try_table encode round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5408,7 +5431,7 @@ test "WAT parser — i32x4.extract_lane round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5430,7 +5453,7 @@ test "WAT parser — i32.atomic.load round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5532,7 +5555,7 @@ test "WAT encoder — tag round-trip" {
     defer testing.allocator.free(wasm);
     // Should load as valid module
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.tags.items.len);
 }
@@ -5553,7 +5576,7 @@ test "WAT encoder — tag with try_table catch" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5586,7 +5609,7 @@ test "WAT encoder — export tag" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.tags.items.len);
 }
@@ -5638,7 +5661,7 @@ test "WAT encoder — ref.null heap type" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     var args = [_]u64{};
     var results = [_]u64{0};
@@ -5654,7 +5677,7 @@ test "WAT encoder — anyref param round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
 }
 
@@ -5718,7 +5741,7 @@ test "WAT encoder — struct type round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     // Verify the module loaded successfully with struct type
     try testing.expectEqual(@as(usize, 1), module.module.types.items.len);
@@ -5733,7 +5756,7 @@ test "WAT encoder — array type round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.types.items.len);
 }
@@ -5750,7 +5773,7 @@ test "WAT encoder — i31.get_s round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     // Function loaded successfully with i31.get_s instruction
     try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
@@ -5770,7 +5793,7 @@ test "WAT encoder — struct.new round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
 }
@@ -5787,7 +5810,7 @@ test "WAT encoder — rec group round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 2), module.module.types.items.len);
 }
@@ -5805,7 +5828,7 @@ test "WAT encoder — struct.get round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
 }
@@ -5823,7 +5846,7 @@ test "WAT encoder — ref.test round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
 }
@@ -5843,7 +5866,7 @@ test "WAT encoder — array.new_fixed round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
 }
@@ -5938,7 +5961,7 @@ test "WAT encoder — ref.test with parenthesized reftype" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 1), module.module.functions.items.len);
 }
@@ -5954,7 +5977,7 @@ test "WAT encoder — packed storage types i8/i16" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     try testing.expectEqual(@as(usize, 3), module.module.types.items.len);
 }
@@ -5971,7 +5994,7 @@ test "WAT encoder — sub type round-trip" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     // 4 types loaded successfully
     try testing.expectEqual(@as(usize, 4), module.module.types.items.len);
@@ -6004,7 +6027,7 @@ test "WAT encoder — throw catch named tag" {
     );
     defer testing.allocator.free(wasm);
     const types_mod = @import("types.zig");
-    var module = try types_mod.WasmModule.load(testing.allocator, wasm);
+    var module = try types_mod.WasmModule.load(testing.allocator, testing.io, wasm);
     defer module.deinit();
     // Input 0: throw path → catch → return 23
     var args0 = [_]u64{0};

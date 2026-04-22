@@ -174,7 +174,7 @@ pub const Capabilities = rt.wasi.Capabilities;
 /// Options for configuring WASI modules.
 /// FD-based preopen entry: binds an existing host fd to a WASI guest path.
 pub const PreopenFd = struct {
-    host_fd: std.fs.File.Handle,
+    host_fd: std.posix.fd_t,
     guest_path: []const u8,
     kind: rt.wasi.HandleKind,
     ownership: rt.wasi.Ownership,
@@ -192,7 +192,7 @@ pub const WasiOptions = struct {
     preopen_fds: []const PreopenFd = &.{},
     /// Stdio fd overrides (null = use process default).
     /// Index 0=stdin, 1=stdout, 2=stderr.
-    stdio_fds: [3]?std.fs.File.Handle = .{ null, null, null },
+    stdio_fds: [3]?std.posix.fd_t = .{ null, null, null },
     stdio_ownership: [3]rt.wasi.Ownership = .{ .borrow, .borrow, .borrow },
     /// WASI capability flags. Default: cli_default (stdio, clock, random, proc_exit).
     /// Use `.caps = Capabilities.all` for full access.
@@ -243,21 +243,21 @@ pub const WasmModule = struct {
     force_interpreter: ?bool = null,
 
     /// Load a Wasm module from binary bytes, decode, and instantiate.
-    pub fn load(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
-        return loadCore(allocator, wasm_bytes, false, null, null, null, null);
+    pub fn load(allocator: Allocator, io: std.Io, wasm_bytes: []const u8) !*WasmModule {
+        return loadCore(allocator, io, wasm_bytes, false, null, null, null, null);
     }
 
     /// Load with a fuel limit (traps start function if it exceeds the limit).
-    pub fn loadWithFuel(allocator: Allocator, wasm_bytes: []const u8, fuel: u64) !*WasmModule {
-        return loadCore(allocator, wasm_bytes, false, null, fuel, null, null);
+    pub fn loadWithFuel(allocator: Allocator, io: std.Io, wasm_bytes: []const u8, fuel: u64) !*WasmModule {
+        return loadCore(allocator, io, wasm_bytes, false, null, fuel, null, null);
     }
 
     /// Load a module from WAT (WebAssembly Text Format) source.
     /// Requires `-Dwat=true` (default). Returns error.WatNotEnabled if disabled.
-    pub fn loadFromWat(allocator: Allocator, wat_source: []const u8) !*WasmModule {
+    pub fn loadFromWat(allocator: Allocator, io: std.Io, wat_source: []const u8) !*WasmModule {
         const wasm_bytes = try rt.wat.watToWasm(allocator, wat_source);
         errdefer allocator.free(wasm_bytes);
-        const self = try loadCore(allocator, wasm_bytes, false, null, null, null, null);
+        const self = try loadCore(allocator, io, wasm_bytes, false, null, null, null, null);
         self.owned_wasm_bytes = wasm_bytes;
         return self;
     }
@@ -272,12 +272,12 @@ pub const WasmModule = struct {
     }
 
     /// Load a WASI module — registers wasi_snapshot_preview1 imports.
-    pub fn loadWasi(allocator: Allocator, wasm_bytes: []const u8) !*WasmModule {
-        return loadCore(allocator, wasm_bytes, true, null, null, null, null);
+    pub fn loadWasi(allocator: Allocator, io: std.Io, wasm_bytes: []const u8) !*WasmModule {
+        return loadCore(allocator, io, wasm_bytes, true, null, null, null, null);
     }
 
     /// Apply WasiOptions to a WasiContext (shared logic for all WASI loaders).
-    fn applyWasiOptions(wc: *rt.wasi.WasiContext, opts: WasiOptions) !void {
+    fn applyWasiOptions(wc: *rt.wasi.WasiContext, io: std.Io, opts: WasiOptions) !void {
         wc.caps = opts.caps;
         if (opts.args.len > 0) wc.setArgs(opts.args);
 
@@ -290,7 +290,7 @@ pub const WasmModule = struct {
         for (opts.preopen_paths, 0..) |path, i| {
             const fd: i32 = @intCast(3 + i);
             const spec = splitPreopenSpec(path);
-            wc.addPreopenPath(fd, spec.guest, spec.host) catch continue;
+            wc.addPreopenPath(io, fd, spec.guest, spec.host) catch continue;
         }
 
         // FD-based preopens (fd auto-assigned after path-based ones)
@@ -309,23 +309,23 @@ pub const WasmModule = struct {
     }
 
     /// Load a WASI module with custom args, env, and preopened directories.
-    pub fn loadWasiWithOptions(allocator: Allocator, wasm_bytes: []const u8, opts: WasiOptions) !*WasmModule {
-        const self = try loadCore(allocator, wasm_bytes, true, null, null, null, null);
+    pub fn loadWasiWithOptions(allocator: Allocator, io: std.Io, wasm_bytes: []const u8, opts: WasiOptions) !*WasmModule {
+        const self = try loadCore(allocator, io, wasm_bytes, true, null, null, null, null);
         errdefer self.deinit();
-        if (self.wasi_ctx) |*wc| try applyWasiOptions(wc, opts);
+        if (self.wasi_ctx) |*wc| try applyWasiOptions(wc, io, opts);
         return self;
     }
 
     /// Load with imports from other modules or host functions.
-    pub fn loadWithImports(allocator: Allocator, wasm_bytes: []const u8, imports: []const ImportEntry) !*WasmModule {
-        return loadCore(allocator, wasm_bytes, false, imports, null, null, null);
+    pub fn loadWithImports(allocator: Allocator, io: std.Io, wasm_bytes: []const u8, imports: []const ImportEntry) !*WasmModule {
+        return loadCore(allocator, io, wasm_bytes, false, imports, null, null, null);
     }
 
     /// Load with combined WASI + import support. Used by CLI for --link + WASI fallback.
-    pub fn loadWasiWithImports(allocator: Allocator, wasm_bytes: []const u8, imports: ?[]const ImportEntry, opts: WasiOptions) !*WasmModule {
-        const self = try loadCore(allocator, wasm_bytes, true, imports, null, null, null);
+    pub fn loadWasiWithImports(allocator: Allocator, io: std.Io, wasm_bytes: []const u8, imports: ?[]const ImportEntry, opts: WasiOptions) !*WasmModule {
+        const self = try loadCore(allocator, io, wasm_bytes, true, imports, null, null, null);
         errdefer self.deinit();
-        if (self.wasi_ctx) |*wc| try applyWasiOptions(wc, opts);
+        if (self.wasi_ctx) |*wc| try applyWasiOptions(wc, io, opts);
         return self;
     }
 
@@ -408,7 +408,7 @@ pub const WasmModule = struct {
         return .{ .module = self, .apply_error = apply_error };
     }
 
-    fn loadCore(allocator: Allocator, wasm_bytes: []const u8, wasi: bool, imports: ?[]const ImportEntry, fuel: ?u64, timeout_ms: ?u64, force_interpreter: ?bool) !*WasmModule {
+    fn loadCore(allocator: Allocator, io: std.Io, wasm_bytes: []const u8, wasi: bool, imports: ?[]const ImportEntry, fuel: ?u64, timeout_ms: ?u64, force_interpreter: ?bool) !*WasmModule {
         const self = try allocator.create(WasmModule);
         errdefer allocator.destroy(self);
 
@@ -423,7 +423,7 @@ pub const WasmModule = struct {
 
         if (wasi) {
             try rt.wasi.registerAll(&self.store, &self.module);
-            self.wasi_ctx = rt.wasi.WasiContext.init(allocator);
+            self.wasi_ctx = rt.wasi.WasiContext.init(allocator, io);
             self.wasi_ctx.?.caps = rt.wasi.Capabilities.cli_default;
         } else {
             self.wasi_ctx = null;
@@ -899,7 +899,7 @@ const testing = std.testing;
 
 test "smoke test — load and call add(3, 4)" {
     const wasm_bytes = @embedFile("testdata/01_add.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     var args = [_]u64{ 3, 4 };
@@ -911,7 +911,7 @@ test "smoke test — load and call add(3, 4)" {
 
 test "smoke test — fibonacci(10) = 55" {
     const wasm_bytes = @embedFile("testdata/02_fibonacci.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     var args = [_]u64{10};
@@ -923,7 +923,7 @@ test "smoke test — fibonacci(10) = 55" {
 
 test "memory read/write round-trip" {
     const wasm_bytes = @embedFile("testdata/03_memory.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     try wasm_mod.memoryWrite(0, "Hello");
@@ -939,7 +939,7 @@ test "memory read/write round-trip" {
 
 test "memory write then call store/load" {
     const wasm_bytes = @embedFile("testdata/03_memory.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     var store_args = [_]u64{ 0, 42 };
@@ -959,7 +959,7 @@ test "memory write then call store/load" {
 
 test "buildExportInfo — add module exports" {
     const wasm_bytes = @embedFile("testdata/01_add.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     try testing.expect(wasm_mod.export_fns.len > 0);
@@ -975,7 +975,7 @@ test "buildExportInfo — add module exports" {
 
 test "buildExportInfo — fibonacci module exports" {
     const wasm_bytes = @embedFile("testdata/02_fibonacci.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     const fib_info = wasm_mod.getExportInfo("fib");
@@ -989,7 +989,7 @@ test "buildExportInfo — fibonacci module exports" {
 
 test "buildExportInfo — memory module exports" {
     const wasm_bytes = @embedFile("testdata/03_memory.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     const store_info = wasm_mod.getExportInfo("store");
@@ -1005,7 +1005,7 @@ test "buildExportInfo — memory module exports" {
 
 test "getExportInfo — nonexistent name returns null" {
     const wasm_bytes = @embedFile("testdata/01_add.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     try testing.expect(wasm_mod.getExportInfo("nonexistent") == null);
@@ -1016,7 +1016,7 @@ test "getExportInfo — nonexistent name returns null" {
 test "multi-module — two modules, function import" {
     // math_mod exports "add" and "mul"
     const math_bytes = @embedFile("testdata/20_math_export.wasm");
-    var math_mod = try WasmModule.load(testing.allocator, math_bytes);
+    var math_mod = try WasmModule.load(testing.allocator, testing.io, math_bytes);
     defer math_mod.deinit();
 
     // Verify math module works standalone
@@ -1027,7 +1027,7 @@ test "multi-module — two modules, function import" {
 
     // app_mod imports "add" and "mul" from "math", exports "add_and_mul"
     const app_bytes = @embedFile("testdata/21_app_import.wasm");
-    var app_mod = try WasmModule.loadWithImports(testing.allocator, app_bytes, &.{
+    var app_mod = try WasmModule.loadWithImports(testing.allocator, testing.io, app_bytes, &.{
         .{ .module = "math", .source = .{ .wasm_module = math_mod } },
     });
     defer app_mod.deinit();
@@ -1042,12 +1042,12 @@ test "multi-module — two modules, function import" {
 test "multi-module — three module chain" {
     // base exports "double"
     const base_bytes = @embedFile("testdata/22_base.wasm");
-    var base_mod = try WasmModule.load(testing.allocator, base_bytes);
+    var base_mod = try WasmModule.load(testing.allocator, testing.io, base_bytes);
     defer base_mod.deinit();
 
     // mid imports "double" from "base", exports "quadruple"
     const mid_bytes = @embedFile("testdata/23_mid.wasm");
-    var mid_mod = try WasmModule.loadWithImports(testing.allocator, mid_bytes, &.{
+    var mid_mod = try WasmModule.loadWithImports(testing.allocator, testing.io, mid_bytes, &.{
         .{ .module = "base", .source = .{ .wasm_module = base_mod } },
     });
     defer mid_mod.deinit();
@@ -1060,7 +1060,7 @@ test "multi-module — three module chain" {
 
     // top imports "quadruple" from "mid", exports "octuple"
     const top_bytes = @embedFile("testdata/24_top.wasm");
-    var top_mod = try WasmModule.loadWithImports(testing.allocator, top_bytes, &.{
+    var top_mod = try WasmModule.loadWithImports(testing.allocator, testing.io, top_bytes, &.{
         .{ .module = "mid", .source = .{ .wasm_module = mid_mod } },
     });
     defer top_mod.deinit();
@@ -1075,12 +1075,12 @@ test "multi-module — three module chain" {
 test "multi-module — memory import" {
     // provider exports memory with "hello" at offset 0
     const provider_bytes = @embedFile("testdata/26_mem_export.wasm");
-    var provider = try WasmModule.load(testing.allocator, provider_bytes);
+    var provider = try WasmModule.load(testing.allocator, testing.io, provider_bytes);
     defer provider.deinit();
 
     // consumer imports memory from "provider", exports read_byte(offset) -> u8
     const consumer_bytes = @embedFile("testdata/27_mem_import.wasm");
-    var consumer = try WasmModule.loadWithImports(testing.allocator, consumer_bytes, &.{
+    var consumer = try WasmModule.loadWithImports(testing.allocator, testing.io, consumer_bytes, &.{
         .{ .module = "provider", .source = .{ .wasm_module = provider } },
     });
     defer consumer.deinit();
@@ -1101,12 +1101,12 @@ test "multi-module — memory import" {
 test "multi-module — cross-module call_indirect type match" {
     // Provider exports "add(i32,i32)->i32"
     const provider_bytes = @embedFile("testdata/28_provider_call_indirect.wasm");
-    var provider = try WasmModule.load(testing.allocator, provider_bytes);
+    var provider = try WasmModule.load(testing.allocator, testing.io, provider_bytes);
     defer provider.deinit();
 
     // Consumer imports "add" from provider, places in table, calls via call_indirect
     const consumer_bytes = @embedFile("testdata/29_consumer_call_indirect.wasm");
-    var consumer = try WasmModule.loadWithImports(testing.allocator, consumer_bytes, &.{
+    var consumer = try WasmModule.loadWithImports(testing.allocator, testing.io, consumer_bytes, &.{
         .{ .module = "provider", .source = .{ .wasm_module = provider } },
     });
     defer consumer.deinit();
@@ -1121,7 +1121,7 @@ test "multi-module — cross-module call_indirect type match" {
 test "multi-module — shared table via loadLinked" {
     // Mt: exports table with elements at [2..5] = [$g,$g,$g,$g], $g returns 4
     const mt_bytes = @embedFile("testdata/30_table_export.wasm");
-    var mt = try WasmModule.load(testing.allocator, mt_bytes);
+    var mt = try WasmModule.load(testing.allocator, testing.io, mt_bytes);
     defer mt.deinit();
 
     // Verify Mt.call(2) = 4 before Ot loads
@@ -1151,7 +1151,7 @@ test "multi-module — shared table via loadLinked" {
 
 test "nqueens(8) = 92 — regir only (JIT disabled)" {
     const wasm_bytes = @embedFile("testdata/25_nqueens.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     // Enable profiling to disable JIT (JIT is skipped when profile != null)
@@ -1167,7 +1167,7 @@ test "nqueens(8) = 92 — regir only (JIT disabled)" {
 
 test "nqueens(8) = 92 — with JIT" {
     const wasm_bytes = @embedFile("testdata/25_nqueens.wasm");
-    var wasm_mod = try WasmModule.load(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.load(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     var args = [_]u64{8};
@@ -1183,7 +1183,7 @@ test "nqueens(8) = 92 — with JIT" {
 
 test "WAT round-trip — i32.add" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func $add (param i32 i32) (result i32)
         \\    local.get 0
@@ -1203,7 +1203,7 @@ test "WAT round-trip — i32.add" {
 
 test "WAT round-trip — i32.const" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func (export "forty_two") (result i32)
         \\    i32.const 42
@@ -1219,7 +1219,7 @@ test "WAT round-trip — i32.const" {
 
 test "WAT round-trip — if/else" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func (export "abs") (param i32) (result i32)
         \\    (if (result i32) (i32.lt_s (local.get 0) (i32.const 0))
@@ -1243,7 +1243,7 @@ test "WAT round-trip — if/else" {
 
 test "WAT round-trip — loop (factorial)" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func (export "fac") (param i32) (result i32)
         \\    (local i32)
@@ -1270,7 +1270,7 @@ test "WAT round-trip — loop (factorial)" {
 
 test "WAT round-trip — named locals" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func (export "swap_sub") (param $a i32) (param $b i32) (result i32)
         \\    (i32.sub (local.get $b) (local.get $a))
@@ -1287,7 +1287,7 @@ test "WAT round-trip — named locals" {
 
 test "WAT round-trip — named globals" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (global $counter (mut i32) (i32.const 0))
         \\  (func (export "inc") (result i32)
@@ -1307,7 +1307,7 @@ test "WAT round-trip — named globals" {
 
 test "WAT round-trip — return_call simple" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func $get42 (result i32)
         \\    i32.const 42
@@ -1327,7 +1327,7 @@ test "WAT round-trip — return_call simple" {
 
 test "WAT round-trip — return_call mutual recursion" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func $even (param i32) (result i32)
         \\    local.get 0
@@ -1370,7 +1370,7 @@ test "WAT round-trip — return_call mutual recursion" {
 test "loadWasi uses cli_default capabilities" {
     // Minimal valid wasm module (magic + version)
     const wasm_bytes = &[_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
-    var wasm_mod = try WasmModule.loadWasi(testing.allocator, wasm_bytes);
+    var wasm_mod = try WasmModule.loadWasi(testing.allocator, testing.io, wasm_bytes);
     defer wasm_mod.deinit();
 
     const caps = wasm_mod.wasi_ctx.?.caps;
@@ -1388,7 +1388,7 @@ test "loadWasi uses cli_default capabilities" {
 
 test "loadWasiWithOptions defaults to cli_default capabilities" {
     const wasm_bytes = &[_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
-    var wasm_mod = try WasmModule.loadWasiWithOptions(testing.allocator, wasm_bytes, .{});
+    var wasm_mod = try WasmModule.loadWasiWithOptions(testing.allocator, testing.io, wasm_bytes, .{});
     defer wasm_mod.deinit();
 
     const caps = wasm_mod.wasi_ctx.?.caps;
@@ -1400,7 +1400,7 @@ test "loadWasiWithOptions defaults to cli_default capabilities" {
 
 test "loadWasiWithOptions explicit all grants full access" {
     const wasm_bytes = &[_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
-    var wasm_mod = try WasmModule.loadWasiWithOptions(testing.allocator, wasm_bytes, .{
+    var wasm_mod = try WasmModule.loadWasiWithOptions(testing.allocator, testing.io, wasm_bytes, .{
         .caps = rt.wasi.Capabilities.all,
     });
     defer wasm_mod.deinit();
@@ -1414,7 +1414,7 @@ test "loadWasiWithOptions explicit all grants full access" {
 
 test "force_interpreter — persistence across invoke and invokeInterpreterOnly" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func (export "f") (result i32)
         \\    i32.const 42
@@ -1468,7 +1468,7 @@ test "force_interpreter — persistence across invoke and invokeInterpreterOnly"
 
 test "fuel and timeout — persistence and caller-set preservation" {
     if (!@import("build_options").enable_wat) return error.SkipZigTest;
-    var wasm_mod = try WasmModule.loadFromWat(testing.allocator,
+    var wasm_mod = try WasmModule.loadFromWat(testing.allocator, testing.io,
         \\(module
         \\  (func (export "f") (result i32)
         \\    i32.const 42

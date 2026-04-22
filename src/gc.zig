@@ -61,7 +61,7 @@ const FieldArena = struct {
     cursor: usize, // next free position in current page
 
     fn init(a: Allocator) FieldArena {
-        return .{ .pages = .{}, .alloc = a, .cursor = ARENA_PAGE_SLOTS };
+        return .{ .pages = .empty, .alloc = a, .cursor = ARENA_PAGE_SLOTS };
     }
 
     fn deinit(self: *FieldArena) void {
@@ -660,7 +660,6 @@ test "subtype checking — concrete subtype chain" {
 }
 
 test "struct VM integration — struct.new + struct.get" {
-
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -680,7 +679,9 @@ test "struct VM integration — struct.new + struct.get" {
         // Function section
         0x03, 0x02, 0x01, 0x01, // 1 func, type idx 1
         // Export section
-        0x07, 0x09, 0x01, 0x05, 's', 't', 'e', 's', 't', 0x00, 0x00,
+        0x07, 0x09, 0x01, 0x05,
+        's',  't',  'e',  's',
+        't',  0x00, 0x00,
         // Code section (body: 1+2+2+3+4+1 = 13 bytes, section: 1+1+13 = 15)
         0x0A, 0x0F, // section id=10, size=15
         0x01, 0x0D, // 1 body, size=13
@@ -715,7 +716,6 @@ test "struct VM integration — struct.new + struct.get" {
 }
 
 test "struct VM integration — struct.new_default + struct.set + struct.get" {
-
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -731,7 +731,9 @@ test "struct VM integration — struct.new_default + struct.set + struct.get" {
         // Function section
         0x03, 0x02, 0x01, 0x01, // 1 func, type 1
         // Export section
-        0x07, 0x0A, 0x01, 0x06, 's', 't', 'e', 's', 't', '2', 0x00, 0x00,
+        0x07, 0x0A, 0x01, 0x06,
+        's',  't',  'e',  's',
+        't',  '2',  0x00, 0x00,
         // Code section (body=21, section=1+1+21=23)
         0x0A, 0x17, // section 10, size=23
         0x01, 0x15, // 1 body, size=21
@@ -765,7 +767,6 @@ test "struct VM integration — struct.new_default + struct.set + struct.get" {
 }
 
 test "array VM integration — array.new + array.get + array.len" {
-
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -774,17 +775,18 @@ test "array VM integration — array.new + array.get + array.len" {
     const wasm = [_]u8{
         0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
         // Type section (size=10): 2 types
-        0x01, 0x0A,
-        0x02,
+        0x01, 0x0A, 0x02,
         0x5E, 0x7F, 0x01, // array (mut i32)
         0x60, 0x02, 0x7F, 0x7F, 0x01, 0x7F, // func (i32 i32) -> (i32)
         // Function section
         0x03, 0x02, 0x01, 0x01,
         // Export section: "atest"
-        0x07, 0x09, 0x01, 0x05, 'a', 't', 'e', 's', 't', 0x00, 0x00,
+        0x07, 0x09,
+        0x01, 0x05, 'a',  't',  'e',  's',
+        't',  0x00, 0x00,
         // Code section (body = 1+2+2+3+2+3+1 = 14, section = 1+1+14 = 16)
-        0x0A, 0x10,
-        0x01, 0x0E,
+        0x0A, 0x10, 0x01,
+        0x0E,
         0x00, // 0 locals
         0x20, 0x00, // local.get 0 (init_val)
         0x20, 0x01, // local.get 1 (len)
@@ -814,7 +816,6 @@ test "array VM integration — array.new + array.get + array.len" {
 }
 
 test "i31 VM integration — ref.i31 + i31.get_s round-trip" {
-
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -872,7 +873,6 @@ test "i31 VM integration — ref.i31 + i31.get_s round-trip" {
 }
 
 test "cast VM integration — ref.test i31ref against i31" {
-
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -889,7 +889,8 @@ test "cast VM integration — ref.test i31ref against i31" {
         // Function section
         0x03, 0x02, 0x01, 0x00,
         // Export section: "rt" -> func 0
-        0x07, 0x06, 0x01, 0x02, 'r', 't', 0x00, 0x00,
+        0x07, 0x06, 0x01, 0x02,
+        'r',  't',  0x00, 0x00,
         // Code section
         0x0A, 0x0B, // section id=10, size=11
         0x01, // 1 body
@@ -925,7 +926,6 @@ test "cast VM integration — ref.test i31ref against i31" {
 }
 
 test "cast VM integration — ref.cast null traps" {
-
     const Instance = @import("instance.zig").Instance;
     const Vm = @import("vm.zig").Vm;
 
@@ -939,9 +939,11 @@ test "cast VM integration — ref.cast null traps" {
         // Type section: () -> (i32)
         0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7F,
         // Function section
-        0x03, 0x02, 0x01, 0x00,
+        0x03,
+        0x02, 0x01, 0x00,
         // Export section: "rc" -> func 0
-        0x07, 0x06, 0x01, 0x02, 'r', 'c', 0x00, 0x00,
+        0x07, 0x06, 0x01, 0x02, 'r',
+        'c',  0x00, 0x00,
         // Code section
         0x0A, 0x0B, // section id=10, size=11
         0x01, // 1 body

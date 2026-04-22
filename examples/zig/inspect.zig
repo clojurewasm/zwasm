@@ -39,7 +39,7 @@ pub fn main() !void {
 }
 
 fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
+    const file = try std.Io.Dir.cwd().openFile(".", io, path);
     defer file.close();
     const stat = try file.stat();
     const data = try allocator.alloc(u8, stat.size);
