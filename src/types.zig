@@ -229,7 +229,7 @@ pub const WasmModule = struct {
     /// WIT function signatures (set via setWitInfo).
     wit_funcs: []const wit_parser.WitFunc = &[_]wit_parser.WitFunc{},
     /// Cached VM instance — reused across invoke() calls to avoid stack reallocation.
-    vm: *rt.vm_mod.Vm = undefined,
+    vm: ?*rt.vm_mod.Vm = null,
     /// Owned wasm bytes (from WAT conversion). Freed on deinit.
     owned_wasm_bytes: ?[]const u8 = null,
     /// Persistent fuel budget from Config. Decremented across all invocations.
@@ -417,9 +417,10 @@ pub const WasmModule = struct {
 
         self.vm = allocator.create(rt.vm_mod.Vm) catch {
             // OOM after phase 1 — module stays alive (leak) to keep store valid
+            self.vm = null;
             return .{ .module = self, .apply_error = error.OutOfMemory };
         };
-        self.vm.* = rt.vm_mod.Vm.init(allocator);
+        self.vm.?.* = rt.vm_mod.Vm.init(allocator);
 
         // Phase 2: apply active element/data segments (may partially fail).
         var apply_error: ?anyerror = null;
@@ -472,30 +473,31 @@ pub const WasmModule = struct {
         self.wit_funcs = &[_]wit_parser.WitFunc{};
 
         self.vm = try allocator.create(rt.vm_mod.Vm);
-        errdefer allocator.destroy(self.vm);
-        self.vm.* = rt.vm_mod.Vm.init(allocator);
+        errdefer if (self.vm) |vm| allocator.destroy(vm);
+        self.vm.?.* = rt.vm_mod.Vm.init(allocator);
         self.max_memory_bytes = config.max_memory_bytes;
         self.force_interpreter = config.force_interpreter;
         self.timeout_ms = config.timeout_ms;
         self.fuel = config.fuel;
-
-        if (self.fuel) |f| self.vm.fuel = f;
-        if (self.max_memory_bytes) |mb| self.vm.max_memory_bytes = mb;
-        if (self.force_interpreter) |fi| self.vm.force_interpreter = fi;
-        if (config.cancellable) |c| self.vm.cancellable = c;
-        if (self.timeout_ms) |ms| self.vm.setDeadlineTimeoutMs(ms);
+        const vm = self.vm.?;
+        if (self.fuel) |f| vm.fuel = f;
+        if (self.max_memory_bytes) |mb| vm.max_memory_bytes = mb;
+        if (self.force_interpreter) |fi| vm.force_interpreter = fi;
+        if (config.cancellable) |c| vm.cancellable = c;
+        if (self.timeout_ms) |ms| vm.setDeadlineTimeoutMs(ms);
 
         // Execute start function if present.
         // Only apply persistent settings to the VM when explicitly set — a null
         // persistent field means "inherit whatever the caller set on self.vm.*".
         if (self.module.start) |start_idx| {
-            self.vm.reset();
-            if (self.fuel) |f| self.vm.fuel = f;
-            if (self.max_memory_bytes) |mb| self.vm.max_memory_bytes = mb;
-            if (self.force_interpreter) |fi| self.vm.force_interpreter = fi;
-            if (self.timeout_ms) |ms| self.vm.setDeadlineTimeoutMs(ms);
-            try self.vm.invokeByIndex(&self.instance, start_idx, &.{}, &.{});
-            self.fuel = self.vm.fuel;
+            // Use the already-declared vm constant
+            vm.reset();
+            if (self.fuel) |f| vm.fuel = f;
+            if (self.max_memory_bytes) |mb| vm.max_memory_bytes = mb;
+            if (self.force_interpreter) |fi| vm.force_interpreter = fi;
+            if (self.timeout_ms) |ms| vm.setDeadlineTimeoutMs(ms);
+            try vm.invokeByIndex(&self.instance, start_idx, &.{}, &.{});
+            self.fuel = vm.fuel;
         }
 
         return self;
@@ -511,7 +513,7 @@ pub const WasmModule = struct {
             allocator.free(ei.result_types);
         }
         if (self.export_fns.len > 0) allocator.free(self.export_fns);
-        allocator.destroy(self.vm);
+        if (self.vm) |vm| allocator.destroy(vm);
         self.instance.deinit();
         if (self.wasi_ctx) |*wc| wc.deinit();
         self.module.deinit();
@@ -524,17 +526,27 @@ pub const WasmModule = struct {
     /// Args and results are passed as u64 arrays.
     ///
     /// Persistent module settings (`self.fuel` / `self.timeout_ms` /
-    /// `self.force_interpreter`) override `self.vm.*` only when set (non-null).
-    /// A null persistent field preserves whatever the caller set directly on
-    /// `self.vm`, since `self.vm.reset()` does not clear these fields.
+    /// `self.force_interpreter`) override the underlying VM's corresponding
+    /// fields only when set (non-null). A null persistent field preserves
+    /// whatever the caller set directly on the VM instance, since `vm.reset()` does
+    /// not clear these fields.
+    ///
+    /// Returns `error.ModuleNotFullyLoaded` if the underlying VM is null (e.g.,
+    /// after OOM in `loadLinked`).
     pub fn invoke(self: *WasmModule, name: []const u8, args: []const u64, results: []u64) !void {
-        self.vm.reset();
-        if (self.fuel) |f| self.vm.fuel = f;
-        if (self.max_memory_bytes) |mb| self.vm.max_memory_bytes = mb;
-        if (self.force_interpreter) |fi| self.vm.force_interpreter = fi;
-        if (self.timeout_ms) |ms| self.vm.setDeadlineTimeoutMs(ms);
-        defer if (self.fuel != null) { self.fuel = self.vm.fuel; };
-        try self.vm.invoke(&self.instance, name, args, results);
+        if (self.vm) |vm| {
+            vm.reset();
+            if (self.fuel) |f| vm.fuel = f;
+            if (self.max_memory_bytes) |mb| vm.max_memory_bytes = mb;
+            if (self.force_interpreter) |fi| vm.force_interpreter = fi;
+            if (self.timeout_ms) |ms| vm.setDeadlineTimeoutMs(ms);
+            defer if (self.fuel != null) {
+                self.fuel = vm.fuel;
+            };
+            try vm.invoke(&self.instance, name, args, results);
+        } else {
+            return error.ModuleNotFullyLoaded;
+        }
     }
 
     /// Invoke using only the stack-based interpreter, bypassing RegIR and JIT.
@@ -543,15 +555,21 @@ pub const WasmModule = struct {
     /// mode selection — whether set via `module.force_interpreter` or directly
     /// on `module.vm.force_interpreter` — survives a diagnostic interpreter call.
     pub fn invokeInterpreterOnly(self: *WasmModule, name: []const u8, args: []const u64, results: []u64) !void {
-        self.vm.reset();
-        if (self.fuel) |f| self.vm.fuel = f;
-        if (self.max_memory_bytes) |mb| self.vm.max_memory_bytes = mb;
-        if (self.timeout_ms) |ms| self.vm.setDeadlineTimeoutMs(ms);
-        const saved_fi = self.vm.force_interpreter;
-        self.vm.force_interpreter = true;
-        defer self.vm.force_interpreter = saved_fi;
-        defer if (self.fuel != null) { self.fuel = self.vm.fuel; };
-        try self.vm.invoke(&self.instance, name, args, results);
+        if (self.vm) |vm| {
+            vm.reset();
+            if (self.fuel) |f| vm.fuel = f;
+            if (self.max_memory_bytes) |mb| vm.max_memory_bytes = mb;
+            if (self.timeout_ms) |ms| vm.setDeadlineTimeoutMs(ms);
+            const saved_fi = vm.force_interpreter;
+            vm.force_interpreter = true;
+            defer vm.force_interpreter = saved_fi;
+            defer if (self.fuel != null) {
+                self.fuel = vm.fuel;
+            };
+            try vm.invoke(&self.instance, name, args, results);
+        } else {
+            return error.ModuleNotFullyLoaded;
+        }
     }
 
     /// Request cancellation of the currently executing Wasm function.
@@ -1208,7 +1226,7 @@ test "nqueens(8) = 92 — regir only (JIT disabled)" {
 
     // Enable profiling to disable JIT (JIT is skipped when profile != null)
     var profile = rt.vm_mod.Profile.init();
-    wasm_mod.vm.profile = &profile;
+    wasm_mod.vm.?.profile = &profile;
 
     var args = [_]u64{8};
     var results = [_]u64{0};
@@ -1480,42 +1498,42 @@ test "force_interpreter — persistence across invoke and invokeInterpreterOnly"
     // Pattern A — legacy direct-vm: caller sets vm.force_interpreter; persistent
     // field left null; invoke() must not clobber the caller's choice.
     wasm_mod.force_interpreter = null;
-    wasm_mod.vm.force_interpreter = true;
+    wasm_mod.vm.?.force_interpreter = true;
     try wasm_mod.invoke("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.force_interpreter == true);
+    try testing.expect(wasm_mod.vm.?.force_interpreter == true);
     try testing.expectEqual(@as(u64, 42), results[0]);
 
     // invokeInterpreterOnly under Pattern A must restore vm.force_interpreter
     // to the caller's value (true), not to the persistent-field default.
     try wasm_mod.invokeInterpreterOnly("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.force_interpreter == true);
+    try testing.expect(wasm_mod.vm.?.force_interpreter == true);
 
     // Pattern B — new persistent-field override. vm.force_interpreter gets
     // overridden from `module.force_interpreter` on every invoke.
-    wasm_mod.vm.force_interpreter = false;
+    wasm_mod.vm.?.force_interpreter = false;
     wasm_mod.force_interpreter = true;
     try wasm_mod.invoke("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.force_interpreter == true);
+    try testing.expect(wasm_mod.vm.?.force_interpreter == true);
 
     // invokeInterpreterOnly under Pattern B restores to true (the value live on
     // vm at entry), so a subsequent regular invoke still sees interpreter mode.
     try wasm_mod.invokeInterpreterOnly("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.force_interpreter == true);
+    try testing.expect(wasm_mod.vm.?.force_interpreter == true);
     try wasm_mod.invoke("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.force_interpreter == true);
+    try testing.expect(wasm_mod.vm.?.force_interpreter == true);
 
     // Pattern C — persistent field explicitly cleared to false wins over a
     // prior vm.force_interpreter = true caller mutation.
     wasm_mod.force_interpreter = false;
-    wasm_mod.vm.force_interpreter = true;
+    wasm_mod.vm.?.force_interpreter = true;
     try wasm_mod.invoke("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.force_interpreter == false);
+    try testing.expect(wasm_mod.vm.?.force_interpreter == false);
 
     // Pattern D — null persistent + false vm stays false.
     wasm_mod.force_interpreter = null;
-    wasm_mod.vm.force_interpreter = false;
+    wasm_mod.vm.?.force_interpreter = false;
     try wasm_mod.invoke("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.force_interpreter == false);
+    try testing.expect(wasm_mod.vm.?.force_interpreter == false);
 }
 
 test "fuel and timeout — persistence and caller-set preservation" {
@@ -1532,24 +1550,24 @@ test "fuel and timeout — persistence and caller-set preservation" {
 
     // Pattern A — caller sets vm.fuel directly; persistent null must not wipe it.
     wasm_mod.fuel = null;
-    wasm_mod.vm.fuel = 1_000;
+    wasm_mod.vm.?.fuel = 1_000;
     try wasm_mod.invoke("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.fuel != null);
+    try testing.expect(wasm_mod.vm.?.fuel != null);
 
     // Pattern B — persistent module.fuel overrides per-invoke.
     wasm_mod.fuel = 500;
-    wasm_mod.vm.fuel = null;
+    wasm_mod.vm.?.fuel = null;
     try wasm_mod.invoke("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.fuel != null);
-    try testing.expect(wasm_mod.vm.fuel.? <= 500);
+    try testing.expect(wasm_mod.vm.?.fuel != null);
+    try testing.expect(wasm_mod.vm.?.fuel.? <= 500);
 
     // timeout — caller-set deadline must not be wiped by null persistent.
     wasm_mod.timeout_ms = null;
-    wasm_mod.vm.setDeadlineTimeoutMs(5_000);
-    const deadline_before = wasm_mod.vm.deadline_ns;
+    wasm_mod.vm.?.setDeadlineTimeoutMs(5_000);
+    const deadline_before = wasm_mod.vm.?.deadline_ns;
     try wasm_mod.invoke("f", &.{}, &results);
-    try testing.expect(wasm_mod.vm.deadline_ns != null);
-    try testing.expectEqual(deadline_before, wasm_mod.vm.deadline_ns);
+    try testing.expect(wasm_mod.vm.?.deadline_ns != null);
+    try testing.expectEqual(deadline_before, wasm_mod.vm.?.deadline_ns);
 }
 
 test "WasmModule.Config applies VM limits" {
@@ -1562,8 +1580,61 @@ test "WasmModule.Config applies VM limits" {
     });
     defer wasm_mod.deinit();
 
-    try testing.expectEqual(@as(?u64, 12345), wasm_mod.vm.fuel);
-    try testing.expectEqual(@as(?u64, 1048576), wasm_mod.vm.max_memory_bytes);
-    try testing.expectEqual(true, wasm_mod.vm.force_interpreter);
-    try testing.expect(wasm_mod.vm.deadline_ns != null);
+    try testing.expectEqual(@as(?u64, 12345), wasm_mod.vm.?.fuel);
+    try testing.expectEqual(@as(?u64, 1048576), wasm_mod.vm.?.max_memory_bytes);
+    try testing.expectEqual(true, wasm_mod.vm.?.force_interpreter);
+    try testing.expect(wasm_mod.vm.?.deadline_ns != null);
+}
+
+test "loadLinked OOM after phase 1: invoke returns ModuleNotFullyLoaded" {
+    const FailingAllocator = std.testing.FailingAllocator;
+    const wasm_bytes = @embedFile("testdata/01_add.wasm");
+
+    var found_store: ?rt.store_mod.Store = null;
+    defer if (found_store) |*s| s.deinit();
+
+    var found_module: ?*WasmModule = null;
+    var found_apply_error: ?anyerror = null;
+    defer if (found_module) |m| m.deinit();
+
+    // Find a fail index that reaches phase 1 and fails when creating vm.
+    // Keep this ceiling high so allocator-count changes do not make the test brittle.
+    const max_fail_index: usize = 65_536;
+    var fail_index: usize = 0;
+
+    while (fail_index < max_fail_index) : (fail_index += 1) {
+        var store = rt.store_mod.Store.init(testing.allocator);
+
+        var failing = FailingAllocator.init(testing.allocator, .{ .fail_index = fail_index });
+        const linked = WasmModule.loadLinked(failing.allocator(), wasm_bytes, &store) catch |err| {
+            try testing.expectEqual(error.OutOfMemory, err);
+            store.deinit();
+            continue;
+        };
+
+        if (linked.apply_error) |apply_err| {
+            if (apply_err == error.OutOfMemory and linked.module.vm == null) {
+                found_module = linked.module;
+                found_apply_error = apply_err;
+                found_store = store;
+                // Patch: reassign allocator to avoid dangling reference (UB)
+                found_module.?.allocator = testing.allocator;
+                break;
+            }
+        }
+
+        linked.module.deinit();
+        store.deinit();
+    }
+
+    try testing.expect(found_module != null);
+    try testing.expectEqual(@as(?anyerror, error.OutOfMemory), found_apply_error);
+    try testing.expect(found_module.?.vm == null);
+
+    var args = [_]u64{ 1, 2 };
+    var results = [_]u64{0};
+    try testing.expectError(
+        error.ModuleNotFullyLoaded,
+        found_module.?.invoke("add", &args, &results),
+    );
 }

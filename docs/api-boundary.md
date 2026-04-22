@@ -66,7 +66,7 @@ Types and functions listed here are covered by SemVer guarantees.
 | `runtime.Module` | Internal decoded module |
 | `runtime.Instance` | Internal instance |
 | `runtime.VmImpl` | Internal VM implementation |
-| `WasmModule.loadLinked` | Two-phase instantiation with shared store |
+| `WasmModule.loadLinked` | Two-phase instantiation with shared store. **Note:** If OOM occurs after Phase 1, the returned module will have `vm = null` and `apply_error = error.OutOfMemory`. Such a module is discoverable (e.g., via exports), but unusable: any attempt to invoke will return `error.ModuleNotFullyLoaded`. This is intentional for shared store consistency. |
 | `WasmModule.registerExportsTo` | Register to external store |
 | `WasmModule.setWitInfo` | Attach WIT metadata |
 | `WasmModule.getWitFunc` | Lookup WIT function |

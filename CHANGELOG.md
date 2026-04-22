@@ -5,6 +5,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- `invoke`/`invokeInterpreterOnly` now return `error.ModuleNotFullyLoaded` if the underlying VM is uninitialized (e.g., after OOM in `loadLinked`). This is a new error variant in the public API. Embedders matching on specific errors should handle this case. See API docs for details. (PR #40 by @jtakakura, closes #39)
+
 ## [1.9.0] - 2026-04-24
 
 ### Added

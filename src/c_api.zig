@@ -1243,8 +1243,8 @@ test "c_api: config set vm limits" {
     defer zwasm_module_delete(module.?);
 
     const mod = &module.?.module.*;
-    try testing.expectEqual(@as(?u64, 9999), mod.vm.fuel);
-    try testing.expectEqual(@as(?u64, 65536), mod.vm.max_memory_bytes);
-    try testing.expectEqual(true, mod.vm.force_interpreter);
-    try testing.expect(mod.vm.deadline_ns != null);
+    try testing.expectEqual(@as(?u64, 9999), mod.vm.?.fuel);
+    try testing.expectEqual(@as(?u64, 65536), mod.vm.?.max_memory_bytes);
+    try testing.expectEqual(true, mod.vm.?.force_interpreter);
+    try testing.expect(mod.vm.?.deadline_ns != null);
 }

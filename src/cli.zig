@@ -463,7 +463,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
         // Enable profiling if requested (note: disables JIT for accurate opcode counting)
         var profile = vm_mod.Profile.init();
         if (profile_mode) {
-            module.vm.profile = &profile;
+            module.vm.?.profile = &profile;
             try stderr.print("[note] --profile disables JIT for accurate opcode counting\n", .{});
             try stderr.flush();
         }
@@ -475,7 +475,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .dump_jit_func = dump_jit_func,
         };
         if (trace_categories != 0 or dump_regir_func != null or dump_jit_func != null) {
-            module.vm.trace = &trace_config;
+            module.vm.?.trace = &trace_config;
         }
 
         // Lookup export info for type-aware parsing and validation
@@ -614,7 +614,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
 
         // Enable profiling if requested
         var wasi_profile = vm_mod.Profile.init();
-        if (profile_mode) module.vm.profile = &wasi_profile;
+        if (profile_mode) module.vm.?.profile = &wasi_profile;
 
         // Enable tracing if requested
         var wasi_trace_config = trace_mod.TraceConfig{
@@ -623,7 +623,7 @@ fn cmdRun(allocator: Allocator, args: []const []const u8, stdout: *std.Io.Writer
             .dump_jit_func = dump_jit_func,
         };
         if (trace_categories != 0 or dump_regir_func != null or dump_jit_func != null) {
-            module.vm.trace = &wasi_trace_config;
+            module.vm.?.trace = &wasi_trace_config;
         }
 
         var no_args = [_]u64{};
@@ -1267,7 +1267,7 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
         .dump_jit_func = dump_jit_func,
     };
     if (trace_categories != 0 or dump_regir_func != null or dump_jit_func != null) {
-        module.vm.trace = &batch_trace_config;
+        module.vm.?.trace = &batch_trace_config;
     }
 
     const stdin = std.fs.File.stdin();
@@ -1399,8 +1399,8 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
             }
             // Execute start function if present (v2 spec: partial init persists on trap)
             if (lm.module.start) |start_idx| {
-                lm.vm.reset();
-                lm.vm.invokeByIndex(&lm.instance, start_idx, &.{}, &.{}) catch {
+                lm.vm.?.reset();
+                lm.vm.?.invokeByIndex(&lm.instance, start_idx, &.{}, &.{}) catch {
                     try stdout.print("error start trapped\n", .{});
                     try stdout.flush();
                     continue;
