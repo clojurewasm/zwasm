@@ -88,6 +88,9 @@
             # Compiler
             zigBin
 
+            # VCS — bench/record.sh + other tooling shell out to `git rev-parse`.
+            git
+
             # Wasm runtimes (benchmark comparison targets)
             wasmtime
 
