@@ -371,7 +371,11 @@ pub const WasmModule = struct {
     /// Phase 2 (applyActive): apply element/data segments — may partially fail.
     /// On phase 2 failure, partial writes persist in the shared store (v2 spec behavior).
     /// Returns .{ module, apply_error } where apply_error is null on full success.
-    pub fn loadLinked(allocator: Allocator, wasm_bytes: []const u8, shared_store: *rt.store_mod.Store, cancellable: bool) !struct { module: *WasmModule, apply_error: ?anyerror } {
+    ///
+    /// The resulting module uses the Vm defaults (including `cancellable = true`).
+    /// To opt out of periodic cancellation checks, set `result.module.vm.cancellable = false`
+    /// after this call returns.
+    pub fn loadLinked(allocator: Allocator, wasm_bytes: []const u8, shared_store: *rt.store_mod.Store) !struct { module: *WasmModule, apply_error: ?anyerror } {
         const self = try allocator.create(WasmModule);
 
         self.allocator = allocator;
@@ -413,7 +417,6 @@ pub const WasmModule = struct {
             return .{ .module = self, .apply_error = error.OutOfMemory };
         };
         self.vm.* = rt.vm_mod.Vm.init(allocator);
-        self.vm.cancellable = cancellable;
 
         // Phase 2: apply active element/data segments (may partially fail).
         var apply_error: ?anyerror = null;
@@ -1178,7 +1181,7 @@ test "multi-module — shared table via loadLinked" {
 
     // Load Ot into Mt's shared store: imports tab and h from Mt, writes elem [1,2] = [$i,$h]
     const ot_bytes = @embedFile("testdata/31_table_import.wasm");
-    const ot_result = try WasmModule.loadLinked(testing.allocator, ot_bytes, &mt.store, true);
+    const ot_result = try WasmModule.loadLinked(testing.allocator, ot_bytes, &mt.store);
     var ot = ot_result.module;
     defer ot.deinit();
     try testing.expect(ot_result.apply_error == null);

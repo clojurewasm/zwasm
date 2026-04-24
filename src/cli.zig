@@ -1379,7 +1379,7 @@ fn cmdBatch(allocator: Allocator, wasm_bytes: []const u8, imports: []const types
                 try stdout.flush();
                 continue;
             };
-            const load_result = types.WasmModule.loadLinked(allocator, load_bytes, root_store, true) catch |err| {
+            const load_result = types.WasmModule.loadLinked(allocator, load_bytes, root_store) catch |err| {
                 allocator.free(load_bytes);
                 try stdout.print("error load {s}\n", .{@errorName(err)});
                 try stdout.flush();
