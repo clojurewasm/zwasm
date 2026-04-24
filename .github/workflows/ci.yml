@@ -230,13 +230,7 @@ jobs:
       - name: Run real-world compat tests
         run: |
           export PATH="$HOME/.wasmtime/bin:$PATH"
-          # TEMP: verbose on Windows to diagnose 0/46 compat regression after 0.16
-          # migration. Revert once fd_write on Windows is fixed (std.c.fd_t=HANDLE).
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            python test/realworld/run_compat.py --verbose
-          else
-            python test/realworld/run_compat.py
-          fi
+          python test/realworld/run_compat.py
 
   size-matrix:
     runs-on: ubuntu-latest
