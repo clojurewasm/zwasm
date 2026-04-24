@@ -480,6 +480,19 @@ pub fn flushInstructionCache(ptr: [*]const u8, len: usize) void {
     }
 }
 
+// Process-wide environment table captured at program start via `setEnvironMap`.
+// This lets `envPath` / `appCacheDir` / `tempDirPath` look up variables without
+// calling libc's `getenv` — the last remaining blocker for dropping
+// `link_libc = true` on Linux (W46 Phase 1e).
+var env_map_ref: ?*const std.process.Environ.Map = null;
+
+/// Capture the process's environment block. Call once at program start
+/// (from `main(init: std.process.Init)`). Tests that never exercise
+/// `envPath` may skip calling this; `envPath` returns null when unset.
+pub fn setEnvironMap(m: *const std.process.Environ.Map) void {
+    env_map_ref = m;
+}
+
 pub fn appCacheDir(alloc: std.mem.Allocator, app_name: []const u8) ![]u8 {
     if (builtin.os.tag == .windows) {
         // Zig 0.16 removed `std.fs.getAppDataDir`. Build the path ourselves
@@ -490,8 +503,8 @@ pub fn appCacheDir(alloc: std.mem.Allocator, app_name: []const u8) ![]u8 {
         return std.fmt.allocPrint(alloc, "{s}\\{s}", .{ base, app_name });
     }
 
-    const home_ptr = std.c.getenv("HOME") orelse return error.NoCacheDir;
-    const home = std.mem.span(home_ptr);
+    const home = (try envPath(alloc, "HOME")) orelse return error.NoCacheDir;
+    defer alloc.free(home);
     return std.fmt.allocPrint(alloc, "{s}/.cache/{s}", .{ home, app_name });
 }
 
@@ -507,12 +520,8 @@ pub fn tempDirPath(alloc: std.mem.Allocator) ![]u8 {
 }
 
 fn envPath(alloc: std.mem.Allocator, name: []const u8) !?[]u8 {
-    var name_buf: [256]u8 = undefined;
-    if (name.len >= name_buf.len) return error.OutOfMemory;
-    @memcpy(name_buf[0..name.len], name);
-    name_buf[name.len] = 0;
-    const val_ptr = std.c.getenv(@ptrCast(&name_buf)) orelse return null;
-    const val = std.mem.span(val_ptr);
+    const m = env_map_ref orelse return null;
+    const val = m.get(name) orelse return null;
     if (val.len == 0) return null;
     return try alloc.dupe(u8, val);
 }

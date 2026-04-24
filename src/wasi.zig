@@ -157,11 +157,7 @@ const HostHandle = struct {
     }
 
     fn close(self: HostHandle) void {
-        if (builtin.os.tag == .windows) {
-            _ = windows.CloseHandle(self.raw);
-        } else {
-            _ = std.c.close(self.raw);
-        }
+        platform.pfdClose(self.raw);
     }
 
     fn stat(self: HostHandle, io: std.Io) !std.Io.File.Stat {
@@ -186,7 +182,7 @@ const HostHandle = struct {
             }
             break :blk dup_handle;
         } else blk: {
-            const rc = std.c.dup(self.raw);
+            const rc = platform.pfdDup(self.raw);
             if (rc < 0) return error.Unexpected;
             break :blk rc;
         };
@@ -288,11 +284,7 @@ pub const WasiContext = struct {
     }
 
     fn closeHandle(handle: std.Io.File.Handle) void {
-        if (builtin.os.tag == .windows) {
-            _ = windows.CloseHandle(handle);
-        } else {
-            _ = std.c.close(handle);
-        }
+        platform.pfdClose(handle);
     }
 
     pub fn deinit(self: *WasiContext) void {

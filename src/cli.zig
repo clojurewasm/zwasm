@@ -23,6 +23,7 @@ const component_mod = @import("component.zig");
 const guard_mod = @import("guard.zig");
 const jit_mod = vm_mod.jit_mod;
 const cache_mod = @import("cache.zig");
+const platform = @import("platform.zig");
 
 /// Process-wide Io handle. Populated once at the top of `main` from the
 /// `std.process.Init` the compiler-generated entrypoint hands us, and read
@@ -39,6 +40,12 @@ pub fn main(init: std.process.Init) !void {
     }
 
     cli_io = init.io;
+
+    // Expose the process environment to `platform` so subsequent callers
+    // (`appCacheDir`, `tempDirPath`) can look up HOME / TMPDIR / … without
+    // going through `std.c.getenv` — a prerequisite for dropping
+    // `link_libc = true` on Linux (W46 Phase 1e).
+    platform.setEnvironMap(init.environ_map);
 
     // `init.gpa` is a DebugAllocator-backed allocator in Debug builds
     // (leak-checked by start.zig) and the appropriate production allocator
