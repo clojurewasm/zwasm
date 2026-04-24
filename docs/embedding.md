@@ -136,6 +136,29 @@ The custom allocator controls **internal bookkeeping only** (module metadata,
 function tables, GC heap, VM state). Wasm linear memory (`memory.grow`) is
 separately managed per the Wasm spec.
 
+### Execution Controls (Fuel, Timeout, Cancellation)
+
+`zwasm_config_t` also controls runtime limits and execution behavior:
+
+```c
+zwasm_config_t *config = zwasm_config_new();
+
+zwasm_config_set_fuel(config, 1000000);
+zwasm_config_set_timeout(config, 5000);        // milliseconds
+zwasm_config_set_max_memory(config, 64 * 1024 * 1024);
+zwasm_config_set_force_interpreter(config, false);
+
+// Default is true. Set false to remove periodic JIT cancel checks
+// when you prioritize peak throughput over cancellability.
+zwasm_config_set_cancellable(config, true);
+
+zwasm_module_t *mod = zwasm_module_new_configured(wasm_ptr, len, config);
+```
+
+Fuel applies to module startup and invocation. If a module has a start function,
+it runs under the configured fuel budget, and the remaining fuel is carried into
+subsequent invocations.
+
 ### WASI + Custom Allocator
 
 ```c
@@ -208,10 +231,10 @@ Key function groups:
 
 | Group | Functions |
 |-------|-----------|
-| Config | `zwasm_config_new`, `zwasm_config_delete`, `zwasm_config_set_allocator`, `zwasm_config_set_fuel`, `..._set_timeout`, `..._set_max_memory`, `..._set_force_interpreter` |
+| Config | `zwasm_config_new`, `zwasm_config_delete`, `zwasm_config_set_allocator`, `zwasm_config_set_fuel`, `..._set_timeout`, `..._set_max_memory`, `..._set_force_interpreter`, `..._set_cancellable` |
 | Module | `zwasm_module_new`, `zwasm_module_new_configured`, `zwasm_module_delete` |
 | WASI | `zwasm_module_new_wasi`, `zwasm_module_new_wasi_configured2` |
-| Invoke | `zwasm_module_invoke`, `zwasm_module_invoke_start` |
+| Invoke | `zwasm_module_invoke`, `zwasm_module_invoke_start`, `zwasm_module_cancel` |
 | Memory | `zwasm_module_memory_data`, `zwasm_module_memory_size`, `_read`, `_write` |
 | Exports | `zwasm_module_export_count`, `_name`, `_param_count`, `_result_count` |
 | Imports | `zwasm_import_new`, `zwasm_import_add_fn`, `zwasm_import_delete` |

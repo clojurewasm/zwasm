@@ -152,6 +152,15 @@ zwasm_module_invoke(mod, "f", NULL, 0, results, 1);
 zwasm_module_delete(mod);
 ```
 
+For configured execution limits and behavior, use `zwasm_config_t`:
+
+- `zwasm_config_set_fuel`, `zwasm_config_set_timeout`, `zwasm_config_set_max_memory`
+- `zwasm_config_set_force_interpreter`
+- `zwasm_config_set_cancellable` (default: `true`)
+
+When fuel is configured, it applies to module startup (`start`/`_start`) as well as
+subsequent invocations. Fuel consumed during startup reduces the remaining budget.
+
 See the [C API chapter](https://clojurewasm.github.io/zwasm/en/c-api.html) in the book for the full API reference.
 
 ## Examples

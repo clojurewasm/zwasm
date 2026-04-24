@@ -102,6 +102,7 @@ pub const WasmError = error{
     WasmException,
     FuelExhausted,
     TimeoutExceeded,
+    Canceled,
     LabelStackUnderflow,
     OperandStackUnderflow,
     MemoryLimitExceeded,
@@ -399,14 +400,19 @@ pub const Vm = struct {
     fuel: ?u64 = null,
     deadline_ns: ?i128 = null,
     deadline_check_remaining: u32 = DEADLINE_CHECK_INTERVAL,
+    cancelled: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    /// Whether this module should support asynchronous cancellation.
+    /// If true (default), JIT loops are periodically interrupted to check the flag.
+    /// If false, JIT execution runs at maximum speed but cannot be cancelled.
+    cancellable: bool = true,
     /// Force stack-based interpreter for all functions, bypassing RegIR and JIT.
     /// Used by differential testing to get a "reference" result.
     force_interpreter: bool = false,
     /// JIT-accessible fuel counter. Signed so JIT can check < 0 with a single
     /// branch after decrement. Synced from/to `fuel` before/after JIT execution.
-    /// When deadline is active, armed to DEADLINE_JIT_INTERVAL so JIT periodically
-    /// calls the fuel check helper to verify wall-clock time.
-    /// maxInt = unlimited (JIT skips the check entirely when this value is seen).
+    /// When deadline or cancellation is active, armed to DEADLINE_JIT_INTERVAL so
+    /// JIT periodically calls the fuel check helper to verify state.
+    /// maxInt = unlimited (JIT practically never fires the check helper).
     jit_fuel: i64 = std.math.maxInt(i64),
     /// The value jit_fuel was last armed to. Used to calculate consumed fuel
     /// when the fuel check helper fires or JIT exits normally.
@@ -452,6 +458,7 @@ pub const Vm = struct {
         self.exn_store_count = 0;
         self.call_depth = 0;
         self.deadline_check_remaining = DEADLINE_CHECK_INTERVAL;
+        self.cancelled.store(false, .release);
     }
 
     pub fn setDeadlineTimeoutMs(self: *Vm, timeout_ms: ?u64) void {
@@ -467,18 +474,32 @@ pub const Vm = struct {
         self.deadline_check_remaining = DEADLINE_CHECK_INTERVAL;
     }
 
+    pub fn cancel(self: *Vm) void {
+        self.cancelled.store(true, .release);
+    }
+
     inline fn consumeInstructionBudget(self: *Vm) WasmError!void {
+        // 1. Precise fuel check (if enabled) — non-atomic, very hot
         if (self.fuel) |*f| {
             if (f.* == 0) return error.FuelExhausted;
             f.* -= 1;
         }
-        if (self.deadline_ns) |deadline_ns| {
+
+        // 2. Periodic check for time/cancellation budget — reduced frequency
+        if (self.deadline_ns != null or self.cancellable) {
             if (self.deadline_check_remaining == 0) {
+                // Check cancellation (atomic) only once every 1024 instructions
+                if (self.cancellable and self.cancelled.load(.acquire)) {
+                    return error.Canceled;
+                }
+                // Check deadline (wal-clock time)
+                if (self.deadline_ns) |d| {
+                    if (std.time.nanoTimestamp() >= d) return error.TimeoutExceeded;
+                }
+                // Reset check counter
                 self.deadline_check_remaining = DEADLINE_CHECK_INTERVAL;
-                if (std.time.nanoTimestamp() >= deadline_ns) return error.TimeoutExceeded;
-            } else {
-                self.deadline_check_remaining -= 1;
             }
+            self.deadline_check_remaining -= 1;
         }
     }
 
@@ -488,7 +509,8 @@ pub const Vm = struct {
     pub fn armJitFuel(self: *Vm) void {
         const fuel_budget: i64 = if (self.fuel) |f| @intCast(f) else std.math.maxInt(i64);
         const deadline_budget: i64 = if (self.deadline_ns != null) DEADLINE_JIT_INTERVAL else std.math.maxInt(i64);
-        self.jit_fuel = @min(fuel_budget, deadline_budget);
+        const cancel_budget: i64 = if (self.cancellable) DEADLINE_JIT_INTERVAL else std.math.maxInt(i64);
+        self.jit_fuel = @min(@min(fuel_budget, deadline_budget), cancel_budget);
         self.jit_fuel_initial = self.jit_fuel;
     }
 
@@ -520,13 +542,14 @@ pub const Vm = struct {
             8 => error.InvalidConversion,
             9 => error.FuelExhausted,
             10 => error.TimeoutExceeded,
+            11 => error.Canceled,
             else => error.Trap,
         };
     }
 
     /// JIT fuel check helper — called from JIT code when jit_fuel goes negative.
     /// Returns 0 to continue execution, or an error code to exit JIT:
-    ///   9 = FuelExhausted, 10 = TimeoutExceeded.
+    ///   9 = FuelExhausted, 10 = TimeoutExceeded, 11 = Canceled.
     pub fn jitFuelCheckHelper(vm: *Vm) callconv(.c) u64 {
         // Sync consumed fuel back to interpreter counter
         vm.syncJitFuelBack();
@@ -535,6 +558,9 @@ pub const Vm = struct {
         if (vm.fuel) |f| {
             if (f == 0) return 9; // FuelExhausted
         }
+
+        // Check cancellation
+        if (vm.cancellable and vm.cancelled.load(.acquire)) return 11; // Canceled
 
         // Check wall-clock deadline
         if (vm.deadline_ns) |dl| {
@@ -692,8 +718,7 @@ pub const Vm = struct {
 
                     // JIT compilation: check hot threshold (skip when profiling or fuel metering)
                     if (comptime jit_mod.jitSupported()) {
-                        if (self.profile == null and                             wf.jit_code == null and !wf.jit_failed)
-                        {
+                        if (self.profile == null and wf.jit_code == null and !wf.jit_failed) {
                             wf.call_count += 1;
                             if (wf.call_count >= jit_mod.HOT_THRESHOLD) {
                                 // Skip JIT for very large functions — single-pass regalloc
@@ -4368,7 +4393,6 @@ pub const Vm = struct {
         // Arm fuel/deadline interval for JIT
         self.armJitFuel();
 
-
         // Call OSR entry: sets up callee-saved, memory cache, then jumps to loop body
         const err_code = osr_fn(regs_ptr, @ptrCast(self), @ptrCast(instance));
 
@@ -4576,7 +4600,6 @@ pub const Vm = struct {
         const code_len: u32 = @intCast(code.len);
         const cached_mem: ?*WasmMemory = instance.getMemory(0) catch null;
         var pc: u32 = 0;
-
 
         // Back-edge counting for JIT hot loop detection (ARM64 only)
         var back_edge_count: u32 = 0;
@@ -5689,19 +5712,19 @@ pub const Vm = struct {
         // --- Push operands from regs[] to op_stack ---
         if (effect.pop == 3) {
             // bitselect(a, b, c): main rs1=a, rs2=b, NOP.rd=c
-            self.pushRegToOpStack(regs,instr.rs1);
-            self.pushRegToOpStack(regs,instr.rs2_field);
-            self.pushRegToOpStack(regs,third_operand);
+            self.pushRegToOpStack(regs, instr.rs1);
+            self.pushRegToOpStack(regs, instr.rs2_field);
+            self.pushRegToOpStack(regs, third_operand);
         } else if (effect.push == 0 and effect.pop == 2) {
             // Store ops: rd=value, rs1=addr. Stack: [addr(bottom), value(top)]
-            self.pushRegToOpStack(regs,instr.rs1);
-            self.pushRegToOpStack(regs,instr.rd);
+            self.pushRegToOpStack(regs, instr.rs1);
+            self.pushRegToOpStack(regs, instr.rd);
         } else if (effect.pop == 2) {
             // Binary ops: rs1=first, rs2=second. Stack: [first(bottom), second(top)]
-            self.pushRegToOpStack(regs,instr.rs1);
-            self.pushRegToOpStack(regs,instr.rs2_field);
+            self.pushRegToOpStack(regs, instr.rs1);
+            self.pushRegToOpStack(regs, instr.rs2_field);
         } else if (effect.pop == 1) {
-            self.pushRegToOpStack(regs,instr.rs1);
+            self.pushRegToOpStack(regs, instr.rs1);
         }
 
         // --- Call existing SIMD interpreter ---
@@ -10153,10 +10176,111 @@ test "armJitFuel — fuel+deadline picks smaller" {
     try testing.expectEqual(@as(i64, 500), vm.jit_fuel);
 }
 
-test "armJitFuel — no fuel no deadline stays maxInt" {
+test "armJitFuel — no fuel no deadline arms to DEADLINE_JIT_INTERVAL" {
     var vm = Vm.init(testing.allocator);
     vm.armJitFuel();
+    try testing.expectEqual(DEADLINE_JIT_INTERVAL, vm.jit_fuel);
+}
+
+test "armJitFuel — cancellable = false prevents capping" {
+    var vm = Vm.init(testing.allocator);
+    vm.cancellable = false;
+    vm.armJitFuel();
     try testing.expectEqual(@as(i64, std.math.maxInt(i64)), vm.jit_fuel);
+}
+
+test "Cancellation — cancel flag stops interpreter loop" {
+    // A background thread calls cancel() while invoke() is running.
+    // consumeInstructionBudget() detects the flag at the next checkpoint
+    // and returns error.Canceled, unwinding the infinite loop.
+    const wasm = try readTestFile(testing.allocator, "30_infinite_loop.wasm");
+    defer testing.allocator.free(wasm);
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+    vm.force_interpreter = true;
+
+    const cancel_thread = try std.Thread.spawn(.{}, struct {
+        fn run(v: *Vm) void {
+            std.Thread.sleep(1 * std.time.ns_per_ms); // let invoke() start
+            v.cancel();
+        }
+    }.run, .{&vm});
+    defer cancel_thread.join();
+
+    var results = [_]u64{0};
+    try testing.expectError(error.Canceled, vm.invoke(&inst, "loop", &.{}, &results));
+}
+
+test "Cancellation — cancel flag resets on reset" {
+    // reset() clears the cancel flag — the next invoke can proceed normally.
+    var vm = Vm.init(testing.allocator);
+    vm.cancel();
+    try testing.expect(vm.cancelled.load(.acquire));
+    vm.reset();
+    try testing.expect(!vm.cancelled.load(.acquire));
+}
+
+test "Cancellation — jitFuelCheckHelper cancelled returns Canceled" {
+    // Unit test for the JIT helper: returns error code 11 (Canceled) when flag is set.
+    var vm = Vm.init(testing.allocator);
+    vm.cancel();
+    vm.jit_fuel = -1;
+    vm.jit_fuel_initial = DEADLINE_JIT_INTERVAL;
+
+    const result = Vm.jitFuelCheckHelper(&vm);
+    try testing.expectEqual(@as(u64, 11), result); // Canceled
+}
+
+test "Cancellation — jitFuelCheckHelper respects cancellable = false" {
+    // When cancellable is false, jitFuelCheckHelper should ignore the cancelled flag.
+    var vm = Vm.init(testing.allocator);
+    vm.cancellable = false;
+    vm.cancel();
+    vm.jit_fuel = -1;
+    vm.jit_fuel_initial = DEADLINE_JIT_INTERVAL;
+
+    const result = Vm.jitFuelCheckHelper(&vm);
+    // Should NOT return 11 (Canceled) even though the flag is set
+    try testing.expect(result != 11);
+}
+
+test "Cancellation — cancel flag stops JIT loop" {
+    if (!build_options.enable_jit) return error.SkipZigTest;
+    // A background thread calls cancel() while the JIT-compiled loop is running.
+    // When cancellable is true (default), armJitFuel caps jit_fuel to
+    // DEADLINE_JIT_INTERVAL even without a deadline, so that
+    // jitFuelCheckHelper fires periodically and detects the cancel flag.
+    const wasm = try readTestFile(testing.allocator, "30_infinite_loop.wasm");
+    defer testing.allocator.free(wasm);
+    var mod = Module.init(testing.allocator, wasm);
+    defer mod.deinit();
+    try mod.decode();
+    var store = Store.init(testing.allocator);
+    defer store.deinit();
+    var inst = Instance.init(testing.allocator, &store, &mod);
+    defer inst.deinit();
+    try inst.instantiate();
+
+    var vm = Vm.init(testing.allocator);
+
+    const cancel_thread = try std.Thread.spawn(.{}, struct {
+        fn run(v: *Vm) void {
+            std.Thread.sleep(1 * std.time.ns_per_ms); // let invoke() start
+            v.cancel();
+        }
+    }.run, .{&vm});
+    defer cancel_thread.join();
+
+    var results = [_]u64{0};
+    try testing.expectError(error.Canceled, vm.invoke(&inst, "loop", &.{}, &results));
 }
 
 test "Back-edge JIT — hasPrologueSideEffects" {

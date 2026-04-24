@@ -64,6 +64,10 @@ zwasm module.wasm --max-memory 67108864  # 64MB ceiling
 zwasm module.wasm --fuel 1000000
 ```
 
+`--fuel` applies to all execution, including module start (`_start`/start function)
+and subsequent invoked exports. If startup code consumes fuel, less fuel remains
+for later function calls.
+
 ### Linking modules
 
 ```bash

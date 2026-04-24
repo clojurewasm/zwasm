@@ -36,6 +36,8 @@ The primary runtime error type. Returned from `Vm.invoke()`, `Vm.callFunction()`
 | MemoryLimitExceeded | Memory grow exceeded limit |
 | TableLimitExceeded | Table grow exceeded limit |
 | FuelExhausted | Instruction fuel limit hit |
+| Canceled | Execution canceled by host via `cancel()` |
+| TimeoutExceeded | Execution interrupted by wall-clock timeout |
 
 ### Index errors
 | Variant | Meaning |

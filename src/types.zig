@@ -252,6 +252,10 @@ pub const WasmModule = struct {
         timeout_ms: ?u64 = null,
         max_memory_bytes: ?u64 = null,
         force_interpreter: ?bool = null,
+        /// Null keeps the Vm default (true — periodic cancellation checks enabled).
+        /// Set to `false` to skip the check for peak JIT throughput, at the cost
+        /// of making `WasmModule.cancel()` ineffective for JIT-compiled code.
+        cancellable: ?bool = null,
     };
 
     /// Load a Wasm module from binary bytes with explicit configuration.
@@ -370,6 +374,10 @@ pub const WasmModule = struct {
     /// Phase 2 (applyActive): apply element/data segments — may partially fail.
     /// On phase 2 failure, partial writes persist in the shared store (v2 spec behavior).
     /// Returns .{ module, apply_error } where apply_error is null on full success.
+    ///
+    /// The resulting module uses the Vm defaults (including `cancellable = true`).
+    /// To opt out of periodic cancellation checks, set `result.module.vm.cancellable = false`
+    /// after this call returns.
     pub fn loadLinked(allocator: Allocator, wasm_bytes: []const u8, shared_store: *rt.store_mod.Store) !struct { module: *WasmModule, apply_error: ?anyerror } {
         const self = try allocator.create(WasmModule);
 
@@ -470,9 +478,11 @@ pub const WasmModule = struct {
         self.force_interpreter = config.force_interpreter;
         self.timeout_ms = config.timeout_ms;
         self.fuel = config.fuel;
+
         if (self.fuel) |f| self.vm.fuel = f;
         if (self.max_memory_bytes) |mb| self.vm.max_memory_bytes = mb;
         if (self.force_interpreter) |fi| self.vm.force_interpreter = fi;
+        if (config.cancellable) |c| self.vm.cancellable = c;
         if (self.timeout_ms) |ms| self.vm.setDeadlineTimeoutMs(ms);
 
         // Execute start function if present.
@@ -542,6 +552,18 @@ pub const WasmModule = struct {
         defer self.vm.force_interpreter = saved_fi;
         defer if (self.fuel != null) { self.fuel = self.vm.fuel; };
         try self.vm.invoke(&self.instance, name, args, results);
+    }
+
+    /// Request cancellation of the currently executing Wasm function.
+    /// Can be called from another thread while `invoke()` is in progress.
+    /// Execution stops at the next checkpoint (~every 1024 instructions or at
+    /// the JIT fuel interval) and `invoke()` returns `error.Canceled`.
+    ///
+    /// Thread-safe. The cancel flag is cleared by `vm.reset()` at the start of
+    /// every `invoke()`, so requests issued while the module is idle are
+    /// dropped — the host must race the cancel against a live invocation.
+    pub fn cancel(self: *WasmModule) void {
+        self.vm.cancel();
     }
 
     /// Read bytes from linear memory at the given offset.

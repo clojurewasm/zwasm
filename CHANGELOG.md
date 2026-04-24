@@ -5,6 +5,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Asynchronous execution cancellation (PR #28 by @jtakakura, closes #27). A host thread can now abort a running invocation:
+  - Zig API: `WasmModule.cancel()` / `Vm.cancel()` — thread-safe, returns `error.Canceled` from `invoke()` at the next ~1024-instruction checkpoint (or JIT fuel interval).
+  - C API: `void zwasm_module_cancel(zwasm_module_t *)` and `void zwasm_config_set_cancellable(zwasm_config_t *, bool)`.
+  - CLI: reports `execution canceled` when the runtime returns `error.Canceled`.
+- `WasmModule.Config.cancellable: ?bool` — opt-out of periodic cancellation checks for peak JIT throughput when the host never cancels.
+
+### Changed
+- By default, JIT-compiled loops now fire the fuel-check helper every `DEADLINE_JIT_INTERVAL` iterations even when no fuel/deadline is set, so cancellation takes effect without host instrumentation. Pass `cancellable = false` to restore the pre-PR unconditional `jit_fuel = maxInt(i64)` behaviour.
+
 ## [1.8.0] - 2026-04-21
 
 ### Added

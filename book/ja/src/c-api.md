@@ -152,6 +152,19 @@ cd examples/rust && cargo run
 |------|------|
 | `zwasm_last_error_message()` | 最後のエラーを null 終端文字列で返す。エラーなしの場合は `""` を返す。スレッドローカル。 |
 
+### ランタイム設定
+
+| 関数 | 説明 |
+|------|------|
+| `zwasm_config_new()` | ランタイム設定ハンドルを作成。 |
+| `zwasm_config_delete(config)` | ランタイム設定ハンドルを解放。 |
+| `zwasm_config_set_allocator(config, alloc_fn, free_fn, ctx)` | ランタイム内部管理メモリ向けのカスタムアロケータを設定。 |
+| `zwasm_config_set_fuel(config, fuel)` | 命令fuel上限を設定。 |
+| `zwasm_config_set_timeout(config, timeout_ms)` | 実時間タイムアウト（ミリ秒）を設定。 |
+| `zwasm_config_set_max_memory(config, max_memory_bytes)` | 線形メモリ `memory.grow` の上限（バイト）を設定。 |
+| `zwasm_config_set_force_interpreter(config, force_interpreter)` | RegIR/JITを無効化し、インタプリタ実行を強制。 |
+| `zwasm_config_set_cancellable(config, enabled)` | JIT実行中のキャンセルチェック有効/無効を設定。 |
+
 ### モジュールのライフサイクル
 
 | 関数 | 説明 |
@@ -160,6 +173,8 @@ cd examples/rust && cargo run
 | `zwasm_module_new_wasi(wasm_ptr, len)` | デフォルトケーパビリティで WASI モジュールを作成。 |
 | `zwasm_module_new_wasi_configured(wasm_ptr, len, config)` | カスタム設定で WASI モジュールを作成。 |
 | `zwasm_module_new_with_imports(wasm_ptr, len, imports)` | ホスト関数インポート付きでモジュールを作成。 |
+| `zwasm_module_new_configured(wasm_ptr, len, config)` | ランタイム設定付きでモジュールを作成。 |
+| `zwasm_module_new_wasi_configured2(wasm_ptr, len, wasi_config, config)` | WASI設定とランタイム設定の両方を指定してモジュールを作成。 |
 | `zwasm_module_delete(module)` | モジュールの全リソースを解放。 |
 | `zwasm_module_validate(wasm_ptr, len)` | インスタンス化せずにバイナリを検証。 |
 
@@ -169,6 +184,7 @@ cd examples/rust && cargo run
 |------|------|
 | `zwasm_module_invoke(module, name, args, nargs, results, nresults)` | エクスポート関数を名前で呼び出す。 |
 | `zwasm_module_invoke_start(module)` | `_start`（WASI エントリポイント）を呼び出す。 |
+| `zwasm_module_cancel(module)` | 実行中呼び出しのキャンセルを要求（スレッドセーフ）。 |
 
 ### エクスポートの検査
 
@@ -273,26 +289,35 @@ int main(void) {
 
 ## WASI プログラム
 
-設定ビルダーパターンを使用して、カスタム設定で WASI プログラムを実行できます:
+`zwasm_wasi_config_t` で argv/env/preopen を設定し、必要に応じて `zwasm_config_t` で fuel/timeout/メモリ上限を併用できます:
 
 ```c
 /* WASI の設定 */
-zwasm_wasi_config_t *config = zwasm_wasi_config_new();
+zwasm_wasi_config_t *wasi_config = zwasm_wasi_config_new();
 
 const char *argv[] = {"myapp", "--verbose"};
-zwasm_wasi_config_set_argv(config, 2, argv);
+zwasm_wasi_config_set_argv(wasi_config, 2, argv);
 
-zwasm_wasi_config_preopen_dir(config, "/tmp/data", 9, "/data", 5);
+zwasm_wasi_config_preopen_dir(wasi_config, "/tmp/data", 9, "/data", 5);
 
-/* WASI 設定付きでモジュールを作成 */
-zwasm_module_t *mod = zwasm_module_new_wasi_configured(wasm_bytes, wasm_len, config);
+/* 任意: ランタイム設定 */
+zwasm_config_t *config = zwasm_config_new();
+zwasm_config_set_fuel(config, 1000000);
+zwasm_config_set_timeout(config, 1000);
+zwasm_config_set_max_memory(config, 256 * 1024 * 1024);
+
+/* WASI設定 + ランタイム設定でモジュールを作成 */
+zwasm_module_t *mod = zwasm_module_new_wasi_configured2(
+    wasm_bytes, wasm_len, wasi_config, config
+);
 
 /* プログラムを実行 */
 zwasm_module_invoke_start(mod);
 
 /* クリーンアップ */
 zwasm_module_delete(mod);
-zwasm_wasi_config_delete(config);
+zwasm_config_delete(config);
+zwasm_wasi_config_delete(wasi_config);
 ```
 
 デフォルトケーパビリティ (stdio, clock, random) のみの単純な WASI プログラムの場合:
@@ -307,6 +332,7 @@ zwasm_module_delete(mod);
 
 - **エラーバッファ**: `zwasm_last_error_message()` はスレッドローカルバッファを返します。複数スレッドからの呼び出しは安全です。
 - **モジュール**: `zwasm_module_t` はスレッドセーフ**ではありません**。同一モジュールに対して複数スレッドから同時に関数を呼び出さないでください。スレッドごとに個別のモジュールインスタンスを作成してください。
+- **キャンセル**: `zwasm_module_cancel()` は唯一のスレッドセーフな操作であり、他スレッドから実行中の呼び出しを中断できます。
 
 ## 次のステップ
 

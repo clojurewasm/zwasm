@@ -148,16 +148,38 @@ for (import_infos) |info| {
 }
 ```
 
-## リソース制限
 
-リソース使用量を制御できます:
+## リソース制限とConfigオプション
+
+Zigでは、リソース・実行オプションは `WasmModule.Config` にまとまり、`loadWithOptions` で渡します。これにより、以下の制御が可能です:
+
+- **fuel**: 命令数上限（無限ループ防止）
+- **timeout_ms**: 実時間タイムアウト（ミリ秒）
+- **max_memory_bytes**: 線形メモリ最大サイズ
+- **force_interpreter**: JIT無効化（常にインタプリタ）
+
+例（Zig）:
 
 ```zig
-// Fuel limit: traps after N instructions
-const mod = try WasmModule.loadWithFuel(allocator, wasm_bytes, 1_000_000);
+const zwasm = @import("zwasm");
+const Config = zwasm.WasmModule.Config;
 
-// Memory limit: via WASI options or direct Vm access
+var config = Config{
+    .fuel = 1_000_000, // 100万命令でtrap
+    .timeout_ms = 1000, // 1秒タイムアウト
+    .max_memory_bytes = 16 * 1024 * 1024, // 16MB
+    .force_interpreter = false,
+};
+const mod = try WasmModule.loadWithOptions(allocator, wasm_bytes, config);
 ```
+
+**fuel**: 設定時、指定命令数で`error.FuelExhausted`としてtrapします。信頼できない/無限ループの可能性があるコードに推奨。
+
+**キャンセル**: 他スレッドから`mod.cancel()`を呼び出すことで、実行中の呼び出しを中断できます。
+
+**timeout_ms**: 設定時、指定実時間経過で自動中断します。
+
+全てのオプションは省略可能で、デフォルトは安全寄りです。C API側では `zwasm_config_t` で同等の設定ができます。
 
 ## エラーハンドリング
 
@@ -170,6 +192,8 @@ const mod = try WasmModule.loadWithFuel(allocator, wasm_bytes, 1_000_000);
 - **`error.OutOfBoundsMemoryAccess`** --- メモリアクセスが範囲外
 - **`error.OutOfMemory`** --- アロケータが失敗
 - **`error.FuelExhausted`** --- 命令フューエル制限に到達
+- **`error.Canceled`** --- ホストから `cancel()` で実行中断
+- **`error.TimeoutExceeded`** --- 実時間タイムアウトで中断
 
 完全なリストは [エラーリファレンス](../docs/errors.md) を参照してください。
 

@@ -601,3 +601,47 @@ or `own` (runtime closes on teardown).
   to keep the header cross-language friendly.
 
 **Affected files**: wasi.zig, types.zig, c_api.zig, include/zwasm.h, test_ffi.c.
+
+## D134: Async Execution Cancellation
+
+**Context**: Issue #27 / PR #28. Embedders need to abort a running Wasm invocation
+from another thread — for instance to enforce user-initiated cancel buttons on top
+of Wasm plugins, or to unwind infinite loops that escape fuel/deadline budgets.
+Pre-set fuel limits and deadline timeouts were the only existing escape hatches;
+both are decided before execution starts.
+
+**Decision**: Expose a thread-safe `cancel()` request on `Vm` / `WasmModule` /
+`zwasm_module_t`. The interpreter and JIT both poll the flag at their existing
+periodic budget checkpoints, so the new path reuses proven machinery rather than
+adding a second interrupt mechanism.
+
+**Mechanism**:
+- `Vm.cancelled: std.atomic.Value(bool)` — `release` store on cancel, `acquire`
+  load on check.
+- Interpreter path: `consumeInstructionBudget()` already fired every
+  `DEADLINE_CHECK_INTERVAL` (1024) instructions for deadline polling; cancel
+  checks piggyback on the same checkpoint with no extra branch on the hot path.
+- JIT path: `armJitFuel` caps `jit_fuel` to `DEADLINE_JIT_INTERVAL` when
+  cancellation is armed, so `jitFuelCheckHelper` fires periodically even when
+  no fuel/deadline is set. The helper returns error code `11` (`Canceled`) back
+  into the trampoline.
+- `reset()` clears the flag — each `invoke()` starts from a clean state, and
+  cancel requests issued against an idle module are dropped. This is documented
+  on both the Zig and C APIs; the FFI test races cancels across invoke start
+  to cover the corresponding window.
+
+**Opt-out**: `Vm.cancellable: bool = true` (Zig default) / `cancellable: ?bool`
+in `WasmModule.Config` / `zwasm_config_set_cancellable(config, false)`. Disabling
+restores `jit_fuel = maxInt(i64)` for fuel/deadline-free runs, recovering pre-PR
+throughput for hosts that never need cancel.
+
+**API surface**:
+- Zig: `Vm.cancel()`, `WasmModule.cancel()`, `error.Canceled`,
+  `WasmModule.Config.cancellable: ?bool`.
+- C: `void zwasm_module_cancel(zwasm_module_t *)`,
+  `void zwasm_config_set_cancellable(zwasm_config_t *, bool)`.
+- CLI: `error.Canceled` prints "execution canceled".
+
+**Affected files**: vm.zig, types.zig, cli.zig, c_api.zig, include/zwasm.h,
+test/c_api/test_ffi.c, docs/{embedding,errors,usage,api-boundary}.md,
+book/{en,ja}/src/{c-api,embedding-guide}.md.

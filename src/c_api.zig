@@ -92,6 +92,7 @@ const CAllocatorWrapper = struct {
 /// Configuration handle for module creation. Optional custom allocator.
 const CApiConfig = struct {
     c_alloc: ?*CAllocatorWrapper = null,
+    cancellable: bool = true,
 
     fuel: ?u64 = null,
     timeout_ms: ?u64 = null,
@@ -109,12 +110,17 @@ const CApiConfig = struct {
     }
 
     /// Build a WasmModule.Config from this C API config.
+    /// The C ABI exposes `cancellable` as a plain bool, so we always forward a
+    /// concrete value. The C default (true) matches the Vm default, so the
+    /// resulting Config is a no-op override for callers who never touch the
+    /// setter.
     fn toModuleConfig(self: *CApiConfig) types.WasmModule.Config {
         return .{
             .fuel = self.fuel,
             .timeout_ms = self.timeout_ms,
             .max_memory_bytes = self.max_memory_bytes,
             .force_interpreter = self.force_interpreter,
+            .cancellable = self.cancellable,
         };
     }
 };
@@ -140,8 +146,8 @@ const default_allocator = std.heap.c_allocator;
 const CApiModule = struct {
     module: *WasmModule,
 
-    fn create(wasm_bytes: []const u8, wasi: bool) !*CApiModule {
-        return createConfigured(wasm_bytes, wasi, null);
+    fn create(wasm_bytes: []const u8, wasi: bool, config: ?*CApiConfig) !*CApiModule {
+        return createConfigured(wasm_bytes, wasi, config);
     }
 
     fn createConfigured(wasm_bytes: []const u8, wasi: bool, config: ?*CApiConfig) !*CApiModule {
@@ -156,8 +162,8 @@ const CApiModule = struct {
         return self;
     }
 
-    fn createWasiConfigured(wasm_bytes: []const u8, opts: WasiOptions) !*CApiModule {
-        return createWasiConfiguredEx(wasm_bytes, opts, null);
+    fn createWasiConfigured(wasm_bytes: []const u8, opts: WasiOptions, config: ?*CApiConfig) !*CApiModule {
+        return createWasiConfiguredEx(wasm_bytes, opts, config);
     }
 
     fn createWasiConfiguredEx(wasm_bytes: []const u8, opts: WasiOptions, config: ?*CApiConfig) !*CApiModule {
@@ -173,10 +179,15 @@ const CApiModule = struct {
         return self;
     }
 
-    fn createWithImports(wasm_bytes: []const u8, imports: []const types.ImportEntry) !*CApiModule {
+    fn createWithImports(wasm_bytes: []const u8, imports: []const types.ImportEntry, config: ?*CApiConfig) !*CApiModule {
         const self = try std.heap.page_allocator.create(CApiModule);
         errdefer std.heap.page_allocator.destroy(self);
-        self.module = try WasmModule.loadWithOptions(default_allocator, wasm_bytes, .{ .imports = imports });
+
+        const allocator = if (config) |c| c.getAllocator() orelse default_allocator else default_allocator;
+        var mod_cfg = if (config) |c| c.toModuleConfig() else types.WasmModule.Config{};
+        mod_cfg.imports = imports;
+
+        self.module = try WasmModule.loadWithOptions(allocator, wasm_bytes, mod_cfg);
         return self;
     }
 
@@ -314,6 +325,12 @@ export fn zwasm_config_set_force_interpreter(config: *zwasm_config_t, force_inte
     config.force_interpreter = force_interpreter;
 }
 
+/// Enable or disable periodic JIT cancellation checks (default: true).
+/// Disabling this improves performance but makes cancel() ineffective for JIT code.
+export fn zwasm_config_set_cancellable(config: *zwasm_config_t, enabled: bool) void {
+    config.cancellable = enabled;
+}
+
 // ============================================================
 // Module lifecycle
 // ============================================================
@@ -322,7 +339,7 @@ export fn zwasm_config_set_force_interpreter(config: *zwasm_config_t, force_inte
 /// Returns null on error — call `zwasm_last_error_message()` for details.
 export fn zwasm_module_new(wasm_ptr: [*]const u8, len: usize) ?*zwasm_module_t {
     clearError();
-    return CApiModule.create(wasm_ptr[0..len], false) catch |err| {
+    return CApiModule.create(wasm_ptr[0..len], false, null) catch |err| {
         setError(err);
         return null;
     };
@@ -332,7 +349,7 @@ export fn zwasm_module_new(wasm_ptr: [*]const u8, len: usize) ?*zwasm_module_t {
 /// Returns null on error — call `zwasm_last_error_message()` for details.
 export fn zwasm_module_new_wasi(wasm_ptr: [*]const u8, len: usize) ?*zwasm_module_t {
     clearError();
-    return CApiModule.create(wasm_ptr[0..len], true) catch |err| {
+    return CApiModule.create(wasm_ptr[0..len], true, null) catch |err| {
         setError(err);
         return null;
     };
@@ -533,6 +550,14 @@ export fn zwasm_module_export_param_count(module: *zwasm_module_t, idx: u32) u32
 export fn zwasm_module_export_result_count(module: *zwasm_module_t, idx: u32) u32 {
     if (idx >= module.module.export_fns.len) return 0;
     return @intCast(module.module.export_fns[idx].result_types.len);
+}
+
+/// Request cancellation of currently executing Wasm in this module.
+/// Thread-safe. Can be called from a different thread during invoke/invoke_start.
+/// Execution stops at the next checkpoint (~1024 instructions or JIT interval).
+/// Has no effect if module is idle (not executing).
+export fn zwasm_module_cancel(module: *zwasm_module_t) void {
+    module.module.cancel();
 }
 
 // ============================================================
@@ -754,7 +779,7 @@ export fn zwasm_module_new_wasi_configured(
         .stdio_ownership = stdio_ownership,
     };
 
-    return CApiModule.createWasiConfigured(wasm_ptr[0..len], opts) catch |err| {
+    return CApiModule.createWasiConfigured(wasm_ptr[0..len], opts, null) catch |err| {
         setError(err);
         return null;
     };
@@ -868,7 +893,7 @@ export fn zwasm_module_new_with_imports(
         };
     }
 
-    const result = CApiModule.createWithImports(wasm_ptr[0..len], import_entries) catch |err| {
+    const result = CApiModule.createWithImports(wasm_ptr[0..len], import_entries, null) catch |err| {
         setError(err);
         return null;
     };

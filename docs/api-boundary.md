@@ -37,6 +37,8 @@ Types and functions listed here are covered by SemVer guarantees.
 | `loadWithFuel` | `(Allocator, []const u8, u64) !*WasmModule` | v0.3.0 |
 | `deinit` | `(*WasmModule) void` | v0.1.0 |
 | `invoke` | `(*WasmModule, []const u8, []u64, []u64) !void` | v0.1.0 |
+| `cancel` | `(*WasmModule) void` | vNEXT |
+| `invokeInterpreterOnly` | `(*WasmModule, []const u8, []u64, []u64) !void` | vNEXT |
 | `memoryRead` | `(*WasmModule, Allocator, u32, u32) ![]const u8` | v0.2.0 |
 | `memoryWrite` | `(*WasmModule, u32, []const u8) !void` | v0.2.0 |
 | `getExportInfo` | `(*WasmModule, []const u8) ?ExportInfo` | v0.2.0 |

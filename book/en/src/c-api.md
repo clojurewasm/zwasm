@@ -152,6 +152,19 @@ Functions are grouped by domain. All signatures live in `include/zwasm.h`.
 |----------|-------------|
 | `zwasm_last_error_message()` | Last error as a null-terminated string. Returns `""` if no error. Thread-local. |
 
+### Runtime configuration
+
+| Function | Description |
+|----------|-------------|
+| `zwasm_config_new()` | Create a runtime config handle. |
+| `zwasm_config_delete(config)` | Free a runtime config handle. |
+| `zwasm_config_set_allocator(config, alloc_fn, free_fn, ctx)` | Set custom allocator callbacks for runtime bookkeeping memory. |
+| `zwasm_config_set_fuel(config, fuel)` | Set instruction fuel limit. |
+| `zwasm_config_set_timeout(config, timeout_ms)` | Set wall-clock timeout in milliseconds. |
+| `zwasm_config_set_max_memory(config, max_memory_bytes)` | Set linear-memory growth ceiling in bytes. |
+| `zwasm_config_set_force_interpreter(config, force_interpreter)` | Disable RegIR/JIT and force interpreter-only execution. |
+| `zwasm_config_set_cancellable(config, enabled)` | Enable/disable periodic JIT cancellation checks. |
+
 ### Module lifecycle
 
 | Function | Description |
@@ -160,6 +173,8 @@ Functions are grouped by domain. All signatures live in `include/zwasm.h`.
 | `zwasm_module_new_wasi(wasm_ptr, len)` | Create WASI module with default capabilities. |
 | `zwasm_module_new_wasi_configured(wasm_ptr, len, config)` | Create WASI module with custom config. |
 | `zwasm_module_new_with_imports(wasm_ptr, len, imports)` | Create module with host function imports. |
+| `zwasm_module_new_configured(wasm_ptr, len, config)` | Create module with optional runtime config. |
+| `zwasm_module_new_wasi_configured2(wasm_ptr, len, wasi_config, config)` | Create WASI module with both WASI config and runtime config. |
 | `zwasm_module_delete(module)` | Free all module resources. |
 | `zwasm_module_validate(wasm_ptr, len)` | Validate binary without instantiation. |
 
@@ -169,6 +184,7 @@ Functions are grouped by domain. All signatures live in `include/zwasm.h`.
 |----------|-------------|
 | `zwasm_module_invoke(module, name, args, nargs, results, nresults)` | Invoke an exported function by name. |
 | `zwasm_module_invoke_start(module)` | Invoke `_start` (WASI entry point). |
+| `zwasm_module_cancel(module)` | Request cancellation of a currently running invocation (thread-safe). |
 
 ### Export introspection
 
@@ -273,26 +289,35 @@ The `env` pointer lets you pass arbitrary context (a struct, file handle, etc.) 
 
 ## WASI programs
 
-Use the config builder pattern to run WASI programs with custom settings:
+Use a `zwasm_wasi_config_t` for argv/env/preopens, and optionally combine it with `zwasm_config_t` for fuel/timeout/memory limits:
 
 ```c
 /* Create and configure WASI */
-zwasm_wasi_config_t *config = zwasm_wasi_config_new();
+zwasm_wasi_config_t *wasi_config = zwasm_wasi_config_new();
 
 const char *argv[] = {"myapp", "--verbose"};
-zwasm_wasi_config_set_argv(config, 2, argv);
+zwasm_wasi_config_set_argv(wasi_config, 2, argv);
 
-zwasm_wasi_config_preopen_dir(config, "/tmp/data", 9, "/data", 5);
+zwasm_wasi_config_preopen_dir(wasi_config, "/tmp/data", 9, "/data", 5);
 
-/* Create module with WASI config */
-zwasm_module_t *mod = zwasm_module_new_wasi_configured(wasm_bytes, wasm_len, config);
+/* Optional runtime config */
+zwasm_config_t *config = zwasm_config_new();
+zwasm_config_set_fuel(config, 1000000);
+zwasm_config_set_timeout(config, 1000);
+zwasm_config_set_max_memory(config, 256 * 1024 * 1024);
+
+/* Create module with both configs */
+zwasm_module_t *mod = zwasm_module_new_wasi_configured2(
+    wasm_bytes, wasm_len, wasi_config, config
+);
 
 /* Run the program */
 zwasm_module_invoke_start(mod);
 
 /* Cleanup */
 zwasm_module_delete(mod);
-zwasm_wasi_config_delete(config);
+zwasm_config_delete(config);
+zwasm_wasi_config_delete(wasi_config);
 ```
 
 For simple WASI programs that only need default capabilities (stdio, clock, random):
@@ -307,6 +332,7 @@ zwasm_module_delete(mod);
 
 - **Error buffer**: `zwasm_last_error_message()` returns a thread-local buffer. Safe to call from multiple threads.
 - **Modules**: A `zwasm_module_t` is **not** thread-safe. Do not invoke functions on the same module from multiple threads concurrently. Create separate module instances per thread instead.
+- **Cancellation**: `zwasm_module_cancel()` is the only thread-safe operation and may be called from another thread to interrupt a running invocation.
 
 ## Next steps
 

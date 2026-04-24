@@ -148,16 +148,39 @@ for (import_infos) |info| {
 }
 ```
 
-## Resource limits
 
-Control resource usage:
+## Resource limits and Config options
+
+In Zig, resource and execution options are grouped in `WasmModule.Config` and passed to `loadWithOptions`.
+This allows you to control:
+
+- **fuel**: Instruction count limit (prevents infinite loops)
+- **timeout_ms**: Wall-clock timeout (milliseconds)
+- **max_memory_bytes**: Maximum linear memory size
+- **force_interpreter**: Disable JIT, always use interpreter
+
+Example (Zig):
 
 ```zig
-// Fuel limit: traps after N instructions
-const mod = try WasmModule.loadWithFuel(allocator, wasm_bytes, 1_000_000);
+const zwasm = @import("zwasm");
+const Config = zwasm.WasmModule.Config;
 
-// Memory limit: via WASI options or direct Vm access
+var config = Config{
+    .fuel = 1_000_000, // Trap after 1M instructions
+    .timeout_ms = 1000, // 1 second wall-clock timeout
+    .max_memory_bytes = 16 * 1024 * 1024, // 16MB
+    .force_interpreter = false,
+};
+const mod = try WasmModule.loadWithOptions(allocator, wasm_bytes, config);
 ```
+
+**fuel**: If set, the module will trap with `error.FuelExhausted` after the specified number of instructions. Use this for untrusted or potentially infinite-looping code.
+
+**cancellation**: `mod.cancel()` can be called from another thread to interrupt an in-progress invocation.
+
+**timeout_ms**: If set, execution will be interrupted after the given wall-clock time.
+
+All options are optional; defaults are safe for most use cases. See the C API section for equivalent `zwasm_config_t` usage.
 
 ## Error handling
 
@@ -170,6 +193,8 @@ All loading and execution methods return error unions. Key error types:
 - **`error.OutOfBoundsMemoryAccess`** — Memory access out of bounds
 - **`error.OutOfMemory`** — Allocator failed
 - **`error.FuelExhausted`** — Instruction fuel limit hit
+- **`error.Canceled`** — Execution canceled by host via `cancel()`
+- **`error.TimeoutExceeded`** — Execution interrupted by wall-clock timeout
 
 See [Error Reference](../docs/errors.md) for the complete list.
 

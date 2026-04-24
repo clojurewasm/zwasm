@@ -32,7 +32,7 @@ fi
 
 # Compile test binary
 echo "Compiling FFI test..."
-gcc -o /tmp/zwasm_ffi_test test/c_api/test_ffi.c -ldl -O0 -g
+gcc -o /tmp/zwasm_ffi_test test/c_api/test_ffi.c -ldl -pthread -O0 -g
 
 # Run
 echo ""

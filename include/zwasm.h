@@ -113,6 +113,13 @@ void zwasm_config_set_max_memory(zwasm_config_t *config, uint64_t max_memory_byt
  */
 void zwasm_config_set_force_interpreter(zwasm_config_t *config, bool force_interpreter);
 
+/**
+ * Enable or disable periodic JIT cancellation checks (default: true).
+ * Disabling this improves performance but makes zwasm_module_cancel()
+ * ineffective for JIT-compiled code.
+ */
+void zwasm_config_set_cancellable(zwasm_config_t *config, bool enabled);
+
 /* ================================================================
  * Module lifecycle
  * ================================================================ */
@@ -221,6 +228,14 @@ uint32_t zwasm_module_export_param_count(zwasm_module_t *module, uint32_t idx);
 
 /** Return the result count of the idx-th exported function. */
 uint32_t zwasm_module_export_result_count(zwasm_module_t *module, uint32_t idx);
+
+/**
+ * Request cancellation of currently executing Wasm function.
+ * Thread-safe for concurrent access. Can be called from a different thread
+ * during invoke or invoke_start. Execution stops at the next checkpoint
+ * (~1024 instructions or JIT interval). Has no effect if module is idle.
+ */
+void zwasm_module_cancel(zwasm_module_t *module);
 
 /* ================================================================
  * Memory access

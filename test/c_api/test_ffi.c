@@ -18,6 +18,7 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 /* ------------------------------------------------------------------ */
 /* Test harness                                                        */
@@ -70,6 +71,7 @@ typedef bool (*fn_module_validate)(const uint8_t *, size_t);
 /* Invocation */
 typedef bool (*fn_module_invoke)(zwasm_module_t, const char *, uint64_t *, uint32_t, uint64_t *, uint32_t);
 typedef bool (*fn_module_invoke_start)(zwasm_module_t);
+typedef void (*fn_module_cancel)(zwasm_module_t);
 
 /* Export introspection */
 typedef uint32_t (*fn_export_count)(zwasm_module_t);
@@ -93,6 +95,7 @@ typedef void (*fn_config_set_fuel)(zwasm_config_t, uint64_t);
 typedef void (*fn_config_set_timeout)(zwasm_config_t, uint64_t);
 typedef void (*fn_config_set_max_memory)(zwasm_config_t, uint64_t);
 typedef void (*fn_config_set_force_interpreter)(zwasm_config_t, bool);
+typedef void (*fn_config_set_cancellable)(zwasm_config_t, bool);
 
 /* Imports */
 typedef zwasm_imports_t (*fn_import_new)(void);
@@ -121,6 +124,7 @@ static struct {
     fn_module_validate        module_validate;
     fn_module_invoke          module_invoke;
     fn_module_invoke_start    module_invoke_start;
+    fn_module_cancel          module_cancel;
     fn_export_count           export_count;
     fn_export_name            export_name;
     fn_export_param_count     export_param_count;
@@ -136,6 +140,7 @@ static struct {
     fn_config_set_timeout     config_set_timeout;
     fn_config_set_max_memory  config_set_max_memory;
     fn_config_set_force_interpreter config_set_force_interpreter;
+    fn_config_set_cancellable config_set_cancellable;
     fn_import_new             import_new;
     fn_import_delete          import_delete;
     fn_import_add_fn          import_add_fn;
@@ -145,6 +150,21 @@ static struct {
     fn_wasi_config_preopen_fd wasi_config_preopen_fd;
     fn_module_new_wasi_configured module_new_wasi_configured;
 } api;
+
+typedef struct {
+    zwasm_module_t module;
+} CancelThreadArgs;
+
+static void *cancel_thread_main(void *raw) {
+    CancelThreadArgs *args = (CancelThreadArgs *)raw;
+    /* Keep cancel requests alive across invoke start/reset race. */
+    usleep(100);
+    for (int i = 0; i < 200; i++) {
+        api.module_cancel(args->module);
+        usleep(100);
+    }
+    return NULL;
+}
 
 static void *lib_handle = NULL;
 
@@ -170,6 +190,7 @@ static bool load_api(const char *path) {
     LOAD_SYM(module_validate,        "zwasm_module_validate");
     LOAD_SYM(module_invoke,          "zwasm_module_invoke");
     LOAD_SYM(module_invoke_start,    "zwasm_module_invoke_start");
+    LOAD_SYM(module_cancel,          "zwasm_module_cancel");
     LOAD_SYM(export_count,           "zwasm_module_export_count");
     LOAD_SYM(export_name,            "zwasm_module_export_name");
     LOAD_SYM(export_param_count,     "zwasm_module_export_param_count");
@@ -185,6 +206,7 @@ static bool load_api(const char *path) {
     LOAD_SYM(config_set_timeout,     "zwasm_config_set_timeout");
     LOAD_SYM(config_set_max_memory,  "zwasm_config_set_max_memory");
     LOAD_SYM(config_set_force_interpreter, "zwasm_config_set_force_interpreter");
+    LOAD_SYM(config_set_cancellable, "zwasm_config_set_cancellable");
     LOAD_SYM(import_new,             "zwasm_import_new");
     LOAD_SYM(import_delete,          "zwasm_import_delete");
     LOAD_SYM(import_add_fn,          "zwasm_import_add_fn");
@@ -246,12 +268,23 @@ static const uint8_t IMPORT_WASM[] = {
     0x0a, 0x0a, 0x01, 0x08, 0x00, 0x41, 0x03, 0x41, 0x04, 0x10, 0x00, 0x0b
 };
 
+/* Module: (func (export "loop") (loop (br 0))) — infinite loop, never completes */
+static const uint8_t INFINITE_LOOP_WASM[] = {
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00,                 /* type: () -> () */
+    0x03, 0x02, 0x01, 0x00,                               /* func 0: type 0 */
+    0x07, 0x08, 0x01, 0x04, 0x6c, 0x6f, 0x6f, 0x70,       /* export "loop" */
+    0x00, 0x00,
+    0x0a, 0x09, 0x01, 0x07, 0x00, 0x03, 0x40, 0x0c, 0x00, /* code: loop br 0 end end */
+    0x0b, 0x0b
+};
+
 /* ------------------------------------------------------------------ */
 /* Tests                                                               */
 /* ------------------------------------------------------------------ */
 
 static void test_symbol_resolution(void) {
-    printf("-- symbol resolution (all 22 exports)\n");
+    printf("-- symbol resolution (all required exports)\n");
     /* Already verified by load_api — if we got here, all symbols resolved. */
     ASSERT(api.module_new != NULL, "zwasm_module_new resolved");
     ASSERT(api.module_delete != NULL, "zwasm_module_delete resolved");
@@ -562,6 +595,65 @@ static void test_repeated_create_destroy(void) {
     ASSERT(true, "100 create/invoke/destroy cycles");
 }
 
+static void test_cancellable_config(void) {
+    zwasm_config_t *config = api.config_new();
+    ASSERT(config != NULL, "config created");
+
+    /* Test disabling cancellation */
+    api.config_set_cancellable(config, false);
+
+    zwasm_module_t mod = api.module_new_configured(MINIMAL_WASM, sizeof(MINIMAL_WASM), config);
+    ASSERT(mod != NULL, "module created with cancellable=false");
+
+    api.module_delete(mod);
+    api.config_delete(config);
+}
+
+static void test_cancel_api(void) {
+    printf("-- cancel API (thread-safety check)\n");
+
+    zwasm_module_t mod = api.module_new(RETURN42_WASM, sizeof(RETURN42_WASM));
+    ASSERT(mod != NULL, "module loaded");
+    if (!mod) return;
+
+    /* Call cancel on idle module (should be no-op) */
+    api.module_cancel(mod);
+    ASSERT(true, "module_cancel on idle module");
+
+    /* invoke() resets cancellation state at entry, so this should succeed */
+    uint64_t r[1] = {0};
+    ASSERT(api.module_invoke(mod, "f", NULL, 0, r, 1),
+           "invoke after cancel (flag cleared by reset)");
+    ASSERT_EQ_U64(r[0], 42, "result after cancel is correct");
+
+    api.module_delete(mod);
+
+    /* Concurrent cancel: cancel from another thread while invoke("loop") is running.
+     * The module runs an infinite loop, so the ONLY way invoke() can return is
+     * via cancellation.  If cancel() is broken, this test will hang forever
+     * (caught by CI timeout). */
+    zwasm_module_t loop_mod = api.module_new(INFINITE_LOOP_WASM, sizeof(INFINITE_LOOP_WASM));
+    ASSERT(loop_mod != NULL, "infinite loop module loaded");
+    if (!loop_mod) return;
+
+    CancelThreadArgs cargs = { .module = loop_mod };
+
+    pthread_t tid;
+    int create_rc = pthread_create(&tid, NULL, cancel_thread_main, &cargs);
+    ASSERT(create_rc == 0, "pthread_create for cancel thread");
+    if (create_rc == 0) {
+        bool ok = api.module_invoke(loop_mod, "loop", NULL, 0, NULL, 0);
+        /* invoke() MUST fail — the loop is infinite, so success is impossible */
+        ASSERT(!ok, "invoke of infinite loop was cancelled (did not complete)");
+        const char *err = api.last_error();
+        ASSERT(err != NULL && strstr(err, "Canceled") != NULL,
+               "last_error indicates Canceled");
+        ASSERT(pthread_join(tid, NULL) == 0, "pthread_join cancel thread");
+    }
+
+    api.module_delete(loop_mod);
+}
+
 /* ------------------------------------------------------------------ */
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
@@ -598,9 +690,11 @@ int main(int argc, char **argv) {
     test_no_memory_module();
     test_host_imports();
     test_config_lifecycle();
+    test_cancellable_config();
     test_multiple_modules();
     test_wasi_config_fd_api();
     test_repeated_create_destroy();
+    test_cancel_api();
 
     printf("\n%d/%d passed, %d failed\n", tests_passed, tests_run, tests_failed);
 
