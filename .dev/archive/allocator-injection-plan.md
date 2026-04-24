@@ -1,3 +1,8 @@
+> **Archived 2026-04-25.** Phase 11 (allocator injection) completed
+> with v1.5.0 (merge commit `49f99e5`). Preserved for historical
+> reference; D128 in `.dev/decisions.md` captures the resulting
+> invariant.
+
 # Allocator Injection & Embedding Plan (D128)
 
 Design reference for Phase 11. Read before starting implementation.

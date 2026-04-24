@@ -1,3 +1,9 @@
+> **Archived 2026-04-25.** Stage 36 (0.15.2-era) security audit. Binary
+> size / memory figures below are snapshots from v1.7.x and no longer
+> match the current guards (v1.10.0 Linux stripped ~1.65 MB against a
+> 1.80 MB limit). Preserved for historical reference — current audit
+> work lives in `.dev/spec-support.md` and `.dev/checklist.md`.
+
 # Security Audit Findings (Stage 36)
 
 Systematic audit of zwasm security boundaries. Each section corresponds to a

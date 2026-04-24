@@ -1,3 +1,9 @@
+> **Archived 2026-04-25.** v1.10.0 shipped (merge commit `60a166d`, tag
+> `v1.10.0`). This log is preserved for historical reference. Follow-up
+> work (W46 un-link-libc, W47 `tgo_strops_cached`) is tracked in
+> `.dev/checklist.md`; 0.16 gotchas distilled for future version bumps
+> live in `.claude/references/zig-tips.md`.
+
 # Zig 0.16.0 Migration Work Log
 
 Target release: **v1.10.0** (minor bump — downstream is source-compatible but

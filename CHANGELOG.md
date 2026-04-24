@@ -274,7 +274,7 @@ First stable release. API frozen under SemVer guarantees.
 - Fuel-based execution limits
 - Max memory limits
 - Resource limit enforcement (section counts, locals, nesting depth)
-- Security audit (docs/audit-36.md, docs/security.md, SECURITY.md)
+- Security audit (.dev/archive/audit-36.md, docs/security.md, SECURITY.md)
 - Fuzz testing infrastructure with 25K+ corpus
 
 ### Changed

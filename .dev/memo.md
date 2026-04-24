@@ -20,7 +20,7 @@ Session handover document. Read at session start.
 
 **v1.10.0: Zig 0.16.0 migration — DONE on both platforms (2026-04-24)**
 
-Full rundown in `@./.dev/zig-0.16-migration.md` (work log + D135 Io strategy).
+Full rundown in `@./.dev/archive/zig-0.16-migration.md` (archived work log + D135 Io strategy).
 
 - **Mac aarch64 gates**: 399/399 unit, 62263/62263 spec (0 skip), 796/796 e2e,
   50/50 realworld, 80/80 FFI, minimal build OK, `0.16.0-baseline` bench
