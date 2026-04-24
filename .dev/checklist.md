@@ -10,23 +10,6 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open Items
 
-- [ ] W46: Un-link libc — migrate WASI I/O / cache / platform off `std.c.*` onto
-  `std.Io` (or `std.posix.system` direct syscalls). Scope: `src/wasi.zig`
-  (fd_read / fd_write / fd_pread / fd_pwrite / fd_seek / fd_tell / fstatat),
-  `src/cache.zig` (fsync), `src/platform.zig` (statx helpers), test helpers.
-  Why this is a priority, not cosmetic:
-  1. **Zig 0.16 philosophy** — release notes explicitly say "go higher
-     (std.Io) or go lower (std.posix.system)"; `std.c.*` is neither direction.
-  2. **Windows correctness** — `std.c.fd_t` = `windows.HANDLE` (pointer),
-     but `std.c.write` binds to MSVCRT `_write(int fd, …)`. The ABI
-     mismatch is what broke Windows real-world compat in v1.10.0.
-  3. **Binary size** — Linux ELF pays ~290 KB for libc linkage; returning
-     to no-libc lets us restore the 1.50 MB guard.
-  4. **Performance** — 2025-02 Andrew Kelley devlog: "No-Libc Zig Now
-     Outperforms Glibc Zig" — no-libc is the fast path.
-  Non-goal for v1.10.x: rewriting all I/O atomically. Plan is phase-by-phase
-  (phase 1 = WASI stdio Windows fix, phase 2 = fd_read/fd_write, …).
-
 - [ ] W45: SIMD loop persistence — Skip Q-cache eviction at loop headers.
   Requires back-edge detection in scanBranchTargets.
 
@@ -54,5 +37,14 @@ W43: SIMD v128 base addr cache (SIMD_BASE_REG x17). Phase A of D132.
 W44: SIMD register class — Q16-Q31 (ARM64) + XMM6-XMM15 (x86) cache.
      Phase B of D132. Merged 2026-03-26. Q-cache with LRU eviction + lazy
      writeback. Benefit limited by loop-header eviction (diagnosed same day).
+W46: Un-link libc — Phase 1 complete (delib 1a–1f, merged 2026-04-24/25).
+     link_libc=false across lib / cli / tests / examples / e2e / bench / fuzz;
+     C API targets (shared-lib, static-lib, c-test) keep link_libc=true because
+     `src/c_api.zig` uses `std.heap.c_allocator`. Platform helpers added:
+     pfdWrite, pfdRead, pfdClose, pfdDup, pfdDup2, pfdPipe, pfdSleepNs, pfdErrno,
+     pfdFsync, pfdReadlinkAt (Linux=direct syscalls, Mac=libSystem auto-link,
+     Windows=kernel32/Win32). Payoff measured: Mac 1.38 MB, Linux 1.65 MB
+     stripped (vs 1.80 MB ceiling). The 1.50 MB target is deferred to the
+     std.Io migration (tracked separately if it resurfaces).
 
 W2-W36: See git history. All resolved through Stages 0-47 and Phases 1-19.
