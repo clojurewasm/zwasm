@@ -5,6 +5,52 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-04-24
+
+Toolchain bump from Zig 0.15.2 → **Zig 0.16.0** ("I/O as an Interface"). No
+public API removals or signature changes; downstream source stays compatible
+but consumers must upgrade to Zig 0.16.0 to build.
+
+### Changed
+- **Zig toolchain: 0.15.2 → 0.16.0.** Flake pins and all CI workflows
+  updated.
+- `WasmModule.Config` gained `io: ?std.Io = null` and `Vm` gained `io:
+  std.Io` — when `Config.io` is null, `loadCore`/`loadLinked` stand up a
+  private `std.Io.Threaded` owned by the module (see D135). Existing
+  embedders pass nothing and get the default behaviour.
+- LEB128 decoding pinned to the pre-0.16 stdlib algorithm. 0.16's
+  `std.Io.Reader.takeLeb128` does not enforce WASM's "integer too large"
+  overshoot rule; the zwasm decoder was rewritten inline (40 lines) with
+  the 0.15 `@shlWithOverflow`-based algorithm so spec test
+  `binary-leb128.77/78` continue to reject malformed 10-byte i64
+  encodings.
+
+### Fixed
+- **Cross-platform fstat**: on Linux, `std.c.fstat` / `std.c.fstatat` /
+  `std.c.Stat` are all unavailable (empty bindings) and `std.posix.Stat` is
+  `void`. `path_filestat_get` now dispatches to `std.os.linux.statx` on
+  Linux (decoded to a neutral `FileStat`) and `std.c.fstatat` on Darwin.
+  Test helpers that only needed the file size moved to
+  `lseek(SEEK_END)`.
+- `build.zig` modules explicitly set `link_libc = true`. Mac's Zig
+  toolchain was lenient about `extern "c"` without explicit libc linkage;
+  Ubuntu 0.16 rejects it hard.
+
+### Internal
+- `Vm` struct: `io: std.Io = undefined` field (set by loader).
+- `WasmModule.owned_io`: holds the auto-constructed `std.Io.Threaded` when
+  the embedder did not supply one.
+- `main(init: std.process.Init)` on entry points (CLI, e2e_runner) so they
+  can grab `init.io` / `init.gpa` / args from the runtime's start.zig.
+- WASI handlers: use `std.c.*` with `file.handle` for the POSIX ops that
+  `std.posix` dropped (fsync/mkdirat/unlinkat/renameat/ftruncate/futimens/
+  pread/pwrite/dup/readlinkat/symlinkat/linkat/close/pipe/getenv). Errno
+  → `Errno` via a single local `cErrnoToWasi()` helper.
+- `@Vector` runtime indexing was rejected by 0.16's compiler; SIMD
+  extract/replace_lane and lane-memory ops rewritten to use `[N]T` arrays
+  with `@bitCast` at push time.
+- Closes PR #41 (notxorand's migration draft) as superseded.
+
 ## [1.9.1] - 2026-04-24
 
 ### Changed

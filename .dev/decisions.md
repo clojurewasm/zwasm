@@ -714,3 +714,32 @@ Since Vm owns any auto-constructed `Threaded` and tears it down last in
 `deinit`, and since no invoke path holds `io` past the invoke's return,
 there is no use-after-free path introduced by the threading.
 
+**Result (2026-04-24)**: Migration shipped as v1.10.0. Strategy validated:
+
+- Library: `Vm.io: std.Io = undefined`; `WasmModule.Config.io: ?std.Io = null`;
+  `loadCore` / `loadLinked` stand up an owned `std.Io.Threaded` (kept in
+  `WasmModule.owned_io`) when `io` is null, deinit'd last.
+- CLI: `cli.cli_io: std.Io = undefined` set from `main(init: std.process.Init).io`
+  before any sub-command runs.
+- Tests: each test that hits an `io`-using Vm path constructs its own local
+  `std.Io.Threaded` and assigns `vm.io = th.io()`.
+
+**Pragmatic split from the original plan**: for POSIX ops that `std.posix`
+dropped in 0.16 (fsync, mkdirat, unlinkat, renameat, pread/pwrite, dup,
+futimens, readlinkat, symlinkat, linkat, fstatat, close, pipe, getenv,
+mprotect), WASI handlers call `std.c.*` directly with `file.handle` rather
+than threading `io` through. `file.handle` is trivially available from the
+`HostHandle` / `FdEntry` structures and errno is mapped with a single local
+helper (`cErrnoToWasi`). This keeps `io` as the currency for the std-Io-based
+operations that genuinely need it (`file.stat`, `file.setTimestamps`,
+`Dir.openDir`, `Io.Timestamp.now`, `io.random`, `io.sleep`,
+`process.spawn`) while leaving the bulk of WASI's POSIX surface un-io-y.
+
+**Pitfall noted**: in long-running executable `main()` functions (the e2e
+runner in particular), constructing a fresh `std.Io.Threaded` locally and
+using its `.io()` caused sporadic segfaults in `Io.Timestamp.now` after many
+iterations — symptoms consistent with the Threaded scheduler being torn down
+too early even though the variable was still in scope. Using `init.io`
+(supplied by `start.zig`) avoids this entirely. Use init.io for top-level
+binaries; use a freshly constructed Threaded only when the scope is bounded.
+

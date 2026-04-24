@@ -4,17 +4,56 @@ Session handover document. Read at session start.
 
 ## Current State
 
+- **Zig toolchain**: 0.16.0 (migrated from 0.15.2, 2026-04-24).
 - Stages 0-46 + Phase 1, 3, 5, 8, 10, 11, 13, 15, 19, **20** complete.
 - Spec: 62,263/62,263 Mac+Ubuntu (100.0%, 0 skip).
-- E2E: 797/797 (Mac+Ubuntu). Fixed JIT memory64 bounds + custom-page-sizes 2026-03-25.
-- Real-world: Mac 50/50, Ubuntu 50/50. go_math_big fixed 2026-03-25.
+- E2E: 796/796 Mac+Ubuntu, 0 fail.
+- Real-world: Mac 50/50, Ubuntu 50/50, 0 crash.
+- FFI: 80/80 Mac+Ubuntu.
 - JIT: Register IR + ARM64/x86_64 + SIMD (NEON 253/256, SSE 244/256).
 - HOT_THRESHOLD=3 (lowered from 10 in W38).
 - Binary: 1.29MB stripped. Memory: ~3.5MB RSS.
 - Platforms: macOS ARM64, Linux x86_64/ARM64, Windows x86_64.
-- **main = stable**. ClojureWasm updated to v1.5.0.
+- **main = stable** (currently v1.9.1). v1.10.0 on `develop/zig-0.16.0`, awaiting PR.
 
 ## Current Task
+
+**v1.10.0: Zig 0.16.0 migration — DONE on both platforms (2026-04-24)**
+
+Full rundown in `@./.dev/zig-0.16-migration.md` (work log + D135 Io strategy).
+
+- **Mac aarch64 gates**: 399/399 unit, 62263/62263 spec (0 skip), 796/796 e2e,
+  50/50 realworld, 80/80 FFI, minimal build OK, `0.16.0-baseline` bench
+  recorded (no >10% regression vs v1.9.1).
+- **Ubuntu x86_64 gates** (OrbStack): 408/411 unit (3 WAT/JIT-guarded skips),
+  62263/62263 spec, 796/796 e2e, 50/50 realworld, 80/80 FFI, minimal build OK.
+- **Branch**: `develop/zig-0.16.0` — 22 commits, ready for PR.
+- **Remaining**: PR open, CI green, close notxorand's #41, tag + CW bump.
+
+### 0.16 highlights we had to adapt to
+
+- `std.process.Init` param on `main()` (args/gpa/arena/io/env from start.zig)
+- `std.Io` threading — Vm gets an `io` field, stdlib methods take it as 1st arg
+- `std.leb` gone → inline port of 0.15's `@shlWithOverflow` algorithm
+  (`std.Io.Reader.takeLeb128` is NOT spec-equivalent; misses the "integer too
+  large" overshoot check — see `binary-leb128.77.wasm`)
+- `std.posix.*` attrition (fsync/mkdirat/dup/pread/etc.) — swap to `std.c.*`
+- `std.c.*Stat` empty on Linux — fstatat replaced by `statx` via
+  `fstatatToFileStat()`; fstat-for-size replaced by `lseek(SEEK_END)`
+- `@Vector` runtime indexing rejected → use `[N]T` arrays + `@bitCast`
+- Decisions.md D135 covers the Io threading architecture.
+
+### Hard-won nuggets (reuse later)
+
+- **Do NOT wrap in `nix develop --command` inside this repo.** direnv +
+  claude-direnv has already loaded the flake devshell AND unset
+  DEVELOPER_DIR/SDKROOT. Re-entering nix shell re-sets SDKROOT and breaks
+  `/usr/bin/git`. See `memory/nix_devshell_tools.md`.
+- **e2e_runner uses `init.io`, NOT a locally constructed Threaded io**.
+  A fresh `std.Io.Threaded.init(allocator, .{}).io()` inside user main
+  crashes with `0xaa…` in `Io.Timestamp.now` when iterating many files.
+
+## Previous Task
 
 **W45: SIMD Loop Persistence — DONE (2026-03-26)**
 
