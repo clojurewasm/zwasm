@@ -28,16 +28,18 @@ pub fn build(b: *std.Build) void {
     options.addOption([]const u8, "version", build_zon.version);
 
     // Library module (for use as dependency and test root).
-    // link_libc is required because wasi.zig / cache.zig / platform.zig use
-    // `std.c.*` for POSIX operations that std.posix lost in Zig 0.16
-    // (fsync, mkdirat, unlinkat, renameat, dup, pread/pwrite, futimens, …).
-    // On Linux the build is strict about this; macOS happens to auto-link
-    // libc for `extern "c"` decls but both platforms need it.
+    // link_libc = false post-W46 migration. WASI fd I/O and path-based ops
+    // now go through `platform.pfd*` helpers (Linux syscalls / Mac libSystem
+    // auto-link / Win32 kernel32). Env vars come from `std.process.Environ.Map`
+    // captured in `cli.main` (W46 Phase 1e). The `std.c.*` references that
+    // survive are all inside `else` branches of `switch (comptime builtin.os.tag)`
+    // blocks, so they are comptime-pruned on Linux/Windows and still resolve
+    // to libSystem on Mac.
     const mod = b.addModule("zwasm", .{
         .root_source_file = b.path("src/types.zig"),
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
+        .link_libc = false,
     });
     mod.addOptions("build_options", options);
 
@@ -55,7 +57,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cli.zig"),
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
+        .link_libc = false,
     });
     cli_mod.addOptions("build_options", options);
     const cli = b.addExecutable(.{
@@ -82,7 +84,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path(ex.src),
             .target = target,
             .optimize = optimize,
-            .link_libc = true,
+            .link_libc = false,
         });
         ex_mod.addImport("zwasm", mod);
         const ex_exe = b.addExecutable(.{
@@ -99,7 +101,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("test/e2e/e2e_runner.zig"),
             .target = target,
             .optimize = optimize,
-            .link_libc = true,
+            .link_libc = false,
         });
         e2e_mod.addImport("zwasm", mod);
         const e2e = b.addExecutable(.{
@@ -116,7 +118,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("bench/fib_bench.zig"),
             .target = target,
             .optimize = optimize,
-            .link_libc = true,
+            .link_libc = false,
         });
         bench_mod.addImport("zwasm", mod);
         const bench = b.addExecutable(.{
@@ -135,7 +137,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/fuzz_loader.zig"),
             .target = target,
             .optimize = optimize,
-            .link_libc = true,
+            .link_libc = false,
         });
         fuzz_mod.addImport("zwasm", mod);
         const fuzz = b.addExecutable(.{
@@ -148,7 +150,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/fuzz_wat_loader.zig"),
             .target = target,
             .optimize = optimize,
-            .link_libc = true,
+            .link_libc = false,
         });
         fuzz_wat_mod.addImport("zwasm", mod);
         const fuzz_wat = b.addExecutable(.{
@@ -167,7 +169,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/c_api.zig"),
         .target = target,
         .optimize = if (lib_optimize) optimize else if (optimize == .Debug) .ReleaseSafe else optimize,
-        .link_libc = true,
+        .link_libc = false,
     });
     lib_shared_mod.addOptions("build_options", options);
     const lib_shared = b.addLibrary(.{
@@ -182,7 +184,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/c_api.zig"),
         .target = target,
         .optimize = if (lib_optimize) optimize else if (optimize == .Debug) .ReleaseSafe else optimize,
-        .link_libc = true,
+        .link_libc = false,
         .pic = if (enable_pic) true else null,
     });
     lib_static_mod.addOptions("build_options", options);
@@ -218,7 +220,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = null,
             .target = target,
             .optimize = optimize,
-            .link_libc = true,
+            .link_libc = false,
         });
         ct_mod.addCSourceFile(.{ .file = b.path(ct.src) });
         ct_mod.addIncludePath(b.path("include"));
