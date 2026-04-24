@@ -10237,18 +10237,8 @@ test "armJitFuel — cancellable = false prevents capping" {
 }
 
 // Small cross-platform ~1ms sleep used by the cancellation tests below.
-// `std.posix.timespec` is `void` on Windows, so the nanosleep-based path
-// cannot even be *constructed* on Windows — branch at comptime.
 fn sleepOneMillisecondForCancelTest() void {
-    if (builtin.os.tag == .windows) {
-        const K32 = struct {
-            extern "kernel32" fn Sleep(dwMilliseconds: u32) callconv(.winapi) void;
-        };
-        K32.Sleep(1);
-    } else {
-        const req: std.posix.timespec = .{ .sec = 0, .nsec = 1 * std.time.ns_per_ms };
-        _ = std.c.nanosleep(&req, null);
-    }
+    @import("platform.zig").pfdSleepNs(std.time.ns_per_ms);
 }
 
 test "Cancellation — cancel flag stops interpreter loop" {

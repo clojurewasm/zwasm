@@ -370,6 +370,50 @@ pub fn pfdFsync(handle: std.posix.fd_t) i32 {
     }
 }
 
+pub fn pfdDup2(oldfd: std.posix.fd_t, newfd: std.posix.fd_t) i32 {
+    switch (comptime builtin.os.tag) {
+        .windows => return -1,
+        .linux => return linuxResultAsI32(std.os.linux.dup2(oldfd, newfd)),
+        else => return cResultAsI32(std.c.dup2(oldfd, newfd)),
+    }
+}
+
+pub fn pfdPipe(fds: *[2]std.posix.fd_t) i32 {
+    switch (comptime builtin.os.tag) {
+        .windows => return -1,
+        .linux => return linuxResultAsI32(std.os.linux.pipe(fds)),
+        else => return cResultAsI32(std.c.pipe(fds)),
+    }
+}
+
+/// Sleep for the given number of nanoseconds. Best-effort — short-sleep
+/// tests use this to give other threads time to start.
+pub fn pfdSleepNs(ns: u64) void {
+    switch (comptime builtin.os.tag) {
+        .windows => {
+            const K32 = struct {
+                extern "kernel32" fn Sleep(dwMilliseconds: windows.DWORD) callconv(.winapi) void;
+            };
+            const ms: windows.DWORD = @intCast(@max(ns / 1_000_000, 1));
+            K32.Sleep(ms);
+        },
+        .linux => {
+            const req: std.os.linux.timespec = .{
+                .sec = @intCast(ns / 1_000_000_000),
+                .nsec = @intCast(ns % 1_000_000_000),
+            };
+            _ = std.os.linux.nanosleep(&req, null);
+        },
+        else => {
+            const req: std.posix.timespec = .{
+                .sec = @intCast(ns / 1_000_000_000),
+                .nsec = @intCast(ns % 1_000_000_000),
+            };
+            _ = std.c.nanosleep(&req, null);
+        },
+    }
+}
+
 pub fn reservePages(size: usize, prot: Protection) PageError![]align(page_size) u8 {
     if (builtin.os.tag == .windows) {
         const addr = VirtualAlloc(null, size, .{ .RESERVE = true }, protectionToWin(prot)) orelse

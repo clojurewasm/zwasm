@@ -2917,16 +2917,16 @@ test "WASI — fd_write via 07_wasi_hello.wasm" {
 
     // Create pipe for capturing stdout
     var pipe_fds: [2]posix.fd_t = undefined;
-    if (std.c.pipe(&pipe_fds) != 0) return error.SkipZigTest;
+    if (platform.pfdPipe(&pipe_fds) != 0) return error.SkipZigTest;
     const pipe = pipe_fds;
-    defer _ = std.c.close(pipe[0]);
+    defer platform.pfdClose(pipe[0]);
 
     // Redirect stdout to pipe write end
-    const saved_stdout = std.c.dup(@as(posix.fd_t, 1));
+    const saved_stdout = platform.pfdDup(@as(posix.fd_t, 1));
     if (saved_stdout < 0) return error.SkipZigTest;
-    defer _ = std.c.close(saved_stdout);
-    if (std.c.dup2(pipe[1], @as(posix.fd_t, 1)) < 0) return error.SkipZigTest;
-    _ = std.c.close(pipe[1]);
+    defer platform.pfdClose(saved_stdout);
+    if (platform.pfdDup2(pipe[1], @as(posix.fd_t, 1)) < 0) return error.SkipZigTest;
+    platform.pfdClose(pipe[1]);
 
     // Run _start
     var vm_inst = Vm.init(alloc);
@@ -2937,11 +2937,11 @@ test "WASI — fd_write via 07_wasi_hello.wasm" {
     };
 
     // Restore stdout
-    _ = std.c.dup2(saved_stdout, @as(posix.fd_t, 1));
+    _ = platform.pfdDup2(saved_stdout, @as(posix.fd_t, 1));
 
     // Read captured output
     var buf: [256]u8 = undefined;
-    const n_rc = std.c.read(pipe[0], &buf, buf.len);
+    const n_rc = platform.pfdRead(pipe[0], buf[0..]);
     if (n_rc < 0) return error.SkipZigTest;
     const output = buf[0..@intCast(n_rc)];
 
@@ -3478,9 +3478,9 @@ test "stdio override: custom fd replaces default" {
 
     // Create a pipe to use as custom stdout
     var pipe_fds: [2]std.posix.fd_t = undefined;
-    if (std.c.pipe(&pipe_fds) != 0) return error.SkipZigTest;
+    if (platform.pfdPipe(&pipe_fds) != 0) return error.SkipZigTest;
     const pipe = pipe_fds;
-    defer _ = std.c.close(pipe[0]);
+    defer platform.pfdClose(pipe[0]);
 
     // Set stdout (fd 1) to write end of pipe, with ownership (runtime closes it)
     ctx.setStdioFd(1, pipe[1], .own);
@@ -3499,10 +3499,10 @@ test "stdio override: borrow mode does not close fd on deinit" {
     const alloc = testing.allocator;
 
     var pipe_fds: [2]std.posix.fd_t = undefined;
-    if (std.c.pipe(&pipe_fds) != 0) return error.SkipZigTest;
+    if (platform.pfdPipe(&pipe_fds) != 0) return error.SkipZigTest;
     const pipe = pipe_fds;
-    defer _ = std.c.close(pipe[0]);
-    defer _ = std.c.close(pipe[1]);
+    defer platform.pfdClose(pipe[0]);
+    defer platform.pfdClose(pipe[1]);
 
     {
         var ctx = WasiContext.init(alloc);
@@ -3512,7 +3512,7 @@ test "stdio override: borrow mode does not close fd on deinit" {
 
     // pipe[1] should still be valid (borrowed, not closed by deinit)
     // Writing to it should succeed
-    const written_rc = std.c.write(pipe[1], "ok", 2);
+    const written_rc = platform.pfdWrite(pipe[1], "ok");
     try testing.expect(written_rc == 2);
 }
 
