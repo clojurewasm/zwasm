@@ -71,7 +71,7 @@ PRs are automatically checked for:
 - Unit tests pass (macOS + Ubuntu)
 - Spec tests pass (62,263 tests)
 - E2E tests pass (792 assertions)
-- Binary size <= 1.5 MB
+- Binary size <= 1.80 MB (stripped, Linux ELF; Mac Mach-O ~1.38 MB). Limit raised from 1.50 MB in v1.10.0 because Zig 0.16 requires `link_libc = true` for WASI support. Tracked for reduction via 脱 libc migration (see `.dev/checklist.md`).
 - No benchmark regression > 20%
 - ReleaseSafe build success
 

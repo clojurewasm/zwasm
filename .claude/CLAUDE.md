@@ -94,7 +94,9 @@ When in doubt, **continue**.
 6. **Benchmarks**: Required for optimization/JIT tasks.
    - Quick check: `bash bench/run_bench.sh --quick`
    - **Record**: `bash bench/record.sh --id=ID --reason="REASON"` (appends to history.yaml)
-7. **Size guard**: Binary ≤ 1.5MB (stripped), memory ≤ 4.5MB RSS
+7. **Size guard**: Binary ≤ 1.80 MB stripped (Linux ELF; Mac ~1.38 MB), memory ≤ 4.5 MB RSS.
+   Raised from 1.50 MB in v1.10.0 because Zig 0.16 requires `link_libc = true` for WASI.
+   Post-`std.Io` migration (planned) should let this return to 1.50 MB.
 8. **Minimal build** (when adding tests): `zig build test -Djit=false -Dcomponent=false -Dwat=false`
    Tests using WAT must guard with `if (!build_options.enable_wat) return error.SkipZigTest;`
    Tests using JIT must guard with `if (!build_options.enable_jit) return error.SkipZigTest;`

@@ -105,4 +105,5 @@ All items must pass on **Mac AND Ubuntu x86_64** before merging to main.
 - `bash test/realworld/run_compat.sh` — PASS=50, FAIL=0, CRASH=0
 - `bash test/c_api/run_ffi_test.sh --build` — 0 failed
 - `zig build test -Djit=false -Dcomponent=false -Dwat=false` — 0 fail
-- Binary ≤ 1.5MB (stripped), memory ≤ 4.5MB RSS
+- Binary ≤ 1.80 MB (stripped; Linux ELF. Mac ~1.38 MB), memory ≤ 4.5 MB RSS
+  - Raised from 1.50 MB in v1.10.0 for 0.16 `link_libc`; return to 1.50 MB targeted post-`std.Io` migration.

@@ -29,7 +29,7 @@ Before starting, verify:
 5. `bash test/realworld/run_compat.sh` — PASS=30, FAIL=0, CRASH=0 (requires `build_all.sh` first if wasm files missing)
 6. `bash bench/run_bench.sh` — full benchmark suite, no regression
 7. Size guard:
-   - Binary (ReleaseSafe, stripped): ≤ 1.5 MB
+   - Binary (ReleaseSafe, stripped): ≤ 1.80 MB (Linux ELF; Mac ~1.38 MB)
    - Memory (sieve benchmark): ≤ 4.5 MB RSS
 
 ## Phase 2: zwasm Verification (Ubuntu x86_64 via OrbStack)
@@ -112,7 +112,7 @@ If Ubuntu reveals failures not seen on Mac, **fix the root cause** before procee
 
 | Phase | Gate | Pass criteria |
 |-------|------|---------------|
-| 1 | Mac local | unit(0 fail/leak) + spec(0 fail/skip) + E2E(0 fail/leak) + compat(30/0/0) + bench + size(≤1.5MB/≤4.5MB) |
+| 1 | Mac local | unit(0 fail/leak) + spec(0 fail/skip) + E2E(0 fail/leak) + compat(30/0/0) + bench + size(≤1.80MB/≤4.5MB) |
 | 2 | Ubuntu OrbStack | unit(0 fail/leak) + spec(0 fail/skip) + E2E(0 fail/leak) + compat(30/0/0) + bench |
 | 3 | CW local | CW unit + e2e + portability (local zwasm path) |
 | 4 | zwasm tag | version bump + CHANGELOG + tag + push + CI green |
