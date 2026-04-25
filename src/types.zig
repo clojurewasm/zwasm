@@ -586,7 +586,9 @@ pub const WasmModule = struct {
         if (self.max_memory_bytes) |mb| vm.max_memory_bytes = mb;
         if (self.force_interpreter) |fi| vm.force_interpreter = fi;
         if (self.timeout_ms) |ms| vm.setDeadlineTimeoutMs(ms);
-        defer if (self.fuel != null) { self.fuel = vm.fuel; };
+        defer if (self.fuel != null) {
+            self.fuel = vm.fuel;
+        };
         try vm.invoke(&self.instance, name, args, results);
     }
 
@@ -604,7 +606,9 @@ pub const WasmModule = struct {
         const saved_fi = vm.force_interpreter;
         vm.force_interpreter = true;
         defer vm.force_interpreter = saved_fi;
-        defer if (self.fuel != null) { self.fuel = vm.fuel; };
+        defer if (self.fuel != null) {
+            self.fuel = vm.fuel;
+        };
         try vm.invoke(&self.instance, name, args, results);
     }
 
@@ -1631,6 +1635,12 @@ test "loadLinked OOM after phase 1: invoke returns ModuleNotFullyLoaded" {
 
     var found_module: ?*WasmModule = null;
     var found_apply_error: ?anyerror = null;
+    var found_failing: ?*FailingAllocator = null;
+    // Defer order is critical: found_module.deinit() must run BEFORE destroying found_failing,
+    // because sub-structures (instance/module/store) may hold Allocator interfaces pointing to found_failing.
+    // If found_failing is destroyed first, found_module.deinit() would use-after-free.
+    // Defers run LIFO, so found_module's defer is registered LAST to run FIRST.
+    defer if (found_failing) |f| testing.allocator.destroy(f);
     defer if (found_module) |m| m.deinit();
 
     // Find a fail index that reaches phase 1 and fails when creating vm.
@@ -1641,9 +1651,11 @@ test "loadLinked OOM after phase 1: invoke returns ModuleNotFullyLoaded" {
     while (fail_index < max_fail_index) : (fail_index += 1) {
         var store = rt.store_mod.Store.init(testing.allocator);
 
-        var failing = FailingAllocator.init(testing.allocator, .{ .fail_index = fail_index });
-        const linked = WasmModule.loadLinked(failing.allocator(), wasm_bytes, &store) catch |err| {
+        var failing_ptr = testing.allocator.create(FailingAllocator) catch @panic("OOM");
+        failing_ptr.* = FailingAllocator.init(testing.allocator, .{ .fail_index = fail_index });
+        const linked = WasmModule.loadLinked(failing_ptr.allocator(), wasm_bytes, &store) catch |err| {
             try testing.expectEqual(error.OutOfMemory, err);
+            testing.allocator.destroy(failing_ptr);
             store.deinit();
             continue;
         };
@@ -1653,6 +1665,7 @@ test "loadLinked OOM after phase 1: invoke returns ModuleNotFullyLoaded" {
                 found_module = linked.module;
                 found_apply_error = apply_err;
                 found_store = store;
+                found_failing = failing_ptr;
                 // Patch: reassign allocator to avoid dangling reference (UB)
                 found_module.?.allocator = testing.allocator;
                 break;
@@ -1660,6 +1673,7 @@ test "loadLinked OOM after phase 1: invoke returns ModuleNotFullyLoaded" {
         }
 
         linked.module.deinit();
+        testing.allocator.destroy(failing_ptr);
         store.deinit();
     }
 
