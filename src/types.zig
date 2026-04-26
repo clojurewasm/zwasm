@@ -506,7 +506,15 @@ pub const WasmModule = struct {
         try self.instance.instantiate();
 
         self.export_fns = buildExportInfo(allocator, &self.module) catch &[_]ExportInfo{};
+        errdefer {
+            for (self.export_fns) |ei| {
+                allocator.free(ei.param_types);
+                allocator.free(ei.result_types);
+            }
+            if (self.export_fns.len > 0) allocator.free(self.export_fns);
+        }
         self.cached_fns = buildCachedFns(allocator, self) catch &[_]WasmFn{};
+        errdefer if (self.cached_fns.len > 0) allocator.free(self.cached_fns);
         self.wit_funcs = &[_]wit_parser.WitFunc{};
 
         self.vm = try allocator.create(rt.vm_mod.Vm);
@@ -1624,6 +1632,21 @@ test "WasmModule.Config applies VM limits" {
     try testing.expectEqual(@as(?u64, 1048576), wasm_mod.vm.?.max_memory_bytes);
     try testing.expectEqual(true, wasm_mod.vm.?.force_interpreter);
     try testing.expect(wasm_mod.vm.?.deadline_ns != null);
+}
+
+test "loadFromWat: trapping start function does not leak export_fns/cached_fns (issue #42)" {
+    if (!@import("build_options").enable_wat) return error.SkipZigTest;
+    const wat =
+        \\(module
+        \\  (func $start unreachable)
+        \\  (func (export "dummy") (result i32) i32.const 0)
+        \\  (start $start)
+        \\)
+    ;
+    try testing.expectError(
+        error.Unreachable,
+        WasmModule.loadFromWat(testing.allocator, wat),
+    );
 }
 
 test "loadLinked OOM after phase 1: invoke returns ModuleNotFullyLoaded" {
