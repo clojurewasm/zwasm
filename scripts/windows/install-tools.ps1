@@ -89,6 +89,32 @@ $workDir     = Join-Path $env:LOCALAPPDATA 'zwasm-tools\.work'
 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $workDir     | Out-Null
 
+# --- Microsoft Visual C++ Redistributable (WASI SDK clang.exe needs it) ---
+
+function Ensure-VCRedist {
+    # WASI SDK 30 ships a clang.exe linked against MSVC's vcruntime140.dll /
+    # msvcp140.dll. Stock Windows 11 only carries the .NET-flavoured
+    # vcruntime140_clr0400.dll variants, so a fresh machine fails with
+    # STATUS_DLL_NOT_FOUND (exit 0xC0000135) before any compilation runs.
+    # The plain runtime ships in Microsoft's Visual C++ Redistributable.
+    if (Test-Path 'C:\Windows\System32\vcruntime140.dll') {
+        return
+    }
+    Write-Host "[install] Microsoft Visual C++ Redistributable (required by WASI SDK clang.exe)"
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        throw "vcruntime140.dll missing and winget unavailable. Install Microsoft.VCRedist.2015+.x64 manually."
+    }
+    & winget install --id Microsoft.VCRedist.2015+.x64 -e --silent `
+        --accept-source-agreements --accept-package-agreements
+    if ($LASTEXITCODE -ne 0) {
+        throw "winget install of Microsoft.VCRedist.2015+.x64 failed (exit $LASTEXITCODE). System-wide install needs admin; rerun in an elevated shell or install manually."
+    }
+}
+
+if ($OnlyTool -in @('all', 'wasi-sdk')) {
+    Ensure-VCRedist
+}
+
 # --- Helpers ---
 
 function Download-File {
