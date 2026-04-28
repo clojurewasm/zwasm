@@ -217,10 +217,13 @@ function Update-UserPath {
     }
 }
 
+# Each release ZIP/tar.gz unpacks with its binaries directly inside
+# the install dir — no `bin/` subdirectory on Windows for any of these
+# tools today. Add the install dir itself.
 $pathsToAdd = @()
 if ($paths.ContainsKey('zig'))        { $pathsToAdd += $paths['zig'] }
 if ($paths.ContainsKey('wasm-tools')) { $pathsToAdd += $paths['wasm-tools'] }
-if ($paths.ContainsKey('wasmtime'))   { $pathsToAdd += (Join-Path $paths['wasmtime'] 'bin') }
+if ($paths.ContainsKey('wasmtime'))   { $pathsToAdd += $paths['wasmtime'] }
 Update-UserPath -Add $pathsToAdd
 
 if ($paths.ContainsKey('wasi-sdk')) {
