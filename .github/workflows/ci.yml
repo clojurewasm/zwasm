@@ -203,7 +203,7 @@ jobs:
 
           tool_versions = pathlib.Path(".github/versions.lock").read_text(encoding="utf-8").splitlines()
           wasi_sdk_version = next(
-              line.split("=", 1)[1].strip().strip('"')
+              line.split("=", 1)[1].split("#", 1)[0].strip().strip('"')
               for line in tool_versions
               if line.startswith("WASI_SDK_VERSION=")
           )
