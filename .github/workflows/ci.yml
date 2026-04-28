@@ -144,7 +144,7 @@ jobs:
           fi
           echo "PASS: Within 1.60 MB limit"
 
-      - name: Memory usage check
+      - name: Memory usage check (POSIX)
         if: runner.os != 'Windows'
         run: |
           BINARY=zig-out/bin/zwasm
@@ -164,6 +164,38 @@ jobs:
             exit 1
           fi
           echo "PASS: Within 4.5 MB limit"
+
+      - name: Memory usage check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $LIMIT_KB = 4608   # 4.5 MB, same budget as POSIX path
+          $tmpOut   = New-TemporaryFile
+          $proc = Start-Process `
+              -FilePath 'zig-out\bin\zwasm.exe' `
+              -ArgumentList @('--invoke', 'sieve', 'bench\wasm\sieve.wasm', '1000000') `
+              -PassThru -RedirectStandardOutput $tmpOut.FullName
+          $peak = 0
+          while (-not $proc.HasExited) {
+              try { $proc.Refresh() } catch {}
+              if ($proc.PeakWorkingSet64 -gt $peak) { $peak = $proc.PeakWorkingSet64 }
+              Start-Sleep -Milliseconds 50
+          }
+          try { $proc.Refresh() } catch {}
+          if ($proc.PeakWorkingSet64 -gt $peak) { $peak = $proc.PeakWorkingSet64 }
+          Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+          if ($proc.ExitCode -ne 0) {
+              Write-Host "zwasm.exe exited $($proc.ExitCode); cannot trust memory measurement"
+              exit 1
+          }
+          $memKb = [int]($peak / 1024)
+          $memMb = ('{0:F2}' -f ($memKb / 1024))
+          Write-Host "Peak memory: $memMb MB ($memKb KB)"
+          if ($memKb -gt $LIMIT_KB) {
+              Write-Host "FAIL: Peak memory exceeds 4.5 MB limit"
+              exit 1
+          }
+          Write-Host "PASS: Within 4.5 MB limit"
 
       - name: Install wasmtime
         run: |
