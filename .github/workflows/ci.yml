@@ -7,6 +7,15 @@ on:
     branches: [main]
 
 jobs:
+  versions-lock-sync:
+    # Mirrors Merge Gate item #9. Fails the PR if .github/versions.lock and
+    # flake.nix disagree on a tool pin. Cheap (<1 sec) and runs in parallel
+    # with the test matrix.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/sync-versions.sh
+
   test:
     defaults:
       run:
