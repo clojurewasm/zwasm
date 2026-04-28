@@ -337,7 +337,9 @@ jobs:
 
       - name: Install hyperfine
         run: |
-          curl -L --retry 3 --retry-delay 5 -f -o /tmp/hyperfine.deb https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
+          source .github/versions.lock
+          curl -L --retry 3 --retry-delay 5 -f -o /tmp/hyperfine.deb \
+            "https://github.com/sharkdp/hyperfine/releases/download/v${HYPERFINE_VERSION}/hyperfine_${HYPERFINE_VERSION}_amd64.deb"
           sudo dpkg -i /tmp/hyperfine.deb
 
       - name: Build ReleaseSafe
