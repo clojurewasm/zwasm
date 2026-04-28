@@ -177,8 +177,10 @@ if ($OnlyTool -in @('all', 'zig')) {
 }
 
 if ($OnlyTool -in @('all', 'wasm-tools')) {
-    $url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v$($versions.WASM_TOOLS_VERSION)/wasm-tools-$($versions.WASM_TOOLS_VERSION)-x86_64-windows.tar.gz"
-    $dir = Install-Tool -Name 'wasm-tools' -Version $versions.WASM_TOOLS_VERSION -Url $url -Format 'tar.gz'
+    # bytecodealliance ships wasm-tools as .zip for Windows (unlike Linux/macOS
+    # which use .tar.gz). Pinned by versions.lock WASM_TOOLS_VERSION.
+    $url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v$($versions.WASM_TOOLS_VERSION)/wasm-tools-$($versions.WASM_TOOLS_VERSION)-x86_64-windows.zip"
+    $dir = Install-Tool -Name 'wasm-tools' -Version $versions.WASM_TOOLS_VERSION -Url $url -Format 'zip'
     $paths['wasm-tools'] = $dir
 }
 
