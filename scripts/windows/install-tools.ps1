@@ -126,7 +126,8 @@ function Extract-TarGz {
 
 function Resolve-SingleSubdir {
     param([Parameter(Mandatory)][string]$ParentDir)
-    $children = Get-ChildItem -LiteralPath $ParentDir -Directory
+    # @(...) forces array context so a single match still has .Count.
+    $children = @(Get-ChildItem -LiteralPath $ParentDir -Directory)
     if ($children.Count -eq 1) { return $children[0].FullName }
     return $ParentDir
 }
