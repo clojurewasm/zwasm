@@ -5,6 +5,58 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+Developer / CI infrastructure improvements. **No public API or runtime
+behaviour change for embedders.**
+
+### Added
+- `.github/versions.lock` (mirrors `flake.nix` pins for Windows + CI
+  YAML) replaces the old `.github/tool-versions`. Single source of
+  truth for Zig, wasm-tools, wasmtime, WASI SDK, Rust pins; comments
+  must live on their own line per file header (the Python reader in
+  `ci.yml` does a plain `split('=', 1)`). (#60, D136)
+- `.dev/environment.md` — developer onboarding doc covering Mac /
+  Linux / Windows native setup, Nix devshell contents, CI ↔ local
+  gate mapping, and the remaining Windows-skipped CI items as a
+  Plan C tracker. (#60)
+- `scripts/lib/versions.sh`, `scripts/sync-versions.sh`,
+  `scripts/gate-commit.sh`, `scripts/gate-merge.sh`, `scripts/run-bench.sh`
+  — unified Commit Gate / Merge Gate runners that work identically on
+  macOS, Linux (Nix devshell), and Windows (Git Bash). `gate-commit.sh`
+  auto-clones wasmtime `tests/misc_testsuite` into a gitignored
+  `.cache/` directory and chains `build_all.py && run_compat.py` for
+  realworld so a fresh checkout works without manual setup. Auto-skips
+  `ffi` on Windows to mirror the existing CI guard. (#61)
+- `scripts/windows/install-tools.ps1` — provisions Zig + wasm-tools +
+  wasmtime + WASI SDK from `versions.lock` into
+  `%LOCALAPPDATA%\zwasm-tools`. Updates user PATH + `WASI_SDK_PATH`.
+  Auto-installs Microsoft Visual C++ Redistributable via winget when
+  `vcruntime140.dll` is missing (WASI SDK clang.exe needs it).
+  Idempotent; `--Force` re-extracts; `-OnlyTool` selects one. (#61)
+- `versions-lock-sync` CI job mechanises Merge Gate item #9 — fails
+  the PR if `flake.nix` and `versions.lock` disagree on a tool pin.
+  Runs in parallel with the existing test matrix in well under a
+  second. (#62)
+- Memory usage check on Windows via PowerShell `Process.PeakWorkingSet64`
+  — first of the eight Windows-skip CI guards removed. Same 4.5 MB
+  budget as the POSIX path. (#64)
+
+### Changed
+- WASI SDK version bumped 25 → 30 to align CI with `flake.nix` (which
+  was already at 30). Realworld 50/50 PASS verified locally on
+  macOS aarch64 with the new SDK. (#60)
+- `CLAUDE.md` Commit Gate / Merge Gate sections point at
+  `bash scripts/gate-commit.sh` / `gate-merge.sh` as the one-liner
+  entry points; example commands switched to the `.py` runners that
+  CI exercises. (#61)
+- `.github/workflows/ci.yml` benchmark job sources `HYPERFINE_VERSION`
+  from `versions.lock` instead of hardcoding the version twice. (#65)
+
+### Internal
+- D136 (in `decisions.md`): Nix-as-SSoT design recorded with the
+  Plan B / Plan C scope (unified gate scripts, Nix-based CI,
+  Windows native installer, removal of the remaining Windows-skipped
+  CI steps).
+
 ## [1.11.0] - 2026-04-26
 
 W46 + W48: re-disable `link_libc` on the core build and trim the release

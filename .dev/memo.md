@@ -22,44 +22,55 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**W48 Phase 1 — DONE (2026-04-25).** Trimmed Linux binary from 1.64 → 1.56 MB
-(-83 KB, -5%) and Mac binary from 1.38 → 1.20 MB (-180 KB, -13%) via three
-changes in `src/cli.zig`:
+**Plan A + Plan B sub-1+2 + Plan C alpha shipped (2026-04-29).** PRs #60,
+#61, #62, #64, #65 merged. main is green on all three OS matrix entries.
+Detailed state, hard-won facts, residual work, and the per-session
+autonomy rules live in **`@./.dev/resume-guide.md`** — read that first
+on a new session.
 
-1. `pub const panic = std.debug.simple_panic;` — skips `FullPanic`'s
-   formatted safety-panic messages + the `defaultPanic` /
-   `writeCurrentStackTrace` DWARF pull-in.
-2. `pub const std_options: std.Options = .{ .enable_segfault_handler = false };`
-   — zwasm already installs its own SIGSEGV handler in
-   `guard_mod.installSignalHandler()` for JIT guard-page OOB, so the std
-   default handler is always replaced at runtime anyway. Disabling it at
-   comptime elides `std.debug.handleSegfaultPosix` and the transitive
-   pull-in of `SelfInfo.Elf.*`.
-3. `pub fn main(init) u8 { return runCli(init) catch |err| { ... } }` —
-   `main` no longer returns an error union, so `start.zig`'s `wrapMain`
-   inlines the `u8` arm and never emits the call to
-   `std.debug.dumpErrorReturnTrace`.
+Quick orientation if continuing:
 
-Remaining ~62 KB to target 1.50 MB (still well under 1.80 MB ceiling):
-`debug.*` ~81 KB (SelfInfo.Elf / Dwarf / writeTrace still reachable via
-`std.debug.lockStderr` → `std.Options.debug_io`), `std.Io.Threaded` ~115 KB.
-Tracked as W48 Phase 2 — next lever is `std_options_debug_io` override
-with a minimal direct-stderr Io instance. Non-blocking.
+```bash
+git log --oneline origin/main -8        # confirm what's on main
+cat .dev/resume-guide.md                # full plan, gotchas, stop rules
+bash scripts/sync-versions.sh           # toolchain pin sanity (instant)
+bash scripts/gate-commit.sh --only=tests # smoke test
+```
 
-Next candidate work:
+The guide has three pickable work areas:
+**Plan C** (remaining seven `if: runner.os != 'Windows'` guards),
+**Plan B sub-3** (CI Nix-ify), **doc drift** (README / book /
+setup-orbstack.md).
 
-- **W47**: `tgo_strops_cached` +24% regression investigation (single-benchmark,
-  low priority). See checklist.
-- **W45**: SIMD loop persistence — skip Q-cache eviction at loop headers
-  (requires back-edge detection in `scanBranchTargets`).
-- **W48 Phase 2**: remaining 62 KB to reach 1.50 MB Linux. Non-blocking.
+When all three are exhausted, delete `.dev/resume-guide.md` and this
+"Current Task" pointer.
 
 ## Previous Task
 
-**W46 Phase 2 — DONE (2026-04-25 via PR #52).** Routed remaining `std.c.*`
-direct calls in `wasi.zig` through `platform.zig` helpers. Size-neutral on
-Linux because the `std.c.*` sites were already inside comptime-pruned
-`else` arms; pure consistency refactor.
+**Overnight 2026-04-28 → 2026-04-29.** Five PRs to main:
+
+- #60 — `flake.nix` made SSoT, `versions.lock` mirror, WASI SDK 25→30,
+  D136 in decisions.md, `.dev/environment.md` initial.
+- #61 — `scripts/gate-commit.sh`, `gate-merge.sh`, `run-bench.sh`,
+  `sync-versions.sh`, `lib/versions.sh`, `windows/install-tools.ps1`.
+- #62 — CI `versions-lock-sync` job (Merge Gate item #9 mechanised).
+- #64 — Windows memory check via PowerShell (1 of 8 Windows guards down).
+- #65 — `HYPERFINE_VERSION` sourced from versions.lock.
+
+Pre-overnight: **W48 Phase 1 — DONE (2026-04-25).** Trimmed Linux
+binary 1.64 → 1.56 MB (-83 KB) and Mac 1.38 → 1.20 MB (-180 KB) via
+three changes in `src/cli.zig`: `pub const panic =
+std.debug.simple_panic`, `std_options.enable_segfault_handler = false`
+(zwasm has its own SIGSEGV handler), and `main` returning `u8` instead
+of `!void`. Remaining 62 KB to target 1.50 MB (W48 Phase 2,
+non-blocking — `std.Io.Threaded` ~115 KB and `debug.*` 81 KB are the
+biggest contributors; lever is `std_options_debug_io` override with a
+minimal direct-stderr Io instance).
+
+**W46 Phase 2 — DONE (2026-04-25 via PR #52).** Routed remaining
+`std.c.*` direct calls in `wasi.zig` through `platform.zig` helpers.
+Size-neutral on Linux because the `std.c.*` sites were already inside
+comptime-pruned `else` arms; pure consistency refactor.
 
 ### W46 earlier phases
 
