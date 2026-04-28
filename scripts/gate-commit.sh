@@ -118,8 +118,28 @@ run_step() {
 
 step_tests()        { zig build test; }
 step_spec()         { python3 test/spec/run_spec.py --build --summary; }
-step_e2e()          { python3 test/e2e/run_e2e.py --convert --summary; }
-step_realworld()    { python3 test/realworld/run_compat.py; }
+step_e2e() {
+    # CI clones wasmtime tests/misc_testsuite per run; locally we cache
+    # it under .cache/ (gitignored) so subsequent invocations are fast.
+    local default_dir="$ZWASM_REPO_ROOT/.cache/wasmtime"
+    if [ -z "${WASMTIME_MISC_DIR:-}" ]; then
+        if [ ! -d "$default_dir/tests/misc_testsuite" ]; then
+            echo "  e2e: wasmtime misc_testsuite missing; cloning to $default_dir"
+            mkdir -p "$default_dir"
+            git clone --depth 1 --filter=blob:none --sparse \
+                https://github.com/bytecodealliance/wasmtime.git "$default_dir"
+            ( cd "$default_dir" && git sparse-checkout set tests/misc_testsuite )
+        fi
+        export WASMTIME_MISC_DIR="$default_dir/tests/misc_testsuite"
+    fi
+    python3 test/e2e/run_e2e.py --convert --summary
+}
+step_realworld() {
+    # build_all.py is idempotent (skips up-to-date wasms); chain it so
+    # run_compat.py always finds artefacts. CI runs them as separate
+    # steps because each gets its own caching/log section.
+    python3 test/realworld/build_all.py && python3 test/realworld/run_compat.py
+}
 step_ffi()          { bash test/c_api/run_ffi_test.sh --build; }
 step_bench_quick()  { bash bench/run_bench.sh --quick; }
 step_minimal()      { zig build test -Djit=false -Dcomponent=false -Dwat=false; }

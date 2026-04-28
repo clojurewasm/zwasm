@@ -68,3 +68,6 @@ test/fuzz/corpus_wat/
 
 # mdBook output (generated)
 docs/book/
+
+# scripts/gate-commit.sh local cache (wasmtime misc_testsuite, etc.)
+.cache/
