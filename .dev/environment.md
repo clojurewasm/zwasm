@@ -22,9 +22,9 @@ a version string before Nix is available (e.g. `actions/setup-zig`,
 Bumping a pin requires editing both. See **D136** in `.dev/decisions.md`
 for the rationale.
 
-A future `scripts/sync-versions.sh` (Plan B) plus a Merge Gate consistency
-check will mechanise the synchronisation. Until then it is a code-review
-concern.
+`scripts/sync-versions.sh` (run by `scripts/gate-merge.sh`) mechanises
+the consistency check; the Merge Gate item #9 in `CLAUDE.md` invokes
+it automatically.
 
 ## Required Manually (per host OS)
 
@@ -69,13 +69,21 @@ There is no `nix develop --command` wrapper to remember.
 ### Daily
 
 ```bash
-zig build test                                       # Unit tests
-python test/spec/run_spec.py --build --summary       # Spec
-python test/e2e/run_e2e.py --convert --summary       # E2E
-python test/realworld/build_all.py                   # Build real-world wasm
-python test/realworld/run_compat.py                  # Compat vs wasmtime
-bash test/c_api/run_ffi_test.sh --build              # FFI dynamic
-bash bench/run_bench.sh --quick                      # Quick bench
+bash scripts/gate-commit.sh        # Commit Gate (steps 1-5 + 8)
+bash scripts/gate-commit.sh --bench # + quick bench
+bash scripts/gate-merge.sh         # Merge Gate (Commit + sync + CI check)
+bash scripts/run-bench.sh --quick  # Bench wrapper
+bash scripts/sync-versions.sh      # Manual versions.lock ↔ flake.nix check
+```
+
+Individual commands still work for ad-hoc loops:
+
+```bash
+zig build test
+python test/spec/run_spec.py --build --summary
+python test/e2e/run_e2e.py --convert --summary
+python test/realworld/build_all.py && python test/realworld/run_compat.py
+bash test/c_api/run_ffi_test.sh --build
 ```
 
 The full Commit Gate / Merge Gate checklist lives in `CLAUDE.md`.
@@ -195,24 +203,20 @@ called out in `flake.nix` as a comment.)
 
 ## CI ↔ Local Gate Mapping
 
-Today, CI installs each tool individually rather than entering a Nix
-devshell, so local and CI run "the same gates" only by convention. Plan B
-collapses this onto a shared `scripts/gate-*.sh` family of entry points
-that both contexts invoke identically.
+| Gate                                  | Local                                  | CI (current)                                   |
+|---------------------------------------|----------------------------------------|------------------------------------------------|
+| Commit Gate (CLAUDE.md items 1-5+8)   | `bash scripts/gate-commit.sh`          | `ci.yml > test` job (3 OS, runs same commands) |
+| Merge Gate (Mac + Ubuntu both clean)  | `bash scripts/gate-merge.sh` (Mac + OrbStack Ubuntu) | `ci.yml > test` (3 OS) + `size-matrix` |
+| Bench (regression + record)           | `bash scripts/run-bench.sh`            | `ci.yml > benchmark` (Ubuntu only today)       |
+| Nightly fuzz                          | `bash test/fuzz/fuzz_overnight.sh`     | `nightly.yml > fuzz`                           |
 
-| Gate                                  | Local (today)                          | CI (today)                                   | Future (Plan B)                              |
-|---------------------------------------|----------------------------------------|----------------------------------------------|----------------------------------------------|
-| Commit Gate (CLAUDE.md items 0-8)     | Hand-run individual commands           | `ci.yml > test` job                          | `bash scripts/gate-commit.sh` everywhere     |
-| Merge Gate (Mac + Ubuntu both clean)  | Manual checklist + OrbStack            | `ci.yml > test` (3 OS) + `size-matrix`       | `bash scripts/gate-merge.sh` + versions.lock check |
-| Bench (regression + record)           | `bash bench/run_bench.sh`              | `ci.yml > benchmark` (Ubuntu only)           | `bash scripts/run-bench.sh` (Linux reference + Windows record-only) |
-| Nightly fuzz                          | `bash test/fuzz/fuzz_overnight.sh`     | `nightly.yml > fuzz`                         | Same scripts; Linux/Mac under `nix develop`  |
-
-In Plan B, CI on Linux/macOS will use
+A future PR will switch CI Linux/macOS jobs to
 `DeterminateSystems/nix-installer-action` +
-`DeterminateSystems/magic-nix-cache-action`, then call the gate scripts
-under `nix develop --command`. Windows CI will run
-`scripts/windows/install-tools.ps1` (which reads `versions.lock`) and
-then call the same gate scripts under Git Bash.
+`DeterminateSystems/magic-nix-cache-action`, calling the same gate
+scripts under `nix develop --command`. Windows CI will then run
+`scripts/windows/install-tools.ps1` (reads `versions.lock`) and then
+the gate scripts under Git Bash. This ensures CI and local invoke
+the exact same commands.
 
 ## References
 

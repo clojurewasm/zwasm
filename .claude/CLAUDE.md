@@ -81,18 +81,21 @@ When in doubt, **continue**.
 
 ### Commit Gate Checklist
 
+**One-liner**: `bash scripts/gate-commit.sh` runs items 1-5 + 8 in order.
+Add `--bench` for item 6, `--only=NAME` / `--skip=NAME` to scope.
+
 0. **TDD**: Test written/updated BEFORE production code (skip for doc-only)
 1. **Tests**: `zig build test` — all pass, 0 fail, 0 leak
 2. **Spec tests**: `python3 test/spec/run_spec.py --build --summary` — fail=0, skip=0
    (Required when modifying vm.zig, predecode.zig, regalloc.zig, opcode.zig, module.zig, wasi.zig, validate.zig)
-3. **E2E tests**: `bash test/e2e/run_e2e.sh --convert --summary` — fail=0, leak=0
+3. **E2E tests**: `python3 test/e2e/run_e2e.py --convert --summary` — fail=0, leak=0
    (Required when modifying interpreter/opcodes)
-4. **Real-world compat**: `bash test/realworld/run_compat.sh` — PASS=50, FAIL=0, CRASH=0
+4. **Real-world compat**: `python3 test/realworld/run_compat.py` — PASS=50, FAIL=0, CRASH=0
    (Required when modifying vm/wasi/JIT)
 5. **FFI tests**: `bash test/c_api/run_ffi_test.sh --build` — 0 failed
    (Required when modifying c_api.zig, build.zig lib targets, or include/zwasm.h)
 6. **Benchmarks**: Required for optimization/JIT tasks.
-   - Quick check: `bash bench/run_bench.sh --quick`
+   - Quick check: `bash scripts/run-bench.sh --quick`
    - **Record**: `bash bench/record.sh --id=ID --reason="REASON"` (appends to history.yaml)
 7. **Size guard**: Binary ≤ 1.60 MB stripped (Linux ELF ~1.56 MB; Mac ~1.20 MB),
    memory ≤ 4.5 MB RSS. Originally 1.50 MB on Zig 0.15; raised to 1.80 MB
@@ -103,24 +106,24 @@ When in doubt, **continue**.
 8. **Minimal build** (when adding tests): `zig build test -Djit=false -Dcomponent=false -Dwat=false`
    Tests using WAT must guard with `if (!build_options.enable_wat) return error.SkipZigTest;`
    Tests using JIT must guard with `if (!build_options.enable_jit) return error.SkipZigTest;`
-8. **decisions.md / checklist.md / spec-support.md / memo.md**: Update as needed
+9. **decisions.md / checklist.md / spec-support.md / memo.md**: Update as needed
 
 ### Merge Gate Checklist
 
-**EVERY item on BOTH Mac AND Ubuntu x86_64.** No skipping.
+**One-liner**: `bash scripts/gate-merge.sh` runs the Commit Gate +
+items 8-9. Run on **BOTH Mac AND Ubuntu x86_64**. No skipping.
 (see `@./.dev/references/ubuntu-testing-guide.md`, setup: `@./.dev/references/setup-orbstack.md`)
 
 1. `zig build test` — all pass, 0 fail, 0 leak
 2. `python3 test/spec/run_spec.py --build --summary` — fail=0, skip=0
-3. `bash test/e2e/run_e2e.sh --convert --summary` — fail=0, leak=0
-4. `bash test/realworld/run_compat.sh` — PASS=50, FAIL=0, CRASH=0
+3. `python3 test/e2e/run_e2e.py --convert --summary` — fail=0, leak=0
+4. `python3 test/realworld/run_compat.py` — PASS=50, FAIL=0, CRASH=0
 5. `bash test/c_api/run_ffi_test.sh --build` — 0 failed
 6. `zig build test -Djit=false -Dcomponent=false -Dwat=false` — 0 fail (minimal build)
 7. Benchmarks pass (no regression)
 8. **CI green**: `gh run list --branch main --limit 1` — check after push
-9. **versions.lock ↔ flake.nix consistency** — bumped pins exist in both files
-   (Plan B will mechanise this with `scripts/sync-versions.sh`; until then,
-   review the diff manually when either file changes.)
+9. **versions.lock ↔ flake.nix consistency**: `bash scripts/sync-versions.sh`
+   exits 0. Run automatically by `gate-merge.sh`.
 
 Items 1-6 must pass on BOTH platforms before merge. Run them in parallel:
 Mac items can run locally, Ubuntu items via `orb run -m my-ubuntu-amd64`.
