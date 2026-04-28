@@ -96,7 +96,7 @@ This document describes the execution pipeline and file organization.
 | File | Description |
 |------|-------------|
 | `build.zig` | Build system — targets, feature flags (`-Dwat`, `-Doptimize`) |
-| `.github/tool-versions` | Centralized CI tool versions |
+| `.github/versions.lock` | Centralized pinned tool versions (mirror of flake.nix) |
 
 ## Test Suites
 

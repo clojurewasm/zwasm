@@ -20,7 +20,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          source .github/tool-versions
+          source .github/versions.lock
           CURRENT="$WASM_TOOLS_VERSION"
           LATEST=$(gh api repos/bytecodealliance/wasm-tools/releases/latest --jq '.tag_name' | sed 's/^v//')
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
@@ -30,7 +30,7 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "Update available: $CURRENT -> $LATEST"
-            sed -i "s/WASM_TOOLS_VERSION=.*/WASM_TOOLS_VERSION=$LATEST/" .github/tool-versions
+            sed -i "s/WASM_TOOLS_VERSION=.*/WASM_TOOLS_VERSION=$LATEST/" .github/versions.lock
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -43,7 +43,7 @@ jobs:
       - name: Install new wasm-tools
         if: steps.check.outputs.changed == 'true'
         run: |
-          source .github/tool-versions
+          source .github/versions.lock
           ARCH=$(uname -m)
           curl -L --retry 3 --retry-delay 5 -f -o /tmp/wasm-tools.tar.gz \
             "https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VERSION}/wasm-tools-${WASM_TOOLS_VERSION}-${ARCH}-linux.tar.gz"
@@ -72,7 +72,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add .github/tool-versions
+          git add .github/versions.lock
           git commit -m "Bump wasm-tools ${CURRENT} -> ${LATEST}"
           git push --force-with-lease origin "$BRANCH"
           EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")

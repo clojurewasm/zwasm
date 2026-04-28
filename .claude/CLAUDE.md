@@ -118,10 +118,15 @@ When in doubt, **continue**.
 6. `zig build test -Djit=false -Dcomponent=false -Dwat=false` — 0 fail (minimal build)
 7. Benchmarks pass (no regression)
 8. **CI green**: `gh run list --branch main --limit 1` — check after push
+9. **versions.lock ↔ flake.nix consistency** — bumped pins exist in both files
+   (Plan B will mechanise this with `scripts/sync-versions.sh`; until then,
+   review the diff manually when either file changes.)
 
 Items 1-6 must pass on BOTH platforms before merge. Run them in parallel:
 Mac items can run locally, Ubuntu items via `orb run -m my-ubuntu-amd64`.
 Fix root cause before merging if Ubuntu reveals new failures.
+
+Environment setup, tool versions, and CI ↔ local mapping: `@./.dev/environment.md`.
 
 ## Build & Test
 
@@ -201,5 +206,6 @@ Development: `@./.claude/rules/reliability-work.md` (auto-loads on src/test/benc
 Roadmap: `@./.dev/roadmap.md` (zwasm phases) + `@./private/future/03_zwasm_clojurewasm_roadmap_ja.md` (integrated).
 Allocator injection: `@./.dev/archive/allocator-injection-plan.md` — Phase 11 design + task breakdown (D128, completed in v1.5.0; archived).
 SIMD performance: `@./.dev/decisions.md` → D132 — two-phase SIMD optimization plan (W43 addr cache, W44 reg class).
+Environment: `@./.dev/environment.md` — Mac/Linux/Windows setup, tool versions, CI ↔ local mapping (D136).
 Ubuntu testing: `@./.dev/references/ubuntu-testing-guide.md` — OrbStack VM test commands.
 OrbStack setup: `@./.dev/references/setup-orbstack.md` — VM creation and tool installation.

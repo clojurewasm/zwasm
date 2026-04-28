@@ -60,7 +60,7 @@ jobs:
 
       - name: Setup Rust
         run: |
-          source .github/tool-versions
+          source .github/versions.lock
           rustup install "$RUST_VERSION" --no-self-update
           rustup default "$RUST_VERSION"
           rustup target add wasm32-wasip1
@@ -80,7 +80,7 @@ jobs:
 
       - name: Install wasm-tools
         run: |
-          source .github/tool-versions
+          source .github/versions.lock
           cargo install wasm-tools --locked --version "$WASM_TOOLS_VERSION"
 
       - name: Download WebAssembly spec testsuite
@@ -158,7 +158,7 @@ jobs:
 
       - name: Install wasmtime
         run: |
-          source .github/tool-versions
+          source .github/versions.lock
           if [ "${{ runner.os }}" = "macOS" ]; then
             ARCH="aarch64"; OS="macos"; EXT="tar.xz"; BIN_NAME="wasmtime"
           elif [ "${{ runner.os }}" = "Windows" ]; then
@@ -181,7 +181,7 @@ jobs:
       - name: Install WASI SDK
         if: runner.os != 'Windows'
         run: |
-          source .github/tool-versions
+          source .github/versions.lock
           if [ "${{ runner.os }}" = "macOS" ]; then
             ARCH="arm64"; OS="macos"
           else
@@ -201,7 +201,7 @@ jobs:
           import tarfile
           import urllib.request
 
-          tool_versions = pathlib.Path(".github/tool-versions").read_text(encoding="utf-8").splitlines()
+          tool_versions = pathlib.Path(".github/versions.lock").read_text(encoding="utf-8").splitlines()
           wasi_sdk_version = next(
               line.split("=", 1)[1].strip().strip('"')
               for line in tool_versions

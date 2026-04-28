@@ -1,0 +1,35 @@
+# versions.lock — single mirror of pinned tool versions used by zwasm.
+#
+# Source of truth: flake.nix (Linux/macOS via nix devshell + direnv).
+# This file mirrors the same pins for environments that cannot use Nix —
+# primarily Windows native installs and CI workflow steps that need a
+# version string before nix is available. Sourced as a bash file
+# (`source .github/versions.lock`) and read by Python via splitlines().
+#
+# Update process (until scripts/sync-versions.sh lands):
+#   1. Bump the value below
+#   2. If the pin lives in flake.nix (Zig, WASI SDK), update flake.nix too
+#   3. Run zig build test + the relevant gates locally
+#
+# Categories:
+#   [enforced] CI / install scripts read this value to fetch the tool
+#   [planned]  Will be enforced once Plan B introduces a Windows installer
+#              and Plan C extends Windows CI coverage. Values track
+#              flake.lock today.
+
+# === [enforced] tools ===
+
+ZIG_VERSION=0.16.0           # mirrors flake.nix zigArchInfo
+WASM_TOOLS_VERSION=1.246.1   # cargo install in ci.yml
+WASMTIME_VERSION=42.0.1      # release zip download in ci.yml
+WASI_SDK_VERSION=30          # mirrors flake.nix wasiSdkArchInfo (Linux/macOS/Windows tarballs)
+RUST_VERSION=stable          # rustup install in ci.yml
+
+# === [planned] tools (informational; not yet read by any script) ===
+
+HYPERFINE_VERSION=1.18.0     # bench job DEB download in ci.yml; will move into Windows installer
+GO_VERSION=1.25.5            # tracks current flake.lock nixpkgs revision
+TINYGO_VERSION=0.40.1        # tracks current flake.lock nixpkgs revision
+NODEJS_VERSION=24.13.0       # tracks current flake.lock nixpkgs revision
+BUN_VERSION=1.3.8            # tracks current flake.lock nixpkgs revision
+PYTHON_VERSION=3.13          # mirrors flake.lock python3 minor; CI uses actions/setup-python with 3.x

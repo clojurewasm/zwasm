@@ -213,22 +213,23 @@ easy to forget, causing silent drift from upstream.
    `.github/spec-sha` marker file.
 
 2. **wasm-tools bump** (`wasm-tools-bump.yml`): Monthly (1st, 05:00 UTC). Queries
-   GitHub API for latest release, updates `.github/tool-versions`, runs tests,
+   GitHub API for latest release, updates `.github/versions.lock`, runs tests,
    creates PR if they pass.
 
 3. **SpecTec monitor** (`spectec-monitor.yml`): Weekly (Monday 06:00 UTC). Checks
    for changes in `document/core/` or `spectec/` directories. Creates GitHub issue
    (with dedup) if changes found. Advisory only — no auto-merge.
 
-**Centralized versions**: `.github/tool-versions` stores WASM_TOOLS_VERSION,
+**Centralized versions**: `.github/versions.lock` stores WASM_TOOLS_VERSION,
 WASMTIME_VERSION, WASI_SDK_VERSION. All workflows `source` this file instead of
-hardcoding versions. Single-file version bumps.
+hardcoding versions. Single-file version bumps. (Renamed from `tool-versions`
+in D136 when it became the cross-environment mirror of flake.nix pins.)
 
 **Trade-off**: Auto-PRs require manual review before merge. Acceptable: version
 bumps can introduce subtle behavior changes. Nightly workflow re-enabled as weekly
 (Wednesday 03:00 UTC) to catch regressions without burning CI minutes daily.
 
-Affected files: `.github/tool-versions`, `.github/workflows/ci.yml`,
+Affected files: `.github/versions.lock`, `.github/workflows/ci.yml`,
 `.github/workflows/nightly.yml`, `.github/workflows/spec-bump.yml`,
 `.github/workflows/wasm-tools-bump.yml`, `.github/workflows/spectec-monitor.yml`
 
@@ -742,4 +743,105 @@ iterations — symptoms consistent with the Threaded scheduler being torn down
 too early even though the variable was still in scope. Using `init.io`
 (supplied by `start.zig`) avoids this entirely. Use init.io for top-level
 binaries; use a freshly constructed Threaded only when the scope is bounded.
+
+---
+
+## D136: Nix flake as toolchain SSoT, with `versions.lock` as the cross-environment mirror
+
+**Context**: Three separate places independently described "the toolchain
+zwasm builds against": (1) `flake.nix` for `nix develop` + direnv on
+Linux/macOS, (2) the old `.github/tool-versions` for a handful of CI
+pins, (3) ad-hoc CI YAML literals for everything else (Zig action input,
+hyperfine DEB URL, etc.). Drift was already present — the local nix
+devshell delivered `wasi-sdk-30`, while CI consumed `WASI_SDK_VERSION=25`
+through `tool-versions`, so realworld C/C++ builds in PRs were never
+validated against the SDK developers ran locally. With Windows joining
+the supported matrix as a first-class environment (W## tracking item)
+and Nix unable to run natively on Windows, the model needed an explicit
+SSoT plus a sanctioned mirror, not three drifting copies.
+
+**Decision**:
+
+1. **`flake.nix` is the single source of truth for Linux and macOS**, both
+   for local development (via `.envrc` → `use flake .`) and for CI once
+   Plan B lands. Pinned tools that Nix manages directly (Zig, WASI SDK)
+   carry their version + URL + sha256 inside `flake.nix`.
+
+2. **`.github/versions.lock`** (renamed from `tool-versions`) is the mirror
+   for environments that cannot consume Nix:
+
+   - Windows native installer scripts (Plan B)
+   - CI workflow steps that need a string before Nix is available
+     (`actions/setup-zig` input, `cargo install --version`, release ZIP URLs)
+
+   The file is bash-sourceable (`source .github/versions.lock`) and also
+   read by Python via `splitlines()`. It carries every pin a non-Nix
+   consumer might need, even ones currently only fetched by Nix on
+   Linux/Mac, so the Windows installer can stay symmetric.
+
+3. **Update discipline**: bumping a pin requires editing both
+   `flake.nix` (when applicable) and `versions.lock`. A future
+   `scripts/sync-versions.sh` (Plan B) plus a Merge Gate consistency
+   check will mechanise this — until then it is a code-review concern.
+
+4. **No WSL fallback for Windows.** The whole point of the Windows
+   matrix entry is to validate native PE/COFF + MSVC behaviour. Routing
+   Windows through WSL2 + Nix would re-test Linux, not Windows. Windows
+   uses native tooling installed via winget / direct release ZIPs whose
+   versions are dictated by `versions.lock`.
+
+5. **Future shape (Plan B + C, separate PRs)**:
+
+   - `scripts/gate-commit.sh`, `scripts/gate-merge.sh`,
+     `scripts/run-bench.sh` become the unified entry points. They run
+     identically locally and in CI; each is invoked under
+     `nix develop --command` on Linux/Mac and natively under Git Bash
+     on Windows.
+   - CI Linux/Mac jobs adopt
+     `DeterminateSystems/nix-installer-action` +
+     `DeterminateSystems/magic-nix-cache-action` and call those scripts.
+   - CI Windows job runs `scripts/windows/install-tools.ps1` (reads
+     `versions.lock`) then the same gate scripts under bash.
+   - `ci.yml`'s eleven `if: runner.os != 'Windows'` skips become
+     individual no-skip targets (Plan C: shared-lib DLL, FFI tests,
+     static link, binary size via `zig objcopy --strip-all`, memory
+     check via PowerShell, size-matrix OS-fanout, benchmark Windows
+     record-only).
+
+**Alternatives considered**:
+
+- **Single `flake.nix` only, no mirror file.** Rejected — Windows cannot
+  consume `flake.nix`, and having CI YAML hardcode versions independently
+  reproduces the drift problem we just fixed.
+- **Replace `tool-versions` with `flake.lock` direct queries** (e.g.
+  `nix eval`). Rejected for now — needs Nix on the consumer, which
+  defeats the Windows use case. May revisit when Plan B's
+  `scripts/sync-versions.sh` is in place; a non-Nix pre-rendered lock
+  is friendlier to humans reading PRs.
+- **Drop the Windows native matrix entry, use WSL only.** Rejected per
+  point 4.
+
+**Bumping WASI SDK 25 → 30 in this PR**: not a separate decision — it is
+the immediate consequence of declaring `flake.nix` (already at 30) the
+SSoT. Verified locally with `python test/realworld/build_all.py --force`
+and `run_compat.py` (50 PASS / 0 FAIL / 0 CRASH, 2026-04-29).
+
+**Affected files (this PR / Plan A)**: `.github/versions.lock` (renamed
+from `tool-versions`, expanded with `ZIG_VERSION` and `[planned]`
+informational pins), `.github/workflows/ci.yml`,
+`.github/workflows/nightly.yml`, `.github/workflows/spec-bump.yml`,
+`.github/workflows/wasm-tools-bump.yml`, `ARCHITECTURE.md`,
+`.dev/environment.md` (new), `CLAUDE.md` (Merge Gate addendum).
+
+**Affected files (Plan B, separate PR)**: `scripts/lib/versions.sh`,
+`scripts/sync-versions.sh`, `scripts/gate-commit.sh`,
+`scripts/gate-merge.sh`, `scripts/run-bench.sh`,
+`scripts/windows/install-tools.ps1`, `flake.nix` (pin wasm-tools /
+wasmtime / hyperfine explicitly), `ci.yml` refactor.
+
+**Affected files (Plan C, separate PR)**: `test/c_api/run_ffi_test.sh`
+(Windows DLL + LoadLibraryA), `test/c_api/test_ffi.c` (Win32 path),
+`examples/rust/build.rs` (Windows), CI binary-size step
+(`zig objcopy --strip-all`), CI memory check (PowerShell), `size-matrix`
++ `benchmark` jobs (OS fanout).
 

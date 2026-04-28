@@ -46,7 +46,7 @@ jobs:
       - name: Install wasm-tools
         if: steps.update.outputs.changed == 'true'
         run: |
-          source .github/tool-versions
+          source .github/versions.lock
           ARCH=$(uname -m)
           curl -L --retry 3 --retry-delay 5 -f -o /tmp/wasm-tools.tar.gz \
             "https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VERSION}/wasm-tools-${WASM_TOOLS_VERSION}-${ARCH}-linux.tar.gz"
