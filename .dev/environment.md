@@ -188,7 +188,6 @@ incompatibility — every one is a script-side limitation:
 
 | Step                                    | Blocker                                                 | Fix shape                                                  |
 |-----------------------------------------|---------------------------------------------------------|------------------------------------------------------------|
-| `zig build shared-lib`                  | None known; just gated                                  | Drop `if:`                                                 |
 | `test/c_api/run_ffi_test.sh`            | `gcc -ldl -pthread`, `dlfcn.h` in `test_ffi.c`          | Branch for `LoadLibraryA` + `GetProcAddress` (~50 lines C) |
 | `examples/rust` `cargo run`             | `build.rs` solves dynamic-lib path Linux/Mac only       | Add Windows branch in `build.rs`                           |
 | `zig build static-lib` + static link    | Shell script assumes `cc`                               | Branch by `RUNNER_OS`                                      |
@@ -197,7 +196,10 @@ incompatibility — every one is a script-side limitation:
 | `benchmark` job                         | `hyperfine` install via DEB; `bench/ci_compare.sh` GNU dependencies | Add Windows install step + audit ci_compare.sh portability |
 
 (Memory check is no longer in this table — PR #64 added a PowerShell
-`Process.PeakWorkingSet64` branch for the Windows runner.)
+`Process.PeakWorkingSet64` branch for the Windows runner. `zig build
+shared-lib` is no longer in this table — the guard was a no-op since
+Zig produces `zwasm.dll` + `zwasm.lib` natively from
+`addLibrary({.linkage = .dynamic})`.)
 
 ## Nix devshell contents (current)
 

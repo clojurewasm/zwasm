@@ -60,7 +60,6 @@ jobs:
         run: zig build c-test
 
       - name: Build shared library
-        if: runner.os != 'Windows'
         run: zig build shared-lib
 
       - name: Run FFI tests (shared library)
