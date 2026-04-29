@@ -39,6 +39,10 @@ behaviour change for embedders.**
 - Memory usage check on Windows via PowerShell `Process.PeakWorkingSet64`
   — first of the eight Windows-skip CI guards removed. Same 4.5 MB
   budget as the POSIX path. (#64)
+- `zig build shared-lib` now runs on Windows in CI. Zig produces
+  `zwasm.dll` + `zwasm.lib` natively from
+  `addLibrary({.linkage = .dynamic})` — the old guard was a no-op.
+  Plan C-a.
 
 ### Changed
 - WASI SDK version bumped 25 → 30 to align CI with `flake.nix` (which

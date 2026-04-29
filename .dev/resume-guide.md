@@ -99,7 +99,6 @@ the full table; ordered here by safety / value.
 
 | Id  | Guard                                       | Work                                                                                          | Risk   |
 |-----|---------------------------------------------|-----------------------------------------------------------------------------------------------|--------|
-| C-a | `zig build shared-lib`                      | Drop the guard; verify `zig-out\bin\zwasm.dll` + `.lib` produced. No script change.           | Low    |
 | C-d | `zig build static-lib` + static link tests  | Replace `cc` with `zig cc` in `test/c_api/run_static_link_test.sh`; branch on `RUNNER_OS`.    | Low    |
 | C-c | `examples/rust` `cargo run`                 | Add Windows arm to `examples/rust/build.rs` for the dynamic library lookup; remove guard.     | Medium |
 | C-e | Binary size check (uses GNU `strip`)        | Expose `-Dstrip=true` in build.zig; CI does `zig build -Dstrip=true -Doptimize=ReleaseSafe` and reads the binary directly. ELF/Mach-O/PE all handled by the Zig toolchain. | Medium |
@@ -107,7 +106,10 @@ the full table; ordered here by safety / value.
 | C-b | `test/c_api/run_ffi_test.sh`                | Port `test/c_api/test_ffi.c` to use `LoadLibraryA` + `GetProcAddress` on Windows; `.dll` path branch in the shell script. ~50 lines C + 10 lines shell. | High   |
 | C-g | `benchmark` Ubuntu-only                     | hyperfine Windows zip install + `bench/ci_compare.sh` GNU dependency audit (`/usr/bin/time`, `awk`, `comm`). Likely invasive. | High   |
 
-Suggested order: **C-a → C-d → C-e → C-f → C-c → C-b → C-g**.
+Suggested order: **C-d → C-e → C-f → C-c → C-b → C-g**. (C-a landed
+post-2026-04-29 — `zig build shared-lib` on Windows produces
+`zwasm.dll` + `zwasm.lib` natively from
+`addLibrary({.linkage = .dynamic})`; guard was a no-op.)
 
 After each removal: check `gate-commit.sh` no longer needs the
 matching auto-skip in `scripts/gate-commit.sh:case "$HOST_KIND"`.
