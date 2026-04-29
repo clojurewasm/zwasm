@@ -28,21 +28,21 @@
 ZIG_VERSION=0.16.0
 # cargo install in ci.yml.
 WASM_TOOLS_VERSION=1.246.1
-# Release zip download in ci.yml.
+# Release zip download in ci.yml; install-tools.ps1 release zip on Windows.
 WASMTIME_VERSION=42.0.1
 # Mirrors flake.nix wasiSdkArchInfo (Linux/macOS/Windows tarballs).
 WASI_SDK_VERSION=30
-# rustup install in ci.yml.
+# rustup install in ci.yml; install-tools.ps1 rustup-init toolchain on Windows.
 RUST_VERSION=stable
+# bench job DEB download in ci.yml.
+HYPERFINE_VERSION=1.18.0
+# install-tools.ps1 release zip on Windows; Nix devshell on Linux/macOS.
+GO_VERSION=1.25.5
+# install-tools.ps1 release zip on Windows; Nix devshell on Linux/macOS.
+TINYGO_VERSION=0.40.1
 
 # === [planned] tools (informational; not yet read by any script) ===
 
-# bench job DEB download in ci.yml; will move into Windows installer.
-HYPERFINE_VERSION=1.18.0
-# Tracks current flake.lock nixpkgs revision.
-GO_VERSION=1.25.5
-# Tracks current flake.lock nixpkgs revision.
-TINYGO_VERSION=0.40.1
 # Tracks current flake.lock nixpkgs revision.
 NODEJS_VERSION=24.13.0
 # Tracks current flake.lock nixpkgs revision.
