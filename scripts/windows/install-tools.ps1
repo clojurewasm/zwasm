@@ -35,6 +35,12 @@
 [CmdletBinding()]
 param(
     [switch]$Force,
+    # When set, skip the rust install entirely. CI runners ship with
+    # rustup pre-installed and are happy to `rustup target add
+    # wasm32-wasip1` directly; calling install-tools.ps1 with
+    # -SkipRust avoids re-bootstrapping a self-contained rustup tree
+    # under %LOCALAPPDATA%\zwasm-tools\rust-stable\.
+    [switch]$SkipRust,
     [ValidateSet('zig', 'wasm-tools', 'wasmtime', 'wasi-sdk', 'rust', 'go', 'tinygo', 'all')]
     [string]$OnlyTool = 'all'
 )
@@ -308,7 +314,7 @@ function Install-Rustup {
     return $stampedDir
 }
 
-if ($OnlyTool -in @('all', 'rust')) {
+if ($OnlyTool -in @('all', 'rust') -and -not $SkipRust) {
     $rustToolchain = $versions.RUST_VERSION  # e.g. 'stable'
     $rustRoot = Install-Rustup -Toolchain $rustToolchain -InstallRoot $installRoot
     $paths['rust'] = $rustRoot
