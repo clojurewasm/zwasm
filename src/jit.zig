@@ -1161,6 +1161,15 @@ pub const Compiler = struct {
     /// Branch / loop / liveness analysis owned by the compile, freed at end.
     /// Populated by `LoopInfo.analyse` at the start of `compileMain`.
     loop_info: LoopInfo = .{},
+    /// Phase 3+: physical register reserved for loop-invariant value hoists
+    /// (magic divisor constants today; loop-invariant addresses later).
+    /// `null` when no hoist is profitable or no callee-saved slot is free.
+    /// Set by `pickHoistPhys` during prologue analysis.
+    hoist_phys: ?u8 = null,
+    /// True when `hoist_phys` displaced `inst_ptr_cached` (i.e., x21 is being
+    /// used as the hoist register and inst_ptr now lives in regs[] memory).
+    /// Drives the self-call entry block to spill inst_ptr unconditionally.
+    hoist_displaced_inst_ptr: bool = false,
 
     const FastPathInfo = struct {
         param_offset: u16,

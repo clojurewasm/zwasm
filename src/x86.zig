@@ -1735,6 +1735,13 @@ pub const Compiler = struct {
     /// Branch / loop / liveness analysis owned by the compile, freed at end.
     /// Populated by `LoopInfo.analyse` at the start of `compileMain`.
     loop_info: LoopInfo = .{},
+    /// Phase 3+: physical register reserved for loop-invariant value hoists.
+    /// See jit.zig sibling field for full semantics.
+    hoist_phys: ?u8 = null,
+    /// True when `hoist_phys` carved a register out of the infrastructure
+    /// budget (e.g., MEM_SIZE on functions without memory ops). x86-only
+    /// counterpart of jit.zig's `hoist_displaced_inst_ptr`.
+    hoist_displaced_infra: bool = false,
 
     const Patch = struct {
         rel32_offset: u32, // byte offset of the rel32 field in code
