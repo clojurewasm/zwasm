@@ -23,28 +23,56 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**Plan A + Plan B sub-1+2 + Plan C alpha + handoff/cleanup shipped
-(2026-04-29).** PRs #60, #61, #62, #64, #65, #66, #67 merged. main
-is green on all three OS matrix entries. Detailed state, hard-won
-facts, residual work, and the per-session autonomy rules live in
-**`@./.dev/resume-guide.md`** — read that first on a new session.
+**Plan C effectively complete + W52 + D137 shipped
+(2026-04-29 PM).** Six new PRs to main on top of the morning's
+seven (#60..#67):
+
+- **#68** Plan C-a — `zig build shared-lib` Windows guard removed.
+- **#69** Plan C-d — `zig build static-lib` + static-link tests on
+  Windows (script switched to `zig cc`; `zwasm.lib` path).
+- **#70** Plan C-e + C-f — `-Dstrip=true` build option +
+  `size-matrix` 3-OS matrix; per-OS size ceilings
+  (Mac 1.30 / Linux 1.60 / Windows 1.80 MB).
+- **#71** Plan C-c — `examples/rust/build.rs` Windows arm
+  (DLL copy alongside cargo target binary; `zwasm.lib` static).
+- **#72** Plan C-b — `test/c_api/test_ffi.c` ported to Win32
+  (LoadLibraryA / CreateThread / `_pipe`); runner uses `zig cc`;
+  `gate-commit.sh` no longer auto-skips `ffi` on Windows.
+- **#73** D137 — architectural decision recorded for the C-e + C-f
+  per-OS ceilings + LLD-strip approach.
+
+`Plan C` tracker is empty except **C-g** (benchmark Ubuntu-only),
+which is intentionally Ubuntu-only per `CLAUDE.md`'s bench policy
+(Mac M4 Pro `bench/history.yaml` is the absolute baseline; CI bench
+is the Ubuntu-vs-Ubuntu regression guard). Treating C-g as
+"effectively done" until the user explicitly wants it formally
+closed.
+
+In flight: **#74 W52** — `scripts/windows/install-tools.ps1`
+extended with rustup-init + Go + TinyGo, closing the local
+realworld 25/50 → 50/50 gap on Windows. CI Windows runner stays
+25/25 because GitHub-hosted runner uses its own per-job `Setup
+Rust` step; CI adoption is W50 / Plan B sub-3.
+
+Per-merge `bench/history.yaml` rows recorded on Mac M4 Pro for
+each of #68..#73; the same will follow #74 once it lands.
 
 Quick orientation if continuing:
 
 ```bash
-git log --oneline origin/main -8        # confirm what's on main
+git log --oneline origin/main -10       # confirm what's on main
 cat .dev/resume-guide.md                # full plan, gotchas, stop rules
 bash scripts/sync-versions.sh           # toolchain pin sanity (instant)
 bash scripts/gate-commit.sh --only=tests # smoke test
 ```
 
-The guide has three pickable work areas:
-**Plan C** (remaining seven `if: runner.os != 'Windows'` guards),
-**Plan B sub-3** (CI Nix-ify), **doc drift** (README / book /
-setup-orbstack.md).
+The guide has two pickable work areas now:
+**Plan B sub-3** (CI Nix-ify; large, supervised PR) and any
+follow-up cleanup. Plan C is essentially exhausted (only the
+intentional C-g remains).
 
-When all three are exhausted, delete `.dev/resume-guide.md` and this
-"Current Task" pointer.
+When Plan B sub-3 also lands, delete `.dev/resume-guide.md` and
+this "Current Task" pointer.
 
 ## Previous Task
 
