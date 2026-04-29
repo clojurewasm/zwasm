@@ -25,7 +25,6 @@ for arg in "$@"; do
     esac
 done
 
-LIB="zig-out/lib/libzwasm.a"
 PASS=0
 FAIL=0
 TOTAL=0
@@ -39,9 +38,13 @@ case "$UNAME_S" in
 esac
 
 if [ "$HOST_OS" = "Windows" ]; then
+    # Zig produces `zwasm.lib` (MSVC convention, no `lib` prefix) for
+    # `addLibrary({.linkage = .static})` on Windows.
+    LIB="zig-out/lib/zwasm.lib"
     BIN_EXT=".exe"
     TMP_DIR="${TEMP:-/tmp}"
 else
+    LIB="zig-out/lib/libzwasm.a"
     BIN_EXT=""
     TMP_DIR="/tmp"
 fi
