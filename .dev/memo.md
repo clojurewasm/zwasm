@@ -23,7 +23,40 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**W53 done. C-g foundation + Mac/Ubuntu baselines done.** Ship-overnight
+**W54 ARM64 closed via `develop/w54-loop-pass-redesign`.** Six commits
+on the branch, ready for Mac+Ubuntu Merge Gate and squash-merge:
+
+- Phase 0 (`b65477a`): lift `scanBranchTargets` into shared
+  `src/loop_info.zig`. Behaviour-neutral; both backends consume.
+- Phase 1 (`98287ae`): per-vreg `first_def[]` / `last_use[]` on
+  `LoopInfo`. Conservative reads. Behaviour-neutral; ground for
+  Phase 5.
+- Phase 2 (`1600397`): scaffold `hoist_phys: ?u8` +
+  `hoist_displaced_inst_ptr` fields on both Compilers.
+  Behaviour-neutral.
+- Phase 3 (`c4b806e`): ARM64 magic-constant hoist. `pickHoistPhys`
+  picks x26→x22 if free, else displaces `inst_ptr_cached` to use
+  x21 (forces inst_ptr → regs[] LDR at every emitLoadInstPtr site).
+  Magic loaded once in prologue; `tryEmitDivByConstU32` /
+  `tryEmitRemByConstU32` short-circuit.
+- Phase 5 (`ec8182f`): liveness-driven mov coalescing in
+  `regalloc.copyPropagate`. Stops at first redef; bails on branch
+  targets, forward branches (BR / BR_IF / BR_IF_NOT — required to
+  fix `rust_regex` regression), multi-source ops (CALL /
+  CALL_INDIRECT / BR_TABLE / RETURN_MULTI / memory.fill /
+  memory.copy). Opcode classification helpers exported from
+  `regalloc.zig` for shared use.
+
+Phase 4 (loop-invariant known_consts survival) and Phase 3b
+(x86_64 hoist) deferred — checklist W54-x86. Effect on
+`tgo_string_ops` `digitCount`: JIT 196 → 185 ARM64 instrs. Bench
+σ on this benchmark is ~10% so the runtime change is below the
+floor on a single recording; instruction-count delta is
+byte-deterministic via `--dump-jit=24`. Architecture in D138.
+
+### Previous (still on main)
+
+**C-g foundation + Mac/Ubuntu baselines done.** Ship-overnight
 session 2026-04-29 evening landed two PRs to main on top of the
 afternoon's six (#79..#84):
 

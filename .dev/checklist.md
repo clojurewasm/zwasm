@@ -89,57 +89,53 @@ Prefix: W## (to distinguish from CW's F## items).
   `@./.dev/w47-investigation.md`. Low priority since 20 other
   benchmarks improved >10% (GC paths 40–76% faster).
 
-- [ ] W54: `tgo_strops` (and other div-heavy TinyGo workloads) is
-  ~2.1× slower than wasmtime/cranelift on M4 Pro per
-  `bench/runtime_comparison.yaml` (2026-03-25, runs=1/warmup=0):
-  zwasm cached 63.2 ms vs wasmtime cached 30.0 ms. The original
-  framing — "constant-divisor folding is missing" — was
-  **disproven** during the 2026-04-29 evening investigation. Both
-  ARM64 (`src/jit.zig:3582-3666` `tryEmitDivByConstU32`) and
-  x86_64 (`src/x86.zig`) already emit the Hacker's Delight magic
-  multiply for `i32.div_u K`; the JIT dump for
-  `bench/wasm/tgo_string_ops.wasm` shows three MOVZ+MOVK+UMULL+LSR
-  sequences for the three `i32.div_u 10` sites, with zero `UDIV`
-  instructions.
+- [x] W54: `tgo_strops` div-heavy TinyGo gap. Resolved on
+  ARM64 via `develop/w54-loop-pass-redesign` (2026-04-30). Two
+  levers landed:
+  1. **Magic-constant hoist** (Phase 3). `LoopInfo.analyse` now
+     classifies the dominant `CONST32 K → DIV_U/REM_U` pattern;
+     `pickHoistPhys` reserves a callee-saved register (x26→x22 if
+     vreg layout permits, else displace `inst_ptr_cached` into
+     regs[] memory and use x21); `emitPrologue` materialises the
+     magic once on the normal-entry path; `tryEmitDivByConstU32`
+     short-circuits to UMULL+LSR when the divisor matches.
+  2. **Liveness-driven mov coalescing** (Phase 5). Extended
+     `regalloc.copyPropagate` to fold a temp-to-local MOV when the
+     temp is killed before any later read, with safety bail-outs
+     for branch targets, forward branches, and multi-source ops
+     (CALL / CALL_INDIRECT / BR_TABLE / RETURN_MULTI / memory.fill /
+     memory.copy). The forward-branch bail caught a regression in
+     `rust_regex` during the first attempt — `develop/w54-loop-
+     pass-redesign` ec8182f's commit message has the exact
+     pattern.
 
-  The remaining 2.1× lives in two places:
+  digitCount JIT emit: 196 → 185 ARM64 instrs (-5.6%). Bench σ on
+  `tgo_strops` runs ~10% on the M4 Pro test rig (per W47 below),
+  so the runtime gain is below the σ floor on a single bench
+  invocation; the instruction-count delta is byte-deterministic
+  and visible in `--dump-jit=24` against `develop/w54-loop-pass-
+  redesign~5` (the pre-Phase-3 commit).
 
-  1. The 2-instruction magic-constant load (`MOVZ + MOVK` for
-     `0xCCCCCCCD`) is re-emitted inside the loop body on every
-     iteration; cranelift's SSA + GVN hoist it once so only
-     `UMULH/UMULL + LSR` stay hot. Three div sites in
-     `tgo_strops` cost ~6 ARM64 instructions per iteration that a
-     preheader hoist would eliminate.
-  2. TinyGo emits a `mov rd = rs1` per `local.set`; cranelift
-     collapses those into register renames whereas zwasm's
-     linear-scan regalloc still spills them to LDR/STR against
-     `regs[]`.
+  Architecture and rejected alternatives: see D138 in
+  `.dev/decisions.md`. Detailed plan: `.dev/w54-redesign-plan.md`.
 
-  Single-pass-compatible levers, ranked:
+- [ ] W54-x86: x86_64 magic-constant hoist parity. The Phase 3 ARM64
+  path defines the contract; `src/x86.zig`'s Compiler already has
+  the `hoist_phys` / `hoist_displaced_infra` fields scaffolded but
+  no `pickHoistPhys` body. x86_64 reg layout has different free
+  slots: RBX/RBP/R15 are vreg-bound for any reg_count >= 1, and
+  there's no `inst_ptr_cached` slot to displace, so the most
+  reachable candidates are R13/R14 when `!has_memory`. Likely
+  benchmark coverage is narrower than ARM64; bench-driven decision
+  before merging.
 
-  1. **Loop-preheader magic hoist.** Extend `emitLoopPreHeader`
-     (today SIMD-only, `src/jit.zig:4604`) to scan for
-     `OP_CONST32 K → OP_DIV_U` patterns, allocate a callee-saved
-     register, and pre-load the magic. `tryEmitDivByConstU32`
-     short-circuits when the magic is already live. Risk:
-     medium — needs to coexist with the existing physical-
-     register layout (functions like `string_ops` (func#24, 13
-     vregs) saturate the callee-saved set; the prologue would
-     have to reserve a free slot up front).
-  2. **`OP_CONST32` reuse across loop back-edges.** Today
-     `known_consts` is wiped at every header. Skip unless (1)
-     lands — saves the 1-instr const itself but not the 2-instr
-     magic that hangs off it.
-  3. **`OP_MOV` coalescing in linear-scan regalloc.** Substantial
-     surgery; deserves a separate W## entry.
-
-  Out of scope (would break single-pass): SSA + dataflow,
-  global register allocation, automatic loop unroll /
-  vectorise. Re-record `runtime_comparison.yaml` at 5 runs / 3
-  warmup before claiming any number — the current values are
-  single-sample.
-
-  Full investigation log: `@./.dev/w54-investigation.md`.
+- [ ] W54-libm: real-world `rw_c_math` (5.0× wasmtime cold,
+  8.7× cached) is dominated by BLR-heavy libm dispatch (`sin`,
+  `cos`, `pow`, `sqrt` per iteration). Out of scope for the
+  loop-pass redesign. Single-pass-compatible candidates: intrinsic
+  recognition for imported function names (sqrt → FSQRT inline),
+  software-libm fallback for sin/cos/pow. Needs imported-function
+  name resolution on the predecode side.
 
 - [ ] W48 Phase 2: Linux binary size 1.56 MB → 1.50 MB (~62 KB more).
   W48 Phase 1 shipped (2026-04-25): `pub const panic = std.debug.simple_panic`

@@ -941,3 +941,114 @@ Mac binary another 60 KB → cap drops 1.30 → 1.25 MB). Loosening a
 ceiling requires a CHANGELOG entry naming the regression source so
 the slack is intentional and visible.
 
+
+## D138: LoopInfo + magic-constant hoist as the JIT pipeline's shared analysis layer
+
+**Status**: Accepted — landed in develop/w54-loop-pass-redesign.
+
+**Context**: For a long stretch we treated each JIT optimisation as a
+self-contained patch — the SIMD `emitLoopPreHeader`, the
+const-divisor magic-multiply fold, the adjacent-MOV `copyPropagate`,
+the `vm_ptr_cached` / `inst_ptr_cached` slots in `vregToPhys`. Each
+re-derived its own slice of "what's a loop", "is this vreg dead", "is
+this register free" inline at codegen time. The ad-hoc layout meant
+W54's first attempt (`develop/w54-magic-hoist-attempt`, abandoned)
+ran straight into a register collision: x21 was simultaneously the
+inst_ptr cache for `reg_count <= 13 && has_self_call` AND the
+natural callee-saved candidate for the magic. Picking a safe
+boundary was a design call, not a tail-end commit.
+
+**Decision**: Make `src/loop_info.zig` the single source of truth
+for the function's control-flow shape, vreg liveness, and hoist
+candidates, and have both backends consult it:
+
+1. `LoopInfo.analyse(allocator, ir, reg_count)` runs once per
+   compile, producing `branch_targets[]`, `loop_headers[]`,
+   `loop_end[]`, `vreg_first_def[]`, `vreg_last_use[]`, plus the
+   `dominant_divisor` of the `CONST32 K → DIV_U/REM_U` pattern.
+   Replaces the per-arch `scanBranchTargets` (jit.zig + x86.zig)
+   which were byte-identical, and provides the substrate for future
+   passes (Phase 4 invariant-const survival, Phase 5 mov coalescing).
+
+2. The opcode classification helpers — `opWritesRd`,
+   `opUsesRdAsSource`, `opUsesRs1AsSource`, `opUsesRs2AsSource` —
+   are public exports of `regalloc.zig`. They describe RegInstr
+   semantics canonically; both `loop_info.zig` and the regalloc-stage
+   coalescer consume them.
+
+3. The ARM64 magic hoist (Phase 3) selects a callee-saved phys reg
+   in `pickHoistPhys` BEFORE `emitPrologue` runs. Preferred order:
+   x26 → x22 (free when reg_count is small), then x21 with
+   `inst_ptr_cached` displaced. Displacing inst_ptr_cached forces
+   inst_ptr loads through the regs[] memory slot at every
+   `emitLoadInstPtr` site — measurable cost only for ops outside hot
+   loops (`global.get`/`set`, `mem.grow`/`fill`/`copy`,
+   `call_indirect`). Self-call entry inherits x21 from the caller
+   (callee-saved), so recursive paths reuse the cached magic for
+   free.
+
+4. The mov coalescer (Phase 5) extends `regalloc.copyPropagate` from
+   "scan to end of code" to "scan until the first redefinition of
+   old_reg" with three safety bail-outs:
+   - Branch targets: a join may import a live use from a predecessor
+     we haven't analysed.
+   - Forward branches (BR / BR_IF / BR_IF_NOT): without dominator
+     info, the target may bypass the upcoming redef and reach a use
+     that still expects the producer's value. (This is exactly the
+     class that broke `rust_regex` in the first attempt; the bail
+     resolves it.)
+   - Multi-source ops (CALL, CALL_INDIRECT, BR_TABLE, RETURN_MULTI,
+     memory.fill, memory.copy): hidden source vregs that rs1/rs2/rd
+     don't expose.
+
+**Effect (ARM64 Mac)**:
+- `tgo_string_ops` `digitCount`: JIT 196 → 185 ARM64 instrs (-5.6%);
+  the gain is below the bench σ (~10% on this particular benchmark)
+  but the instruction-count delta is byte-deterministic.
+- All other functions emit byte-identical machine code unless they
+  hit either pattern. No-op functions (fib, tak, sieve) retain
+  identical dump-jit output between baseline and Phase 5.
+
+**Rejected alternatives**:
+
+- **Push more callee-saved regs in the prologue** (e.g. STP x29-x30
+  twice) to make a hoist slot. Rejected — it adds cycles to every
+  function entry/exit, and on x86_64 the prologue's PUSH/POP shape
+  doesn't mirror cleanly. The displacement of inst_ptr_cached is
+  zero-cost on functions that don't have hoist candidates and is
+  bench-driven for those that do.
+
+- **Full register pool with class abstraction (`RegPool` from the
+  original Pillar 2 spec)**. Reduced to a single `pickHoistPhys`
+  helper plus `hoist_phys: ?u8` field — once the hoist's selection
+  was the only consumer, the heavier abstraction was scope creep.
+  Documented as future work if a third class arrives.
+
+- **Multi-divisor hoist**. Would require multiple hoist registers
+  and per-loop preheader emit. Skipped because real-world functions
+  we measured (digitCount, math/Big helpers, regex) have a single
+  dominant divisor each. Future work if a counter-example shows up.
+
+- **x86_64 hoist (parity)**. Skipped from the initial PR because
+  x86_64's reg layout has different free slots — RBX/RBP/R15 are
+  vreg-bound for any reg_count >= 1, and there is no inst_ptr_cached
+  to displace. The hoist would only fire on functions with
+  reg_count <= 2 OR `!has_memory`, which is a thin slice of
+  benchmarks. Tracked as a follow-up; not on the merge-blocking
+  path.
+
+**Affected files**: `src/loop_info.zig` (new), `src/regalloc.zig`
+(opcode helpers + extended copyPropagate), `src/jit.zig`
+(`pickHoistPhys`, `emitHoistLoad`, prologue ordering, `tryEmitDiv/Rem
+ByConstU32` fast path), `src/x86.zig` (loop_info wiring,
+hoist_phys/displaced field scaffolding only — no codegen change).
+
+**Follow-ups**:
+- `W54-x86`: x86_64 magic hoist with the same `pickHoistPhys` helper.
+- Phase 4 (invariant-const survival across loop headers) is captured
+  in `.dev/w54-redesign-plan.md` but deferred — its win profile only
+  applies to functions where the const is defined OUTSIDE the loop,
+  which `digitCount` does not exhibit.
+- libm intrinsic recognition for `rw_c_math` (sin/cos/pow inlining
+  to NEON FSQRT and software-libm fallback). Out of scope for the
+  loop-pass redesign; new W## ticket.
