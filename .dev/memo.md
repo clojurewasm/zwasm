@@ -23,7 +23,41 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**W53 done. C-g foundation + Mac/Ubuntu baselines done.** Ship-overnight
+**W54 substrate landed via PR #91 from `develop/w54-loop-info`** (2026-04-30).
+Single structural change: `src/loop_info.zig` is the single source of
+truth for branch / loop / vreg liveness. Both backends drop ~60 lines
+of byte-identical `scanBranchTargets` in favour of a thin
+`LoopInfo.analyse(...)` call. `vreg_first_def[]` /
+`vreg_last_use[]` are computed from the same forward sweep, ready
+for future consumers. JIT output is byte-identical to main on every
+function (verified via `--dump-jit` diff for tgo_string_ops func#24
+and fib func#2).
+
+### Held back (archive branch)
+
+`develop/w54-loop-pass-redesign` (tagged
+`archive/w54-magic-hoist-2026-04-30`) preserves two further pieces
+of work that were built and bench-validated, but held back:
+
+1. **Magic-constant loop-invariant hoist** (commits `1600397`,
+   `c4b806e`). digitCount JIT 196 → 192. Re-attempt prerequisites:
+   W47 (bench harness σ < 5%), W54-x86 (parity).
+2. **Liveness-driven mov coalescing** (commit `ec8182f`). digitCount
+   JIT 192 → 185 stacked on hoist; substrate-only branch JIT 196 →
+   189 with just the coalescer. **Reverted from PR #91 after
+   Linux x86_64 CI failed `go_math_big`** (BigInt subtraction
+   divergence — wasmtime returns `864197532086419753208641975320`,
+   zwasm returns `864197532160206729503480181784`). The regalloc
+   is arch-agnostic, so the divergence is in `src/x86.zig`'s
+   codegen interaction with the new IR layout. Reproducible on
+   OrbStack `my-ubuntu-amd64`. Tracked as W54-coalescer.
+
+Architecture rationale: D138 in decisions.md. Detailed session arc
++ branch names: `.dev/w54-redesign-postmortem.md`.
+
+### Previous (still on main)
+
+**C-g foundation + Mac/Ubuntu baselines done.** Ship-overnight
 session 2026-04-29 evening landed two PRs to main on top of the
 afternoon's six (#79..#84):
 

@@ -941,3 +941,131 @@ Mac binary another 60 KB → cap drops 1.30 → 1.25 MB). Loosening a
 ceiling requires a CHANGELOG entry naming the regression source so
 the slack is intentional and visible.
 
+
+## D138: Shared `LoopInfo` analysis layer for the JIT pipeline
+
+**Status**: Accepted — landed via `develop/w54-loop-info` (PR #91).
+
+**Context**: For a long stretch we treated each JIT optimisation as a
+self-contained patch — the SIMD `emitLoopPreHeader`, the
+const-divisor magic-multiply fold, the adjacent-MOV `copyPropagate`,
+the `vm_ptr_cached` / `inst_ptr_cached` slots in `vregToPhys`. Each
+re-derived its own slice of "what's a loop" and "is this vreg dead"
+inline at codegen time. That ad-hoc layout was the proximate cause
+of the W54 magic-hoist abandonment on
+`develop/w54-magic-hoist-attempt` (2026-04-29 evening, see
+`.dev/w54-investigation.md`): x21 was simultaneously the inst_ptr
+cache slot for `reg_count <= 13 && has_self_call` AND the natural
+callee-saved candidate for the magic. Picking a safe boundary was a
+design call, not a tail-end commit.
+
+**Decision**: Ship the substrate first. One structural change that
+stands on its own merit and unblocks future loop-aware work:
+
+`src/loop_info.zig` is the single source of truth for the function's
+control-flow shape and per-vreg liveness. The two JIT backends used
+to maintain byte-for-byte identical `scanBranchTargets`
+implementations; both now consume `LoopInfo.analyse(allocator, ir,
+reg_count)`, which produces:
+
+- `branch_targets[]`, `loop_headers[]`, `loop_end[]` (drives JIT
+  cache eviction and the `known_consts` wipe at merge points).
+- `vreg_first_def[]`, `vreg_last_use[]` (one forward sweep,
+  conservative reads — over-approximation extends last_use later
+  than necessary, which only shrinks a future coalescer's window;
+  never breaks correctness). Phase 5+ consumers will read these.
+
+The opcode classification helpers `opWritesRd`, `opUsesRdAsSource`,
+`opUsesRs1AsSource`, `opUsesRs2AsSource` live in `loop_info.zig`
+for now (private) — they will be promoted to public regalloc API
+once the coalescer extension that needs them is debugged on x86_64
+(see W54-coalescer in checklist.md).
+
+**Effect (ARM64 Mac)**:
+
+- Both backends drop ~60 lines of duplicated `scanBranchTargets`
+  body in favour of a thin `LoopInfo.analyse` call. Behaviour is
+  byte-deterministic identical to main: `--dump-jit=24` of
+  `tgo_string_ops` func#24 (digitCount, 196 ARM64 instrs / 784
+  bytes) matches main bit-for-bit.
+- All other functions emit byte-identical machine code. No
+  performance change is expected or observed (Phase 0 + 1 are pure
+  refactoring; the data is computed but no codegen consumer reads
+  the new `vreg_first_def[]` / `vreg_last_use[]` arrays yet).
+
+**Rejected alternatives** (and why they didn't ride along):
+
+- **Liveness-driven mov coalescing in `regalloc.copyPropagate`**.
+  Implemented and shipped on the develop branch, then **reverted
+  on 2026-04-30** after the green Mac gate but RED Linux x86_64 CI
+  on `go_math_big`: the new "stop at first redef of old_reg" scan
+  with branch-target / forward-branch / multi-source bail-outs
+  passes the Mac aarch64 realworld suite (50/50, including
+  `rust_regex` which the first attempt broke), but produces wrong
+  results on Linux x86_64's `go_math_big` (BigInt subtraction
+  mismatch — wasmtime returns
+  `864197532086419753208641975320`, zwasm returns
+  `864197532160206729503480181784`). The regalloc itself is
+  arch-agnostic, so the same `RegFunc` flows through both
+  backends; the divergence implies an x86_64-specific assumption
+  in `src/x86.zig`'s codegen that the new IR layout violates.
+  Diagnosis is bench/CI-bound and not a tail-end fix; tracked as
+  W54-coalescer for a focused follow-up.
+
+- **Magic-constant loop-invariant hoist** (`OP_CONST32 K →
+  OP_DIV_U` pattern, materialise the magic into a callee-saved
+  register in the prologue, short-circuit
+  `tryEmitDivByConstU32`). Implemented on
+  `develop/w54-loop-pass-redesign` (commits `1600397`, `c4b806e`)
+  and proved out: digitCount JIT 196 → 192 with hoist alone, 192
+  → 185 stacked with the (eventually reverted) coalescer. Held
+  back from this PR for three reasons:
+  1. The runtime gain is below the bench σ floor today; without
+     the W47 harness work the optimisation would land
+     evidence-free and any later regression would be argued as
+     noise rather than measured.
+  2. The hoist requires displacing `inst_ptr_cached` (x21) on
+     functions with reg_count >= 5 + has_self_call — an
+     ARM64-specific behaviour change with no measured benefit
+     today. Pushing it post-harness keeps the trade-off
+     reviewable.
+  3. x86_64 parity has different free-slot mechanics (no
+     `inst_ptr_cached` to displace). Bundling hoist with parity
+     makes one coherent change later.
+
+- **Loop-invariant `known_consts` survival across loop headers**.
+  Sketched as Phase 4 of the original plan; dropped after
+  inspection of digitCount's RegIR showed every `i32.div_u 10` site
+  has its CONST32 emitted *inside* the loop body (TinyGo reuses
+  the same vreg `r8` / `r9` / `r12` per div), so the optimisation
+  would never fire on the W54 target.
+
+**Affected files**: `src/loop_info.zig` (new), `src/jit.zig`
+(replace `scanBranchTargets` with `LoopInfo.analyse`), `src/x86.zig`
+(same).
+
+**Archive**: the magic-hoist + coalescer work is preserved on
+`develop/w54-loop-pass-redesign` (last commit `a56d442`) and tagged
+`archive/w54-magic-hoist-2026-04-30`. Cherry-pick path:
+- `1600397` + `c4b806e` for the ARM64 magic hoist (re-attempt
+  W54-hoist-revisit).
+- `ec8182f` for the redef-aware coalescer (re-attempt W54-coalescer
+  after diagnosing the x86_64 `go_math_big` regression).
+
+**Re-evaluation pre-conditions**:
+1. **W47** — bench harness with σ < 5% on tgo_strops (currently ~10%)
+2. **W54-x86** — symmetric `pickHoistPhys` for x86_64 reg layout
+3. **W54-coalescer** — diagnose and fix the x86_64 `go_math_big`
+   divergence; the diff is in the regalloc-stage IR shape, the
+   backend assumption that breaks is in `src/x86.zig`.
+4. `runtime_comparison.yaml` re-recorded with 5/3 hyperfine on a
+   thermally-stable rig.
+
+**Follow-ups** (open W## items in checklist.md):
+- `W54-coalescer`: diagnose the x86_64 `go_math_big` regression,
+  re-land the coalescer.
+- `W54-hoist-revisit`: revive the magic-hoist work once W47 +
+  W54-x86 are ready.
+- `W54-libm`: `rw_c_math` is dominated by libm `sin`/`cos`/`pow`
+  dispatch; intrinsic recognition + ARM64 FSQRT inline + soft-libm
+  fallback.
