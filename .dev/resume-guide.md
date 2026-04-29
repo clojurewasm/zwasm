@@ -35,8 +35,11 @@ about a week — re-verify by reading current code):
 - Windows toolchain installs cleanly via
   `pwsh scripts/windows/install-tools.ps1` from a fresh checkout
   (provisions Zig + wasm-tools + wasmtime + WASI SDK + VC++ Redist).
-- Realworld on Windows: 25/25 PASS for the C+C++ subset (Go/Rust/TinyGo
-  not yet provisioned by the installer; SKIP gracefully).
+- Realworld on Windows (local): 50/50 PASS once the W52 installer
+  arms have run (Rust + Go + TinyGo). On the GitHub-hosted Windows
+  runner CI is still 25/25 (C+C++ subset) because the runner uses
+  its own per-job `Setup Rust` step and does not install Go /
+  TinyGo; switching CI to `install-tools.ps1` is W50 / Plan B sub-3.
 
 ## Hard-won facts (not obvious from the code)
 
@@ -132,14 +135,18 @@ had a 2025 outage; macos-latest + nix-installer-action has occasional
 CI flakes. Best done in a single PR with the user watching, not
 overnight.
 
-### realworld coverage on Windows (W52)
+### realworld coverage on Windows (W52 — landed)
 
-`install-tools.ps1` provisions Zig + wasm-tools + wasmtime + WASI SDK
-only. `build_all.py` SKIPs Go / Rust / TinyGo when those toolchains
-are missing, so the Windows realworld run is 25/25 (C + C++ only)
-instead of 50/50. To close: extend `install-tools.ps1` (or split off
-a follow-on `install-extras.ps1`) with rustup-init + Go + TinyGo,
-each pinned via `versions.lock`. Filed as W52 in `.dev/checklist.md`.
+`install-tools.ps1` now provisions Rust (via `rustup-init.exe` with
+the `wasm32-wasip1` target), Go, and TinyGo alongside the original
+core (Zig + wasm-tools + wasmtime + WASI SDK). `build_all.py` no
+longer SKIPs the realworld Rust / Go / TinyGo subset on Windows, so
+local self-hosted Windows runs reach the same 50/50 footprint as
+Mac/Linux. CI Windows still runs the C+C++ subset only at 25/25
+because the GitHub-hosted Windows runner installs Rust per-job
+(`Setup Rust` step) and does not install Go / TinyGo — a CI
+adoption of this installer is tracked separately under W50 / Plan
+B sub-3 (`pwsh scripts/windows/install-tools.ps1` in the matrix).
 
 The 2026-04-29 doc-drift sweep (W51) already brought README,
 contributing guides, setup-orbstack.md, roadmap.md, and book getting-

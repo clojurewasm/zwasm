@@ -67,6 +67,15 @@ behaviour change for embedders.**
   require a host C compiler. The `if: runner.os != 'Windows'` CI
   guard on `Run FFI tests` is dropped accordingly. `gate-commit.sh`
   no longer auto-skips `ffi` on Windows. Plan C-b.
+- `scripts/windows/install-tools.ps1` now provisions Rust (via
+  `rustup-init.exe` with `wasm32-wasip1` target), Go, and TinyGo in
+  addition to the existing core toolchain — i.e. the same set
+  Linux/macOS get from `flake.nix`. Rust is installed into a
+  self-contained `rust-<toolchain>/` with `CARGO_HOME` /
+  `RUSTUP_HOME` set in user-scope env so the install does not
+  pollute `%USERPROFILE%\.cargo`. `-OnlyTool` accepts `rust`, `go`,
+  `tinygo`. Closes the local-realworld 25/50 → 50/50 gap on Windows
+  (W52).
 
 ### Changed
 - WASI SDK version bumped 25 → 30 to align CI with `flake.nix` (which

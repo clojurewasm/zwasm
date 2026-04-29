@@ -3,10 +3,12 @@
     Provisions the Windows-native toolchain pinned by .github/versions.lock.
 
 .DESCRIPTION
-    Reads the pinned versions of Zig, wasm-tools, wasmtime, and WASI SDK
+    Reads the pinned versions of Zig, wasm-tools, wasmtime, WASI SDK,
+    plus the realworld-test toolchains (Go, TinyGo, Rust via rustup)
     from .github/versions.lock and installs each into a per-user
     directory under %LOCALAPPDATA%\zwasm-tools. Adds the relevant
-    binaries to the user-scoped PATH and sets WASI_SDK_PATH.
+    binaries to the user-scoped PATH and sets WASI_SDK_PATH /
+    CARGO_HOME / RUSTUP_HOME.
 
     Idempotent: an existing version-stamped directory is left in place
     and the install step is skipped.
@@ -20,7 +22,8 @@
     exists.
 
 .PARAMETER OnlyTool
-    Install just one tool. Accepts: zig, wasm-tools, wasmtime, wasi-sdk.
+    Install just one tool. Accepts: zig, wasm-tools, wasmtime, wasi-sdk,
+    rust, go, tinygo (and 'all', the default).
 
 .EXAMPLE
     pwsh -NoLogo -File scripts\windows\install-tools.ps1
@@ -32,7 +35,7 @@
 [CmdletBinding()]
 param(
     [switch]$Force,
-    [ValidateSet('zig', 'wasm-tools', 'wasmtime', 'wasi-sdk', 'all')]
+    [ValidateSet('zig', 'wasm-tools', 'wasmtime', 'wasi-sdk', 'rust', 'go', 'tinygo', 'all')]
     [string]$OnlyTool = 'all'
 )
 
@@ -79,6 +82,16 @@ $versions = Read-VersionsLock -Path (Join-Path $repoRoot '.github\versions.lock'
 foreach ($k in 'ZIG_VERSION', 'WASM_TOOLS_VERSION', 'WASMTIME_VERSION', 'WASI_SDK_VERSION') {
     if (-not $versions.ContainsKey($k)) {
         throw "install-tools.ps1: $k missing from versions.lock"
+    }
+}
+# Realworld toolchain pins (W52). Fail loudly if a requested install
+# needs them but they're missing — keeps the script honest about its
+# inputs.
+$realworldKeys = @{ rust = 'RUST_VERSION'; go = 'GO_VERSION'; tinygo = 'TINYGO_VERSION' }
+foreach ($pair in $realworldKeys.GetEnumerator()) {
+    $tool = $pair.Key; $key = $pair.Value
+    if ($OnlyTool -in @('all', $tool) -and -not $versions.ContainsKey($key)) {
+        throw "install-tools.ps1: $key missing from versions.lock (needed for $tool install)"
     }
 }
 
@@ -222,6 +235,85 @@ if ($OnlyTool -in @('all', 'wasi-sdk')) {
     $paths['wasi-sdk'] = $dir
 }
 
+# --- Realworld toolchains: Go, TinyGo, Rust (W52) ---
+#
+# Needed only for the realworld Go / TinyGo / Rust subset of
+# `test/realworld/build_all.py`. The C / C++ subset works without any
+# of these. CI runners ship rustup pre-installed, so the three are
+# strictly local / self-hosted-runner concerns.
+
+if ($OnlyTool -in @('all', 'go')) {
+    # The official Go zip extracts into a single `go/` directory holding
+    # `bin/go.exe`. Resolve-SingleSubdir flattens that so the stamped
+    # install dir holds `bin/` directly.
+    $url = "https://go.dev/dl/go$($versions.GO_VERSION).windows-amd64.zip"
+    $dir = Install-Tool -Name 'go' -Version $versions.GO_VERSION -Url $url -Format 'zip'
+    $paths['go'] = $dir
+}
+
+if ($OnlyTool -in @('all', 'tinygo')) {
+    # tinygo .zip on Windows extracts into a single `tinygo/` directory
+    # holding `bin/tinygo.exe`. Same flattening as Go above.
+    # Note: tinygo wasm32-wasi support requires `go` reachable on PATH
+    # at compile time (it shells out to `go` for stdlib pieces).
+    $url = "https://github.com/tinygo-org/tinygo/releases/download/v$($versions.TINYGO_VERSION)/tinygo$($versions.TINYGO_VERSION).windows-amd64.zip"
+    $dir = Install-Tool -Name 'tinygo' -Version $versions.TINYGO_VERSION -Url $url -Format 'zip'
+    $paths['tinygo'] = $dir
+}
+
+# Rustup is special: it's a self-installer (rustup-init.exe), not an
+# archive. Install into a stamped directory under $installRoot with
+# its own CARGO_HOME / RUSTUP_HOME so the install is self-contained
+# and does not touch %USERPROFILE%\.cargo or the user-default toolchain.
+function Install-Rustup {
+    param(
+        [Parameter(Mandatory)][string]$Toolchain,
+        [Parameter(Mandatory)][string]$InstallRoot
+    )
+    # Use a canonical stamp directory that mirrors the Install-Tool
+    # convention, so re-running the script on the same RUST_VERSION
+    # is idempotent (skips the rustup-init download + run).
+    $stampedDir = Join-Path $InstallRoot ("rust-{0}" -f $Toolchain)
+    $cargoHome  = Join-Path $stampedDir 'cargo'
+    $rustupHome = Join-Path $stampedDir 'rustup'
+    if ((Test-Path $stampedDir) -and -not $Force) {
+        Write-Host "[skip] rust $Toolchain (exists at $stampedDir)"
+        return $stampedDir
+    }
+    Write-Host "[install] rust $Toolchain (rustup-init)"
+    $installer = Join-Path $workDir 'rustup-init.exe'
+    Download-File -Url 'https://win.rustup.rs/x86_64' -Dest $installer
+    # rustup-init flags:
+    #   -y                          non-interactive
+    #   --no-modify-path            we manage PATH ourselves below
+    #   --default-toolchain $tc     pin (e.g. 'stable')
+    #   --default-host x86_64-pc-windows-msvc — match the CI runner ABI
+    if (Test-Path $stampedDir) { Remove-Item -Recurse -Force $stampedDir }
+    New-Item -ItemType Directory -Force -Path $cargoHome  | Out-Null
+    New-Item -ItemType Directory -Force -Path $rustupHome | Out-Null
+    $env:CARGO_HOME = $cargoHome
+    $env:RUSTUP_HOME = $rustupHome
+    & $installer -y --no-modify-path `
+        --default-toolchain $Toolchain `
+        --default-host x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) {
+        throw "rustup-init failed (exit $LASTEXITCODE)"
+    }
+    # Add the wasm32-wasip1 target so realworld Rust modules build.
+    & (Join-Path $cargoHome 'bin\rustup.exe') target add wasm32-wasip1
+    if ($LASTEXITCODE -ne 0) {
+        throw "rustup target add wasm32-wasip1 failed (exit $LASTEXITCODE)"
+    }
+    Remove-Item -Force $installer -ErrorAction SilentlyContinue
+    return $stampedDir
+}
+
+if ($OnlyTool -in @('all', 'rust')) {
+    $rustToolchain = $versions.RUST_VERSION  # e.g. 'stable'
+    $rustRoot = Install-Rustup -Toolchain $rustToolchain -InstallRoot $installRoot
+    $paths['rust'] = $rustRoot
+}
+
 # --- PATH and env wiring (User scope) ---
 
 function Update-UserPath {
@@ -243,18 +335,37 @@ function Update-UserPath {
     }
 }
 
-# Each release ZIP/tar.gz unpacks with its binaries directly inside
-# the install dir — no `bin/` subdirectory on Windows for any of these
-# tools today. Add the install dir itself.
+# Tool layouts after Resolve-SingleSubdir:
+#
+#   zig / wasm-tools / wasmtime — binaries directly in the stamped dir
+#                                 (no bin/ subdir on Windows).
+#   go                          — bin/ subdir holding go.exe + gofmt.exe.
+#   tinygo                      — bin/ subdir holding tinygo.exe.
+#   rust                        — cargo/bin/ holding cargo.exe + rustup.exe.
 $pathsToAdd = @()
 if ($paths.ContainsKey('zig'))        { $pathsToAdd += $paths['zig'] }
 if ($paths.ContainsKey('wasm-tools')) { $pathsToAdd += $paths['wasm-tools'] }
 if ($paths.ContainsKey('wasmtime'))   { $pathsToAdd += $paths['wasmtime'] }
+if ($paths.ContainsKey('go'))         { $pathsToAdd += (Join-Path $paths['go']     'bin') }
+if ($paths.ContainsKey('tinygo'))     { $pathsToAdd += (Join-Path $paths['tinygo'] 'bin') }
+if ($paths.ContainsKey('rust'))       { $pathsToAdd += (Join-Path (Join-Path $paths['rust'] 'cargo') 'bin') }
 Update-UserPath -Add $pathsToAdd
 
 if ($paths.ContainsKey('wasi-sdk')) {
     [Environment]::SetEnvironmentVariable('WASI_SDK_PATH', $paths['wasi-sdk'], 'User')
     Write-Host "[env] WASI_SDK_PATH=$($paths['wasi-sdk'])"
+}
+
+# Rust install needs persistent CARGO_HOME / RUSTUP_HOME so future
+# shells use the self-contained install (not %USERPROFILE%\.cargo).
+if ($paths.ContainsKey('rust')) {
+    $rustRoot   = $paths['rust']
+    $cargoHome  = Join-Path $rustRoot 'cargo'
+    $rustupHome = Join-Path $rustRoot 'rustup'
+    [Environment]::SetEnvironmentVariable('CARGO_HOME',  $cargoHome,  'User')
+    [Environment]::SetEnvironmentVariable('RUSTUP_HOME', $rustupHome, 'User')
+    Write-Host "[env] CARGO_HOME=$cargoHome"
+    Write-Host "[env] RUSTUP_HOME=$rustupHome"
 }
 
 # Ensure Git for Windows bash is reachable so `bash scripts/gate-commit.sh`
@@ -265,5 +376,9 @@ if (Test-Path (Join-Path $gitBin 'bash.exe')) {
 }
 
 Write-Host ""
-Write-Host "Done. Open a new shell to pick up PATH/WASI_SDK_PATH changes."
-Write-Host "Verify: zig version; wasm-tools --version; wasmtime --version; bash --version"
+Write-Host "Done. Open a new shell to pick up PATH / WASI_SDK_PATH /"
+Write-Host "       CARGO_HOME / RUSTUP_HOME changes."
+Write-Host "Verify (core):     zig version; wasm-tools --version; wasmtime --version; bash --version"
+if ($OnlyTool -in @('all', 'go', 'tinygo', 'rust')) {
+    Write-Host "Verify (realworld): go version; tinygo version; cargo --version; rustup --version"
+}

@@ -29,12 +29,12 @@ Prefix: W## (to distinguish from CW's F## items).
   because magic-nix-cache had a 2025 outage and macos-latest +
   nix-installer-action has occasional flakes — wants supervised PR.
 
-- [ ] W52: realworld coverage on Windows — extend
-  `scripts/windows/install-tools.ps1` (or split off a follow-on
-  `install-extras.ps1`) with rustup-init + Go + TinyGo so
-  `build_all.py` no longer SKIPs those toolchains. Each is ~30 lines
-  of PowerShell pinned via `versions.lock`. Closes the gap from 25/50
-  to full 50/50 on Windows.
+- [x] W52: realworld coverage on Windows —
+  `scripts/windows/install-tools.ps1` extended with rustup-init +
+  Go + TinyGo (each pinned via `versions.lock`). Local self-hosted
+  Windows reaches 50/50 once the script runs. CI Windows runner
+  still 25/25 because it uses per-job `Setup Rust` and does not
+  install Go / TinyGo; CI adoption tracked separately under W50.
 
 - [ ] W45: SIMD loop persistence — Skip Q-cache eviction at loop headers.
   Requires back-edge detection in scanBranchTargets.

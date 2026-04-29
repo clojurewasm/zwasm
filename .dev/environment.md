@@ -40,10 +40,12 @@ to install them once:
 
 Everything else (Zig, wasm-tools, wasmtime, WASI SDK, hyperfine, jq, yq,
 Go, TinyGo, Node.js, Bun) is delivered by `flake.nix` on Linux/macOS, and
-by `scripts/windows/install-tools.ps1` on Windows. Rust / Go / TinyGo
-are not yet covered by the Windows installer (W52); the four core
-tools — Zig, wasm-tools, wasmtime, WASI SDK — and Microsoft Visual
-C++ Redistributable (a WASI SDK dependency) are auto-installed.
+by `scripts/windows/install-tools.ps1` on Windows. The Windows installer
+covers Zig, wasm-tools, wasmtime, WASI SDK (plus Microsoft Visual C++
+Redistributable, a WASI SDK clang dependency), Rust (via rustup-init,
+including the `wasm32-wasip1` target), Go, and TinyGo — i.e. the same
+tooling that `flake.nix` provides for the realworld test suite on
+Linux/macOS, all pinned via `versions.lock`.
 
 ## macOS
 
@@ -152,18 +154,21 @@ pwsh -NoLogo -ExecutionPolicy Bypass -File scripts\windows\install-tools.ps1
 The script is idempotent — re-running on the same versions skips the
 download. Pass `-Force` to re-extract anyway, or `-OnlyTool zig` /
 `-OnlyTool wasm-tools` etc. to install one tool. Open a fresh shell
-afterwards so the new `PATH` / `WASI_SDK_PATH` take effect.
+afterwards so the new `PATH` / `WASI_SDK_PATH` / `CARGO_HOME` /
+`RUSTUP_HOME` take effect.
 
-For Rust, Go, and TinyGo (needed only for the realworld Rust / Go /
-TinyGo subset of `build_all.py` — the C and C++ subset works without
-them), install separately via `rustup-init.exe`, the official Go
-installer, and TinyGo's release page. Adding these to
-`install-tools.ps1` is tracked as W52.
+The realworld toolchains (Rust, Go, TinyGo) are now part of the same
+installer; `-OnlyTool rust` / `-OnlyTool go` / `-OnlyTool tinygo`
+install one at a time. Rust is installed via `rustup-init.exe` into
+a self-contained `%LOCALAPPDATA%\zwasm-tools\rust-<toolchain>\` —
+`CARGO_HOME` and `RUSTUP_HOME` are set in user-scope env so future
+shells use that install rather than `%USERPROFILE%\.cargo`. The
+`wasm32-wasip1` target is added automatically.
 
 ### Daily (under Git for Windows bash)
 
 ```bash
-bash scripts/gate-commit.sh        # Commit Gate (auto-skips ffi to mirror CI)
+bash scripts/gate-commit.sh        # Commit Gate (full Mac/Ubuntu parity)
 bash scripts/gate-commit.sh --bench # + quick bench
 ```
 
