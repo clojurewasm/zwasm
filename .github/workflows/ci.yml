@@ -25,10 +25,11 @@ jobs:
   # the same split as developers using `rustup target add
   # wasm32-wasip1` on top of the Nix devshell.
   #
-  # Windows continues to run the existing per-tool install path in
-  # the `test` job below; PR-D will migrate it to
-  # `pwsh scripts/windows/install-tools.ps1` + the same gate-commit
-  # entrypoint.
+  # Windows uses `scripts/windows/install-tools.ps1` to provision the
+  # same toolset (Zig / WASI SDK / wasm-tools / wasmtime / TinyGo /
+  # Go / Rust) into `%LOCALAPPDATA%\zwasm-tools`, exposes them via
+  # `$GITHUB_PATH` / `$GITHUB_ENV`, and then runs the same
+  # `scripts/gate-commit.sh` entrypoint under Git Bash.
   test-nix:
     name: test (${{ matrix.os }}, nix devshell)
     strategy:
@@ -80,150 +81,29 @@ jobs:
             bash scripts/gate-commit.sh
           '
 
-  test:
-    defaults:
-      run:
-        shell: bash
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
+      # Extras the Commit Gate intentionally skips — these are
+      # CI-specific quality gates that run after gate-commit.sh:
+      # Zig-built C API tests (separate test program path from
+      # FFI tests), static-link workflow, the Rust embedding
+      # example, and a 4.5 MB peak-RSS check via /usr/bin/time.
 
-      - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.16.0
-
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Cache Zig build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            .zig-cache
-            zig-cache
-            ~/.cache/zig
-            ~/AppData/Local/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
-          restore-keys: |
-            zig-${{ runner.os }}-
-
-      - name: Build
-        run: zig build
-
-      - name: Run unit tests
-        run: zig build test
-
-      - name: Run C API tests
-        run: zig build c-test
-
-      - name: Build shared library
-        run: zig build shared-lib
-
-      - name: Run FFI tests (shared library)
-        run: bash test/c_api/run_ffi_test.sh
-
-      - name: Setup Rust
-        run: |
-          source .github/versions.lock
-          rustup install "$RUST_VERSION" --no-self-update
-          rustup default "$RUST_VERSION"
-          rustup target add wasm32-wasip1
-          rustc --version
-
-      - name: Run Rust FFI example (dynamic)
-        run: cd examples/rust && cargo run
+      - name: Run C API tests (zig build c-test)
+        run: nix develop --command zig build c-test
 
       - name: Build static library (PIC + compiler_rt)
-        run: zig build static-lib -Dpic=true -Dcompiler-rt=true
+        run: nix develop --command zig build static-lib -Dpic=true -Dcompiler-rt=true
 
       - name: Run static link tests
-        run: bash test/c_api/run_static_link_test.sh
+        run: nix develop --command bash test/c_api/run_static_link_test.sh
 
-      - name: Install wasm-tools
+      - name: Run Rust FFI example (dynamic)
         run: |
-          source .github/versions.lock
-          cargo install wasm-tools --locked --version "$WASM_TOOLS_VERSION"
-
-      - name: Download WebAssembly spec testsuite
-        run: git clone --depth 1 https://github.com/WebAssembly/spec.git "${{ runner.temp }}/wasm-spec"
-
-      - name: Convert spec tests
-        run: python test/spec/convert.py "${{ runner.temp }}/wasm-spec/test/core"
-
-      - name: Run spec tests (strict)
-        run: python test/spec/run_spec.py --build --summary --strict
-
-      - name: Download wasmtime misc_testsuite
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/bytecodealliance/wasmtime.git "${{ runner.temp }}/wasmtime"
-          cd "${{ runner.temp }}/wasmtime"
-          git sparse-checkout set tests/misc_testsuite
-
-      - name: Run E2E tests
-        env:
-          WASMTIME_MISC_DIR: ${{ runner.temp }}/wasmtime/tests/misc_testsuite
-        run: python test/e2e/run_e2e.py --convert --summary --verbose
-
-      - name: Build ReleaseSafe
-        run: zig build -Doptimize=ReleaseSafe
-
-      - name: Binary size check
-        shell: bash
-        run: |
-          # Build a stripped binary into an isolated prefix so the
-          # main `zig-out/bin/zwasm` (used by the memory check + later
-          # realworld tests) stays untouched. `-Dstrip=true` strips at
-          # link time via LLD; portable across ELF / Mach-O / PE
-          # without depending on a host `strip` tool (Windows runners
-          # don't have GNU strip; `zig objcopy --strip-all` is
-          # ELF-only).
-          rm -rf .strip-cache
-          zig build -Dstrip=true -Doptimize=ReleaseSafe --prefix .strip-cache
-          # Per-OS ceilings — regression guard, not a parity target.
-          # PE has higher reloc/import overhead than ELF; Mach-O is the
-          # most compact of the three. Each ceiling tracks the observed
-          # stripped size with ~80-100 KB of headroom so a real
-          # regression trips the gate before the budget runs out.
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            STRIPPED=.strip-cache/bin/zwasm.exe
-            BINARY=zig-out/bin/zwasm.exe
-            LIMIT_BYTES=1887436    # 1.80 MB — PE (observed ~1.70 MB)
-            LIMIT_MB="1.80"
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            STRIPPED=.strip-cache/bin/zwasm
-            BINARY=zig-out/bin/zwasm
-            LIMIT_BYTES=1363148    # 1.30 MB — Mach-O (observed ~1.20 MB)
-            LIMIT_MB="1.30"
-          else
-            # Linux / other ELF
-            STRIPPED=.strip-cache/bin/zwasm
-            BINARY=zig-out/bin/zwasm
-            LIMIT_BYTES=1677721    # 1.60 MB — ELF (observed ~1.56 MB)
-            LIMIT_MB="1.60"
-          fi
-          SIZE_BYTES=$(wc -c < "$STRIPPED" | tr -d ' ')
-          SIZE_MB=$(python -c "print(f'{$SIZE_BYTES / 1048576:.2f}')")
-          RAW_BYTES=$(wc -c < "$BINARY" | tr -d ' ')
-          RAW_MB=$(python -c "print(f'{$RAW_BYTES / 1048576:.2f}')")
-          echo "Binary size (raw): ${RAW_MB} MB ($RAW_BYTES bytes)"
-          echo "Binary size (stripped): ${SIZE_MB} MB ($SIZE_BYTES bytes)"
-          echo "Ceiling for ${{ runner.os }}: ${LIMIT_MB} MB ($LIMIT_BYTES bytes)"
-          if [ "$SIZE_BYTES" -gt "$LIMIT_BYTES" ]; then
-            echo "FAIL: Stripped binary exceeds ${LIMIT_MB} MB limit"
-            exit 1
-          fi
-          echo "PASS: Within ${LIMIT_MB} MB limit"
+          nix develop --command bash -c '
+            export PATH="$HOME/.cargo/bin:$PATH"
+            cd examples/rust && cargo run
+          '
 
       - name: Memory usage check (POSIX)
-        if: runner.os != 'Windows'
         run: |
           BINARY=zig-out/bin/zwasm
           LIMIT_KB=4608  # 4.5 MB
@@ -235,7 +115,7 @@ jobs:
             MEM_OUTPUT=$(/usr/bin/time -v "$BINARY" --invoke sieve bench/wasm/sieve.wasm 1000000 2>&1 >/dev/null)
             MEM_KB=$(echo "$MEM_OUTPUT" | grep "Maximum resident set size" | awk '{print $NF}')
           fi
-          MEM_MB=$(python -c "print(f'{int(${MEM_KB}) / 1024:.2f}')")
+          MEM_MB=$(python3 -c "print(f'{int(${MEM_KB}) / 1024:.2f}')")
           echo "Peak memory: ${MEM_MB} MB (${MEM_KB} KB)"
           if [ "$MEM_KB" -gt "$LIMIT_KB" ]; then
             echo "FAIL: Peak memory exceeds 4.5 MB limit"
@@ -243,8 +123,72 @@ jobs:
           fi
           echo "PASS: Within 4.5 MB limit"
 
+  test:
+    name: test (windows-latest)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Provision toolchain (install-tools.ps1)
+        # install-tools.ps1 reads .github/versions.lock and provisions
+        # Zig + WASI SDK + wasm-tools + wasmtime + Rust + Go + TinyGo
+        # into %LOCALAPPDATA%\zwasm-tools, exporting PATH /
+        # WASI_SDK_PATH / CARGO_HOME / RUSTUP_HOME via $GITHUB_PATH
+        # and $GITHUB_ENV so subsequent steps see them.
+        shell: pwsh
+        run: pwsh -NoLogo -File scripts/windows/install-tools.ps1
+
+      - name: Cache Zig build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            zig-cache
+            ~/AppData/Local/zig
+          key: zig-Windows-installtools-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
+          restore-keys: |
+            zig-Windows-installtools-
+
+      - name: Sanity-check provisioned toolchain
+        run: |
+          set -euo pipefail
+          echo "=== install-tools.ps1 toolchain ==="
+          zig version
+          wasm-tools --version
+          wasmtime --version
+          rustc --version
+          rustup target list --installed
+          go version
+          tinygo version
+          echo "WASI_SDK_PATH=$WASI_SDK_PATH"
+
+      - name: Run Commit Gate
+        run: bash scripts/gate-commit.sh
+
+      # Extras the Commit Gate intentionally skips — same set the
+      # test-nix job runs on Linux/macOS.
+
+      - name: Run C API tests (zig build c-test)
+        run: zig build c-test
+
+      - name: Build static library (PIC + compiler_rt)
+        run: zig build static-lib -Dpic=true -Dcompiler-rt=true
+
+      - name: Run static link tests
+        run: bash test/c_api/run_static_link_test.sh
+
+      - name: Run Rust FFI example (dynamic)
+        run: cd examples/rust && cargo run
+
       - name: Memory usage check (Windows)
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $LIMIT_KB = 4608   # 4.5 MB, same budget as POSIX path
@@ -274,85 +218,6 @@ jobs:
               exit 1
           }
           Write-Host "PASS: Within 4.5 MB limit"
-
-      - name: Install wasmtime
-        run: |
-          source .github/versions.lock
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            ARCH="aarch64"; OS="macos"; EXT="tar.xz"; BIN_NAME="wasmtime"
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            ARCH="x86_64"; OS="windows"; EXT="zip"; BIN_NAME="wasmtime.exe"
-          else
-            ARCH="x86_64"; OS="linux"; EXT="tar.xz"; BIN_NAME="wasmtime"
-          fi
-          ARCHIVE="wasmtime-v${WASMTIME_VERSION}-${ARCH}-${OS}.${EXT}"
-          curl -L --retry 3 --retry-delay 5 -f -o "${{ runner.temp }}/wasmtime.${EXT}" \
-            "https://github.com/bytecodealliance/wasmtime/releases/download/v${WASMTIME_VERSION}/${ARCHIVE}"
-          mkdir -p "$HOME/.wasmtime/bin"
-          if [ "$EXT" = "zip" ]; then
-            unzip -q "${{ runner.temp }}/wasmtime.${EXT}" -d "${{ runner.temp }}/wasmtime-extract"
-            cp "${{ runner.temp }}/wasmtime-extract/wasmtime-v${WASMTIME_VERSION}-${ARCH}-${OS}/${BIN_NAME}" "$HOME/.wasmtime/bin/"
-          else
-            tar xJf "${{ runner.temp }}/wasmtime.${EXT}" -C "${{ runner.temp }}"
-            cp "${{ runner.temp }}/wasmtime-v${WASMTIME_VERSION}-${ARCH}-${OS}/${BIN_NAME}" "$HOME/.wasmtime/bin/"
-          fi
-
-      - name: Install WASI SDK
-        if: runner.os != 'Windows'
-        run: |
-          source .github/versions.lock
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            ARCH="arm64"; OS="macos"
-          else
-            ARCH="x86_64"; OS="linux"
-          fi
-          ARCHIVE="wasi-sdk-${WASI_SDK_VERSION}.0-${ARCH}-${OS}.tar.gz"
-          curl -L --retry 3 --retry-delay 5 -f -o "${{ runner.temp }}/wasi-sdk.tar.gz" \
-            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/${ARCHIVE}"
-          mkdir -p "${{ runner.temp }}/wasi-sdk"
-          tar xzf "${{ runner.temp }}/wasi-sdk.tar.gz" -C "${{ runner.temp }}/wasi-sdk" --strip-components=1
-
-      - name: Install WASI SDK (Windows)
-        if: runner.os == 'Windows'
-        shell: python
-        run: |
-          import pathlib
-          import tarfile
-          import urllib.request
-
-          tool_versions = pathlib.Path(".github/versions.lock").read_text(encoding="utf-8").splitlines()
-          wasi_sdk_version = next(
-              line.split("=", 1)[1].split("#", 1)[0].strip().strip('"')
-              for line in tool_versions
-              if line.startswith("WASI_SDK_VERSION=")
-          )
-          archive = pathlib.Path(r"${{ runner.temp }}\wasi-sdk.tar.gz")
-          dest = pathlib.Path(r"${{ runner.temp }}\wasi-sdk")
-          dest.mkdir(parents=True, exist_ok=True)
-
-          url = (
-              f"https://github.com/WebAssembly/wasi-sdk/releases/download/"
-              f"wasi-sdk-{wasi_sdk_version}/wasi-sdk-{wasi_sdk_version}.0-x86_64-windows.tar.gz"
-          )
-          urllib.request.urlretrieve(url, archive)
-
-          with tarfile.open(archive, "r:gz") as tf:
-              for member in tf.getmembers():
-                  parts = pathlib.PurePosixPath(member.name).parts
-                  if len(parts) <= 1:
-                      continue
-                  member.name = str(pathlib.PurePosixPath(*parts[1:]))
-                  tf.extract(member, dest)
-
-      - name: Build real-world wasm programs
-        env:
-          WASI_SDK_PATH: ${{ runner.temp }}/wasi-sdk
-        run: python test/realworld/build_all.py
-
-      - name: Run real-world compat tests
-        run: |
-          export PATH="$HOME/.wasmtime/bin:$PATH"
-          python test/realworld/run_compat.py
 
   size-matrix:
     strategy:

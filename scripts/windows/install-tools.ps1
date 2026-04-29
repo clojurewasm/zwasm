@@ -314,7 +314,31 @@ if ($OnlyTool -in @('all', 'rust')) {
     $paths['rust'] = $rustRoot
 }
 
-# --- PATH and env wiring (User scope) ---
+# --- PATH and env wiring (User scope, plus GitHub Actions if present) ---
+#
+# In CI the runner exports `$GITHUB_PATH` and `$GITHUB_ENV` — appending
+# entries to those files exposes the change to subsequent steps in
+# the same job. Local Windows installs do not have those vars set;
+# behaviour falls back to the original User-scope-only path.
+
+$inGithubActions = ($env:GITHUB_PATH -and (Test-Path $env:GITHUB_PATH))
+
+function Append-GithubPath {
+    param([Parameter(Mandatory)][string]$Entry)
+    if ($inGithubActions) {
+        Add-Content -Path $env:GITHUB_PATH -Value $Entry -Encoding utf8
+    }
+}
+
+function Append-GithubEnv {
+    param(
+        [Parameter(Mandatory)][string]$Key,
+        [Parameter(Mandatory)][string]$Value
+    )
+    if ($inGithubActions -and (Test-Path $env:GITHUB_ENV)) {
+        Add-Content -Path $env:GITHUB_ENV -Value "$Key=$Value" -Encoding utf8
+    }
+}
 
 function Update-UserPath {
     param([Parameter(Mandatory)][string[]]$Add)
@@ -329,6 +353,9 @@ function Update-UserPath {
             Write-Host "[path] +$p"
             $changed = $true
         }
+        # Always export to GITHUB_PATH so a re-run with cached User
+        # PATH still propagates entries to the current GHA job.
+        Append-GithubPath -Entry $p
     }
     if ($changed) {
         [Environment]::SetEnvironmentVariable('Path', ($entries -join ';'), 'User')
@@ -353,6 +380,7 @@ Update-UserPath -Add $pathsToAdd
 
 if ($paths.ContainsKey('wasi-sdk')) {
     [Environment]::SetEnvironmentVariable('WASI_SDK_PATH', $paths['wasi-sdk'], 'User')
+    Append-GithubEnv -Key 'WASI_SDK_PATH' -Value $paths['wasi-sdk']
     Write-Host "[env] WASI_SDK_PATH=$($paths['wasi-sdk'])"
 }
 
@@ -364,6 +392,8 @@ if ($paths.ContainsKey('rust')) {
     $rustupHome = Join-Path $rustRoot 'rustup'
     [Environment]::SetEnvironmentVariable('CARGO_HOME',  $cargoHome,  'User')
     [Environment]::SetEnvironmentVariable('RUSTUP_HOME', $rustupHome, 'User')
+    Append-GithubEnv -Key 'CARGO_HOME'  -Value $cargoHome
+    Append-GithubEnv -Key 'RUSTUP_HOME' -Value $rustupHome
     Write-Host "[env] CARGO_HOME=$cargoHome"
     Write-Host "[env] RUSTUP_HOME=$rustupHome"
 }
