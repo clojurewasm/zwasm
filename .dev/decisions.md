@@ -845,3 +845,99 @@ wasmtime / hyperfine explicitly), `ci.yml` refactor.
 (`zig objcopy --strip-all`), CI memory check (PowerShell), `size-matrix`
 + `benchmark` jobs (OS fanout).
 
+## D137: Cross-platform binary stripping (`-Dstrip=true`) and per-OS size ceilings
+
+**Context**: Until Plan C-e/C-f the CI binary-size guard depended on the
+GNU `strip` shell tool and was wrapped in `if: runner.os != 'Windows'`
+because the Windows runner ships no GNU strip and `zig objcopy
+--strip-all` is ELF-only (it refuses Mach-O with `InvalidElfMagic` and
+PE/COFF outright). Two independent problems sat behind the guard:
+
+1. **How** to strip portably. The host-tool path is unfixable on
+   Windows, and `zig objcopy` is too narrow.
+
+2. **Where** the size ceiling should sit on each platform. The historic
+   1.60 MB cap was Linux-targeted; macOS Mach-O coincidentally fit
+   below it, but Windows PE consistently overshoots due to higher
+   relocation/import-table overhead even when zwasm itself is identical
+   bytecode-wise. Forcing a single global cap would either gate Linux
+   on a too-loose number (defeating the regression-guard purpose) or
+   gate Windows on a too-tight number (gating CI on a property of the
+   PE format, not of zwasm).
+
+The two problems must be solved together because the original
+1.60 MB number was specifically the *post-strip* size; without an
+agreed-on stripping mechanism, the ceiling has no meaning.
+
+**Decision**:
+
+1. **Strip via LLD at link time, not via a host tool.** `build.zig`
+   exposes `-Dstrip=true` (default `false`) which sets
+   `Module.strip = true` on the CLI executable. LLD strips the binary
+   during the link step on every target Zig supports — ELF, Mach-O,
+   PE/COFF. The CI size step does an *isolated* build into
+   `.strip-cache/` so the unstripped `zig-out/bin/zwasm` used by the
+   memory check and the realworld tests later in the same job stays
+   untouched.
+
+2. **Per-OS ceilings, not a single global cap.** Each ceiling tracks
+   the observed stripped size with ~80–100 KB of headroom. The
+   ceiling is a *regression guard*, not a parity target: cross-OS
+   binary-size comparison is meaningless given the format differences,
+   and forcing parity would either hobble Linux or grant Windows
+   excess slack.
+
+   | OS               | Stripped binary | Ceiling   | Headroom |
+   |------------------|-----------------|-----------|----------|
+   | macOS aarch64    | ~1.20 MB        | 1.30 MB   | ~80 KB   |
+   | Linux x86_64     | ~1.56 MB        | 1.60 MB   | ~40 KB   |
+   | Windows x86_64   | ~1.70 MB        | 1.80 MB   | ~100 KB  |
+
+   The Linux 1.60 MB number is the original W48 Phase-1 target and is
+   unchanged; the macOS 1.30 MB number tightens on the prior implicit
+   1.60 MB so a Mac regression trips the gate before consuming the
+   Linux-sized budget; the Windows 1.80 MB number is the first
+   measurement-grounded ceiling for that runner — historic 1.80 MB on
+   the Zig 0.16 transition was a pragmatic global compromise during
+   `link_libc=true`, this 1.80 is a per-OS budget reflecting PE's
+   structural overhead with `link_libc=false`.
+
+3. **`size-matrix` becomes a 3-OS matrix.** The job was Ubuntu-only on
+   the same `if: runner.os != 'Windows'` reasoning and reduces to the
+   same fix once `-Dstrip=true` works on every target. Each variant
+   (full / no-jit / no-component / no-wat / minimal) builds with
+   `-Dstrip=true` into its own `.strip-cache-<NAME>/` prefix; the loop
+   measures the binary directly.
+
+**Alternatives considered**:
+
+- **Keep `strip` and ship a Windows-only re-implementation.** Rejected
+  — Windows GNU `strip` is not in any standard runner image, and
+  shipping our own would duplicate work the Zig toolchain already does
+  via LLD.
+- **Use `zig objcopy --strip-all` with per-OS adapters.** Rejected —
+  it is ELF-only by design (`InvalidElfMagic` on Mach-O, no PE handler
+  at all), and a per-OS pipeline that converged on different binary
+  formats would be more code than the LLD path it would replace.
+- **Single global ceiling sized for the largest OS (Windows 1.80 MB).**
+  Rejected — Linux and macOS would silently regress up to 200 KB
+  before tripping the gate, defeating the regression guard.
+- **Strip everywhere always (default `-Dstrip=true`).** Rejected — the
+  unstripped binary is useful for local debugging (panic backtraces,
+  symbol resolution under lldb) and for the existing memory check
+  which relies on the same `zig-out/bin/zwasm` artefact built earlier
+  in the same CI job. Default `false`, opt in for size measurement.
+
+**Affected files (PR #70)**: `build.zig` (`-Dstrip` option +
+`Module.strip` wiring on the CLI module), `.github/workflows/ci.yml`
+(`Binary size check` rewritten with isolated `.strip-cache/` build and
+per-OS LIMIT_BYTES; `size-matrix` job converted from `runs-on:
+ubuntu-latest` to `strategy.matrix.os: [ubuntu-latest, macos-latest,
+windows-latest]`), CHANGELOG `[Unreleased]`.
+
+**Future bumps**: tightening any per-OS ceiling is explicitly
+encouraged when sustained reductions land (e.g. W48 Phase-2 trims the
+Mac binary another 60 KB → cap drops 1.30 → 1.25 MB). Loosening a
+ceiling requires a CHANGELOG entry naming the regression source so
+the slack is intentional and visible.
+
