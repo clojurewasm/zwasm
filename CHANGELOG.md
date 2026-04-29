@@ -46,9 +46,12 @@ behaviour change for embedders.**
 - `zig build static-lib -Dpic=true -Dcompiler-rt=true` and
   `test/c_api/run_static_link_test.sh` now run on Windows in CI.
   The C link tests use `zig cc` (portable across Mac/Linux/Windows)
-  instead of system `cc`. PIE coverage is preserved on Linux. Rust
-  static-link still skips on Windows because
-  `examples/rust/build.rs` is POSIX-only (Plan C-c). Plan C-d.
+  instead of system `cc`. PIE coverage is preserved on Linux. Plan C-d.
+- `examples/rust` `cargo run` now runs on Windows in CI. `build.rs`
+  gained a Windows arm: dynamic linking copies `zwasm.dll` next to
+  the cargo target binary so the OS finds it via the executable
+  directory at runtime (PE has no `-Wl,-rpath`); static linking uses
+  `zwasm.lib` and skips the POSIX-only `-lc` / `-lm`. Plan C-c.
 
 ### Changed
 - WASI SDK version bumped 25 → 30 to align CI with `flake.nix` (which
