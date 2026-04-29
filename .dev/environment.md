@@ -190,7 +190,6 @@ incompatibility — every one is a script-side limitation:
 |-----------------------------------------|---------------------------------------------------------|------------------------------------------------------------|
 | `test/c_api/run_ffi_test.sh`            | `gcc -ldl -pthread`, `dlfcn.h` in `test_ffi.c`          | Branch for `LoadLibraryA` + `GetProcAddress` (~50 lines C) |
 | `examples/rust` `cargo run`             | `build.rs` solves dynamic-lib path Linux/Mac only       | Add Windows branch in `build.rs`                           |
-| `zig build static-lib` + static link    | Shell script assumes `cc`                               | Branch by `RUNNER_OS`                                      |
 | Binary size check                       | Uses GNU `strip`                                        | Expose `-Dstrip=true` in build.zig and measure directly (Mach-O / ELF / PE all handled by Zig) |
 | `size-matrix` job                       | `strip` again                                           | Same fix as binary size check; fan out to OS matrix        |
 | `benchmark` job                         | `hyperfine` install via DEB; `bench/ci_compare.sh` GNU dependencies | Add Windows install step + audit ci_compare.sh portability |
@@ -199,7 +198,11 @@ incompatibility — every one is a script-side limitation:
 `Process.PeakWorkingSet64` branch for the Windows runner. `zig build
 shared-lib` is no longer in this table — the guard was a no-op since
 Zig produces `zwasm.dll` + `zwasm.lib` natively from
-`addLibrary({.linkage = .dynamic})`.)
+`addLibrary({.linkage = .dynamic})`. `zig build static-lib` + static
+link tests are no longer in this table — the script now uses `zig cc`
+in place of system `cc`, which is portable; PIE coverage is preserved
+on Linux; Rust static-link skips on Windows pending the C-c
+`examples/rust/build.rs` POSIX-isms fix.)
 
 ## Nix devshell contents (current)
 
