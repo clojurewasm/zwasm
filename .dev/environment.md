@@ -189,8 +189,6 @@ incompatibility — every one is a script-side limitation:
 | Step                                    | Blocker                                                 | Fix shape                                                  |
 |-----------------------------------------|---------------------------------------------------------|------------------------------------------------------------|
 | `test/c_api/run_ffi_test.sh`            | `gcc -ldl -pthread`, `dlfcn.h` in `test_ffi.c`          | Branch for `LoadLibraryA` + `GetProcAddress` (~50 lines C) |
-| Binary size check                       | Uses GNU `strip`                                        | Expose `-Dstrip=true` in build.zig and measure directly (Mach-O / ELF / PE all handled by Zig) |
-| `size-matrix` job                       | `strip` again                                           | Same fix as binary size check; fan out to OS matrix        |
 | `benchmark` job                         | `hyperfine` install via DEB; `bench/ci_compare.sh` GNU dependencies | Add Windows install step + audit ci_compare.sh portability |
 
 (Memory check is no longer in this table — PR #64 added a PowerShell
@@ -203,7 +201,9 @@ in place of system `cc`, which is portable; PIE coverage is preserved
 on Linux; Rust static-link uses `zwasm.lib` on Windows. `examples/rust
 cargo run` is no longer in this table — `build.rs` now has a Windows
 arm that copies `zwasm.dll` next to the cargo target binary for
-runtime discovery.)
+runtime discovery. Binary size check + size-matrix are no longer in
+this table — `build.zig` exposes `-Dstrip=true` which strips the CLI
+binary at link time via LLD, portable across ELF / Mach-O / PE.)
 
 ## Nix devshell contents (current)
 

@@ -52,6 +52,13 @@ behaviour change for embedders.**
   the cargo target binary so the OS finds it via the executable
   directory at runtime (PE has no `-Wl,-rpath`); static linking uses
   `zwasm.lib` and skips the POSIX-only `-lc` / `-lm`. Plan C-c.
+- `-Dstrip=true` build option in `build.zig` strips the CLI binary at
+  link time via LLD. Used by the Binary size check and the size-matrix
+  CI jobs so they no longer depend on a host `strip` tool — portable
+  across ELF / Mach-O / PE. The Binary size check now runs on
+  `windows-latest` (with a 1.80 MB ceiling reflecting PE overhead;
+  Mac 1.30 MB, Linux 1.60 MB unchanged) and `size-matrix` is a 3-OS
+  matrix (Ubuntu / macOS / Windows). Plan C-e + C-f.
 
 ### Changed
 - WASI SDK version bumped 25 → 30 to align CI with `flake.nix` (which

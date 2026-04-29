@@ -113,14 +113,25 @@ jobs:
         run: zig build -Doptimize=ReleaseSafe
 
       - name: Binary size check
-        if: runner.os != 'Windows'
+        shell: bash
         run: |
-          BINARY=zig-out/bin/zwasm
-          # Strip debug info for size measurement (Linux ELF includes DWARF
-          # inline while macOS uses separate .dSYM). We check distributable size.
-          cp "$BINARY" /tmp/zwasm_size_check
-          strip /tmp/zwasm_size_check 2>/dev/null || true
-          SIZE_BYTES=$(wc -c < /tmp/zwasm_size_check | tr -d ' ')
+          # Build a stripped binary into an isolated prefix so the
+          # main `zig-out/bin/zwasm` (used by the memory check + later
+          # realworld tests) stays untouched. `-Dstrip=true` strips at
+          # link time via LLD; portable across ELF / Mach-O / PE
+          # without depending on a host `strip` tool (Windows runners
+          # don't have GNU strip; `zig objcopy --strip-all` is
+          # ELF-only).
+          rm -rf .strip-cache
+          zig build -Dstrip=true -Doptimize=ReleaseSafe --prefix .strip-cache
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            STRIPPED=.strip-cache/bin/zwasm.exe
+            BINARY=zig-out/bin/zwasm.exe
+          else
+            STRIPPED=.strip-cache/bin/zwasm
+            BINARY=zig-out/bin/zwasm
+          fi
+          SIZE_BYTES=$(wc -c < "$STRIPPED" | tr -d ' ')
           SIZE_MB=$(python -c "print(f'{$SIZE_BYTES / 1048576:.2f}')")
           # 1.60 MB ceiling. History: v1.9.1 was 1.50 MB on Zig 0.15. The Zig
           # 0.16 migration temporarily forced `link_libc = true` and the limit
@@ -273,7 +284,11 @@ jobs:
           python test/realworld/run_compat.py
 
   size-matrix:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -283,7 +298,13 @@ jobs:
           version: 0.16.0
 
       - name: Build size variants
+        shell: bash
         run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            BIN_NAME=zwasm.exe
+          else
+            BIN_NAME=zwasm
+          fi
           echo "| Variant | Size (stripped) |"
           echo "|---------|----------------|"
 
@@ -297,9 +318,10 @@ jobs:
             NAME="${variant%%:*}"
             FLAGS="${variant#*:}"
             echo "Building $NAME ($FLAGS)..."
-            zig build -Doptimize=ReleaseSafe $FLAGS 2>&1
-            strip zig-out/bin/zwasm -o /tmp/zwasm_size
-            SIZE=$(wc -c < /tmp/zwasm_size | tr -d ' ')
+            rm -rf ".strip-cache-$NAME"
+            zig build -Dstrip=true -Doptimize=ReleaseSafe $FLAGS \
+              --prefix ".strip-cache-$NAME"
+            SIZE=$(wc -c < ".strip-cache-$NAME/bin/$BIN_NAME" | tr -d ' ')
             SIZE_KB=$((SIZE / 1024))
             echo "| $NAME | ${SIZE_KB} KB |"
           done

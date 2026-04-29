@@ -16,6 +16,13 @@ pub fn build(b: *std.Build) void {
     const enable_pic = b.option(bool, "pic", "Enable Position Independent Code for static library") orelse false;
     const bundle_compiler_rt = b.option(bool, "compiler-rt", "Bundle compiler_rt into static library") orelse false;
 
+    // Strip debug info from the CLI binary at link time. Used by the CI
+    // size-budget checks so we don't depend on a host `strip` tool
+    // (Windows runners have no GNU strip; `zig objcopy --strip-all` is
+    // ELF-only and rejects Mach-O / PE). LLD handles all three formats.
+    const enable_strip = b.option(bool, "strip", "Strip debug info from the CLI binary (default: false)") orelse false;
+    const strip_opt: ?bool = if (enable_strip) true else null;
+
     const build_zon = @import("build.zig.zon");
 
     const options = b.addOptions();
@@ -58,6 +65,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .link_libc = false,
+        .strip = strip_opt,
     });
     cli_mod.addOptions("build_options", options);
     const cli = b.addExecutable(.{
