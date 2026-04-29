@@ -42,23 +42,23 @@ behaviour change for embedders.**
 - `zig build shared-lib` now runs on Windows in CI. Zig produces
   `zwasm.dll` + `zwasm.lib` natively from
   `addLibrary({.linkage = .dynamic})` — the old guard was a no-op.
-  Plan C-a.
+  Plan C-a. (#68)
 - `zig build static-lib -Dpic=true -Dcompiler-rt=true` and
   `test/c_api/run_static_link_test.sh` now run on Windows in CI.
   The C link tests use `zig cc` (portable across Mac/Linux/Windows)
-  instead of system `cc`. PIE coverage is preserved on Linux. Plan C-d.
+  instead of system `cc`. PIE coverage is preserved on Linux. Plan C-d. (#69)
 - `examples/rust` `cargo run` now runs on Windows in CI. `build.rs`
   gained a Windows arm: dynamic linking copies `zwasm.dll` next to
   the cargo target binary so the OS finds it via the executable
   directory at runtime (PE has no `-Wl,-rpath`); static linking uses
-  `zwasm.lib` and skips the POSIX-only `-lc` / `-lm`. Plan C-c.
+  `zwasm.lib` and skips the POSIX-only `-lc` / `-lm`. Plan C-c. (#71)
 - `-Dstrip=true` build option in `build.zig` strips the CLI binary at
   link time via LLD. Used by the Binary size check and the size-matrix
   CI jobs so they no longer depend on a host `strip` tool — portable
   across ELF / Mach-O / PE. The Binary size check now runs on
   `windows-latest` (with a 1.80 MB ceiling reflecting PE overhead;
   Mac 1.30 MB, Linux 1.60 MB unchanged) and `size-matrix` is a 3-OS
-  matrix (Ubuntu / macOS / Windows). Plan C-e + C-f.
+  matrix (Ubuntu / macOS / Windows). Plan C-e + C-f. (#70, D137)
 - `test/c_api/test_ffi.c` ported to Windows: dynamic loading via
   `LoadLibraryA` + `GetProcAddress`, threading via `CreateThread` +
   `WaitForSingleObject`, pipes via `_pipe` (binary mode). Sources are
@@ -66,7 +66,7 @@ behaviour change for embedders.**
   runner switches from system `gcc` to `zig cc` so it does not
   require a host C compiler. The `if: runner.os != 'Windows'` CI
   guard on `Run FFI tests` is dropped accordingly. `gate-commit.sh`
-  no longer auto-skips `ffi` on Windows. Plan C-b.
+  no longer auto-skips `ffi` on Windows. Plan C-b. (#72)
 - `scripts/windows/install-tools.ps1` now provisions Rust (via
   `rustup-init.exe` with `wasm32-wasip1` target), Go, and TinyGo in
   addition to the existing core toolchain — i.e. the same set
@@ -74,8 +74,8 @@ behaviour change for embedders.**
   self-contained `rust-<toolchain>/` with `CARGO_HOME` /
   `RUSTUP_HOME` set in user-scope env so the install does not
   pollute `%USERPROFILE%\.cargo`. `-OnlyTool` accepts `rust`, `go`,
-  `tinygo`. Closes the local-realworld 25/50 → 50/50 gap on Windows
-  (W52).
+  `tinygo`. Closes the local-realworld 25/50 → 50/50 gap on Windows.
+  (#74, W52)
 
 ### Changed
 - WASI SDK version bumped 25 → 30 to align CI with `flake.nix` (which
@@ -93,6 +93,19 @@ behaviour change for embedders.**
   Plan B / Plan C scope (unified gate scripts, Nix-based CI,
   Windows native installer, removal of the remaining Windows-skipped
   CI steps).
+- D137 (in `decisions.md`): cross-platform stripping via Zig
+  `-Dstrip=true` (LLD `--strip-all` for ELF/Mach-O/PE) plus per-OS
+  size ceilings (Mac 1.30 / Linux 1.60 / Windows 1.80 MB). Records
+  the move away from the host `strip` tool (which is `objcopy
+  --strip-all` ELF-only) and from a single global ceiling sized for
+  the largest OS. (#73)
+- Doc alignment sweep: `ARCHITECTURE.md`, `CONTRIBUTING.md`,
+  `.dev/roadmap.md`, and the release skill now agree with `CLAUDE.md`
+  on Merge-Gate items, runner forms (`python3 …py`), and per-OS size
+  ceilings. (#75)
+- Removed obsolete `.dev/checklist-jit-fuel-timeout.md` planning doc
+  (all items shipped: PR #6 timeout merge, fuel-bypass fix, `--timeout`
+  CLI option). (#76)
 
 ## [1.11.0] - 2026-04-26
 

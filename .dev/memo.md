@@ -24,7 +24,7 @@ Session handover document. Read at session start.
 ## Current Task
 
 **Plan C effectively complete + W52 + D137 shipped
-(2026-04-29 PM).** Six new PRs to main on top of the morning's
+(2026-04-29 PM).** Nine new PRs to main on top of the morning's
 seven (#60..#67):
 
 - **#68** Plan C-a — `zig build shared-lib` Windows guard removed.
@@ -40,6 +40,15 @@ seven (#60..#67):
   `gate-commit.sh` no longer auto-skips `ffi` on Windows.
 - **#73** D137 — architectural decision recorded for the C-e + C-f
   per-OS ceilings + LLD-strip approach.
+- **#74** W52 — `scripts/windows/install-tools.ps1` extended with
+  rustup-init + Go + TinyGo, closing the local realworld 25/50 →
+  50/50 gap on Windows. CI Windows runner stays 25/25 (GitHub-hosted
+  runner uses its own per-job `Setup Rust` step); CI adoption is W50.
+- **#75** doc alignment sweep — `ARCHITECTURE.md`, `CONTRIBUTING.md`,
+  `.dev/roadmap.md`, release skill now agree with CLAUDE.md on Merge
+  Gate items / runner forms / per-OS size ceilings.
+- **#76** dropped obsolete `.dev/checklist-jit-fuel-timeout.md`
+  (all items shipped: PR #6 timeout, fuel-bypass fix, `--timeout`).
 
 `Plan C` tracker is empty except **C-g** (benchmark Ubuntu-only),
 which is intentionally Ubuntu-only per `CLAUDE.md`'s bench policy
@@ -48,14 +57,8 @@ is the Ubuntu-vs-Ubuntu regression guard). Treating C-g as
 "effectively done" until the user explicitly wants it formally
 closed.
 
-In flight: **#74 W52** — `scripts/windows/install-tools.ps1`
-extended with rustup-init + Go + TinyGo, closing the local
-realworld 25/50 → 50/50 gap on Windows. CI Windows runner stays
-25/25 because GitHub-hosted runner uses its own per-job `Setup
-Rust` step; CI adoption is W50 / Plan B sub-3.
-
 Per-merge `bench/history.yaml` rows recorded on Mac M4 Pro for
-each of #68..#73; the same will follow #74 once it lands.
+each of #68..#76.
 
 Quick orientation if continuing:
 
