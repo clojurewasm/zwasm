@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # scripts/sync-versions.sh — verify .github/versions.lock matches flake.nix.
 #
-# Two pins live in flake.nix today: Zig and WASI SDK. Other tools come
-# from nixpkgs at the flake.lock revision and do not embed an
-# explicit version literal in flake.nix, so they are checked
-# best-effort or skipped here. When Plan B's flake.nix extension lands
-# (explicit pins for wasm-tools / wasmtime / hyperfine), add them to
-# CHECKS below.
+# Four pins live in flake.nix today: Zig, WASI SDK, wasm-tools, wasmtime
+# (the last two added in W50 PR-A). Hyperfine has no aarch64-darwin
+# prebuilt asset upstream, so it is still resolved via nixpkgs and not
+# checked here.
 #
 # Exit codes:
 #   0  versions.lock is consistent with flake.nix
@@ -54,6 +52,18 @@ flake_wasi="$(grep -oE 'wasi-sdk/releases/download/wasi-sdk-[0-9]+' "$FLAKE" \
     | head -1 \
     | sed -E 's|.*wasi-sdk-||')"
 check WASI_SDK_VERSION "$WASI_SDK_VERSION" "$flake_wasi"
+
+# wasm-tools: URL pattern is .../wasm-tools/releases/download/v<X.Y.Z>/...
+flake_wasm_tools="$(grep -oE 'wasm-tools/releases/download/v[0-9]+\.[0-9]+\.[0-9]+' "$FLAKE" \
+    | head -1 \
+    | sed -E 's|.*/v||')"
+check WASM_TOOLS_VERSION "$WASM_TOOLS_VERSION" "$flake_wasm_tools"
+
+# wasmtime: URL pattern is .../wasmtime/releases/download/v<X.Y.Z>/...
+flake_wasmtime="$(grep -oE 'wasmtime/releases/download/v[0-9]+\.[0-9]+\.[0-9]+' "$FLAKE" \
+    | head -1 \
+    | sed -E 's|.*/v||')"
+check WASMTIME_VERSION "$WASMTIME_VERSION" "$flake_wasmtime"
 
 echo
 if [ "$mismatches" -eq 0 ]; then

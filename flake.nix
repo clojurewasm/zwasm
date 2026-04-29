@@ -80,6 +80,66 @@
           ''
         else null;
 
+        # wasm-tools 1.246.1 (per-architecture URLs and hashes; mirrors versions.lock).
+        wasmToolsArchInfo = {
+          "aarch64-darwin" = {
+            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.246.1/wasm-tools-1.246.1-aarch64-macos.tar.gz";
+            sha256 = "1i4vs5kmas0vahgd48yjjcg5h7qppq74jbchnfd7d6qzzylff0g8";
+          };
+          "x86_64-darwin" = {
+            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.246.1/wasm-tools-1.246.1-x86_64-macos.tar.gz";
+            sha256 = "1nidj7vx4h7aw2a2x4p645kmilmhb2lry4pk7464z5n8hcqk1774";
+          };
+          "x86_64-linux" = {
+            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.246.1/wasm-tools-1.246.1-x86_64-linux.tar.gz";
+            sha256 = "1k20522vvvz704v3ndj9bdnh3p530g893df97yvq3ms4v1kdcq1x";
+          };
+          "aarch64-linux" = {
+            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.246.1/wasm-tools-1.246.1-aarch64-linux.tar.gz";
+            sha256 = "1rqiy1kv81iskad1906488sq20fx16xjbbg6yhf3wb9jsc9hrlqv";
+          };
+        }.${system} or (throw "Unsupported system for wasm-tools: ${system}");
+
+        wasmToolsSrc = builtins.fetchTarball {
+          url = wasmToolsArchInfo.url;
+          sha256 = wasmToolsArchInfo.sha256;
+        };
+
+        wasmToolsBin = pkgs.runCommand "wasm-tools-1.246.1-wrapper" {} ''
+          mkdir -p $out/bin
+          ln -s ${wasmToolsSrc}/wasm-tools $out/bin/wasm-tools
+        '';
+
+        # wasmtime 42.0.1 (per-architecture URLs and hashes; mirrors versions.lock).
+        wasmTimeArchInfo = {
+          "aarch64-darwin" = {
+            url = "https://github.com/bytecodealliance/wasmtime/releases/download/v42.0.1/wasmtime-v42.0.1-aarch64-macos.tar.xz";
+            sha256 = "13yyvmnyzzzwf3gkb0in9w67s7jybb69bdma71xpnm5ch3v9wrsb";
+          };
+          "x86_64-darwin" = {
+            url = "https://github.com/bytecodealliance/wasmtime/releases/download/v42.0.1/wasmtime-v42.0.1-x86_64-macos.tar.xz";
+            sha256 = "1qvksa3k8vv4q2xmvviqmd50qk9s1ydc5ssz17jyi3f5v4h4zksd";
+          };
+          "x86_64-linux" = {
+            url = "https://github.com/bytecodealliance/wasmtime/releases/download/v42.0.1/wasmtime-v42.0.1-x86_64-linux.tar.xz";
+            sha256 = "0k76lip8iqrcnc4jbv706kqgxd35f4034qysdvwm1nzbpbxpzxw2";
+          };
+          "aarch64-linux" = {
+            url = "https://github.com/bytecodealliance/wasmtime/releases/download/v42.0.1/wasmtime-v42.0.1-aarch64-linux.tar.xz";
+            sha256 = "02r0lmqrzi0xszkn8pnfix0g9wk4il82b1xgwypwhmkj6n7x0l0j";
+          };
+        }.${system} or (throw "Unsupported system for wasmtime: ${system}");
+
+        wasmTimeSrc = builtins.fetchTarball {
+          url = wasmTimeArchInfo.url;
+          sha256 = wasmTimeArchInfo.sha256;
+        };
+
+        wasmTimeBin = pkgs.runCommand "wasmtime-42.0.1-wrapper" {} ''
+          mkdir -p $out/bin
+          ln -s ${wasmTimeSrc}/wasmtime $out/bin/wasmtime
+        '';
+
       in {
         devShells.default = pkgs.mkShell {
           name = "zwasm";
@@ -88,8 +148,8 @@
             # Compiler
             zigBin
 
-            # Wasm runtimes (benchmark comparison targets)
-            wasmtime
+            # Wasm runtimes (benchmark comparison targets) — pinned at versions.lock WASMTIME_VERSION
+            wasmTimeBin
 
             # JS/Wasm runtimes
             bun
@@ -99,12 +159,14 @@
             yq-go
             jq
 
-            # Benchmarking
+            # Benchmarking — hyperfine has no aarch64-darwin prebuilt asset
+            # upstream, so we keep the nixpkgs derivation here. Pinning is
+            # tracked separately; not blocking for spec/realworld.
             hyperfine
 
             # Wasm build tools
             tinygo
-            wasm-tools  # json-from-wast (spec test conversion), component inspection
+            wasmToolsBin  # json-from-wast (spec test conversion), component inspection — pinned at versions.lock WASM_TOOLS_VERSION
 
             # Real-world wasm compilation toolchains
             go          # GOOS=wasip1 GOARCH=wasm (Go 1.21+)

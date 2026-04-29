@@ -8,6 +8,9 @@ zig-cache/
 
 # Nix / direnv
 .direnv/
+# `nix build` default output symlink
+result
+result-*
 
 # Python
 __pycache__/
