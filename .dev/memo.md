@@ -58,38 +58,37 @@ Post-merge bench rows for the C-g merge (`e5766ee`):
 
 ## Open work
 
-### 0. **W54** — close the 2.1× wasmtime gap on `tgo_strops`
+### 0. **W54** — investigated; framing reset, implementation deferred
 
-`bench/runtime_comparison.yaml` (2026-03-25, commit 65db814,
-runs=1/warmup=0) shows zwasm cached 63.2 ms vs wasmtime cached
-30.0 ms on `tgo_strops`. Current main (`448f4c8`) is ~67 ms
-cached, so the gap is structural — and it dwarfs the W47 +15 %
-post-0.16 regression. Bigger leverage than W47.
+The original W54 framing — "zwasm doesn't fold `i32.div_u K`,
+that's why wasmtime is 2× faster" — was **disproven** during
+the 2026-04-29 evening investigation. Both ARM64 and x86_64
+JITs already emit the Hacker's Delight multiply-high for
+constant divisors; the JIT dump for `tgo_string_ops` (func#24,
+3 div_u sites, magic 0xCCCCCCCD) shows zero UDIV instructions.
 
-Hot loop is TinyGo's `digitCount` — `i32.div_u 10 + br_if` inside
-`for v > 0`. The lever is the constant-divisor optimisation that
-cranelift does by default. Strategy stack (single-pass-compatible,
-ordered by leverage):
+The 2.1× gap actually lives in:
 
-1. **Constant-divisor → multiply-high in predecode**. Two-op
-   window peephole for `i32.const K; i32.div_u` (and `rem_u`,
-   `mul K` power-of-two). Synthesise `udiv_const K`; JIT emits
-   `UMULH + LSR` on ARM64, `MUL + SHR` on x86_64. Magic
-   numbers pre-computed per K. UDIV ~10 cyc → UMULH ~3 cyc,
-   so realistic gain ≈ wasmtime parity for div-heavy workloads.
-2. **Loop-header Q-cache persistence (W45)**. Skip Q-cache
-   evict at loop headers so induction vars stay in registers.
-   Already designed.
-3. **`br_if` fall-through audit**. Confirm `regalloc.zig`
-   places the fall-through arm as the loop-continuation path.
-4. **Interpreter dispatch codegen diff** (also closes W47).
-   asm diff `vm.zig` hot dispatch v1.9.1 vs main under
-   Zig 0.16 / LLVM 19.
+1. **Magic-constant re-load every iteration** (~6 ARM64 instrs/
+   iter for 3 div sites). cranelift's SSA + GVN hoist; zwasm
+   single-pass cannot without an explicit preheader pass.
+2. **mov-heavy RegIR from TinyGo's `local.set`** that the
+   linear-scan regalloc spills to LDR/STR pairs.
 
-Out of scope (would break single-pass): SSA, global regalloc,
-auto unroll / vectorise. Re-record `runtime_comparison.yaml` at
-5 runs / 3 warmup before claiming a win — current values are
-single-sample. Detailed strategy in `.dev/checklist.md` W54.
+Best next step (single-pass-compatible) is the loop-preheader
+magic hoist — extend `emitLoopPreHeader` (SIMD-only today,
+`src/jit.zig:4604`) to scan for `OP_CONST32 K → OP_DIV_U`,
+reserve a callee-saved register in the prologue, and pre-load
+the magic. Deferred from this session because reserving the
+extra callee-saved slot interacts with the physical-register
+layout in `vregToPhys` (functions like `string_ops` with 13
+vregs already saturate the callee-saved set, so the hoist
+needs the prologue spill machinery to make room) — the design
+is well-bounded but invasive enough to warrant its own focused
+PR rather than a tail-end commit on a long autonomous run.
+
+Full investigation: `.dev/w54-investigation.md` (now in main
+on PR #90).
 
 ### 1. **W47** — `tgo_strops_cached` regression with stable harness
 

@@ -92,46 +92,54 @@ Prefix: W## (to distinguish from CW's F## items).
 - [ ] W54: `tgo_strops` (and other div-heavy TinyGo workloads) is
   ~2.1× slower than wasmtime/cranelift on M4 Pro per
   `bench/runtime_comparison.yaml` (2026-03-25, runs=1/warmup=0):
-  zwasm cached 63.2 ms vs wasmtime cached 30.0 ms. Current main
-  (`448f4c8`) is ~67 ms cached, so the gap is recurring, not a
-  measurement artefact, and it dwarfs the W47 +15 % post-0.16
-  regression. The hot loop is TinyGo's `digitCount` —
-  `i32.div_u 10 + br_if` in a `for v > 0` loop — and the lever is
-  the constant-divisor optimisation. Strategy stack, ordered by
-  leverage and single-pass compatibility:
+  zwasm cached 63.2 ms vs wasmtime cached 30.0 ms. The original
+  framing — "constant-divisor folding is missing" — was
+  **disproven** during the 2026-04-29 evening investigation. Both
+  ARM64 (`src/jit.zig:3582-3666` `tryEmitDivByConstU32`) and
+  x86_64 (`src/x86.zig`) already emit the Hacker's Delight magic
+  multiply for `i32.div_u K`; the JIT dump for
+  `bench/wasm/tgo_string_ops.wasm` shows three MOVZ+MOVK+UMULL+LSR
+  sequences for the three `i32.div_u 10` sites, with zero `UDIV`
+  instructions.
 
-  1. **Constant-divisor → multiply-high (Hacker's Delight 10-9)**
-     in predecode. Detect `i32.const K; i32.div_u` (and `rem_u`,
-     plus `mul K` for power-of-two / shift-add) in a 2-instruction
-     window, rewrite to a synthetic `udiv_const K` RegIR op. JIT
-     emits `MOVZ m; UMULH tmp, n, m; LSR result, tmp, s` on
-     ARM64; `MOV m; MUL r/m32; SHR edx, s` on x86_64. Magic
-     numbers are pure constants of K, computed once. UDIV is
-     8–10 cycles vs UMULH+LSR ~3–4 cycles, so realistic gain on
-     `digitCount` is ~30–40 ms cached → close to wasmtime parity.
-     Pure peephole; preserves single-pass.
-  2. **Loop-header Q-cache persistence** (existing W45). Detect
-     back-edges in `scanBranchTargets` and skip the Q-cache
-     evict at the loop header so the induction var stays in a
-     register. Helps `tgo_strops`, `tgo_arith`, `tgo_fib_loop`,
-     `st_nestedloop`. Already designed; cheap to land.
-  3. **`br_if` fall-through ordering audit**. cranelift always
-     places the fall-through arm as the loop continuation so the
-     branch predictor wins. Confirm `regalloc.zig`'s terminator
-     emit does the same and mirror it if not. Cheap audit.
-  4. **Interpreter dispatch codegen diff** (also closes W47). asm
-     diff `vm.zig`'s hot dispatch loop between v1.9.1 and main
-     under Zig 0.16 / LLVM 19. The post-0.16 +15 % most likely
-     lives here, and a fix would lift every interpreter path,
-     not just `tgo_strops`.
+  The remaining 2.1× lives in two places:
+
+  1. The 2-instruction magic-constant load (`MOVZ + MOVK` for
+     `0xCCCCCCCD`) is re-emitted inside the loop body on every
+     iteration; cranelift's SSA + GVN hoist it once so only
+     `UMULH/UMULL + LSR` stay hot. Three div sites in
+     `tgo_strops` cost ~6 ARM64 instructions per iteration that a
+     preheader hoist would eliminate.
+  2. TinyGo emits a `mov rd = rs1` per `local.set`; cranelift
+     collapses those into register renames whereas zwasm's
+     linear-scan regalloc still spills them to LDR/STR against
+     `regs[]`.
+
+  Single-pass-compatible levers, ranked:
+
+  1. **Loop-preheader magic hoist.** Extend `emitLoopPreHeader`
+     (today SIMD-only, `src/jit.zig:4604`) to scan for
+     `OP_CONST32 K → OP_DIV_U` patterns, allocate a callee-saved
+     register, and pre-load the magic. `tryEmitDivByConstU32`
+     short-circuits when the magic is already live. Risk:
+     medium — needs to coexist with the existing physical-
+     register layout (functions like `string_ops` (func#24, 13
+     vregs) saturate the callee-saved set; the prologue would
+     have to reserve a free slot up front).
+  2. **`OP_CONST32` reuse across loop back-edges.** Today
+     `known_consts` is wiped at every header. Skip unless (1)
+     lands — saves the 1-instr const itself but not the 2-instr
+     magic that hangs off it.
+  3. **`OP_MOV` coalescing in linear-scan regalloc.** Substantial
+     surgery; deserves a separate W## entry.
 
   Out of scope (would break single-pass): SSA + dataflow,
-  global register allocation beyond linear scan, automatic loop
-  unroll / vectorise.
+  global register allocation, automatic loop unroll /
+  vectorise. Re-record `runtime_comparison.yaml` at 5 runs / 3
+  warmup before claiming any number — the current values are
+  single-sample.
 
-  Measurement note: `runtime_comparison.yaml` is currently runs=1
-  / warmup=0 — useful for ordering, not for absolute targets.
-  Re-record at 5 runs / 3 warmup before claiming a win.
+  Full investigation log: `@./.dev/w54-investigation.md`.
 
 - [ ] W48 Phase 2: Linux binary size 1.56 MB → 1.50 MB (~62 KB more).
   W48 Phase 1 shipped (2026-04-25): `pub const panic = std.debug.simple_panic`
