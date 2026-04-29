@@ -171,12 +171,15 @@ Cut a release when one of these is true:
 - The user explicitly asks for a tag.
 - ClojureWasm (downstream) wants a stable pin instead of `main`.
 
-The `/release` skill automates the tag, `CHANGELOG.md`, benchmark
-recording, and the ClojureWasm pin update. Do **not** cut a tag
-manually — let the skill handle it.
+The `/release` skill automates the tag, `CHANGELOG.md` finalisation,
+benchmark recording, and the ClojureWasm pin update. Do **not** cut a
+tag manually — let the skill handle it.
 
-The `## [Unreleased]` block in `CHANGELOG.md` should be kept current
-as PRs merge so `/release` can roll up. Append entries as you ship.
+Keep the `## [Unreleased]` block in `CHANGELOG.md` current as PRs
+merge so `/release` can roll up. Append entries as you ship.
+
+A new session **does not** cut a release on its own initiative.
+Releases are user-triggered (`/release`).
 
 ## ClojureWasm propagation
 
@@ -201,14 +204,23 @@ a Windows guard.
 ## Procedural rules (override session defaults)
 
 - **No-Workaround Rule (CLAUDE.md).** A Windows-specific failure
-  during Plan C is a **bug**, not a reason to keep the guard. Add a
-  `W##` entry, fix the root cause, then remove the guard. Do not
-  paper over with `if: runner.os != 'Windows'`. The whole point of
-  buying the Windows mini-PC was to surface these bugs.
+  during Plan C is a **bug discovery, not a setback**. The whole
+  point of buying the Windows mini-PC was to surface these bugs.
+  Add a `W##` entry, fix the root cause in zwasm proper, re-verify
+  on Mac+Ubuntu (CW regression surface), then remove the CI guard.
+  Do **not** paper over with `if: runner.os != 'Windows'`.
 - **Autonomous merge authorization is per-session.** Without an
-  explicit grant from the user in the **current** session ("I'm
-  going to sleep" / "merge for me"), default behaviour is: push to a
-  feature branch, open the PR, wait for the user to merge.
+  explicit grant from the user in the **current** session, the
+  default is: push to a feature branch, open the PR, wait for the
+  user to merge. Recognised grant phrases:
+  - "merge without waiting for CI" / "CI またずマージしていいよ"
+    — fast-track for doc-only / single-line-config-only PRs whose
+    failure modes are limited to syntax / typo. **Still run
+    `bash scripts/sync-versions.sh` locally before merging.**
+  - "ship overnight" / "寝ます、朝には終わってて" — broad authority
+    for the rest of the session, including substantive work, but
+    only when each Merge Gate item passes (incl. local bench
+    record on Mac). Open PR if any uncertainty remains.
 - **Stack PRs sparingly.** A second PR stacked on a first is fine
   when the work is genuinely incremental and the first is reviewable
   in isolation. If they share commits, the squash-merge of the first
@@ -223,19 +235,69 @@ a Windows guard.
 
 ## How to use this guide on resume
 
-1. `git fetch origin && git log --oneline -5 origin/main` — see what's
-   on main now.
-2. `bash scripts/sync-versions.sh` — sanity check tooling pins.
-3. `bash scripts/gate-commit.sh --only=tests` — fast smoke test.
-4. Pick **one** item from "Outstanding work" above. Do the smallest
-   one in the chosen area.
-5. Branch, edit, test locally (`gate-commit.sh` for the affected
-   path), push, open a PR. Do not chain more than one open PR per
-   session unless the user is awake.
-6. When the chosen item is merged, refresh this guide (delete the
-   item from its table, add a "done 2026-MM-DD" line if illustrative).
-7. If the entire Plan C and Plan B sub-3 sections become empty, remove
-   `.dev/resume-guide.md` and the pointer in `.dev/memo.md`.
+The expected entry point is the user typing **"続けて"** / **"continue"**
+on a fresh session that has no context other than this repo. The
+session's first move is the CLAUDE.md Orient step, which lands here
+via `.dev/memo.md ## Current Task`.
+
+1. **Sync local main first.** `git checkout main && git fetch origin
+   && git pull --ff-only origin main`. Your local main may be many
+   merges behind — Orient does not pull on its own.
+2. **Sanity checks** (each is fast — under 30 s):
+   - `bash scripts/sync-versions.sh` — versions.lock ↔ flake.nix.
+   - `bash scripts/gate-commit.sh --only=tests` — Zig build + unit tests.
+3. **Pick one item** from "Outstanding work" above. Smallest first;
+   the table is ordered by ascending risk within each area.
+4. **Branch.** `git checkout -b develop/<short-task-name>`.
+   Conventional names for the residual work:
+   `develop/ci-windows-shared-lib`,
+   `develop/ci-windows-static-lib`,
+   `develop/ci-windows-strip-cross-platform`,
+   `develop/ci-windows-rust-ffi-example`,
+   `develop/ci-windows-test-ffi-c-port`,
+   `develop/ci-nix-installer`, etc.
+5. **Implement.** Edit, then locally `bash scripts/gate-commit.sh`
+   (full gate ~6 min on Mac). For Windows-only changes, also verify
+   via SSH on the user's local Windows mini-PC (only available on
+   shota's machine — `~/.ssh/config` carries a `windowsmini` entry):
+   ```bash
+   ssh windowsmini 'cd C:/Users/shota/Documents/MyProducts/zwasm \
+       && git fetch origin develop/<branch> \
+       && git checkout develop/<branch> \
+       && git reset --hard origin/develop/<branch> \
+       && bash scripts/gate-commit.sh'
+   ```
+   If the branch bumped a tool version in `versions.lock`, re-run
+   `pwsh scripts/windows/install-tools.ps1` on the Windows side first.
+   It is idempotent and only re-installs on version mismatch; pass
+   `--Force` to refresh anyway.
+6. **Push, PR.** `git push -u origin develop/<branch>`, then
+   `gh pr create --base main`. Watch CI via `Monitor` (do not poll).
+   Do not stack more than one open PR per session unless the user has
+   explicitly granted "ship a stack overnight" autonomy.
+7. **Merge.** Default behaviour is "wait for the user to merge". If
+   the user has said "merge without waiting for CI" for a doc-only
+   change, or "ship overnight" for substantive work, use
+   `gh pr merge <N> --squash --delete-branch`. See
+   `memory/autonomous_mode_permission.md` for the scope rules.
+8. **Post-merge bench record (Mac only, every merge).**
+   ```bash
+   git checkout main && git pull --ff-only
+   bash scripts/record-merge-bench.sh           # full ~5 min
+   # or `bash scripts/record-merge-bench.sh --runs=1 --warmup=0`  for quick
+   git add bench/history.yaml
+   git commit -m "Record benchmark for <PR subject>"
+   git push origin main
+   ```
+   The script auto-derives `--id` from the merge SHA and `--reason`
+   from the commit subject, and is a no-op on Linux/Windows
+   (`bench/history.yaml` env block is Darwin-only). Use the quick
+   mode for doc-only merges where bench cannot have changed.
+9. **Refresh this guide.** When an item lands, delete its row from
+   the relevant table.
+10. **Tear down when done.** When the Plan C and Plan B sub-3
+    sections empty out, delete `.dev/resume-guide.md` and the
+    pointer block in `.dev/memo.md ## Current Task`.
 
 ## Stop conditions
 
