@@ -59,6 +59,21 @@ pub const LoopInfo = struct {
     /// at analyse() time. Used for bounds checks in callers.
     vreg_count: u32 = 0,
 
+    /// The single divisor with the highest count of `CONST32 K → DIV_U/REM_U`
+    /// (or signed variants) immediately-adjacent pairs anywhere in the body.
+    /// `null` if no such pattern exists or the count is below the threshold
+    /// for hoist amortisation. The JIT consults this to decide whether to
+    /// reserve a callee-saved slot for the magic constant in the prologue.
+    /// Phase 3 supports a single dominant divisor; multi-divisor hoist is
+    /// future work.
+    dominant_divisor: ?u32 = null,
+    /// Number of div/rem sites in the function body that match
+    /// `dominant_divisor`. Used by callers to decide whether the hoist
+    /// pays for itself (≥ 1 always wins over the per-iter MOVZ+MOVK
+    /// because the prologue load is at most 2 instrs and div sites in
+    /// loops execute many times — the loop is the multiplier).
+    dominant_use_count: u16 = 0,
+
     /// Free all owned slices. Safe to call on a default-initialized
     /// (empty) LoopInfo.
     pub fn deinit(self: *LoopInfo, alloc: std.mem.Allocator) void {
@@ -175,6 +190,56 @@ pub const LoopInfo = struct {
             }
         }
 
+        // --- Hoist candidate scan ---
+        //
+        // Find adjacent `CONST32 rd=V op=K` followed by an unsigned
+        // div/rem with rs2 = V. Group by K, keep the divisor with the
+        // highest count. Powers of 2 and < 2 are skipped because the
+        // existing JIT shortcut handles them with LSR / AND.
+        //
+        // Local stack array sized for typical TinyGo / Rust / clang
+        // outputs (1-3 distinct divisors per function); hoist is single-
+        // register today so we only need the max anyway.
+        var divisors: [16]Divisor = .{Divisor{ .divisor = 0, .count = 0 }} ** 16;
+        var n_divisors: usize = 0;
+
+        if (ir.len >= 2) {
+            var i: usize = 0;
+            while (i + 1 < ir.len) : (i += 1) {
+                const c = ir[i];
+                if (c.op != regalloc.OP_CONST32) continue;
+                if (c.operand < 2) continue;
+                if (c.operand & (c.operand - 1) == 0) continue; // power of 2
+                const next = ir[i + 1];
+                // 0x6E = i32.div_u, 0x70 = i32.rem_u (unsigned magic-fold path).
+                if (next.op != 0x6E and next.op != 0x70) continue;
+                if (next.rs2() != c.rd) continue;
+
+                const k = c.operand;
+                var found = false;
+                for (0..n_divisors) |j| {
+                    if (divisors[j].divisor == k) {
+                        divisors[j].count +|= 1;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found and n_divisors < divisors.len) {
+                    divisors[n_divisors] = .{ .divisor = k, .count = 1 };
+                    n_divisors += 1;
+                }
+            }
+        }
+
+        var dom_divisor: ?u32 = null;
+        var dom_count: u16 = 0;
+        for (0..n_divisors) |j| {
+            if (divisors[j].count > dom_count) {
+                dom_count = divisors[j].count;
+                dom_divisor = divisors[j].divisor;
+            }
+        }
+
         self.* = .{
             .branch_targets = targets,
             .loop_headers = loop_headers,
@@ -182,9 +247,16 @@ pub const LoopInfo = struct {
             .vreg_first_def = first_def,
             .vreg_last_use = last_use,
             .vreg_count = reg_count,
+            .dominant_divisor = dom_divisor,
+            .dominant_use_count = dom_count,
         };
         return true;
     }
+};
+
+const Divisor = struct {
+    divisor: u32,
+    count: u16,
 };
 
 fn recordTarget(
@@ -429,6 +501,56 @@ test "LoopInfo: liveness — BR_IF reads rd as condition" {
     // r2 first defined at pc=0, BR_IF reads it (does NOT redefine) at pc=1
     try testing.expectEqual(@as(u32, 0), info.vreg_first_def[2]);
     try testing.expectEqual(@as(u32, 1), info.vreg_last_use[2]);
+}
+
+test "LoopInfo: hoist — three CONST32→DIV_U pairs collapse to dominant_divisor" {
+    // Mirror tgo_string_ops digitCount's pattern: three (const32, div_u 10)
+    // pairs scattered through the function body. Expected:
+    // dominant_divisor = 10, dominant_use_count = 3.
+    const ir = [_]RegInstr{
+        .{ .op = regalloc.OP_CONST32, .rd = 8, .rs1 = 0, .operand = 10 },
+        .{ .op = 0x6E, .rd = 8, .rs1 = 0, .rs2_field = 8, .operand = 0 }, // i32.div_u
+        .{ .op = regalloc.OP_NOP, .rd = 0, .rs1 = 0, .operand = 0 },
+        .{ .op = regalloc.OP_CONST32, .rd = 9, .rs1 = 0, .operand = 10 },
+        .{ .op = 0x6E, .rd = 9, .rs1 = 0, .rs2_field = 9, .operand = 0 },
+        .{ .op = regalloc.OP_NOP, .rd = 0, .rs1 = 0, .operand = 0 },
+        .{ .op = regalloc.OP_CONST32, .rd = 12, .rs1 = 1, .operand = 10 },
+        .{ .op = 0x6E, .rd = 12, .rs1 = 1, .rs2_field = 12, .operand = 0 },
+    };
+    var info: LoopInfo = .{};
+    defer info.deinit(testing.allocator);
+    try testing.expect(info.analyse(testing.allocator, &ir, 16));
+    try testing.expectEqual(@as(?u32, 10), info.dominant_divisor);
+    try testing.expectEqual(@as(u16, 3), info.dominant_use_count);
+}
+
+test "LoopInfo: hoist — power-of-2 divisor is ignored (existing LSR shortcut)" {
+    const ir = [_]RegInstr{
+        .{ .op = regalloc.OP_CONST32, .rd = 4, .rs1 = 0, .operand = 8 },
+        .{ .op = 0x6E, .rd = 4, .rs1 = 0, .rs2_field = 4, .operand = 0 },
+    };
+    var info: LoopInfo = .{};
+    defer info.deinit(testing.allocator);
+    try testing.expect(info.analyse(testing.allocator, &ir, 8));
+    try testing.expectEqual(@as(?u32, null), info.dominant_divisor);
+    try testing.expectEqual(@as(u16, 0), info.dominant_use_count);
+}
+
+test "LoopInfo: hoist — distinct divisors count separately, max wins" {
+    const ir = [_]RegInstr{
+        .{ .op = regalloc.OP_CONST32, .rd = 4, .rs1 = 0, .operand = 7 },
+        .{ .op = 0x6E, .rd = 4, .rs1 = 0, .rs2_field = 4, .operand = 0 },
+        .{ .op = regalloc.OP_CONST32, .rd = 5, .rs1 = 0, .operand = 11 },
+        .{ .op = 0x6E, .rd = 5, .rs1 = 0, .rs2_field = 5, .operand = 0 },
+        .{ .op = regalloc.OP_CONST32, .rd = 6, .rs1 = 0, .operand = 11 },
+        .{ .op = 0x6E, .rd = 6, .rs1 = 0, .rs2_field = 6, .operand = 0 },
+    };
+    var info: LoopInfo = .{};
+    defer info.deinit(testing.allocator);
+    try testing.expect(info.analyse(testing.allocator, &ir, 8));
+    // 11 has 2 uses, 7 has 1 — the max is 11.
+    try testing.expectEqual(@as(?u32, 11), info.dominant_divisor);
+    try testing.expectEqual(@as(u16, 2), info.dominant_use_count);
 }
 
 test "LoopInfo: liveness — MOV does not over-read rs2 default 0" {

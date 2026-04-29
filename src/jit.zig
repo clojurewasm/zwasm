@@ -1170,6 +1170,14 @@ pub const Compiler = struct {
     /// used as the hoist register and inst_ptr now lives in regs[] memory).
     /// Drives the self-call entry block to spill inst_ptr unconditionally.
     hoist_displaced_inst_ptr: bool = false,
+    /// Divisor whose magic is currently materialised into `hoist_phys`. The
+    /// const-divisor fast path checks this before emitting MOVZ+MOVK; on a
+    /// match it skips straight to UMULL. Set in `pickHoistPhys` and consumed
+    /// in `tryEmitDivByConstU32` / `tryEmitRemByConstU32`.
+    hoisted_divisor: ?u32 = null,
+    /// The magic-constant tuple cached in `hoist_phys`. The shift is needed
+    /// because the LSR right after UMULL still varies per call site.
+    hoisted_magic: ?MagicU32 = null,
 
     const FastPathInfo = struct {
         param_offset: u16,
@@ -2012,13 +2020,62 @@ pub const Compiler = struct {
     }
     // --- Prologue / Epilogue ---
 
+    /// Choose a callee-saved physical register to hold a loop-invariant
+    /// magic-constant divisor across the entire function body.
+    ///
+    /// The selection prefers slots that are guaranteed free by the existing
+    /// vreg layout, falling back to displacing `inst_ptr_cached` (x21) only
+    /// when no other slot is available. The displaced inst_ptr cache costs
+    /// one LDR per inst-ptr access at self-call sites — measurable but
+    /// dominated by the saved 2 instr/iter of magic re-load on every div
+    /// site inside any loop. Bench-driven: regressions trigger threshold
+    /// adjustment, not removal of the optimisation.
+    fn pickHoistPhys(self: *Compiler) void {
+        const div = self.loop_info.dominant_divisor orelse return;
+        if (self.loop_info.dominant_use_count == 0) return;
+        const magic = computeMagicU32(div) orelse return;
+        self.hoisted_divisor = div;
+        self.hoisted_magic = magic;
+
+        // Try free callee-saved x26 down to x22. Vreg N maps to x(22+N);
+        // a slot is free when N >= reg_count.
+        var reg: u8 = 26;
+        while (reg >= 22) : (reg -= 1) {
+            const vreg_using: u16 = @as(u16, reg) - 22;
+            if (vreg_using >= self.reg_count) {
+                self.hoist_phys = reg;
+                return;
+            }
+            if (reg == 22) break; // avoid u8 underflow
+        }
+
+        // No clean callee-saved slot. Try displacing inst_ptr_cached.
+        // x21 is taken by vreg 13 only when reg_count >= 14; otherwise
+        // it's either inst_ptr_cached (with self-calls) or unused.
+        if (self.reg_count <= 13) {
+            self.hoist_phys = 21;
+            if (self.has_self_call) {
+                self.hoist_displaced_inst_ptr = true;
+            }
+            return;
+        }
+
+        // No hoist slot available — clear the cached divisor so the
+        // const-fold fast path takes its original MOVZ+MOVK route.
+        self.hoisted_divisor = null;
+        self.hoisted_magic = null;
+    }
+
     fn emitPrologue(self: *Compiler) void {
         // Precompute caching flags for non-memory self-call functions.
         // Must be set before emitting self-call entry block (used by emitLoadRegPtrAddr).
         if (!self.has_memory and self.has_self_call) {
             self.depth_reg_cached = true;
             if (self.reg_count <= 12) self.vm_ptr_cached = true;
-            if (self.reg_count <= 13) self.inst_ptr_cached = true;
+            // Phase 3: when the magic-hoist picker has displaced x21, leave
+            // inst_ptr in its memory slot so x21 can hold the magic across
+            // every self-call (callee-saved preserves it).
+            if (self.reg_count <= 13 and !self.hoist_displaced_inst_ptr) self.inst_ptr_cached = true;
         }
 
         // Save callee-saved registers and set up frame.
@@ -2044,11 +2101,25 @@ pub const Compiler = struct {
             self.emit(a64.stpFpPre(14, 15, 31, -2));
         }
 
+        // Phase 3: hoist magic-constant load on normal-entry path only.
+        // Self-call entry inherits the value from the caller's x21 (the hoist
+        // register is callee-saved, so recursive calls in the same function
+        // — which all use the same dominant divisor — reuse it for free).
+        // For has_self_call=true this emit happens between the stp pairs and
+        // the B-over-self-call-entry below (also normal-entry only).
+        if (!self.has_self_call) {
+            self.emitHoistLoad();
+        }
+
         var b_vreg_load_idx: u32 = 0; // Patched later: self-call B to vreg loading
 
         if (self.has_self_call) {
             // Normal entry: x29 = SP (nonzero) — epilogue does full LDP x19-x28.
             self.emit(a64.addImm64(29, 31, 0)); // MOV x29, SP
+
+            // Hoist magic load on normal-entry path (self-call entry skipped
+            // via the unconditional B below).
+            self.emitHoistLoad();
 
             // Branch over self-call entry block to shared setup.
             const b_shared_idx = self.currentIdx();
@@ -2537,22 +2608,31 @@ pub const Compiler = struct {
         // Pre-scan: compute which vregs need loading in prologue
         self.prologue_load_mask = computePrologueLoads(self.local_count);
 
+        const ir = reg_func.code;
+
+        // Pre-scan: branch targets, loop headers, loop body extents,
+        // vreg liveness, hoist candidates. Must run BEFORE pickHoistPhys
+        // and emitPrologue so the prologue can reserve a hoist register.
+        if (!self.loop_info.analyse(self.alloc, ir, self.reg_count)) return null;
+        defer self.loop_info.deinit(self.alloc);
+        const branch_targets = self.loop_info.branch_targets;
+
+        // Pick a callee-saved phys register for loop-invariant hoists, if
+        // any are profitable. Sets self.hoist_phys / hoisted_divisor /
+        // hoisted_magic. May set hoist_displaced_inst_ptr to suppress
+        // inst_ptr_cached in the prologue when no other slot is available.
+        self.pickHoistPhys();
+
         // Emit fast-path for self-recursive base cases (before prologue).
         // Base cases return without callee-saved save/restore overhead.
-        self.emitBaseCaseFastPath(reg_func.code);
+        self.emitBaseCaseFastPath(ir);
 
         self.emitPrologue();
 
-        const ir = reg_func.code;
         var pc: u32 = 0;
 
         // Pre-allocate pc_map indexed by RegInstr PC (not loop iteration)
         self.pc_map.appendNTimes(self.alloc, 0, ir.len + 1) catch return null;
-
-        // Pre-scan: branch targets, loop headers, loop body extents.
-        if (!self.loop_info.analyse(self.alloc, ir, self.reg_count)) return null;
-        defer self.loop_info.deinit(self.alloc);
-        const branch_targets = self.loop_info.branch_targets;
 
         // Store IR for peephole fusion (loop_info is read directly via self).
         self.ir_slice = ir;
@@ -3592,6 +3672,23 @@ pub const Compiler = struct {
             self.storeVreg(instr.rd, d);
             return true;
         }
+        // Phase 3 fast path: divisor matches the function's hoisted magic →
+        // skip MOVZ+MOVK, emit UMULL+LSR using the prologue-loaded register.
+        if (self.hoisted_divisor) |hd| {
+            if (hd == divisor) {
+                if (self.hoist_phys) |phys| {
+                    const m_h = self.hoisted_magic.?;
+                    const rs1_h = self.getOrLoad(instr.rs1, SCRATCH);
+                    self.emit(a64.umull(SCRATCH, rs1_h, @intCast(phys)));
+                    self.scratch_vreg = null;
+                    self.emit(a64.lsr64Imm(SCRATCH, SCRATCH, m_h.shift));
+                    const d_h = self.destRegEff(instr.rd);
+                    if (d_h != SCRATCH) self.emit(a64.mov32(d_h, SCRATCH));
+                    self.storeVreg(instr.rd, d_h);
+                    return true;
+                }
+            }
+        }
         const m = computeMagicU32(divisor) orelse return false;
         // Codegen: MOVZ+MOVK magic → UMULL → LSR
         const rs1 = self.getOrLoad(instr.rs1, SCRATCH);
@@ -3666,6 +3763,28 @@ pub const Compiler = struct {
             self.emit(a64.and32(d, rs1, SCRATCH2));
             self.storeVreg(instr.rd, d);
             return true;
+        }
+        // Phase 3 fast path: same divisor as the function's hoisted magic.
+        // Skip the magic MOVZ+MOVK; reuse the prologue-loaded value.
+        if (self.hoisted_divisor) |hd| {
+            if (hd == divisor) {
+                if (self.hoist_phys) |phys| {
+                    const m_h = self.hoisted_magic.?;
+                    const rs1_h = self.getOrLoad(instr.rs1, SCRATCH);
+                    self.emit(a64.umull(SCRATCH, rs1_h, @intCast(phys)));
+                    self.scratch_vreg = null;
+                    self.emit(a64.lsr64Imm(SCRATCH, SCRATCH, m_h.shift));
+                    // q * d → SCRATCH (still need MOVZ+MOVK for d, but d is small
+                    // and not the same hoist; reuse SCRATCH2 as before)
+                    self.emitLoadImm(SCRATCH2, divisor);
+                    self.emit(a64.mul32(SCRATCH, SCRATCH, SCRATCH2));
+                    const rs1b_h = self.getOrLoad(instr.rs1, SCRATCH2);
+                    const d_h = self.destRegEff(instr.rd);
+                    self.emit(a64.sub32(d_h, rs1b_h, SCRATCH));
+                    self.storeVreg(instr.rd, d_h);
+                    return true;
+                }
+            }
         }
         const m = computeMagicU32(divisor) orelse return false;
         // 1. Compute quotient: q = (n * magic) >> shift
@@ -3983,6 +4102,16 @@ pub const Compiler = struct {
         if (value > 0xFFFF) {
             self.emit(a64.movk64(rd, @truncate(value >> 16), 1));
         }
+    }
+
+    /// Phase 3: emit the loop-invariant magic-constant materialise into the
+    /// hoist register (chosen by `pickHoistPhys`). Called from the prologue
+    /// on the normal-entry path only — self-call entry inherits the value
+    /// from the caller's x21 (callee-saved). No-op when no hoist is active.
+    fn emitHoistLoad(self: *Compiler) void {
+        const phys = self.hoist_phys orelse return;
+        const m = self.hoisted_magic orelse return;
+        self.emitLoadImm(@intCast(phys), m.magic);
     }
 
     /// Emit ADD Xd, Xd, #offset (handles large offsets).
