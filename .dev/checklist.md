@@ -11,14 +11,20 @@ Prefix: W## (to distinguish from CW's F## items).
 ## Open Items
 
 - [ ] W49 / Plan C-g: 3-platform bench baseline reset. The other
-  Plan C items (C-a..C-f) landed in PRs #68..#74; the remaining
-  `benchmark` Ubuntu-only guard is sequenced behind a cleanroom
-  baseline collection on Mac / Ubuntu / Windows so that
-  cross-platform absolute-time comparisons are meaningful (the
-  user specifically wants to see whether Windows shows
-  per-benchmark slowdowns vs Mac/Linux). Concrete sequence is in
-  `.dev/memo.md` `## Open work, in recommended order` → item 2.
-  Foundation for W47.
+  Plan C items (C-a..C-f) landed in PRs #68..#74. C-g schema
+  foundation shipped via PR #86 (2026-04-29 evening): every
+  `bench/history.yaml` entry now carries an `arch:` field;
+  `bench/record.sh` auto-detects the target triple and scopes
+  duplicate-id checks by `(id, arch)`; `record-merge-bench.sh`
+  dropped the Darwin-only guard. `e5766ee` (the C-g merge itself)
+  is the first SHA with multiple platform rows — `aarch64-darwin`
+  native and `x86_64-linux` via OrbStack Rosetta. Remaining work:
+  (a) pin hyperfine in versions.lock + `install-tools.ps1`,
+  (b) collect a native x86_64-linux baseline (the OrbStack row is
+  Rosetta-translated, schema-shakedown only), (c) collect a
+  Windows baseline once hyperfine is on PATH, (d) drop
+  `runs-on: ubuntu-latest` on the `benchmark` CI job and switch
+  to a 3-OS matrix.
 
 - [x] W50: Plan B sub-3 — CI Nix-ify. Shipped in 4 PRs over the
   2026-04-29 PM autonomous session:

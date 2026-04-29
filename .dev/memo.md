@@ -23,120 +23,98 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**Plan C done. Plan B sub-3 (W50) done. W47 investigated.**
-Session 2026-04-29 PM landed six PRs to main on top of the morning's
-seven (#68..#74):
+**W53 done. C-g foundation + Mac/Ubuntu baselines done.** Ship-overnight
+session 2026-04-29 evening landed two PRs to main on top of the
+afternoon's six (#79..#84):
 
-- **#79** docs+ci trailing cleanup (memo.md / CHANGELOG / nightly.yml
-  drift after #75..#78).
-- **#80** W50 PR-A — `flake.nix` explicit URL+sha256 pins for
-  wasm-tools 1.246.1 + wasmtime 42.0.1.
-- **#81** W50 PR-B — new `test-nix (ubuntu-latest)` job using
-  Nix devshell + gate-commit.
-- **#82** W50 PR-C — `test-nix` matrix extended to macOS.
-- **#83** W50 PR-D — Windows test switched to `install-tools.ps1
-  -SkipRust` + `gate-commit.sh`. Added binaryen 125 to
-  install-tools.ps1, restored extras (c-test / static-lib /
-  static-link / Rust example / memory check) on all 3 OSes,
-  reordered cargo run before static-lib build (Windows
-  `zwasm.lib` collision).
-- **#84** W47 investigation note — 20-run remeasurement showed
-  variance dominates the +24% signal; `.dev/w47-investigation.md`
-  records the findings + next-step recommendations.
+- **#85** W53 — root-caused the `Cannot bind argument to parameter
+  'Path'` failure on a fresh GitHub-hosted Windows runner. Native
+  command stdout from `& rustup target add` was being folded into
+  `Install-Rustup`'s return value (PowerShell pipeline-output rule),
+  turning `$paths['rust']` into a string array; downstream
+  `Join-Path $paths['rust'] 'cargo'` exploded on the empty leading
+  element. Fix routes both `& $installer` and `& rustup target add`
+  through `2>&1 | Out-Host` so the lines surface in the CI log
+  without joining the function's pipeline output. Added a
+  defensive `[array]` / IsNullOrWhiteSpace check in the caller.
+  Dropped `-SkipRust` and the separate `Setup Rust` step from
+  `test (windows-latest)`.
+- **#86** C-g schema — `bench/history.yaml` is now multi-arch.
+  Each entry gains an explicit `arch:` field; all 125 pre-existing
+  rows tagged `aarch64-darwin`. `bench/record.sh` auto-detects the
+  target triple (override with `--arch=...`), and the duplicate-id
+  check is now scoped by `(id, arch)` so two triples can both
+  record an entry against the same merge SHA.
+  `scripts/record-merge-bench.sh` dropped the Darwin-only guard
+  and now passes the auto-detected `--arch=...` through.
+  `.claude/CLAUDE.md` Merge-Gate item 10 reworded to match.
 
-Per-merge `bench/history.yaml` rows recorded on Mac M4 Pro for
-each of #68..#84.
+Post-merge bench rows for the C-g merge (`e5766ee`):
 
-## Open work, in recommended order
+- `aarch64-darwin` — native M4 Pro, hyperfine 1.19.0.
+- `x86_64-linux` — OrbStack `my-ubuntu-amd64` (Rosetta-translated;
+  treat as schema-shakedown baseline only, not a native x86_64
+  reference).
 
-The 2026-04-29 PM session left three items sequenced. Each builds
-on the previous; do them in order.
+## Open work
 
-### 1. **W53** — DONE (this session)
+### 1. **W47** — `tgo_strops_cached` regression with stable harness
 
-Root cause was the PowerShell pipeline-output capture rule: every
-native command's stdout (`& $installer ...`, `& rustup target add
-wasm32-wasip1`) was being folded into `Install-Rustup`'s return
-value, so the caller's `$rustRoot` arrived as a string array
-rather than a single path. The downstream
-`Join-Path $paths['rust'] 'cargo'` exploded on the empty leading
-element. Local Windows was unaffected because rustup's
-"already installed" path is silent on stdout, leaving the return
-clean.
-
-Fix: route both `& $installer` and `& rustup target add` through
-`2>&1 | Out-Host` so the lines surface in the CI log without
-joining the function's pipeline output. Added a defensive
-`[array]` / IsNullOrWhiteSpace check in the caller. Dropped
-`-SkipRust` and the separate `Setup Rust` step from
-`test (windows-latest)` so the runner now goes through a single
-`install-tools.ps1` path with a self-contained
-`%LOCALAPPDATA%\zwasm-tools\rust-stable\` toolchain.
-
-### 2. **C-g** — 3-platform bench baseline reset
-
-Now that W50 finished, all three CI runners (Mac / Ubuntu / Windows)
-use the same flake-pinned toolchain. Time to actually compare
-absolute bench numbers across platforms (the user specifically
-suspected "Windows だけやたら性能劣化" might exist).
-
-Sequence:
-
-1. `bench/history.yaml` schema: add `arch:` field to each entry
-   (default `aarch64-darwin` — that's all current rows). Allow
-   per-entry `env:` override of `cpu` / `os`.
-2. `scripts/record-merge-bench.sh`: drop the "Darwin only" early
-   exit; per-arch series are independent.
-3. Cleanroom baseline collection:
-   - Mac M4 Pro local — `bash scripts/record-merge-bench.sh`
-   - Ubuntu via OrbStack `my-ubuntu-amd64` — same command
-   - Windows via SSH `windowsmini` — same command (uses
-     `install-tools.ps1` toolchain, hyperfine should be on PATH
-     after binaryen install added it). One row each, tagged with
-     `arch`.
-4. `bench/ci_compare.sh`: already self-contained per-runner (does
-   fresh measure of base vs PR on the same host); confirm no per-arch
-   filtering changes needed.
-5. After (1)-(4) ship and the 3 baselines are recorded, drop the
-   Ubuntu-only guard on the `benchmark` CI job in `ci.yml` and let
-   it run as a 3-OS matrix. That formally closes Plan C-g.
-
-Roughly one supervised PR + ~10 min of bench collection per
-platform. Foundation for W47.
-
-### 3. **W47** — `tgo_strops_cached` regression with stable harness
-
-Investigation already in `.dev/w47-investigation.md`:
+Investigation in `.dev/w47-investigation.md` is intact:
 
 - Real signal: ~15 % uniform slowdown on both cached and uncached
-  variants (the original "+24% cached only" framing was a 5-run
+  variants (the original "+24 % cached only" framing was a 5-run
   sample artifact).
 - Variance: σ ≈ 18 % of the mean for this benchmark. Bisect needs
   σ < 5 %.
 - Suspect range: v1.9.1 (`078f8f2`) → v1.10.0 (`c89b95a`), which
   is the Zig 0.15 → 0.16 + W46 link_libc window.
 
-After C-g lands the per-arch data, also compare across Mac /
-Ubuntu / Windows: is the regression Mac-only (ARM64 JIT
-codegen), Mac+Ubuntu (cross-platform JIT path), or all-platform
-(interpreter dispatch)? That triages the bisect range immediately.
+Stabilise the harness first — 50 run hyperfine alone reduces
+σ_mean by only sqrt(2.5) ≈ 1.6×, so likely needs an in-process
+loop that subtracts module load + WASI startup from each sample
+to actually drop σ under 5 %. Then bisect.
 
-Stabilise the harness first (50-run hyperfine or in-process JIT
-timing that subtracts module load + WASI startup), then bisect.
+### 2. **C-g step 5** — flip the `benchmark` CI job to a 3-OS matrix
+
+The schema work in #86 unblocks the matrix flip. Outstanding
+pieces:
+
+- Pin `hyperfine` in `.github/versions.lock` and add a Windows
+  install path in `scripts/windows/install-tools.ps1` (it already
+  fetches binaryen from a similar GitHub release artifact, so the
+  shape is straightforward).
+- `ci.yml` `benchmark` job: drop `runs-on: ubuntu-latest`, switch
+  to a `os: [ubuntu-latest, macos-latest, windows-latest]` matrix.
+  Mac uses the test-nix devshell hyperfine; Linux keeps the .deb
+  install (or also flips to nix); Windows uses the new
+  `install-tools.ps1` path.
+- Collect a **native** x86_64-linux baseline. The current
+  `e5766ee/x86_64-linux` row is OrbStack-Rosetta — useful for
+  schema validation, not for cross-platform regression analysis.
+  Easiest path: a one-shot CI workflow_dispatch that runs
+  `record-merge-bench.sh --arch=x86_64-linux` on a GitHub-hosted
+  ubuntu-latest runner and uploads the diff as a PR.
+
+Once those land, the `benchmark` job can be the same on all three
+OSes and the W47 triage gets cross-platform data for free.
+
+### 3. **C-g step 5 prerequisite** — Windows hyperfine baseline
+
+`windowsmini` SSH host is available but does not have hyperfine
+on PATH. After C-g step 5's hyperfine pin in `install-tools.ps1`,
+re-run `pwsh install-tools.ps1` there and then
+`bash scripts/record-merge-bench.sh` to add the Windows baseline.
 
 ## Quick orient on session start
 
 ```bash
 git log --oneline origin/main -10        # confirm what's on main
 git status --short                       # any unstaged carry-over from prior session?
-cat .dev/checklist.md                    # W53 / C-g / W47 are the open items
+cat .dev/checklist.md                    # W47 / C-g step 5 are the open items
 bash scripts/sync-versions.sh            # toolchain pin sanity (instant)
 bash scripts/gate-commit.sh --only=tests # smoke test
 ```
-
-`.dev/resume-guide.md` was deleted at the end of the 2026-04-29 PM
-session because Plan B sub-3 + Plan C are done; this "Current Task"
-block is the only handover document going forward.
 
 ## Previous Task
 

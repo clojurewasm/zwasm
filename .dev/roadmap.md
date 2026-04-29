@@ -29,8 +29,9 @@ Details: `roadmap-archive.md`.
 
 | Task                        | Priority | Description                                       |
 |-----------------------------|----------|---------------------------------------------------|
-| Windows CI guard removal    | Done     | W49 (Plan C residuals) + W50 (CI Nix-ify) shipped 2026-04-29 PM. Only `benchmark` Ubuntu-only remains, sequenced behind C-g (3-platform baseline reset). |
+| Windows CI guard removal    | Done     | W49 (Plan C residuals) + W50 (CI Nix-ify) shipped 2026-04-29 PM. Only `benchmark` Ubuntu-only remains, sequenced behind C-g step 5. |
 | W53 install-tools.ps1 rust  | Done     | Root-cause: rustup-init stdout polluting `Install-Rustup`'s return; fix routes through `Out-Host`. CI dropped `-SkipRust`. |
+| C-g multi-arch bench schema | Done     | PR #86 (2026-04-29 eve). Step 5 (3-OS matrix flip + Windows hyperfine + native x86_64 baseline) tracked in `.dev/memo.md` open work. |
 | Spec test auto-bump         | Active   | Weekly CI (spec-bump.yml). Review failures.        |
 | wasm-tools tracking         | Active   | Monthly CI (wasm-tools-bump.yml)                   |
 | SpecTec monitoring          | Active   | Weekly CI (spectec-monitor.yml)                    |
