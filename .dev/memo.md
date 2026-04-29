@@ -24,7 +24,7 @@ Session handover document. Read at session start.
 ## Current Task
 
 **Plan C effectively complete + W52 + D137 shipped
-(2026-04-29 PM).** Nine new PRs to main on top of the morning's
+(2026-04-29 PM).** Eleven new PRs to main on top of the morning's
 seven (#60..#67):
 
 - **#68** Plan C-a — `zig build shared-lib` Windows guard removed.
@@ -49,6 +49,10 @@ seven (#60..#67):
   Gate items / runner forms / per-OS size ceilings.
 - **#76** dropped obsolete `.dev/checklist-jit-fuel-timeout.md`
   (all items shipped: PR #6 timeout, fuel-bypass fix, `--timeout`).
+- **#77** CHANGELOG `[Unreleased]` PR-tags + D137 entry, memo.md
+  Current Task refresh.
+- **#78** README front page — W52 status (local 50/50 via installer)
+  + per-OS size ceilings (Mac 1.30 / Linux 1.60 / Windows 1.80 MB; D137).
 
 `Plan C` tracker is empty except **C-g** (benchmark Ubuntu-only),
 which is intentionally Ubuntu-only per `CLAUDE.md`'s bench policy
@@ -58,7 +62,7 @@ is the Ubuntu-vs-Ubuntu regression guard). Treating C-g as
 closed.
 
 Per-merge `bench/history.yaml` rows recorded on Mac M4 Pro for
-each of #68..#76.
+each of #68..#78.
 
 Quick orientation if continuing:
 
