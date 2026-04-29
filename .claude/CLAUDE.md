@@ -125,25 +125,31 @@ items 8-9. Run on **BOTH Mac AND Ubuntu x86_64**. No skipping.
 9. **versions.lock ↔ flake.nix consistency**: `bash scripts/sync-versions.sh`
    exits 0. Run automatically by `gate-merge.sh` and by the CI
    `versions-lock-sync` job.
-10. **Local bench record on Mac, every merge**: after the PR is squash-merged
+10. **Local bench record, every merge**: after the PR is squash-merged
     and main is checked out (`git checkout main && git pull --ff-only`),
     `bash scripts/record-merge-bench.sh` appends one row to
-    `bench/history.yaml` keyed on the merge commit SHA. Always full
-    hyperfine (5 runs + 3 warmup, ~5 min) — `bench/history.yaml` is the
-    canonical Mac M4 Pro absolute-time baseline used at tag time, so
-    every entry must be measurement-grade. Lower run/warmup counts are
-    only for `bench/run_bench.sh --quick`'s interactive smoke tests, not
-    for durable history. Skipped automatically on Linux/Windows because
-    the file's `env:` block is Darwin-only. Commit the resulting
+    `bench/history.yaml` keyed on the (merge SHA, target triple) pair.
+    Always full hyperfine (5 runs + 3 warmup, ~5 min) —
+    `bench/history.yaml` is the canonical absolute-time baseline used
+    at tag time, so every entry must be measurement-grade. Lower
+    run/warmup counts are only for `bench/run_bench.sh --quick`'s
+    interactive smoke tests, not for durable history. Multi-arch
+    (C-g, 2026-04-29): the script auto-detects `aarch64-darwin` /
+    `x86_64-linux` / `x86_64-windows` from `uname -s -m` and tags the
+    entry's `arch:` field accordingly; aarch64-darwin remains the
+    primary tag-time baseline, but Linux/Windows rows are encouraged
+    so cross-platform regressions surface early. Commit the resulting
     `history.yaml` change directly to main as a follow-up
-    `Record benchmark for <subject>` commit; CI runs but is not gating
-    for that small commit.
+    `Record benchmark for <subject>` commit; CI runs but is not
+    gating for that small commit.
 
 CI Linux runners separately enforce a soft regression check
 (`bench/ci_compare.sh --base=origin/main --threshold=20 --runs=3
---warmup=1` on PR, `continue-on-error: true`) — Ubuntu-vs-Ubuntu, never
-mixed with the Mac history. Treat the two baselines as independent
-artefacts, not as values to compare against each other.
+--warmup=1` on PR, `continue-on-error: true`) — Ubuntu-vs-Ubuntu only,
+the comparison is fresh-measured on the same runner. Compare entries
+in `bench/history.yaml` only within a single `arch:` series; the three
+target triples are independent artefacts, not values to compare
+against each other.
 
 Items 1-6 must pass on BOTH platforms before merge. Run them in parallel:
 Mac items can run locally, Ubuntu items via `orb run -m my-ubuntu-amd64`.

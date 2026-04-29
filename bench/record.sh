@@ -28,6 +28,8 @@ RUNS=5
 WARMUP=3
 TIMEOUT=60  # per-benchmark timeout in seconds
 NO_CACHE=false
+# Auto-detected target triple. Resolved below; --arch=... overrides it.
+ARCH=""
 
 # --- Benchmark definitions: name:wasm:function:args:type ---
 # Keep in sync with run_bench.sh
@@ -85,6 +87,7 @@ for arg in "$@"; do
     --warmup=*)   WARMUP="${arg#--warmup=}" ;;
     --timeout=*)  TIMEOUT="${arg#--timeout=}" ;;
     --no-cache)   NO_CACHE=true ;;
+    --arch=*)     ARCH="${arg#--arch=}" ;;
     -h|--help)
       echo "Usage: bash bench/record.sh --id=ID --reason=REASON [OPTIONS]"
       echo ""
@@ -100,6 +103,8 @@ for arg in "$@"; do
       echo "  --warmup=N        Number of warmup runs (default: 3)"
       echo "  --timeout=SEC     Per-benchmark timeout (default: 60)"
       echo "  --no-cache        Skip cached variant measurements"
+      echo "  --arch=TRIPLE     Override the auto-detected target triple"
+      echo "                    (e.g. aarch64-darwin, x86_64-linux, x86_64-windows)"
       echo "  -h, --help        Show this help"
       exit 0
       ;;
@@ -134,11 +139,33 @@ if [[ -z "$ID" || -z "$REASON" ]]; then
   exit 1
 fi
 
-# --- Check for duplicate id ---
+# Resolve the target triple if the caller did not pass --arch=...
+if [[ -z "$ARCH" ]]; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64)        ARCH="aarch64-darwin" ;;
+    Darwin-x86_64)       ARCH="x86_64-darwin" ;;
+    Linux-x86_64)        ARCH="x86_64-linux" ;;
+    Linux-aarch64)       ARCH="aarch64-linux" ;;
+    MINGW*-x86_64|MSYS*-x86_64|CYGWIN*-x86_64) ARCH="x86_64-windows" ;;
+    *)
+      echo "Error: cannot auto-detect target triple ($(uname -s)/$(uname -m))." >&2
+      echo "       Pass --arch=<triple> explicitly." >&2
+      exit 1
+      ;;
+  esac
+fi
+
+# --- Check for duplicate (id, arch) ---
+# An entry is identified by the (id, arch) tuple — the same merge SHA
+# can be recorded once per target triple. Older entries that predate
+# the multi-arch schema have an explicit `arch: aarch64-darwin` after
+# the C-g migration; we still default-fill aarch64-darwin in the
+# select below as a safety net for any hand-edited rows that omit
+# the field.
 if [[ -f "$HISTORY_FILE" ]] && ! $OVERWRITE; then
-  existing=$(yq ".entries[] | select(.id == \"$ID\") | .id" "$HISTORY_FILE" 2>/dev/null || echo "")
+  existing=$(yq ".entries[] | select(.id == \"$ID\" and (.arch // \"aarch64-darwin\") == \"$ARCH\") | .id" "$HISTORY_FILE" 2>/dev/null || echo "")
   if [[ -n "$existing" ]]; then
-    echo "Error: Entry '$ID' already exists. Use --overwrite to replace." >&2
+    echo "Error: Entry '$ID' already exists for arch '$ARCH'. Use --overwrite to replace." >&2
     exit 1
   fi
 fi
@@ -310,9 +337,10 @@ entries: []
 INITEOF
 fi
 
-# Remove existing entry if overwriting
+# Remove existing entry if overwriting (scoped to the current arch so
+# --overwrite never wipes a sibling row recorded on a different host).
 if $OVERWRITE; then
-  yq -i "del(.entries[] | select(.id == \"$ID\"))" "$HISTORY_FILE"
+  yq -i "del(.entries[] | select(.id == \"$ID\" and (.arch // \"aarch64-darwin\") == \"$ARCH\"))" "$HISTORY_FILE"
 fi
 
 # Build YAML entry fragment
@@ -322,6 +350,7 @@ id: "$ID"
 date: "$DATE"
 reason: "$REASON"
 commit: "$COMMIT"
+arch: $ARCH
 build: ReleaseSafe
 results:
 ENTRYEOF
