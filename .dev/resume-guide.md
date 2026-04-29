@@ -29,8 +29,9 @@ Seven PRs landed overnight 2026-04-28 → 2026-04-29:
 Verified working state on **2026-04-29** (do **not** trust this list past
 about a week — re-verify by reading current code):
 
-- `bash scripts/gate-commit.sh` returns green on macOS aarch64 (6/6) and
-  Windows x86_64 (5/5; `ffi` host-skipped to mirror CI).
+- `bash scripts/gate-commit.sh` returns green on macOS aarch64 (6/6)
+  and Windows x86_64 (6/6 — the Windows `ffi` auto-skip was removed
+  in PR #72 alongside the C-b Win32 port of `test_ffi.c`).
 - `bash scripts/sync-versions.sh` exits 0 (Zig 0.16.0, WASI SDK 30 match).
 - Windows toolchain installs cleanly via
   `pwsh scripts/windows/install-tools.ps1` from a fresh checkout
