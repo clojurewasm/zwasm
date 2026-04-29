@@ -89,6 +89,50 @@ Prefix: W## (to distinguish from CW's F## items).
   `@./.dev/w47-investigation.md`. Low priority since 20 other
   benchmarks improved >10% (GC paths 40–76% faster).
 
+- [ ] W54: `tgo_strops` (and other div-heavy TinyGo workloads) is
+  ~2.1× slower than wasmtime/cranelift on M4 Pro per
+  `bench/runtime_comparison.yaml` (2026-03-25, runs=1/warmup=0):
+  zwasm cached 63.2 ms vs wasmtime cached 30.0 ms. Current main
+  (`448f4c8`) is ~67 ms cached, so the gap is recurring, not a
+  measurement artefact, and it dwarfs the W47 +15 % post-0.16
+  regression. The hot loop is TinyGo's `digitCount` —
+  `i32.div_u 10 + br_if` in a `for v > 0` loop — and the lever is
+  the constant-divisor optimisation. Strategy stack, ordered by
+  leverage and single-pass compatibility:
+
+  1. **Constant-divisor → multiply-high (Hacker's Delight 10-9)**
+     in predecode. Detect `i32.const K; i32.div_u` (and `rem_u`,
+     plus `mul K` for power-of-two / shift-add) in a 2-instruction
+     window, rewrite to a synthetic `udiv_const K` RegIR op. JIT
+     emits `MOVZ m; UMULH tmp, n, m; LSR result, tmp, s` on
+     ARM64; `MOV m; MUL r/m32; SHR edx, s` on x86_64. Magic
+     numbers are pure constants of K, computed once. UDIV is
+     8–10 cycles vs UMULH+LSR ~3–4 cycles, so realistic gain on
+     `digitCount` is ~30–40 ms cached → close to wasmtime parity.
+     Pure peephole; preserves single-pass.
+  2. **Loop-header Q-cache persistence** (existing W45). Detect
+     back-edges in `scanBranchTargets` and skip the Q-cache
+     evict at the loop header so the induction var stays in a
+     register. Helps `tgo_strops`, `tgo_arith`, `tgo_fib_loop`,
+     `st_nestedloop`. Already designed; cheap to land.
+  3. **`br_if` fall-through ordering audit**. cranelift always
+     places the fall-through arm as the loop continuation so the
+     branch predictor wins. Confirm `regalloc.zig`'s terminator
+     emit does the same and mirror it if not. Cheap audit.
+  4. **Interpreter dispatch codegen diff** (also closes W47). asm
+     diff `vm.zig`'s hot dispatch loop between v1.9.1 and main
+     under Zig 0.16 / LLVM 19. The post-0.16 +15 % most likely
+     lives here, and a fix would lift every interpreter path,
+     not just `tgo_strops`.
+
+  Out of scope (would break single-pass): SSA + dataflow,
+  global register allocation beyond linear scan, automatic loop
+  unroll / vectorise.
+
+  Measurement note: `runtime_comparison.yaml` is currently runs=1
+  / warmup=0 — useful for ordering, not for absolute targets.
+  Re-record at 5 runs / 3 warmup before claiming a win.
+
 - [ ] W48 Phase 2: Linux binary size 1.56 MB → 1.50 MB (~62 KB more).
   W48 Phase 1 shipped (2026-04-25): `pub const panic = std.debug.simple_panic`
   in `src/cli.zig` + `std_options.enable_segfault_handler = false` (zwasm

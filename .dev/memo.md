@@ -58,6 +58,39 @@ Post-merge bench rows for the C-g merge (`e5766ee`):
 
 ## Open work
 
+### 0. **W54** — close the 2.1× wasmtime gap on `tgo_strops`
+
+`bench/runtime_comparison.yaml` (2026-03-25, commit 65db814,
+runs=1/warmup=0) shows zwasm cached 63.2 ms vs wasmtime cached
+30.0 ms on `tgo_strops`. Current main (`448f4c8`) is ~67 ms
+cached, so the gap is structural — and it dwarfs the W47 +15 %
+post-0.16 regression. Bigger leverage than W47.
+
+Hot loop is TinyGo's `digitCount` — `i32.div_u 10 + br_if` inside
+`for v > 0`. The lever is the constant-divisor optimisation that
+cranelift does by default. Strategy stack (single-pass-compatible,
+ordered by leverage):
+
+1. **Constant-divisor → multiply-high in predecode**. Two-op
+   window peephole for `i32.const K; i32.div_u` (and `rem_u`,
+   `mul K` power-of-two). Synthesise `udiv_const K`; JIT emits
+   `UMULH + LSR` on ARM64, `MUL + SHR` on x86_64. Magic
+   numbers pre-computed per K. UDIV ~10 cyc → UMULH ~3 cyc,
+   so realistic gain ≈ wasmtime parity for div-heavy workloads.
+2. **Loop-header Q-cache persistence (W45)**. Skip Q-cache
+   evict at loop headers so induction vars stay in registers.
+   Already designed.
+3. **`br_if` fall-through audit**. Confirm `regalloc.zig`
+   places the fall-through arm as the loop-continuation path.
+4. **Interpreter dispatch codegen diff** (also closes W47).
+   asm diff `vm.zig` hot dispatch v1.9.1 vs main under
+   Zig 0.16 / LLVM 19.
+
+Out of scope (would break single-pass): SSA, global regalloc,
+auto unroll / vectorise. Re-record `runtime_comparison.yaml` at
+5 runs / 3 warmup before claiming a win — current values are
+single-sample. Detailed strategy in `.dev/checklist.md` W54.
+
 ### 1. **W47** — `tgo_strops_cached` regression with stable harness
 
 Investigation in `.dev/w47-investigation.md` is intact:
