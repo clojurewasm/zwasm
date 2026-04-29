@@ -1,10 +1,11 @@
 /*
  * test_ffi.c — Comprehensive shared-library (FFI) tests for zwasm C API
  *
- * Loads libzwasm.so/.dylib via dlopen and exercises every exported symbol
- * through the dynamic linker, exactly as Python ctypes or other FFI
- * consumers would.  This catches PIC / relocation / Debug-mode issues
- * that static-link tests miss (see GitHub issue #11).
+ * Loads libzwasm.so / .dylib / zwasm.dll via the platform's dynamic
+ * linker (dlopen on POSIX, LoadLibraryA on Windows) and exercises every
+ * exported symbol exactly as Python ctypes or other FFI consumers would.
+ * This catches PIC / relocation / Debug-mode issues that static-link
+ * tests miss (see GitHub issue #11).
  *
  * Build & run:
  *   bash test/c_api/run_ffi_test.sh          # auto-detects platform
@@ -15,10 +16,83 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <dlfcn.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <pthread.h>
+
+#ifdef _WIN32
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#  include <io.h>      /* _pipe / _write / _close / _open */
+#  include <fcntl.h>   /* _O_RDONLY / _O_BINARY */
+   typedef HMODULE zw_lib_t;
+   typedef HANDLE  zw_thread_t;
+   static zw_lib_t zw_dlopen(const char *path) { return LoadLibraryA(path); }
+   static void *   zw_dlsym(zw_lib_t h, const char *sym) {
+       return (void *)GetProcAddress(h, sym);
+   }
+   static void     zw_dlclose(zw_lib_t h) { FreeLibrary(h); }
+   static const char *zw_dlerror(void) {
+       static char buf[128];
+       DWORD code = GetLastError();
+       snprintf(buf, sizeof(buf), "GetLastError=%lu", (unsigned long)code);
+       return buf;
+   }
+   static void zw_usleep_us(unsigned us) {
+       /* Sleep takes ms; round up so we don't busy-spin under 1 ms. */
+       Sleep(us < 1000 ? 1 : us / 1000);
+   }
+   typedef DWORD (WINAPI *zw_thread_fn_t)(LPVOID);
+   /* Adapter so we can keep using `void *(*)(void *)` thread bodies. */
+   typedef struct { void *(*fn)(void *); void *arg; } zw_thread_ctx_t;
+   static DWORD WINAPI zw_thread_trampoline(LPVOID raw) {
+       zw_thread_ctx_t *ctx = (zw_thread_ctx_t *)raw;
+       ctx->fn(ctx->arg);
+       return 0;
+   }
+   static int zw_thread_create(zw_thread_t *t, void *(*fn)(void *), void *arg,
+                               zw_thread_ctx_t *ctx_out) {
+       ctx_out->fn = fn;
+       ctx_out->arg = arg;
+       *t = CreateThread(NULL, 0, zw_thread_trampoline, ctx_out, 0, NULL);
+       return *t == NULL ? -1 : 0;
+   }
+   static int zw_thread_join(zw_thread_t t) {
+       WaitForSingleObject(t, INFINITE);
+       CloseHandle(t);
+       return 0;
+   }
+   static int zw_pipe(int fds[2]) {
+       /* _O_BINARY so the test's raw byte writes don't get \r\n
+          translated when the pipe ends are inherited as text fds. */
+       return _pipe(fds, 4096, _O_BINARY);
+   }
+#  define zw_open       _open
+#  define zw_close      _close
+#  define zw_write      _write
+#  define ZW_O_RDONLY   _O_RDONLY
+#else
+#  include <dlfcn.h>
+#  include <unistd.h>
+#  include <fcntl.h>
+#  include <pthread.h>
+   typedef void *    zw_lib_t;
+   typedef pthread_t zw_thread_t;
+   static zw_lib_t zw_dlopen(const char *path) { return dlopen(path, RTLD_NOW); }
+   static void *   zw_dlsym(zw_lib_t h, const char *sym) { return dlsym(h, sym); }
+   static void     zw_dlclose(zw_lib_t h) { dlclose(h); }
+   static const char *zw_dlerror(void) { return dlerror(); }
+   static void zw_usleep_us(unsigned us) { usleep(us); }
+   typedef struct { void *(*fn)(void *); void *arg; } zw_thread_ctx_t;
+   static int zw_thread_create(zw_thread_t *t, void *(*fn)(void *), void *arg,
+                               zw_thread_ctx_t *ctx_out) {
+       (void)ctx_out;  /* POSIX takes the body directly, no trampoline. */
+       return pthread_create(t, NULL, fn, arg);
+   }
+   static int zw_thread_join(zw_thread_t t) { return pthread_join(t, NULL); }
+   static int zw_pipe(int fds[2]) { return pipe(fds); }
+#  define zw_open       open
+#  define zw_close      close
+#  define zw_write      write
+#  define ZW_O_RDONLY   O_RDONLY
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Test harness                                                        */
@@ -158,28 +232,28 @@ typedef struct {
 static void *cancel_thread_main(void *raw) {
     CancelThreadArgs *args = (CancelThreadArgs *)raw;
     /* Keep cancel requests alive across invoke start/reset race. */
-    usleep(100);
+    zw_usleep_us(100);
     for (int i = 0; i < 200; i++) {
         api.module_cancel(args->module);
-        usleep(100);
+        zw_usleep_us(100);
     }
     return NULL;
 }
 
-static void *lib_handle = NULL;
+static zw_lib_t lib_handle = NULL;
 
 #define LOAD_SYM(field, name) do { \
-    api.field = (typeof(api.field))dlsym(lib_handle, name); \
+    api.field = (typeof(api.field))zw_dlsym(lib_handle, name); \
     if (!api.field) { \
-        fprintf(stderr, "dlsym(%s): %s\n", name, dlerror()); \
+        fprintf(stderr, "dlsym(%s): %s\n", name, zw_dlerror()); \
         return false; \
     } \
 } while(0)
 
 static bool load_api(const char *path) {
-    lib_handle = dlopen(path, RTLD_NOW);
+    lib_handle = zw_dlopen(path);
     if (!lib_handle) {
-        fprintf(stderr, "dlopen(%s): %s\n", path, dlerror());
+        fprintf(stderr, "dlopen(%s): %s\n", path, zw_dlerror());
         return false;
     }
     LOAD_SYM(module_new,             "zwasm_module_new");
@@ -553,7 +627,7 @@ static void test_wasi_config_fd_api(void) {
 
     /* Set stdio overrides (use pipe fds) */
     int stdout_pipe[2];
-    ASSERT(pipe(stdout_pipe) == 0, "pipe() for stdout");
+    ASSERT(zw_pipe(stdout_pipe) == 0, "pipe() for stdout");
 
     /* Override stdout (fd 1) with write end of pipe, borrow mode */
     api.wasi_config_set_stdio_fd(wc, 1, (intptr_t)stdout_pipe[1], 0 /* borrow */);
@@ -565,7 +639,7 @@ static void test_wasi_config_fd_api(void) {
     api.wasi_config_set_stdio_fd(wc, 5, (intptr_t)stdout_pipe[0], 0);
 
     /* Add an FD-based preopen (borrow mode) */
-    int dir_fd = open(".", O_RDONLY);
+    int dir_fd = zw_open(".", ZW_O_RDONLY);
     ASSERT(dir_fd >= 0, "open(\".\") for preopen fd");
     api.wasi_config_preopen_fd(wc, (intptr_t)dir_fd, "/sandbox", 8,
                                1 /* dir */, 0 /* borrow */);
@@ -573,10 +647,10 @@ static void test_wasi_config_fd_api(void) {
     api.wasi_config_delete(wc);
 
     /* Borrowed fds should still be valid */
-    ASSERT(write(stdout_pipe[1], "ok", 2) == 2, "borrowed stdout pipe still writable");
-    close(stdout_pipe[0]);
-    close(stdout_pipe[1]);
-    close(dir_fd);
+    ASSERT(zw_write(stdout_pipe[1], "ok", 2) == 2, "borrowed stdout pipe still writable");
+    zw_close(stdout_pipe[0]);
+    zw_close(stdout_pipe[1]);
+    zw_close(dir_fd);
 }
 
 static void test_repeated_create_destroy(void) {
@@ -638,9 +712,10 @@ static void test_cancel_api(void) {
 
     CancelThreadArgs cargs = { .module = loop_mod };
 
-    pthread_t tid;
-    int create_rc = pthread_create(&tid, NULL, cancel_thread_main, &cargs);
-    ASSERT(create_rc == 0, "pthread_create for cancel thread");
+    zw_thread_t tid;
+    zw_thread_ctx_t tctx;
+    int create_rc = zw_thread_create(&tid, cancel_thread_main, &cargs, &tctx);
+    ASSERT(create_rc == 0, "thread create for cancel thread");
     if (create_rc == 0) {
         bool ok = api.module_invoke(loop_mod, "loop", NULL, 0, NULL, 0);
         /* invoke() MUST fail — the loop is infinite, so success is impossible */
@@ -648,7 +723,7 @@ static void test_cancel_api(void) {
         const char *err = api.last_error();
         ASSERT(err != NULL && strstr(err, "Canceled") != NULL,
                "last_error indicates Canceled");
-        ASSERT(pthread_join(tid, NULL) == 0, "pthread_join cancel thread");
+        ASSERT(zw_thread_join(tid) == 0, "thread join cancel thread");
     }
 
     api.module_delete(loop_mod);
@@ -663,9 +738,12 @@ int main(int argc, char **argv) {
     if (argc > 1) {
         lib_path = argv[1];
     } else {
-        /* Auto-detect */
+        /* Auto-detect. Zig installs DLLs to bin/ on Windows but
+           shared objects to lib/ on POSIX. */
 #ifdef __APPLE__
         lib_path = "zig-out/lib/libzwasm.dylib";
+#elif defined(_WIN32)
+        lib_path = "zig-out/bin/zwasm.dll";
 #else
         lib_path = "zig-out/lib/libzwasm.so";
 #endif
@@ -698,6 +776,6 @@ int main(int argc, char **argv) {
 
     printf("\n%d/%d passed, %d failed\n", tests_passed, tests_run, tests_failed);
 
-    dlclose(lib_handle);
+    zw_dlclose(lib_handle);
     return (tests_failed == 0) ? 0 : 1;
 }

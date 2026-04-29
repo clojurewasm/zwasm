@@ -63,7 +63,6 @@ jobs:
         run: zig build shared-lib
 
       - name: Run FFI tests (shared library)
-        if: runner.os != 'Windows'
         run: bash test/c_api/run_ffi_test.sh
 
       - name: Setup Rust

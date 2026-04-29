@@ -99,19 +99,34 @@ the full table; ordered here by safety / value.
 
 | Id  | Guard                                       | Work                                                                                          | Risk   |
 |-----|---------------------------------------------|-----------------------------------------------------------------------------------------------|--------|
+<<<<<<< HEAD
 | C-b | `test/c_api/run_ffi_test.sh`                | Port `test/c_api/test_ffi.c` to use `LoadLibraryA` + `GetProcAddress` on Windows; `.dll` path branch in the shell script. ~50 lines C + 10 lines shell. | High   |
 | C-g | `benchmark` Ubuntu-only                     | hyperfine Windows zip install + `bench/ci_compare.sh` GNU dependency audit (`/usr/bin/time`, `awk`, `comm`). Likely invasive. | High   |
 
 Suggested order: **C-b → C-g**. (C-a landed post-2026-04-29 —
+=======
+| C-e | Binary size check (uses GNU `strip`)        | Expose `-Dstrip=true` in build.zig; CI does `zig build -Dstrip=true -Doptimize=ReleaseSafe` and reads the binary directly. ELF/Mach-O/PE all handled by the Zig toolchain. | Medium |
+| C-f | `size-matrix` Ubuntu-only                   | Depends on C-e. Convert to OS matrix once stripping is portable.                              | Small  |
+| C-g | `benchmark` Ubuntu-only                     | hyperfine Windows zip install + `bench/ci_compare.sh` GNU dependency audit (`/usr/bin/time`, `awk`, `comm`). Likely invasive. | High   |
+
+Suggested order: **C-e → C-f → C-g**. (C-a landed post-2026-04-29 —
+>>>>>>> d4fb8ad (ci(windows): port FFI tests to Win32 — Plan C-b)
 `zig build shared-lib` on Windows produces `zwasm.dll` + `zwasm.lib`
 natively from `addLibrary({.linkage = .dynamic})`; guard was a no-op.
 C-d landed post-2026-04-29 — `test/c_api/run_static_link_test.sh`
 now uses `zig cc` everywhere; PIE preserved on Linux. C-c landed
 post-2026-04-29 — `examples/rust/build.rs` gained a Windows arm
 that copies `zwasm.dll` next to the cargo target binary at runtime,
+<<<<<<< HEAD
 and uses `zwasm.lib` for static linking without `-lc/-lm`. C-e + C-f
 landed post-2026-04-29 — `build.zig` exposes `-Dstrip=true` and
 the size-matrix is now a 3-OS matrix (Ubuntu / macOS / Windows).)
+=======
+and uses `zwasm.lib` for static linking without `-lc/-lm`. C-b
+landed post-2026-04-29 — `test_ffi.c` ported via `#ifdef _WIN32`
+blocks to `LoadLibraryA` + `CreateThread` + `_pipe`; runner uses
+`zig cc`.)
+>>>>>>> d4fb8ad (ci(windows): port FFI tests to Win32 — Plan C-b)
 
 After each removal: check `gate-commit.sh` no longer needs the
 matching auto-skip in `scripts/gate-commit.sh:case "$HOST_KIND"`.

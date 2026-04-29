@@ -67,14 +67,9 @@ fi
 
 # Steps CI cannot run on a given host — match the `if: runner.os != X`
 # guards in .github/workflows/ci.yml so local `gate-commit.sh` lines up
-# with what CI will actually verify. Plan C tracks closing each gap.
-case "$HOST_KIND" in
-    windows)
-        # FFI test uses POSIX dlopen and assumes .so/.dylib output;
-        # see test/c_api/run_ffi_test.sh and test_ffi.c.
-        SKIP_LIST="$SKIP_LIST ffi"
-        ;;
-esac
+# with what CI will actually verify. Plan C tracks closing each gap;
+# host-specific skips are added here when (and only when) the
+# corresponding CI guard is still in place.
 
 # --- Step framework ---
 

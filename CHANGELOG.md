@@ -59,6 +59,14 @@ behaviour change for embedders.**
   `windows-latest` (with a 1.80 MB ceiling reflecting PE overhead;
   Mac 1.30 MB, Linux 1.60 MB unchanged) and `size-matrix` is a 3-OS
   matrix (Ubuntu / macOS / Windows). Plan C-e + C-f.
+- `test/c_api/test_ffi.c` ported to Windows: dynamic loading via
+  `LoadLibraryA` + `GetProcAddress`, threading via `CreateThread` +
+  `WaitForSingleObject`, pipes via `_pipe` (binary mode). Sources are
+  selected by `#ifdef _WIN32` blocks; POSIX path unchanged. The
+  runner switches from system `gcc` to `zig cc` so it does not
+  require a host C compiler. The `if: runner.os != 'Windows'` CI
+  guard on `Run FFI tests` is dropped accordingly. `gate-commit.sh`
+  no longer auto-skips `ffi` on Windows. Plan C-b.
 
 ### Changed
 - WASI SDK version bumped 25 → 30 to align CI with `flake.nix` (which
