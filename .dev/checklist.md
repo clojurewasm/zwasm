@@ -10,13 +10,17 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open Items
 
-- [ ] W49: Plan C — remove remaining seven `if: runner.os != 'Windows'`
-  CI guards. None reflects a fundamental Windows incompatibility; each
-  is a shell-script or C-side limitation. Detailed table (C-a through
-  C-g, with risk classification and suggested order) in
-  `@./.dev/resume-guide.md`. No-Workaround Rule applies: a real
-  Windows-only zwasm bug surfaced during this work is fixed in zwasm,
-  not hidden behind another guard.
+- [ ] W49: Plan C — remove remaining `if: runner.os != 'Windows'` CI
+  guards. C-a / C-b / C-c / C-d / C-e / C-f all landed
+  post-2026-04-29 (PRs #68, #72, #71, #69, #70). Only **C-g**
+  (benchmark Ubuntu-only) remains, and per `CLAUDE.md`'s bench
+  policy that one is intentionally Ubuntu-only — Mac M4 Pro
+  history.yaml is the authoritative absolute baseline, CI bench is
+  the Ubuntu-vs-Ubuntu regression guard. Closing C-g would mean
+  either accepting noisy 3-platform comparisons or keeping the
+  Ubuntu-only behaviour and just removing the guard; no-op either
+  way. Treat W49 as effectively done unless the user wants C-g
+  formally closed; detailed status in `@./.dev/resume-guide.md`.
 
 - [ ] W50: Plan B sub-3 — CI Nix-ify. Replace per-tool installs in
   `ci.yml` test matrix with `DeterminateSystems/nix-installer-action`
