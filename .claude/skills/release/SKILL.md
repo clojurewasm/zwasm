@@ -25,11 +25,12 @@ Before starting, verify:
 1. Ensure on `main` branch: `git checkout main && git status`
 2. `zig build test` — all pass, 0 fail, 0 leak
 3. `python3 test/spec/run_spec.py --build --summary` — 62,263+ pass, fail=0, skip=0
-4. `bash test/e2e/run_e2e.sh --convert --summary` — 792+ pass, fail=0, leak=0
-5. `bash test/realworld/run_compat.sh` — PASS=30, FAIL=0, CRASH=0 (requires `build_all.sh` first if wasm files missing)
-6. `bash bench/run_bench.sh` — full benchmark suite, no regression
-7. Size guard:
-   - Binary (ReleaseSafe, stripped): ≤ 1.60 MB (Linux ELF ~1.56 MB; Mac ~1.20 MB)
+4. `python3 test/e2e/run_e2e.py --convert --summary` — 796+ pass, fail=0, leak=0
+5. `python3 test/realworld/run_compat.py` — PASS=50, FAIL=0, CRASH=0 (requires `build_all.py` first if wasm files missing)
+6. `bash test/c_api/run_ffi_test.sh --build` — 0 failed
+7. `bash bench/run_bench.sh` — full benchmark suite, no regression
+8. Size guard (stripped via `-Dstrip=true`):
+   - Mac ≤ 1.30 MB (~1.20 MB), Linux ≤ 1.60 MB (~1.56 MB), Windows ≤ 1.80 MB (~1.70 MB)
    - Memory (sieve benchmark): ≤ 4.5 MB RSS
 
 ## Phase 2: zwasm Verification (Ubuntu x86_64 via OrbStack)
@@ -46,14 +47,15 @@ See `.dev/references/ubuntu-testing-guide.md` for commands. Setup: `.dev/referen
    ```
 2. Unit tests: `orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && zig build test"` — all pass, 0 fail, 0 leak
 3. Spec tests: `orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && python3 test/spec/run_spec.py --build --summary"` — fail=0, skip=0
-4. E2E tests: `orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash test/e2e/run_e2e.sh --convert --summary"` — fail=0, leak=0
+4. E2E tests: `orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && python3 test/e2e/run_e2e.py --convert --summary"` — fail=0, leak=0
 5. Real-world compat:
    ```bash
-   orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && export WASI_SDK_PATH=/opt/wasi-sdk && bash test/realworld/build_all.sh"
-   orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash test/realworld/run_compat.sh --verbose"
+   orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && export WASI_SDK_PATH=/opt/wasi-sdk && python3 test/realworld/build_all.py"
+   orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && python3 test/realworld/run_compat.py --verbose"
    ```
-   PASS=30, FAIL=0, CRASH=0 (needs `build_all.sh` first; requires WASI SDK + Rust wasm32-wasip1)
-6. Benchmarks: `orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash bench/run_bench.sh --quick"` — no extreme regression
+   PASS=50, FAIL=0, CRASH=0 (needs `build_all.py` first; requires WASI SDK + Rust wasm32-wasip1 + Go + TinyGo)
+6. FFI tests: `orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash test/c_api/run_ffi_test.sh --build"` — 0 failed
+7. Benchmarks: `orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash bench/run_bench.sh --quick"` — no extreme regression
 
 If Ubuntu reveals failures not seen on Mac, **fix the root cause** before proceeding.
 
@@ -112,8 +114,8 @@ If Ubuntu reveals failures not seen on Mac, **fix the root cause** before procee
 
 | Phase | Gate | Pass criteria |
 |-------|------|---------------|
-| 1 | Mac local | unit(0 fail/leak) + spec(0 fail/skip) + E2E(0 fail/leak) + compat(30/0/0) + bench + size(≤1.60MB/≤4.5MB) |
-| 2 | Ubuntu OrbStack | unit(0 fail/leak) + spec(0 fail/skip) + E2E(0 fail/leak) + compat(30/0/0) + bench |
+| 1 | Mac local | unit(0 fail/leak) + spec(0 fail/skip) + E2E(0 fail/leak) + compat(50/0/0) + FFI(0 failed) + bench + size (Mac ≤1.30MB / Linux ≤1.60MB / Win ≤1.80MB; mem ≤4.5MB) |
+| 2 | Ubuntu OrbStack | unit(0 fail/leak) + spec(0 fail/skip) + E2E(0 fail/leak) + compat(50/0/0) + FFI(0 failed) + bench |
 | 3 | CW local | CW unit + e2e + portability (local zwasm path) |
 | 4 | zwasm tag | version bump + CHANGELOG + tag + push + CI green |
 | 5 | CW tag | URL+hash update + CW tests pass + push |

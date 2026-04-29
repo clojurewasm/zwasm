@@ -76,8 +76,12 @@ PRs are automatically checked for:
 - Unit tests pass (macOS + Ubuntu + Windows)
 - Spec tests pass (62,263 tests)
 - E2E tests pass (796 assertions)
-- Binary size <= 1.60 MB (stripped, Linux ELF ~1.56 MB; Mac Mach-O ~1.20 MB). Originally 1.50 MB on Zig 0.15; raised to 1.80 MB as a pragmatic compromise during the Zig 0.16 / `link_libc = true` transition; pulled back to 1.60 MB after W46 (link_libc=false restored) + W48 Phase 1 (panic / segfault / u8-main trim). Reaching the original 1.50 MB target is tracked as W48 Phase 2 (see `.dev/checklist.md`) — non-blocking.
-- No benchmark regression > 20%
+- Real-world compat (Mac+Ubuntu 50/50; Windows 25/25 C+C++ subset)
+- FFI tests pass (Mac+Ubuntu+Windows; 80 cases)
+- Minimal build (`-Djit=false -Dcomponent=false -Dwat=false`) compiles and tests pass
+- `versions.lock` ↔ `flake.nix` agree (mechanised by `versions-lock-sync` job)
+- Binary size: Mac ≤ 1.30 MB, Linux ≤ 1.60 MB, Windows ≤ 1.80 MB (stripped via `-Dstrip=true`; observed ~1.20 MB Mac, ~1.56 MB Linux, ~1.70 MB Windows). Originally 1.50 MB on Zig 0.15; raised to 1.80 MB as a pragmatic compromise during the Zig 0.16 / `link_libc = true` transition; pulled back to per-OS ceilings after W46 (link_libc=false restored) + W48 Phase 1 (panic / segfault / u8-main trim) + D137 (cross-platform stripping + per-OS ceilings). Reaching the original 1.50 MB Linux target is tracked as W48 Phase 2 (see `.dev/checklist.md`) — non-blocking.
+- No benchmark regression > 20% (Ubuntu-vs-Ubuntu, soft check via `bench/ci_compare.sh`)
 - ReleaseSafe build success
 
 ## Commit guidelines

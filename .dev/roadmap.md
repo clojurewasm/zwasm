@@ -99,12 +99,19 @@ Details: `roadmap-archive.md`.
 ## Merge Gate Checklist
 
 All items must pass on **Mac AND Ubuntu x86_64** before merging to main.
+Authoritative source: `CLAUDE.md` → "Merge Gate Checklist". One-liner:
+`bash scripts/gate-merge.sh`.
 
 - `zig build test` — all pass, 0 fail, 0 leak
 - `python3 test/spec/run_spec.py --build --summary` — fail=0, skip=0
-- `bash test/e2e/run_e2e.sh --convert --summary` — fail=0
-- `bash test/realworld/run_compat.sh` — PASS=50, FAIL=0, CRASH=0
+- `python3 test/e2e/run_e2e.py --convert --summary` — fail=0, leak=0
+- `python3 test/realworld/run_compat.py` — PASS=50, FAIL=0, CRASH=0
 - `bash test/c_api/run_ffi_test.sh --build` — 0 failed
-- `zig build test -Djit=false -Dcomponent=false -Dwat=false` — 0 fail
-- Binary ≤ 1.60 MB (stripped; Linux ELF ~1.56 MB. Mac ~1.20 MB), memory ≤ 4.5 MB RSS
-  - History: 1.50 MB on Zig 0.15 → 1.80 MB during 0.16 `link_libc=true` transition → 1.60 MB after W46 + W48 Phase 1. Reaching 1.50 MB tracked as W48 Phase 2 (non-blocking).
+- `zig build test -Djit=false -Dcomponent=false -Dwat=false` — minimal build 0 fail
+- `bash scripts/sync-versions.sh` — `versions.lock` ↔ `flake.nix` agree
+- Benchmarks pass (no regression). Post-merge on Mac:
+  `bash scripts/record-merge-bench.sh` appends one row to `bench/history.yaml`
+  (full hyperfine 5+3, ~5 min) — canonical Mac M4 Pro absolute baseline.
+- Binary stripped (`-Dstrip=true`): Mac ≤ 1.30 MB (~1.20 MB), Linux ≤ 1.60 MB (~1.56 MB),
+  Windows ≤ 1.80 MB (~1.70 MB); memory ≤ 4.5 MB RSS
+  - History: 1.50 MB on Zig 0.15 → 1.80 MB during 0.16 `link_libc=true` transition → per-OS ceilings after W46 + W48 Phase 1 + D137. Reaching the original 1.50 MB Linux target tracked as W48 Phase 2 (non-blocking).
