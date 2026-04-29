@@ -75,7 +75,6 @@ jobs:
           rustc --version
 
       - name: Run Rust FFI example (dynamic)
-        if: runner.os != 'Windows'
         run: cd examples/rust && cargo run
 
       - name: Build static library (PIC + compiler_rt)
