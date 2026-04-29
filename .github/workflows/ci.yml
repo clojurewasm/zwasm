@@ -90,11 +90,13 @@ jobs:
       - name: Run C API tests (zig build c-test)
         run: nix develop --command zig build c-test
 
-      - name: Build static library (PIC + compiler_rt)
-        run: nix develop --command zig build static-lib -Dpic=true -Dcompiler-rt=true
-
-      - name: Run static link tests
-        run: nix develop --command bash test/c_api/run_static_link_test.sh
+      # Order matters on Windows: `zig build static-lib` produces a
+      # `zwasm.lib` that has the same filename as the shared-lib
+      # import library written to `zig-out/lib/zwasm.lib`. Linux and
+      # macOS use distinct extensions (`libzwasm.a` vs
+      # `.so` / `.dylib`) and don't have this collision, but to keep
+      # the order symmetric across all OSes the Rust dynamic example
+      # runs *before* the static-lib build.
 
       - name: Run Rust FFI example (dynamic)
         run: |
@@ -102,6 +104,12 @@ jobs:
             export PATH="$HOME/.cargo/bin:$PATH"
             cd examples/rust && cargo run
           '
+
+      - name: Build static library (PIC + compiler_rt)
+        run: nix develop --command zig build static-lib -Dpic=true -Dcompiler-rt=true
+
+      - name: Run static link tests
+        run: nix develop --command bash test/c_api/run_static_link_test.sh
 
       - name: Memory usage check (POSIX)
         run: |
@@ -191,14 +199,18 @@ jobs:
       - name: Run C API tests (zig build c-test)
         run: zig build c-test
 
+      # Order matters on Windows — see test-nix above. cargo run uses
+      # the shared-lib import library at zig-out/lib/zwasm.lib; the
+      # subsequent `zig build static-lib` would otherwise overwrite
+      # it with the static archive (LNK1143 from MSVC link.exe).
+      - name: Run Rust FFI example (dynamic)
+        run: cd examples/rust && cargo run
+
       - name: Build static library (PIC + compiler_rt)
         run: zig build static-lib -Dpic=true -Dcompiler-rt=true
 
       - name: Run static link tests
         run: bash test/c_api/run_static_link_test.sh
-
-      - name: Run Rust FFI example (dynamic)
-        run: cd examples/rust && cargo run
 
       - name: Memory usage check (Windows)
         shell: pwsh
