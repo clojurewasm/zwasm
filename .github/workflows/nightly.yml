@@ -48,7 +48,7 @@ jobs:
       - name: E2E tests (Debug)
         env:
           WASMTIME_MISC_DIR: /tmp/wasmtime/tests/misc_testsuite
-        run: bash test/e2e/run_e2e.sh --convert --summary
+        run: python3 test/e2e/run_e2e.py --convert --summary
 
   fuzz:
     runs-on: ubuntu-latest

@@ -106,6 +106,9 @@ behaviour change for embedders.**
 - Removed obsolete `.dev/checklist-jit-fuel-timeout.md` planning doc
   (all items shipped: PR #6 timeout merge, fuel-bypass fix, `--timeout`
   CLI option). (#76)
+- README front page updated: W52 status (Windows realworld 50/50
+  via local installer; CI parity is W50) + per-OS size ceilings
+  (Mac 1.30 / Linux 1.60 / Windows 1.80 MB; D137). (#78)
 
 ## [1.11.0] - 2026-04-26
 
