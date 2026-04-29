@@ -32,7 +32,7 @@ zwasm was extracted from [ClojureWasm](https://github.com/clojurewasm/ClojureWas
 - **4-tier execution**. Bytecode → predecoded IR → register IR → ARM64/x86_64 JIT. Hot functions promote automatically (HOT_THRESHOLD=3).
 - **SIMD JIT**. ARM64 NEON 253/256 native, x86_64 SSE 244/256 native. Contiguous v128 register storage with Q-cache (Q16–Q31 / XMM6–XMM15).
 - **WASI Preview 1 + Component Model**. 46/46 P1 syscalls (100%); P2 via component-model adapter, WIT parser, Canonical ABI.
-- **Spec conformance**. 62,263 / 62,263 spec tests on Mac aarch64, Linux x86_64, Windows x86_64 (CI). 796 / 796 E2E tests on all three. 50 / 50 real-world programs (Rust + C + C++ + Go + TinyGo) on Mac and Linux; Windows runs the C+C++ subset (25 / 25) until rustup / Go / TinyGo provisioning lands (tracked as W52).
+- **Spec conformance**. 62,263 / 62,263 spec tests on Mac aarch64, Linux x86_64, Windows x86_64 (CI). 796 / 796 E2E tests on all three. 50 / 50 real-world programs (Rust + C + C++ + Go + TinyGo) on Mac and Linux; on Windows the GitHub-hosted CI runner exercises the C+C++ subset (25 / 25), while a local Windows checkout reaches the full 50 / 50 once `pwsh scripts/windows/install-tools.ps1` has provisioned Rust + Go + TinyGo. CI parity tracked as W50 (CI Nix-ify).
 - **WAT support**. Run `.wat` text files directly; build-optional via `-Dwat=false`.
 - **Security**. Deny-by-default WASI capabilities, fuel metering, wall-clock timeout, memory ceiling, JIT W^X pages, signal-handled traps.
 - **No libc**. CLI / library / tests link `link_libc = false` (Mac uses libSystem auto-link). C-API shared/static targets keep `link_libc = true` because `std.heap.c_allocator` is exposed.
@@ -207,7 +207,7 @@ Linux x86_64 ReleaseSafe stripped, measured on the current `main`:
 
 (`-Dcomponent=false` alone is currently neutral — the Component Model code path is already dead-code-eliminated when not exercised; combining it with `-Djit=false -Dwat=false` is what produces the 300 KB saving.)
 
-Mac aarch64 stripped is roughly 350 KB smaller than the Linux numbers (1.20 MB full / 0.92 MB minimal). CI enforces a 1.60 MB ceiling on the stripped Linux binary.
+Mac aarch64 stripped is roughly 350 KB smaller than the Linux numbers (1.20 MB full / 0.92 MB minimal). CI enforces per-OS ceilings on the stripped binary: Mac 1.30 MB, Linux 1.60 MB, Windows 1.80 MB (PE overhead). Stripping is portable across ELF / Mach-O / PE via `-Dstrip=true` (LLD `--strip-all`); see D137 in `.dev/decisions.md`.
 
 ## Architecture
 
