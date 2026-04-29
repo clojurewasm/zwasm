@@ -278,18 +278,48 @@ jobs:
       - name: Verify minimal build tests pass
         run: zig build test -Djit=false -Dcomponent=false -Dwat=false
 
+  # 3-OS bench matrix (C-g step 5, 2026-04-29). Each runner does its
+  # own fresh measurement of base vs PR — never compared across
+  # OSes / architectures because the hardware deltas dwarf any
+  # codegen-level signal we could detect. The durable per-arch
+  # baselines live in bench/history.yaml (see CLAUDE.md Merge Gate
+  # item 10); CI exists to catch *intra-runner* regressions on PRs.
   benchmark:
-    needs: test
-    runs-on: ubuntu-latest
+    name: benchmark (${{ matrix.os }})
+    needs: [test-nix, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.16.0
+      # Linux / macOS — nix devshell brings zig + hyperfine.
+      - name: Install Nix
+        if: runner.os != 'Windows'
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Magic Nix cache
+        if: runner.os != 'Windows'
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      # Windows — install-tools.ps1 brings zig + hyperfine via
+      # `versions.lock` pins, exposing them through $GITHUB_PATH so
+      # subsequent bash steps see them. `-OnlyTool` arms keep the
+      # bench job from pulling Go / TinyGo / Rust / WASI SDK that
+      # the realworld test job needs but the benchmarks do not.
+      - name: Provision toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pwsh -NoLogo -File scripts/windows/install-tools.ps1 -OnlyTool zig
+          pwsh -NoLogo -File scripts/windows/install-tools.ps1 -OnlyTool hyperfine
 
       - name: Cache Zig build artifacts
         uses: actions/cache@v4
@@ -298,32 +328,42 @@ jobs:
             .zig-cache
             zig-cache
             ~/.cache/zig
-          key: zig-Linux-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
+            ~/AppData/Local/zig
+          key: zig-${{ runner.os }}-bench-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
           restore-keys: |
-            zig-Linux-
-
-      - name: Install hyperfine
-        run: |
-          source .github/versions.lock
-          curl -L --retry 3 --retry-delay 5 -f -o /tmp/hyperfine.deb \
-            "https://github.com/sharkdp/hyperfine/releases/download/v${HYPERFINE_VERSION}/hyperfine_${HYPERFINE_VERSION}_amd64.deb"
-          sudo dpkg -i /tmp/hyperfine.deb
+            zig-${{ runner.os }}-bench-
 
       - name: Build ReleaseSafe
-        run: zig build -Doptimize=ReleaseSafe
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            zig build -Doptimize=ReleaseSafe
+          else
+            nix develop --command zig build -Doptimize=ReleaseSafe
+          fi
 
       - name: Benchmark regression check
         if: github.event_name == 'pull_request'
         # Soft-fail (continue-on-error) so noisy single-bench wobbles do
-        # not block PRs. Real regressions surface as repeated reds across
-        # PRs and are flagged in the PR check log; the durable Mac
-        # baseline lives in bench/history.yaml (recorded locally, see
-        # CLAUDE.md Merge Gate item 10). Ubuntu-vs-Ubuntu only —
-        # cross-platform comparison would be meaningless given the
-        # hardware delta.
+        # not block PRs. Real regressions surface as repeated reds
+        # across PRs and are flagged in the PR check log; the durable
+        # per-arch baselines live in bench/history.yaml (recorded
+        # locally, see CLAUDE.md Merge Gate item 10). Each runner
+        # measures fresh base + PR builds on the same host, so the
+        # comparison is intra-runner only — never mix the three
+        # series.
         continue-on-error: true
-        run: bash bench/ci_compare.sh --base=origin/main --threshold=20 --runs=3 --warmup=1 --skip-build
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            bash bench/ci_compare.sh --base=origin/main --threshold=20 --runs=3 --warmup=1 --skip-build
+          else
+            nix develop --command bash bench/ci_compare.sh --base=origin/main --threshold=20 --runs=3 --warmup=1 --skip-build
+          fi
 
       - name: Benchmark record (main push)
         if: github.event_name == 'push'
-        run: bash bench/ci_compare.sh --record-only --runs=3 --warmup=1 --skip-build
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            bash bench/ci_compare.sh --record-only --runs=3 --warmup=1 --skip-build
+          else
+            nix develop --command bash bench/ci_compare.sh --record-only --runs=3 --warmup=1 --skip-build
+          fi

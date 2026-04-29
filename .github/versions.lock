@@ -34,8 +34,11 @@ WASMTIME_VERSION=42.0.1
 WASI_SDK_VERSION=30
 # rustup install in ci.yml; install-tools.ps1 rustup-init toolchain on Windows.
 RUST_VERSION=stable
-# bench job DEB download in ci.yml.
-HYPERFINE_VERSION=1.18.0
+# Windows install-tools.ps1 release zip; Linux/macOS get hyperfine
+# via nix devshell (nixpkgs revision pins the actual version, so this
+# entry is the Windows-side mirror). Bumped 1.18.0 → 1.20.0 in C-g
+# step 5 to match the nixpkgs version on aarch64-darwin / x86_64-linux.
+HYPERFINE_VERSION=1.20.0
 # install-tools.ps1 release zip on Windows; Nix devshell on Linux/macOS.
 GO_VERSION=1.25.5
 # install-tools.ps1 release zip on Windows; Nix devshell on Linux/macOS.

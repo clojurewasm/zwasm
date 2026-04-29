@@ -41,7 +41,7 @@ param(
     # -SkipRust avoids re-bootstrapping a self-contained rustup tree
     # under %LOCALAPPDATA%\zwasm-tools\rust-stable\.
     [switch]$SkipRust,
-    [ValidateSet('zig', 'wasm-tools', 'wasmtime', 'wasi-sdk', 'rust', 'go', 'tinygo', 'binaryen', 'all')]
+    [ValidateSet('zig', 'wasm-tools', 'wasmtime', 'wasi-sdk', 'rust', 'go', 'tinygo', 'binaryen', 'hyperfine', 'all')]
     [string]$OnlyTool = 'all'
 )
 
@@ -94,10 +94,11 @@ foreach ($k in 'ZIG_VERSION', 'WASM_TOOLS_VERSION', 'WASMTIME_VERSION', 'WASI_SD
 # install needs them but they're missing — keeps the script honest
 # about its inputs.
 $realworldKeys = @{
-    rust     = 'RUST_VERSION'
-    go       = 'GO_VERSION'
-    tinygo   = 'TINYGO_VERSION'
-    binaryen = 'BINARYEN_VERSION'
+    rust      = 'RUST_VERSION'
+    go        = 'GO_VERSION'
+    tinygo    = 'TINYGO_VERSION'
+    binaryen  = 'BINARYEN_VERSION'
+    hyperfine = 'HYPERFINE_VERSION'
 }
 foreach ($pair in $realworldKeys.GetEnumerator()) {
     $tool = $pair.Key; $key = $pair.Value
@@ -275,6 +276,19 @@ if ($OnlyTool -in @('all', 'tinygo')) {
     $paths['tinygo'] = $dir
 }
 
+if ($OnlyTool -in @('all', 'hyperfine')) {
+    # hyperfine is the benchmarking driver used by `bench/record.sh`,
+    # `bench/ci_compare.sh`, and the per-merge bench step. The Windows
+    # zip extracts to
+    # `hyperfine-vN.M.K-x86_64-pc-windows-msvc/hyperfine.exe` so
+    # Resolve-SingleSubdir flattens the version-stamped top dir,
+    # leaving `hyperfine.exe` directly inside the install dir.
+    $hf = $versions.HYPERFINE_VERSION
+    $url = "https://github.com/sharkdp/hyperfine/releases/download/v$hf/hyperfine-v$hf-x86_64-pc-windows-msvc.zip"
+    $dir = Install-Tool -Name 'hyperfine' -Version $hf -Url $url -Format 'zip'
+    $paths['hyperfine'] = $dir
+}
+
 if ($OnlyTool -in @('all', 'binaryen', 'tinygo')) {
     # TinyGo invokes `wasm-opt` as part of its wasm build pipeline.
     # On Linux/macOS the Nix `tinygo` derivation is wrapped to prepend
@@ -417,11 +431,13 @@ function Update-UserPath {
 #   go                          — bin/ subdir holding go.exe + gofmt.exe.
 #   tinygo                      — bin/ subdir holding tinygo.exe.
 #   binaryen                    — bin/ subdir holding wasm-opt.exe et al.
+#   hyperfine                   — hyperfine.exe directly in the stamped dir.
 #   rust                        — cargo/bin/ holding cargo.exe + rustup.exe.
 $pathsToAdd = @()
 if ($paths.ContainsKey('zig'))        { $pathsToAdd += $paths['zig'] }
 if ($paths.ContainsKey('wasm-tools')) { $pathsToAdd += $paths['wasm-tools'] }
 if ($paths.ContainsKey('wasmtime'))   { $pathsToAdd += $paths['wasmtime'] }
+if ($paths.ContainsKey('hyperfine'))  { $pathsToAdd += $paths['hyperfine'] }
 if ($paths.ContainsKey('go'))         { $pathsToAdd += (Join-Path $paths['go']       'bin') }
 if ($paths.ContainsKey('tinygo'))     { $pathsToAdd += (Join-Path $paths['tinygo']   'bin') }
 if ($paths.ContainsKey('binaryen'))   { $pathsToAdd += (Join-Path $paths['binaryen'] 'bin') }
@@ -461,4 +477,7 @@ Write-Host "       CARGO_HOME / RUSTUP_HOME changes."
 Write-Host "Verify (core):     zig version; wasm-tools --version; wasmtime --version; bash --version"
 if ($OnlyTool -in @('all', 'go', 'tinygo', 'rust')) {
     Write-Host "Verify (realworld): go version; tinygo version; cargo --version; rustup --version"
+}
+if ($OnlyTool -in @('all', 'hyperfine')) {
+    Write-Host "Verify (bench):    hyperfine --version"
 }
