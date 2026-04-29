@@ -1,0 +1,129 @@
+# Per-arch bench baseline recorder.
+#
+# Manually triggered workflow that runs `scripts/record-merge-bench.sh`
+# on a GitHub-hosted runner of the requested OS and commits the
+# resulting `bench/history.yaml` row directly to main, mirroring the
+# local Mac per-merge-bench policy from CLAUDE.md Merge Gate item 10.
+#
+# Why workflow_dispatch and not on-push:
+#   * Bench runs cost ~5-7 min and would slow every merge.
+#   * The Mac aarch64-darwin row is already recorded locally on every
+#     merge by the user; this workflow is for the platforms the user
+#     does not have measurement-grade hardware for (native x86_64
+#     Linux specifically — the user's OrbStack VM is Rosetta-
+#     translated and so isn't a true x86_64 baseline).
+#   * Manual trigger lets the user pick *which* merges are worth a
+#     native baseline rather than recording them all.
+#
+# Closes the C-g step-3 follow-up tracked in `.dev/checklist.md`.
+
+name: bench-baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: "Runner OS"
+        required: true
+        default: ubuntu-latest
+        type: choice
+        options:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+      reason:
+        description: "Override the bench-row reason (default: HEAD commit subject)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    name: record (${{ inputs.os }})
+    runs-on: ${{ inputs.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # depth=2 so the commit step's auto-pull-rebase has somewhere
+          # to anchor; we never go further back than the merge-bench
+          # subject lookup needs.
+          fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nix
+        if: runner.os != 'Windows'
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Magic Nix cache
+        if: runner.os != 'Windows'
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Provision toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pwsh -NoLogo -File scripts/windows/install-tools.ps1 -OnlyTool zig
+          pwsh -NoLogo -File scripts/windows/install-tools.ps1 -OnlyTool hyperfine
+
+      - name: Install yq (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          # Linux/macOS get yq via the nix devshell. On Windows we
+          # need it on the bash PATH that record-merge-bench.sh sees;
+          # /usr/bin under Git Bash is C:\Program Files\Git\usr\bin
+          # which is writable from this step.
+          curl -fsSL -o /usr/bin/yq.exe \
+            https://github.com/mikefarah/yq/releases/download/v4.45.4/yq_windows_amd64.exe
+          yq --version
+
+      - name: Record benchmark
+        env:
+          REASON_OVERRIDE: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ -n "${REASON_OVERRIDE}" ]; then
+            extra+=(--reason="${REASON_OVERRIDE}")
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            bash scripts/record-merge-bench.sh "${extra[@]}"
+          else
+            nix develop --command bash scripts/record-merge-bench.sh "${extra[@]}"
+          fi
+
+      - name: Commit and push to main
+        run: |
+          set -euo pipefail
+          if git diff --quiet bench/history.yaml; then
+            echo "No history.yaml change recorded — nothing to commit."
+            exit 1
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          arch_suffix=""
+          case "$RUNNER_OS" in
+            Windows) arch_suffix="x86_64-windows" ;;
+            Linux)   arch_suffix="x86_64-linux"   ;;
+            macOS)   arch_suffix="aarch64-darwin" ;;
+          esac
+          subject="$(git log -1 --pretty=%s HEAD)"
+          git add bench/history.yaml
+          git commit -m "Record ${arch_suffix} bench baseline for ${subject} (workflow_dispatch)"
+          # If a local Mac per-merge bench commit raced ahead of us,
+          # rebase onto the new tip and retry. One retry is enough in
+          # practice — these races are rare.
+          for attempt in 1 2; do
+            if git push origin HEAD:main; then
+              echo "Pushed on attempt ${attempt}."
+              exit 0
+            fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "Push failed after rebase retry; bailing out." >&2
+          exit 1

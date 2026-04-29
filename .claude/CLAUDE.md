@@ -143,13 +143,20 @@ items 8-9. Run on **BOTH Mac AND Ubuntu x86_64**. No skipping.
     `Record benchmark for <subject>` commit; CI runs but is not
     gating for that small commit.
 
-CI Linux runners separately enforce a soft regression check
-(`bench/ci_compare.sh --base=origin/main --threshold=20 --runs=3
---warmup=1` on PR, `continue-on-error: true`) — Ubuntu-vs-Ubuntu only,
-the comparison is fresh-measured on the same runner. Compare entries
-in `bench/history.yaml` only within a single `arch:` series; the three
-target triples are independent artefacts, not values to compare
-against each other.
+CI runners separately enforce a soft regression check on every PR
+across all three OSes (`bench/ci_compare.sh --base=origin/main
+--threshold=20 --runs=3 --warmup=1` with `continue-on-error: true`).
+The comparison is fresh-measured on the same runner — never mixed
+across runners. Compare entries in `bench/history.yaml` only within
+a single `arch:` series; the three target triples are independent
+artefacts, not values to compare against each other.
+
+Native x86_64-linux / x86_64-windows baselines that the user does not
+have measurement-grade local hardware for can be recorded ad hoc via
+the `bench-baseline.yml` workflow_dispatch (input `os`). The workflow
+runs `scripts/record-merge-bench.sh` on the requested GitHub-hosted
+runner and commits the resulting row directly to main with the same
+`Record <arch> bench baseline for ...` subject convention.
 
 Items 1-6 must pass on BOTH platforms before merge. Run them in parallel:
 Mac items can run locally, Ubuntu items via `orb run -m my-ubuntu-amd64`.
