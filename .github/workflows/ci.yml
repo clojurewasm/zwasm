@@ -145,26 +145,15 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Provision toolchain (install-tools.ps1, no rust)
+      - name: Provision toolchain (install-tools.ps1)
         # install-tools.ps1 reads .github/versions.lock and provisions
-        # Zig + WASI SDK + wasm-tools + wasmtime + Go + TinyGo into
-        # %LOCALAPPDATA%\zwasm-tools, exporting PATH / WASI_SDK_PATH
-        # via $GITHUB_PATH and $GITHUB_ENV so subsequent steps see
-        # them. Rust is intentionally skipped — the GitHub-hosted
-        # Windows runner ships with rustup pre-installed, and using
-        # it directly mirrors the Linux/macOS test-nix pattern. The
-        # local-Windows path that does invoke install-tools.ps1
-        # without -SkipRust still works.
+        # Zig + WASI SDK + wasm-tools + wasmtime + Go + TinyGo + Rust
+        # (rustup-init.exe with self-contained CARGO_HOME / RUSTUP_HOME)
+        # into %LOCALAPPDATA%\zwasm-tools, exporting PATH / WASI_SDK_PATH
+        # / CARGO_HOME / RUSTUP_HOME via $GITHUB_PATH and $GITHUB_ENV so
+        # subsequent steps see them.
         shell: pwsh
-        run: pwsh -NoLogo -File scripts/windows/install-tools.ps1 -SkipRust
-
-      - name: Setup Rust (runner's rustup, wasm32-wasip1 target)
-        run: |
-          source .github/versions.lock
-          rustup install "$RUST_VERSION" --no-self-update
-          rustup default "$RUST_VERSION"
-          rustup target add wasm32-wasip1
-          rustc --version
+        run: pwsh -NoLogo -File scripts/windows/install-tools.ps1
 
       - name: Cache Zig build artifacts
         uses: actions/cache@v4

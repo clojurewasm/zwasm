@@ -321,14 +321,28 @@ function Install-Rustup {
     New-Item -ItemType Directory -Force -Path $rustupHome | Out-Null
     $env:CARGO_HOME = $cargoHome
     $env:RUSTUP_HOME = $rustupHome
+    # IMPORTANT: route native command stdout/stderr through `Out-Host`
+    # so the lines surface in the CI log but do NOT become part of
+    # this function's return value. PowerShell folds every native
+    # command's stdout into the enclosing function's pipeline output;
+    # without the redirect, rustup-init's `info: downloading
+    # component rust-std` and friends pile up alongside `return
+    # $stampedDir`, so the caller's `$rustRoot` is a string array
+    # rather than a single path. Downstream `Join-Path $paths['rust']
+    # 'cargo'` then fails parameter binding on an empty element with
+    # "Cannot bind argument to parameter 'Path' because it is an
+    # empty string." — the W53 symptom seen on fresh GitHub-hosted
+    # Windows runners (local mini-PC stayed silent on stdout because
+    # the toolchain components were already cached).
     & $installer -y --no-modify-path `
         --default-toolchain $Toolchain `
-        --default-host x86_64-pc-windows-msvc
+        --default-host x86_64-pc-windows-msvc 2>&1 | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "rustup-init failed (exit $LASTEXITCODE)"
     }
     # Add the wasm32-wasip1 target so realworld Rust modules build.
-    & (Join-Path $cargoHome 'bin\rustup.exe') target add wasm32-wasip1
+    $rustupExe = Join-Path $cargoHome 'bin\rustup.exe'
+    & $rustupExe target add wasm32-wasip1 2>&1 | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "rustup target add wasm32-wasip1 failed (exit $LASTEXITCODE)"
     }
@@ -339,6 +353,12 @@ function Install-Rustup {
 if ($OnlyTool -in @('all', 'rust') -and -not $SkipRust) {
     $rustToolchain = $versions.RUST_VERSION  # e.g. 'stable'
     $rustRoot = Install-Rustup -Toolchain $rustToolchain -InstallRoot $installRoot
+    # Defensive: catch any future regression where a native command's
+    # stdout leaks back into Install-Rustup's return (the original W53
+    # bug). A scalar string is the only valid shape here.
+    if ($rustRoot -is [array] -or [string]::IsNullOrWhiteSpace($rustRoot)) {
+        throw "install-tools.ps1: Install-Rustup returned an unexpected value (expected a single path, got: $($rustRoot | Out-String))"
+    }
     $paths['rust'] = $rustRoot
 }
 
