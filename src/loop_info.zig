@@ -166,13 +166,13 @@ pub const LoopInfo = struct {
             // the read at PC and the write at PC. That's correct: the
             // value is read AT this PC and written AT this PC.
 
-            if (opUsesRdAsSource(instr.op)) {
+            if (regalloc.opUsesRdAsSource(instr.op)) {
                 if (instr.rd < reg_count) last_use[instr.rd] = source_pc;
             }
-            if (opUsesRs1AsSource(instr.op)) {
+            if (regalloc.opUsesRs1AsSource(instr.op)) {
                 if (instr.rs1 < reg_count) last_use[instr.rs1] = source_pc;
             }
-            if (opUsesRs2AsSource(instr.op)) {
+            if (regalloc.opUsesRs2AsSource(instr.op)) {
                 const r2 = instr.rs2();
                 if (r2 < reg_count) last_use[r2] = source_pc;
             }
@@ -183,7 +183,7 @@ pub const LoopInfo = struct {
             // via the rs1/rs2 fields above (over-approximation only loses
             // optimization in Phase 5; never hurts correctness).
 
-            if (opWritesRd(instr.op)) {
+            if (regalloc.opWritesRd(instr.op)) {
                 if (instr.rd < reg_count and first_def[instr.rd] == NEVER_DEFINED) {
                     first_def[instr.rd] = source_pc;
                 }
@@ -277,95 +277,10 @@ fn recordTarget(
     }
 }
 
-/// True iff this opcode writes a fresh value into rd (the destination
-/// vreg). Stores treat rd as a value source; conditional branches
-/// (BR_IF / BR_IF_NOT / RETURN) treat rd as the read condition or
-/// returned value; control-flow ops without vregs return false.
-fn opWritesRd(op: u16) bool {
-    return switch (op) {
-        regalloc.OP_BR,
-        regalloc.OP_BR_IF,
-        regalloc.OP_BR_IF_NOT,
-        regalloc.OP_BR_TABLE,
-        regalloc.OP_BLOCK_END,
-        regalloc.OP_NOP,
-        regalloc.OP_DELETED,
-        regalloc.OP_RETURN,
-        regalloc.OP_RETURN_VOID,
-        regalloc.OP_RETURN_MULTI,
-        regalloc.OP_MEMORY_FILL,
-        regalloc.OP_MEMORY_COPY,
-        // Wasm stores: rd is the value source, rs1 is the address.
-        0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E => false,
-        else => true,
-    };
-}
-
-/// True iff this opcode treats rd as a SOURCE (read) rather than a
-/// destination. The set is symmetric with `!opWritesRd` for the cases
-/// where rd carries a vreg reference at all — control-flow ops with no
-/// vreg use return false in both predicates.
-fn opUsesRdAsSource(op: u16) bool {
-    return switch (op) {
-        regalloc.OP_BR_IF,
-        regalloc.OP_BR_IF_NOT,
-        regalloc.OP_RETURN,
-        regalloc.OP_RETURN_MULTI,
-        // Wasm stores: rd is the value source.
-        0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E => true,
-        // memory.fill / memory.copy use rs1/rs2/operand-NOP entries —
-        // see fuzz_gen / vm.zig for the layout. Phase 1 doesn't model
-        // their additional sources; Phase 5 will not coalesce around
-        // them anyway, so the omission is harmless.
-        else => false,
-    };
-}
-
-/// True iff this opcode reads rs1 as a vreg. Default-true for most ops
-/// (binary / unary / load / mov), false for control-flow / const /
-/// no-vreg ops where rs1 is unused (and defaults to 0, which would
-/// otherwise spuriously update last_use[0]).
-fn opUsesRs1AsSource(op: u16) bool {
-    return switch (op) {
-        regalloc.OP_BR,
-        regalloc.OP_BR_IF,
-        regalloc.OP_BR_IF_NOT,
-        regalloc.OP_BLOCK_END,
-        regalloc.OP_NOP,
-        regalloc.OP_DELETED,
-        regalloc.OP_CONST32,
-        regalloc.OP_CONST64,
-        regalloc.OP_RETURN,
-        regalloc.OP_RETURN_VOID,
-        => false,
-        else => true,
-    };
-}
-
-/// True iff this opcode reads rs2_field as a vreg. Conservative: any
-/// binop-shaped opcode might use it; ops that don't (unary, mov, load,
-/// stores) over-approximate harmlessly. The hard exclusions are ops
-/// where rs2_field is guaranteed unused so reading it would mark
-/// vreg 0 as last-used spuriously.
-fn opUsesRs2AsSource(op: u16) bool {
-    return switch (op) {
-        regalloc.OP_BR,
-        regalloc.OP_BR_IF,
-        regalloc.OP_BR_IF_NOT,
-        regalloc.OP_BLOCK_END,
-        regalloc.OP_NOP,
-        regalloc.OP_DELETED,
-        regalloc.OP_CONST32,
-        regalloc.OP_CONST64,
-        regalloc.OP_RETURN,
-        regalloc.OP_RETURN_VOID,
-        regalloc.OP_RETURN_MULTI,
-        regalloc.OP_MOV,
-        regalloc.OP_BR_TABLE,
-        => false,
-        else => true,
-    };
-}
+// Opcode classification helpers (opWritesRd / opUsesRdAsSource /
+// opUsesRs1AsSource / opUsesRs2AsSource) live in regalloc.zig as the
+// canonical source of RegInstr semantics. Both this module and the
+// regalloc-stage coalescer consume them.
 
 const testing = std.testing;
 

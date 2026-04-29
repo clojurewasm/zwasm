@@ -1456,6 +1456,59 @@ pub fn convert(
     return result;
 }
 
+/// True iff this opcode writes a fresh value into rd. Stores treat rd as
+/// a source, conditional branches and RETURN read it but don't redefine it,
+/// no-vreg ops have no destination at all. Shared with `loop_info.zig`.
+pub fn opWritesRd(op: u16) bool {
+    return switch (op) {
+        OP_BR, OP_BR_IF, OP_BR_IF_NOT, OP_BR_TABLE, OP_BLOCK_END,
+        OP_NOP, OP_DELETED, OP_RETURN, OP_RETURN_VOID, OP_RETURN_MULTI,
+        OP_MEMORY_FILL, OP_MEMORY_COPY,
+        // Wasm stores: rd is the value source, rs1 is the address.
+        0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
+        => false,
+        else => true,
+    };
+}
+
+/// True iff rd is a SOURCE (read) rather than destination — stores and
+/// conditional branches use rd as the value/condition input.
+pub fn opUsesRdAsSource(op: u16) bool {
+    return switch (op) {
+        OP_BR_IF, OP_BR_IF_NOT, OP_RETURN, OP_RETURN_MULTI,
+        // Wasm stores: rd is the value source.
+        0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
+        => true,
+        else => false,
+    };
+}
+
+/// True iff this opcode reads rs1 as a vreg.
+pub fn opUsesRs1AsSource(op: u16) bool {
+    return switch (op) {
+        OP_BR, OP_BR_IF, OP_BR_IF_NOT, OP_BLOCK_END,
+        OP_NOP, OP_DELETED, OP_CONST32, OP_CONST64,
+        OP_RETURN, OP_RETURN_VOID,
+        => false,
+        else => true,
+    };
+}
+
+/// True iff this opcode reads rs2_field as a vreg. Conservative: defaults
+/// to "yes" for binop-shaped ops; explicit exclusions cover unary / mov /
+/// const / control flow where rs2_field defaults to 0 and would otherwise
+/// spuriously update last-use[0].
+pub fn opUsesRs2AsSource(op: u16) bool {
+    return switch (op) {
+        OP_BR, OP_BR_IF, OP_BR_IF_NOT, OP_BLOCK_END,
+        OP_NOP, OP_DELETED, OP_CONST32, OP_CONST64,
+        OP_RETURN, OP_RETURN_VOID, OP_RETURN_MULTI,
+        OP_MOV, OP_BR_TABLE,
+        => false,
+        else => true,
+    };
+}
+
 /// Peephole optimization: fuse CONST32 + binop into immediate-operand instructions.
 /// Copy propagation: fold "op rTEMP = ...; mov rLOCAL = rTEMP" → "op rLOCAL = ...".
 /// Eliminates redundant MOV instructions where a temp register is defined and immediately
@@ -1507,16 +1560,67 @@ fn copyPropagate(code: []RegInstr, local_count: u16) void {
             else => {},
         }
 
-        // Don't fold if the old temp register is still referenced as a source
-        // elsewhere. E.g., block-end MOV may also read from the same temp.
+        // The old temp's lifetime ends at the MOV — UNLESS some later
+        // instruction reads it before any redefinition. The forward scan
+        // honours that: stop at the first re-write of old_reg (its old
+        // value is dead from then on); on a read of old_reg before that
+        // write, bail out as "still in use".
+        //
+        // Branch targets in the scan path are treated conservatively: a
+        // join point may import a live use of old_reg from another
+        // predecessor we haven't analysed.
+        // Don't fold if the old temp register is still referenced as a
+        // source elsewhere. The scan can stop at the first redefinition of
+        // old_reg ONLY if the redef is unconditionally executed on every
+        // path from the MOV. Without dominator analysis, the safe proxy is
+        // "no control-flow op exists between the MOV and the redef" — any
+        // branch could bypass the redef and leave a path that still reads
+        // old_reg's old value.
+        //
+        // We also bail on:
+        //   - branch targets (a join may import a live use from another
+        //     predecessor we haven't analysed),
+        //   - multi-source ops whose hidden source vregs (CALL args at
+        //     rs1+0, rs1+1, ...; BR_TABLE NOP entries; memory.fill/copy
+        //     operand packing) would not be detected by rs1/rs2/rd alone.
         const old_reg = producer.rd;
         var still_used = false;
-        for (code[i + 2 ..]) |later| {
+        var k: usize = i + 2;
+        while (k < code.len) : (k += 1) {
+            const later = code[k];
             if (later.op == OP_DELETED or later.op == OP_NOP) continue;
-            if (later.rs1 == old_reg or later.rs2() == old_reg) {
+            if (k < branch_targets.len and branch_targets[k]) {
                 still_used = true;
                 break;
             }
+            switch (later.op) {
+                // Multi-source ops: bail conservatively (hidden vreg reads).
+                OP_CALL, OP_CALL_INDIRECT, OP_BR_TABLE, OP_RETURN_MULTI,
+                OP_MEMORY_FILL, OP_MEMORY_COPY,
+                // Branches: a forward branch may bypass a downstream redef
+                // of old_reg and reach a use that still expects the
+                // producer's value. Without dominator info we treat ANY
+                // branch as bypassing. RETURN/RETURN_VOID don't bypass —
+                // they terminate, and any rd source they read is caught
+                // by opUsesRdAsSource. BLOCK_END is a target marker
+                // already handled by the branch_targets[k] check above.
+                OP_BR, OP_BR_IF, OP_BR_IF_NOT,
+                => {
+                    still_used = true;
+                    break;
+                },
+                else => {},
+            }
+            if ((opUsesRs1AsSource(later.op) and later.rs1 == old_reg) or
+                (opUsesRs2AsSource(later.op) and later.rs2() == old_reg) or
+                (opUsesRdAsSource(later.op) and later.rd == old_reg))
+            {
+                still_used = true;
+                break;
+            }
+            // A redefinition ends the old value's lifetime; everything
+            // beyond reads the NEW old_reg, not the producer's value.
+            if (opWritesRd(later.op) and later.rd == old_reg) break;
         }
         if (still_used) continue;
 
