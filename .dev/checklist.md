@@ -43,11 +43,17 @@ Prefix: W## (to distinguish from CW's F## items).
 - [ ] W45: SIMD loop persistence — Skip Q-cache eviction at loop headers.
   Requires back-edge detection in scanBranchTargets.
 
-- [ ] W47: `tgo_strops_cached` +24% regression post-0.16 (v1.9.1 64.5ms →
-  v1.10.0 79.9ms on Mac aarch64). Only single benchmark out of 46+ that
-  regressed >10% AND >=10ms absolute. Investigate TinyGo strops codegen
-  path — likely regalloc or memory-access pattern change. Low priority
-  since 20 other benchmarks improved >10% (GC paths 40–76% faster).
+- [ ] W47: `tgo_strops_cached` post-0.16 regression. Initial framing
+  (v1.9.1 64.5ms → v1.10.0 79.9ms cached, +24% on Mac aarch64) was
+  based on a 5-run hyperfine sample; 20-run remeasurement on
+  2026-04-29 (commit `9a1c76b`) showed both cached and uncached
+  variants regressed by ~15.3 % uniformly with σ ≈ 18 % of the
+  mean — i.e. the original "cached vs uncached" delta was
+  noise-dominated, but a real ~15 % slowdown remains. Variance
+  this high makes 5-run bisects unreliable; before code work the
+  measurement harness needs stabilising. Full investigation log:
+  `@./.dev/w47-investigation.md`. Low priority since 20 other
+  benchmarks improved >10% (GC paths 40–76% faster).
 
 - [ ] W48 Phase 2: Linux binary size 1.56 MB → 1.50 MB (~62 KB more).
   W48 Phase 1 shipped (2026-04-25): `pub const panic = std.debug.simple_panic`
