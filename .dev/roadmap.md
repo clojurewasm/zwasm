@@ -29,8 +29,8 @@ Details: `roadmap-archive.md`.
 
 | Task                        | Priority | Description                                       |
 |-----------------------------|----------|---------------------------------------------------|
-| Windows CI guard removal    | Active   | Plan C residuals (W49). See `.dev/resume-guide.md` |
-| CI Nix-ify (B3)             | Medium   | W50: nix-installer-action + magic-nix-cache for Linux/Mac |
+| Windows CI guard removal    | Done     | W49 (Plan C residuals) + W50 (CI Nix-ify) shipped 2026-04-29 PM. Only `benchmark` Ubuntu-only remains, sequenced behind C-g (3-platform baseline reset). |
+| W53 install-tools.ps1 rust  | Active   | CI uses `-SkipRust` workaround; root cause needs CI repro with `Set-StrictMode`. See `.dev/checklist.md` W53. |
 | Spec test auto-bump         | Active   | Weekly CI (spec-bump.yml). Review failures.        |
 | wasm-tools tracking         | Active   | Monthly CI (wasm-tools-bump.yml)                   |
 | SpecTec monitoring          | Active   | Weekly CI (spectec-monitor.yml)                    |

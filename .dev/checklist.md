@@ -10,28 +10,56 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open Items
 
-- [ ] W49: Plan C — remove remaining `if: runner.os != 'Windows'` CI
-  guards. C-a / C-b / C-c / C-d / C-e / C-f all landed
-  post-2026-04-29 (PRs #68, #72, #71, #69, #70). Only **C-g**
-  (benchmark Ubuntu-only) remains, and per `CLAUDE.md`'s bench
-  policy that one is intentionally Ubuntu-only — Mac M4 Pro
-  history.yaml is the authoritative absolute baseline, CI bench is
-  the Ubuntu-vs-Ubuntu regression guard. Closing C-g would mean
-  either accepting noisy 3-platform comparisons or keeping the
-  Ubuntu-only behaviour and just removing the guard; no-op either
-  way. Treat W49 as effectively done unless the user wants C-g
-  formally closed; detailed status in `@./.dev/resume-guide.md`.
+- [ ] W49 / Plan C-g: 3-platform bench baseline reset. The other
+  Plan C items (C-a..C-f) landed in PRs #68..#74; the remaining
+  `benchmark` Ubuntu-only guard is sequenced behind a cleanroom
+  baseline collection on Mac / Ubuntu / Windows so that
+  cross-platform absolute-time comparisons are meaningful (the
+  user specifically wants to see whether Windows shows
+  per-benchmark slowdowns vs Mac/Linux). Concrete sequence is in
+  `.dev/memo.md` `## Open work, in recommended order` → item 2.
+  Foundation for W47.
 
-- [ ] W50: Plan B sub-3 — CI Nix-ify. Replace per-tool installs in
-  `ci.yml` test matrix with `DeterminateSystems/nix-installer-action`
-  + `magic-nix-cache-action` + `nix develop --command bash
-  scripts/gate-commit.sh` on Linux/macOS, and
-  `pwsh scripts/windows/install-tools.ps1` then `bash scripts/gate-commit.sh`
-  on Windows. Then mirror in `nightly.yml`. Plus extend `flake.nix` to
-  pin wasm-tools / wasmtime / hyperfine explicitly (URL + sha256)
-  rather than via nixpkgs revision. Deferred from overnight 2026-04-29
-  because magic-nix-cache had a 2025 outage and macos-latest +
-  nix-installer-action has occasional flakes — wants supervised PR.
+- [x] W50: Plan B sub-3 — CI Nix-ify. Shipped in 4 PRs over the
+  2026-04-29 PM autonomous session:
+  - **PR-A (#80)** — `flake.nix` gained explicit URL+sha256 pins for
+    wasm-tools 1.246.1 + wasmtime 42.0.1; hyperfine kept on nixpkgs
+    because upstream has no aarch64-darwin prebuilt. `sync-versions.sh`
+    extended to verify the two new pins.
+  - **PR-B (#81)** — new `test-nix` job for Linux,
+    `DeterminateSystems/nix-installer-action` + `magic-nix-cache-action`
+    + `nix develop --command bash scripts/gate-commit.sh`.
+  - **PR-C (#82)** — `test-nix` matrix extended to macOS.
+  - **PR-D (#83)** — Windows test job switched to
+    `pwsh scripts/windows/install-tools.ps1 -SkipRust` +
+    `bash scripts/gate-commit.sh`. Added binaryen 125 to
+    install-tools.ps1 (TinyGo wasm-opt requirement, found by CI).
+    Restored c-test / static-lib / static-link / Rust example /
+    memory-check extras across all 3 OSes; reordered cargo run
+    before static-lib build because Windows has filename collision
+    on `zwasm.lib`. `nightly.yml` mirror left as a future follow-up
+    — its sanitizer + fuzz jobs are Linux-only and don't surface on
+    PR CI.
+
+- [ ] W53: `install-tools.ps1` rust install path errors on
+  GitHub-hosted Windows runner with `Cannot bind argument to
+  parameter 'Path' because it is an empty string` mid-way through
+  `& rustup target add wasm32-wasip1` (line 296 / 303 vicinity in
+  `Install-Rustup`). Local Windows mini-PC is unaffected — the bug
+  needs the runner image's pre-installed rustup state to surface.
+  CI currently bypasses via `-SkipRust` (added in W50 PR-D #83),
+  using the runner's pre-installed rustup directly. Local Windows
+  developers calling `pwsh install-tools.ps1` without `-SkipRust`
+  still get a self-contained rustup tree under
+  `%LOCALAPPDATA%\zwasm-tools\rust-stable\` as before. Root-cause
+  fix needs a CI repro: enable `Set-StrictMode -Version Latest` +
+  `$ErrorActionPreference = 'Stop'` at the top of install-tools.ps1
+  to surface the stack trace; suspects are (a) `& $installer` /
+  `& rustup target add` sub-process exit handling racing with the
+  parent script's path resolution, (b) `Resolve-SingleSubdir`
+  feeding an empty string into a `Test-Path` / `Join-Path` somewhere
+  when `$paths` map state is mid-mutation. Rough budget: 30-60 min
+  to repro and patch.
 
 - [x] W52: realworld coverage on Windows —
   `scripts/windows/install-tools.ps1` extended with rustup-init +

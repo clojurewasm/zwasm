@@ -185,11 +185,15 @@ python test/realworld/run_compat.py
 
 ### Currently-skipped CI items on Windows (Plan C tracker)
 
-These are the steps `ci.yml` still guards with `if: runner.os != 'Windows'`.
-They are blockers for "Windows reaches Merge Gate parity" and tracked as
-Plan C work (W49 in `checklist.md`; per-item table with risk classification
-in `.dev/resume-guide.md`). None reflects a fundamental Windows
-incompatibility — every one is a script-side limitation:
+After W50 (CI Nix-ify, shipped 2026-04-29 PM via PRs #80..#83), the
+Windows test job runs the full Commit Gate via
+`pwsh scripts/windows/install-tools.ps1 -SkipRust` +
+`bash scripts/gate-commit.sh` plus the same five extras that
+test-nix runs on Linux/macOS (c-test / static-lib / static-link /
+Rust example / memory check). The remaining Windows-skipped CI
+item is **`benchmark`** — intentionally Ubuntu-only per CLAUDE.md's
+bench policy. Closing it formally is Plan C-g, sequenced behind C-g's
+3-platform baseline reset (see checklist.md C-g + W47 entries):
 
 | Step                                    | Blocker                                                 | Fix shape                                                  |
 |-----------------------------------------|---------------------------------------------------------|------------------------------------------------------------|

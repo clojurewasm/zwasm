@@ -23,63 +23,120 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**Plan C effectively complete + W52 + D137 shipped
-(2026-04-29 PM).** Eleven new PRs to main on top of the morning's
-seven (#60..#67):
+**Plan C done. Plan B sub-3 (W50) done. W47 investigated.**
+Session 2026-04-29 PM landed six PRs to main on top of the morning's
+seven (#68..#74):
 
-- **#68** Plan C-a — `zig build shared-lib` Windows guard removed.
-- **#69** Plan C-d — `zig build static-lib` + static-link tests on
-  Windows (script switched to `zig cc`; `zwasm.lib` path).
-- **#70** Plan C-e + C-f — `-Dstrip=true` build option +
-  `size-matrix` 3-OS matrix; per-OS size ceilings
-  (Mac 1.30 / Linux 1.60 / Windows 1.80 MB).
-- **#71** Plan C-c — `examples/rust/build.rs` Windows arm
-  (DLL copy alongside cargo target binary; `zwasm.lib` static).
-- **#72** Plan C-b — `test/c_api/test_ffi.c` ported to Win32
-  (LoadLibraryA / CreateThread / `_pipe`); runner uses `zig cc`;
-  `gate-commit.sh` no longer auto-skips `ffi` on Windows.
-- **#73** D137 — architectural decision recorded for the C-e + C-f
-  per-OS ceilings + LLD-strip approach.
-- **#74** W52 — `scripts/windows/install-tools.ps1` extended with
-  rustup-init + Go + TinyGo, closing the local realworld 25/50 →
-  50/50 gap on Windows. CI Windows runner stays 25/25 (GitHub-hosted
-  runner uses its own per-job `Setup Rust` step); CI adoption is W50.
-- **#75** doc alignment sweep — `ARCHITECTURE.md`, `CONTRIBUTING.md`,
-  `.dev/roadmap.md`, release skill now agree with CLAUDE.md on Merge
-  Gate items / runner forms / per-OS size ceilings.
-- **#76** dropped obsolete `.dev/checklist-jit-fuel-timeout.md`
-  (all items shipped: PR #6 timeout, fuel-bypass fix, `--timeout`).
-- **#77** CHANGELOG `[Unreleased]` PR-tags + D137 entry, memo.md
-  Current Task refresh.
-- **#78** README front page — W52 status (local 50/50 via installer)
-  + per-OS size ceilings (Mac 1.30 / Linux 1.60 / Windows 1.80 MB; D137).
-
-`Plan C` tracker is empty except **C-g** (benchmark Ubuntu-only),
-which is intentionally Ubuntu-only per `CLAUDE.md`'s bench policy
-(Mac M4 Pro `bench/history.yaml` is the absolute baseline; CI bench
-is the Ubuntu-vs-Ubuntu regression guard). Treating C-g as
-"effectively done" until the user explicitly wants it formally
-closed.
+- **#79** docs+ci trailing cleanup (memo.md / CHANGELOG / nightly.yml
+  drift after #75..#78).
+- **#80** W50 PR-A — `flake.nix` explicit URL+sha256 pins for
+  wasm-tools 1.246.1 + wasmtime 42.0.1.
+- **#81** W50 PR-B — new `test-nix (ubuntu-latest)` job using
+  Nix devshell + gate-commit.
+- **#82** W50 PR-C — `test-nix` matrix extended to macOS.
+- **#83** W50 PR-D — Windows test switched to `install-tools.ps1
+  -SkipRust` + `gate-commit.sh`. Added binaryen 125 to
+  install-tools.ps1, restored extras (c-test / static-lib /
+  static-link / Rust example / memory check) on all 3 OSes,
+  reordered cargo run before static-lib build (Windows
+  `zwasm.lib` collision).
+- **#84** W47 investigation note — 20-run remeasurement showed
+  variance dominates the +24% signal; `.dev/w47-investigation.md`
+  records the findings + next-step recommendations.
 
 Per-merge `bench/history.yaml` rows recorded on Mac M4 Pro for
-each of #68..#78.
+each of #68..#84.
 
-Quick orientation if continuing:
+## Open work, in recommended order
+
+The 2026-04-29 PM session left three items sequenced. Each builds
+on the previous; do them in order.
+
+### 1. **W53** — fix the `install-tools.ps1` rust install path bug
+
+CI currently bypasses it with `-SkipRust`. Local Windows
+mini-PC is fine. Repro: a fresh GitHub-hosted Windows runner
+calling `pwsh install-tools.ps1` (without `-SkipRust`). Symptom:
+
+```
+info: downloading component rust-std
+install-tools.ps1: Cannot bind argument to parameter 'Path' because it is an empty string.
+```
+
+Suspects: `Install-Rustup` line 296 (`& $installer ...`) or 303
+(`& (Join-Path $cargoHome 'bin\rustup.exe') target add
+wasm32-wasip1`). Approach: enable `Set-StrictMode -Version Latest`
++ `$ErrorActionPreference = 'Stop'` at the top of install-tools.ps1
+to surface a stack trace, then re-run on a temporary CI branch.
+Once root-caused, drop `-SkipRust` from `ci.yml` `test
+(windows-latest)` and verify Windows CI still goes green.
+
+`.dev/checklist.md` W53 has the full notes.
+
+### 2. **C-g** — 3-platform bench baseline reset
+
+Now that W50 finished, all three CI runners (Mac / Ubuntu / Windows)
+use the same flake-pinned toolchain. Time to actually compare
+absolute bench numbers across platforms (the user specifically
+suspected "Windows だけやたら性能劣化" might exist).
+
+Sequence:
+
+1. `bench/history.yaml` schema: add `arch:` field to each entry
+   (default `aarch64-darwin` — that's all current rows). Allow
+   per-entry `env:` override of `cpu` / `os`.
+2. `scripts/record-merge-bench.sh`: drop the "Darwin only" early
+   exit; per-arch series are independent.
+3. Cleanroom baseline collection:
+   - Mac M4 Pro local — `bash scripts/record-merge-bench.sh`
+   - Ubuntu via OrbStack `my-ubuntu-amd64` — same command
+   - Windows via SSH `windowsmini` — same command (uses
+     `install-tools.ps1` toolchain, hyperfine should be on PATH
+     after binaryen install added it). One row each, tagged with
+     `arch`.
+4. `bench/ci_compare.sh`: already self-contained per-runner (does
+   fresh measure of base vs PR on the same host); confirm no per-arch
+   filtering changes needed.
+5. After (1)-(4) ship and the 3 baselines are recorded, drop the
+   Ubuntu-only guard on the `benchmark` CI job in `ci.yml` and let
+   it run as a 3-OS matrix. That formally closes Plan C-g.
+
+Roughly one supervised PR + ~10 min of bench collection per
+platform. Foundation for W47.
+
+### 3. **W47** — `tgo_strops_cached` regression with stable harness
+
+Investigation already in `.dev/w47-investigation.md`:
+
+- Real signal: ~15 % uniform slowdown on both cached and uncached
+  variants (the original "+24% cached only" framing was a 5-run
+  sample artifact).
+- Variance: σ ≈ 18 % of the mean for this benchmark. Bisect needs
+  σ < 5 %.
+- Suspect range: v1.9.1 (`078f8f2`) → v1.10.0 (`c89b95a`), which
+  is the Zig 0.15 → 0.16 + W46 link_libc window.
+
+After C-g lands the per-arch data, also compare across Mac /
+Ubuntu / Windows: is the regression Mac-only (ARM64 JIT
+codegen), Mac+Ubuntu (cross-platform JIT path), or all-platform
+(interpreter dispatch)? That triages the bisect range immediately.
+
+Stabilise the harness first (50-run hyperfine or in-process JIT
+timing that subtracts module load + WASI startup), then bisect.
+
+## Quick orient on session start
 
 ```bash
-git log --oneline origin/main -10       # confirm what's on main
-cat .dev/resume-guide.md                # full plan, gotchas, stop rules
-bash scripts/sync-versions.sh           # toolchain pin sanity (instant)
+git log --oneline origin/main -10        # confirm what's on main
+git status --short                       # any unstaged carry-over from prior session?
+cat .dev/checklist.md                    # W53 / C-g / W47 are the open items
+bash scripts/sync-versions.sh            # toolchain pin sanity (instant)
 bash scripts/gate-commit.sh --only=tests # smoke test
 ```
 
-The guide has two pickable work areas now:
-**Plan B sub-3** (CI Nix-ify; large, supervised PR) and any
-follow-up cleanup. Plan C is essentially exhausted (only the
-intentional C-g remains).
-
-When Plan B sub-3 also lands, delete `.dev/resume-guide.md` and
-this "Current Task" pointer.
+`.dev/resume-guide.md` was deleted at the end of the 2026-04-29 PM
+session because Plan B sub-3 + Plan C are done; this "Current Task"
+block is the only handover document going forward.
 
 ## Previous Task
 
