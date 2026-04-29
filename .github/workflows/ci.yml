@@ -124,32 +124,40 @@ jobs:
           # ELF-only).
           rm -rf .strip-cache
           zig build -Dstrip=true -Doptimize=ReleaseSafe --prefix .strip-cache
+          # Per-OS ceilings — regression guard, not a parity target.
+          # PE has higher reloc/import overhead than ELF; Mach-O is the
+          # most compact of the three. Each ceiling tracks the observed
+          # stripped size with ~80-100 KB of headroom so a real
+          # regression trips the gate before the budget runs out.
           if [ "${{ runner.os }}" = "Windows" ]; then
             STRIPPED=.strip-cache/bin/zwasm.exe
             BINARY=zig-out/bin/zwasm.exe
-          else
+            LIMIT_BYTES=1887436    # 1.80 MB — PE (observed ~1.70 MB)
+            LIMIT_MB="1.80"
+          elif [ "${{ runner.os }}" = "macOS" ]; then
             STRIPPED=.strip-cache/bin/zwasm
             BINARY=zig-out/bin/zwasm
+            LIMIT_BYTES=1363148    # 1.30 MB — Mach-O (observed ~1.20 MB)
+            LIMIT_MB="1.30"
+          else
+            # Linux / other ELF
+            STRIPPED=.strip-cache/bin/zwasm
+            BINARY=zig-out/bin/zwasm
+            LIMIT_BYTES=1677721    # 1.60 MB — ELF (observed ~1.56 MB)
+            LIMIT_MB="1.60"
           fi
           SIZE_BYTES=$(wc -c < "$STRIPPED" | tr -d ' ')
           SIZE_MB=$(python -c "print(f'{$SIZE_BYTES / 1048576:.2f}')")
-          # 1.60 MB ceiling. History: v1.9.1 was 1.50 MB on Zig 0.15. The Zig
-          # 0.16 migration temporarily forced `link_libc = true` and the limit
-          # was raised to 1.80 MB as a pragmatic compromise. W46 (link_libc=false
-          # restored) + W48 Phase 1 (panic / segfault / u8-main trim) brought
-          # Mac to ~1.20 MB and Linux to ~1.56 MB stripped, so we now pull the
-          # ceiling back toward the original 1.50 MB target while leaving a
-          # ~40 KB headroom for incremental work.
-          LIMIT_BYTES=1677721   # 1.60 MB (Mac ~1.20 MB, Ubuntu ~1.56 MB observed)
           RAW_BYTES=$(wc -c < "$BINARY" | tr -d ' ')
           RAW_MB=$(python -c "print(f'{$RAW_BYTES / 1048576:.2f}')")
           echo "Binary size (raw): ${RAW_MB} MB ($RAW_BYTES bytes)"
           echo "Binary size (stripped): ${SIZE_MB} MB ($SIZE_BYTES bytes)"
+          echo "Ceiling for ${{ runner.os }}: ${LIMIT_MB} MB ($LIMIT_BYTES bytes)"
           if [ "$SIZE_BYTES" -gt "$LIMIT_BYTES" ]; then
-            echo "FAIL: Stripped binary exceeds 1.60 MB limit"
+            echo "FAIL: Stripped binary exceeds ${LIMIT_MB} MB limit"
             exit 1
           fi
-          echo "PASS: Within 1.60 MB limit"
+          echo "PASS: Within ${LIMIT_MB} MB limit"
 
       - name: Memory usage check (POSIX)
         if: runner.os != 'Windows'
