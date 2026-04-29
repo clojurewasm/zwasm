@@ -44,6 +44,8 @@ const JitCode = jit_mod.JitCode;
 const JitFn = jit_mod.JitFn;
 const vm_mod = @import("vm.zig");
 const platform = @import("platform.zig");
+const loop_info_mod = @import("loop_info.zig");
+const LoopInfo = loop_info_mod.LoopInfo;
 
 // ================================================================
 // x86_64 register definitions
@@ -1728,13 +1730,11 @@ pub const Compiler = struct {
     osr_target_pc: ?u32,
     /// Byte offset of the OSR prologue in the code buffer.
     osr_prologue_offset: u32,
-    /// IR slice and branch targets for peephole fusion (set during compile).
+    /// IR slice for peephole fusion (set during compile).
     ir_slice: []const RegInstr = &.{},
-    branch_targets_slice: []bool = &.{},
-    /// Loop header markers: true for PCs that are targets of backward branches.
-    loop_headers_slice: []bool = &.{},
-    /// For each loop header PC, the max back-edge source PC (defines loop body range).
-    loop_end_map: []u32 = &.{},
+    /// Branch / loop / liveness analysis owned by the compile, freed at end.
+    /// Populated by `LoopInfo.analyse` at the start of `compileMain`.
+    loop_info: LoopInfo = .{},
 
     const Patch = struct {
         rel32_offset: u32, // byte offset of the rel32 field in code
@@ -3845,13 +3845,11 @@ pub const Compiler = struct {
 
         self.pc_map.appendNTimes(self.alloc, 0, ir.len + 1) catch return null;
 
-        // Pre-scan: find branch targets for fusion safety
-        const branch_targets = self.scanBranchTargets(ir) orelse return null;
-        defer self.alloc.free(branch_targets);
-        defer self.alloc.free(self.loop_headers_slice);
-        defer self.alloc.free(self.loop_end_map);
+        // Pre-scan: branch targets, loop headers, loop body extents.
+        if (!self.loop_info.analyse(self.alloc, ir)) return null;
+        defer self.loop_info.deinit(self.alloc);
+        const branch_targets = self.loop_info.branch_targets;
         self.ir_slice = ir;
-        self.branch_targets_slice = branch_targets;
 
         // Pre-scan: compute written_vregs for the ENTIRE function.
         // Must cover all instructions (not just those before each call site)
@@ -3879,7 +3877,7 @@ pub const Compiler = struct {
             // Evict SIMD XMM cache at branch targets (merge points)
             if (pc < branch_targets.len and branch_targets[pc]) {
                 self.scratch_vreg = null;
-                if (pc < self.loop_headers_slice.len and self.loop_headers_slice[pc]) {
+                if (pc < self.loop_info.loop_headers.len and self.loop_info.loop_headers[pc]) {
                     // Loop header: emit pre-loads BEFORE pc_map (first iteration only)
                     self.emitLoopPreHeader(ir, pc);
                 } else {
@@ -3984,7 +3982,7 @@ pub const Compiler = struct {
 
     /// Emit loop pre-header: load v128 input vregs into XMM regs before the loop header.
     fn emitLoopPreHeader(self: *Compiler, ir: []const RegInstr, header_pc: u32) void {
-        const end_pc = if (header_pc < self.loop_end_map.len) self.loop_end_map[header_pc] else return;
+        const end_pc = if (header_pc < self.loop_info.loop_end.len) self.loop_info.loop_end[header_pc] else return;
         if (end_pc == 0) return;
 
         var written = [_]bool{false} ** 128;
@@ -6009,7 +6007,7 @@ pub const Compiler = struct {
             regalloc_mod.OP_BR => {
                 const target = instr.operand;
                 const is_back_edge = target <= pc.* - 1;
-                if (is_back_edge and target < self.loop_headers_slice.len and self.loop_headers_slice[target]) {
+                if (is_back_edge and target < self.loop_info.loop_headers.len and self.loop_info.loop_headers[target]) {
                     // Back-edge to loop header: flush XMM (keep cache) for deopt safety
                     self.simdXregFlushAll();
                 } else if (is_back_edge) {
@@ -6474,73 +6472,10 @@ pub const Compiler = struct {
 
     // --- Peephole fusion: CMP+Jcc ---
 
-    fn scanBranchTargets(self: *Compiler, ir: []const RegInstr) ?[]bool {
-        const targets = self.alloc.alloc(bool, ir.len) catch return null;
-        @memset(targets, false);
-        const loop_headers = self.alloc.alloc(bool, ir.len) catch {
-            self.alloc.free(targets);
-            return null;
-        };
-        @memset(loop_headers, false);
-        const loop_end = self.alloc.alloc(u32, ir.len) catch {
-            self.alloc.free(loop_headers);
-            self.alloc.free(targets);
-            return null;
-        };
-        @memset(loop_end, 0);
-
-        var scan_pc: u32 = 0;
-        while (scan_pc < ir.len) {
-            const instr = ir[scan_pc];
-            const source_pc = scan_pc;
-            scan_pc += 1;
-            switch (instr.op) {
-                regalloc_mod.OP_BR => {
-                    if (instr.operand < ir.len) {
-                        targets[instr.operand] = true;
-                        if (instr.operand <= source_pc) {
-                            loop_headers[instr.operand] = true;
-                            if (source_pc > loop_end[instr.operand])
-                                loop_end[instr.operand] = source_pc;
-                        }
-                    }
-                },
-                regalloc_mod.OP_BR_IF, regalloc_mod.OP_BR_IF_NOT => {
-                    if (instr.operand < ir.len) {
-                        targets[instr.operand] = true;
-                        if (instr.operand <= source_pc) {
-                            loop_headers[instr.operand] = true;
-                            if (source_pc > loop_end[instr.operand])
-                                loop_end[instr.operand] = source_pc;
-                        }
-                    }
-                },
-                regalloc_mod.OP_BR_TABLE => {
-                    const count = instr.operand;
-                    var i: u32 = 0;
-                    while (i < count + 1 and scan_pc < ir.len) : (i += 1) {
-                        const entry = ir[scan_pc];
-                        scan_pc += 1;
-                        if (entry.operand < ir.len) {
-                            targets[entry.operand] = true;
-                            if (entry.operand <= source_pc) {
-                                loop_headers[entry.operand] = true;
-                                if (source_pc > loop_end[entry.operand])
-                                    loop_end[entry.operand] = source_pc;
-                            }
-                        }
-                    }
-                },
-                regalloc_mod.OP_BLOCK_END => {
-                    targets[scan_pc - 1] = true;
-                },
-                else => {},
-            }
-        }
-        self.loop_headers_slice = loop_headers;
-        self.loop_end_map = loop_end;
-        return targets;
-    }
+    // scanBranchTargets has moved to src/loop_info.zig — see jit.zig comment
+    // for the rationale. The body of the analysis is shared with the ARM64
+    // backend so future enrichments (liveness, invariant-const classification)
+    // do not need to be duplicated.
 
     /// Try to fuse a CMP result with a following BR_IF/BR_IF_NOT.
     /// Returns true if fused, false if not fuseable. Returns null on OOM.
@@ -6549,7 +6484,7 @@ pub const Compiler = struct {
         const next = self.ir_slice[pc.*];
         if (next.op != regalloc_mod.OP_BR_IF and next.op != regalloc_mod.OP_BR_IF_NOT) return false;
         if (next.rd != rd) return false;
-        if (pc.* < self.branch_targets_slice.len and self.branch_targets_slice[pc.*]) return false;
+        if (pc.* < self.loop_info.branch_targets.len and self.loop_info.branch_targets[pc.*]) return false;
 
         // Fuse: emit Jcc instead of SETCC + MOVZX + store + load + TEST + Jcc
         const actual_cc = if (next.op == regalloc_mod.OP_BR_IF) cc else cc.invert();
