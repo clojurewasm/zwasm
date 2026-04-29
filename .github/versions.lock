@@ -40,6 +40,12 @@ HYPERFINE_VERSION=1.18.0
 GO_VERSION=1.25.5
 # install-tools.ps1 release zip on Windows; Nix devshell on Linux/macOS.
 TINYGO_VERSION=0.40.1
+# install-tools.ps1 release tarball on Windows; Linux/macOS get
+# binaryen via the Nix tinygo wrapper which prepends binaryen-125 to
+# PATH automatically (verified locally — see flake.lock). Pinning
+# Windows explicitly here keeps the realworld TinyGo programs
+# (which call wasm-opt as part of their build pipeline) reproducible.
+BINARYEN_VERSION=125
 
 # === [planned] tools (informational; not yet read by any script) ===
 

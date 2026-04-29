@@ -23,7 +23,7 @@
 
 .PARAMETER OnlyTool
     Install just one tool. Accepts: zig, wasm-tools, wasmtime, wasi-sdk,
-    rust, go, tinygo (and 'all', the default).
+    rust, go, tinygo, binaryen (and 'all', the default).
 
 .EXAMPLE
     pwsh -NoLogo -File scripts\windows\install-tools.ps1
@@ -41,7 +41,7 @@ param(
     # -SkipRust avoids re-bootstrapping a self-contained rustup tree
     # under %LOCALAPPDATA%\zwasm-tools\rust-stable\.
     [switch]$SkipRust,
-    [ValidateSet('zig', 'wasm-tools', 'wasmtime', 'wasi-sdk', 'rust', 'go', 'tinygo', 'all')]
+    [ValidateSet('zig', 'wasm-tools', 'wasmtime', 'wasi-sdk', 'rust', 'go', 'tinygo', 'binaryen', 'all')]
     [string]$OnlyTool = 'all'
 )
 
@@ -90,13 +90,21 @@ foreach ($k in 'ZIG_VERSION', 'WASM_TOOLS_VERSION', 'WASMTIME_VERSION', 'WASI_SD
         throw "install-tools.ps1: $k missing from versions.lock"
     }
 }
-# Realworld toolchain pins (W52). Fail loudly if a requested install
-# needs them but they're missing — keeps the script honest about its
-# inputs.
-$realworldKeys = @{ rust = 'RUST_VERSION'; go = 'GO_VERSION'; tinygo = 'TINYGO_VERSION' }
+# Realworld toolchain pins (W52 + binaryen). Fail loudly if a requested
+# install needs them but they're missing — keeps the script honest
+# about its inputs.
+$realworldKeys = @{
+    rust     = 'RUST_VERSION'
+    go       = 'GO_VERSION'
+    tinygo   = 'TINYGO_VERSION'
+    binaryen = 'BINARYEN_VERSION'
+}
 foreach ($pair in $realworldKeys.GetEnumerator()) {
     $tool = $pair.Key; $key = $pair.Value
-    if ($OnlyTool -in @('all', $tool) -and -not $versions.ContainsKey($key)) {
+    # binaryen is also pulled in transitively when 'tinygo' is requested
+    # (TinyGo invokes wasm-opt at build time).
+    $needs = ($OnlyTool -in @('all', $tool)) -or ($tool -eq 'binaryen' -and $OnlyTool -eq 'tinygo')
+    if ($needs -and -not $versions.ContainsKey($key)) {
         throw "install-tools.ps1: $key missing from versions.lock (needed for $tool install)"
     }
 }
@@ -267,6 +275,20 @@ if ($OnlyTool -in @('all', 'tinygo')) {
     $paths['tinygo'] = $dir
 }
 
+if ($OnlyTool -in @('all', 'binaryen', 'tinygo')) {
+    # TinyGo invokes `wasm-opt` as part of its wasm build pipeline.
+    # On Linux/macOS the Nix `tinygo` derivation is wrapped to prepend
+    # binaryen-125's bin/ to PATH automatically; on Windows we install
+    # binaryen explicitly so `wasm-opt` is on PATH for tinygo.
+    # The release tarball extracts to
+    # `binaryen-version_<N>-x86_64-windows/bin/wasm-opt.exe` — Resolve-
+    # SingleSubdir will flatten the version-stamped top dir, leaving
+    # `<install>/bin/wasm-opt.exe`.
+    $url = "https://github.com/WebAssembly/binaryen/releases/download/version_$($versions.BINARYEN_VERSION)/binaryen-version_$($versions.BINARYEN_VERSION)-x86_64-windows.tar.gz"
+    $dir = Install-Tool -Name 'binaryen' -Version $versions.BINARYEN_VERSION -Url $url -Format 'tar.gz'
+    $paths['binaryen'] = $dir
+}
+
 # Rustup is special: it's a self-installer (rustup-init.exe), not an
 # archive. Install into a stamped directory under $installRoot with
 # its own CARGO_HOME / RUSTUP_HOME so the install is self-contained
@@ -374,13 +396,15 @@ function Update-UserPath {
 #                                 (no bin/ subdir on Windows).
 #   go                          — bin/ subdir holding go.exe + gofmt.exe.
 #   tinygo                      — bin/ subdir holding tinygo.exe.
+#   binaryen                    — bin/ subdir holding wasm-opt.exe et al.
 #   rust                        — cargo/bin/ holding cargo.exe + rustup.exe.
 $pathsToAdd = @()
 if ($paths.ContainsKey('zig'))        { $pathsToAdd += $paths['zig'] }
 if ($paths.ContainsKey('wasm-tools')) { $pathsToAdd += $paths['wasm-tools'] }
 if ($paths.ContainsKey('wasmtime'))   { $pathsToAdd += $paths['wasmtime'] }
-if ($paths.ContainsKey('go'))         { $pathsToAdd += (Join-Path $paths['go']     'bin') }
-if ($paths.ContainsKey('tinygo'))     { $pathsToAdd += (Join-Path $paths['tinygo'] 'bin') }
+if ($paths.ContainsKey('go'))         { $pathsToAdd += (Join-Path $paths['go']       'bin') }
+if ($paths.ContainsKey('tinygo'))     { $pathsToAdd += (Join-Path $paths['tinygo']   'bin') }
+if ($paths.ContainsKey('binaryen'))   { $pathsToAdd += (Join-Path $paths['binaryen'] 'bin') }
 if ($paths.ContainsKey('rust'))       { $pathsToAdd += (Join-Path (Join-Path $paths['rust'] 'cargo') 'bin') }
 Update-UserPath -Add $pathsToAdd
 
