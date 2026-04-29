@@ -23,11 +23,11 @@ Session handover document. Read at session start.
 
 ## Current Task
 
-**Plan A + Plan B sub-1+2 + Plan C alpha shipped (2026-04-29).** PRs #60,
-#61, #62, #64, #65 merged. main is green on all three OS matrix entries.
-Detailed state, hard-won facts, residual work, and the per-session
-autonomy rules live in **`@./.dev/resume-guide.md`** — read that first
-on a new session.
+**Plan A + Plan B sub-1+2 + Plan C alpha + handoff/cleanup shipped
+(2026-04-29).** PRs #60, #61, #62, #64, #65, #66, #67 merged. main
+is green on all three OS matrix entries. Detailed state, hard-won
+facts, residual work, and the per-session autonomy rules live in
+**`@./.dev/resume-guide.md`** — read that first on a new session.
 
 Quick orientation if continuing:
 
@@ -48,7 +48,7 @@ When all three are exhausted, delete `.dev/resume-guide.md` and this
 
 ## Previous Task
 
-**Overnight 2026-04-28 → 2026-04-29.** Five PRs to main:
+**Overnight 2026-04-28 → 2026-04-29.** Seven PRs to main:
 
 - #60 — `flake.nix` made SSoT, `versions.lock` mirror, WASI SDK 25→30,
   D136 in decisions.md, `.dev/environment.md` initial.
@@ -57,6 +57,12 @@ When all three are exhausted, delete `.dev/resume-guide.md` and this
 - #62 — CI `versions-lock-sync` job (Merge Gate item #9 mechanised).
 - #64 — Windows memory check via PowerShell (1 of 8 Windows guards down).
 - #65 — `HYPERFINE_VERSION` sourced from versions.lock.
+- #66 — `.dev/resume-guide.md` + W49-W52 in checklist.md +
+  CHANGELOG `[Unreleased]` capture.
+- #67 — doc-drift sweep (E2E count 792→796, Stages 0-46→0-47, real-world
+  scope clarified, Zig 0.15.2 / WASI SDK 25 / wasm-tools 1.245.1
+  references bumped, `bash scripts/gate-commit.sh` promoted in
+  contributing guides). W51 resolved.
 
 Pre-overnight: **W48 Phase 1 — DONE (2026-04-25).** Trimmed Linux
 binary 1.64 → 1.56 MB (-83 KB) and Mac 1.38 → 1.20 MB (-180 KB) via

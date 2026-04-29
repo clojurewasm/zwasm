@@ -226,7 +226,9 @@ Zig tips: `@./.claude/references/zig-tips.md` — check before writing Zig code.
 Benchmarks: `@./.claude/rules/bench-check.md` (auto-loads on bench/jit/vm edits).
 JIT: `@./.claude/rules/jit-check.md` (auto-loads on jit.zig edits).
 Development: `@./.claude/rules/reliability-work.md` (auto-loads on src/test/bench edits).
-Roadmap: `@./.dev/roadmap.md` (zwasm phases) + `@./private/future/03_zwasm_clojurewasm_roadmap_ja.md` (integrated).
+Roadmap: `@./.dev/roadmap.md` (zwasm phases). The integrated zwasm/CW
+roadmap lives in shota's `private/` directory (gitignored, not part of
+the repo) — fresh checkouts on other machines do not have it.
 Allocator injection: `@./.dev/archive/allocator-injection-plan.md` — Phase 11 design + task breakdown (D128, completed in v1.5.0; archived).
 SIMD performance: `@./.dev/decisions.md` → D132 — two-phase SIMD optimization plan (W43 addr cache, W44 reg class).
 Environment: `@./.dev/environment.md` — Mac/Linux/Windows setup, tool versions, CI ↔ local mapping (D136).

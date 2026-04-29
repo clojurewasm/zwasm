@@ -1,9 +1,11 @@
 # Session Resumption Guide
 
-Read this when a new session opens with no context and the user says
-"続けて" / "continue". This document plus `git log --oneline -10` is
-intended to give you everything you need to make safe forward progress
-without re-reading the prior chat.
+Read this when a new session opens with no context and the user asks
+to continue (in any language; common phrasings include "continue",
+"keep going", or the same intent expressed in Japanese). This
+document plus `git log --oneline -10` is intended to give you
+everything you need to make safe forward progress without re-reading
+the prior chat.
 
 The guide is **evergreen** — update it as work lands. Pointer from
 `.dev/memo.md` `## Current Task` should always lead here while there
@@ -12,7 +14,7 @@ are exhausted.
 
 ## Where main is (snapshot 2026-04-29)
 
-Five PRs landed overnight 2026-04-28 → 2026-04-29:
+Seven PRs landed overnight 2026-04-28 → 2026-04-29:
 
 | PR  | Title                                                      | Effect                                                |
 |-----|------------------------------------------------------------|-------------------------------------------------------|
@@ -21,6 +23,8 @@ Five PRs landed overnight 2026-04-28 → 2026-04-29:
 | #62 | ci: enforce versions.lock ↔ flake.nix consistency          | New `versions-lock-sync` job in ci.yml runs `scripts/sync-versions.sh` on every PR. |
 | #64 | ci: add Windows memory usage check via PowerShell          | First of the eight Windows-skip CI guards removed. PowerShell measures `Process.PeakWorkingSet64` against the 4.5 MB budget. |
 | #65 | ci: source HYPERFINE_VERSION from versions.lock            | Pinning consistency. No behaviour change at the same version. |
+| #66 | docs(handoff): resume-guide.md + W49-W52 + CHANGELOG       | This document established. W49 (Plan C residuals), W50 (CI Nix-ify), W51 (doc drift), W52 (Windows realworld toolchain) recorded; CHANGELOG `[Unreleased]` block populated for the next `/release`. |
+| #67 | docs: cleanup sweep                                        | E2E count 792 → 796, Stages 0-46 → 0-47, real-world platform scope clarified (Mac+Ubuntu 50/50, Windows 25/25 C+C++ subset), stale 0.15.2 / WASI SDK 25 / wasm-tools 1.245.1 references bumped, `bash scripts/gate-commit.sh` promoted in CONTRIBUTING.md and book contributing guides. W51 resolved. |
 
 Verified working state on **2026-04-29** (do **not** trust this list past
 about a week — re-verify by reading current code):
@@ -192,15 +196,17 @@ a Windows guard.
 - **Autonomous merge authorization is per-session.** Without an
   explicit grant from the user in the **current** session, the
   default is: push to a feature branch, open the PR, wait for the
-  user to merge. Recognised grant phrases:
-  - "merge without waiting for CI" / "CI またずマージしていいよ"
-    — fast-track for doc-only / single-line-config-only PRs whose
-    failure modes are limited to syntax / typo. **Still run
-    `bash scripts/sync-versions.sh` locally before merging.**
-  - "ship overnight" / "寝ます、朝には終わってて" — broad authority
-    for the rest of the session, including substantive work, but
-    only when each Merge Gate item passes (incl. local bench
-    record on Mac). Open PR if any uncertainty remains.
+  user to merge. Two recognised grant intents (the user may express
+  either in English or Japanese):
+  - **Doc-only fast-track** ("merge without waiting for CI") —
+    `gh pr merge` is allowed immediately after push for PRs whose
+    diff is documentation only or single-line config only. **Still
+    run `bash scripts/sync-versions.sh` locally before merging.**
+  - **Ship-overnight** ("merge for me / I'm going to bed / get this
+    done by morning") — broad authority for the rest of the session,
+    including substantive code, but only when every Merge Gate item
+    passes (including the local Mac bench record). Open PR if any
+    uncertainty remains.
 - **Stack PRs sparingly.** A second PR stacked on a first is fine
   when the work is genuinely incremental and the first is reviewable
   in isolation. If they share commits, the squash-merge of the first
@@ -215,10 +221,10 @@ a Windows guard.
 
 ## How to use this guide on resume
 
-The expected entry point is the user typing **"続けて"** / **"continue"**
-on a fresh session that has no context other than this repo. The
-session's first move is the CLAUDE.md Orient step, which lands here
-via `.dev/memo.md ## Current Task`.
+The expected entry point is the user asking the session to continue
+(any language) on a fresh session that has no context other than
+this repo. The session's first move is the CLAUDE.md Orient step,
+which lands here via `.dev/memo.md ## Current Task`.
 
 1. **Sync local main first.** `git checkout main && git fetch origin
    && git pull --ff-only origin main`. Your local main may be many
