@@ -15,6 +15,7 @@ scripts/
 ├── gate-commit.sh           # CLAUDE.md Commit Gate (steps 1-8)
 ├── gate-merge.sh            # CLAUDE.md Merge Gate (Commit + sync + CI)
 ├── run-bench.sh             # wrapper around bench/run_bench.sh
+├── record-merge-bench.sh    # post-merge bench/history.yaml row (Mac only)
 └── windows/
     └── install-tools.ps1    # provisions Zig/wasm-tools/wasmtime/WASI SDK
                              # on Windows by reading versions.lock
@@ -28,6 +29,8 @@ bash scripts/gate-merge.sh              # before merging (run on Mac AND
                                         # Ubuntu OrbStack — see CLAUDE.md)
 bash scripts/run-bench.sh --quick       # quick bench
 bash scripts/sync-versions.sh           # confirm pin consistency
+bash scripts/record-merge-bench.sh      # post-merge: append history.yaml row
+                                        # (auto-skips on Linux/Windows)
 ```
 
 `gate-commit.sh --help` lists the per-step skip flags. Steps map 1:1

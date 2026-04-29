@@ -123,7 +123,18 @@ items 8-9. Run on **BOTH Mac AND Ubuntu x86_64**. No skipping.
 7. Benchmarks pass (no regression)
 8. **CI green**: `gh run list --branch main --limit 1` — check after push
 9. **versions.lock ↔ flake.nix consistency**: `bash scripts/sync-versions.sh`
-   exits 0. Run automatically by `gate-merge.sh`.
+   exits 0. Run automatically by `gate-merge.sh` and by the CI
+   `versions-lock-sync` job.
+10. **Local bench record on Mac, every merge**: after the PR is squash-merged
+    and main is checked out (`git checkout main && git pull --ff-only`),
+    `bash scripts/record-merge-bench.sh` appends one row to
+    `bench/history.yaml` keyed on the merge commit SHA. Full hyperfine
+    (5 runs + 3 warmup) by default; pass `--runs=1 --warmup=0` for the
+    quick mode when the PR cannot affect perf. Auto-skips on
+    Linux/Windows because history.yaml's `env` block is Darwin-only.
+    Commit the resulting `history.yaml` change directly to main as a
+    follow-up commit (`Record benchmark for <subject>`); CI runs but is
+    not gating for that small commit.
 
 Items 1-6 must pass on BOTH platforms before merge. Run them in parallel:
 Mac items can run locally, Ubuntu items via `orb run -m my-ubuntu-amd64`.

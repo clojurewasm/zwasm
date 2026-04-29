@@ -10,6 +10,40 @@ Prefix: W## (to distinguish from CW's F## items).
 
 ## Open Items
 
+- [ ] W49: Plan C — remove remaining seven `if: runner.os != 'Windows'`
+  CI guards. None reflects a fundamental Windows incompatibility; each
+  is a shell-script or C-side limitation. Detailed table (C-a through
+  C-g, with risk classification and suggested order) in
+  `@./.dev/resume-guide.md`. No-Workaround Rule applies: a real
+  Windows-only zwasm bug surfaced during this work is fixed in zwasm,
+  not hidden behind another guard.
+
+- [ ] W50: Plan B sub-3 — CI Nix-ify. Replace per-tool installs in
+  `ci.yml` test matrix with `DeterminateSystems/nix-installer-action`
+  + `magic-nix-cache-action` + `nix develop --command bash
+  scripts/gate-commit.sh` on Linux/macOS, and
+  `pwsh scripts/windows/install-tools.ps1` then `bash scripts/gate-commit.sh`
+  on Windows. Then mirror in `nightly.yml`. Plus extend `flake.nix` to
+  pin wasm-tools / wasmtime / hyperfine explicitly (URL + sha256)
+  rather than via nixpkgs revision. Deferred from overnight 2026-04-29
+  because magic-nix-cache had a 2025 outage and macos-latest +
+  nix-installer-action has occasional flakes — wants supervised PR.
+
+- [ ] W51: Doc drift — README "real-world 50/50 (Mac+Linux+Windows)" is
+  optimistic (Windows is 25/25 C+C++ until install-tools.ps1 provisions
+  Go/Rust/TinyGo); book/en+ja contributing.md still recommends manual
+  `zig build test` invocations rather than `bash scripts/gate-commit.sh`;
+  setup-orbstack.md predates D136 (Zig 0.15.2 + WASI SDK 25 stale);
+  roadmap.md "Zig version upgrade — High" line obsolete.
+  See resume-guide.md "Documentation drift to fix".
+
+- [ ] W52: realworld coverage on Windows — extend
+  `scripts/windows/install-tools.ps1` (or split off a follow-on
+  `install-extras.ps1`) with rustup-init + Go + TinyGo so
+  `build_all.py` no longer SKIPs those toolchains. Each is ~30 lines
+  of PowerShell pinned via `versions.lock`. Closes the gap from 25/50
+  to full 50/50 on Windows.
+
 - [ ] W45: SIMD loop persistence — Skip Q-cache eviction at loop headers.
   Requires back-edge detection in scanBranchTargets.
 
