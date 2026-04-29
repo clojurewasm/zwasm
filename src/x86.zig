@@ -3846,7 +3846,7 @@ pub const Compiler = struct {
         self.pc_map.appendNTimes(self.alloc, 0, ir.len + 1) catch return null;
 
         // Pre-scan: branch targets, loop headers, loop body extents.
-        if (!self.loop_info.analyse(self.alloc, ir)) return null;
+        if (!self.loop_info.analyse(self.alloc, ir, self.reg_count)) return null;
         defer self.loop_info.deinit(self.alloc);
         const branch_targets = self.loop_info.branch_targets;
         self.ir_slice = ir;
