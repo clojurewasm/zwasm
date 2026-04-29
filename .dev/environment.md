@@ -188,12 +188,6 @@ incompatibility — every one is a script-side limitation:
 
 | Step                                    | Blocker                                                 | Fix shape                                                  |
 |-----------------------------------------|---------------------------------------------------------|------------------------------------------------------------|
-<<<<<<< HEAD
-| `test/c_api/run_ffi_test.sh`            | `gcc -ldl -pthread`, `dlfcn.h` in `test_ffi.c`          | Branch for `LoadLibraryA` + `GetProcAddress` (~50 lines C) |
-=======
-| Binary size check                       | Uses GNU `strip`                                        | Expose `-Dstrip=true` in build.zig and measure directly (Mach-O / ELF / PE all handled by Zig) |
-| `size-matrix` job                       | `strip` again                                           | Same fix as binary size check; fan out to OS matrix        |
->>>>>>> d4fb8ad (ci(windows): port FFI tests to Win32 — Plan C-b)
 | `benchmark` job                         | `hyperfine` install via DEB; `bench/ci_compare.sh` GNU dependencies | Add Windows install step + audit ci_compare.sh portability |
 
 (Memory check is no longer in this table — PR #64 added a PowerShell
@@ -206,15 +200,12 @@ in place of system `cc`, which is portable; PIE coverage is preserved
 on Linux; Rust static-link uses `zwasm.lib` on Windows. `examples/rust
 cargo run` is no longer in this table — `build.rs` now has a Windows
 arm that copies `zwasm.dll` next to the cargo target binary for
-<<<<<<< HEAD
 runtime discovery. Binary size check + size-matrix are no longer in
 this table — `build.zig` exposes `-Dstrip=true` which strips the CLI
-binary at link time via LLD, portable across ELF / Mach-O / PE.)
-=======
-runtime discovery. `Run FFI tests` is no longer in this table —
-`test_ffi.c` gained `#ifdef _WIN32` branches for LoadLibraryA /
-CreateThread / `_pipe`, and the runner switched to `zig cc`.)
->>>>>>> d4fb8ad (ci(windows): port FFI tests to Win32 — Plan C-b)
+binary at link time via LLD, portable across ELF / Mach-O / PE.
+`Run FFI tests` is no longer in this table — `test_ffi.c` gained
+`#ifdef _WIN32` branches for LoadLibraryA / CreateThread / `_pipe`,
+and the runner switched to `zig cc`.)
 
 ## Nix devshell contents (current)
 

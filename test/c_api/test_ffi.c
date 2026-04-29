@@ -638,9 +638,18 @@ static void test_wasi_config_fd_api(void) {
     /* Invalid fd index (>=3) should be silently ignored */
     api.wasi_config_set_stdio_fd(wc, 5, (intptr_t)stdout_pipe[0], 0);
 
-    /* Add an FD-based preopen (borrow mode) */
+    /* Add an FD-based preopen (borrow mode). The API only stores the
+       fd integer in borrow mode, so the underlying object doesn't
+       need to be a real directory. msvcrt's `_open` rejects directory
+       paths (returns -1 with EACCES), so on Windows we fall back to
+       `_dup(0)` since fd 0 (stdin) is always present. */
+#ifdef _WIN32
+    int dir_fd = _dup(0);
+    ASSERT(dir_fd >= 0, "dup(stdin) for preopen fd");
+#else
     int dir_fd = zw_open(".", ZW_O_RDONLY);
     ASSERT(dir_fd >= 0, "open(\".\") for preopen fd");
+#endif
     api.wasi_config_preopen_fd(wc, (intptr_t)dir_fd, "/sandbox", 8,
                                1 /* dir */, 0 /* borrow */);
 
