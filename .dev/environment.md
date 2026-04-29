@@ -40,8 +40,10 @@ to install them once:
 
 Everything else (Zig, wasm-tools, wasmtime, WASI SDK, hyperfine, jq, yq,
 Go, TinyGo, Node.js, Bun) is delivered by `flake.nix` on Linux/macOS, and
-will be delivered by `scripts/windows/install-tools.ps1` on Windows once
-Plan B lands (manual install steps below for now).
+by `scripts/windows/install-tools.ps1` on Windows. Rust / Go / TinyGo
+are not yet covered by the Windows installer (W52); the four core
+tools — Zig, wasm-tools, wasmtime, WASI SDK — and Microsoft Visual
+C++ Redistributable (a WASI SDK dependency) are auto-installed.
 
 ## macOS
 
@@ -111,13 +113,13 @@ amd64 before merging (Merge Gate requirement).
 - VM creation and tool installation: `setup-orbstack.md`
 - Run-time commands: `ubuntu-testing-guide.md`
 
-> **Note**: `setup-orbstack.md` predates the Nix-as-SSoT decision
-> (D136) and currently bootstraps tools manually with versions that
-> drift from `flake.nix`. Migrating the VM to Nix devshell + direnv
-> is tracked as a Plan B follow-up. Until then, after pulling a
-> change that bumps a pin, re-run the affected steps in
-> `setup-orbstack.md` (or just install Nix inside the VM and use the
-> macOS recipe above).
+> **Note**: `setup-orbstack.md` still bootstraps tools manually
+> (matching `versions.lock` pins as of 2026-04-29 — Zig 0.16.0,
+> wasm-tools 1.246.1, wasmtime 42.0.1, WASI SDK 30). Migrating the
+> VM to Nix devshell + direnv is tracked as W50 (Plan B sub-3
+> follow-up). After pulling a change that bumps a pin, re-run the
+> affected steps in `setup-orbstack.md`, or install Nix inside the
+> VM and use the macOS recipe above.
 
 ## Windows
 
@@ -125,9 +127,11 @@ Windows uses **native tooling**, not WSL. The whole reason Windows is in
 the matrix is to validate native PE/COFF and MSVC behaviour; routing
 through WSL would re-test Linux. See **D136** for the rationale.
 
-### One-time bootstrap (manual until Plan B's installer ships)
+### One-time bootstrap
 
-Pre-install via winget (run in admin PowerShell once):
+Pre-install the three things `install-tools.ps1` cannot bootstrap from
+versions.lock alone. Run once in any PowerShell (admin not required for
+user-scope installs):
 
 ```powershell
 winget install --id Git.Git -e
@@ -135,21 +139,35 @@ winget install --id Microsoft.PowerShell -e
 winget install --id Python.Python.3.14 -e
 ```
 
-Then install the version-pinned tools by reading `.github/versions.lock`
-and downloading each release. The pins to use today (Plan A baseline):
+Then run the installer. It reads `.github/versions.lock` and provisions
+Zig, wasm-tools, wasmtime, WASI SDK into `%LOCALAPPDATA%\zwasm-tools`,
+wires them into the user-scope `PATH`, sets `WASI_SDK_PATH`, and
+auto-installs Microsoft Visual C++ Redistributable (a WASI SDK clang
+dependency) via winget when missing:
 
-| Tool           | Pin     | Source                                                                                          |
-|----------------|---------|-------------------------------------------------------------------------------------------------|
-| Zig            | 0.16.0  | `https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip`                              |
-| WASI SDK       | 30      | `https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-30/wasi-sdk-30.0-x86_64-windows.tar.gz` |
-| wasm-tools     | 1.246.1 | `https://github.com/bytecodealliance/wasm-tools/releases/...`                                  |
-| wasmtime       | 42.0.1  | `https://github.com/bytecodealliance/wasmtime/releases/...`                                    |
-| Rust           | stable  | `rustup-init.exe` (cargo, target `wasm32-wasip1` for realworld/Rust)                           |
+```powershell
+pwsh -NoLogo -ExecutionPolicy Bypass -File scripts\windows\install-tools.ps1
+```
 
-After install, set `WASI_SDK_PATH` to the extracted SDK root and ensure
-`zig`, `wasm-tools`, `wasmtime` are on `PATH`.
+The script is idempotent — re-running on the same versions skips the
+download. Pass `-Force` to re-extract anyway, or `-OnlyTool zig` /
+`-OnlyTool wasm-tools` etc. to install one tool. Open a fresh shell
+afterwards so the new `PATH` / `WASI_SDK_PATH` take effect.
+
+For Rust, Go, and TinyGo (needed only for the realworld Rust / Go /
+TinyGo subset of `build_all.py` — the C and C++ subset works without
+them), install separately via `rustup-init.exe`, the official Go
+installer, and TinyGo's release page. Adding these to
+`install-tools.ps1` is tracked as W52.
 
 ### Daily (under Git for Windows bash)
+
+```bash
+bash scripts/gate-commit.sh        # Commit Gate (auto-skips ffi to mirror CI)
+bash scripts/gate-commit.sh --bench # + quick bench
+```
+
+Individual commands also work:
 
 ```bash
 zig build test
@@ -162,10 +180,11 @@ python test/realworld/run_compat.py
 
 ### Currently-skipped CI items on Windows (Plan C tracker)
 
-These are the steps `ci.yml` guards with `if: runner.os != 'Windows'`.
+These are the steps `ci.yml` still guards with `if: runner.os != 'Windows'`.
 They are blockers for "Windows reaches Merge Gate parity" and tracked as
-Plan C work. None reflects a fundamental Windows incompatibility — every
-one is a script-side limitation:
+Plan C work (W49 in `checklist.md`; per-item table with risk classification
+in `.dev/resume-guide.md`). None reflects a fundamental Windows
+incompatibility — every one is a script-side limitation:
 
 | Step                                    | Blocker                                                 | Fix shape                                                  |
 |-----------------------------------------|---------------------------------------------------------|------------------------------------------------------------|
@@ -173,10 +192,12 @@ one is a script-side limitation:
 | `test/c_api/run_ffi_test.sh`            | `gcc -ldl -pthread`, `dlfcn.h` in `test_ffi.c`          | Branch for `LoadLibraryA` + `GetProcAddress` (~50 lines C) |
 | `examples/rust` `cargo run`             | `build.rs` solves dynamic-lib path Linux/Mac only       | Add Windows branch in `build.rs`                           |
 | `zig build static-lib` + static link    | Shell script assumes `cc`                               | Branch by `RUNNER_OS`                                      |
-| Binary size check                       | Uses GNU `strip`                                        | Replace with `zig objcopy --strip-all` (cross-platform)    |
-| Memory check                            | Uses `/usr/bin/time -l` / `-v`                          | PowerShell `Measure-Command` + `Get-Process.PeakWorkingSet`|
-| `size-matrix` job                       | `strip` again                                           | Same `zig objcopy` fix; fan out matrix to all 3 OS         |
-| `benchmark` job                         | `hyperfine` install via DEB                             | Add Windows install step (winget or release ZIP); record-only on Windows |
+| Binary size check                       | Uses GNU `strip`                                        | Expose `-Dstrip=true` in build.zig and measure directly (Mach-O / ELF / PE all handled by Zig) |
+| `size-matrix` job                       | `strip` again                                           | Same fix as binary size check; fan out to OS matrix        |
+| `benchmark` job                         | `hyperfine` install via DEB; `bench/ci_compare.sh` GNU dependencies | Add Windows install step + audit ci_compare.sh portability |
+
+(Memory check is no longer in this table — PR #64 added a PowerShell
+`Process.PeakWorkingSet64` branch for the Windows runner.)
 
 ## Nix devshell contents (current)
 

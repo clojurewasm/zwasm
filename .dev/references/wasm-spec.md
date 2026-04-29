@@ -110,4 +110,5 @@ Documents all optimizations applied to the Wasm interpreter:
 
 Path: `/Users/shota.508/Documents/MyProducts/ClojureWasm/.claude/references/zig-tips.md`
 
-Zig 0.15.2 pitfalls and idioms. Read before writing Zig code.
+Zig 0.16.0 pitfalls and idioms (with notes on 0.15.2 → 0.16.0
+migration where relevant). Read before writing Zig code.

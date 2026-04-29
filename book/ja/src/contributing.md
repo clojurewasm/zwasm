@@ -6,28 +6,30 @@
 git clone https://github.com/clojurewasm/zwasm.git
 cd zwasm
 
-# ビルド
+# Commit Gate を一括実行（build + tests + spec + e2e + realworld + FFI + minimal）
+bash scripts/gate-commit.sh
+
+# 個別ステップ（イテレーション時）
 zig build
-
-# ユニットテストの実行
 zig build test
-
-# 特定のテストのみ実行
 zig build test -- "Module — rejects excessive locals"
-
-# スペックテストの実行（wasm-tools が必要）
 python3 test/spec/run_spec.py --build --summary
-
-# ベンチマークの実行
-bash bench/run_bench.sh --quick
+bash scripts/run-bench.sh --quick
 ```
 
 ## 必要なツール
 
-- Zig 0.16.0
-- Python 3（スペックテストランナー用）
-- [wasm-tools](https://github.com/bytecodealliance/wasm-tools)（スペックテスト変換用）
-- [hyperfine](https://github.com/sharkdp/hyperfine)（ベンチマーク用）
+- Zig 0.16.0（バージョンは pin 済み。macOS / Linux は Nix devshell が `flake.nix`
+  経由で提供。Windows では `pwsh scripts/windows/install-tools.ps1` を1度実行
+  すれば `.github/versions.lock` どおりに揃います。）
+- Python 3（spec / e2e / realworld テストランナー）
+- [wasm-tools](https://github.com/bytecodealliance/wasm-tools) — spec テスト変換
+- [hyperfine](https://github.com/sharkdp/hyperfine) — ベンチマーク
+- [wasmtime](https://github.com/bytecodealliance/wasmtime) — realworld 互換比較対象
+- [WASI SDK](https://github.com/WebAssembly/wasi-sdk) — realworld の C/C++ → wasm
+
+開発環境セットアップの全体は `.dev/environment.md` を参照。pin は
+`.github/versions.lock` / `flake.nix` で一元管理。
 
 ## コード構成
 
@@ -53,9 +55,17 @@ test/
   fuzz/           Fuzz testing infrastructure
   realworld/      Real-world compatibility tests (50 programs: Rust / C / C++ / TinyGo)
 bench/
-  run_bench.sh    Benchmark runner
-  record.sh       Record results to history.yaml
-  wasm/           Benchmark wasm modules
+  run_bench.sh    ベンチマークランナー（インタラクティブ）
+  record.sh       history.yaml に記録（5 runs + 3 warmup, full）
+  ci_compare.sh   CI 用リグレッションチェック（Ubuntu vs Ubuntu）
+  wasm/           ベンチマーク wasm モジュール
+scripts/
+  gate-commit.sh  Commit Gate ワンライナー（CLAUDE.md items 1-5 + 8）
+  gate-merge.sh   Merge Gate ワンライナー（Commit Gate + sync + CI チェック）
+  sync-versions.sh        versions.lock ↔ flake.nix 整合性
+  run-bench.sh    bench/run_bench.sh のラッパ
+  record-merge-bench.sh   マージ後 bench 記録（Mac のみ）
+  windows/install-tools.ps1   Windows ツールチェーンプロビジョナ
 ```
 
 ## 開発ワークフロー

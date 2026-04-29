@@ -4,7 +4,8 @@ Human-readable summary. Per-opcode details live in code (`src/opcode.zig` enum).
 
 **Run tests**:
 - Spec: `python3 test/spec/run_spec.py --build --summary` (62,263/62,263 = 100%, 0 skips)
-- E2E: `bash test/e2e/run_e2e.sh --convert --summary` (792/792 = 100%, 0 leak)
+- E2E: `python3 test/e2e/run_e2e.py --convert --summary` (796/796 = 100%, 0 leak)
+- All gates: `bash scripts/gate-commit.sh`
 
 ## Opcode Coverage Summary
 
@@ -71,8 +72,9 @@ Human-readable summary. Per-opcode details live in code (`src/opcode.zig` enum).
 
 ## E2E Test Status
 
-792/792 assertions pass (100%, 0 leak). Gate-hardened: 87 validation skips + 18 infra skips eliminated.
+796/796 assertions pass (100%, 0 leak). Gate-hardened: 87 validation skips + 18 infra skips eliminated.
 
 ## Real-World Compatibility
 
-30/30 programs pass (5C + 6C++ + 7Go + 7Rust + 5 existing). Mac + Ubuntu both 30/30.
+50/50 programs pass on Mac + Ubuntu (18 C + 7 C++ + 9 Go + 12 Rust + 4 TinyGo).
+Windows: 25/25 (C+C++ subset only; Go/Rust/TinyGo provisioning on Windows is W52).

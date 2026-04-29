@@ -28,12 +28,6 @@ cp zig-out/bin/zwasm ~/.local/bin/
 curl -fsSL https://raw.githubusercontent.com/clojurewasm/zwasm/main/install.sh | bash
 ```
 
-### Homebrew (macOS/Linux) — 近日公開予定
-
-```bash
-brew install clojurewasm/tap/zwasm  # not yet available
-```
-
 ### インストールの確認
 
 ```bash

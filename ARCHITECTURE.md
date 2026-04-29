@@ -104,7 +104,7 @@ This document describes the execution pipeline and file organization.
 |-------|---------|----------|
 | Unit tests | `zig build test` | All src files |
 | Spec tests | `python3 test/spec/run_spec.py --build --summary` | 62,263 tests |
-| E2E tests | `bash test/e2e/run_e2e.sh --convert --summary` | 792 tests |
+| E2E tests | `python3 test/e2e/run_e2e.py --convert --summary` | 796 tests |
 | Real-world | `bash test/realworld/run_compat.sh` | 30 programs |
 | Fuzz | `bash test/fuzz/fuzz_campaign.sh --duration=60` | Continuous |
 

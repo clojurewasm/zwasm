@@ -6,28 +6,30 @@
 git clone https://github.com/clojurewasm/zwasm.git
 cd zwasm
 
-# Build
+# Run the entire Commit Gate (build + tests + spec + e2e + realworld + FFI + minimal)
+bash scripts/gate-commit.sh
+
+# Or, the underlying steps directly when iterating:
 zig build
-
-# Run unit tests
 zig build test
-
-# Run a specific test
 zig build test -- "Module — rejects excessive locals"
-
-# Run spec tests (requires wasm-tools)
 python3 test/spec/run_spec.py --build --summary
-
-# Run benchmarks
-bash bench/run_bench.sh --quick
+bash scripts/run-bench.sh --quick
 ```
 
 ## Requirements
 
-- Zig 0.16.0
-- Python 3 (for spec test runner)
-- [wasm-tools](https://github.com/bytecodealliance/wasm-tools) (for spec test conversion)
-- [hyperfine](https://github.com/sharkdp/hyperfine) (for benchmarks)
+- Zig 0.16.0 (toolchain pinned; on macOS / Linux Nix devshell delivers it
+  via `flake.nix`. On Windows run `pwsh scripts/windows/install-tools.ps1`
+  to provision it from `.github/versions.lock`.)
+- Python 3 (spec / e2e / realworld test runners)
+- [wasm-tools](https://github.com/bytecodealliance/wasm-tools) — spec test conversion
+- [hyperfine](https://github.com/sharkdp/hyperfine) — benchmarks
+- [wasmtime](https://github.com/bytecodealliance/wasmtime) — realworld compat oracle
+- [WASI SDK](https://github.com/WebAssembly/wasi-sdk) — realworld C/C++ → wasm
+
+See `.dev/environment.md` for the full developer setup; toolchain pins
+live in `.github/versions.lock` / `flake.nix`.
 
 ## Code structure
 
@@ -53,9 +55,17 @@ test/
   fuzz/           Fuzz testing infrastructure
   realworld/      Real-world compatibility tests (50 programs: Rust, C, C++, TinyGo)
 bench/
-  run_bench.sh    Benchmark runner
-  record.sh       Record results to history.yaml
+  run_bench.sh    Benchmark runner (interactive)
+  record.sh       Record results to history.yaml (5 runs + 3 warmup, full)
+  ci_compare.sh   CI regression check (Ubuntu vs Ubuntu)
   wasm/           Benchmark wasm modules
+scripts/
+  gate-commit.sh  Commit Gate one-liner (CLAUDE.md items 1-5 + 8)
+  gate-merge.sh   Merge Gate one-liner (Commit Gate + sync + CI check)
+  sync-versions.sh        versions.lock ↔ flake.nix consistency
+  run-bench.sh    Wrapper around bench/run_bench.sh
+  record-merge-bench.sh   Post-merge bench record (Mac only)
+  windows/install-tools.ps1   Windows toolchain provisioner
 ```
 
 ## Development workflow

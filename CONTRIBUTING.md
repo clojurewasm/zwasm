@@ -7,28 +7,33 @@ Thank you for your interest in contributing!
 ```bash
 git clone https://github.com/clojurewasm/zwasm.git
 cd zwasm
-zig build test    # Run all tests (~521)
+bash scripts/gate-commit.sh   # Build + tests + spec + e2e + realworld + minimal
 ```
 
-Requires **Zig 0.15.2**. See [Requirements](#requirements) for optional tools.
+Requires **Zig 0.16.0**. See [Requirements](#requirements) below. Full
+developer setup (Mac / Linux / Windows, Nix devshell, Windows installer)
+in [`.dev/environment.md`](./.dev/environment.md).
 
 ## Development workflow
 
-1. Create a feature branch: `git checkout -b feature/my-change`
+1. Create a feature branch: `git checkout -b develop/<task>`
 2. Write a failing test first (TDD)
 3. Implement the minimum code to pass
-4. Run tests: `zig build test`
-5. If you changed the interpreter or opcodes, run spec tests:
-   `python3 test/spec/run_spec.py --build --summary`
-6. Commit with a descriptive message (one logical change per commit)
-7. Open a PR against `main`
+4. Run the Commit Gate: `bash scripts/gate-commit.sh`
+5. Commit with a descriptive message (one logical change per commit)
+6. Open a PR against `main`
 
 ## Requirements
 
-- **Zig 0.15.2** (required)
-- Python 3 (for spec test runner)
-- [wasm-tools](https://github.com/bytecodealliance/wasm-tools) (for spec test conversion)
-- [hyperfine](https://github.com/sharkdp/hyperfine) (for benchmarks)
+- **Zig 0.16.0** (pinned in `.github/versions.lock` / `flake.nix`).
+  On Mac/Linux Nix devshell delivers it via direnv; on Windows run
+  `pwsh scripts/windows/install-tools.ps1` to provision it (plus
+  wasm-tools / wasmtime / WASI SDK / VC++ Redist).
+- Python 3 (spec / e2e / realworld test runners)
+- [wasm-tools](https://github.com/bytecodealliance/wasm-tools) — spec test conversion
+- [hyperfine](https://github.com/sharkdp/hyperfine) — benchmarks
+- [wasmtime](https://github.com/bytecodealliance/wasmtime) — realworld compat oracle
+- [WASI SDK](https://github.com/WebAssembly/wasi-sdk) — realworld C/C++ → wasm
 
 ## Code structure
 

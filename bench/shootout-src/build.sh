@@ -15,7 +15,7 @@
 #   zwasm run shootout-fib2.wasm
 #   wasmtime shootout-fib2.wasm
 #
-# Requires: zig (tested with 0.15.2)
+# Requires: zig (pinned in .github/versions.lock — currently 0.16.0)
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -1,9 +1,11 @@
 # Session Resumption Guide
 
-Read this when a new session opens with no context and the user says
-"続けて" / "continue". This document plus `git log --oneline -10` is
-intended to give you everything you need to make safe forward progress
-without re-reading the prior chat.
+Read this when a new session opens with no context and the user asks
+to continue (in any language; common phrasings include "continue",
+"keep going", or the same intent expressed in Japanese). This
+document plus `git log --oneline -10` is intended to give you
+everything you need to make safe forward progress without re-reading
+the prior chat.
 
 The guide is **evergreen** — update it as work lands. Pointer from
 `.dev/memo.md` `## Current Task` should always lead here while there
@@ -12,7 +14,7 @@ are exhausted.
 
 ## Where main is (snapshot 2026-04-29)
 
-Five PRs landed overnight 2026-04-28 → 2026-04-29:
+Seven PRs landed overnight 2026-04-28 → 2026-04-29:
 
 | PR  | Title                                                      | Effect                                                |
 |-----|------------------------------------------------------------|-------------------------------------------------------|
@@ -21,6 +23,8 @@ Five PRs landed overnight 2026-04-28 → 2026-04-29:
 | #62 | ci: enforce versions.lock ↔ flake.nix consistency          | New `versions-lock-sync` job in ci.yml runs `scripts/sync-versions.sh` on every PR. |
 | #64 | ci: add Windows memory usage check via PowerShell          | First of the eight Windows-skip CI guards removed. PowerShell measures `Process.PeakWorkingSet64` against the 4.5 MB budget. |
 | #65 | ci: source HYPERFINE_VERSION from versions.lock            | Pinning consistency. No behaviour change at the same version. |
+| #66 | docs(handoff): resume-guide.md + W49-W52 + CHANGELOG       | This document established. W49 (Plan C residuals), W50 (CI Nix-ify), W51 (doc drift), W52 (Windows realworld toolchain) recorded; CHANGELOG `[Unreleased]` block populated for the next `/release`. |
+| #67 | docs: cleanup sweep                                        | E2E count 792 → 796, Stages 0-46 → 0-47, real-world platform scope clarified (Mac+Ubuntu 50/50, Windows 25/25 C+C++ subset), stale 0.15.2 / WASI SDK 25 / wasm-tools 1.245.1 references bumped, `bash scripts/gate-commit.sh` promoted in CONTRIBUTING.md and book contributing guides. W51 resolved. |
 
 Verified working state on **2026-04-29** (do **not** trust this list past
 about a week — re-verify by reading current code):
@@ -122,39 +126,19 @@ had a 2025 outage; macos-latest + nix-installer-action has occasional
 CI flakes. Best done in a single PR with the user watching, not
 overnight.
 
-### Documentation drift to fix
+### realworld coverage on Windows (W52)
 
-Audit and update when on a doc-touching PR. None blocks anything:
+`install-tools.ps1` provisions Zig + wasm-tools + wasmtime + WASI SDK
+only. `build_all.py` SKIPs Go / Rust / TinyGo when those toolchains
+are missing, so the Windows realworld run is 25/25 (C + C++ only)
+instead of 50/50. To close: extend `install-tools.ps1` (or split off
+a follow-on `install-extras.ps1`) with rustup-init + Go + TinyGo,
+each pinned via `versions.lock`. Filed as W52 in `.dev/checklist.md`.
 
-- **README.md** `Real-world: 50 / 50 (Mac + Linux + Windows)` is
-  optimistic — Windows is currently 25/25 (C+C++ only) until
-  `install-tools.ps1` provisions Go/Rust/TinyGo. Same number appears
-  in `book/en/src/introduction.md`, `book/en/src/faq.md` ("46/46"
-  is also stale).
-- **book/en/src/contributing.md** Build & Test section still lists
-  individual `zig build test` etc. as the canonical commands; should
-  reference `bash scripts/gate-commit.sh` per the post-#61 model. The
-  Japanese mirror (`book/ja/src/contributing.md`) needs the same edit.
-- **book/en/src/getting-started.md** likely still recommends manual
-  tool installs without mentioning `install-tools.ps1` for Windows.
-- **`.dev/references/setup-orbstack.md`** predates D136 and bootstraps
-  tools with stale versions (Zig 0.15.2, WASI SDK 25). Either update
-  to current pins or replace with "install Nix inside the VM and use
-  direnv" recipe.
-- **`.dev/roadmap.md`** "Zig version upgrade — High" line is
-  obsolete (0.16.0 done). The `Current State` block also lists
-  `Binary 1.23 MB` which doesn't match the 1.20 MB / 1.56 MB measured
-  in v1.11.0.
-
-### realworld coverage on Windows
-
-`install-tools.ps1` only provisions Zig + wasm-tools + wasmtime +
-WASI SDK. `build_all.py` SKIPs Go / Rust / TinyGo when those toolchains
-are missing, which is why the Windows realworld run is 25/25 instead
-of 50/50. To close: extend `install-tools.ps1` (or split into a
-follow-on `install-extras.ps1`) with rustup-init + Go + TinyGo. Each is
-~30 lines of PowerShell with a versions.lock pin. Filed as W## (add to
-checklist).
+The 2026-04-29 doc-drift sweep (W51) already brought README,
+contributing guides, setup-orbstack.md, roadmap.md, and book getting-
+started.md into sync with the current pins and metrics; nothing
+left to do for that bucket.
 
 ## When to cut a release
 
@@ -212,15 +196,17 @@ a Windows guard.
 - **Autonomous merge authorization is per-session.** Without an
   explicit grant from the user in the **current** session, the
   default is: push to a feature branch, open the PR, wait for the
-  user to merge. Recognised grant phrases:
-  - "merge without waiting for CI" / "CI またずマージしていいよ"
-    — fast-track for doc-only / single-line-config-only PRs whose
-    failure modes are limited to syntax / typo. **Still run
-    `bash scripts/sync-versions.sh` locally before merging.**
-  - "ship overnight" / "寝ます、朝には終わってて" — broad authority
-    for the rest of the session, including substantive work, but
-    only when each Merge Gate item passes (incl. local bench
-    record on Mac). Open PR if any uncertainty remains.
+  user to merge. Two recognised grant intents (the user may express
+  either in English or Japanese):
+  - **Doc-only fast-track** ("merge without waiting for CI") —
+    `gh pr merge` is allowed immediately after push for PRs whose
+    diff is documentation only or single-line config only. **Still
+    run `bash scripts/sync-versions.sh` locally before merging.**
+  - **Ship-overnight** ("merge for me / I'm going to bed / get this
+    done by morning") — broad authority for the rest of the session,
+    including substantive code, but only when every Merge Gate item
+    passes (including the local Mac bench record). Open PR if any
+    uncertainty remains.
 - **Stack PRs sparingly.** A second PR stacked on a first is fine
   when the work is genuinely incremental and the first is reviewable
   in isolation. If they share commits, the squash-merge of the first
@@ -235,10 +221,10 @@ a Windows guard.
 
 ## How to use this guide on resume
 
-The expected entry point is the user typing **"続けて"** / **"continue"**
-on a fresh session that has no context other than this repo. The
-session's first move is the CLAUDE.md Orient step, which lands here
-via `.dev/memo.md ## Current Task`.
+The expected entry point is the user asking the session to continue
+(any language) on a fresh session that has no context other than
+this repo. The session's first move is the CLAUDE.md Orient step,
+which lands here via `.dev/memo.md ## Current Task`.
 
 1. **Sync local main first.** `git checkout main && git fetch origin
    && git pull --ff-only origin main`. Your local main may be many
@@ -283,16 +269,19 @@ via `.dev/memo.md ## Current Task`.
 8. **Post-merge bench record (Mac only, every merge).**
    ```bash
    git checkout main && git pull --ff-only
-   bash scripts/record-merge-bench.sh           # full ~5 min
-   # or `bash scripts/record-merge-bench.sh --runs=1 --warmup=0`  for quick
+   bash scripts/record-merge-bench.sh           # always full, ~5 min
    git add bench/history.yaml
    git commit -m "Record benchmark for <PR subject>"
    git push origin main
    ```
    The script auto-derives `--id` from the merge SHA and `--reason`
    from the commit subject, and is a no-op on Linux/Windows
-   (`bench/history.yaml` env block is Darwin-only). Use the quick
-   mode for doc-only merges where bench cannot have changed.
+   (`bench/history.yaml`'s `env:` block is Darwin-only). **Always full
+   hyperfine (5 runs + 3 warmup).** Lower counts produce noisy /
+   cold-cache-biased numbers and are reserved for
+   `bench/run_bench.sh --quick`'s interactive smoke tests. The
+   per-merge history is the canonical Mac M4 Pro absolute-time
+   baseline used at tag time — every row must be measurement-grade.
 9. **Refresh this guide.** When an item lands, delete its row from
    the relevant table.
 10. **Tear down when done.** When the Plan C and Plan B sub-3

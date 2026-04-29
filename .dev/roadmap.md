@@ -12,9 +12,9 @@ All major features complete. 100% spec conformance. 4-platform JIT with SIMD.
 | Metric        | Value                                                     |
 |---------------|-----------------------------------------------------------|
 | Spec tests    | 62,263/62,263 (100%, 0 skip)                              |
-| E2E tests     | 792/792                                                   |
-| Real-world    | 50/50                                                     |
-| Binary        | 1.23 MB stripped                                          |
+| E2E tests     | 796/796                                                   |
+| Real-world    | Mac+Ubuntu 50/50, Windows 25/25 (C+C++ subset; W52)        |
+| Binary        | Mac 1.20 MB / Linux 1.56 MB stripped (ceiling 1.60 MB)    |
 | Memory        | ~3.5 MB RSS                                               |
 | Platforms     | macOS ARM64, Linux x86_64/ARM64, Windows x86_64           |
 | JIT           | ARM64 + x86_64, SIMD (NEON 253/256, SSE 244/256)         |
@@ -29,7 +29,8 @@ Details: `roadmap-archive.md`.
 
 | Task                        | Priority | Description                                       |
 |-----------------------------|----------|---------------------------------------------------|
-| Zig version upgrade         | High     | Prepare for Zig 0.16 (breaking API changes)       |
+| Windows CI guard removal    | Active   | Plan C residuals (W49). See `.dev/resume-guide.md` |
+| CI Nix-ify (B3)             | Medium   | W50: nix-installer-action + magic-nix-cache for Linux/Mac |
 | Spec test auto-bump         | Active   | Weekly CI (spec-bump.yml). Review failures.        |
 | wasm-tools tracking         | Active   | Monthly CI (wasm-tools-bump.yml)                   |
 | SpecTec monitoring          | Active   | Weekly CI (spectec-monitor.yml)                    |
