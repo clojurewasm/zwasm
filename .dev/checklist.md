@@ -41,25 +41,25 @@ Prefix: W## (to distinguish from CW's F## items).
     — its sanitizer + fuzz jobs are Linux-only and don't surface on
     PR CI.
 
-- [ ] W53: `install-tools.ps1` rust install path errors on
-  GitHub-hosted Windows runner with `Cannot bind argument to
-  parameter 'Path' because it is an empty string` mid-way through
-  `& rustup target add wasm32-wasip1` (line 296 / 303 vicinity in
-  `Install-Rustup`). Local Windows mini-PC is unaffected — the bug
-  needs the runner image's pre-installed rustup state to surface.
-  CI currently bypasses via `-SkipRust` (added in W50 PR-D #83),
-  using the runner's pre-installed rustup directly. Local Windows
-  developers calling `pwsh install-tools.ps1` without `-SkipRust`
-  still get a self-contained rustup tree under
-  `%LOCALAPPDATA%\zwasm-tools\rust-stable\` as before. Root-cause
-  fix needs a CI repro: enable `Set-StrictMode -Version Latest` +
-  `$ErrorActionPreference = 'Stop'` at the top of install-tools.ps1
-  to surface the stack trace; suspects are (a) `& $installer` /
-  `& rustup target add` sub-process exit handling racing with the
-  parent script's path resolution, (b) `Resolve-SingleSubdir`
-  feeding an empty string into a `Test-Path` / `Join-Path` somewhere
-  when `$paths` map state is mid-mutation. Rough budget: 30-60 min
-  to repro and patch.
+- [x] W53: `install-tools.ps1` rust install path bug. Root cause:
+  PowerShell folds every native command's stdout into the enclosing
+  function's pipeline output. Inside `Install-Rustup`, rustup-init's
+  `info: downloading component rust-std` (and the same lines from
+  `& rustup target add wasm32-wasip1`) were piling up alongside the
+  trailing `return $stampedDir`, so the caller's `$rustRoot` was a
+  string array rather than a single path; downstream
+  `Join-Path $paths['rust'] 'cargo'` then failed parameter binding
+  on the empty leading element. Local Windows was unaffected
+  because rustup's "already installed" path is silent on stdout, so
+  nothing leaked into the function's return value there. Fix routes
+  both native command invocations through `2>&1 | Out-Host`, keeping
+  the lines visible in the CI log while pulling them out of the
+  pipeline; added a defensive `[array]` / IsNullOrWhiteSpace check
+  in the caller. CI's `test (windows-latest)` job dropped both
+  `-SkipRust` and the separate `Setup Rust` step — the runner now
+  goes through a single `install-tools.ps1` path with a
+  self-contained `%LOCALAPPDATA%\zwasm-tools\rust-stable\`
+  toolchain, mirroring the local Windows experience.
 
 - [x] W52: realworld coverage on Windows —
   `scripts/windows/install-tools.ps1` extended with rustup-init +

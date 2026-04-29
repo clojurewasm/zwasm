@@ -52,26 +52,26 @@ each of #68..#84.
 The 2026-04-29 PM session left three items sequenced. Each builds
 on the previous; do them in order.
 
-### 1. **W53** — fix the `install-tools.ps1` rust install path bug
+### 1. **W53** — DONE (this session)
 
-CI currently bypasses it with `-SkipRust`. Local Windows
-mini-PC is fine. Repro: a fresh GitHub-hosted Windows runner
-calling `pwsh install-tools.ps1` (without `-SkipRust`). Symptom:
+Root cause was the PowerShell pipeline-output capture rule: every
+native command's stdout (`& $installer ...`, `& rustup target add
+wasm32-wasip1`) was being folded into `Install-Rustup`'s return
+value, so the caller's `$rustRoot` arrived as a string array
+rather than a single path. The downstream
+`Join-Path $paths['rust'] 'cargo'` exploded on the empty leading
+element. Local Windows was unaffected because rustup's
+"already installed" path is silent on stdout, leaving the return
+clean.
 
-```
-info: downloading component rust-std
-install-tools.ps1: Cannot bind argument to parameter 'Path' because it is an empty string.
-```
-
-Suspects: `Install-Rustup` line 296 (`& $installer ...`) or 303
-(`& (Join-Path $cargoHome 'bin\rustup.exe') target add
-wasm32-wasip1`). Approach: enable `Set-StrictMode -Version Latest`
-+ `$ErrorActionPreference = 'Stop'` at the top of install-tools.ps1
-to surface a stack trace, then re-run on a temporary CI branch.
-Once root-caused, drop `-SkipRust` from `ci.yml` `test
-(windows-latest)` and verify Windows CI still goes green.
-
-`.dev/checklist.md` W53 has the full notes.
+Fix: route both `& $installer` and `& rustup target add` through
+`2>&1 | Out-Host` so the lines surface in the CI log without
+joining the function's pipeline output. Added a defensive
+`[array]` / IsNullOrWhiteSpace check in the caller. Dropped
+`-SkipRust` and the separate `Setup Rust` step from
+`test (windows-latest)` so the runner now goes through a single
+`install-tools.ps1` path with a self-contained
+`%LOCALAPPDATA%\zwasm-tools\rust-stable\` toolchain.
 
 ### 2. **C-g** — 3-platform bench baseline reset
 

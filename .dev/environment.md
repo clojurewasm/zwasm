@@ -185,15 +185,16 @@ python test/realworld/run_compat.py
 
 ### Currently-skipped CI items on Windows (Plan C tracker)
 
-After W50 (CI Nix-ify, shipped 2026-04-29 PM via PRs #80..#83), the
+After W50 (CI Nix-ify, shipped 2026-04-29 PM via PRs #80..#83) and
+W53 (rustup-init stdout pollution fix, 2026-04-29 evening), the
 Windows test job runs the full Commit Gate via
-`pwsh scripts/windows/install-tools.ps1 -SkipRust` +
-`bash scripts/gate-commit.sh` plus the same five extras that
-test-nix runs on Linux/macOS (c-test / static-lib / static-link /
-Rust example / memory check). The remaining Windows-skipped CI
-item is **`benchmark`** — intentionally Ubuntu-only per CLAUDE.md's
-bench policy. Closing it formally is Plan C-g, sequenced behind C-g's
-3-platform baseline reset (see checklist.md C-g + W47 entries):
+`pwsh scripts/windows/install-tools.ps1` + `bash scripts/gate-commit.sh`
+plus the same five extras that test-nix runs on Linux/macOS (c-test /
+static-lib / static-link / Rust example / memory check). The remaining
+Windows-skipped CI item is **`benchmark`** — intentionally Ubuntu-only
+per CLAUDE.md's bench policy. Closing it formally is Plan C-g,
+sequenced behind C-g's 3-platform baseline reset (see checklist.md
+C-g + W47 entries):
 
 | Step                                    | Blocker                                                 | Fix shape                                                  |
 |-----------------------------------------|---------------------------------------------------------|------------------------------------------------------------|
