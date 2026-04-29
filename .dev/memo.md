@@ -5,10 +5,11 @@ Session handover document. Read at session start.
 ## Current State
 
 - **Zig toolchain**: 0.16.0 (migrated 2026-04-24).
-- Stages 0-46 + Phase 1, 3, 5, 8, 10, 11, 13, 15, 19, 20 complete.
-- Spec: 62,263/62,263 Mac+Ubuntu (100.0%, 0 skip).
-- E2E: 796/796 Mac+Ubuntu, 0 fail.
-- Real-world: Mac 50/50, Ubuntu 50/50, Windows 46/46, 0 crash.
+- Stages 0-47 + Phase 1, 3, 5, 8, 10, 11, 13, 15, 19, 20 complete.
+- Spec: 62,263/62,263 Mac+Ubuntu+Windows CI (100.0%, 0 skip).
+- E2E: 796/796 Mac+Ubuntu+Windows CI, 0 fail.
+- Real-world: Mac 50/50, Ubuntu 50/50, Windows 25/25 (C+C++ subset; Go/
+  Rust/TinyGo provisioning on Windows tracked as W52). 0 crash.
 - FFI: 80/80 Mac+Ubuntu.
 - JIT: Register IR + ARM64/x86_64 + SIMD (NEON 253/256, SSE 244/256).
 - HOT_THRESHOLD=3 (lowered from 10 in W38).

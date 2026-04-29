@@ -122,39 +122,19 @@ had a 2025 outage; macos-latest + nix-installer-action has occasional
 CI flakes. Best done in a single PR with the user watching, not
 overnight.
 
-### Documentation drift to fix
+### realworld coverage on Windows (W52)
 
-Audit and update when on a doc-touching PR. None blocks anything:
+`install-tools.ps1` provisions Zig + wasm-tools + wasmtime + WASI SDK
+only. `build_all.py` SKIPs Go / Rust / TinyGo when those toolchains
+are missing, so the Windows realworld run is 25/25 (C + C++ only)
+instead of 50/50. To close: extend `install-tools.ps1` (or split off
+a follow-on `install-extras.ps1`) with rustup-init + Go + TinyGo,
+each pinned via `versions.lock`. Filed as W52 in `.dev/checklist.md`.
 
-- **README.md** `Real-world: 50 / 50 (Mac + Linux + Windows)` is
-  optimistic — Windows is currently 25/25 (C+C++ only) until
-  `install-tools.ps1` provisions Go/Rust/TinyGo. Same number appears
-  in `book/en/src/introduction.md`, `book/en/src/faq.md` ("46/46"
-  is also stale).
-- **book/en/src/contributing.md** Build & Test section still lists
-  individual `zig build test` etc. as the canonical commands; should
-  reference `bash scripts/gate-commit.sh` per the post-#61 model. The
-  Japanese mirror (`book/ja/src/contributing.md`) needs the same edit.
-- **book/en/src/getting-started.md** likely still recommends manual
-  tool installs without mentioning `install-tools.ps1` for Windows.
-- **`.dev/references/setup-orbstack.md`** predates D136 and bootstraps
-  tools with stale versions (Zig 0.15.2, WASI SDK 25). Either update
-  to current pins or replace with "install Nix inside the VM and use
-  direnv" recipe.
-- **`.dev/roadmap.md`** "Zig version upgrade — High" line is
-  obsolete (0.16.0 done). The `Current State` block also lists
-  `Binary 1.23 MB` which doesn't match the 1.20 MB / 1.56 MB measured
-  in v1.11.0.
-
-### realworld coverage on Windows
-
-`install-tools.ps1` only provisions Zig + wasm-tools + wasmtime +
-WASI SDK. `build_all.py` SKIPs Go / Rust / TinyGo when those toolchains
-are missing, which is why the Windows realworld run is 25/25 instead
-of 50/50. To close: extend `install-tools.ps1` (or split into a
-follow-on `install-extras.ps1`) with rustup-init + Go + TinyGo. Each is
-~30 lines of PowerShell with a versions.lock pin. Filed as W## (add to
-checklist).
+The 2026-04-29 doc-drift sweep (W51) already brought README,
+contributing guides, setup-orbstack.md, roadmap.md, and book getting-
+started.md into sync with the current pins and metrics; nothing
+left to do for that bucket.
 
 ## When to cut a release
 
@@ -283,16 +263,19 @@ via `.dev/memo.md ## Current Task`.
 8. **Post-merge bench record (Mac only, every merge).**
    ```bash
    git checkout main && git pull --ff-only
-   bash scripts/record-merge-bench.sh           # full ~5 min
-   # or `bash scripts/record-merge-bench.sh --runs=1 --warmup=0`  for quick
+   bash scripts/record-merge-bench.sh           # always full, ~5 min
    git add bench/history.yaml
    git commit -m "Record benchmark for <PR subject>"
    git push origin main
    ```
    The script auto-derives `--id` from the merge SHA and `--reason`
    from the commit subject, and is a no-op on Linux/Windows
-   (`bench/history.yaml` env block is Darwin-only). Use the quick
-   mode for doc-only merges where bench cannot have changed.
+   (`bench/history.yaml`'s `env:` block is Darwin-only). **Always full
+   hyperfine (5 runs + 3 warmup).** Lower counts produce noisy /
+   cold-cache-biased numbers and are reserved for
+   `bench/run_bench.sh --quick`'s interactive smoke tests. The
+   per-merge history is the canonical Mac M4 Pro absolute-time
+   baseline used at tag time — every row must be measurement-grade.
 9. **Refresh this guide.** When an item lands, delete its row from
    the relevant table.
 10. **Tear down when done.** When the Plan C and Plan B sub-3

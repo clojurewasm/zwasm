@@ -81,7 +81,7 @@ Compiled: `bench/wasm/shootout/*.wasm`
 ### Build instructions
 
 ```bash
-# Requires: zig (0.15.2+)
+# Requires: zig (pinned in versions.lock — currently 0.16.0)
 bash bench/shootout-src/build.sh
 ```
 

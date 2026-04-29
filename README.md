@@ -32,7 +32,7 @@ zwasm was extracted from [ClojureWasm](https://github.com/clojurewasm/ClojureWas
 - **4-tier execution**. Bytecode → predecoded IR → register IR → ARM64/x86_64 JIT. Hot functions promote automatically (HOT_THRESHOLD=3).
 - **SIMD JIT**. ARM64 NEON 253/256 native, x86_64 SSE 244/256 native. Contiguous v128 register storage with Q-cache (Q16–Q31 / XMM6–XMM15).
 - **WASI Preview 1 + Component Model**. 46/46 P1 syscalls (100%); P2 via component-model adapter, WIT parser, Canonical ABI.
-- **Spec conformance**. 62,263 / 62,263 spec tests on Mac aarch64, Linux x86_64 (CI). 796 / 796 E2E tests, 50 / 50 real-world programs (Mac + Linux + Windows).
+- **Spec conformance**. 62,263 / 62,263 spec tests on Mac aarch64, Linux x86_64, Windows x86_64 (CI). 796 / 796 E2E tests on all three. 50 / 50 real-world programs (Rust + C + C++ + Go + TinyGo) on Mac and Linux; Windows runs the C+C++ subset (25 / 25) until rustup / Go / TinyGo provisioning lands (tracked as W52).
 - **WAT support**. Run `.wat` text files directly; build-optional via `-Dwat=false`.
 - **Security**. Deny-by-default WASI capabilities, fuel metering, wall-clock timeout, memory ceiling, JIT W^X pages, signal-handled traps.
 - **No libc**. CLI / library / tests link `link_libc = false` (Mac uses libSystem auto-link). C-API shared/static targets keep `link_libc = true` because `std.heap.c_allocator` is exposed.

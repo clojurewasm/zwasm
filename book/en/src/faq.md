@@ -8,7 +8,7 @@ All 9 Wasm 3.0 proposals plus threads, wide arithmetic, and custom page sizes. S
 
 ### Does zwasm support Windows?
 
-Yes. zwasm runs on macOS (ARM64), Linux (x86_64 / aarch64) and Windows (x86_64). On POSIX targets the JIT and memory guard pages use mmap / mprotect / signal handlers; on Windows they use VirtualAlloc / VirtualProtect / vectored exception handlers via `kernel32.dll`. CI runs the full test suite on all four target triples; real-world program coverage on Windows is currently 46/46.
+Yes. zwasm runs on macOS (ARM64), Linux (x86_64 / aarch64) and Windows (x86_64). On POSIX targets the JIT and memory guard pages use mmap / mprotect / signal handlers; on Windows they use VirtualAlloc / VirtualProtect / vectored exception handlers via `kernel32.dll`. CI runs the full test suite on all three target triples; real-world program coverage on Windows is currently 25/25 (the C and C++ subset of the 50-program suite — Go, Rust, and TinyGo provisioning on Windows is tracked as W52).
 
 ### Can I use zwasm from C, Python, or other languages?
 

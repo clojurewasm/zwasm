@@ -128,13 +128,22 @@ items 8-9. Run on **BOTH Mac AND Ubuntu x86_64**. No skipping.
 10. **Local bench record on Mac, every merge**: after the PR is squash-merged
     and main is checked out (`git checkout main && git pull --ff-only`),
     `bash scripts/record-merge-bench.sh` appends one row to
-    `bench/history.yaml` keyed on the merge commit SHA. Full hyperfine
-    (5 runs + 3 warmup) by default; pass `--runs=1 --warmup=0` for the
-    quick mode when the PR cannot affect perf. Auto-skips on
-    Linux/Windows because history.yaml's `env` block is Darwin-only.
-    Commit the resulting `history.yaml` change directly to main as a
-    follow-up commit (`Record benchmark for <subject>`); CI runs but is
-    not gating for that small commit.
+    `bench/history.yaml` keyed on the merge commit SHA. Always full
+    hyperfine (5 runs + 3 warmup, ~5 min) — `bench/history.yaml` is the
+    canonical Mac M4 Pro absolute-time baseline used at tag time, so
+    every entry must be measurement-grade. Lower run/warmup counts are
+    only for `bench/run_bench.sh --quick`'s interactive smoke tests, not
+    for durable history. Skipped automatically on Linux/Windows because
+    the file's `env:` block is Darwin-only. Commit the resulting
+    `history.yaml` change directly to main as a follow-up
+    `Record benchmark for <subject>` commit; CI runs but is not gating
+    for that small commit.
+
+CI Linux runners separately enforce a soft regression check
+(`bench/ci_compare.sh --base=origin/main --threshold=20 --runs=3
+--warmup=1` on PR, `continue-on-error: true`) — Ubuntu-vs-Ubuntu, never
+mixed with the Mac history. Treat the two baselines as independent
+artefacts, not as values to compare against each other.
 
 Items 1-6 must pass on BOTH platforms before merge. Run them in parallel:
 Mac items can run locally, Ubuntu items via `orb run -m my-ubuntu-amd64`.

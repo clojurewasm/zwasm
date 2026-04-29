@@ -8,7 +8,7 @@ Wasm 3.0 の全 9 プロポーザルに加え、threads、wide arithmetic、cust
 
 ### zwasm は Windows に対応していますか?
 
-はい。zwasm は macOS (ARM64) / Linux (x86_64, aarch64) / Windows (x86_64) で動作します。POSIX 系では JIT とメモリガードページに mmap / mprotect / シグナルハンドラを使用し、Windows では `kernel32.dll` の VirtualAlloc / VirtualProtect / Vectored Exception Handler を使用します。CI は 4 ターゲット triple すべてでフルテストを回しています。Windows での real-world プログラム互換は現在 46/46 です。
+はい。zwasm は macOS (ARM64) / Linux (x86_64, aarch64) / Windows (x86_64) で動作します。POSIX 系では JIT とメモリガードページに mmap / mprotect / シグナルハンドラを使用し、Windows では `kernel32.dll` の VirtualAlloc / VirtualProtect / Vectored Exception Handler を使用します。CI は 3 ターゲット triple すべてでフルテストを回しています。Windows での real-world プログラム互換は現在 25/25 (50 プログラムのうち C / C++ サブセット — Go / Rust / TinyGo の Windows プロビジョニングは W52 で追跡)。
 
 ### C や Python など他の言語から zwasm を使えますか?
 

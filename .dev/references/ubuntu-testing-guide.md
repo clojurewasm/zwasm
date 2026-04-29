@@ -34,22 +34,18 @@ Run sync before each test session to pick up latest changes.
 All commands run inside the VM at `~/zwasm/`:
 
 ```bash
-# Unit tests
+# Whole Commit Gate (preferred — same wrapper as Mac/Windows)
+orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash scripts/gate-commit.sh"
+
+# Whole Merge Gate (Mac runs this too; gh CLI must be authed in the VM)
+orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash scripts/gate-merge.sh"
+
+# Individual steps when iterating:
 orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && zig build test"
-
-# Spec tests (62,263 tests, ~2 min)
 orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && python3 test/spec/run_spec.py --build --summary"
-
-# E2E tests (792 tests)
-orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash test/e2e/run_e2e.sh --convert --summary"
-
-# Real-world compat (30 programs)
-# Requires building wasm files first:
-orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && export WASI_SDK_PATH=/opt/wasi-sdk && bash test/realworld/build_all.sh"
-orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash test/realworld/run_compat.sh --verbose"
-
-# Benchmarks
-orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash bench/run_bench.sh --quick"
+orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && python3 test/e2e/run_e2e.py --convert --summary"
+orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && export WASI_SDK_PATH=/opt/wasi-sdk && python3 test/realworld/build_all.py && python3 test/realworld/run_compat.py"
+orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash scripts/run-bench.sh --quick"
 ```
 
 ## Expected Results (Merge Gate)
@@ -58,9 +54,9 @@ orb run -m my-ubuntu-amd64 bash -lc "cd ~/zwasm && bash bench/run_bench.sh --qui
 | ---------- | --------------------------------- |
 | Unit tests | all pass, 0 fail, 0 leak         |
 | Spec tests | 62,263/62,263 (100%), 0 skip      |
-| E2E        | 792/792, 0 fail, 0 leak          |
-| Real-world | PASS=30, FAIL=0, CRASH=0         |
-| Benchmarks | no regression vs Mac baseline     |
+| E2E        | 796/796, 0 fail, 0 leak          |
+| Real-world | PASS=50, FAIL=0, CRASH=0         |
+| Benchmarks | Ubuntu-vs-Ubuntu no regression (CI) |
 
 ## Known Issues
 

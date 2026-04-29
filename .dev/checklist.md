@@ -29,14 +29,6 @@ Prefix: W## (to distinguish from CW's F## items).
   because magic-nix-cache had a 2025 outage and macos-latest +
   nix-installer-action has occasional flakes — wants supervised PR.
 
-- [ ] W51: Doc drift — README "real-world 50/50 (Mac+Linux+Windows)" is
-  optimistic (Windows is 25/25 C+C++ until install-tools.ps1 provisions
-  Go/Rust/TinyGo); book/en+ja contributing.md still recommends manual
-  `zig build test` invocations rather than `bash scripts/gate-commit.sh`;
-  setup-orbstack.md predates D136 (Zig 0.15.2 + WASI SDK 25 stale);
-  roadmap.md "Zig version upgrade — High" line obsolete.
-  See resume-guide.md "Documentation drift to fix".
-
 - [ ] W52: realworld coverage on Windows — extend
   `scripts/windows/install-tools.ps1` (or split off a follow-on
   `install-extras.ps1`) with rustup-init + Go + TinyGo so
@@ -69,6 +61,19 @@ Prefix: W## (to distinguish from CW's F## items).
   Non-blocking; ceiling 1.60 MB still has ~40 KB slack.
 
 ## Resolved (summary)
+
+W51: Doc drift — README real-world platform scope clarified
+     (Mac+Linux 50/50, Windows 25/25); book/{en,ja}/src/contributing.md
+     points at `bash scripts/gate-commit.sh` as the primary entry point
+     and lists `scripts/` layout; setup-orbstack.md bumped to current
+     pins (Zig 0.16.0, WASI SDK 30, wasm-tools 1.246.1) with a forward
+     pointer to the Plan B Nix devshell follow-up; roadmap.md's
+     obsolete "Zig version upgrade — High" line replaced with active
+     Windows guard removal + CI Nix-ify entries; book/en/src/
+     getting-started.md and Japanese mirror dropped the stale
+     "Homebrew — coming soon" placeholder. ci.yml benchmark-regression
+     comment refreshed (the Zig 0.16.0 migration narrative is no
+     longer relevant). Resolved 2026-04-29.
 
 W37: Contiguous v128 storage. W39: Multi-value return JIT (guard removed).
 W40: Epoch-based JIT timeout (D131).

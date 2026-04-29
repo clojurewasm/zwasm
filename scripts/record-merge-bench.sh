@@ -13,12 +13,18 @@
 #
 # Usage:
 #   bash scripts/record-merge-bench.sh                 # full record (5 runs + 3 warmup)
-#   bash scripts/record-merge-bench.sh --runs=1 --warmup=0   # quick record
 #   bash scripts/record-merge-bench.sh --reason="..."  # override default reason
 #
 # All arguments after the script are passed straight to
 # bench/record.sh. --id and --reason are auto-filled from the current
 # HEAD commit if you do not pass them explicitly.
+#
+# Always use the default 5 runs + 3 warmup. bench/history.yaml is the
+# canonical Mac M4 Pro absolute-time baseline used at tag time; lower
+# run/warmup counts produce noisy / cold-cache-biased numbers that
+# distort the long-term trend graph. `bench/run_bench.sh --quick`
+# exists for interactive smoke tests — use that, not record.sh, when
+# you just want a fast local check.
 
 set -euo pipefail
 

@@ -347,12 +347,13 @@ jobs:
 
       - name: Benchmark regression check
         if: github.event_name == 'pull_request'
-        # This PR migrates the Zig toolchain 0.15.2 → 0.16.0. Comparing
-        # against origin/main (v1.9.1, Zig 0.15.2 code) requires building
-        # the 0.15.2 tree with the 0.16.0 compiler — that fails because
-        # v1.9.1's build.zig uses the removed `Compile.linkLibC`. Once
-        # this PR lands, main becomes 0.16 and the comparison works again.
-        # Regressions (tgo_strops_cached +24%) are tracked as W47.
+        # Soft-fail (continue-on-error) so noisy single-bench wobbles do
+        # not block PRs. Real regressions surface as repeated reds across
+        # PRs and are flagged in the PR check log; the durable Mac
+        # baseline lives in bench/history.yaml (recorded locally, see
+        # CLAUDE.md Merge Gate item 10). Ubuntu-vs-Ubuntu only —
+        # cross-platform comparison would be meaningless given the
+        # hardware delta.
         continue-on-error: true
         run: bash bench/ci_compare.sh --base=origin/main --threshold=20 --runs=3 --warmup=1 --skip-build
 
