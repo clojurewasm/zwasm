@@ -16,21 +16,26 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash scripts/sync-versions.sh
 
-  # Linux test path uses the Nix devshell (W50 PR-B). The flake.nix
-  # provides version-pinned Zig / WASI SDK / wasm-tools / wasmtime /
-  # TinyGo / Go / hyperfine — i.e. the same tools the Mac/Linux
-  # `direnv allow` shell delivers locally — so this job runs the
-  # `scripts/gate-commit.sh` Commit Gate verbatim. Rust still comes
-  # from the runner image's pre-installed rustup; that's the same
-  # split as developers using `rustup target add wasm32-wasip1` on
-  # top of the Nix devshell.
+  # Linux + macOS test path uses the Nix devshell (W50 PR-B + PR-C).
+  # The flake.nix provides version-pinned Zig / WASI SDK / wasm-tools
+  # / wasmtime / TinyGo / Go / hyperfine — i.e. the same tools the
+  # Mac/Linux `direnv allow` shell delivers locally — so this job
+  # runs the `scripts/gate-commit.sh` Commit Gate verbatim. Rust
+  # still comes from the runner image's pre-installed rustup; that's
+  # the same split as developers using `rustup target add
+  # wasm32-wasip1` on top of the Nix devshell.
   #
-  # macOS + Windows continue to run the existing per-tool install
-  # path in the `test` job below; PR-C migrates macOS, PR-D handles
-  # Windows via `pwsh scripts/windows/install-tools.ps1`.
+  # Windows continues to run the existing per-tool install path in
+  # the `test` job below; PR-D will migrate it to
+  # `pwsh scripts/windows/install-tools.ps1` + the same gate-commit
+  # entrypoint.
   test-nix:
-    name: test (ubuntu-latest, nix devshell)
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }}, nix devshell)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
@@ -58,9 +63,9 @@ jobs:
             .zig-cache
             zig-cache
             ~/.cache/zig
-          key: zig-Linux-nix-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
+          key: zig-${{ runner.os }}-nix-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
           restore-keys: |
-            zig-Linux-nix-
+            zig-${{ runner.os }}-nix-
 
       - name: Run Commit Gate inside Nix devshell
         run: |
@@ -82,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
