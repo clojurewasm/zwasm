@@ -87,11 +87,10 @@ test-data policy when deciding which sample bytes to use.
 
 ## Open questions / blockers
 
-- Push gate for windowsmini: §9.1 / 1.0 (commit `922521f`) and
-  the §9.0 / 0.7 phase-close commit (`2e11dcb`) await user
-  approval to push to `origin/zwasm-from-scratch`. Until pushed,
-  windowsmini cannot be exercised against the new code (its
-  transport syncs from origin).
+(none — push to `origin/zwasm-from-scratch` is autonomous inside
+the `/continue` loop per the skill's "Push policy"; no user
+approval required. The next loop iteration will push outstanding
+local commits before running the windowsmini gate.)
 
 ## Notes for the next session
 

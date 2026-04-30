@@ -104,7 +104,12 @@ session.
   (>200 lines), cross-codebase searches (>5 files), occasional
   audit / simplify / security-review fan-out. Stay in main only for
   small in-context edits.
-- Pushing to `zwasm-from-scratch` requires explicit user approval.
+- Pushing **outside** the autonomous `/continue` loop (e.g. ad-hoc
+  Bash invocations, manual Claude turns) requires explicit user
+  approval. **Inside** the `/continue` loop, push to
+  `zwasm-from-scratch` is autonomous (per
+  `.claude/skills/continue/SKILL.md` "Push policy"). Push to `main`
+  is always forbidden; `--force` is always forbidden.
 - ROADMAP corrections follow the four-step amendment in
   [`ROADMAP §18`](.dev/ROADMAP.md#18-amendment-policy): edit in
   place as if it had always been so, open an ADR, sync `handover.md`,

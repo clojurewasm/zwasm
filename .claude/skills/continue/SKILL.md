@@ -1,39 +1,150 @@
 ---
 name: continue
-description: Resume fully autonomous work on zwasm-from-scratch and drive the per-task TDD loop until the user intervenes or a problem is identified that genuinely cannot be solved. Trigger when the user says 続けて, "resume", "pick up where we left off", "/continue", "次", "go", or starts a fresh session expecting prior context. Reads handover, finds next task, runs tests, then immediately enters the TDD loop with no "go" gate, no Phase-boundary stop, and no per-task confirmation. Auto-runs adaptive audit_scaffolding inline and continues into the next Phase without prompting.
+description: Resume fully autonomous work on zwasm-from-scratch and drive the per-task TDD loop until the user intervenes or a problem is identified that genuinely cannot be solved. Trigger when the user says 続けて, "resume", "pick up where we left off", "/continue", "次", "go", or starts a fresh session expecting prior context. Reads handover, finds next task, runs tests, then immediately enters the TDD loop with no "go" gate, no Phase-boundary stop, and no per-task confirmation. Auto-runs adaptive audit_scaffolding inline, continues into the next Phase without prompting, pushes its own commits to origin/zwasm-from-scratch, and re-arms itself via ScheduleWakeup so overnight / no-reply sessions keep iterating.
 ---
 
 # continue
 
 Pick up where the previous session left off and **drive the iteration
-loop fully autonomously**. The user invoked `/continue` precisely so
-they would not have to babysit every checkpoint.
+loop fully autonomously, indefinitely, without user babysitting**.
+The user invoked `/continue` precisely so they can walk away — go to
+sleep, leave the desk, or just stop replying — and expect to come
+back to a long chain of green commits, not a "shall I proceed?"
+prompt.
 
-This skill is **opinionated about context discipline**: it delegates
-heavy reads to subagents, compacts proactively, and resets at phase
-boundaries. The zwasm v2 project is multi-phase; without these
-disciplines, late-session quality degrades.
+This skill is **opinionated about context discipline and
+self-perpetuation**: it delegates heavy reads to subagents, compacts
+proactively, resets at phase boundaries, **pushes its own work**, and
+**re-arms itself** so the loop survives even when the user is not
+present. The zwasm v2 project is multi-phase; without these
+disciplines, late-session quality degrades and overnight progress
+stops.
 
-## When to stop, when to keep going
+## Stop conditions — strict whitelist
 
-Default = **keep going**. Push approval is the only checkpoint that
-is always user-required. Beyond that, **stop only when**:
+You may stop the autonomous loop **only** for one of these two
+reasons. Anything else is a non-stop condition and you must keep
+going.
 
-- The user explicitly intervenes (interrupts, types a new directive,
-  asks to pause).
-- A problem you genuinely cannot solve has been identified — the
-  root cause is unclear after investigation, or a load-bearing
-  trade-off is needed that conflicts with ROADMAP §2 / §14.
+1. **The user explicitly intervenes** — a new directive arrives,
+   they interrupt, they ask you to pause, or they type a message
+   that is incompatible with continuing the loop. The user typing
+   nothing is *not* an intervention.
+2. **A genuinely unsolvable problem is identified** — root cause
+   unclear after investigation; OR a load-bearing trade-off is
+   needed that conflicts with ROADMAP §2 (P/A) or §14 (forbidden
+   list); OR a required external host (`my-ubuntu-amd64`,
+   `windowsmini`) is provably absent. Document the blocker in
+   `handover.md` "Open questions / blockers", then stop. Do not
+   stop on a hunch — only after investigation.
 
-There is no other stop condition. **Phase boundaries do not stop the
-loop**, audit_scaffolding "block" findings do not stop the loop
-(they're investigated and fixed in-line if the fix is local), an
-auto-compact does not stop the loop (the `PostCompact` hook
-re-injects the resume brief; pick the loop up from there), an empty
-task queue does not stop the loop (open the next phase).
+### Non-stop conditions (explicit, exhaustive)
+
+The following are **not** stop conditions. Encountering any of them
+means you continue the loop. If you find yourself reaching for one
+as justification to stop, you are violating this skill.
+
+- A Phase boundary just closed (§9.<N> → §9.<N+1>).
+- The §9.<N> task table is empty and needs to be opened.
+- A previous task ended with a clean commit and the next task is
+  "big".
+- N commits have already landed in this run (any N).
+- Context fill is high or auto-compact seems imminent (the
+  `PostCompact` hook recovers; see "Auto-compact recovery").
+- An `audit_scaffolding` finding is `block` and the fix is local —
+  fix it inline.
+- An `audit_scaffolding` finding is `block` and the fix is *not*
+  local — file an ADR via §18, queue the fix in handover, then
+  continue.
+- The next task requires an Explore / Plan / Bash subagent — fork
+  one and continue.
+- The next task requires `git push` — push and continue (see
+  "Push policy" below).
+- A test gate failed on `windowsmini` because the commit is not
+  yet on `origin/zwasm-from-scratch` — push and re-run, then
+  continue.
+- Multiple `[x]` flips and SHA backfills are pending — batch them
+  and continue.
+- You produced a long status summary and feel like a "good place
+  to stop" — that is exactly when you must keep going.
+- The user has not replied for a long time — that is the **point**
+  of the skill.
 
 If you are unsure whether to stop, the answer is **don't**. The user
 will interrupt if needed.
+
+## Push policy — autonomous, no approval
+
+`git push origin zwasm-from-scratch` does **not** require user
+approval inside this skill. The loop pushes its own commits.
+Specifically:
+
+- Every commit lands on the local `zwasm-from-scratch` branch via
+  the per-task TDD loop (Step 6).
+- Push happens at one of two points, whichever comes first:
+  - End of a Step 5 cycle when `windowsmini` is the only host
+    blocking and the script needs `origin` to be current. Push,
+    re-run `bash scripts/run_remote_windows.sh`, evaluate gate.
+  - End of every Step 7, after `[x]` flip + handover update —
+    push so the gone-from-local risk is bounded by one task.
+- Push is **never to `main`** and **never `--force`**. If a
+  non-fast-forward error is raised, stop and surface to the user
+  (this is bucket 2 of the stop whitelist — unsolvable without
+  user input on history rewriting).
+- `--no-verify`, `--no-gpg-sign`, and any pre-commit / pre-push
+  hook bypass remain forbidden (ROADMAP §14).
+
+This overrides the "explicit user approval" wording elsewhere; that
+wording exists to forbid drive-by pushes outside this loop, not to
+gate the loop itself.
+
+## Self-perpetuation — overnight loop
+
+After every Step 7 commit lands and is pushed, the very last action
+of the turn is to schedule the next iteration so the loop survives
+without a fresh user message. **This is mandatory** — skipping it
+silently re-introduces user-babysitting.
+
+Use `ScheduleWakeup`:
+
+```
+ScheduleWakeup(
+  delaySeconds = 60,
+  reason = "loop iteration <task-id> committed; re-arming for next task",
+  prompt = "<<autonomous-loop-dynamic>>"
+)
+```
+
+The literal sentinel `<<autonomous-loop-dynamic>>` is resolved by
+the runtime back into the autonomous-loop instructions, which on
+fire will re-enter this skill at the resume procedure. Pick
+`delaySeconds` per the cache-window rule:
+
+- **60–270s** when work is actively flowing — Step 5 finished
+  green, Step 6 + 7 just landed, and the next task is small. Keeps
+  the prompt cache warm.
+- **1200–1800s** when a long subagent / build / audit was just
+  kicked off in the background and you need to wait for it.
+- Never choose 300s — pay the cache miss properly or stay under
+  it.
+
+If the user replies between iterations, that is automatic
+intervention — the wakeup is consumed by the new turn and the
+loop naturally resets to whatever the user said.
+
+If a `ScheduleWakeup` call would be the second one of the same
+turn (only one wakeup per turn is honoured), update the existing
+one with `ScheduleWakeup` again instead of stacking.
+
+End-of-turn checklist (every turn that ends with the task closed):
+
+1. Step 6 commit landed.
+2. Step 7 handover update + ROADMAP `[x]` flip committed.
+3. `git push` succeeded.
+4. `ScheduleWakeup` armed for the next iteration.
+5. Final user-facing text is **one sentence** stating what just
+   landed and what fires next. Do not write a long progress
+   summary — it invites pause.
 
 ## Resume procedure (run on every session pickup)
 
@@ -47,18 +158,24 @@ will interrupt if needed.
    - If §9.<N>'s task table is missing/empty, the phase has not
      been opened yet; expand it first (mirror the previous phase's
      structure).
-3. `git log --oneline -10` — identify the last commit.
+3. `git log --oneline -10` and `git status -sb` — identify the last
+   commit and whether anything is in flight.
+   - If `git status` is clean and origin is ahead-or-equal: proceed.
+   - If `git status` shows uncommitted changes that look in-flight:
+     decide — complete and commit, or `git stash` and restart the
+     task (cheaper than guessing what was half-done).
+   - If local is ahead of origin: push immediately (no approval
+     needed; see "Push policy") before the next Step 0.
 4. `zig build test` (Phase 0+) — confirm the build is green. From
    Phase 1, also run `zig build test-spec`. From Phase 6, also run
    the differential subset. **If output is large (>200 lines), run
    via subagent and ask only for pass/fail + the first failure.**
-5. Summarise to the user in 5–10 lines:
-   - Phase (number + name)
-   - Last commit
-   - Test status
-   - Next task (number + name + exit criterion)
+5. **One-sentence** status to the user (phase + last commit + next
+   task). Do **not** produce a multi-line summary; that is a stop
+   antipattern (see "Self-perpetuation").
 6. **Immediately proceed into the TDD loop.** Do not wait for "go" —
-   `/continue` itself is the go signal.
+   `/continue` itself is the go signal, and so is the wakeup that
+   fired it.
 
 ## Per-task TDD loop
 
@@ -118,7 +235,7 @@ is cheap.
 While green. Apply only structural improvements that do not change
 behaviour.
 
-### Step 5 — Test gate (three hosts where applicable)
+### Step 5 — Test gate (three hosts)
 
 The gate command is whatever the active §9.<N>.<task>'s exit
 criterion specifies. The defaults are:
@@ -139,17 +256,18 @@ tool calls:
   script `git fetch + reset --hard origin/zwasm-from-scratch` on
   the windowsmini clone at `~/Documents/MyProducts/zwasm_from_scratch`
   and then runs `zig build <step>` there. It exercises the latest
-  pushed origin state, so push first if you need a local commit
-  reflected in the gate.
+  pushed origin state, so **push first** if a local commit needs
+  to be reflected. Pushing is autonomous — see "Push policy".
 
 All hosts must be green to proceed. If any output exceeds ~200
 lines, delegate to a Bash subagent and ask for "pass/fail + first
 failure only"; otherwise inline.
 
-OrbStack VM setup: `.dev/orbstack_setup.md`. Windows SSH: `.dev/windows_ssh_setup.md`.
-If a host is absent (`error: machine not found` for OrbStack;
-`ssh: connection refused` for windowsmini), surface to the user —
-do not attempt to provision autonomously.
+OrbStack VM setup: `.dev/orbstack_setup.md`. Windows SSH:
+`.dev/windows_ssh_setup.md`. If a host is absent (`error: machine
+not found` for OrbStack; `ssh: connection refused` for windowsmini),
+that is bucket 2 of the stop whitelist — surface to the user and
+stop. Do not attempt to provision autonomously.
 
 ### Step 6 — Source commit
 
@@ -159,30 +277,38 @@ genuine reason, fix and re-stage.
 
 Never `git commit --no-verify` (forbidden by ROADMAP §14).
 
-### Step 7 — Handover update (always)
+### Step 7 — Handover update + push + re-arm
 
-1. Update `.dev/handover.md` to reflect the just-completed task and
-   the next one (1-2 lines + retrievable identifiers). This is the
-   only mandatory documentation step — zwasm v2 does not maintain
-   the per-task / per-concept chapter cadence (P9).
-2. Mark `[x]` for the just-completed task in ROADMAP §9.<N>. Leave
-   the Status column SHA blank (`[x]`) — do **not** spawn a second
-   commit just to write the SHA you can't know yet. The SHA pointer
-   is **batch-backfilled at phase close** (see §0.7 procedure
-   below). The commit message itself references `§9.<N> / N.M`, so
-   `git log --grep="§9.<N> / N.M"` is the canonical lookup; the
-   Status SHA is convenience, not load-bearing.
+1. Update `.dev/handover.md` to reflect the just-completed task
+   and the next one (1-2 lines + retrievable identifiers). This
+   is the only mandatory documentation step — zwasm v2 does not
+   maintain the per-task / per-concept chapter cadence (P9).
+2. Mark `[x]` for the just-completed task in ROADMAP §9.<N>.
+   Leave the Status column SHA blank (`[x]`) — the SHA pointer
+   is **batch-backfilled at phase close**. The commit message
+   itself references `§9.<N> / N.M`, so `git log --grep="§9.<N>
+   / N.M"` is the canonical lookup; the Status SHA is convenience,
+   not load-bearing.
 
    **§18 self-check before this edit** (the PreToolUse hook will
-   also re-print this when you save): `[x]` flips and SHA backfills
-   are *routine status updates*, no ADR needed. But if the same
-   commit also touches §9 phase scope, exit criteria, §11 layers,
-   §14 forbidden list, or any §1/§2/§4/§5 text — that part is a
-   *deviation*; file `.dev/decisions/NNNN_<slug>.md` first per
-   ROADMAP §18.2 and reference it in the commit message.
-3. Continue immediately to the next task's Step 0. Context-fill
-   management is the harness's job, not yours — see "Auto-compact
-   recovery" below.
+   also re-print this when you save): `[x]` flips and SHA
+   backfills are *routine status updates*, no ADR needed. But if
+   the same commit also touches §9 phase scope, exit criteria,
+   §11 layers, §14 forbidden list, or any §1/§2/§4/§5 text — that
+   part is a *deviation*; file `.dev/decisions/NNNN_<slug>.md`
+   first per ROADMAP §18.2 and reference it in the commit
+   message.
+3. `git add .dev/ROADMAP.md .dev/handover.md` and commit
+   (`chore(p<N>): mark §9.<N> / N.M [x]; retarget handover at
+   N.M+1`).
+4. **Push**. `git push origin zwasm-from-scratch`. No approval
+   needed (see "Push policy"). If push fails non-fast-forward,
+   that is bucket 2 of the stop whitelist.
+5. **Re-arm** the loop with `ScheduleWakeup` (see
+   "Self-perpetuation" for the call shape and `delaySeconds`
+   choice). This is mandatory.
+6. Final user-facing text: one sentence. State the closed task
+   id and the next task id. Do not write a status table.
 
 (Per-task notes in `private/notes/` are **optional**. Write them
 only if the survey or stuck-points are non-trivial enough to be
@@ -206,16 +332,18 @@ Two implications for the loop:
 
 1. **Treat the PostCompact brief as a fresh resume.** Re-read
    `.dev/handover.md`, locate the active task in ROADMAP §9, run
-   `git log -3` and `git status`, then continue from Step 0 of that
-   task. If `git status` shows uncommitted changes that look
+   `git log -3` and `git status`, then continue from Step 0 of
+   that task. If `git status` shows uncommitted changes that look
    in-flight, decide: complete and commit, or `git stash` and
-   restart the task (cheaper than guessing what was half-done).
+   restart the task. **Do not stop** — auto-compact is explicitly
+   in the non-stop list.
 2. **Update `handover.md` before any long subagent call.** Step 7
    is not the only time you should write it. Before:
    - Dispatching an Explore subagent for a multi-file survey.
    - Running a long test suite (`zig build test-all` past a few
      minutes).
-   - Any `run_in_background` Bash that may outlast the next compact.
+   - Any `run_in_background` Bash that may outlast the next
+     compact.
    …flush the current state to `handover.md` so post-compact
    recovery has fresh ground truth. The cost is a 30-second edit;
    the value is not losing the loop's bearings overnight.
@@ -223,53 +351,59 @@ Two implications for the loop:
 The loop is designed so mid-task auto-compact loses at most one
 task's worth of in-flight Steps 0-3. Steps 4-6 (refactor / gate /
 commit) end with an artifact in git; Step 7 ends with handover
-updated. Anchor on those.
+updated and a wakeup armed. Anchor on those.
 
 ### Repeat
 
-Steps 0–7 for each `[ ]` task in §9.<N>.
+Steps 0–7 for each `[ ]` task in §9.<N>. Then Phase boundary
+(below). Then §9.<N+1>'s Step 0. The loop never voluntarily exits
+this cycle.
 
 ## Phase boundary — inline, no stop
 
 A Phase closes when the last `[ ]` in §9.<N> flips to `[x]`. At
 that point:
 
-1. Optional: invoke `audit_scaffolding` (slash command). It produces
-   `private/audit-YYYY-MM-DD.md`. If a `block` finding is local and
-   obvious, fix in the next commit; otherwise note in handover and
-   continue.
-2. Optional: run built-in `simplify` on `git diff <phase-start>..HEAD
-   -- src/`. Apply behaviour-preserving suggestions; queue larger
-   ones in `handover.md`.
-3. **Backfill SHA pointers for §9.<N>'s task rows.** For each `[x]`
-   row whose Status column is bare (no SHA), fill the SHA with:
+1. Optional: invoke `audit_scaffolding` (slash command). It
+   produces `private/audit-YYYY-MM-DD.md`. If a `block` finding
+   is local and obvious, fix in the next commit. If a `block`
+   finding requires a load-bearing change, file an ADR via §18,
+   queue in handover, then continue. **Either path continues the
+   loop** — phase boundaries are non-stop.
+2. Optional: run built-in `simplify` on `git diff
+   <phase-start>..HEAD -- src/`. Apply behaviour-preserving
+   suggestions; queue larger ones in `handover.md`.
+3. **Backfill SHA pointers for §9.<N>'s task rows.** For each
+   `[x]` row whose Status column is bare (no SHA), fill the SHA
+   with:
 
    ```
    git log --grep="§9.<N> / <N.M>" --pretty=%h | head -1
    ```
 
    Land this in **one** commit (e.g. `chore(p<N>): backfill §9.<N>
-   SHA pointers`). This is the single phase-level commit where SHA
-   bookkeeping is paid; per-task Step 7 stays SHA-free so it
+   SHA pointers`). This is the single phase-level commit where
+   SHA bookkeeping is paid; per-task Step 7 stays SHA-free so it
    doesn't generate per-task backfill commits.
-4. **Open §9.<N+1>**: update the **Phase Status** widget at the top
-   of §9 (mark §9.<N> as `DONE`, §9.<N+1> as `IN-PROGRESS`); expand
-   §9.<N+1>'s task table inline (mirror §9.<N>'s structure: a
-   numbered `[ ]` table with the same Status column shape); update
-   handover.md to point at §9.<N+1>'s first task.
-5. Resume §9.<N+1>'s Step 0 immediately. If the harness compacts
-   mid-transition, the PostCompact brief recovers state.
+4. **Open §9.<N+1>**: update the **Phase Status** widget at the
+   top of §9 (mark §9.<N> as `DONE`, §9.<N+1> as `IN-PROGRESS`);
+   expand §9.<N+1>'s task table inline (mirror §9.<N>'s structure:
+   a numbered `[ ]` table with the same Status column shape);
+   update handover.md to point at §9.<N+1>'s first task.
+5. Push, re-arm via `ScheduleWakeup`, and resume §9.<N+1>'s Step
+   0 immediately. If the harness compacts mid-transition, the
+   PostCompact brief recovers state.
 
-The phase-boundary review steps are **opportunistic, not mandatory**.
-Apply them when the scaffolding seems to need it; skip when the
-work has been clean.
+The phase-boundary review steps are **opportunistic, not
+mandatory**. Apply when the scaffolding seems to need it; skip
+when the work has been clean. Either way, the loop continues.
 
 ## Subagent delegation cheatsheet
 
 | Trigger                               | Action                                              |
 |---------------------------------------|-----------------------------------------------------|
-| Survey ≥ 1 reference codebase / OSS  | Step 0 — Explore subagent                          |
-| Test output > 200 lines               | Step 5 — Bash subagent (run_in_background if long) |
+| Survey ≥ 1 reference codebase / OSS   | Step 0 — Explore subagent                           |
+| Test output > 200 lines               | Step 5 — Bash subagent (run_in_background if long)  |
 | Search across > 5 files               | Explore subagent                                    |
 | Single-file edit, < 200 lines context | Stay in main                                        |
 
@@ -297,3 +431,28 @@ importance**.
 
 When unsure, default to subagent inheriting the parent model; flip
 to Opus 4.6 only if a long-context task underperforms.
+
+## Anti-patterns observed in past sessions (do not repeat)
+
+These are concrete failure modes from prior runs. Reading them once
+beats inventing new ways to stop.
+
+- **"Big next task, natural stop"** — picking up that the next
+  task looks bigger and ending the turn so the user can issue
+  another `/continue`. Forbidden — the whole point is no
+  babysitting. Push the commit, re-arm, continue.
+- **"N commits is enough"** — landing several tasks then writing
+  a progress summary as a soft pause. Forbidden — write one
+  sentence and re-arm.
+- **"Push needs approval"** — interpreting CLAUDE.md's push
+  language as a per-loop gate. Forbidden — push policy is
+  autonomous inside this skill.
+- **"windowsmini gate not exercised, defer"** — declaring local
+  Mac + OrbStack good and stopping until next session. Forbidden
+  — push and run windowsmini before deciding it is a real
+  blocker.
+- **"User can /continue when ready"** — the closing line that
+  re-introduces babysitting. Forbidden — the closing line is the
+  `ScheduleWakeup` and one short sentence.
+- **"Auto-compact might be coming, safer to stop"** — forbidden;
+  PostCompact recovers, the loop continues.
