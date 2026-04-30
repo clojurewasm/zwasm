@@ -16,6 +16,7 @@ pub const parser = @import("frontend/parser.zig");
 pub const validator = @import("frontend/validator.zig");
 pub const lowerer = @import("frontend/lowerer.zig");
 pub const sections = @import("frontend/sections.zig");
+pub const zir = @import("ir/zir.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

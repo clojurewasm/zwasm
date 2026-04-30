@@ -109,9 +109,20 @@ fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
 
     if (codes.items.len != func_indices.len) return error.FunctionCountMismatch;
 
+    // Build the per-function signature table (imports + defined). The
+    // smoke corpus has no imports yet, so we just project func_indices
+    // through types_owned. The 1.9 follow-up incorporates imports
+    // when the import-section decoder lands.
+    const func_types = try gpa.alloc(zwasm.zir.FuncType, func_indices.len);
+    defer gpa.free(func_types);
+    for (func_indices, func_types) |type_idx, *ft| {
+        if (type_idx >= types_owned.items.len) return error.InvalidTypeIndex;
+        ft.* = types_owned.items[type_idx];
+    }
+
     for (codes.items, func_indices) |code, type_idx| {
         if (type_idx >= types_owned.items.len) return error.InvalidTypeIndex;
         const sig = types_owned.items[type_idx];
-        try validator.validateFunction(sig, code.locals, code.body);
+        try validator.validateFunction(sig, code.locals, code.body, func_types);
     }
 }
