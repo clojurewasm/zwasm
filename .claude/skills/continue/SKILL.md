@@ -27,9 +27,10 @@ is always user-required. Beyond that, **stop only when**:
 
 There is no other stop condition. **Phase boundaries do not stop the
 loop**, audit_scaffolding "block" findings do not stop the loop
-(they're investigated and fixed in-line if the fix is local), context
-fill near 60 %+ does not stop the loop (`/compact` and continue), an
-empty task queue does not stop the loop (open the next phase).
+(they're investigated and fixed in-line if the fix is local), an
+auto-compact does not stop the loop (the `PostCompact` hook
+re-injects the resume brief; pick the loop up from there), an empty
+task queue does not stop the loop (open the next phase).
 
 If you are unsure whether to stop, the answer is **don't**. The user
 will interrupt if needed.
@@ -158,7 +159,7 @@ genuine reason, fix and re-stage.
 
 Never `git commit --no-verify` (forbidden by ROADMAP §14).
 
-### Step 7 — Handover update + context budget check
+### Step 7 — Handover update (always)
 
 1. Update `.dev/handover.md` to reflect the just-completed task and
    the next one (1-2 lines + retrievable identifiers). This is the
@@ -166,16 +167,50 @@ Never `git commit --no-verify` (forbidden by ROADMAP §14).
    the per-task / per-concept chapter cadence (P9).
 2. Mark `[x]` for the just-completed task in ROADMAP §9.<N>; append
    the source SHA in the Status column.
-3. Estimate the current context fill. If above ~60 % of the active
-   model's window:
-   - Run `/compact` with a save brief listing: active phase, next
-     task, architectural constraints in flight.
-   - Re-read `handover.md` after compact.
-4. If below 60 %, continue immediately to the next task's Step 0.
+3. Continue immediately to the next task's Step 0. Context-fill
+   management is the harness's job, not yours — see "Auto-compact
+   recovery" below.
 
 (Per-task notes in `private/notes/` are **optional**. Write them
 only if the survey or stuck-points are non-trivial enough to be
 worth re-reading later.)
+
+## Auto-compact recovery
+
+You **cannot** invoke `/compact` yourself — it is a user slash
+command. The harness fires `autoCompactEnabled` when context fills,
+silently summarising prior conversation. After compact:
+
+- The system prompt and skill listing survive.
+- The `PostCompact` hook re-emits `scripts/print_handover_brief.sh`
+  output (language policy + handover.md + last 3 git commits) into
+  the conversation, mirroring SessionStart. That brief is your
+  recovery anchor.
+- Tool-result detail (test logs, file dumps) does **not** survive
+  — only the harness summary remains.
+
+Two implications for the loop:
+
+1. **Treat the PostCompact brief as a fresh resume.** Re-read
+   `.dev/handover.md`, locate the active task in ROADMAP §9, run
+   `git log -3` and `git status`, then continue from Step 0 of that
+   task. If `git status` shows uncommitted changes that look
+   in-flight, decide: complete and commit, or `git stash` and
+   restart the task (cheaper than guessing what was half-done).
+2. **Update `handover.md` before any long subagent call.** Step 7
+   is not the only time you should write it. Before:
+   - Dispatching an Explore subagent for a multi-file survey.
+   - Running a long test suite (`zig build test-all` past a few
+     minutes).
+   - Any `run_in_background` Bash that may outlast the next compact.
+   …flush the current state to `handover.md` so post-compact
+   recovery has fresh ground truth. The cost is a 30-second edit;
+   the value is not losing the loop's bearings overnight.
+
+The loop is designed so mid-task auto-compact loses at most one
+task's worth of in-flight Steps 0-3. Steps 4-6 (refactor / gate /
+commit) end with an artifact in git; Step 7 ends with handover
+updated. Anchor on those.
 
 ### Repeat
 
