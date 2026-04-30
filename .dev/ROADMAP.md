@@ -1122,7 +1122,7 @@ of each phase advances it.
 | Phase | State       | First open `[ ]` task         |
 |-------|-------------|-------------------------------|
 | 0     | DONE        | —                             |
-| 1     | IN-PROGRESS | §9.1 / 1.0 (leb128)           |
+| 1     | IN-PROGRESS | §9.1 / 1.1 (zir skeleton)     |
 | 2     | PENDING     |                               |
 | 3     | PENDING     |                               |
 | 4     | PENDING     |                               |
@@ -1203,7 +1203,7 @@ and `zig build test` green before Phase 1 opens.
 
 | #    | Description                                                                                | Status |
 |------|--------------------------------------------------------------------------------------------|--------|
-| 1.0  | `src/util/leb128.zig` — unsigned/signed LEB128 read; red unit tests on edge values.       | [ ]    |
+| 1.0  | `src/util/leb128.zig` — unsigned/signed LEB128 read; red unit tests on edge values.       | [x]    |
 | 1.1  | `src/ir/zir.zig` — ZIR slot / value-type skeleton (data shapes; no ops yet).              | [ ]    |
 | 1.2  | Declare the full `ZirOp` enum catalogue per §4.2 (declared, not implemented).             | [ ]    |
 | 1.3  | `src/ir/dispatch_table.zig` — table type + `register(*DispatchTable)` API; smoke test.    | [ ]    |

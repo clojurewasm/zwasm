@@ -17,8 +17,9 @@
 ## Current state
 
 - **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE` — §9.0 /
-  0.0–0.7 all `[x]`. §9.1 task table is open; the first `[ ]`
-  task is **§9.1 / 1.0 — `src/util/leb128.zig`**.
+  0.0–0.7 all `[x]`. §9.1 / 1.0 (`src/util/leb128.zig`) is `[x]`
+  (commit `922521f`). The first remaining `[ ]` is **§9.1 / 1.1 —
+  `src/ir/zir.zig` skeleton**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -36,28 +37,30 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.0 (`src/util/leb128.zig`)
+## Active task — §9.1 / 1.1 (`src/ir/zir.zig` skeleton)
 
-Phase 0 closed cleanly; the §9.0 / 0.6 audit was 0 block / 0 soon
-/ 4 watch (`private/audit-2026-05-01.md`).
+§9.1 / 1.0 closed at `922521f`. `src/util/leb128.zig` now exports
+`readUleb128` / `readSleb128` (Zone 0, byte-slice cursor, 19 unit
+tests, Mac aarch64 + OrbStack Ubuntu green; windowsmini awaits
+push gate). Survey notes at `private/notes/p1-1.0-leb128-survey.md`.
 
-§9.1 / 1.0 is the foundational utility for Phase 1's parser:
-unsigned and signed LEB128 readers with red-first unit tests
-covering boundary values (0, max, sign-extension, overlong
-encodings rejected). No public API beyond `readUleb128` /
-`readSleb128` shapes; lives under `src/util/`. After 1.0 the
-order is 1.1 `src/ir/zir.zig` skeleton → 1.2 ZirOp enum
-declaration → 1.3 dispatch_table → 1.4 parser → 1.5 validator →
-1.6 lowerer → 1.7 feature/mvp → 1.8 spec corpus + test-spec
-runner → 1.9 Wasm Core 1.0 green on three hosts → 1.10 audit →
-1.11 open §9.2.
+§9.1 / 1.1 is the **ZIR data-shape skeleton** — types only, no
+ops yet. Per ROADMAP §4.2, ZIR is a slot-allocated SSA-ish IR
+with vreg / value-type / block / inst index types declared
+up-front (P13 type-up-front). The 1.1 deliverable is the
+container types (`ZirFunc`, `ZirInst`, `ValType`, `VregIdx`,
+`BlockIdx`, `InstIdx`, plus the `?Liveness` / `?LoopInfo` slots
+that get populated in Phase 5 — declared as `?…` from day 1 so
+the struct layout is stable). `ZirOp` itself is the next task
+(1.2). 1.1 should NOT yet emit instructions; just define shapes
+and a smoke test.
 
-Step 0 (Survey) for 1.0: Explore subagent should compare LEB128
-readers in `~/Documents/MyProducts/zwasm/src/util/` (v1, read
-never copy), `~/Documents/OSS/zware/src/`,
-`~/Documents/OSS/wasmtime/crates/wasmparser/`, and
-`~/Documents/OSS/wasm3/source/`. Highlight overlong-encoding
-detection and signed-extension corner cases.
+Step 0 (Survey) for 1.1: compare ZIR-equivalent shapes in
+`~/Documents/MyProducts/zwasm/src/ir/` (v1, read never copy),
+`~/Documents/OSS/wasmtime/cranelift/codegen/src/ir/` (CLIF /
+VCode), `~/Documents/OSS/zware/src/`, and
+`~/Documents/OSS/wasm3/source/m3_compile.h` (M3 IR). Cite §4.2
+explicitly when picking a slot layout.
 
 **Retrievable identifiers**:
 
@@ -75,7 +78,11 @@ detection and signed-extension corner cases.
 
 ## Open questions / blockers
 
-(none — §9.1 / 1.0 leb128 is the next concrete work)
+- Push gate for windowsmini: §9.1 / 1.0 (commit `922521f`) and
+  the §9.0 / 0.7 phase-close commit (`2e11dcb`) await user
+  approval to push to `origin/zwasm-from-scratch`. Until pushed,
+  windowsmini cannot be exercised against the new code (its
+  transport syncs from origin).
 
 ## Notes for the next session
 
