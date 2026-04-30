@@ -51,13 +51,27 @@ of `f292ae7` (2.1 close):
 3. `3ddb61c` — chunk-3: f32 / f64 numeric (6 relops + 7 unops +
    7 binops per width). NaN propagation explicit on min/max;
    strict canonical-NaN deferred to 2.4.
+4. `bda2cae3` — chunk-4: numeric conversions (wrap, extend,
+   trunc with InvalidConversionToInt / IntOverflow traps,
+   convert, demote, promote, reinterpret).
 
-`src/interp/mvp.zig` is now 1196 lines (over the 1000-line soft
-cap, under the 2000 hard cap). **File-split refactor queued for
-chunk 4** before adding conversions and loads/stores would push
-us past the hard cap. Likely shape: `src/interp/integer_ops.zig`
-(i32 + i64) + `src/interp/float_ops.zig` (f32 + f64) +
-`src/interp/mvp.zig` thin aggregator wiring `register`.
+`src/interp/mvp.zig` is now 1468 lines (over the 1000-line soft
+cap, under the 2000-line hard cap). **File-split refactor still
+queued** — likely needed before chunk 6 (control flow) lands.
+Likely shape: `src/interp/int_ops.zig` (i32 + i64), 
+`src/interp/float_ops.zig` (f32 + f64), 
+`src/interp/conversions.zig`, plus a thin aggregator `mvp.zig`
+that registers them all.
+
+**Lowerer mismatch** discovered in chunk 4 prep: `src/frontend/
+lowerer.zig`'s opcode dispatch still tops out at the §9.1 / 1.6
+MVP smoke set (about 20 opcodes). The validator and interp now
+cover ~150 opcodes; the lowerer must mirror this before the
+runner can drive the spec corpus through validate + lower +
+interp end-to-end. **Pre-chunk-5 work**: extend lowerer to all
+numeric ops (no payload changes; passthrough), then handle
+load/store memarg extraction, then memory.size/grow, then
+call / call_indirect, then br_if / br_table.
 
 **Zone placement note**: `src/interp/mvp.zig` is Zone 2, not
 Zone 1, because it imports `src/interp/mod.zig` for Runtime +
