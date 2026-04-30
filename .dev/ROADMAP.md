@@ -1179,7 +1179,7 @@ and `zig build test` green before Phase 1 opens.
 | 0.3 | `zig build` succeeds on `windowsmini` via SSH.                                     | [x] 66814fb    |
 | 0.4 | Wire `.githooks/pre_commit` and `pre_push`; `git config core.hooksPath .githooks`. | [x] 9bd21b2    |
 | 0.5 | First green `zig build test` on Mac, OrbStack, windowsmini.                        | [x] 66814fb    |
-| 0.6 | Phase-0 boundary audit_scaffolding pass.                                           | [x] @SHA       |
+| 0.6 | Phase-0 boundary audit_scaffolding pass.                                           | [x] 7f34b3f    |
 | 0.7 | Open §9.1 inline; flip phase tracker.                                             | [ ]            |
 
 ### Phase 1 — Frontend MVP
