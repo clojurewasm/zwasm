@@ -86,10 +86,12 @@ pub fn main(init: std.process.Init) !void {
 /// error (caller treats it as a per-fixture failure).
 fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
     const type_section = module.find(.@"type");
+    const import_section = module.find(.import);
     const func_section = module.find(.function);
+    const global_section = module.find(.global);
     const code_section = module.find(.code);
 
-    // No code section → nothing to validate.
+    // No code section → nothing to validate (imports / type-only modules).
     const code_body = if (code_section) |s| s.body else return;
 
     var types_owned = if (type_section) |s|
@@ -98,49 +100,87 @@ fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
         sections.Types{ .arena = std.heap.ArenaAllocator.init(gpa), .items = &.{} };
     defer types_owned.deinit();
 
-    const func_indices = if (func_section) |s|
+    var imports_owned: ?sections.Imports = if (import_section) |s|
+        try sections.decodeImports(gpa, s.body)
+    else
+        null;
+    defer if (imports_owned) |*im| im.deinit();
+
+    const defined_func_indices = if (func_section) |s|
         try sections.decodeFunctions(gpa, s.body)
     else
         try gpa.alloc(u32, 0);
-    defer gpa.free(func_indices);
+    defer gpa.free(defined_func_indices);
 
     var codes = try sections.decodeCodes(gpa, code_body);
     defer codes.deinit();
 
-    if (codes.items.len != func_indices.len) return error.FunctionCountMismatch;
+    if (codes.items.len != defined_func_indices.len) return error.FunctionCountMismatch;
 
-    // Build the per-function signature table (defined funcs only — imports
-    // are not yet decoded; that follows in the 1.9 imports chunk).
-    const func_types = try gpa.alloc(zwasm.zir.FuncType, func_indices.len);
+    // Function-index space = imported funcs (in import order) + defined funcs.
+    var imp_func_count: usize = 0;
+    if (imports_owned) |im| {
+        for (im.items) |it| if (it.kind == .func) {
+            imp_func_count += 1;
+        };
+    }
+    const total_funcs = imp_func_count + defined_func_indices.len;
+    const func_types = try gpa.alloc(zwasm.zir.FuncType, total_funcs);
     defer gpa.free(func_types);
-    for (func_indices, func_types) |type_idx, *ft| {
-        if (type_idx >= types_owned.items.len) return error.InvalidTypeIndex;
-        ft.* = types_owned.items[type_idx];
+    {
+        var cursor: usize = 0;
+        if (imports_owned) |im| {
+            for (im.items) |it| if (it.kind == .func) {
+                const ti = it.payload.func_typeidx;
+                if (ti >= types_owned.items.len) return error.InvalidTypeIndex;
+                func_types[cursor] = types_owned.items[ti];
+                cursor += 1;
+            };
+        }
+        for (defined_func_indices) |type_idx| {
+            if (type_idx >= types_owned.items.len) return error.InvalidTypeIndex;
+            func_types[cursor] = types_owned.items[type_idx];
+            cursor += 1;
+        }
     }
 
-    // Globals: project the global section onto the validator's
-    // `GlobalEntry` shape. Modules with no globals pass an empty slice.
-    const global_section = module.find(.global);
+    // Global-index space = imported globals + defined globals.
     var globals_owned: ?sections.Globals = if (global_section) |s|
         try sections.decodeGlobals(gpa, s.body)
     else
         null;
     defer if (globals_owned) |*g| g.deinit();
 
-    var global_buf: [256]validator.GlobalEntry = undefined;
-    const global_entries: []const validator.GlobalEntry = blk: {
-        if (globals_owned) |g| {
-            if (g.items.len > global_buf.len) return error.TooManyGlobals;
-            for (g.items, 0..) |gd, i| {
-                global_buf[i] = .{ .valtype = gd.valtype, .mutable = gd.mutable };
-            }
-            break :blk global_buf[0..g.items.len];
+    var imp_global_count: usize = 0;
+    if (imports_owned) |im| {
+        for (im.items) |it| if (it.kind == .global) {
+            imp_global_count += 1;
+        };
+    }
+    const def_global_count: usize = if (globals_owned) |g| g.items.len else 0;
+    const total_globals = imp_global_count + def_global_count;
+    const global_entries = try gpa.alloc(validator.GlobalEntry, total_globals);
+    defer gpa.free(global_entries);
+    {
+        var cursor: usize = 0;
+        if (imports_owned) |im| {
+            for (im.items) |it| if (it.kind == .global) {
+                global_entries[cursor] = .{
+                    .valtype = it.payload.global.valtype,
+                    .mutable = it.payload.global.mutable,
+                };
+                cursor += 1;
+            };
         }
-        break :blk &.{};
-    };
+        if (globals_owned) |g| {
+            for (g.items) |gd| {
+                global_entries[cursor] = .{ .valtype = gd.valtype, .mutable = gd.mutable };
+                cursor += 1;
+            }
+        }
+    }
 
-    for (codes.items, func_indices) |code, type_idx| {
-        if (type_idx >= types_owned.items.len) return error.InvalidTypeIndex;
+    for (codes.items, defined_func_indices) |code, type_idx| {
         const sig = types_owned.items[type_idx];
         try validator.validateFunction(
             sig,

@@ -107,6 +107,115 @@ pub fn decodeFunctions(alloc: Allocator, body: []const u8) Error![]u32 {
     return indices;
 }
 
+pub const ImportKind = enum(u8) {
+    func = 0x00,
+    table = 0x01,
+    memory = 0x02,
+    global = 0x03,
+};
+
+pub const Import = struct {
+    /// Module name and field name borrowed from the input.
+    module: []const u8,
+    name: []const u8,
+    /// Discriminator + payload (typeidx for func, valtype+mut for global,
+    /// limits-only for memory/table — only typeidx and global payloads
+    /// are decoded structurally; the runner reads them, the others are
+    /// recorded as kind only).
+    kind: ImportKind,
+    payload: ImportPayload,
+};
+
+pub const ImportPayload = union(enum) {
+    func_typeidx: u32,
+    table: void,
+    memory: void,
+    global: struct { valtype: ValType, mutable: bool },
+};
+
+pub const Imports = struct {
+    arena: std.heap.ArenaAllocator,
+    items: []Import,
+
+    pub fn deinit(self: *Imports) void {
+        self.arena.deinit();
+    }
+};
+
+/// Decode the body of an import section (`SectionId.import`):
+///   vec(import), import = mod:name nm:name desc
+///   desc = 0x00 typeidx | 0x01 tabletype | 0x02 memtype | 0x03 globaltype
+/// Table and memory descriptions are recorded as kind-only — their
+/// limits payload is consumed but not surfaced (Phase-1 validators
+/// do not need it). Function and global imports are decoded
+/// structurally so the validator can index them.
+pub fn decodeImports(parent_alloc: Allocator, body: []const u8) Error!Imports {
+    var arena = std.heap.ArenaAllocator.init(parent_alloc);
+    errdefer arena.deinit();
+    const alloc = arena.allocator();
+
+    var pos: usize = 0;
+    const count = try leb128.readUleb128(u32, body, &pos);
+    const items = try alloc.alloc(Import, count);
+
+    for (items) |*imp| {
+        const mod = try readName(body, &pos);
+        const nm = try readName(body, &pos);
+        if (pos >= body.len) return Error.UnexpectedEnd;
+        const k = body[pos];
+        pos += 1;
+        const kind: ImportKind = switch (k) {
+            0x00, 0x01, 0x02, 0x03 => @enumFromInt(k),
+            else => return Error.InvalidFunctype,
+        };
+        const payload: ImportPayload = switch (kind) {
+            .func => .{ .func_typeidx = try leb128.readUleb128(u32, body, &pos) },
+            .table => blk: {
+                if (pos >= body.len) return Error.UnexpectedEnd;
+                _ = body[pos]; // reftype byte
+                pos += 1;
+                try skipLimits(body, &pos);
+                break :blk .table;
+            },
+            .memory => blk: {
+                try skipLimits(body, &pos);
+                break :blk .memory;
+            },
+            .global => blk: {
+                const t = try readValType(body, &pos);
+                if (pos >= body.len) return Error.UnexpectedEnd;
+                const m = body[pos];
+                pos += 1;
+                if (m > 1) return Error.InvalidFunctype;
+                break :blk .{ .global = .{ .valtype = t, .mutable = m == 1 } };
+            },
+        };
+        imp.* = .{ .module = mod, .name = nm, .kind = kind, .payload = payload };
+    }
+
+    if (pos != body.len) return Error.TrailingBytes;
+    return .{ .arena = arena, .items = items };
+}
+
+fn readName(body: []const u8, pos: *usize) Error![]const u8 {
+    const len = try leb128.readUleb128(u32, body, pos);
+    const len_us: usize = @intCast(len);
+    if (len_us > body.len - pos.*) return Error.UnexpectedEnd;
+    const slice = body[pos.* .. pos.* + len_us];
+    pos.* += len_us;
+    return slice;
+}
+
+fn skipLimits(body: []const u8, pos: *usize) Error!void {
+    if (pos.* >= body.len) return Error.UnexpectedEnd;
+    const flag = body[pos.*];
+    pos.* += 1;
+    _ = try leb128.readUleb128(u32, body, pos); // min
+    if (flag & 1 != 0) {
+        _ = try leb128.readUleb128(u32, body, pos); // max
+    }
+}
+
 pub const GlobalDef = struct {
     valtype: ValType,
     mutable: bool,
@@ -418,6 +527,48 @@ test "decodeGlobals: mutable f64 global" {
 test "decodeGlobals: rejects malformed mut byte" {
     const body = [_]u8{ 0x01, 0x7F, 0x02, 0x41, 0x00, 0x0B };
     try testing.expectError(Error.InvalidFunctype, decodeGlobals(testing.allocator, &body));
+}
+
+test "decodeImports: empty section" {
+    var i = try decodeImports(testing.allocator, &[_]u8{0x00});
+    defer i.deinit();
+    try testing.expectEqual(@as(usize, 0), i.items.len);
+}
+
+test "decodeImports: single function import" {
+    // count=1; mod="env"; name="abs"; desc=0x00 typeidx=2
+    const body = [_]u8{
+        0x01,
+        0x03, 'e', 'n', 'v',
+        0x03, 'a', 'b', 's',
+        0x00, 0x02,
+    };
+    var i = try decodeImports(testing.allocator, &body);
+    defer i.deinit();
+    try testing.expectEqual(@as(usize, 1), i.items.len);
+    try testing.expectEqualSlices(u8, "env", i.items[0].module);
+    try testing.expectEqualSlices(u8, "abs", i.items[0].name);
+    try testing.expectEqual(ImportKind.func, i.items[0].kind);
+    try testing.expectEqual(@as(u32, 2), i.items[0].payload.func_typeidx);
+}
+
+test "decodeImports: single global import (immutable i32)" {
+    const body = [_]u8{
+        0x01,
+        0x02, 'm', 'm',
+        0x01, 'g',
+        0x03, 0x7F, 0x00,
+    };
+    var i = try decodeImports(testing.allocator, &body);
+    defer i.deinit();
+    try testing.expectEqual(ImportKind.global, i.items[0].kind);
+    try testing.expectEqual(ValType.i32, i.items[0].payload.global.valtype);
+    try testing.expectEqual(false, i.items[0].payload.global.mutable);
+}
+
+test "decodeImports: rejects unknown desc kind" {
+    const body = [_]u8{ 0x01, 0x00, 0x00, 0x05 };
+    try testing.expectError(Error.InvalidFunctype, decodeImports(testing.allocator, &body));
 }
 
 test "decodeGlobals: rejects unterminated init_expr" {
