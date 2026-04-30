@@ -38,10 +38,14 @@ will interrupt if needed.
 
 1. Read `.dev/handover.md`. (The `SessionStart` hook already prints it.)
 2. Read `.dev/ROADMAP.md`:
-   - Find the IN-PROGRESS phase in §9. If none, take the first PENDING.
-   - In that phase's expanded §9.<N> task list, find the first `[ ]`
-     task. If §9.<N> is missing/empty, the phase has not been opened
-     yet; expand it first.
+   - Look up the **Phase Status** widget at the top of §9 — it
+     names the IN-PROGRESS phase and its first open `[ ]` task.
+   - Open that phase's `§9.<N>` task table and confirm the table's
+     first `[ ]` matches the widget. If they disagree (drift), the
+     widget is wrong; trust the table and update the widget.
+   - If §9.<N>'s task table is missing/empty, the phase has not
+     been opened yet; expand it first (mirror the previous phase's
+     structure).
 3. `git log --oneline -10` — identify the last commit.
 4. `zig build test` (Phase 0+) — confirm the build is green. From
    Phase 1, also run `zig build test-spec`. From Phase 6, also run
@@ -115,17 +119,27 @@ behaviour.
 
 ### Step 5 — Test gate (three hosts where applicable)
 
-Run **all** in a single message with parallel Bash tool calls:
+The gate command is whatever the active §9.<N>.<task>'s exit
+criterion specifies. The defaults are:
 
-- `zig build test` (Mac aarch64 host)
-- `orb run -m my-ubuntu-amd64 bash -c 'cd /Users/shota.508/Documents/MyProducts/zwasm_from_scratch && zig build test'`
+- Phase 0 / 0.1, 0.2, 0.3 — `zig build` only (build verify).
+- Phase 0 / 0.5 onward and Phase 1+ — `zig build test-all` (or the
+  narrower `zig build test` plus phase-relevant `test-spec` /
+  `test-e2e` / etc. as they land).
+
+Run on all available hosts in a single message with parallel Bash
+tool calls:
+
+- `zig build <step>` (Mac aarch64 host)
+- `orb run -m my-ubuntu-amd64 bash -c 'cd /Users/shota.508/Documents/MyProducts/zwasm_from_scratch && zig build <step>'`
   (Linux x86_64 via OrbStack — Bash timeout ≥ 600000 ms for cold
   builds)
-- `ssh windowsmini "cd zwasm_from_scratch && zig build test"`
-  (Windows x86_64 native — Phase 0 smoke; Phase 14+ wraps in
-  `scripts/run_remote_windows.sh`)
+- For Windows: first `bash scripts/run_remote_windows.sh <step>` —
+  this rsyncs the tree, then runs `zig build <step>` remotely.
+  The bare `ssh windowsmini "cd zwasm_from_scratch && zig build
+  <step>"` only works after a sync has already happened.
 
-All three must be green to proceed. If any output exceeds ~200
+All hosts must be green to proceed. If any output exceeds ~200
 lines, delegate to a Bash subagent and ask for "pass/fail + first
 failure only"; otherwise inline.
 
@@ -177,9 +191,11 @@ that point:
 2. Optional: run built-in `simplify` on `git diff <phase-start>..HEAD
    -- src/`. Apply behaviour-preserving suggestions; queue larger
    ones in `handover.md`.
-3. **Open §9.<N+1>**: flip the §9 phase tracker; expand §9.<N+1>
-   inline (mirror §9.<N>'s structure); update handover.md to point
-   at §9.<N+1>'s first task.
+3. **Open §9.<N+1>**: update the **Phase Status** widget at the top
+   of §9 (mark §9.<N> as `DONE`, §9.<N+1> as `IN-PROGRESS`); expand
+   §9.<N+1>'s task table inline (mirror §9.<N>'s structure: a
+   numbered `[ ]` table with the same Status column shape); update
+   handover.md to point at §9.<N+1>'s first task.
 4. If context is high, run `/compact`. Otherwise, immediately resume
    §9.<N+1>'s Step 0.
 

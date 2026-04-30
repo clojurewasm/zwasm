@@ -7,11 +7,12 @@
 
 ## Next 3 files to read (cold-start order)
 
-1. `.dev/handover.md` (this file)
-2. `.dev/ROADMAP.md` — find the IN-PROGRESS phase in §9, then its
-   expanded `§9.<N>` task list; pick up the first `[ ]` task.
+1. `.dev/handover.md` (this file).
+2. `.dev/ROADMAP.md` — read the **Phase Status** widget at the top
+   of §9 to find the IN-PROGRESS phase, then its expanded `§9.<N>`
+   task list; pick up the first `[ ]` task.
 3. The most recent `.dev/decisions/NNNN_*.md` ADR (if any) — to
-   recover load-bearing constraints in flight.
+   recover load-bearing deviations in flight.
 
 ## Current state
 

@@ -1113,6 +1113,35 @@ plan if the proposal hits Phase 5 during active development.
 
 ## 9. Phase plan
 
+### Phase status (the tracker)
+
+This widget is the canonical answer to "which phase is the agent
+working on right now". `continue` reads it on every resume; `0.7`
+of each phase advances it.
+
+| Phase | State       | First open `[ ]` task         |
+|-------|-------------|-------------------------------|
+| 0     | IN-PROGRESS | §9.0 / 0.2 (OrbStack verify) |
+| 1     | PENDING     | (opens at 0.7)                |
+| 2     | PENDING     |                               |
+| 3     | PENDING     |                               |
+| 4     | PENDING     |                               |
+| 5     | PENDING     |                               |
+| 6     | PENDING     |                               |
+| 7     | PENDING     |                               |
+| 8     | PENDING     |                               |
+| 9     | PENDING     |                               |
+| 10    | PENDING     |                               |
+| 11    | PENDING     |                               |
+| 12    | PENDING     |                               |
+| 13    | PENDING     |                               |
+| 14    | PENDING     |                               |
+| 15    | PENDING     |                               |
+
+State values: `IN-PROGRESS` (one phase at a time), `PENDING`,
+`DONE`. Update this table whenever §9.<N>.7 closes a phase or when
+a phase first opens.
+
 ### Cadence
 
 - Each phase has a **Goal**, **Exit criterion** (machine-verifiable),

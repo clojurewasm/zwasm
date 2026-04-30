@@ -5,6 +5,8 @@ paths:
   - "include/**"
   - "scripts/**"
   - "test/**"
+  - ".dev/ROADMAP.md"
+  - ".dev/handover.md"
 ---
 
 # No copy-paste from zwasm v1

@@ -2,6 +2,8 @@
 paths:
   - "src/**/*.zig"
   - "build.zig"
+  - ".dev/ROADMAP.md"
+  - ".dev/handover.md"
 ---
 
 # Textbook survey before implementation
@@ -107,12 +109,15 @@ and rationale.
 
 ## When to skip Step 0
 
-Skip only when **all** are true:
+Skip only when **any** are true:
 
 - The task is a refactor / rename / doc-only change.
-- No new public API is introduced.
-- Implementation does not change behaviour observable from outside
-  the module.
+- No new public API is introduced AND implementation does not change
+  behaviour observable from outside the module.
+- The task is an environment / scaffolding verification (e.g. Phase 0
+  build-host smokes, hook wiring, CI matrix opening) — there is no
+  "concept" to survey, only an external state to observe or
+  configure.
 
 If any of the above is false, do Step 0 even if "you already know
 how v1 did it" — the survey output guides the per-task structure.
