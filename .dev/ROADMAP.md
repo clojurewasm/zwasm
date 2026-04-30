@@ -147,7 +147,7 @@ These do not change between phases. Changing one requires an ADR.
 | A4  | `ZIR.verify()` runs after every analysis pass                                                                                                | Inline in `src/ir/verifier.zig`; called per pass |
 | A5  | Differential test gates every wasm-execution test (Phase 6+)                                                                                 | `zig build test-all`                             |
 | A6  | ADR is required for: layer/contract change, ZIR shape change, C ABI surface change, phase order change, regression allowance, tier promotion | Reviewer checklist; pre-merge audit              |
-| A7  | Mac native + OrbStack Ubuntu native = local pre-push gate                                                                                    | `.githooks/pre-push`                             |
+| A7  | Mac native + OrbStack Ubuntu native = local pre-push gate                                                                                    | `.githooks/pre_push`                             |
 | A8  | Windows x86_64 native verified via SSH (`windowsmini`) before any v0.1.0 release                                                             | `scripts/run_remote_windows.sh` (Phase 14+)      |
 | A9  | Bench history is append-only                                                                                                                 | `bench/history.yaml` reviewed at every merge     |
 | A10 | Spec test fail=0 / skip=0 is a merge gate (Phase 2+)                                                                                         | `zig build test-spec`                            |
@@ -586,7 +586,7 @@ pub const ZirOp = enum(u16) {
     @"memory.protect",
 
     // ============================================================
-    // Pseudo opcodes — JIT-internal, populated Phase 5+
+    // Pseudo opcodes — JIT-internal, populated Phase 6+ (when JIT v1 lands)
     // ============================================================
     @"__pseudo.const_in_reg",
     @"__pseudo.loop_header",
@@ -861,8 +861,8 @@ zwasm_from_scratch/
 │
 ├── include/
 │   ├── wasm.h                  # upstream wasm-c-api (fetched, Phase 3+)
-│   ├── wasi.h                  # WASI extension (Phase 6+)
-│   └── zwasm.h                 # zwasm extensions (Phase 6+)
+│   ├── wasi.h                  # WASI extension (Phase 4+)
+│   └── zwasm.h                 # zwasm extensions (allocator inj Phase 4+; fuel/cancel Phase 6+)
 │
 ├── src/
 │   ├── main.zig
@@ -1142,16 +1142,16 @@ and `zig build test` green before Phase 1 opens.
 
 #### §9.0 task list (expanded)
 
-| #   | Description                                                                        | Status |
-|-----|------------------------------------------------------------------------------------|--------|
-| 0.0 | Bootstrap commit (this skeleton).                                                  | [ ]    |
-| 0.1 | `zig build` succeeds on Mac native.                                                | [ ]    |
-| 0.2 | `zig build` succeeds on OrbStack Ubuntu x86_64 native.                             | [ ]    |
-| 0.3 | `zig build` succeeds on `windowsmini` via SSH.                                     | [ ]    |
-| 0.4 | Wire `.githooks/pre_commit` and `pre_push`; `git config core.hooksPath .githooks`. | [ ]    |
-| 0.5 | First green `zig build test` on Mac, OrbStack, windowsmini.                        | [ ]    |
-| 0.6 | Phase-0 boundary audit_scaffolding pass.                                           | [ ]    |
-| 0.7 | Open §9.1 inline; flip phase tracker.                                             | [ ]    |
+| #   | Description                                                                        | Status         |
+|-----|------------------------------------------------------------------------------------|----------------|
+| 0.0 | Bootstrap commit (the skeleton).                                                   | [x] 9bd21b2    |
+| 0.1 | `zig build` succeeds on Mac native.                                                | [x] 9bd21b2    |
+| 0.2 | `zig build` succeeds on OrbStack Ubuntu x86_64 native.                             | [ ]            |
+| 0.3 | `zig build` succeeds on `windowsmini` via SSH.                                     | [ ]            |
+| 0.4 | Wire `.githooks/pre_commit` and `pre_push`; `git config core.hooksPath .githooks`. | [x] 9bd21b2    |
+| 0.5 | First green `zig build test` on Mac, OrbStack, windowsmini.                        | [ ] (Mac done) |
+| 0.6 | Phase-0 boundary audit_scaffolding pass.                                           | [ ]            |
+| 0.7 | Open §9.1 inline; flip phase tracker.                                             | [ ]            |
 
 ### Phase 1 — Frontend MVP
 
@@ -1338,7 +1338,7 @@ loads in fewer-than-startup-of-JIT time.
 
 - All ~130 functions in `wasm.h` implemented.
 - `wasi.h` and `zwasm.h` ABI surface complete.
-- `tests/c_api_conformance/` (wasmtime example port + zwasm-specific
+- `test/c_api_conformance/` (wasmtime example port + zwasm-specific
   tests) fail=0.
 - `examples/{c_host, zig_host, rust_host}/` all build and run on all
   3 OS.

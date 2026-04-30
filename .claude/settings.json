@@ -127,7 +127,6 @@
       "Bash(git reset --hard:*)",
       "Bash(git rebase:*)",
       "Bash(git commit --no-verify:*)",
-      "Bash(git push:main)",
       "Bash(rm -rf /:*)",
       "Bash(rm -rf ~/:*)",
       "Bash(rm -rf $HOME:*)",

@@ -12,27 +12,27 @@ codebases without being pulled by their styles.
 
 ## The textbooks
 
-| Path                                              | What it teaches                                                  | When to use                                                             |
-|---------------------------------------------------|------------------------------------------------------------------|-------------------------------------------------------------------------|
-| `~/Documents/MyProducts/zwasm/`                   | zwasm v1, ~65K LOC, the immediate predecessor                    | Always when introducing or replacing a v1 feature                       |
-| `~/Documents/OSS/wasmtime/cranelift/`             | CLIF + VCode + regalloc2 + ISLE                                  | When designing IR shape, regalloc, or the JIT mid-layer                 |
-| `~/Documents/OSS/wasmtime/winch/`                 | Single-pass JIT, MacroAssembler abstraction                      | When designing the per-arch emit layer                                  |
-| `~/Documents/OSS/zware/`                          | Zig idiomatic Wasm interpreter                                   | When deciding Zig data structures / allocator threading / module layout |
-| `~/Documents/OSS/wasm3/`                          | M3 IR + tail-call dispatch                                       | When designing the interpreter inner loop                               |
-| `~/Documents/OSS/wasmer/lib/compiler-singlepass/` | Wasmer singlepass, per-target emit                               | When the per-arch emit layer needs a second reference                   |
-| `~/Documents/OSS/wazero/`                         | Go-based dual-engine runtime                                     | When deciding interpreter vs JIT engine selection                       |
-| `~/Documents/OSS/wasm-c-api/include/wasm.h`       | Industry-standard C ABI                                          | When `wasm.h`-implementation work is at stake                           |
-| `~/Documents/OSS/regalloc2/`                      | Cranelift register allocator                                     | When designing regalloc invariants and verify()                         |
-| `~/Documents/OSS/wasm-tools/`                     | wasm-tools smith, validate, parse                                | When fuzz corpus generation or wasm parsing edge cases                  |
-| `~/Documents/OSS/sightglass/`                     | Bytecode Alliance bench suite                                    | When designing bench/runners/                                           |
-| `~/Documents/OSS/wasm-micro-runtime/`             | WAMR — interpreter + AOT + lightweight runtime                  | When comparing to small-footprint engine designs                        |
-| `~/Documents/OSS/cap-std/`                        | Capability-based std for Rust                                    | When designing WASI capabilities                                        |
-| `~/Documents/OSS/wit-bindgen/`                    | Component Model bindgen                                          | (post-v0.1.0) WIT / Component Model work                                |
-| `~/Documents/OSS/zig/lib/std/`                    | Zig 0.16 stdlib                                                  | When `std.Io.*` / `std.atomic.*` / `std.process.*` API is in question   |
-| `~/Documents/OSS/WebAssembly/spec/`               | Reference interpreter (OCaml) + spec text                        | When semantic edge cases are the question                               |
-| `~/Documents/OSS/WebAssembly/testsuite/`          | Spec testsuite                                                   | When deciding what tests to import                                      |
-| `~/Documents/OSS/WebAssembly/<proposal>/`         | Per-proposal spec + test bundles                                 | When designing for a specific Wasm proposal                             |
-| `~/zwasm/private/v2-investigation/`               | Pre-skeleton design surveys (CONCLUSION + 16 files, ~7000 lines) | The design rationale for *this* project                                 |
+| Path                                              | What it teaches                                                          | When to use                                                             |
+|---------------------------------------------------|--------------------------------------------------------------------------|-------------------------------------------------------------------------|
+| `~/Documents/MyProducts/zwasm/`                   | zwasm v1, ~65K LOC, the immediate predecessor                            | Always when introducing or replacing a v1 feature                       |
+| `~/Documents/OSS/wasmtime/cranelift/`             | CLIF + VCode + regalloc2 + ISLE                                          | When designing IR shape, regalloc, or the JIT mid-layer                 |
+| `~/Documents/OSS/wasmtime/winch/`                 | Single-pass JIT, MacroAssembler abstraction                              | When designing the per-arch emit layer                                  |
+| `~/Documents/OSS/zware/`                          | Zig idiomatic Wasm interpreter                                           | When deciding Zig data structures / allocator threading / module layout |
+| `~/Documents/OSS/wasm3/`                          | M3 IR + tail-call dispatch                                               | When designing the interpreter inner loop                               |
+| `~/Documents/OSS/wasmer/lib/compiler-singlepass/` | Wasmer singlepass, per-target emit                                       | When the per-arch emit layer needs a second reference                   |
+| `~/Documents/OSS/wazero/`                         | Go-based dual-engine runtime                                             | When deciding interpreter vs JIT engine selection                       |
+| `~/Documents/OSS/wasm-c-api/include/wasm.h`       | Industry-standard C ABI                                                  | When `wasm.h`-implementation work is at stake                           |
+| `~/Documents/OSS/regalloc2/`                      | Cranelift register allocator                                             | When designing regalloc invariants and verify()                         |
+| `~/Documents/OSS/wasm-tools/`                     | wasm-tools smith, validate, parse                                        | When fuzz corpus generation or wasm parsing edge cases                  |
+| `~/Documents/OSS/sightglass/`                     | Bytecode Alliance bench suite                                            | When designing bench/runners/                                           |
+| `~/Documents/OSS/wasm-micro-runtime/`             | WAMR — interpreter + AOT + lightweight runtime                          | When comparing to small-footprint engine designs                        |
+| `~/Documents/OSS/cap-std/`                        | Capability-based std for Rust                                            | When designing WASI capabilities                                        |
+| `~/Documents/OSS/wit-bindgen/`                    | Component Model bindgen                                                  | (post-v0.1.0) WIT / Component Model work                                |
+| `~/Documents/OSS/zig/lib/std/`                    | Zig 0.16 stdlib                                                          | When `std.Io.*` / `std.atomic.*` / `std.process.*` API is in question   |
+| `~/Documents/OSS/WebAssembly/spec/`               | Reference interpreter (OCaml) + spec text                                | When semantic edge cases are the question                               |
+| `~/Documents/OSS/WebAssembly/testsuite/`          | Spec testsuite                                                           | When deciding what tests to import                                      |
+| `~/Documents/OSS/WebAssembly/<proposal>/`         | Per-proposal spec + test bundles                                         | When designing for a specific Wasm proposal                             |
+| `~/zwasm/private/v2-investigation/`               | Pre-skeleton design surveys (16 files including CONCLUSION, ~7000 lines) | The design rationale for *this* project                                 |
 
 ## Survey procedure (default brief for Explore subagent)
 

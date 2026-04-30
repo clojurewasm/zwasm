@@ -9,7 +9,7 @@ paths:
 Auto-loaded when editing Zig source. Codifies a v1 lesson that
 drove this redesign.
 
-## Three principles (from ROADMAP §P4 / §P14)
+## Three principles (from ROADMAP §P1 / §P3 / §P14)
 
 1. **Fix root causes, never work around.** Missing feature?
    Implement it first. Spec gap? File a ROADMAP §9.<N+1> task; do

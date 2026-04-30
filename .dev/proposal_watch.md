@@ -79,6 +79,6 @@ Text Encoding Builtins` (skip).
 
 ## Review log
 
-- **2026-04-30** — initial table from `proposal-watch.md` v1 plus the
-  pre-skeleton survey at
+- **2026-04-30** — initial table seeded from zwasm v1's
+  `.dev/proposal-watch.md` and the pre-skeleton survey at
   `~/zwasm/private/v2-investigation/surveys/wasm-proposal-status.md`.

@@ -80,8 +80,8 @@ Replacements:
 - `std.atomic.Mutex` — lock-free `tryLock` / `unlock` only (no blocking
   `lock`).
 
-Phase 1–2 is single-threaded; prefer no mutex over a half-wired one. Wire
-through `Runtime.io` when concurrency actually arrives (Phase 15).
+Phase 1–9 is single-threaded; prefer no mutex over a half-wired one. Wire
+through `Runtime.io` when concurrency actually arrives (Phase 10+ multi-store; the threads proposal is post-v0.1.0).
 
 ## `@branchHint` (not `@branch`)
 

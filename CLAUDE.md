@@ -20,9 +20,9 @@ v1 git history (commit 517cc5a, charter)**:
 - **Branch**: `zwasm-from-scratch` — long-lived, branched from the v1
   charter commit. All work happens here. **Never push to `main`**;
   push to `zwasm-from-scratch` only with explicit user approval.
-- **Compatibility with v1 is explicitly out of scope.** The target is
-  `v2.0.0` and breaks the v1 ABI. Migration is documented at v0.1.0
-  release.
+- **Compatibility with v1 is explicitly out of scope.** The v0.1.0
+  release breaks the v1 ABI; `docs/migration_v1_to_v2.md` ships at
+  release time.
 
 ### Read-only reference clones (read, do not edit, do not commit from)
 
@@ -42,6 +42,12 @@ v1 git history (commit 517cc5a, charter)**:
 | `~/Documents/OSS/wasm-micro-runtime/`            | WAMR (lightweight runtime reference)                                  |
 | `~/Documents/OSS/cap-std/`                       | Capability-based std for Rust                                         |
 | `~/Documents/OSS/wit-bindgen/`                   | Component Model bindgen (post-v0.1.0 reference)                       |
+| `~/Documents/OSS/WasmEdge/`                      | WasmEdge (cloud-native runtime; AOT strategy reference)               |
+| `~/Documents/OSS/wasi-rs/`                       | Rust WASI binding (host idiom + C ABI consumer reference)             |
+| `~/Documents/OSS/dynasm-rs/`                     | DynASM (Rust port; copy-and-patch reference, post-v0.1.0)             |
+| `~/Documents/OSS/poop/`                          | Andrew Kelley's perf-bench tool (Zig)                                 |
+| `~/Documents/OSS/hyperfine/`                     | Hyperfine source (bench tool used in `bench/`)                        |
+| `~/Documents/OSS/extism/`                        | Extism (multi-language Wasm host SDK reference)                       |
 | `~/Documents/OSS/WebAssembly/spec/`              | reference interpreter (OCaml) + spec text                             |
 | `~/Documents/OSS/WebAssembly/testsuite/`         | spec testsuite                                                        |
 | `~/Documents/OSS/WebAssembly/<proposal>/`        | per-proposal spec + tests (multi-value, simd, gc, eh, etc.)           |

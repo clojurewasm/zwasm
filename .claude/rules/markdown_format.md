@@ -15,8 +15,10 @@ Auto-loaded when editing markdown.
 - Use `|` borders.
 - One space padding around content.
 - Header separator `|---|---|` (no alignment markers unless needed).
-- Run `md-table-align` (or `scripts/check_md_tables.sh`) before
-  committing if a table changed.
+- Run `md-table-align` for alignment before committing if a table
+  changed. `scripts/check_md_tables.sh` is the automatic PreToolUse
+  gate that validates pipe-count consistency at commit time (it
+  does not realign).
 
 ## Headings
 

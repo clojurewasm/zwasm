@@ -10,7 +10,7 @@ Project-level design and operational metadata. Tracked in git. English.
   this file wins.
 - [`handover.md`](./handover.md) — short, mutable, current session state.
   Read at session start, updated 1–2 lines at session end.
-- [`proposal-watch.md`](./proposal-watch.md) — WebAssembly proposal phase
+- [`proposal_watch.md`](./proposal_watch.md) — WebAssembly proposal phase
   tracking. Reviewed quarterly. v2 implements Phase 5 (= Wasm 3.0)
   proposals; lower phases are watched but not implemented unless
   promoted.

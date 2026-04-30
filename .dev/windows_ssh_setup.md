@@ -23,9 +23,10 @@ The mini PC must already have, per zwasm v1's setup:
 - Python 3.x
 - winget
 - The pinned tools (`zig`, `wasm-tools`, `wasmtime`, WASI SDK,
-  `hyperfine`) installed via the v1-derived
-  `scripts/windows/install_tools.ps1` (see Phase 13+ when we wire
-  this in for v2).
+  `hyperfine`) — for Phase 0 the user's existing zwasm v1 install
+  on `windowsmini` (its `scripts/windows/install-tools.ps1`)
+  satisfies this. zwasm v2 wires its own `scripts/windows/`
+  installer at Phase 13+.
 
 ## SSH alias
 

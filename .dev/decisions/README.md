@@ -3,8 +3,9 @@
 > ADRs document **deviations from `.dev/ROADMAP.md` discovered during
 > development**, not founding decisions. Founding decisions live in
 > the ROADMAP itself (§1–§14). When the ROADMAP is found to be wrong
-> or incomplete, follow ROADMAP §18 (Amendment policy): edit the
-> ROADMAP in place AND write an ADR explaining the deviation.
+> or incomplete, follow [ROADMAP §18.2's four-step amendment](../ROADMAP.md#18-amendment-policy):
+> (1) edit the ROADMAP in place, (2) open the ADR, (3) sync
+> `handover.md`, (4) reference the ADR in the commit message.
 >
 > Skip ADRs for ephemeral choices ("not worth it right now") or for
 > facts that are obvious from the code.

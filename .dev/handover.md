@@ -15,33 +15,45 @@
 
 ## Current state
 
-- **Phase**: **Phase 0 OPEN, not yet started.** Skeleton landed in
-  the bootstrap commit. ROADMAP §9.0 task table is the next concrete
-  work.
-- **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived).
-- **Last commit**: *to be filled after the bootstrap commit lands.*
-  The skeleton scaffolds CLAUDE.md, ROADMAP, skills, rules, scripts,
-  ADR infrastructure (`.dev/decisions/0000_template.md` only).
+- **Phase**: **Phase 0 IN-PROGRESS.** Skeleton landed; ROADMAP §9.0 /
+  0.0 (bootstrap commit) is `[x]`. Next is §9.0 / 0.1 (Mac native
+  build verify — already passes locally; just needs the §9.0 row to
+  be flipped to `[x]` once handover is updated).
+- **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
+  pushed to `origin/zwasm-from-scratch`).
+- **Last commit on this branch** *(at the moment of bootstrap)*:
+  `chore(p0): bootstrap zwasm v2 skeleton` — scaffolds CLAUDE.md,
+  ROADMAP, skills, rules, scripts, ADR infrastructure
+  (`.dev/decisions/0000_template.md` only). Subsequent commits will
+  bump this line.
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
   ADRs come into existence only when a deviation from ROADMAP is
   discovered during development (per §18).
-- **Build**: not yet runnable. `zig build` is expected to produce
-  the placeholder `zwasm version` binary on Mac native + OrbStack
-  Ubuntu + windowsmini SSH; that verification is the first task
-  (§9.0 / 0.1).
-- **OrbStack VM `my-ubuntu-amd64`**: status unknown on this fresh
-  machine. §9.0 task 0.2 verifies.
-- **`windowsmini` SSH host**: assumed reachable from this Mac per
-  the user's existing setup; §9.0 task 0.3 verifies.
+- **Build status**: `zig build`, `zig build test`, `zig build test-all`
+  all green on Mac native (aarch64-darwin) at bootstrap. OrbStack
+  Ubuntu and `windowsmini` SSH have not yet been re-verified on this
+  freshly-set-up machine — §9.0 tasks 0.2 and 0.3 cover that.
+- **OrbStack VM `my-ubuntu-amd64`**: presumed available per the
+  user's existing setup; §9.0 task 0.2 verifies via `orb info`.
+- **`windowsmini` SSH host**: presumed reachable from this Mac per
+  the user's existing zwasm v1 setup; §9.0 task 0.3 verifies via a
+  smoke `ssh windowsmini "echo ok && zig version"`.
 
-## Active task — §9.0 / 0.0
+## Active task — §9.0 / 0.2
 
-§9.0 / 0.0 is the entry: the bootstrap commit (this skeleton) needs
-to land. Until that commit exists, everything from §9.0 / 0.1 onward
-is blocked. After the commit, `continue` runs §9.0 / 0.1 (Mac
-native build verify), 0.2 (OrbStack), 0.3 (windowsmini), 0.4 (hooks),
-0.5 (`zig build test` on three hosts), 0.6 (audit pass), 0.7 (open
-§9.1).
+§9.0 / 0.0 (bootstrap), 0.1 (Mac build), 0.4 (hooks wired) are `[x]`
+already (bootstrap commit `9bd21b2` plus the audit-fix follow-up).
+The next concrete `[ ]` is **§9.0 / 0.2 — verify `zig build` on
+OrbStack Ubuntu x86_64 native**.
+
+If `orb info my-ubuntu-amd64` reports the VM does not exist on this
+freshly-set-up Mac, surface to the user with the bootstrap recipe
+in `.dev/orbstack_setup.md` and stop. Do not provision the VM
+autonomously.
+
+After 0.2 lands, 0.3 (`windowsmini` SSH smoke), 0.5 (full
+`zig build test` on all three hosts), 0.6 (audit pass), 0.7
+(open §9.1) follow in order.
 
 **Retrievable identifiers**:
 

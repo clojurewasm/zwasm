@@ -4,7 +4,7 @@ A from-scratch WebAssembly runtime in Zig 0.16.0.
 
 > **Status: Phase 0 (skeleton). Not yet runnable as a Wasm host.**
 >
-> v2 is a ground-up redesign of [zwasm v1](https://github.com/chaploud/zwasm)
+> v2 is a ground-up redesign of [zwasm v1](https://github.com/clojurewasm/zwasm)
 > with day-one design for WebAssembly 3.0 (W3C Recommendation 2025-09),
 > wasm-c-api conformance, and dual-backend (interpreter + JIT-arm64 +
 > JIT-x86) differential testing. Compatibility with v1 is explicitly
