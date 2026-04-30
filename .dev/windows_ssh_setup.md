@@ -18,7 +18,7 @@ gives a real x86_64 Windows host with minimal local-Mac overhead.
 
 The mini PC must already have, per zwasm v1's setup:
 
-- Git for Windows (supplies bash + curl + tar + unzip)
+- Git for Windows (supplies bash + curl + tar + unzip + ssh client)
 - PowerShell 7
 - Python 3.x
 - winget
@@ -27,6 +27,9 @@ The mini PC must already have, per zwasm v1's setup:
   on `windowsmini` (its `scripts/windows/install-tools.ps1`)
   satisfies this. zwasm v2 wires its own `scripts/windows/`
   installer at Phase 13+.
+
+`rsync` is **not** required on `windowsmini`; v2 syncs via
+`git pull` from `origin`, mirroring zwasm v1.
 
 ## SSH alias
 
@@ -39,6 +42,9 @@ Host windowsmini
     IdentityFile ~/.ssh/<keyfile>
 ```
 
+`windowsmini`'s default OpenSSH shell is PowerShell, so wrap any
+shell-script body with `bash -lc '...'` when invoking via `ssh`.
+
 Verification:
 
 ```bash
@@ -48,25 +54,64 @@ ssh windowsmini "echo ok && zig version"
 Expected output: `ok` + `0.16.0` (or whatever pinned Zig version
 v2 uses).
 
+## Bootstrap (one-time, per host)
+
+The clone lives at the same path as v1's: `~/Documents/MyProducts/`.
+Only the directory name differs.
+
+```bash
+ssh windowsmini bash -lc "'
+  mkdir -p ~/Documents/MyProducts &&
+  cd ~/Documents/MyProducts &&
+  git clone -b zwasm-from-scratch git@github.com:clojurewasm/zwasm.git zwasm_from_scratch
+'"
+```
+
+`origin` ends up pointing at the same `clojurewasm/zwasm` GitHub
+remote that v1 uses; the `zwasm-from-scratch` branch is the
+long-lived v2 branch.
+
 ## Phase 0 smoke
 
 The minimum for §9.0 task 0.3 is:
 
 ```bash
 # from Mac, in zwasm_from_scratch/
-rsync -a --delete --exclude=.git --exclude=zig-out --exclude=.zig-cache \
-    ./ windowsmini:~/zwasm_from_scratch/
-
-ssh windowsmini "cd zwasm_from_scratch && zig build && zig build test"
+ssh windowsmini bash -lc "'
+  cd Documents/MyProducts/zwasm_from_scratch &&
+  git fetch origin zwasm-from-scratch &&
+  git reset --hard origin/zwasm-from-scratch &&
+  zig build &&
+  zig build test
+'"
 ```
 
-If both succeed, §9.0 / 0.3 is green.
+If both succeed, §9.0 / 0.3 (and the test half of 0.5) is green.
 
-## Phase 14+ automation
+## Day-to-day sync
 
-Phase 14 introduces `scripts/run_remote_windows.sh`, which wraps
-the rsync + ssh pattern and tees output back to the Mac for
-parsing by `gate_merge.sh`. Until then, the smoke is manual.
+`scripts/run_remote_windows.sh` wraps the same pattern:
+
+```bash
+bash scripts/run_remote_windows.sh build      # zig build
+bash scripts/run_remote_windows.sh test       # zig build test
+bash scripts/run_remote_windows.sh test-all   # zig build test-all (default)
+```
+
+Each invocation `git fetch + git reset --hard origin/zwasm-from-scratch`
+on the remote and then runs the requested step. **It tests the
+latest pushed state on origin**, so commit-and-push first if you
+need the local change to land in the gate.
+
+This script is what `scripts/gate_merge.sh` calls when verifying
+the windowsmini half of the three-OS gate.
+
+## Phase 14+ extension
+
+Phase 14 may add a `git bundle` path so unpushed commits can also
+be exercised on `windowsmini` (useful for pre-push gates). Until
+then, `git pull` against `origin` is the source of truth — same as
+zwasm v1.
 
 ## Failure modes seen in v1 (avoid in v2)
 
@@ -76,8 +121,8 @@ parsing by `gate_merge.sh`. Until then, the smoke is manual.
 - **`rustup-init` stdout polluting `Install-Rustup`'s return**
   (W53) — fix routes through `Out-Host`. v2 inherits the v1 fix.
 - **Bash heredoc differences on Git-bash for Windows** — paths and
-  quoting need extra care; use the rsync + ssh pattern instead of
-  inline heredoc.
+  quoting need extra care; use `bash -lc '...'` over inline
+  heredocs.
 
 ## When to update this file
 

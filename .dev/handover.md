@@ -16,45 +16,39 @@
 
 ## Current state
 
-- **Phase**: **Phase 0 IN-PROGRESS.** Skeleton landed; ROADMAP §9.0 /
-  0.0 (bootstrap commit) is `[x]`. Next is §9.0 / 0.1 (Mac native
-  build verify — already passes locally; just needs the §9.0 row to
-  be flipped to `[x]` once handover is updated).
+- **Phase**: **Phase 0 IN-PROGRESS.** §9.0 / 0.0–0.5 are `[x]`
+  (skeleton, three-host `zig build`, three-host `zig build test`,
+  hooks). Next is §9.0 / 0.6 (Phase-0 boundary `audit_scaffolding`
+  pass), then 0.7 (open §9.1 + flip phase tracker).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
-- **Last commit on this branch** *(at the moment of bootstrap)*:
-  `chore(p0): bootstrap zwasm v2 skeleton` — scaffolds CLAUDE.md,
-  ROADMAP, skills, rules, scripts, ADR infrastructure
-  (`.dev/decisions/0000_template.md` only). Subsequent commits will
-  bump this line.
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
   ADRs come into existence only when a deviation from ROADMAP is
   discovered during development (per §18).
-- **Build status**: `zig build`, `zig build test`, `zig build test-all`
-  all green on Mac native (aarch64-darwin) at bootstrap. OrbStack
-  Ubuntu and `windowsmini` SSH have not yet been re-verified on this
-  freshly-set-up machine — §9.0 tasks 0.2 and 0.3 cover that.
-- **OrbStack VM `my-ubuntu-amd64`**: presumed available per the
-  user's existing setup; §9.0 task 0.2 verifies via `orb info`.
-- **`windowsmini` SSH host**: presumed reachable from this Mac per
-  the user's existing zwasm v1 setup; §9.0 task 0.3 verifies via a
-  smoke `ssh windowsmini "echo ok && zig version"`.
+- **Build status**: `zig build` and `zig build test` are green on
+  Mac aarch64 native, OrbStack Ubuntu x86_64 (`my-ubuntu-amd64`),
+  and `windowsmini` SSH. Three-host gate is live for Phase 0.
+- **`windowsmini` layout**: cloned at
+  `~/Documents/MyProducts/zwasm_from_scratch` (mirrors v1).
+  `origin` = `git@github.com:clojurewasm/zwasm.git`, branch
+  `zwasm-from-scratch`. `scripts/run_remote_windows.sh` syncs via
+  `git fetch + reset --hard origin/zwasm-from-scratch` (rsync was
+  the original draft; Windows mini PC has no rsync, so v2 reuses
+  v1's git-pull discipline).
 
-## Active task — §9.0 / 0.2
+## Active task — §9.0 / 0.6
 
-§9.0 / 0.0 (bootstrap), 0.1 (Mac build), 0.4 (hooks wired) are `[x]`
-already (bootstrap commit `9bd21b2` plus the audit-fix follow-up).
-The next concrete `[ ]` is **§9.0 / 0.2 — verify `zig build` on
-OrbStack Ubuntu x86_64 native**.
+§9.0 / 0.0 (bootstrap), 0.1 (Mac build), 0.2 (OrbStack build),
+0.3 (windowsmini build), 0.4 (hooks), 0.5 (three-host `zig build
+test` green) are `[x]`.
 
-If `orb info my-ubuntu-amd64` reports the VM does not exist on this
-freshly-set-up Mac, surface to the user with the bootstrap recipe
-in `.dev/orbstack_setup.md` and stop. Do not provision the VM
-autonomously.
+The next concrete `[ ]` is **§9.0 / 0.6 — Phase-0 boundary
+`audit_scaffolding` pass**. Run the `audit_scaffolding` skill,
+land its report at `private/audit-YYYY-MM-DD.md`, and fix any
+local `block` findings inline before flipping 0.7.
 
-After 0.2 lands, 0.3 (`windowsmini` SSH smoke), 0.5 (full
-`zig build test` on all three hosts), 0.6 (audit pass), 0.7
-(open §9.1) follow in order.
+After 0.6 lands, 0.7 (open §9.1 inline + flip the Phase Status
+widget) closes Phase 0.
 
 **Retrievable identifiers**:
 
@@ -64,6 +58,7 @@ After 0.2 lands, 0.3 (`windowsmini` SSH smoke), 0.5 (full
 - ROADMAP §4.2 — full ZirOp catalogue (~600 ops, day-1 reserved)
 - ROADMAP §9.0 — Phase 0 task list
 - ROADMAP §11 — test strategy + test data policy
+- ROADMAP §11.5 — three-OS gate (Mac / OrbStack / windowsmini)
 - ROADMAP §13 — commit discipline + work loop
 - ROADMAP §14 — forbidden actions
 - ROADMAP §18 — amendment policy
@@ -81,7 +76,8 @@ After 0.2 lands, 0.3 (`windowsmini` SSH smoke), 0.5 (full
   conditions).
 - Skill `audit_scaffolding` runs at adaptive cadence (after large
   refactors, after scaffolding accretes, when something feels off).
-  Not strictly per-phase or per-N-commits.
+  Not strictly per-phase or per-N-commits, but Phase 0 / 0.6 calls
+  for one explicitly.
 - Rule `.claude/rules/textbook_survey.md` — auto-loaded on
   `src/**/*.zig`; defines the Step 0 brief and the no-pull guardrails.
 - Rule `.claude/rules/no_copy_from_v1.md` — explicit ban on

@@ -41,8 +41,9 @@ Local pre-push (ROADMAP §11.5):
 - Mac aarch64 native: `zig build test-all`
 - OrbStack Ubuntu x86_64: `orb run -m my-ubuntu-amd64 bash -c '... zig build test-all'`
 - Windows x86_64 native: `bash scripts/run_remote_windows.sh test-all`
-  (or `ssh windowsmini "cd zwasm_from_scratch && zig build test-all"`
-  for a quick smoke).
+  (the script `git pull`s `origin/zwasm-from-scratch` on the
+  `windowsmini` clone at `~/Documents/MyProducts/zwasm_from_scratch`
+  and then runs `zig build test-all` there).
 
 ## Differential testing (Phase 6+)
 

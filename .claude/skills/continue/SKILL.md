@@ -134,10 +134,12 @@ tool calls:
 - `orb run -m my-ubuntu-amd64 bash -c 'cd /Users/shota.508/Documents/MyProducts/zwasm_from_scratch && zig build <step>'`
   (Linux x86_64 via OrbStack — Bash timeout ≥ 600000 ms for cold
   builds)
-- For Windows: first `bash scripts/run_remote_windows.sh <step>` —
-  this rsyncs the tree, then runs `zig build <step>` remotely.
-  The bare `ssh windowsmini "cd zwasm_from_scratch && zig build
-  <step>"` only works after a sync has already happened.
+- For Windows: `bash scripts/run_remote_windows.sh <step>` — the
+  script `git fetch + reset --hard origin/zwasm-from-scratch` on
+  the windowsmini clone at `~/Documents/MyProducts/zwasm_from_scratch`
+  and then runs `zig build <step>` there. It exercises the latest
+  pushed origin state, so push first if you need a local commit
+  reflected in the gate.
 
 All hosts must be green to proceed. If any output exceeds ~200
 lines, delegate to a Bash subagent and ask for "pass/fail + first

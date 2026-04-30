@@ -42,7 +42,7 @@ fi
 # ---- Windows x86_64 via SSH (windowsmini) ----
 if ssh -o ConnectTimeout=5 -o BatchMode=yes windowsmini "echo ok" >/dev/null 2>&1; then
     echo "[gate_merge] zig build test-all on windowsmini SSH ..."
-    ssh windowsmini "cd zwasm_from_scratch && zig build test-all"
+    bash scripts/run_remote_windows.sh test-all
 else
     echo "[gate_merge] WARN: windowsmini SSH unreachable; skipping Windows gate." >&2
     echo "             See .dev/windows_ssh_setup.md." >&2

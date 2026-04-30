@@ -1121,7 +1121,7 @@ of each phase advances it.
 
 | Phase | State       | First open `[ ]` task         |
 |-------|-------------|-------------------------------|
-| 0     | IN-PROGRESS | §9.0 / 0.2 (OrbStack verify) |
+| 0     | IN-PROGRESS | §9.0 / 0.6 (audit pass)      |
 | 1     | PENDING     | (opens at 0.7)                |
 | 2     | PENDING     |                               |
 | 3     | PENDING     |                               |
@@ -1175,10 +1175,10 @@ and `zig build test` green before Phase 1 opens.
 |-----|------------------------------------------------------------------------------------|----------------|
 | 0.0 | Bootstrap commit (the skeleton).                                                   | [x] 9bd21b2    |
 | 0.1 | `zig build` succeeds on Mac native.                                                | [x] 9bd21b2    |
-| 0.2 | `zig build` succeeds on OrbStack Ubuntu x86_64 native.                             | [ ]            |
-| 0.3 | `zig build` succeeds on `windowsmini` via SSH.                                     | [ ]            |
+| 0.2 | `zig build` succeeds on OrbStack Ubuntu x86_64 native.                             | [x] @SHA       |
+| 0.3 | `zig build` succeeds on `windowsmini` via SSH.                                     | [x] @SHA       |
 | 0.4 | Wire `.githooks/pre_commit` and `pre_push`; `git config core.hooksPath .githooks`. | [x] 9bd21b2    |
-| 0.5 | First green `zig build test` on Mac, OrbStack, windowsmini.                        | [ ] (Mac done) |
+| 0.5 | First green `zig build test` on Mac, OrbStack, windowsmini.                        | [x] @SHA       |
 | 0.6 | Phase-0 boundary audit_scaffolding pass.                                           | [ ]            |
 | 0.7 | Open §9.1 inline; flip phase tracker.                                             | [ ]            |
 
@@ -1571,8 +1571,9 @@ Local pre-push (A7, A8):
 - OrbStack Ubuntu x86_64 native — `orb run -m my-ubuntu-amd64 bash
   -c '... gate_merge.sh'`.
 - Windows x86_64 native — `bash scripts/run_remote_windows.sh` (drives
-  the `windowsmini` SSH host; Phase 14+ for full automation, Phase 0
-  smoke is `ssh windowsmini "cd zwasm_from_scratch && zig build"`).
+  the `windowsmini` SSH host; pulls `origin/zwasm-from-scratch` on
+  the remote clone at `~/Documents/MyProducts/zwasm_from_scratch`,
+  then runs the requested `zig build` step).
 
 CI matrix lights up in Phase 13.
 

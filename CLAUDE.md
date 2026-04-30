@@ -92,7 +92,8 @@ session.
   Mac aarch64 (host) AND OrbStack Ubuntu x86_64 AND `windowsmini`
   SSH before every commit.
   Linux: `orb run -m my-ubuntu-amd64 bash -c '... zig build ...'`.
-  Windows: `ssh windowsmini "cd zwasm_from_scratch && zig build ..."`.
+  Windows: `ssh windowsmini bash -lc "'cd Documents/MyProducts/zwasm_from_scratch && zig build ...'"`
+  (or wrapped via `bash scripts/run_remote_windows.sh`).
   Setup: [`.dev/orbstack_setup.md`](.dev/orbstack_setup.md) and
   [`.dev/windows_ssh_setup.md`](.dev/windows_ssh_setup.md). Do not
   bypass hooks.
@@ -165,8 +166,8 @@ orb run -m my-ubuntu-amd64 bash -c '
   zig build test-all
 '
 
-# Windows x86_64 via SSH
-ssh windowsmini "cd zwasm_from_scratch && zig build test-all"
+# Windows x86_64 via SSH (pulls origin/zwasm-from-scratch first)
+bash scripts/run_remote_windows.sh test-all
 ```
 
 ## References
@@ -198,4 +199,4 @@ OrbStack Ubuntu x86_64 must also pass before push:
 - `orb run -m my-ubuntu-amd64 bash -c '... zig build test-all'`
 
 `windowsmini` SSH must also pass before push:
-- `ssh windowsmini "cd zwasm_from_scratch && zig build test-all"`
+- `bash scripts/run_remote_windows.sh test-all`
