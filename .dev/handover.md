@@ -19,12 +19,11 @@
 - **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE`. §9.1 /
   1.0 (`922521f`), 1.1 (`9305414`), 1.2 (`c2cd9b5`), 1.3
   (`d2578ea`), 1.4 (`bbc5aca`), 1.5 (`73eaef9`), 1.6 (`36c4834`),
-  1.7 (`702bc30`) are `[x]`. The full MVP frontend stack is
-  scaffolded: ZIR shape, ZirOp catalogue, DispatchTable, module /
-  section iterator, validator, lowerer, and feature/mvp/mod.zig
-  registering MVP handlers via `register(*DispatchTable)`. The
-  first remaining `[ ]` is **§9.1 / 1.8 — vendor the Wasm Core
-  1.0 spec corpus + add `zig build test-spec` runner**.
+  1.7 (`702bc30`), 1.8 (`8ab5b55`) are `[x]`. The full MVP
+  frontend stack + `zig build test-spec` infrastructure is in
+  place. The first remaining `[ ]` is **§9.1 / 1.9 — Wasm Core
+  1.0 (MVP) spec corpus decodes + validates fail=0 / skip=0 on
+  all three hosts**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -42,56 +41,55 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.8 (vendor spec corpus + test-spec runner)
+## Active task — §9.1 / 1.9 (Wasm 1.0 corpus fail=0 / skip=0 gate)
 
-§9.1 / 1.7 closed at `702bc30`. `src/feature/mvp/mod.zig`
-exposes `register(*DispatchTable)` and installs MVP-opcode
-handlers into the `parsers` slot for the smoke set (const ops
-with low32/high32 splits for 64-bit, local-indexed via uleb32,
-br depth, no-immediate ops). The new `src/frontend/parse_ctx.zig`
-holds a concrete `Ctx` struct that handlers cast `*ParserCtx`
-back to via `Ctx.fromOpaque`. **Important non-deviation**:
-`DispatchTable`'s 4-slot shape is unchanged; no validator slot
-was added (no ADR filed). The lowerer's inline switch in 1.6
-remains the production code path for Phase 1; production
-migration to dispatch-table consumption is deferred to Phase 2
-(interp) when the table actually replaces the switch.
+§9.1 / 1.8 closed at `8ab5b55`. `zig build test-spec` runs an
+addExecutable rooted at `test/spec/runner.zig` that walks a
+corpus directory, parses each `.wasm` via the frontend parser,
+and exits non-zero on any failure. The runner imports the
+frontend through a new `zwasm_lib` module re-exported from
+`src/main.zig` (`pub const parser / validator / lowerer = ...`).
+The 1.8 smoke corpus at `test/spec/smoke/{empty,single_func,
+block}.wasm` was hand-baked via wat2wasm and is committed for
+hermetic three-host runs. `test-all` now depends on test-spec.
+**Section-body decoders for type / function / code are still
+not implemented** — the runner exercises only the parser
+(structural decode); validate + lower are not yet driven on the
+corpus.
 
-§9.1 / 1.8 lands **Wasm Core 1.0 spec corpus vendoring + the
-`zig build test-spec` runner**. Scope:
+§9.1 / 1.9 closes Phase 1 by delivering the **Wasm Core 1.0
+(MVP) corpus fail=0 / skip=0 gate** across Mac + OrbStack +
+windowsmini. Scope:
 
-- Decide the on-disk location for the vendored spec corpus
-  (likely `test/spec/wasm-1.0/` per ROADMAP §11 layout).
-  Source is `~/Documents/OSS/WebAssembly/spec/test/core/` (read,
-  copy as snapshot — see `no_copy_from_v1.md` exception clause:
-  spec testsuite is upstream artifact, copied verbatim).
-- The corpus is `.wast` script-format; for 1.8 we only need the
-  binary-decoded modules (the validator + lowerer stop before
-  execution). Either:
-  (a) vendor the `.wast` files plus a small Zig parser for the
-      `(module binary "...")` directive, or
-  (b) pre-bake `.wast` → `.wasm` via `wasm-tools wast2json` and
-      vendor the `.wasm` outputs.
-  Plan (a) keeps the corpus updateable from upstream; plan (b)
-  reduces the runner's complexity. Survey both before deciding.
-- Add `zig build test-spec` to `build.zig`. Phase 1's exit
-  criterion is **decode + validate** fail=0 / skip=0 on the MVP
-  subset; the runner walks the corpus, drives parser → validator
-  → lowerer, and counts failures.
-- The runner does NOT run the `(assert_*)` directives that need
-  execution (those land in Phase 2 with the interpreter).
+- Add type / function / code section-body decoders in
+  `src/frontend/sections.zig` (or split per section). Each
+  decodes the raw section bytes into structured data:
+  - type:     `[]FuncType` (params + results)
+  - function: `[]u32` (per-function type_idx)
+  - code:     `[](sig, locals, body_bytes)` per function
+- Vendor the upstream Wasm 1.0 MVP corpus: copy
+  `~/Documents/OSS/WebAssembly/spec/test/core/*.wast` (Wasm 1.0
+  files only; defer 2.0 / 3.0 to later phases) into
+  `test/spec/wat/` per ROADMAP §5 layout. Pin the upstream
+  commit hash in a sidecar README. Add
+  `scripts/regen_test_data.sh` invoking `wast2json` to bake
+  `.wat` → `.wasm` into `test/spec/json/` (gitignored).
+- Upgrade `test/spec/runner.zig` to drive parser → section
+  decoders → validator + lowerer per function. The fail=0 /
+  skip=0 gate is the corpus passing on Mac + OrbStack +
+  windowsmini.
+- `test/spec/smoke/` retains the small hand-baked smoke corpus
+  for fast PR-loop runs; the bigger json/ corpus is the gate.
 
-Tests: smoke that the runner finds at least one corpus file and
-runs to completion. The **§9.1 / 1.9** task is the actual
-"fail=0 / skip=0 across all three hosts" gate — 1.8 only
-delivers the runner infrastructure.
+Tests: `zig build test-spec` returns 0 on the full vendored MVP
+corpus on each host. Any single failure is a release-blocker
+per ROADMAP §A10.
 
-Step 0 (Survey) for 1.8: zwasm v1's spec-test runner layout
-(probably under `test/spec/`), the wasm-tools `wast2json` output
-shape (in case we choose path b), and the upstream
-`WebAssembly/testsuite` structure (curated subset of `spec/test/
-core/`). Cite ROADMAP §11 (test data policy — "vendored verbatim,
-upstream commit pinned").
+Step 0 (Survey) for 1.9: the upstream corpus's `.wast` directive
+shapes (`(module ...)`, `(module binary ...)`, `(assert_invalid
+...)`, etc.); zwasm v1's spec runner output JSON shape — what
+fields it relied on; how to filter Wasm-2.0/3.0-only `.wast`
+files. Cite ROADMAP §11 / §A10.
 
 **Retrievable identifiers**:
 
