@@ -17,13 +17,11 @@
 ## Current state
 
 - **Phase**: **Phase 2 IN-PROGRESS.** Phases 0 + 1 are `DONE`.
-  §9.1's SHAs are backfilled in the ROADMAP task table
-  (1.0 `922521f` … 1.10 `3667b25`). The Phase Status widget
-  shows §9.2 IN-PROGRESS with first open `[ ]` at §9.2 / 2.0.
-  Phase 2 brings the **interpreter MVP** + Wasm Core 2.0 spec
-  corpus fail=0 / skip=0 (the 🔒 boundary gate). The first
-  open `[ ]` is **§9.2 / 2.0 — `src/interp/mod.zig` (interp
-  scaffold: Runtime, frame stack, Value, Trap)**.
+  §9.2 / 2.0 (`243d9ba`) is `[x]`: interp scaffold (Value /
+  Trap / Frame / Runtime with bounded operand+frame stacks).
+  The first remaining `[ ]` is **§9.2 / 2.1 —
+  `src/interp/dispatch.zig`** (threaded-code dispatch loop
+  reading `DispatchTable.interp`).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -41,39 +39,40 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.2 / 2.0 (`src/interp/mod.zig` interp scaffold)
+## Active task — §9.2 / 2.1 (`src/interp/dispatch.zig`)
 
-§9.1 / 1.11 closed Phase 1 with the boundary commit (this turn):
-SHAs backfilled into §9.1's task table, Phase Status widget
-flipped (Phase 1 DONE, Phase 2 IN-PROGRESS), §9.2's task table
-expanded inline mirroring §9.1's structure (2.0–2.10).
+§9.2 / 2.0 closed at `243d9ba`. `src/interp/mod.zig` exposes
+`Value` (extern union, 8 bytes; bits64 carries IEEE-754),
+`Trap` (Unreachable / DivByZero / IntOverflow / OOB family /
+IndirectCallTypeMismatch / StackOverflow / CallStackExhausted),
+`Frame { sig, locals, operand_base, pc }`, and `Runtime` with
+inline 4096-slot operand stack + 256-slot frame stack plus
+heap-backed `memory` and `globals`. No execution semantics yet.
 
-§9.2 / 2.0 lands the **interpreter scaffold** in
-`src/interp/mod.zig` (Zone 2 — may import Zone 0 + Zone 1; **must
-not** import Zone 2-other / Zone 3). Scope:
+§9.2 / 2.1 lands the **threaded-code dispatch loop** in
+`src/interp/dispatch.zig` (Zone 2 — may import Zone 0 + 1, plus
+sibling `src/interp/mod.zig`). Scope:
 
-- `Runtime` struct holding the per-instance state (linear memory
-  bytes, globals, function table). Borrows the parsed `Module` +
-  decoded sections from §9.1.
-- Frame-stack shape: per-call `Frame { sig, locals[N], pc, base }`
-  in a bounded inline ring or a heap-stack with arena reuse
-  (per §P3, prefer no-alloc-per-call).
-- `Value` union (`i32 / i64 / f32 / f64`, plus the Phase-2
-  reftypes additions when 2.3 lands).
-- `Trap` enum (DivByZero, IntOverflow, OOBLoad, OOBStore, etc.).
-- No dispatch loop yet — that's 2.1.
+- A `step(rt: *Runtime, instr: *const ZirInstr) Trap!void` that
+  looks up `DispatchTable.interp[@intFromEnum(instr.op)]` and
+  invokes it with an `*InterpCtx` cast back to `*Runtime`.
+- A `run(rt: *Runtime, table: *const DispatchTable, instrs: []const ZirInstr)` outer loop that walks instrs by `pc` until the
+  current frame's body ends.
+- A wiring path from frontend output (`ZirFunc`) through the
+  table to one or two MVP handlers as a smoke (e.g. `i32.const`
+  + `drop` + `end` so the loop terminates cleanly).
+- The full MVP handler set lands in 2.2; 2.1 is just the
+  dispatcher.
 
-Tests: construct a Runtime, push/pop frames, push/pop Values; no
-opcode execution yet.
+Tests: register a stub `i32.const` handler that pushes `42`,
+plus a stub `end` that pops the frame; `run` over a synthetic
+ZirInstr stream lands `42` on the operand stack.
 
-Step 0 (Survey) for 2.0: zwasm v1's `src/interp/` (mod.zig +
-runtime.zig); wasm3's `m3_env.h` for the runtime/env shapes;
-zware's interp `Instance` shape; ROADMAP §4.3 (engine pipeline)
-+ §4.7 (Runtime + std.Io DI) + §P3 (cold-start).
-
-Phase 2 is **🔒 boundary gate**: by §9.2 / 2.10 close, Mac +
-OrbStack + windowsmini must all run `zig build test-spec` over
-`test/spec/wasm-2.0/` corpus fail=0 / skip=0.
+Step 0 (Survey) for 2.1: wasm3's `m3_exec.c` (tail-call
+dispatch idiom — likely a divergence target since Zig doesn't
+guarantee tail-calls); zwasm v1's interp dispatch loop;
+ROADMAP §4.3 (engine pipeline) and §A12 (no pervasive
+build-time `if` — dispatch table only).
 
 ## Historical (§9.1 / 1.9) — IN-PROGRESS prior to close
 

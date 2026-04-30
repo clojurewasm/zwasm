@@ -1238,7 +1238,7 @@ windowsmini; spec runner runs there too).
 
 | #    | Description                                                                                | Status         |
 |------|--------------------------------------------------------------------------------------------|----------------|
-| 2.0  | `src/interp/mod.zig` — interp scaffold (Runtime, frame stack, Value, Trap shapes).        | [ ]            |
+| 2.0  | `src/interp/mod.zig` — interp scaffold (Runtime, frame stack, Value, Trap shapes).        | [x]            |
 | 2.1  | `src/interp/dispatch.zig` — threaded-code dispatch loop reading `DispatchTable.interp`.   | [ ]            |
 | 2.2  | `src/feature/mvp/` interp handlers — wire MVP opcodes (numeric / control / memory).       | [ ]            |
 | 2.3  | Wasm 2.0 features (sign-ext, sat-trunc, multivalue blocks, bulk-memory, ref-types).       | [ ]            |
