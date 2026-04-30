@@ -46,53 +46,58 @@
 §9.1 / 1.9 is large and lands across multiple commits. Progress
 so far on top of `8ab5b55` (1.8 close):
 
-1. `9e1440a` — `src/frontend/sections.zig` decodeTypes (arena-
-   owned `Types`, vec(functype) for Wasm-1.0 valtypes).
-2. `29a4d3d` — adds decodeFunctions ([]u32 typeidx) and
-   decodeCodes (Codes; locals expanded from `(count valtype)`
-   decls; body borrowed from input).
-3. `4e82121` — runner upgrade: per-function validator drive
-   via `Module.find` + section decoders. Smoke modules with no
-   code section short-circuit to PASS.
-4. `bb6a3a2` — validator extended from MVP smoke set to full
-   Wasm 1.0 numeric + control + memory coverage:
-   br_if / br_table / return / call (with module func_types) /
-   select; load*/store* with memarg; memory.size / memory.grow;
-   every i32/i64/f32/f64 binop / relop / unop / testop; full
-   numeric conversion lattice. `validateFunction` signature is
-   now `(sig, locals, body, func_types)`.
+1. `9e1440a` — `src/frontend/sections.zig` decodeTypes.
+2. `29a4d3d` — decodeFunctions ([]u32 typeidx) + decodeCodes.
+3. `4e82121` — runner drives validator per function.
+4. `bb6a3a2` — validator extended to full Wasm 1.0 numeric +
+   control + memory coverage; call (with func_types).
+5. `354e4c6` — globals: decodeGlobals + global.get / global.set
+   with `globals: []const GlobalEntry` parameter.
+6. `62d2991` — call_indirect (0x11) + new `module_types`
+   parameter (the type-section table separate from per-function
+   func_types).
 
-Remaining for 1.9 close:
+Probed against wast2json-baked upstream samples:
+- ✅ PASS: const.0.wasm, nop.0.wasm (full call/call_indirect/
+  globals/select/etc. exercised).
+- ❌ FAIL with NotImplemented: i32.0.wasm / i64.0.wasm
+  (i32.extend8_s / i64.extend8_s — Wasm 2.0 sign-extension);
+  conversions.0.wasm (i32.trunc_sat_* — Wasm 2.0 saturating
+  truncation, prefix opcode 0xFC).
 
-- **Globals**: `global.get` (0x23) and `global.set` (0x24)
-  require a module-wide `global_types: []ValType` (with
-  mutability). Add `decodeGlobals` to sections.zig + plumb
-  through the validator API + runner.
-- **Imports**: `import` section decoder. Imported functions
-  prepend to the func_types index space, so the runner needs
-  to read them before mapping function indices to code bodies.
-- **Corpus vendor**: copy `~/Documents/OSS/WebAssembly/spec/
-  test/core/*.wast` (Wasm 1.0-only files) into
-  `test/spec/wat/`; add `scripts/regen_test_data.sh` (wast2json
-  wrapper) producing `test/spec/json/` (gitignored). Pin
-  upstream commit in a README per ROADMAP §11.
+Remaining for 1.9 close (in priority order):
+
+- **Imports decoder**: `import` section. Function imports
+  prepend the func_idx space, so without it any module that
+  imports anything misindexes. Add to `sections.zig` and
+  thread the resulting `func_types` (imports + defined) through
+  the runner.
+- **Corpus selection** for the Phase-1 gate: the upstream
+  `~/Documents/OSS/WebAssembly/spec/test/core/` corpus tests
+  Wasm 1.0 + 2.0 + 3.0 features in a single tree. For the
+  Wasm-1.0 (MVP) gate we either (a) hand-curate a list of
+  `.wast` files known to be MVP-only, OR (b) keep the post-MVP
+  opcodes returning `NotImplemented` and treat MVP-pure files
+  as the gate (the "skip=0" portion of the gate will need an
+  ADR if option (b) is chosen).
 - **`.wast` directive handling**: the script files contain
-  `(assert_invalid ...)` / `(assert_malformed ...)` directives
-  marking modules **expected to fail**. The runner needs to
-  read the wast2json metadata and invert success/failure
-  expectation per directive, otherwise skip=0 cannot hold.
+  `(assert_invalid ...)` / `(assert_malformed ...)` marking
+  modules **expected to fail**. The runner needs to read the
+  wast2json metadata (the `commands[]` array with `module_type`
+  / `assertion` directives) and invert pass/fail expectation
+  per module. Without this, `assert_invalid` files
+  legitimately fail-to-validate but the runner reports them
+  as failures.
+- **Vendor scaffolding**: `scripts/regen_test_data.sh`
+  invoking `wast2json`, output gitignored at `test/spec/json/`,
+  upstream commit pinned in `test/spec/README.md`.
 - **Three-host gate**: Mac aarch64 + OrbStack Ubuntu x86_64 +
-  windowsmini SSH all return EXIT=0 on the full corpus.
+  windowsmini SSH all return EXIT=0 on the chosen corpus.
 
-Failure modes already known to handle (and exercise after each
-chunk lands): out-of-range func/type/local indices; bad
-blocktype / valtype bytes; memarg truncation; trailing bytes
-in any section.
-
-Step 0 (Survey) for next chunk: zware's globals + imports
-decoders (`module.zig`); wasm-tools `wast2json` metadata JSON
-shape (the `commands[]` array and `module_type` field); ROADMAP
-§11 / §A10 (vendor policy + skip=0 release gate).
+Step 0 (Survey) for next chunk: zware's imports decoder
+(`module.zig`); wasm-tools `wast2json` metadata JSON shape
+(the `commands[]` array and `module_type` field); ROADMAP §11 /
+§A10 (vendor policy + skip=0 release gate).
 
 **Retrievable identifiers**:
 
