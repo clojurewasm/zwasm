@@ -41,6 +41,28 @@ flag — keep an eye on whether the audit is helping or hindering.
 
 ## Procedure
 
+### Run inline by default; delegate only when scope is large
+
+CHECKS.md is mostly grep / `test -e` / `git cat-file` — each check
+finishes in milliseconds. **Default to inline** (batched parallel
+`Bash` calls in the main agent). Subagent fork pays a context-handover
+overhead (~30-60 s spin-up plus completion) that exceeds the savings
+unless the audit is genuinely large.
+
+**Delegate to a subagent only when** any of:
+
+- ROADMAP has had >5 amendments since the last audit (A.4 walk
+  becomes proportional to commit count).
+- The audit is expected to surface >500 lines of finding text
+  (so the parent context shouldn't absorb it).
+- A specific deep-dive across `.dev/decisions/` is in scope.
+
+For Phase 0–6 routine boundary audits, inline is the right choice.
+The §9.0 / 0.6 boundary measured ~3 minutes via subagent vs.
+~1 minute estimated inline.
+
+### Steps
+
 1. Read [`CHECKS.md`](./CHECKS.md). It groups checks by category and
    gives the exact command for each.
 2. Run the checks in order. For each finding, classify severity:

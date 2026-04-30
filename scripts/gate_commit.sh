@@ -23,11 +23,35 @@ bash scripts/zone_check.sh --gate
 echo "[gate_commit] file_size_check --gate ..."
 bash scripts/file_size_check.sh --gate
 
-echo "[gate_commit] zig build test ..."
-if [ -f build.zig ]; then
-    zig build test
+if [ ! -f build.zig ]; then
+    echo "[gate_commit] (no build.zig — skipping zig build test)"
 else
-    echo "(no build.zig — skipping)"
+    # Skip the slow `zig build test` when staged changes touch only
+    # docs / scaffolding / config — none of those can move the test
+    # outcome. Source / build / test files force the full check.
+    STAGED="$(git diff --cached --name-only)"
+    NEEDS_TEST=0
+    if [ -z "$STAGED" ]; then
+        # `git commit -a`, amends, or other paths where --cached is
+        # empty — play it safe.
+        NEEDS_TEST=1
+    else
+        while IFS= read -r f; do
+            case "$f" in
+                src/*|test/*|include/*|build.zig|build.zig.zon|flake.nix|flake.lock)
+                    NEEDS_TEST=1
+                    break
+                    ;;
+            esac
+        done <<< "$STAGED"
+    fi
+
+    if [ "$NEEDS_TEST" -eq 0 ]; then
+        echo "[gate_commit] (docs/config-only diff — skipping zig build test)"
+    else
+        echo "[gate_commit] zig build test ..."
+        zig build test
+    fi
 fi
 
 echo "[gate_commit] All gates passed."

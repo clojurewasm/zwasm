@@ -165,8 +165,13 @@ Never `git commit --no-verify` (forbidden by ROADMAP §14).
    the next one (1-2 lines + retrievable identifiers). This is the
    only mandatory documentation step — zwasm v2 does not maintain
    the per-task / per-concept chapter cadence (P9).
-2. Mark `[x]` for the just-completed task in ROADMAP §9.<N>; append
-   the source SHA in the Status column.
+2. Mark `[x]` for the just-completed task in ROADMAP §9.<N>. Leave
+   the Status column SHA blank (`[x]`) — do **not** spawn a second
+   commit just to write the SHA you can't know yet. The SHA pointer
+   is **batch-backfilled at phase close** (see §0.7 procedure
+   below). The commit message itself references `§9.<N> / N.M`, so
+   `git log --grep="§9.<N> / N.M"` is the canonical lookup; the
+   Status SHA is convenience, not load-bearing.
 3. Continue immediately to the next task's Step 0. Context-fill
    management is the harness's job, not yours — see "Auto-compact
    recovery" below.
@@ -228,13 +233,24 @@ that point:
 2. Optional: run built-in `simplify` on `git diff <phase-start>..HEAD
    -- src/`. Apply behaviour-preserving suggestions; queue larger
    ones in `handover.md`.
-3. **Open §9.<N+1>**: update the **Phase Status** widget at the top
+3. **Backfill SHA pointers for §9.<N>'s task rows.** For each `[x]`
+   row whose Status column is bare (no SHA), fill the SHA with:
+
+   ```
+   git log --grep="§9.<N> / <N.M>" --pretty=%h | head -1
+   ```
+
+   Land this in **one** commit (e.g. `chore(p<N>): backfill §9.<N>
+   SHA pointers`). This is the single phase-level commit where SHA
+   bookkeeping is paid; per-task Step 7 stays SHA-free so it
+   doesn't generate per-task backfill commits.
+4. **Open §9.<N+1>**: update the **Phase Status** widget at the top
    of §9 (mark §9.<N> as `DONE`, §9.<N+1> as `IN-PROGRESS`); expand
    §9.<N+1>'s task table inline (mirror §9.<N>'s structure: a
    numbered `[ ]` table with the same Status column shape); update
    handover.md to point at §9.<N+1>'s first task.
-4. If context is high, run `/compact`. Otherwise, immediately resume
-   §9.<N+1>'s Step 0.
+5. Resume §9.<N+1>'s Step 0 immediately. If the harness compacts
+   mid-transition, the PostCompact brief recovers state.
 
 The phase-boundary review steps are **opportunistic, not mandatory**.
 Apply them when the scaffolding seems to need it; skip when the

@@ -95,3 +95,14 @@ handover to point at §9.1's first task, then commit.
 - CI workflows (`.github/workflows/*.yml`) are deliberately absent
   in Phase 0 — they appear in Phase 13 per ROADMAP §9. Local Mac +
   OrbStack + windowsmini covers all three platforms until then.
+- **Windows transport limitation (Phase 14 follow-up)**:
+  `scripts/run_remote_windows.sh` syncs via `git fetch + reset
+  --hard origin/zwasm-from-scratch` — it tests **what is on origin**,
+  not unpushed local commits. Phase 14 should add a `git bundle`
+  path so pre-push gates also exercise in-flight commits before
+  they land on the remote.
+- **Stray-artifact commit hygiene**: when an unrelated file
+  (`flake.lock`, `.direnv`, …) appears in `git status` mid-task,
+  commit it under its own scope (`chore: pin <thing>`), don't
+  bundle it into unrelated work. Helps `git log -- <file>` stay
+  readable.
