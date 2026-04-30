@@ -17,11 +17,12 @@
 ## Current state
 
 - **Phase**: **Phase 2 IN-PROGRESS.** Phases 0 + 1 are `DONE`.
-  §9.2 / 2.0 (`243d9ba`) is `[x]`: interp scaffold (Value /
-  Trap / Frame / Runtime with bounded operand+frame stacks).
-  The first remaining `[ ]` is **§9.2 / 2.1 —
-  `src/interp/dispatch.zig`** (threaded-code dispatch loop
-  reading `DispatchTable.interp`).
+  §9.2 / 2.0 (`243d9ba`), 2.1 (`f292ae7`) are `[x]`. interp
+  scaffold + dispatch loop are wired; an unbound `DispatchTable.
+  interp` slot trips `Trap.Unreachable`. The first remaining
+  `[ ]` is **§9.2 / 2.2 — `src/feature/mvp/` interp handlers**
+  (numeric / control / memory MVP opcodes registered into
+  `DispatchTable.interp`).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -39,40 +40,44 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.2 / 2.1 (`src/interp/dispatch.zig`)
+## Active task — §9.2 / 2.2 (MVP interp handlers)
 
-§9.2 / 2.0 closed at `243d9ba`. `src/interp/mod.zig` exposes
-`Value` (extern union, 8 bytes; bits64 carries IEEE-754),
-`Trap` (Unreachable / DivByZero / IntOverflow / OOB family /
-IndirectCallTypeMismatch / StackOverflow / CallStackExhausted),
-`Frame { sig, locals, operand_base, pc }`, and `Runtime` with
-inline 4096-slot operand stack + 256-slot frame stack plus
-heap-backed `memory` and `globals`. No execution semantics yet.
+§9.2 / 2.1 closed at `f292ae7`. `src/interp/dispatch.zig`
+exposes `step` and `run`; both look up
+`DispatchTable.interp[@intFromEnum(instr.op)]` and trap on
+unbound slots (`Trap.Unreachable`). `Runtime.toOpaque` /
+`fromOpaque` helpers in `src/interp/mod.zig` cast
+`*Runtime` ↔ `*InterpCtx`. Phase-14 may revisit performance
+(no tail-call guarantee in Zig 0.16); Phase 2 prioritises
+correctness.
 
-§9.2 / 2.1 lands the **threaded-code dispatch loop** in
-`src/interp/dispatch.zig` (Zone 2 — may import Zone 0 + 1, plus
-sibling `src/interp/mod.zig`). Scope:
+§9.2 / 2.2 wires the **MVP interp handlers** into
+`DispatchTable.interp` via a new `src/feature/mvp/interp.zig`
+(or by extending the existing `src/feature/mvp/mod.zig`). Scope:
 
-- A `step(rt: *Runtime, instr: *const ZirInstr) Trap!void` that
-  looks up `DispatchTable.interp[@intFromEnum(instr.op)]` and
-  invokes it with an `*InterpCtx` cast back to `*Runtime`.
-- A `run(rt: *Runtime, table: *const DispatchTable, instrs: []const ZirInstr)` outer loop that walks instrs by `pc` until the
-  current frame's body ends.
-- A wiring path from frontend output (`ZirFunc`) through the
-  table to one or two MVP handlers as a smoke (e.g. `i32.const`
-  + `drop` + `end` so the loop terminates cleanly).
-- The full MVP handler set lands in 2.2; 2.1 is just the
-  dispatcher.
+- one handler per Wasm-1.0 numeric/control/memory opcode
+  matching the validator's coverage (i32/i64/f32/f64
+  binops/relops/unops/testops, control flow, locals/globals,
+  load/store, const, drop, select, call, call_indirect).
+- spec-conformant trap behaviour where the operation can fail
+  (DivByZero on `div_*`/`rem_*`, IntOverflow on `*.div_s`
+  INT_MIN/-1, InvalidConversionToInt on truncation, OOB on
+  load/store).
+- registration helper `register(*DispatchTable)` populating
+  `interp` slots (the existing `parsers`-slot registration in
+  `mod.zig` from §9.1 / 1.7 stays; both can co-exist).
 
-Tests: register a stub `i32.const` handler that pushes `42`,
-plus a stub `end` that pops the frame; `run` over a synthetic
-ZirInstr stream lands `42` on the operand stack.
+Tests: drive `run` over each handler via a tiny ZIR stream
+producing the expected operand-stack residue or trap. At least
+one round-trip test per opcode group (integer arith / float
+arith / load-store / control-flow / locals).
 
-Step 0 (Survey) for 2.1: wasm3's `m3_exec.c` (tail-call
-dispatch idiom — likely a divergence target since Zig doesn't
-guarantee tail-calls); zwasm v1's interp dispatch loop;
-ROADMAP §4.3 (engine pipeline) and §A12 (no pervasive
-build-time `if` — dispatch table only).
+Step 0 (Survey) for 2.2: zwasm v1's per-opcode interp handlers
+(probably under `src/interp/handlers/`); wasm3 source for
+floating-point edge-case handling (NaN canonicalisation, signed
+zero); ROADMAP §4.3 (engine pipeline shared with JIT/AOT) and
+§4.8 (Float and SIMD strategy — float invariants Phase 2 must
+honour).
 
 ## Historical (§9.1 / 1.9) — IN-PROGRESS prior to close
 
