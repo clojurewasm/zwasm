@@ -41,55 +41,58 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.9 (Wasm 1.0 corpus fail=0 / skip=0 gate)
+## Active task — §9.1 / 1.9 (Wasm 1.0 corpus fail=0 / skip=0 gate) — IN-PROGRESS
 
-§9.1 / 1.8 closed at `8ab5b55`. `zig build test-spec` runs an
-addExecutable rooted at `test/spec/runner.zig` that walks a
-corpus directory, parses each `.wasm` via the frontend parser,
-and exits non-zero on any failure. The runner imports the
-frontend through a new `zwasm_lib` module re-exported from
-`src/main.zig` (`pub const parser / validator / lowerer = ...`).
-The 1.8 smoke corpus at `test/spec/smoke/{empty,single_func,
-block}.wasm` was hand-baked via wat2wasm and is committed for
-hermetic three-host runs. `test-all` now depends on test-spec.
-**Section-body decoders for type / function / code are still
-not implemented** — the runner exercises only the parser
-(structural decode); validate + lower are not yet driven on the
-corpus.
+§9.1 / 1.9 is large and lands across multiple commits. Progress
+so far on top of `8ab5b55` (1.8 close):
 
-§9.1 / 1.9 closes Phase 1 by delivering the **Wasm Core 1.0
-(MVP) corpus fail=0 / skip=0 gate** across Mac + OrbStack +
-windowsmini. Scope:
+1. `9e1440a` — `src/frontend/sections.zig` decodeTypes (arena-
+   owned `Types`, vec(functype) for Wasm-1.0 valtypes).
+2. `29a4d3d` — adds decodeFunctions ([]u32 typeidx) and
+   decodeCodes (Codes; locals expanded from `(count valtype)`
+   decls; body borrowed from input).
+3. `4e82121` — runner upgrade: per-function validator drive
+   via `Module.find` + section decoders. Smoke modules with no
+   code section short-circuit to PASS.
+4. `bb6a3a2` — validator extended from MVP smoke set to full
+   Wasm 1.0 numeric + control + memory coverage:
+   br_if / br_table / return / call (with module func_types) /
+   select; load*/store* with memarg; memory.size / memory.grow;
+   every i32/i64/f32/f64 binop / relop / unop / testop; full
+   numeric conversion lattice. `validateFunction` signature is
+   now `(sig, locals, body, func_types)`.
 
-- Add type / function / code section-body decoders in
-  `src/frontend/sections.zig` (or split per section). Each
-  decodes the raw section bytes into structured data:
-  - type:     `[]FuncType` (params + results)
-  - function: `[]u32` (per-function type_idx)
-  - code:     `[](sig, locals, body_bytes)` per function
-- Vendor the upstream Wasm 1.0 MVP corpus: copy
-  `~/Documents/OSS/WebAssembly/spec/test/core/*.wast` (Wasm 1.0
-  files only; defer 2.0 / 3.0 to later phases) into
-  `test/spec/wat/` per ROADMAP §5 layout. Pin the upstream
-  commit hash in a sidecar README. Add
-  `scripts/regen_test_data.sh` invoking `wast2json` to bake
-  `.wat` → `.wasm` into `test/spec/json/` (gitignored).
-- Upgrade `test/spec/runner.zig` to drive parser → section
-  decoders → validator + lowerer per function. The fail=0 /
-  skip=0 gate is the corpus passing on Mac + OrbStack +
-  windowsmini.
-- `test/spec/smoke/` retains the small hand-baked smoke corpus
-  for fast PR-loop runs; the bigger json/ corpus is the gate.
+Remaining for 1.9 close:
 
-Tests: `zig build test-spec` returns 0 on the full vendored MVP
-corpus on each host. Any single failure is a release-blocker
-per ROADMAP §A10.
+- **Globals**: `global.get` (0x23) and `global.set` (0x24)
+  require a module-wide `global_types: []ValType` (with
+  mutability). Add `decodeGlobals` to sections.zig + plumb
+  through the validator API + runner.
+- **Imports**: `import` section decoder. Imported functions
+  prepend to the func_types index space, so the runner needs
+  to read them before mapping function indices to code bodies.
+- **Corpus vendor**: copy `~/Documents/OSS/WebAssembly/spec/
+  test/core/*.wast` (Wasm 1.0-only files) into
+  `test/spec/wat/`; add `scripts/regen_test_data.sh` (wast2json
+  wrapper) producing `test/spec/json/` (gitignored). Pin
+  upstream commit in a README per ROADMAP §11.
+- **`.wast` directive handling**: the script files contain
+  `(assert_invalid ...)` / `(assert_malformed ...)` directives
+  marking modules **expected to fail**. The runner needs to
+  read the wast2json metadata and invert success/failure
+  expectation per directive, otherwise skip=0 cannot hold.
+- **Three-host gate**: Mac aarch64 + OrbStack Ubuntu x86_64 +
+  windowsmini SSH all return EXIT=0 on the full corpus.
 
-Step 0 (Survey) for 1.9: the upstream corpus's `.wast` directive
-shapes (`(module ...)`, `(module binary ...)`, `(assert_invalid
-...)`, etc.); zwasm v1's spec runner output JSON shape — what
-fields it relied on; how to filter Wasm-2.0/3.0-only `.wast`
-files. Cite ROADMAP §11 / §A10.
+Failure modes already known to handle (and exercise after each
+chunk lands): out-of-range func/type/local indices; bad
+blocktype / valtype bytes; memarg truncation; trailing bytes
+in any section.
+
+Step 0 (Survey) for next chunk: zware's globals + imports
+decoders (`module.zig`); wasm-tools `wast2json` metadata JSON
+shape (the `commands[]` array and `module_type` field); ROADMAP
+§11 / §A10 (vendor policy + skip=0 release gate).
 
 **Retrievable identifiers**:
 
