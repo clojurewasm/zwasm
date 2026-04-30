@@ -1,1 +1,0 @@
-(memory i64 1) (func (param i64) (result i64) (i64.load64_u (local.get 0))) 

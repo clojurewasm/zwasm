@@ -1,7 +1,0 @@
-[package]
-name = "blake2_bench"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-blake2b_simd = "1.0.4"
