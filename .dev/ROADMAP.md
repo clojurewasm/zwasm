@@ -1207,7 +1207,7 @@ and `zig build test` green before Phase 1 opens.
 | 1.1  | `src/ir/zir.zig` — ZIR slot / value-type skeleton (data shapes; no ops yet).              | [x]    |
 | 1.2  | Declare the full `ZirOp` enum catalogue per §4.2 (declared, not implemented).             | [x]    |
 | 1.3  | `src/ir/dispatch_table.zig` — table type + `register(*DispatchTable)` API; smoke test.    | [x]    |
-| 1.4  | `src/frontend/parser.zig` — module header, section iteration, MVP-section decoders.       | [ ]    |
+| 1.4  | `src/frontend/parser.zig` — module header, section iteration, MVP-section decoders.       | [x]    |
 | 1.5  | `src/frontend/validator.zig` — type stack, control stack, polymorphic else/end markers.   | [ ]    |
 | 1.6  | `src/frontend/lowerer.zig` — wasm-op → `ZirOp` lowering for the MVP subset.                | [ ]    |
 | 1.7  | `src/feature/mvp/` — MVP feature handlers + `register(*DispatchTable)` wiring.            | [ ]    |

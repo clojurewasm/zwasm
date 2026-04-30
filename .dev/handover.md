@@ -18,10 +18,11 @@
 
 - **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE`. §9.1 /
   1.0 (`922521f`), 1.1 (`9305414`), 1.2 (`c2cd9b5`), 1.3
-  (`d2578ea`) are `[x]`. ZIR shape + ZirOp catalogue +
-  DispatchTable type are all in place. The first remaining
-  `[ ]` is **§9.1 / 1.4 — `src/frontend/parser.zig`** (module
-  header, section iteration, MVP-section decoders).
+  (`d2578ea`), 1.4 (`bbc5aca`) are `[x]`. ZIR shape + ZirOp
+  catalogue + DispatchTable type + module header / section
+  iterator are all in place. The first remaining `[ ]` is
+  **§9.1 / 1.5 — `src/frontend/validator.zig`** (type stack,
+  control stack, polymorphic else/end markers).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -39,37 +40,45 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.4 (`src/frontend/parser.zig`)
+## Active task — §9.1 / 1.5 (`src/frontend/validator.zig`)
 
-§9.1 / 1.3 closed at `d2578ea`. `src/ir/dispatch_table.zig`
-declares `DispatchTable` with `[N_OPS]?Fn` slots for parsers /
-interp / jit_arm64 / jit_x86 plus `init() = @splat(null)`. The
-opaque-context pattern (`ParserCtx` / `InterpCtx` / `EmitCtx`)
-keeps Zone 1 from importing upward.
+§9.1 / 1.4 closed at `bbc5aca`. `src/frontend/parser.zig`
+exposes `parse(alloc, input) → Module` with magic + version
+validation, strict known-section ordering (data_count between
+import and code), custom sections allowed anywhere, tag (id 13)
+currently rejected as `UnknownSectionId`. Section bodies are
+borrowed slices into `input`; no per-section decode runs in 1.4.
+Tests cover empty module, bad magic / version, ordered iteration,
+out-of-order, duplicates, custom interleaving, oversize section,
+truncated leb128. Survey note at `private/notes/p1-1.4-survey.md`.
 
-§9.1 / 1.4 lands the Wasm module **header** + **section
-iteration** + the MVP-section decoders in
-`src/frontend/parser.zig` (Zone 1 — may import `ir/`,
-`util/leb128.zig`). Scope:
+§9.1 / 1.5 lands the **type stack + control stack validator** in
+`src/frontend/validator.zig` (Zone 1 — may import `ir/`,
+`util/leb128.zig`, and the new parser). Scope:
 
-- magic `\\0asm` + version `1.0` validation.
-- section iterator: section_id (u8) + size (uleb128 u32) +
-  body slice; bound-checks against the input.
-- MVP section decoders (skeleton, populate per phase):
-  type / import / function / table / memory / global / export /
-  start / element / code / data / data-count / custom.
-- Section bodies are NOT yet validated or lowered — that is
-  1.5 (validator) / 1.6 (lowerer). 1.4 just produces a `Module`
-  struct holding raw section slices + parsed counts.
+- per-function value-stack tracking against `FuncType.params /
+  results` and declared locals.
+- control stack with frames for `block` / `loop` / `if` / `else`
+  carrying the entry/exit type signature.
+- polymorphic markers after `unreachable` / `else` / `end` so
+  the spec's "polymorphic stack" rule is honoured exactly.
+- only the MVP opcode set in this task; bulk-memory / SIMD /
+  GC / tail-call validation is layered on in their feature
+  modules at §9.1 / 1.7.
 
-Tests: empty MVP module (header + `(module)` 8 bytes); reject
-bad magic; reject bad version; iterate two known sections in
-order.
+Tests: empty function (no opcodes), single `i32.const + drop`,
+nested block / br typing, mismatched arity, polymorphic stack
+after `unreachable`. Section-body decode for type / function /
+code lives here (the validator needs to read the body before it
+can stack-check), so 1.5 is also the natural place for the
+Wasm-1.0 type / func / code body decoders. 1.6 then lowers the
+validated stream into `ZirOp`s.
 
-Step 0 (Survey) for 1.4: zwasm v1's parser, wasmtime's
-`wasmparser` BinaryReader, zware's `module/parser.zig`, and the
-WebAssembly spec section ordering (Wasm 1.0 §5.5). Cite §11
-test-data policy when deciding which sample bytes to use.
+Step 0 (Survey) for 1.5: zwasm v1's `frontend/validator.zig`,
+zware's `validator.zig`, wasmtime's `crates/wasmparser/.../validator/`,
+the WebAssembly spec §3 (validation) text. Cite ROADMAP §P1
+(spec fidelity) and the polymorphic-stack rule explicitly when
+designing the control-stack invariants.
 
 **Retrievable identifiers**:
 
