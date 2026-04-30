@@ -1209,7 +1209,7 @@ and `zig build test` green before Phase 1 opens.
 | 1.3  | `src/ir/dispatch_table.zig` — table type + `register(*DispatchTable)` API; smoke test.    | [x]    |
 | 1.4  | `src/frontend/parser.zig` — module header, section iteration, MVP-section decoders.       | [x]    |
 | 1.5  | `src/frontend/validator.zig` — type stack, control stack, polymorphic else/end markers.   | [x]    |
-| 1.6  | `src/frontend/lowerer.zig` — wasm-op → `ZirOp` lowering for the MVP subset.                | [ ]    |
+| 1.6  | `src/frontend/lowerer.zig` — wasm-op → `ZirOp` lowering for the MVP subset.                | [x]    |
 | 1.7  | `src/feature/mvp/` — MVP feature handlers + `register(*DispatchTable)` wiring.            | [ ]    |
 | 1.8  | Vendor the Wasm Core 1.0 spec corpus (read-only); add the `zig build test-spec` runner.   | [ ]    |
 | 1.9  | Wasm Core 1.0 (MVP) spec corpus decodes + validates fail=0 / skip=0 on all three hosts.   | [ ]    |
