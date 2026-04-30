@@ -18,12 +18,13 @@
 
 - **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE`. §9.1 /
   1.0 (`922521f`), 1.1 (`9305414`), 1.2 (`c2cd9b5`), 1.3
-  (`d2578ea`), 1.4 (`bbc5aca`), 1.5 (`73eaef9`), 1.6 (`36c4834`)
-  are `[x]`. ZIR shape + ZirOp catalogue + DispatchTable +
-  module / section iterator + MVP-subset validator + wasm-op →
-  ZirOp lowerer are all in place. The first remaining `[ ]` is
-  **§9.1 / 1.7 — `src/feature/mvp/`** (MVP feature handlers +
-  `register(*DispatchTable)` wiring).
+  (`d2578ea`), 1.4 (`bbc5aca`), 1.5 (`73eaef9`), 1.6 (`36c4834`),
+  1.7 (`702bc30`) are `[x]`. The full MVP frontend stack is
+  scaffolded: ZIR shape, ZirOp catalogue, DispatchTable, module /
+  section iterator, validator, lowerer, and feature/mvp/mod.zig
+  registering MVP handlers via `register(*DispatchTable)`. The
+  first remaining `[ ]` is **§9.1 / 1.8 — vendor the Wasm Core
+  1.0 spec corpus + add `zig build test-spec` runner**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -41,51 +42,56 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.7 (`src/feature/mvp/`)
+## Active task — §9.1 / 1.8 (vendor spec corpus + test-spec runner)
 
-§9.1 / 1.6 closed at `36c4834`. `src/frontend/lowerer.zig`
-exposes `lowerFunctionBody(alloc, body, *ZirFunc) → !void`. It
-walks a validated body once, emitting `ZirInstr`s into the
-caller's `ZirFunc.instrs` and pushing/patching `BlockInfo`s
-into `ZirFunc.blocks`. Immediate packing: `i32.const` →
-`payload` (bitcast u32); `i64.const` / `f64.const` split
-low32+high32 across `payload`+`extra`; `f32.const` raw LE bits in
-`payload`; local index / br depth in `payload`; `block`/`loop`/
-`if` carry block_index in `payload` and the raw blocktype byte in
-`extra`. Opcode coverage mirrors validator's MVP smoke set;
-others return `Error.NotImplemented`. Survey note at
-`private/notes/p1-1.6-survey.md`.
+§9.1 / 1.7 closed at `702bc30`. `src/feature/mvp/mod.zig`
+exposes `register(*DispatchTable)` and installs MVP-opcode
+handlers into the `parsers` slot for the smoke set (const ops
+with low32/high32 splits for 64-bit, local-indexed via uleb32,
+br depth, no-immediate ops). The new `src/frontend/parse_ctx.zig`
+holds a concrete `Ctx` struct that handlers cast `*ParserCtx`
+back to via `Ctx.fromOpaque`. **Important non-deviation**:
+`DispatchTable`'s 4-slot shape is unchanged; no validator slot
+was added (no ADR filed). The lowerer's inline switch in 1.6
+remains the production code path for Phase 1; production
+migration to dispatch-table consumption is deferred to Phase 2
+(interp) when the table actually replaces the switch.
 
-§9.1 / 1.7 lands the **MVP feature handlers + DispatchTable
-wiring** in `src/feature/mvp/` (Zone 1 — may import `ir/`,
-`util/leb128.zig`, `frontend/`). Scope:
+§9.1 / 1.8 lands **Wasm Core 1.0 spec corpus vendoring + the
+`zig build test-spec` runner**. Scope:
 
-- per-feature module(s) under `src/feature/mvp/<feature>.zig`,
-  each exposing a `register(*DispatchTable)` per ROADMAP §4.5 /
-  §A12 (no pervasive build-time `if`).
-- migrate the validator's giant switch (§9.1 / 1.5) and the
-  lowerer's giant switch (§9.1 / 1.6) into per-opcode handlers
-  registered through `DispatchTable.parsers` (lowerer side) and
-  the validator-handler slot (whichever shape lands here — this
-  task may need to extend `DispatchTable` to add a validator
-  slot; flag any §4.5 deviation in an ADR per §18 if so).
-- after the migration, the validator + lowerer should drop their
-  inline switch and call the dispatch table. The remaining
-  un-implemented MVP opcodes (those still returning
-  `NotImplemented` in 1.5/1.6) get implemented as the matching
-  feature handlers register here.
+- Decide the on-disk location for the vendored spec corpus
+  (likely `test/spec/wasm-1.0/` per ROADMAP §11 layout).
+  Source is `~/Documents/OSS/WebAssembly/spec/test/core/` (read,
+  copy as snapshot — see `no_copy_from_v1.md` exception clause:
+  spec testsuite is upstream artifact, copied verbatim).
+- The corpus is `.wast` script-format; for 1.8 we only need the
+  binary-decoded modules (the validator + lowerer stop before
+  execution). Either:
+  (a) vendor the `.wast` files plus a small Zig parser for the
+      `(module binary "...")` directive, or
+  (b) pre-bake `.wast` → `.wasm` via `wasm-tools wast2json` and
+      vendor the `.wasm` outputs.
+  Plan (a) keeps the corpus updateable from upstream; plan (b)
+  reduces the runner's complexity. Survey both before deciding.
+- Add `zig build test-spec` to `build.zig`. Phase 1's exit
+  criterion is **decode + validate** fail=0 / skip=0 on the MVP
+  subset; the runner walks the corpus, drives parser → validator
+  → lowerer, and counts failures.
+- The runner does NOT run the `(assert_*)` directives that need
+  execution (those land in Phase 2 with the interpreter).
 
-Tests: round-trip an MVP-shaped body byte → validator + lowerer
-through the dispatch table → confirm same end-state as the
-inline switch produced. Add at least one test per registered
-feature module.
+Tests: smoke that the runner finds at least one corpus file and
+runs to completion. The **§9.1 / 1.9** task is the actual
+"fail=0 / skip=0 across all three hosts" gate — 1.8 only
+delivers the runner infrastructure.
 
-Step 0 (Survey) for 1.7: zwasm v1's `feature/mvp/` directory
-layout (may not exist as such — v1 might inline features), the
-existing `src/ir/dispatch_table.zig` from §9.1 / 1.3 to confirm
-the slot shapes, and the wasmtime `wasmparser` per-proposal
-trait split for grouping inspiration. Cite ROADMAP §A12 (no
-pervasive `if`) explicitly.
+Step 0 (Survey) for 1.8: zwasm v1's spec-test runner layout
+(probably under `test/spec/`), the wasm-tools `wast2json` output
+shape (in case we choose path b), and the upstream
+`WebAssembly/testsuite` structure (curated subset of `spec/test/
+core/`). Cite ROADMAP §11 (test data policy — "vendored verbatim,
+upstream commit pinned").
 
 **Retrievable identifiers**:
 
