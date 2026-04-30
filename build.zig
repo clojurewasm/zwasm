@@ -51,12 +51,37 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_tests.step);
 
+    // `zig build test-spec` — drive the frontend over the vendored
+    // Wasm spec corpus (Phase 1 / §9.1 / 1.8: parser smoke; 1.9
+    // upgrades to full decode + validate + lower).
+    const zwasm_lib_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    zwasm_lib_mod.addOptions("build_options", options);
+    const spec_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/spec/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    spec_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    const spec_runner_exe = b.addExecutable(.{
+        .name = "zwasm-spec-runner",
+        .root_module = spec_runner_mod,
+    });
+    const run_spec_runner = b.addRunArtifact(spec_runner_exe);
+    run_spec_runner.addArg(b.pathFromRoot("test/spec/smoke"));
+    const test_spec_step = b.step("test-spec", "Run the Wasm spec test runner");
+    test_spec_step.dependOn(&run_spec_runner.step);
+
     // `zig build test-all` — aggregate all enabled test layers.
     // Phase 0: only `test`. Phase 1+ adds spec / e2e / realworld /
     // c_api / fuzz steps as they land. Each layer registers itself
     // here so the user's invocation surface stays stable.
     const test_all_step = b.step("test-all", "Run all enabled test layers");
     test_all_step.dependOn(&run_exe_tests.step);
+    test_all_step.dependOn(&run_spec_runner.step);
 }
 
 pub const WasmLevel = enum { v1_0, v2_0, v3_0 };

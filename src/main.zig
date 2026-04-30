@@ -9,6 +9,13 @@ const build_options = @import("build_options");
 
 pub const version = "0.0.0-pre";
 
+// Public re-exports so build-time consumers (test/spec/runner.zig,
+// integration tests) can import the frontend without poking at
+// individual files.
+pub const parser = @import("frontend/parser.zig");
+pub const validator = @import("frontend/validator.zig");
+pub const lowerer = @import("frontend/lowerer.zig");
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
