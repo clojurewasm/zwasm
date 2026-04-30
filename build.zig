@@ -70,10 +70,13 @@ pub fn build(b: *std.Build) void {
         .name = "zwasm-spec-runner",
         .root_module = spec_runner_mod,
     });
-    const run_spec_runner = b.addRunArtifact(spec_runner_exe);
-    run_spec_runner.addArg(b.pathFromRoot("test/spec/smoke"));
+    const run_spec_smoke = b.addRunArtifact(spec_runner_exe);
+    run_spec_smoke.addArg(b.pathFromRoot("test/spec/smoke"));
+    const run_spec_mvp = b.addRunArtifact(spec_runner_exe);
+    run_spec_mvp.addArg(b.pathFromRoot("test/spec/wasm-1.0"));
     const test_spec_step = b.step("test-spec", "Run the Wasm spec test runner");
-    test_spec_step.dependOn(&run_spec_runner.step);
+    test_spec_step.dependOn(&run_spec_smoke.step);
+    test_spec_step.dependOn(&run_spec_mvp.step);
 
     // `zig build test-all` — aggregate all enabled test layers.
     // Phase 0: only `test`. Phase 1+ adds spec / e2e / realworld /
@@ -81,7 +84,8 @@ pub fn build(b: *std.Build) void {
     // here so the user's invocation surface stays stable.
     const test_all_step = b.step("test-all", "Run all enabled test layers");
     test_all_step.dependOn(&run_exe_tests.step);
-    test_all_step.dependOn(&run_spec_runner.step);
+    test_all_step.dependOn(&run_spec_smoke.step);
+    test_all_step.dependOn(&run_spec_mvp.step);
 }
 
 pub const WasmLevel = enum { v1_0, v2_0, v3_0 };
