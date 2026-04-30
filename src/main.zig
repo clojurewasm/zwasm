@@ -46,4 +46,6 @@ test {
     _ = @import("frontend/parser.zig");
     _ = @import("frontend/validator.zig");
     _ = @import("frontend/lowerer.zig");
+    _ = @import("frontend/parse_ctx.zig");
+    _ = @import("feature/mvp/mod.zig");
 }
