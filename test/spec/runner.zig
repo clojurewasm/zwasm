@@ -109,10 +109,8 @@ fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
 
     if (codes.items.len != func_indices.len) return error.FunctionCountMismatch;
 
-    // Build the per-function signature table (imports + defined). The
-    // smoke corpus has no imports yet, so we just project func_indices
-    // through types_owned. The 1.9 follow-up incorporates imports
-    // when the import-section decoder lands.
+    // Build the per-function signature table (defined funcs only — imports
+    // are not yet decoded; that follows in the 1.9 imports chunk).
     const func_types = try gpa.alloc(zwasm.zir.FuncType, func_indices.len);
     defer gpa.free(func_types);
     for (func_indices, func_types) |type_idx, *ft| {
@@ -120,9 +118,30 @@ fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
         ft.* = types_owned.items[type_idx];
     }
 
+    // Globals: project the global section onto the validator's
+    // `GlobalEntry` shape. Modules with no globals pass an empty slice.
+    const global_section = module.find(.global);
+    var globals_owned: ?sections.Globals = if (global_section) |s|
+        try sections.decodeGlobals(gpa, s.body)
+    else
+        null;
+    defer if (globals_owned) |*g| g.deinit();
+
+    var global_buf: [256]validator.GlobalEntry = undefined;
+    const global_entries: []const validator.GlobalEntry = blk: {
+        if (globals_owned) |g| {
+            if (g.items.len > global_buf.len) return error.TooManyGlobals;
+            for (g.items, 0..) |gd, i| {
+                global_buf[i] = .{ .valtype = gd.valtype, .mutable = gd.mutable };
+            }
+            break :blk global_buf[0..g.items.len];
+        }
+        break :blk &.{};
+    };
+
     for (codes.items, func_indices) |code, type_idx| {
         if (type_idx >= types_owned.items.len) return error.InvalidTypeIndex;
         const sig = types_owned.items[type_idx];
-        try validator.validateFunction(sig, code.locals, code.body, func_types);
+        try validator.validateFunction(sig, code.locals, code.body, func_types, global_entries);
     }
 }

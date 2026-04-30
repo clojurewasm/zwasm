@@ -107,6 +107,56 @@ pub fn decodeFunctions(alloc: Allocator, body: []const u8) Error![]u32 {
     return indices;
 }
 
+pub const GlobalDef = struct {
+    valtype: ValType,
+    mutable: bool,
+    /// Init-expression bytes (terminated by the trailing `end`). Borrowed
+    /// from the input.
+    init_expr: []const u8,
+};
+
+pub const Globals = struct {
+    arena: std.heap.ArenaAllocator,
+    items: []GlobalDef,
+
+    pub fn deinit(self: *Globals) void {
+        self.arena.deinit();
+    }
+};
+
+/// Decode the body of a global section (`SectionId.global`):
+///   vec(global), global = globaltype init_expr
+///   globaltype = valtype:u8 mut:u8 (0=const, 1=var)
+///   init_expr = expr terminated by 0x0B
+pub fn decodeGlobals(parent_alloc: Allocator, body: []const u8) Error!Globals {
+    var arena = std.heap.ArenaAllocator.init(parent_alloc);
+    errdefer arena.deinit();
+    const alloc = arena.allocator();
+
+    var pos: usize = 0;
+    const count = try leb128.readUleb128(u32, body, &pos);
+    const items = try alloc.alloc(GlobalDef, count);
+
+    for (items) |*g| {
+        const t = try readValType(body, &pos);
+        if (pos >= body.len) return Error.UnexpectedEnd;
+        const m = body[pos];
+        pos += 1;
+        if (m > 1) return Error.InvalidFunctype; // reused; malformed mut byte
+        const start = pos;
+        while (pos < body.len and body[pos] != 0x0B) pos += 1;
+        if (pos >= body.len) return Error.UnexpectedEnd;
+        // Include the terminating end (0x0B) in the init_expr slice so
+        // callers can drive a validator/lowerer the same way they would a
+        // function body.
+        pos += 1;
+        g.* = .{ .valtype = t, .mutable = m == 1, .init_expr = body[start..pos] };
+    }
+
+    if (pos != body.len) return Error.TrailingBytes;
+    return .{ .arena = arena, .items = items };
+}
+
 /// Decode the body of a code section (`SectionId.code`):
 ///   vec(code), code = size:u32 (vec(local_decl) + expr)
 ///   local_decl = count:u32 valtype
@@ -338,4 +388,39 @@ test "decodeCodes: rejects size overrun" {
 test "decodeCodes: rejects bad valtype in locals decl" {
     const body = [_]u8{ 0x01, 0x04, 0x01, 0x01, 0x6F, 0x0B }; // 6F = funcref (post-MVP)
     try testing.expectError(Error.BadValType, decodeCodes(testing.allocator, &body));
+}
+
+test "decodeGlobals: empty section" {
+    var g = try decodeGlobals(testing.allocator, &[_]u8{0x00});
+    defer g.deinit();
+    try testing.expectEqual(@as(usize, 0), g.items.len);
+}
+
+test "decodeGlobals: single immutable i32 with i32.const init" {
+    // count=1; valtype=i32; mut=const; init: i32.const 7 ; end
+    const body = [_]u8{ 0x01, 0x7F, 0x00, 0x41, 0x07, 0x0B };
+    var g = try decodeGlobals(testing.allocator, &body);
+    defer g.deinit();
+    try testing.expectEqual(@as(usize, 1), g.items.len);
+    try testing.expectEqual(ValType.i32, g.items[0].valtype);
+    try testing.expectEqual(false, g.items[0].mutable);
+    try testing.expectEqualSlices(u8, &[_]u8{ 0x41, 0x07, 0x0B }, g.items[0].init_expr);
+}
+
+test "decodeGlobals: mutable f64 global" {
+    const body = [_]u8{ 0x01, 0x7C, 0x01, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B };
+    var g = try decodeGlobals(testing.allocator, &body);
+    defer g.deinit();
+    try testing.expectEqual(ValType.f64, g.items[0].valtype);
+    try testing.expectEqual(true, g.items[0].mutable);
+}
+
+test "decodeGlobals: rejects malformed mut byte" {
+    const body = [_]u8{ 0x01, 0x7F, 0x02, 0x41, 0x00, 0x0B };
+    try testing.expectError(Error.InvalidFunctype, decodeGlobals(testing.allocator, &body));
+}
+
+test "decodeGlobals: rejects unterminated init_expr" {
+    const body = [_]u8{ 0x01, 0x7F, 0x00, 0x41, 0x00 }; // missing 0x0B
+    try testing.expectError(Error.UnexpectedEnd, decodeGlobals(testing.allocator, &body));
 }
