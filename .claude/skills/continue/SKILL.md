@@ -111,14 +111,23 @@ Use `ScheduleWakeup`:
 ScheduleWakeup(
   delaySeconds = 60,
   reason = "loop iteration <task-id> committed; re-arming for next task",
-  prompt = "<<autonomous-loop-dynamic>>"
+  prompt = "/continue"
 )
 ```
 
-The literal sentinel `<<autonomous-loop-dynamic>>` is resolved by
-the runtime back into the autonomous-loop instructions, which on
-fire will re-enter this skill at the resume procedure. Pick
-`delaySeconds` per the cache-window rule:
+`prompt = "/continue"` re-fires this skill from the resume
+procedure on the next wakeup. (Do **not** pass
+`<<autonomous-loop-dynamic>>` — that sentinel is for `/loop`
+invocations started without any user prompt; this loop began
+with the user's `/continue` and must be re-invoked the same
+way.)
+
+`ScheduleWakeup` is a deferred tool. On the first iteration of
+a fresh session, load its schema via
+`ToolSearch(query="select:ScheduleWakeup", max_results=1)` once
+before the first call; subsequent calls in the same session do
+not need re-loading. Pick `delaySeconds` per the cache-window
+rule:
 
 - **60–270s** when work is actively flowing — Step 5 finished
   green, Step 6 + 7 just landed, and the next task is small. Keeps
