@@ -18,11 +18,12 @@
 
 - **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE`. §9.1 /
   1.0 (`922521f`), 1.1 (`9305414`), 1.2 (`c2cd9b5`), 1.3
-  (`d2578ea`), 1.4 (`bbc5aca`) are `[x]`. ZIR shape + ZirOp
-  catalogue + DispatchTable type + module header / section
-  iterator are all in place. The first remaining `[ ]` is
-  **§9.1 / 1.5 — `src/frontend/validator.zig`** (type stack,
-  control stack, polymorphic else/end markers).
+  (`d2578ea`), 1.4 (`bbc5aca`), 1.5 (`73eaef9`) are `[x]`. ZIR
+  shape + ZirOp catalogue + DispatchTable + module / section
+  iterator + MVP-subset validator with polymorphic-stack rule
+  are all in place. The first remaining `[ ]` is
+  **§9.1 / 1.6 — `src/frontend/lowerer.zig`** (wasm-op → ZirOp
+  lowering for the MVP subset).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -40,45 +41,50 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.5 (`src/frontend/validator.zig`)
+## Active task — §9.1 / 1.6 (`src/frontend/lowerer.zig`)
 
-§9.1 / 1.4 closed at `bbc5aca`. `src/frontend/parser.zig`
-exposes `parse(alloc, input) → Module` with magic + version
-validation, strict known-section ordering (data_count between
-import and code), custom sections allowed anywhere, tag (id 13)
-currently rejected as `UnknownSectionId`. Section bodies are
-borrowed slices into `input`; no per-section decode runs in 1.4.
-Tests cover empty module, bad magic / version, ordered iteration,
-out-of-order, duplicates, custom interleaving, oversize section,
-truncated leb128. Survey note at `private/notes/p1-1.4-survey.md`.
+§9.1 / 1.5 closed at `73eaef9`. `src/frontend/validator.zig`
+exposes `validateFunction(sig, locals, body) → !void`. Internally
+it uses bounded inline stacks (operand 1024 / control 256) and a
+`TypeOrBot` sentinel for the polymorphic-stack window per spec
+§3.3.5. The opcode dispatch is a switch covering the MVP smoke
+set; **un-implemented MVP opcodes return `Error.NotImplemented`**
+on purpose — the giant switch migrates to dispatch-table lookup
+when feature modules register at §9.1 / 1.7. Multivalue block
+type and untyped `select_typed` (Wasm 2.0) are deliberately
+deferred. Survey note at `private/notes/p1-1.5-survey.md`.
 
-§9.1 / 1.5 lands the **type stack + control stack validator** in
-`src/frontend/validator.zig` (Zone 1 — may import `ir/`,
-`util/leb128.zig`, and the new parser). Scope:
+§9.1 / 1.6 lands the **wasm-op → ZirOp lowerer** in
+`src/frontend/lowerer.zig` (Zone 1 — may import `ir/`,
+`util/leb128.zig`, frontend/parser, frontend/validator). Scope:
 
-- per-function value-stack tracking against `FuncType.params /
-  results` and declared locals.
-- control stack with frames for `block` / `loop` / `if` / `else`
-  carrying the entry/exit type signature.
-- polymorphic markers after `unreachable` / `else` / `end` so
-  the spec's "polymorphic stack" rule is honoured exactly.
-- only the MVP opcode set in this task; bulk-memory / SIMD /
-  GC / tail-call validation is layered on in their feature
-  modules at §9.1 / 1.7.
+- single pass over a function-body expression, emitting a
+  `ZirInstr` stream into a `ZirFunc` (ROADMAP §4.2 shape — already
+  declared in `src/ir/zir.zig` as of §9.1 / 1.1).
+- maps each MVP wasm opcode to the matching `ZirOp` tag (e.g.
+  `0x6A` → `.@"i32.add"`). Block / loop / if / else / end produce
+  the corresponding control-flow ZirOps and populate
+  `ZirFunc.blocks` (start_inst / end_inst).
+- consumes immediates and stashes them into `ZirInstr.payload` /
+  `extra` (e.g. `i32.const` value, local index). Memarg-bearing
+  ops are deferred to the feature-module wiring in 1.7.
+- **does not** re-validate; lowerer assumes a validator pass has
+  already accepted the body. (1.7 will compose them via dispatch
+  table; until then both run independently as per-task tests.)
 
-Tests: empty function (no opcodes), single `i32.const + drop`,
-nested block / br typing, mismatched arity, polymorphic stack
-after `unreachable`. Section-body decode for type / function /
-code lives here (the validator needs to read the body before it
-can stack-check), so 1.5 is also the natural place for the
-Wasm-1.0 type / func / code body decoders. 1.6 then lowers the
-validated stream into `ZirOp`s.
+Tests: lower an empty function frame; lower a const + drop +
+end sequence; lower a nested block with br; verify
+`ZirFunc.instrs.items[i].op` matches the expected `ZirOp` tag and
+payloads round-trip immediates correctly. The validator's
+operator coverage (control flow + locals + const + i32 add/sub
+/mul/eqz + drop) is the lower-bound for 1.6 too.
 
-Step 0 (Survey) for 1.5: zwasm v1's `frontend/validator.zig`,
-zware's `validator.zig`, wasmtime's `crates/wasmparser/.../validator/`,
-the WebAssembly spec §3 (validation) text. Cite ROADMAP §P1
-(spec fidelity) and the polymorphic-stack rule explicitly when
-designing the control-stack invariants.
+Step 0 (Survey) for 1.6: zwasm v1's `frontend/lowerer.zig` (or
+the equivalent — v1 may have folded lowering into validator);
+wasmtime's `crates/cranelift-codegen/src/...` for the CLIF
+shape that informs ZirOp encoding choices; the `ZirOp` catalogue
+in `src/ir/zir.zig` (already complete). Cite ROADMAP §P13 / §4.2
+(slot-typed IR, day-1 catalogue) when deciding payload encoding.
 
 **Retrievable identifiers**:
 
