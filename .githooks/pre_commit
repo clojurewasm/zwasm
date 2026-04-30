@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# .githooks/pre_commit
+#
+# Activated by:
+#   git config core.hooksPath .githooks
+#
+# Runs the commit gate. Skipping with `git commit --no-verify` is
+# forbidden by ROADMAP §14.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+bash scripts/gate_commit.sh

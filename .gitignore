@@ -1,0 +1,35 @@
+# Zig build artifacts
+zig-out/
+.zig-cache/
+
+# Nix build outputs
+result
+result-*
+
+# direnv local cache
+.direnv/
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+*.swp
+*~
+.vscode/
+.idea/
+
+# Local-only docs and scratch (per-developer, not authoritative)
+private/
+
+# Claude Code local-only settings (per-developer)
+.claude/settings.local.json
+
+# Test data — derivatives are regenerated; see ROADMAP §11.2 and
+# scripts/regen_test_data.sh
+test/spec/json/
+test/e2e/wast/
+test/e2e/json/
+test/fuzz/corpus/
+
+# Generated headers (fetched by scripts/fetch_wasm_c_api.sh)
+include/wasm.h.upstream

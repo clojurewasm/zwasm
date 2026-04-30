@@ -1,0 +1,164 @@
+{
+  "defaultMode": "acceptEdits",
+  "outputStyle": "Japanese",
+  "permissions": {
+    "additionalDirectories": [
+      "~/Documents/MyProducts/zwasm",
+      "~/Documents/MyProducts/ClojureWasmFromScratch",
+      "~/Documents/OSS/wasmtime",
+      "~/Documents/OSS/wasmer",
+      "~/Documents/OSS/wasm3",
+      "~/Documents/OSS/wazero",
+      "~/Documents/OSS/zware",
+      "~/Documents/OSS/wasm-c-api",
+      "~/Documents/OSS/regalloc2",
+      "~/Documents/OSS/wasm-tools",
+      "~/Documents/OSS/sightglass",
+      "~/Documents/OSS/cap-std",
+      "~/Documents/OSS/wit-bindgen",
+      "~/Documents/OSS/wasm-micro-runtime",
+      "~/Documents/OSS/WasmEdge",
+      "~/Documents/OSS/hyperfine",
+      "~/Documents/OSS/wasi-rs",
+      "~/Documents/OSS/dynasm-rs",
+      "~/Documents/OSS/poop",
+      "~/Documents/OSS/extism",
+      "~/Documents/OSS/zig",
+      "~/Documents/OSS/WebAssembly",
+      "~/zwasm/private"
+    ],
+    "allow": [
+      "Bash(zig:*)",
+      "Bash(nix develop:*)",
+      "Bash(nix flake:*)",
+      "Bash(direnv:*)",
+      "Bash(orb run:*)",
+      "Bash(orb info:*)",
+      "Bash(orb status:*)",
+      "Bash(ssh windowsmini:*)",
+      "Bash(rsync:*)",
+
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git switch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git rev-list:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git remote:*)",
+      "Bash(git fetch:*)",
+      "Bash(git config --get:*)",
+      "Bash(git restore:*)",
+      "Bash(git diff-tree:*)",
+      "Bash(git clean:*)",
+
+      "Bash(bash:*)",
+      "Bash(python3:*)",
+      "Bash(rg:*)",
+      "Bash(fd:*)",
+      "Bash(grep:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(diff:*)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(chmod:*)",
+      "Bash(printf:*)",
+      "Bash(echo:*)",
+      "Bash(realpath:*)",
+      "Bash(du:*)",
+
+      "Bash(hyperfine:*)",
+      "Bash(yq:*)",
+      "Bash(say:*)",
+      "Bash(taskset:*)",
+
+      "Edit(CLAUDE.md)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Read(.claude/**)",
+      "Edit(.dev/**)",
+      "Write(.dev/**)",
+      "Edit(.githooks/**)",
+      "Write(.githooks/**)",
+      "Edit(docs/**)",
+      "Write(docs/**)",
+      "Edit(scripts/**)",
+      "Write(scripts/**)",
+      "Edit(src/**)",
+      "Write(src/**)",
+      "Edit(test/**)",
+      "Write(test/**)",
+      "Edit(bench/**)",
+      "Write(bench/**)",
+      "Edit(include/**)",
+      "Write(include/**)",
+      "Edit(examples/**)",
+      "Write(examples/**)",
+      "Edit(build.zig)",
+      "Edit(build.zig.zon)",
+      "Edit(flake.nix)",
+      "Edit(flake.lock)",
+      "Edit(.envrc)",
+      "Edit(.gitignore)",
+      "Edit(README.md)",
+      "Edit(LICENSE)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git rebase:*)",
+      "Bash(git commit --no-verify:*)",
+      "Bash(git push:main)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~/:*)",
+      "Bash(rm -rf $HOME:*)",
+      "Bash(rm -rf .git:*)"
+    ]
+  },
+  "env": {
+    "ZIG_LOCAL_CACHE_DIR": ".zig-cache"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '=== language policy ===\\nReply to the user in Japanese (画面表示は日本語). Code, identifiers, file paths, commit messages, and English docs stay in English. See .claude/output_styles/japanese.md.\\n\\n' && test -f $CLAUDE_PROJECT_DIR/.dev/handover.md && printf '=== .dev/handover.md ===\\n' && cat $CLAUDE_PROJECT_DIR/.dev/handover.md && printf '\\n=== git log -3 ===\\n' && git -C $CLAUDE_PROJECT_DIR log -3 --decorate --oneline || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/scripts/check_md_tables.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

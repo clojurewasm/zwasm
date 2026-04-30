@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# .githooks/pre_push
+#
+# Activated by:
+#   git config core.hooksPath .githooks
+#
+# Runs the merge gate (Mac native + OrbStack Ubuntu native +
+# windowsmini SSH). Phase 0 / early phases: missing OrbStack VM or
+# unreachable windowsmini logs WARN and continues (per
+# scripts/gate_merge.sh).
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+bash scripts/gate_merge.sh
