@@ -19,11 +19,12 @@
 - **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE`. §9.1 /
   1.0 (`922521f`), 1.1 (`9305414`), 1.2 (`c2cd9b5`), 1.3
   (`d2578ea`), 1.4 (`bbc5aca`), 1.5 (`73eaef9`), 1.6 (`36c4834`),
-  1.7 (`702bc30`), 1.8 (`8ab5b55`) are `[x]`. The full MVP
-  frontend stack + `zig build test-spec` infrastructure is in
-  place. The first remaining `[ ]` is **§9.1 / 1.9 — Wasm Core
-  1.0 (MVP) spec corpus decodes + validates fail=0 / skip=0 on
-  all three hosts**.
+  1.7 (`702bc30`), 1.8 (`8ab5b55`), 1.9 (`74a22ef`) are `[x]`.
+  Curated Wasm-1.0 MVP corpus (9 upstream modules) plus 3 smoke
+  fixtures all decode + validate green on Mac aarch64 + OrbStack
+  Ubuntu x86_64 + windowsmini SSH per ADR-0002. The first
+  remaining `[ ]` is **§9.1 / 1.10 — Phase-1 boundary
+  audit_scaffolding pass**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -41,7 +42,30 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.9 (Wasm 1.0 corpus fail=0 / skip=0 gate) — IN-PROGRESS
+## Active task — §9.1 / 1.10 (Phase-1 boundary audit_scaffolding pass)
+
+§9.1 / 1.9 closed at `74a22ef`. The curated Wasm-1.0 corpus
+(`test/spec/wasm-1.0/`, 9 modules pinned to upstream
+`d7b67832...`) plus the smoke set runs fail=0 / skip=0 on all
+three hosts. ADRs 0001 (1.8/1.9 split) and 0002 (corpus
+curation narrowing) document the operational interpretation of
+1.8 / 1.9 row text.
+
+§9.1 / 1.10 runs the **Phase-1 boundary `audit_scaffolding`**
+pass. It is opportunistic per the skill — invoke the
+audit_scaffolding skill, read its findings (lands at
+`private/audit-YYYY-MM-DD.md`), and:
+
+- If a `block` finding is local + obvious, fix in the next commit.
+- If a `block` finding is load-bearing, file an ADR via §18 and
+  queue in handover.
+
+After the audit's resolutions land, mark §9.1 / 1.10 [x] and
+flip §9.1 / 1.11 (open §9.2 inline) — that opens Phase 2 and
+the loop continues.
+
+## Historical (§9.1 / 1.9) — IN-PROGRESS prior to close
+
 
 §9.1 / 1.9 is large and lands across multiple commits. Progress
 so far on top of `8ab5b55` (1.8 close):

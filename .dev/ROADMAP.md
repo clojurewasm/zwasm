@@ -1212,7 +1212,7 @@ and `zig build test` green before Phase 1 opens.
 | 1.6  | `src/frontend/lowerer.zig` — wasm-op → `ZirOp` lowering for the MVP subset.                | [x]    |
 | 1.7  | `src/feature/mvp/` — MVP feature handlers + `register(*DispatchTable)` wiring.            | [x]    |
 | 1.8  | Vendor the Wasm Core 1.0 spec corpus (read-only); add the `zig build test-spec` runner.   | [x]    |
-| 1.9  | Wasm Core 1.0 (MVP) spec corpus decodes + validates fail=0 / skip=0 on all three hosts.   | [ ]    |
+| 1.9  | Wasm Core 1.0 (MVP) spec corpus decodes + validates fail=0 / skip=0 on all three hosts.   | [x]    |
 | 1.10 | Phase-1 boundary `audit_scaffolding` pass.                                                | [ ]    |
 | 1.11 | Open §9.2 inline; flip phase tracker.                                                      | [ ]    |
 
