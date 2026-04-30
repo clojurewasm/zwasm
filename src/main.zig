@@ -45,4 +45,5 @@ test {
     _ = @import("ir/dispatch_table.zig");
     _ = @import("frontend/parser.zig");
     _ = @import("frontend/validator.zig");
+    _ = @import("frontend/lowerer.zig");
 }
