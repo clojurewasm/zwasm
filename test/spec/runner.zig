@@ -1,14 +1,11 @@
-//! Wasm spec test runner (Phase 1 / §9.1 / 1.8 — bring-up scaffold).
+//! Wasm spec test runner (Phase 1 / §9.1 / 1.8 → 1.9).
 //!
-//! Walks a directory of `.wasm` files and drives each through the
-//! frontend parser (`src/frontend/parser.zig`). Reports pass / fail
-//! counts to stdout and exits 0 iff all fixtures parsed cleanly.
+//! Walks a directory of `.wasm` files and for each one runs:
+//!   parser.parse  →  sections.decodeTypes + decodeFunctions +
+//!   decodeCodes  →  validator.validateFunction (per function).
 //!
-//! 1.8 wires only the parser; the validator + lowerer integration
-//! (which needs the type / function / code section-body decoders)
-//! lands in §9.1 / 1.9, alongside vendoring the upstream MVP corpus
-//! at `test/spec/json/` (gitignored, regenerated from
-//! `test/spec/wat/` per ROADMAP §5).
+//! Reports pass / fail counts to stdout and exits 0 iff all
+//! fixtures parsed and validated.
 //!
 //! Usage:
 //!   zig build test-spec               # walks test/spec/smoke/
@@ -16,7 +13,10 @@
 
 const std = @import("std");
 
-const parser = @import("zwasm").parser;
+const zwasm = @import("zwasm");
+const parser = zwasm.parser;
+const sections = zwasm.sections;
+const validator = zwasm.validator;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -66,6 +66,11 @@ pub fn main(init: std.process.Init) !void {
         };
         defer module.deinit(gpa);
 
+        runOne(gpa, &module) catch |err| {
+            try stdout.print("FAIL  {s}: {s}\n", .{ entry.name, @errorName(err) });
+            failed += 1;
+            continue;
+        };
         try stdout.print("PASS  {s} ({d} sections)\n", .{ entry.name, module.sections.items.len });
         passed += 1;
     }
@@ -74,4 +79,39 @@ pub fn main(init: std.process.Init) !void {
     try stdout.flush();
 
     if (failed != 0) std.process.exit(1);
+}
+
+/// Decode the type / function / code sections of a parsed module and
+/// run the validator over each defined function. Returns on the first
+/// error (caller treats it as a per-fixture failure).
+fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
+    const type_section = module.find(.@"type");
+    const func_section = module.find(.function);
+    const code_section = module.find(.code);
+
+    // No code section → nothing to validate.
+    const code_body = if (code_section) |s| s.body else return;
+
+    var types_owned = if (type_section) |s|
+        try sections.decodeTypes(gpa, s.body)
+    else
+        sections.Types{ .arena = std.heap.ArenaAllocator.init(gpa), .items = &.{} };
+    defer types_owned.deinit();
+
+    const func_indices = if (func_section) |s|
+        try sections.decodeFunctions(gpa, s.body)
+    else
+        try gpa.alloc(u32, 0);
+    defer gpa.free(func_indices);
+
+    var codes = try sections.decodeCodes(gpa, code_body);
+    defer codes.deinit();
+
+    if (codes.items.len != func_indices.len) return error.FunctionCountMismatch;
+
+    for (codes.items, func_indices) |code, type_idx| {
+        if (type_idx >= types_owned.items.len) return error.InvalidTypeIndex;
+        const sig = types_owned.items[type_idx];
+        try validator.validateFunction(sig, code.locals, code.body);
+    }
 }
