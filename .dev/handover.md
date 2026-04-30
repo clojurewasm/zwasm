@@ -45,12 +45,19 @@
 §9.2 / 2.2 lands across multiple chunks. Progress so far on top
 of `f292ae7` (2.1 close):
 
-1. `ead0fe3` — `src/interp/mvp.zig` chunk-1: i32 numeric family
-   (15 binops + 10 relops + 3 unops + eqz testop) + consts
-   (i32/i64/f32/f64 with low/high split) + drop + locals
-   (get/set/tee) + globals (get/set). Trap behaviour: div_s
-   INT_MIN/-1 → IntOverflow, div_* / rem_* by 0 → DivByZero,
-   rem_s INT_MIN/-1 → 0 (spec rule), shifts mask count to N-1.
+1. `ead0fe3` — chunk-1: i32 numeric (15 binops + 10 relops + 3
+   unops + eqz) + consts (4) + drop + locals + globals.
+2. `0558114` — chunk-2: i64 numeric (mirror of i32; 15+10+3+1).
+3. `3ddb61c` — chunk-3: f32 / f64 numeric (6 relops + 7 unops +
+   7 binops per width). NaN propagation explicit on min/max;
+   strict canonical-NaN deferred to 2.4.
+
+`src/interp/mvp.zig` is now 1196 lines (over the 1000-line soft
+cap, under the 2000 hard cap). **File-split refactor queued for
+chunk 4** before adding conversions and loads/stores would push
+us past the hard cap. Likely shape: `src/interp/integer_ops.zig`
+(i32 + i64) + `src/interp/float_ops.zig` (f32 + f64) +
+`src/interp/mvp.zig` thin aggregator wiring `register`.
 
 **Zone placement note**: `src/interp/mvp.zig` is Zone 2, not
 Zone 1, because it imports `src/interp/mod.zig` for Runtime +
