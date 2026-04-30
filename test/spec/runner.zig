@@ -142,6 +142,13 @@ fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
     for (codes.items, func_indices) |code, type_idx| {
         if (type_idx >= types_owned.items.len) return error.InvalidTypeIndex;
         const sig = types_owned.items[type_idx];
-        try validator.validateFunction(sig, code.locals, code.body, func_types, global_entries);
+        try validator.validateFunction(
+            sig,
+            code.locals,
+            code.body,
+            func_types,
+            global_entries,
+            types_owned.items,
+        );
     }
 }
