@@ -98,6 +98,41 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"i32.le_u")] = i32LeU;
     table.interp[op(.@"i32.ge_s")] = i32GeS;
     table.interp[op(.@"i32.ge_u")] = i32GeU;
+
+    // i64 testop / unops
+    table.interp[op(.@"i64.eqz")] = i64Eqz;
+    table.interp[op(.@"i64.clz")] = i64Clz;
+    table.interp[op(.@"i64.ctz")] = i64Ctz;
+    table.interp[op(.@"i64.popcnt")] = i64Popcnt;
+
+    // i64 binops
+    table.interp[op(.@"i64.add")] = i64Add;
+    table.interp[op(.@"i64.sub")] = i64Sub;
+    table.interp[op(.@"i64.mul")] = i64Mul;
+    table.interp[op(.@"i64.div_s")] = i64DivS;
+    table.interp[op(.@"i64.div_u")] = i64DivU;
+    table.interp[op(.@"i64.rem_s")] = i64RemS;
+    table.interp[op(.@"i64.rem_u")] = i64RemU;
+    table.interp[op(.@"i64.and")] = i64And;
+    table.interp[op(.@"i64.or")] = i64Or;
+    table.interp[op(.@"i64.xor")] = i64Xor;
+    table.interp[op(.@"i64.shl")] = i64Shl;
+    table.interp[op(.@"i64.shr_s")] = i64ShrS;
+    table.interp[op(.@"i64.shr_u")] = i64ShrU;
+    table.interp[op(.@"i64.rotl")] = i64Rotl;
+    table.interp[op(.@"i64.rotr")] = i64Rotr;
+
+    // i64 relops
+    table.interp[op(.@"i64.eq")] = i64Eq;
+    table.interp[op(.@"i64.ne")] = i64Ne;
+    table.interp[op(.@"i64.lt_s")] = i64LtS;
+    table.interp[op(.@"i64.lt_u")] = i64LtU;
+    table.interp[op(.@"i64.gt_s")] = i64GtS;
+    table.interp[op(.@"i64.gt_u")] = i64GtU;
+    table.interp[op(.@"i64.le_s")] = i64LeS;
+    table.interp[op(.@"i64.le_u")] = i64LeU;
+    table.interp[op(.@"i64.ge_s")] = i64GeS;
+    table.interp[op(.@"i64.ge_u")] = i64GeU;
 }
 
 inline fn op(t: ZirOp) usize {
@@ -380,6 +415,206 @@ fn i32GeU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     try pushBool(rt, p.a >= p.b);
 }
 
+// --- i64 unops / testop ---
+
+fn i64Eqz(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().i64;
+    try rt.pushOperand(.{ .i32 = if (x == 0) 1 else 0 });
+}
+
+fn i64Clz(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().u64;
+    const r: i64 = @intCast(@clz(x));
+    try rt.pushOperand(.{ .i64 = r });
+}
+
+fn i64Ctz(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().u64;
+    const r: i64 = @intCast(@ctz(x));
+    try rt.pushOperand(.{ .i64 = r });
+}
+
+fn i64Popcnt(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().u64;
+    const r: i64 = @intCast(@popCount(x));
+    try rt.pushOperand(.{ .i64 = r });
+}
+
+// --- i64 binops ---
+
+fn popI64Pair(rt: *Runtime) struct { a: i64, b: i64 } {
+    const b = rt.popOperand().i64;
+    const a = rt.popOperand().i64;
+    return .{ .a = a, .b = b };
+}
+
+fn popU64Pair(rt: *Runtime) struct { a: u64, b: u64 } {
+    const b = rt.popOperand().u64;
+    const a = rt.popOperand().u64;
+    return .{ .a = a, .b = b };
+}
+
+fn i64Add(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    try rt.pushOperand(.{ .i64 = p.a +% p.b });
+}
+
+fn i64Sub(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    try rt.pushOperand(.{ .i64 = p.a -% p.b });
+}
+
+fn i64Mul(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    try rt.pushOperand(.{ .i64 = p.a *% p.b });
+}
+
+fn i64DivS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    if (p.b == 0) return Trap.DivByZero;
+    if (p.a == std.math.minInt(i64) and p.b == -1) return Trap.IntOverflow;
+    try rt.pushOperand(.{ .i64 = @divTrunc(p.a, p.b) });
+}
+
+fn i64DivU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    if (p.b == 0) return Trap.DivByZero;
+    try rt.pushOperand(.{ .u64 = p.a / p.b });
+}
+
+fn i64RemS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    if (p.b == 0) return Trap.DivByZero;
+    if (p.a == std.math.minInt(i64) and p.b == -1) {
+        try rt.pushOperand(.{ .i64 = 0 });
+        return;
+    }
+    try rt.pushOperand(.{ .i64 = @rem(p.a, p.b) });
+}
+
+fn i64RemU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    if (p.b == 0) return Trap.DivByZero;
+    try rt.pushOperand(.{ .u64 = p.a % p.b });
+}
+
+fn i64And(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    try rt.pushOperand(.{ .u64 = p.a & p.b });
+}
+
+fn i64Or(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    try rt.pushOperand(.{ .u64 = p.a | p.b });
+}
+
+fn i64Xor(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    try rt.pushOperand(.{ .u64 = p.a ^ p.b });
+}
+
+fn i64Shl(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    const sh: u6 = @intCast(p.b & 63);
+    try rt.pushOperand(.{ .u64 = p.a << sh });
+}
+
+fn i64ShrS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    const sh: u6 = @intCast(@as(u64, @bitCast(p.b)) & 63);
+    try rt.pushOperand(.{ .i64 = p.a >> sh });
+}
+
+fn i64ShrU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    const sh: u6 = @intCast(p.b & 63);
+    try rt.pushOperand(.{ .u64 = p.a >> sh });
+}
+
+fn i64Rotl(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    const sh: u6 = @intCast(p.b & 63);
+    try rt.pushOperand(.{ .u64 = std.math.rotl(u64, p.a, sh) });
+}
+
+fn i64Rotr(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    const sh: u6 = @intCast(p.b & 63);
+    try rt.pushOperand(.{ .u64 = std.math.rotr(u64, p.a, sh) });
+}
+
+// --- i64 relops ---
+
+fn i64Eq(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    try pushBool(rt, p.a == p.b);
+}
+fn i64Ne(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    try pushBool(rt, p.a != p.b);
+}
+fn i64LtS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    try pushBool(rt, p.a < p.b);
+}
+fn i64LtU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    try pushBool(rt, p.a < p.b);
+}
+fn i64GtS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    try pushBool(rt, p.a > p.b);
+}
+fn i64GtU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    try pushBool(rt, p.a > p.b);
+}
+fn i64LeS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    try pushBool(rt, p.a <= p.b);
+}
+fn i64LeU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    try pushBool(rt, p.a <= p.b);
+}
+fn i64GeS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popI64Pair(rt);
+    try pushBool(rt, p.a >= p.b);
+}
+fn i64GeU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const p = popU64Pair(rt);
+    try pushBool(rt, p.a >= p.b);
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -544,6 +779,63 @@ test "locals: get/set/tee round-trip via current frame" {
     try driveOne(&rt, &t, .@"local.tee", 1, 0);
     try testing.expectEqual(@as(i32, 99), locals[1].i32);
     try testing.expectEqual(@as(i32, 99), rt.popOperand().i32);
+}
+
+test "i64.add wraps modulo 2^64" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    const lo_max: u64 = @bitCast(@as(i64, std.math.maxInt(i64)));
+    try driveOne(&rt, &t, .@"i64.const", @truncate(lo_max), @truncate(lo_max >> 32));
+    try driveOne(&rt, &t, .@"i64.const", 1, 0);
+    try driveOne(&rt, &t, .@"i64.add", 0, 0);
+    try testing.expectEqual(@as(i64, std.math.minInt(i64)), rt.popOperand().i64);
+}
+
+test "i64.div_s: INT_MIN/-1 traps IntOverflow" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    const min_lo: u64 = @bitCast(@as(i64, std.math.minInt(i64)));
+    try driveOne(&rt, &t, .@"i64.const", @truncate(min_lo), @truncate(min_lo >> 32));
+    const minus_one: u64 = @bitCast(@as(i64, -1));
+    try driveOne(&rt, &t, .@"i64.const", @truncate(minus_one), @truncate(minus_one >> 32));
+    try testing.expectError(Trap.IntOverflow, driveOne(&rt, &t, .@"i64.div_s", 0, 0));
+}
+
+test "i64.shl masks shift count to 6 bits" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try driveOne(&rt, &t, .@"i64.const", 1, 0);
+    try driveOne(&rt, &t, .@"i64.const", 65, 0); // 65 mod 64 = 1
+    try driveOne(&rt, &t, .@"i64.shl", 0, 0);
+    try testing.expectEqual(@as(u64, 2), rt.popOperand().u64);
+}
+
+test "i64.eqz: 0 → 1, nonzero → 0" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try driveOne(&rt, &t, .@"i64.const", 0, 0);
+    try driveOne(&rt, &t, .@"i64.eqz", 0, 0);
+    try testing.expectEqual(@as(i32, 1), rt.popOperand().i32);
+}
+
+test "i64.lt_u: high bits respected" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    // 0x1_0000_0000 vs 0x2 — unsigned: a > b
+    try driveOne(&rt, &t, .@"i64.const", 0, 1);
+    try driveOne(&rt, &t, .@"i64.const", 2, 0);
+    try driveOne(&rt, &t, .@"i64.lt_u", 0, 0);
+    try testing.expectEqual(@as(i32, 0), rt.popOperand().i32);
 }
 
 test "globals: get/set round-trip" {
