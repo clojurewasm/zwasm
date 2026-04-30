@@ -40,16 +40,51 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.2 / 2.2 (MVP interp handlers)
+## Active task — §9.2 / 2.2 (MVP interp handlers) — IN-PROGRESS
 
-§9.2 / 2.1 closed at `f292ae7`. `src/interp/dispatch.zig`
-exposes `step` and `run`; both look up
-`DispatchTable.interp[@intFromEnum(instr.op)]` and trap on
-unbound slots (`Trap.Unreachable`). `Runtime.toOpaque` /
-`fromOpaque` helpers in `src/interp/mod.zig` cast
-`*Runtime` ↔ `*InterpCtx`. Phase-14 may revisit performance
-(no tail-call guarantee in Zig 0.16); Phase 2 prioritises
-correctness.
+§9.2 / 2.2 lands across multiple chunks. Progress so far on top
+of `f292ae7` (2.1 close):
+
+1. `ead0fe3` — `src/interp/mvp.zig` chunk-1: i32 numeric family
+   (15 binops + 10 relops + 3 unops + eqz testop) + consts
+   (i32/i64/f32/f64 with low/high split) + drop + locals
+   (get/set/tee) + globals (get/set). Trap behaviour: div_s
+   INT_MIN/-1 → IntOverflow, div_* / rem_* by 0 → DivByZero,
+   rem_s INT_MIN/-1 → 0 (spec rule), shifts mask count to N-1.
+
+**Zone placement note**: `src/interp/mvp.zig` is Zone 2, not
+Zone 1, because it imports `src/interp/mod.zig` for Runtime +
+Value + Trap. ROADMAP §4.5's "feature modules" concept splits
+per-engine: parser-side handlers stay in `src/feature/mvp/mod.zig`
+(Zone 1), engine-side handlers live with their engine.
+
+Remaining 2.2 chunks:
+
+- **chunk 2 (i64 numeric)** — same shape as i32: 15 binops + 10
+  relops + 3 unops + eqz.
+- **chunk 3 (f32 / f64 numeric)** — 6 relops + 7 unops + 7 binops
+  per width. NaN canonicalisation deferred to 2.4.
+- **chunk 4 (conversions)** — wrap, extend, trunc (with
+  InvalidConversionToInt traps), convert, demote / promote,
+  reinterpret.
+- **chunk 5 (loads / stores + memory.size / memory.grow)** —
+  effective-address = `i32 base + memarg.offset`; `OutOfBoundsLoad`
+  / `OutOfBoundsStore` against `rt.memory`.
+- **chunk 6 (control flow)** — block / loop / if / else / end /
+  br / br_if / br_table / return. These mutate the current
+  frame's `pc` (the dispatch loop's outer `while` already advances
+  pc by 1 per step; control flow handlers will need to subtract
+  to keep the increment happy, OR the loop refactors to a
+  `read pc → step → handler-set-pc` shape). Needs a small
+  redesign of `dispatch.zig`'s `run` to consult `frame.pc`
+  instead of a local.
+- **chunk 7 (call / call_indirect)** — pushes a new Frame onto
+  the runtime's frame stack with the callee's locals (params
+  popped from operand stack + zeros for declared locals).
+- **chunk 8 (select)** — pop i32 cond + 2 values, push the
+  matching one.
+
+Scope discipline: one chunk per turn (chunks are 2-5 commits each).
 
 §9.2 / 2.2 wires the **MVP interp handlers** into
 `DispatchTable.interp` via a new `src/feature/mvp/interp.zig`
