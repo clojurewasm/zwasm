@@ -73,6 +73,36 @@ as justification to stop, you are violating this skill.
 If you are unsure whether to stop, the answer is **don't**. The user
 will interrupt if needed.
 
+## Destructive-action policy — autonomous within scope
+
+The harness's general "ask before destructive" guidance does **not**
+gate the autonomous loop on the following local, reversible actions.
+Run them without confirmation:
+
+- `rm <file>` / `rm -r <dir>` / `rm -rf <dir>` for paths under
+  `private/`, `.zig-cache/`, `zig-out/`, `/tmp/`, scratch
+  artifacts you yourself just created (e.g. smoke-test files
+  under `.claude/`), and survey notes you no longer need.
+- `mv` / `cp` / `mkdir` / `rmdir` for the same scope.
+- `git stash` / `git restore <path>` / `git checkout -- <path>`
+  to discard uncommitted local edits when re-starting a task
+  after auto-compact (see "Auto-compact recovery").
+- `git reset <commit>` (mixed / soft) on the local
+  `zwasm-from-scratch` branch when the working tree is yours
+  alone. **`git reset --hard` remains denied** by
+  `.claude/settings.json` and is a bucket-2 stop if genuinely
+  needed.
+
+Out of scope (still ask the user / stop):
+
+- `rm -rf /`, `rm -rf ~/`, `rm -rf $HOME`, `rm -rf .git` —
+  denied in `.claude/settings.json`; if you somehow need them,
+  that is bucket 2 of the stop whitelist.
+- Anything outside the project working tree and the
+  `additionalDirectories` list in settings.json.
+- `git push --force` / `--force-with-lease` — denied; main push
+  forbidden by §14.
+
 ## Push policy — autonomous, no approval
 
 `git push origin zwasm-from-scratch` does **not** require user

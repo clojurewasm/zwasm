@@ -64,9 +64,7 @@
       "Write(/Users/shota.508/Documents/MyProducts/zwasm/**)",
       "Write(/Users/shota.508/Documents/MyProducts/ClojureWasmFromScratch/**)",
       "Write(/Users/shota.508/Documents/OSS/**)",
-      "Write(/Users/shota.508/zwasm/private/**)",
-
-      "Bash(*)"
+      "Write(/Users/shota.508/zwasm/private/**)"
     ],
     "deny": [
       "Bash(git push --force:*)",
