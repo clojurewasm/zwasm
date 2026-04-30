@@ -172,6 +172,14 @@ Never `git commit --no-verify` (forbidden by ROADMAP §14).
    below). The commit message itself references `§9.<N> / N.M`, so
    `git log --grep="§9.<N> / N.M"` is the canonical lookup; the
    Status SHA is convenience, not load-bearing.
+
+   **§18 self-check before this edit** (the PreToolUse hook will
+   also re-print this when you save): `[x]` flips and SHA backfills
+   are *routine status updates*, no ADR needed. But if the same
+   commit also touches §9 phase scope, exit criteria, §11 layers,
+   §14 forbidden list, or any §1/§2/§4/§5 text — that part is a
+   *deviation*; file `.dev/decisions/NNNN_<slug>.md` first per
+   ROADMAP §18.2 and reference it in the commit message.
 3. Continue immediately to the next task's Step 0. Context-fill
    management is the harness's job, not yours — see "Auto-compact
    recovery" below.

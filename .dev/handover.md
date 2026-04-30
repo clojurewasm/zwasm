@@ -16,11 +16,14 @@
 
 ## Current state
 
-- **Phase**: **Phase 0 IN-PROGRESS — held at the Phase 1 boundary
-  per user direction.** §9.0 / 0.0–0.6 are `[x]`. The only remaining
-  task is 0.7 (open §9.1 inline + flip the Phase Status widget),
-  which the user has asked to pause before performing. Resume with
-  the user's go-signal; do **not** auto-advance into Phase 1.
+- **Phase**: **Phase 0 IN-PROGRESS.** §9.0 / 0.0–0.6 are `[x]`.
+  Only 0.7 remains (open §9.1 inline + flip the Phase Status
+  widget). The previous session paused before 0.7 at user
+  direction; **the next `/continue` invocation IS the explicit
+  go-signal that releases that hold** (per the `continue` skill's
+  "/continue itself is the go signal" rule). On resume, perform
+  0.7 and proceed directly into §9.1's first task — no further
+  pause needed.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -37,7 +40,7 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.0 / 0.7 (HELD)
+## Active task — §9.0 / 0.7 (release-on-resume)
 
 §9.0 / 0.0 (bootstrap), 0.1 (Mac build), 0.2 (OrbStack build),
 0.3 (windowsmini build), 0.4 (hooks), 0.5 (three-host `zig build
@@ -46,14 +49,20 @@ The audit produced `private/audit-2026-05-01.md` with **0 block /
 0 soon / 4 watch** — Phase 0 is structurally healthy.
 
 The only remaining task is **§9.0 / 0.7 — open §9.1 inline + flip
-the Phase Status widget**. Per the user, the loop is held here:
-**do not perform 0.7 without the user's explicit go-signal.**
+the Phase Status widget**. The previous session paused here at
+user direction; the next `/continue` is the explicit go-signal
+that releases the pause.
 
-When resumed, 0.7 means: expand the §9.1 task table inline (mirror
+On resume, 0.7 means: expand the §9.1 task table inline (mirror
 §9.0's structure: numbered `[ ]` table with the same Status column
 shape), update the Phase Status widget (§9.0 → DONE, §9.1 →
 IN-PROGRESS, "First open `[ ]` task" → §9.1 / 1.x), update this
-handover to point at §9.1's first task, then commit.
+handover to point at §9.1's first task, commit, then continue
+straight into §9.1 / 1.0's Step 0 survey. Note: 0.7 touches a
+load-bearing ROADMAP section (§9 phase rows / Phase Status
+widget), but expanding the next phase's task table is a routine
+status update, not a deviation — no ADR needed (the PreToolUse
+hook will reprint the §18 decision rule when the edit fires).
 
 **Retrievable identifiers**:
 

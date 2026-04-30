@@ -85,6 +85,15 @@
             "command": "bash $CLAUDE_PROJECT_DIR/scripts/check_md_tables.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/scripts/check_roadmap_amendment.sh"
+          }
+        ]
       }
     ]
   }
