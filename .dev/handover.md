@@ -16,16 +16,14 @@
 
 ## Current state
 
-- **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE`. §9.1 /
-  1.0–1.10 are `[x]` (1.0 `922521f`, 1.1 `9305414`, 1.2 `c2cd9b5`,
-  1.3 `d2578ea`, 1.4 `bbc5aca`, 1.5 `73eaef9`, 1.6 `36c4834`,
-  1.7 `702bc30`, 1.8 `8ab5b55`, 1.9 `74a22ef`, 1.10 audit
-  `ec01b04`). The Phase-1 boundary audit
-  (`private/audit-2026-05-01-p1.md`) returned 0 block / 1 soon
-  (README path fix applied inline) / 3 watch (audit-tooling false
-  positives + ROADMAP intentional bloat). The first remaining
-  `[ ]` is **§9.1 / 1.11 — Open §9.2 inline; flip phase
-  tracker**, after which Phase 2 (interpreter MVP 🔒) opens.
+- **Phase**: **Phase 2 IN-PROGRESS.** Phases 0 + 1 are `DONE`.
+  §9.1's SHAs are backfilled in the ROADMAP task table
+  (1.0 `922521f` … 1.10 `3667b25`). The Phase Status widget
+  shows §9.2 IN-PROGRESS with first open `[ ]` at §9.2 / 2.0.
+  Phase 2 brings the **interpreter MVP** + Wasm Core 2.0 spec
+  corpus fail=0 / skip=0 (the 🔒 boundary gate). The first
+  open `[ ]` is **§9.2 / 2.0 — `src/interp/mod.zig` (interp
+  scaffold: Runtime, frame stack, Value, Trap)**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -43,29 +41,39 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.11 (open §9.2 inline; flip phase tracker)
+## Active task — §9.2 / 2.0 (`src/interp/mod.zig` interp scaffold)
 
-§9.1 / 1.10 boundary audit closed at `ec01b04`. Findings filed
-at `private/audit-2026-05-01-p1.md`: 0 block / 1 soon (README
-relative-path fix landed inline) / 3 watch (anchor-link false
-positive in CHECKS.md A.1; upstream-pin SHA false positive in
-A.2; ROADMAP.md 1867-line intentional bloat). The phase boundary
-discipline of §9 / phase-status widget + §9.<N+1> task table
-expansion is the remaining 1.11 work.
+§9.1 / 1.11 closed Phase 1 with the boundary commit (this turn):
+SHAs backfilled into §9.1's task table, Phase Status widget
+flipped (Phase 1 DONE, Phase 2 IN-PROGRESS), §9.2's task table
+expanded inline mirroring §9.1's structure (2.0–2.10).
 
-§9.1 / 1.11 advances the **Phase Status widget** (mark §9.1
-DONE, §9.2 IN-PROGRESS), expands the §9.2 task table inline
-(mirroring §9.1's structure), and retargets handover at the
-first §9.2 `[ ]`. Phase 2 is "Interpreter MVP" with a 🔒
-three-host gate (interp + threaded-code + spec-2.0 corpus
-fail=0 / skip=0). Backfilling §9.1's SHA pointers into the task
-table is also part of the boundary commit per the skill.
+§9.2 / 2.0 lands the **interpreter scaffold** in
+`src/interp/mod.zig` (Zone 2 — may import Zone 0 + Zone 1; **must
+not** import Zone 2-other / Zone 3). Scope:
 
-Step 0 (Survey) for the first §9.2 task: zwasm v1's
-`src/interp/` (the threaded-code engine + dispatch loop);
-wasm3's `m3_exec.c` (M3 IR + tail-call dispatch); zware's
-interp loop. Cite ROADMAP §4.3 (engine pipeline) and §P3
-(cold-start: avoid per-invoke allocation in the interp loop).
+- `Runtime` struct holding the per-instance state (linear memory
+  bytes, globals, function table). Borrows the parsed `Module` +
+  decoded sections from §9.1.
+- Frame-stack shape: per-call `Frame { sig, locals[N], pc, base }`
+  in a bounded inline ring or a heap-stack with arena reuse
+  (per §P3, prefer no-alloc-per-call).
+- `Value` union (`i32 / i64 / f32 / f64`, plus the Phase-2
+  reftypes additions when 2.3 lands).
+- `Trap` enum (DivByZero, IntOverflow, OOBLoad, OOBStore, etc.).
+- No dispatch loop yet — that's 2.1.
+
+Tests: construct a Runtime, push/pop frames, push/pop Values; no
+opcode execution yet.
+
+Step 0 (Survey) for 2.0: zwasm v1's `src/interp/` (mod.zig +
+runtime.zig); wasm3's `m3_env.h` for the runtime/env shapes;
+zware's interp `Instance` shape; ROADMAP §4.3 (engine pipeline)
++ §4.7 (Runtime + std.Io DI) + §P3 (cold-start).
+
+Phase 2 is **🔒 boundary gate**: by §9.2 / 2.10 close, Mac +
+OrbStack + windowsmini must all run `zig build test-spec` over
+`test/spec/wasm-2.0/` corpus fail=0 / skip=0.
 
 ## Historical (§9.1 / 1.9) — IN-PROGRESS prior to close
 

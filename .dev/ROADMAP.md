@@ -1122,8 +1122,8 @@ of each phase advances it.
 | Phase | State       | First open `[ ]` task         |
 |-------|-------------|-------------------------------|
 | 0     | DONE        | —                             |
-| 1     | IN-PROGRESS | §9.1 / 1.4 (frontend parser)  |
-| 2     | PENDING     |                               |
+| 1     | DONE        | —                             |
+| 2     | IN-PROGRESS | §9.2 / 2.0 (interp scaffold)  |
 | 3     | PENDING     |                               |
 | 4     | PENDING     |                               |
 | 5     | PENDING     |                               |
@@ -1201,20 +1201,20 @@ and `zig build test` green before Phase 1 opens.
 
 #### §9.1 task list (expanded)
 
-| #    | Description                                                                                | Status |
-|------|--------------------------------------------------------------------------------------------|--------|
-| 1.0  | `src/util/leb128.zig` — unsigned/signed LEB128 read; red unit tests on edge values.       | [x]    |
-| 1.1  | `src/ir/zir.zig` — ZIR slot / value-type skeleton (data shapes; no ops yet).              | [x]    |
-| 1.2  | Declare the full `ZirOp` enum catalogue per §4.2 (declared, not implemented).             | [x]    |
-| 1.3  | `src/ir/dispatch_table.zig` — table type + `register(*DispatchTable)` API; smoke test.    | [x]    |
-| 1.4  | `src/frontend/parser.zig` — module header, section iteration, MVP-section decoders.       | [x]    |
-| 1.5  | `src/frontend/validator.zig` — type stack, control stack, polymorphic else/end markers.   | [x]    |
-| 1.6  | `src/frontend/lowerer.zig` — wasm-op → `ZirOp` lowering for the MVP subset.                | [x]    |
-| 1.7  | `src/feature/mvp/` — MVP feature handlers + `register(*DispatchTable)` wiring.            | [x]    |
-| 1.8  | Vendor the Wasm Core 1.0 spec corpus (read-only); add the `zig build test-spec` runner.   | [x]    |
-| 1.9  | Wasm Core 1.0 (MVP) spec corpus decodes + validates fail=0 / skip=0 on all three hosts.   | [x]    |
-| 1.10 | Phase-1 boundary `audit_scaffolding` pass.                                                | [x]    |
-| 1.11 | Open §9.2 inline; flip phase tracker.                                                      | [ ]    |
+| #    | Description                                                                                | Status         |
+|------|--------------------------------------------------------------------------------------------|----------------|
+| 1.0  | `src/util/leb128.zig` — unsigned/signed LEB128 read; red unit tests on edge values.       | [x] 922521f    |
+| 1.1  | `src/ir/zir.zig` — ZIR slot / value-type skeleton (data shapes; no ops yet).              | [x] 9305414    |
+| 1.2  | Declare the full `ZirOp` enum catalogue per §4.2 (declared, not implemented).             | [x] c2cd9b5    |
+| 1.3  | `src/ir/dispatch_table.zig` — table type + `register(*DispatchTable)` API; smoke test.    | [x] d2578ea    |
+| 1.4  | `src/frontend/parser.zig` — module header, section iteration, MVP-section decoders.       | [x] bbc5aca    |
+| 1.5  | `src/frontend/validator.zig` — type stack, control stack, polymorphic else/end markers.   | [x] 73eaef9    |
+| 1.6  | `src/frontend/lowerer.zig` — wasm-op → `ZirOp` lowering for the MVP subset.                | [x] 36c4834    |
+| 1.7  | `src/feature/mvp/` — MVP feature handlers + `register(*DispatchTable)` wiring.            | [x] 702bc30    |
+| 1.8  | Vendor the Wasm Core 1.0 spec corpus (read-only); add the `zig build test-spec` runner.   | [x] 8ab5b55    |
+| 1.9  | Wasm Core 1.0 (MVP) spec corpus decodes + validates fail=0 / skip=0 on all three hosts.   | [x] 74a22ef    |
+| 1.10 | Phase-1 boundary `audit_scaffolding` pass.                                                | [x] 3667b25    |
+| 1.11 | Open §9.2 inline; flip phase tracker.                                                      | [x]            |
 
 ### Phase 2 — Interpreter MVP 🔒
 
@@ -1233,6 +1233,22 @@ and `zig build test` green before Phase 1 opens.
 
 **🔒 gate**: yes — Mac + OrbStack + windowsmini (build only on
 windowsmini; spec runner runs there too).
+
+#### §9.2 task list (expanded)
+
+| #    | Description                                                                                | Status         |
+|------|--------------------------------------------------------------------------------------------|----------------|
+| 2.0  | `src/interp/mod.zig` — interp scaffold (Runtime, frame stack, Value, Trap shapes).        | [ ]            |
+| 2.1  | `src/interp/dispatch.zig` — threaded-code dispatch loop reading `DispatchTable.interp`.   | [ ]            |
+| 2.2  | `src/feature/mvp/` interp handlers — wire MVP opcodes (numeric / control / memory).       | [ ]            |
+| 2.3  | Wasm 2.0 features (sign-ext, sat-trunc, multivalue blocks, bulk-memory, ref-types).       | [ ]            |
+| 2.4  | Trap semantics — `i32.div_u 0`, `i32.trunc_f32_s` overflow, OOB load/store, etc.          | [ ]            |
+| 2.5  | `zig build test --leak-check` clean (`std.testing.allocator` zero-leak).                  | [ ]            |
+| 2.6  | Realworld smoke (5+ samples: TinyGo / Rust / emcc / WASI cat / AssemblyScript).            | [ ]            |
+| 2.7  | Wasm 2.0 spec corpus extension to `test/spec/wasm-2.0/` + `.wast` directive handling.     | [ ]            |
+| 2.8  | Wasm Core 2.0 spec corpus fail=0 / skip=0 on Mac + OrbStack + windowsmini.                | [ ]            |
+| 2.9  | Phase-2 boundary `audit_scaffolding` pass.                                                 | [ ]            |
+| 2.10 | Open §9.3 inline; flip phase tracker.                                                      | [ ]            |
 
 ### Phase 3 — C API minimal
 
