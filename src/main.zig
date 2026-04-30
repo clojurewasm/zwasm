@@ -42,4 +42,5 @@ test "build options are wired" {
 test {
     _ = @import("util/leb128.zig");
     _ = @import("ir/zir.zig");
+    _ = @import("ir/dispatch_table.zig");
 }
