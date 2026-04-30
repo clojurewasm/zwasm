@@ -16,10 +16,11 @@
 
 ## Current state
 
-- **Phase**: **Phase 0 IN-PROGRESS.** §9.0 / 0.0–0.5 are `[x]`
-  (skeleton, three-host `zig build`, three-host `zig build test`,
-  hooks). Next is §9.0 / 0.6 (Phase-0 boundary `audit_scaffolding`
-  pass), then 0.7 (open §9.1 + flip phase tracker).
+- **Phase**: **Phase 0 IN-PROGRESS — held at the Phase 1 boundary
+  per user direction.** §9.0 / 0.0–0.6 are `[x]`. The only remaining
+  task is 0.7 (open §9.1 inline + flip the Phase Status widget),
+  which the user has asked to pause before performing. Resume with
+  the user's go-signal; do **not** auto-advance into Phase 1.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -36,19 +37,23 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.0 / 0.6
+## Active task — §9.0 / 0.7 (HELD)
 
 §9.0 / 0.0 (bootstrap), 0.1 (Mac build), 0.2 (OrbStack build),
 0.3 (windowsmini build), 0.4 (hooks), 0.5 (three-host `zig build
-test` green) are `[x]`.
+test` green), 0.6 (Phase-0 boundary `audit_scaffolding`) are `[x]`.
+The audit produced `private/audit-2026-05-01.md` with **0 block /
+0 soon / 4 watch** — Phase 0 is structurally healthy.
 
-The next concrete `[ ]` is **§9.0 / 0.6 — Phase-0 boundary
-`audit_scaffolding` pass**. Run the `audit_scaffolding` skill,
-land its report at `private/audit-YYYY-MM-DD.md`, and fix any
-local `block` findings inline before flipping 0.7.
+The only remaining task is **§9.0 / 0.7 — open §9.1 inline + flip
+the Phase Status widget**. Per the user, the loop is held here:
+**do not perform 0.7 without the user's explicit go-signal.**
 
-After 0.6 lands, 0.7 (open §9.1 inline + flip the Phase Status
-widget) closes Phase 0.
+When resumed, 0.7 means: expand the §9.1 task table inline (mirror
+§9.0's structure: numbered `[ ]` table with the same Status column
+shape), update the Phase Status widget (§9.0 → DONE, §9.1 →
+IN-PROGRESS, "First open `[ ]` task" → §9.1 / 1.x), update this
+handover to point at §9.1's first task, then commit.
 
 **Retrievable identifiers**:
 
