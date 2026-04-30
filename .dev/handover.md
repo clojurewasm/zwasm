@@ -16,14 +16,9 @@
 
 ## Current state
 
-- **Phase**: **Phase 0 IN-PROGRESS.** §9.0 / 0.0–0.6 are `[x]`.
-  Only 0.7 remains (open §9.1 inline + flip the Phase Status
-  widget). The previous session paused before 0.7 at user
-  direction; **the next `/continue` invocation IS the explicit
-  go-signal that releases that hold** (per the `continue` skill's
-  "/continue itself is the go signal" rule). On resume, perform
-  0.7 and proceed directly into §9.1's first task — no further
-  pause needed.
+- **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE` — §9.0 /
+  0.0–0.7 all `[x]`. §9.1 task table is open; the first `[ ]`
+  task is **§9.1 / 1.0 — `src/util/leb128.zig`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -31,7 +26,8 @@
   discovered during development (per §18).
 - **Build status**: `zig build` and `zig build test` are green on
   Mac aarch64 native, OrbStack Ubuntu x86_64 (`my-ubuntu-amd64`),
-  and `windowsmini` SSH. Three-host gate is live for Phase 0.
+  and `windowsmini` SSH. Three-host gate is live; Phase 1 has no
+  🔒 boundary gate (interpreter not yet wired) — see §9 / Phase 1.
 - **`windowsmini` layout**: cloned at
   `~/Documents/MyProducts/zwasm_from_scratch` (mirrors v1).
   `origin` = `git@github.com:clojurewasm/zwasm.git`, branch
@@ -40,29 +36,28 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.0 / 0.7 (release-on-resume)
+## Active task — §9.1 / 1.0 (`src/util/leb128.zig`)
 
-§9.0 / 0.0 (bootstrap), 0.1 (Mac build), 0.2 (OrbStack build),
-0.3 (windowsmini build), 0.4 (hooks), 0.5 (three-host `zig build
-test` green), 0.6 (Phase-0 boundary `audit_scaffolding`) are `[x]`.
-The audit produced `private/audit-2026-05-01.md` with **0 block /
-0 soon / 4 watch** — Phase 0 is structurally healthy.
+Phase 0 closed cleanly; the §9.0 / 0.6 audit was 0 block / 0 soon
+/ 4 watch (`private/audit-2026-05-01.md`).
 
-The only remaining task is **§9.0 / 0.7 — open §9.1 inline + flip
-the Phase Status widget**. The previous session paused here at
-user direction; the next `/continue` is the explicit go-signal
-that releases the pause.
+§9.1 / 1.0 is the foundational utility for Phase 1's parser:
+unsigned and signed LEB128 readers with red-first unit tests
+covering boundary values (0, max, sign-extension, overlong
+encodings rejected). No public API beyond `readUleb128` /
+`readSleb128` shapes; lives under `src/util/`. After 1.0 the
+order is 1.1 `src/ir/zir.zig` skeleton → 1.2 ZirOp enum
+declaration → 1.3 dispatch_table → 1.4 parser → 1.5 validator →
+1.6 lowerer → 1.7 feature/mvp → 1.8 spec corpus + test-spec
+runner → 1.9 Wasm Core 1.0 green on three hosts → 1.10 audit →
+1.11 open §9.2.
 
-On resume, 0.7 means: expand the §9.1 task table inline (mirror
-§9.0's structure: numbered `[ ]` table with the same Status column
-shape), update the Phase Status widget (§9.0 → DONE, §9.1 →
-IN-PROGRESS, "First open `[ ]` task" → §9.1 / 1.x), update this
-handover to point at §9.1's first task, commit, then continue
-straight into §9.1 / 1.0's Step 0 survey. Note: 0.7 touches a
-load-bearing ROADMAP section (§9 phase rows / Phase Status
-widget), but expanding the next phase's task table is a routine
-status update, not a deviation — no ADR needed (the PreToolUse
-hook will reprint the §18 decision rule when the edit fires).
+Step 0 (Survey) for 1.0: Explore subagent should compare LEB128
+readers in `~/Documents/MyProducts/zwasm/src/util/` (v1, read
+never copy), `~/Documents/OSS/zware/src/`,
+`~/Documents/OSS/wasmtime/crates/wasmparser/`, and
+`~/Documents/OSS/wasm3/source/`. Highlight overlong-encoding
+detection and signed-extension corner cases.
 
 **Retrievable identifiers**:
 
@@ -70,7 +65,8 @@ hook will reprint the §18 decision rule when the edit fires).
 - ROADMAP §2 — P1-P14 (inviolable principles), A1-A12 (verifiable rules)
 - ROADMAP §4 — architecture (Zone 0-3, ZIR, dispatch tables, AOT/JIT pipeline)
 - ROADMAP §4.2 — full ZirOp catalogue (~600 ops, day-1 reserved)
-- ROADMAP §9.0 — Phase 0 task list
+- ROADMAP §9.0 — Phase 0 task list (DONE)
+- ROADMAP §9.1 — Phase 1 task list (IN-PROGRESS)
 - ROADMAP §11 — test strategy + test data policy
 - ROADMAP §11.5 — three-OS gate (Mac / OrbStack / windowsmini)
 - ROADMAP §13 — commit discipline + work loop
@@ -79,7 +75,7 @@ hook will reprint the §18 decision rule when the edit fires).
 
 ## Open questions / blockers
 
-(none — Phase 0 task list is the next concrete work)
+(none — §9.1 / 1.0 leb128 is the next concrete work)
 
 ## Notes for the next session
 
