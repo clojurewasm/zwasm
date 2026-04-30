@@ -17,11 +17,11 @@
 ## Current state
 
 - **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE`. §9.1 /
-  1.0 (`922521f`), 1.1 (`9305414`), 1.2 (`c2cd9b5`) are `[x]`.
-  The full ZirOp catalogue (Wasm 1.0 / 2.0 / 3.0 + Phase 3-4
-  reserved + JIT pseudo-ops, ~280 tags) is now declared in
-  `src/ir/zir.zig`. The first remaining `[ ]` is **§9.1 / 1.3 —
-  `src/ir/dispatch_table.zig`** (table type + `register` API).
+  1.0 (`922521f`), 1.1 (`9305414`), 1.2 (`c2cd9b5`), 1.3
+  (`d2578ea`) are `[x]`. ZIR shape + ZirOp catalogue +
+  DispatchTable type are all in place. The first remaining
+  `[ ]` is **§9.1 / 1.4 — `src/frontend/parser.zig`** (module
+  header, section iteration, MVP-section decoders).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -39,27 +39,37 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.3 (`src/ir/dispatch_table.zig`)
+## Active task — §9.1 / 1.4 (`src/frontend/parser.zig`)
 
-§9.1 / 1.2 closed at `c2cd9b5`. `ZirOp` enum now contains the
-full §4.2 catalogue (~280 named tags + open-enum sentinel `_,`).
+§9.1 / 1.3 closed at `d2578ea`. `src/ir/dispatch_table.zig`
+declares `DispatchTable` with `[N_OPS]?Fn` slots for parsers /
+interp / jit_arm64 / jit_x86 plus `init() = @splat(null)`. The
+opaque-context pattern (`ParserCtx` / `InterpCtx` / `EmitCtx`)
+keeps Zone 1 from importing upward.
 
-§9.1 / 1.3 lands `src/ir/dispatch_table.zig` — the central
-registry that maps each `ZirOp` to per-feature handler function
-pointers (parser / interp / jit_arm64 / jit_x86 emitters). Per
-ROADMAP §4.5 / A12 the table is the **only** allowed dispatch
-mechanism for feature-conditional behaviour (no pervasive
-build-time `if`). Phase 1 wires the type + `register` API; the
-emit-side functions are `?fn(...)` slots filled per-feature in
-1.7 (`src/feature/mvp/`). Phase 2+ populates interp / JIT
-slots.
+§9.1 / 1.4 lands the Wasm module **header** + **section
+iteration** + the MVP-section decoders in
+`src/frontend/parser.zig` (Zone 1 — may import `ir/`,
+`util/leb128.zig`). Scope:
 
-Step 0 (Survey) for 1.3: re-read ROADMAP §4.5 (lines ~719–774)
-for the registration shape and §4.5 line 759-762 example. Check
-zwasm v1 dispatch (read never copy). Identify whether the table
-holds bare function pointers (`?*const fn(...)`) or a tagged
-struct; pick a Zig 0.16 idiom that allows null-default + later
-`register(*DispatchTable)` calls.
+- magic `\\0asm` + version `1.0` validation.
+- section iterator: section_id (u8) + size (uleb128 u32) +
+  body slice; bound-checks against the input.
+- MVP section decoders (skeleton, populate per phase):
+  type / import / function / table / memory / global / export /
+  start / element / code / data / data-count / custom.
+- Section bodies are NOT yet validated or lowered — that is
+  1.5 (validator) / 1.6 (lowerer). 1.4 just produces a `Module`
+  struct holding raw section slices + parsed counts.
+
+Tests: empty MVP module (header + `(module)` 8 bytes); reject
+bad magic; reject bad version; iterate two known sections in
+order.
+
+Step 0 (Survey) for 1.4: zwasm v1's parser, wasmtime's
+`wasmparser` BinaryReader, zware's `module/parser.zig`, and the
+WebAssembly spec section ordering (Wasm 1.0 §5.5). Cite §11
+test-data policy when deciding which sample bytes to use.
 
 **Retrievable identifiers**:
 
