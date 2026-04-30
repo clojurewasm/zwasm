@@ -72,7 +72,7 @@ and toolchain.
 - [`.dev/ROADMAP.md`](.dev/ROADMAP.md) — authoritative mission, principles, phase plan
 - [`.dev/handover.md`](.dev/handover.md) — current session state
 - [`.dev/decisions/`](.dev/decisions/) — ADRs (deviations from ROADMAP)
-- [`~/zwasm/private/v2-investigation/`](../../zwasm/private/v2-investigation/) — pre-skeleton design surveys
+- [`~/zwasm/private/v2-investigation/`](../zwasm/private/v2-investigation/) — pre-skeleton design surveys
 
 ## License
 
