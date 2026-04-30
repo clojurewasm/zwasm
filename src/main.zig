@@ -38,3 +38,7 @@ test "build options are wired" {
     _ = build_options.wasi_level;
     _ = build_options.engine_mode;
 }
+
+test {
+    _ = @import("util/leb128.zig");
+}
