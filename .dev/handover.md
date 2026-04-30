@@ -16,10 +16,11 @@
 
 ## Current state
 
-- **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE` — §9.0 /
-  0.0–0.7 all `[x]`. §9.1 / 1.0 (`src/util/leb128.zig`) is `[x]`
-  (commit `922521f`). The first remaining `[ ]` is **§9.1 / 1.1 —
-  `src/ir/zir.zig` skeleton**.
+- **Phase**: **Phase 1 IN-PROGRESS.** Phase 0 is `DONE`. §9.1 /
+  1.0 (`src/util/leb128.zig`, commit `922521f`) and 1.1
+  (`src/ir/zir.zig` skeleton, commit `9305414`) are `[x]`. The
+  first remaining `[ ]` is **§9.1 / 1.2 — declare the full
+  `ZirOp` enum catalogue** per ROADMAP §4.2.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -37,30 +38,31 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.1 / 1.1 (`src/ir/zir.zig` skeleton)
+## Active task — §9.1 / 1.2 (full `ZirOp` enum catalogue)
 
-§9.1 / 1.0 closed at `922521f`. `src/util/leb128.zig` now exports
-`readUleb128` / `readSleb128` (Zone 0, byte-slice cursor, 19 unit
-tests, Mac aarch64 + OrbStack Ubuntu green; windowsmini awaits
-push gate). Survey notes at `private/notes/p1-1.0-leb128-survey.md`.
+§9.1 / 1.1 closed at `9305414`. `src/ir/zir.zig` mirrors §4.2's
+`ZirFunc` shape verbatim with all `?T` slots reserved day 1
+(Liveness, LoopInfo, ConstantPool, RegClass, SpillSlot,
+CacheLayout, LaneRouting, GcRootMap, LandingPad, TailCallSite,
+HoistedConst, ElisionRecord, CoalesceRecord). `ZirOp` itself is
+still the open enum stub `enum(u16) { _ }` — task 1.2 fills it.
 
-§9.1 / 1.1 is the **ZIR data-shape skeleton** — types only, no
-ops yet. Per ROADMAP §4.2, ZIR is a slot-allocated SSA-ish IR
-with vreg / value-type / block / inst index types declared
-up-front (P13 type-up-front). The 1.1 deliverable is the
-container types (`ZirFunc`, `ZirInst`, `ValType`, `VregIdx`,
-`BlockIdx`, `InstIdx`, plus the `?Liveness` / `?LoopInfo` slots
-that get populated in Phase 5 — declared as `?…` from day 1 so
-the struct layout is stable). `ZirOp` itself is the next task
-(1.2). 1.1 should NOT yet emit instructions; just define shapes
-and a smoke test.
+§9.1 / 1.2 must **declare** every entry from ROADMAP §4.2 lines
+~248–605 (Wasm 3.0 ops + Phase 3 / 4 proposal ops + JIT
+pseudo-ops). "Declared" = the enum tags exist; no handler / lower
+/ emit code is required. The verifying test should assert that
+the enum has at least N tags and that core MVP ops
+(`i32.const`, `i32.add`, `local.get`, `block`, `loop`, `if`,
+`br`, `br_if`, `call`, `call_indirect`, `drop`, `select`,
+`return`, `nop`, `unreachable`, `end`, `else`) are present.
 
-Step 0 (Survey) for 1.1: compare ZIR-equivalent shapes in
-`~/Documents/MyProducts/zwasm/src/ir/` (v1, read never copy),
-`~/Documents/OSS/wasmtime/cranelift/codegen/src/ir/` (CLIF /
-VCode), `~/Documents/OSS/zware/src/`, and
-`~/Documents/OSS/wasm3/source/m3_compile.h` (M3 IR). Cite §4.2
-explicitly when picking a slot layout.
+Step 0 (Survey) for 1.2: read ROADMAP §4.2 directly and verify
+no entries are missed. Cross-check with the Wasm 3.0 spec
+opcode listing in `~/Documents/OSS/WebAssembly/spec/document/`
+and zwasm v1's opcode enum (read never copy). Identify the
+JIT pseudo-ops that v2 adds beyond Wasm spec ops (e.g.,
+mov-coalesce hints, hoisted-constant materialise, prologue /
+epilogue markers).
 
 **Retrievable identifiers**:
 
