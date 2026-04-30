@@ -19,10 +19,12 @@
 const std = @import("std");
 
 const zir = @import("../ir/zir.zig");
+const dispatch_table = @import("../ir/dispatch_table.zig");
 
 const Allocator = std.mem.Allocator;
 const ValType = zir.ValType;
 const FuncType = zir.FuncType;
+const InterpCtx = dispatch_table.InterpCtx;
 
 /// 64-bit value slot. The dispatch loop knows the type from the
 /// `ZirOp`; the union never carries a runtime tag (per §P3
@@ -144,6 +146,14 @@ pub const Runtime = struct {
     pub fn currentFrame(self: *Runtime) *Frame {
         std.debug.assert(self.frame_len > 0);
         return &self.frame_buf[self.frame_len - 1];
+    }
+
+    pub fn toOpaque(self: *Runtime) *InterpCtx {
+        return @ptrCast(self);
+    }
+
+    pub fn fromOpaque(p: *InterpCtx) *Runtime {
+        return @ptrCast(@alignCast(p));
     }
 };
 

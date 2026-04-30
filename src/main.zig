@@ -60,4 +60,5 @@ test {
     _ = @import("feature/mvp/mod.zig");
     _ = @import("frontend/sections.zig");
     _ = @import("interp/mod.zig");
+    _ = @import("interp/dispatch.zig");
 }
