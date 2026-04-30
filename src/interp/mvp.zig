@@ -185,6 +185,33 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"f64.min")] = f64Min;
     table.interp[op(.@"f64.max")] = f64Max;
     table.interp[op(.@"f64.copysign")] = f64Copysign;
+
+    // Conversions (0xA7..0xBF)
+    table.interp[op(.@"i32.wrap_i64")] = i32WrapI64;
+    table.interp[op(.@"i32.trunc_f32_s")] = i32TruncF32S;
+    table.interp[op(.@"i32.trunc_f32_u")] = i32TruncF32U;
+    table.interp[op(.@"i32.trunc_f64_s")] = i32TruncF64S;
+    table.interp[op(.@"i32.trunc_f64_u")] = i32TruncF64U;
+    table.interp[op(.@"i64.extend_i32_s")] = i64ExtendI32S;
+    table.interp[op(.@"i64.extend_i32_u")] = i64ExtendI32U;
+    table.interp[op(.@"i64.trunc_f32_s")] = i64TruncF32S;
+    table.interp[op(.@"i64.trunc_f32_u")] = i64TruncF32U;
+    table.interp[op(.@"i64.trunc_f64_s")] = i64TruncF64S;
+    table.interp[op(.@"i64.trunc_f64_u")] = i64TruncF64U;
+    table.interp[op(.@"f32.convert_i32_s")] = f32ConvertI32S;
+    table.interp[op(.@"f32.convert_i32_u")] = f32ConvertI32U;
+    table.interp[op(.@"f32.convert_i64_s")] = f32ConvertI64S;
+    table.interp[op(.@"f32.convert_i64_u")] = f32ConvertI64U;
+    table.interp[op(.@"f32.demote_f64")] = f32DemoteF64;
+    table.interp[op(.@"f64.convert_i32_s")] = f64ConvertI32S;
+    table.interp[op(.@"f64.convert_i32_u")] = f64ConvertI32U;
+    table.interp[op(.@"f64.convert_i64_s")] = f64ConvertI64S;
+    table.interp[op(.@"f64.convert_i64_u")] = f64ConvertI64U;
+    table.interp[op(.@"f64.promote_f32")] = f64PromoteF32;
+    table.interp[op(.@"i32.reinterpret_f32")] = i32ReinterpretF32;
+    table.interp[op(.@"i64.reinterpret_f64")] = i64ReinterpretF64;
+    table.interp[op(.@"f32.reinterpret_i32")] = f32ReinterpretI32;
+    table.interp[op(.@"f64.reinterpret_i64")] = f64ReinterpretI64;
 }
 
 inline fn op(t: ZirOp) usize {
@@ -901,6 +928,167 @@ fn f64Copysign(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
 }
 
 // ============================================================
+// Conversions
+// ============================================================
+
+// Float → int truncation: trap on NaN / ±inf, trap on out-of-range.
+// Spec §3.3.1.6: "trunc_f32_s" et al. produce InvalidConversionToInt
+// on NaN, IntOverflow on saturating-out-of-range. Wasm 2.0 adds
+// trunc_sat_* variants that don't trap; those land separately.
+
+fn truncFloatToInt(comptime DstInt: type, x: anytype) !DstInt {
+    if (std.math.isNan(x)) return Trap.InvalidConversionToInt;
+    if (std.math.isInf(x)) return Trap.IntOverflow;
+    const truncated = @trunc(x);
+    const min_f = @as(@TypeOf(x), @floatFromInt(std.math.minInt(DstInt)));
+    const max_f = @as(@TypeOf(x), @floatFromInt(std.math.maxInt(DstInt)));
+    if (truncated < min_f or truncated > max_f) return Trap.IntOverflow;
+    return @intFromFloat(truncated);
+}
+
+fn truncFloatToUint(comptime DstUint: type, x: anytype) !DstUint {
+    if (std.math.isNan(x)) return Trap.InvalidConversionToInt;
+    if (std.math.isInf(x)) return Trap.IntOverflow;
+    const truncated = @trunc(x);
+    const max_f = @as(@TypeOf(x), @floatFromInt(std.math.maxInt(DstUint)));
+    if (truncated < 0 or truncated > max_f) return Trap.IntOverflow;
+    return @intFromFloat(truncated);
+}
+
+fn i32WrapI64(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().u64;
+    try rt.pushOperand(.{ .u32 = @truncate(x) });
+}
+
+fn i32TruncF32S(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().f32;
+    const r = try truncFloatToInt(i32, x);
+    try rt.pushOperand(.{ .i32 = r });
+}
+fn i32TruncF32U(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().f32;
+    const r = try truncFloatToUint(u32, x);
+    try rt.pushOperand(.{ .u32 = r });
+}
+fn i32TruncF64S(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().f64;
+    const r = try truncFloatToInt(i32, x);
+    try rt.pushOperand(.{ .i32 = r });
+}
+fn i32TruncF64U(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().f64;
+    const r = try truncFloatToUint(u32, x);
+    try rt.pushOperand(.{ .u32 = r });
+}
+
+fn i64ExtendI32S(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().i32;
+    try rt.pushOperand(.{ .i64 = @as(i64, x) });
+}
+fn i64ExtendI32U(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().u32;
+    try rt.pushOperand(.{ .u64 = @as(u64, x) });
+}
+
+fn i64TruncF32S(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().f32;
+    const r = try truncFloatToInt(i64, x);
+    try rt.pushOperand(.{ .i64 = r });
+}
+fn i64TruncF32U(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().f32;
+    const r = try truncFloatToUint(u64, x);
+    try rt.pushOperand(.{ .u64 = r });
+}
+fn i64TruncF64S(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().f64;
+    const r = try truncFloatToInt(i64, x);
+    try rt.pushOperand(.{ .i64 = r });
+}
+fn i64TruncF64U(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const x = rt.popOperand().f64;
+    const r = try truncFloatToUint(u64, x);
+    try rt.pushOperand(.{ .u64 = r });
+}
+
+fn f32ConvertI32S(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f32 = @floatFromInt(rt.popOperand().i32) });
+}
+fn f32ConvertI32U(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f32 = @floatFromInt(rt.popOperand().u32) });
+}
+fn f32ConvertI64S(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f32 = @floatFromInt(rt.popOperand().i64) });
+}
+fn f32ConvertI64U(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f32 = @floatFromInt(rt.popOperand().u64) });
+}
+fn f32DemoteF64(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f32 = @floatCast(rt.popOperand().f64) });
+}
+
+fn f64ConvertI32S(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f64 = @floatFromInt(rt.popOperand().i32) });
+}
+fn f64ConvertI32U(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f64 = @floatFromInt(rt.popOperand().u32) });
+}
+fn f64ConvertI64S(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f64 = @floatFromInt(rt.popOperand().i64) });
+}
+fn f64ConvertI64U(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f64 = @floatFromInt(rt.popOperand().u64) });
+}
+fn f64PromoteF32(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try rt.pushOperand(.{ .f64 = @floatCast(rt.popOperand().f32) });
+}
+
+// Reinterpret: copy bits, no value conversion. The Value union is
+// extern, so f32 and u32 share storage; popping as `.bits64` and
+// pushing back is the canonical bit-preserving move.
+fn i32ReinterpretF32(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = rt.popOperand();
+    try rt.pushOperand(.{ .u32 = @truncate(v.bits64) });
+}
+fn i64ReinterpretF64(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = rt.popOperand();
+    try rt.pushOperand(.{ .u64 = v.bits64 });
+}
+fn f32ReinterpretI32(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = rt.popOperand();
+    try rt.pushOperand(.{ .bits64 = @as(u64, v.u32) });
+}
+fn f64ReinterpretI64(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = rt.popOperand();
+    try rt.pushOperand(.{ .bits64 = v.u64 });
+}
+
+// ============================================================
 // Tests
 // ============================================================
 
@@ -1175,6 +1363,90 @@ test "f64.copysign: magnitude from a, sign from b" {
     try rt.pushOperand(.{ .f64 = -1.0 });
     try driveOne(&rt, &t, .@"f64.copysign", 0, 0);
     try testing.expectEqual(@as(f64, -3.0), rt.popOperand().f64);
+}
+
+test "i32.wrap_i64 takes the low 32 bits" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .u64 = 0xDEAD_BEEF_CAFE_BABE });
+    try driveOne(&rt, &t, .@"i32.wrap_i64", 0, 0);
+    try testing.expectEqual(@as(u32, 0xCAFE_BABE), rt.popOperand().u32);
+}
+
+test "i64.extend_i32_s sign-extends" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .i32 = -1 });
+    try driveOne(&rt, &t, .@"i64.extend_i32_s", 0, 0);
+    try testing.expectEqual(@as(i64, -1), rt.popOperand().i64);
+}
+
+test "i64.extend_i32_u zero-extends" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .i32 = -1 });
+    try driveOne(&rt, &t, .@"i64.extend_i32_u", 0, 0);
+    try testing.expectEqual(@as(u64, 0xFFFF_FFFF), rt.popOperand().u64);
+}
+
+test "i32.trunc_f32_s: NaN traps InvalidConversionToInt" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .f32 = std.math.nan(f32) });
+    try testing.expectError(Trap.InvalidConversionToInt, driveOne(&rt, &t, .@"i32.trunc_f32_s", 0, 0));
+}
+
+test "i32.trunc_f64_s: out of range traps IntOverflow" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .f64 = 1e30 });
+    try testing.expectError(Trap.IntOverflow, driveOne(&rt, &t, .@"i32.trunc_f64_s", 0, 0));
+}
+
+test "i32.trunc_f32_u: -0.5 truncates to 0" {
+    // Wasm spec: trunc_*_u accepts inputs in (-1, max+1) range.
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .f32 = -0.5 });
+    try driveOne(&rt, &t, .@"i32.trunc_f32_u", 0, 0);
+    try testing.expectEqual(@as(u32, 0), rt.popOperand().u32);
+}
+
+test "f32.demote_f64 + f64.promote_f32 round-trip" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .f64 = 3.5 });
+    try driveOne(&rt, &t, .@"f32.demote_f64", 0, 0);
+    try driveOne(&rt, &t, .@"f64.promote_f32", 0, 0);
+    try testing.expectEqual(@as(f64, 3.5), rt.popOperand().f64);
+}
+
+test "i32.reinterpret_f32 + f32.reinterpret_i32: bit-preserving" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .f32 = 1.0 });
+    try driveOne(&rt, &t, .@"i32.reinterpret_f32", 0, 0);
+    try testing.expectEqual(@as(u32, 0x3F800000), rt.popOperand().u32);
+
+    try rt.pushOperand(.{ .u32 = 0x3F800000 });
+    try driveOne(&rt, &t, .@"f32.reinterpret_i32", 0, 0);
+    try testing.expectEqual(@as(f32, 1.0), rt.popOperand().f32);
 }
 
 test "globals: get/set round-trip" {
