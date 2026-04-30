@@ -62,12 +62,16 @@ pub const GlobalEntry = struct {
 pub const max_operand_stack: usize = 1024;
 pub const max_control_stack: usize = 256;
 
-/// Block result type — Wasm 1.0 supports empty (0x40) or a single
-/// `ValType`. Multivalue (Wasm 2.0) replaces this with a type index;
-/// not handled in 1.5.
+/// Block result type. Wasm 1.0 binary block-types are `empty` (0x40)
+/// or `single` (one valtype byte). Wasm 2.0 multivalue extends this
+/// to `multi` (an s33 typeidx referencing a FuncType). Phase 1 only
+/// uses `multi` for function frames whose signature has > 1 result;
+/// the binary block-type decoder still rejects s33 references in
+/// `readBlockType` so block-level multivalue stays out of scope.
 pub const BlockType = union(enum) {
     empty,
     single: ValType,
+    multi: []const ValType,
 };
 
 const ControlFrame = struct {
@@ -140,12 +144,11 @@ const Validator = struct {
 
     fn run(self: *Validator) Error!void {
         // Implicit function frame: a `block` with the function's result type.
-        const fn_block_type: BlockType = if (self.sig.results.len == 0)
-            .empty
-        else if (self.sig.results.len == 1)
-            .{ .single = self.sig.results[0] }
-        else
-            return Error.NotImplemented; // multivalue lands later
+        const fn_block_type: BlockType = switch (self.sig.results.len) {
+            0 => .empty,
+            1 => .{ .single = self.sig.results[0] },
+            else => .{ .multi = self.sig.results },
+        };
 
         try self.pushFrame(.block, fn_block_type);
 
@@ -401,27 +404,36 @@ const Validator = struct {
         switch (frame.endType()) {
             .empty => {},
             .single => |t| try self.pushType(t),
+            .multi => |ts| for (ts) |t| try self.pushType(t),
         }
     }
 
     fn opBr(self: *Validator) Error!void {
         const depth = try leb128.readUleb128(u32, self.body, &self.pos);
         const target = self.frameAt(depth) orelse return Error.InvalidBranchDepth;
-        switch (target.labelType()) {
-            .empty => {},
-            .single => |t| try self.popExpect(t),
-        }
+        try self.popLabelTypes(target.labelType());
         self.markUnreachable();
     }
 
     fn opReturn(self: *Validator) Error!void {
         // Function frame is always at depth control_len - 1 (index 0 in our buffer).
         const fn_frame = &self.control_buf[0];
-        switch (fn_frame.block_type) {
+        try self.popLabelTypes(fn_frame.block_type);
+        self.markUnreachable();
+    }
+
+    fn popLabelTypes(self: *Validator, lt: BlockType) Error!void {
+        switch (lt) {
             .empty => {},
             .single => |t| try self.popExpect(t),
+            .multi => |ts| {
+                var i: usize = ts.len;
+                while (i > 0) {
+                    i -= 1;
+                    try self.popExpect(ts[i]);
+                }
+            },
         }
-        self.markUnreachable();
     }
 
     fn opDrop(self: *Validator) Error!void {
@@ -516,19 +528,10 @@ const Validator = struct {
             const target = self.frameAt(depth) orelse return Error.InvalidBranchDepth;
             const lt = target.labelType();
             if (first) |prev| {
-                switch (prev) {
-                    .empty => if (lt != .empty) return Error.ArityMismatch,
-                    .single => |t1| switch (lt) {
-                        .empty => return Error.ArityMismatch,
-                        .single => |t2| if (t1 != t2) return Error.ArityMismatch,
-                    },
-                }
+                if (!labelTypesEq(prev, lt)) return Error.ArityMismatch;
             } else first = lt;
         }
-        if (first) |lt| switch (lt) {
-            .empty => {},
-            .single => |t| try self.popExpect(t),
-        };
+        if (first) |lt| try self.popLabelTypes(lt);
         self.markUnreachable();
     }
 
@@ -536,12 +539,14 @@ const Validator = struct {
         const depth = try leb128.readUleb128(u32, self.body, &self.pos);
         try self.popExpect(.i32);
         const target = self.frameAt(depth) orelse return Error.InvalidBranchDepth;
-        switch (target.labelType()) {
+        // br_if pops the label values, then pushes them back (since the
+        // taken branch consumes; the fall-through preserves them).
+        const lt = target.labelType();
+        try self.popLabelTypes(lt);
+        switch (lt) {
             .empty => {},
-            .single => |t| {
-                try self.popExpect(t);
-                try self.pushType(t);
-            },
+            .single => |t| try self.pushType(t),
+            .multi => |ts| for (ts) |t| try self.pushType(t),
         }
     }
 
@@ -638,28 +643,52 @@ const Validator = struct {
     // ----------------------------------------------------------------
 
     fn expectFrameEndTypes(self: *Validator, frame: ControlFrame) Error!void {
-        switch (frame.endType()) {
-            .empty => {
-                if (self.operand_len != frame.height and !frame.unreachable_flag) {
-                    return Error.ArityMismatch;
-                }
-            },
+        const end = frame.endType();
+        const expected_len: usize = switch (end) {
+            .empty => 0,
+            .single => 1,
+            .multi => |ts| ts.len,
+        };
+        if (frame.unreachable_flag and self.operand_len <= frame.height + expected_len) {
+            // Unreachable region: missing values are synthesised on read.
+            return;
+        }
+        if (self.operand_len != frame.height + expected_len) return Error.ArityMismatch;
+        switch (end) {
+            .empty => {},
             .single => |t| {
-                if (frame.unreachable_flag and self.operand_len <= frame.height) {
-                    // Unreachable region: the missing value will be synthesised
-                    // by `bot` semantics if anyone reads it; nothing to assert.
-                    return;
-                }
-                if (self.operand_len != frame.height + 1) return Error.ArityMismatch;
                 const top = self.operand_buf[self.operand_len - 1];
                 switch (top) {
                     .bot => {},
                     .known => |k| if (k != t) return Error.StackTypeMismatch,
                 }
             },
+            .multi => |ts| {
+                for (ts, 0..) |t, idx| {
+                    const slot = self.operand_buf[frame.height + idx];
+                    switch (slot) {
+                        .bot => {},
+                        .known => |k| if (k != t) return Error.StackTypeMismatch,
+                    }
+                }
+            },
         }
     }
 };
+
+fn labelTypesEq(a: BlockType, b: BlockType) bool {
+    return switch (a) {
+        .empty => b == .empty,
+        .single => |t1| switch (b) {
+            .single => |t2| t1 == t2,
+            else => false,
+        },
+        .multi => |ts1| switch (b) {
+            .multi => |ts2| std.mem.eql(ValType, ts1, ts2),
+            else => false,
+        },
+    };
+}
 
 // ============================================================
 // Tests
