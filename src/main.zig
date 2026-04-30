@@ -15,6 +15,7 @@ pub const version = "0.0.0-pre";
 pub const parser = @import("frontend/parser.zig");
 pub const validator = @import("frontend/validator.zig");
 pub const lowerer = @import("frontend/lowerer.zig");
+pub const sections = @import("frontend/sections.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -55,4 +56,5 @@ test {
     _ = @import("frontend/lowerer.zig");
     _ = @import("frontend/parse_ctx.zig");
     _ = @import("feature/mvp/mod.zig");
+    _ = @import("frontend/sections.zig");
 }
