@@ -489,6 +489,31 @@ fn instantiateRuntime(
     var module = try parser.parse(a, bytes);
     defer module.deinit(a);
 
+    // Validate imports up front. §9.4 / 4.7 chunk b: reject any
+    // import the binding cannot satisfy. Unknown module names →
+    // `error.UnknownImportModule`. WASI imports with no host
+    // configured → `error.WasiNotConfigured`. WASI imports WITH a
+    // host: also rejected for now with `error.WasiThunksNotWired`,
+    // pending §9.4 / 4.7 chunk c which builds the host-thunk
+    // dispatch path.
+    if (module.find(.import)) |import_section| {
+        var imports = try sections.decodeImports(a, import_section.body);
+        defer imports.deinit();
+        var has_wasi: bool = false;
+        for (imports.items) |it| {
+            if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
+                has_wasi = true;
+            } else {
+                return error.UnknownImportModule;
+            }
+        }
+        if (has_wasi) {
+            const store = inst.store orelse return error.WasiNotConfigured;
+            if (store.wasi_host == null) return error.WasiNotConfigured;
+            return error.WasiThunksNotWired; // chunk c TODO
+        }
+    }
+
     const type_section = module.find(.@"type") orelse return;
     const code_section = module.find(.code) orelse return;
     const func_section = module.find(.function);
@@ -1457,6 +1482,68 @@ const i32_const_42_export_main_wasm = [_]u8{
     0x07, 0x08, 0x01, 0x04, 0x6D, 0x61, 0x69, 0x6E, 0x00, 0x00, // export "main" (func 0)
     0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2A, 0x0B, // code: i32.const 42, end
 };
+
+// (module (import "env" "foo" (func)))
+// Unsupported import: the binding rejects unknown modules at
+// `wasm_instance_new` time per §9.4 / 4.7 chunk b.
+const env_foo_import_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    0x02, 0x0B, 0x01, // import section header + count=1
+    0x03, 0x65, 0x6E, 0x76, // "env"
+    0x03, 0x66, 0x6F, 0x6F, // "foo"
+    0x00, 0x00, // desc = func, typeidx = 0
+};
+
+// (module
+//   (import "wasi_snapshot_preview1" "fd_write"
+//     (func (param i32 i32 i32 i32) (result i32))))
+const wasi_fd_write_import_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    // type: 1 type, (i32 i32 i32 i32) -> (i32)
+    0x01, 0x09, 0x01, 0x60, 0x04, 0x7F, 0x7F, 0x7F, 0x7F, 0x01, 0x7F,
+    // import section: count=1, module "wasi_snapshot_preview1"
+    // (22 bytes), name "fd_write" (8 bytes), desc func typeidx=0
+    0x02, 0x21, 0x01,
+    0x16, 0x77, 0x61, 0x73, 0x69, 0x5F, 0x73, 0x6E, 0x61, 0x70,
+    0x73, 0x68, 0x6F, 0x74, 0x5F, 0x70, 0x72, 0x65, 0x76, 0x69,
+    0x65, 0x77, 0x31, // "wasi_snapshot_preview1"
+    0x08, 0x66, 0x64, 0x5F, 0x77, 0x72, 0x69, 0x74, 0x65, // "fd_write"
+    0x00, 0x00, // desc = func, typeidx = 0
+};
+
+test "wasm_instance_new: rejects modules with unknown import modules" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = env_foo_import_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    // Unknown import module = instantiation fails.
+    const inst = wasm_instance_new(s, m, null, null);
+    try testing.expect(inst == null);
+}
+
+test "wasm_instance_new: rejects WASI imports when no host is configured" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = wasi_fd_write_import_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    // Module imports wasi_snapshot_preview1.fd_write but no host
+    // is configured on the Store. wasm_instance_new fails.
+    const inst = wasm_instance_new(s, m, null, null);
+    try testing.expect(inst == null);
+}
 
 test "wasm_instance_exports: surfaces declared exports + dispatches via wasm_extern_as_func" {
     const e = wasm_engine_new() orelse return error.EngineAllocFailed;
