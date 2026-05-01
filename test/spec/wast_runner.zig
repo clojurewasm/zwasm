@@ -167,6 +167,7 @@ fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
     const type_section = module.find(.@"type");
     const import_section = module.find(.import);
     const func_section = module.find(.function);
+    const table_section = module.find(.table);
     const global_section = module.find(.global);
     const code_section = module.find(.code);
 
@@ -246,6 +247,32 @@ fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
         };
     }
 
+    var tables_owned: ?sections.Tables = if (table_section) |s|
+        try sections.decodeTables(gpa, s.body)
+    else
+        null;
+    defer if (tables_owned) |*t| t.deinit();
+
+    var imp_table_count: usize = 0;
+    if (imports_owned) |im| for (im.items) |it| if (it.kind == .table) {
+        imp_table_count += 1;
+    };
+    const def_table_count: usize = if (tables_owned) |t| t.items.len else 0;
+    const total_tables = imp_table_count + def_table_count;
+    const table_entries = try gpa.alloc(zwasm.zir.TableEntry, total_tables);
+    defer gpa.free(table_entries);
+    {
+        var cursor: usize = 0;
+        if (imports_owned) |im| for (im.items) |it| if (it.kind == .table) {
+            table_entries[cursor] = .{ .elem_type = .funcref, .min = 0 };
+            cursor += 1;
+        };
+        if (tables_owned) |t| for (t.items) |entry| {
+            table_entries[cursor] = entry;
+            cursor += 1;
+        };
+    }
+
     for (codes.items, defined_func_indices) |code, type_idx| {
         const sig = types_owned.items[type_idx];
         try validator.validateFunction(
@@ -256,7 +283,7 @@ fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
             global_entries,
             types_owned.items,
             0,
-            &.{},
+            table_entries,
             0,
         );
     }

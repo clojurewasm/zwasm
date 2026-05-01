@@ -216,6 +216,52 @@ fn skipLimits(body: []const u8, pos: *usize) Error!void {
     }
 }
 
+pub const Tables = struct {
+    arena: std.heap.ArenaAllocator,
+    items: []zir.TableEntry,
+
+    pub fn deinit(self: *Tables) void {
+        self.arena.deinit();
+    }
+};
+
+/// Decode the body of a table section (`SectionId.table`):
+///   vec(table), table = tabletype = reftype limits
+/// reftype: 0x70 (funcref) | 0x6F (externref).
+/// limits: 0x00 min | 0x01 min max.
+pub fn decodeTables(parent_alloc: Allocator, body: []const u8) Error!Tables {
+    var arena = std.heap.ArenaAllocator.init(parent_alloc);
+    errdefer arena.deinit();
+    const alloc = arena.allocator();
+
+    var pos: usize = 0;
+    const count = try leb128.readUleb128(u32, body, &pos);
+    const items = try alloc.alloc(zir.TableEntry, count);
+
+    for (items) |*t| {
+        if (pos >= body.len) return Error.UnexpectedEnd;
+        const reftype_byte = body[pos];
+        pos += 1;
+        const elem_type: ValType = switch (reftype_byte) {
+            0x70 => .funcref,
+            0x6F => .externref,
+            else => return Error.BadValType,
+        };
+        if (pos >= body.len) return Error.UnexpectedEnd;
+        const flag = body[pos];
+        pos += 1;
+        const min = try leb128.readUleb128(u32, body, &pos);
+        const max: ?u32 = if (flag & 1 != 0)
+            try leb128.readUleb128(u32, body, &pos)
+        else
+            null;
+        t.* = .{ .elem_type = elem_type, .min = min, .max = max };
+    }
+
+    if (pos != body.len) return Error.TrailingBytes;
+    return .{ .arena = arena, .items = items };
+}
+
 pub const GlobalDef = struct {
     valtype: ValType,
     mutable: bool,
@@ -852,4 +898,33 @@ test "decodeElement: declarative form 3" {
 test "decodeElement: deferred form 2 returns InvalidFunctype" {
     const body = [_]u8{ 0x01, 0x02 };
     try testing.expectError(Error.InvalidFunctype, decodeElement(testing.allocator, &body));
+}
+
+test "decodeTables: empty section" {
+    var t = try decodeTables(testing.allocator, &[_]u8{0x00});
+    defer t.deinit();
+    try testing.expectEqual(@as(usize, 0), t.items.len);
+}
+
+test "decodeTables: funcref with min only" {
+    // count=1; reftype=0x70; flag=0; min=10
+    const body = [_]u8{ 0x01, 0x70, 0x00, 0x0A };
+    var t = try decodeTables(testing.allocator, &body);
+    defer t.deinit();
+    try testing.expectEqual(ValType.funcref, t.items[0].elem_type);
+    try testing.expectEqual(@as(u32, 10), t.items[0].min);
+    try testing.expectEqual(@as(?u32, null), t.items[0].max);
+}
+
+test "decodeTables: externref with min and max" {
+    const body = [_]u8{ 0x01, 0x6F, 0x01, 0x05, 0x10 };
+    var t = try decodeTables(testing.allocator, &body);
+    defer t.deinit();
+    try testing.expectEqual(ValType.externref, t.items[0].elem_type);
+    try testing.expectEqual(@as(u32, 5), t.items[0].min);
+    try testing.expectEqual(@as(?u32, 16), t.items[0].max);
+}
+
+test "decodeTables: rejects unknown reftype byte" {
+    try testing.expectError(Error.BadValType, decodeTables(testing.allocator, &[_]u8{ 0x01, 0x55, 0x00, 0x00 }));
 }
