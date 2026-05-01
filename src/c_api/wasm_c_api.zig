@@ -251,7 +251,7 @@ inline fn engineAllocator(e: *const Engine) std.mem.Allocator {
 /// allocator. Returns null on OOM (zero allocations should
 /// happen at this layer beyond the Engine struct itself; the C
 /// allocator is process-wide).
-export fn wasm_engine_new() callconv(.c) ?*Engine {
+pub export fn wasm_engine_new() callconv(.c) ?*Engine {
     const alloc = std.heap.c_allocator;
     const e = alloc.create(Engine) catch return null;
     e.* = .{
@@ -265,7 +265,7 @@ export fn wasm_engine_new() callconv(.c) ?*Engine {
 /// returned by `wasm_engine_new`. Idempotent for a null pointer
 /// (mirrors upstream `WASM_DECLARE_OWN` discipline: the C host
 /// passes the same pointer it got back).
-export fn wasm_engine_delete(e: ?*Engine) callconv(.c) void {
+pub export fn wasm_engine_delete(e: ?*Engine) callconv(.c) void {
     const handle = e orelse return;
     const alloc = engineAllocator(handle);
     alloc.destroy(handle);
@@ -277,7 +277,7 @@ export fn wasm_engine_delete(e: ?*Engine) callconv(.c) void {
 
 /// `wasm_store_new(wasm_engine_t*)` — allocate a Store bound to
 /// the given Engine. Returns null on OOM or null engine.
-export fn wasm_store_new(e: ?*Engine) callconv(.c) ?*Store {
+pub export fn wasm_store_new(e: ?*Engine) callconv(.c) ?*Store {
     const engine = e orelse return null;
     const alloc = engineAllocator(engine);
     const s = alloc.create(Store) catch return null;
@@ -288,7 +288,7 @@ export fn wasm_store_new(e: ?*Engine) callconv(.c) ?*Store {
 /// `wasm_store_delete(*Store)` — free a Store. Null-tolerant.
 /// Tears down the attached WASI Host (if any) before releasing
 /// the struct itself.
-export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
+pub export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
     const handle = s orelse return;
     const engine = handle.engine orelse return; // dangling — leak rather than crash
     const alloc = engineAllocator(engine);
@@ -314,7 +314,7 @@ export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
 /// `std.heap.c_allocator` so the resulting Host is freeable
 /// either through `_delete` here or through `wasm_store_delete`
 /// once installed.
-export fn zwasm_wasi_config_new() callconv(.c) ?*wasi_host.Host {
+pub export fn zwasm_wasi_config_new() callconv(.c) ?*wasi_host.Host {
     const alloc = std.heap.c_allocator;
     const h = alloc.create(wasi_host.Host) catch return null;
     h.* = wasi_host.Host.init(alloc) catch {
@@ -328,7 +328,7 @@ export fn zwasm_wasi_config_new() callconv(.c) ?*wasi_host.Host {
 /// NOT installed on a Store. Null-tolerant. After
 /// `zwasm_store_set_wasi` consumes the config, the C host
 /// must NOT call this on the same pointer.
-export fn zwasm_wasi_config_delete(h: ?*wasi_host.Host) callconv(.c) void {
+pub export fn zwasm_wasi_config_delete(h: ?*wasi_host.Host) callconv(.c) void {
     const handle = h orelse return;
     handle.deinit();
     std.heap.c_allocator.destroy(handle);
@@ -340,7 +340,7 @@ export fn zwasm_wasi_config_delete(h: ?*wasi_host.Host) callconv(.c) void {
 /// on the same pointer afterwards. Calling twice on the same
 /// Store frees the previous Host first. Pass `null` to detach
 /// + free the existing Host.
-export fn zwasm_store_set_wasi(s: ?*Store, h: ?*wasi_host.Host) callconv(.c) void {
+pub export fn zwasm_store_set_wasi(s: ?*Store, h: ?*wasi_host.Host) callconv(.c) void {
     const store = s orelse return;
     if (store.wasi_host) |old| {
         old.deinit();
@@ -442,7 +442,7 @@ fn validateNoCode(_: std.mem.Allocator, _: *parser.Module) bool {
 /// return an owning Module on success or null on parse / validate
 /// failure. The returned Module copies the binary bytes so the C
 /// host can free its `byte_vec` immediately.
-export fn wasm_module_new(s: ?*Store, binary: ?*const ByteVec) callconv(.c) ?*Module {
+pub export fn wasm_module_new(s: ?*Store, binary: ?*const ByteVec) callconv(.c) ?*Module {
     const store = s orelse return null;
     const bv = binary orelse return null;
     const alloc = storeAllocator(store) orelse return null;
@@ -470,7 +470,7 @@ export fn wasm_module_new(s: ?*Store, binary: ?*const ByteVec) callconv(.c) ?*Mo
 /// `wasm_module_validate(store, binary)` — same pipeline as
 /// `_module_new` but discards the result; returns `true` if the
 /// module passes validation.
-export fn wasm_module_validate(s: ?*Store, binary: ?*const ByteVec) callconv(.c) bool {
+pub export fn wasm_module_validate(s: ?*Store, binary: ?*const ByteVec) callconv(.c) bool {
     const store = s orelse return false;
     const bv = binary orelse return false;
     const alloc = storeAllocator(store) orelse return false;
@@ -480,7 +480,7 @@ export fn wasm_module_validate(s: ?*Store, binary: ?*const ByteVec) callconv(.c)
 
 /// `wasm_module_delete(module)` — free a Module returned by
 /// `_module_new`. Null-tolerant.
-export fn wasm_module_delete(m: ?*Module) callconv(.c) void {
+pub export fn wasm_module_delete(m: ?*Module) callconv(.c) void {
     const handle = m orelse return;
     const store = handle.store orelse return;
     const alloc = storeAllocator(store) orelse return;
@@ -666,7 +666,7 @@ fn freeInstanceState(parent_alloc: std.mem.Allocator, inst: *Instance) void {
 /// `wasm_func_call` and §9.3 / 3.7 wires `wasm_extern_vec_t` /
 /// `wasm_trap_t`. Returns null on any null required input,
 /// instantiation failure, or OOM.
-export fn wasm_instance_new(
+pub export fn wasm_instance_new(
     s: ?*Store,
     m: ?*const Module,
     imports: ?*const anyopaque,
@@ -711,7 +711,7 @@ export fn wasm_instance_new(
 /// `wasm_instance_delete(*Instance)` — free an Instance returned
 /// by `wasm_instance_new`. Null-tolerant; tears down arena-owned
 /// derived state, then the Runtime, then the struct itself.
-export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
+pub export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
     const handle = i orelse return;
     const store = handle.store orelse return;
     const alloc = storeAllocator(store) orelse return;
@@ -756,7 +756,7 @@ fn dispatchTable() *const dispatch_table_mod.DispatchTable {
 /// handle. The C host owns the returned pointer and must call
 /// `wasm_func_delete`. Folds into upstream `wasm_instance_exports`
 /// + `wasm_extern_vec_t` indexing alongside §9.3 / 3.7.
-export fn zwasm_instance_get_func(i: ?*Instance, idx: u32) callconv(.c) ?*Func {
+pub export fn zwasm_instance_get_func(i: ?*Instance, idx: u32) callconv(.c) ?*Func {
     const inst = i orelse return null;
     const store = inst.store orelse return null;
     const alloc = storeAllocator(store) orelse return null;
@@ -768,7 +768,7 @@ export fn zwasm_instance_get_func(i: ?*Instance, idx: u32) callconv(.c) ?*Func {
 
 /// `wasm_func_delete(*Func)` — free a `Func` handle returned by
 /// `zwasm_instance_get_func`. Null-tolerant.
-export fn wasm_func_delete(f: ?*Func) callconv(.c) void {
+pub export fn wasm_func_delete(f: ?*Func) callconv(.c) void {
     const handle = f orelse return;
     const inst = handle.instance orelse return;
     const store = inst.store orelse return;
@@ -851,7 +851,7 @@ fn allocTrap(alloc: std.mem.Allocator, store: ?*Store, kind: TrapKind) ?*Trap {
 /// to surface their own host-side errors as traps; the binding
 /// itself prefers `allocTrap` with a `TrapKind` so it can map
 /// runtime conditions to the spec-conformant strings.
-export fn wasm_trap_new(s: ?*Store, message: ?*const ByteVec) callconv(.c) ?*Trap {
+pub export fn wasm_trap_new(s: ?*Store, message: ?*const ByteVec) callconv(.c) ?*Trap {
     const store = s orelse return null;
     const alloc = storeAllocator(store) orelse return null;
     const m = message orelse return null;
@@ -874,7 +874,7 @@ export fn wasm_trap_new(s: ?*Store, message: ?*const ByteVec) callconv(.c) ?*Tra
 /// (binding-internal `allocTrap`, `wasm_trap_new`, or
 /// `wasm_func_call`). Releases the message bytes first, then
 /// the struct. Null-tolerant.
-export fn wasm_trap_delete(t: ?*Trap) callconv(.c) void {
+pub export fn wasm_trap_delete(t: ?*Trap) callconv(.c) void {
     const handle = t orelse return;
     const store = handle.store orelse return;
     const alloc = storeAllocator(store) orelse return;
@@ -888,7 +888,7 @@ export fn wasm_trap_delete(t: ?*Trap) callconv(.c) void {
 /// the caller and must be released via `wasm_byte_vec_delete`).
 /// Writes a zero-length vec if the trap has no message or
 /// allocation fails.
-export fn wasm_trap_message(t: ?*const Trap, out: ?*ByteVec) callconv(.c) void {
+pub export fn wasm_trap_message(t: ?*const Trap, out: ?*ByteVec) callconv(.c) void {
     const out_ptr = out orelse return;
     out_ptr.* = .{ .size = 0, .data = null };
     const handle = t orelse return;
@@ -960,47 +960,47 @@ fn vecDelete(comptime VecT: type, v: ?*VecT) void {
 
 // --- byte vec ---
 
-export fn wasm_byte_vec_new_empty(out: ?*ByteVec) callconv(.c) void {
+pub export fn wasm_byte_vec_new_empty(out: ?*ByteVec) callconv(.c) void {
     vecNewEmpty(ByteVec, out);
 }
 
-export fn wasm_byte_vec_new_uninitialized(out: ?*ByteVec, size: usize) callconv(.c) void {
+pub export fn wasm_byte_vec_new_uninitialized(out: ?*ByteVec, size: usize) callconv(.c) void {
     vecNewUninitialized(u8, ByteVec, out, size);
 }
 
-export fn wasm_byte_vec_new(out: ?*ByteVec, size: usize, src: ?[*]const u8) callconv(.c) void {
+pub export fn wasm_byte_vec_new(out: ?*ByteVec, size: usize, src: ?[*]const u8) callconv(.c) void {
     vecNew(u8, ByteVec, out, size, src);
 }
 
-export fn wasm_byte_vec_copy(out: ?*ByteVec, src: ?*const ByteVec) callconv(.c) void {
+pub export fn wasm_byte_vec_copy(out: ?*ByteVec, src: ?*const ByteVec) callconv(.c) void {
     vecCopy(u8, ByteVec, out, src);
 }
 
 /// `wasm_byte_vec_delete(*ByteVec)` — free the data backing of a
 /// ByteVec. Pinned to `std.heap.c_allocator` (see header above).
-export fn wasm_byte_vec_delete(v: ?*ByteVec) callconv(.c) void {
+pub export fn wasm_byte_vec_delete(v: ?*ByteVec) callconv(.c) void {
     vecDelete(ByteVec, v);
 }
 
 // --- val vec ---
 
-export fn wasm_val_vec_new_empty(out: ?*ValVec) callconv(.c) void {
+pub export fn wasm_val_vec_new_empty(out: ?*ValVec) callconv(.c) void {
     vecNewEmpty(ValVec, out);
 }
 
-export fn wasm_val_vec_new_uninitialized(out: ?*ValVec, size: usize) callconv(.c) void {
+pub export fn wasm_val_vec_new_uninitialized(out: ?*ValVec, size: usize) callconv(.c) void {
     vecNewUninitialized(Val, ValVec, out, size);
 }
 
-export fn wasm_val_vec_new(out: ?*ValVec, size: usize, src: ?[*]const Val) callconv(.c) void {
+pub export fn wasm_val_vec_new(out: ?*ValVec, size: usize, src: ?[*]const Val) callconv(.c) void {
     vecNew(Val, ValVec, out, size, src);
 }
 
-export fn wasm_val_vec_copy(out: ?*ValVec, src: ?*const ValVec) callconv(.c) void {
+pub export fn wasm_val_vec_copy(out: ?*ValVec, src: ?*const ValVec) callconv(.c) void {
     vecCopy(Val, ValVec, out, src);
 }
 
-export fn wasm_val_vec_delete(v: ?*ValVec) callconv(.c) void {
+pub export fn wasm_val_vec_delete(v: ?*ValVec) callconv(.c) void {
     vecDelete(ValVec, v);
 }
 
@@ -1018,14 +1018,14 @@ fn exportDescToExternKind(kind: sections.ExportDesc) ExternKind {
 }
 
 /// `wasm_extern_kind` — return the upstream-numeric tag.
-export fn wasm_extern_kind(e: ?*const Extern) callconv(.c) u8 {
+pub export fn wasm_extern_kind(e: ?*const Extern) callconv(.c) u8 {
     const handle = e orelse return @intFromEnum(ExternKind.func);
     return @intFromEnum(handle.kind);
 }
 
 /// `wasm_extern_delete(*Extern)` — free an Extern handle and
 /// the contained Func (if any). Null-tolerant.
-export fn wasm_extern_delete(e: ?*Extern) callconv(.c) void {
+pub export fn wasm_extern_delete(e: ?*Extern) callconv(.c) void {
     const handle = e orelse return;
     if (handle.func) |fh| wasm_func_delete(fh);
     const inst = handle.instance orelse return;
@@ -1039,7 +1039,7 @@ export fn wasm_extern_delete(e: ?*Extern) callconv(.c) void {
 /// **Ownership stays with the Extern**; callers must NOT call
 /// `wasm_func_delete` on the returned pointer (matches upstream
 /// wasm.h discipline for the `_as_*` family).
-export fn wasm_extern_as_func(e: ?*Extern) callconv(.c) ?*Func {
+pub export fn wasm_extern_as_func(e: ?*Extern) callconv(.c) ?*Func {
     const handle = e orelse return null;
     if (handle.kind != .func) return null;
     return handle.func;
@@ -1047,12 +1047,12 @@ export fn wasm_extern_as_func(e: ?*Extern) callconv(.c) ?*Func {
 
 // --- extern vec (pointer-vec; vec_delete also frees pointed-to objects)
 
-export fn wasm_extern_vec_new_empty(out: ?*ExternVec) callconv(.c) void {
+pub export fn wasm_extern_vec_new_empty(out: ?*ExternVec) callconv(.c) void {
     const o = out orelse return;
     o.* = .{ .size = 0, .data = null };
 }
 
-export fn wasm_extern_vec_new_uninitialized(out: ?*ExternVec, size: usize) callconv(.c) void {
+pub export fn wasm_extern_vec_new_uninitialized(out: ?*ExternVec, size: usize) callconv(.c) void {
     const o = out orelse return;
     if (size == 0) {
         o.* = .{ .size = 0, .data = null };
@@ -1066,7 +1066,7 @@ export fn wasm_extern_vec_new_uninitialized(out: ?*ExternVec, size: usize) callc
     o.* = .{ .size = size, .data = buf.ptr };
 }
 
-export fn wasm_extern_vec_new(out: ?*ExternVec, size: usize, src: ?[*]const ?*Extern) callconv(.c) void {
+pub export fn wasm_extern_vec_new(out: ?*ExternVec, size: usize, src: ?[*]const ?*Extern) callconv(.c) void {
     const o = out orelse return;
     if (size == 0 or src == null) {
         o.* = .{ .size = 0, .data = null };
@@ -1083,7 +1083,7 @@ export fn wasm_extern_vec_new(out: ?*ExternVec, size: usize, src: ?[*]const ?*Ex
 /// `wasm_extern_vec_delete(*ExternVec)` — free the vec's pointer
 /// array AND each non-null pointed-to Extern (per upstream's
 /// pointer-vec ownership rule for `WASM_DECLARE_REF` types).
-export fn wasm_extern_vec_delete(v: ?*ExternVec) callconv(.c) void {
+pub export fn wasm_extern_vec_delete(v: ?*ExternVec) callconv(.c) void {
     const handle = v orelse return;
     if (handle.data) |dp| {
         for (dp[0..handle.size]) |opt_ext| {
@@ -1104,7 +1104,7 @@ export fn wasm_extern_vec_delete(v: ?*ExternVec) callconv(.c) void {
 /// On any allocation failure the populated prefix is rolled back
 /// so the out vec is either fully populated or empty — never
 /// partially populated.
-export fn wasm_instance_exports(i: ?*const Instance, out: ?*ExternVec) callconv(.c) void {
+pub export fn wasm_instance_exports(i: ?*const Instance, out: ?*ExternVec) callconv(.c) void {
     const o = out orelse return;
     o.* = .{ .size = 0, .data = null };
     const inst = i orelse return;
@@ -1158,7 +1158,7 @@ export fn wasm_instance_exports(i: ?*const Instance, out: ?*ExternVec) callconv(
 /// Args / result vec sizes must match `func.sig.params.len` /
 /// `func.sig.results.len` exactly — mismatch raises a Trap rather
 /// than corrupting the operand stack.
-export fn wasm_func_call(
+pub export fn wasm_func_call(
     f: ?*const Func,
     args: ?*const ValVec,
     results: ?*ValVec,
