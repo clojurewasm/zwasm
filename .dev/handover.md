@@ -91,12 +91,16 @@
   `zwasm_wasi_config_new` / `_delete` / `zwasm_store_set_wasi`
   exported; `Store.wasi_host` field added; ownership transfers
   Caller→Store; `wasm_store_delete` tears it down transitively.
-  4.7b at `14e0a8f` — `instantiateRuntime` now decodes the
-  import section and rejects unknown module names + WASI
-  imports without a configured host (and, for now, also WASI
-  imports WITH a host until chunk c wires the thunks).
-  Chunks remaining: 4.7c (host-thunk dispatch), 4.7d
-  (end-to-end fd_write test).
+  4.7b at `14e0a8f` — `instantiateRuntime` decodes imports
+  and rejects unknown module names + WASI imports without a
+  host. 4.7c at `da9d7e5` — `Runtime.host_calls: []const
+  ?HostCall` parallel to `funcs`; `mvp.callOp` short-circuits
+  imported funcidxs to host thunks; `thunkFdWrite` /
+  `thunkProcExit` wired with a `lookupWasiThunk` table; WASI
+  imports + host configured now succeed at `wasm_instance_new`
+  (was WasiThunksNotWired). Chunk remaining: 4.7d (end-to-end
+  test that calls a guest fn → `proc_exit(42)` → verify
+  `host.exit_code == 42` via Trap path).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
