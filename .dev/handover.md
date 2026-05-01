@@ -41,8 +41,13 @@
   2.6 (realworld smoke) closed at `1246d60`** — 7 toolchain
   fixtures (C/C++/Rust/TinyGo) parse cleanly through the
   frontend; new `test-realworld` build step + wired into
-  `test-all`. The first remaining `[ ]` is **§9.2 / 2.7 — Wasm
-  2.0 spec corpus + .wast directive handling**.
+  `test-all`. **§9.2 / 2.7 (wast directive runner + initial
+  Wasm 2.0 corpus) closed at `6d87ee5`** — new
+  `test/spec/wast_runner.zig` consumes per-corpus
+  `manifest.txt` files (valid / invalid / malformed); initial
+  `test/spec/wasm-2.0/const/` fixture green; corpus expansion
+  is queued for §9.2 / 2.8. The first remaining `[ ]` is
+  **§9.2 / 2.8 — Wasm Core 2.0 spec corpus fail=0 / skip=0**.
   validateFunction takes `tables: []const zir.TableEntry`;
   Runtime carries `tables: []TableInstance` (mutable, so grow
   can swap refs slice headers).
