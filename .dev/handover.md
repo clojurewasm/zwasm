@@ -67,10 +67,13 @@
   `867a29c` Windows-portability fix) — `src/wasi/host.zig`
   declares `Host` with `args` / `envs` / `preopens` / `fd_table`,
   pre-populates fd 0/1/2 = stdin/stdout/stderr, exposes
-  `setArgs` / `setEnvs` / `addPreopen` / `translateFd`. The
-  first remaining `[ ]` is **§9.4 / 4.3 — proc_exit /
-  args_get / args_sizes_get / environ_get / environ_sizes_get
-  handlers**.
+  `setArgs` / `setEnvs` / `addPreopen` / `translateFd`. §9.4 /
+  4.3 closed at `b824f91` — `src/wasi/proc.zig` lands
+  `procExit` + `argsSizesGet` / `argsGet` + `environSizesGet`
+  / `environGet` with bounds-checked memory writes; `Host`
+  gained `exit_code: ?u32`. The first remaining `[ ]` is
+  **§9.4 / 4.4 — fd_write / fd_read / fd_close / fd_seek /
+  fd_tell (stdio only)**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -112,33 +115,39 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.3 (proc_exit + args + environ handlers)
+## Active task — §9.4 / 4.4 (fd_write / fd_read / fd_close / fd_seek / fd_tell)
 
-First batch of WASI 0.1 syscall handlers — the all-low-IO
-ones (no fd-table reads beyond bookkeeping). Each takes the
-host state from `Host` and reads/writes Wasm linear memory.
+Wire stdio-only fd IO. The exit criterion limits scope to fds
+0 / 1 / 2 (stdin / stdout / stderr); arbitrary file fds land
+alongside `path_open` in 4.5.
 
-Surface (witx names):
-- `proc_exit(rval: u32) -> noreturn` — terminates the
-  instance with `rval`. Wire as a new TrapKind variant
-  (`zwasm_exit`?) so the C host's `wasm_func_call` returns a
-  Trap whose kind carries the exit code; or extend
-  `interp.Trap` with `ExitRequested` and propagate the code
-  through a side-channel field on `Runtime`.
-- `args_sizes_get(*argc_out, *buf_size_out) -> errno` — write
-  count + total bytes to guest memory.
-- `args_get(*argv_out, *argv_buf_out) -> errno` — write
-  null-terminated strings + pointer table.
-- `environ_sizes_get` / `environ_get` — same shape but
-  reads `Host.envs`.
+Surface (witx names → Zig-side):
+- `fdWrite(*Host, mem, fd, ciovec_ptr, ciovec_count, *nwritten_out) → Errno`
+  — gather write to `host.fd_table[fd]` (host's stdout/stderr
+  via `host.alloc.writer`-equivalent or direct `std.fs.File`).
+- `fdRead(*Host, mem, fd, iovec_ptr, iovec_count, *nread_out) → Errno`
+  — scatter read from stdin.
+- `fdClose(*Host, fd) → Errno` — flips slot kind to .closed.
+  Stdio fds (0/1/2) refuse close per WASI convention (return
+  notsup) OR return success-with-noop; check spec.
+- `fdSeek(*Host, fd, offset, whence, *new_pos_out) → Errno`
+  — stdio returns spipe (illegal seek).
+- `fdTell(*Host, fd, *pos_out) → Errno` — same.
 
-Implement in a new file (e.g. `src/wasi/proc.zig`) so
-`host.zig` stays the data container. Memory writes go through
-bounds-checked helpers; out-of-bounds returns `Errno.fault`.
+Memory layout for `fdWrite` ciovec: each entry is the
+`p1.Ciovec` extern struct (8 bytes — buf:u32, buf_len:u32) at
+ciovec_ptr + i*8. Read each, slice the guest memory, write to
+host stdout.
 
-Tests stub `Host` from §9.4 / 4.2's API + a hand-allocated
-`[]u8` for linear memory. Full instance integration (binding
-+ import resolution) lands at 4.7.
+Need to extend `OpenFd` with the actual host file handle for
+non-stdio fds. For stdio: keep the pointer-based shape and
+write/read to/from `std.Io.File.stdout()` etc.
+
+Tests can capture stdout/stderr via `std.Io.Writer.Allocating`
+or by intercepting through a Host field — design something
+testable. The simplest pattern: `Host` holds optional `?*Writer`
+slots for stdout/stderr that default to the real fds but can
+be overridden in tests.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
