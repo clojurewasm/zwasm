@@ -23,8 +23,11 @@
   include path). §9.3 / 3.2 closed at `9abb951`
   (`src/c_api/wasm_c_api.zig` Zone-3 shapes:
   Engine/Store/Module/Instance/Func/Trap + ValKind / Val /
-  ByteVec). The first remaining `[ ]` is **§9.3 / 3.3 —
-  `wasm_engine_new` / `wasm_engine_delete`**.
+  ByteVec). §9.3 / 3.3 closed at `b4d1146` — first concrete
+  binding pair `wasm_engine_new` / `wasm_engine_delete`
+  exported with C linkage; build.zig links libc. The first
+  remaining `[ ]` is **§9.3 / 3.4 — `wasm_module_new` /
+  `_module_validate` / `_module_delete`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -51,15 +54,20 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.3 (wasm_engine_new / _delete)
+## Active task — §9.3 / 3.4 (wasm_module_new / _validate / _delete)
 
-First concrete C ABI binding: `wasm_engine_new() -> *Engine` and
-`wasm_engine_delete(*Engine)`. Engine is the process-wide
-top-level handle in wasm-c-api; in zwasm v2 it'll carry the
-allocator the runtime uses (or a default page allocator) plus
-shared module-cache scaffolding. The pair is allocator-pure —
-no Wasm execution yet — so the binding can ship as the smallest
-real `extern "C"` symbol slice.
+Wraps the frontend pipeline (parser + sections + validate +
+lower) behind the wasm-c-api shape:
+
+  wasm_module_t* wasm_module_new(wasm_store_t*, const wasm_byte_vec_t*)
+  bool          wasm_module_validate(wasm_store_t*, const wasm_byte_vec_t*)
+  void          wasm_module_delete(wasm_module_t*)
+
+Note: `wasm_store_new` (§3.x intermediate, slot between 3.3 and
+3.4 in the wasm.h flow) needs landing first — the Module
+constructor takes a store pointer to recover the engine's
+allocator. Treat as part of 3.4 (or insert a 3.3b chunk if it
+needs its own commit).
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
