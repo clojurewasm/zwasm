@@ -665,19 +665,109 @@ export fn wasm_trap_message(t: ?*const Trap, out: ?*ByteVec) callconv(.c) void {
     out_ptr.* = .{ .size = copy.len, .data = copy.ptr };
 }
 
-/// `wasm_byte_vec_delete(*ByteVec)` — free the data backing of a
-/// ByteVec produced by the binding (currently only
-/// `wasm_trap_message`). Pinned to the engine's `c_allocator`
-/// because that is the allocator the binding uses for every
-/// outgoing-byte-vec it produces today; a per-engine allocator
-/// policy lands when §9.3 / 3.7 chunk b widens the vec ABI.
-export fn wasm_byte_vec_delete(v: ?*ByteVec) callconv(.c) void {
-    const handle = v orelse return;
-    if (handle.data) |p| {
-        const alloc = std.heap.c_allocator;
-        alloc.free(p[0..handle.size]);
+// ============================================================
+// wasm_*_vec_t family (§9.3 / 3.7 chunk b)
+// ============================================================
+//
+// Per upstream `WASM_DECLARE_VEC(name, …)`, every vec type gets
+// `_new_empty` / `_new_uninitialized` / `_new` / `_copy` /
+// `_delete`. The data pointer is allocated from
+// `std.heap.c_allocator` so every vec is freeable through the
+// matching `_delete` regardless of which Engine produced it —
+// the allocator must be vec-global since C hosts can construct
+// vecs without an Engine handle (e.g. before `wasm_engine_new`).
+
+fn vecNewEmpty(comptime VecT: type, out: ?*VecT) void {
+    const o = out orelse return;
+    o.* = .{ .size = 0, .data = null };
+}
+
+fn vecNewUninitialized(comptime T: type, comptime VecT: type, out: ?*VecT, size: usize) void {
+    const o = out orelse return;
+    if (size == 0) {
+        o.* = .{ .size = 0, .data = null };
+        return;
     }
+    const buf = std.heap.c_allocator.alloc(T, size) catch {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    };
+    o.* = .{ .size = size, .data = buf.ptr };
+}
+
+fn vecNew(comptime T: type, comptime VecT: type, out: ?*VecT, size: usize, src: ?[*]const T) void {
+    const o = out orelse return;
+    if (size == 0 or src == null) {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    }
+    const buf = std.heap.c_allocator.alloc(T, size) catch {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    };
+    @memcpy(buf, src.?[0..size]);
+    o.* = .{ .size = size, .data = buf.ptr };
+}
+
+fn vecCopy(comptime T: type, comptime VecT: type, out: ?*VecT, src: ?*const VecT) void {
+    const o = out orelse return;
+    const s = src orelse {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    };
+    vecNew(T, VecT, o, s.size, s.data);
+}
+
+fn vecDelete(comptime VecT: type, v: ?*VecT) void {
+    const handle = v orelse return;
+    if (handle.data) |p| std.heap.c_allocator.free(p[0..handle.size]);
     handle.* = .{ .size = 0, .data = null };
+}
+
+// --- byte vec ---
+
+export fn wasm_byte_vec_new_empty(out: ?*ByteVec) callconv(.c) void {
+    vecNewEmpty(ByteVec, out);
+}
+
+export fn wasm_byte_vec_new_uninitialized(out: ?*ByteVec, size: usize) callconv(.c) void {
+    vecNewUninitialized(u8, ByteVec, out, size);
+}
+
+export fn wasm_byte_vec_new(out: ?*ByteVec, size: usize, src: ?[*]const u8) callconv(.c) void {
+    vecNew(u8, ByteVec, out, size, src);
+}
+
+export fn wasm_byte_vec_copy(out: ?*ByteVec, src: ?*const ByteVec) callconv(.c) void {
+    vecCopy(u8, ByteVec, out, src);
+}
+
+/// `wasm_byte_vec_delete(*ByteVec)` — free the data backing of a
+/// ByteVec. Pinned to `std.heap.c_allocator` (see header above).
+export fn wasm_byte_vec_delete(v: ?*ByteVec) callconv(.c) void {
+    vecDelete(ByteVec, v);
+}
+
+// --- val vec ---
+
+export fn wasm_val_vec_new_empty(out: ?*ValVec) callconv(.c) void {
+    vecNewEmpty(ValVec, out);
+}
+
+export fn wasm_val_vec_new_uninitialized(out: ?*ValVec, size: usize) callconv(.c) void {
+    vecNewUninitialized(Val, ValVec, out, size);
+}
+
+export fn wasm_val_vec_new(out: ?*ValVec, size: usize, src: ?[*]const Val) callconv(.c) void {
+    vecNew(Val, ValVec, out, size, src);
+}
+
+export fn wasm_val_vec_copy(out: ?*ValVec, src: ?*const ValVec) callconv(.c) void {
+    vecCopy(Val, ValVec, out, src);
+}
+
+export fn wasm_val_vec_delete(v: ?*ValVec) callconv(.c) void {
+    vecDelete(ValVec, v);
 }
 
 /// `wasm_func_call(func, args, results)` — invoke `func` with
@@ -992,6 +1082,70 @@ test "wasm_trap_*: null-arg discipline" {
     wasm_trap_message(null, &out);
     try testing.expectEqual(@as(usize, 0), out.size);
     wasm_byte_vec_delete(null);
+}
+
+test "wasm_byte_vec_new / copy / delete: round-trip with independent buffers" {
+    var src_bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+    var v: ByteVec = .{ .size = 0, .data = null };
+    wasm_byte_vec_new(&v, src_bytes.len, &src_bytes);
+    defer wasm_byte_vec_delete(&v);
+    try testing.expectEqual(@as(usize, 4), v.size);
+    try testing.expectEqual(@as(u8, 0xDE), v.data.?[0]);
+    try testing.expectEqual(@as(u8, 0xEF), v.data.?[3]);
+
+    var v2: ByteVec = .{ .size = 0, .data = null };
+    wasm_byte_vec_copy(&v2, &v);
+    defer wasm_byte_vec_delete(&v2);
+    try testing.expectEqual(v.size, v2.size);
+    try testing.expectEqual(@as(u8, 0xEF), v2.data.?[3]);
+    // Independent backing — copy must own a fresh buffer.
+    try testing.expect(v.data.? != v2.data.?);
+}
+
+test "wasm_byte_vec_new_empty / new_uninitialized" {
+    var stale: ByteVec = .{ .size = 99, .data = null };
+    wasm_byte_vec_new_empty(&stale);
+    try testing.expectEqual(@as(usize, 0), stale.size);
+    try testing.expect(stale.data == null);
+
+    var u: ByteVec = .{ .size = 0, .data = null };
+    wasm_byte_vec_new_uninitialized(&u, 8);
+    defer wasm_byte_vec_delete(&u);
+    try testing.expectEqual(@as(usize, 8), u.size);
+    try testing.expect(u.data != null);
+}
+
+test "wasm_val_vec_new / copy / delete: round-trip" {
+    var src: [2]Val = .{
+        .{ .kind = .i32, .of = .{ .i32 = 7 } },
+        .{ .kind = .i64, .of = .{ .i64 = -1 } },
+    };
+    var v: ValVec = .{ .size = 0, .data = null };
+    wasm_val_vec_new(&v, src.len, &src);
+    defer wasm_val_vec_delete(&v);
+    try testing.expectEqual(@as(usize, 2), v.size);
+    try testing.expectEqual(ValKind.i32, v.data.?[0].kind);
+    try testing.expectEqual(@as(i32, 7), v.data.?[0].of.i32);
+    try testing.expectEqual(ValKind.i64, v.data.?[1].kind);
+    try testing.expectEqual(@as(i64, -1), v.data.?[1].of.i64);
+
+    var v2: ValVec = .{ .size = 0, .data = null };
+    wasm_val_vec_copy(&v2, &v);
+    defer wasm_val_vec_delete(&v2);
+    try testing.expectEqual(v.size, v2.size);
+    try testing.expect(v.data.? != v2.data.?);
+}
+
+test "wasm_*_vec_*: null-arg discipline" {
+    wasm_byte_vec_new_empty(null);
+    wasm_byte_vec_new_uninitialized(null, 16);
+    wasm_byte_vec_new(null, 4, null);
+    wasm_byte_vec_copy(null, null);
+    wasm_val_vec_new_empty(null);
+    wasm_val_vec_new_uninitialized(null, 16);
+    wasm_val_vec_new(null, 4, null);
+    wasm_val_vec_copy(null, null);
+    wasm_val_vec_delete(null);
 }
 
 test "zwasm_instance_get_func / wasm_func_delete: null-arg discipline" {
