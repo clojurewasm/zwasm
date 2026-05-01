@@ -413,6 +413,12 @@ const Lowerer = struct {
                 const dataidx = try leb128.readUleb128(u32, self.body, &self.pos);
                 try self.emit(.@"data.drop", dataidx, 0);
             },
+            14 => {
+                // table.copy x y: dst-tableidx + src-tableidx.
+                const dst = try leb128.readUleb128(u32, self.body, &self.pos);
+                const src = try leb128.readUleb128(u32, self.body, &self.pos);
+                try self.emit(.@"table.copy", dst, src);
+            },
             15 => {
                 const idx = try leb128.readUleb128(u32, self.body, &self.pos);
                 try self.emit(.@"table.grow", idx, 0);
@@ -848,6 +854,22 @@ test "lower: table.grow / table.fill carry tableidx in payload" {
     const grow = f.instrs.items[2];
     try testing.expectEqual(ZirOp.@"table.grow", grow.op);
     try testing.expectEqual(@as(u32, 7), grow.payload);
+}
+
+test "lower: table.copy carries dst-tableidx in payload, src in extra" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    // i32.const 0 ; i32.const 0 ; i32.const 0 ; table.copy 3 5 ; end
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x0E, 0x03, 0x05,
+        0x0B,
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const cp = f.instrs.items[3];
+    try testing.expectEqual(ZirOp.@"table.copy", cp.op);
+    try testing.expectEqual(@as(u32, 3), cp.payload);
+    try testing.expectEqual(@as(u32, 5), cp.extra);
 }
 
 test "lower: table.fill emits table.fill with tableidx" {

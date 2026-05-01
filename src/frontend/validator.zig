@@ -572,6 +572,7 @@ const Validator = struct {
             9 => try self.opDataDrop(),
             10 => try self.opMemoryCopy(),
             11 => try self.opMemoryFill(),
+            14 => try self.opTableCopy(),
             15 => try self.opTableGrow(),
             16 => try self.opTableSize(),
             17 => try self.opTableFill(),
@@ -677,6 +678,21 @@ const Validator = struct {
         try self.popExpect(.i32);
         try self.popExpect(self.tables[idx].elem_type);
         try self.pushType(.i32);
+    }
+
+    /// table.copy x y (0xFC 14): dst-tableidx, src-tableidx; pops
+    /// three i32 (n, src, dst). Both tables must have the same
+    /// elem_type.
+    fn opTableCopy(self: *Validator) Error!void {
+        const dst = try leb128.readUleb128(u32, self.body, &self.pos);
+        const src = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (dst >= self.tables.len or src >= self.tables.len) return Error.InvalidFuncIndex;
+        if (self.tables[dst].elem_type != self.tables[src].elem_type) {
+            return Error.StackTypeMismatch;
+        }
+        try self.popExpect(.i32);
+        try self.popExpect(.i32);
+        try self.popExpect(.i32);
     }
 
     /// table.fill x (0xFC 17): pop n:i32, val:elem_type, dst:i32.
@@ -1327,6 +1343,26 @@ test "validate: table.fill pops i32 + reftype + i32" {
     // i32.const 0 ; ref.null funcref ; i32.const 0 ; table.fill 0 ; end
     const body = [_]u8{ 0x41, 0x00, 0xD0, 0x70, 0x41, 0x00, 0xFC, 0x11, 0x00, 0x0B };
     try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &tables);
+}
+
+test "validate: table.copy pops three i32; both tables same elem_type" {
+    const tables = [_]zir.TableEntry{
+        .{ .elem_type = .funcref, .min = 0 },
+        .{ .elem_type = .funcref, .min = 0 },
+    };
+    // i32.const 0 ; i32.const 0 ; i32.const 0 ; table.copy 0 1 ; end
+    const body = [_]u8{ 0x41, 0x00, 0x41, 0x00, 0x41, 0x00, 0xFC, 0x0E, 0x00, 0x01, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &tables);
+}
+
+test "validate: table.copy with mismatched elem types → StackTypeMismatch" {
+    const tables = [_]zir.TableEntry{
+        .{ .elem_type = .funcref, .min = 0 },
+        .{ .elem_type = .externref, .min = 0 },
+    };
+    const body = [_]u8{ 0x41, 0x00, 0x41, 0x00, 0x41, 0x00, 0xFC, 0x0E, 0x00, 0x01, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &tables);
+    try testing.expectError(Error.StackTypeMismatch, r);
 }
 
 test "validate: 0xFC unknown sub-opcode → NotImplemented" {

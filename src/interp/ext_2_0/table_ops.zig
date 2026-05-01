@@ -38,6 +38,7 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"table.size")] = tableSize;
     table.interp[op(.@"table.grow")] = tableGrow;
     table.interp[op(.@"table.fill")] = tableFill;
+    table.interp[op(.@"table.copy")] = tableCopy;
 }
 
 fn tableGet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
@@ -129,6 +130,46 @@ fn tableFill(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
     while (i < end) : (i += 1) tbl.refs[i] = v;
 }
 
+/// table.copy x y: pop n:i32, src:i32, dst:i32. Copy n refs from
+/// tables[y] to tables[x]. memmove semantics on overlap when
+/// tables[x] == tables[y]. Encoding: payload = dst-tableidx,
+/// extra = src-tableidx.
+fn tableCopy(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const dst_tbl_idx = instr.payload;
+    const src_tbl_idx = instr.extra;
+    if (dst_tbl_idx >= rt.tables.len or src_tbl_idx >= rt.tables.len) return Trap.Unreachable;
+    const dst_tbl = rt.tables[dst_tbl_idx];
+    const src_tbl = rt.tables[src_tbl_idx];
+
+    const n_i = rt.popOperand().i32;
+    const src_i = rt.popOperand().i32;
+    const dst_i = rt.popOperand().i32;
+    const n: u64 = @as(u32, @bitCast(n_i));
+    const src: u64 = @as(u32, @bitCast(src_i));
+    const dst: u64 = @as(u32, @bitCast(dst_i));
+    if (src + n > src_tbl.refs.len or dst + n > dst_tbl.refs.len) return Trap.OutOfBoundsTableAccess;
+    if (n == 0) return;
+    const src_lo: usize = @intCast(src);
+    const dst_lo: usize = @intCast(dst);
+    const n_lo: usize = @intCast(n);
+
+    const same = dst_tbl_idx == src_tbl_idx;
+    if (same and dst_lo > src_lo and dst_lo < src_lo + n_lo) {
+        // Self-overlap with dst > src — copy backwards.
+        var i: usize = n_lo;
+        while (i > 0) {
+            i -= 1;
+            dst_tbl.refs[dst_lo + i] = src_tbl.refs[src_lo + i];
+        }
+    } else {
+        var i: usize = 0;
+        while (i < n_lo) : (i += 1) {
+            dst_tbl.refs[dst_lo + i] = src_tbl.refs[src_lo + i];
+        }
+    }
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -143,7 +184,7 @@ fn driveOne(rt: *Runtime, table: *const DispatchTable, t: ZirOp, payload: u32, e
     try dispatch_loop.step(rt, table, &instr);
 }
 
-test "register: all five table ops populated" {
+test "register: all six table ops populated" {
     var t = DispatchTable.init();
     register(&t);
     try testing.expect(t.interp[op(.@"table.get")] != null);
@@ -151,6 +192,7 @@ test "register: all five table ops populated" {
     try testing.expect(t.interp[op(.@"table.size")] != null);
     try testing.expect(t.interp[op(.@"table.grow")] != null);
     try testing.expect(t.interp[op(.@"table.fill")] != null);
+    try testing.expect(t.interp[op(.@"table.copy")] != null);
 }
 
 test "table.size: returns refs.len" {
@@ -310,4 +352,76 @@ test "table.grow: max-cap violation pushes -1" {
     try driveOne(&rt, &t, .@"table.grow", 0, 0);
     try testing.expectEqual(@as(i32, -1), rt.popOperand().i32);
     try testing.expectEqual(@as(usize, 2), rt.tables[0].refs.len);
+}
+
+test "table.copy: cross-table copy moves refs" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+
+    var refs0 = [_]Value{
+        .{ .ref = Value.null_ref },
+        .{ .ref = Value.null_ref },
+        .{ .ref = Value.null_ref },
+    };
+    var refs1 = [_]Value{ .{ .ref = 7 }, .{ .ref = 8 }, .{ .ref = 9 } };
+    var tbls = [_]TableInstance{
+        .{ .refs = &refs0, .elem_type = .funcref },
+        .{ .refs = &refs1, .elem_type = .funcref },
+    };
+    rt.tables = &tbls;
+
+    // table.copy 0 1: dst=0, src=1, n=2 → tables[0][0..2] = tables[1][0..2]
+    // payload=0 (dst), extra=1 (src)
+    try rt.pushOperand(.{ .i32 = 0 }); // dst
+    try rt.pushOperand(.{ .i32 = 0 }); // src
+    try rt.pushOperand(.{ .i32 = 2 }); // n
+    try driveOne(&rt, &t, .@"table.copy", 0, 1);
+    try testing.expectEqual(@as(u64, 7), refs0[0].ref);
+    try testing.expectEqual(@as(u64, 8), refs0[1].ref);
+    try testing.expectEqual(Value.null_ref, refs0[2].ref);
+}
+
+test "table.copy: same-table overlap with dst > src copies backwards" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+
+    var refs = [_]Value{
+        .{ .ref = 1 }, .{ .ref = 2 }, .{ .ref = 3 }, .{ .ref = 4 }, .{ .ref = 5 },
+    };
+    var tbls = [_]TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    rt.tables = &tbls;
+
+    // table.copy 0 0: dst=2, src=0, n=3 → backwards copy.
+    // After: refs = [1, 2, 1, 2, 3]
+    try rt.pushOperand(.{ .i32 = 2 });
+    try rt.pushOperand(.{ .i32 = 0 });
+    try rt.pushOperand(.{ .i32 = 3 });
+    try driveOne(&rt, &t, .@"table.copy", 0, 0);
+    try testing.expectEqual(@as(u64, 1), refs[0].ref);
+    try testing.expectEqual(@as(u64, 2), refs[1].ref);
+    try testing.expectEqual(@as(u64, 1), refs[2].ref);
+    try testing.expectEqual(@as(u64, 2), refs[3].ref);
+    try testing.expectEqual(@as(u64, 3), refs[4].ref);
+}
+
+test "table.copy: src+n > src_len traps" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    var refs0 = [_]Value{ .{ .ref = 0 }, .{ .ref = 0 }, .{ .ref = 0 } };
+    var refs1 = [_]Value{ .{ .ref = 0 }, .{ .ref = 0 } };
+    var tbls = [_]TableInstance{
+        .{ .refs = &refs0, .elem_type = .funcref },
+        .{ .refs = &refs1, .elem_type = .funcref },
+    };
+    rt.tables = &tbls;
+    try rt.pushOperand(.{ .i32 = 0 }); // dst
+    try rt.pushOperand(.{ .i32 = 1 }); // src
+    try rt.pushOperand(.{ .i32 = 3 }); // n (1+3=4 > src_len=2)
+    try testing.expectError(Trap.OutOfBoundsTableAccess, driveOne(&rt, &t, .@"table.copy", 0, 1));
 }
