@@ -304,6 +304,7 @@ const Validator = struct {
             // Parametric
             0x1A => try self.opDrop(),
             0x1B => try self.opSelect(),
+            0x1C => try self.opSelectTyped(),
 
             // Variables
             0x20 => try self.opLocalGet(),
@@ -733,6 +734,30 @@ const Validator = struct {
             .known => |t| try self.pushType(t),
             .bot => try self.pushBot(),
         }
+    }
+
+    /// select_typed (Wasm 2.0): 0x1C count valtype*. Wasm 2.0
+    /// requires count = 1 (the result type). Pops i32 cond, two
+    /// values of that type, pushes one of them.
+    fn opSelectTyped(self: *Validator) Error!void {
+        const count = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (count != 1) return Error.InvalidOpcode;
+        if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+        const b = self.body[self.pos];
+        self.pos += 1;
+        const t: ValType = switch (b) {
+            0x7F => .i32,
+            0x7E => .i64,
+            0x7D => .f32,
+            0x7C => .f64,
+            0x70 => .funcref,
+            0x6F => .externref,
+            else => return Error.BadValType,
+        };
+        try self.popExpect(.i32);
+        try self.popExpect(t);
+        try self.popExpect(t);
+        try self.pushType(t);
     }
 
     fn skipMemarg(self: *Validator) Error!void {
@@ -1165,6 +1190,45 @@ test "validate: ref.func with out-of-range funcidx → InvalidFuncIndex" {
     const body = [_]u8{ 0xD2, 0x05, 0x1A, 0x0B };
     const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.InvalidFuncIndex, r);
+}
+
+test "validate: select_typed (0x1C) — i32 result, two i32 vals + cond" {
+    // i32.const 1 ; i32.const 2 ; i32.const 0 ; select_typed [i32] ; drop ; end
+    const body = [_]u8{
+        0x41, 0x01,
+        0x41, 0x02,
+        0x41, 0x00,
+        0x1C, 0x01, 0x7F,
+        0x1A,
+        0x0B,
+    };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
+}
+
+test "validate: select_typed with funcref result" {
+    // ref.null funcref ; ref.null funcref ; i32.const 0 ; select_typed [funcref] ; drop ; end
+    const body = [_]u8{
+        0xD0, 0x70,
+        0xD0, 0x70,
+        0x41, 0x00,
+        0x1C, 0x01, 0x70,
+        0x1A,
+        0x0B,
+    };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
+}
+
+test "validate: select_typed with count != 1 → InvalidOpcode" {
+    const body = [_]u8{ 0x41, 0x00, 0x41, 0x00, 0x41, 0x00, 0x1C, 0x02, 0x7F, 0x7F, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
+    try testing.expectError(Error.InvalidOpcode, r);
+}
+
+test "validate: select_typed type mismatch → StackTypeMismatch" {
+    // i64.const 0 ; i32.const 0 ; i32.const 0 ; select_typed [i32] ...
+    const body = [_]u8{ 0x42, 0x00, 0x41, 0x00, 0x41, 0x00, 0x1C, 0x01, 0x7F, 0x1A, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
+    try testing.expectError(Error.StackTypeMismatch, r);
 }
 
 test "validate: ref.is_null on i32 → StackTypeMismatch" {

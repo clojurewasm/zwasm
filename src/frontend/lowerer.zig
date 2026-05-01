@@ -164,6 +164,21 @@ const Lowerer = struct {
 
             // Parametric
             0x1B => try self.emit(.@"select", 0, 0),
+            0x1C => {
+                // select_typed: count valtype*. Wasm 2.0 requires
+                // count = 1; consume + emit select_typed (runtime
+                // semantics identical to select).
+                const count = try leb128.readUleb128(u32, self.body, &self.pos);
+                if (count != 1) return Error.UnexpectedOpcode;
+                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+                const t = self.body[self.pos];
+                self.pos += 1;
+                switch (t) {
+                    0x7F, 0x7E, 0x7D, 0x7C, 0x70, 0x6F => {},
+                    else => return Error.BadBlockType,
+                }
+                try self.emit(.@"select_typed", 0, t);
+            },
 
             // Globals
             0x23 => try self.emitUlebPayload(.@"global.get"),
@@ -784,6 +799,31 @@ test "lower: memory.init (0xFC 8) emits ZirOp.memory.init with dataidx payload" 
     const init = f.instrs.items[3];
     try testing.expectEqual(ZirOp.@"memory.init", init.op);
     try testing.expectEqual(@as(u32, 5), init.payload);
+}
+
+test "lower: select_typed (0x1C 01 0x7F) emits select_typed with reftype byte in extra" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{
+        0x41, 0x00,
+        0x41, 0x00,
+        0x41, 0x00,
+        0x1C, 0x01, 0x7F,
+        0x1A,
+        0x0B,
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const sel = f.instrs.items[3];
+    try testing.expectEqual(ZirOp.@"select_typed", sel.op);
+    try testing.expectEqual(@as(u32, 0x7F), sel.extra);
+}
+
+test "lower: select_typed with count != 1 → UnexpectedOpcode" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{ 0x1C, 0x02, 0x7F, 0x7F, 0x0B };
+    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try testing.expectError(Error.UnexpectedOpcode, r);
 }
 
 test "lower: ref.null (0xD0 0x70) emits ZirOp.ref.null with reftype byte in extra" {

@@ -53,6 +53,7 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"unreachable")] = unreachableOp;
     table.interp[op(.nop)] = nopOp;
     table.interp[op(.select)] = selectOp;
+    table.interp[op(.@"select_typed")] = selectOp;
 
     // Control flow
     table.interp[op(.@"block")] = blockOp;
@@ -1908,6 +1909,18 @@ test "select: cond == 0 picks second operand" {
     try rt.pushOperand(.{ .i32 = 0 });
     try driveOne(&rt, &t, .select, 0, 0);
     try testing.expectEqual(@as(i32, 22), rt.popOperand().i32);
+}
+
+test "select_typed: same runtime semantics as select" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .ref = 7 });
+    try rt.pushOperand(.{ .ref = interp.Value.null_ref });
+    try rt.pushOperand(.{ .i32 = 1 }); // cond=true → pick first
+    try driveOne(&rt, &t, .@"select_typed", 0, 0x70);
+    try testing.expectEqual(@as(u64, 7), rt.popOperand().ref);
 }
 
 test "globals: get/set round-trip" {
