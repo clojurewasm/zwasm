@@ -25,9 +25,11 @@
   Engine/Store/Module/Instance/Func/Trap + ValKind / Val /
   ByteVec). §9.3 / 3.3 closed at `b4d1146` — first concrete
   binding pair `wasm_engine_new` / `wasm_engine_delete`
-  exported with C linkage; build.zig links libc. The first
-  remaining `[ ]` is **§9.3 / 3.4 — `wasm_module_new` /
-  `_module_validate` / `_module_delete`**.
+  exported with C linkage; build.zig links libc. §9.3 / 3.3b
+  closed at `647dfc7` — `wasm_store_new` / `wasm_store_delete`
+  (Store carries an Engine back-pointer for allocator
+  recovery). The first remaining `[ ]` is **§9.3 / 3.4 —
+  `wasm_module_new` / `_module_validate` / `_module_delete`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -63,11 +65,12 @@ lower) behind the wasm-c-api shape:
   bool          wasm_module_validate(wasm_store_t*, const wasm_byte_vec_t*)
   void          wasm_module_delete(wasm_module_t*)
 
-Note: `wasm_store_new` (§3.x intermediate, slot between 3.3 and
-3.4 in the wasm.h flow) needs landing first — the Module
-constructor takes a store pointer to recover the engine's
-allocator. Treat as part of 3.4 (or insert a 3.3b chunk if it
-needs its own commit).
+`wasm_store_new` is now in place (3.3b @ `647dfc7`) so the
+Module constructor can recover the allocator from a Store
+pointer. The Module struct will own the parsed `parser.Module`
++ a vector of `zir.ZirFunc`s lowered from each code-section
+entry. Use the existing `runOne` shape from
+`test/spec/runner.zig` as the reference frontend driver.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
