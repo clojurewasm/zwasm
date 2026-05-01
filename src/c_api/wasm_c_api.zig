@@ -1419,9 +1419,12 @@ test "zwasm_instance_get_func / wasm_func_delete: null-arg discipline" {
 }
 
 test "wasm_c_api: ValKind tag values match wasm.h" {
-    // wasm.h:
+    // wasm.h declares:
     //   WASM_I32 = 0, WASM_I64 = 1, WASM_F32 = 2, WASM_F64 = 3,
-    //   WASM_ANYREF = 128, WASM_FUNCREF = 129
+    //   WASM_EXTERNREF = 128, WASM_FUNCREF = 129
+    // Our `ValKind.anyref` aliases WASM_EXTERNREF (same value);
+    // the name divergence is historical (the original wasm-c-api
+    // draft used `anyref`).
     try testing.expectEqual(@as(u8, 0), @intFromEnum(ValKind.i32));
     try testing.expectEqual(@as(u8, 1), @intFromEnum(ValKind.i64));
     try testing.expectEqual(@as(u8, 2), @intFromEnum(ValKind.f32));
