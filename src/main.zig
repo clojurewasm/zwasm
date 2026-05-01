@@ -74,4 +74,5 @@ test {
     _ = @import("wasi/host.zig");
     _ = @import("wasi/proc.zig");
     _ = @import("wasi/fd.zig");
+    _ = @import("wasi/clocks.zig");
 }
