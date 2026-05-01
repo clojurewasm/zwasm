@@ -24,8 +24,9 @@
   (sat-trunc @ `f21c972`), 3 (multivalue multi-result blocks @
   `c230237`), 4 (bulk memory copy/fill @ `98ea730`), 4b (data
   section + memory.init / data.drop @ `8727fdf`), and 5
-  (ref.null / ref.is_null / ref.func @ `caef4e9`) are landed.
-  Three-host gate green for all six chunks.
+  (ref.null / ref.is_null / ref.func @ `caef4e9`), and 5b
+  (select_typed @ `48b3ce2`) are landed.
+  Three-host gate green for all seven chunks.
   `validateFunction` signature now takes `data_count: u32`;
   `Runtime` carries `datas` + `data_dropped`; `Value` carries
   `ref: u64` + `null_ref` sentinel.
@@ -93,10 +94,12 @@ table population is a follow-up — see chunk-7 commit notes).
   polymorphic ref.is_null typing. ref.func validates funcidx in
   `func_types` but not the §5.4.1.4 declaration-scope check
   (deferred to chunk 5d).
+- chunk 5b (select_typed) — landed at `48b3ce2`. 0x1C count
+  valtype*; count restricted to 1 (multi-result form deferred).
+  Runtime semantics share the existing selectOp handler; only
+  the validator+lowerer parsing surface changes.
 
 Next chunks for 2.3 (in order of cost / dependency):
-- chunk 5b — `select_typed` (0x1C). Tiny: pop typevec immediate,
-  pop cond, two values; push the selected one. Validator only.
 - chunk 5c — table.get / table.set (0x25/0x26), table.size /
   grow / fill (0xFC 16/15/17). Needs Runtime to carry a table
   vec slot; validator/lowerer + interp; new tables: []TableSlice
