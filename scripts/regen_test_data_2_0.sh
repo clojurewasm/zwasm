@@ -74,6 +74,13 @@ NAMES=(
   memory_redundancy
   memory_size
   memory_trap
+  skip-stack-guard-page
+  token
+  utf8-invalid-encoding
+  obsolete-keywords
+  func
+  br_if
+  local_tee
 )
 
 for n in "${NAMES[@]}"; do
@@ -85,7 +92,12 @@ for n in "${NAMES[@]}"; do
   TMP=$(mktemp -d)
   trap "rm -rf '$TMP'" EXIT
 
-  ( cd "$TMP" && wast2json "$src" -o "$n.json" >/dev/null 2>&1 )
+  ( cd "$TMP" && wast2json \
+      --enable-function-references \
+      --enable-tail-call \
+      --enable-extended-const \
+      --enable-multi-memory \
+      "$src" -o "$n.json" >/dev/null 2>&1 )
 
   out_dir="$DEST/$n"
   rm -rf "$out_dir"
