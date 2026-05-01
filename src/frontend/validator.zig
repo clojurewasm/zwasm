@@ -540,9 +540,10 @@ const Validator = struct {
     }
 
     /// Dispatch the Wasm 2.0+ prefix-0xFC opcode group. Sub-opcodes
-    /// 0..7 are saturating truncations (§9.2 / 2.3 chunk 2); higher
-    /// sub-opcodes (8..) belong to bulk-memory / table ops landing
-    /// in later chunks. Encoding: 0xFC <uleb32 sub-opcode>.
+    /// 0..7 are saturating truncations (§9.2 / 2.3 chunk 2); 10/11
+    /// are memory.copy/memory.fill (chunk 4); 8/9/12+ land in later
+    /// chunks (data section / table section dependencies).
+    /// Encoding: 0xFC <uleb32 sub-opcode>.
     fn dispatchPrefixFC(self: *Validator) Error!void {
         const sub = try leb128.readUleb128(u32, self.body, &self.pos);
         switch (sub) {
@@ -550,8 +551,34 @@ const Validator = struct {
             2, 3 => try self.opCvt(.f64, .i32), // i32.trunc_sat_f64_{s,u}
             4, 5 => try self.opCvt(.f32, .i64), // i64.trunc_sat_f32_{s,u}
             6, 7 => try self.opCvt(.f64, .i64), // i64.trunc_sat_f64_{s,u}
+            10 => try self.opMemoryCopy(),
+            11 => try self.opMemoryFill(),
             else => return Error.NotImplemented,
         }
+    }
+
+    /// memory.copy: 0xFC 10 0x00 0x00 (two reserved memidx bytes).
+    /// Pops three i32 (n, src, dst); pushes nothing.
+    fn opMemoryCopy(self: *Validator) Error!void {
+        if (self.pos + 2 > self.body.len) return Error.UnexpectedEnd;
+        if (self.body[self.pos] != 0x00 or self.body[self.pos + 1] != 0x00) {
+            return Error.BadBlockType; // reserved bytes must be zero
+        }
+        self.pos += 2;
+        try self.popExpect(.i32);
+        try self.popExpect(.i32);
+        try self.popExpect(.i32);
+    }
+
+    /// memory.fill: 0xFC 11 0x00 (one reserved memidx byte).
+    /// Pops three i32 (n, val, dst); pushes nothing.
+    fn opMemoryFill(self: *Validator) Error!void {
+        if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+        if (self.body[self.pos] != 0x00) return Error.BadBlockType;
+        self.pos += 1;
+        try self.popExpect(.i32);
+        try self.popExpect(.i32);
+        try self.popExpect(.i32);
     }
 
     fn opBrTable(self: *Validator) Error!void {
@@ -980,6 +1007,35 @@ test "validate: multivalue block typeidx with non-empty params → BadBlockType"
         0x0B, // end (function)
     };
     const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &types);
+    try testing.expectError(Error.BadBlockType, r);
+}
+
+test "validate: memory.copy (0xFC 10) — pops three i32" {
+    // i32.const 0 ; i32.const 0 ; i32.const 0 ; memory.copy ; end
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x0A, 0x00, 0x00,
+        0x0B,
+    };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: memory.fill (0xFC 11) — pops three i32" {
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x0B, 0x00,
+        0x0B,
+    };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: memory.copy with non-zero reserved byte → BadBlockType" {
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x0A, 0x01, 0x00,
+        0x0B,
+    };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
     try testing.expectError(Error.BadBlockType, r);
 }
 

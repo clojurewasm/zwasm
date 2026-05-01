@@ -354,22 +354,37 @@ const Lowerer = struct {
 
     /// Wasm 2.0+ prefix-0xFC opcode group. Sub-opcode is uleb32.
     /// Sub-opcodes 0..7 are saturating truncations (§9.2 / 2.3
-    /// chunk 2); higher sub-opcodes (bulk-memory / table) land
-    /// in later chunks.
+    /// chunk 2); 10/11 are memory.copy/memory.fill (chunk 4); other
+    /// sub-opcodes land in later chunks.
     fn emitPrefixFC(self: *Lowerer) Error!void {
         const sub = try leb128.readUleb128(u32, self.body, &self.pos);
-        const op: ZirOp = switch (sub) {
-            0 => .@"i32.trunc_sat_f32_s",
-            1 => .@"i32.trunc_sat_f32_u",
-            2 => .@"i32.trunc_sat_f64_s",
-            3 => .@"i32.trunc_sat_f64_u",
-            4 => .@"i64.trunc_sat_f32_s",
-            5 => .@"i64.trunc_sat_f32_u",
-            6 => .@"i64.trunc_sat_f64_s",
-            7 => .@"i64.trunc_sat_f64_u",
+        switch (sub) {
+            0 => try self.emit(.@"i32.trunc_sat_f32_s", 0, 0),
+            1 => try self.emit(.@"i32.trunc_sat_f32_u", 0, 0),
+            2 => try self.emit(.@"i32.trunc_sat_f64_s", 0, 0),
+            3 => try self.emit(.@"i32.trunc_sat_f64_u", 0, 0),
+            4 => try self.emit(.@"i64.trunc_sat_f32_s", 0, 0),
+            5 => try self.emit(.@"i64.trunc_sat_f32_u", 0, 0),
+            6 => try self.emit(.@"i64.trunc_sat_f64_s", 0, 0),
+            7 => try self.emit(.@"i64.trunc_sat_f64_u", 0, 0),
+            10 => {
+                // memory.copy: two reserved 0x00 bytes (src/dst memidx).
+                if (self.pos + 2 > self.body.len) return Error.UnexpectedEnd;
+                if (self.body[self.pos] != 0x00 or self.body[self.pos + 1] != 0x00) {
+                    return Error.BadBlockType;
+                }
+                self.pos += 2;
+                try self.emit(.@"memory.copy", 0, 0);
+            },
+            11 => {
+                // memory.fill: one reserved 0x00 byte (memidx).
+                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+                if (self.body[self.pos] != 0x00) return Error.BadBlockType;
+                self.pos += 1;
+                try self.emit(.@"memory.fill", 0, 0);
+            },
             else => return Error.NotImplemented,
-        };
-        try self.emit(op, 0, 0);
+        }
     }
 
     fn emitLocalIndexed(self: *Lowerer, op: ZirOp) Error!void {
@@ -703,6 +718,39 @@ test "lower: Wasm 2.0 sat-trunc 0xFC 0..7 emit matching ZirOps" {
     try testing.expectEqual(ZirOp.@"i64.trunc_sat_f32_u", f.instrs.items[16].op);
     try testing.expectEqual(ZirOp.@"i64.trunc_sat_f64_s", f.instrs.items[19].op);
     try testing.expectEqual(ZirOp.@"i64.trunc_sat_f64_u", f.instrs.items[22].op);
+}
+
+test "lower: memory.copy (0xFC 10) emits ZirOp.memory.copy" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    // i32.const 0 ; i32.const 0 ; i32.const 0 ; memory.copy ; end
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x0A, 0x00, 0x00,
+        0x0B,
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try testing.expectEqual(ZirOp.@"memory.copy", f.instrs.items[3].op);
+}
+
+test "lower: memory.fill (0xFC 11) emits ZirOp.memory.fill" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x0B, 0x00,
+        0x0B,
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try testing.expectEqual(ZirOp.@"memory.fill", f.instrs.items[3].op);
+}
+
+test "lower: memory.copy with non-zero reserved byte → BadBlockType" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{ 0xFC, 0x0A, 0x00, 0x01, 0x0B };
+    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try testing.expectError(Error.BadBlockType, r);
 }
 
 test "lower: 0xFC unknown sub-opcode → NotImplemented" {

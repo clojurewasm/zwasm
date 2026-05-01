@@ -65,4 +65,5 @@ test {
     _ = @import("interp/memory_ops.zig");
     _ = @import("interp/ext_2_0/sign_ext.zig");
     _ = @import("interp/ext_2_0/sat_trunc.zig");
+    _ = @import("interp/ext_2_0/bulk_memory.zig");
 }
