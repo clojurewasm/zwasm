@@ -29,11 +29,13 @@
   `47a1905`), 5c-2 (table.grow/fill @ `fb22f72`), 5d-1
   (table.copy @ `c4397e7`), and 5d-2 (element section +
   table.init / elem.drop @ `4cd91af`) are landed. **§9.2 / 2.3
-  is now [x]** — Wasm 2.0 feature surface complete to the
-  pragmatic minimum (deferred items: chunk 3b multi-param
-  multivalue blocks; chunk 5d-3 form-2/4-7 element segments;
-  ref.func declaration-scope check). The first remaining `[ ]`
-  is **§9.2 / 2.4 — trap semantics**.
+  is now [x]** and **§9.2 / 2.4 (trap semantics) closed at
+  `589a478`** — call_indirect now routes through the runtime
+  table model with proper UninitializedElement /
+  IndirectCallTypeMismatch traps + sig-equality check; trap
+  audit tests in new `src/interp/trap_audit.zig`. Runtime gains
+  `module_types: []const FuncType` slot. The first remaining
+  `[ ]` is **§9.2 / 2.5 — leak-check clean**.
   validateFunction takes `tables: []const zir.TableEntry`;
   Runtime carries `tables: []TableInstance` (mutable, so grow
   can swap refs slice headers).
