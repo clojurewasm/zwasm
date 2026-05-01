@@ -62,4 +62,5 @@ test {
     _ = @import("interp/mod.zig");
     _ = @import("interp/dispatch.zig");
     _ = @import("interp/mvp.zig");
+    _ = @import("interp/memory_ops.zig");
 }
