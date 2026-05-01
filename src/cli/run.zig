@@ -24,6 +24,21 @@ pub fn runWasm(
     io: std.Io,
     bytes: []const u8,
 ) !u8 {
+    return runWasmCaptured(alloc, io, bytes, null);
+}
+
+/// Like `runWasm` but routes guest stdout writes (`fd_write`
+/// to fd 1) into the caller-supplied `stdout_capture`. When
+/// non-null, the runner wires `host.stdout_buffer` to it; the
+/// caller owns the buffer and must release it. The realworld-
+/// diff runner (§9.4 / 4.10) uses this to byte-compare against
+/// frozen `.expected_stdout` files.
+pub fn runWasmCaptured(
+    alloc: std.mem.Allocator,
+    io: std.Io,
+    bytes: []const u8,
+    stdout_capture: ?*std.ArrayList(u8),
+) !u8 {
     _ = alloc; // engine + store own their own c_allocator paths
     const engine = wasm_c_api.wasm_engine_new() orelse return error.EngineAllocFailed;
     defer wasm_c_api.wasm_engine_delete(engine);
@@ -36,6 +51,7 @@ pub fn runWasm(
     // random.
     const cfg = wasm_c_api.zwasm_wasi_config_new() orelse return error.ConfigAllocFailed;
     cfg.io = io;
+    if (stdout_capture) |buf| cfg.stdout_buffer = buf;
     wasm_c_api.zwasm_store_set_wasi(store, cfg);
 
     var bv: wasm_c_api.ByteVec = .{

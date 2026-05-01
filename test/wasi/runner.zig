@@ -78,19 +78,45 @@ pub fn main(init: std.process.Init) !void {
             continue;
         };
 
-        const actual = cli_run.runWasm(gpa, io, wasm_bytes) catch |err| {
+        // Optional `.expected_stdout` companion: when present,
+        // capture guest stdout and byte-compare. When absent,
+        // exit-code-only assertion is fine.
+        const expected_stdout_name = try std.fmt.allocPrint(gpa, "{s}.expected_stdout", .{entry.name[0..stem_len]});
+        defer gpa.free(expected_stdout_name);
+
+        const expected_stdout_opt: ?[]u8 = dir.readFileAlloc(io, expected_stdout_name, gpa, .limited(64 * 1024)) catch null;
+        defer if (expected_stdout_opt) |s| gpa.free(s);
+
+        var stdout_capture: std.ArrayList(u8) = .empty;
+        defer stdout_capture.deinit(gpa);
+        const stdout_capture_ptr: ?*std.ArrayList(u8) = if (expected_stdout_opt != null) &stdout_capture else null;
+
+        const actual = cli_run.runWasmCaptured(gpa, io, wasm_bytes, stdout_capture_ptr) catch |err| {
             try stdout.print("FAIL  {s}: runtime error {s}\n", .{ entry.name, @errorName(err) });
             failed += 1;
             continue;
         };
 
-        if (actual == expected) {
-            try stdout.print("PASS  {s} (exit={d})\n", .{ entry.name, actual });
-            passed += 1;
-        } else {
+        if (actual != expected) {
             try stdout.print("FAIL  {s}: expected exit={d}, got {d}\n", .{ entry.name, expected, actual });
             failed += 1;
+            continue;
         }
+
+        if (expected_stdout_opt) |expected_stdout| {
+            if (!std.mem.eql(u8, expected_stdout, stdout_capture.items)) {
+                try stdout.print(
+                    "FAIL  {s}: stdout mismatch\n  expected: {s}\n  got:      {s}\n",
+                    .{ entry.name, expected_stdout, stdout_capture.items },
+                );
+                failed += 1;
+                continue;
+            }
+            try stdout.print("PASS  {s} (exit={d}, stdout={d}B)\n", .{ entry.name, actual, stdout_capture.items.len });
+        } else {
+            try stdout.print("PASS  {s} (exit={d})\n", .{ entry.name, actual });
+        }
+        passed += 1;
     }
 
     try stdout.print("\nwasi_runner: {d} passed, {d} failed\n", .{ passed, failed });
