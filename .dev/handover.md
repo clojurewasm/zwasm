@@ -39,13 +39,12 @@
   `zwasm_instance_get_func` + `wasm_func_delete` +
   `wasm_func_call` + a process-wide lazy `DispatchTable` cache).
   The first remaining `[ ]` is **§9.3 / 3.7 — `wasm_*_vec_t`
-  types + `wasm_trap_t`**, splitting into chunks. 3.7a closed at
-  `fcfdc97` (Trap shape + lifecycle), 3.7b at `24567cc`
-  (`wasm_*_vec_t` family per `WASM_DECLARE_VEC` for `byte` and
-  `val` types — `_new_empty` / `_new_uninitialized` / `_new` /
-  `_copy` / `_delete` forwarded through a generic helper, all
-  pinned to `c_allocator`). Chunk remaining: 3.7c
-  (`wasm_extern_t` Func variant + `wasm_instance_exports`).
+  §9.3 / 3.7 closed in three chunks: 3.7a at `fcfdc97` (Trap
+  shape + lifecycle), 3.7b at `24567cc` (vec family for byte +
+  val), 3.7c at `c7784e4` (`wasm_extern_t` Func variant +
+  `wasm_extern_vec_*` pointer-vec family +
+  `wasm_instance_exports` + `sections.decodeExports`). The first
+  remaining `[ ]` is **§9.3 / 3.8 — `examples/c_host/hello.c`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -72,25 +71,34 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.7 chunk c (wasm_extern_t + wasm_instance_exports)
+## Active task — §9.3 / 3.8 (examples/c_host/hello.c)
 
-3.7a (Trap shape + lifecycle, `fcfdc97`) and 3.7b (vec family,
-`24567cc`) are done. Remaining for 3.7:
+A minimal C host that drives the binding end-to-end:
 
-Add `Extern` as a tagged union (kind = func / global / table /
-memory; only `func` populated for v0.1.0 — globals / tables /
-memories follow alongside their dispatch ops in later phases),
-plus the `ExternVec` family (now possible since 3.7b's generic
-vec helpers are in place). Surface
-`wasm_instance_exports(*Instance, *out wasm_extern_vec_t)` so C
-hosts get the upstream-standard discovery path; refactor
-`zwasm_instance_get_func` to a thin convenience wrapper around
-the same data, or retire it once `wasm_instance_exports` is in.
+  #include <wasm.h>
+  // build a small wasm module (e.g. hand-rolled byte array
+  // matching `i32_const_42_export_main_wasm`), instantiate via
+  // wasm_engine_new / wasm_store_new / wasm_module_new /
+  // wasm_instance_new, walk wasm_instance_exports, dispatch
+  // through wasm_func_call, print the i32 result. Tear down in
+  // reverse order; every wasm_*_delete must run.
 
-The export discovery requires decoding the Module's export
-section at instantiation time (currently we only decode types /
-functions / code). Add `sections.decodeExports` (if missing) and
-populate `Instance.exports_storage` in `instantiateRuntime`.
+The example proves the upstream ABI is C-host-callable (not just
+Zig-test-callable). It also lets §9.3 / 3.9 (`zig build
+test-c-api`) compile + link a real C TU against the produced
+zwasm binary.
+
+Things to confirm:
+- Naming surface from C: `zwasm_instance_get_func` is a project
+  extension; `wasm_instance_exports` is the standard path. The
+  example should prefer the standard path.
+- Binary linkage: the executable target in build.zig links libc
+  (already done in §9.3 / 3.3). For an example, we need a
+  separate `zig cc` invocation that compiles the C file against
+  `include/wasm.h` and links the zwasm static library.
+- `examples/` is a new top-level directory; mirror v1's layout
+  (or whatever ROADMAP §5 dictates). build.zig may need a new
+  step `zig build example-c-host` that runs the compile.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack

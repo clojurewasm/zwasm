@@ -1277,7 +1277,7 @@ zwasm.
 | 3.4  | `wasm_module_new` / `_module_validate` / `_module_delete` — wraps frontend pipeline.      | [x]            |
 | 3.5  | `wasm_instance_new` / `_instance_delete` — wraps Runtime instantiation.                   | [x]            |
 | 3.6  | `wasm_func_call` — wraps interp dispatch; param + result `wasm_val_t` marshalling.        | [x]            |
-| 3.7  | `wasm_*_vec_t` types + `wasm_trap_t` — vec discipline, trap surface.                      | [ ]            |
+| 3.7  | `wasm_*_vec_t` types + `wasm_trap_t` — vec discipline, trap surface.                      | [x]            |
 | 3.8  | `examples/c_host/hello.c` — minimal C host invoking `wasm_func_call`.                     | [ ]            |
 | 3.9  | `zig build test-c-api` — gates the example builds + runs on all three hosts.              | [ ]            |
 | 3.10 | Phase-3 boundary `audit_scaffolding` pass.                                                 | [ ]            |
