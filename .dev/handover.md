@@ -62,6 +62,8 @@ of `f292ae7` (2.1 close):
 6. `24fd6fc` — chunk-5: load / store / memory.size / memory.grow
    interp handlers. Effective addr = base + memarg.offset; OOB
    trips Trap.OutOfBoundsLoad / Store. Wasm page = 64 KiB.
+7. `16cb839` — chunk-5b: unreachable / nop / select handlers
+   (the trio that doesn't need pc mutation).
 
 `src/interp/mvp.zig` is now 1771 / 2000 lines. **File-split
 refactor required before chunk 6** (control flow) + chunk 7
