@@ -86,6 +86,23 @@ pub fn build(b: *std.Build) void {
     test_spec_step.dependOn(&run_spec_smoke.step);
     test_spec_step.dependOn(&run_spec_mvp.step);
 
+    // `zig build test-realworld` — parse-smoke a vendored set of
+    // toolchain-produced .wasm fixtures (Phase 2 / §9.2 / 2.6).
+    const realworld_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/realworld/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    realworld_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    const realworld_runner_exe = b.addExecutable(.{
+        .name = "zwasm-realworld-runner",
+        .root_module = realworld_runner_mod,
+    });
+    const run_realworld = b.addRunArtifact(realworld_runner_exe);
+    run_realworld.addArg(b.pathFromRoot("test/realworld/wasm"));
+    const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
+    test_realworld_step.dependOn(&run_realworld.step);
+
     // `zig build test-all` — aggregate all enabled test layers.
     // Phase 0: only `test`. Phase 1+ adds spec / e2e / realworld /
     // c_api / fuzz steps as they land. Each layer registers itself
@@ -94,6 +111,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_exe_tests.step);
     test_all_step.dependOn(&run_spec_smoke.step);
     test_all_step.dependOn(&run_spec_mvp.step);
+    test_all_step.dependOn(&run_realworld.step);
 }
 
 pub const WasmLevel = enum { v1_0, v2_0, v3_0 };
