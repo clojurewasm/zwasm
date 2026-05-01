@@ -82,6 +82,19 @@ pub const Host = struct {
     /// host-call to short-circuit further execution and surface
     /// the exit code through the binding's Trap path.
     exit_code: ?u32 = null,
+    /// Optional capture buffers for fd 1 / fd 2 (`fd_write`).
+    /// When non-null, `fd_write` appends to these instead of
+    /// the real host stdio — tests use this to assert on
+    /// guest-emitted output. The §9.4 / 4.8 `zwasm run` CLI
+    /// wires real stdout / stderr at instantiation by leaving
+    /// these null and setting `stdout_writer` / `stderr_writer`
+    /// (forthcoming in 4.7/4.8).
+    stdout_buffer: ?*std.ArrayList(u8) = null,
+    stderr_buffer: ?*std.ArrayList(u8) = null,
+    /// Optional source of bytes for `fd_read` over fd 0 (stdin).
+    /// Tests set both; `stdin_pos` is mutated as the guest reads.
+    stdin_bytes: ?[]const u8 = null,
+    stdin_pos: usize = 0,
 
     /// Construct a Host with stdio fds 0 / 1 / 2 pre-populated.
     /// Callers grow `args` / `envs` / `preopens` via the

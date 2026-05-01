@@ -73,4 +73,5 @@ test {
     _ = @import("wasi/p1.zig");
     _ = @import("wasi/host.zig");
     _ = @import("wasi/proc.zig");
+    _ = @import("wasi/fd.zig");
 }
