@@ -1274,7 +1274,7 @@ zwasm.
 | 3.1  | `include/wasm.h` vendored read-only; build.zig wires the include path.                    | [x]            |
 | 3.2  | `src/c_api/wasm_c_api.zig` — Zone-3 module, exports the C ABI shapes (engine/module/...). | [x]            |
 | 3.3  | `wasm_engine_new` / `wasm_engine_delete` — engine lifetime; allocator threading.          | [x]            |
-| 3.4  | `wasm_module_new` / `_module_validate` / `_module_delete` — wraps frontend pipeline.      | [ ]            |
+| 3.4  | `wasm_module_new` / `_module_validate` / `_module_delete` — wraps frontend pipeline.      | [x]            |
 | 3.5  | `wasm_instance_new` / `_instance_delete` — wraps Runtime instantiation.                   | [ ]            |
 | 3.6  | `wasm_func_call` — wraps interp dispatch; param + result `wasm_val_t` marshalling.        | [ ]            |
 | 3.7  | `wasm_*_vec_t` types + `wasm_trap_t` — vec discipline, trap surface.                      | [ ]            |

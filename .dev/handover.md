@@ -28,8 +28,11 @@
   exported with C linkage; build.zig links libc. §9.3 / 3.3b
   closed at `647dfc7` — `wasm_store_new` / `wasm_store_delete`
   (Store carries an Engine back-pointer for allocator
-  recovery). The first remaining `[ ]` is **§9.3 / 3.4 —
-  `wasm_module_new` / `_module_validate` / `_module_delete`**.
+  recovery). §9.3 / 3.4 closed at `7c321d5` —
+  `wasm_module_new` / `_module_validate` / `_module_delete`
+  wrap parser + sections + validator. The first remaining
+  `[ ]` is **§9.3 / 3.5 — `wasm_instance_new` /
+  `_instance_delete`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -56,21 +59,24 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.4 (wasm_module_new / _validate / _delete)
+## Active task — §9.3 / 3.5 (wasm_instance_new / _delete)
 
-Wraps the frontend pipeline (parser + sections + validate +
-lower) behind the wasm-c-api shape:
+Wraps `interp.Runtime` instantiation:
 
-  wasm_module_t* wasm_module_new(wasm_store_t*, const wasm_byte_vec_t*)
-  bool          wasm_module_validate(wasm_store_t*, const wasm_byte_vec_t*)
-  void          wasm_module_delete(wasm_module_t*)
+  wasm_instance_t* wasm_instance_new(wasm_store_t*,
+                                      const wasm_module_t*,
+                                      const wasm_extern_vec_t* imports,
+                                      wasm_trap_t** trap_out)
+  void             wasm_instance_delete(wasm_instance_t*)
 
-`wasm_store_new` is now in place (3.3b @ `647dfc7`) so the
-Module constructor can recover the allocator from a Store
-pointer. The Module struct will own the parsed `parser.Module`
-+ a vector of `zir.ZirFunc`s lowered from each code-section
-entry. Use the existing `runOne` shape from
-`test/spec/runner.zig` as the reference frontend driver.
+The Instance struct will need to own a `interp.Runtime` plus
+slices for funcs / tables / datas / elems / memory. For the
+first chunk we can ignore imports (pass through `null` /
+empty) — the realworld smoke wasms don't pull in any imported
+funcs by the validator's reckoning. wasm_extern_vec_t and the
+trap-out parameter are full-shape wasm.h surface but can be
+stubbed in this chunk and refined as 3.6 (func_call) needs
+them.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
