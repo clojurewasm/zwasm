@@ -383,11 +383,35 @@ fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
 
     if (codes_owned.items.len != defined_func_indices.len) return false;
 
-    const func_types = alloc.alloc(zir.FuncType, defined_func_indices.len) catch return false;
+    // `func_types` must span the full funcidx space (imports
+    // first, then defined) — the validator's `call N` checks
+    // `func_types[N]` and N can reference an imported function.
+    var imports_decoded: ?sections.Imports = if (module.find(.import)) |sec|
+        sections.decodeImports(alloc, sec.body) catch return false
+    else
+        null;
+    defer if (imports_decoded) |*im| im.deinit();
+    var imp_func_count: usize = 0;
+    if (imports_decoded) |im| for (im.items) |it| {
+        if (it.kind == .func) imp_func_count += 1;
+    };
+
+    const func_types = alloc.alloc(zir.FuncType, imp_func_count + defined_func_indices.len) catch return false;
     defer alloc.free(func_types);
-    for (defined_func_indices, 0..) |type_idx, i| {
-        if (type_idx >= types_owned.items.len) return false;
-        func_types[i] = types_owned.items[type_idx];
+    {
+        var cursor: usize = 0;
+        if (imports_decoded) |im| for (im.items) |it| {
+            if (it.kind != .func) continue;
+            const ti = it.payload.func_typeidx;
+            if (ti >= types_owned.items.len) return false;
+            func_types[cursor] = types_owned.items[ti];
+            cursor += 1;
+        };
+        for (defined_func_indices) |type_idx| {
+            if (type_idx >= types_owned.items.len) return false;
+            func_types[cursor] = types_owned.items[type_idx];
+            cursor += 1;
+        }
     }
 
     for (codes_owned.items, defined_func_indices) |code, type_idx| {
@@ -1144,9 +1168,16 @@ export fn wasm_func_call(
     const store = inst.store orelse return null;
     const alloc = storeAllocator(store) orelse return null;
     const rt = inst.runtime orelse return null;
-    if (handle.func_idx >= inst.funcs_storage.len) return allocTrap(alloc, store, .binding_error);
+    // `func_ptrs_storage` is the full funcidx-space table
+    // (imports first, then defined). For exports referencing
+    // imports the dispatch path would still work — the
+    // callee's first instruction is the import-placeholder
+    // `unreachable`, which short-circuits via host_calls in the
+    // dispatch loop. For defined functions the lookup yields
+    // the real ZirFunc.
+    if (handle.func_idx >= inst.func_ptrs_storage.len) return allocTrap(alloc, store, .binding_error);
 
-    const zfunc = &inst.funcs_storage[handle.func_idx];
+    const zfunc = inst.func_ptrs_storage[handle.func_idx];
     const sig = zfunc.sig;
     const args_size = if (args) |a| a.size else 0;
     const results_size = if (results) |r| r.size else 0;
@@ -1620,6 +1651,77 @@ test "wasm_instance_new: rejects WASI imports when no host is configured" {
     // is configured on the Store. wasm_instance_new fails.
     const inst = wasm_instance_new(s, m, null, null);
     try testing.expect(inst == null);
+}
+
+// (module
+//   (type $sig_exit (func (param i32)))   ;; type 0
+//   (type $sig_main (func))                ;; type 1
+//   (import "wasi_snapshot_preview1" "proc_exit"
+//     (func $exit (type 0)))               ;; funcidx 0
+//   (func $main (type 1)                   ;; funcidx 1
+//     i32.const 42
+//     call $exit)
+//   (export "main" (func $main)))
+//
+// End-to-end fixture: instantiating + calling main triggers
+// the host thunk for proc_exit, which sets host.exit_code=42
+// and unwinds the dispatch loop with `error.WasiExit`.
+const proc_exit_42_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    // type section: 2 types, (i32) -> () and () -> ()
+    0x01, 0x08, 0x02,
+    0x60, 0x01, 0x7F, 0x00,
+    0x60, 0x00, 0x00,
+    // import section: count=1; "wasi_snapshot_preview1" (22 bytes)
+    // + "proc_exit" (9 bytes) + 0x00 0x00 (kind=func, typeidx=0).
+    // Body = 1 + 23 + 10 + 2 = 36 = 0x24.
+    0x02, 0x24, 0x01,
+    0x16, 0x77, 0x61, 0x73, 0x69, 0x5F, 0x73, 0x6E, 0x61, 0x70,
+    0x73, 0x68, 0x6F, 0x74, 0x5F, 0x70, 0x72, 0x65, 0x76, 0x69,
+    0x65, 0x77, 0x31,
+    0x09, 0x70, 0x72, 0x6F, 0x63, 0x5F, 0x65, 0x78, 0x69, 0x74,
+    0x00, 0x00,
+    // function section: count=1, typeidx=1 (sig_main)
+    0x03, 0x02, 0x01, 0x01,
+    // export section: count=1, "main" (kind=func, funcidx=1)
+    0x07, 0x08, 0x01, 0x04, 0x6D, 0x61, 0x69, 0x6E, 0x00, 0x01,
+    // code section: count=1; fn body = locals=0, i32.const 42,
+    // call 0, end. 5 instr bytes + 1 locals = 6 = 0x06.
+    0x0A, 0x08, 0x01, 0x06, 0x00, 0x41, 0x2A, 0x10, 0x00, 0x0B,
+};
+
+test "wasm_func_call: dispatches main → proc_exit(42) → host.exit_code (4.7d)" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    const cfg = zwasm_wasi_config_new() orelse return error.ConfigAllocFailed;
+    zwasm_store_set_wasi(s, cfg);
+
+    var bytes = proc_exit_42_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+
+    var exports: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst, &exports);
+    defer wasm_extern_vec_delete(&exports);
+    try testing.expectEqual(@as(usize, 1), exports.size);
+    const main_fn = wasm_extern_as_func(exports.data.?[0].?) orelse return error.NotFunc;
+
+    const args: ValVec = .{ .size = 0, .data = null };
+    var results: ValVec = .{ .size = 0, .data = null };
+    const trap = wasm_func_call(main_fn, &args, &results);
+    // proc_exit unwinds via error.WasiExit, surfaces as a Trap.
+    try testing.expect(trap != null);
+    defer wasm_trap_delete(trap);
+
+    // The host now carries the exit code.
+    try testing.expect(s.wasi_host != null);
+    try testing.expectEqual(@as(u32, 42), s.wasi_host.?.exit_code.?);
 }
 
 test "wasm_instance_new: succeeds for WASI imports when host configured (4.7c)" {
