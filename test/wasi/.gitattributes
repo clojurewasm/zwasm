@@ -1,0 +1,7 @@
+# Test fixtures must compare byte-for-byte across platforms;
+# disable git's autocrlf line-ending conversion so the
+# `.expected_stdout` files keep LF as authored on Mac/Linux when
+# checked out on Windows.
+*.expected_stdout binary
+*.expected_exit   binary
+*.wasm            binary
