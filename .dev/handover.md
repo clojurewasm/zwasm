@@ -131,9 +131,13 @@
   because every realworld guest reaches dispatch and traps
   with `Errno.unreachable_`, requiring per-fixture op-by-op
   conformance work that belongs alongside the analysis pass.
-  The first remaining `[ ]` is **§9.4 / 4.11 — Phase-4
-  boundary `audit_scaffolding` + 🔒 three-host gate
-  confirmation**.
+  §9.4 / 4.11 closed inline (audit at
+  `private/audit-2026-05-02-p4.md`: 1 block, 5 soon, 4 watch;
+  ADR-0007 documents the c_api file-split deferral; pre-commit
+  hook misnomer noted as `watch`). 🔒 three-host gate
+  confirmed green at HEAD before the audit. The first
+  remaining `[ ]` is **§9.4 / 4.12 — open §9.5 inline; flip
+  phase tracker**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -152,6 +156,10 @@
   - `0006_phase4_realworld_diff_deferral.md` — defers the
     "30+ realworld samples / wasmtime diff" exit criterion
     from §9.4 / 4.10 to §9.5 (Phase 5 — analysis layer).
+  - `0007_phase4_c_api_split_plan.md` — plans the
+    `src/c_api/wasm_c_api.zig` (2092-line) split into 5
+    files (trap_surface / vec / instance / wasi /
+    wasm_c_api re-exports); split lands as §9.5 / 5.0.
 - **Build status**: `zig build test`, `test-spec`,
   `test-spec-wasm-2.0`, `test-realworld`, `test-all` are all
   green on Mac aarch64 native, OrbStack Ubuntu x86_64
@@ -178,26 +186,33 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.11 (Phase-4 boundary audit + 🔒 gate)
+## Active task — §9.4 / 4.12 (close Phase 4 + open §9.5)
 
-Run the `audit_scaffolding` skill against the current state.
-Output lands in `private/audit-2026-05-02-p4.md`. Resolve
-`block` findings inline; queue `soon` / `watch`. Phase 4
-also has the 🔒 marker, so the boundary commit needs an
-explicit re-confirmation that all three hosts are green
-(Mac aarch64 + OrbStack Linux x86_64 + windowsmini SSH).
+Phase boundary work:
 
-After the audit, 4.12 closes the phase: backfill SHA pointers
-for §9.4's `[x]` rows (4.0 – 4.11), advance Phase Status
-widget to Phase 5 IN-PROGRESS, expand §9.5 task table.
+1. Backfill SHA pointers for §9.4's `[x]` rows (4.0 – 4.11):
+   for each, `git log --grep="§9.4 / N.M" --pretty=%h | head
+   -1`. Land in one commit `chore(p4): backfill §9.4 SHA
+   pointers`.
+2. Advance Phase Status widget at the top of §9: §9.4 → DONE,
+   §9.5 → IN-PROGRESS.
+3. Expand §9.5 task table inline (Phase 5 — ZIR analysis
+   layer). Mirror §9.4's structure. Initial scope per ROADMAP
+   §9 Phase 5 + ADR-0006 + ADR-0007:
+   - 5.0  Split `src/c_api/wasm_c_api.zig` per ADR-0007
+     (trap_surface / vec / instance / wasi / wasm_c_api).
+   - 5.1  Carve `src/interp/mvp.zig` into int_ops /
+     float_ops / conversions modules.
+   - 5.2+ Analysis-layer slots: loop_info, liveness, verifier,
+     const_prop (per Phase 5 exit criterion).
+   - …  30+ realworld WASI conformance (deferred from §9.4
+     per ADR-0006).
+4. Update handover.md to point at §9.5 / 5.0.
+5. Push + re-arm.
 
-Carry-over reminders for the audit:
-- `wasm_c_api.zig` is now ~1850 lines (over §A2 soft cap);
-  c_api split ADR (queued from p3 audit) is overdue.
-- `interp/mvp.zig` still 1965 lines (queued for Phase 5
-  split into int_ops / float_ops / conversions).
-- `validator.zig` 1426 lines, `lowerer.zig` 1062 lines (over
-  §A2 soft cap; same Phase 5 split umbrella).
+The `audit_scaffolding` finding (`block`: c_api hard cap)
+becomes the first §9.5 row — that closes the loop on
+ADR-0007 in a structurally clean way.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack

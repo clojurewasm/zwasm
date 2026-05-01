@@ -1315,7 +1315,7 @@ zwasm.
 | 4.8  | `zwasm run <path.wasm> [args...]` CLI subcommand drives `_start`.                         | [x]            |
 | 4.9  | `test/wasi/` curated subset of wasi-testsuite + `zig build test-wasi-p1` runner.          | [x]            |
 | 4.10 | Realworld-diff infrastructure (runner + stdout compare). 30+ fixture conformance → §9.5 (ADR-0006). | [x]            |
-| 4.11 | Phase-4 boundary `audit_scaffolding` pass; 🔒 three-host gate confirmation.               | [ ]            |
+| 4.11 | Phase-4 boundary `audit_scaffolding` pass; 🔒 three-host gate confirmation.               | [x]            |
 | 4.12 | Open §9.5 inline; flip phase tracker.                                                      | [ ]            |
 
 ### Phase 5 — ZIR analysis layer
