@@ -123,8 +123,11 @@
   `sections.decodeMemory` + tiny `evalConstI32Expr`; `hello.wat`
   fixture exercises fd_write through linear memory; runner
   normalises CRLF → LF for Windows portability via `6071b7a`).
-  4.10c+: progressively promote realworld fixtures + diff
-  against frozen expected output.
+  4.10c at `507722e` — `lookupWasiThunk` now resolves all 16
+  WASI 0.1 imports (proc / args / environ / clocks / random /
+  poll / fd / path); realworld guests instantiate without
+  `UnsupportedWasiImport`. 4.10d+: promote specific realworld
+  fixtures + freeze expected output.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
