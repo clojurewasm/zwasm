@@ -189,6 +189,9 @@ fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
             func_types,
             global_entries,
             types_owned.items,
+            0, // data_count: spec runner doesn't decode data sections yet (§9.2 / 2.7)
+            &.{}, // tables
+            0, // elem_count
         );
     }
 }

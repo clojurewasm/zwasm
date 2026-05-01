@@ -46,6 +46,14 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     // `zig build test` — unit tests inline in src/.
+    //
+    // Zig's `b.addTest` injects `std.testing.allocator` (a
+    // leak-detecting `std.heap.GeneralPurposeAllocator`-backed
+    // allocator) into every test. Any allocation that escapes a
+    // test without a matching free prints `error(gpa): memory
+    // address ... leaked` and fails the run. So `zig build test`
+    // IS the leak-check gate per §9.2 / 2.5 — no separate
+    // `--leak-check` step is needed.
     const exe_tests = b.addTest(.{ .root_module = exe_mod });
     const run_exe_tests = b.addRunArtifact(exe_tests);
     const test_step = b.step("test", "Run unit tests");
