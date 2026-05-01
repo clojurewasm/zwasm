@@ -250,15 +250,29 @@ const Validator = struct {
 
     fn readBlockType(self: *Validator) Error!BlockType {
         if (self.pos >= self.body.len) return Error.UnexpectedEnd;
-        const b = self.body[self.pos];
-        self.pos += 1;
-        return switch (b) {
-            0x40 => .empty,
-            0x7F => .{ .single = .i32 },
-            0x7E => .{ .single = .i64 },
-            0x7D => .{ .single = .f32 },
-            0x7C => .{ .single = .f64 },
-            else => Error.BadBlockType,
+        const sleb = leb128.readSleb128(i32, self.body, &self.pos) catch
+            return Error.BadBlockType;
+        if (sleb < 0) {
+            return switch (sleb) {
+                -64 => .empty, // 0x40
+                -1 => .{ .single = .i32 }, // 0x7F
+                -2 => .{ .single = .i64 }, // 0x7E
+                -3 => .{ .single = .f32 }, // 0x7D
+                -4 => .{ .single = .f64 }, // 0x7C
+                else => Error.BadBlockType,
+            };
+        }
+        // Wasm 2.0 multivalue: positive value is a typeidx into the
+        // module's type section (§9.2 / 2.3 chunk 3). Multi-param
+        // blocks are deferred — chunk 3 supports multi-result only.
+        const idx: u32 = @intCast(sleb);
+        if (idx >= self.module_types.len) return Error.BadBlockType;
+        const ft = self.module_types[idx];
+        if (ft.params.len != 0) return Error.BadBlockType;
+        return switch (ft.results.len) {
+            0 => .empty,
+            1 => .{ .single = ft.results[0] },
+            else => .{ .multi = ft.results },
         };
     }
 
@@ -934,6 +948,39 @@ test "validate: i64.trunc_sat_f64_u (0xFC 07) — pops f64, pushes i64" {
         0x0B,
     };
     try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: multivalue block via s33 typeidx — empty params, two i32 results" {
+    // module_types[0] = ([] -> [i32, i32])
+    const empty_arr = [_]ValType{};
+    const i32_pair = [_]ValType{ .i32, .i32 };
+    const types = [_]FuncType{.{ .params = &empty_arr, .results = &i32_pair }};
+    // function: () -> () body =
+    //   block (typeidx 0) ; i32.const 1 ; i32.const 2 ; end ; drop ; drop ; end
+    // The block pushes two i32, consumed by two drops outside.
+    const body = [_]u8{
+        0x02, 0x00, // block (typeidx 0; sleb 0 = 0x00)
+        0x41, 0x01, // i32.const 1
+        0x41, 0x02, // i32.const 2
+        0x0B, // end (block)
+        0x1A, 0x1A, // drop, drop
+        0x0B, // end (function)
+    };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &types);
+}
+
+test "validate: multivalue block typeidx with non-empty params → BadBlockType" {
+    // module_types[0] = ([i32] -> [i32]) — multi-param case deferred
+    const i32_arr_local = [_]ValType{.i32};
+    const types = [_]FuncType{.{ .params = &i32_arr_local, .results = &i32_arr_local }};
+    const body = [_]u8{
+        0x41, 0x07, // i32.const 7 (push the param)
+        0x02, 0x00, // block (typeidx 0)
+        0x0B, // end (block)
+        0x0B, // end (function)
+    };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &types);
+    try testing.expectError(Error.BadBlockType, r);
 }
 
 test "validate: 0xFC unknown sub-opcode → NotImplemented" {

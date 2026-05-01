@@ -259,10 +259,12 @@ fn selectOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
 }
 
 // --- Control flow ---
-
-inline fn blockArity(blocktype_byte: u32) u32 {
-    return if (blocktype_byte == 0x40) 0 else 1;
-}
+//
+// Block instr encoding (post §9.2 / 2.3 chunk 3):
+//   payload = block index into func.blocks
+//   extra   = arity (count of result values the block leaves on
+//             the operand stack; 0/1 for Wasm 1.0, ≥1 for Wasm
+//             2.0 multivalue typeidx blocks).
 
 fn blockOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
@@ -272,7 +274,7 @@ fn blockOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const blk = fnz.blocks.items[instr.payload];
     try frame.pushLabel(.{
         .height = rt.operand_len,
-        .arity = blockArity(instr.extra),
+        .arity = instr.extra,
         .target_pc = blk.end_inst + 1,
     });
 }
@@ -299,7 +301,7 @@ fn ifOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const blk = fnz.blocks.items[instr.payload];
     try frame.pushLabel(.{
         .height = rt.operand_len,
-        .arity = blockArity(instr.extra),
+        .arity = instr.extra,
         .target_pc = blk.end_inst + 1,
     });
     if (cond == 0) {
@@ -329,17 +331,31 @@ fn endOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     try restoreToLabel(rt, label);
 }
 
+/// Maximum arity supported by control-flow handlers. Bounded so
+/// `restoreToLabel` and `returnOp` can save the topmost values to
+/// a stack-local buffer without heap. Wasm 2.0 multivalue blocks
+/// rarely return more than a handful of values; 16 is a generous
+/// ceiling.
+const max_block_arity: u32 = 16;
+
 inline fn restoreToLabel(rt: *Runtime, label: interp.Label) Trap!void {
     // Save `arity` topmost values, drop down to label.height, push back.
     if (label.arity == 0) {
         rt.operand_len = label.height;
         return;
     }
-    // arity == 1 in MVP. Wasm 2.0 multivalue widens this; revisit later.
-    if (label.arity != 1) return Trap.Unreachable;
-    const top = rt.popOperand();
+    if (label.arity > max_block_arity) return Trap.Unreachable;
+    var saved: [max_block_arity]Value = undefined;
+    var i: u32 = label.arity;
+    while (i > 0) {
+        i -= 1;
+        saved[i] = rt.popOperand();
+    }
     rt.operand_len = label.height;
-    try rt.pushOperand(top);
+    i = 0;
+    while (i < label.arity) : (i += 1) {
+        try rt.pushOperand(saved[i]);
+    }
 }
 
 inline fn doBranch(rt: *Runtime, frame: *interp.Frame, depth: u32) Trap!void {
@@ -447,13 +463,17 @@ fn returnOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const frame = rt.currentFrame();
     const arity: u32 = @intCast(frame.sig.results.len);
-    if (arity > 1) return Trap.Unreachable; // MVP single-value
-    if (arity == 1) {
-        const top = rt.popOperand();
-        rt.operand_len = frame.operand_base;
-        try rt.pushOperand(top);
-    } else {
-        rt.operand_len = frame.operand_base;
+    if (arity > max_block_arity) return Trap.Unreachable;
+    var saved: [max_block_arity]Value = undefined;
+    var i: u32 = arity;
+    while (i > 0) {
+        i -= 1;
+        saved[i] = rt.popOperand();
+    }
+    rt.operand_len = frame.operand_base;
+    i = 0;
+    while (i < arity) : (i += 1) {
+        try rt.pushOperand(saved[i]);
     }
     frame.label_len = 0;
     frame.done = true;
@@ -1726,7 +1746,7 @@ test "block + end: arity=0, operand stack restored" {
     var fnz = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &.{} }, &.{});
     defer fnz.deinit(testing.allocator);
     try fnz.blocks.append(testing.allocator, .{ .kind = .block, .start_inst = 0, .end_inst = 2 });
-    try fnz.instrs.append(testing.allocator, .{ .op = .@"block", .payload = 0, .extra = 0x40 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"block", .payload = 0, .extra = 0 });
     try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = @bitCast(@as(i32, 7)), .extra = 0 });
     try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
     try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = @bitCast(@as(i32, 99)), .extra = 0 });
@@ -1752,7 +1772,7 @@ test "br 0 from inside block: jumps past end" {
     defer fnz.deinit(testing.allocator);
     try fnz.blocks.append(testing.allocator, .{ .kind = .block, .start_inst = 0, .end_inst = 4 });
     // block; i32.const 1; br 0; i32.const 2 (skipped); end; i32.const 3; end
-    try fnz.instrs.append(testing.allocator, .{ .op = .@"block", .payload = 0, .extra = 0x40 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"block", .payload = 0, .extra = 0 });
     try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1, .extra = 0 });
     try fnz.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0, .extra = 0 });
     try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99, .extra = 0 });
@@ -1782,7 +1802,7 @@ test "if cond=0 skips to end; cond=1 runs then-branch" {
     defer fnz.deinit(testing.allocator);
     try fnz.blocks.append(testing.allocator, .{ .kind = .else_open, .start_inst = 1, .end_inst = 5, .else_inst = 3 });
     try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1, .extra = 0 }); // cond
-    try fnz.instrs.append(testing.allocator, .{ .op = .@"if", .payload = 0, .extra = 0x7F }); // if i32
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"if", .payload = 0, .extra = 1 }); // if (result i32) → arity 1
     try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 11, .extra = 0 });
     try fnz.instrs.append(testing.allocator, .{ .op = .@"else", .payload = 0, .extra = 0 });
     try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 22, .extra = 0 });
@@ -1820,6 +1840,32 @@ test "return: ends function execution and produces sig.results" {
     try dispatch_loop.run(&rt, &t, fnz.instrs.items);
     try testing.expectEqual(@as(u32, 1), rt.operand_len);
     try testing.expectEqual(@as(u32, 7), rt.popOperand().u32);
+}
+
+test "block + end: arity=2 multivalue — both results survive" {
+    // Wasm 2.0 multivalue: block (result i32 i32) { i32.const 11 ; i32.const 22 }
+    var fnz = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &.{} }, &.{});
+    defer fnz.deinit(testing.allocator);
+    try fnz.blocks.append(testing.allocator, .{ .kind = .block, .start_inst = 0, .end_inst = 3 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"block", .payload = 0, .extra = 2 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 11, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 22, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushFrame(.{ .sig = fnz.sig, .locals = &.{}, .operand_base = 0, .pc = 0, .func = &fnz });
+    defer _ = rt.popFrame();
+
+    try dispatch_loop.run(&rt, &t, fnz.instrs.items);
+
+    // Both 11 and 22 should remain (arity=2 saved + restored).
+    try testing.expectEqual(@as(u32, 2), rt.operand_len);
+    try testing.expectEqual(@as(u32, 22), rt.popOperand().u32);
+    try testing.expectEqual(@as(u32, 11), rt.popOperand().u32);
 }
 
 test "unreachable: traps Trap.Unreachable" {
