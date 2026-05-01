@@ -1125,8 +1125,8 @@ of each phase advances it.
 | 1     | DONE        | —                             |
 | 2     | DONE        | —                             |
 | 3     | DONE        | —                             |
-| 4     | IN-PROGRESS | §9.4 / 4.0 (vendor wasi.h)    |
-| 5     | PENDING     |                               |
+| 4     | DONE        | —                             |
+| 5     | IN-PROGRESS | §9.5 / 5.0 (c_api split per ADR-0007) |
 | 6     | PENDING     |                               |
 | 7     | PENDING     |                               |
 | 8     | PENDING     |                               |
@@ -1304,19 +1304,19 @@ zwasm.
 
 | #    | Description                                                                                | Status         |
 |------|--------------------------------------------------------------------------------------------|----------------|
-| 4.0  | Hand-author `include/wasi.h` (host-setup C API) + ADR-0005 documenting the authorship.   | [x]            |
-| 4.1  | `src/wasi/p1.zig` — Zone-2 module declaring the WASI errno + ciovec / iovec / fdstat shapes. | [x]            |
-| 4.2  | `src/wasi/host.zig` — capability table backed by `std.process.Init` (preopens, args, environ). | [x]            |
-| 4.3  | `proc_exit` / `args_get` / `args_sizes_get` / `environ_get` / `environ_sizes_get` handlers. | [x]            |
-| 4.4  | `fd_write` / `fd_read` / `fd_close` / `fd_seek` / `fd_tell` (stdout/stderr/stdin only).   | [x]            |
-| 4.5  | `path_open` (preopen-rooted only; no parent-traversal) + `fd_fdstat_get` / `_set`.        | [x]            |
-| 4.6  | `clock_time_get` / `random_get` / `poll_oneoff` (stdin-only, blocking).                   | [x]            |
-| 4.7  | Wire WASI imports into `wasm_instance_new` — match `(import "wasi_snapshot_preview1" …)`. | [x]            |
-| 4.8  | `zwasm run <path.wasm> [args...]` CLI subcommand drives `_start`.                         | [x]            |
-| 4.9  | `test/wasi/` curated subset of wasi-testsuite + `zig build test-wasi-p1` runner.          | [x]            |
-| 4.10 | Realworld-diff infrastructure (runner + stdout compare). 30+ fixture conformance → §9.5 (ADR-0006). | [x]            |
-| 4.11 | Phase-4 boundary `audit_scaffolding` pass; 🔒 three-host gate confirmation.               | [x]            |
-| 4.12 | Open §9.5 inline; flip phase tracker.                                                      | [ ]            |
+| 4.0  | Hand-author `include/wasi.h` (host-setup C API) + ADR-0005 documenting the authorship.   | [x] 3327c86    |
+| 4.1  | `src/wasi/p1.zig` — Zone-2 module declaring the WASI errno + ciovec / iovec / fdstat shapes. | [x] b12456a    |
+| 4.2  | `src/wasi/host.zig` — capability table backed by `std.process.Init` (preopens, args, environ). | [x] 02ff981    |
+| 4.3  | `proc_exit` / `args_get` / `args_sizes_get` / `environ_get` / `environ_sizes_get` handlers. | [x] b824f91    |
+| 4.4  | `fd_write` / `fd_read` / `fd_close` / `fd_seek` / `fd_tell` (stdout/stderr/stdin only).   | [x] fafecf5    |
+| 4.5  | `path_open` (preopen-rooted only; no parent-traversal) + `fd_fdstat_get` / `_set`.        | [x] 58ae2d1    |
+| 4.6  | `clock_time_get` / `random_get` / `poll_oneoff` (stdin-only, blocking).                   | [x] 3537ac9    |
+| 4.7  | Wire WASI imports into `wasm_instance_new` — match `(import "wasi_snapshot_preview1" …)`. | [x] 75992b2    |
+| 4.8  | `zwasm run <path.wasm> [args...]` CLI subcommand drives `_start`.                         | [x] 894b9ce    |
+| 4.9  | `test/wasi/` curated subset of wasi-testsuite + `zig build test-wasi-p1` runner.          | [x] fe61fc8    |
+| 4.10 | Realworld-diff infrastructure (runner + stdout compare). 30+ fixture conformance → §9.5 (ADR-0006). | [x] aebdbc7    |
+| 4.11 | Phase-4 boundary `audit_scaffolding` pass; 🔒 three-host gate confirmation.               | [x] 3788cc3    |
+| 4.12 | Open §9.5 inline; flip phase tracker.                                                      | [x]            |
 
 ### Phase 5 — ZIR analysis layer
 
@@ -1335,6 +1335,23 @@ zwasm.
   from §9.4 / 4.10 per ADR-0006).
 
 **🔒 gate**: no.
+
+#### §9.5 task list (expanded)
+
+| #    | Description                                                                                | Status         |
+|------|--------------------------------------------------------------------------------------------|----------------|
+| 5.0  | Split `src/c_api/wasm_c_api.zig` into trap_surface + vec + instance + wasi + wasm_c_api per ADR-0007. | [ ]            |
+| 5.1  | Split `src/interp/mvp.zig` into int_ops / float_ops / conversions modules.                | [ ]            |
+| 5.2  | Carve `src/frontend/validator.zig` + `lowerer.zig` toward §A2 soft cap (per phase-2 audit). | [ ]            |
+| 5.3  | `src/ir/loop_info.zig` — branch_targets, loop_headers, loop_end computed for every fn.    | [ ]            |
+| 5.4  | `src/ir/liveness.zig` — per-vreg live ranges computed.                                    | [ ]            |
+| 5.5  | `src/ir/verifier.zig` runs after every analysis pass; CI calls it on the spec corpus.     | [ ]            |
+| 5.6  | `src/ir/const_prop.zig` — limited const folding.                                          | [ ]            |
+| 5.7  | Diagnose + chase missing MVP interp ops surfacing on realworld guests (Errno.unreachable_). | [ ]            |
+| 5.8  | Capture wasmtime ground-truth stdout for the 7 vendored realworld samples; promote to `test/wasi/`. | [ ]            |
+| 5.9  | 30+ realworld samples (out of the 50 from v1) match `wasmtime run` (per ADR-0006).        | [ ]            |
+| 5.10 | Phase-5 boundary `audit_scaffolding` pass.                                                 | [ ]            |
+| 5.11 | Open §9.6 inline; flip phase tracker.                                                      | [ ]            |
 
 ### Phase 6 — JIT v1 ARM64 baseline
 

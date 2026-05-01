@@ -16,8 +16,8 @@
 
 ## Current state
 
-- **Phase**: **Phase 4 IN-PROGRESS.** Phases 0 + 1 + 2 + 3 are
-  `DONE` (Phase 3 SHA backfill in this commit). §9.3 / 3.0 closed at `05bd4e4`; §9.3 / 3.1 closed at
+- **Phase**: **Phase 5 IN-PROGRESS.** Phases 0 + 1 + 2 + 3 + 4
+  are `DONE` (Phase 4 SHA backfill in this commit). §9.3 / 3.0 closed at `05bd4e4`; §9.3 / 3.1 closed at
   `19c5228` (`include/README.md` documents the vendor policy +
   bump workflow; `build.zig` adds `include/` to exe_mod's
   include path). §9.3 / 3.2 closed at `9abb951`
@@ -135,9 +135,12 @@
   `private/audit-2026-05-02-p4.md`: 1 block, 5 soon, 4 watch;
   ADR-0007 documents the c_api file-split deferral; pre-commit
   hook misnomer noted as `watch`). 🔒 three-host gate
-  confirmed green at HEAD before the audit. The first
-  remaining `[ ]` is **§9.4 / 4.12 — open §9.5 inline; flip
-  phase tracker**.
+  confirmed green at HEAD before the audit. §9.4 / 4.12
+  closed in this commit — Phase 4 SHAs backfilled, Phase
+  Status widget flipped to Phase 5 IN-PROGRESS, §9.5 task
+  table expanded (5.0 – 5.11). The first remaining `[ ]` is
+  **§9.5 / 5.0 — split `src/c_api/wasm_c_api.zig` per
+  ADR-0007**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -186,33 +189,49 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.12 (close Phase 4 + open §9.5)
+## Active task — §9.5 / 5.0 (split src/c_api/wasm_c_api.zig per ADR-0007)
 
-Phase boundary work:
+The c_api file is at 2092 lines, over §A2's 2000-line hard cap.
+ADR-0007 specifies the carve-out into 5 files:
 
-1. Backfill SHA pointers for §9.4's `[x]` rows (4.0 – 4.11):
-   for each, `git log --grep="§9.4 / N.M" --pretty=%h | head
-   -1`. Land in one commit `chore(p4): backfill §9.4 SHA
-   pointers`.
-2. Advance Phase Status widget at the top of §9: §9.4 → DONE,
-   §9.5 → IN-PROGRESS.
-3. Expand §9.5 task table inline (Phase 5 — ZIR analysis
-   layer). Mirror §9.4's structure. Initial scope per ROADMAP
-   §9 Phase 5 + ADR-0006 + ADR-0007:
-   - 5.0  Split `src/c_api/wasm_c_api.zig` per ADR-0007
-     (trap_surface / vec / instance / wasi / wasm_c_api).
-   - 5.1  Carve `src/interp/mvp.zig` into int_ops /
-     float_ops / conversions modules.
-   - 5.2+ Analysis-layer slots: loop_info, liveness, verifier,
-     const_prop (per Phase 5 exit criterion).
-   - …  30+ realworld WASI conformance (deferred from §9.4
-     per ADR-0006).
-4. Update handover.md to point at §9.5 / 5.0.
-5. Push + re-arm.
+  src/c_api/
+    wasm_c_api.zig          ~600 lines  re-exports + module docs;
+                                        keeps name-points stable
+    trap_surface.zig        ~250 lines  Trap, TrapKind,
+                                        mapInterpTrap, allocTrap,
+                                        wasm_trap_*, wasm_byte_vec_delete
+    vec.zig                 ~350 lines  ByteVec / ValVec / ExternVec
+                                        + WASM_DECLARE_VEC family
+    instance.zig            ~650 lines  Engine / Store / Module /
+                                        Instance / Func / Extern,
+                                        instantiateRuntime, *_new /
+                                        *_delete, wasm_func_call,
+                                        wasm_instance_exports
+    wasi.zig                ~300 lines  zwasm_wasi_config_*, the
+                                        16 thunks, lookupWasiThunk
 
-The `audit_scaffolding` finding (`block`: c_api hard cap)
-becomes the first §9.5 row — that closes the loop on
-ADR-0007 in a structurally clean way.
+Plan:
+
+1. Move blocks one carve-out at a time (smallest blast radius
+   first — trap_surface, then vec, then wasi, then instance,
+   then leave wasm_c_api as the re-export shell).
+2. After each move: zig build test (Mac) + retain three-host
+   gate at the end.
+3. Each carve-out: tests follow the code under test.
+4. `pub export fn` declarations stay (just relocated); C linker
+   symbols are unchanged.
+5. Single push at the end with all 5 files in place.
+
+Watch: cross-file imports may cycle if e.g. instance.zig
+imports trap_surface (for allocTrap) and trap_surface imports
+instance (for the Store back-pointer in Trap). Resolve by
+having both reach for the c_api root re-exports OR threading
+the dependency one-way (Trap probably needs no Store
+back-pointer beyond the allocator pointer — refactor if
+needed).
+
+After 5.0 lands, the `block` finding from
+`audit-2026-05-02-p4.md` is resolved.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
