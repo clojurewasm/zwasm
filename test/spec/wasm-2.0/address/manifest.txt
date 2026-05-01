@@ -1,0 +1,4 @@
+valid address.0.wasm
+valid address.2.wasm
+valid address.3.wasm
+valid address.4.wasm

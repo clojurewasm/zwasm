@@ -1,0 +1,4 @@
+valid names.0.wasm
+valid names.1.wasm
+valid names.2.wasm
+valid names.3.wasm

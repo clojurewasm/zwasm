@@ -1,0 +1,1 @@
+valid endianness.0.wasm

@@ -1,0 +1,5 @@
+valid comments.0.wasm
+valid comments.1.wasm
+valid comments.2.wasm
+valid comments.3.wasm
+valid comments.4.wasm

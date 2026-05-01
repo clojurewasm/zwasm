@@ -45,6 +45,14 @@ NAMES=(
   local_get
   local_set
   stack
+  address
+  endianness
+  int_exprs
+  comments
+  type
+  store
+  load
+  names
 )
 
 for n in "${NAMES[@]}"; do
