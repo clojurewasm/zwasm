@@ -392,9 +392,15 @@ fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
     else
         null;
     defer if (imports_decoded) |*im| im.deinit();
+
     var imp_func_count: usize = 0;
-    if (imports_decoded) |im| for (im.items) |it| {
-        if (it.kind == .func) imp_func_count += 1;
+    var imp_global_count: usize = 0;
+    var imp_table_count: usize = 0;
+    if (imports_decoded) |im| for (im.items) |it| switch (it.kind) {
+        .func => imp_func_count += 1,
+        .global => imp_global_count += 1,
+        .table => imp_table_count += 1,
+        else => {},
     };
 
     const func_types = alloc.alloc(zir.FuncType, imp_func_count + defined_func_indices.len) catch return false;
@@ -415,6 +421,57 @@ fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
         }
     }
 
+    // global / table entries — built over the full imports +
+    // defined index space so `global.get` and `table.*` ops
+    // type-check properly. Mirrors test/spec/runner.zig.
+    var globals_owned: ?sections.Globals = if (module.find(.global)) |s|
+        sections.decodeGlobals(alloc, s.body) catch return false
+    else
+        null;
+    defer if (globals_owned) |*g| g.deinit();
+    const def_global_count: usize = if (globals_owned) |g| g.items.len else 0;
+    const global_entries = alloc.alloc(validator.GlobalEntry, imp_global_count + def_global_count) catch return false;
+    defer alloc.free(global_entries);
+    {
+        var cursor: usize = 0;
+        if (imports_decoded) |im| for (im.items) |it| {
+            if (it.kind != .global) continue;
+            global_entries[cursor] = .{
+                .valtype = it.payload.global.valtype,
+                .mutable = it.payload.global.mutable,
+            };
+            cursor += 1;
+        };
+        if (globals_owned) |g| for (g.items) |gd| {
+            global_entries[cursor] = .{ .valtype = gd.valtype, .mutable = gd.mutable };
+            cursor += 1;
+        };
+    }
+
+    var tables_owned: ?sections.Tables = if (module.find(.table)) |s|
+        sections.decodeTables(alloc, s.body) catch return false
+    else
+        null;
+    defer if (tables_owned) |*t| t.deinit();
+    const def_table_count: usize = if (tables_owned) |t| t.items.len else 0;
+    const table_entries = alloc.alloc(zir.TableEntry, imp_table_count + def_table_count) catch return false;
+    defer alloc.free(table_entries);
+    {
+        var cursor: usize = 0;
+        if (imports_decoded) |im| for (im.items) |it| {
+            if (it.kind != .table) continue;
+            // Imported table descriptions come kind-only via §A10;
+            // synthesise a permissive funcref so `table.*` ops
+            // don't trip bounds checks during validation.
+            table_entries[cursor] = .{ .elem_type = .funcref, .min = 0 };
+            cursor += 1;
+        };
+        if (tables_owned) |t| for (t.items) |entry| {
+            table_entries[cursor] = entry;
+            cursor += 1;
+        };
+    }
+
     for (codes_owned.items, defined_func_indices) |code, type_idx| {
         const sig = types_owned.items[type_idx];
         validator.validateFunction(
@@ -422,11 +479,11 @@ fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             code.locals,
             code.body,
             func_types,
-            &.{},
+            global_entries,
             types_owned.items,
-            0,
-            &.{},
-            0,
+            0, // data_count
+            table_entries,
+            0, // elem_count
         ) catch return false;
     }
     return true;
