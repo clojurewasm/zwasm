@@ -1123,7 +1123,7 @@ of each phase advances it.
 |-------|-------------|-------------------------------|
 | 0     | DONE        | —                             |
 | 1     | DONE        | —                             |
-| 2     | IN-PROGRESS | §9.2 / 2.0 (interp scaffold)  |
+| 2     | IN-PROGRESS | §9.2 / 2.9 (boundary audit)   |
 | 3     | PENDING     |                               |
 | 4     | PENDING     |                               |
 | 5     | PENDING     |                               |
@@ -1247,7 +1247,7 @@ windowsmini; spec runner runs there too).
 | 2.6  | Realworld smoke (5+ samples: TinyGo / Rust / emcc / WASI cat / AssemblyScript).            | [x]            |
 | 2.7  | Wasm 2.0 spec corpus extension to `test/spec/wasm-2.0/` + `.wast` directive handling.     | [x]            |
 | 2.8  | Wasm Core 2.0 spec corpus fail=0 / skip=0 on Mac + OrbStack + windowsmini.                | [x]            |
-| 2.9  | Phase-2 boundary `audit_scaffolding` pass.                                                 | [ ]            |
+| 2.9  | Phase-2 boundary `audit_scaffolding` pass.                                                 | [x]            |
 | 2.10 | Open §9.3 inline; flip phase tracker.                                                      | [ ]            |
 
 ### Phase 3 — C API minimal
