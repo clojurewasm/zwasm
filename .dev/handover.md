@@ -51,11 +51,13 @@
   added `regen_test_data_2_0.sh` and curated 13 .wast files
   into the wasm-2.0 corpus; chunk 3 (`aac8bca`) added 8 more
   (address, endianness, int_exprs, comments, type, store,
-  load, names) — **663 modules across 21 corpora, fail=0**
-  across all three hosts. Deferred corpora (block / loop /
-  if / global / i32 / i64 / f32 / f64 / memory / data / elem /
-  table / ref_*) surface validator gaps to be closed in
-  subsequent chunks.
+  load, names); chunk 4 (`ccd88cf`) added 6 more (memory_grow,
+  traps, float_exprs, float_misc, float_memory, conversions) —
+  **815 modules across 27 corpora, fail=0** on all three hosts.
+  Deferred corpora (block 1f / loop 1f / if 5f / global 24f /
+  data 20f / start 3f / custom 3f / fac 1f and the wast2json-
+  failing align/func/memory/elem/table/exports/imports) surface
+  validator gaps for subsequent chunks.
   validateFunction takes `tables: []const zir.TableEntry`;
   Runtime carries `tables: []TableInstance` (mutable, so grow
   can swap refs slice headers).
