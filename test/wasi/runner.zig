@@ -108,10 +108,18 @@ pub fn main(init: std.process.Init) !void {
         }
 
         if (expected_stdout_opt) |expected_stdout| {
-            if (!std.mem.eql(u8, expected_stdout, stdout_capture.items)) {
+            // Cross-platform: git autocrlf may convert LF -> CRLF
+            // in the .expected_stdout file on Windows checkout.
+            // Normalise both sides to LF before byte-compare.
+            const expected_norm = try normaliseLineEndings(gpa, expected_stdout);
+            defer gpa.free(expected_norm);
+            const actual_norm = try normaliseLineEndings(gpa, stdout_capture.items);
+            defer gpa.free(actual_norm);
+
+            if (!std.mem.eql(u8, expected_norm, actual_norm)) {
                 try stdout.print(
-                    "FAIL  {s}: stdout mismatch\n  expected: {s}\n  got:      {s}\n",
-                    .{ entry.name, expected_stdout, stdout_capture.items },
+                    "FAIL  {s}: stdout mismatch\n  expected ({d}B): {s}\n  got      ({d}B): {s}\n",
+                    .{ entry.name, expected_norm.len, expected_norm, actual_norm.len, actual_norm },
                 );
                 failed += 1;
                 continue;
@@ -126,4 +134,20 @@ pub fn main(init: std.process.Init) !void {
     try stdout.print("\nwasi_runner: {d} passed, {d} failed\n", .{ passed, failed });
     try stdout.flush();
     if (failed != 0) std.process.exit(1);
+}
+
+/// Replace every `\r\n` byte pair with a single `\n`. Returns a
+/// fresh slice owned by the caller; consumes a single
+/// `Allocator.alloc` regardless of whether any conversion was
+/// needed (keeps the call site's defer-free pattern uniform).
+fn normaliseLineEndings(alloc: std.mem.Allocator, src: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(alloc);
+    try out.ensureTotalCapacity(alloc, src.len);
+    var i: usize = 0;
+    while (i < src.len) : (i += 1) {
+        if (src[i] == '\r' and i + 1 < src.len and src[i + 1] == '\n') continue;
+        try out.append(alloc, src[i]);
+    }
+    return out.toOwnedSlice(alloc);
 }
