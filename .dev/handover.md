@@ -17,12 +17,16 @@
 ## Current state
 
 - **Phase**: **Phase 2 IN-PROGRESS.** Phases 0 + 1 are `DONE`.
-  §9.2 / 2.0 (`243d9ba`), 2.1 (`f292ae7`) are `[x]`. interp
-  scaffold + dispatch loop are wired; an unbound `DispatchTable.
-  interp` slot trips `Trap.Unreachable`. The first remaining
-  `[ ]` is **§9.2 / 2.2 — `src/feature/mvp/` interp handlers**
-  (numeric / control / memory MVP opcodes registered into
-  `DispatchTable.interp`).
+  §9.2 / 2.0 (`243d9ba`), 2.1 (`f292ae7`), 2.2 (`575fbec`) are
+  `[x]`. The full MVP interp handler set is wired across
+  `src/interp/mvp.zig` + `src/interp/memory_ops.zig`: const /
+  drop / locals / globals / numeric (i32/i64/f32/f64) /
+  conversions / loads / stores / memory.size / memory.grow /
+  unreachable / nop / select / control flow (block / loop / if /
+  else / end / br / br_if / br_table / return) / call /
+  call_indirect. The first remaining `[ ]` is **§9.2 / 2.3 —
+  Wasm 2.0 features** (sign-ext, sat-trunc, multivalue blocks,
+  bulk-memory, ref-types).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -40,7 +44,50 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.2 / 2.2 (MVP interp handlers) — IN-PROGRESS
+## Active task — §9.2 / 2.3 (Wasm 2.0 features)
+
+§9.2 / 2.2 closed at `575fbec`. The full MVP interp handler set
+spans `src/interp/mvp.zig` (1883 lines) + `src/interp/memory_ops.zig`
+(347 lines). All Wasm 1.0 opcodes the validator + lowerer cover
+are now executable through `dispatch.run`. Recursive `call`
+works; `call_indirect` indexes `rt.funcs` (proper element-section
+table population is a follow-up — see chunk-7 commit notes).
+
+§9.2 / 2.3 lands the **Wasm 2.0 feature additions** that the
+upstream spec corpus exercises:
+
+- Sign extension (`i32.extend8_s` / `i32.extend16_s` / 
+  `i64.extend{8,16,32}_s`) — opcodes 0xC0..0xC4. Each pops the
+  source ValType, sign-extends from the lower N bits, pushes
+  back the same ValType.
+- Saturating truncation (`i*.trunc_sat_*`) — prefix opcode 0xFC
+  followed by a sub-opcode. Spec semantics: clamp NaN → 0,
+  out-of-range → INT_MAX or INT_MIN. NO trap (vs the regular
+  trunc_*).
+- Multivalue blocks (block-type as s33 typeidx in
+  `readBlockType`). Validator extension: read s33; if positive,
+  resolve via `module_types`. Interp + lowerer extensions
+  follow.
+- Bulk memory (`memory.copy`, `memory.fill`, `memory.init`,
+  `data.drop`, `table.copy`, `table.init`, `elem.drop`) —
+  prefix 0xFC sub-opcodes. Element / data section decoders also
+  needed.
+- Reference types (`ref.null`, `ref.is_null`, `ref.func`,
+  `table.get`, `table.set`, `table.size`, `table.grow`,
+  `table.fill`, `select_typed`).
+
+These are best landed per feature module under
+`src/interp/ext_2_0/<feature>.zig` (Zone 2 — same engine-side
+split as chunk 5 memory_ops). Each feature module exposes its
+own `register(*DispatchTable)` and registers handlers for its
+opcodes only. The aggregator in `mvp.zig` (or a new
+`src/interp/all_ops.zig`) calls each feature's register.
+
+Step 0 (Survey) for 2.3: zwasm v1's `feature/ext_2_0/` if it
+exists; wasm-tools `wasmparser`'s sat-trunc and reftype
+handlers; spec docs for §3.3 (Wasm 2.0 typing) + §6.2.5
+(numeric extras). Cite ROADMAP §4.5 (per-feature module split)
++ §A12 (no pervasive `if` for feature gating).
 
 §9.2 / 2.2 lands across multiple chunks. Progress so far on top
 of `f292ae7` (2.1 close):
