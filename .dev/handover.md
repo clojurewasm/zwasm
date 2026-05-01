@@ -91,9 +91,12 @@
   `zwasm_wasi_config_new` / `_delete` / `zwasm_store_set_wasi`
   exported; `Store.wasi_host` field added; ownership transfers
   Caller→Store; `wasm_store_delete` tears it down transitively.
-  Chunks remaining: 4.7b (import-section decode + missing-host
-  rejection in `wasm_instance_new`), 4.7c (host-thunk dispatch),
-  4.7d (end-to-end fd_write test).
+  4.7b at `14e0a8f` — `instantiateRuntime` now decodes the
+  import section and rejects unknown module names + WASI
+  imports without a configured host (and, for now, also WASI
+  imports WITH a host until chunk c wires the thunks).
+  Chunks remaining: 4.7c (host-thunk dispatch), 4.7d
+  (end-to-end fd_write test).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
