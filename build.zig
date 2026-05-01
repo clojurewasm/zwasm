@@ -133,6 +133,49 @@ pub fn build(b: *std.Build) void {
     const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
     test_realworld_step.dependOn(&run_realworld.step);
 
+    // `zig build test-c-api` — Phase 3 / §9.3 / 3.9. Builds
+    // `libzwasm.a` from `src/c_api/lib.zig`, compiles
+    // `examples/c_host/hello.c` against `include/wasm.h`, links
+    // the two, and runs the resulting executable. The C host
+    // exits 0 on success (printed result == 42), non-zero on any
+    // teardown / dispatch failure — `addRunArtifact` propagates
+    // that to the `test-c-api` step.
+    const c_api_lib_mod = b.createModule(.{
+        .root_source_file = b.path("src/c_api_lib.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    c_api_lib_mod.addOptions("build_options", options);
+    c_api_lib_mod.addIncludePath(b.path("include"));
+    const c_api_lib = b.addLibrary(.{
+        .name = "zwasm",
+        .linkage = .static,
+        .root_module = c_api_lib_mod,
+    });
+
+    const c_host_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    c_host_mod.addCSourceFile(.{
+        .file = b.path("examples/c_host/hello.c"),
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    c_host_mod.addIncludePath(b.path("include"));
+    c_host_mod.linkLibrary(c_api_lib);
+
+    const c_host_exe = b.addExecutable(.{
+        .name = "zwasm-c-host-hello",
+        .root_module = c_host_mod,
+    });
+
+    const run_c_host = b.addRunArtifact(c_host_exe);
+    run_c_host.expectExitCode(0);
+    const test_c_api_step = b.step("test-c-api", "Build libzwasm.a + the C host example, run the example");
+    test_c_api_step.dependOn(&run_c_host.step);
+
     // `zig build test-all` — aggregate all enabled test layers.
     // Phase 0: only `test`. Phase 1+ adds spec / e2e / realworld /
     // c_api / fuzz steps as they land. Each layer registers itself
@@ -143,6 +186,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_spec_mvp.step);
     test_all_step.dependOn(&run_realworld.step);
     test_all_step.dependOn(&run_wast_2_0.step);
+    test_all_step.dependOn(&run_c_host.step);
 }
 
 pub const WasmLevel = enum { v1_0, v2_0, v3_0 };
