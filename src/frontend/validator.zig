@@ -41,6 +41,7 @@ pub const Error = error{
     UnexpectedOpcode,
     InvalidOpcode,
     BadBlockType,
+    BadValType,
     InvalidLocalIndex,
     InvalidFuncIndex,
     InvalidGlobalIndex,
@@ -381,6 +382,11 @@ const Validator = struct {
             0xC0, 0xC1 => try self.opUnop(.i32),
             0xC2, 0xC3, 0xC4 => try self.opUnop(.i64),
 
+            // Wasm 2.0 reference types (§9.2 / 2.3 chunk 5)
+            0xD0 => try self.opRefNull(),
+            0xD1 => try self.opRefIsNull(),
+            0xD2 => try self.opRefFunc(),
+
             // Wasm 2.0 prefix opcodes (§9.2 / 2.3 chunk 2 onward)
             0xFC => try self.dispatchPrefixFC(),
 
@@ -593,6 +599,41 @@ const Validator = struct {
     fn opDataDrop(self: *Validator) Error!void {
         const dataidx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (dataidx >= self.data_count) return Error.InvalidFuncIndex;
+    }
+
+    /// ref.null t: 0xD0 reftype. Reads a single byte: 0x70=funcref,
+    /// 0x6F=externref. Pushes the corresponding reference type.
+    fn opRefNull(self: *Validator) Error!void {
+        if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+        const b = self.body[self.pos];
+        self.pos += 1;
+        const t: ValType = switch (b) {
+            0x70 => .funcref,
+            0x6F => .externref,
+            else => return Error.BadValType,
+        };
+        try self.pushType(t);
+    }
+
+    /// ref.is_null: pop any reftype, push i32. Polymorphic over
+    /// funcref / externref.
+    fn opRefIsNull(self: *Validator) Error!void {
+        const top = try self.popAny();
+        switch (top) {
+            .bot => {},
+            .known => |t| if (t != .funcref and t != .externref) return Error.StackTypeMismatch,
+        }
+        try self.pushType(.i32);
+    }
+
+    /// ref.func funcidx: read funcidx, validate it's within the
+    /// module's function index space, push funcref. The strict
+    /// declaration-scope check (§5.4.1.4) is deferred — chunk 5
+    /// allows any valid funcidx.
+    fn opRefFunc(self: *Validator) Error!void {
+        const idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (idx >= self.func_types.len) return Error.InvalidFuncIndex;
+        try self.pushType(.funcref);
     }
 
     /// memory.fill: 0xFC 11 0x00 (one reserved memidx byte).
@@ -1094,6 +1135,42 @@ test "validate: data.drop dataidx out of range → InvalidFuncIndex" {
     const body = [_]u8{ 0xFC, 0x09, 0x03, 0x0B };
     const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 1);
     try testing.expectError(Error.InvalidFuncIndex, r);
+}
+
+test "validate: ref.null funcref pushes funcref; ref.is_null consumes + pushes i32" {
+    // ref.null funcref ; ref.is_null ; end
+    const body = [_]u8{ 0xD0, 0x70, 0xD1, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
+}
+
+test "validate: ref.null externref pushes externref; drop ; end" {
+    const body = [_]u8{ 0xD0, 0x6F, 0x1A, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
+}
+
+test "validate: ref.null with bad reftype byte → BadValType" {
+    const body = [_]u8{ 0xD0, 0x55, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
+    try testing.expectError(Error.BadValType, r);
+}
+
+test "validate: ref.func with valid funcidx pushes funcref" {
+    const types = [_]FuncType{empty_sig};
+    // ref.func 0 ; ref.is_null ; end
+    const body = [_]u8{ 0xD2, 0x00, 0xD1, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &types, &.{}, &.{}, 0);
+}
+
+test "validate: ref.func with out-of-range funcidx → InvalidFuncIndex" {
+    const body = [_]u8{ 0xD2, 0x05, 0x1A, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
+    try testing.expectError(Error.InvalidFuncIndex, r);
+}
+
+test "validate: ref.is_null on i32 → StackTypeMismatch" {
+    const body = [_]u8{ 0x41, 0x00, 0xD1, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
+    try testing.expectError(Error.StackTypeMismatch, r);
 }
 
 test "validate: 0xFC unknown sub-opcode → NotImplemented" {

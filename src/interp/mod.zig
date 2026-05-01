@@ -40,8 +40,14 @@ pub const Value = extern union {
     f32: f32,
     f64: f64,
     bits64: u64,
+    /// Reference value (Wasm 2.0 §9.2 / 2.3 chunk 5). For funcref:
+    /// the low 32 bits are a funcidx; high 32 are unused. For
+    /// externref: the full 64 bits are an opaque host handle. The
+    /// sentinel `null_ref` represents the spec null reference.
+    ref: u64,
 
     pub const zero: Value = .{ .bits64 = 0 };
+    pub const null_ref: u64 = std.math.maxInt(u64);
 
     pub fn fromI32(v: i32) Value {
         return .{ .i32 = v };
@@ -54,6 +60,9 @@ pub const Value = extern union {
     }
     pub fn fromF64Bits(b: u64) Value {
         return .{ .bits64 = b };
+    }
+    pub fn fromRef(r: u64) Value {
+        return .{ .ref = r };
     }
 };
 

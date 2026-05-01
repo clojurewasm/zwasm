@@ -341,6 +341,20 @@ const Lowerer = struct {
             0xC3 => try self.emit(.@"i64.extend16_s", 0, 0),
             0xC4 => try self.emit(.@"i64.extend32_s", 0, 0),
 
+            // Wasm 2.0 reference types
+            0xD0 => {
+                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+                const b = self.body[self.pos];
+                self.pos += 1;
+                if (b != 0x70 and b != 0x6F) return Error.BadBlockType;
+                try self.emit(.@"ref.null", 0, b);
+            },
+            0xD1 => try self.emit(.@"ref.is_null", 0, 0),
+            0xD2 => {
+                const idx = try leb128.readUleb128(u32, self.body, &self.pos);
+                try self.emit(.@"ref.func", idx, 0);
+            },
+
             // Wasm 2.0+ prefix opcodes (sat-trunc / bulk-memory / ...)
             0xFC => try self.emitPrefixFC(),
 
@@ -770,6 +784,42 @@ test "lower: memory.init (0xFC 8) emits ZirOp.memory.init with dataidx payload" 
     const init = f.instrs.items[3];
     try testing.expectEqual(ZirOp.@"memory.init", init.op);
     try testing.expectEqual(@as(u32, 5), init.payload);
+}
+
+test "lower: ref.null (0xD0 0x70) emits ZirOp.ref.null with reftype byte in extra" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{ 0xD0, 0x70, 0x1A, 0x0B };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const rn = f.instrs.items[0];
+    try testing.expectEqual(ZirOp.@"ref.null", rn.op);
+    try testing.expectEqual(@as(u32, 0x70), rn.extra);
+}
+
+test "lower: ref.is_null (0xD1) emits a no-immediate instr" {
+    var f = newFunc(i32_result_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{ 0xD0, 0x70, 0xD1, 0x0B };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try testing.expectEqual(ZirOp.@"ref.is_null", f.instrs.items[1].op);
+}
+
+test "lower: ref.func (0xD2) carries funcidx in payload" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{ 0xD2, 0x09, 0x1A, 0x0B };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const rf = f.instrs.items[0];
+    try testing.expectEqual(ZirOp.@"ref.func", rf.op);
+    try testing.expectEqual(@as(u32, 9), rf.payload);
+}
+
+test "lower: ref.null with bad reftype byte → BadBlockType" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{ 0xD0, 0x55, 0x0B };
+    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try testing.expectError(Error.BadBlockType, r);
 }
 
 test "lower: data.drop (0xFC 9) emits ZirOp.data.drop with dataidx payload" {
