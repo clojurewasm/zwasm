@@ -67,6 +67,43 @@ of `f292ae7` (2.1 close):
 8. `af9c77c` — refactor: extract memory ops (loads/stores/
    memory.size/grow + tests) into `src/interp/memory_ops.zig`.
    mvp.zig: 1832 → 1533 lines.
+9. `5ff820f` — chunk 6a: `dispatch.run` now tracks pc on
+   `rt.currentFrame().pc` (handlers can mutate). New `Label`
+   struct + per-Frame `label_buf` (max 128) for the control-
+   label stack chunk 6b will populate. No observable behaviour
+   change yet; tests that call `run` without a frame go through
+   an ephemeral-frame path.
+
+Chunk 6b — control-flow handlers — is the large remaining
+piece. Plan:
+
+- Add `func: ?*const zir.ZirFunc = null` to `Frame` so
+  control-flow handlers can read `BlockInfo` (start_inst /
+  end_inst) for the active function.
+- Add `else_inst: ?u32 = null` to `BlockInfo` (`src/ir/zir.zig`)
+  so the interp can route `if cond=0` to the matching `else` or,
+  if none, the `end+1`. Field-add only — per the zir.zig comment
+  ("Adding fields later is OK") no ADR needed; the lowerer's
+  `emitElse` records it.
+- Implement handlers in `src/interp/mvp.zig`:
+  - `block`: pushLabel(.{ height, arity, target_pc = block.end_inst + 1 })
+  - `loop`: pushLabel(.{ height, arity = 0, target_pc = block.start_inst + 1 })
+  - `if`: pop i32; if 0, set frame.pc = (else_inst or end_inst + 1);
+    push label as for block.
+  - `else`: skip to matching end (frame.pc = block.end_inst).
+  - `end` (block-level): popLabel; restore operand height; push
+    result(s). Distinguish from fn-level end by label_len == 0.
+  - `end` (fn-level): set frame.pc = instrs.len to terminate run.
+  - `br N` / `br_if N`: popLabel down to N+1 levels (not really
+    pop — the interp keeps the active label and discards inner
+    ones); pop arity values into a buffer; restore operand
+    height; push values back; set frame.pc = label.target_pc.
+  - `br_table`: same as br but selector picks the depth.
+  - `return`: br to the function-level "implicit" label
+    (operand_base + sig.results.len).
+- After chunk 6b, the spec runner can drive validate + lower +
+  interp through the curated MVP corpus end-to-end (subject to
+  call / call_indirect arriving in chunk 7).
 
 `src/interp/mvp.zig` is now 1771 / 2000 lines. **File-split
 refactor required before chunk 6** (control flow) + chunk 7
