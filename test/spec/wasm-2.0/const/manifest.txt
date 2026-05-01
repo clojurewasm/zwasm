@@ -1,0 +1,1 @@
+valid const.0.wasm

@@ -86,6 +86,25 @@ pub fn build(b: *std.Build) void {
     test_spec_step.dependOn(&run_spec_smoke.step);
     test_spec_step.dependOn(&run_spec_mvp.step);
 
+    // `zig build test-spec-wasm-2.0` — wast-directive runner
+    // (Phase 2 / §9.2 / 2.7). Reads each subdir's manifest.txt
+    // and processes module / assert_invalid / assert_malformed
+    // (binary) commands.
+    const wast_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/spec/wast_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    wast_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    const wast_runner_exe = b.addExecutable(.{
+        .name = "zwasm-wast-runner",
+        .root_module = wast_runner_mod,
+    });
+    const run_wast_2_0 = b.addRunArtifact(wast_runner_exe);
+    run_wast_2_0.addArg(b.pathFromRoot("test/spec/wasm-2.0"));
+    const test_spec_2_0_step = b.step("test-spec-wasm-2.0", "Run the Wasm 2.0 wast-directive runner");
+    test_spec_2_0_step.dependOn(&run_wast_2_0.step);
+
     // `zig build test-realworld` — parse-smoke a vendored set of
     // toolchain-produced .wasm fixtures (Phase 2 / §9.2 / 2.6).
     const realworld_runner_mod = b.createModule(.{
@@ -112,6 +131,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_spec_smoke.step);
     test_all_step.dependOn(&run_spec_mvp.step);
     test_all_step.dependOn(&run_realworld.step);
+    test_all_step.dependOn(&run_wast_2_0.step);
 }
 
 pub const WasmLevel = enum { v1_0, v2_0, v3_0 };
