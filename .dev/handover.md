@@ -19,14 +19,12 @@
 - **Phase**: **Phase 2 IN-PROGRESS.** Phases 0 + 1 are `DONE`.
   §9.2 / 2.0 (`243d9ba`), 2.1 (`f292ae7`), 2.2 (`575fbec`) are
   `[x]`. The full MVP interp handler set is wired across
-  `src/interp/mvp.zig` + `src/interp/memory_ops.zig`: const /
-  drop / locals / globals / numeric (i32/i64/f32/f64) /
-  conversions / loads / stores / memory.size / memory.grow /
-  unreachable / nop / select / control flow (block / loop / if /
-  else / end / br / br_if / br_table / return) / call /
-  call_indirect. The first remaining `[ ]` is **§9.2 / 2.3 —
-  Wasm 2.0 features** (sign-ext, sat-trunc, multivalue blocks,
-  bulk-memory, ref-types).
+  `src/interp/mvp.zig` + `src/interp/memory_ops.zig`. **§9.2 /
+  2.3 IN-PROGRESS** — chunk 1 (sign-extension, 0xC0..0xC4)
+  landed at `32f09dc` across a new
+  `src/interp/ext_2_0/sign_ext.zig` (Zone 2, per-feature
+  engine-side module split) plus validator + lowerer 0xC0..0xC4
+  cases. Three-host gate green.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -52,6 +50,26 @@ spans `src/interp/mvp.zig` (1883 lines) + `src/interp/memory_ops.zig`
 are now executable through `dispatch.run`. Recursive `call`
 works; `call_indirect` indexes `rt.funcs` (proper element-section
 table population is a follow-up — see chunk-7 commit notes).
+
+§9.2 / 2.3 progress (Wasm 2.0 features, multi-chunk):
+- chunk 1 (sign-ext 0xC0..0xC4) — landed at `32f09dc`. New
+  `src/interp/ext_2_0/sign_ext.zig` (Zone 2) wires the five
+  `iN.extend{8,16,32}_s` interp handlers; validator and lowerer
+  extended with 0xC0..0xC4 cases. Tests cover positive /
+  negative / high-bits-ignored per opcode. Three-host green.
+
+Next chunks for 2.3 (in order of cost / dependency):
+- chunk 2 — saturating truncation `iN.trunc_sat_*` (prefix 0xFC
+  sub-opcodes 0..7). Frontend gains a 0xFC prefix-decoder; new
+  `src/interp/ext_2_0/sat_trunc.zig` for handlers (NaN → 0,
+  out-of-range → INT_MAX/INT_MIN, no trap).
+- chunk 3 — multivalue block-types (s33 typeidx in
+  `readBlockType`); validator + lowerer + interp.
+- chunk 4 — bulk memory (`memory.copy/fill/init`, `data.drop`,
+  `table.copy/init`, `elem.drop`) under prefix 0xFC.
+- chunk 5 — reference types (`ref.null`, `ref.is_null`,
+  `ref.func`, table.* set, select_typed). Larger; touches
+  Value tagging.
 
 §9.2 / 2.3 lands the **Wasm 2.0 feature additions** that the
 upstream spec corpus exercises:
