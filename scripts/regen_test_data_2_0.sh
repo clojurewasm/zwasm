@@ -81,6 +81,7 @@ NAMES=(
   func
   br_if
   local_tee
+  table_size
 )
 
 for n in "${NAMES[@]}"; do
