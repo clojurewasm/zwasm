@@ -48,6 +48,11 @@ const Trap = interp.Trap;
 // ============================================================
 
 pub fn register(table: *DispatchTable) void {
+    // Trap-only / no-op control
+    table.interp[op(.@"unreachable")] = unreachableOp;
+    table.interp[op(.nop)] = nopOp;
+    table.interp[op(.select)] = selectOp;
+
     // Constants
     table.interp[op(.@"i32.const")] = i32Const;
     table.interp[op(.@"i64.const")] = i64Const;
@@ -253,6 +258,20 @@ inline fn op(t: ZirOp) usize {
 // ============================================================
 // Handlers
 // ============================================================
+
+fn unreachableOp(_: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    return Trap.Unreachable;
+}
+
+fn nopOp(_: *InterpCtx, _: *const ZirInstr) anyerror!void {}
+
+fn selectOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const cond = rt.popOperand().i32;
+    const b = rt.popOperand();
+    const a = rt.popOperand();
+    try rt.pushOperand(if (cond != 0) a else b);
+}
 
 fn i32Const(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
@@ -1684,6 +1703,48 @@ test "i32.reinterpret_f32 + f32.reinterpret_i32: bit-preserving" {
     try rt.pushOperand(.{ .u32 = 0x3F800000 });
     try driveOne(&rt, &t, .@"f32.reinterpret_i32", 0, 0);
     try testing.expectEqual(@as(f32, 1.0), rt.popOperand().f32);
+}
+
+test "unreachable: traps Trap.Unreachable" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try testing.expectError(Trap.Unreachable, driveOne(&rt, &t, .@"unreachable", 0, 0));
+}
+
+test "nop: leaves stack untouched" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .i32 = 7 });
+    try driveOne(&rt, &t, .nop, 0, 0);
+    try testing.expectEqual(@as(u32, 1), rt.operand_len);
+}
+
+test "select: cond != 0 picks first operand" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .i32 = 11 }); // a
+    try rt.pushOperand(.{ .i32 = 22 }); // b
+    try rt.pushOperand(.{ .i32 = 1 }); // cond
+    try driveOne(&rt, &t, .select, 0, 0);
+    try testing.expectEqual(@as(i32, 11), rt.popOperand().i32);
+}
+
+test "select: cond == 0 picks second operand" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .i32 = 11 });
+    try rt.pushOperand(.{ .i32 = 22 });
+    try rt.pushOperand(.{ .i32 = 0 });
+    try driveOne(&rt, &t, .select, 0, 0);
+    try testing.expectEqual(@as(i32, 22), rt.popOperand().i32);
 }
 
 test "i32.load / i32.store round-trip with offset" {
