@@ -63,9 +63,14 @@
   Whence / Clockid / Signal / EventType, Fdflags / Oflags /
   Rights / Fstflags / Lookupflags constants, Iovec / Ciovec /
   Fdstat / Filestat / Prestat extern structs with sizes
-  verified). The first remaining `[ ]` is **§9.4 / 4.2 —
-  `src/wasi/host.zig` capability table backed by
-  `std.process.Init`**.
+  verified). §9.4 / 4.2 closed at `02ff981` (with
+  `867a29c` Windows-portability fix) — `src/wasi/host.zig`
+  declares `Host` with `args` / `envs` / `preopens` / `fd_table`,
+  pre-populates fd 0/1/2 = stdin/stdout/stderr, exposes
+  `setArgs` / `setEnvs` / `addPreopen` / `translateFd`. The
+  first remaining `[ ]` is **§9.4 / 4.3 — proc_exit /
+  args_get / args_sizes_get / environ_get / environ_sizes_get
+  handlers**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -95,50 +100,45 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.4 / 4.2 (src/wasi/host.zig capability table)
+## Windows portability note (added 4.2)
 
-Declare the host-side capability table that backs WASI's `args`
-/ `environ` / preopen / fd surfaces. Inputs from the Zig host
-process (`std.process.Init`'s `args` / `environ_map` /
-`preopens`); outputs consumed by the §9.4 / 4.3+ syscall
-handlers.
+`std.posix.STDIN_FILENO` falls back to `else => 0` (a
+comptime_int) on every non-Linux target, NOT a `fd_t`-typed
+constant. On Windows, `fd_t = HANDLE = *anyopaque`, so passing
+`STDIN_FILENO` (or any int literal) as a `fd_t` parameter
+fails to compile with "expected '*anyopaque', found
+'comptime_int'". For tests that need a placeholder fd, use
+`@as(std.posix.fd_t, undefined)` — the only literal whose
+type adapts to both shapes. Real fd values for production
+paths come from `std.fs.File.handle` etc.
 
-Initial shape:
-```zig
-pub const Host = struct {
-    alloc: Allocator,
-    args: []const []const u8,         // copied from init.minimal.args
-    envs: []const EnvEntry,           // {key, value} pairs
-    preopens: []const Preopen,        // {host_fd, guest_path}
-    stdin: std.fs.File,
-    stdout: std.fs.File,
-    stderr: std.fs.File,
-    // fd table (vec of OpenFd) — small ArrayList; index = guest fd
+## Active task — §9.4 / 4.3 (proc_exit + args + environ handlers)
 
-    pub fn init(...) !Host { ... }
-    pub fn deinit(self: *Host) void { ... }
-    pub fn translateFd(self: *Host, guest_fd: p1.Fd) ?*OpenFd { ... }
-};
+First batch of WASI 0.1 syscall handlers — the all-low-IO
+ones (no fd-table reads beyond bookkeeping). Each takes the
+host state from `Host` and reads/writes Wasm linear memory.
 
-pub const OpenFd = struct {
-    kind: enum { stdin, stdout, stderr, file, dir },
-    handle: ?std.fs.File = null,    // for file/dir
-    guest_path: ?[]const u8 = null, // for preopens
-    rights_base: p1.Rights,
-    rights_inheriting: p1.Rights,
-};
-```
+Surface (witx names):
+- `proc_exit(rval: u32) -> noreturn` — terminates the
+  instance with `rval`. Wire as a new TrapKind variant
+  (`zwasm_exit`?) so the C host's `wasm_func_call` returns a
+  Trap whose kind carries the exit code; or extend
+  `interp.Trap` with `ExitRequested` and propagate the code
+  through a side-channel field on `Runtime`.
+- `args_sizes_get(*argc_out, *buf_size_out) -> errno` — write
+  count + total bytes to guest memory.
+- `args_get(*argv_out, *argv_buf_out) -> errno` — write
+  null-terminated strings + pointer table.
+- `environ_sizes_get` / `environ_get` — same shape but
+  reads `Host.envs`.
 
-Things to confirm:
-- Initialization from Init: `init.minimal.args` is `[][]u8`,
-  zero-copy slice into argv. Copy into `Host.args`.
-- preopens come from `init.preopens` — list of `(host_fd:
-  std.posix.fd_t, guest_path: []const u8)` pairs.
-- `Host` should NOT do file IO on init — it just records the
-  capability. Actual reads / writes go through 4.4+'s handlers.
+Implement in a new file (e.g. `src/wasi/proc.zig`) so
+`host.zig` stays the data container. Memory writes go through
+bounds-checked helpers; out-of-bounds returns `Errno.fault`.
 
-Don't wire interp dispatch yet (that's 4.7 — import resolution).
-This task is the host-state container only.
+Tests stub `Host` from §9.4 / 4.2's API + a hand-allocated
+`[]u8` for linear memory. Full instance integration (binding
++ import resolution) lands at 4.7.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
