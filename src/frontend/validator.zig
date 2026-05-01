@@ -572,7 +572,9 @@ const Validator = struct {
             9 => try self.opDataDrop(),
             10 => try self.opMemoryCopy(),
             11 => try self.opMemoryFill(),
+            15 => try self.opTableGrow(),
             16 => try self.opTableSize(),
+            17 => try self.opTableFill(),
             else => return Error.NotImplemented,
         }
     }
@@ -666,6 +668,24 @@ const Validator = struct {
         const idx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (idx >= self.tables.len) return Error.InvalidFuncIndex;
         try self.pushType(.i32);
+    }
+
+    /// table.grow x (0xFC 15): pop n:i32, init:elem_type; push i32.
+    fn opTableGrow(self: *Validator) Error!void {
+        const idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (idx >= self.tables.len) return Error.InvalidFuncIndex;
+        try self.popExpect(.i32);
+        try self.popExpect(self.tables[idx].elem_type);
+        try self.pushType(.i32);
+    }
+
+    /// table.fill x (0xFC 17): pop n:i32, val:elem_type, dst:i32.
+    fn opTableFill(self: *Validator) Error!void {
+        const idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (idx >= self.tables.len) return Error.InvalidFuncIndex;
+        try self.popExpect(.i32);
+        try self.popExpect(self.tables[idx].elem_type);
+        try self.popExpect(.i32);
     }
 
     /// memory.fill: 0xFC 11 0x00 (one reserved memidx byte).
@@ -1293,6 +1313,20 @@ test "validate: table.get with out-of-range tableidx → InvalidFuncIndex" {
     const body = [_]u8{ 0x41, 0x00, 0x25, 0x05, 0x0B };
     const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{});
     try testing.expectError(Error.InvalidFuncIndex, r);
+}
+
+test "validate: table.grow pops i32 + reftype, pushes i32" {
+    const tables = [_]zir.TableEntry{.{ .elem_type = .funcref, .min = 0 }};
+    // ref.null funcref ; i32.const 1 ; table.grow 0 ; drop ; end
+    const body = [_]u8{ 0xD0, 0x70, 0x41, 0x01, 0xFC, 0x0F, 0x00, 0x1A, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &tables);
+}
+
+test "validate: table.fill pops i32 + reftype + i32" {
+    const tables = [_]zir.TableEntry{.{ .elem_type = .funcref, .min = 0 }};
+    // i32.const 0 ; ref.null funcref ; i32.const 0 ; table.fill 0 ; end
+    const body = [_]u8{ 0x41, 0x00, 0xD0, 0x70, 0x41, 0x00, 0xFC, 0x11, 0x00, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &tables);
 }
 
 test "validate: 0xFC unknown sub-opcode → NotImplemented" {

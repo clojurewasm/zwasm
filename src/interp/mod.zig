@@ -175,12 +175,14 @@ pub const Runtime = struct {
     /// later `memory.init` calls trap. Owned (heap-allocated when
     /// `datas.len > 0`); freed in deinit.
     data_dropped: []bool = &.{},
-    /// Module tables (Wasm 2.0 §9.2 / 2.3 chunk 5c). Borrowed —
-    /// the runner owns each `TableInstance.refs` slice. The
-    /// borrowed slice header makes the TableInstance fields const
-    /// to the interp, but the underlying `refs: []Value` cells
-    /// stay writable for `table.set` / future grow / fill.
-    tables: []const TableInstance = &.{},
+    /// Module tables (Wasm 2.0 §9.2 / 2.3 chunks 5c / 5c-2).
+    /// Mutable so `table.grow` can swap a TableInstance's `refs`
+    /// slice header for a longer one. The owner of each refs
+    /// slice (typically the runner / test setup) is responsible
+    /// for using the same allocator that grow ends up reallocating
+    /// against (`rt.alloc`) and for freeing the final slice after
+    /// runtime tear-down.
+    tables: []TableInstance = &.{},
     /// Dispatch table used by the active interp run. Set by
     /// `src/interp/dispatch.zig`'s `run`; the `call` handler
     /// needs it to recursively dispatch the callee body.
