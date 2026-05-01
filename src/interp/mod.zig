@@ -104,6 +104,17 @@ pub const Frame = struct {
     locals: []Value,
     operand_base: u32,
     pc: u32,
+    /// Borrowed pointer to the active `ZirFunc` so control-flow
+    /// handlers can resolve `instr.payload` (a block index) into
+    /// `BlockInfo` (`start_inst`, `end_inst`, `else_inst`). Set
+    /// by `call` / external runner; left null for ad-hoc test
+    /// frames that don't exercise control flow.
+    func: ?*const zir.ZirFunc = null,
+    /// Set by `end` / `return` handlers to signal the dispatch
+    /// loop to break out of the body. Distinct from `pc >=
+    /// instrs.len` so handlers can stop early without computing
+    /// the bound themselves.
+    done: bool = false,
 
     label_buf: [max_label_stack]Label = undefined,
     label_len: u32 = 0,

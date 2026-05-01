@@ -412,7 +412,9 @@ const Lowerer = struct {
     fn emitElse(self: *Lowerer) Error!void {
         if (self.block_stack_len == 0) return Error.UnexpectedOpcode;
         const block_idx = self.block_stack[self.block_stack_len - 1];
+        const else_pc: u32 = @intCast(self.out.instrs.items.len);
         self.out.blocks.items[block_idx].kind = .else_open;
+        self.out.blocks.items[block_idx].else_inst = else_pc;
         try self.emit(.@"else", block_idx, 0);
     }
 };

@@ -75,7 +75,8 @@ pub fn run(
 
     const f = rt.currentFrame();
     f.pc = 0;
-    while (f.pc < instrs.len) {
+    f.done = false;
+    while (f.pc < instrs.len and !f.done) {
         const cur = f.pc;
         try step(rt, table, &instrs[cur]);
         if (f.pc == cur) f.pc += 1;

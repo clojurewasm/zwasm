@@ -54,6 +54,17 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.nop)] = nopOp;
     table.interp[op(.select)] = selectOp;
 
+    // Control flow
+    table.interp[op(.@"block")] = blockOp;
+    table.interp[op(.@"loop")] = loopOp;
+    table.interp[op(.@"if")] = ifOp;
+    table.interp[op(.@"else")] = elseOp;
+    table.interp[op(.@"end")] = endOp;
+    table.interp[op(.@"br")] = brOp;
+    table.interp[op(.@"br_if")] = brIfOp;
+    table.interp[op(.@"br_table")] = brTableOp;
+    table.interp[op(.@"return")] = returnOp;
+
     // Constants
     table.interp[op(.@"i32.const")] = i32Const;
     table.interp[op(.@"i64.const")] = i64Const;
@@ -243,6 +254,146 @@ fn selectOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const b = rt.popOperand();
     const a = rt.popOperand();
     try rt.pushOperand(if (cond != 0) a else b);
+}
+
+// --- Control flow ---
+
+inline fn blockArity(blocktype_byte: u32) u32 {
+    return if (blocktype_byte == 0x40) 0 else 1;
+}
+
+fn blockOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const frame = rt.currentFrame();
+    const fnz = frame.func orelse return Trap.Unreachable;
+    if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
+    const blk = fnz.blocks.items[instr.payload];
+    try frame.pushLabel(.{
+        .height = rt.operand_len,
+        .arity = blockArity(instr.extra),
+        .target_pc = blk.end_inst + 1,
+    });
+}
+
+fn loopOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const frame = rt.currentFrame();
+    const fnz = frame.func orelse return Trap.Unreachable;
+    if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
+    const blk = fnz.blocks.items[instr.payload];
+    try frame.pushLabel(.{
+        .height = rt.operand_len,
+        .arity = 0, // br to a loop discards the body's results.
+        .target_pc = blk.start_inst + 1,
+    });
+}
+
+fn ifOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const frame = rt.currentFrame();
+    const cond = rt.popOperand().i32;
+    const fnz = frame.func orelse return Trap.Unreachable;
+    if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
+    const blk = fnz.blocks.items[instr.payload];
+    try frame.pushLabel(.{
+        .height = rt.operand_len,
+        .arity = blockArity(instr.extra),
+        .target_pc = blk.end_inst + 1,
+    });
+    if (cond == 0) {
+        // Skip to else (if any) or directly past end.
+        frame.pc = if (blk.else_inst) |e| e + 1 else blk.end_inst;
+    }
+}
+
+fn elseOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    // Reaching else from the then-branch — jump to the matching `end`.
+    const rt = Runtime.fromOpaque(c);
+    const frame = rt.currentFrame();
+    const fnz = frame.func orelse return Trap.Unreachable;
+    if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
+    frame.pc = fnz.blocks.items[instr.payload].end_inst;
+}
+
+fn endOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const frame = rt.currentFrame();
+    if (frame.label_len == 0) {
+        // Function-level end: the run loop terminates after this step.
+        frame.done = true;
+        return;
+    }
+    const label = frame.popLabel();
+    try restoreToLabel(rt, label);
+}
+
+inline fn restoreToLabel(rt: *Runtime, label: interp.Label) Trap!void {
+    // Save `arity` topmost values, drop down to label.height, push back.
+    if (label.arity == 0) {
+        rt.operand_len = label.height;
+        return;
+    }
+    // arity == 1 in MVP. Wasm 2.0 multivalue widens this; revisit later.
+    if (label.arity != 1) return Trap.Unreachable;
+    const top = rt.popOperand();
+    rt.operand_len = label.height;
+    try rt.pushOperand(top);
+}
+
+inline fn doBranch(rt: *Runtime, frame: *interp.Frame, depth: u32) Trap!void {
+    if (depth >= frame.label_len) return Trap.Unreachable;
+    const target = frame.labelAt(depth);
+    // Pop (depth + 1) labels off the control stack — except for loop
+    // labels, br re-enters them (the loop opcode at target_pc will
+    // re-push the label). Easier: pop all (depth+1), let the loop
+    // opcode re-push if needed.
+    var i: u32 = 0;
+    while (i <= depth) : (i += 1) _ = frame.popLabel();
+    try restoreToLabel(rt, target);
+    frame.pc = target.target_pc;
+}
+
+fn brOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    try doBranch(rt, rt.currentFrame(), instr.payload);
+}
+
+fn brIfOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const cond = rt.popOperand().i32;
+    if (cond != 0) {
+        try doBranch(rt, rt.currentFrame(), instr.payload);
+    }
+}
+
+fn brTableOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const frame = rt.currentFrame();
+    const idx = rt.popOperand().u32;
+    const count = instr.payload;
+    const start = instr.extra;
+    const fnz = frame.func orelse return Trap.Unreachable;
+    const targets = fnz.branch_targets.items;
+    const end_idx = start + count;
+    if (end_idx >= targets.len) return Trap.Unreachable;
+    const depth = if (idx < count) targets[start + idx] else targets[end_idx];
+    try doBranch(rt, frame, depth);
+}
+
+fn returnOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const frame = rt.currentFrame();
+    const arity: u32 = @intCast(frame.sig.results.len);
+    if (arity > 1) return Trap.Unreachable; // MVP single-value
+    if (arity == 1) {
+        const top = rt.popOperand();
+        rt.operand_len = frame.operand_base;
+        try rt.pushOperand(top);
+    } else {
+        rt.operand_len = frame.operand_base;
+    }
+    frame.label_len = 0;
+    frame.done = true;
 }
 
 fn i32Const(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
@@ -1470,6 +1621,107 @@ test "i32.reinterpret_f32 + f32.reinterpret_i32: bit-preserving" {
     try rt.pushOperand(.{ .u32 = 0x3F800000 });
     try driveOne(&rt, &t, .@"f32.reinterpret_i32", 0, 0);
     try testing.expectEqual(@as(f32, 1.0), rt.popOperand().f32);
+}
+
+test "block + end: arity=0, operand stack restored" {
+    // ZirFunc with 1 block (start=0, end=2). instrs: [block, i32.const 7, end, i32.const 99, end]
+    var fnz = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &.{} }, &.{});
+    defer fnz.deinit(testing.allocator);
+    try fnz.blocks.append(testing.allocator, .{ .kind = .block, .start_inst = 0, .end_inst = 2 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"block", .payload = 0, .extra = 0x40 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = @bitCast(@as(i32, 7)), .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = @bitCast(@as(i32, 99)), .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushFrame(.{ .sig = fnz.sig, .locals = &.{}, .operand_base = 0, .pc = 0, .func = &fnz });
+    defer _ = rt.popFrame();
+
+    try dispatch_loop.run(&rt, &t, fnz.instrs.items);
+
+    // After block (arity=0): operand stack popped back to 0, then i32.const 99
+    // pushed, then function-level end fires.
+    try testing.expectEqual(@as(u32, 1), rt.operand_len);
+    try testing.expectEqual(@as(i32, 99), rt.popOperand().i32);
+}
+
+test "br 0 from inside block: jumps past end" {
+    var fnz = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &.{} }, &.{});
+    defer fnz.deinit(testing.allocator);
+    try fnz.blocks.append(testing.allocator, .{ .kind = .block, .start_inst = 0, .end_inst = 4 });
+    // block; i32.const 1; br 0; i32.const 2 (skipped); end; i32.const 3; end
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"block", .payload = 0, .extra = 0x40 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 3, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushFrame(.{ .sig = fnz.sig, .locals = &.{}, .operand_base = 0, .pc = 0, .func = &fnz });
+    defer _ = rt.popFrame();
+
+    try dispatch_loop.run(&rt, &t, fnz.instrs.items);
+
+    // br 0 (arity=0) discarded the i32.const 1 result. Then i32.const 3 pushed.
+    try testing.expectEqual(@as(u32, 1), rt.operand_len);
+    try testing.expectEqual(@as(u32, 3), rt.popOperand().u32);
+}
+
+test "if cond=0 skips to end; cond=1 runs then-branch" {
+    // (if (then i32.const 1) (else i32.const 2)) — sig: () -> i32
+    // instrs: i32.const cond ; if ; i32.const 1 ; else ; i32.const 2 ; end ; end
+    const i32_arr = [_]zir.ValType{.i32};
+    var fnz = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &i32_arr }, &.{});
+    defer fnz.deinit(testing.allocator);
+    try fnz.blocks.append(testing.allocator, .{ .kind = .else_open, .start_inst = 1, .end_inst = 5, .else_inst = 3 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1, .extra = 0 }); // cond
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"if", .payload = 0, .extra = 0x7F }); // if i32
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 11, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"else", .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 22, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushFrame(.{ .sig = fnz.sig, .locals = &.{}, .operand_base = 0, .pc = 0, .func = &fnz });
+    defer _ = rt.popFrame();
+
+    try dispatch_loop.run(&rt, &t, fnz.instrs.items);
+    try testing.expectEqual(@as(u32, 11), rt.popOperand().u32);
+}
+
+test "return: ends function execution and produces sig.results" {
+    const i32_arr = [_]zir.ValType{.i32};
+    var fnz = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &i32_arr }, &.{});
+    defer fnz.deinit(testing.allocator);
+    // i32.const 7 ; return ; i32.const 99 ; end
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"return", .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushFrame(.{ .sig = fnz.sig, .locals = &.{}, .operand_base = 0, .pc = 0, .func = &fnz });
+    defer _ = rt.popFrame();
+
+    try dispatch_loop.run(&rt, &t, fnz.instrs.items);
+    try testing.expectEqual(@as(u32, 1), rt.operand_len);
+    try testing.expectEqual(@as(u32, 7), rt.popOperand().u32);
 }
 
 test "unreachable: traps Trap.Unreachable" {

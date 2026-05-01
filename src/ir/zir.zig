@@ -42,6 +42,12 @@ pub const BlockInfo = struct {
     kind: BlockKind,
     start_inst: u32,
     end_inst: u32,
+    /// Position of the matching `else` opcode for `if` frames that
+    /// have one. The interp routes `if cond=0` to `else_inst + 1`
+    /// or, when `null`, to `end_inst + 1`. Set by the lowerer on
+    /// `else` emission; remains `null` for plain blocks / loops /
+    /// if-without-else.
+    else_inst: ?u32 = null,
 };
 
 pub const ZirOp = enum(u16) {
