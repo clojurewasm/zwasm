@@ -86,7 +86,14 @@
   `std.Io.Timestamp.now(io, clock)`), `randomGet` (via
   `io.randomSecure`), and a `pollOneoff` stub (nsubscriptions=0
   → success, otherwise notsup). The first remaining `[ ]` is
-  **§9.4 / 4.7 — wire WASI imports into `wasm_instance_new`**.
+  **§9.4 / 4.7 — wire WASI imports into `wasm_instance_new`**,
+  splitting into chunks. 4.7a closed at `505d3ae` —
+  `zwasm_wasi_config_new` / `_delete` / `zwasm_store_set_wasi`
+  exported; `Store.wasi_host` field added; ownership transfers
+  Caller→Store; `wasm_store_delete` tears it down transitively.
+  Chunks remaining: 4.7b (import-section decode + missing-host
+  rejection in `wasm_instance_new`), 4.7c (host-thunk dispatch),
+  4.7d (end-to-end fd_write test).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
