@@ -18,6 +18,7 @@
 const std = @import("std");
 
 const interp = @import("../interp/mod.zig");
+const wasi_host = @import("../wasi/host.zig");
 const dispatch = @import("../interp/dispatch.zig");
 const interp_mvp = @import("../interp/mvp.zig");
 const ext_sign_ext = @import("../interp/ext_2_0/sign_ext.zig");
@@ -59,6 +60,14 @@ pub const Engine = extern struct {
 /// `interp.Runtime` plus the GC root set.
 pub const Store = extern struct {
     engine: ?*Engine,
+    /// Optional WASI host (`zwasm_wasi_config_t` from C's
+    /// perspective). Set via `zwasm_store_set_wasi`; ownership
+    /// transfers to the Store and is freed in
+    /// `wasm_store_delete`. Null when the store has no WASI
+    /// hosting configured (modules that import
+    /// `wasi_snapshot_preview1.*` will then fail
+    /// instantiation in §9.4 / 4.7's import-resolution path).
+    wasi_host: ?*wasi_host.Host = null,
 };
 
 /// `wasm_module_t` — validated module. Owns a heap-allocated
@@ -275,11 +284,67 @@ export fn wasm_store_new(e: ?*Engine) callconv(.c) ?*Store {
 }
 
 /// `wasm_store_delete(*Store)` — free a Store. Null-tolerant.
+/// Tears down the attached WASI Host (if any) before releasing
+/// the struct itself.
 export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
     const handle = s orelse return;
     const engine = handle.engine orelse return; // dangling — leak rather than crash
     const alloc = engineAllocator(engine);
+    if (handle.wasi_host) |host| {
+        host.deinit();
+        alloc.destroy(host);
+    }
     alloc.destroy(handle);
+}
+
+// ============================================================
+// WASI host wiring (§9.4 / 4.7 chunk a)
+// ============================================================
+
+/// `zwasm_wasi_config_new()` — allocate a fresh WASI host
+/// config (the `zwasm_wasi_config_t` opaque type from
+/// `include/wasi.h`). Internally aliases to `wasi_host.Host`.
+/// Caller owns until `zwasm_store_set_wasi` transfers
+/// ownership to a Store, OR until `zwasm_wasi_config_delete`.
+///
+/// Allocator: pinned to the engine's allocator path is not
+/// possible since this function does not take an Engine. Uses
+/// `std.heap.c_allocator` so the resulting Host is freeable
+/// either through `_delete` here or through `wasm_store_delete`
+/// once installed.
+export fn zwasm_wasi_config_new() callconv(.c) ?*wasi_host.Host {
+    const alloc = std.heap.c_allocator;
+    const h = alloc.create(wasi_host.Host) catch return null;
+    h.* = wasi_host.Host.init(alloc) catch {
+        alloc.destroy(h);
+        return null;
+    };
+    return h;
+}
+
+/// `zwasm_wasi_config_delete(*Host)` — free a config that was
+/// NOT installed on a Store. Null-tolerant. After
+/// `zwasm_store_set_wasi` consumes the config, the C host
+/// must NOT call this on the same pointer.
+export fn zwasm_wasi_config_delete(h: ?*wasi_host.Host) callconv(.c) void {
+    const handle = h orelse return;
+    handle.deinit();
+    std.heap.c_allocator.destroy(handle);
+}
+
+/// `zwasm_store_set_wasi(*Store, ?*Host)` — install a WASI
+/// host on a Store. Ownership of the Host transfers to the
+/// Store; the C host must not call `zwasm_wasi_config_delete`
+/// on the same pointer afterwards. Calling twice on the same
+/// Store frees the previous Host first. Pass `null` to detach
+/// + free the existing Host.
+export fn zwasm_store_set_wasi(s: ?*Store, h: ?*wasi_host.Host) callconv(.c) void {
+    const store = s orelse return;
+    if (store.wasi_host) |old| {
+        old.deinit();
+        std.heap.c_allocator.destroy(old);
+    }
+    store.wasi_host = h;
 }
 
 // ============================================================
@@ -1068,6 +1133,46 @@ test "wasm_store_new / delete: round-trip with engine back-pointer" {
     defer wasm_store_delete(s);
 
     try testing.expect(s.engine == e);
+}
+
+test "zwasm_wasi_config_new / set / store_delete: ownership round-trip" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+
+    // Initial: no WASI configured.
+    try testing.expect(s.wasi_host == null);
+
+    const cfg = zwasm_wasi_config_new() orelse return error.ConfigAllocFailed;
+    zwasm_store_set_wasi(s, cfg);
+    try testing.expect(s.wasi_host == cfg);
+
+    // wasm_store_delete tears down the attached host transitively;
+    // the test passes if no leak escapes through c_allocator.
+    wasm_store_delete(s);
+}
+
+test "zwasm_wasi_config_delete: standalone (not installed on Store) is leak-free" {
+    const cfg = zwasm_wasi_config_new() orelse return error.ConfigAllocFailed;
+    zwasm_wasi_config_delete(cfg);
+}
+
+test "zwasm_store_set_wasi(*store, null): detaches + frees the existing host" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    const cfg = zwasm_wasi_config_new() orelse return error.ConfigAllocFailed;
+    zwasm_store_set_wasi(s, cfg);
+    try testing.expect(s.wasi_host != null);
+    zwasm_store_set_wasi(s, null);
+    try testing.expect(s.wasi_host == null);
+}
+
+test "zwasm_wasi_config_*: null-arg discipline" {
+    zwasm_wasi_config_delete(null);
+    zwasm_store_set_wasi(null, null);
 }
 
 test "wasm_store_new(null) returns null; delete(null) tolerates" {
