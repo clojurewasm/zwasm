@@ -81,9 +81,12 @@
   `58ae2d1` (`pathOpen` enforces no `..` / no `/` prefix,
   resolves dirfd via preopen, opens via `std.Io.Dir.openFile`
   on `host.io`). `Host` gained `io: ?std.Io`; `OpenFd` gained
-  `host_handle: ?std.posix.fd_t`. The first remaining `[ ]`
-  is **§9.4 / 4.6 — clock_time_get / random_get / poll_oneoff
-  (stdin-only, blocking)**.
+  `host_handle: ?std.posix.fd_t`. §9.4 / 4.6 closed at
+  `3537ac9` — `src/wasi/clocks.zig` lands `clockTimeGet` (via
+  `std.Io.Timestamp.now(io, clock)`), `randomGet` (via
+  `io.randomSecure`), and a `pollOneoff` stub (nsubscriptions=0
+  → success, otherwise notsup). The first remaining `[ ]` is
+  **§9.4 / 4.7 — wire WASI imports into `wasm_instance_new`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -125,35 +128,53 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.6 (clock_time_get + random_get + poll_oneoff)
+## Active task — §9.4 / 4.7 (wire WASI imports into wasm_instance_new)
 
-Three more low-IO syscalls; all are stdlib-glue.
+The integration task that connects the WASI host scaffolding
+(p1 + host + proc + fd + clocks) to the C-API binding's
+`wasm_instance_new` import-resolution path.
 
-- `clock_time_get(clock_id, precision, *time_out) → errno`:
-  read `Clockid` (realtime / monotonic / process_cputime /
-  thread_cputime), convert to ns since epoch, write u64.
-  Use `std.time.nanoTimestamp` for realtime, `std.time.Timer`
-  or `std.time.nanoTimestamp` differential for monotonic.
-- `random_get(buf_ptr, buf_len) → errno`: fill guest memory
-  with cryptographic random bytes. Use `std.crypto.random.bytes`
-  (or via `host.io.random` per testing.zig pattern).
-- `poll_oneoff(in_ptr, out_ptr, nsubscriptions, *nevents_out)
-  → errno`: stdin-only, blocking. The minimal scope: support
-  exactly one subscription of type `.fd_read` on fd 0 — block
-  on stdin readability. For now, return immediately with
-  events.size = 0 (signaling "nothing ready") OR with a
-  single ready event; real blocking can wait. The exit
-  criterion only requires it works for the realworld samples
-  (TinyGo / Rust hello-world don't use it heavily).
+Plan:
 
-Implement in a new file `src/wasi/clocks.zig` (or extend
-`proc.zig` — proc is short enough). Tests can use
-testing.io's clock + a fixed-seed RNG override for
-determinism.
+1. Extend the §9.3 / 3.7's `Extern` shape so import-side
+   externs (function imports the binding-internal code emits)
+   carry a host-callback signature. Currently Extern only
+   models the .func variant on the export side.
+2. At `wasm_instance_new` time, decode the Module's import
+   section (§5.5.4). For each import:
+   - If `(module = "wasi_snapshot_preview1", name = <call>)`
+     and `host` is configured (via `zwasm_store_set_wasi`):
+     resolve to a binding-internal handler that thunks to
+     the corresponding `src/wasi/*` Zig function.
+   - Otherwise return a Trap (binding_error) — unmatched
+     imports are a host-error.
+3. The handler thunk needs to:
+   - Pop guest args off `Runtime.operand`,
+   - Call the Zig handler with `*Host` + `Runtime.memory` slice
+     + the marshalled args,
+   - Push the resulting Errno (u16) back onto the operand
+     stack,
+   - Check `host.exit_code` after each call; if set, raise a
+     special Trap that surfaces the exit code through the
+     binding.
+4. Add `zwasm_store_set_wasi` (declared in `include/wasi.h`)
+   that installs a `Host` on a `Store`. Allocate the Host on
+   the engine's allocator. Lifetime: Host owned by Store;
+   freed in `wasm_store_delete`.
+5. The dispatch table needs new ZirOp slots for "host call" —
+   or the import resolution maps to ordinary `call` ops with
+   a redirected funcs[] entry that points at a thunk-wrapped
+   ZirFunc. The latter is cleaner; the binding builds a
+   synthetic ZirFunc per import that the dispatch table runs.
 
-After 4.6, the remaining tasks are integration: 4.7 wires
-imports through the binding, 4.8 the CLI, 4.9-4.10 the test
-infrastructure, 4.11-4.12 phase boundary.
+Tests: build a wasm that imports `wasi_snapshot_preview1.fd_write`,
+call it through `wasm_func_call`, capture the host's
+stdout_buffer, verify the bytes flow through. This is the
+first end-to-end WASI test.
+
+Note: this is the largest remaining task in Phase 4 — likely
+splits into multiple chunks. Start with the import-decode
+side, then the thunk-creation, then a single end-to-end test.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
