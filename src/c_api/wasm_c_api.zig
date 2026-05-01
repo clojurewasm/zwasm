@@ -18,6 +18,7 @@
 const std = @import("std");
 
 const interp = @import("../interp/mod.zig");
+const lowerer = @import("../frontend/lowerer.zig");
 const parser = @import("../frontend/parser.zig");
 const sections = @import("../frontend/sections.zig");
 const validator = @import("../frontend/validator.zig");
@@ -64,18 +65,32 @@ pub const Module = extern struct {
     bytes_len: usize,
 };
 
-/// `wasm_instance_t` — instantiated module; owns one
-/// `interp.Runtime` for the duration of its lifetime. The
-/// Runtime is heap-allocated (its inline operand / frame buffers
-/// make it too large to embed inline in an extern struct), and
-/// the Store back-pointer recovers the allocator at delete time.
-/// §9.3 / 3.5 wires lifetime only; §9.3 / 3.6 (`wasm_func_call`)
-/// will populate the Runtime's `funcs` / `memory` / `tables` /
-/// `datas` / `elems` slices from the Module.
-pub const Instance = extern struct {
+/// `wasm_instance_t` — instantiated module. Owns one
+/// `interp.Runtime` plus a per-instance arena that backs every
+/// derived state slice (types, lowered `ZirFunc`s, the func-
+/// pointer table seen by `Runtime.funcs`). C only ever sees a
+/// pointer to this struct (the upstream wasm.h declares
+/// `wasm_instance_t` as opaque), so it does not need an extern
+/// layout — using a regular Zig `struct` lets us hold proper
+/// slices without packing them as `[*]T + len` pairs.
+///
+/// §9.3 / 3.5 wired the lifetime; §9.3 / 3.6 (chunk a) wires
+/// instantiation — at `wasm_instance_new` time the Module bytes
+/// are decoded + lowered into `Runtime.funcs` /
+/// `Runtime.module_types`. `Runtime.memory` / `.tables` /
+/// `.datas` / `.elems` follow when 3.6's call surface needs them.
+pub const Instance = struct {
     store: ?*Store,
     module: ?*const Module,
     runtime: ?*interp.Runtime,
+    /// Per-instance arena holding every derived-state slice. A
+    /// single `arena.deinit()` releases types, lowered ZirFunc
+    /// state, the func-pointer table — uniformly. Owned (heap-
+    /// allocated) so its identity survives moves of the Instance
+    /// struct itself.
+    arena: ?*std.heap.ArenaAllocator = null,
+    funcs_storage: []zir.ZirFunc = &.{},
+    func_ptrs_storage: []*const zir.ZirFunc = &.{},
 };
 
 /// `wasm_func_t` — exported / imported function handle. Wraps a
@@ -299,16 +314,80 @@ export fn wasm_module_delete(m: ?*Module) callconv(.c) void {
 }
 
 // ============================================================
-// Instance constructors / destructors (§9.3 / 3.5)
+// Instance constructors / destructors (§9.3 / 3.5 + 3.6)
 // ============================================================
 
+/// Decode the Module's stored bytes into Runtime state. Allocates
+/// a per-instance arena (held on `inst.arena`) into which all
+/// derived state lives — types, lowered `ZirFunc`s, and the
+/// `[]*const ZirFunc` table that `Runtime.funcs` borrows. On any
+/// failure the partial state is released by `freeInstanceState`.
+///
+/// 3.6 chunk a scope: types + functions + code section. Memory /
+/// data / element / table sections land alongside `wasm_func_call`
+/// in chunk b once the smallest dispatch path needs them.
+fn instantiateRuntime(
+    parent_alloc: std.mem.Allocator,
+    bytes: []const u8,
+    inst: *Instance,
+    rt: *interp.Runtime,
+) !void {
+    const arena = try parent_alloc.create(std.heap.ArenaAllocator);
+    arena.* = std.heap.ArenaAllocator.init(parent_alloc);
+    inst.arena = arena;
+    const a = arena.allocator();
+
+    var module = try parser.parse(a, bytes);
+    defer module.deinit(a);
+
+    const type_section = module.find(.@"type") orelse return;
+    const code_section = module.find(.code) orelse return;
+    const func_section = module.find(.function);
+
+    const types = try sections.decodeTypes(a, type_section.body);
+
+    const def_idx = if (func_section) |s|
+        try sections.decodeFunctions(a, s.body)
+    else
+        try a.alloc(u32, 0);
+
+    const codes = try sections.decodeCodes(a, code_section.body);
+    if (codes.items.len != def_idx.len) return error.InvalidModule;
+
+    const funcs = try a.alloc(zir.ZirFunc, codes.items.len);
+    for (codes.items, def_idx, 0..) |code, type_idx, i| {
+        if (type_idx >= types.items.len) return error.InvalidTypeIndex;
+        funcs[i] = zir.ZirFunc.init(@intCast(i), types.items[type_idx], code.locals);
+        try lowerer.lowerFunctionBody(a, code.body, &funcs[i], types.items);
+    }
+    inst.funcs_storage = funcs;
+
+    const func_ptrs = try a.alloc(*const zir.ZirFunc, funcs.len);
+    for (funcs, 0..) |*f, i| func_ptrs[i] = f;
+    inst.func_ptrs_storage = func_ptrs;
+
+    rt.funcs = func_ptrs;
+    rt.module_types = types.items;
+}
+
+fn freeInstanceState(parent_alloc: std.mem.Allocator, inst: *Instance) void {
+    if (inst.arena) |a| {
+        a.deinit();
+        parent_alloc.destroy(a);
+        inst.arena = null;
+    }
+    inst.funcs_storage = &.{};
+    inst.func_ptrs_storage = &.{};
+}
+
 /// `wasm_instance_new(store, module, imports, trap_out)` —
-/// allocate an Instance bound to the given Module. The
-/// `imports` and `trap_out` parameters are full-shape per
-/// upstream wasm.h but stubbed here (`anyopaque` / unused) until
-/// §9.3 / 3.6 wires `wasm_func_call` and §9.3 / 3.7 wires
-/// `wasm_extern_vec_t` / `wasm_trap_t`. Returns null on any null
-/// required input or OOM.
+/// allocate an Instance bound to the given Module and lower its
+/// code into the owned Runtime. The `imports` and `trap_out`
+/// parameters are full-shape per upstream wasm.h but stubbed
+/// here (`anyopaque` / unused) until §9.3 / 3.6 chunk b wires
+/// `wasm_func_call` and §9.3 / 3.7 wires `wasm_extern_vec_t` /
+/// `wasm_trap_t`. Returns null on any null required input,
+/// instantiation failure, or OOM.
 export fn wasm_instance_new(
     s: ?*Store,
     m: ?*const Module,
@@ -334,17 +413,31 @@ export fn wasm_instance_new(
         .module = module,
         .runtime = runtime,
     };
+
+    const bytes_ptr = module.bytes_ptr orelse {
+        runtime.deinit();
+        alloc.destroy(runtime);
+        alloc.destroy(inst);
+        return null;
+    };
+    instantiateRuntime(alloc, bytes_ptr[0..module.bytes_len], inst, runtime) catch {
+        freeInstanceState(alloc, inst);
+        runtime.deinit();
+        alloc.destroy(runtime);
+        alloc.destroy(inst);
+        return null;
+    };
     return inst;
 }
 
 /// `wasm_instance_delete(*Instance)` — free an Instance returned
-/// by `wasm_instance_new`. Null-tolerant; tears down the owned
-/// Runtime first so memory / globals / data_dropped / elem_dropped
-/// slices are released before the Runtime struct itself.
+/// by `wasm_instance_new`. Null-tolerant; tears down arena-owned
+/// derived state, then the Runtime, then the struct itself.
 export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
     const handle = i orelse return;
     const store = handle.store orelse return;
     const alloc = storeAllocator(store) orelse return;
+    freeInstanceState(alloc, handle);
     if (handle.runtime) |rt| {
         rt.deinit();
         alloc.destroy(rt);
@@ -358,7 +451,7 @@ export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
 
 const testing = std.testing;
 
-test "wasm_c_api shapes: extern structs are pointer-stable" {
+test "wasm_c_api shapes: top-level types instantiate cleanly" {
     const e: Engine = .{ .alloc_ptr = null, .alloc_vtable = null };
     const s: Store = .{ .engine = null };
     const m: Module = .{ .store = null, .bytes_ptr = null, .bytes_len = 0 };
@@ -473,6 +566,29 @@ test "wasm_instance_new / delete: round-trip with minimal module" {
     try testing.expect(i.store == s);
     try testing.expect(i.module == m);
     try testing.expect(i.runtime != null);
+}
+
+test "wasm_instance_new: lowers Module funcs into Runtime" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = minimal_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(i);
+
+    const rt = i.runtime.?;
+    // minimal_wasm declares one type and one defined function.
+    try testing.expectEqual(@as(usize, 1), rt.funcs.len);
+    try testing.expectEqual(@as(usize, 1), rt.module_types.len);
+    // The lowered ZirFunc body is `end` only — exactly one
+    // instruction.
+    try testing.expectEqual(@as(usize, 1), rt.funcs[0].instrs.items.len);
 }
 
 test "wasm_instance_*: null-arg discipline" {
