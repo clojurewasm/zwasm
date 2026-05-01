@@ -20,9 +20,11 @@
   `DONE`. §9.3 / 3.0 closed at `05bd4e4`; §9.3 / 3.1 closed at
   `19c5228` (`include/README.md` documents the vendor policy +
   bump workflow; `build.zig` adds `include/` to exe_mod's
-  include path). The first remaining `[ ]` is **§9.3 / 3.2 —
-  `src/c_api/wasm_c_api.zig` Zone-3 module exporting the C
-  ABI shapes**.
+  include path). §9.3 / 3.2 closed at `9abb951`
+  (`src/c_api/wasm_c_api.zig` Zone-3 shapes:
+  Engine/Store/Module/Instance/Func/Trap + ValKind / Val /
+  ByteVec). The first remaining `[ ]` is **§9.3 / 3.3 —
+  `wasm_engine_new` / `wasm_engine_delete`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -49,13 +51,15 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.2 (Zone-3 wasm_c_api.zig module)
+## Active task — §9.3 / 3.3 (wasm_engine_new / _delete)
 
-Add `src/c_api/wasm_c_api.zig` exposing the engine / store /
-module / instance / func / vec / trap shapes the upstream
-`wasm.h` declares. Module is Zone-3; may import any lower zone.
-Initial scope is shape declarations (extern structs / opaque
-ptrs); concrete `wasm_*_new` etc. land in 3.3 – 3.7.
+First concrete C ABI binding: `wasm_engine_new() -> *Engine` and
+`wasm_engine_delete(*Engine)`. Engine is the process-wide
+top-level handle in wasm-c-api; in zwasm v2 it'll carry the
+allocator the runtime uses (or a default page allocator) plus
+shared module-cache scaffolding. The pair is allocator-pure —
+no Wasm execution yet — so the binding can ship as the smallest
+real `extern "C"` symbol slice.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
