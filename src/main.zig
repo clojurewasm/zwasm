@@ -1,11 +1,18 @@
 //! `zwasm` CLI entry point.
 //!
-//! Phase 0 surface: prints `zwasm v<version>` and exits. Phase 1+
-//! wires CLI argparse and the subcommand dispatch (`run | compile |
-//! validate | inspect | features | wat | wasm`) per ROADMAP §10.
+//! Subcommands:
+//!   (none)              Print version + build options.
+//!   run <path.wasm>     Drive a WASI module's `_start` / `main`
+//!                       export; exit with the guest's
+//!                       `proc_exit` code.
+//!
+//! ROADMAP §10 envisions `compile / validate / inspect / features
+//! / wat / wasm` subcommands too — those land in later phases.
 
 const std = @import("std");
 const build_options = @import("build_options");
+
+const cli_run = @import("cli/run.zig");
 
 pub const version = "0.0.0-pre";
 
@@ -21,6 +28,40 @@ pub const interp = @import("interp/mod.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
+    const gpa = init.gpa;
+
+    var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
+    defer arg_it.deinit();
+    _ = arg_it.next() orelse unreachable; // executable name
+    const subcmd_opt = arg_it.next();
+
+    if (subcmd_opt) |subcmd| {
+        if (std.mem.eql(u8, subcmd, "run")) {
+            const path_arg = arg_it.next() orelse {
+                try printlnErr(io, "usage: zwasm run <path.wasm> [args...]");
+                std.process.exit(2);
+            };
+            const path = try gpa.dupe(u8, path_arg);
+            defer gpa.free(path);
+
+            const cwd = std.Io.Dir.cwd();
+            const bytes = cwd.readFileAlloc(io, path, gpa, .limited(64 * 1024 * 1024)) catch |err| {
+                var buf: [256]u8 = undefined;
+                const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot read '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: read failed";
+                try printlnErr(io, msg);
+                std.process.exit(1);
+            };
+            defer gpa.free(bytes);
+
+            const code = cli_run.runWasm(gpa, io, bytes) catch |err| {
+                var buf: [256]u8 = undefined;
+                const msg = std.fmt.bufPrint(&buf, "zwasm run: {s}", .{@errorName(err)}) catch "zwasm run: failed";
+                try printlnErr(io, msg);
+                std.process.exit(1);
+            };
+            std.process.exit(code);
+        }
+    }
 
     var stdout_buf: [256]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
@@ -36,6 +77,14 @@ pub fn main(init: std.process.Init) !void {
         },
     );
     try stdout.flush();
+}
+
+fn printlnErr(io: std.Io, msg: []const u8) !void {
+    var stderr_buf: [512]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buf);
+    const stderr = &stderr_writer.interface;
+    try stderr.print("{s}\n", .{msg});
+    try stderr.flush();
 }
 
 test "version is non-empty" {
