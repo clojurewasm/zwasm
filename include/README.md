@@ -15,9 +15,16 @@ git add include/wasm.h scripts/fetch_wasm_c_api.sh \
 git commit -m "chore(p3): bump wasm-c-api pin to <newhash> (ADR-0004)"
 ```
 
-`zwasm.h` (forthcoming, §9.3 follow-on) and `wasi.h` (Phase 4)
-will live alongside `wasm.h` here. Per ROADMAP §1.1, `wasm.h` is
-the primary C ABI and any `zwasm.h` extensions are subordinate.
+`wasi.h` (Phase 4) lives alongside `wasm.h` here. **Unlike
+`wasm.h`, `wasi.h` is hand-authored**, not vendored — see
+[`.dev/decisions/0005_phase4_wasi_h_authorship.md`](../.dev/decisions/0005_phase4_wasi_h_authorship.md)
+for the rationale (no single canonical upstream `wasi.h` exists
+for host-side WASI embedding). Edit `wasi.h` directly; the
+`zwasm_wasi_*` symbols are project extensions.
+
+`zwasm.h` (forthcoming, §9.3 follow-on) will also live here. Per
+ROADMAP §1.1, `wasm.h` is the primary C ABI and any `zwasm.h` /
+`wasi.h` extensions are subordinate.
 
 ## build.zig wiring
 
