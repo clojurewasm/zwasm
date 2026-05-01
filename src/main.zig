@@ -71,4 +71,5 @@ test {
     _ = @import("interp/ext_2_0/table_ops.zig");
     _ = @import("c_api/wasm_c_api.zig");
     _ = @import("wasi/p1.zig");
+    _ = @import("wasi/host.zig");
 }
