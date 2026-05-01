@@ -64,6 +64,8 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"br_if")] = brIfOp;
     table.interp[op(.@"br_table")] = brTableOp;
     table.interp[op(.@"return")] = returnOp;
+    table.interp[op(.@"call")] = callOp;
+    table.interp[op(.@"call_indirect")] = callIndirectOp;
 
     // Constants
     table.interp[op(.@"i32.const")] = i32Const;
@@ -378,6 +380,67 @@ fn brTableOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     if (end_idx >= targets.len) return Trap.Unreachable;
     const depth = if (idx < count) targets[start + idx] else targets[end_idx];
     try doBranch(rt, frame, depth);
+}
+
+/// Recursive call. Pops args, allocates locals (params + zero-init
+/// declared locals), pushes a frame, recursively runs the callee
+/// body, then pops the frame on return.
+fn callOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const idx = instr.payload;
+    if (idx >= rt.funcs.len) return Trap.Unreachable;
+    const callee = rt.funcs[idx];
+    const tbl = rt.table orelse return Trap.Unreachable;
+    try invoke(rt, tbl, callee);
+}
+
+/// `call_indirect type_idx`: pops i32 selector, indexes the
+/// function table, invokes the callee. Type-equality check
+/// against the expected `type_idx` requires plumbing the
+/// module's type section through Runtime; that lands in a
+/// follow-up chunk together with the proper element-section
+/// table population. For now the selector simply indexes
+/// `rt.funcs` (a stand-in for the table) and the callee's sig
+/// is trusted.
+fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    _ = instr;
+    const rt = Runtime.fromOpaque(c);
+    const sel = rt.popOperand().u32;
+    if (sel >= rt.funcs.len) return Trap.OutOfBoundsTableAccess;
+    const callee = rt.funcs[sel];
+    const tbl = rt.table orelse return Trap.Unreachable;
+    try invoke(rt, tbl, callee);
+}
+
+fn invoke(rt: *Runtime, table: *const DispatchTable, callee: *const zir.ZirFunc) anyerror!void {
+    const params_len = callee.sig.params.len;
+    const total = params_len + callee.locals.len;
+    const locals = try rt.alloc.alloc(interp.Value, total);
+    defer rt.alloc.free(locals);
+
+    // Pop args in reverse (last param popped first lands at locals[params_len-1]).
+    var i: usize = params_len;
+    while (i > 0) {
+        i -= 1;
+        if (rt.operand_len == 0) return Trap.StackOverflow;
+        locals[i] = rt.popOperand();
+    }
+    // Zero-init declared locals.
+    var j: usize = params_len;
+    while (j < total) : (j += 1) locals[j] = interp.Value.zero;
+
+    try rt.pushFrame(.{
+        .sig = callee.sig,
+        .locals = locals,
+        .operand_base = rt.operand_len,
+        .pc = 0,
+        .func = callee,
+    });
+
+    const dispatch_loop_local = @import("dispatch.zig");
+    const run_err = dispatch_loop_local.run(rt, table, callee.instrs.items);
+    _ = rt.popFrame();
+    try run_err;
 }
 
 fn returnOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
@@ -1621,6 +1684,41 @@ test "i32.reinterpret_f32 + f32.reinterpret_i32: bit-preserving" {
     try rt.pushOperand(.{ .u32 = 0x3F800000 });
     try driveOne(&rt, &t, .@"f32.reinterpret_i32", 0, 0);
     try testing.expectEqual(@as(f32, 1.0), rt.popOperand().f32);
+}
+
+test "call: invokes callee, args pop and result push round-trip" {
+    // callee: fn (i32, i32) -> i32 { local.get 0 ; local.get 1 ; i32.add ; end }
+    const param_arr = [_]zir.ValType{ .i32, .i32 };
+    const result_arr = [_]zir.ValType{.i32};
+    var callee = zir.ZirFunc.init(0, .{ .params = &param_arr, .results = &result_arr }, &.{});
+    defer callee.deinit(testing.allocator);
+    try callee.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0, .extra = 0 });
+    try callee.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 1, .extra = 0 });
+    try callee.instrs.append(testing.allocator, .{ .op = .@"i32.add", .payload = 0, .extra = 0 });
+    try callee.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+
+    // caller: fn () -> i32 { i32.const 5 ; i32.const 7 ; call 0 ; end }
+    var caller = zir.ZirFunc.init(1, .{ .params = &.{}, .results = &result_arr }, &.{});
+    defer caller.deinit(testing.allocator);
+    try caller.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5, .extra = 0 });
+    try caller.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7, .extra = 0 });
+    try caller.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 0, .extra = 0 });
+    try caller.instrs.append(testing.allocator, .{ .op = .@"end", .payload = 0, .extra = 0 });
+
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+
+    const funcs = [_]*const zir.ZirFunc{&callee};
+    rt.funcs = &funcs;
+
+    try rt.pushFrame(.{ .sig = caller.sig, .locals = &.{}, .operand_base = 0, .pc = 0, .func = &caller });
+    defer _ = rt.popFrame();
+    try dispatch_loop.run(&rt, &t, caller.instrs.items);
+
+    try testing.expectEqual(@as(u32, 1), rt.operand_len);
+    try testing.expectEqual(@as(u32, 12), rt.popOperand().u32);
 }
 
 test "block + end: arity=0, operand stack restored" {

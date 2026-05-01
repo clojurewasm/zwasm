@@ -18,8 +18,8 @@
 
 const std = @import("std");
 
-const zir = @import("../ir/zir.zig");
-const dispatch_table = @import("../ir/dispatch_table.zig");
+pub const zir = @import("../ir/zir.zig");
+pub const dispatch_table = @import("../ir/dispatch_table.zig");
 
 const Allocator = std.mem.Allocator;
 const ValType = zir.ValType;
@@ -144,6 +144,15 @@ pub const Runtime = struct {
     alloc: Allocator,
     memory: []u8 = &.{},
     globals: []Value = &.{},
+    /// Module function table — `funcs[i]` is the ZirFunc for the
+    /// i-th function in the module's index space (imports first,
+    /// then defined). The `call` handler indexes into this; the
+    /// runner sets it before invoking the entry function.
+    funcs: []const *const zir.ZirFunc = &.{},
+    /// Dispatch table used by the active interp run. Set by
+    /// `src/interp/dispatch.zig`'s `run`; the `call` handler
+    /// needs it to recursively dispatch the callee body.
+    table: ?*const dispatch_table.DispatchTable = null,
 
     operand_buf: [max_operand_stack]Value = undefined,
     operand_len: u32 = 0,

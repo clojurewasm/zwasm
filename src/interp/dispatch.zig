@@ -59,6 +59,10 @@ pub fn run(
     table: *const DispatchTable,
     instrs: []const ZirInstr,
 ) anyerror!void {
+    const saved_table = rt.table;
+    rt.table = table;
+    defer rt.table = saved_table;
+
     const ephemeral = rt.frame_len == 0;
     if (ephemeral) {
         const empty_sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
