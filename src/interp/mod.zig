@@ -156,6 +156,17 @@ pub const TableInstance = struct {
     max: ?u32 = null,
 };
 
+/// One host-call binding — stored at `Runtime.host_calls[i]`
+/// for each `i` that corresponds to an imported function. The
+/// `call <i>` instruction short-circuits to `fn_ptr(rt, ctx)`
+/// when this slot is non-null. The C-API binding (Phase 4)
+/// builds these for `(import "wasi_snapshot_preview1" ...)`
+/// entries; ctx is typically a `*wasi.Host`.
+pub const HostCall = struct {
+    fn_ptr: *const fn (*Runtime, *anyopaque) anyerror!void,
+    ctx: *anyopaque,
+};
+
 /// Per-instance interpreter state. Owns linear memory + globals
 /// (heap-backed); operand and frame stacks are inline.
 pub const Runtime = struct {
@@ -167,6 +178,12 @@ pub const Runtime = struct {
     /// then defined). The `call` handler indexes into this; the
     /// runner sets it before invoking the entry function.
     funcs: []const *const zir.ZirFunc = &.{},
+    /// Parallel-to-`funcs` host-call table. When the dispatch
+    /// loop's `call` op routes to index `i` and `host_calls[i]`
+    /// is non-null, the host thunk runs instead of dispatching
+    /// the ZirFunc body. Length 0 (empty) when no imports
+    /// resolved through the binding.
+    host_calls: []const ?HostCall = &.{},
     /// Module data segments. Borrowed; the runner keeps the
     /// decoded data alive for as long as `Runtime` references it.
     /// Used by `memory.init` (Wasm 2.0 §9.2 / 2.3 chunk 4b).

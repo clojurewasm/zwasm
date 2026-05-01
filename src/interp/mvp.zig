@@ -405,6 +405,16 @@ fn brTableOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
 fn callOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const idx = instr.payload;
+    // Host-call short-circuit (§9.4 / 4.7 chunk c). For imports
+    // wired by the C-API binding, `host_calls[idx]` carries the
+    // thunk + host context; defined-function indices have null
+    // and fall through to ordinary ZirFunc dispatch.
+    if (idx < rt.host_calls.len) {
+        if (rt.host_calls[idx]) |hc| {
+            try hc.fn_ptr(rt, hc.ctx);
+            return;
+        }
+    }
     if (idx >= rt.funcs.len) return Trap.Unreachable;
     const callee = rt.funcs[idx];
     const tbl = rt.table orelse return Trap.Unreachable;

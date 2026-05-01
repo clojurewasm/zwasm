@@ -19,6 +19,8 @@ const std = @import("std");
 
 const interp = @import("../interp/mod.zig");
 const wasi_host = @import("../wasi/host.zig");
+const wasi_fd = @import("../wasi/fd.zig");
+const wasi_proc = @import("../wasi/proc.zig");
 const dispatch = @import("../interp/dispatch.zig");
 const interp_mvp = @import("../interp/mvp.zig");
 const ext_sign_ext = @import("../interp/ext_2_0/sign_ext.zig");
@@ -475,6 +477,46 @@ export fn wasm_module_delete(m: ?*Module) callconv(.c) void {
 /// 3.6 chunk a scope: types + functions + code section. Memory /
 /// data / element / table sections land alongside `wasm_func_call`
 /// in chunk b once the smallest dispatch path needs them.
+// ============================================================
+// WASI host thunks (§9.4 / 4.7 chunk c)
+// ============================================================
+//
+// Each thunk pops the guest-call args off the operand stack
+// (right-to-left, since Wasm pushes left-to-right), invokes the
+// corresponding `src/wasi/*.zig` handler with `host` + `mem` +
+// the args, and pushes the resulting Errno back as an i32.
+// `proc_exit` is the odd one out: returns `error.WasiExit` so
+// the dispatch loop unwinds with `host.exit_code` set.
+//
+// Chunk c lands `fd_write` + `proc_exit` only — the minimum
+// for an end-to-end hello-world. Subsequent chunks will fill in
+// the rest of the WASI 0.1 surface.
+
+const HostThunkFn = *const fn (*interp.Runtime, *anyopaque) anyerror!void;
+
+fn thunkFdWrite(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const nwritten_ptr = rt.popOperand().u32;
+    const ciovec_count = rt.popOperand().u32;
+    const ciovec_ptr = rt.popOperand().u32;
+    const fd = rt.popOperand().u32;
+    const errno = wasi_fd.fdWrite(host, rt.memory, fd, ciovec_ptr, ciovec_count, nwritten_ptr);
+    try rt.pushOperand(.{ .i32 = @intCast(@intFromEnum(errno)) });
+}
+
+fn thunkProcExit(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const rval = rt.popOperand().u32;
+    _ = wasi_proc.procExit(host, rval);
+    return error.WasiExit;
+}
+
+fn lookupWasiThunk(name: []const u8) ?HostThunkFn {
+    if (std.mem.eql(u8, name, "fd_write")) return thunkFdWrite;
+    if (std.mem.eql(u8, name, "proc_exit")) return thunkProcExit;
+    return null;
+}
+
 fn instantiateRuntime(
     parent_alloc: std.mem.Allocator,
     bytes: []const u8,
@@ -489,56 +531,89 @@ fn instantiateRuntime(
     var module = try parser.parse(a, bytes);
     defer module.deinit(a);
 
-    // Validate imports up front. §9.4 / 4.7 chunk b: reject any
-    // import the binding cannot satisfy. Unknown module names →
-    // `error.UnknownImportModule`. WASI imports with no host
-    // configured → `error.WasiNotConfigured`. WASI imports WITH a
-    // host: also rejected for now with `error.WasiThunksNotWired`,
-    // pending §9.4 / 4.7 chunk c which builds the host-thunk
-    // dispatch path.
+    // §9.4 / 4.7: import section. Validate every entry against
+    // the binding's supported set, count imported functions for
+    // the funcidx-space layout (imports first, then defined),
+    // and remember the decoded items for thunk wiring below.
+    var imports_decoded: ?sections.Imports = null;
+    defer if (imports_decoded) |*im| im.deinit();
     if (module.find(.import)) |import_section| {
-        var imports = try sections.decodeImports(a, import_section.body);
-        defer imports.deinit();
-        var has_wasi: bool = false;
-        for (imports.items) |it| {
-            if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
-                has_wasi = true;
-            } else {
+        imports_decoded = try sections.decodeImports(a, import_section.body);
+        for (imports_decoded.?.items) |it| {
+            if (!std.mem.eql(u8, it.module, "wasi_snapshot_preview1"))
                 return error.UnknownImportModule;
+            if (it.kind == .func) {
+                if (lookupWasiThunk(it.name) == null) return error.UnsupportedWasiImport;
             }
-        }
-        if (has_wasi) {
-            const store = inst.store orelse return error.WasiNotConfigured;
-            if (store.wasi_host == null) return error.WasiNotConfigured;
-            return error.WasiThunksNotWired; // chunk c TODO
         }
     }
 
+    var imp_func_count: u32 = 0;
+    if (imports_decoded) |im| for (im.items) |it| {
+        if (it.kind == .func) imp_func_count += 1;
+    };
+
+    if (imp_func_count > 0) {
+        const store = inst.store orelse return error.WasiNotConfigured;
+        if (store.wasi_host == null) return error.WasiNotConfigured;
+    }
+
     const type_section = module.find(.@"type") orelse return;
-    const code_section = module.find(.code) orelse return;
+    const code_section_opt = module.find(.code);
     const func_section = module.find(.function);
 
     const types = try sections.decodeTypes(a, type_section.body);
 
-    const def_idx = if (func_section) |s|
-        try sections.decodeFunctions(a, s.body)
-    else
-        try a.alloc(u32, 0);
+    // Defined-function lowering. If there's no code section,
+    // `funcs` stays empty — valid for import-only modules.
+    var funcs: []zir.ZirFunc = &.{};
+    if (code_section_opt) |code_section| {
+        const def_idx = if (func_section) |s|
+            try sections.decodeFunctions(a, s.body)
+        else
+            try a.alloc(u32, 0);
 
-    const codes = try sections.decodeCodes(a, code_section.body);
-    if (codes.items.len != def_idx.len) return error.InvalidModule;
+        const codes = try sections.decodeCodes(a, code_section.body);
+        if (codes.items.len != def_idx.len) return error.InvalidModule;
 
-    const funcs = try a.alloc(zir.ZirFunc, codes.items.len);
-    for (codes.items, def_idx, 0..) |code, type_idx, i| {
-        if (type_idx >= types.items.len) return error.InvalidTypeIndex;
-        funcs[i] = zir.ZirFunc.init(@intCast(i), types.items[type_idx], code.locals);
-        try lowerer.lowerFunctionBody(a, code.body, &funcs[i], types.items);
+        funcs = try a.alloc(zir.ZirFunc, codes.items.len);
+        for (codes.items, def_idx, 0..) |code, type_idx, i| {
+            if (type_idx >= types.items.len) return error.InvalidTypeIndex;
+            funcs[i] = zir.ZirFunc.init(@intCast(imp_func_count + i), types.items[type_idx], code.locals);
+            try lowerer.lowerFunctionBody(a, code.body, &funcs[i], types.items);
+        }
     }
     inst.funcs_storage = funcs;
 
-    const func_ptrs = try a.alloc(*const zir.ZirFunc, funcs.len);
-    for (funcs, 0..) |*f, i| func_ptrs[i] = f;
+    // Build the funcidx-space func-pointer table: `imp_func_count`
+    // placeholder entries first (the host_calls table short-
+    // circuits these in `callOp`; the placeholder ZirFunc traps
+    // if dispatch ever reaches it), then the defined ZirFuncs.
+    const total_funcs = imp_func_count + funcs.len;
+    const func_ptrs = try a.alloc(*const zir.ZirFunc, total_funcs);
+    if (imp_func_count > 0) {
+        const placeholder = try a.create(zir.ZirFunc);
+        placeholder.* = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &.{} }, &.{});
+        try placeholder.instrs.append(a, .{ .op = .@"unreachable", .payload = 0, .extra = 0 });
+        for (0..imp_func_count) |i| func_ptrs[i] = placeholder;
+    }
+    for (funcs, 0..) |*f, i| func_ptrs[imp_func_count + i] = f;
     inst.func_ptrs_storage = func_ptrs;
+
+    // host_calls — wire each imported func to its WASI thunk.
+    if (imp_func_count > 0) {
+        const host_calls = try a.alloc(?interp.HostCall, total_funcs);
+        @memset(host_calls, null);
+        const host_ctx: *anyopaque = @ptrCast(inst.store.?.wasi_host.?);
+        var imp_idx: u32 = 0;
+        for (imports_decoded.?.items) |it| {
+            if (it.kind != .func) continue;
+            const thunk = lookupWasiThunk(it.name) orelse unreachable;
+            host_calls[imp_idx] = .{ .fn_ptr = thunk, .ctx = host_ctx };
+            imp_idx += 1;
+        }
+        rt.host_calls = host_calls;
+    }
 
     rt.funcs = func_ptrs;
     rt.module_types = types.items;
@@ -1503,8 +1578,10 @@ const wasi_fd_write_import_wasm = [_]u8{
     // type: 1 type, (i32 i32 i32 i32) -> (i32)
     0x01, 0x09, 0x01, 0x60, 0x04, 0x7F, 0x7F, 0x7F, 0x7F, 0x01, 0x7F,
     // import section: count=1, module "wasi_snapshot_preview1"
-    // (22 bytes), name "fd_write" (8 bytes), desc func typeidx=0
-    0x02, 0x21, 0x01,
+    // (1 + 22 = 23 bytes), name "fd_write" (1 + 8 = 9 bytes),
+    // desc func typeidx=0 (2 bytes), count=1 byte. Body =
+    // 1 + 23 + 9 + 2 = 35 = 0x23.
+    0x02, 0x23, 0x01,
     0x16, 0x77, 0x61, 0x73, 0x69, 0x5F, 0x73, 0x6E, 0x61, 0x70,
     0x73, 0x68, 0x6F, 0x74, 0x5F, 0x70, 0x72, 0x65, 0x76, 0x69,
     0x65, 0x77, 0x31, // "wasi_snapshot_preview1"
@@ -1543,6 +1620,32 @@ test "wasm_instance_new: rejects WASI imports when no host is configured" {
     // is configured on the Store. wasm_instance_new fails.
     const inst = wasm_instance_new(s, m, null, null);
     try testing.expect(inst == null);
+}
+
+test "wasm_instance_new: succeeds for WASI imports when host configured (4.7c)" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    const cfg = zwasm_wasi_config_new() orelse return error.ConfigAllocFailed;
+    zwasm_store_set_wasi(s, cfg);
+
+    var bytes = wasi_fd_write_import_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    // With host configured, instantiation succeeds even though
+    // no defined functions exist — the import is wired into
+    // host_calls[0] via thunkFdWrite.
+    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+
+    const rt = inst.runtime.?;
+    try testing.expectEqual(@as(usize, 1), rt.funcs.len); // placeholder for the import
+    try testing.expectEqual(@as(usize, 1), rt.host_calls.len);
+    try testing.expect(rt.host_calls[0] != null);
 }
 
 test "wasm_instance_exports: surfaces declared exports + dispatches via wasm_extern_as_func" {
