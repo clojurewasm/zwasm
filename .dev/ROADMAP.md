@@ -1123,8 +1123,8 @@ of each phase advances it.
 |-------|-------------|-------------------------------|
 | 0     | DONE        | —                             |
 | 1     | DONE        | —                             |
-| 2     | IN-PROGRESS | §9.2 / 2.9 (boundary audit)   |
-| 3     | PENDING     |                               |
+| 2     | DONE        | —                             |
+| 3     | IN-PROGRESS | §9.3 / 3.0 (fetch wasm.h)     |
 | 4     | PENDING     |                               |
 | 5     | PENDING     |                               |
 | 6     | PENDING     |                               |
@@ -1238,17 +1238,17 @@ windowsmini; spec runner runs there too).
 
 | #    | Description                                                                                | Status         |
 |------|--------------------------------------------------------------------------------------------|----------------|
-| 2.0  | `src/interp/mod.zig` — interp scaffold (Runtime, frame stack, Value, Trap shapes).        | [x]            |
-| 2.1  | `src/interp/dispatch.zig` — threaded-code dispatch loop reading `DispatchTable.interp`.   | [x]            |
-| 2.2  | `src/feature/mvp/` interp handlers — wire MVP opcodes (numeric / control / memory).       | [x]            |
-| 2.3  | Wasm 2.0 features (sign-ext, sat-trunc, multivalue blocks, bulk-memory, ref-types).       | [x]            |
-| 2.4  | Trap semantics — `i32.div_u 0`, `i32.trunc_f32_s` overflow, OOB load/store, etc.          | [x]            |
-| 2.5  | `zig build test --leak-check` clean (`std.testing.allocator` zero-leak).                  | [x]            |
-| 2.6  | Realworld smoke (5+ samples: TinyGo / Rust / emcc / WASI cat / AssemblyScript).            | [x]            |
-| 2.7  | Wasm 2.0 spec corpus extension to `test/spec/wasm-2.0/` + `.wast` directive handling.     | [x]            |
-| 2.8  | Wasm Core 2.0 spec corpus fail=0 / skip=0 on Mac + OrbStack + windowsmini.                | [x]            |
-| 2.9  | Phase-2 boundary `audit_scaffolding` pass.                                                 | [x]            |
-| 2.10 | Open §9.3 inline; flip phase tracker.                                                      | [ ]            |
+| 2.0  | `src/interp/mod.zig` — interp scaffold (Runtime, frame stack, Value, Trap shapes).        | [x] 65434f1    |
+| 2.1  | `src/interp/dispatch.zig` — threaded-code dispatch loop reading `DispatchTable.interp`.   | [x] 35e2184    |
+| 2.2  | `src/feature/mvp/` interp handlers — wire MVP opcodes (numeric / control / memory).       | [x] 34aad78    |
+| 2.3  | Wasm 2.0 features (sign-ext, sat-trunc, multivalue blocks, bulk-memory, ref-types).       | [x] b4b859f    |
+| 2.4  | Trap semantics — `i32.div_u 0`, `i32.trunc_f32_s` overflow, OOB load/store, etc.          | [x] c9d0d4b    |
+| 2.5  | `zig build test --leak-check` clean (`std.testing.allocator` zero-leak).                  | [x] 35c0c2e    |
+| 2.6  | Realworld smoke (5+ samples: TinyGo / Rust / emcc / WASI cat / AssemblyScript).            | [x] 6af5c30    |
+| 2.7  | Wasm 2.0 spec corpus extension to `test/spec/wasm-2.0/` + `.wast` directive handling.     | [x] 7b0d9c6    |
+| 2.8  | Wasm Core 2.0 spec corpus fail=0 / skip=0 on Mac + OrbStack + windowsmini.                | [x] f51bce8    |
+| 2.9  | Phase-2 boundary `audit_scaffolding` pass.                                                 | [x] a2e9c8b    |
+| 2.10 | Open §9.3 inline; flip phase tracker.                                                      | [x]            |
 
 ### Phase 3 — C API minimal
 
@@ -1265,6 +1265,23 @@ zwasm.
 - `examples/c_host/hello.c` builds and runs on all three OSes.
 
 **🔒 gate**: no.
+
+#### §9.3 task list (expanded)
+
+| #    | Description                                                                                | Status         |
+|------|--------------------------------------------------------------------------------------------|----------------|
+| 3.0  | `scripts/fetch_wasm_c_api.sh` — fetch `wasm.h` verbatim from upstream + pin commit (ADR). | [ ]            |
+| 3.1  | `include/wasm.h` vendored read-only; build.zig wires the include path.                    | [ ]            |
+| 3.2  | `src/c_api/wasm_c_api.zig` — Zone-3 module, exports the C ABI shapes (engine/module/...). | [ ]            |
+| 3.3  | `wasm_engine_new` / `wasm_engine_delete` — engine lifetime; allocator threading.          | [ ]            |
+| 3.4  | `wasm_module_new` / `_module_validate` / `_module_delete` — wraps frontend pipeline.      | [ ]            |
+| 3.5  | `wasm_instance_new` / `_instance_delete` — wraps Runtime instantiation.                   | [ ]            |
+| 3.6  | `wasm_func_call` — wraps interp dispatch; param + result `wasm_val_t` marshalling.        | [ ]            |
+| 3.7  | `wasm_*_vec_t` types + `wasm_trap_t` — vec discipline, trap surface.                      | [ ]            |
+| 3.8  | `examples/c_host/hello.c` — minimal C host invoking `wasm_func_call`.                     | [ ]            |
+| 3.9  | `zig build test-c-api` — gates the example builds + runs on all three hosts.              | [ ]            |
+| 3.10 | Phase-3 boundary `audit_scaffolding` pass.                                                 | [ ]            |
+| 3.11 | Open §9.4 inline; flip phase tracker.                                                      | [ ]            |
 
 ### Phase 4 — WASI 0.1 minimal 🔒
 

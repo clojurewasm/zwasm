@@ -16,11 +16,12 @@
 
 ## Current state
 
-- **Phase**: **Phase 2 IN-PROGRESS.** Phases 0 + 1 are `DONE`.
-  §9.2 / 2.0 – 2.8 are `[x]`. The first remaining `[ ]` is
-  **§9.2 / 2.9 — Phase-2 boundary `audit_scaffolding` pass**;
-  audit landed in `private/audit-2026-05-02.md`. Remaining
-  Phase-2 tasks are 2.9 + 2.10 (open §9.3 inline).
+- **Phase**: **Phase 3 IN-PROGRESS.** Phases 0 + 1 + 2 are
+  `DONE`. §9.2 closed at the boundary commit (SHAs backfilled
+  in §9.2 task table; Phase Status widget advanced; §9.3 task
+  table opened inline). The first remaining `[ ]` is
+  **§9.3 / 3.0 — `scripts/fetch_wasm_c_api.sh` (fetch + pin
+  upstream `wasm.h`; ADR records the upstream commit hash)**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -45,23 +46,31 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.2 / 2.9 (boundary audit)
+## Active task — §9.3 / 3.0 (fetch + pin `wasm.h`)
 
-`audit_scaffolding` ran 2026-05-02 inline. Findings recorded at
-`private/audit-2026-05-02.md`:
+Phase 3 opens the C API surface. Task 3.0 fetches
+`include/wasm.h` from upstream `WebAssembly/wasm-c-api` via a
+new `scripts/fetch_wasm_c_api.sh`, pins the upstream commit
+hash in an ADR, and lands the include path wiring.
 
-- 3 `block` (Phase Status widget stale, handover Active-task
-  section stale, handover "ADRs filed: none" lie) — fixed in
-  the same commit as 2.9 close.
-- 4 `soon` (handover historical bloat, mvp.zig 1965 / 2000
-  lines trending up, validator.zig 1426 over soft cap,
-  proposal_watch quarterly review).
-- 5 `watch` (lowerer.zig nearing soft cap, missing
-  `test/spec/wasm-2.0/README.md` upstream-pin doc, etc.).
+Subsequent §9.3 tasks (3.1 – 3.11): vendor the header, add the
+Zone-3 `src/c_api/wasm_c_api.zig` module, export the C ABI
+(engine / module / instance / func / vec / trap), wire
+`zig build test-c-api`, ship `examples/c_host/hello.c`, then
+boundary audit + open §9.4.
 
-`soon` queue carried into Phase 3 + Phase 5 (the validator /
-mvp.zig per-feature split is the natural Phase-5 analysis-layer
-work).
+## Phase-2 audit `soon` / `watch` carry-over
+
+From `private/audit-2026-05-02.md` (Phase-2 boundary):
+
+- `soon`: mvp.zig 1965 / 2000 lines (split into int_ops /
+  float_ops / conversions queued for Phase 5 analysis layer).
+- `soon`: validator.zig 1426 lines over §A2 soft cap; lowerer
+  1062 likewise. ADR for split plan is the gating step.
+- `soon`: proposal_watch quarterly refresh due 2026-07-30.
+- `watch`: missing `test/spec/wasm-2.0/README.md` documenting
+  the upstream-pin per ADR-0003. Land alongside Phase-3 setup
+  if convenient.
 
 ## Phase-2 deferred items (queued for Phase 3+ / Phase 14)
 
