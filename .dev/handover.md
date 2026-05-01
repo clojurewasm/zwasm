@@ -20,11 +20,13 @@
   §9.2 / 2.0 (`243d9ba`), 2.1 (`f292ae7`), 2.2 (`575fbec`) are
   `[x]`. The full MVP interp handler set is wired across
   `src/interp/mvp.zig` + `src/interp/memory_ops.zig`. **§9.2 /
-  2.3 IN-PROGRESS** — chunk 1 (sign-extension, 0xC0..0xC4)
-  landed at `32f09dc` across a new
-  `src/interp/ext_2_0/sign_ext.zig` (Zone 2, per-feature
-  engine-side module split) plus validator + lowerer 0xC0..0xC4
-  cases. Three-host gate green.
+  2.3 IN-PROGRESS** — chunk 1 (sign-ext 0xC0..0xC4) at `32f09dc`
+  and chunk 2 (sat-trunc 0xFC 0..7) at `f21c972` are landed.
+  New `src/interp/ext_2_0/{sign_ext,sat_trunc}.zig` (Zone 2,
+  per-feature engine-side split). Validator + lowerer now
+  decode the 0xFC prefix; unknown sub-ops bounce to
+  NotImplemented for chunks 4+ to wire. Three-host gate green
+  for both chunks.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -54,19 +56,22 @@ table population is a follow-up — see chunk-7 commit notes).
 §9.2 / 2.3 progress (Wasm 2.0 features, multi-chunk):
 - chunk 1 (sign-ext 0xC0..0xC4) — landed at `32f09dc`. New
   `src/interp/ext_2_0/sign_ext.zig` (Zone 2) wires the five
-  `iN.extend{8,16,32}_s` interp handlers; validator and lowerer
-  extended with 0xC0..0xC4 cases. Tests cover positive /
-  negative / high-bits-ignored per opcode. Three-host green.
+  `iN.extend{8,16,32}_s` interp handlers; validator + lowerer
+  extended with 0xC0..0xC4 cases.
+- chunk 2 (sat-trunc 0xFC 0..7) — landed at `f21c972`. New
+  `src/interp/ext_2_0/sat_trunc.zig` wires the eight
+  `iN.trunc_sat_fM_{s,u}` handlers via shared
+  satTruncSigned/Unsigned helpers (NaN→0, ±inf→MAX/MIN,
+  truncate-toward-zero otherwise). Validator + lowerer now
+  decode the 0xFC prefix uleb32 sub-opcode; unknown sub-ops
+  return NotImplemented (reserved for chunks 4+).
 
 Next chunks for 2.3 (in order of cost / dependency):
-- chunk 2 — saturating truncation `iN.trunc_sat_*` (prefix 0xFC
-  sub-opcodes 0..7). Frontend gains a 0xFC prefix-decoder; new
-  `src/interp/ext_2_0/sat_trunc.zig` for handlers (NaN → 0,
-  out-of-range → INT_MAX/INT_MIN, no trap).
 - chunk 3 — multivalue block-types (s33 typeidx in
   `readBlockType`); validator + lowerer + interp.
 - chunk 4 — bulk memory (`memory.copy/fill/init`, `data.drop`,
-  `table.copy/init`, `elem.drop`) under prefix 0xFC.
+  `table.copy/init`, `elem.drop`) under prefix 0xFC sub-ops 8+.
+  Element / data section decoders also needed.
 - chunk 5 — reference types (`ref.null`, `ref.is_null`,
   `ref.func`, table.* set, select_typed). Larger; touches
   Value tagging.
