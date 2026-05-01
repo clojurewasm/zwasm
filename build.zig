@@ -32,6 +32,12 @@ pub fn build(b: *std.Build) void {
     });
     exe_mod.addOptions("build_options", options);
 
+    // §9.3 / 3.1: `include/` carries the vendored C API headers
+    // (wasm.h pinned via ADR-0004). Adding the path here lets
+    // src/c_api/* modules `@cImport(@cInclude("wasm.h"))` once
+    // the binding work lands in §9.3 / 3.2 onward.
+    exe_mod.addIncludePath(b.path("include"));
+
     const exe = b.addExecutable(.{
         .name = "zwasm",
         .root_module = exe_mod,
