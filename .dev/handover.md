@@ -43,8 +43,12 @@
   shape + lifecycle), 3.7b at `24567cc` (vec family for byte +
   val), 3.7c at `c7784e4` (`wasm_extern_t` Func variant +
   `wasm_extern_vec_*` pointer-vec family +
-  `wasm_instance_exports` + `sections.decodeExports`). The first
-  remaining `[ ]` is **§9.3 / 3.8 — `examples/c_host/hello.c`**.
+  `wasm_instance_exports` + `sections.decodeExports`). §9.3 /
+  3.8 closed at `2ee0cb8` — `examples/c_host/hello.c` drives the
+  binding end-to-end through the upstream surface (no project
+  extensions); compileable today via `zig cc -c -I include …`.
+  The first remaining `[ ]` is **§9.3 / 3.9 — `zig build
+  test-c-api`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -71,34 +75,48 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.8 (examples/c_host/hello.c)
+## Active task — §9.3 / 3.9 (zig build test-c-api)
 
-A minimal C host that drives the binding end-to-end:
+The build wiring that makes 3.8's example actually link + run
+on all three hosts. Plan:
 
-  #include <wasm.h>
-  // build a small wasm module (e.g. hand-rolled byte array
-  // matching `i32_const_42_export_main_wasm`), instantiate via
-  // wasm_engine_new / wasm_store_new / wasm_module_new /
-  // wasm_instance_new, walk wasm_instance_exports, dispatch
-  // through wasm_func_call, print the i32 result. Tear down in
-  // reverse order; every wasm_*_delete must run.
+1. Add a static-library target in `build.zig` that exposes the
+   binding's `export fn` symbols:
+     const lib = b.addLibrary(.{
+       .name = "zwasm",
+       .linkage = .static,
+       .root_module = c_api_lib_mod,
+     });
+   Where `c_api_lib_mod` is a fresh module rooted at a small
+   wrapper file (e.g. `src/c_api/lib.zig`) that pulls in
+   `wasm_c_api.zig` so the exports are present in the resulting
+   `libzwasm.a`. Link libc on the lib too (engine uses
+   c_allocator).
 
-The example proves the upstream ABI is C-host-callable (not just
-Zig-test-callable). It also lets §9.3 / 3.9 (`zig build
-test-c-api`) compile + link a real C TU against the produced
-zwasm binary.
+2. Add a `zig build test-c-api` step that:
+   - Builds the static lib.
+   - Compiles `examples/c_host/hello.c` via `b.addSystemCommand`
+     (or a built-in C executable target) against `include/wasm.h`
+     and links the static lib.
+   - Runs the resulting executable; success = exit 0 + stdout
+     contains "main() returned 42".
 
-Things to confirm:
-- Naming surface from C: `zwasm_instance_get_func` is a project
-  extension; `wasm_instance_exports` is the standard path. The
-  example should prefer the standard path.
-- Binary linkage: the executable target in build.zig links libc
-  (already done in §9.3 / 3.3). For an example, we need a
-  separate `zig cc` invocation that compiles the C file against
-  `include/wasm.h` and links the zwasm static library.
-- `examples/` is a new top-level directory; mirror v1's layout
-  (or whatever ROADMAP §5 dictates). build.zig may need a new
-  step `zig build example-c-host` that runs the compile.
+3. Add `test-c-api` to `test-all` so the three-host gate
+   exercises the C linkage too.
+
+Cross-host caveats:
+- macOS aarch64: zig cc + lld + Mach-O; should just work.
+- Linux x86_64 via OrbStack: same toolchain (zig vendored), so
+  identical behaviour — just different target.
+- windowsmini: zig cc on Windows produces COFF; the example
+  needs a Windows-friendly main signature, which the current
+  hello.c already has (no argv reliance).
+
+Risks: the `@cImport(@cInclude("wasm.h"))` smoke from §9.3 / 3.2
+tripped Rosetta. Now that we have a real C compiler in the
+loop (zig cc), the equivalent header parse is the C compiler
+itself — no translate-c involved. So the prior issue should not
+recur.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
