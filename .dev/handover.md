@@ -109,10 +109,14 @@
   WASI driver; `pub export fn` on all 36 binding entries for
   Zig-import), 4.8b at `894b9ce` (`src/main.zig` `run`
   subcommand: argv → file read → runWasm → exit code; verified
-  live: `zwasm run /tmp/proc_exit_42.wasm` returns 42). The
-  first remaining `[ ]` is **§9.4 / 4.9 — `test/wasi/`
-  curated subset of wasi-testsuite + `zig build test-wasi-p1`
-  runner**.
+  live: `zwasm run /tmp/proc_exit_42.wasm` returns 42). §9.4 /
+  4.9 closed at `fe61fc8` — `test/wasi/runner.zig` walks
+  `test/wasi/` (currently 1 fixture: `proc_exit_42.wasm` +
+  `proc_exit_42.expected_exit`); `zig build test-wasi-p1`
+  invokes it; wired into `test-all` so the three-host gate
+  exercises WASI on every push. The first remaining `[ ]` is
+  **§9.4 / 4.10 — diff 30+ realworld samples (stdout vs
+  `wasmtime run`); land regression script**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -154,33 +158,43 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.9 (test/wasi/ + zig build test-wasi-p1)
+## Active task — §9.4 / 4.10 (realworld diff vs wasmtime run)
 
-Test infrastructure for WASI 0.1 conformance:
+ROADMAP §9.4 exit criterion: "30+ realworld samples (out of
+the 50 from v1) run to completion with stdout matching
+`wasmtime run`". This is the conformance push that fleshes out
+the WASI thunk table beyond `fd_write` + `proc_exit`.
 
-1. Create `test/wasi/` directory with curated `.wasm` fixtures
-   exercising each landed thunk. Start with hand-rolled
-   modules:
-   - `proc_exit_42.wasm` — proves binding's exit-code path
-     (already in `src/cli/run.zig` test fixture; promote to a
-     real file)
-   - `hello_stdout.wasm` — fd_write to fd 1, then proc_exit(0)
-   - More as the thunk table grows
-2. Add a runner under `test/wasi/runner.zig` that:
-   - Walks the directory
-   - Calls `cli_run.runWasm` against each .wasm
-   - For each fixture, asserts an expected exit code +
-     captured stdout against a sibling `.expected.txt` file
-3. Wire `zig build test-wasi-p1` step in `build.zig`. Add
-   it to `test-all` so the three-host gate exercises WASI.
-4. After 4.9 lands, 4.10 expands by piping the same wasms
-   through `wasmtime run` and diff-comparing — that's the
-   conformance push.
+Plan:
 
-The thunk table currently has only `fd_write` + `proc_exit`.
-Adding more thunks (fd_read for stdin-piped tests,
-clock_time_get for time-related fixtures, etc.) belongs as
-needed when fixtures call for them.
+1. Pick fixtures from `test/realworld/wasm/` (already vendored
+   from v1's diff suite — Rust / TinyGo / cpp_struct_test /
+   etc.). Promote some to `test/wasi/` as runnable fixtures.
+2. For each fixture:
+   - Add `<name>.expected_exit` and `<name>.expected_stdout`
+   - Run `wasmtime run <name>.wasm` once, capture stdout +
+     exit code; manually verify against project expectations,
+     freeze as expected output.
+3. Extend `runner.zig` to capture stdout (set
+   `host.stdout_buffer`) and compare against
+   `.expected_stdout` byte-for-byte.
+4. Add missing thunks as failure modes surface:
+   - `fd_read` for stdin-piped tests
+   - `clock_time_get` for time-using guests
+   - `random_get` for randomness-using guests
+   - `fd_close` / `fd_seek` etc. as guests touch them
+5. Land a `scripts/diff_wasmtime.sh` (or similar) that runs
+   the fixture set under both zwasm and wasmtime locally to
+   help triage regressions during development.
+
+Cross-host concern: wasmtime is not installed everywhere. The
+runner stays self-contained (compares against frozen
+`.expected_stdout`); the diff script is a developer tool, not
+a CI gate.
+
+This is a substantial task. Likely splits into chunks: first
+the runner stdout-capture extension; then 1-2 fixtures at a
+time as their thunks land.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack

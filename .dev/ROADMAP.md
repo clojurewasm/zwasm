@@ -1311,7 +1311,7 @@ zwasm.
 | 4.6  | `clock_time_get` / `random_get` / `poll_oneoff` (stdin-only, blocking).                   | [x]            |
 | 4.7  | Wire WASI imports into `wasm_instance_new` — match `(import "wasi_snapshot_preview1" …)`. | [x]            |
 | 4.8  | `zwasm run <path.wasm> [args...]` CLI subcommand drives `_start`.                         | [x]            |
-| 4.9  | `test/wasi/` curated subset of wasi-testsuite + `zig build test-wasi-p1` runner.          | [ ]            |
+| 4.9  | `test/wasi/` curated subset of wasi-testsuite + `zig build test-wasi-p1` runner.          | [x]            |
 | 4.10 | Diff 30+ realworld samples (stdout vs `wasmtime run`); land regression script.            | [ ]            |
 | 4.11 | Phase-4 boundary `audit_scaffolding` pass; 🔒 three-host gate confirmation.               | [ ]            |
 | 4.12 | Open §9.5 inline; flip phase tracker.                                                      | [ ]            |
