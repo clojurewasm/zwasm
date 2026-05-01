@@ -64,10 +64,18 @@ pub const Module = extern struct {
     bytes_len: usize,
 };
 
-/// `wasm_instance_t` — instantiated module; owns the runtime
-/// frame stack + linear memory + tables for one Wasm instance.
+/// `wasm_instance_t` — instantiated module; owns one
+/// `interp.Runtime` for the duration of its lifetime. The
+/// Runtime is heap-allocated (its inline operand / frame buffers
+/// make it too large to embed inline in an extern struct), and
+/// the Store back-pointer recovers the allocator at delete time.
+/// §9.3 / 3.5 wires lifetime only; §9.3 / 3.6 (`wasm_func_call`)
+/// will populate the Runtime's `funcs` / `memory` / `tables` /
+/// `datas` / `elems` slices from the Module.
 pub const Instance = extern struct {
-    _padding: usize = 0,
+    store: ?*Store,
+    module: ?*const Module,
+    runtime: ?*interp.Runtime,
 };
 
 /// `wasm_func_t` — exported / imported function handle. Wraps a
@@ -291,6 +299,60 @@ export fn wasm_module_delete(m: ?*Module) callconv(.c) void {
 }
 
 // ============================================================
+// Instance constructors / destructors (§9.3 / 3.5)
+// ============================================================
+
+/// `wasm_instance_new(store, module, imports, trap_out)` —
+/// allocate an Instance bound to the given Module. The
+/// `imports` and `trap_out` parameters are full-shape per
+/// upstream wasm.h but stubbed here (`anyopaque` / unused) until
+/// §9.3 / 3.6 wires `wasm_func_call` and §9.3 / 3.7 wires
+/// `wasm_extern_vec_t` / `wasm_trap_t`. Returns null on any null
+/// required input or OOM.
+export fn wasm_instance_new(
+    s: ?*Store,
+    m: ?*const Module,
+    imports: ?*const anyopaque,
+    trap_out: ?*?*Trap,
+) callconv(.c) ?*Instance {
+    _ = imports;
+    _ = trap_out;
+    const store = s orelse return null;
+    const module = m orelse return null;
+    const alloc = storeAllocator(store) orelse return null;
+
+    const runtime = alloc.create(interp.Runtime) catch return null;
+    runtime.* = interp.Runtime.init(alloc);
+
+    const inst = alloc.create(Instance) catch {
+        runtime.deinit();
+        alloc.destroy(runtime);
+        return null;
+    };
+    inst.* = .{
+        .store = store,
+        .module = module,
+        .runtime = runtime,
+    };
+    return inst;
+}
+
+/// `wasm_instance_delete(*Instance)` — free an Instance returned
+/// by `wasm_instance_new`. Null-tolerant; tears down the owned
+/// Runtime first so memory / globals / data_dropped / elem_dropped
+/// slices are released before the Runtime struct itself.
+export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
+    const handle = i orelse return;
+    const store = handle.store orelse return;
+    const alloc = storeAllocator(store) orelse return;
+    if (handle.runtime) |rt| {
+        rt.deinit();
+        alloc.destroy(rt);
+    }
+    alloc.destroy(handle);
+}
+
+// ============================================================
 // Smoke tests (shape stability)
 // ============================================================
 
@@ -300,7 +362,7 @@ test "wasm_c_api shapes: extern structs are pointer-stable" {
     const e: Engine = .{ .alloc_ptr = null, .alloc_vtable = null };
     const s: Store = .{ .engine = null };
     const m: Module = .{ .store = null, .bytes_ptr = null, .bytes_len = 0 };
-    const i: Instance = .{};
+    const i: Instance = .{ .store = null, .module = null, .runtime = null };
     const f: Func = .{};
     const t: Trap = .{};
     _ = .{ e, s, m, i, f, t };
@@ -392,6 +454,30 @@ test "wasm_module_*: null-arg discipline" {
     try testing.expect(wasm_module_new(null, null) == null);
     try testing.expect(!wasm_module_validate(null, null));
     wasm_module_delete(null);
+}
+
+test "wasm_instance_new / delete: round-trip with minimal module" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = minimal_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(i);
+
+    try testing.expect(i.store == s);
+    try testing.expect(i.module == m);
+    try testing.expect(i.runtime != null);
+}
+
+test "wasm_instance_*: null-arg discipline" {
+    try testing.expect(wasm_instance_new(null, null, null, null) == null);
+    wasm_instance_delete(null);
 }
 
 test "wasm_c_api: ValKind tag values match wasm.h" {
