@@ -39,6 +39,8 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"table.grow")] = tableGrow;
     table.interp[op(.@"table.fill")] = tableFill;
     table.interp[op(.@"table.copy")] = tableCopy;
+    table.interp[op(.@"table.init")] = tableInit;
+    table.interp[op(.@"elem.drop")] = elemDrop;
 }
 
 fn tableGet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
@@ -170,6 +172,43 @@ fn tableCopy(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
     }
 }
 
+/// table.init x y: payload = elemidx, extra = tableidx. Pop n,
+/// src, dst. Copy n refs from elems[x] to tables[y]. Trap if
+/// src+n > elem.len OR dst+n > table.len. Treat dropped segments
+/// as zero-length.
+fn tableInit(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const elemidx = instr.payload;
+    const tableidx = instr.extra;
+    if (elemidx >= rt.elems.len or tableidx >= rt.tables.len) return Trap.Unreachable;
+    const dropped = if (elemidx < rt.elem_dropped.len) rt.elem_dropped[elemidx] else false;
+    const seg = rt.elems[elemidx];
+    const seg_len: u64 = if (dropped) 0 else seg.len;
+    const tbl = rt.tables[tableidx];
+
+    const n_i = rt.popOperand().i32;
+    const src_i = rt.popOperand().i32;
+    const dst_i = rt.popOperand().i32;
+    const n: u64 = @as(u32, @bitCast(n_i));
+    const src: u64 = @as(u32, @bitCast(src_i));
+    const dst: u64 = @as(u32, @bitCast(dst_i));
+    if (src + n > seg_len or dst + n > tbl.refs.len) return Trap.OutOfBoundsTableAccess;
+    if (n == 0) return;
+    var i: usize = 0;
+    while (i < @as(usize, @intCast(n))) : (i += 1) {
+        tbl.refs[@as(usize, @intCast(dst)) + i] = seg[@as(usize, @intCast(src)) + i];
+    }
+}
+
+/// elem.drop x: mark element segment x as dropped. Subsequent
+/// table.init x calls treat its length as 0.
+fn elemDrop(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const elemidx = instr.payload;
+    if (elemidx >= rt.elem_dropped.len) return Trap.Unreachable;
+    rt.elem_dropped[elemidx] = true;
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -184,7 +223,7 @@ fn driveOne(rt: *Runtime, table: *const DispatchTable, t: ZirOp, payload: u32, e
     try dispatch_loop.step(rt, table, &instr);
 }
 
-test "register: all six table ops populated" {
+test "register: all eight table ops populated" {
     var t = DispatchTable.init();
     register(&t);
     try testing.expect(t.interp[op(.@"table.get")] != null);
@@ -193,6 +232,8 @@ test "register: all six table ops populated" {
     try testing.expect(t.interp[op(.@"table.grow")] != null);
     try testing.expect(t.interp[op(.@"table.fill")] != null);
     try testing.expect(t.interp[op(.@"table.copy")] != null);
+    try testing.expect(t.interp[op(.@"table.init")] != null);
+    try testing.expect(t.interp[op(.@"elem.drop")] != null);
 }
 
 test "table.size: returns refs.len" {
@@ -424,4 +465,95 @@ test "table.copy: src+n > src_len traps" {
     try rt.pushOperand(.{ .i32 = 1 }); // src
     try rt.pushOperand(.{ .i32 = 3 }); // n (1+3=4 > src_len=2)
     try testing.expectError(Trap.OutOfBoundsTableAccess, driveOne(&rt, &t, .@"table.copy", 0, 1));
+}
+
+fn setupElems(rt: *Runtime, segs: []const []const Value) !void {
+    rt.elems = segs;
+    rt.elem_dropped = try rt.alloc.alloc(bool, segs.len);
+    @memset(rt.elem_dropped, false);
+}
+
+test "table.init: copies refs from element segment to table" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+
+    var refs = [_]Value{
+        .{ .ref = Value.null_ref },
+        .{ .ref = Value.null_ref },
+        .{ .ref = Value.null_ref },
+        .{ .ref = Value.null_ref },
+    };
+    var tbls = [_]TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    rt.tables = &tbls;
+
+    const seg0 = [_]Value{ .{ .ref = 11 }, .{ .ref = 22 }, .{ .ref = 33 } };
+    const segs = [_][]const Value{&seg0};
+    try setupElems(&rt, &segs);
+
+    // table.init 0 0: dst=1, src=0, n=2. Encoding: payload=0 (elemidx), extra=0 (tableidx)
+    try rt.pushOperand(.{ .i32 = 1 }); // dst
+    try rt.pushOperand(.{ .i32 = 0 }); // src
+    try rt.pushOperand(.{ .i32 = 2 }); // n
+    try driveOne(&rt, &t, .@"table.init", 0, 0);
+    try testing.expectEqual(Value.null_ref, refs[0].ref);
+    try testing.expectEqual(@as(u64, 11), refs[1].ref);
+    try testing.expectEqual(@as(u64, 22), refs[2].ref);
+    try testing.expectEqual(Value.null_ref, refs[3].ref);
+}
+
+test "table.init: src+n > seg_len traps" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    var refs = [_]Value{ .{ .ref = Value.null_ref }, .{ .ref = Value.null_ref } };
+    var tbls = [_]TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    rt.tables = &tbls;
+    const seg0 = [_]Value{.{ .ref = 0 }};
+    const segs = [_][]const Value{&seg0};
+    try setupElems(&rt, &segs);
+
+    try rt.pushOperand(.{ .i32 = 0 });
+    try rt.pushOperand(.{ .i32 = 0 });
+    try rt.pushOperand(.{ .i32 = 5 }); // n=5 > seg_len=1
+    try testing.expectError(Trap.OutOfBoundsTableAccess, driveOne(&rt, &t, .@"table.init", 0, 0));
+}
+
+test "table.init after elem.drop: any n>0 traps; n=0 succeeds" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    var refs = [_]Value{.{ .ref = Value.null_ref }};
+    var tbls = [_]TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    rt.tables = &tbls;
+    const seg0 = [_]Value{ .{ .ref = 1 }, .{ .ref = 2 } };
+    const segs = [_][]const Value{&seg0};
+    try setupElems(&rt, &segs);
+
+    // elem.drop 0
+    try driveOne(&rt, &t, .@"elem.drop", 0, 0);
+    try testing.expectEqual(true, rt.elem_dropped[0]);
+
+    // n=1 → trap.
+    try rt.pushOperand(.{ .i32 = 0 });
+    try rt.pushOperand(.{ .i32 = 0 });
+    try rt.pushOperand(.{ .i32 = 1 });
+    try testing.expectError(Trap.OutOfBoundsTableAccess, driveOne(&rt, &t, .@"table.init", 0, 0));
+
+    // n=0 → no-op.
+    try rt.pushOperand(.{ .i32 = 0 });
+    try rt.pushOperand(.{ .i32 = 0 });
+    try rt.pushOperand(.{ .i32 = 0 });
+    try driveOne(&rt, &t, .@"table.init", 0, 0);
+}
+
+test "elem.drop: elemidx out of range traps Unreachable" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try testing.expectError(Trap.Unreachable, driveOne(&rt, &t, .@"elem.drop", 0, 0));
 }

@@ -413,6 +413,17 @@ const Lowerer = struct {
                 const dataidx = try leb128.readUleb128(u32, self.body, &self.pos);
                 try self.emit(.@"data.drop", dataidx, 0);
             },
+            12 => {
+                // table.init x y: elemidx + tableidx.
+                const elemidx = try leb128.readUleb128(u32, self.body, &self.pos);
+                const tableidx = try leb128.readUleb128(u32, self.body, &self.pos);
+                try self.emit(.@"table.init", elemidx, tableidx);
+            },
+            13 => {
+                // elem.drop x: elemidx.
+                const elemidx = try leb128.readUleb128(u32, self.body, &self.pos);
+                try self.emit(.@"elem.drop", elemidx, 0);
+            },
             14 => {
                 // table.copy x y: dst-tableidx + src-tableidx.
                 const dst = try leb128.readUleb128(u32, self.body, &self.pos);
@@ -854,6 +865,31 @@ test "lower: table.grow / table.fill carry tableidx in payload" {
     const grow = f.instrs.items[2];
     try testing.expectEqual(ZirOp.@"table.grow", grow.op);
     try testing.expectEqual(@as(u32, 7), grow.payload);
+}
+
+test "lower: table.init carries elemidx in payload, tableidx in extra" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x0C, 0x02, 0x07,
+        0x0B,
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const init_op = f.instrs.items[3];
+    try testing.expectEqual(ZirOp.@"table.init", init_op.op);
+    try testing.expectEqual(@as(u32, 2), init_op.payload);
+    try testing.expectEqual(@as(u32, 7), init_op.extra);
+}
+
+test "lower: elem.drop carries elemidx in payload" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{ 0xFC, 0x0D, 0x05, 0x0B };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const drop = f.instrs.items[0];
+    try testing.expectEqual(ZirOp.@"elem.drop", drop.op);
+    try testing.expectEqual(@as(u32, 5), drop.payload);
 }
 
 test "lower: table.copy carries dst-tableidx in payload, src in extra" {

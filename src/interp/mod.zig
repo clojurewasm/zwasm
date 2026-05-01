@@ -183,6 +183,14 @@ pub const Runtime = struct {
     /// against (`rt.alloc`) and for freeing the final slice after
     /// runtime tear-down.
     tables: []TableInstance = &.{},
+    /// Module element segments resolved to runtime ref values
+    /// (Wasm 2.0 §9.2 / 2.3 chunk 5d-2). Borrowed; the runner
+    /// translates funcidxs from the decoded ElementSegment into
+    /// these slices at instantiation time.
+    elems: []const []const Value = &.{},
+    /// Per-segment dropped flag for `elem.drop`. Owned (heap-
+    /// allocated when `elems.len > 0`); freed in deinit.
+    elem_dropped: []bool = &.{},
     /// Dispatch table used by the active interp run. Set by
     /// `src/interp/dispatch.zig`'s `run`; the `call` handler
     /// needs it to recursively dispatch the callee body.
@@ -202,6 +210,7 @@ pub const Runtime = struct {
         if (self.memory.len > 0) self.alloc.free(self.memory);
         if (self.globals.len > 0) self.alloc.free(self.globals);
         if (self.data_dropped.len > 0) self.alloc.free(self.data_dropped);
+        if (self.elem_dropped.len > 0) self.alloc.free(self.elem_dropped);
     }
 
     pub fn pushOperand(self: *Runtime, v: Value) Trap!void {
