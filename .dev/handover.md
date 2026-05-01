@@ -34,14 +34,12 @@
   `0417675` — `wasm_instance_new` / `wasm_instance_delete`
   wire the Instance lifetime; Instance owns a heap-allocated
   `interp.Runtime` allocated through Store→Engine. The first
-  remaining `[ ]` is **§9.3 / 3.6 — `wasm_func_call`**. 3.6
-  splits into chunks: 3.6a closed at `00f4d9e` —
-  `wasm_instance_new` now decodes the Module bytes into the
-  owned Runtime (per-instance `ArenaAllocator` backs types +
-  lowered `ZirFunc`s + the func-pointer table; `Instance` is now
-  a regular `struct` since C only sees the opaque pointer). 3.6b
-  is the dispatch surface (`wasm_func_call` + Func handle +
-  arg/result `wasm_val_t` marshalling) — that is the next chunk.
+  §9.3 / 3.6 closed at `88e8d79` (chunk a `00f4d9e` decoded the
+  Module into the Runtime; chunk b `88e8d79` wired
+  `zwasm_instance_get_func` + `wasm_func_delete` +
+  `wasm_func_call` + a process-wide lazy `DispatchTable` cache).
+  The first remaining `[ ]` is **§9.3 / 3.7 — `wasm_*_vec_t`
+  types + `wasm_trap_t`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -68,32 +66,37 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.6 chunk b (wasm_func_call surface)
+## Active task — §9.3 / 3.7 (wasm_*_vec_t + wasm_trap_t)
 
-3.6a (Module → Runtime instantiation in `wasm_instance_new`)
-landed at `00f4d9e`. Remaining for 3.6:
+The remaining wasm.h surface for the v0.1.0 minimum:
 
-1. Add a Func handle that resolves to `(instance, func_idx)`.
-   Either expose a project-extension helper
-   (`zwasm_instance_get_func(*Instance, u32) *Func`) for first
-   pass — folding into the standard `wasm_instance_exports`
-   shape comes alongside `wasm_extern_vec_t` in §9.3 / 3.7.
-2. Wire `wasm_func_call(*Func, *wasm_val_vec_t args,
-   *wasm_val_vec_t results)`: marshal input `wasm_val_t`s onto
-   `Runtime.operand`, push the entry frame with the right
-   FuncType + locals slice, run `interp.dispatch.run` over the
-   ZirFunc body, marshal `Runtime.operand` results back to the
-   `wasm_val_vec_t`. The dispatch table comes from
-   `interp.feature.mvp` (or wherever the standard MVP table is
-   built — check `src/feature/mvp/mod.zig`).
-3. Trap surface stays stubbed: on a Trap error from `dispatch.run`,
-   return a non-null sentinel `*Trap`. The message body and
-   proper `wasm_trap_t` lifetime land in §9.3 / 3.7.
+1. Replace the `?*const anyopaque` / hand-rolled `ValVec`
+   placeholders with the proper `wasm_*_vec_t` family:
+   `wasm_byte_vec_t` (already there), `wasm_val_vec_t`,
+   `wasm_extern_vec_t`, `wasm_extern_t` shape, and the upstream
+   `WASM_DECLARE_VEC` discipline (a `_t`, `_new`, `_new_empty`,
+   `_new_uninitialized`, `_copy`, `_delete` per vec).
+2. Fill out `wasm_trap_t`:
+   - Add a `kind` field mapping `interp.Trap` conditions →
+     spec-conformant strings (`unreachable`, `integer divide by
+     zero`, …).
+   - Add `wasm_trap_message(*Trap, *wasm_byte_vec_t)`.
+   - Add `wasm_trap_delete(*Trap)` so the trap allocations
+     emitted by `wasm_func_call` actually get freed (right now
+     they leak — see the test "wasm_func_call: arg-count
+     mismatch traps" comment).
+   - Trap allocator should be the same Store→Engine path the
+     other handles use; Trap struct gains a back-pointer to its
+     Store.
+3. Audit the `wasm_extern_t` shape — wasm.h declares it as a
+   tagged union of (func, global, table, memory). For first pass
+   we only need the Func variant (matching what
+   `zwasm_instance_get_func` produces today). Globals / tables /
+   memories follow alongside their respective dispatch ops in
+   later phases.
 
-The realworld toolchain wasms (cpp_struct_test etc.) parse but
-won't dispatch yet because they pull in WASI imports. The first
-dispatch test should use a hand-rolled `(func (result i32)
-(i32.const 42))` body so it stays import-free.
+Once 3.7 lands, 3.8 (`examples/c_host/hello.c`) and 3.9
+(`zig build test-c-api`) are mostly C-side glue.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
