@@ -99,6 +99,10 @@ pub const Instance = struct {
     arena: ?*std.heap.ArenaAllocator = null,
     funcs_storage: []zir.ZirFunc = &.{},
     func_ptrs_storage: []*const zir.ZirFunc = &.{},
+    /// Decoded export-section entries (arena-backed). Used by
+    /// `wasm_instance_exports` to surface the upstream-standard
+    /// discovery path.
+    exports_storage: []sections.Export = &.{},
 };
 
 /// `wasm_func_t` — exported / imported function handle. Carries a
@@ -183,6 +187,42 @@ pub const ByteVec = extern struct {
 pub const ValVec = extern struct {
     size: usize,
     data: ?[*]Val,
+};
+
+/// `wasm_externkind_t` — tag identifying which Wasm extern shape
+/// an `Extern` carries. Numeric values match upstream wasm.h
+/// (`WASM_EXTERN_FUNC` = 0, …) so the binding exports the same
+/// integers C hosts read.
+pub const ExternKind = enum(u8) {
+    func = 0,
+    global = 1,
+    table = 2,
+    memory = 3,
+};
+
+/// `wasm_extern_t` — opaque-from-C handle for an exported /
+/// imported runtime entity. v0.1.0 wires only the `func`
+/// variant (the only one the interp dispatch path needs);
+/// global / table / memory variants land alongside their
+/// dispatch ops in later phases.
+pub const Extern = struct {
+    kind: ExternKind,
+    /// Back-pointer for allocator recovery in `wasm_extern_delete`.
+    instance: ?*Instance,
+    /// For kind = func: the Func handle owned by this Extern. C
+    /// hosts borrow via `wasm_extern_as_func` (no transfer of
+    /// ownership) and must NOT call `wasm_func_delete` on the
+    /// returned pointer; `wasm_extern_delete` releases it.
+    func: ?*Func,
+};
+
+/// `wasm_extern_vec_t` — vec(wasm_extern_t*). Per upstream
+/// `WASM_DECLARE_VEC(extern, *)` discipline, data is an array of
+/// pointers; the vec owns both the array and each pointed-to
+/// `Extern`.
+pub const ExternVec = extern struct {
+    size: usize,
+    data: ?[*]?*Extern,
 };
 
 // ============================================================
@@ -412,6 +452,11 @@ fn instantiateRuntime(
 
     rt.funcs = func_ptrs;
     rt.module_types = types.items;
+
+    if (module.find(.@"export")) |export_section| {
+        const exports = try sections.decodeExports(a, export_section.body);
+        inst.exports_storage = exports.items;
+    }
 }
 
 fn freeInstanceState(parent_alloc: std.mem.Allocator, inst: *Instance) void {
@@ -768,6 +813,150 @@ export fn wasm_val_vec_copy(out: ?*ValVec, src: ?*const ValVec) callconv(.c) voi
 
 export fn wasm_val_vec_delete(v: ?*ValVec) callconv(.c) void {
     vecDelete(ValVec, v);
+}
+
+// ============================================================
+// wasm_extern_t + wasm_instance_exports (§9.3 / 3.7 chunk c)
+// ============================================================
+
+fn exportDescToExternKind(kind: sections.ExportDesc) ExternKind {
+    return switch (kind) {
+        .func => .func,
+        .global => .global,
+        .table => .table,
+        .memory => .memory,
+    };
+}
+
+/// `wasm_extern_kind` — return the upstream-numeric tag.
+export fn wasm_extern_kind(e: ?*const Extern) callconv(.c) u8 {
+    const handle = e orelse return @intFromEnum(ExternKind.func);
+    return @intFromEnum(handle.kind);
+}
+
+/// `wasm_extern_delete(*Extern)` — free an Extern handle and
+/// the contained Func (if any). Null-tolerant.
+export fn wasm_extern_delete(e: ?*Extern) callconv(.c) void {
+    const handle = e orelse return;
+    if (handle.func) |fh| wasm_func_delete(fh);
+    const inst = handle.instance orelse return;
+    const store = inst.store orelse return;
+    const alloc = storeAllocator(store) orelse return;
+    alloc.destroy(handle);
+}
+
+/// `wasm_extern_as_func(*Extern)` — borrow the Func contained in
+/// an Extern. Returns null if the Extern is not of kind func.
+/// **Ownership stays with the Extern**; callers must NOT call
+/// `wasm_func_delete` on the returned pointer (matches upstream
+/// wasm.h discipline for the `_as_*` family).
+export fn wasm_extern_as_func(e: ?*Extern) callconv(.c) ?*Func {
+    const handle = e orelse return null;
+    if (handle.kind != .func) return null;
+    return handle.func;
+}
+
+// --- extern vec (pointer-vec; vec_delete also frees pointed-to objects)
+
+export fn wasm_extern_vec_new_empty(out: ?*ExternVec) callconv(.c) void {
+    const o = out orelse return;
+    o.* = .{ .size = 0, .data = null };
+}
+
+export fn wasm_extern_vec_new_uninitialized(out: ?*ExternVec, size: usize) callconv(.c) void {
+    const o = out orelse return;
+    if (size == 0) {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    }
+    const buf = std.heap.c_allocator.alloc(?*Extern, size) catch {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    };
+    @memset(buf, null);
+    o.* = .{ .size = size, .data = buf.ptr };
+}
+
+export fn wasm_extern_vec_new(out: ?*ExternVec, size: usize, src: ?[*]const ?*Extern) callconv(.c) void {
+    const o = out orelse return;
+    if (size == 0 or src == null) {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    }
+    const buf = std.heap.c_allocator.alloc(?*Extern, size) catch {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    };
+    @memcpy(buf, src.?[0..size]);
+    o.* = .{ .size = size, .data = buf.ptr };
+}
+
+/// `wasm_extern_vec_delete(*ExternVec)` — free the vec's pointer
+/// array AND each non-null pointed-to Extern (per upstream's
+/// pointer-vec ownership rule for `WASM_DECLARE_REF` types).
+export fn wasm_extern_vec_delete(v: ?*ExternVec) callconv(.c) void {
+    const handle = v orelse return;
+    if (handle.data) |dp| {
+        for (dp[0..handle.size]) |opt_ext| {
+            if (opt_ext) |ext| wasm_extern_delete(ext);
+        }
+        std.heap.c_allocator.free(dp[0..handle.size]);
+    }
+    handle.* = .{ .size = 0, .data = null };
+}
+
+/// `wasm_instance_exports(*Instance, *out vec)` — populate `out`
+/// with one Extern per decoded export from the Module's export
+/// section. Each Extern's contained `Func` (when kind == func)
+/// resolves to the Instance's lowered ZirFunc index. The vec is
+/// owned by the caller and must be released with
+/// `wasm_extern_vec_delete`.
+///
+/// On any allocation failure the populated prefix is rolled back
+/// so the out vec is either fully populated or empty — never
+/// partially populated.
+export fn wasm_instance_exports(i: ?*const Instance, out: ?*ExternVec) callconv(.c) void {
+    const o = out orelse return;
+    o.* = .{ .size = 0, .data = null };
+    const inst = i orelse return;
+    const store = inst.store orelse return;
+    const alloc = storeAllocator(store) orelse return;
+    if (inst.exports_storage.len == 0) return;
+
+    const buf = std.heap.c_allocator.alloc(?*Extern, inst.exports_storage.len) catch return;
+    @memset(buf, null);
+    var populated: usize = 0;
+
+    for (inst.exports_storage, 0..) |exp, idx| {
+        const ext = alloc.create(Extern) catch break;
+        ext.* = .{
+            .kind = exportDescToExternKind(exp.kind),
+            .instance = @constCast(inst),
+            .func = null,
+        };
+        if (ext.kind == .func) {
+            const fh = alloc.create(Func) catch {
+                alloc.destroy(ext);
+                break;
+            };
+            fh.* = .{ .instance = @constCast(inst), .func_idx = exp.idx };
+            ext.func = fh;
+        }
+        buf[idx] = ext;
+        populated += 1;
+    }
+
+    if (populated != inst.exports_storage.len) {
+        // Roll back partial state — release what we did populate
+        // and the buffer itself so the caller sees an empty vec.
+        for (buf[0..populated]) |opt_ext| {
+            if (opt_ext) |ext| wasm_extern_delete(ext);
+        }
+        std.heap.c_allocator.free(buf);
+        return;
+    }
+
+    o.* = .{ .size = inst.exports_storage.len, .data = buf.ptr };
 }
 
 /// `wasm_func_call(func, args, results)` — invoke `func` with
@@ -1146,6 +1335,82 @@ test "wasm_*_vec_*: null-arg discipline" {
     wasm_val_vec_new(null, 4, null);
     wasm_val_vec_copy(null, null);
     wasm_val_vec_delete(null);
+    wasm_extern_vec_new_empty(null);
+    wasm_extern_vec_new_uninitialized(null, 16);
+    wasm_extern_vec_new(null, 4, null);
+    wasm_extern_vec_delete(null);
+}
+
+// (module (func (export "main") (result i32) (i32.const 42)))
+// Same as i32_const_42_wasm but with an export section between
+// function (id 3) and code (id 10).
+const i32_const_42_export_main_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, // \0asm
+    0x01, 0x00, 0x00, 0x00, // version 1
+    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7F, // type: () -> (i32)
+    0x03, 0x02, 0x01, 0x00, // function: 1 fn, type 0
+    0x07, 0x08, 0x01, 0x04, 0x6D, 0x61, 0x69, 0x6E, 0x00, 0x00, // export "main" (func 0)
+    0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2A, 0x0B, // code: i32.const 42, end
+};
+
+test "wasm_instance_exports: surfaces declared exports + dispatches via wasm_extern_as_func" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = i32_const_42_export_main_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+
+    var exports: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst, &exports);
+    defer wasm_extern_vec_delete(&exports);
+
+    try testing.expectEqual(@as(usize, 1), exports.size);
+    const ext = exports.data.?[0] orelse return error.MissingExtern;
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.func)), wasm_extern_kind(ext));
+
+    // wasm_extern_as_func returns a borrowed pointer; dispatch
+    // through it without separately freeing.
+    const f = wasm_extern_as_func(ext) orelse return error.NotFunc;
+    var results_data: [1]Val = undefined;
+    var results: ValVec = .{ .size = 1, .data = &results_data };
+    const args: ValVec = .{ .size = 0, .data = null };
+    const trap = wasm_func_call(f, &args, &results);
+    try testing.expect(trap == null);
+    try testing.expectEqual(@as(i32, 42), results_data[0].of.i32);
+}
+
+test "wasm_instance_exports: empty when no export section" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = i32_const_42_wasm; // no export section
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+
+    var exports: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst, &exports);
+    defer wasm_extern_vec_delete(&exports);
+    try testing.expectEqual(@as(usize, 0), exports.size);
+}
+
+test "wasm_extern_*: null-arg discipline" {
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.func)), wasm_extern_kind(null));
+    wasm_extern_delete(null);
+    try testing.expect(wasm_extern_as_func(null) == null);
+    var out: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(null, &out);
+    try testing.expectEqual(@as(usize, 0), out.size);
 }
 
 test "zwasm_instance_get_func / wasm_func_delete: null-arg discipline" {

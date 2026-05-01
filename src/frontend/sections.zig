@@ -483,6 +483,61 @@ pub const Elements = struct {
     }
 };
 
+pub const ExportDesc = enum(u8) {
+    func = 0,
+    table = 1,
+    memory = 2,
+    global = 3,
+};
+
+pub const Export = struct {
+    /// Owned by `Exports.arena`; survives the source body's lifetime.
+    name: []const u8,
+    kind: ExportDesc,
+    idx: u32,
+};
+
+pub const Exports = struct {
+    arena: std.heap.ArenaAllocator,
+    items: []Export,
+
+    pub fn deinit(self: *Exports) void {
+        self.arena.deinit();
+    }
+};
+
+/// Decode the body of an export section (Wasm 1.0 §5.5.10):
+///   exportsec = vec(export)
+///   export    = name:vec(byte), desc:exportdesc
+///   exportdesc = (func | table | memory | global) idx:u32
+pub fn decodeExports(parent_alloc: Allocator, body: []const u8) Error!Exports {
+    var arena = std.heap.ArenaAllocator.init(parent_alloc);
+    errdefer arena.deinit();
+    const alloc = arena.allocator();
+
+    var pos: usize = 0;
+    const count = try leb128.readUleb128(u32, body, &pos);
+    const items = try alloc.alloc(Export, count);
+
+    for (items) |*e| {
+        const name_len = try leb128.readUleb128(u32, body, &pos);
+        if (pos + name_len > body.len) return Error.UnexpectedEnd;
+        const name_copy = try alloc.dupe(u8, body[pos .. pos + name_len]);
+        pos += name_len;
+
+        if (pos >= body.len) return Error.UnexpectedEnd;
+        const kind_byte = body[pos];
+        pos += 1;
+        if (kind_byte > 3) return Error.BadValType;
+        const kind: ExportDesc = @enumFromInt(kind_byte);
+
+        const idx = try leb128.readUleb128(u32, body, &pos);
+        e.* = .{ .name = name_copy, .kind = kind, .idx = idx };
+    }
+    if (pos != body.len) return Error.TrailingBytes;
+    return .{ .arena = arena, .items = items };
+}
+
 /// Decode the body of an element section (Wasm 2.0 §5.5.12).
 /// Chunk 5d-2 supports forms 0/1/3 (funcref-via-funcidx-list);
 /// forms 2/4-7 return InvalidFunctype (deferred to chunk 5d-3).
@@ -927,4 +982,26 @@ test "decodeTables: externref with min and max" {
 
 test "decodeTables: rejects unknown reftype byte" {
     try testing.expectError(Error.BadValType, decodeTables(testing.allocator, &[_]u8{ 0x01, 0x55, 0x00, 0x00 }));
+}
+
+test "decodeExports: single func export" {
+    // count=1, name "main" (len=4), desc=func(0), idx=0
+    const body = [_]u8{ 0x01, 0x04, 0x6D, 0x61, 0x69, 0x6E, 0x00, 0x00 };
+    var ex = try decodeExports(testing.allocator, &body);
+    defer ex.deinit();
+    try testing.expectEqual(@as(usize, 1), ex.items.len);
+    try testing.expectEqualStrings("main", ex.items[0].name);
+    try testing.expectEqual(ExportDesc.func, ex.items[0].kind);
+    try testing.expectEqual(@as(u32, 0), ex.items[0].idx);
+}
+
+test "decodeExports: empty section" {
+    var ex = try decodeExports(testing.allocator, &[_]u8{0x00});
+    defer ex.deinit();
+    try testing.expectEqual(@as(usize, 0), ex.items.len);
+}
+
+test "decodeExports: rejects unknown desc kind" {
+    const body = [_]u8{ 0x01, 0x01, 0x61, 0x05, 0x00 };
+    try testing.expectError(Error.BadValType, decodeExports(testing.allocator, &body));
 }
