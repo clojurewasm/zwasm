@@ -22,11 +22,13 @@
   `src/interp/mvp.zig` + `src/interp/memory_ops.zig`. **§9.2 /
   2.3 IN-PROGRESS** — chunks 1 (sign-ext @ `32f09dc`), 2
   (sat-trunc @ `f21c972`), 3 (multivalue multi-result blocks @
-  `c230237`), 4 (bulk memory copy/fill @ `98ea730`), and 4b
-  (data section + memory.init / data.drop @ `8727fdf`) are
-  landed. Three-host gate green for all five chunks.
+  `c230237`), 4 (bulk memory copy/fill @ `98ea730`), 4b (data
+  section + memory.init / data.drop @ `8727fdf`), and 5
+  (ref.null / ref.is_null / ref.func @ `caef4e9`) are landed.
+  Three-host gate green for all six chunks.
   `validateFunction` signature now takes `data_count: u32`;
-  `Runtime` carries `datas` + `data_dropped` slots.
+  `Runtime` carries `datas` + `data_dropped`; `Value` carries
+  `ref: u64` + `null_ref` sentinel.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -85,12 +87,24 @@ table population is a follow-up — see chunk-7 commit notes).
   0xFC 8/9 can bounds-check dataidx; lowerer emits dataidx as
   payload. Interp memoryInit handles dropped semantics
   (segment treated as empty after drop, n=0 still succeeds).
+- chunk 5 (ref.null / ref.is_null / ref.func) — landed at
+  `caef4e9`. Foundational ref-type opcodes; `Value.ref` view +
+  `null_ref` sentinel. Validator gains BadValType + popAny for
+  polymorphic ref.is_null typing. ref.func validates funcidx in
+  `func_types` but not the §5.4.1.4 declaration-scope check
+  (deferred to chunk 5d).
 
 Next chunks for 2.3 (in order of cost / dependency):
-- chunk 5 — reference types (`ref.null`, `ref.is_null`,
-  `ref.func`, table.* set, select_typed). Larger; touches
-  Value tagging. Once landed, table.copy/init/grow/size/fill
-  (0xFC 12..17) become reachable.
+- chunk 5b — `select_typed` (0x1C). Tiny: pop typevec immediate,
+  pop cond, two values; push the selected one. Validator only.
+- chunk 5c — table.get / table.set (0x25/0x26), table.size /
+  grow / fill (0xFC 16/15/17). Needs Runtime to carry a table
+  vec slot; validator/lowerer + interp; new tables: []TableSlice
+  shape.
+- chunk 5d — element section decoder + table.init / table.copy /
+  elem.drop (0xFC 12/13/14). Mirrors data-section + memory.init
+  shape from chunk 4b.
+- chunk 3b (deferred) — multi-param multivalue blocks.
 - chunk 3b (deferred) — multi-param multivalue blocks. Needs
   BlockType to track params + results separately and pushFrame
   to consume params from operand stack.
