@@ -77,6 +77,11 @@ pub const Host = struct {
     envs: []EnvEntry = &.{},
     preopens: []PreopenEntry = &.{},
     fd_table: std.ArrayList(OpenFd) = .empty,
+    /// Set by `proc_exit` (`src/wasi/proc.zig`) to the requested
+    /// exit code; the dispatch surface checks this after each
+    /// host-call to short-circuit further execution and surface
+    /// the exit code through the binding's Trap path.
+    exit_code: ?u32 = null,
 
     /// Construct a Host with stdio fds 0 / 1 / 2 pre-populated.
     /// Callers grow `args` / `envs` / `preopens` via the

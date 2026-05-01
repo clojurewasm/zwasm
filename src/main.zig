@@ -72,4 +72,5 @@ test {
     _ = @import("c_api/wasm_c_api.zig");
     _ = @import("wasi/p1.zig");
     _ = @import("wasi/host.zig");
+    _ = @import("wasi/proc.zig");
 }
