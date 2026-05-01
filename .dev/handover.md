@@ -25,11 +25,12 @@
   `c230237`), 4 (bulk memory copy/fill @ `98ea730`), 4b (data
   section + memory.init / data.drop @ `8727fdf`), and 5
   (ref.null / ref.is_null / ref.func @ `caef4e9`), 5b
-  (select_typed @ `48b3ce2`), and 5c (table.get/set/size @
-  `47a1905`) are landed. Three-host gate green for all eight
-  chunks. validateFunction now also takes
-  `tables: []const zir.TableEntry`; Runtime carries
-  `tables: []const TableInstance`.
+  (select_typed @ `48b3ce2`), 5c (table.get/set/size @
+  `47a1905`), and 5c-2 (table.grow/fill @ `fb22f72`) are
+  landed. Three-host gate green for all nine chunks.
+  validateFunction takes `tables: []const zir.TableEntry`;
+  Runtime carries `tables: []TableInstance` (mutable, so grow
+  can swap refs slice headers).
   `validateFunction` signature now takes `data_count: u32`;
   `Runtime` carries `datas` + `data_dropped`; `Value` carries
   `ref: u64` + `null_ref` sentinel.
@@ -104,12 +105,13 @@ table population is a follow-up — see chunk-7 commit notes).
 - chunk 5c (table.get / table.set / table.size) — landed at
   `47a1905`. New zir.TableEntry + interp.TableInstance; tables
   borrowed by Runtime (runner owns the refs slices).
-  table.grow / table.fill deferred to 5c-2 (need allocator-
-  backed mutable owning-table model).
+- chunk 5c-2 (table.grow / table.fill) — landed at `fb22f72`.
+  Runtime.tables switched to mutable so grow can update each
+  TableInstance's refs slice header via realloc. table.grow
+  pushes prev_size or -1 on max-cap / alloc failure; fill
+  traps OutOfBoundsTableAccess on dst+n > len.
 
 Next chunks for 2.3 (in order of cost / dependency):
-- chunk 5c-2 — table.grow / table.fill (0xFC 15/17). Needs the
-  table model to be mutable + owning so grow can realloc.
 - chunk 5d — element section decoder + table.init / table.copy /
   elem.drop (0xFC 12/13/14). Mirrors data-section + memory.init
   shape from chunk 4b.
