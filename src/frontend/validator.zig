@@ -360,6 +360,10 @@ const Validator = struct {
             0xBE => try self.opCvt(.i32, .f32),
             0xBF => try self.opCvt(.i64, .f64),
 
+            // Wasm 2.0 sign extension (§9.2 / 2.3 chunk 1)
+            0xC0, 0xC1 => try self.opUnop(.i32),
+            0xC2, 0xC3, 0xC4 => try self.opUnop(.i64),
+
             else => return Error.NotImplemented,
         }
     }
@@ -698,7 +702,9 @@ const testing = std.testing;
 
 const empty_sig: FuncType = .{ .params = &.{}, .results = &.{} };
 const i32_result_sig: FuncType = .{ .params = &.{}, .results = &i32_arr };
+const i64_result_sig: FuncType = .{ .params = &.{}, .results = &i64_arr };
 const i32_arr = [_]ValType{.i32};
+const i64_arr = [_]ValType{.i64};
 
 test "validate: empty function (() -> ()) with bare `end`" {
     try validateFunction(empty_sig, &.{}, &[_]u8{0x0B}, &.{}, &.{}, &.{});
@@ -867,4 +873,31 @@ test "validate: NotImplemented for unknown opcode (e.g. 0xFF)" {
     const body = [_]u8{ 0xFF, 0x0B };
     const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
     try testing.expectError(Error.NotImplemented, r);
+}
+
+test "validate: i32.extend8_s — pops i32, pushes i32" {
+    // i32.const 0x7F ; i32.extend8_s ; end
+    const body = [_]u8{ 0x41, 0x7F, 0xC0, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: i32.extend16_s — pops i32, pushes i32" {
+    const body = [_]u8{ 0x41, 0x7F, 0xC1, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: i64.extend8_s — pops i64, pushes i64" {
+    // i64.const 0x7F ; i64.extend8_s ; end
+    const body = [_]u8{ 0x42, 0x7F, 0xC2, 0x0B };
+    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: i64.extend16_s — pops i64, pushes i64" {
+    const body = [_]u8{ 0x42, 0x7F, 0xC3, 0x0B };
+    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: i64.extend32_s — pops i64, pushes i64" {
+    const body = [_]u8{ 0x42, 0x7F, 0xC4, 0x0B };
+    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
 }

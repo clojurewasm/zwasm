@@ -317,6 +317,13 @@ const Lowerer = struct {
             0xBE => try self.emit(.@"f32.reinterpret_i32", 0, 0),
             0xBF => try self.emit(.@"f64.reinterpret_i64", 0, 0),
 
+            // Wasm 2.0 sign extension
+            0xC0 => try self.emit(.@"i32.extend8_s", 0, 0),
+            0xC1 => try self.emit(.@"i32.extend16_s", 0, 0),
+            0xC2 => try self.emit(.@"i64.extend8_s", 0, 0),
+            0xC3 => try self.emit(.@"i64.extend16_s", 0, 0),
+            0xC4 => try self.emit(.@"i64.extend32_s", 0, 0),
+
             else => return Error.NotImplemented,
         }
     }
@@ -604,4 +611,30 @@ test "lower: i32.add binop produces a single instr with no payload" {
     try testing.expectEqual(@as(usize, 4), f.instrs.items.len);
     try testing.expectEqual(ZirOp.@"i32.add", f.instrs.items[2].op);
     try testing.expectEqual(@as(u32, 0), f.instrs.items[2].payload);
+}
+
+test "lower: Wasm 2.0 sign-ext opcodes 0xC0..0xC4 emit matching ZirOps" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    // i32.const 0 ; i32.extend8_s ; drop
+    // i32.const 0 ; i32.extend16_s ; drop
+    // i64.const 0 ; i64.extend8_s ; drop
+    // i64.const 0 ; i64.extend16_s ; drop
+    // i64.const 0 ; i64.extend32_s ; drop
+    // end
+    const body = [_]u8{
+        0x41, 0x00, 0xC0, 0x1A,
+        0x41, 0x00, 0xC1, 0x1A,
+        0x42, 0x00, 0xC2, 0x1A,
+        0x42, 0x00, 0xC3, 0x1A,
+        0x42, 0x00, 0xC4, 0x1A,
+        0x0B,
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f);
+
+    try testing.expectEqual(ZirOp.@"i32.extend8_s", f.instrs.items[1].op);
+    try testing.expectEqual(ZirOp.@"i32.extend16_s", f.instrs.items[4].op);
+    try testing.expectEqual(ZirOp.@"i64.extend8_s", f.instrs.items[7].op);
+    try testing.expectEqual(ZirOp.@"i64.extend16_s", f.instrs.items[10].op);
+    try testing.expectEqual(ZirOp.@"i64.extend32_s", f.instrs.items[13].op);
 }
