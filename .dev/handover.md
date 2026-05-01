@@ -34,8 +34,11 @@
   table model with proper UninitializedElement /
   IndirectCallTypeMismatch traps + sig-equality check; trap
   audit tests in new `src/interp/trap_audit.zig`. Runtime gains
-  `module_types: []const FuncType` slot. The first remaining
-  `[ ]` is **§9.2 / 2.5 — leak-check clean**.
+  `module_types: []const FuncType` slot. **§9.2 / 2.5 (leak-check
+  clean) closed at `e438b3c`** — Zig's `b.addTest` injects
+  `std.testing.allocator` (GPA leak-detector) by default; the
+  332-test suite reports zero leaks on all three hosts. The first
+  remaining `[ ]` is **§9.2 / 2.6 — realworld smoke**.
   validateFunction takes `tables: []const zir.TableEntry`;
   Runtime carries `tables: []TableInstance` (mutable, so grow
   can swap refs slice headers).

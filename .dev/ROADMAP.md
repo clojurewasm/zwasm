@@ -1243,7 +1243,7 @@ windowsmini; spec runner runs there too).
 | 2.2  | `src/feature/mvp/` interp handlers — wire MVP opcodes (numeric / control / memory).       | [x]            |
 | 2.3  | Wasm 2.0 features (sign-ext, sat-trunc, multivalue blocks, bulk-memory, ref-types).       | [x]            |
 | 2.4  | Trap semantics — `i32.div_u 0`, `i32.trunc_f32_s` overflow, OOB load/store, etc.          | [x]            |
-| 2.5  | `zig build test --leak-check` clean (`std.testing.allocator` zero-leak).                  | [ ]            |
+| 2.5  | `zig build test --leak-check` clean (`std.testing.allocator` zero-leak).                  | [x]            |
 | 2.6  | Realworld smoke (5+ samples: TinyGo / Rust / emcc / WASI cat / AssemblyScript).            | [ ]            |
 | 2.7  | Wasm 2.0 spec corpus extension to `test/spec/wasm-2.0/` + `.wast` directive handling.     | [ ]            |
 | 2.8  | Wasm Core 2.0 spec corpus fail=0 / skip=0 on Mac + OrbStack + windowsmini.                | [ ]            |
