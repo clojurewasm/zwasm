@@ -26,9 +26,14 @@
   section + memory.init / data.drop @ `8727fdf`), and 5
   (ref.null / ref.is_null / ref.func @ `caef4e9`), 5b
   (select_typed @ `48b3ce2`), 5c (table.get/set/size @
-  `47a1905`), 5c-2 (table.grow/fill @ `fb22f72`), and 5d-1
-  (table.copy @ `c4397e7`) are landed. Three-host gate green
-  for all ten chunks.
+  `47a1905`), 5c-2 (table.grow/fill @ `fb22f72`), 5d-1
+  (table.copy @ `c4397e7`), and 5d-2 (element section +
+  table.init / elem.drop @ `4cd91af`) are landed. **§9.2 / 2.3
+  is now [x]** — Wasm 2.0 feature surface complete to the
+  pragmatic minimum (deferred items: chunk 3b multi-param
+  multivalue blocks; chunk 5d-3 form-2/4-7 element segments;
+  ref.func declaration-scope check). The first remaining `[ ]`
+  is **§9.2 / 2.4 — trap semantics**.
   validateFunction takes `tables: []const zir.TableEntry`;
   Runtime carries `tables: []TableInstance` (mutable, so grow
   can swap refs slice headers).
@@ -115,13 +120,23 @@ table population is a follow-up — see chunk-7 commit notes).
   semantics on self-overlap; validator enforces matching
   elem_type between dst and src tables. Encoding stores
   dst-tableidx in payload, src-tableidx in extra.
+- chunk 5d-2 (element section + table.init / elem.drop) —
+  landed at `4cd91af`. New ElementKind/ElementSegment +
+  decodeElement (forms 0/1/3 funcref-via-funcidx-list). Runtime
+  carries `elems: []const []const Value` + `elem_dropped`
+  parallel array. validateFunction takes `elem_count: u32`.
 
-Next chunks for 2.3 (in order of cost / dependency):
-- chunk 5d-2 — element section decoder + table.init (0xFC 12) +
-  elem.drop (0xFC 13). Mirrors data-section + memory.init shape
-  from chunk 4b: ElementSegment, Runtime.elems +
-  elem_dropped, validator's `elem_count` parameter.
-- chunk 3b (deferred) — multi-param multivalue blocks.
+§9.2 / 2.3 is now [x]. Deferred follow-ups (queued, not
+blockers):
+- chunk 3b — multi-param multivalue blocks. Needs BlockType to
+  track params + results separately and pushFrame to consume
+  params from operand stack.
+- chunk 5d-3 — element-section forms 2/4-7 (explicit-tableidx
+  and expression-list variants). Required when spec corpus
+  modules use them.
+- chunk 5e — ref.func §5.4.1.4 strict declaration-scope check
+  (allowed only if x is exported, in a global, or appears in a
+  declarative element segment).
 - chunk 3b (deferred) — multi-param multivalue blocks. Needs
   BlockType to track params + results separately and pushFrame
   to consume params from operand stack.
