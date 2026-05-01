@@ -76,11 +76,14 @@
   `fdRead` (stdio routes through `host.stdout_buffer` /
   `stdin_bytes` for capture-driven tests; production wiring
   lives in 4.7/4.8) plus `fdClose` / `fdSeek` / `fdTell`
-  with the spec-conformant stdio behaviour. §9.4 / 4.5 splits
-  into chunks: 4.5a closed at `181d477` — `fdFdstatGet` writes
-  the 24-byte witx Fdstat block, `fdFdstatSetFlags` persists
-  the writable-subset flags; `OpenFd` gained `fs_flags`. Chunk
-  remaining: 4.5b `path_open` (real openat + traversal rules).
+  with the spec-conformant stdio behaviour. §9.4 / 4.5 closed
+  in two chunks: 4.5a at `181d477` (fdstat handlers); 4.5b at
+  `58ae2d1` (`pathOpen` enforces no `..` / no `/` prefix,
+  resolves dirfd via preopen, opens via `std.Io.Dir.openFile`
+  on `host.io`). `Host` gained `io: ?std.Io`; `OpenFd` gained
+  `host_handle: ?std.posix.fd_t`. The first remaining `[ ]`
+  is **§9.4 / 4.6 — clock_time_get / random_get / poll_oneoff
+  (stdin-only, blocking)**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -122,41 +125,35 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.5 chunk b (path_open preopen-rooted)
+## Active task — §9.4 / 4.6 (clock_time_get + random_get + poll_oneoff)
 
-4.5a (fdstat) closed at `181d477`. Remaining for 4.5:
+Three more low-IO syscalls; all are stdlib-glue.
 
-`pathOpen(host, mem, dirfd, dirflags, path_ptr, path_len,
-oflags, fs_rights_base, fs_rights_inheriting, fdflags,
-*opened_fd_out) → Errno`. Opens a path RELATIVE to a preopen
-dirfd; appends to `host.fd_table` and writes the new fd to
-the out pointer.
+- `clock_time_get(clock_id, precision, *time_out) → errno`:
+  read `Clockid` (realtime / monotonic / process_cputime /
+  thread_cputime), convert to ns since epoch, write u64.
+  Use `std.time.nanoTimestamp` for realtime, `std.time.Timer`
+  or `std.time.nanoTimestamp` differential for monotonic.
+- `random_get(buf_ptr, buf_len) → errno`: fill guest memory
+  with cryptographic random bytes. Use `std.crypto.random.bytes`
+  (or via `host.io.random` per testing.zig pattern).
+- `poll_oneoff(in_ptr, out_ptr, nsubscriptions, *nevents_out)
+  → errno`: stdin-only, blocking. The minimal scope: support
+  exactly one subscription of type `.fd_read` on fd 0 — block
+  on stdin readability. For now, return immediately with
+  events.size = 0 (signaling "nothing ready") OR with a
+  single ready event; real blocking can wait. The exit
+  criterion only requires it works for the realworld samples
+  (TinyGo / Rust hello-world don't use it heavily).
 
-Validation rules:
-- The path string spans `mem[path_ptr .. path_ptr + path_len]`
-  — bounds-check, return `fault` on overflow.
-- Path must not start with `/` → `notcapable`.
-- Path must not contain a `..` segment → `notcapable`.
-- `dirfd` must resolve to an `OpenFd` of kind `.dir` (i.e. a
-  preopen) → otherwise `notdir`.
+Implement in a new file `src/wasi/clocks.zig` (or extend
+`proc.zig` — proc is short enough). Tests can use
+testing.io's clock + a fixed-seed RNG override for
+determinism.
 
-Real open: use `std.fs.Dir{.fd = preopen_host_fd}.openFile`
-(or `.makeOpenPath` if OFLAGS_CREAT is set). The chunk's
-priority is: traversal rules + happy-path open returning a
-new guest fd. Honour the OFLAGS bits gradually; full coverage
-can grow.
-
-Cross-platform note: Windows `std.fs.Dir.fd` exists but is a
-HANDLE; the dir abstraction handles platform differences.
-Watch for any test that depends on POSIX-specific errno
-values; map through `std.fs.File.OpenError` to `p1.Errno`.
-
-Tests use `std.testing.tmpDir(.{})` to create a real preopen-
-able directory, write a file, then path_open it through the
-host. Cleanup via the `.cleanup()` method.
-
-After 4.5b, the next task (4.6 — clock / random / poll) is
-mostly stdlib-glue. 4.7 wires the binding's import resolution.
+After 4.6, the remaining tasks are integration: 4.7 wires
+imports through the binding, 4.8 the CLI, 4.9-4.10 the test
+infrastructure, 4.11-4.12 phase boundary.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
