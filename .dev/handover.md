@@ -22,8 +22,11 @@
   `src/interp/mvp.zig` + `src/interp/memory_ops.zig`. **§9.2 /
   2.3 IN-PROGRESS** — chunks 1 (sign-ext @ `32f09dc`), 2
   (sat-trunc @ `f21c972`), 3 (multivalue multi-result blocks @
-  `c230237`), and 4 (bulk memory: memory.copy/fill @ `98ea730`)
-  are landed. Three-host gate green for all four chunks.
+  `c230237`), 4 (bulk memory copy/fill @ `98ea730`), and 4b
+  (data section + memory.init / data.drop @ `8727fdf`) are
+  landed. Three-host gate green for all five chunks.
+  `validateFunction` signature now takes `data_count: u32`;
+  `Runtime` carries `datas` + `data_dropped` slots.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -74,13 +77,16 @@ table population is a follow-up — see chunk-7 commit notes).
   two handlers; memory.copy implements memmove (forward /
   backward picked by overlap direction). Validator + lowerer's
   0xFC sub 10/11 dispatch checks reserved bytes are 0x00.
-  memory.init / data.drop deferred to chunk 4b (data section
-  decoder needed); table.* deferred to chunk 5 (ref-types).
+- chunk 4b (data section + memory.init / data.drop) — landed at
+  `8727fdf`. sections.zig gains DataKind/DataSegment/decodeData
+  (active forms 0+2, passive form 1). Runtime carries
+  `datas: []const []const u8` + `data_dropped: []bool` slots.
+  validateFunction takes a new `data_count: u32` parameter so
+  0xFC 8/9 can bounds-check dataidx; lowerer emits dataidx as
+  payload. Interp memoryInit handles dropped semantics
+  (segment treated as empty after drop, n=0 still succeeds).
 
 Next chunks for 2.3 (in order of cost / dependency):
-- chunk 4b — data section decoder + memory.init (0xFC 8) +
-  data.drop (0xFC 9). Sections.zig gains decodeData; Runtime
-  gains a `datas: []DataSegment` slot.
 - chunk 5 — reference types (`ref.null`, `ref.is_null`,
   `ref.func`, table.* set, select_typed). Larger; touches
   Value tagging. Once landed, table.copy/init/grow/size/fill
