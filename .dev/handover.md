@@ -20,13 +20,13 @@
   §9.2 / 2.0 (`243d9ba`), 2.1 (`f292ae7`), 2.2 (`575fbec`) are
   `[x]`. The full MVP interp handler set is wired across
   `src/interp/mvp.zig` + `src/interp/memory_ops.zig`. **§9.2 /
-  2.3 IN-PROGRESS** — chunk 1 (sign-ext 0xC0..0xC4) at `32f09dc`
-  and chunk 2 (sat-trunc 0xFC 0..7) at `f21c972` are landed.
-  New `src/interp/ext_2_0/{sign_ext,sat_trunc}.zig` (Zone 2,
-  per-feature engine-side split). Validator + lowerer now
-  decode the 0xFC prefix; unknown sub-ops bounce to
-  NotImplemented for chunks 4+ to wire. Three-host gate green
-  for both chunks.
+  2.3 IN-PROGRESS** — chunks 1 (sign-ext 0xC0..0xC4 @
+  `32f09dc`), 2 (sat-trunc 0xFC 0..7 @ `f21c972`), and 3
+  (multivalue multi-result blocks @ `c230237`) are landed. The
+  block instr `extra` field now holds **arity** (count of
+  results) rather than the raw blocktype byte; restoreToLabel
+  + returnOp generalise to multi-arity (cap 16). Three-host
+  gate green for all three chunks.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**: none. Founding decisions live in ROADMAP §1–§14.
@@ -65,16 +65,24 @@ table population is a follow-up — see chunk-7 commit notes).
   truncate-toward-zero otherwise). Validator + lowerer now
   decode the 0xFC prefix uleb32 sub-opcode; unknown sub-ops
   return NotImplemented (reserved for chunks 4+).
+- chunk 3 (multivalue multi-result blocks) — landed at
+  `c230237`. Validator + lowerer's `readBlockType` /
+  `readBlockArity` now decode s33 typeidx; multi-param blocks
+  return BadBlockType (deferred). Block instr `extra` switched
+  from raw blocktype byte → arity (#results). Interp
+  `restoreToLabel` and `returnOp` now handle arity > 1 via a
+  16-slot stack-local buffer.
 
 Next chunks for 2.3 (in order of cost / dependency):
-- chunk 3 — multivalue block-types (s33 typeidx in
-  `readBlockType`); validator + lowerer + interp.
 - chunk 4 — bulk memory (`memory.copy/fill/init`, `data.drop`,
   `table.copy/init`, `elem.drop`) under prefix 0xFC sub-ops 8+.
   Element / data section decoders also needed.
 - chunk 5 — reference types (`ref.null`, `ref.is_null`,
   `ref.func`, table.* set, select_typed). Larger; touches
   Value tagging.
+- chunk 3b (deferred) — multi-param multivalue blocks. Needs
+  BlockType to track params + results separately and pushFrame
+  to consume params from operand stack.
 
 §9.2 / 2.3 lands the **Wasm 2.0 feature additions** that the
 upstream spec corpus exercises:
