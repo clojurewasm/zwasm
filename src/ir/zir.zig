@@ -31,6 +31,16 @@ pub const FuncType = struct {
     results: []const ValType,
 };
 
+/// Module table entry (Wasm 2.0 §9.2 / 2.3 chunk 5c). Carries
+/// only the static metadata the validator needs; the runtime
+/// counterpart `TableInstance` (in `interp/mod.zig`) holds the
+/// actual reference values.
+pub const TableEntry = struct {
+    elem_type: ValType,
+    min: u32,
+    max: ?u32 = null,
+};
+
 pub const BlockKind = enum(u8) {
     block,
     loop,

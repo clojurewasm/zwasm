@@ -184,6 +184,10 @@ const Lowerer = struct {
             0x23 => try self.emitUlebPayload(.@"global.get"),
             0x24 => try self.emitUlebPayload(.@"global.set"),
 
+            // Tables (Wasm 2.0 §9.2 / 2.3 chunk 5c)
+            0x25 => try self.emitUlebPayload(.@"table.get"),
+            0x26 => try self.emitUlebPayload(.@"table.set"),
+
             // Loads (memarg → align uleb32 + offset uleb32)
             0x28 => try self.emitMemarg(.@"i32.load"),
             0x29 => try self.emitMemarg(.@"i64.load"),
@@ -408,6 +412,11 @@ const Lowerer = struct {
                 // data.drop: dataidx.
                 const dataidx = try leb128.readUleb128(u32, self.body, &self.pos);
                 try self.emit(.@"data.drop", dataidx, 0);
+            },
+            16 => {
+                // table.size x: tableidx as payload.
+                const idx = try leb128.readUleb128(u32, self.body, &self.pos);
+                try self.emit(.@"table.size", idx, 0);
             },
             10 => {
                 // memory.copy: two reserved 0x00 bytes (src/dst memidx).
@@ -799,6 +808,26 @@ test "lower: memory.init (0xFC 8) emits ZirOp.memory.init with dataidx payload" 
     const init = f.instrs.items[3];
     try testing.expectEqual(ZirOp.@"memory.init", init.op);
     try testing.expectEqual(@as(u32, 5), init.payload);
+}
+
+test "lower: table.get / table.set / table.size carry tableidx in payload" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    // i32.const 0 ; table.get 3 ; drop ; ref.null funcref ; i32.const 0 ;
+    // ref.null funcref ; table.set 4 ; table.size 5 ; drop ; end
+    const body = [_]u8{
+        0x41, 0x00, 0x25, 0x03, 0x1A,
+        0x41, 0x00, 0xD0, 0x70, 0x26, 0x04,
+        0xFC, 0x10, 0x05, 0x1A,
+        0x0B,
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try testing.expectEqual(ZirOp.@"table.get", f.instrs.items[1].op);
+    try testing.expectEqual(@as(u32, 3), f.instrs.items[1].payload);
+    try testing.expectEqual(ZirOp.@"table.set", f.instrs.items[5].op);
+    try testing.expectEqual(@as(u32, 4), f.instrs.items[5].payload);
+    try testing.expectEqual(ZirOp.@"table.size", f.instrs.items[6].op);
+    try testing.expectEqual(@as(u32, 5), f.instrs.items[6].payload);
 }
 
 test "lower: select_typed (0x1C 01 0x7F) emits select_typed with reftype byte in extra" {

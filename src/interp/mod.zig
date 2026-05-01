@@ -147,6 +147,15 @@ pub const Frame = struct {
     }
 };
 
+/// Runtime counterpart of `zir.TableEntry` — actually holds the
+/// reference cells. The runner allocates `refs` and threads the
+/// instance via `Runtime.tables`.
+pub const TableInstance = struct {
+    refs: []Value,
+    elem_type: zir.ValType,
+    max: ?u32 = null,
+};
+
 /// Per-instance interpreter state. Owns linear memory + globals
 /// (heap-backed); operand and frame stacks are inline.
 pub const Runtime = struct {
@@ -166,6 +175,12 @@ pub const Runtime = struct {
     /// later `memory.init` calls trap. Owned (heap-allocated when
     /// `datas.len > 0`); freed in deinit.
     data_dropped: []bool = &.{},
+    /// Module tables (Wasm 2.0 §9.2 / 2.3 chunk 5c). Borrowed —
+    /// the runner owns each `TableInstance.refs` slice. The
+    /// borrowed slice header makes the TableInstance fields const
+    /// to the interp, but the underlying `refs: []Value` cells
+    /// stay writable for `table.set` / future grow / fill.
+    tables: []const TableInstance = &.{},
     /// Dispatch table used by the active interp run. Set by
     /// `src/interp/dispatch.zig`'s `run`; the `call` handler
     /// needs it to recursively dispatch the callee body.
