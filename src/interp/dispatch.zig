@@ -20,7 +20,7 @@
 
 const std = @import("std");
 
-const zir = @import("../ir/zir.zig");
+pub const zir = @import("../ir/zir.zig");
 const dispatch_table = @import("../ir/dispatch_table.zig");
 const interp = @import("mod.zig");
 
@@ -44,20 +44,41 @@ pub fn step(
     try handler(rt.toOpaque(), instr);
 }
 
-/// Walk an instruction sequence linearly. Control-flow handlers
-/// (`block`/`loop`/`if`/`else`/`end`/`br`/`return`) will mutate
-/// `Runtime.currentFrame().pc` directly when 2.2 wires them; for
-/// 2.1 the run loop just advances `pc` by 1 per step. The loop
-/// terminates at the end of `instrs` or when a handler bubbles a
-/// trap.
+/// Walk an instruction sequence linearly. The loop tracks `pc`
+/// on the **current frame** (`rt.currentFrame().pc`) so control-
+/// flow handlers (`br` / `br_if` / `br_table` / `return` / `if`
+/// / `else` / `end`) can mutate it directly. If a handler does
+/// not change `pc`, the loop advances by 1.
+///
+/// If no frame is active when `run` is called, an ephemeral frame
+/// (empty sig + empty locals) is pushed for the duration. This
+/// keeps small handler tests green without forcing every test to
+/// stage a full frame.
 pub fn run(
     rt: *Runtime,
     table: *const DispatchTable,
     instrs: []const ZirInstr,
 ) anyerror!void {
-    var pc: u32 = 0;
-    while (pc < instrs.len) : (pc += 1) {
-        try step(rt, table, &instrs[pc]);
+    const ephemeral = rt.frame_len == 0;
+    if (ephemeral) {
+        const empty_sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+        try rt.pushFrame(.{
+            .sig = empty_sig,
+            .locals = &.{},
+            .operand_base = rt.operand_len,
+            .pc = 0,
+        });
+    }
+    defer if (ephemeral) {
+        _ = rt.popFrame();
+    };
+
+    const f = rt.currentFrame();
+    f.pc = 0;
+    while (f.pc < instrs.len) {
+        const cur = f.pc;
+        try step(rt, table, &instrs[cur]);
+        if (f.pc == cur) f.pc += 1;
     }
 }
 

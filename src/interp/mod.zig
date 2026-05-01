@@ -78,6 +78,20 @@ pub const Trap = error{
 
 pub const max_operand_stack: u32 = 4096;
 pub const max_frame_stack: u32 = 256;
+pub const max_label_stack: u32 = 128;
+
+/// Control-label record. `block` / `if` push a label whose
+/// `target_pc` points one past the matching `end`; `loop` pushes a
+/// label whose `target_pc` points just after the `loop` opcode (so
+/// that `br` to a loop re-enters the body). `arity` is the number
+/// of result values transferred to the operand stack on branch
+/// (0 for blocks/loops without a result type, 1 for the MVP
+/// single-valtype block-types).
+pub const Label = struct {
+    height: u32,
+    arity: u32,
+    target_pc: u32,
+};
 
 /// Per-call activation record. `locals` holds params followed by
 /// declared locals (validator's local-index space). `operand_base`
@@ -90,6 +104,27 @@ pub const Frame = struct {
     locals: []Value,
     operand_base: u32,
     pc: u32,
+
+    label_buf: [max_label_stack]Label = undefined,
+    label_len: u32 = 0,
+
+    pub fn pushLabel(self: *Frame, l: Label) Trap!void {
+        if (self.label_len == max_label_stack) return Trap.StackOverflow;
+        self.label_buf[self.label_len] = l;
+        self.label_len += 1;
+    }
+
+    pub fn popLabel(self: *Frame) Label {
+        std.debug.assert(self.label_len > 0);
+        self.label_len -= 1;
+        return self.label_buf[self.label_len];
+    }
+
+    /// Index 0 = innermost. Caller must ensure depth < label_len.
+    pub fn labelAt(self: *Frame, depth: u32) Label {
+        std.debug.assert(depth < self.label_len);
+        return self.label_buf[self.label_len - 1 - depth];
+    }
 };
 
 /// Per-instance interpreter state. Owns linear memory + globals
