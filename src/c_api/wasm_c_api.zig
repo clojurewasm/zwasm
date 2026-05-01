@@ -111,10 +111,34 @@ pub const Func = struct {
     func_idx: u32,
 };
 
-/// `wasm_trap_t` — runtime trap surface; carries the trap kind
-/// (mirrors `interp.Trap`) plus an optional message.
+/// `wasm_trap_kind_t` — internal classification of a Trap.
+/// Maps `interp.Trap` conditions to the spec-conformant message
+/// strings the C host expects (per Wasm spec assertion text);
+/// also covers binding-layer failures such as arg-count
+/// mismatches that wasm.h surfaces as traps too.
+pub const TrapKind = enum(u32) {
+    binding_error = 0,
+    unreachable_ = 1,
+    div_by_zero = 2,
+    int_overflow = 3,
+    invalid_conversion = 4,
+    oob_memory = 5,
+    oob_table = 6,
+    uninitialized_elem = 7,
+    indirect_call_mismatch = 8,
+    stack_overflow = 9,
+    out_of_memory = 10,
+};
+
+/// `wasm_trap_t` — runtime trap surface. Carries the trap kind +
+/// a heap-allocated message (always populated; freed in
+/// `wasm_trap_delete`) + a back-pointer to the originating Store
+/// so `_delete` can recover the allocator without a global.
 pub const Trap = extern struct {
-    _padding: usize = 0,
+    store: ?*Store,
+    kind: TrapKind,
+    message_ptr: ?[*]u8,
+    message_len: usize,
 };
 
 // ============================================================
@@ -540,10 +564,120 @@ fn marshalValOut(v: interp.Value, kind: zir.ValType) Val {
     };
 }
 
-fn allocTrap(alloc: std.mem.Allocator) ?*Trap {
-    const t = alloc.create(Trap) catch return null;
-    t.* = .{};
+fn trapMessageFor(kind: TrapKind) []const u8 {
+    return switch (kind) {
+        .binding_error => "host invocation error",
+        .unreachable_ => "unreachable",
+        .div_by_zero => "integer divide by zero",
+        .int_overflow => "integer overflow",
+        .invalid_conversion => "invalid conversion to integer",
+        .oob_memory => "out of bounds memory access",
+        .oob_table => "out of bounds table access",
+        .uninitialized_elem => "uninitialized element",
+        .indirect_call_mismatch => "indirect call type mismatch",
+        .stack_overflow => "call stack exhausted",
+        .out_of_memory => "out of memory",
+    };
+}
+
+fn mapInterpTrap(err: anyerror) TrapKind {
+    return switch (err) {
+        error.Unreachable => .unreachable_,
+        error.DivByZero => .div_by_zero,
+        error.IntOverflow => .int_overflow,
+        error.InvalidConversionToInt => .invalid_conversion,
+        error.OutOfBoundsLoad, error.OutOfBoundsStore => .oob_memory,
+        error.OutOfBoundsTableAccess => .oob_table,
+        error.UninitializedElement => .uninitialized_elem,
+        error.IndirectCallTypeMismatch => .indirect_call_mismatch,
+        error.StackOverflow, error.CallStackExhausted => .stack_overflow,
+        error.OutOfMemory => .out_of_memory,
+        else => .binding_error,
+    };
+}
+
+fn allocTrap(alloc: std.mem.Allocator, store: ?*Store, kind: TrapKind) ?*Trap {
+    const msg = trapMessageFor(kind);
+    const buf = alloc.dupe(u8, msg) catch return null;
+    const t = alloc.create(Trap) catch {
+        alloc.free(buf);
+        return null;
+    };
+    t.* = .{
+        .store = store,
+        .kind = kind,
+        .message_ptr = buf.ptr,
+        .message_len = buf.len,
+    };
     return t;
+}
+
+/// `wasm_trap_new(store, message)` — allocate a Trap whose
+/// message is a copy of the byte_vec contents. Used by C hosts
+/// to surface their own host-side errors as traps; the binding
+/// itself prefers `allocTrap` with a `TrapKind` so it can map
+/// runtime conditions to the spec-conformant strings.
+export fn wasm_trap_new(s: ?*Store, message: ?*const ByteVec) callconv(.c) ?*Trap {
+    const store = s orelse return null;
+    const alloc = storeAllocator(store) orelse return null;
+    const m = message orelse return null;
+    const data_ptr = m.data orelse return null;
+    const buf = alloc.dupe(u8, data_ptr[0..m.size]) catch return null;
+    const t = alloc.create(Trap) catch {
+        alloc.free(buf);
+        return null;
+    };
+    t.* = .{
+        .store = store,
+        .kind = .binding_error,
+        .message_ptr = buf.ptr,
+        .message_len = buf.len,
+    };
+    return t;
+}
+
+/// `wasm_trap_delete(*Trap)` — free a Trap returned by any path
+/// (binding-internal `allocTrap`, `wasm_trap_new`, or
+/// `wasm_func_call`). Releases the message bytes first, then
+/// the struct. Null-tolerant.
+export fn wasm_trap_delete(t: ?*Trap) callconv(.c) void {
+    const handle = t orelse return;
+    const store = handle.store orelse return;
+    const alloc = storeAllocator(store) orelse return;
+    if (handle.message_ptr) |p| alloc.free(p[0..handle.message_len]);
+    alloc.destroy(handle);
+}
+
+/// `wasm_trap_message(*Trap, *out ByteVec)` — populate `out`
+/// with a freshly-allocated copy of the trap's message (per
+/// upstream wasm.h's `own` discipline: `out` becomes owned by
+/// the caller and must be released via `wasm_byte_vec_delete`).
+/// Writes a zero-length vec if the trap has no message or
+/// allocation fails.
+export fn wasm_trap_message(t: ?*const Trap, out: ?*ByteVec) callconv(.c) void {
+    const out_ptr = out orelse return;
+    out_ptr.* = .{ .size = 0, .data = null };
+    const handle = t orelse return;
+    const store = handle.store orelse return;
+    const alloc = storeAllocator(store) orelse return;
+    const ptr = handle.message_ptr orelse return;
+    const copy = alloc.dupe(u8, ptr[0..handle.message_len]) catch return;
+    out_ptr.* = .{ .size = copy.len, .data = copy.ptr };
+}
+
+/// `wasm_byte_vec_delete(*ByteVec)` — free the data backing of a
+/// ByteVec produced by the binding (currently only
+/// `wasm_trap_message`). Pinned to the engine's `c_allocator`
+/// because that is the allocator the binding uses for every
+/// outgoing-byte-vec it produces today; a per-engine allocator
+/// policy lands when §9.3 / 3.7 chunk b widens the vec ABI.
+export fn wasm_byte_vec_delete(v: ?*ByteVec) callconv(.c) void {
+    const handle = v orelse return;
+    if (handle.data) |p| {
+        const alloc = std.heap.c_allocator;
+        alloc.free(p[0..handle.size]);
+    }
+    handle.* = .{ .size = 0, .data = null };
 }
 
 /// `wasm_func_call(func, args, results)` — invoke `func` with
@@ -566,17 +700,17 @@ export fn wasm_func_call(
     const store = inst.store orelse return null;
     const alloc = storeAllocator(store) orelse return null;
     const rt = inst.runtime orelse return null;
-    if (handle.func_idx >= inst.funcs_storage.len) return allocTrap(alloc);
+    if (handle.func_idx >= inst.funcs_storage.len) return allocTrap(alloc, store, .binding_error);
 
     const zfunc = &inst.funcs_storage[handle.func_idx];
     const sig = zfunc.sig;
     const args_size = if (args) |a| a.size else 0;
     const results_size = if (results) |r| r.size else 0;
-    if (args_size != sig.params.len) return allocTrap(alloc);
-    if (results_size != sig.results.len) return allocTrap(alloc);
+    if (args_size != sig.params.len) return allocTrap(alloc, store, .binding_error);
+    if (results_size != sig.results.len) return allocTrap(alloc, store, .binding_error);
 
     const num_locals = sig.params.len + zfunc.locals.len;
-    const locals = alloc.alloc(interp.Value, num_locals) catch return allocTrap(alloc);
+    const locals = alloc.alloc(interp.Value, num_locals) catch return allocTrap(alloc, store, .out_of_memory);
     defer alloc.free(locals);
     for (locals) |*l| l.* = .{ .bits64 = 0 };
     if (args) |a| if (a.data) |dp| {
@@ -590,18 +724,18 @@ export fn wasm_func_call(
         .operand_base = op_base,
         .pc = 0,
         .func = zfunc,
-    }) catch return allocTrap(alloc);
+    }) catch |err| return allocTrap(alloc, store, mapInterpTrap(err));
 
-    dispatch.run(rt, dispatchTable(), zfunc.instrs.items) catch {
+    dispatch.run(rt, dispatchTable(), zfunc.instrs.items) catch |err| {
         _ = rt.popFrame();
         rt.operand_len = op_base;
-        return allocTrap(alloc);
+        return allocTrap(alloc, store, mapInterpTrap(err));
     };
     _ = rt.popFrame();
 
     if (rt.operand_len < op_base + sig.results.len) {
         rt.operand_len = op_base;
-        return allocTrap(alloc);
+        return allocTrap(alloc, store, .binding_error);
     }
     if (results) |r| if (r.data) |dp| {
         var i: usize = sig.results.len;
@@ -627,7 +761,7 @@ test "wasm_c_api shapes: top-level types instantiate cleanly" {
     const m: Module = .{ .store = null, .bytes_ptr = null, .bytes_len = 0 };
     const i: Instance = .{ .store = null, .module = null, .runtime = null };
     const f: Func = .{ .instance = null, .func_idx = 0 };
-    const t: Trap = .{};
+    const t: Trap = .{ .store = null, .kind = .binding_error, .message_ptr = null, .message_len = 0 };
     _ = .{ e, s, m, i, f, t };
 }
 
@@ -802,7 +936,7 @@ test "wasm_func_call: i32-returning function dispatches to 42" {
     try testing.expectEqual(@as(i32, 42), results_data[0].of.i32);
 }
 
-test "wasm_func_call: arg-count mismatch traps" {
+test "wasm_func_call: arg-count mismatch returns Trap with message; both freed" {
     const e = wasm_engine_new() orelse return error.EngineAllocFailed;
     defer wasm_engine_delete(e);
     const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
@@ -818,16 +952,46 @@ test "wasm_func_call: arg-count mismatch traps" {
     const func = zwasm_instance_get_func(i, 0) orelse return error.FuncResolveFailed;
     defer wasm_func_delete(func);
 
-    // Function takes 0 params but we pass 1. Should trap; results
-    // size also mismatches (caller passed 0 vs sig.results=1) but
-    // the args check fires first.
+    // Function takes 0 params but we pass 1. Should trap.
     var bogus_arg: [1]Val = .{.{ .kind = .i32, .of = .{ .i32 = 99 } }};
     const args: ValVec = .{ .size = 1, .data = &bogus_arg };
     const results: ValVec = .{ .size = 0, .data = null };
     const trap = wasm_func_call(func, &args, @constCast(&results));
     try testing.expect(trap != null);
-    // Trap is leaked here pending §9.3 / 3.7's wasm_trap_delete; let
-    // the engine's c_allocator absorb it.
+    try testing.expectEqual(TrapKind.binding_error, trap.?.kind);
+
+    var msg: ByteVec = .{ .size = 0, .data = null };
+    wasm_trap_message(trap, &msg);
+    try testing.expect(msg.size > 0);
+    wasm_byte_vec_delete(&msg);
+    wasm_trap_delete(trap);
+}
+
+test "wasm_trap_new / message / delete: round-trip from caller-supplied message" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var msg_bytes = "host failure".*;
+    const msg_bv: ByteVec = .{ .size = msg_bytes.len, .data = &msg_bytes };
+    const trap = wasm_trap_new(s, &msg_bv) orelse return error.TrapAllocFailed;
+    defer wasm_trap_delete(trap);
+
+    var out: ByteVec = .{ .size = 0, .data = null };
+    wasm_trap_message(trap, &out);
+    defer wasm_byte_vec_delete(&out);
+    try testing.expectEqual(@as(usize, 12), out.size);
+    try testing.expectEqualStrings("host failure", out.data.?[0..out.size]);
+}
+
+test "wasm_trap_*: null-arg discipline" {
+    try testing.expect(wasm_trap_new(null, null) == null);
+    wasm_trap_delete(null);
+    var out: ByteVec = .{ .size = 0, .data = null };
+    wasm_trap_message(null, &out);
+    try testing.expectEqual(@as(usize, 0), out.size);
+    wasm_byte_vec_delete(null);
 }
 
 test "zwasm_instance_get_func / wasm_func_delete: null-arg discipline" {
