@@ -116,7 +116,15 @@
   invokes it; wired into `test-all` so the three-host gate
   exercises WASI on every push. The first remaining `[ ]` is
   **§9.4 / 4.10 — diff 30+ realworld samples (stdout vs
-  `wasmtime run`); land regression script**.
+  `wasmtime run`); land regression script**, splitting into
+  chunks. 4.10a closed at `9ac7fe1` —
+  `cli_run.runWasmCaptured` accepts an optional
+  `*ArrayList(u8)` for stdout; runner compares to
+  `.expected_stdout` when present. 4.10b: memory + data
+  section wiring in `instantiateRuntime` (so `hello.wat` can
+  fd_write through linear memory). 4.10c+: progressively
+  promote realworld fixtures + diff against frozen expected
+  output.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
