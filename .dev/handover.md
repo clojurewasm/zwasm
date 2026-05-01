@@ -71,9 +71,14 @@
   4.3 closed at `b824f91` — `src/wasi/proc.zig` lands
   `procExit` + `argsSizesGet` / `argsGet` + `environSizesGet`
   / `environGet` with bounds-checked memory writes; `Host`
-  gained `exit_code: ?u32`. The first remaining `[ ]` is
-  **§9.4 / 4.4 — fd_write / fd_read / fd_close / fd_seek /
-  fd_tell (stdio only)**.
+  gained `exit_code: ?u32`. §9.4 / 4.4 closed at `fafecf5`
+  — `src/wasi/fd.zig` lands gather/scatter `fdWrite` /
+  `fdRead` (stdio routes through `host.stdout_buffer` /
+  `stdin_bytes` for capture-driven tests; production wiring
+  lives in 4.7/4.8) plus `fdClose` / `fdSeek` / `fdTell`
+  with the spec-conformant stdio behaviour. The first
+  remaining `[ ]` is **§9.4 / 4.5 — `path_open` (preopen-
+  rooted only) + `fd_fdstat_get` / `_set`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -115,39 +120,39 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.4 (fd_write / fd_read / fd_close / fd_seek / fd_tell)
+## Active task — §9.4 / 4.5 (path_open + fd_fdstat_get/_set)
 
-Wire stdio-only fd IO. The exit criterion limits scope to fds
-0 / 1 / 2 (stdin / stdout / stderr); arbitrary file fds land
-alongside `path_open` in 4.5.
+Wire arbitrary-file fd opening through preopens (the only
+allowed root — no parent-traversal). After 4.5, fd_write /
+fd_read can target file fds, not just stdio.
 
-Surface (witx names → Zig-side):
-- `fdWrite(*Host, mem, fd, ciovec_ptr, ciovec_count, *nwritten_out) → Errno`
-  — gather write to `host.fd_table[fd]` (host's stdout/stderr
-  via `host.alloc.writer`-equivalent or direct `std.fs.File`).
-- `fdRead(*Host, mem, fd, iovec_ptr, iovec_count, *nread_out) → Errno`
-  — scatter read from stdin.
-- `fdClose(*Host, fd) → Errno` — flips slot kind to .closed.
-  Stdio fds (0/1/2) refuse close per WASI convention (return
-  notsup) OR return success-with-noop; check spec.
-- `fdSeek(*Host, fd, offset, whence, *new_pos_out) → Errno`
-  — stdio returns spipe (illegal seek).
-- `fdTell(*Host, fd, *pos_out) → Errno` — same.
+Surface:
+- `pathOpen(host, mem, dirfd, dirflags, path_ptr, path_len,
+  oflags, fs_rights_base, fs_rights_inheriting, fdflags,
+  *opened_fd_out) → Errno` — opens a path RELATIVE to a
+  preopen dirfd. Use `std.posix.openat(host.preopens[i].host_fd,
+  guest_path, ...)` so the kernel enforces the dir-fd root.
+  Reject any path containing `..` segments or starting with `/`
+  (`Errno.notcapable` / `notdir` per spec).
+- `fdFdstatGet(host, mem, fd, *fdstat_out) → Errno` — writes a
+  24-byte `Fdstat` struct (filetype + flags + rights_base +
+  rights_inheriting).
+- `fdFdstatSetFlags(host, fd, flags) → Errno` — updates
+  `OpenFd.fs_flags` (the writable subset).
 
-Memory layout for `fdWrite` ciovec: each entry is the
-`p1.Ciovec` extern struct (8 bytes — buf:u32, buf_len:u32) at
-ciovec_ptr + i*8. Read each, slice the guest memory, write to
-host stdout.
+`OpenFd` needs a real backing field for file fds —
+`std.fs.File`-equivalent. For Phase 4 lower-effort:
+`std.posix.fd_t` (or `std.fs.File`); the §9.4 / 4.5 chunk wires
+the open path then 4.4's fdWrite/fdRead extend to cover .file
+slots via `std.posix.write/read`.
 
-Need to extend `OpenFd` with the actual host file handle for
-non-stdio fds. For stdio: keep the pointer-based shape and
-write/read to/from `std.Io.File.stdout()` etc.
-
-Tests can capture stdout/stderr via `std.Io.Writer.Allocating`
-or by intercepting through a Host field — design something
-testable. The simplest pattern: `Host` holds optional `?*Writer`
-slots for stdout/stderr that default to the real fds but can
-be overridden in tests.
+Tests use a temp directory created via `std.testing.tmpDir`
+(Zig 0.16) so the path-traversal rules are exercised on a real
+fs without touching $HOME. Verify:
+- happy path: open existing file under preopen → success
+- traversal escape: path containing `..` → notcapable
+- absolute path: starts with `/` → notcapable
+- non-preopen dirfd: fd resolves to .stdin/.stdout/.stderr → notdir
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack

@@ -1306,7 +1306,7 @@ zwasm.
 | 4.1  | `src/wasi/p1.zig` — Zone-2 module declaring the WASI errno + ciovec / iovec / fdstat shapes. | [x]            |
 | 4.2  | `src/wasi/host.zig` — capability table backed by `std.process.Init` (preopens, args, environ). | [x]            |
 | 4.3  | `proc_exit` / `args_get` / `args_sizes_get` / `environ_get` / `environ_sizes_get` handlers. | [x]            |
-| 4.4  | `fd_write` / `fd_read` / `fd_close` / `fd_seek` / `fd_tell` (stdout/stderr/stdin only).   | [ ]            |
+| 4.4  | `fd_write` / `fd_read` / `fd_close` / `fd_seek` / `fd_tell` (stdout/stderr/stdin only).   | [x]            |
 | 4.5  | `path_open` (preopen-rooted only; no parent-traversal) + `fd_fdstat_get` / `_set`.        | [ ]            |
 | 4.6  | `clock_time_get` / `random_get` / `poll_oneoff` (stdin-only, blocking).                   | [ ]            |
 | 4.7  | Wire WASI imports into `wasm_instance_new` — match `(import "wasi_snapshot_preview1" …)`. | [ ]            |
