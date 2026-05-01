@@ -1280,7 +1280,7 @@ zwasm.
 | 3.7  | `wasm_*_vec_t` types + `wasm_trap_t` — vec discipline, trap surface.                      | [x]            |
 | 3.8  | `examples/c_host/hello.c` — minimal C host invoking `wasm_func_call`.                     | [x]            |
 | 3.9  | `zig build test-c-api` — gates the example builds + runs on all three hosts.              | [x]            |
-| 3.10 | Phase-3 boundary `audit_scaffolding` pass.                                                 | [ ]            |
+| 3.10 | Phase-3 boundary `audit_scaffolding` pass.                                                 | [x]            |
 | 3.11 | Open §9.4 inline; flip phase tracker.                                                      | [ ]            |
 
 ### Phase 4 — WASI 0.1 minimal 🔒

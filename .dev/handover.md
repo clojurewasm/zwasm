@@ -50,9 +50,10 @@
   test-c-api` produces `libzwasm.a` from `src/c_api_lib.zig`,
   links the example against `include/wasm.h`, runs the binary
   with `expectExitCode(0)`, and is wired into `test-all`. End-
-  to-end through the C ABI green on all three hosts. The first
-  remaining `[ ]` is **§9.3 / 3.10 — Phase-3 boundary
-  `audit_scaffolding`**.
+  to-end through the C ABI green on all three hosts. §9.3 /
+  3.10 closed inline (audit at `private/audit-2026-05-02-p3.md`
+  — 0 block, 6 soon, 3 watch). The first remaining `[ ]` is
+  **§9.3 / 3.11 — open §9.4 inline; flip phase tracker**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -79,24 +80,28 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.10 (Phase-3 boundary audit_scaffolding)
+## Active task — §9.3 / 3.11 (open §9.4 inline + flip phase tracker)
 
-The phase is functionally complete (3.0 – 3.9 all `[x]`); 3.10
-runs the `audit_scaffolding` skill against the current state to
-catch staleness / bloat / lies / false positives accumulated
-during Phase 3. Output lands in `private/audit-YYYY-MM-DD.md`.
-Resolve `block` findings inline; queue `soon` / `watch` to the
-handover carry-over list.
+Last task in Phase 3. Steps:
 
-3.11 then opens §9.4 (Phase 4 — WASI 0.1 minimal 🔒): expand
-its task table inline mirroring §9.3's, advance the Phase
-Status widget, push, re-arm.
-
-Carry-over watch from §2.9 audit (still relevant):
-- mvp.zig 1965/2000 lines (split queued for Phase 5)
-- validator.zig 1426 lines over §A2 soft cap
-- proposal_watch quarterly refresh due 2026-07-30
-- missing test/spec/wasm-2.0/README.md — opportunistic land
+1. Backfill SHA pointers for §9.3's `[x]` rows (3.0 – 3.10):
+   for each, `git log --grep="§9.3 / N.M" --pretty=%h | head
+   -1`. Land in one commit `chore(p3): backfill §9.3 SHA
+   pointers`.
+2. Update Phase Status widget at the top of §9: §9.3 → `DONE`,
+   §9.4 → `IN-PROGRESS`.
+3. Expand §9.4 task table inline (Phase 4 — WASI 0.1 minimal
+   🔒). Mirror §9.3's structure: numbered `[ ]` rows with
+   Status column. Phase 4 entry criteria include the 🔒
+   three-host gate. Initial scope (per ROADMAP §9 Phase 4):
+   - WASI 0.1 host shape (`src/wasi/p1.zig`)
+   - capability table — fd_read / fd_write / fd_close / args /
+     environ / proc_exit
+   - linkage from C API (`wasi.h` vendored alongside `wasm.h`)
+   - test surface: `test-wasi-p1` over a curated subset of
+     wasi-testsuite
+4. Update handover.md to point at §9.4's first task.
+5. Push + re-arm.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
@@ -105,18 +110,27 @@ the C-host test step in §9.3 / 3.9 (`zig build test-c-api`)
 where it can run via the host C compiler instead of
 translate-c.
 
-## Phase-2 audit `soon` / `watch` carry-over
+## Phase-2 + Phase-3 audit `soon` / `watch` carry-over
 
-From `private/audit-2026-05-02.md` (Phase-2 boundary):
+From `private/audit-2026-05-02.md` (Phase-2) and
+`private/audit-2026-05-02-p3.md` (Phase-3 boundary):
 
+- `soon`: src/c_api/wasm_c_api.zig 1457 lines over §A2 soft
+  cap. Recommended split: trap_surface.zig + vec.zig +
+  instance.zig. File ADR `0005_phase3_c_api_split.md` before
+  Phase 4 work piles WASI exports on.
+- `soon`: src/frontend/sections.zig 1007 lines (just over).
+  Watch trajectory; ADR if it crosses 1300.
 - `soon`: mvp.zig 1965 / 2000 lines (split into int_ops /
   float_ops / conversions queued for Phase 5 analysis layer).
 - `soon`: validator.zig 1426 lines over §A2 soft cap; lowerer
   1062 likewise. ADR for split plan is the gating step.
 - `soon`: proposal_watch quarterly refresh due 2026-07-30.
+- `watch`: ROADMAP.md 1900 lines — within documented
+  exception, but consider extracting §6 / §11 / §17 at next
+  natural break.
 - `watch`: missing `test/spec/wasm-2.0/README.md` documenting
-  the upstream-pin per ADR-0003. Land alongside Phase-3 setup
-  if convenient.
+  the upstream-pin per ADR-0003. Land opportunistically.
 
 ## Phase-2 deferred items (queued for Phase 3+ / Phase 14)
 
