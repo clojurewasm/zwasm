@@ -37,8 +37,12 @@
   `module_types: []const FuncType` slot. **§9.2 / 2.5 (leak-check
   clean) closed at `e438b3c`** — Zig's `b.addTest` injects
   `std.testing.allocator` (GPA leak-detector) by default; the
-  332-test suite reports zero leaks on all three hosts. The first
-  remaining `[ ]` is **§9.2 / 2.6 — realworld smoke**.
+  332-test suite reports zero leaks on all three hosts. **§9.2 /
+  2.6 (realworld smoke) closed at `1246d60`** — 7 toolchain
+  fixtures (C/C++/Rust/TinyGo) parse cleanly through the
+  frontend; new `test-realworld` build step + wired into
+  `test-all`. The first remaining `[ ]` is **§9.2 / 2.7 — Wasm
+  2.0 spec corpus + .wast directive handling**.
   validateFunction takes `tables: []const zir.TableEntry`;
   Runtime carries `tables: []TableInstance` (mutable, so grow
   can swap refs slice headers).
