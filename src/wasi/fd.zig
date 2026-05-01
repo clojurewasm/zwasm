@@ -266,6 +266,106 @@ pub fn fdFdstatSetFlags(host: *Host, fd: p1.Fd, flags: p1.Fdflags) p1.Errno {
 }
 
 // ============================================================
+// path_open  (§9.4 / 4.5 chunk b)
+// ============================================================
+
+fn pathHasParentEscape(path: []const u8) bool {
+    if (path.len > 0 and path[0] == '/') return true;
+    var iter = std.mem.tokenizeScalar(u8, path, '/');
+    while (iter.next()) |seg| {
+        if (std.mem.eql(u8, seg, "..")) return true;
+    }
+    return false;
+}
+
+fn mapOpenError(err: anyerror) p1.Errno {
+    return switch (err) {
+        error.FileNotFound => .noent,
+        error.AccessDenied => .acces,
+        error.IsDir => .isdir,
+        error.NotDir => .notdir,
+        error.SymLinkLoop => .loop,
+        error.NameTooLong => .nametoolong,
+        error.PathAlreadyExists => .exist,
+        error.NoSpaceLeft => .nospc,
+        error.SystemResources, error.SystemFdQuotaExceeded, error.ProcessFdQuotaExceeded => .nfile,
+        else => .io,
+    };
+}
+
+/// `path_open(dirfd, dirflags, path, oflags, rights_base,
+/// rights_inheriting, fdflags, *opened_fd_out) → errno` —
+/// opens a path RELATIVE to a preopen `dirfd`. Strict scope:
+///
+/// - `dirfd` must resolve to an `OpenFd` of kind `.dir`
+///   (preopens are the only roots) → `notdir` otherwise.
+/// - The path string spans `mem[path_ptr .. path_ptr +
+///   path_len]`. Out-of-bounds → `fault`.
+/// - Path must be relative and contain no `..` segments —
+///   absolute paths or any traversal escape returns
+///   `notcapable`. The kernel-side `openat` would also block
+///   most escapes, but the explicit pre-check is part of the
+///   WASI security contract.
+/// - Open is delegated to `std.fs.Dir{.fd = slot.host_handle}
+///   .openFile`. Errors map through `mapOpenError`.
+///
+/// On success, a new `.file` slot is appended to
+/// `host.fd_table`; the new guest fd is written to
+/// `opened_fd_ptr`. The `oflags` / `dirflags` parameters are
+/// accepted but only the bare-open path is honoured for now —
+/// CREAT / EXCL / TRUNC come alongside their consuming
+/// realworld samples.
+pub fn pathOpen(
+    host: *Host,
+    mem: []u8,
+    dirfd: p1.Fd,
+    dirflags: u32,
+    path_ptr: u32,
+    path_len: u32,
+    oflags: p1.Oflags,
+    fs_rights_base: p1.Rights,
+    fs_rights_inheriting: p1.Rights,
+    fdflags: p1.Fdflags,
+    opened_fd_ptr: u32,
+) p1.Errno {
+    _ = dirflags;
+    _ = oflags;
+
+    // Bounds-check the path slice.
+    const path_end = @as(usize, path_ptr) + @as(usize, path_len);
+    if (path_end > mem.len) return .fault;
+    const path = mem[path_ptr..path_end];
+    if (pathHasParentEscape(path)) return .notcapable;
+
+    // Resolve dirfd.
+    const dir_slot = host.translateFd(dirfd) orelse return .badf;
+    if (dir_slot.kind != .dir) return .notdir;
+    const dir_handle = dir_slot.host_handle orelse return .notdir;
+
+    // Filesystem syscalls require an io context; tests / production
+    // callers must thread one onto the Host before calling.
+    const io = host.io orelse return .nosys;
+
+    const dir: std.Io.Dir = .{ .handle = dir_handle };
+    const file = dir.openFile(io, path, .{}) catch |err| return mapOpenError(err);
+
+    // Reserve the new fd_table slot.
+    host.fd_table.append(host.alloc, .{
+        .kind = .file,
+        .rights_base = fs_rights_base,
+        .rights_inheriting = fs_rights_inheriting,
+        .fs_flags = fdflags,
+        .host_handle = file.handle,
+    }) catch {
+        file.close(io);
+        return .nomem;
+    };
+    const new_fd: p1.Fd = @intCast(host.fd_table.items.len - 1);
+
+    return writeU32LE(mem, opened_fd_ptr, new_fd);
+}
+
+// ============================================================
 // Tests
 // ============================================================
 
@@ -421,6 +521,78 @@ test "fdFdstatGet: out-of-range fd returns badf; out-of-bounds ptr returns fault
     var mem: [32]u8 = @splat(0);
     try testing.expectEqual(p1.Errno.badf, fdFdstatGet(&h, &mem, 99, 0));
     try testing.expectEqual(p1.Errno.fault, fdFdstatGet(&h, &mem, 1, 100));
+}
+
+test "pathOpen: rejects parent-escape and absolute paths with notcapable" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    const fake_fd: std.posix.fd_t = undefined;
+    const dirfd = try h.addPreopen(fake_fd, "/sandbox");
+
+    // "../escape"
+    var mem: [64]u8 = @splat(0);
+    @memcpy(mem[16..25], "../escape");
+    const e1 = pathOpen(&h, &mem, dirfd, 0, 16, 9, 0, p1.RIGHTS_FD_READ, 0, 0, 0);
+    try testing.expectEqual(p1.Errno.notcapable, e1);
+
+    // "/etc/passwd"
+    @memset(&mem, 0);
+    @memcpy(mem[16..27], "/etc/passwd");
+    const e2 = pathOpen(&h, &mem, dirfd, 0, 16, 11, 0, p1.RIGHTS_FD_READ, 0, 0, 0);
+    try testing.expectEqual(p1.Errno.notcapable, e2);
+}
+
+test "pathOpen: returns notdir when dirfd is not a preopen" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    var mem: [64]u8 = @splat(0);
+    @memcpy(mem[16..23], "foo.txt");
+    // fd 1 = stdout (not a .dir).
+    const e = pathOpen(&h, &mem, 1, 0, 16, 7, 0, p1.RIGHTS_FD_READ, 0, 0, 0);
+    try testing.expectEqual(p1.Errno.notdir, e);
+}
+
+test "pathOpen: out-of-bounds path slice returns fault" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    const fake_fd: std.posix.fd_t = undefined;
+    const dirfd = try h.addPreopen(fake_fd, "/sandbox");
+    var mem: [16]u8 = @splat(0);
+    // path_ptr=10, path_len=20 → end=30 past mem.len=16.
+    const e = pathOpen(&h, &mem, dirfd, 0, 10, 20, 0, p1.RIGHTS_FD_READ, 0, 0, 0);
+    try testing.expectEqual(p1.Errno.fault, e);
+}
+
+test "pathOpen: happy path opens an existing file inside a real preopen" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "hello.txt", .data = "Hi" });
+
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    h.io = testing.io;
+    const dirfd = try h.addPreopen(tmp.dir.handle, "/sandbox");
+
+    var mem: [64]u8 = @splat(0);
+    @memcpy(mem[16..25], "hello.txt");
+    const e = pathOpen(&h, &mem, dirfd, 0, 16, 9, 0, p1.RIGHTS_FD_READ, 0, 0, 32);
+    try testing.expectEqual(p1.Errno.success, e);
+
+    const new_fd = std.mem.readInt(u32, mem[32..36], .little);
+    // fd table starts at 3 stdio + 1 preopen = 4 entries; new fd
+    // is appended at index 4.
+    try testing.expectEqual(@as(u32, 4), new_fd);
+
+    const slot = h.translateFd(new_fd) orelse return error.MissingFile;
+    try testing.expectEqual(host_mod.FdKind.file, slot.kind);
+    // Close the host file via std.Io.File. The flags field is
+    // not load-bearing for close (the close vtable just looks
+    // at the handle), so the default `.nonblocking = false`
+    // suffices. Production cleanup will route through
+    // `fd_close` once that's wired with `io`.
+    const file: std.Io.File = .{ .handle = slot.host_handle.?, .flags = .{ .nonblocking = false } };
+    file.close(testing.io);
+    slot.kind = .closed;
 }
 
 test "fdFdstatSetFlags: persists allowed bits + masks unknown ones" {

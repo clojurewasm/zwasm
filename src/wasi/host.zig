@@ -50,6 +50,12 @@ pub const OpenFd = struct {
     /// DSYNC / RSYNC). Updated via `fd_fdstat_set_flags`; read
     /// out via `fd_fdstat_get`.
     fs_flags: p1.Fdflags = 0,
+    /// Host-OS file handle for `.dir` (preopen-root) and
+    /// `.file` (post-`path_open`) slots. Null for stdio
+    /// kinds. The `.dir` flavour is set by `addPreopen`; the
+    /// `.file` flavour is set by `pathOpen` (§9.4 / 4.5
+    /// chunk b).
+    host_handle: ?std.posix.fd_t = null,
 };
 
 /// One environment-variable entry. Both `key` and `value` are
@@ -100,6 +106,12 @@ pub const Host = struct {
     /// Tests set both; `stdin_pos` is mutated as the guest reads.
     stdin_bytes: ?[]const u8 = null,
     stdin_pos: usize = 0,
+    /// `std.Io` value used for filesystem syscalls (`path_open`,
+    /// future `fd_read` / `fd_write` over file fds). Set by the
+    /// binding at instance setup (§9.4 / 4.7+) from the engine's
+    /// io context; tests pass `std.testing.io`. When null, fs
+    /// syscalls return `Errno.nosys`.
+    io: ?std.Io = null,
 
     /// Construct a Host with stdio fds 0 / 1 / 2 pre-populated.
     /// Callers grow `args` / `envs` / `preopens` via the
@@ -186,6 +198,7 @@ pub const Host = struct {
             .kind = .dir,
             .rights_base = p1.RIGHTS_PATH_OPEN | p1.RIGHTS_FD_READ,
             .rights_inheriting = p1.RIGHTS_FD_READ | p1.RIGHTS_FD_WRITE | p1.RIGHTS_FD_SEEK,
+            .host_handle = host_fd,
         });
         return @intCast(self.fd_table.items.len - 1);
     }
