@@ -30,9 +30,11 @@
   (Store carries an Engine back-pointer for allocator
   recovery). §9.3 / 3.4 closed at `7c321d5` —
   `wasm_module_new` / `_module_validate` / `_module_delete`
-  wrap parser + sections + validator. The first remaining
-  `[ ]` is **§9.3 / 3.5 — `wasm_instance_new` /
-  `_instance_delete`**.
+  wrap parser + sections + validator. §9.3 / 3.5 closed at
+  `0417675` — `wasm_instance_new` / `wasm_instance_delete`
+  wire the Instance lifetime; Instance owns a heap-allocated
+  `interp.Runtime` allocated through Store→Engine. The first
+  remaining `[ ]` is **§9.3 / 3.6 — `wasm_func_call`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -59,24 +61,39 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.5 (wasm_instance_new / _delete)
+## Active task — §9.3 / 3.6 (wasm_func_call)
 
-Wraps `interp.Runtime` instantiation:
+Wraps interp dispatch through the C API:
 
-  wasm_instance_t* wasm_instance_new(wasm_store_t*,
-                                      const wasm_module_t*,
-                                      const wasm_extern_vec_t* imports,
-                                      wasm_trap_t** trap_out)
-  void             wasm_instance_delete(wasm_instance_t*)
+  wasm_trap_t* wasm_func_call(const wasm_func_t*,
+                              const wasm_val_vec_t* args,
+                              wasm_val_vec_t* results)
 
-The Instance struct will need to own a `interp.Runtime` plus
-slices for funcs / tables / datas / elems / memory. For the
-first chunk we can ignore imports (pass through `null` /
-empty) — the realworld smoke wasms don't pull in any imported
-funcs by the validator's reckoning. wasm_extern_vec_t and the
-trap-out parameter are full-shape wasm.h surface but can be
-stubbed in this chunk and refined as 3.6 (func_call) needs
-them.
+This is the first chunk that needs the Module's stored binary
+to actually be lowered into Runtime state. Plan:
+
+1. Add a `wasm_module_get_func` (or instance-side helper) that
+   resolves an export-by-index → `wasm_func_t` pointing into
+   the Instance's owned ZirFunc array. wasm.h declares
+   `wasm_instance_exports`, but for first chunk we can wire a
+   single-export shortcut keyed by the only func.
+2. At `wasm_instance_new` time, decode the Module's stored
+   bytes (we already keep them on the Module): types, function,
+   code, memory, data, element sections; lower each function
+   body into a `ZirFunc`; allocate linear memory based on the
+   memory section's initial size; populate Runtime.funcs /
+   .memory / .module_types / .datas / .elems / .tables.
+3. `wasm_func_call` marshals input `wasm_val_t`s onto Runtime
+   operand stack, runs `interp.dispatch.run` over the entry
+   ZirFunc, marshals results back.
+4. Trap surface (wasm_trap_t) can stay stubbed for one more
+   chunk; on Trap, return a non-null sentinel `*Trap`. §9.3 /
+   3.7 fills its message body.
+
+The realworld toolchain wasms (cpp_struct_test etc.) parse but
+won't dispatch yet because they pull in WASI imports. Use the
+minimal_wasm fixture or a fresh hand-rolled `(func (result i32)
+(i32.const 42))` for the first dispatch test.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
