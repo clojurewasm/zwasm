@@ -17,11 +17,11 @@
 ## Current state
 
 - **Phase**: **Phase 3 IN-PROGRESS.** Phases 0 + 1 + 2 are
-  `DONE`. §9.2 closed at the boundary commit (SHAs backfilled
-  in §9.2 task table; Phase Status widget advanced; §9.3 task
-  table opened inline). The first remaining `[ ]` is
-  **§9.3 / 3.0 — `scripts/fetch_wasm_c_api.sh` (fetch + pin
-  upstream `wasm.h`; ADR records the upstream commit hash)**.
+  `DONE`. §9.3 / 3.0 closed at `05bd4e4` (ADR-0004 pins upstream
+  wasm-c-api commit; `scripts/fetch_wasm_c_api.sh` extracts
+  `include/wasm.h` byte-for-byte; sanity-checks the result).
+  The first remaining `[ ]` is **§9.3 / 3.1 — vendor wasm.h
+  read-only + wire build.zig include path**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -32,6 +32,8 @@
   - `0003_phase2_wasm_2_0_corpus_curation.md` — §9.2 / 2.8's
     curated Wasm-2.0 subset (50 corpora / 1158 modules /
     fail=0); mirrors ADR-0002.
+  - `0004_phase3_wasm_c_api_pin.md` — pins upstream wasm-c-api
+    commit `9d6b9376…` for the vendored `include/wasm.h`.
 - **Build status**: `zig build test`, `test-spec`,
   `test-spec-wasm-2.0`, `test-realworld`, `test-all` are all
   green on Mac aarch64 native, OrbStack Ubuntu x86_64
@@ -46,18 +48,19 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.0 (fetch + pin `wasm.h`)
+## Active task — §9.3 / 3.1 (vendor wasm.h + wire build.zig include path)
 
-Phase 3 opens the C API surface. Task 3.0 fetches
-`include/wasm.h` from upstream `WebAssembly/wasm-c-api` via a
-new `scripts/fetch_wasm_c_api.sh`, pins the upstream commit
-hash in an ADR, and lands the include path wiring.
+`include/wasm.h` is now the real upstream header (737 lines).
+3.1 is the wiring task: confirm the header is committed
+read-only (i.e. only `scripts/fetch_wasm_c_api.sh` writes to
+it), add `build.zig` include-path glue so future C-API tests can
+`#include <wasm.h>`, and document the regen command in a brief
+README under `include/`.
 
-Subsequent §9.3 tasks (3.1 – 3.11): vendor the header, add the
-Zone-3 `src/c_api/wasm_c_api.zig` module, export the C ABI
-(engine / module / instance / func / vec / trap), wire
-`zig build test-c-api`, ship `examples/c_host/hello.c`, then
-boundary audit + open §9.4.
+Subsequent §9.3 tasks (3.2 – 3.11): Zone-3 `src/c_api/
+wasm_c_api.zig` module, exports for engine / module / instance
+/ func / vec / trap, `examples/c_host/hello.c` plus
+`zig build test-c-api`, then boundary audit + open §9.4.
 
 ## Phase-2 audit `soon` / `watch` carry-over
 
