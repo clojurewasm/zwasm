@@ -87,8 +87,12 @@ pub fn main(init: std.process.Init) !void {
         const expected_stdout_opt: ?[]u8 = dir.readFileAlloc(io, expected_stdout_name, gpa, .limited(64 * 1024)) catch null;
         defer if (expected_stdout_opt) |s| gpa.free(s);
 
+        // The capture buffer is appended to inside the binding's
+        // fd_write thunk using the host's c_allocator-backed Host
+        // (see zwasm_wasi_config_new). Use the same allocator for
+        // deinit so the alloc/free pair matches.
         var stdout_capture: std.ArrayList(u8) = .empty;
-        defer stdout_capture.deinit(gpa);
+        defer stdout_capture.deinit(std.heap.c_allocator);
         const stdout_capture_ptr: ?*std.ArrayList(u8) = if (expected_stdout_opt != null) &stdout_capture else null;
 
         const actual = cli_run.runWasmCaptured(gpa, io, wasm_bytes, stdout_capture_ptr) catch |err| {

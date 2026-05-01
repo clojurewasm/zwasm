@@ -642,10 +642,51 @@ fn instantiateRuntime(
     rt.funcs = func_ptrs;
     rt.module_types = types.items;
 
+    // §9.4 / 4.10 chunk b: memory + data section wiring. Allocate
+    // linear memory based on the memory section's initial pages,
+    // then apply each active data segment.
+    if (module.find(.memory)) |memory_section| {
+        var memories = try sections.decodeMemory(a, memory_section.body);
+        defer memories.deinit();
+        if (memories.items.len > 1) return error.MultiMemoryUnsupported;
+        if (memories.items.len == 1) {
+            const pages = memories.items[0].min;
+            const bytes_total: usize = @as(usize, pages) * 65536;
+            const mem = try parent_alloc.alloc(u8, bytes_total);
+            @memset(mem, 0);
+            rt.memory = mem; // ownership passes to Runtime; freed in Runtime.deinit
+        }
+    }
+
+    if (module.find(.data)) |data_section| {
+        var datas = try sections.decodeData(a, data_section.body);
+        defer datas.deinit();
+        for (datas.items) |seg| {
+            if (seg.kind != .active) continue; // passive = §9.4 / 4.10c+
+            if (seg.memidx != 0) return error.MultiMemoryUnsupported;
+            const offset = try evalConstI32Expr(seg.offset_expr);
+            const dst_end = @as(usize, @intCast(offset)) + seg.bytes.len;
+            if (dst_end > rt.memory.len) return error.DataSegmentOutOfRange;
+            @memcpy(rt.memory[@intCast(offset) .. dst_end], seg.bytes);
+        }
+    }
+
     if (module.find(.@"export")) |export_section| {
         const exports = try sections.decodeExports(a, export_section.body);
         inst.exports_storage = exports.items;
     }
+}
+
+/// Evaluate a Wasm const-expression that resolves to an i32.
+/// Active data-segment offsets currently reach this path; the
+/// only shape v0.1.0 needs is `i32.const N; end` (3+ bytes:
+/// opcode 0x41, sleb128 N, opcode 0x0B).
+fn evalConstI32Expr(expr: []const u8) !i32 {
+    if (expr.len < 2 or expr[0] != 0x41) return error.UnsupportedConstExpr;
+    var pos: usize = 1;
+    const v = try @import("../util/leb128.zig").readSleb128(i32, expr, &pos);
+    if (pos >= expr.len or expr[pos] != 0x0B) return error.UnsupportedConstExpr;
+    return v;
 }
 
 fn freeInstanceState(parent_alloc: std.mem.Allocator, inst: *Instance) void {

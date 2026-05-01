@@ -368,6 +368,55 @@ pub fn decodeCodes(parent_alloc: Allocator, body: []const u8) Error!Codes {
 
 pub const DataKind = enum { active, passive };
 
+/// One Wasm memory's limits. v0.1.0 only allows one memory per
+/// module (`memidx == 0`); multi-memory is post-v0.1.0.
+pub const MemoryEntry = struct {
+    /// Initial size in 64 KiB pages (§5.5.5 / §5.4.4).
+    min: u32,
+    /// Optional upper bound in pages.
+    max: ?u32 = null,
+};
+
+pub const Memories = struct {
+    arena: std.heap.ArenaAllocator,
+    items: []MemoryEntry,
+
+    pub fn deinit(self: *Memories) void {
+        self.arena.deinit();
+    }
+};
+
+/// Decode the body of a memory section (`SectionId.memory`):
+///   memorysec = vec(memtype)
+///   memtype   = limits
+///   limits    = 0x00 n:uleb128             (min only)
+///             | 0x01 n:uleb128 m:uleb128   (min + max)
+pub fn decodeMemory(parent_alloc: Allocator, body: []const u8) Error!Memories {
+    var arena = std.heap.ArenaAllocator.init(parent_alloc);
+    errdefer arena.deinit();
+    const alloc = arena.allocator();
+
+    var pos: usize = 0;
+    const count = try leb128.readUleb128(u32, body, &pos);
+    const items = try alloc.alloc(MemoryEntry, count);
+    for (items) |*entry| {
+        if (pos >= body.len) return Error.UnexpectedEnd;
+        const flag = body[pos];
+        pos += 1;
+        const min = try leb128.readUleb128(u32, body, &pos);
+        switch (flag) {
+            0x00 => entry.* = .{ .min = min },
+            0x01 => {
+                const max = try leb128.readUleb128(u32, body, &pos);
+                entry.* = .{ .min = min, .max = max };
+            },
+            else => return Error.BadValType,
+        }
+    }
+    if (pos != body.len) return Error.TrailingBytes;
+    return .{ .arena = arena, .items = items };
+}
+
 pub const DataSegment = struct {
     kind: DataKind,
     /// memidx for active segments (kind 0/2). Always 0 in chunk 4b
@@ -982,6 +1031,23 @@ test "decodeTables: externref with min and max" {
 
 test "decodeTables: rejects unknown reftype byte" {
     try testing.expectError(Error.BadValType, decodeTables(testing.allocator, &[_]u8{ 0x01, 0x55, 0x00, 0x00 }));
+}
+
+test "decodeMemory: min only + min/max forms" {
+    // count=2; entry 0 = (min 1); entry 1 = (min 2 max 3)
+    const body = [_]u8{ 0x02, 0x00, 0x01, 0x01, 0x02, 0x03 };
+    var m = try decodeMemory(testing.allocator, &body);
+    defer m.deinit();
+    try testing.expectEqual(@as(usize, 2), m.items.len);
+    try testing.expectEqual(@as(u32, 1), m.items[0].min);
+    try testing.expect(m.items[0].max == null);
+    try testing.expectEqual(@as(u32, 2), m.items[1].min);
+    try testing.expectEqual(@as(u32, 3), m.items[1].max.?);
+}
+
+test "decodeMemory: rejects unknown limits flag" {
+    const body = [_]u8{ 0x01, 0x05, 0x01 };
+    try testing.expectError(Error.BadValType, decodeMemory(testing.allocator, &body));
 }
 
 test "decodeExports: single func export" {
