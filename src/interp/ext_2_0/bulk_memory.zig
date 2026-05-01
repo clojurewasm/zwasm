@@ -36,6 +36,8 @@ inline fn op(o: ZirOp) usize {
 pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"memory.copy")] = memoryCopy;
     table.interp[op(.@"memory.fill")] = memoryFill;
+    table.interp[op(.@"memory.init")] = memoryInit;
+    table.interp[op(.@"data.drop")] = dataDrop;
 }
 
 fn memoryCopy(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
@@ -77,6 +79,41 @@ fn memoryFill(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     @memset(rt.memory[dst_lo .. dst_lo + n_lo], byte);
 }
 
+/// memory.init x: pop n, src, dst. Copy n bytes from data segment
+/// rt.datas[x] starting at offset src into rt.memory at offset
+/// dst. Trap OutOfBoundsStore if src+n > data.len OR dst+n >
+/// mem.len. If the segment was previously dropped, treat its data
+/// length as 0 (any n>0 → trap).
+fn memoryInit(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const dataidx = instr.payload;
+    if (dataidx >= rt.datas.len) return Trap.Unreachable;
+    const dropped = if (dataidx < rt.data_dropped.len) rt.data_dropped[dataidx] else false;
+    const seg_len: u64 = if (dropped) 0 else rt.datas[dataidx].len;
+
+    const n_i = rt.popOperand().i32;
+    const src_i = rt.popOperand().i32;
+    const dst_i = rt.popOperand().i32;
+    const n: u64 = @as(u32, @bitCast(n_i));
+    const src: u64 = @as(u32, @bitCast(src_i));
+    const dst: u64 = @as(u32, @bitCast(dst_i));
+    if (src + n > seg_len or dst + n > rt.memory.len) return Trap.OutOfBoundsStore;
+    if (n == 0) return;
+    const src_lo: usize = @intCast(src);
+    const dst_lo: usize = @intCast(dst);
+    const n_lo: usize = @intCast(n);
+    @memcpy(rt.memory[dst_lo .. dst_lo + n_lo], rt.datas[dataidx][src_lo .. src_lo + n_lo]);
+}
+
+/// data.drop x: mark data segment x as dropped. Subsequent
+/// memory.init x calls treat its length as 0.
+fn dataDrop(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const dataidx = instr.payload;
+    if (dataidx >= rt.data_dropped.len) return Trap.Unreachable;
+    rt.data_dropped[dataidx] = true;
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -94,11 +131,103 @@ fn allocMem(rt: *Runtime, len: usize) !void {
     @memset(rt.memory, 0);
 }
 
-test "register: memory.copy + memory.fill slots populated" {
+test "register: bulk-memory slots populated" {
     var t = DispatchTable.init();
     register(&t);
     try testing.expect(t.interp[op(.@"memory.copy")] != null);
     try testing.expect(t.interp[op(.@"memory.fill")] != null);
+    try testing.expect(t.interp[op(.@"memory.init")] != null);
+    try testing.expect(t.interp[op(.@"data.drop")] != null);
+}
+
+fn setupDatas(rt: *Runtime, segs: []const []const u8) !void {
+    rt.datas = segs;
+    rt.data_dropped = try rt.alloc.alloc(bool, segs.len);
+    @memset(rt.data_dropped, false);
+}
+
+test "memory.init: copy bytes from data segment to memory" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try allocMem(&rt, 16);
+    const seg0 = [_]u8{ 0xAA, 0xBB, 0xCC, 0xDD, 0xEE };
+    const segs = [_][]const u8{&seg0};
+    try setupDatas(&rt, &segs);
+    try rt.pushOperand(.{ .i32 = 4 }); // dst
+    try rt.pushOperand(.{ .i32 = 1 }); // src (offset within seg)
+    try rt.pushOperand(.{ .i32 = 3 }); // n
+    try driveOne(&rt, &t, .@"memory.init", 0, 0);
+    try testing.expectEqual(@as(u8, 0xBB), rt.memory[4]);
+    try testing.expectEqual(@as(u8, 0xCC), rt.memory[5]);
+    try testing.expectEqual(@as(u8, 0xDD), rt.memory[6]);
+}
+
+test "memory.init: src+n > seg_len → OutOfBoundsStore" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try allocMem(&rt, 16);
+    const seg0 = [_]u8{ 0xAA, 0xBB, 0xCC };
+    const segs = [_][]const u8{&seg0};
+    try setupDatas(&rt, &segs);
+    try rt.pushOperand(.{ .i32 = 0 }); // dst
+    try rt.pushOperand(.{ .i32 = 1 }); // src
+    try rt.pushOperand(.{ .i32 = 5 }); // n (1+5=6 > 3)
+    try testing.expectError(Trap.OutOfBoundsStore, driveOne(&rt, &t, .@"memory.init", 0, 0));
+}
+
+test "memory.init: dst+n > mem_len → OutOfBoundsStore" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try allocMem(&rt, 4);
+    const seg0 = [_]u8{ 0xAA, 0xBB, 0xCC, 0xDD };
+    const segs = [_][]const u8{&seg0};
+    try setupDatas(&rt, &segs);
+    try rt.pushOperand(.{ .i32 = 2 }); // dst
+    try rt.pushOperand(.{ .i32 = 0 }); // src
+    try rt.pushOperand(.{ .i32 = 3 }); // n (2+3=5 > 4)
+    try testing.expectError(Trap.OutOfBoundsStore, driveOne(&rt, &t, .@"memory.init", 0, 0));
+}
+
+test "memory.init after data.drop: any n>0 traps; n=0 succeeds" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try allocMem(&rt, 16);
+    const seg0 = [_]u8{ 0x11, 0x22, 0x33 };
+    const segs = [_][]const u8{&seg0};
+    try setupDatas(&rt, &segs);
+
+    // data.drop 0
+    try driveOne(&rt, &t, .@"data.drop", 0, 0);
+    try testing.expectEqual(true, rt.data_dropped[0]);
+
+    // memory.init 0 with n=1 → trap (segment effectively empty).
+    try rt.pushOperand(.{ .i32 = 0 }); // dst
+    try rt.pushOperand(.{ .i32 = 0 }); // src
+    try rt.pushOperand(.{ .i32 = 1 }); // n
+    try testing.expectError(Trap.OutOfBoundsStore, driveOne(&rt, &t, .@"memory.init", 0, 0));
+
+    // memory.init 0 with n=0 succeeds (no-op).
+    try rt.pushOperand(.{ .i32 = 0 }); // dst
+    try rt.pushOperand(.{ .i32 = 0 }); // src
+    try rt.pushOperand(.{ .i32 = 0 }); // n
+    try driveOne(&rt, &t, .@"memory.init", 0, 0);
+}
+
+test "data.drop: dataidx out of range traps Unreachable" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    // No datas set up.
+    try testing.expectError(Trap.Unreachable, driveOne(&rt, &t, .@"data.drop", 0, 0));
 }
 
 test "memory.copy: non-overlapping forward copy" {

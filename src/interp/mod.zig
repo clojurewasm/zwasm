@@ -149,6 +149,14 @@ pub const Runtime = struct {
     /// then defined). The `call` handler indexes into this; the
     /// runner sets it before invoking the entry function.
     funcs: []const *const zir.ZirFunc = &.{},
+    /// Module data segments. Borrowed; the runner keeps the
+    /// decoded data alive for as long as `Runtime` references it.
+    /// Used by `memory.init` (Wasm 2.0 §9.2 / 2.3 chunk 4b).
+    datas: []const []const u8 = &.{},
+    /// Per-segment dropped flag. `data.drop` flips entries here so
+    /// later `memory.init` calls trap. Owned (heap-allocated when
+    /// `datas.len > 0`); freed in deinit.
+    data_dropped: []bool = &.{},
     /// Dispatch table used by the active interp run. Set by
     /// `src/interp/dispatch.zig`'s `run`; the `call` handler
     /// needs it to recursively dispatch the callee body.
@@ -167,6 +175,7 @@ pub const Runtime = struct {
     pub fn deinit(self: *Runtime) void {
         if (self.memory.len > 0) self.alloc.free(self.memory);
         if (self.globals.len > 0) self.alloc.free(self.globals);
+        if (self.data_dropped.len > 0) self.alloc.free(self.data_dropped);
     }
 
     pub fn pushOperand(self: *Runtime, v: Value) Trap!void {

@@ -367,6 +367,19 @@ const Lowerer = struct {
             5 => try self.emit(.@"i64.trunc_sat_f32_u", 0, 0),
             6 => try self.emit(.@"i64.trunc_sat_f64_s", 0, 0),
             7 => try self.emit(.@"i64.trunc_sat_f64_u", 0, 0),
+            8 => {
+                // memory.init: dataidx + reserved 0x00 byte.
+                const dataidx = try leb128.readUleb128(u32, self.body, &self.pos);
+                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+                if (self.body[self.pos] != 0x00) return Error.BadBlockType;
+                self.pos += 1;
+                try self.emit(.@"memory.init", dataidx, 0);
+            },
+            9 => {
+                // data.drop: dataidx.
+                const dataidx = try leb128.readUleb128(u32, self.body, &self.pos);
+                try self.emit(.@"data.drop", dataidx, 0);
+            },
             10 => {
                 // memory.copy: two reserved 0x00 bytes (src/dst memidx).
                 if (self.pos + 2 > self.body.len) return Error.UnexpectedEnd;
@@ -743,6 +756,30 @@ test "lower: memory.fill (0xFC 11) emits ZirOp.memory.fill" {
     };
     try lowerFunctionBody(testing.allocator, &body, &f, &.{});
     try testing.expectEqual(ZirOp.@"memory.fill", f.instrs.items[3].op);
+}
+
+test "lower: memory.init (0xFC 8) emits ZirOp.memory.init with dataidx payload" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x08, 0x05, 0x00,
+        0x0B,
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const init = f.instrs.items[3];
+    try testing.expectEqual(ZirOp.@"memory.init", init.op);
+    try testing.expectEqual(@as(u32, 5), init.payload);
+}
+
+test "lower: data.drop (0xFC 9) emits ZirOp.data.drop with dataidx payload" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{ 0xFC, 0x09, 0x07, 0x0B };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const drop = f.instrs.items[0];
+    try testing.expectEqual(ZirOp.@"data.drop", drop.op);
+    try testing.expectEqual(@as(u32, 7), drop.payload);
 }
 
 test "lower: memory.copy with non-zero reserved byte → BadBlockType" {

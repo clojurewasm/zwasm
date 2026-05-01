@@ -114,6 +114,7 @@ pub fn validateFunction(
     func_types: []const FuncType,
     globals: []const GlobalEntry,
     module_types: []const FuncType,
+    data_count: u32,
 ) Error!void {
     var v = Validator{
         .sig = sig,
@@ -123,6 +124,7 @@ pub fn validateFunction(
         .func_types = func_types,
         .globals = globals,
         .module_types = module_types,
+        .data_count = data_count,
     };
     try v.run();
 }
@@ -135,6 +137,7 @@ const Validator = struct {
     func_types: []const FuncType,
     globals: []const GlobalEntry,
     module_types: []const FuncType,
+    data_count: u32,
 
     operand_buf: [max_operand_stack]TypeOrBot = undefined,
     operand_len: usize = 0,
@@ -551,6 +554,8 @@ const Validator = struct {
             2, 3 => try self.opCvt(.f64, .i32), // i32.trunc_sat_f64_{s,u}
             4, 5 => try self.opCvt(.f32, .i64), // i64.trunc_sat_f32_{s,u}
             6, 7 => try self.opCvt(.f64, .i64), // i64.trunc_sat_f64_{s,u}
+            8 => try self.opMemoryInit(),
+            9 => try self.opDataDrop(),
             10 => try self.opMemoryCopy(),
             11 => try self.opMemoryFill(),
             else => return Error.NotImplemented,
@@ -568,6 +573,26 @@ const Validator = struct {
         try self.popExpect(.i32);
         try self.popExpect(.i32);
         try self.popExpect(.i32);
+    }
+
+    /// memory.init: 0xFC 8 dataidx 0x00 (one reserved memidx byte).
+    /// Pops three i32 (n, src, dst); pushes nothing. dataidx must be
+    /// less than the module's data segment count.
+    fn opMemoryInit(self: *Validator) Error!void {
+        const dataidx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (dataidx >= self.data_count) return Error.InvalidFuncIndex;
+        if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+        if (self.body[self.pos] != 0x00) return Error.BadBlockType;
+        self.pos += 1;
+        try self.popExpect(.i32);
+        try self.popExpect(.i32);
+        try self.popExpect(.i32);
+    }
+
+    /// data.drop: 0xFC 9 dataidx. No operand stack effects.
+    fn opDataDrop(self: *Validator) Error!void {
+        const dataidx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (dataidx >= self.data_count) return Error.InvalidFuncIndex;
     }
 
     /// memory.fill: 0xFC 11 0x00 (one reserved memidx byte).
@@ -766,29 +791,29 @@ const i32_arr = [_]ValType{.i32};
 const i64_arr = [_]ValType{.i64};
 
 test "validate: empty function (() -> ()) with bare `end`" {
-    try validateFunction(empty_sig, &.{}, &[_]u8{0x0B}, &.{}, &.{}, &.{});
+    try validateFunction(empty_sig, &.{}, &[_]u8{0x0B}, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: i32.const 0 + drop + end on () -> ()" {
     // 0x41 0x00  -> i32.const 0
     // 0x1A       -> drop
     // 0x0B       -> end
-    try validateFunction(empty_sig, &.{}, &[_]u8{ 0x41, 0x00, 0x1A, 0x0B }, &.{}, &.{}, &.{});
+    try validateFunction(empty_sig, &.{}, &[_]u8{ 0x41, 0x00, 0x1A, 0x0B }, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: i32.const + end produces declared i32 result" {
-    try validateFunction(i32_result_sig, &.{}, &[_]u8{ 0x41, 0x07, 0x0B }, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &[_]u8{ 0x41, 0x07, 0x0B }, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: empty body for () -> i32 fails arity" {
-    const r = validateFunction(i32_result_sig, &.{}, &[_]u8{0x0B}, &.{}, &.{}, &.{});
+    const r = validateFunction(i32_result_sig, &.{}, &[_]u8{0x0B}, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.ArityMismatch, r);
 }
 
 test "validate: type mismatch — i64 where i32 expected" {
     // i64.const 1 ; i32.add  -> type mismatch (i32.add expects i32 i32)
     const body = [_]u8{ 0x42, 0x01, 0x42, 0x02, 0x6A, 0x0B };
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.StackTypeMismatch, r);
 }
 
@@ -798,19 +823,19 @@ test "validate: nested block with i32 result" {
     //   0x41 0x01 -> i32.const 1
     // 0x0B -> end (block)
     // 0x0B -> end (function frame)
-    try validateFunction(i32_result_sig, &.{}, &[_]u8{ 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B }, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &[_]u8{ 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B }, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: nested block leaving wrong type at end fails" {
     // (block (result i32) i64.const 1) end -> i32.const? — fails
     const body = [_]u8{ 0x02, 0x7F, 0x42, 0x01, 0x0B, 0x0B };
-    const r = validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.StackTypeMismatch, r);
 }
 
 test "validate: unreachable polymorphism — () -> i32 satisfied by `unreachable`" {
     // unreachable; end
-    try validateFunction(i32_result_sig, &.{}, &[_]u8{ 0x00, 0x0B }, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &[_]u8{ 0x00, 0x0B }, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: br to outer block consumes labeled type" {
@@ -823,13 +848,13 @@ test "validate: br to outer block consumes labeled type" {
         0x0B, // end block
         0x0B, // end function
     };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: br to invalid depth fails" {
     // br 5 with only function frame -> InvalidBranchDepth
     const body = [_]u8{ 0x0C, 0x05, 0x0B };
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.InvalidBranchDepth, r);
 }
 
@@ -846,12 +871,12 @@ test "validate: local.get / local.set — params and locals indexed correctly" {
         0x20, 0x02, 0x1A,
         0x0B,
     };
-    try validateFunction(sig, &locals, &body, &.{}, &.{}, &.{});
+    try validateFunction(sig, &locals, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: local.get out of range fails" {
     const body = [_]u8{ 0x20, 0x05, 0x1A, 0x0B };
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.InvalidLocalIndex, r);
 }
 
@@ -860,7 +885,7 @@ test "validate: local.set type mismatch fails" {
     const params = [_]ValType{.i32};
     const sig: FuncType = .{ .params = &params, .results = &.{} };
     const body = [_]u8{ 0x42, 0x07, 0x21, 0x00, 0x0B };
-    const r = validateFunction(sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.StackTypeMismatch, r);
 }
 
@@ -875,7 +900,7 @@ test "validate: if/else with matching i32 results" {
         0x0B, // end if
         0x0B, // end fn
     };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: if/else with mismatched branch types fails" {
@@ -889,82 +914,82 @@ test "validate: if/else with mismatched branch types fails" {
         0x0B,
         0x0B,
     };
-    const r = validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.StackTypeMismatch, r);
 }
 
 test "validate: unclosed frame (truncated body) fails" {
     // block (no end)
     const body = [_]u8{ 0x02, 0x40, 0x0B }; // opens block, ends block, but not function frame
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.UnexpectedEnd, r);
 }
 
 test "validate: trailing bytes after function `end` are rejected" {
     const body = [_]u8{ 0x0B, 0x00 };
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.TrailingBytes, r);
 }
 
 test "validate: stack underflow on drop with empty operand stack" {
     const body = [_]u8{ 0x1A, 0x0B };
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.StackUnderflow, r);
 }
 
 test "validate: i32.add binop — correct typing" {
     const body = [_]u8{ 0x41, 0x01, 0x41, 0x02, 0x6A, 0x0B };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: i32.eqz unary test — pops i32, pushes i32" {
     const body = [_]u8{ 0x41, 0x01, 0x45, 0x0B };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: return polymorphism" {
     // i32.const 7 ; return ; end
     const body = [_]u8{ 0x41, 0x07, 0x0F, 0x0B };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: NotImplemented for unknown opcode (e.g. 0xFF)" {
     const body = [_]u8{ 0xFF, 0x0B };
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.NotImplemented, r);
 }
 
 test "validate: i32.extend8_s — pops i32, pushes i32" {
     // i32.const 0x7F ; i32.extend8_s ; end
     const body = [_]u8{ 0x41, 0x7F, 0xC0, 0x0B };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: i32.extend16_s — pops i32, pushes i32" {
     const body = [_]u8{ 0x41, 0x7F, 0xC1, 0x0B };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: i64.extend8_s — pops i64, pushes i64" {
     // i64.const 0x7F ; i64.extend8_s ; end
     const body = [_]u8{ 0x42, 0x7F, 0xC2, 0x0B };
-    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: i64.extend16_s — pops i64, pushes i64" {
     const body = [_]u8{ 0x42, 0x7F, 0xC3, 0x0B };
-    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: i64.extend32_s — pops i64, pushes i64" {
     const body = [_]u8{ 0x42, 0x7F, 0xC4, 0x0B };
-    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: i32.trunc_sat_f32_s (0xFC 00) — pops f32, pushes i32" {
     // f32.const 0.0 ; i32.trunc_sat_f32_s ; end
     const body = [_]u8{ 0x43, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x00, 0x0B };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: i64.trunc_sat_f64_u (0xFC 07) — pops f64, pushes i64" {
@@ -974,7 +999,7 @@ test "validate: i64.trunc_sat_f64_u (0xFC 07) — pops f64, pushes i64" {
         0xFC, 0x07,
         0x0B,
     };
-    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: multivalue block via s33 typeidx — empty params, two i32 results" {
@@ -993,7 +1018,7 @@ test "validate: multivalue block via s33 typeidx — empty params, two i32 resul
         0x1A, 0x1A, // drop, drop
         0x0B, // end (function)
     };
-    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &types);
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &types, 0);
 }
 
 test "validate: multivalue block typeidx with non-empty params → BadBlockType" {
@@ -1006,7 +1031,7 @@ test "validate: multivalue block typeidx with non-empty params → BadBlockType"
         0x0B, // end (block)
         0x0B, // end (function)
     };
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &types);
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &types, 0);
     try testing.expectError(Error.BadBlockType, r);
 }
 
@@ -1017,7 +1042,7 @@ test "validate: memory.copy (0xFC 10) — pops three i32" {
         0xFC, 0x0A, 0x00, 0x00,
         0x0B,
     };
-    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: memory.fill (0xFC 11) — pops three i32" {
@@ -1026,7 +1051,7 @@ test "validate: memory.fill (0xFC 11) — pops three i32" {
         0xFC, 0x0B, 0x00,
         0x0B,
     };
-    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
 }
 
 test "validate: memory.copy with non-zero reserved byte → BadBlockType" {
@@ -1035,8 +1060,40 @@ test "validate: memory.copy with non-zero reserved byte → BadBlockType" {
         0xFC, 0x0A, 0x01, 0x00,
         0x0B,
     };
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.BadBlockType, r);
+}
+
+test "validate: memory.init (0xFC 8) with valid dataidx" {
+    // i32.const 0 ; i32.const 0 ; i32.const 0 ; memory.init 0 ; end
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x08, 0x00, 0x00,
+        0x0B,
+    };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 1);
+}
+
+test "validate: memory.init dataidx out of range → InvalidFuncIndex" {
+    const body = [_]u8{
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x08, 0x05, 0x00,
+        0x0B,
+    };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 1);
+    try testing.expectError(Error.InvalidFuncIndex, r);
+}
+
+test "validate: data.drop (0xFC 9) with valid dataidx" {
+    // data.drop 0 ; end
+    const body = [_]u8{ 0xFC, 0x09, 0x00, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 1);
+}
+
+test "validate: data.drop dataidx out of range → InvalidFuncIndex" {
+    const body = [_]u8{ 0xFC, 0x09, 0x03, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 1);
+    try testing.expectError(Error.InvalidFuncIndex, r);
 }
 
 test "validate: 0xFC unknown sub-opcode → NotImplemented" {
@@ -1044,6 +1101,6 @@ test "validate: 0xFC unknown sub-opcode → NotImplemented" {
     // chunk-2 scope. Should return NotImplemented (chunks 4+ wire
     // the rest).
     const body = [_]u8{ 0x43, 0x00, 0x00, 0x00, 0x00, 0xFC, 0xFF, 0x01, 0x0B };
-    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0);
     try testing.expectError(Error.NotImplemented, r);
 }
