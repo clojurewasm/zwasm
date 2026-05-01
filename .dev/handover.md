@@ -104,14 +104,15 @@
   surfaces as a Trap. Drive-by fixes: `wasm_func_call` now
   indexes `func_ptrs_storage` (full funcidx space) and
   `frontendValidate` builds `func_types` over imports + defined.
-  §9.4 / 4.7 fully closed. The first remaining `[ ]` is **§9.4
-  / 4.8 — `zwasm run <path.wasm> [args...]` CLI subcommand
-  drives `_start`**, splitting into chunks. 4.8a closed at
-  `896f534` — `src/cli/run.zig::runWasm(alloc, io, bytes) →
-  u8` is the Zig-callable WASI driver; `pub export fn` on
-  all 36 binding entries makes them Zig-importable (no C ABI
-  change). Chunk remaining: 4.8b (argv parsing in
-  `src/main.zig`).
+  §9.4 / 4.7 fully closed. §9.4 / 4.8 closed in two chunks:
+  4.8a at `896f534` (`src/cli/run.zig::runWasm` Zig-callable
+  WASI driver; `pub export fn` on all 36 binding entries for
+  Zig-import), 4.8b at `894b9ce` (`src/main.zig` `run`
+  subcommand: argv → file read → runWasm → exit code; verified
+  live: `zwasm run /tmp/proc_exit_42.wasm` returns 42). The
+  first remaining `[ ]` is **§9.4 / 4.9 — `test/wasi/`
+  curated subset of wasi-testsuite + `zig build test-wasi-p1`
+  runner**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -153,38 +154,33 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.8 (zwasm run CLI subcommand)
+## Active task — §9.4 / 4.9 (test/wasi/ + zig build test-wasi-p1)
 
-`zwasm run <path.wasm> [args...]` drives a WASI guest's
-`_start` from the command line. Builds on 4.7's binding
-integration:
+Test infrastructure for WASI 0.1 conformance:
 
-1. Add `run` subcommand to `src/main.zig` (or a new
-   `src/cli/run.zig`). Parse argv: `path.wasm` + remaining
-   args go to the guest's WASI argv.
-2. Read the wasm bytes from disk via `init.io` + `Io.Dir`.
-3. Construct: engine, store, host (from `init.minimal.args` +
-   `init.environ_map` + initial preopens), module, instance.
-4. Find the `_start` export (or fall back to `main`); call
-   it via `wasm_func_call`-equivalent (or directly through
-   the binding's internals — CLI lives in Zone 3 alongside
-   c_api).
-5. Map the resulting Trap → CLI exit code:
-   - No trap: exit 0
-   - Trap with `host.exit_code` set: exit with that code
-   - Other trap: print message + exit 1
-6. Wire `host.io` and `host.stdout_buffer = null` so writes
-   go to real stdout.
+1. Create `test/wasi/` directory with curated `.wasm` fixtures
+   exercising each landed thunk. Start with hand-rolled
+   modules:
+   - `proc_exit_42.wasm` — proves binding's exit-code path
+     (already in `src/cli/run.zig` test fixture; promote to a
+     real file)
+   - `hello_stdout.wasm` — fd_write to fd 1, then proc_exit(0)
+   - More as the thunk table grows
+2. Add a runner under `test/wasi/runner.zig` that:
+   - Walks the directory
+   - Calls `cli_run.runWasm` against each .wasm
+   - For each fixture, asserts an expected exit code +
+     captured stdout against a sibling `.expected.txt` file
+3. Wire `zig build test-wasi-p1` step in `build.zig`. Add
+   it to `test-all` so the three-host gate exercises WASI.
+4. After 4.9 lands, 4.10 expands by piping the same wasms
+   through `wasmtime run` and diff-comparing — that's the
+   conformance push.
 
-The realworld toolchain wasms (cpp_struct_test etc.) won't
-run yet because they need fd_read / fd_close / clock_time_get
-thunks beyond fd_write + proc_exit. The 4.10 diff target
-(stdout vs `wasmtime run`) catches this — chunks within 4.8
-or 4.9 will progressively flesh out the thunk table.
-
-Smallest red test: integration test or a hand-rolled wasm in
-`test/wasi/` that prints "hello\n" via fd_write then
-proc_exit(0). Run via `zig build run -- run hello.wasm`.
+The thunk table currently has only `fd_write` + `proc_exit`.
+Adding more thunks (fd_read for stdin-piped tests,
+clock_time_get for time-related fixtures, etc.) belongs as
+needed when fixtures call for them.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
