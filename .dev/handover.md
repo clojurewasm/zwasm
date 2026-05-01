@@ -40,13 +40,11 @@
   `wasm_func_call` + a process-wide lazy `DispatchTable` cache).
   The first remaining `[ ]` is **§9.3 / 3.7 — `wasm_*_vec_t`
   types + `wasm_trap_t`**, splitting into chunks. 3.7a closed at
-  `fcfdc97` — `Trap` gained `{ store, kind: TrapKind,
-  message_ptr, message_len }` plus `wasm_trap_new` /
-  `wasm_trap_delete` / `wasm_trap_message` /
-  `wasm_byte_vec_delete`; `wasm_func_call`'s previously-leaked
-  sentinel traps now route through `allocTrap(alloc, store,
-  kind)` and `mapInterpTrap`. Chunks remaining: 3.7b
-  (`wasm_*_vec_t` family ABI per `WASM_DECLARE_VEC`), 3.7c
+  `fcfdc97` (Trap shape + lifecycle), 3.7b at `24567cc`
+  (`wasm_*_vec_t` family per `WASM_DECLARE_VEC` for `byte` and
+  `val` types — `_new_empty` / `_new_uninitialized` / `_new` /
+  `_copy` / `_delete` forwarded through a generic helper, all
+  pinned to `c_allocator`). Chunk remaining: 3.7c
   (`wasm_extern_t` Func variant + `wasm_instance_exports`).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
@@ -74,34 +72,25 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.7 chunk b (wasm_*_vec_t family ABI)
+## Active task — §9.3 / 3.7 chunk c (wasm_extern_t + wasm_instance_exports)
 
-3.7a (Trap shape + lifecycle) landed at `fcfdc97`. Remaining
-for 3.7:
+3.7a (Trap shape + lifecycle, `fcfdc97`) and 3.7b (vec family,
+`24567cc`) are done. Remaining for 3.7:
 
-**Chunk b — wasm_*_vec_t family per `WASM_DECLARE_VEC`**:
-
-For each of `byte`, `val`, `extern`: surface
-
-  void wasm_<name>_vec_new_empty(*<name>_vec_t)
-  void wasm_<name>_vec_new_uninitialized(*<name>_vec_t, size_t)
-  void wasm_<name>_vec_new(*<name>_vec_t, size_t, const T*)
-  void wasm_<name>_vec_copy(*<name>_vec_t, const *<name>_vec_t)
-  void wasm_<name>_vec_delete(*<name>_vec_t)
-
-Pin the data allocator to `c_allocator` (same as
-`wasm_byte_vec_delete` does today). The current `ValVec` is
-already in the binding; just needs the missing constructors /
-`wasm_val_vec_delete`. `ExternVec` is new — needs `Extern`
-shape from chunk c.
-
-**Chunk c — wasm_extern_t (Func variant) + wasm_instance_exports**:
-
-Add a tagged-union `Extern` (kind = func / global / table /
-memory; only `func` populated now) and surface
+Add `Extern` as a tagged union (kind = func / global / table /
+memory; only `func` populated for v0.1.0 — globals / tables /
+memories follow alongside their dispatch ops in later phases),
+plus the `ExternVec` family (now possible since 3.7b's generic
+vec helpers are in place). Surface
 `wasm_instance_exports(*Instance, *out wasm_extern_vec_t)` so C
-hosts get the standard discovery path. `zwasm_instance_get_func`
-becomes a thin convenience wrapper over the same data.
+hosts get the upstream-standard discovery path; refactor
+`zwasm_instance_get_func` to a thin convenience wrapper around
+the same data, or retire it once `wasm_instance_exports` is in.
+
+The export discovery requires decoding the Module's export
+section at instantiation time (currently we only decode types /
+functions / code). Add `sections.decodeExports` (if missing) and
+populate `Instance.exports_storage` in `instantiateRuntime`.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
