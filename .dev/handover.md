@@ -76,9 +76,11 @@
   `fdRead` (stdio routes through `host.stdout_buffer` /
   `stdin_bytes` for capture-driven tests; production wiring
   lives in 4.7/4.8) plus `fdClose` / `fdSeek` / `fdTell`
-  with the spec-conformant stdio behaviour. The first
-  remaining `[ ]` is **§9.4 / 4.5 — `path_open` (preopen-
-  rooted only) + `fd_fdstat_get` / `_set`**.
+  with the spec-conformant stdio behaviour. §9.4 / 4.5 splits
+  into chunks: 4.5a closed at `181d477` — `fdFdstatGet` writes
+  the 24-byte witx Fdstat block, `fdFdstatSetFlags` persists
+  the writable-subset flags; `OpenFd` gained `fs_flags`. Chunk
+  remaining: 4.5b `path_open` (real openat + traversal rules).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -120,39 +122,41 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.5 (path_open + fd_fdstat_get/_set)
+## Active task — §9.4 / 4.5 chunk b (path_open preopen-rooted)
 
-Wire arbitrary-file fd opening through preopens (the only
-allowed root — no parent-traversal). After 4.5, fd_write /
-fd_read can target file fds, not just stdio.
+4.5a (fdstat) closed at `181d477`. Remaining for 4.5:
 
-Surface:
-- `pathOpen(host, mem, dirfd, dirflags, path_ptr, path_len,
-  oflags, fs_rights_base, fs_rights_inheriting, fdflags,
-  *opened_fd_out) → Errno` — opens a path RELATIVE to a
-  preopen dirfd. Use `std.posix.openat(host.preopens[i].host_fd,
-  guest_path, ...)` so the kernel enforces the dir-fd root.
-  Reject any path containing `..` segments or starting with `/`
-  (`Errno.notcapable` / `notdir` per spec).
-- `fdFdstatGet(host, mem, fd, *fdstat_out) → Errno` — writes a
-  24-byte `Fdstat` struct (filetype + flags + rights_base +
-  rights_inheriting).
-- `fdFdstatSetFlags(host, fd, flags) → Errno` — updates
-  `OpenFd.fs_flags` (the writable subset).
+`pathOpen(host, mem, dirfd, dirflags, path_ptr, path_len,
+oflags, fs_rights_base, fs_rights_inheriting, fdflags,
+*opened_fd_out) → Errno`. Opens a path RELATIVE to a preopen
+dirfd; appends to `host.fd_table` and writes the new fd to
+the out pointer.
 
-`OpenFd` needs a real backing field for file fds —
-`std.fs.File`-equivalent. For Phase 4 lower-effort:
-`std.posix.fd_t` (or `std.fs.File`); the §9.4 / 4.5 chunk wires
-the open path then 4.4's fdWrite/fdRead extend to cover .file
-slots via `std.posix.write/read`.
+Validation rules:
+- The path string spans `mem[path_ptr .. path_ptr + path_len]`
+  — bounds-check, return `fault` on overflow.
+- Path must not start with `/` → `notcapable`.
+- Path must not contain a `..` segment → `notcapable`.
+- `dirfd` must resolve to an `OpenFd` of kind `.dir` (i.e. a
+  preopen) → otherwise `notdir`.
 
-Tests use a temp directory created via `std.testing.tmpDir`
-(Zig 0.16) so the path-traversal rules are exercised on a real
-fs without touching $HOME. Verify:
-- happy path: open existing file under preopen → success
-- traversal escape: path containing `..` → notcapable
-- absolute path: starts with `/` → notcapable
-- non-preopen dirfd: fd resolves to .stdin/.stdout/.stderr → notdir
+Real open: use `std.fs.Dir{.fd = preopen_host_fd}.openFile`
+(or `.makeOpenPath` if OFLAGS_CREAT is set). The chunk's
+priority is: traversal rules + happy-path open returning a
+new guest fd. Honour the OFLAGS bits gradually; full coverage
+can grow.
+
+Cross-platform note: Windows `std.fs.Dir.fd` exists but is a
+HANDLE; the dir abstraction handles platform differences.
+Watch for any test that depends on POSIX-specific errno
+values; map through `std.fs.File.OpenError` to `p1.Errno`.
+
+Tests use `std.testing.tmpDir(.{})` to create a real preopen-
+able directory, write a file, then path_open it through the
+host. Cleanup via the `.cleanup()` method.
+
+After 4.5b, the next task (4.6 — clock / random / poll) is
+mostly stdlib-glue. 4.7 wires the binding's import resolution.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
