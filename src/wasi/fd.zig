@@ -211,6 +211,61 @@ pub fn fdTell(host: *Host, mem: []u8, fd: p1.Fd, pos_ptr: u32) p1.Errno {
 }
 
 // ============================================================
+// fd_fdstat_get / fd_fdstat_set_flags  (§9.4 / 4.5 chunk a)
+// ============================================================
+
+fn filetypeFor(kind: host_mod.FdKind) p1.Filetype {
+    return switch (kind) {
+        .stdin, .stdout, .stderr => .character_device,
+        .file => .regular_file,
+        .dir => .directory,
+        .closed => .unknown,
+    };
+}
+
+/// `fd_fdstat_get(fd, *fdstat_out) → errno` — write the
+/// 24-byte `Fdstat` block. Layout per witx:
+///   offset 0  : u8  filetype
+///   offset 1  : u8  reserved (zero)
+///   offset 2  : u16 fs_flags  (little-endian)
+///   offset 4  : u32 reserved (zero)
+///   offset 8  : u64 fs_rights_base  (little-endian)
+///   offset 16 : u64 fs_rights_inheriting (little-endian)
+pub fn fdFdstatGet(
+    host: *const Host,
+    mem: []u8,
+    fd: p1.Fd,
+    fdstat_ptr: u32,
+) p1.Errno {
+    if (@as(usize, fdstat_ptr) + 24 > mem.len) return .fault;
+    if (fd >= host.fd_table.items.len) return .badf;
+    const slot = &host.fd_table.items[fd];
+    if (slot.kind == .closed) return .badf;
+
+    const dst = mem[fdstat_ptr..][0..24];
+    @memset(dst, 0);
+    dst[0] = @intFromEnum(filetypeFor(slot.kind));
+    std.mem.writeInt(u16, dst[2..4], slot.fs_flags, .little);
+    std.mem.writeInt(u64, dst[8..16], slot.rights_base, .little);
+    std.mem.writeInt(u64, dst[16..24], slot.rights_inheriting, .little);
+    return .success;
+}
+
+/// `fd_fdstat_set_flags(fd, flags) → errno` — replace the
+/// writable-subset flags on the slot. Only the flag bits the
+/// witx schema allows on update are persisted (APPEND / DSYNC
+/// / NONBLOCK / RSYNC / SYNC); other bits are silently
+/// ignored, matching wasmtime.
+pub fn fdFdstatSetFlags(host: *Host, fd: p1.Fd, flags: p1.Fdflags) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    if (slot.kind == .closed) return .badf;
+    const allowed: p1.Fdflags = p1.FDFLAGS_APPEND | p1.FDFLAGS_DSYNC |
+        p1.FDFLAGS_NONBLOCK | p1.FDFLAGS_RSYNC | p1.FDFLAGS_SYNC;
+    slot.fs_flags = flags & allowed;
+    return .success;
+}
+
+// ============================================================
 // Tests
 // ============================================================
 
@@ -338,4 +393,51 @@ test "fdSeek / fdTell: stdio returns spipe" {
     var mem: [8]u8 = @splat(0);
     try testing.expectEqual(p1.Errno.spipe, fdSeek(&h, &mem, 1, 0, 0, 0));
     try testing.expectEqual(p1.Errno.spipe, fdTell(&h, &mem, 0, 0));
+}
+
+test "fdFdstatGet: stdout writes 24-byte block (character_device, RIGHTS_FD_WRITE)" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    var mem: [32]u8 = @splat(0xAB);
+    const e = fdFdstatGet(&h, &mem, 1, 0);
+    try testing.expectEqual(p1.Errno.success, e);
+    // filetype = character_device (2)
+    try testing.expectEqual(@as(u8, @intFromEnum(p1.Filetype.character_device)), mem[0]);
+    // reserved byte zeroed
+    try testing.expectEqual(@as(u8, 0), mem[1]);
+    // fs_flags = 0
+    try testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, mem[2..4], .little));
+    // rights_base = RIGHTS_FD_WRITE (default for fd 1)
+    try testing.expectEqual(p1.RIGHTS_FD_WRITE, std.mem.readInt(u64, mem[8..16], .little));
+    // rights_inheriting = 0
+    try testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, mem[16..24], .little));
+    // The 25th byte should be untouched.
+    try testing.expectEqual(@as(u8, 0xAB), mem[24]);
+}
+
+test "fdFdstatGet: out-of-range fd returns badf; out-of-bounds ptr returns fault" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    var mem: [32]u8 = @splat(0);
+    try testing.expectEqual(p1.Errno.badf, fdFdstatGet(&h, &mem, 99, 0));
+    try testing.expectEqual(p1.Errno.fault, fdFdstatGet(&h, &mem, 1, 100));
+}
+
+test "fdFdstatSetFlags: persists allowed bits + masks unknown ones" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    // Set NONBLOCK | APPEND | (some unknown high bit).
+    const requested: p1.Fdflags = p1.FDFLAGS_NONBLOCK | p1.FDFLAGS_APPEND | 0x8000;
+    const e = fdFdstatSetFlags(&h, 1, requested);
+    try testing.expectEqual(p1.Errno.success, e);
+    const slot = h.translateFd(1).?;
+    try testing.expectEqual(@as(p1.Fdflags, p1.FDFLAGS_NONBLOCK | p1.FDFLAGS_APPEND), slot.fs_flags);
+
+    // Round-trip: fdstat_get reflects the new flags.
+    var mem: [32]u8 = @splat(0);
+    _ = fdFdstatGet(&h, &mem, 1, 0);
+    try testing.expectEqual(
+        @as(u16, p1.FDFLAGS_NONBLOCK | p1.FDFLAGS_APPEND),
+        std.mem.readInt(u16, mem[2..4], .little),
+    );
 }

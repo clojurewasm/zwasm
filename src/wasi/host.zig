@@ -45,6 +45,11 @@ pub const OpenFd = struct {
     kind: FdKind,
     rights_base: p1.Rights = 0,
     rights_inheriting: p1.Rights = 0,
+    /// `fdstat.fs_flags` — the writable subset of the WASI
+    /// snapshot-1 fd flags (FDFLAGS_APPEND / NONBLOCK / SYNC /
+    /// DSYNC / RSYNC). Updated via `fd_fdstat_set_flags`; read
+    /// out via `fd_fdstat_get`.
+    fs_flags: p1.Fdflags = 0,
 };
 
 /// One environment-variable entry. Both `key` and `value` are
