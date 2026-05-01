@@ -1,0 +1,12 @@
+valid f32.0.wasm
+invalid f32.1.wasm
+invalid f32.2.wasm
+invalid f32.3.wasm
+invalid f32.4.wasm
+invalid f32.5.wasm
+invalid f32.6.wasm
+invalid f32.7.wasm
+invalid f32.8.wasm
+invalid f32.9.wasm
+invalid f32.10.wasm
+invalid f32.11.wasm

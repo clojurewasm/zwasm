@@ -1,0 +1,2 @@
+valid memory_trap.0.wasm
+valid memory_trap.1.wasm

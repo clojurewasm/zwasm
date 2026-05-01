@@ -1,0 +1,1 @@
+valid int_literals.0.wasm

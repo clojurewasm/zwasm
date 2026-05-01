@@ -59,6 +59,21 @@ NAMES=(
   float_misc
   float_memory
   conversions
+  f32
+  f32_bitwise
+  f32_cmp
+  f64
+  f64_bitwise
+  f64_cmp
+  float_literals
+  i32
+  i64
+  inline-module
+  int_literals
+  left-to-right
+  memory_redundancy
+  memory_size
+  memory_trap
 )
 
 for n in "${NAMES[@]}"; do

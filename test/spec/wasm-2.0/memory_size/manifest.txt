@@ -1,0 +1,6 @@
+valid memory_size.0.wasm
+valid memory_size.1.wasm
+valid memory_size.2.wasm
+valid memory_size.3.wasm
+invalid memory_size.4.wasm
+invalid memory_size.5.wasm

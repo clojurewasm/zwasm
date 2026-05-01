@@ -1,0 +1,4 @@
+valid f64_bitwise.0.wasm
+invalid f64_bitwise.1.wasm
+invalid f64_bitwise.2.wasm
+invalid f64_bitwise.3.wasm

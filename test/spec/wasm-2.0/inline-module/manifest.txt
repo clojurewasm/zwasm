@@ -1,0 +1,1 @@
+valid inline-module.0.wasm

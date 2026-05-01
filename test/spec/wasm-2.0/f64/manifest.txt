@@ -1,0 +1,12 @@
+valid f64.0.wasm
+invalid f64.1.wasm
+invalid f64.2.wasm
+invalid f64.3.wasm
+invalid f64.4.wasm
+invalid f64.5.wasm
+invalid f64.6.wasm
+invalid f64.7.wasm
+invalid f64.8.wasm
+invalid f64.9.wasm
+invalid f64.10.wasm
+invalid f64.11.wasm

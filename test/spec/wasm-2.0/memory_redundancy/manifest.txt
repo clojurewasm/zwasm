@@ -1,0 +1,1 @@
+valid memory_redundancy.0.wasm

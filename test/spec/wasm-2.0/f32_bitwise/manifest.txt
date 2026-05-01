@@ -1,0 +1,4 @@
+valid f32_bitwise.0.wasm
+invalid f32_bitwise.1.wasm
+invalid f32_bitwise.2.wasm
+invalid f32_bitwise.3.wasm

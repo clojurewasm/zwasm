@@ -1,0 +1,2 @@
+valid float_literals.0.wasm
+valid float_literals.1.wasm

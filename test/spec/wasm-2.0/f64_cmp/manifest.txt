@@ -1,0 +1,7 @@
+valid f64_cmp.0.wasm
+invalid f64_cmp.1.wasm
+invalid f64_cmp.2.wasm
+invalid f64_cmp.3.wasm
+invalid f64_cmp.4.wasm
+invalid f64_cmp.5.wasm
+invalid f64_cmp.6.wasm
