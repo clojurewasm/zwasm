@@ -46,8 +46,12 @@
   `test/spec/wast_runner.zig` consumes per-corpus
   `manifest.txt` files (valid / invalid / malformed); initial
   `test/spec/wasm-2.0/const/` fixture green; corpus expansion
-  is queued for §9.2 / 2.8. The first remaining `[ ]` is
-  **§9.2 / 2.8 — Wasm Core 2.0 spec corpus fail=0 / skip=0**.
+  is queued for §9.2 / 2.8. **§9.2 / 2.8 IN-PROGRESS** —
+  chunk 1 (`49e6e48`) added decodeTables and threaded
+  TableEntry through both runners; wasm-1.0 spec corpus
+  upgraded **7/9 → 9/9** by fixing call_indirect's empty
+  table-list bug. Next chunks expand the wasm-2.0 corpus and
+  surface validator gaps.
   validateFunction takes `tables: []const zir.TableEntry`;
   Runtime carries `tables: []TableInstance` (mutable, so grow
   can swap refs slice headers).
