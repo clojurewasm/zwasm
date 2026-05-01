@@ -64,6 +64,9 @@ of `f292ae7` (2.1 close):
    trips Trap.OutOfBoundsLoad / Store. Wasm page = 64 KiB.
 7. `16cb839` — chunk-5b: unreachable / nop / select handlers
    (the trio that doesn't need pc mutation).
+8. `af9c77c` — refactor: extract memory ops (loads/stores/
+   memory.size/grow + tests) into `src/interp/memory_ops.zig`.
+   mvp.zig: 1832 → 1533 lines.
 
 `src/interp/mvp.zig` is now 1771 / 2000 lines. **File-split
 refactor required before chunk 6** (control flow) + chunk 7
