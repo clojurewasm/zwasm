@@ -17,11 +17,12 @@
 ## Current state
 
 - **Phase**: **Phase 3 IN-PROGRESS.** Phases 0 + 1 + 2 are
-  `DONE`. §9.3 / 3.0 closed at `05bd4e4` (ADR-0004 pins upstream
-  wasm-c-api commit; `scripts/fetch_wasm_c_api.sh` extracts
-  `include/wasm.h` byte-for-byte; sanity-checks the result).
-  The first remaining `[ ]` is **§9.3 / 3.1 — vendor wasm.h
-  read-only + wire build.zig include path**.
+  `DONE`. §9.3 / 3.0 closed at `05bd4e4`; §9.3 / 3.1 closed at
+  `19c5228` (`include/README.md` documents the vendor policy +
+  bump workflow; `build.zig` adds `include/` to exe_mod's
+  include path). The first remaining `[ ]` is **§9.3 / 3.2 —
+  `src/c_api/wasm_c_api.zig` Zone-3 module exporting the C
+  ABI shapes**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -48,19 +49,20 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.1 (vendor wasm.h + wire build.zig include path)
+## Active task — §9.3 / 3.2 (Zone-3 wasm_c_api.zig module)
 
-`include/wasm.h` is now the real upstream header (737 lines).
-3.1 is the wiring task: confirm the header is committed
-read-only (i.e. only `scripts/fetch_wasm_c_api.sh` writes to
-it), add `build.zig` include-path glue so future C-API tests can
-`#include <wasm.h>`, and document the regen command in a brief
-README under `include/`.
+Add `src/c_api/wasm_c_api.zig` exposing the engine / store /
+module / instance / func / vec / trap shapes the upstream
+`wasm.h` declares. Module is Zone-3; may import any lower zone.
+Initial scope is shape declarations (extern structs / opaque
+ptrs); concrete `wasm_*_new` etc. land in 3.3 – 3.7.
 
-Subsequent §9.3 tasks (3.2 – 3.11): Zone-3 `src/c_api/
-wasm_c_api.zig` module, exports for engine / module / instance
-/ func / vec / trap, `examples/c_host/hello.c` plus
-`zig build test-c-api`, then boundary audit + open §9.4.
+Note for 3.2+ work: a `@cImport` smoke test catches "header
+unreachable" regressions but tripped Rosetta on OrbStack
+(translate-c bss_size overflow). Defer header-parse smoke to
+the C-host test step in §9.3 / 3.9 (`zig build test-c-api`)
+where it can run via the host C compiler instead of
+translate-c.
 
 ## Phase-2 audit `soon` / `watch` carry-over
 
