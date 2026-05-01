@@ -106,7 +106,12 @@
   `frontendValidate` builds `func_types` over imports + defined.
   §9.4 / 4.7 fully closed. The first remaining `[ ]` is **§9.4
   / 4.8 — `zwasm run <path.wasm> [args...]` CLI subcommand
-  drives `_start`**.
+  drives `_start`**, splitting into chunks. 4.8a closed at
+  `896f534` — `src/cli/run.zig::runWasm(alloc, io, bytes) →
+  u8` is the Zig-callable WASI driver; `pub export fn` on
+  all 36 binding entries makes them Zig-importable (no C ABI
+  change). Chunk remaining: 4.8b (argv parsing in
+  `src/main.zig`).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
