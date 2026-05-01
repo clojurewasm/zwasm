@@ -364,6 +364,9 @@ const Validator = struct {
             0xC0, 0xC1 => try self.opUnop(.i32),
             0xC2, 0xC3, 0xC4 => try self.opUnop(.i64),
 
+            // Wasm 2.0 prefix opcodes (§9.2 / 2.3 chunk 2 onward)
+            0xFC => try self.dispatchPrefixFC(),
+
             else => return Error.NotImplemented,
         }
     }
@@ -520,6 +523,21 @@ const Validator = struct {
     fn opCvt(self: *Validator, from: ValType, to: ValType) Error!void {
         try self.popExpect(from);
         try self.pushType(to);
+    }
+
+    /// Dispatch the Wasm 2.0+ prefix-0xFC opcode group. Sub-opcodes
+    /// 0..7 are saturating truncations (§9.2 / 2.3 chunk 2); higher
+    /// sub-opcodes (8..) belong to bulk-memory / table ops landing
+    /// in later chunks. Encoding: 0xFC <uleb32 sub-opcode>.
+    fn dispatchPrefixFC(self: *Validator) Error!void {
+        const sub = try leb128.readUleb128(u32, self.body, &self.pos);
+        switch (sub) {
+            0, 1 => try self.opCvt(.f32, .i32), // i32.trunc_sat_f32_{s,u}
+            2, 3 => try self.opCvt(.f64, .i32), // i32.trunc_sat_f64_{s,u}
+            4, 5 => try self.opCvt(.f32, .i64), // i64.trunc_sat_f32_{s,u}
+            6, 7 => try self.opCvt(.f64, .i64), // i64.trunc_sat_f64_{s,u}
+            else => return Error.NotImplemented,
+        }
     }
 
     fn opBrTable(self: *Validator) Error!void {
@@ -900,4 +918,29 @@ test "validate: i64.extend16_s — pops i64, pushes i64" {
 test "validate: i64.extend32_s — pops i64, pushes i64" {
     const body = [_]u8{ 0x42, 0x7F, 0xC4, 0x0B };
     try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: i32.trunc_sat_f32_s (0xFC 00) — pops f32, pushes i32" {
+    // f32.const 0.0 ; i32.trunc_sat_f32_s ; end
+    const body = [_]u8{ 0x43, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x00, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: i64.trunc_sat_f64_u (0xFC 07) — pops f64, pushes i64" {
+    // f64.const 0.0 ; i64.trunc_sat_f64_u ; end
+    const body = [_]u8{
+        0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xFC, 0x07,
+        0x0B,
+    };
+    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{});
+}
+
+test "validate: 0xFC unknown sub-opcode → NotImplemented" {
+    // f32.const 0.0 ; 0xFC 0xFF ... ; end — sub-op 0xFF is past
+    // chunk-2 scope. Should return NotImplemented (chunks 4+ wire
+    // the rest).
+    const body = [_]u8{ 0x43, 0x00, 0x00, 0x00, 0x00, 0xFC, 0xFF, 0x01, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{});
+    try testing.expectError(Error.NotImplemented, r);
 }

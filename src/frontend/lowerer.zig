@@ -324,12 +324,35 @@ const Lowerer = struct {
             0xC3 => try self.emit(.@"i64.extend16_s", 0, 0),
             0xC4 => try self.emit(.@"i64.extend32_s", 0, 0),
 
+            // Wasm 2.0+ prefix opcodes (sat-trunc / bulk-memory / ...)
+            0xFC => try self.emitPrefixFC(),
+
             else => return Error.NotImplemented,
         }
     }
 
     fn emit(self: *Lowerer, op: ZirOp, payload: u32, extra: u32) Error!void {
         try self.out.instrs.append(self.alloc, .{ .op = op, .payload = payload, .extra = extra });
+    }
+
+    /// Wasm 2.0+ prefix-0xFC opcode group. Sub-opcode is uleb32.
+    /// Sub-opcodes 0..7 are saturating truncations (§9.2 / 2.3
+    /// chunk 2); higher sub-opcodes (bulk-memory / table) land
+    /// in later chunks.
+    fn emitPrefixFC(self: *Lowerer) Error!void {
+        const sub = try leb128.readUleb128(u32, self.body, &self.pos);
+        const op: ZirOp = switch (sub) {
+            0 => .@"i32.trunc_sat_f32_s",
+            1 => .@"i32.trunc_sat_f32_u",
+            2 => .@"i32.trunc_sat_f64_s",
+            3 => .@"i32.trunc_sat_f64_u",
+            4 => .@"i64.trunc_sat_f32_s",
+            5 => .@"i64.trunc_sat_f32_u",
+            6 => .@"i64.trunc_sat_f64_s",
+            7 => .@"i64.trunc_sat_f64_u",
+            else => return Error.NotImplemented,
+        };
+        try self.emit(op, 0, 0);
     }
 
     fn emitLocalIndexed(self: *Lowerer, op: ZirOp) Error!void {
@@ -611,6 +634,46 @@ test "lower: i32.add binop produces a single instr with no payload" {
     try testing.expectEqual(@as(usize, 4), f.instrs.items.len);
     try testing.expectEqual(ZirOp.@"i32.add", f.instrs.items[2].op);
     try testing.expectEqual(@as(u32, 0), f.instrs.items[2].payload);
+}
+
+test "lower: Wasm 2.0 sat-trunc 0xFC 0..7 emit matching ZirOps" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    // Eight (f-const, 0xFC <sub>, drop) triplets, then end.
+    // Pattern repeats f32.const for sub-ops 0,1,4,5 and f64.const
+    // for 2,3,6,7.
+    const body = [_]u8{
+        0x43, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x00, 0x1A,
+        0x43, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x01, 0x1A,
+        0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x02, 0x1A,
+        0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x03, 0x1A,
+        0x43, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x04, 0x1A,
+        0x43, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x05, 0x1A,
+        0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x06, 0x1A,
+        0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x07, 0x1A,
+        0x0B,
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f);
+
+    // Each triplet emits 3 instrs (const, sat-trunc, drop); 8 triplets
+    // + final end instr → 25 instrs total.
+    try testing.expectEqual(@as(usize, 25), f.instrs.items.len);
+    try testing.expectEqual(ZirOp.@"i32.trunc_sat_f32_s", f.instrs.items[1].op);
+    try testing.expectEqual(ZirOp.@"i32.trunc_sat_f32_u", f.instrs.items[4].op);
+    try testing.expectEqual(ZirOp.@"i32.trunc_sat_f64_s", f.instrs.items[7].op);
+    try testing.expectEqual(ZirOp.@"i32.trunc_sat_f64_u", f.instrs.items[10].op);
+    try testing.expectEqual(ZirOp.@"i64.trunc_sat_f32_s", f.instrs.items[13].op);
+    try testing.expectEqual(ZirOp.@"i64.trunc_sat_f32_u", f.instrs.items[16].op);
+    try testing.expectEqual(ZirOp.@"i64.trunc_sat_f64_s", f.instrs.items[19].op);
+    try testing.expectEqual(ZirOp.@"i64.trunc_sat_f64_u", f.instrs.items[22].op);
+}
+
+test "lower: 0xFC unknown sub-opcode → NotImplemented" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    const body = [_]u8{ 0xFC, 0xFF, 0x01, 0x0B };
+    const r = lowerFunctionBody(testing.allocator, &body, &f);
+    try testing.expectError(Error.NotImplemented, r);
 }
 
 test "lower: Wasm 2.0 sign-ext opcodes 0xC0..0xC4 emit matching ZirOps" {
