@@ -1309,7 +1309,7 @@ zwasm.
 | 4.4  | `fd_write` / `fd_read` / `fd_close` / `fd_seek` / `fd_tell` (stdout/stderr/stdin only).   | [x]            |
 | 4.5  | `path_open` (preopen-rooted only; no parent-traversal) + `fd_fdstat_get` / `_set`.        | [x]            |
 | 4.6  | `clock_time_get` / `random_get` / `poll_oneoff` (stdin-only, blocking).                   | [x]            |
-| 4.7  | Wire WASI imports into `wasm_instance_new` — match `(import "wasi_snapshot_preview1" …)`. | [ ]            |
+| 4.7  | Wire WASI imports into `wasm_instance_new` — match `(import "wasi_snapshot_preview1" …)`. | [x]            |
 | 4.8  | `zwasm run <path.wasm> [args...]` CLI subcommand drives `_start`.                         | [ ]            |
 | 4.9  | `test/wasi/` curated subset of wasi-testsuite + `zig build test-wasi-p1` runner.          | [ ]            |
 | 4.10 | Diff 30+ realworld samples (stdout vs `wasmtime run`); land regression script.            | [ ]            |

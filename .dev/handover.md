@@ -97,10 +97,16 @@
   ?HostCall` parallel to `funcs`; `mvp.callOp` short-circuits
   imported funcidxs to host thunks; `thunkFdWrite` /
   `thunkProcExit` wired with a `lookupWasiThunk` table; WASI
-  imports + host configured now succeed at `wasm_instance_new`
-  (was WasiThunksNotWired). Chunk remaining: 4.7d (end-to-end
-  test that calls a guest fn → `proc_exit(42)` → verify
-  `host.exit_code == 42` via Trap path).
+  imports + host configured now succeed at `wasm_instance_new`.
+  4.7d at `75992b2` — end-to-end dispatch test: guest `main()
+  -> i32.const 42; call $exit` triggers `thunkProcExit` which
+  sets `host.exit_code = 42`, unwinds via `error.WasiExit`,
+  surfaces as a Trap. Drive-by fixes: `wasm_func_call` now
+  indexes `func_ptrs_storage` (full funcidx space) and
+  `frontendValidate` builds `func_types` over imports + defined.
+  §9.4 / 4.7 fully closed. The first remaining `[ ]` is **§9.4
+  / 4.8 — `zwasm run <path.wasm> [args...]` CLI subcommand
+  drives `_start`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -142,53 +148,38 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.7 (wire WASI imports into wasm_instance_new)
+## Active task — §9.4 / 4.8 (zwasm run CLI subcommand)
 
-The integration task that connects the WASI host scaffolding
-(p1 + host + proc + fd + clocks) to the C-API binding's
-`wasm_instance_new` import-resolution path.
+`zwasm run <path.wasm> [args...]` drives a WASI guest's
+`_start` from the command line. Builds on 4.7's binding
+integration:
 
-Plan:
+1. Add `run` subcommand to `src/main.zig` (or a new
+   `src/cli/run.zig`). Parse argv: `path.wasm` + remaining
+   args go to the guest's WASI argv.
+2. Read the wasm bytes from disk via `init.io` + `Io.Dir`.
+3. Construct: engine, store, host (from `init.minimal.args` +
+   `init.environ_map` + initial preopens), module, instance.
+4. Find the `_start` export (or fall back to `main`); call
+   it via `wasm_func_call`-equivalent (or directly through
+   the binding's internals — CLI lives in Zone 3 alongside
+   c_api).
+5. Map the resulting Trap → CLI exit code:
+   - No trap: exit 0
+   - Trap with `host.exit_code` set: exit with that code
+   - Other trap: print message + exit 1
+6. Wire `host.io` and `host.stdout_buffer = null` so writes
+   go to real stdout.
 
-1. Extend the §9.3 / 3.7's `Extern` shape so import-side
-   externs (function imports the binding-internal code emits)
-   carry a host-callback signature. Currently Extern only
-   models the .func variant on the export side.
-2. At `wasm_instance_new` time, decode the Module's import
-   section (§5.5.4). For each import:
-   - If `(module = "wasi_snapshot_preview1", name = <call>)`
-     and `host` is configured (via `zwasm_store_set_wasi`):
-     resolve to a binding-internal handler that thunks to
-     the corresponding `src/wasi/*` Zig function.
-   - Otherwise return a Trap (binding_error) — unmatched
-     imports are a host-error.
-3. The handler thunk needs to:
-   - Pop guest args off `Runtime.operand`,
-   - Call the Zig handler with `*Host` + `Runtime.memory` slice
-     + the marshalled args,
-   - Push the resulting Errno (u16) back onto the operand
-     stack,
-   - Check `host.exit_code` after each call; if set, raise a
-     special Trap that surfaces the exit code through the
-     binding.
-4. Add `zwasm_store_set_wasi` (declared in `include/wasi.h`)
-   that installs a `Host` on a `Store`. Allocate the Host on
-   the engine's allocator. Lifetime: Host owned by Store;
-   freed in `wasm_store_delete`.
-5. The dispatch table needs new ZirOp slots for "host call" —
-   or the import resolution maps to ordinary `call` ops with
-   a redirected funcs[] entry that points at a thunk-wrapped
-   ZirFunc. The latter is cleaner; the binding builds a
-   synthetic ZirFunc per import that the dispatch table runs.
+The realworld toolchain wasms (cpp_struct_test etc.) won't
+run yet because they need fd_read / fd_close / clock_time_get
+thunks beyond fd_write + proc_exit. The 4.10 diff target
+(stdout vs `wasmtime run`) catches this — chunks within 4.8
+or 4.9 will progressively flesh out the thunk table.
 
-Tests: build a wasm that imports `wasi_snapshot_preview1.fd_write`,
-call it through `wasm_func_call`, capture the host's
-stdout_buffer, verify the bytes flow through. This is the
-first end-to-end WASI test.
-
-Note: this is the largest remaining task in Phase 4 — likely
-splits into multiple chunks. Start with the import-decode
-side, then the thunk-creation, then a single end-to-end test.
+Smallest red test: integration test or a hand-rolled wasm in
+`test/wasi/` that prints "hello\n" via fd_write then
+proc_exit(0). Run via `zig build run -- run hello.wasm`.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
