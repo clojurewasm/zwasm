@@ -56,14 +56,13 @@
   chunk 5 (`336126b`) added 15 more (f32, f32_bitwise, f32_cmp,
   f64, f64_bitwise, f64_cmp, float_literals, i32, i64,
   inline-module, int_literals, left-to-right, memory_redundancy,
-  memory_size, memory_trap) — **989 modules across 42 corpora,
-  fail=0** on all three hosts. Remaining deferred corpora
-  surface specific gaps: binary 50f, call_indirect 2f,
-  func_ptrs 6f, block 1f, loop 1f, if 5f, global 24f, data 20f,
-  start 3f, custom 3f, fac 1f. wast2json fails on
-  align/func/memory/elem/table/exports/imports/br_if/br_table/
-  id/local_init/local_tee — likely Wasm-2.0+-feature output the
-  bundled wabt can't generate.
+  memory_size, memory_trap); chunk 6 (`337ea0f`) added 10 more
+  (skip-stack-guard-page, token, utf8-invalid-encoding,
+  obsolete-keywords, func, br_if, local_tee) by passing
+  wast2json the function-references / tail-call / extended-const
+  / multi-memory enable flags — **1155 modules across 49 corpora,
+  fail=0** on all three hosts. Remaining deferred surface specific
+  gaps; see chunk-6 commit notes.
   validateFunction takes `tables: []const zir.TableEntry`;
   Runtime carries `tables: []TableInstance` (mutable, so grow
   can swap refs slice headers).
