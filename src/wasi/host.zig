@@ -244,10 +244,12 @@ test "Host.addPreopen: extends fd_table; new slot is .dir at fd 3" {
     defer h.deinit();
 
     // host_fd is opaque to this layer (4.5 path_open
-    // dereferences it). Use a portable sentinel — `STDIN_FILENO`
-    // is already typed `std.posix.fd_t` on every platform
-    // (integer on Mac / Linux, HANDLE on Windows).
-    const fd = try h.addPreopen(std.posix.STDIN_FILENO, "/sandbox");
+    // dereferences it). Use a typed-undefined sentinel — fd_t
+    // is `c_int` on Mac / Linux but `HANDLE` (`*anyopaque`) on
+    // Windows; `undefined` is the only literal that types
+    // portably. The test never reads the value back.
+    const fake_fd: std.posix.fd_t = undefined;
+    const fd = try h.addPreopen(fake_fd, "/sandbox");
     try testing.expectEqual(@as(p1.Fd, 3), fd);
     try testing.expectEqual(@as(usize, 1), h.preopens.len);
     try testing.expectEqualStrings("/sandbox", h.preopens[0].guest_path);
@@ -267,7 +269,8 @@ test "Host.deinit: leak-clean after addPreopen + setArgs + setEnvs" {
     const keys: [1][]const u8 = .{"K"};
     const vals: [1][]const u8 = .{"V"};
     try h.setEnvs(&keys, &vals);
-    _ = try h.addPreopen(std.posix.STDIN_FILENO, "/p");
+    const fake_fd: std.posix.fd_t = undefined;
+    _ = try h.addPreopen(fake_fd, "/p");
 
     h.deinit();
 }
