@@ -1,0 +1,17 @@
+valid local_get.0.wasm
+invalid local_get.1.wasm
+invalid local_get.2.wasm
+invalid local_get.3.wasm
+invalid local_get.4.wasm
+invalid local_get.5.wasm
+invalid local_get.6.wasm
+invalid local_get.7.wasm
+invalid local_get.8.wasm
+invalid local_get.9.wasm
+invalid local_get.10.wasm
+invalid local_get.11.wasm
+invalid local_get.12.wasm
+invalid local_get.13.wasm
+invalid local_get.14.wasm
+invalid local_get.15.wasm
+invalid local_get.16.wasm

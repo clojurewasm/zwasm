@@ -1,0 +1,5 @@
+valid nop.0.wasm
+invalid nop.1.wasm
+invalid nop.2.wasm
+invalid nop.3.wasm
+invalid nop.4.wasm

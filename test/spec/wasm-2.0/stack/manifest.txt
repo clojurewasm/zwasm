@@ -1,0 +1,2 @@
+valid stack.0.wasm
+valid stack.1.wasm

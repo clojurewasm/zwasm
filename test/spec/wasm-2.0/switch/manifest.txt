@@ -1,0 +1,2 @@
+valid switch.0.wasm
+invalid switch.1.wasm

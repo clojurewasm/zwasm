@@ -1,0 +1,4 @@
+valid labels.0.wasm
+invalid labels.1.wasm
+invalid labels.2.wasm
+invalid labels.3.wasm

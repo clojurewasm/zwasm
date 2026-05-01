@@ -1,0 +1,1 @@
+valid forward.0.wasm
