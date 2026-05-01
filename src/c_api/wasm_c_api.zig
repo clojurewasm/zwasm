@@ -39,11 +39,13 @@ pub const Engine = extern struct {
     alloc_vtable: ?*const anyopaque,
 };
 
-/// `wasm_store_t` — module-instantiation context owning a single
-/// `interp.Runtime` plus the GC root set the binding will need
-/// once §9.3 / 3.5 (instance new) lands.
+/// `wasm_store_t` — module-instantiation context. Carries a
+/// back-pointer to its owning Engine so subsequent C-API entries
+/// can recover the allocator without a global. Once §9.3 / 3.5
+/// (instance new) lands, this struct will also own a single
+/// `interp.Runtime` plus the GC root set.
 pub const Store = extern struct {
-    _padding: usize = 0,
+    engine: ?*Engine,
 };
 
 /// `wasm_module_t` — validated + lowered module. Wraps a
@@ -142,6 +144,28 @@ export fn wasm_engine_delete(e: ?*Engine) callconv(.c) void {
 }
 
 // ============================================================
+// Store constructors / destructors (§9.3 / 3.3b)
+// ============================================================
+
+/// `wasm_store_new(wasm_engine_t*)` — allocate a Store bound to
+/// the given Engine. Returns null on OOM or null engine.
+export fn wasm_store_new(e: ?*Engine) callconv(.c) ?*Store {
+    const engine = e orelse return null;
+    const alloc = engineAllocator(engine);
+    const s = alloc.create(Store) catch return null;
+    s.* = .{ .engine = engine };
+    return s;
+}
+
+/// `wasm_store_delete(*Store)` — free a Store. Null-tolerant.
+export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
+    const handle = s orelse return;
+    const engine = handle.engine orelse return; // dangling — leak rather than crash
+    const alloc = engineAllocator(engine);
+    alloc.destroy(handle);
+}
+
+// ============================================================
 // Smoke tests (shape stability)
 // ============================================================
 
@@ -149,7 +173,7 @@ const testing = std.testing;
 
 test "wasm_c_api shapes: extern structs are pointer-stable" {
     const e: Engine = .{ .alloc_ptr = null, .alloc_vtable = null };
-    const s: Store = .{};
+    const s: Store = .{ .engine = null };
     const m: Module = .{};
     const i: Instance = .{};
     const f: Func = .{};
@@ -171,6 +195,21 @@ test "wasm_engine_new / delete: round-trip + alloc binding survives" {
 
 test "wasm_engine_delete: tolerates null handle" {
     wasm_engine_delete(null);
+}
+
+test "wasm_store_new / delete: round-trip with engine back-pointer" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    try testing.expect(s.engine == e);
+}
+
+test "wasm_store_new(null) returns null; delete(null) tolerates" {
+    try testing.expect(wasm_store_new(null) == null);
+    wasm_store_delete(null);
 }
 
 test "wasm_c_api: ValKind tag values match wasm.h" {
