@@ -16,8 +16,8 @@
 
 ## Current state
 
-- **Phase**: **Phase 3 IN-PROGRESS.** Phases 0 + 1 + 2 are
-  `DONE`. §9.3 / 3.0 closed at `05bd4e4`; §9.3 / 3.1 closed at
+- **Phase**: **Phase 4 IN-PROGRESS.** Phases 0 + 1 + 2 + 3 are
+  `DONE` (Phase 3 SHA backfill in this commit). §9.3 / 3.0 closed at `05bd4e4`; §9.3 / 3.1 closed at
   `19c5228` (`include/README.md` documents the vendor policy +
   bump workflow; `build.zig` adds `include/` to exe_mod's
   include path). §9.3 / 3.2 closed at `9abb951`
@@ -52,8 +52,11 @@
   with `expectExitCode(0)`, and is wired into `test-all`. End-
   to-end through the C ABI green on all three hosts. §9.3 /
   3.10 closed inline (audit at `private/audit-2026-05-02-p3.md`
-  — 0 block, 6 soon, 3 watch). The first remaining `[ ]` is
-  **§9.3 / 3.11 — open §9.4 inline; flip phase tracker**.
+  — 0 block, 6 soon, 3 watch). §9.3 / 3.11 closed in this
+  commit — Phase 3 SHAs backfilled, Phase Status widget
+  flipped to Phase 4 IN-PROGRESS, §9.4 task table expanded
+  (4.0 – 4.12). The first remaining `[ ]` is **§9.4 / 4.0 —
+  vendor `wasi.h` + ADR**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -80,28 +83,31 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.11 (open §9.4 inline + flip phase tracker)
+## Active task — §9.4 / 4.0 (vendor wasi.h + ADR)
 
-Last task in Phase 3. Steps:
+Mirrors §9.3 / 3.0 (the wasm.h vendor task) but for the WASI
+snapshot-1 C header. Steps:
 
-1. Backfill SHA pointers for §9.3's `[x]` rows (3.0 – 3.10):
-   for each, `git log --grep="§9.3 / N.M" --pretty=%h | head
-   -1`. Land in one commit `chore(p3): backfill §9.3 SHA
-   pointers`.
-2. Update Phase Status widget at the top of §9: §9.3 → `DONE`,
-   §9.4 → `IN-PROGRESS`.
-3. Expand §9.4 task table inline (Phase 4 — WASI 0.1 minimal
-   🔒). Mirror §9.3's structure: numbered `[ ]` rows with
-   Status column. Phase 4 entry criteria include the 🔒
-   three-host gate. Initial scope (per ROADMAP §9 Phase 4):
-   - WASI 0.1 host shape (`src/wasi/p1.zig`)
-   - capability table — fd_read / fd_write / fd_close / args /
-     environ / proc_exit
-   - linkage from C API (`wasi.h` vendored alongside `wasm.h`)
-   - test surface: `test-wasi-p1` over a curated subset of
-     wasi-testsuite
-4. Update handover.md to point at §9.4's first task.
-5. Push + re-arm.
+1. Identify upstream source — `WebAssembly/WASI` repo (likely
+   `legacy/preview1/witx/typenames.witx` + a bindgen-style C
+   shim, or a direct hand-rolled `wasi.h` mirroring upstream
+   wasi-libc's exports). Confirm the canonical "vendored
+   wasi.h" against what wasmtime / wasmer / WAMR ship.
+2. Add `scripts/fetch_wasi_h.sh` mirroring `fetch_wasm_c_api.sh`,
+   pin a commit, populate `include/wasi.h` (or the equivalent
+   path).
+3. File ADR `.dev/decisions/0005_phase4_wasi_h_pin.md` (or
+   whatever ID is next) capturing the pin + bump workflow,
+   following ADR-0004's pattern.
+4. Update `include/README.md` to document both `wasm.h` and
+   `wasi.h` vendor policies side-by-side.
+
+Then 4.1+ proceeds with the Zig-side WASI scaffold.
+
+(Note from p3 audit carry-over: file ADR
+`.dev/decisions/0005_phase3_c_api_split.md` — but that is a
+separate ADR for splitting `src/c_api/wasm_c_api.zig`. Pick
+distinct numbers.)
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack

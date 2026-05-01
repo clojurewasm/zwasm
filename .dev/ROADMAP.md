@@ -1124,8 +1124,8 @@ of each phase advances it.
 | 0     | DONE        | —                             |
 | 1     | DONE        | —                             |
 | 2     | DONE        | —                             |
-| 3     | IN-PROGRESS | §9.3 / 3.0 (fetch wasm.h)     |
-| 4     | PENDING     |                               |
+| 3     | DONE        | —                             |
+| 4     | IN-PROGRESS | §9.4 / 4.0 (vendor wasi.h)    |
 | 5     | PENDING     |                               |
 | 6     | PENDING     |                               |
 | 7     | PENDING     |                               |
@@ -1270,18 +1270,18 @@ zwasm.
 
 | #    | Description                                                                                | Status         |
 |------|--------------------------------------------------------------------------------------------|----------------|
-| 3.0  | `scripts/fetch_wasm_c_api.sh` — fetch `wasm.h` verbatim from upstream + pin commit (ADR). | [x]            |
-| 3.1  | `include/wasm.h` vendored read-only; build.zig wires the include path.                    | [x]            |
-| 3.2  | `src/c_api/wasm_c_api.zig` — Zone-3 module, exports the C ABI shapes (engine/module/...). | [x]            |
-| 3.3  | `wasm_engine_new` / `wasm_engine_delete` — engine lifetime; allocator threading.          | [x]            |
-| 3.4  | `wasm_module_new` / `_module_validate` / `_module_delete` — wraps frontend pipeline.      | [x]            |
-| 3.5  | `wasm_instance_new` / `_instance_delete` — wraps Runtime instantiation.                   | [x]            |
-| 3.6  | `wasm_func_call` — wraps interp dispatch; param + result `wasm_val_t` marshalling.        | [x]            |
-| 3.7  | `wasm_*_vec_t` types + `wasm_trap_t` — vec discipline, trap surface.                      | [x]            |
-| 3.8  | `examples/c_host/hello.c` — minimal C host invoking `wasm_func_call`.                     | [x]            |
-| 3.9  | `zig build test-c-api` — gates the example builds + runs on all three hosts.              | [x]            |
-| 3.10 | Phase-3 boundary `audit_scaffolding` pass.                                                 | [x]            |
-| 3.11 | Open §9.4 inline; flip phase tracker.                                                      | [ ]            |
+| 3.0  | `scripts/fetch_wasm_c_api.sh` — fetch `wasm.h` verbatim from upstream + pin commit (ADR). | [x] 05bd4e4    |
+| 3.1  | `include/wasm.h` vendored read-only; build.zig wires the include path.                    | [x] 19c5228    |
+| 3.2  | `src/c_api/wasm_c_api.zig` — Zone-3 module, exports the C ABI shapes (engine/module/...). | [x] 9abb951    |
+| 3.3  | `wasm_engine_new` / `wasm_engine_delete` — engine lifetime; allocator threading.          | [x] b4d1146    |
+| 3.4  | `wasm_module_new` / `_module_validate` / `_module_delete` — wraps frontend pipeline.      | [x] 7c321d5    |
+| 3.5  | `wasm_instance_new` / `_instance_delete` — wraps Runtime instantiation.                   | [x] 0417675    |
+| 3.6  | `wasm_func_call` — wraps interp dispatch; param + result `wasm_val_t` marshalling.        | [x] 88e8d79    |
+| 3.7  | `wasm_*_vec_t` types + `wasm_trap_t` — vec discipline, trap surface.                      | [x] c7784e4    |
+| 3.8  | `examples/c_host/hello.c` — minimal C host invoking `wasm_func_call`.                     | [x] 2ee0cb8    |
+| 3.9  | `zig build test-c-api` — gates the example builds + runs on all three hosts.              | [x] 414098b    |
+| 3.10 | Phase-3 boundary `audit_scaffolding` pass.                                                 | [x] e06bbc2    |
+| 3.11 | Open §9.4 inline; flip phase tracker.                                                      | [x]            |
 
 ### Phase 4 — WASI 0.1 minimal 🔒
 
@@ -1297,6 +1297,24 @@ zwasm.
 - `zwasm run hello.wasm` works on all 3 OS.
 
 **🔒 gate**: yes.
+
+#### §9.4 task list (expanded)
+
+| #    | Description                                                                                | Status         |
+|------|--------------------------------------------------------------------------------------------|----------------|
+| 4.0  | Vendor `wasi.h` (WASI snapshot-1 C header) verbatim from upstream + pin commit (ADR).     | [ ]            |
+| 4.1  | `src/wasi/p1.zig` — Zone-2 module declaring the WASI errno + ciovec / iovec / fdstat shapes. | [ ]            |
+| 4.2  | `src/wasi/host.zig` — capability table backed by `std.process.Init` (preopens, args, environ). | [ ]            |
+| 4.3  | `proc_exit` / `args_get` / `args_sizes_get` / `environ_get` / `environ_sizes_get` handlers. | [ ]            |
+| 4.4  | `fd_write` / `fd_read` / `fd_close` / `fd_seek` / `fd_tell` (stdout/stderr/stdin only).   | [ ]            |
+| 4.5  | `path_open` (preopen-rooted only; no parent-traversal) + `fd_fdstat_get` / `_set`.        | [ ]            |
+| 4.6  | `clock_time_get` / `random_get` / `poll_oneoff` (stdin-only, blocking).                   | [ ]            |
+| 4.7  | Wire WASI imports into `wasm_instance_new` — match `(import "wasi_snapshot_preview1" …)`. | [ ]            |
+| 4.8  | `zwasm run <path.wasm> [args...]` CLI subcommand drives `_start`.                         | [ ]            |
+| 4.9  | `test/wasi/` curated subset of wasi-testsuite + `zig build test-wasi-p1` runner.          | [ ]            |
+| 4.10 | Diff 30+ realworld samples (stdout vs `wasmtime run`); land regression script.            | [ ]            |
+| 4.11 | Phase-4 boundary `audit_scaffolding` pass; 🔒 three-host gate confirmation.               | [ ]            |
+| 4.12 | Open §9.5 inline; flip phase tracker.                                                      | [ ]            |
 
 ### Phase 5 — ZIR analysis layer
 
