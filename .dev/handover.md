@@ -39,7 +39,15 @@
   `zwasm_instance_get_func` + `wasm_func_delete` +
   `wasm_func_call` + a process-wide lazy `DispatchTable` cache).
   The first remaining `[ ]` is **§9.3 / 3.7 — `wasm_*_vec_t`
-  types + `wasm_trap_t`**.
+  types + `wasm_trap_t`**, splitting into chunks. 3.7a closed at
+  `fcfdc97` — `Trap` gained `{ store, kind: TrapKind,
+  message_ptr, message_len }` plus `wasm_trap_new` /
+  `wasm_trap_delete` / `wasm_trap_message` /
+  `wasm_byte_vec_delete`; `wasm_func_call`'s previously-leaked
+  sentinel traps now route through `allocTrap(alloc, store,
+  kind)` and `mapInterpTrap`. Chunks remaining: 3.7b
+  (`wasm_*_vec_t` family ABI per `WASM_DECLARE_VEC`), 3.7c
+  (`wasm_extern_t` Func variant + `wasm_instance_exports`).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -66,37 +74,34 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.3 / 3.7 (wasm_*_vec_t + wasm_trap_t)
+## Active task — §9.3 / 3.7 chunk b (wasm_*_vec_t family ABI)
 
-The remaining wasm.h surface for the v0.1.0 minimum:
+3.7a (Trap shape + lifecycle) landed at `fcfdc97`. Remaining
+for 3.7:
 
-1. Replace the `?*const anyopaque` / hand-rolled `ValVec`
-   placeholders with the proper `wasm_*_vec_t` family:
-   `wasm_byte_vec_t` (already there), `wasm_val_vec_t`,
-   `wasm_extern_vec_t`, `wasm_extern_t` shape, and the upstream
-   `WASM_DECLARE_VEC` discipline (a `_t`, `_new`, `_new_empty`,
-   `_new_uninitialized`, `_copy`, `_delete` per vec).
-2. Fill out `wasm_trap_t`:
-   - Add a `kind` field mapping `interp.Trap` conditions →
-     spec-conformant strings (`unreachable`, `integer divide by
-     zero`, …).
-   - Add `wasm_trap_message(*Trap, *wasm_byte_vec_t)`.
-   - Add `wasm_trap_delete(*Trap)` so the trap allocations
-     emitted by `wasm_func_call` actually get freed (right now
-     they leak — see the test "wasm_func_call: arg-count
-     mismatch traps" comment).
-   - Trap allocator should be the same Store→Engine path the
-     other handles use; Trap struct gains a back-pointer to its
-     Store.
-3. Audit the `wasm_extern_t` shape — wasm.h declares it as a
-   tagged union of (func, global, table, memory). For first pass
-   we only need the Func variant (matching what
-   `zwasm_instance_get_func` produces today). Globals / tables /
-   memories follow alongside their respective dispatch ops in
-   later phases.
+**Chunk b — wasm_*_vec_t family per `WASM_DECLARE_VEC`**:
 
-Once 3.7 lands, 3.8 (`examples/c_host/hello.c`) and 3.9
-(`zig build test-c-api`) are mostly C-side glue.
+For each of `byte`, `val`, `extern`: surface
+
+  void wasm_<name>_vec_new_empty(*<name>_vec_t)
+  void wasm_<name>_vec_new_uninitialized(*<name>_vec_t, size_t)
+  void wasm_<name>_vec_new(*<name>_vec_t, size_t, const T*)
+  void wasm_<name>_vec_copy(*<name>_vec_t, const *<name>_vec_t)
+  void wasm_<name>_vec_delete(*<name>_vec_t)
+
+Pin the data allocator to `c_allocator` (same as
+`wasm_byte_vec_delete` does today). The current `ValVec` is
+already in the binding; just needs the missing constructors /
+`wasm_val_vec_delete`. `ExternVec` is new — needs `Extern`
+shape from chunk c.
+
+**Chunk c — wasm_extern_t (Func variant) + wasm_instance_exports**:
+
+Add a tagged-union `Extern` (kind = func / global / table /
+memory; only `func` populated now) and surface
+`wasm_instance_exports(*Instance, *out wasm_extern_vec_t)` so C
+hosts get the standard discovery path. `zwasm_instance_get_func`
+becomes a thin convenience wrapper over the same data.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
