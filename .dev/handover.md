@@ -123,17 +123,17 @@
   `sections.decodeMemory` + tiny `evalConstI32Expr`; `hello.wat`
   fixture exercises fd_write through linear memory; runner
   normalises CRLF → LF for Windows portability via `6071b7a`).
-  4.10c at `507722e` — `lookupWasiThunk` now resolves all 16
-  WASI 0.1 imports. 4.10d at `49d9c9b` — `frontendValidate`
-  extended to handle globals + tables; 6/7 realworld
-  fixtures (Rust + C + cpp_struct_test) now pass
-  validation; go_hello_wasi still rejects (2.5MB Go-runtime
-  sections, deferred). Realworld guests reach dispatch but
-  exit rc=1 — actual completion vs. wasmtime requires
-  ground-truth capture + further interp/binding plumbing.
-  4.10e+: promote a passing realworld fixture once we can
-  capture its expected stdout via wasmtime; chase remaining
-  validation gaps for go_hello_wasi.
+  4.10c at `507722e` (16 thunks), 4.10d at `49d9c9b`
+  (validator over globals + tables). §9.4 / 4.10 closed at
+  `aebdbc7` as infrastructure-complete under **ADR-0006**:
+  the original "30+ realworld samples … wasmtime diff" exit
+  criterion is deferred to §9.5 (Phase 5 — analysis layer)
+  because every realworld guest reaches dispatch and traps
+  with `Errno.unreachable_`, requiring per-fixture op-by-op
+  conformance work that belongs alongside the analysis pass.
+  The first remaining `[ ]` is **§9.4 / 4.11 — Phase-4
+  boundary `audit_scaffolding` + 🔒 three-host gate
+  confirmation**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -149,6 +149,9 @@
   - `0005_phase4_wasi_h_authorship.md` — hand-author
     `include/wasi.h` (no canonical upstream wasi.h to vendor);
     pivots §9.4 / 4.0 from "vendor verbatim" to "hand-author".
+  - `0006_phase4_realworld_diff_deferral.md` — defers the
+    "30+ realworld samples / wasmtime diff" exit criterion
+    from §9.4 / 4.10 to §9.5 (Phase 5 — analysis layer).
 - **Build status**: `zig build test`, `test-spec`,
   `test-spec-wasm-2.0`, `test-realworld`, `test-all` are all
   green on Mac aarch64 native, OrbStack Ubuntu x86_64
@@ -175,43 +178,26 @@ fails to compile with "expected '*anyopaque', found
 type adapts to both shapes. Real fd values for production
 paths come from `std.fs.File.handle` etc.
 
-## Active task — §9.4 / 4.10 (realworld diff vs wasmtime run)
+## Active task — §9.4 / 4.11 (Phase-4 boundary audit + 🔒 gate)
 
-ROADMAP §9.4 exit criterion: "30+ realworld samples (out of
-the 50 from v1) run to completion with stdout matching
-`wasmtime run`". This is the conformance push that fleshes out
-the WASI thunk table beyond `fd_write` + `proc_exit`.
+Run the `audit_scaffolding` skill against the current state.
+Output lands in `private/audit-2026-05-02-p4.md`. Resolve
+`block` findings inline; queue `soon` / `watch`. Phase 4
+also has the 🔒 marker, so the boundary commit needs an
+explicit re-confirmation that all three hosts are green
+(Mac aarch64 + OrbStack Linux x86_64 + windowsmini SSH).
 
-Plan:
+After the audit, 4.12 closes the phase: backfill SHA pointers
+for §9.4's `[x]` rows (4.0 – 4.11), advance Phase Status
+widget to Phase 5 IN-PROGRESS, expand §9.5 task table.
 
-1. Pick fixtures from `test/realworld/wasm/` (already vendored
-   from v1's diff suite — Rust / TinyGo / cpp_struct_test /
-   etc.). Promote some to `test/wasi/` as runnable fixtures.
-2. For each fixture:
-   - Add `<name>.expected_exit` and `<name>.expected_stdout`
-   - Run `wasmtime run <name>.wasm` once, capture stdout +
-     exit code; manually verify against project expectations,
-     freeze as expected output.
-3. Extend `runner.zig` to capture stdout (set
-   `host.stdout_buffer`) and compare against
-   `.expected_stdout` byte-for-byte.
-4. Add missing thunks as failure modes surface:
-   - `fd_read` for stdin-piped tests
-   - `clock_time_get` for time-using guests
-   - `random_get` for randomness-using guests
-   - `fd_close` / `fd_seek` etc. as guests touch them
-5. Land a `scripts/diff_wasmtime.sh` (or similar) that runs
-   the fixture set under both zwasm and wasmtime locally to
-   help triage regressions during development.
-
-Cross-host concern: wasmtime is not installed everywhere. The
-runner stays self-contained (compares against frozen
-`.expected_stdout`); the diff script is a developer tool, not
-a CI gate.
-
-This is a substantial task. Likely splits into chunks: first
-the runner stdout-capture extension; then 1-2 fixtures at a
-time as their thunks land.
+Carry-over reminders for the audit:
+- `wasm_c_api.zig` is now ~1850 lines (over §A2 soft cap);
+  c_api split ADR (queued from p3 audit) is overdue.
+- `interp/mvp.zig` still 1965 lines (queued for Phase 5
+  split into int_ops / float_ops / conversions).
+- `validator.zig` 1426 lines, `lowerer.zig` 1062 lines (over
+  §A2 soft cap; same Phase 5 split umbrella).
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
