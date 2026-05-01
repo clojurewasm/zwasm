@@ -790,10 +790,10 @@ const Validator = struct {
 
     fn opCallIndirect(self: *Validator) Error!void {
         const type_idx = try leb128.readUleb128(u32, self.body, &self.pos);
-        if (self.pos >= self.body.len) return Error.UnexpectedEnd;
-        // MVP table_idx must be 0.
-        if (self.body[self.pos] != 0x00) return Error.InvalidOpcode;
-        self.pos += 1;
+        // Wasm 2.0: table_idx is uleb32 (any table); Wasm 1.0
+        // encoded a single 0x00 byte which decodes as uleb32(0).
+        const table_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (table_idx >= self.tables.len) return Error.InvalidFuncIndex;
         if (type_idx >= self.module_types.len) return Error.InvalidFuncIndex;
         const callee = self.module_types[type_idx];
         // Pop the function-table index (i32), then args in reverse.

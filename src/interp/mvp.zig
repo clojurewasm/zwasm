@@ -411,22 +411,45 @@ fn callOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     try invoke(rt, tbl, callee);
 }
 
-/// `call_indirect type_idx`: pops i32 selector, indexes the
-/// function table, invokes the callee. Type-equality check
-/// against the expected `type_idx` requires plumbing the
-/// module's type section through Runtime; that lands in a
-/// follow-up chunk together with the proper element-section
-/// table population. For now the selector simply indexes
-/// `rt.funcs` (a stand-in for the table) and the callee's sig
-/// is trusted.
+/// `call_indirect type_idx table_idx`: pops i32 selector, indexes
+/// `rt.tables[table_idx]`, resolves the table cell's funcref to
+/// `rt.funcs[funcidx]`, and invokes after a runtime sig-equality
+/// check against `rt.module_types[type_idx]`. Encoding:
+/// `instr.payload` = type_idx, `instr.extra` = table_idx.
+///
+/// Spec traps:
+///   - selector >= table.len               → OutOfBoundsTableAccess
+///   - table[selector] == null_ref         → UninitializedElement
+///   - resolved sig != expected sig        → IndirectCallTypeMismatch
 fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
-    _ = instr;
     const rt = Runtime.fromOpaque(c);
+    const tableidx = instr.extra;
+    if (tableidx >= rt.tables.len) return Trap.Unreachable;
+    const tbl = rt.tables[tableidx];
+
     const sel = rt.popOperand().u32;
-    if (sel >= rt.funcs.len) return Trap.OutOfBoundsTableAccess;
-    const callee = rt.funcs[sel];
-    const tbl = rt.table orelse return Trap.Unreachable;
-    try invoke(rt, tbl, callee);
+    if (sel >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
+    const ref = tbl.refs[sel].ref;
+    if (ref == interp.Value.null_ref) return Trap.UninitializedElement;
+
+    const funcidx: u32 = @truncate(ref);
+    if (funcidx >= rt.funcs.len) return Trap.UninitializedElement;
+    const callee = rt.funcs[funcidx];
+
+    if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
+    const expected = rt.module_types[instr.payload];
+    if (!sigEq(callee.sig, expected)) return Trap.IndirectCallTypeMismatch;
+
+    const dispatch_tbl = rt.table orelse return Trap.Unreachable;
+    try invoke(rt, dispatch_tbl, callee);
+}
+
+inline fn sigEq(a: zir.FuncType, b: zir.FuncType) bool {
+    if (a.params.len != b.params.len) return false;
+    if (a.results.len != b.results.len) return false;
+    for (a.params, b.params) |x, y| if (x != y) return false;
+    for (a.results, b.results) |x, y| if (x != y) return false;
+    return true;
 }
 
 fn invoke(rt: *Runtime, table: *const DispatchTable, callee: *const zir.ZirFunc) anyerror!void {

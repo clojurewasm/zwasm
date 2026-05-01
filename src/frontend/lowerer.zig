@@ -488,13 +488,13 @@ const Lowerer = struct {
         try self.emit(op, 0, 0);
     }
 
-    /// call_indirect: read type_idx + reserved 0x00 byte (table_idx = 0).
+    /// call_indirect: type_idx + table_idx (Wasm 2.0). In Wasm 1.0
+    /// the table_idx is a single reserved 0x00 byte which decodes
+    /// as uleb32(0); reading it as uleb32 is backwards-compatible.
     fn emitCallIndirect(self: *Lowerer) Error!void {
         const type_idx = try leb128.readUleb128(u32, self.body, &self.pos);
-        if (self.pos >= self.body.len) return Error.UnexpectedEnd;
-        if (self.body[self.pos] != 0x00) return Error.BadBlockType;
-        self.pos += 1;
-        try self.emit(.@"call_indirect", type_idx, 0);
+        const table_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        try self.emit(.@"call_indirect", type_idx, table_idx);
     }
 
     /// br_table: emit ZirOp.br_table with payload = count of labels.

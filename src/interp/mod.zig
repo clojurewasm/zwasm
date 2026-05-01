@@ -191,6 +191,11 @@ pub const Runtime = struct {
     /// Per-segment dropped flag for `elem.drop`. Owned (heap-
     /// allocated when `elems.len > 0`); freed in deinit.
     elem_dropped: []bool = &.{},
+    /// Module type section. `call_indirect` reads expected
+    /// signatures here at runtime to raise
+    /// IndirectCallTypeMismatch when the table cell's resolved
+    /// callee disagrees. Borrowed by the runner.
+    module_types: []const zir.FuncType = &.{},
     /// Dispatch table used by the active interp run. Set by
     /// `src/interp/dispatch.zig`'s `run`; the `call` handler
     /// needs it to recursively dispatch the callee body.
