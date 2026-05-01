@@ -26,8 +26,9 @@
   section + memory.init / data.drop @ `8727fdf`), and 5
   (ref.null / ref.is_null / ref.func @ `caef4e9`), 5b
   (select_typed @ `48b3ce2`), 5c (table.get/set/size @
-  `47a1905`), and 5c-2 (table.grow/fill @ `fb22f72`) are
-  landed. Three-host gate green for all nine chunks.
+  `47a1905`), 5c-2 (table.grow/fill @ `fb22f72`), and 5d-1
+  (table.copy @ `c4397e7`) are landed. Three-host gate green
+  for all ten chunks.
   validateFunction takes `tables: []const zir.TableEntry`;
   Runtime carries `tables: []TableInstance` (mutable, so grow
   can swap refs slice headers).
@@ -110,11 +111,16 @@ table population is a follow-up — see chunk-7 commit notes).
   TableInstance's refs slice header via realloc. table.grow
   pushes prev_size or -1 on max-cap / alloc failure; fill
   traps OutOfBoundsTableAccess on dst+n > len.
+- chunk 5d-1 (table.copy) — landed at `c4397e7`. memmove
+  semantics on self-overlap; validator enforces matching
+  elem_type between dst and src tables. Encoding stores
+  dst-tableidx in payload, src-tableidx in extra.
 
 Next chunks for 2.3 (in order of cost / dependency):
-- chunk 5d — element section decoder + table.init / table.copy /
-  elem.drop (0xFC 12/13/14). Mirrors data-section + memory.init
-  shape from chunk 4b.
+- chunk 5d-2 — element section decoder + table.init (0xFC 12) +
+  elem.drop (0xFC 13). Mirrors data-section + memory.init shape
+  from chunk 4b: ElementSegment, Runtime.elems +
+  elem_dropped, validator's `elem_count` parameter.
 - chunk 3b (deferred) — multi-param multivalue blocks.
 - chunk 3b (deferred) — multi-param multivalue blocks. Needs
   BlockType to track params + results separately and pushFrame
