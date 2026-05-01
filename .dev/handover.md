@@ -73,6 +73,12 @@ of `f292ae7` (2.1 close):
    label stack chunk 6b will populate. No observable behaviour
    change yet; tests that call `run` without a frame go through
    an ephemeral-frame path.
+10. `8f7bf11` — chunk 6b: full Wasm-1.0 control flow
+    (block/loop/if/else/end/br/br_if/br_table/return). Frame
+    gains `func: ?*const ZirFunc` + `done: bool`; BlockInfo
+    gains `else_inst: ?u32`; lowerer's emitElse records it.
+    Tests cover block+end, br escape, if/else selection,
+    mid-body return.
 
 Chunk 6b — control-flow handlers — is the large remaining
 piece. Plan:
