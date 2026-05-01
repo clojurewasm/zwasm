@@ -54,24 +54,33 @@ of `f292ae7` (2.1 close):
 4. `bda2cae3` — chunk-4: numeric conversions (wrap, extend,
    trunc with InvalidConversionToInt / IntOverflow traps,
    convert, demote, promote, reinterpret).
+5. `6caf492` — lowerer extension to mirror validator's full
+   Wasm-1.0 coverage (br_if, br_table with branch_targets
+   side-table, call, call_indirect, select, globals,
+   loads/stores with memarg payload encoding, memory.size /
+   grow, full numeric, full conversions).
+6. `24fd6fc` — chunk-5: load / store / memory.size / memory.grow
+   interp handlers. Effective addr = base + memarg.offset; OOB
+   trips Trap.OutOfBoundsLoad / Store. Wasm page = 64 KiB.
 
-`src/interp/mvp.zig` is now 1468 lines (over the 1000-line soft
-cap, under the 2000-line hard cap). **File-split refactor still
-queued** — likely needed before chunk 6 (control flow) lands.
-Likely shape: `src/interp/int_ops.zig` (i32 + i64), 
-`src/interp/float_ops.zig` (f32 + f64), 
-`src/interp/conversions.zig`, plus a thin aggregator `mvp.zig`
-that registers them all.
+`src/interp/mvp.zig` is now 1771 / 2000 lines. **File-split
+refactor required before chunk 6** (control flow) + chunk 7
+(call) push past the hard cap. Likely shape:
+- `src/interp/int_ops.zig` (i32 + i64) — ~700 lines
+- `src/interp/float_ops.zig` (f32 + f64) — ~400 lines
+- `src/interp/conversions.zig` — ~250 lines
+- `src/interp/memory_ops.zig` — ~250 lines
+- `src/interp/mvp.zig` (aggregator + control + call + select +
+  consts + drop + locals + globals) — ~400 lines
 
-**Lowerer mismatch** discovered in chunk 4 prep: `src/frontend/
-lowerer.zig`'s opcode dispatch still tops out at the §9.1 / 1.6
-MVP smoke set (about 20 opcodes). The validator and interp now
-cover ~150 opcodes; the lowerer must mirror this before the
-runner can drive the spec corpus through validate + lower +
-interp end-to-end. **Pre-chunk-5 work**: extend lowerer to all
-numeric ops (no payload changes; passthrough), then handle
-load/store memarg extraction, then memory.size/grow, then
-call / call_indirect, then br_if / br_table.
+Remaining chunks for 2.2:
+- chunk 6 control flow (block / loop / if / else / end / br /
+  br_if / br_table / return) — needs dispatch loop refactor to
+  read pc from `rt.currentFrame().pc` instead of a local.
+- chunk 7 call / call_indirect — pushes a Frame with the callee's
+  locals (params from operand stack + zero-init declared locals).
+- `select` is already wired in chunk-1 dispatch via the validator's
+  pattern, but the interp handler still needs to be added.
 
 **Zone placement note**: `src/interp/mvp.zig` is Zone 2, not
 Zone 1, because it imports `src/interp/mod.zig` for Runtime +
