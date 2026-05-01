@@ -29,6 +29,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .strip = strip_opt,
+        // §9.3 / 3.3: the C API binding's Engine carries
+        // `std.heap.c_allocator`, which requires libc linkage.
+        // Linking unconditionally is fine — zwasm v2 is a libc-
+        // adjacent runtime (wasm-c-api consumers are C hosts).
+        .link_libc = true,
     });
     exe_mod.addOptions("build_options", options);
 

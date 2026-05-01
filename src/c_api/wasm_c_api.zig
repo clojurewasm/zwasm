@@ -23,11 +23,20 @@ const interp = @import("../interp/mod.zig");
 // Opaque types (match wasm.h declarations 1:1)
 // ============================================================
 
-/// `wasm_engine_t` — process-wide top-level handle. Owns nothing
-/// directly; created via `wasm_engine_new()`. C hosts treat it
-/// as opaque.
+/// `wasm_engine_t` — process-wide top-level handle. Carries the
+/// allocator the binding will thread into runtimes (and into
+/// future `wasm_store_t` GC roots). The §9.3 / 3.3 binding uses
+/// `std.heap.c_allocator` so C hosts get malloc-equivalent
+/// lifetime; a future `zwasm.h` extension will let the host
+/// inject its own.
 pub const Engine = extern struct {
-    _padding: usize = 0,
+    /// Type-erased allocator pointer + vtable. Stored as two
+    /// `*anyopaque` so the layout is C-stable — Zig's
+    /// `std.mem.Allocator` is `extern struct { ptr: *anyopaque,
+    /// vtable: *const VTable }` so a memcpy / pointer cast
+    /// round-trips.
+    alloc_ptr: ?*anyopaque,
+    alloc_vtable: ?*const anyopaque,
 };
 
 /// `wasm_store_t` — module-instantiation context owning a single
@@ -98,19 +107,70 @@ pub const ByteVec = extern struct {
 };
 
 // ============================================================
+// Engine constructors / destructors (§9.3 / 3.3)
+// ============================================================
+
+inline fn engineAllocator(e: *const Engine) std.mem.Allocator {
+    return .{
+        .ptr = @ptrCast(e.alloc_ptr),
+        .vtable = @ptrCast(@alignCast(e.alloc_vtable.?)),
+    };
+}
+
+/// `wasm_engine_new()` — allocate an Engine + bind the C
+/// allocator. Returns null on OOM (zero allocations should
+/// happen at this layer beyond the Engine struct itself; the C
+/// allocator is process-wide).
+export fn wasm_engine_new() callconv(.c) ?*Engine {
+    const alloc = std.heap.c_allocator;
+    const e = alloc.create(Engine) catch return null;
+    e.* = .{
+        .alloc_ptr = alloc.ptr,
+        .alloc_vtable = @ptrCast(alloc.vtable),
+    };
+    return e;
+}
+
+/// `wasm_engine_delete(*Engine)` — free an Engine that was
+/// returned by `wasm_engine_new`. Idempotent for a null pointer
+/// (mirrors upstream `WASM_DECLARE_OWN` discipline: the C host
+/// passes the same pointer it got back).
+export fn wasm_engine_delete(e: ?*Engine) callconv(.c) void {
+    const handle = e orelse return;
+    const alloc = engineAllocator(handle);
+    alloc.destroy(handle);
+}
+
+// ============================================================
 // Smoke tests (shape stability)
 // ============================================================
 
 const testing = std.testing;
 
 test "wasm_c_api shapes: extern structs are pointer-stable" {
-    const e: Engine = .{};
+    const e: Engine = .{ .alloc_ptr = null, .alloc_vtable = null };
     const s: Store = .{};
     const m: Module = .{};
     const i: Instance = .{};
     const f: Func = .{};
     const t: Trap = .{};
     _ = .{ e, s, m, i, f, t };
+}
+
+test "wasm_engine_new / delete: round-trip + alloc binding survives" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    // The Engine carries c_allocator pointers; verify the round-
+    // trip Allocator is usable.
+    const alloc = engineAllocator(e);
+    const probe = try alloc.alloc(u8, 16);
+    defer alloc.free(probe);
+    @memset(probe, 0xAB);
+    try testing.expectEqual(@as(u8, 0xAB), probe[0]);
+}
+
+test "wasm_engine_delete: tolerates null handle" {
+    wasm_engine_delete(null);
 }
 
 test "wasm_c_api: ValKind tag values match wasm.h" {
