@@ -57,9 +57,15 @@
   table expanded 4.0 – 4.12). §9.4 / 4.0 closed at `3327c86`
   via ADR-0005 — `include/wasi.h` is hand-authored (no
   canonical upstream) declaring `zwasm_wasi_config_*` host-
-  setup surface; both headers smoke-test under `zig cc`. The
-  first remaining `[ ]` is **§9.4 / 4.1 — `src/wasi/p1.zig`
-  Zone-2 module (errno + ciovec / iovec / fdstat shapes)**.
+  setup surface; both headers smoke-test under `zig cc`. §9.4 /
+  4.1 closed at `b12456a` — `src/wasi/p1.zig` declares the
+  WASI snapshot-1 type substrate (Errno 77 tags, Filetype /
+  Whence / Clockid / Signal / EventType, Fdflags / Oflags /
+  Rights / Fstflags / Lookupflags constants, Iovec / Ciovec /
+  Fdstat / Filestat / Prestat extern structs with sizes
+  verified). The first remaining `[ ]` is **§9.4 / 4.2 —
+  `src/wasi/host.zig` capability table backed by
+  `std.process.Init`**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -89,34 +95,50 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.4 / 4.1 (src/wasi/p1.zig Zone-2 shapes)
+## Active task — §9.4 / 4.2 (src/wasi/host.zig capability table)
 
-Declare the WASI 0.1 type substrate that the rest of Phase 4
-will populate. Mirrors §9.2 / 2.0 (interp scaffold) — types
-only, no behaviour.
+Declare the host-side capability table that backs WASI's `args`
+/ `environ` / preopen / fd surfaces. Inputs from the Zig host
+process (`std.process.Init`'s `args` / `environ_map` /
+`preopens`); outputs consumed by the §9.4 / 4.3+ syscall
+handlers.
 
-Initial shapes (from snapshot-1):
-- `Errno` — non-exhaustive enum(u16). Critical values: success
-  (0), badf (8), inval (28), nofollow (44), notdir (54),
-  noent (44... wait checking spec).
-- `Ciovec` / `Iovec` — extern struct { buf: u32, buf_len: u32 }
-  (32-bit Wasm pointer + length).
-- `Fd` — u32.
-- `FdFlags`, `Rights`, `OFlags` — packed struct(u16 / u64).
-- `FdStat` — extern struct of fdstat fields per witx.
-- `Filetype` — enum(u8).
+Initial shape:
+```zig
+pub const Host = struct {
+    alloc: Allocator,
+    args: []const []const u8,         // copied from init.minimal.args
+    envs: []const EnvEntry,           // {key, value} pairs
+    preopens: []const Preopen,        // {host_fd, guest_path}
+    stdin: std.fs.File,
+    stdout: std.fs.File,
+    stderr: std.fs.File,
+    // fd table (vec of OpenFd) — small ArrayList; index = guest fd
 
-These belong in Zone 2 (`src/wasi/p1.zig`). Don't import Zone 3
-(c_api), don't import upward. The corresponding host functions
-land in §9.4 / 4.3+; this task is Type-up-front (P13).
+    pub fn init(...) !Host { ... }
+    pub fn deinit(self: *Host) void { ... }
+    pub fn translateFd(self: *Host, guest_fd: p1.Fd) ?*OpenFd { ... }
+};
 
-Reference: wasmtime/crates/wasi-common, WAMR's
-core/iwasm/libraries/libc-wasi, wasi-rs's crates/wasip1
-(but no copy-paste — re-derive in v2 vocabulary).
+pub const OpenFd = struct {
+    kind: enum { stdin, stdout, stderr, file, dir },
+    handle: ?std.fs.File = null,    // for file/dir
+    guest_path: ?[]const u8 = null, // for preopens
+    rights_base: p1.Rights,
+    rights_inheriting: p1.Rights,
+};
+```
 
-(Note from p3 audit carry-over: ADR-0006 still pending for the
-src/c_api/wasm_c_api.zig split; ADR-0005 is now consumed for the
-wasi.h authorship deviation.)
+Things to confirm:
+- Initialization from Init: `init.minimal.args` is `[][]u8`,
+  zero-copy slice into argv. Copy into `Host.args`.
+- preopens come from `init.preopens` — list of `(host_fd:
+  std.posix.fd_t, guest_path: []const u8)` pairs.
+- `Host` should NOT do file IO on init — it just records the
+  capability. Actual reads / writes go through 4.4+'s handlers.
+
+Don't wire interp dispatch yet (that's 4.7 — import resolution).
+This task is the host-state container only.
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack

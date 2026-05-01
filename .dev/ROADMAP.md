@@ -1303,7 +1303,7 @@ zwasm.
 | #    | Description                                                                                | Status         |
 |------|--------------------------------------------------------------------------------------------|----------------|
 | 4.0  | Hand-author `include/wasi.h` (host-setup C API) + ADR-0005 documenting the authorship.   | [x]            |
-| 4.1  | `src/wasi/p1.zig` — Zone-2 module declaring the WASI errno + ciovec / iovec / fdstat shapes. | [ ]            |
+| 4.1  | `src/wasi/p1.zig` — Zone-2 module declaring the WASI errno + ciovec / iovec / fdstat shapes. | [x]            |
 | 4.2  | `src/wasi/host.zig` — capability table backed by `std.process.Init` (preopens, args, environ). | [ ]            |
 | 4.3  | `proc_exit` / `args_get` / `args_sizes_get` / `environ_get` / `environ_sizes_get` handlers. | [ ]            |
 | 4.4  | `fd_write` / `fd_read` / `fd_close` / `fd_seek` / `fd_tell` (stdout/stderr/stdin only).   | [ ]            |
