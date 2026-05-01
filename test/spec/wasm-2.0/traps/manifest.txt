@@ -1,0 +1,4 @@
+valid traps.0.wasm
+valid traps.1.wasm
+valid traps.2.wasm
+valid traps.3.wasm

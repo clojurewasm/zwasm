@@ -1,0 +1,6 @@
+valid float_memory.0.wasm
+valid float_memory.1.wasm
+valid float_memory.2.wasm
+valid float_memory.3.wasm
+valid float_memory.4.wasm
+valid float_memory.5.wasm

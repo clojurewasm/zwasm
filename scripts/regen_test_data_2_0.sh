@@ -53,6 +53,12 @@ NAMES=(
   store
   load
   names
+  memory_grow
+  traps
+  float_exprs
+  float_misc
+  float_memory
+  conversions
 )
 
 for n in "${NAMES[@]}"; do
