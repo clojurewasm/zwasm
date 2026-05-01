@@ -124,10 +124,16 @@
   fixture exercises fd_write through linear memory; runner
   normalises CRLF → LF for Windows portability via `6071b7a`).
   4.10c at `507722e` — `lookupWasiThunk` now resolves all 16
-  WASI 0.1 imports (proc / args / environ / clocks / random /
-  poll / fd / path); realworld guests instantiate without
-  `UnsupportedWasiImport`. 4.10d+: promote specific realworld
-  fixtures + freeze expected output.
+  WASI 0.1 imports. 4.10d at `49d9c9b` — `frontendValidate`
+  extended to handle globals + tables; 6/7 realworld
+  fixtures (Rust + C + cpp_struct_test) now pass
+  validation; go_hello_wasi still rejects (2.5MB Go-runtime
+  sections, deferred). Realworld guests reach dispatch but
+  exit rc=1 — actual completion vs. wasmtime requires
+  ground-truth capture + further interp/binding plumbing.
+  4.10e+: promote a passing realworld fixture once we can
+  capture its expected stdout via wasmtime; chase remaining
+  validation gaps for go_hello_wasi.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
