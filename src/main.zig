@@ -12,8 +12,6 @@
 const std = @import("std");
 const build_options = @import("build_options");
 
-const cli_run = @import("cli/run.zig");
-
 pub const version = "0.0.0-pre";
 
 // Public re-exports so build-time consumers (test/spec/runner.zig,
@@ -25,6 +23,7 @@ pub const lowerer = @import("frontend/lowerer.zig");
 pub const sections = @import("frontend/sections.zig");
 pub const zir = @import("ir/zir.zig");
 pub const interp = @import("interp/mod.zig");
+pub const cli_run = @import("cli/run.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

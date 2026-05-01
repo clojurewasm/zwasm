@@ -133,6 +133,26 @@ pub fn build(b: *std.Build) void {
     const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
     test_realworld_step.dependOn(&run_realworld.step);
 
+    // `zig build test-wasi-p1` — Phase 4 / §9.4 / 4.9. Walks
+    // `test/wasi/` driving each .wasm fixture through
+    // `cli_run.runWasm`, comparing the exit code against the
+    // matching `<basename>.expected_exit` file.
+    const wasi_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/wasi/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    wasi_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    const wasi_runner_exe = b.addExecutable(.{
+        .name = "zwasm-wasi-runner",
+        .root_module = wasi_runner_mod,
+    });
+    const run_wasi_p1 = b.addRunArtifact(wasi_runner_exe);
+    run_wasi_p1.addArg(b.pathFromRoot("test/wasi"));
+    const test_wasi_p1_step = b.step("test-wasi-p1", "Run the WASI 0.1 fixture suite");
+    test_wasi_p1_step.dependOn(&run_wasi_p1.step);
+
     // `zig build test-c-api` — Phase 3 / §9.3 / 3.9. Builds
     // `libzwasm.a` from `src/c_api/lib.zig`, compiles
     // `examples/c_host/hello.c` against `include/wasm.h`, links
@@ -187,6 +207,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_realworld.step);
     test_all_step.dependOn(&run_wast_2_0.step);
     test_all_step.dependOn(&run_c_host.step);
+    test_all_step.dependOn(&run_wasi_p1.step);
 }
 
 pub const WasmLevel = enum { v1_0, v2_0, v3_0 };
