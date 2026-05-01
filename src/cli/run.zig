@@ -97,6 +97,23 @@ pub fn runWasmCaptured(
 
     // Trap path. If `proc_exit` was the cause, the host carries
     // the requested exit code. Other traps map to 1.
+    // For non-exit traps, print the kind + message on stderr so
+    // the CLI / `runWasm` callers can see what hit.
+    if (store.wasi_host) |host| if (host.exit_code) |_| {} else {
+        // Non-exit trap — surface the cause.
+        var stderr_buf: [256]u8 = undefined;
+        var sw = std.Io.File.stderr().writer(io, &stderr_buf);
+        const w = &sw.interface;
+        if (trap.?.message_ptr) |p| {
+            w.print("zwasm: trap kind={s} msg={s}\n", .{
+                @tagName(trap.?.kind),
+                p[0..trap.?.message_len],
+            }) catch {};
+        } else {
+            w.print("zwasm: trap kind={s}\n", .{@tagName(trap.?.kind)}) catch {};
+        }
+        w.flush() catch {};
+    };
     if (store.wasi_host) |host| if (host.exit_code) |code| {
         return @intCast(@min(code, std.math.maxInt(u8)));
     };

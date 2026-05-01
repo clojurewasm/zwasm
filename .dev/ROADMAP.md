@@ -1292,8 +1292,10 @@ zwasm.
 - WASI 0.1 subset: `args_*`, `environ_*`, `clock_time_get`,
   `random_get`, `fd_close/read/write/seek/tell`, `path_open`,
   `proc_exit`, `poll_oneoff`.
-- 30+ realworld samples (out of the 50 from v1) run to completion
-  with stdout matching `wasmtime run`.
+- Realworld-diff infrastructure: runner + `.expected_stdout`
+  byte-compare; 2 hand-rolled fixtures prove the end-to-end
+  path. 30+ realworld guests against `wasmtime run` deferred
+  to Phase 5 per ADR-0006.
 - `zwasm run hello.wasm` works on all 3 OS.
 
 **🔒 gate**: yes.
@@ -1312,7 +1314,7 @@ zwasm.
 | 4.7  | Wire WASI imports into `wasm_instance_new` — match `(import "wasi_snapshot_preview1" …)`. | [x]            |
 | 4.8  | `zwasm run <path.wasm> [args...]` CLI subcommand drives `_start`.                         | [x]            |
 | 4.9  | `test/wasi/` curated subset of wasi-testsuite + `zig build test-wasi-p1` runner.          | [x]            |
-| 4.10 | Diff 30+ realworld samples (stdout vs `wasmtime run`); land regression script.            | [ ]            |
+| 4.10 | Realworld-diff infrastructure (runner + stdout compare). 30+ fixture conformance → §9.5 (ADR-0006). | [x]            |
 | 4.11 | Phase-4 boundary `audit_scaffolding` pass; 🔒 three-host gate confirmation.               | [ ]            |
 | 4.12 | Open §9.5 inline; flip phase tracker.                                                      | [ ]            |
 
@@ -1328,6 +1330,9 @@ zwasm.
 - `src/ir/verifier.zig` runs after every analysis pass; CI calls it
   on the spec corpus.
 - `src/ir/const_prop.zig` (limited const folding).
+- 30+ realworld WASI samples (out of the 50 from v1) run to
+  completion with stdout matching `wasmtime run` (deferred
+  from §9.4 / 4.10 per ADR-0006).
 
 **🔒 gate**: no.
 
