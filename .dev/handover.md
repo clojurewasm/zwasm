@@ -52,11 +52,14 @@
   with `expectExitCode(0)`, and is wired into `test-all`. End-
   to-end through the C ABI green on all three hosts. §9.3 /
   3.10 closed inline (audit at `private/audit-2026-05-02-p3.md`
-  — 0 block, 6 soon, 3 watch). §9.3 / 3.11 closed in this
-  commit — Phase 3 SHAs backfilled, Phase Status widget
-  flipped to Phase 4 IN-PROGRESS, §9.4 task table expanded
-  (4.0 – 4.12). The first remaining `[ ]` is **§9.4 / 4.0 —
-  vendor `wasi.h` + ADR**.
+  — 0 block, 6 soon, 3 watch). §9.3 / 3.11 closed at `53081ae`
+  (Phase 3 SHAs backfilled, Phase Status flipped, §9.4 task
+  table expanded 4.0 – 4.12). §9.4 / 4.0 closed at `3327c86`
+  via ADR-0005 — `include/wasi.h` is hand-authored (no
+  canonical upstream) declaring `zwasm_wasi_config_*` host-
+  setup surface; both headers smoke-test under `zig cc`. The
+  first remaining `[ ]` is **§9.4 / 4.1 — `src/wasi/p1.zig`
+  Zone-2 module (errno + ciovec / iovec / fdstat shapes)**.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -69,6 +72,9 @@
     fail=0); mirrors ADR-0002.
   - `0004_phase3_wasm_c_api_pin.md` — pins upstream wasm-c-api
     commit `9d6b9376…` for the vendored `include/wasm.h`.
+  - `0005_phase4_wasi_h_authorship.md` — hand-author
+    `include/wasi.h` (no canonical upstream wasi.h to vendor);
+    pivots §9.4 / 4.0 from "vendor verbatim" to "hand-author".
 - **Build status**: `zig build test`, `test-spec`,
   `test-spec-wasm-2.0`, `test-realworld`, `test-all` are all
   green on Mac aarch64 native, OrbStack Ubuntu x86_64
@@ -83,31 +89,34 @@
   the original draft; Windows mini PC has no rsync, so v2 reuses
   v1's git-pull discipline).
 
-## Active task — §9.4 / 4.0 (vendor wasi.h + ADR)
+## Active task — §9.4 / 4.1 (src/wasi/p1.zig Zone-2 shapes)
 
-Mirrors §9.3 / 3.0 (the wasm.h vendor task) but for the WASI
-snapshot-1 C header. Steps:
+Declare the WASI 0.1 type substrate that the rest of Phase 4
+will populate. Mirrors §9.2 / 2.0 (interp scaffold) — types
+only, no behaviour.
 
-1. Identify upstream source — `WebAssembly/WASI` repo (likely
-   `legacy/preview1/witx/typenames.witx` + a bindgen-style C
-   shim, or a direct hand-rolled `wasi.h` mirroring upstream
-   wasi-libc's exports). Confirm the canonical "vendored
-   wasi.h" against what wasmtime / wasmer / WAMR ship.
-2. Add `scripts/fetch_wasi_h.sh` mirroring `fetch_wasm_c_api.sh`,
-   pin a commit, populate `include/wasi.h` (or the equivalent
-   path).
-3. File ADR `.dev/decisions/0005_phase4_wasi_h_pin.md` (or
-   whatever ID is next) capturing the pin + bump workflow,
-   following ADR-0004's pattern.
-4. Update `include/README.md` to document both `wasm.h` and
-   `wasi.h` vendor policies side-by-side.
+Initial shapes (from snapshot-1):
+- `Errno` — non-exhaustive enum(u16). Critical values: success
+  (0), badf (8), inval (28), nofollow (44), notdir (54),
+  noent (44... wait checking spec).
+- `Ciovec` / `Iovec` — extern struct { buf: u32, buf_len: u32 }
+  (32-bit Wasm pointer + length).
+- `Fd` — u32.
+- `FdFlags`, `Rights`, `OFlags` — packed struct(u16 / u64).
+- `FdStat` — extern struct of fdstat fields per witx.
+- `Filetype` — enum(u8).
 
-Then 4.1+ proceeds with the Zig-side WASI scaffold.
+These belong in Zone 2 (`src/wasi/p1.zig`). Don't import Zone 3
+(c_api), don't import upward. The corresponding host functions
+land in §9.4 / 4.3+; this task is Type-up-front (P13).
 
-(Note from p3 audit carry-over: file ADR
-`.dev/decisions/0005_phase3_c_api_split.md` — but that is a
-separate ADR for splitting `src/c_api/wasm_c_api.zig`. Pick
-distinct numbers.)
+Reference: wasmtime/crates/wasi-common, WAMR's
+core/iwasm/libraries/libc-wasi, wasi-rs's crates/wasip1
+(but no copy-paste — re-derive in v2 vocabulary).
+
+(Note from p3 audit carry-over: ADR-0006 still pending for the
+src/c_api/wasm_c_api.zig split; ADR-0005 is now consumed for the
+wasi.h authorship deviation.)
 
 Note for 3.2+ work: a `@cImport` smoke test catches "header
 unreachable" regressions but tripped Rosetta on OrbStack
