@@ -18,11 +18,19 @@
 const std = @import("std");
 
 const interp = @import("../interp/mod.zig");
+const dispatch = @import("../interp/dispatch.zig");
+const interp_mvp = @import("../interp/mvp.zig");
+const ext_sign_ext = @import("../interp/ext_2_0/sign_ext.zig");
+const ext_sat_trunc = @import("../interp/ext_2_0/sat_trunc.zig");
+const ext_bulk_memory = @import("../interp/ext_2_0/bulk_memory.zig");
+const ext_ref_types = @import("../interp/ext_2_0/ref_types.zig");
+const ext_table_ops = @import("../interp/ext_2_0/table_ops.zig");
 const lowerer = @import("../frontend/lowerer.zig");
 const parser = @import("../frontend/parser.zig");
 const sections = @import("../frontend/sections.zig");
 const validator = @import("../frontend/validator.zig");
 const zir = @import("../ir/zir.zig");
+const dispatch_table_mod = @import("../ir/dispatch_table.zig");
 
 // ============================================================
 // Opaque types (match wasm.h declarations 1:1)
@@ -93,10 +101,14 @@ pub const Instance = struct {
     func_ptrs_storage: []*const zir.ZirFunc = &.{},
 };
 
-/// `wasm_func_t` — exported / imported function handle. Wraps a
-/// pointer into the instance's function index space.
-pub const Func = extern struct {
-    _padding: usize = 0,
+/// `wasm_func_t` — exported / imported function handle. Carries a
+/// back-pointer to its owning Instance plus the function's index
+/// in `Instance.funcs_storage`. C only ever sees the opaque
+/// pointer (per upstream wasm.h), so the struct does not need
+/// extern layout.
+pub const Func = struct {
+    instance: ?*Instance,
+    func_idx: u32,
 };
 
 /// `wasm_trap_t` — runtime trap surface; carries the trap kind
@@ -139,6 +151,14 @@ pub const Val = extern struct {
 pub const ByteVec = extern struct {
     size: usize,
     data: ?[*]u8,
+};
+
+/// `wasm_val_vec_t` — vec(wasm_val_t). Used for the
+/// `wasm_func_call` arg / result surfaces. The C host owns the
+/// `data` storage; the binding writes into it and never frees it.
+pub const ValVec = extern struct {
+    size: usize,
+    data: ?[*]Val,
 };
 
 // ============================================================
@@ -446,6 +466,156 @@ export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
 }
 
 // ============================================================
+// Func + dispatch (§9.3 / 3.6 chunk b)
+// ============================================================
+
+/// Process-wide dispatch-table cache. Lazily populated on first
+/// call. The table maps `ZirOp` → handler and is identical across
+/// every Engine in a process, so a single shared instance is the
+/// natural shape (and avoids re-running registration on every
+/// `wasm_func_call`). Single-threaded for Phases 1-9 per the
+/// project's threading discipline; `std.atomic` once-init lands
+/// alongside the threads proposal post-v0.1.0.
+var g_dispatch_table_storage: dispatch_table_mod.DispatchTable = undefined;
+var g_dispatch_table_initialized: bool = false;
+
+fn dispatchTable() *const dispatch_table_mod.DispatchTable {
+    if (!g_dispatch_table_initialized) {
+        g_dispatch_table_storage = .init();
+        interp_mvp.register(&g_dispatch_table_storage);
+        ext_sign_ext.register(&g_dispatch_table_storage);
+        ext_sat_trunc.register(&g_dispatch_table_storage);
+        ext_bulk_memory.register(&g_dispatch_table_storage);
+        ext_ref_types.register(&g_dispatch_table_storage);
+        ext_table_ops.register(&g_dispatch_table_storage);
+        g_dispatch_table_initialized = true;
+    }
+    return &g_dispatch_table_storage;
+}
+
+/// `zwasm_instance_get_func` — project-extension helper that
+/// resolves an Instance + function index into a fresh `Func`
+/// handle. The C host owns the returned pointer and must call
+/// `wasm_func_delete`. Folds into upstream `wasm_instance_exports`
+/// + `wasm_extern_vec_t` indexing alongside §9.3 / 3.7.
+export fn zwasm_instance_get_func(i: ?*Instance, idx: u32) callconv(.c) ?*Func {
+    const inst = i orelse return null;
+    const store = inst.store orelse return null;
+    const alloc = storeAllocator(store) orelse return null;
+    if (idx >= inst.funcs_storage.len) return null;
+    const f = alloc.create(Func) catch return null;
+    f.* = .{ .instance = inst, .func_idx = idx };
+    return f;
+}
+
+/// `wasm_func_delete(*Func)` — free a `Func` handle returned by
+/// `zwasm_instance_get_func`. Null-tolerant.
+export fn wasm_func_delete(f: ?*Func) callconv(.c) void {
+    const handle = f orelse return;
+    const inst = handle.instance orelse return;
+    const store = inst.store orelse return;
+    const alloc = storeAllocator(store) orelse return;
+    alloc.destroy(handle);
+}
+
+fn marshalValIn(v: Val) interp.Value {
+    return switch (v.kind) {
+        .i32 => .{ .i32 = v.of.i32 },
+        .i64 => .{ .i64 = v.of.i64 },
+        .f32 => .{ .bits64 = @as(u64, @as(u32, @bitCast(v.of.f32))) },
+        .f64 => .{ .bits64 = @bitCast(v.of.f64) },
+        .anyref, .funcref => .{ .ref = if (v.of.ref) |p| @intFromPtr(p) else interp.Value.null_ref },
+    };
+}
+
+fn marshalValOut(v: interp.Value, kind: zir.ValType) Val {
+    return switch (kind) {
+        .i32 => .{ .kind = .i32, .of = .{ .i32 = v.i32 } },
+        .i64 => .{ .kind = .i64, .of = .{ .i64 = v.i64 } },
+        .f32 => .{ .kind = .f32, .of = .{ .f32 = @bitCast(@as(u32, @truncate(v.bits64))) } },
+        .f64 => .{ .kind = .f64, .of = .{ .f64 = @bitCast(v.bits64) } },
+        .funcref => .{ .kind = .funcref, .of = .{ .ref = if (v.ref == interp.Value.null_ref) null else @ptrFromInt(v.ref) } },
+        .externref => .{ .kind = .anyref, .of = .{ .ref = if (v.ref == interp.Value.null_ref) null else @ptrFromInt(v.ref) } },
+        .v128 => .{ .kind = .i64, .of = .{ .i64 = 0 } }, // unreachable for MVP
+    };
+}
+
+fn allocTrap(alloc: std.mem.Allocator) ?*Trap {
+    const t = alloc.create(Trap) catch return null;
+    t.* = .{};
+    return t;
+}
+
+/// `wasm_func_call(func, args, results)` — invoke `func` with
+/// `args.size` input values, write `results.size` output values
+/// into `results.data`, return null on success or a non-null
+/// `wasm_trap_t*` on Trap. The Trap surface is stubbed in this
+/// chunk (single empty struct); §9.3 / 3.7 fills its message body
+/// + lifetime helpers (`wasm_trap_delete` / `wasm_trap_message`).
+///
+/// Args / result vec sizes must match `func.sig.params.len` /
+/// `func.sig.results.len` exactly — mismatch raises a Trap rather
+/// than corrupting the operand stack.
+export fn wasm_func_call(
+    f: ?*const Func,
+    args: ?*const ValVec,
+    results: ?*ValVec,
+) callconv(.c) ?*Trap {
+    const handle = f orelse return null;
+    const inst = handle.instance orelse return null;
+    const store = inst.store orelse return null;
+    const alloc = storeAllocator(store) orelse return null;
+    const rt = inst.runtime orelse return null;
+    if (handle.func_idx >= inst.funcs_storage.len) return allocTrap(alloc);
+
+    const zfunc = &inst.funcs_storage[handle.func_idx];
+    const sig = zfunc.sig;
+    const args_size = if (args) |a| a.size else 0;
+    const results_size = if (results) |r| r.size else 0;
+    if (args_size != sig.params.len) return allocTrap(alloc);
+    if (results_size != sig.results.len) return allocTrap(alloc);
+
+    const num_locals = sig.params.len + zfunc.locals.len;
+    const locals = alloc.alloc(interp.Value, num_locals) catch return allocTrap(alloc);
+    defer alloc.free(locals);
+    for (locals) |*l| l.* = .{ .bits64 = 0 };
+    if (args) |a| if (a.data) |dp| {
+        for (0..a.size) |idx| locals[idx] = marshalValIn(dp[idx]);
+    };
+
+    const op_base = rt.operand_len;
+    rt.pushFrame(.{
+        .sig = sig,
+        .locals = locals,
+        .operand_base = op_base,
+        .pc = 0,
+        .func = zfunc,
+    }) catch return allocTrap(alloc);
+
+    dispatch.run(rt, dispatchTable(), zfunc.instrs.items) catch {
+        _ = rt.popFrame();
+        rt.operand_len = op_base;
+        return allocTrap(alloc);
+    };
+    _ = rt.popFrame();
+
+    if (rt.operand_len < op_base + sig.results.len) {
+        rt.operand_len = op_base;
+        return allocTrap(alloc);
+    }
+    if (results) |r| if (r.data) |dp| {
+        var i: usize = sig.results.len;
+        while (i > 0) {
+            i -= 1;
+            const v = rt.popOperand();
+            dp[i] = marshalValOut(v, sig.results[i]);
+        }
+    };
+    rt.operand_len = op_base;
+    return null;
+}
+
+// ============================================================
 // Smoke tests (shape stability)
 // ============================================================
 
@@ -456,7 +626,7 @@ test "wasm_c_api shapes: top-level types instantiate cleanly" {
     const s: Store = .{ .engine = null };
     const m: Module = .{ .store = null, .bytes_ptr = null, .bytes_len = 0 };
     const i: Instance = .{ .store = null, .module = null, .runtime = null };
-    const f: Func = .{};
+    const f: Func = .{ .instance = null, .func_idx = 0 };
     const t: Trap = .{};
     _ = .{ e, s, m, i, f, t };
 }
@@ -594,6 +764,75 @@ test "wasm_instance_new: lowers Module funcs into Runtime" {
 test "wasm_instance_*: null-arg discipline" {
     try testing.expect(wasm_instance_new(null, null, null, null) == null);
     wasm_instance_delete(null);
+}
+
+// (module (func (result i32) (i32.const 42)))
+// Hand-rolled wasm so the dispatch test stays import-free (the
+// realworld toolchain wasms pull in WASI imports).
+const i32_const_42_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, // \0asm
+    0x01, 0x00, 0x00, 0x00, // version 1
+    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7F, // type: () -> (i32)
+    0x03, 0x02, 0x01, 0x00, // function: 1 fn, type 0
+    0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2A, 0x0B, // code: i32.const 42, end
+};
+
+test "wasm_func_call: i32-returning function dispatches to 42" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = i32_const_42_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(i);
+
+    const func = zwasm_instance_get_func(i, 0) orelse return error.FuncResolveFailed;
+    defer wasm_func_delete(func);
+
+    var results_data: [1]Val = undefined;
+    var results: ValVec = .{ .size = 1, .data = &results_data };
+    const args: ValVec = .{ .size = 0, .data = null };
+    const trap = wasm_func_call(func, &args, &results);
+    try testing.expect(trap == null);
+    try testing.expectEqual(ValKind.i32, results_data[0].kind);
+    try testing.expectEqual(@as(i32, 42), results_data[0].of.i32);
+}
+
+test "wasm_func_call: arg-count mismatch traps" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = i32_const_42_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(i);
+
+    const func = zwasm_instance_get_func(i, 0) orelse return error.FuncResolveFailed;
+    defer wasm_func_delete(func);
+
+    // Function takes 0 params but we pass 1. Should trap; results
+    // size also mismatches (caller passed 0 vs sig.results=1) but
+    // the args check fires first.
+    var bogus_arg: [1]Val = .{.{ .kind = .i32, .of = .{ .i32 = 99 } }};
+    const args: ValVec = .{ .size = 1, .data = &bogus_arg };
+    const results: ValVec = .{ .size = 0, .data = null };
+    const trap = wasm_func_call(func, &args, @constCast(&results));
+    try testing.expect(trap != null);
+    // Trap is leaked here pending §9.3 / 3.7's wasm_trap_delete; let
+    // the engine's c_allocator absorb it.
+}
+
+test "zwasm_instance_get_func / wasm_func_delete: null-arg discipline" {
+    try testing.expect(zwasm_instance_get_func(null, 0) == null);
+    wasm_func_delete(null);
 }
 
 test "wasm_c_api: ValKind tag values match wasm.h" {
