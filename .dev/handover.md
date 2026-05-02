@@ -138,9 +138,16 @@
   confirmed green at HEAD before the audit. §9.4 / 4.12
   closed in this commit — Phase 4 SHAs backfilled, Phase
   Status widget flipped to Phase 5 IN-PROGRESS, §9.5 task
-  table expanded (5.0 – 5.11). The first remaining `[ ]` is
-  **§9.5 / 5.0 — split `src/c_api/wasm_c_api.zig` per
-  ADR-0007**.
+  table expanded (5.0 – 5.11). §9.5 / 5.0 chunk a landed at
+  `2dd29cc` — `src/c_api/wasi.zig` carve-out (16 WASI thunks +
+  `pushErrno` + `HostThunkFn` + `lookupWasiThunk` +
+  `zwasm_wasi_config_new` / `_delete`); `wasm_c_api.zig`
+  shrank 2092 → 1883 lines (hard-cap clean);
+  `zwasm_store_set_wasi` stays in `wasm_c_api.zig` until the
+  `instance.zig` carve-out. Next: §9.5 / 5.0 chunk b —
+  `src/c_api/trap_surface.zig` (~250 lines: Trap shape,
+  `mapInterpTrap`, `allocTrap`, `wasm_trap_new` /
+  `_delete` / `_message`, `wasm_byte_vec_delete`).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
