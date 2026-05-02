@@ -10,4 +10,5 @@
 
 comptime {
     _ = @import("c_api/wasm_c_api.zig");
+    _ = @import("c_api/wasi.zig");
 }
