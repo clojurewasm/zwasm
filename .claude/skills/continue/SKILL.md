@@ -206,7 +206,7 @@ End-of-turn checklist (every turn that ends with the task closed):
    - If local is ahead of origin: push immediately (no approval
      needed; see "Push policy") before the next Step 0.
 4. `zig build test` (Phase 0+) — confirm the build is green. From
-   Phase 1, also run `zig build test-spec`. From Phase 6, also run
+   Phase 1, also run `zig build test-spec`. From Phase 7, also run
    the differential subset. **If output is large (>200 lines), run
    via subagent and ask only for pass/fail + the first failure.**
 5. **One-sentence** status to the user (phase + last commit + next

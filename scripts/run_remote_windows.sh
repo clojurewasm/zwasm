@@ -3,7 +3,7 @@
 #
 # `git fetch + reset --hard` the windowsmini clone to the latest
 # pushed `origin/zwasm-from-scratch`, then run the requested
-# `zig build` step there. Phase 14+ may extend this with a
+# `zig build` step there. Phase 15+ may extend this with a
 # `git bundle` path so unpushed commits can also be exercised; for
 # now we test the latest pushed state, mirroring zwasm v1.
 #

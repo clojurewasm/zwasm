@@ -26,7 +26,7 @@ The mini PC must already have, per zwasm v1's setup:
   `hyperfine`) — for Phase 0 the user's existing zwasm v1 install
   on `windowsmini` (its `scripts/windows/install-tools.ps1`)
   satisfies this. zwasm v2 wires its own `scripts/windows/`
-  installer at Phase 13+.
+  installer at Phase 14+.
 
 `rsync` is **not** required on `windowsmini`; v2 syncs via
 `git pull` from `origin`, mirroring zwasm v1.
@@ -106,9 +106,9 @@ need the local change to land in the gate.
 This script is what `scripts/gate_merge.sh` calls when verifying
 the windowsmini half of the three-OS gate.
 
-## Phase 14+ extension
+## Phase 15+ extension
 
-Phase 14 may add a `git bundle` path so unpushed commits can also
+Phase 15 may add a `git bundle` path so unpushed commits can also
 be exercised on `windowsmini` (useful for pre-push gates). Until
 then, `git pull` against `origin` is the source of truth — same as
 zwasm v1.

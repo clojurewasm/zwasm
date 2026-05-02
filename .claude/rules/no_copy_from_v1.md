@@ -43,7 +43,7 @@ Three reasons, in order of importance:
 2. **W54-class regression risk** — v1's post-hoc layered
    optimisations (W43 / W44 / W45 / W54 hoist / coalescer)
    accumulated into a fragile lattice. v2's day-1 ZIR substrate
-   makes the same optimisations clean adds (Phase 14). Copy-paste
+   makes the same optimisations clean adds (Phase 15). Copy-paste
    defeats this by re-introducing the lattice.
 3. **Knowledge compression** — re-derivation is what makes the
    project teachable. The result lives in v2 because someone

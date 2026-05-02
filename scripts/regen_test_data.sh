@@ -7,7 +7,7 @@
 #   test/spec/wasm-1.0/README.md per ADR-0002.
 #
 # Phase 4+: build realworld samples from C / Rust / Go sources.
-# Phase 10+: build bench wasms.
+# Phase 11+: build bench wasms.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

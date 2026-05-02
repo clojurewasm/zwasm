@@ -2,7 +2,7 @@
 # Record per-merge bench numbers into bench/history.yaml.
 # Tags each row with arch:{aarch64-darwin, x86_64-linux, x86_64-windows}.
 #
-# Phase 0-9: stub. Phase 10+ wires hyperfine against bench/runners/*.wasm.
+# Phase 0-10: stub. Phase 11+ wires hyperfine against bench/runners/*.wasm.
 #
 # Usage:
 #   bash scripts/record_merge_bench.sh             # full mode
@@ -29,8 +29,8 @@ subject=$(git log -1 --format='%s')
 echo "[record_merge_bench] arch=$arch, commit=$short, quick=$QUICK"
 echo "[record_merge_bench] subject: $subject"
 
-# TODO(p10): wire actual hyperfine runs against bench/runners/*.wasm
-# and append rows to bench/history.yaml. For Phase 0-9, this is a stub.
+# TODO(p11): wire actual hyperfine runs against bench/runners/*.wasm
+# and append rows to bench/history.yaml. For Phase 0-10, this is a stub.
 
 cat <<EOF >> bench/history.yaml
 # - date: $date
@@ -38,7 +38,7 @@ cat <<EOF >> bench/history.yaml
 #   arch: $arch
 #   reason: "Record benchmark for $subject"
 #   runs: $([ $QUICK -eq 1 ] && echo 3 || echo 5)
-#   benches: []   # populated by hyperfine, Phase 10+
+#   benches: []   # populated by hyperfine, Phase 11+
 EOF
 
 echo "[record_merge_bench] history.yaml updated (stub)."

@@ -34,7 +34,7 @@ drove this redesign.
 - **D117 dual-entry self-call workaround**: introduced because
   inst_ptr cache + callee-saved competition couldn't be expressed
   cleanly. In v2: explicit `RegClass.inst_ptr_special` slot in
-  `src/jit/reg_class.zig` from Phase 6.
+  `src/jit/reg_class.zig` from Phase 7.
 
 ## When spike work is OK
 

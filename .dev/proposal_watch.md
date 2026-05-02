@@ -46,10 +46,10 @@ Plus v1 parity items at Phase 5:
 | Proposal                         | Note                  | zwasm intent                    |
 |----------------------------------|-----------------------|---------------------------------|
 | ESM Integration                  | JS modules            | **SKIP**                        |
-| Wide arithmetic (i64x2 mul, ADC) | BigInt-relevant       | Phase 8 alongside SIMD (v0.1.0) |
+| Wide arithmetic (i64x2 mul, ADC) | BigInt-relevant       | Phase 9 alongside SIMD (v0.1.0) |
 | Stack switching (continuations)  | Large; gates WASI 0.3 | v0.2.0+                         |
 | Compact import section           | Size opt              | v0.2.0+                         |
-| Custom page sizes                | memory tuning         | Phase 9 (v0.1.0)                |
+| Custom page sizes                | memory tuning         | Phase 10 (v0.1.0)                |
 | Custom Descriptors / JS Interop  | JS-only               | **SKIP**                        |
 
 ## Phase 2 — Proposed (watch only)
@@ -73,7 +73,7 @@ Text Encoding Builtins` (skip).
 
 | WASI version   | zwasm phase   | Notes                                   |
 |----------------|---------------|-----------------------------------------|
-| 0.1 (preview1) | Phases 4 / 10 | de-facto baseline; complete in Phase 10 |
+| 0.1 (preview1) | Phases 4 / 11 | de-facto baseline; complete in Phase 11 |
 | 0.2 (preview2) | post-v0.1.0   | Component Model required                |
 | 0.3            | post-v0.1.0   | async / streams; needs stack-switching  |
 

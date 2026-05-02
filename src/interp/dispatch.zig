@@ -11,7 +11,7 @@
 //! per the wasm3 idiom (`m3_exec.c` macro tower). zwasm v2's
 //! divergence: a plain `while` loop over `[]const ZirInstr` indexed
 //! by `pc`. The cost vs. wasm3-style threaded code is measurable
-//! and gets revisited in Phase 14 (§4.3 — "interpreter / JIT / AOT
+//! and gets revisited in Phase 15 (§4.3 — "interpreter / JIT / AOT
 //! share one path"); for the Phase-2 spec gate, correctness is the
 //! priority over μs/op throughput.
 //!

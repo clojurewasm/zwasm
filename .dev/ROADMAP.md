@@ -124,7 +124,7 @@ These do not change between phases. Changing one requires an ADR.
 |-----|----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | P1  | **WebAssembly spec is ground truth**         | Spec test fail / skip is a release-blocker. If a test breaks, the design is wrong, not the test.                                                                                               |
 | P2  | **Library and CLI in one binary**            | Single `zwasm` binary serves `run / compile / validate / inspect / features / wat / wasm`.                                                                                                     |
-| P3  | **Cold-start is the primary metric**         | Compile pipeline is single-pass (no SSA optimisation passes). AOT mode (Phase 11) is the second answer.                                                                                        |
+| P3  | **Cold-start is the primary metric**         | Compile pipeline is single-pass (no SSA optimisation passes). AOT mode (Phase 12) is the second answer.                                                                                        |
 | P4  | **Zig 0.16 idioms**                          | `std.Io` DI, `*std.Io.Writer`, `packed struct`, `comptime`, `@branchHint`. No `std.Thread.Mutex`, no `std.io.AnyWriter`.                                                                       |
 | P5  | **link_libc=false, host-side**               | All host math via Zig builtins (LLVM intrinsics). No libm. No MSVCRT.                                                                                                                          |
 | P6  | **Single-pass compilation**                  | Decode → ZIR → regalloc → emit, four linear passes per function. No multi-pass IR optimisation.                                                                                             |
@@ -133,9 +133,9 @@ These do not change between phases. Changing one requires an ADR.
 | P9  | **Knowledge compression by ROADMAP and ADR** | ROADMAP narrates the project; ADRs justify deviations from it. There is no per-task / per-concept chapter cadence.                                                                             |
 | P10 | **v1 stays untouched, but is not copied**    | The v1 `main` is frozen for ClojureWasm. v2 work happens on `zwasm-from-scratch`. v1 source may be **read** as a textbook; **never copy-and-paste** — re-design every line.                   |
 | P11 | **Three OS first-class**                     | macOS aarch64, Linux x86_64, Windows x86_64 are all gated locally (Mac + OrbStack + Windows-mini SSH).                                                                                         |
-| P12 | **Differential testing is the oracle**       | Every test that runs a wasm module asserts `interp == jit` on the host's native backend. The two-platform gate (and Phase 13's CI matrix) gives `interp == jit_arm64 == jit_x86` transitively. |
+| P12 | **Differential testing is the oracle**       | Every test that runs a wasm module asserts `interp == jit` on the host's native backend. The two-platform gate (and Phase 14's CI matrix) gives `interp == jit_arm64 == jit_x86` transitively. |
 | P13 | **Day-one ZIR sized for the full target**    | All Wasm 3.0 ops + Phase 3-4 proposal ops + JIT pseudo-ops are reserved as `ZirOp` slots from day 1. Implementation is staged; the type is not.                                                |
-| P14 | **Optimisation lands last in commit order**  | Phases 1-9 = simplest correct implementation. Phase 14 = port v1's optimisation work (W43 / W44 / W45 / W54-class) onto the v2 substrate, where the slots already exist.                       |
+| P14 | **Optimisation lands last in commit order**  | Phases 1-10 = simplest correct implementation. Phase 15 = port v1's optimisation work (W43 / W44 / W45 / W54-class) onto the v2 substrate, where the slots already exist.                       |
 
 ### 2.1 Architecture rules (verifiable)
 
@@ -145,14 +145,15 @@ These do not change between phases. Changing one requires an ADR.
 | A2  | One file ≤ 1,000 lines (soft) / ≤ 2,000 lines (hard)                                                                                       | `scripts/file_size_check.sh`                     |
 | A3  | Cross-arch backends do not import each other (`jit_arm64` ↔ `jit_x86`)                                                                      | `scripts/zone_check.sh --gate`                   |
 | A4  | `ZIR.verify()` runs after every analysis pass                                                                                                | Inline in `src/ir/verifier.zig`; called per pass |
-| A5  | Differential test gates every wasm-execution test (Phase 6+)                                                                                 | `zig build test-all`                             |
+| A5  | Differential test gates every wasm-execution test (Phase 7+)                                                                                 | `zig build test-all`                             |
 | A6  | ADR is required for: layer/contract change, ZIR shape change, C ABI surface change, phase order change, regression allowance, tier promotion | Reviewer checklist; pre-merge audit              |
 | A7  | Mac native + OrbStack Ubuntu native = local pre-push gate                                                                                    | `.githooks/pre_push`                             |
-| A8  | Windows x86_64 native verified via SSH (`windowsmini`) before any v0.1.0 release                                                             | `scripts/run_remote_windows.sh` (Phase 14+)      |
+| A8  | Windows x86_64 native verified via SSH (`windowsmini`) before any v0.1.0 release                                                             | `scripts/run_remote_windows.sh` (Phase 15+)      |
 | A9  | Bench history is append-only                                                                                                                 | `bench/history.yaml` reviewed at every merge     |
 | A10 | Spec test fail=0 / skip=0 is a merge gate (Phase 2+)                                                                                         | `zig build test-spec`                            |
 | A11 | All paths are `snake_case`; no hyphens in file or directory names                                                                            | Reviewer; convention                             |
 | A12 | Feature opcodes are added through dispatch-table registration, not pervasive build-time `if` branches                                        | §4.5 design                                     |
+| A13 | v1 regression suite (test/v1_carry_over/ + 50 realworld + ClojureWasm guest) stays green from Phase 6 onward (ADR-0008)                       | `zig build test-v1-carry-over` + Phase-6 gate    |
 
 ---
 
@@ -197,7 +198,7 @@ These do not change between phases. Changing one requires an ADR.
 - **Threads + atomics**: post-WASI-0.2.
 - **Shared-everything threads**: Phase 1 proposal; watch.
 - **Stack switching**: Phase 3 proposal; gates WASI 0.3.
-- **Optimising tier** (Phase 12+): copy-and-patch, SSA mid-IR, or
+- **Optimising tier** (Phase 13+): copy-and-patch, SSA mid-IR, or
   cranelift-as-backend.
 - **RISC-V / s390x backends**: separate ADR each.
 
@@ -586,7 +587,7 @@ pub const ZirOp = enum(u16) {
     @"memory.protect",
 
     // ============================================================
-    // Pseudo opcodes — JIT-internal, populated Phase 6+ (when JIT v1 lands)
+    // Pseudo opcodes — JIT-internal, populated Phase 7+ (when JIT v1 lands)
     // ============================================================
     @"__pseudo.const_in_reg",
     @"__pseudo.loop_header",
@@ -623,22 +624,22 @@ pub const ZirFunc = struct {
     liveness: ?Liveness = null,
     constant_pool: ?ConstantPool = null,
 
-    // Populated Phase 6+ (JIT register allocator)
+    // Populated Phase 7+ (JIT register allocator)
     reg_class_hints: ?[]RegClass = null,
     spill_slots: ?[]SpillSlot = null,
     inst_ptr_cache_layout: ?CacheLayout = null,
     vm_ptr_cache_layout: ?CacheLayout = null,
     simd_base_cache_layout: ?CacheLayout = null,
 
-    // Populated Phase 8+ (SIMD additional state)
+    // Populated Phase 9+ (SIMD additional state)
     simd_lane_routing: ?LaneRouting = null,
 
-    // Populated Phase 9+ (GC / EH / tail call additional state)
+    // Populated Phase 10+ (GC / EH / tail call additional state)
     gc_root_map: ?GcRootMap = null,
     eh_landing_pads: ?[]LandingPad = null,
     tail_call_sites: ?[]TailCallSite = null,
 
-    // Populated Phase 14+ (optimisation passes)
+    // Populated Phase 15+ (optimisation passes)
     hoisted_constants: ?[]HoistedConst = null,
     bounds_check_elision_map: ?[]ElisionRecord = null,
     coalesced_movs: ?[]CoalesceRecord = null,
@@ -824,20 +825,20 @@ down. Tests construct a mock Runtime.
 ### 4.9 Memory model
 
 - Linear memory is `mmap`-backed on POSIX, `VirtualAlloc` on Windows.
-- Bounds check via guard pages (Phase 6+) — out-of-range access
+- Bounds check via guard pages (Phase 7+) — out-of-range access
   triggers `SIGSEGV` (POSIX) / `EXCEPTION_ACCESS_VIOLATION`
   (Windows), caught by the JIT's signal handler and converted to a
   Wasm trap.
 - Memory64 is part of the ZIR shape from day 1; the implementation
-  lights up in Phase 9.
+  lights up in Phase 10.
 
-### 4.10 GC subsystem (Phase 9+)
+### 4.10 GC subsystem (Phase 10+)
 
 WasmGC adds heap-allocated typed values (struct, array, i31). The
 implementation lives in `src/runtime/gc/`:
 
 - `arena.zig` — phase-scoped arena (Phase 1+, infrastructure only)
-- `mark_sweep.zig` — mark-sweep collector (Phase 9+)
+- `mark_sweep.zig` — mark-sweep collector (Phase 10+)
 - `roots.zig` — root tracking (operand stack + locals + globals + tables)
 
 GC values use a tagged pointer scheme (low 3 bits = type tag, since
@@ -862,7 +863,7 @@ zwasm_from_scratch/
 ├── include/
 │   ├── wasm.h                  # upstream wasm-c-api (fetched, Phase 3+)
 │   ├── wasi.h                  # WASI extension (Phase 4+)
-│   └── zwasm.h                 # zwasm extensions (allocator inj Phase 4+; fuel/cancel Phase 6+)
+│   └── zwasm.h                 # zwasm extensions (allocator inj Phase 4+; fuel/cancel Phase 7+)
 │
 ├── src/
 │   ├── main.zig
@@ -1002,10 +1003,10 @@ zwasm_from_scratch/
 │   ├── zig_host/
 │   └── rust_host/
 │
-├── docs/                       # English public docs (Phase 14+)
+├── docs/                       # English public docs (Phase 15+)
 │   ├── reference/
 │   ├── tutorial/
-│   └── migration_v1_to_v2.md   # written at Phase 14
+│   └── migration_v1_to_v2.md   # written at Phase 15
 │
 ├── scripts/
 │   ├── zone_check.sh
@@ -1015,7 +1016,7 @@ zwasm_from_scratch/
 │   ├── record_merge_bench.sh
 │   ├── run_bench.sh
 │   ├── run_spec.sh
-│   ├── run_remote_windows.sh   # Phase 14+ — drives the windowsmini SSH host
+│   ├── run_remote_windows.sh   # Phase 15+ — drives the windowsmini SSH host
 │   ├── regen_test_data.sh
 │   ├── sync_versions.sh
 │   ├── fetch_wasm_c_api.sh
@@ -1072,7 +1073,7 @@ The full live status is in `.dev/proposal_watch.md`. Summary:
 
 | Tier        | Definition                    | zwasm intent                                    |
 |-------------|-------------------------------|-------------------------------------------------|
-| **Phase 5** | W3C Recommendation (Wasm 3.0) | **MUST** — implement in Phases 1–9 for v0.1.0 |
+| **Phase 5** | W3C Recommendation (Wasm 3.0) | **MUST** — implement in Phases 1–10 for v0.1.0 |
 | **Phase 4** | Standardize                   | **Deferred to v0.2.0** for non-web items        |
 | **Phase 3** | Implementation phase          | Per-feature judgement; mostly post-v0.1.0       |
 | **Phase 2** | Proposed                      | Watch only                                      |
@@ -1086,9 +1087,9 @@ plan if the proposal hits Phase 5 during active development.
 
 ## 7. Concurrency design
 
-- **Phases 0–9: single-threaded.** `Engine` is a process singleton;
+- **Phases 0–10: single-threaded.** `Engine` is a process singleton;
   `Store` is host-thread-local.
-- **Phase 10+:** multi-store, with `Engine` thread-safe (matches
+- **Phase 11+:** multi-store, with `Engine` thread-safe (matches
   wasmtime convention). `wasm.h` allows shared modules; `zwasm.h`
   documents the safe sharing surface.
 - **Wasm threads (atomics, shared memory)**: deferred to v0.2.0,
@@ -1097,14 +1098,14 @@ plan if the proposal hits Phase 5 during active development.
   Use `std.Io.Mutex` or `std.atomic.Mutex` only when concurrency
   actually arrives.
 - **Cancellation** (`zwasm.h`'s `zwasm_module_cancel`): single
-  atomic boolean checked at fuel-poll points. Phase 6+.
+  atomic boolean checked at fuel-poll points. Phase 7+.
 
 ---
 
 ## 8. WASI strategy
 
 - **WASI 0.1** (preview1): the realworld baseline. Phase 4 minimal
-  subset; Phase 10 full surface.
+  subset; Phase 11 full surface.
 - **WASI 0.2** (preview2): Component Model required. **Deferred to
   v0.2.0**.
 - **WASI 0.3**: async / streams. Post-v0.2.0.
@@ -1126,17 +1127,18 @@ of each phase advances it.
 | 2     | DONE        | —                             |
 | 3     | DONE        | —                             |
 | 4     | DONE        | —                             |
-| 5     | IN-PROGRESS | §9.5 / 5.0 (c_api split per ADR-0007) |
-| 6     | PENDING     |                               |
-| 7     | PENDING     |                               |
-| 8     | PENDING     |                               |
-| 9     | PENDING     |                               |
-| 10    | PENDING     |                               |
-| 11    | PENDING     |                               |
-| 12    | PENDING     |                               |
-| 13    | PENDING     |                               |
-| 14    | PENDING     |                               |
-| 15    | PENDING     |                               |
+| 5     | IN-PROGRESS | §9.5 / 5.0 (c_api split per ADR-0007)                          |
+| 6     | PENDING     | v1 conformance baseline (ADR-0008) 🔒                          |
+| 7     | PENDING     | JIT v1 ARM64 baseline                                          |
+| 8     | PENDING     | JIT v1 x86_64 baseline 🔒                                      |
+| 9     | PENDING     | SIMD-128                                                       |
+| 10    | PENDING     | GC, EH, Tail call, memory64 (Wasm 3.0 完備) 🔒                 |
+| 11    | PENDING     | WASI 0.1 full + bench infra                                    |
+| 12    | PENDING     | AOT compilation mode                                           |
+| 13    | PENDING     | C API full (wasm-c-api conformance) 🔒                         |
+| 14    | PENDING     | CI matrix infrastructure                                       |
+| 15    | PENDING     | Performance parity with v1 + ClojureWasm migration             |
+| 16    | PENDING     | Public release v0.1.0 🔒                                       |
 
 State values: `IN-PROGRESS` (one phase at a time), `PENDING`,
 `DONE`. Update this table whenever §9.<N>.7 closes a phase or when
@@ -1347,13 +1349,47 @@ zwasm.
 | 5.4  | `src/ir/liveness.zig` — per-vreg live ranges computed.                                    | [ ]            |
 | 5.5  | `src/ir/verifier.zig` runs after every analysis pass; CI calls it on the spec corpus.     | [ ]            |
 | 5.6  | `src/ir/const_prop.zig` — limited const folding.                                          | [ ]            |
-| 5.7  | Diagnose + chase missing MVP interp ops surfacing on realworld guests (Errno.unreachable_). | [ ]            |
-| 5.8  | Capture wasmtime ground-truth stdout for the 7 vendored realworld samples; promote to `test/wasi/`. | [ ]            |
-| 5.9  | 30+ realworld samples (out of the 50 from v1) match `wasmtime run` (per ADR-0006).        | [ ]            |
-| 5.10 | Phase-5 boundary `audit_scaffolding` pass.                                                 | [ ]            |
-| 5.11 | Open §9.6 inline; flip phase tracker.                                                      | [ ]            |
+| 5.7  | Phase-5 boundary `audit_scaffolding` pass.                                                 | [ ]            |
+| 5.8  | Open §9.6 inline; flip phase tracker.                                                      | [ ]            |
 
-### Phase 6 — JIT v1 ARM64 baseline
+(Realworld conformance rows formerly at §9.5 / 5.7-5.9 moved to
+§9.6 / 6.1-6.3 by ADR-0008.)
+
+### Phase 6 — v1 conformance baseline 🔒
+
+**Goal**: enumerate exactly which v1-passing artefacts (regression
+tests, realworld guest set, ClojureWasm guest set) fail under v2
+interp, and bring them all to green **before any JIT or local-
+optimisation complexity is introduced**. Established once at the
+end of correctness work; carried forward as a green-must-stay
+baseline through Phases 7-15 via the differential gate.
+
+This Phase exists to keep the v1-vs-v2 divergence triage free of
+JIT / regalloc / W54-class lattice noise (see ADR-0008 + P14 +
+`no_workaround.md`).
+
+**Exit criterion**:
+
+- `test/v1_carry_over/` vendors v1's regression tests not already
+  covered by spec testsuite; `zig build test-v1-carry-over` runs
+  them; fail=0 on all three hosts.
+- All 50 realworld samples (Mac + Linux) run to completion under
+  v2 interp — no `Errno.unreachable_` traps from missing ops.
+- 30+ realworld samples match `wasmtime run` byte-for-byte stdout
+  (the ADR-0006 target, retargeted from §9.4 / 4.10).
+- ClojureWasm guest set runs end-to-end against zwasm v2 via
+  `build.zig.zon` `path = ...` — no commits to ClojureWasm side
+  required.
+- `bench/baseline_v1_regression.yaml` records interp-only wall-
+  clock numbers as the comparison floor for Phase 7+. Absolute
+  speed irrelevant; spread + repeatability under noise matters.
+- A13 (v1 regression suite stays green) wired into the merge gate.
+
+**🔒 platform gate**: yes. Phase 7 (JIT v1 ARM64) cannot open
+until Phase 6 is `DONE` on all three hosts. The Phase Status
+widget enforces this.
+
+### Phase 7 — JIT v1 ARM64 baseline
 
 **Goal**: ZIR compiles to ARM64 machine code; spec test passes via
 JIT.
@@ -1372,7 +1408,7 @@ JIT.
 
 **🔒 gate**: no (Linux is interpreter-only at this phase).
 
-### Phase 7 — JIT v1 x86_64 baseline 🔒
+### Phase 8 — JIT v1 x86_64 baseline 🔒
 
 **Goal**: x86_64 backend equal to ARM64; differential test gate.
 
@@ -1389,7 +1425,7 @@ JIT.
 
 **🔒 gate**: yes — this is the most important gate of the project.
 
-### Phase 8 — SIMD-128
+### Phase 9 — SIMD-128
 
 **Goal**: SIMD-128 fixed-width ops on both backends.
 
@@ -1403,7 +1439,7 @@ JIT.
 
 **🔒 gate**: no.
 
-### Phase 9 — GC, EH, Tail call, memory64 (Wasm 3.0 完備) 🔒
+### Phase 10 — GC, EH, Tail call, memory64 (Wasm 3.0 完備) 🔒
 
 **Goal**: WebAssembly 3.0 feature-complete.
 
@@ -1415,11 +1451,11 @@ JIT.
 - Tail Call: return_call, return_call_indirect, return_call_ref.
 - memory64 lit up; existing load/store ops accept 64-bit offsets.
 - All Phase-5 proposals' spec tests pass=fail=skip=0 (both backends).
-- Bench: no unexplained regression vs Phase 8 baseline.
+- Bench: no unexplained regression vs Phase 9 baseline.
 
 **🔒 gate**: yes.
 
-### Phase 10 — WASI 0.1 full + bench infra
+### Phase 11 — WASI 0.1 full + bench infra
 
 **Goal**: production-ready WASI 0.1 + complete bench harness.
 
@@ -1434,7 +1470,7 @@ JIT.
 
 **🔒 gate**: no.
 
-### Phase 11 — AOT compilation mode
+### Phase 12 — AOT compilation mode
 
 **Goal**: `zwasm compile` produces `.cwasm`; `zwasm run *.cwasm`
 loads in fewer-than-startup-of-JIT time.
@@ -1449,7 +1485,7 @@ loads in fewer-than-startup-of-JIT time.
 
 **🔒 gate**: no.
 
-### Phase 12 — C API full (wasm-c-api conformance) 🔒
+### Phase 13 — C API full (wasm-c-api conformance) 🔒
 
 **Goal**: wasm-c-api conformance test passes.
 
@@ -1464,7 +1500,7 @@ loads in fewer-than-startup-of-JIT time.
 
 **🔒 gate**: yes.
 
-### Phase 13 — CI matrix infrastructure
+### Phase 14 — CI matrix infrastructure
 
 **Goal**: GitHub Actions matrix replaces ad-hoc local-only gating.
 
@@ -1483,7 +1519,7 @@ loads in fewer-than-startup-of-JIT time.
 
 **🔒 gate**: no.
 
-### Phase 14 — Performance parity with v1 + ClojureWasm migration
+### Phase 15 — Performance parity with v1 + ClojureWasm migration
 
 **Goal**: zwasm v2 matches v1's bench performance and runs
 ClojureWasm.
@@ -1503,13 +1539,13 @@ ClojureWasm.
 
 **🔒 gate**: no, but extensive bench validation.
 
-### Phase 15 — Public release v0.1.0 🔒
+### Phase 16 — Public release v0.1.0 🔒
 
 **Goal**: zwasm v2 replaces v1 as the recommended runtime.
 
 **Exit criterion**:
 
-- All Phase 0-14 exit criteria still hold.
+- All Phase 0-15 exit criteria still hold.
 - `CHANGELOG.md`, `docs/migration_v1_to_v2.md`, `README.md` complete.
 - `docs/reference/` (API), `docs/tutorial/` complete.
 - GitHub release tag `v0.1.0` cut; binaries published for all 3 OS.
@@ -1625,7 +1661,7 @@ same script. There is **no per-OS divergence** in test data prep.
 `test/e2e/json/`, `test/fuzz/corpus/` are gitignored. Realworld
 `.wasm` is committed.
 
-### 11.3 Differential testing (Phase 6+)
+### 11.3 Differential testing (Phase 7+)
 
 ```zig
 test "differential: <name>" {
@@ -1648,10 +1684,10 @@ single host that runs both JITs.
 - Edge cases: hand-crafted (truncated, bad magic, oversized LEB).
 - Differential fuzz: random input → both `interp` and `jit_native`,
   assert equal.
-- Overnight campaign: nightly CI run (Phase 13+); duration TBD per
+- Overnight campaign: nightly CI run (Phase 14+); duration TBD per
   budget.
 - Crash files saved to `test/fuzz/corpus/crash_*` and uploaded to
-  GitHub Release on failure (Phase 13+).
+  GitHub Release on failure (Phase 14+).
 
 ### 11.5 Three-OS gate
 
@@ -1665,7 +1701,7 @@ Local pre-push (A7, A8):
   the remote clone at `~/Documents/MyProducts/zwasm_from_scratch`,
   then runs the requested `zig build` step).
 
-CI matrix lights up in Phase 13.
+CI matrix lights up in Phase 14.
 
 ---
 
@@ -1711,9 +1747,9 @@ Instead:
 
 ### 12.4 Cadence
 
-- **Per-merge** (Phase 13+, automated CI): full hyperfine on Mac;
+- **Per-merge** (Phase 14+, automated CI): full hyperfine on Mac;
   Linux and Windows rows recorded by the matrix.
-- **Per-merge** (Phase 0–12, manual): Mac via `bash
+- **Per-merge** (Phase 0–13, manual): Mac via `bash
   scripts/record_merge_bench.sh`; Linux + Windows via the analogous
   remote scripts when results are needed.
 - **Manual baselines**: `bash scripts/record_merge_bench.sh
@@ -1742,7 +1778,7 @@ a build-time error.
 ### 13.2 Commit message format
 
 `<type>(<scope>): <subject>` where type ∈ {feat, fix, docs, refactor,
-chore, test, bench, ci, build}, scope ∈ {p0, p1, ..., p15, all,
+chore, test, bench, ci, build}, scope ∈ {p0, p1, ..., p16, all,
 infra, ...}.
 
 Example: `feat(p1): parser handles multi-value block params`.
@@ -1785,7 +1821,7 @@ that's fine, but the act of typing it is the act of re-deciding.
 ❌ std.Thread.Mutex (use std.Io.Mutex or std.atomic.Mutex)
 ❌ std.io.AnyWriter (use *std.Io.Writer)
 ❌ ARM64-only or x86-only feature (P7)
-❌ Running one backend after Phase 7 without differential check
+❌ Running one backend after Phase 8 without differential check
 ❌ Adding to wasm.h without an ADR
 ❌ Per-task / per-concept Japanese chapter cadence (P9)
 ❌ Skipping Step 5 (test gate) on commit
@@ -1804,15 +1840,19 @@ that's fine, but the act of typing it is the act of re-deciding.
 
 - **End of Phase 5** — re-evaluate ZIR design: are the slot-based
   growth assumptions holding, or is a redesign needed before Phase
-  6 JIT lands?
-- **End of Phase 7** — is the differential test pass rate stable?
+  7 JIT lands?
+- **End of Phase 6** — does the v1 regression suite (carry-over
+  tests + 50 realworld + ClojureWasm guest) actually pass under v2
+  interp? If gaps remain (missing ops, semantic divergences),
+  Phase 7 (JIT) does not open until they close (A13).
+- **End of Phase 8** — is the differential test pass rate stable?
   If frequent diff failures persist, the JIT design is wrong, not
   the test.
-- **End of Phase 9** — is the Wasm 3.0 feature-complete claim
+- **End of Phase 10** — is the Wasm 3.0 feature-complete claim
   defensible? If the spec test corpus has unimplemented opcodes,
-  Phase 10+ does not open.
-- **End of Phase 14** — does ClojureWasm work on zwasm v2 with no
-  measurable user-visible regression? If not, Phase 15 release is
+  Phase 11+ does not open.
+- **End of Phase 15** — does ClojureWasm work on zwasm v2 with no
+  measurable user-visible regression? If not, Phase 16 release is
   blocked.
 - **Post-v0.1.0** — does the ecosystem (other hosts adopting
   wasm-c-api against zwasm) materialise to justify v0.2.0 work
@@ -1851,7 +1891,7 @@ that's fine, but the act of typing it is the act of re-deciding.
 - **🔒 gate** — phases marked require Mac native + OrbStack Ubuntu
   native + windowsmini build to pass before proceeding.
 - **Differential test** — running the same wasm through interp and
-  JIT, asserting identical output (§4.2 / Phase 6+).
+  JIT, asserting identical output (§4.2 / Phase 7+).
 - **Three-OS** — macOS aarch64, Linux x86_64, Windows x86_64; all
   first-class (P11).
 - **Single-pass** — decode → ZIR → regalloc → emit, four linear

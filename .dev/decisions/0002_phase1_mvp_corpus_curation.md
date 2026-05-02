@@ -122,7 +122,7 @@ demanding post-MVP feature work.
   Phase 2 (and especially the §9.2 boundary `audit_scaffolding`)
   must explicitly check that the upstream-corpus expansion is
   scheduled. The curation list is editorial and drifts from
-  upstream over time; a regen step in Phase 14 is the catch-up.
+  upstream over time; a regen step in Phase 15 is the catch-up.
 - **Neutral / follow-ups**: a Phase-2 ADR (when the interpreter
   lands) widens the corpus to include `assert_return` /
   `assert_trap` directives + post-MVP opcodes.

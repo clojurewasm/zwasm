@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verify versions.lock <-> flake.nix consistency (D136 from v1).
-# For Phase 0-12, this only checks that flake.nix pins Zig 0.16.0.
-# Phase 13+ extends with versions.lock for SDK / wasm-tools / etc.
+# For Phase 0-13, this only checks that flake.nix pins Zig 0.16.0.
+# Phase 14+ extends with versions.lock for SDK / wasm-tools / etc.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -44,7 +44,7 @@ That defeats the purpose of the phase boundary: Phase 2 is the
 **interpreter** phase, and many of those gaps either require
 runtime semantics that haven't landed yet (call_ref / GC / EH),
 or are validator surfaces deferred to Phase 5 (analysis layer)
-or Phase 14 (cleanup pass).
+or Phase 15 (cleanup pass).
 
 The phase-2 frontend / interp implements:
 
@@ -93,14 +93,14 @@ feature work.
 - **Sketch**: implement every remaining feature in the validator
   + interp before closing 2.8; vendor the full upstream tree.
 - **Why rejected**: 5-10× the Phase-2 work as currently scoped.
-  Phase 5 is dedicated to the analysis layer; Phase 14 is the
+  Phase 5 is dedicated to the analysis layer; Phase 15 is the
   spec-coverage cleanup pass. Pulling all of that into Phase 2
   defeats the phase split.
 
 ### Alternative B — Skip 2.8 entirely; close Phase 2 without a spec gate
 
 - **Sketch**: declare Phase 2 done after 2.7 (runner + initial
-  corpus); push 2.8 to Phase 14.
+  corpus); push 2.8 to Phase 15.
 - **Why rejected**: ROADMAP §A10 makes the spec gate a release
   blocker. A Phase-2 boundary with no spec exercise leaves the
   interp silently unverified against real upstream-shaped
@@ -126,7 +126,7 @@ feature work.
 - **Negative**: the §A10 release gate is partially deferred.
   Phase-5 ADRs widen the corpus as the analysis layer adds
   declaration-scope / init-expr / multi-param-block
-  capabilities. Phase 14 is the final corpus-completeness pass.
+  capabilities. Phase 15 is the final corpus-completeness pass.
 - **Neutral / follow-ups**: when the interp wires runtime
   assertions (assert_return / assert_trap) in Phase 4-6, the
   manifest format extends to include directive verbs covering

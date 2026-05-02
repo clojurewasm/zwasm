@@ -173,11 +173,21 @@
     pivots §9.4 / 4.0 from "vendor verbatim" to "hand-author".
   - `0006_phase4_realworld_diff_deferral.md` — defers the
     "30+ realworld samples / wasmtime diff" exit criterion
-    from §9.4 / 4.10 to §9.5 (Phase 5 — analysis layer).
+    from §9.4 / 4.10 to §9.6 (Phase 6 — v1 conformance
+    baseline; retargeted by ADR-0008 from the original
+    "Phase 5" wording in this ADR).
   - `0007_phase4_c_api_split_plan.md` — plans the
     `src/c_api/wasm_c_api.zig` (2092-line) split into 5
     files (trap_surface / vec / instance / wasi /
     wasm_c_api re-exports); split lands as §9.5 / 5.0.
+  - `0008_phase6_v1_conformance_baseline.md` — inserts a
+    new Phase 6 (v1 conformance baseline) between the old
+    Phase 5 (analysis layer) and the old Phase 6 (JIT v1
+    ARM64 baseline); shifts all downstream phases by +1
+    (so JIT is now Phase 7, …, public release is Phase 16).
+    Adds A13 (v1 regression suite stays green from Phase 6
+    onward). §9.5 / 5.7-5.9 (realworld conformance) move to
+    §9.6 / 6.1-6.3; §9.5 / 5.10-5.11 renumber to 5.7-5.8.
 - **Build status**: `zig build test`, `test-spec`,
   `test-spec-wasm-2.0`, `test-realworld`, `test-all` are all
   green on Mac aarch64 native, OrbStack Ubuntu x86_64
@@ -277,7 +287,7 @@ From `private/audit-2026-05-02.md` (Phase-2) and
 - `watch`: missing `test/spec/wasm-2.0/README.md` documenting
   the upstream-pin per ADR-0003. Land opportunistically.
 
-## Phase-2 deferred items (queued for Phase 3+ / Phase 14)
+## Phase-2 deferred items (queued for Phase 3+ / Phase 15)
 
 - **chunk 3b** — multi-param multivalue blocks. Needs `BlockType`
   to carry both params and results; `pushFrame` to consume params.
@@ -336,12 +346,12 @@ approval required.)
   three-host gate is due at that phase boundary:
   Mac aarch64 native + OrbStack Ubuntu native + windowsmini SSH.
 - CI workflows (`.github/workflows/*.yml`) are deliberately absent
-  in Phase 0 — they appear in Phase 13 per ROADMAP §9. Local Mac +
+  in Phase 0 — they appear in Phase 14 per ROADMAP §9. Local Mac +
   OrbStack + windowsmini covers all three platforms until then.
-- **Windows transport limitation (Phase 14 follow-up)**:
+- **Windows transport limitation (Phase 15 follow-up)**:
   `scripts/run_remote_windows.sh` syncs via `git fetch + reset
   --hard origin/zwasm-from-scratch` — it tests **what is on origin**,
-  not unpushed local commits. Phase 14 should add a `git bundle`
+  not unpushed local commits. Phase 15 should add a `git bundle`
   path so pre-push gates also exercise in-flight commits before
   they land on the remote.
 - **Stray-artifact commit hygiene**: when an unrelated file

@@ -5,7 +5,7 @@ Apple Silicon. The VM runs x86_64 Ubuntu under Rosetta translation;
 this catches most arch-asymmetric regressions (W54-class) at the
 ELF / SystemV-ABI / x86 ISA level. For deepest validation against
 **native** x86_64 hardware, use the `windowsmini` SSH host (see
-`.dev/windows_ssh_setup.md`); CI matrix ubuntu-22.04 (Phase 13+)
+`.dev/windows_ssh_setup.md`); CI matrix ubuntu-22.04 (Phase 14+)
 also runs on native x86_64.
 
 ## VM Creation
@@ -39,7 +39,7 @@ echo 'export PATH="/opt/zig:$PATH"' >> ~/.bashrc
 
 # (Phase 1+) wasm-tools and wasm-c-api are pulled by scripts when needed.
 # (Phase 4+) wasmtime, WASI SDK, Rust + wasm32-wasip1 — added on demand.
-# (Phase 10+) hyperfine — added on demand.
+# (Phase 11+) hyperfine — added on demand.
 ```
 
 ## Build verification (§9.0 / 0.2)
@@ -65,10 +65,10 @@ arch-asymmetric bugs that v1's W54 surfaced are caught here, but
 Rosetta has its own quirks (FP rounding, signal-handler edge cases).
 The ROADMAP §11.5 three-host gate (Mac native + OrbStack +
 windowsmini) gives the deepest local coverage; CI matrix from
-Phase 13 adds GitHub-hosted ubuntu-22.04 (true native x86_64).
+Phase 14 adds GitHub-hosted ubuntu-22.04 (true native x86_64).
 
 ## Future improvements
 
 - Replace the manual `apt install` / `curl` recipe with Nix devshell
   + direnv inside the VM, mirroring the Mac-host setup.
-- Pin tool versions via a `versions.lock` file once CI is wired (Phase 13+).
+- Pin tool versions via a `versions.lock` file once CI is wired (Phase 14+).

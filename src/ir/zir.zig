@@ -396,7 +396,7 @@ pub const ZirOp = enum(u16) {
     @"memory.protect",
 
     // ============================================================
-    // Pseudo opcodes — JIT-internal, populated Phase 6+
+    // Pseudo opcodes — JIT-internal, populated Phase 7+
     // ============================================================
     @"__pseudo.const_in_reg",
     @"__pseudo.loop_header",
@@ -436,35 +436,35 @@ pub const LoopInfo = struct {};
 /// Phase 5+: hoisted-constant pool seed.
 pub const ConstantPool = struct {};
 
-/// Phase 6+: per-vreg register-class hint.
+/// Phase 7+: per-vreg register-class hint.
 pub const RegClass = enum(u8) { gpr, fpr, simd, _ };
 
-/// Phase 6+: spilled-vreg stack slot record.
+/// Phase 7+: spilled-vreg stack slot record.
 pub const SpillSlot = struct {};
 
-/// Phase 6+: special-purpose register cache layout (inst_ptr /
+/// Phase 7+: special-purpose register cache layout (inst_ptr /
 /// vm_ptr / simd_base, per ROADMAP §4.2 RegClass.*_special).
 pub const CacheLayout = struct {};
 
-/// Phase 8+: SIMD lane-routing metadata.
+/// Phase 9+: SIMD lane-routing metadata.
 pub const LaneRouting = struct {};
 
-/// Phase 9+: GC-managed reference root map.
+/// Phase 10+: GC-managed reference root map.
 pub const GcRootMap = struct {};
 
-/// Phase 9+: exception-handling landing pad record.
+/// Phase 10+: exception-handling landing pad record.
 pub const LandingPad = struct {};
 
-/// Phase 9+: tail-call site record.
+/// Phase 10+: tail-call site record.
 pub const TailCallSite = struct {};
 
-/// Phase 14+: hoisted constant placement record.
+/// Phase 15+: hoisted constant placement record.
 pub const HoistedConst = struct {};
 
-/// Phase 14+: bounds-check elision proof.
+/// Phase 15+: bounds-check elision proof.
 pub const ElisionRecord = struct {};
 
-/// Phase 14+: mov-coalescer audit record.
+/// Phase 15+: mov-coalescer audit record.
 pub const CoalesceRecord = struct {};
 
 pub const ZirFunc = struct {
@@ -480,22 +480,22 @@ pub const ZirFunc = struct {
     liveness: ?Liveness = null,
     constant_pool: ?ConstantPool = null,
 
-    // Phase 6+ — JIT register allocator.
+    // Phase 7+ — JIT register allocator.
     reg_class_hints: ?[]RegClass = null,
     spill_slots: ?[]SpillSlot = null,
     inst_ptr_cache_layout: ?CacheLayout = null,
     vm_ptr_cache_layout: ?CacheLayout = null,
     simd_base_cache_layout: ?CacheLayout = null,
 
-    // Phase 8+ — SIMD additional state.
+    // Phase 9+ — SIMD additional state.
     simd_lane_routing: ?LaneRouting = null,
 
-    // Phase 9+ — GC / EH / tail-call additional state.
+    // Phase 10+ — GC / EH / tail-call additional state.
     gc_root_map: ?GcRootMap = null,
     eh_landing_pads: ?[]LandingPad = null,
     tail_call_sites: ?[]TailCallSite = null,
 
-    // Phase 14+ — optimisation passes.
+    // Phase 15+ — optimisation passes.
     hoisted_constants: ?[]HoistedConst = null,
     bounds_check_elision_map: ?[]ElisionRecord = null,
     coalesced_movs: ?[]CoalesceRecord = null,

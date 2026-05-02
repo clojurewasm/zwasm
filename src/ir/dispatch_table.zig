@@ -10,7 +10,7 @@
 //! only. The function-pointer signatures below thread an opaque
 //! context (`ParserCtx` / `InterpCtx` / `EmitCtx`) so the layered
 //! caller types can land in later phases (parser 1.4, interp
-//! Phase 2, JIT Phase 6) without forcing this file to import
+//! Phase 2, JIT Phase 7) without forcing this file to import
 //! upward.
 //!
 //! Zone 1 — imports `ir/zir.zig` only.

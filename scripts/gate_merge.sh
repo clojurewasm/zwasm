@@ -9,7 +9,7 @@
 # floor; the other hosts are belt-and-braces while the project
 # bootstraps).
 #
-# Phase 13+ folds the same logic into CI; the local gate stays as
+# Phase 14+ folds the same logic into CI; the local gate stays as
 # the first line of defense.
 #
 # Exits non-zero on any host that built but had a failed test, on
@@ -33,7 +33,7 @@ if command -v orb >/dev/null 2>&1; then
     else
         echo "[gate_merge] WARN: OrbStack VM 'my-ubuntu-amd64' not found." >&2
         echo "             Set up via .dev/orbstack_setup.md, then retry." >&2
-        echo "             (Phase 0 / early: WARN only; Phase 7+ this is required.)" >&2
+        echo "             (Phase 0 / early: WARN only; Phase 8+ this is required.)" >&2
     fi
 else
     echo "[gate_merge] WARN: orb not installed; skipping Linux native gate." >&2
@@ -46,7 +46,7 @@ if ssh -o ConnectTimeout=5 -o BatchMode=yes windowsmini "echo ok" >/dev/null 2>&
 else
     echo "[gate_merge] WARN: windowsmini SSH unreachable; skipping Windows gate." >&2
     echo "             See .dev/windows_ssh_setup.md." >&2
-    echo "             (Phase 0 / early: WARN only; Phase 7+ this is required.)" >&2
+    echo "             (Phase 0 / early: WARN only; Phase 8+ this is required.)" >&2
 fi
 
 if [ -f scripts/sync_versions.sh ]; then

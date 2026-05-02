@@ -12,6 +12,16 @@ tags: phase-4, phase-5, wasi, realworld
 - **Author**: Claude (autonomous /continue loop)
 - **Tags**: phase-4, phase-5, wasi, realworld
 
+> **Note (2026-05-02 — same day, post-ADR-0008)**: ADR-0008
+> inserted a new "v1 conformance baseline" Phase between the
+> old Phase 5 and the old Phase 6 (JIT). The realworld
+> conformance work this ADR defers retargets from "§9.5 (Phase
+> 5 — analysis layer)" to **§9.6 (Phase 6 — v1 conformance
+> baseline)** under the new numbering. The original wording
+> below is preserved as historical record; treat all "Phase 5"
+> mentions in the realworld-conformance context as "Phase 6"
+> in the post-ADR-0008 numbering.
+
 ## Context
 
 ROADMAP §9.4 (Phase 4 — WASI 0.1 minimal) carries this exit
