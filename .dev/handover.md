@@ -144,10 +144,18 @@
   `zwasm_wasi_config_new` / `_delete`); `wasm_c_api.zig`
   shrank 2092 → 1883 lines (hard-cap clean);
   `zwasm_store_set_wasi` stays in `wasm_c_api.zig` until the
-  `instance.zig` carve-out. Next: §9.5 / 5.0 chunk b —
-  `src/c_api/trap_surface.zig` (~250 lines: Trap shape,
-  `mapInterpTrap`, `allocTrap`, `wasm_trap_new` /
-  `_delete` / `_message`, `wasm_byte_vec_delete`).
+  `instance.zig` carve-out. §9.5 / 5.0 chunk b landed at
+  `d894787` — `src/c_api/trap_surface.zig` carve-out
+  (`TrapKind` / `Trap` shapes + `trapMessageFor` +
+  `mapInterpTrap` + `allocTrap` + `wasm_trap_new` /
+  `_delete` / `_message`); pointer-only circular import for
+  `Store` / `ByteVec`; `storeAllocator` promoted to `pub`;
+  `wasm_c_api.zig` 1883 → 1739 lines.
+  Next: §9.5 / 5.0 chunk c — `src/c_api/vec.zig` (~350 lines:
+  `ByteVec` / `ValVec` / `ExternVec` shapes + the
+  `WASM_DECLARE_VEC` family `_new_empty` / `_new_uninit` /
+  `_new` / `_copy` / `_delete`; `wasm_byte_vec_delete` moves
+  here too).
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
