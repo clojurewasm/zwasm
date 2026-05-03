@@ -18,10 +18,10 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 2,
+- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 3,
   6.F〜6.J pending).
-- **Last commit**: `ba3e5ce` — chore(p6) handover update. Three-host
-  green at `b10abef`.
+- **Last commit**: `917e942` — fix(p6) §9.6 / 6.E iter 3 loop
+  branch target. Three-host green.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — drive Phase 6 to honest close (6.E → 6.F → … → 6.J)
@@ -30,18 +30,26 @@
 6.G / 6.H once 6.E unlocks them, with 6.I in parallel, terminating
 at 6.J Phase 6 close gate.
 
-### 6.E iter 3+ targets (current)
+### 6.E iter 4+ targets (current)
 
-The `test-wasmtime-misc-runtime` standalone gate has 78
-remaining failures categorised in `git show b10abef`:
-- ~50 trapped unexpectedly (fib / call_indirect / partial-init-
-  table-segment) — interp behavior bugs (operand-stack
-  discipline / call mechanics).
+The `test-wasmtime-misc-runtime` standalone gate has 71
+remaining failures (down from 78 after iter 3 fixed loop+br_if
+re-entry). Outstanding clusters:
+- ~43 trapped unexpectedly (call_indirect, table_copy,
+  table_grow_with_funcref, partial-init-table-segment,
+  sink-float-but-dont-trap, issue4840, etc.) — mixed bag of
+  interp behaviour bugs and operand discipline.
 - ~10 InstanceAllocFailed (cross-module imports) — runner's
   `register` directive needs named-module store sharing wired.
-- ~7 BadValueSyntax 'hello?' — runner parser extension for
-  string-literal args.
-- ~11 individual.
+- ~7 BadValueSyntax 'is hello?' — manifest field with embedded
+  space; regen needs to quote field, runner needs quoted-token
+  tokenizer.
+- ~7 partial-init-memory-segment "result mismatch" — bare
+  `(invoke …)` action lines aren't emitted by regen, so
+  memory.copy never runs between asserts. Plus partial-init data
+  semantics may need spec re-check.
+- ~4 trap-kind mismatch ('Unreachable' vs 'binding_error') —
+  c_api error-vs-trap mapping in invokeExport.
 
 Sequence: pick one cluster per iteration, fix root cause, re-run,
 move fixtures from FAIL to PASS, commit. When `test-wasmtime-misc-
@@ -122,7 +130,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 ```
 6.A ✅  6.B ✅  6.C ✅  6.D ✅
  │
- ├─→ 6.E ⏳ (iter 2 done; iter 3+ → /continue continues)
+ ├─→ 6.E ⏳ (iter 3 done; iter 4+ → /continue continues)
  │    └─→ {6.F, 6.G, 6.H} → 6.J → §9.7 ADR-0015 drafting
  │
  └─→ 6.I (parallel)  ─→ 6.J
@@ -136,7 +144,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 - 13 wasmtime_misc BATCH1-3 fixtures queued (validator gaps)
 - 39 trap-mid-execution realworld fixtures — 6.E target
 - 10 SKIP-VALIDATOR realworld fixtures
-- 78 wasmtime_misc runtime-runner failures (categorised above)
+- 71 wasmtime_misc runtime-runner failures (categorised above)
 
 ## Open questions / blockers
 
