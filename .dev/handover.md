@@ -34,7 +34,7 @@
   them. No follow-up ADR; everything stays in Phase 6.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.K (Phase 6 close prerequisite per ADR-0014)
+## Active task — §9.6 / 6.K.1 (first concrete next step)
 
 `test-wasmtime-misc-runtime` baseline: **242 / 28** (trail
 78 → 65 → 45 → 41 → 39 → 30 → 29 → 28 across iter 5–11). The
@@ -53,9 +53,21 @@ table tracks status only.
 | 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ]            |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ]            |
 
-After 6.K all-`[x]`, re-run 6.E end-to-end, then 6.F / 6.G /
-6.H / 6.I, then 6.J strict close. Per-row TDD loop matches the
-rest of Phase 6 (Step 0 Survey → … → re-arm).
+ROADMAP §9.6 reopened-scope table inlines 6.K.1〜6.K.6 between
+6.D and 6.E (so the `continue` skill picks 6.K.1 as the first
+`[ ]` row). After 6.K all-`[x]`, 6.E re-measures (the 28 fails
+flow through), then 6.F / 6.G / 6.H, with 6.I in parallel,
+then 6.J strict close.
+
+Per-row TDD loop matches the rest of Phase 6 (Step 0 Survey
+subagent over Value/funcref design space → Plan → Red → Green →
+Refactor → three-host test gate → source commit → handover +
+push + re-arm). Step 0 brief for 6.K.1 should target
+`src/interp/{mod,mvp.zig,ext_2_0/{ref_types,table_ops}.zig}`,
+`src/c_api/instance.zig` (FuncEntity allocation in
+`instantiateRuntime`), and the 70+ test sites in
+`interp/ext_2_0/table_ops.zig` + `interp/trap_audit.zig` per
+ADR-0014 §2.1 / 6.K.1's "Files touched" list.
 
 Sequence: pick one cluster per iteration, fix root cause, re-run,
 move fixtures from FAIL to PASS, commit. When `test-wasmtime-misc-

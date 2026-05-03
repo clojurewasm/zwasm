@@ -1420,28 +1420,27 @@ exception class and its documentation requirement).
 | 6.B  | `test/` restructure per ADR-0012 §3 + 4 `v1_carry_over/` fixtures migration + ROADMAP §A13 reword.        | [x]            |
 | 6.C  | Vendor wasmtime_misc BATCH1-3 (~55 fixtures) into `test/wasmtime_misc/wast/{basic,reftypes,embenchen,issues}/`; introduce `scripts/setup_corpora.sh`. | [x] (42 vendored, 13 queued for 6.E) |
 | 6.D  | Wire 6.C corpus into `test-wasmtime-misc` step + `test-all` aggregate via 6.A runner; existing parse/instantiate runners kept as-is. | [x] (test-wasmtime-misc-runtime step wired; not in test-all until 6.E closes interp gaps) |
-| 6.E  | Fix root cause of 39 trap-mid-execution realworld fixtures via 6.A's per-instr trace; move from trap-bucket to completion-bucket. | [ ]            |
+| 6.K.1 | Replace bare-funcidx `Value.ref` with `*FuncEntity` pointer encoding (instance-bearing funcref). Per ADR-0014 §2.1. | [ ]            |
+| 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`. Per ADR-0014 §2.1.                            | [ ]            |
+| 6.K.3 | Cross-module imports for table / global / func — drop `error.UnsupportedCrossModule*Import` (after 6.K.1 + 6.K.2). Per ADR-0014 §2.1. | [ ]            |
+| 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel; per ADR-0014 §2.1).                                                      | [ ]            |
+| 6.K.5 | Label arity formalisation + `.claude/rules/single_slot_dual_meaning.md` + §14 anti-pattern entry (parallel; per ADR-0014 §2.1). | [ ]            |
+| 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1〜6.K.3 (per ADR-0014 §2.1).                       | [ ]            |
+| 6.E  | Fix root cause of 39 trap-mid-execution realworld fixtures via 6.A's per-instr trace; move from trap-bucket to completion-bucket. **Re-measures after 6.K all-`[x]`** — the 28 misc-runtime fails this row's iter sequence accumulated all resolve through 6.K. | [ ] (paused on 6.K) |
 | 6.F  | `test-realworld-diff` 30+ byte-for-byte matches against wasmtime (original §9.6 / 6.2 strict close); re-add to `test-all`. | [ ]            |
 | 6.G  | ClojureWasm guest end-to-end via `build.zig.zon` `path = ...` (original §9.6 / 6.3 strict close).        | [ ]            |
 | 6.H  | Bench honest-baseline migration: introduce `bench/results/{recent,history}.yaml` per ADR-0012 §7; regenerate baseline against completion-bucket fixtures. | [ ]            |
 | 6.I  | `bench/` restructure per ADR-0012 §3; vendor 5 sightglass benchmarks with in-repo C source + documented build script. Parallel to 6.E〜6.H. | [ ]            |
-| 6.J  | Phase 6 **strict close** gate (100% PASS): three-host `test-all` green AND every aggregated runner reports 0 failed (no soft-skip, no tolerated nonzero) + `bench-quick` green Mac-only + `audit_scaffolding` pass + Phase Status widget flip via the standard `continue` skill handler (6 = DONE, 7 = IN-PROGRESS; no renumber). The **only permitted exception** to the 0-failed requirement is a v1-era design-dependent fixture that v2 deliberately rejects on spec-fidelity grounds (P1) — each must be documented in `.dev/decisions/skip_<fixture>.md` (what v1 did, what current spec requires, why v2 declines) AND removed from the active manifest_runtime.txt or marked `# DEFER:` so the runner's tally is genuinely zero. **Cannot fire until every 6.K row below is `[x]` per ADR-0014.** | [ ]            |
+| 6.J  | Phase 6 **strict close** gate (100% PASS): three-host `test-all` green AND every aggregated runner reports 0 failed (no soft-skip, no tolerated nonzero) + `bench-quick` green Mac-only + `audit_scaffolding` pass + Phase Status widget flip via the standard `continue` skill handler (6 = DONE, 7 = IN-PROGRESS; no renumber). The **only permitted exception** to the 0-failed requirement is a v1-era design-dependent fixture that v2 deliberately rejects on spec-fidelity grounds (P1) — each must be documented in `.dev/decisions/skip_<fixture>.md` (what v1 did, what current spec requires, why v2 declines) AND removed from the active manifest_runtime.txt or marked `# DEFER:` so the runner's tally is genuinely zero. **Cannot fire until every 6.K.* row above is `[x]` per ADR-0014.** | [ ]            |
 
-##### §9.6 / 6.K work-item block (per ADR-0014)
+##### §9.6 / 6.K block — see rows above
 
-ADR-0014 inserts six work items inside Phase 6 to redesign +
-refactor before Phase 7 (JIT v1 ARM64) opens. Each row's scope,
-acceptance, and dependency graph live in ADR-0014 §2.1 — this
-table tracks status only.
-
-| #     | Description                                                                                                         | Status         |
-|-------|---------------------------------------------------------------------------------------------------------------------|----------------|
-| 6.K.1 | Replace bare-funcidx `Value.ref` with `*FuncEntity` pointer encoding (instance-bearing funcref).                    | [ ]            |
-| 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed` and the parallel borrowed-flag pattern.        | [ ]            |
-| 6.K.3 | Cross-module imports for table / global / func — drop `error.UnsupportedCrossModule*Import` (depends on 6.K.1 + 6.K.2). | [ ]            |
-| 6.K.4 | `decodeElement` forms 5 / 6 / 7 (passive / active-with-tableidx / declarative reftype-expr vec).                    | [ ]            |
-| 6.K.5 | Label arity formalisation: `arity` (end) + `branch_arity` (br) split codified; `.claude/rules/single_slot_dual_meaning.md` + ROADMAP §14 anti-pattern entry. | [ ]            |
-| 6.K.6 | Re-measure `partial-init-table-segment/indirect-call result[0] mismatch` after 6.K.1〜6.K.3.                        | [ ]            |
+The 6.K.1〜6.K.6 rows are inlined into the §9.6 reopened-scope
+table above (between 6.D and 6.E) so the `continue` skill's
+"first `[ ]` row in the §9.6 task table" lookup picks 6.K.1 as
+the next concrete action, with 6.E re-measuring after 6.K
+all-`[x]`. Per-row scope, acceptance, and DAG live in
+ADR-0014 §2.1.
 
 ### Phase 7 — JIT v1 ARM64 baseline
 
