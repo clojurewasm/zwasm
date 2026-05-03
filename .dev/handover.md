@@ -20,27 +20,26 @@
 - **Phase**: **Phase 5 IN-PROGRESS.** Phases 0–4 are `DONE` (all
   SHAs backfilled in §9.<N> task tables; `git log --grep="§9.<N>
   / N.M"` is the canonical lookup).
-- **Last commit**: `8546d52` — zig_tips.md self-review compression
-  + handover Active-task refresh (mid-Phase 5 lint-tooling work
-  per ADR-0009).
-- **Next task**: §9.5 / 5.0 chunk c — `src/c_api/vec.zig` carve-out
-  (see Active task table below).
+- **Last commit**: `98e015a` — chunk c land: vec family carved out
+  to `src/c_api/vec.zig`; `wasm_c_api.zig` 1742→1559 lines.
+- **Next task**: §9.5 / 5.0 chunk d — `src/c_api/instance.zig`
+  carve-out (see Active task table below).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
 ## Active task — §9.5 / 5.0 (split src/c_api/wasm_c_api.zig per ADR-0007)
 
-`wasm_c_api.zig` is at **1742 lines** (already inside §A2's 2000-
+`wasm_c_api.zig` is at **1559 lines** (well inside §A2's 2000-
 line hard cap; ADR-0007 carve-out continues for the soft-cap and
 discoverability target). Carve-out progress:
 
-| Chunk | Target file                  | Status                                                                                                                                                                                          |
-|-------|------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| a     | `src/c_api/wasi.zig`         | DONE `2dd29cc` (16 WASI thunks + `lookupWasiThunk` + `zwasm_wasi_config_*`)                                                                                                                     |
-| b     | `src/c_api/trap_surface.zig` | DONE `d894787` (`Trap` / `TrapKind` / `mapInterpTrap` / `wasm_trap_*`)                                                                                                                          |
-| **c** | `src/c_api/vec.zig`          | **NEXT** (~350 lines: `ByteVec` / `ValVec` / `ExternVec` shapes + `WASM_DECLARE_VEC` family `_new_empty` / `_new_uninit` / `_new` / `_copy` / `_delete`; `wasm_byte_vec_delete` moves here too) |
-| d     | `src/c_api/instance.zig`     | TODO (~650 lines: Engine / Store / Module / Instance / Func / Extern, `instantiateRuntime`, `*_new` / `*_delete`, `wasm_func_call`, `wasm_instance_exports`)                                    |
-| e     | `wasm_c_api.zig`             | shrinks to ~600 lines: re-exports + module docs; keeps name-points stable                                                                                                                       |
+| Chunk | Target file                  | Status                                                                                                                                                                |
+|-------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| a     | `src/c_api/wasi.zig`         | DONE `2dd29cc` (16 WASI thunks + `lookupWasiThunk` + `zwasm_wasi_config_*`)                                                                                           |
+| b     | `src/c_api/trap_surface.zig` | DONE `d894787` (`Trap` / `TrapKind` / `mapInterpTrap` / `wasm_trap_*`)                                                                                                |
+| c     | `src/c_api/vec.zig`          | DONE `98e015a` (`ByteVec` / `ValVec` / `ExternVec` + `WASM_DECLARE_VEC` family + byte/val full set + extern_vec `_new_empty` / `_new_uninitialized` / `_new`)         |
+| **d** | `src/c_api/instance.zig`     | **NEXT** (~650 lines: Engine / Store / Module / Instance / Func / Extern, `instantiateRuntime`, `*_new` / `*_delete`, `wasm_func_call`, `wasm_instance_exports`, also takes `wasm_extern_vec_delete`) |
+| e     | `wasm_c_api.zig`             | shrinks to ~600 lines: re-exports + module docs; keeps name-points stable                                                                                             |
 
 Plan (per remaining chunk):
 
