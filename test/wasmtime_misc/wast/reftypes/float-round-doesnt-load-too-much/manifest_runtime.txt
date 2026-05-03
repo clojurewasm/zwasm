@@ -1,1 +1,5 @@
 module float-round-doesnt-load-too-much.0.wasm
+assert_return ceil i32:65528 -> f64:0x0000000000000000
+assert_return trunc i32:65528 -> f64:0x0000000000000000
+assert_return floor i32:65528 -> f64:0x0000000000000000
+assert_return nearest i32:65528 -> f64:0x0000000000000000

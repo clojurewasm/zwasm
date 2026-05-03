@@ -1,3 +1,7 @@
 module sink-float-but-dont-trap.0.wasm
+assert_return select-with-sink i32:65528 -> f64:0x0000000000000000
+assert_return select-with-fcmp-and-sink i32:65528 f64:0x0000000000000000 f64:0x0000000000000000 -> f64:0x3ff0000000000000
 assert_trap select-with-sink i32:65529 !! Unreachable
+assert_trap select-with-fcmp-and-sink i32:65529 f64:0x0000000000000000 f64:0x0000000000000000 !! Unreachable
 assert_trap select-with-sink-other-way i32:65529 !! Unreachable
+assert_trap select-with-fcmp-and-sink-other-way i32:65529 f64:0x0000000000000000 f64:0x0000000000000000 !! Unreachable

@@ -120,8 +120,9 @@ rt_lines = []
 def encode_value(v):
   ty = v.get('type', '')
   raw = v.get('value', '')
-  # wast2json emits ints as decimal strings, floats as bit-pattern
-  # decimal strings. Wrap in TLV per ADR-0013 §2 syntax.
+  # wast2json emits ints as decimal strings; floats as bit-pattern
+  # decimal strings (e.g. f32: "1234567890" representing the u32
+  # IEEE 754 bit pattern). Wrap in TLV per ADR-0013 §2 syntax.
   if ty == 'i32':
     try:
       return f'i32:{int(raw)}'
@@ -132,8 +133,23 @@ def encode_value(v):
       return f'i64:{int(raw)}'
     except Exception:
       return None
-  # f32/f64/v128/refs deferred — runtime runner is i32-only
-  # in §9.6 / 6.A initial cut (per ADR-0013 §6).
+  if ty == 'f32':
+    # raw is a u32 decimal of the bit pattern → emit hex form the
+    # runner's parseValue accepts via the `f32:0xHEX` path.
+    try:
+      bits = int(raw)
+      return f'f32:0x{bits:08x}'
+    except Exception:
+      return None
+  if ty == 'f64':
+    try:
+      bits = int(raw)
+      return f'f64:0x{bits:016x}'
+    except Exception:
+      return None
+  # v128 / externref / funcref / null refs deferred — runtime
+  # runner doesn't compare those yet. Returning None causes the
+  # entire directive to be skipped from manifest_runtime.txt.
   return None
 
 def encode_args(values):
@@ -176,10 +192,28 @@ for c in d['commands']:
     if args is None:
       continue
     field = act.get('field', '')
+    # Map wast2json's spec-text trap message to the v2 c_api
+    # TrapKind tag the runner expects. Names are the v2-side
+    # tag names (see test/runners/wast_runtime_runner.zig
+    # trapKindName).
+    spec_text = c.get('text', '')
+    tag_map = {
+      'unreachable': 'Unreachable',
+      'integer divide by zero': 'DivByZero',
+      'integer overflow': 'IntOverflow',
+      'invalid conversion to integer': 'InvalidConversionToInt',
+      'out of bounds memory access': 'OutOfBounds',
+      'out of bounds table access': 'OutOfBoundsTableAccess',
+      'uninitialized element': 'UninitializedElement',
+      'indirect call type mismatch': 'IndirectCallTypeMismatch',
+      'call stack exhausted': 'StackOverflow',
+      'undefined element': 'UninitializedElement',
+    }
+    kind = tag_map.get(spec_text, 'Unreachable')
     rt_line = 'assert_trap ' + field
     if args:
       rt_line += ' ' + ' '.join(args)
-    rt_line += ' !! Unreachable'  # runtime runner uses any-kind matching in §9.6 / 6.A
+    rt_line += ' !! ' + kind
     rt_lines.append(rt_line)
 
 with open(dst_parse, 'w') as f:

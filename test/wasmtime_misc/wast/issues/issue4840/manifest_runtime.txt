@@ -1,1 +1,2 @@
 module issue4840.0.wasm
+assert_return f f32:0x3f9d70a4 i32:2147483648 -> f64:0x41e0000000000000

@@ -1,1 +1,2 @@
 module issue4890.0.wasm
+assert_return f i32:0 -> f32:0x00000000

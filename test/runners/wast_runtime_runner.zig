@@ -498,7 +498,12 @@ fn handleModule(
         try stdout.print("FAIL  {s}/{s}: module read {s}\n", .{ corpus_name, filename, @errorName(err) });
         return false;
     };
-    // Note: bytes are NOT freed — the c_api module holds them.
+    // bytes live for the corpus lifetime: c_api Module borrows the
+    // slice and ActiveModule.deinit() runs in the order
+    // {exports → instance → module → store → engine → arena}, so
+    // the borrowed slice outlives every module/instance reference.
+    // No explicit free; the arena reclaims the allocation after
+    // ctx.deinit() walks `ctx.all` and tears each ActiveModule down.
 
     const am = try a.create(ActiveModule);
     am.* = instantiate(ctx, wasm_bytes) catch |err| {
@@ -696,8 +701,52 @@ fn handleAssertTrap(
         try stdout.print("FAIL  {s}/{s} (assert_trap) — did not trap\n", .{ corpus_name, export_name });
         return false;
     }
-    _ = expect; // strict-kind matching wired in §9.6 / 6.D
+    // Strict trap-kind matching: the manifest's `!! <kind>` token
+    // must match the trap kind c_api surfaced. `expect == .exhaustion`
+    // accepts only stack_overflow; `.any` accepts whatever was named.
+    const expected_tag = if (bang < rest.len) std.mem.trim(u8, rest[bang + 2 ..], " \t") else "";
+    const got_tag: []const u8 = if (result.trap_kind) |k| trapKindName(k) else "<unknown>";
+    const match = blk: {
+        if (expect == .exhaustion) {
+            // assert_exhaustion: expect stack_overflow regardless of label
+            break :blk result.trap_kind == .stack_overflow;
+        }
+        // assert_trap: compare against the named kind, with a tolerance
+        // for v2's "Unreachable"/"unreachable_" canonicalisation.
+        if (expected_tag.len == 0) break :blk true; // unspecified → any trap
+        break :blk eqIgnoreCase(expected_tag, got_tag);
+    };
+    if (!match) {
+        try stdout.print("FAIL  {s}/{s} (assert_trap) — trap-kind mismatch (expected '{s}', got '{s}')\n", .{ corpus_name, export_name, expected_tag, got_tag });
+        return false;
+    }
     try stdout.print("PASS  {s}/{s} (assert_trap)\n", .{ corpus_name, export_name });
+    return true;
+}
+
+fn trapKindName(k: wasm_c_api.TrapKind) []const u8 {
+    return switch (k) {
+        .binding_error => "binding_error",
+        .unreachable_ => "Unreachable",
+        .div_by_zero => "DivByZero",
+        .int_overflow => "IntOverflow",
+        .invalid_conversion => "InvalidConversionToInt",
+        .oob_memory => "OutOfBounds",
+        .oob_table => "OutOfBoundsTableAccess",
+        .uninitialized_elem => "UninitializedElement",
+        .indirect_call_mismatch => "IndirectCallTypeMismatch",
+        .stack_overflow => "StackOverflow",
+        .out_of_memory => "OutOfMemory",
+    };
+}
+
+fn eqIgnoreCase(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |x, y| {
+        const xl = if (x >= 'A' and x <= 'Z') x + 32 else x;
+        const yl = if (y >= 'A' and y <= 'Z') y + 32 else y;
+        if (xl != yl) return false;
+    }
     return true;
 }
 
@@ -724,12 +773,15 @@ fn handleInvoke(
         try args.append(a, v);
     }
 
-    // For bare `invoke` we don't know the expected result count
-    // a priori; pass 0 (binding-error if the function has results,
-    // which is the same outcome as v1's "ignore returns" semantics
-    // since the runner doesn't consume them). Strict-binding wiring
-    // arrives with §9.6 / 6.D when the corpus exercises it.
-    const result = invokeExport(ctx, export_name, args.items, 0, a) catch |err| {
+    // Look up the exported function's result arity so wasm_func_call
+    // doesn't binding-error on a results.size mismatch. For bare
+    // `invoke` we discard the values but still need the right slot
+    // count.
+    const arity = lookupResultArity(ctx, export_name) catch |err| {
+        try stdout.print("FAIL  {s}/{s}: invoke {s}\n", .{ corpus_name, export_name, @errorName(err) });
+        return false;
+    };
+    const result = invokeExport(ctx, export_name, args.items, arity, a) catch |err| {
         try stdout.print("FAIL  {s}/{s}: invoke {s}\n", .{ corpus_name, export_name, @errorName(err) });
         return false;
     };
@@ -738,8 +790,31 @@ fn handleInvoke(
     return true;
 }
 
+/// Return the result arity (number of return slots) for the named
+/// export on the current module. Used by `invoke` (results discarded)
+/// when the caller doesn't already know the expected count from a
+/// trailing `-> <expected>` clause.
+fn lookupResultArity(ctx: *RunnerContext, export_name: []const u8) !usize {
+    const am = ctx.current orelse return error.NoCurrentModule;
+    am.ensureExports();
+    for (am.instance.exports_storage, 0..) |exp, i| {
+        if (exp.kind == .func and std.mem.eql(u8, exp.name, export_name)) {
+            if (i >= am.exports.size) return error.ExportNotFound;
+            const ext = am.exports.data.?[i] orelse return error.ExportNotFound;
+            const fn_ptr = wasm_c_api.wasm_extern_as_func(ext) orelse return error.NotAFunction;
+            // Func handle carries instance + func_idx; fish the sig
+            // through the instance's func_ptrs_storage.
+            if (am.instance.func_ptrs_storage.len <= fn_ptr.func_idx) return error.ExportNotFound;
+            const zfunc = am.instance.func_ptrs_storage[fn_ptr.func_idx];
+            return zfunc.sig.results.len;
+        }
+    }
+    return error.ExportNotFound;
+}
+
 const InvokeResult = struct {
     trapped: bool,
+    trap_kind: ?wasm_c_api.TrapKind = null,
     results: []wasm_c_api.Val,
 };
 
@@ -780,9 +855,10 @@ fn invokeExport(
         .data = if (expected_result_count > 0) results_buf.ptr else null,
     };
     const trap = wasm_c_api.wasm_func_call(fn_ptr, &args_vec, &results_vec);
-    if (trap != null) {
+    if (trap) |t| {
+        const k = t.kind;
         wasm_c_api.wasm_trap_delete(trap);
-        return .{ .trapped = true, .results = &.{} };
+        return .{ .trapped = true, .trap_kind = k, .results = &.{} };
     }
     return .{ .trapped = false, .results = results_buf };
 }

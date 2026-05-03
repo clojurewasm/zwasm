@@ -373,3 +373,15 @@ to come in slightly under). Hard cap: 1000 LOC per `scripts/file_size_check.sh`.
 - `.claude/rules/no_copy_from_v1.md`
 - `.claude/rules/textbook_survey.md`
 - `.claude/rules/zone_deps.md`
+
+**Amendment history**:
+- 2026-05-03 (during 6.A implementation, commit `af411f0`): §1
+  Zone constraint relaxed to allow Zone 3 imports for test
+  runners, aligning with the existing `test/realworld/run_runner.zig`
+  precedent (`zwasm.cli_run` import) and `.claude/rules/zone_deps.md`'s
+  "Tests are exempt" clause. The original strict "MUST NOT
+  import Zone 3" was over-restrictive design-time prudence;
+  the amended text matches reality. No supersession ADR filed
+  because the change does not alter the design's load-bearing
+  decisions (capability scope, manifest format, trace API
+  shape) — only the import-policy phrasing.

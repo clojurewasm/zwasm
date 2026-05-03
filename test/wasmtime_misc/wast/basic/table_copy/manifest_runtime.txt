@@ -5,4 +5,4 @@ assert_return call i32:0 i32:0 i32:1 i32:2 -> i32:1
 assert_return call i32:0 i32:1 i32:0 i32:0 -> i32:1
 assert_return call i32:0 i32:0 i32:1 i32:1 -> i32:1
 assert_return call i32:1 i32:0 i32:0 i32:2 -> i32:1
-assert_trap copy i32:7 i32:0 i32:3 !! Unreachable
+assert_trap copy i32:7 i32:0 i32:3 !! UninitializedElement

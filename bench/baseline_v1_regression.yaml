@@ -16,6 +16,14 @@
 # / 6.4 row text).
 #
 # Regen: bash scripts/record_baseline_v1_regression.sh
+#
+# **Status (2026-05-03 / Phase 6 reopen)**: per ADR-0011 §3
+# this yaml is preserved through the revert as a regression-
+# detection sanity check; numbers are still trap-time, not
+# completion-time. Honest replacement happens at Phase 6
+# honest-close (work item 6.H per ADR-0012 §6) when 6.E lifts
+# enough fixtures into the completion bucket. Until then,
+# treat the entries below as a frozen pre-revert baseline.
 
 - date: 2026-05-03T04:39:31Z
   commit: ba2f8cb916c65c341f7b4011aea5302394126bc8
