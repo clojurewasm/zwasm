@@ -24,6 +24,30 @@ pub fn build(b: *std.Build) void {
     const enable_strip = b.option(bool, "strip", "Strip debug info from the CLI binary") orelse false;
     const strip_opt: ?bool = if (enable_strip) true else null;
 
+    // ADR-0015 §Decision Part 2 (§9.6 / 6.K.7): -Dsanitize=address
+    // wires LLVM AddressSanitizer + UBSan via Zig 0.16's
+    // `module.sanitize_c = .full`. -Dsanitize=thread enables
+    // ThreadSanitizer. Both Mac aarch64 + Linux x86_64 only —
+    // Windows ucrt skipped because clang ASan/Win32 needs an MSVC
+    // redist that doesn't ship through the Nix dev shell.
+    // Adopted as a weekly OrbStack lane, not per-commit (~2× slower).
+    const sanitize = b.option(SanitizeMode, "sanitize", "Sanitizer (off / address / thread). Mac+Linux only.") orelse .off;
+    const is_windows = target.result.os.tag == .windows;
+    const sanitize_c: ?std.zig.SanitizeC = if (is_windows) null else switch (sanitize) {
+        .off => null,
+        .address => .full,
+        .thread => null,
+    };
+    const sanitize_thread: ?bool = if (is_windows) null else switch (sanitize) {
+        .off, .address => null,
+        .thread => true,
+    };
+    // Repro task name for `zig build run-repro -Dtask=<name>` per
+    // ADR-0015 §Decision Part 4. Discovers
+    // `private/dbg/<task>/repro.zig` and links it against the
+    // zwasm-lib module. Step is silent when -Dtask is unset.
+    const repro_task = b.option([]const u8, "task", "Repro task name (private/dbg/<task>/repro.zig)");
+
     const options = b.addOptions();
     options.addOption(WasmLevel, "wasm_level", wasm_level);
     options.addOption(WasiLevel, "wasi_level", wasi_level);
@@ -41,6 +65,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     exe_mod.addOptions("build_options", options);
+    applySanitize(exe_mod, sanitize_c, sanitize_thread);
 
     // §9.3 / 3.1: `include/` carries the vendored C API headers
     // (wasm.h pinned via ADR-0004). Adding the path here lets
@@ -84,12 +109,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     zwasm_lib_mod.addOptions("build_options", options);
+    applySanitize(zwasm_lib_mod, sanitize_c, sanitize_thread);
     const spec_runner_mod = b.createModule(.{
         .root_source_file = b.path("test/spec/runner.zig"),
         .target = target,
         .optimize = optimize,
     });
     spec_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(spec_runner_mod, sanitize_c, sanitize_thread);
     const spec_runner_exe = b.addExecutable(.{
         .name = "zwasm-spec-runner",
         .root_module = spec_runner_mod,
@@ -112,6 +139,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     wast_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(wast_runner_mod, sanitize_c, sanitize_thread);
     const wast_runner_exe = b.addExecutable(.{
         .name = "zwasm-wast-runner",
         .root_module = wast_runner_mod,
@@ -146,6 +174,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     wast_runtime_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(wast_runtime_runner_mod, sanitize_c, sanitize_thread);
     const wast_runtime_runner_exe = b.addExecutable(.{
         .name = "zwasm-wast-runtime-runner",
         .root_module = wast_runtime_runner_mod,
@@ -184,6 +213,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     realworld_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(realworld_runner_mod, sanitize_c, sanitize_thread);
     const realworld_runner_exe = b.addExecutable(.{
         .name = "zwasm-realworld-runner",
         .root_module = realworld_runner_mod,
@@ -206,6 +236,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     realworld_run_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(realworld_run_runner_mod, sanitize_c, sanitize_thread);
     const realworld_run_runner_exe = b.addExecutable(.{
         .name = "zwasm-realworld-run-runner",
         .root_module = realworld_run_runner_mod,
@@ -228,6 +259,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     realworld_diff_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(realworld_diff_runner_mod, sanitize_c, sanitize_thread);
     const realworld_diff_runner_exe = b.addExecutable(.{
         .name = "zwasm-realworld-diff-runner",
         .root_module = realworld_diff_runner_mod,
@@ -248,6 +280,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     wasi_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(wasi_runner_mod, sanitize_c, sanitize_thread);
     const wasi_runner_exe = b.addExecutable(.{
         .name = "zwasm-wasi-runner",
         .root_module = wasi_runner_mod,
@@ -272,6 +305,7 @@ pub fn build(b: *std.Build) void {
     });
     c_api_lib_mod.addOptions("build_options", options);
     c_api_lib_mod.addIncludePath(b.path("include"));
+    applySanitize(c_api_lib_mod, sanitize_c, sanitize_thread);
     const c_api_lib = b.addLibrary(.{
         .name = "zwasm",
         .linkage = .static,
@@ -289,6 +323,7 @@ pub fn build(b: *std.Build) void {
     });
     c_host_mod.addIncludePath(b.path("include"));
     c_host_mod.linkLibrary(c_api_lib);
+    applySanitize(c_host_mod, sanitize_c, sanitize_thread);
 
     const c_host_exe = b.addExecutable(.{
         .name = "zwasm-c-host-hello",
@@ -323,6 +358,37 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_c_host.step);
     test_all_step.dependOn(&run_wasi_p1.step);
 
+    // `zig build run-repro -Dtask=<name>` — discover
+    // `private/dbg/<task>/repro.zig`, link it against the zwasm
+    // library, and run it. Per ADR-0015 §Decision Part 4 / §9.6 /
+    // 6.K.7. Silent (non-failing) when -Dtask is unset, so
+    // `zig build` itself stays unaffected; running the step
+    // without -Dtask prints the usage hint.
+    const repro_step = b.step("run-repro", "Run private/dbg/<task>/repro.zig (-Dtask=<name>)");
+    if (repro_task) |task| {
+        const repro_path = b.fmt("private/dbg/{s}/repro.zig", .{task});
+        const repro_mod = b.createModule(.{
+            .root_source_file = b.path(repro_path),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        repro_mod.addImport("zwasm", zwasm_lib_mod);
+        applySanitize(repro_mod, sanitize_c, sanitize_thread);
+        const repro_exe = b.addExecutable(.{
+            .name = b.fmt("zwasm-repro-{s}", .{task}),
+            .root_module = repro_mod,
+        });
+        const run_repro = b.addRunArtifact(repro_exe);
+        repro_step.dependOn(&run_repro.step);
+    } else {
+        const print_usage = b.addSystemCommand(&.{
+            "/bin/sh", "-c",
+            "echo 'usage: zig build run-repro -Dtask=<name>  (private/dbg/<name>/repro.zig)' >&2; exit 2",
+        });
+        repro_step.dependOn(&print_usage.step);
+    }
+
     // `zig build lint` — zlinter rule chain (ADR-0009 + Phase B
     // expansion). See `private/zlinter-builtins-survey-2026-05-03.md`
     // for per-rule rationale and the spike-time finding counts.
@@ -344,3 +410,18 @@ pub fn build(b: *std.Build) void {
 pub const WasmLevel = enum { v1_0, v2_0, v3_0 };
 pub const WasiLevel = enum { none, p1, p2, both };
 pub const EngineMode = enum { interp, jit, both };
+pub const SanitizeMode = enum { off, address, thread };
+
+/// Apply the `-Dsanitize` selection to a freshly-created module.
+/// Per ADR-0015 §Decision Part 2 / §9.6 / 6.K.7: `.full` enables
+/// LLVM AddressSanitizer + UBSan; `sanitize_thread` enables
+/// ThreadSanitizer. Mac aarch64 + Linux x86_64 only — Windows
+/// ucrt skipped (caller passes nulls).
+fn applySanitize(
+    mod: *std.Build.Module,
+    sanitize_c: ?std.zig.SanitizeC,
+    sanitize_thread: ?bool,
+) void {
+    if (sanitize_c) |s| mod.sanitize_c = s;
+    if (sanitize_thread) |t| mod.sanitize_thread = t;
+}
