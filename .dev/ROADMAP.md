@@ -1128,8 +1128,8 @@ of each phase advances it.
 | 3     | DONE        | —                             |
 | 4     | DONE        | —                             |
 | 5     | DONE        | —                             |
-| 6     | DONE        | —                             |
-| 7     | IN-PROGRESS | JIT v1 ARM64 baseline                                          |
+| 6     | IN-PROGRESS | v1 conformance baseline (ADR-0008) — reopened per ADR-0011 🔒  |
+| 7     | PENDING     | JIT v1 ARM64 baseline                                          |
 | 8     | PENDING     | JIT v1 x86_64 baseline 🔒                                      |
 | 9     | PENDING     | SIMD-128                                                       |
 | 10    | PENDING     | GC, EH, Tail call, memory64 (Wasm 3.0 完備) 🔒                 |
@@ -1395,13 +1395,13 @@ widget enforces this.
 |------|----------------------------------------------------------------------------------------------------------|----------------|
 | 6.0  | Vendor v1 regression tests not covered by spec testsuite into `test/v1_carry_over/`; add `zig build test-v1-carry-over` step. | [x] 2a66d6a    |
 | 6.1  | Realworld coverage — all 50 vendored samples run to completion under v2 interp on Mac + Linux; no `Errno.unreachable_` traps. | [x] 251c493    |
-| 6.2  | Differential gate — 30+ realworld samples match `wasmtime run` byte-for-byte stdout (ADR-0006 target retargeted from §9.4 / 4.10). | DEFERRED → §9.7 per ADR-0010 |
-| 6.3  | ClojureWasm guest set runs end-to-end against zwasm v2 via `build.zig.zon` `path = ...`; no commits to ClojureWasm side required. | DEFERRED → §9.7 per ADR-0010 |
-| 6.4  | `bench/baseline_v1_regression.yaml` records interp-only wall-clock numbers as Phase-7+ comparison floor (spread + repeatability under noise; absolute speed irrelevant). | [x] 4f73288    |
+| 6.2  | Differential gate — 30+ realworld samples match `wasmtime run` byte-for-byte stdout (ADR-0006 target retargeted from §9.4 / 4.10). | REOPENED in Phase 6 per ADR-0011 |
+| 6.3  | ClojureWasm guest set runs end-to-end against zwasm v2 via `build.zig.zon` `path = ...`; no commits to ClojureWasm side required. | REOPENED in Phase 6 per ADR-0011 |
+| 6.4  | `bench/baseline_v1_regression.yaml` records interp-only wall-clock numbers as Phase-7+ comparison floor (spread + repeatability under noise; absolute speed irrelevant). | [ ] (reopened by ADR-0011 — was [x] 4f73288 on a trap-time baseline) |
 | 6.5  | A13 (v1 regression suite stays green) wired into the merge gate.                                          | [x] 0825794    |
 | 6.6  | Verifier CI hook — `test/spec/runner.zig` calls `ir/verifier.verify` after lowering each function (carry-over from §9.5 / 5.5). | [x] 9d029ef    |
 | 6.7  | Phase-6 boundary `audit_scaffolding` pass.                                                                | [x] ba2f8cb    |
-| 6.8  | Open §9.7 inline; flip phase tracker.                                                                     | [x]            |
+| 6.8  | Open §9.7 inline; flip phase tracker.                                                                     | [ ] (reopened by ADR-0011 — was [x] 0f52be6) |
 
 ### Phase 7 — JIT v1 ARM64 baseline
 
@@ -1424,19 +1424,19 @@ JIT.
 
 #### §9.7 task list (expanded)
 
+> Phase 7 is paused until Phase 6 honest-closes per ADR-0011; rows below describe the plan to re-enter from 7.0. Rows 7.7 + 7.8 (ADR-0010 deferred-in scope) were removed; that scope returns to §9.6 / 6.2 + 6.3.
+
 | #    | Description                                                                                              | Status         |
 |------|----------------------------------------------------------------------------------------------------------|----------------|
-| 7.0  | `src/jit/reg_class.zig` — define GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special / simd_base_special classes (ROADMAP §4.2 / W54-class day-1 slot fill). | [x]            |
-| 7.1  | `src/jit/regalloc.zig` — greedy-local allocator; `regalloc.verify(zir)` post-condition runs after every alloc. | [x]            |
-| 7.2  | `src/jit_arm64/{inst,abi}.zig` — ARM64 instruction encoder + AAPCS64 calling convention layout.            | [x]            |
+| 7.0  | `src/jit/reg_class.zig` — define GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special / simd_base_special classes (ROADMAP §4.2 / W54-class day-1 slot fill). | [ ] (was [x] b336e78; reverted by ADR-0011) |
+| 7.1  | `src/jit/regalloc.zig` — greedy-local allocator; `regalloc.verify(zir)` post-condition runs after every alloc. | [ ] (was [x] a6bf0e7; reverted by ADR-0011) |
+| 7.2  | `src/jit_arm64/{inst,abi}.zig` — ARM64 instruction encoder + AAPCS64 calling convention layout.            | [ ] (was [x] 3c89984; reverted by ADR-0011) |
 | 7.3  | `src/jit_arm64/emit.zig` — ZIR → ARM64 emit pass producing function bodies.                                | [ ]            |
 | 7.4  | spec test pass=fail=skip=0 via JIT on Mac aarch64 host (drives every Wasm 1.0 + 2.0 op the interp covers). | [ ]            |
 | 7.5  | 40+ realworld samples (out of 50) run via JIT — same fixtures as §9.6 / 6.1; trap categorisation reuses the run_runner buckets. | [ ]            |
 | 7.6  | `interp == jit_arm64` differential test: 0 mismatch over the spec testsuite + 40+ realworld samples (the §9.6 / 6.1 PASS bucket). | [ ]            |
-| 7.7  | Realworld stdout differential vs wasmtime: 30+ matches byte-for-byte (deferred-in from §9.6 / 6.2 per ADR-0010; uses the existing `test-realworld-diff` infrastructure). | [ ]            |
-| 7.8  | ClojureWasm guest end-to-end against zwasm v2 via `build.zig.zon` `path = ...` (deferred-in from §9.6 / 6.3 per ADR-0010). | [ ]            |
-| 7.9  | Phase-7 boundary `audit_scaffolding` pass.                                                                 | [ ]            |
-| 7.10 | Open §9.8 inline; flip phase tracker.                                                                      | [ ]            |
+| 7.7  | Phase-7 boundary `audit_scaffolding` pass.                                                                 | [ ]            |
+| 7.8  | Open §9.8 inline; flip phase tracker.                                                                      | [ ]            |
 
 ### Phase 8 — JIT v1 x86_64 baseline 🔒
 

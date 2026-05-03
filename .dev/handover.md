@@ -9,88 +9,75 @@
 ## Next 3 files to read (cold-start order)
 
 1. `.dev/handover.md` (this file).
-2. `.dev/ROADMAP.md` — read the **Phase Status** widget at the top
-   of §9 to find the IN-PROGRESS phase, then its expanded `§9.<N>`
-   task list; pick up the first `[ ]` task.
-3. The most recent `.dev/decisions/NNNN_*.md` ADR (if any) — to
-   recover load-bearing deviations in flight.
+2. `.dev/decisions/0011_phase6_reopen.md` — the ADR that defines
+   the current Phase 6 reopen state and the next-step structure.
+3. `.dev/ROADMAP.md` — read the **Phase Status** widget at the
+   top of §9 (Phase 6 IN-PROGRESS again per ADR-0011), then the
+   §9.6 task table to see which rows reopened.
 
 ## Current state
 
-- **Phase**: **Phase 7 IN-PROGRESS** (JIT v1 ARM64 baseline).
-- **Last commit**: `3c89984` — §9.7 / 7.2 land: `src/jit_arm64/inst.zig`
-  (RET/MOVZ/MOVK/ADD imm/SUB imm/ADD reg/SUB reg/LDR/STR/BR
-  encoders, all bit-patterns cross-checked) + `src/jit_arm64/abi.zig`
-  (AAPCS64 register inventory + slotToReg mapper). All hosts green.
-- **Next task**: §9.7 / 7.3 — `src/jit_arm64/emit.zig` (ZIR →
-  ARM64 emit pass producing function bodies; consumes regalloc
-  slots from §9.7 / 7.1 + ABI from §9.7 / 7.2).
-- **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
-  `main` is forbidden; `--force` is forbidden.
+- **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline,
+  reopened per ADR-0011).
+- **Last commit**: TBD — the semantic revert commit landing
+  ADR-0011 + ADR-0010 supersession + Phase 7 code revert
+  (`src/jit/` + `src/jit_arm64/` deletions, `src/ir/zir.zig`
+  RegClass restoration to 3-variant, `src/main.zig` import
+  removals) + ROADMAP §9.6 / 6.4 + 6.8 unflip + §9.7 / 7.0/7.1/7.2
+  unflip + Phase Status widget revert.
+- **Branch**: `zwasm-from-scratch`, pushed to
+  `origin/zwasm-from-scratch`. `main` is forbidden; `--force` is
+  forbidden.
+- **`/continue` autonomous loop**: explicitly halted. Does not
+  re-arm until the v1-asset triage decision (separate ADR) lands
+  and provides a clear next-task pointer for Phase 6 reopen.
 
-## Active task — §9.7 / 7.3 (jit_arm64 emit pass)
+## Active task — v1-asset triage decision (separate ADR)
 
-Per ROADMAP §9.7 exit criterion: `src/jit_arm64/emit.zig`
-produces AAPCS64-correct function bodies. Walks a lowered
-`ZirFunc` (with `loop_info` + `liveness` + regalloc Allocation
-already populated) and emits a `[]u8` of fixed-width ARM64
-instructions.
+Per ADR-0011 Decision §6: Phase 6 reopens with its original
+ADR-0008 charter intact (the §9.6 Goal "bring all v1-passing
+artefacts to green before any JIT or local-optimisation
+complexity is introduced" stands as written). The specific
+work breakdown (which v1 assets to ingest, in what order, with
+what runner shape, with what classification scheme) is
+established by a separate decision after this revert lands.
 
-Phase-7 / 7.3 scope (smallest viable first slice — straight-line
-arithmetic):
+Pending that decision, the working assumption per ADR-0011 §3:
 
-- Function prologue: STP fp, lr, [sp, #-16]! ; MOV fp, sp ;
-  reserve frame slot space.
-- Per ZirOp emitter table — table-of-fn-pointers indexed by
-  ZirOp (mirrors `src/interp/dispatch_table.zig` pattern but
-  for emit). Initial coverage: i32.const → MOVZ/MOVK; i32.add /
-  sub / mul → ADD/SUB/MUL; local.get / local.set → LDR / STR;
-  end → epilogue + RET.
-- Function epilogue: LDP fp, lr, [sp], #16 ; RET.
-- Stack-frame sizing from regalloc.Allocation.n_slots × 8 bytes
-  (GPR width).
+- §9.6 / 6.2 (wasmtime stdout differential 30+) must close on
+  the completion bucket, not the trap bucket.
+- §9.6 / 6.3 (ClojureWasm guest end-to-end) must close honestly.
+- §9.6 / 6.4 (bench baseline) must close on completion-time
+  numbers (current `bench/baseline_v1_regression.yaml` retained
+  in tree per ADR-0011 §3 staged plan; regenerated and replaced
+  at honest-close).
+- §9.6 / 6.8 (Phase close + §9.7 reopen flip) lands last,
+  exactly as before.
+- New rows attach as §9.6 / 6.X with X assigned by the
+  forthcoming v1-asset triage ADR.
 
-Plan:
+Bench baseline staged disposition (ADR-0011 §3):
 
-1. Survey wasmtime/winch's `wasmtime/winch/src/isa/aarch64/`
-   for the emit-table shape — mandatory per textbook_survey
-   Guard 4. Output: `private/notes/p7-7.3-survey.md`.
-2. `emit.zig` with `pub fn emit(allocator, *const ZirFunc,
-   Allocation) ![]u8` doing prologue → per-instr table dispatch
-   → epilogue.
-3. Tests: emit a 3-instr `(func (result i32) i32.const 42 end)`
-   ZirFunc, verify the produced bytes decode to a sensible
-   AArch64 sequence (movz x0, #42 ; ret) by re-decoding via
-   `inst.zig`'s bit patterns. Add an `(i32.add 1 2)` test for
-   the binop path.
-4. Three-host `zig build test-all`.
-
-No execution-of-emitted-code on this iteration — that's §9.7 /
-7.4's spec-test-via-JIT gate (requires mmap'ing the buffer
-executable + branching into it).
-
-Phase-7 outstanding (post 7.3): 7.4 spec test JIT / 7.5 40+
-realworld JIT / 7.6 `interp == jit_arm64` differential /
-7.7 wasmtime stdout (ADR-0010) / 7.8 ClojureWasm (ADR-0010) /
-7.9 boundary audit / 7.10 phase tracker.
-
-Carry-overs queued:
-- §9.5: `no_hidden_allocations` zlinter (ADR-0009); validator.zig
-  per-feature split (with §9.1 / 1.7); liveness control-flow +
-  memory-op coverage; const-prop per-block (Phase-15);
-  `sections.zig` (1073) soft-cap split.
-- §9.6: `br-table-fuzzbug` multi-param `loop`; 10 SKIP-VALIDATOR
-  realworld; 39 trap-mid-exec fixtures.
+1. Immediately after revert: re-run `bash
+   scripts/record_baseline_v1_regression.sh`, confirm current
+   interp produces the same trap-time numbers as a regression-
+   detection sanity check.
+2. During Phase 6 reopen: as interp behaviour bugs are fixed,
+   the 5 baseline fixtures transition from trap-time to
+   completion-time numbers.
+3. At Phase 6 honest-close: regenerate baseline against
+   completion-bucket fixtures, delete or overwrite the trap-
+   time yaml, then mark §9.6 / 6.4 `[x]` again.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
-These were surfaced during Phases 2–4 and deferred from their own
-phase. Phase 6 (ADR-0008) absorbs them as part of the v1
-conformance baseline; do NOT re-pick during Phase 5.
+These were surfaced during Phases 2–4 and deferred from their
+own phase. Phase 6 (ADR-0008 charter, ADR-0011 reopen) absorbs
+them as part of the v1 conformance baseline.
 
-- **multivalue blocks (multi-param)**: `BlockType` needs to carry
-  both params + results; `pushFrame` must consume params (Phase 2
-  chunk 3b carry-over).
+- **multivalue blocks (multi-param)**: `BlockType` needs to
+  carry both params + results; `pushFrame` must consume params
+  (Phase 2 chunk 3b carry-over).
 - **element-section forms 2 / 4-7**: explicit-tableidx and
   expression-list variants (Phase 2 chunk 5d-3).
 - **ref.func declaration-scope**: §5.4.1.4 strict declaration-
@@ -98,9 +85,16 @@ conformance baseline; do NOT re-pick during Phase 5.
 - **Wasm-2.0 corpus expansion**: 47 of 97 upstream `.wast` files
   deferred (block / loop / if 1-5, global 24, data 20, ref_*,
   return_call*) — each surfaces a specific validator gap.
+- **39 trap-mid-execution realworld fixtures**: root cause is
+  interp behaviour drift vs wasmtime (ADR-0010 analysis
+  preserved as historical record). The v1-asset triage ADR
+  defines the runner shape that makes these tractable.
+- **10 SKIP-VALIDATOR realworld fixtures**: per-function
+  validator typing-rule gaps. Same context as above.
 
 ## Open questions / blockers
 
-(none — push to `origin/zwasm-from-scratch` is autonomous inside
-the `/continue` loop per the skill's "Push policy"; no user
-approval required.)
+- **Blocker for `/continue` re-arm**: the v1-asset triage ADR
+  (the "ADR after ADR-0011" referenced in 0011 §6 + 0011 §4) is
+  not yet drafted. `/continue` does not re-arm until that ADR
+  lands. User session required to draft it.

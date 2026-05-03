@@ -1,6 +1,6 @@
 # 0010 — Defer §9.6 / 6.2 + 6.3 to Phase 7 (realworld runtime parity)
 
-- **Status**: Accepted
+- **Status**: Superseded by ADR-0011 (2026-05-03)
 - **Date**: 2026-05-03
 - **Author**: continue loop
 - **Tags**: phase-6, scope, realworld, deferral
@@ -168,3 +168,4 @@ inline expansion at Phase boundary.)
 - ADR-0008 (Phase 6 charter — defines 6.2 + 6.3 scope)
 - §9.6 / 6.1 chunk b commit `251c493`
 - §9.6 / 6.2 chunk a commit `581bae0`
+- Superseded by ADR-0011 — see 0011 for the corrective decision.

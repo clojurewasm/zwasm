@@ -105,10 +105,6 @@ test {
     _ = @import("ir/liveness.zig");
     _ = @import("ir/verifier.zig");
     _ = @import("ir/const_prop.zig");
-    _ = @import("jit/reg_class.zig");
-    _ = @import("jit/regalloc.zig");
-    _ = @import("jit_arm64/inst.zig");
-    _ = @import("jit_arm64/abi.zig");
     _ = @import("frontend/parser.zig");
     _ = @import("frontend/validator.zig");
     _ = @import("frontend/validator_tests.zig");
