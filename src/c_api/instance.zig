@@ -680,6 +680,19 @@ fn instantiateRuntime(
     rt.funcs = func_ptrs;
     rt.module_types = types.items;
 
+    // §9.6 / 6.K.1 (ADR-0014 §2.1): per-instance FuncEntity array
+    // parallel to func_ptrs. Funcref values encode
+    // `@intFromPtr(*const FuncEntity)` so the table cell carries
+    // source-runtime identity without a separate routing layer.
+    if (total_funcs > 0) {
+        const entities = try a.alloc(interp.FuncEntity, total_funcs);
+        for (0..total_funcs) |i| entities[i] = .{
+            .runtime = rt,
+            .func_idx = @intCast(i),
+        };
+        rt.func_entities = entities;
+    }
+
     // §9.4 / 4.10 chunk b + §9.6 / 6.E iter 7: memory + data
     // section wiring. If the module imports a memory, alias the
     // source instance's slice (no allocation, no copy — both
@@ -768,7 +781,9 @@ fn instantiateRuntime(
     }
 
     // §9.6 / 6.E iter 5: element segments. Resolve each segment's
-    // funcidxs into a runtime ref slice (low 32 bits = funcidx).
+    // funcidxs into a runtime ref slice. Per ADR-0014 §2.1 / 6.K.1,
+    // each entry is `@intFromPtr(&rt.func_entities[fidx])` so
+    // dispatch through the cell carries source-runtime identity.
     // Active segments additionally write their refs into the
     // referenced table at the const-expr-evaluated offset, then
     // count as immediately dropped (per spec); declarative
@@ -785,8 +800,10 @@ fn instantiateRuntime(
                 for (seg.funcidxs, 0..) |fidx, j| {
                     refs[j] = if (fidx == std.math.maxInt(u32))
                         .{ .ref = interp.Value.null_ref }
+                    else if (fidx < rt.func_entities.len)
+                        interp.Value.fromFuncRef(&rt.func_entities[fidx])
                     else
-                        .{ .ref = @as(u64, fidx) };
+                        return error.InvalidElementFuncIndex;
                 }
                 seg_storage[idx] = refs;
                 if (seg.kind == .active) {

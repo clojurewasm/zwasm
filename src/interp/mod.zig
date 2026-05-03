@@ -40,14 +40,21 @@ pub const Value = extern union {
     f32: f32,
     f64: f64,
     bits64: u64,
-    /// Reference value (Wasm 2.0 §9.2 / 2.3 chunk 5). For funcref:
-    /// the low 32 bits are a funcidx; high 32 are unused. For
-    /// externref: the full 64 bits are an opaque host handle. The
-    /// sentinel `null_ref` represents the spec null reference.
+    /// Reference value (Wasm 2.0 §9.2 / 2.3 chunk 5). Funcref:
+    /// `@intFromPtr(*const FuncEntity)` — the pointer carries
+    /// source-runtime identity so cross-module `call_indirect`
+    /// can route to the source's function table without a
+    /// separate routing layer (per ADR-0014 §2.1 / 6.K.1).
+    /// Externref: opaque 64-bit host handle (unchanged). The
+    /// sentinel `null_ref` represents the spec null reference;
+    /// it equals literal `0` because `c_allocator.alloc` cannot
+    /// return address 0 on any of the three target platforms
+    /// (Mac aarch64 darwin, Linux x86_64 glibc/musl, Windows
+    /// x86_64 ucrt) per the C-standard `malloc` contract.
     ref: u64,
 
     pub const zero: Value = .{ .bits64 = 0 };
-    pub const null_ref: u64 = std.math.maxInt(u64);
+    pub const null_ref: u64 = 0;
 
     pub fn fromI32(v: i32) Value {
         return .{ .i32 = v };
@@ -64,6 +71,47 @@ pub const Value = extern union {
     pub fn fromRef(r: u64) Value {
         return .{ .ref = r };
     }
+
+    /// Encode a `*FuncEntity` as a funcref `Value`. The pointer
+    /// must outlive every read of this Value (its lifetime is
+    /// tied to the owning Runtime's `func_entities` array, which
+    /// the per-instance arena holds for the Runtime's lifetime).
+    pub fn fromFuncRef(fe: *const FuncEntity) Value {
+        return .{ .ref = @intFromPtr(fe) };
+    }
+
+    /// Decode a funcref `Value` to its `*const FuncEntity` source,
+    /// or `null` if the cell holds the null reference.
+    pub fn refAsFuncEntity(v: Value) ?*const FuncEntity {
+        if (v.ref == null_ref) return null;
+        return @ptrFromInt(v.ref);
+    }
+};
+
+comptime {
+    // Locks in the platform contract above: any future change to
+    // null_ref must re-survey the malloc guarantees on all three
+    // target hosts. A change here without an ADR is a §18 deviation.
+    std.debug.assert(Value.null_ref == 0);
+}
+
+/// Per-runtime function handle. One entry per index in
+/// `Runtime.funcs`; allocated in `instantiateRuntime`. A funcref
+/// `Value` stores `@intFromPtr(*const FuncEntity)` so dereference
+/// reveals which Runtime owns the callee body — the encoding
+/// 6.K.3 needs to drop the cross-module-import error returns.
+///
+/// Per ADR-0014 §2.1 / 6.K.1: the source runtime back-ref lives
+/// here (rather than baked into the Runtime via 6.K.2's Instance
+/// back-ref) because the Value's encoding contract is what matters
+/// for the table cell — every consumer dereferences the FuncEntity
+/// and reads `runtime` + `func_idx` from a single cache line.
+pub const FuncEntity = struct {
+    /// Runtime whose `funcs[func_idx]` (and `host_calls[func_idx]`
+    /// when imported) describes the callee body.
+    runtime: *Runtime,
+    /// Index into `runtime.funcs`.
+    func_idx: u32,
 };
 
 /// Trap conditions. The dispatch loop returns one of these on the
@@ -204,6 +252,14 @@ pub const Runtime = struct {
     /// then defined). The `call` handler indexes into this; the
     /// runner sets it before invoking the entry function.
     funcs: []const *const zir.ZirFunc = &.{},
+    /// Parallel-to-`funcs` FuncEntity array (Wasm 2.0 funcref
+    /// encoding per ADR-0014 §2.1 / 6.K.1). `ref.func i` /
+    /// element-segment init resolve to `&func_entities[i]` and
+    /// store its address in `Value.ref`. `call_indirect` reverses
+    /// the cast to recover the source runtime + func_idx.
+    /// Allocated in `instantiateRuntime` on the per-instance
+    /// arena; tests construct stub slices directly.
+    func_entities: []FuncEntity = &.{},
     /// Parallel-to-`funcs` host-call table. When the dispatch
     /// loop's `call` op routes to index `i` and `host_calls[i]`
     /// is non-null, the host thunk runs instead of dispatching

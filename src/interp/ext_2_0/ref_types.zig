@@ -7,8 +7,10 @@
 //!
 //! References share storage with other Value fields via the
 //! `Value.ref: u64` view. Null references use the sentinel
-//! `Value.null_ref` (= u64::MAX); valid funcrefs encode a u32
-//! funcidx in the low 32 bits.
+//! `Value.null_ref` (= 0 per ADR-0014 §2.1 / 6.K.1); valid
+//! funcrefs encode `@intFromPtr(*const FuncEntity)` — the
+//! per-runtime FuncEntity carries source-runtime identity so
+//! cross-module `call_indirect` (6.K.3) needs no routing table.
 //!
 //! select_typed (0x1C), table.get/set/grow/size/fill, and
 //! table.init / table.copy / elem.drop land in chunks 5b/5c.
@@ -51,7 +53,9 @@ fn refIsNull(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
 
 fn refFunc(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    try rt.pushOperand(.{ .ref = @as(u64, instr.payload) });
+    const idx = instr.payload;
+    if (idx >= rt.func_entities.len) return interp.Trap.Unreachable;
+    try rt.pushOperand(Value.fromFuncRef(&rt.func_entities[idx]));
 }
 
 // ============================================================
@@ -74,13 +78,13 @@ test "register: ref.null / is_null / func slots populated" {
     try testing.expect(t.interp[op(.@"ref.func")] != null);
 }
 
-test "ref.null: pushes the null sentinel" {
+test "ref.null: pushes the null sentinel (= 0 per ADR-0014)" {
     var t = DispatchTable.init();
     register(&t);
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
     try driveOne(&rt, &t, .@"ref.null", 0, 0);
-    try testing.expectEqual(Value.null_ref, rt.popOperand().ref);
+    try testing.expectEqual(@as(u64, 0), rt.popOperand().ref);
 }
 
 test "ref.is_null: null → 1; non-null → 0" {
@@ -93,26 +97,44 @@ test "ref.is_null: null → 1; non-null → 0" {
     try driveOne(&rt, &t, .@"ref.is_null", 0, 0);
     try testing.expectEqual(@as(i32, 1), rt.popOperand().i32);
 
+    // Any non-zero u64 reads as non-null; the dispatch handler does
+    // not dereference here, so we can use a sentinel literal.
     try rt.pushOperand(.{ .ref = 7 });
     try driveOne(&rt, &t, .@"ref.is_null", 0, 0);
     try testing.expectEqual(@as(i32, 0), rt.popOperand().i32);
 }
 
-test "ref.func: payload is pushed as the ref value" {
+test "ref.func: payload resolves to FuncEntity pointer" {
     var t = DispatchTable.init();
     register(&t);
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
-    try driveOne(&rt, &t, .@"ref.func", 42, 0);
-    try testing.expectEqual(@as(u64, 42), rt.popOperand().ref);
+
+    // Stub func_entities so payload 1 resolves; Runtime is the only
+    // owner the test cares about.
+    var entities = [_]interp.FuncEntity{
+        .{ .runtime = &rt, .func_idx = 0 },
+        .{ .runtime = &rt, .func_idx = 1 },
+    };
+    rt.func_entities = &entities;
+
+    try driveOne(&rt, &t, .@"ref.func", 1, 0);
+    const popped = rt.popOperand();
+    try testing.expectEqual(@intFromPtr(&entities[1]), popped.ref);
+    const fe = Value.refAsFuncEntity(popped).?;
+    try testing.expectEqual(@as(u32, 1), fe.func_idx);
 }
 
-test "ref round-trip: ref.func 7 ; ref.is_null → 0" {
+test "ref round-trip: ref.func 0 ; ref.is_null → 0" {
     var t = DispatchTable.init();
     register(&t);
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
-    try driveOne(&rt, &t, .@"ref.func", 7, 0);
+
+    var entities = [_]interp.FuncEntity{.{ .runtime = &rt, .func_idx = 0 }};
+    rt.func_entities = &entities;
+
+    try driveOne(&rt, &t, .@"ref.func", 0, 0);
     try driveOne(&rt, &t, .@"ref.is_null", 0, 0);
     try testing.expectEqual(@as(i32, 0), rt.popOperand().i32);
 }

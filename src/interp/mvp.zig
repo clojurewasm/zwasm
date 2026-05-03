@@ -313,10 +313,18 @@ fn callOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
 }
 
 /// `call_indirect type_idx table_idx`: pops i32 selector, indexes
-/// `rt.tables[table_idx]`, resolves the table cell's funcref to
-/// `rt.funcs[funcidx]`, and invokes after a runtime sig-equality
-/// check against `rt.module_types[type_idx]`. Encoding:
-/// `instr.payload` = type_idx, `instr.extra` = table_idx.
+/// `rt.tables[table_idx]`, resolves the table cell's funcref by
+/// dereferencing `*const FuncEntity` (ADR-0014 §2.1 / 6.K.1), and
+/// invokes the callee body found at `fe.runtime.funcs[fe.func_idx]`
+/// after a runtime sig-equality check against
+/// `rt.module_types[type_idx]`. Encoding: `instr.payload` =
+/// type_idx, `instr.extra` = table_idx.
+///
+/// The FuncEntity-pointer encoding makes cross-module dispatch
+/// addressable in 6.K.3: `fe.runtime` may differ from `rt`, in
+/// which case the callee body comes from the source runtime even
+/// though the caller frame stays on `rt`. (Cross-module memory /
+/// global access is 6.K.3's full wiring.)
 ///
 /// Spec traps:
 ///   - selector >= table.len               → OutOfBoundsTableAccess
@@ -330,12 +338,11 @@ fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
 
     const sel = rt.popOperand().u32;
     if (sel >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
-    const ref = tbl.refs[sel].ref;
-    if (ref == interp.Value.null_ref) return Trap.UninitializedElement;
-
-    const funcidx: u32 = @truncate(ref);
-    if (funcidx >= rt.funcs.len) return Trap.UninitializedElement;
-    const callee = rt.funcs[funcidx];
+    const ref_v = tbl.refs[sel];
+    const fe = interp.Value.refAsFuncEntity(ref_v) orelse return Trap.UninitializedElement;
+    const callee_rt = fe.runtime;
+    if (fe.func_idx >= callee_rt.funcs.len) return Trap.UninitializedElement;
+    const callee = callee_rt.funcs[fe.func_idx];
 
     if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
     const expected = rt.module_types[instr.payload];
