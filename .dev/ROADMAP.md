@@ -1348,7 +1348,7 @@ zwasm.
 | 5.3  | `src/ir/loop_info.zig` — branch_targets, loop_headers, loop_end computed for every fn.    | [x]            |
 | 5.4  | `src/ir/liveness.zig` — per-vreg live ranges computed.                                    | [x]            |
 | 5.5  | `src/ir/verifier.zig` runs after every analysis pass; CI calls it on the spec corpus.     | [x]            |
-| 5.6  | `src/ir/const_prop.zig` — limited const folding.                                          | [ ]            |
+| 5.6  | `src/ir/const_prop.zig` — limited const folding.                                          | [x]            |
 | 5.7  | Phase-5 boundary `audit_scaffolding` pass.                                                 | [ ]            |
 | 5.8  | Open §9.6 inline; flip phase tracker.                                                      | [ ]            |
 

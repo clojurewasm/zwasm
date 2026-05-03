@@ -20,42 +20,37 @@
 - **Phase**: **Phase 5 IN-PROGRESS.** Phases 0–4 are `DONE` (all
   SHAs backfilled in §9.<N> task tables; `git log --grep="§9.<N>
   / N.M"` is the canonical lookup).
-- **Last commit**: `d22bd63` — §9.5 / 5.5 land: `src/ir/verifier.zig`
-  invariant pass over `loop_info` / `liveness` / `branch_targets`.
-- **Next task**: §9.5 / 5.6 — `src/ir/const_prop.zig` (limited
-  const folding).
+- **Last commit**: `5215b87` — §9.5 / 5.6 land: `src/ir/const_prop.zig`
+  peephole folding analysis; `ConstantPool` slot filled
+  (`folds: []const ConstantFold`).
+- **Next task**: §9.5 / 5.7 — Phase-5 boundary `audit_scaffolding`
+  pass (adaptive cadence; absorbs the queued items below).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.5 / 5.6 (limited const propagation)
+## Active task — §9.5 / 5.7 (Phase-5 boundary audit)
 
-Adds `src/ir/const_prop.zig` — a const-folding pass over straight-
-line MVP arithmetic. Populates the `ConstantPool` slot reserved
-on `ZirFunc` since day-1 (per ROADMAP §4.2 / P13).
-
-Phase-5 scope:
-
-- Identify peephole foldable patterns: `i32.const A; i32.const B;
-  i32.<binop>` → `i32.const C` (where C is the constant-evaluated
-  result). Same for i64/f32/f64.
-- Skip ops with side effects (div_s/div_u/rem_s/rem_u — divide-
-  by-zero traps; min/max/copysign on floats with NaN); fold only
-  trap-free arithmetic (add/sub/mul/and/or/xor/shl/shr/rotl/rotr).
-- Surface a `[]ConstantFold` describing each foldable site:
-  `{def_pc_a, def_pc_b, op_pc, result}`. The actual rewrite of
-  `instrs` is the consumer's job (Phase-15 hoisting / Phase-7
-  regalloc). 5.6 is the analysis only.
+Run `audit_scaffolding` adaptively at the Phase-5 boundary; fix
+local `block` findings inline, file ADRs for non-local ones.
+Mirror the §9.4-end pattern.
 
 Plan:
 
-1. Add `ConstantPool` fields + `compute(allocator, *const ZirFunc)`
-   in `src/ir/const_prop.zig` + tests.
-2. Three-host `zig build test-all`.
+1. Invoke `audit_scaffolding`; review the produced report at
+   `private/audit-YYYY-MM-DD.md`.
+2. Local `block` findings → fix and commit.
+3. Non-local `block` findings → file `.dev/decisions/NNNN_*.md`
+   per §18, queue follow-ups in handover.
+4. Optionally run `simplify` over `git diff <phase-start>..HEAD
+   -- src/` — apply behaviour-preserving suggestions.
+5. Three-host `zig build test-all` after any source change.
 
-Remaining §9.5 rows after 5.6: 5.7 phase-boundary audit, 5.8
-phase tracker.
+Remaining §9.5 rows after 5.7: 5.8 phase tracker (open §9.6 +
+flip Phase Status widget; backfill §9.5 SHAs in one commit per
+the boundary protocol).
 
-Queued for §9.5 / 5.7 (Phase-5 audit):
+Carry-overs queued from earlier 5.* tasks (the audit may surface
+related findings or re-prioritise these):
 - Re-evaluate `no_hidden_allocations` zlinter rule for the now-
   split c_api + mvp + frontend modules (deferred per ADR-0009).
 - Per-feature handler split for validator.zig (deferred from
@@ -65,6 +60,9 @@ Queued for §9.5 / 5.7 (Phase-5 audit):
   Phase-7 regalloc consumer drives the refinement).
 - Verifier CI hook in `test/spec/runner.zig` (deferred from 5.5
   to keep the runner-shape change out of analysis-pass commits).
+- Const-prop per-block analysis covering past first non-foldable
+  op (deferred from 5.6 — current pass stops at the cutoff;
+  Phase-15 hoisting consumer drives the refinement).
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
