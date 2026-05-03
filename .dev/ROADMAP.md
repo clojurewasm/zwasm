@@ -1127,8 +1127,8 @@ of each phase advances it.
 | 2     | DONE        | —                             |
 | 3     | DONE        | —                             |
 | 4     | DONE        | —                             |
-| 5     | IN-PROGRESS | §9.5 / 5.0 (c_api split per ADR-0007)                          |
-| 6     | PENDING     | v1 conformance baseline (ADR-0008) 🔒                          |
+| 5     | DONE        | —                             |
+| 6     | IN-PROGRESS | v1 conformance baseline (ADR-0008) 🔒                          |
 | 7     | PENDING     | JIT v1 ARM64 baseline                                          |
 | 8     | PENDING     | JIT v1 x86_64 baseline 🔒                                      |
 | 9     | PENDING     | SIMD-128                                                       |
@@ -1342,15 +1342,15 @@ zwasm.
 
 | #    | Description                                                                                | Status         |
 |------|--------------------------------------------------------------------------------------------|----------------|
-| 5.0  | Split `src/c_api/wasm_c_api.zig` into trap_surface + vec + instance + wasi + wasm_c_api per ADR-0007. | [x]            |
-| 5.1  | Split `src/interp/mvp.zig` into int_ops / float_ops / conversions modules.                | [x]            |
-| 5.2  | Carve `src/frontend/validator.zig` + `lowerer.zig` toward §A2 soft cap (per phase-2 audit). | [x]            |
-| 5.3  | `src/ir/loop_info.zig` — branch_targets, loop_headers, loop_end computed for every fn.    | [x]            |
-| 5.4  | `src/ir/liveness.zig` — per-vreg live ranges computed.                                    | [x]            |
-| 5.5  | `src/ir/verifier.zig` runs after every analysis pass; CI calls it on the spec corpus.     | [x]            |
-| 5.6  | `src/ir/const_prop.zig` — limited const folding.                                          | [x]            |
-| 5.7  | Phase-5 boundary `audit_scaffolding` pass.                                                 | [x]            |
-| 5.8  | Open §9.6 inline; flip phase tracker.                                                      | [ ]            |
+| 5.0  | Split `src/c_api/wasm_c_api.zig` into trap_surface + vec + instance + wasi + wasm_c_api per ADR-0007. | [x] 2b26a07    |
+| 5.1  | Split `src/interp/mvp.zig` into int_ops / float_ops / conversions modules.                | [x] c7fbe0d    |
+| 5.2  | Carve `src/frontend/validator.zig` + `lowerer.zig` toward §A2 soft cap (per phase-2 audit). | [x] 64447ce    |
+| 5.3  | `src/ir/loop_info.zig` — branch_targets, loop_headers, loop_end computed for every fn.    | [x] ccbd91b    |
+| 5.4  | `src/ir/liveness.zig` — per-vreg live ranges computed.                                    | [x] bd29343    |
+| 5.5  | `src/ir/verifier.zig` runs after every analysis pass; CI calls it on the spec corpus.     | [x] d22bd63    |
+| 5.6  | `src/ir/const_prop.zig` — limited const folding.                                          | [x] 5215b87    |
+| 5.7  | Phase-5 boundary `audit_scaffolding` pass.                                                 | [x] 15e2c82    |
+| 5.8  | Open §9.6 inline; flip phase tracker.                                                      | [x]            |
 
 (Realworld conformance rows formerly at §9.5 / 5.7-5.9 moved to
 §9.6 / 6.1-6.3 by ADR-0008.)
@@ -1388,6 +1388,20 @@ JIT / regalloc / W54-class lattice noise (see ADR-0008 + P14 +
 **🔒 platform gate**: yes. Phase 7 (JIT v1 ARM64) cannot open
 until Phase 6 is `DONE` on all three hosts. The Phase Status
 widget enforces this.
+
+#### §9.6 task list (expanded)
+
+| #    | Description                                                                                              | Status         |
+|------|----------------------------------------------------------------------------------------------------------|----------------|
+| 6.0  | Vendor v1 regression tests not covered by spec testsuite into `test/v1_carry_over/`; add `zig build test-v1-carry-over` step. | [ ]            |
+| 6.1  | Realworld coverage — all 50 vendored samples run to completion under v2 interp on Mac + Linux; no `Errno.unreachable_` traps. | [ ]            |
+| 6.2  | Differential gate — 30+ realworld samples match `wasmtime run` byte-for-byte stdout (ADR-0006 target retargeted from §9.4 / 4.10). | [ ]            |
+| 6.3  | ClojureWasm guest set runs end-to-end against zwasm v2 via `build.zig.zon` `path = ...`; no commits to ClojureWasm side required. | [ ]            |
+| 6.4  | `bench/baseline_v1_regression.yaml` records interp-only wall-clock numbers as Phase-7+ comparison floor (spread + repeatability under noise; absolute speed irrelevant). | [ ]            |
+| 6.5  | A13 (v1 regression suite stays green) wired into the merge gate.                                          | [ ]            |
+| 6.6  | Verifier CI hook — `test/spec/runner.zig` calls `ir/verifier.verify` after lowering each function (carry-over from §9.5 / 5.5). | [ ]            |
+| 6.7  | Phase-6 boundary `audit_scaffolding` pass.                                                                | [ ]            |
+| 6.8  | Open §9.7 inline; flip phase tracker.                                                                     | [ ]            |
 
 ### Phase 7 — JIT v1 ARM64 baseline
 

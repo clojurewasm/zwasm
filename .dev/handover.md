@@ -17,45 +17,53 @@
 
 ## Current state
 
-- **Phase**: **Phase 5 IN-PROGRESS** (final task §9.5 / 5.8 in
-  flight). Phases 0–4 are `DONE` (all SHAs backfilled).
-- **Last commit**: `929cdd8` — §9.5 / 5.6 [x] + handover retarget
-  at 5.7 (audit). 5.7 audit landed in the same iteration —
-  `private/audit-2026-05-03.md` (gitignored). Findings: 1 block
-  (expected widget drift owned by 5.8), 2 soon (deferrals already
-  documented), 3 watch.
-- **Next task**: §9.5 / 5.8 — open §9.6 inline, advance Phase
-  Status widget, backfill §9.5 SHA pointers in one commit.
+- **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
+  ADR-0008 🔒). Phase 5 closed; Phases 0–5 `DONE` with all §9.<N>
+  SHAs backfilled.
+- **Last commit**: `15e2c82` — §9.5 / 5.7 [x] + handover retarget
+  at 5.8 (phase-5 close). 5.8 itself lands in this iteration's
+  ROADMAP-edit commit (Phase Status widget advance + §9.5 SHA
+  backfill + §9.6 task table opened inline).
+- **Next task**: §9.6 / 6.0 — vendor v1 regression tests into
+  `test/v1_carry_over/` + add `zig build test-v1-carry-over`.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.5 / 5.8 (open §9.6, flip phase tracker)
+## Active task — §9.6 / 6.0 (vendor v1 carry-over regression tests)
 
-Phase-5 closing protocol per `continue` skill:
+Per ROADMAP §9.6 exit criterion #1: stand up the carry-over
+regression suite that the v1 codebase passes but isn't covered
+by the upstream spec testsuite, so v2 inherits every regression
+v1 fixed.
 
-1. Backfill SHA pointers for §9.5 task rows 5.0–5.7 in one
-   commit (`git log --grep="§9.5 / N.M" --pretty=%h | head -1`).
-2. Update the Phase Status widget at the top of §9: mark §9.5
-   as `DONE`, §9.6 as `IN-PROGRESS`.
-3. §9.6 (v1 conformance baseline per ADR-0008) is already
-   present; expand its task table inline if missing, mirror
-   §9.5's structure.
-4. Replace handover with §9.6's first open task.
-5. Three-host `zig build test-all` (no source change here, but
-   the gates verify the ROADMAP edit didn't break parsing).
+Plan:
 
-Carry-overs from §9.5 to track in §9.6 / Phase-7 follow-ups:
-- `no_hidden_allocations` zlinter rule re-evaluation (ADR-0009
-  follow-up; per-zone exclusion clean post-split).
+1. Survey v1's regression tests: `~/Documents/MyProducts/zwasm/`
+   tree (read-only reference clone). Likely under `test/` or
+   `tests/`. Identify which tests duplicate spec coverage (skip)
+   vs add unique coverage (vendor).
+2. Vendor unique tests into `test/v1_carry_over/<name>.wast` (or
+   `.wasm` + expected stdout per `wasmtime run`).
+3. Add `zig build test-v1-carry-over` step in `build.zig`,
+   modelled on `test-spec`. Three-host gate.
+4. Add to `test-all` aggregate.
+5. Three-host `zig build test-all` per usual.
+
+Phase-6 follow-up tasks (already enumerated in §9.6 task table):
+6.1 realworld coverage / 6.2 differential gate / 6.3 ClojureWasm
+/ 6.4 bench baseline / 6.5 A13 merge gate / 6.6 verifier CI hook
+/ 6.7 boundary audit / 6.8 phase tracker.
+
+Carry-overs from §9.5 (queued for Phase-6+ as consumer pressure
+builds):
+- `no_hidden_allocations` zlinter re-evaluation (ADR-0009 follow-
+  up; per-zone exclusion clean post-split).
 - Per-feature handler split for validator.zig (paired with
-  §9.1 / 1.7 dispatch-table migration per ROADMAP §A12).
-- Liveness control-flow + memory-op coverage (Phase-7 regalloc
-  consumer drives the refinement).
-- Verifier CI hook in `test/spec/runner.zig`.
+  §9.1 / 1.7 dispatch-table migration per §A12).
+- Liveness control-flow + memory-op coverage (Phase-7 regalloc).
 - Const-prop per-block analysis past first non-foldable op
-  (Phase-15 hoisting consumer drives the refinement).
-- `src/frontend/sections.zig` (1073 lines) soft-cap split —
-  surfaced by 5.7 audit; queued for §9.6 follow-up.
+  (Phase-15 hoisting).
+- `src/frontend/sections.zig` (1073 lines) soft-cap split.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
