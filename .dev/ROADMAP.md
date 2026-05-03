@@ -1346,7 +1346,7 @@ zwasm.
 | 5.1  | Split `src/interp/mvp.zig` into int_ops / float_ops / conversions modules.                | [x]            |
 | 5.2  | Carve `src/frontend/validator.zig` + `lowerer.zig` toward §A2 soft cap (per phase-2 audit). | [x]            |
 | 5.3  | `src/ir/loop_info.zig` — branch_targets, loop_headers, loop_end computed for every fn.    | [x]            |
-| 5.4  | `src/ir/liveness.zig` — per-vreg live ranges computed.                                    | [ ]            |
+| 5.4  | `src/ir/liveness.zig` — per-vreg live ranges computed.                                    | [x]            |
 | 5.5  | `src/ir/verifier.zig` runs after every analysis pass; CI calls it on the spec corpus.     | [ ]            |
 | 5.6  | `src/ir/const_prop.zig` — limited const folding.                                          | [ ]            |
 | 5.7  | Phase-5 boundary `audit_scaffolding` pass.                                                 | [ ]            |

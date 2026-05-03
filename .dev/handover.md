@@ -20,40 +20,49 @@
 - **Phase**: **Phase 5 IN-PROGRESS.** Phases 0–4 are `DONE` (all
   SHAs backfilled in §9.<N> task tables; `git log --grep="§9.<N>
   / N.M"` is the canonical lookup).
-- **Last commit**: `ccbd91b` — §9.5 / 5.3 land: `src/ir/loop_info.zig`
-  analysis pass; `LoopInfo` slot fields filled (`loop_headers` +
-  `loop_end`).
-- **Next task**: §9.5 / 5.4 — `src/ir/liveness.zig` per-vreg live
-  ranges.
+- **Last commit**: `bd29343` — §9.5 / 5.4 land: `src/ir/liveness.zig`
+  per-vreg analysis pass; `Liveness` slot filled
+  (`ranges: []const LiveRange`).
+- **Next task**: §9.5 / 5.5 — `src/ir/verifier.zig` runs after
+  every analysis pass; CI calls it on the spec corpus.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.5 / 5.4 (per-vreg liveness analysis)
+## Active task — §9.5 / 5.5 (IR verifier pass)
 
-Adds `src/ir/liveness.zig` which computes per-vreg live ranges
-for every `ZirFunc`. Populates the `Liveness` slot reserved on
-`ZirFunc` since day-1 (per ROADMAP §4.2 / P13 / W54 lesson —
-"liveness is a `?Liveness` slot in `ZirFunc` from day 1").
+Adds `src/ir/verifier.zig` — a sanity checker that runs after
+each Phase-5 analysis pass and on the spec corpus in CI. Per
+ROADMAP §9.5 it must verify the invariants the analyses are
+supposed to maintain so a regression in `loop_info` / `liveness`
+/ later passes surfaces immediately rather than as a downstream
+JIT bug (W54-class lesson).
 
-Phase-5 scope is the analysis itself; consumers land later:
-- Phase-7 regalloc (`src/jit/`) reads live ranges to size live
-  intervals.
-- Phase-15 `const_prop` cross-references liveness to prove value
-  freshness.
+Phase-5 scope (what the verifier checks today):
+
+- `loop_info.loop_headers.len == loop_info.loop_end.len` AND
+  every header / end index is < `instrs.len` AND the instr at
+  each `header[i]` is `.@"loop"` AND instr at `loop_end[i]` is
+  `.@"end"`.
+- `liveness.ranges[v].def_pc <= last_use_pc` AND both pcs in
+  range AND `def_pc` indexes an instr that pushes (cross-checks
+  via the same `stackEffect` table the liveness pass uses).
+- ZirFunc structural: `branch_targets` indexes are in range
+  for every `br_table` instr (already validated upstream but
+  cheap to assert).
 
 Plan:
 
-1. Audit how the interp's operand-stack model maps to "vreg"
-   identity. The MVP interp uses a stack-machine; ZIR ops are
-   stack-typed too. Liveness in this model is per stack slot
-   per program point — i.e. each push starts a range, each pop
-   closes it. Define the data shape on that basis.
-2. Add `Liveness` fields + `compute(allocator, *const ZirFunc)`
-   in `src/ir/liveness.zig` + tests.
-3. Three-host `zig build test-all`.
+1. Add the analysis-result shape to `src/ir/verifier.zig`:
+   `pub fn verify(*const ZirFunc) Error!void`.
+2. Tests: each invariant has a positive (passes) + negative
+   (mutated state fails with the right error) case.
+3. CI hook: `test/spec/runner.zig` calls `verify` after lowering
+   each function — defer to §9.5 / 5.7 if too invasive for this
+   chunk; surface the deferral in handover.
+4. Three-host `zig build test-all`.
 
-Remaining §9.5 rows after 5.4: 5.5 `verifier`, 5.6 `const_prop`,
-5.7 phase-boundary audit, 5.8 phase tracker.
+Remaining §9.5 rows after 5.5: 5.6 `const_prop`, 5.7 phase-
+boundary audit, 5.8 phase tracker.
 
 Queued for §9.5 / 5.7 (Phase-5 audit): re-evaluate
 `no_hidden_allocations` zlinter rule for the now-split c_api +
@@ -61,7 +70,9 @@ mvp + frontend modules (deferred per ADR-0009 — all 13 monolith-
 era hits were in `wasm_c_api.zig`; per-zone exclusion is clean
 post-split). Also: per-feature handler split for validator.zig
 (deferred from 5.2, will land alongside §9.1 / 1.7 dispatch-
-table migration per ROADMAP §A12).
+table migration per ROADMAP §A12). Also: liveness pass
+control-flow + memory-op coverage (deferred from 5.4 — Phase-7
+regalloc consumer drives the refinement).
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
