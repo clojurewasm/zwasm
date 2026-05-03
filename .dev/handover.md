@@ -19,40 +19,38 @@
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
   ADR-0008 🔒).
-- **Last commit**: `2a66d6a` — §9.6 / 6.0 land: `test/v1_carry_over/`
-  vendored (4 NAMES, 12 valid modules, all hosts green) + new
-  `test-v1-carry-over` build step wired into `test-all`.
-- **Next task**: §9.6 / 6.1 — realworld coverage (all 50 vendored
-  samples run to completion under v2 interp on Mac + Linux; no
-  `Errno.unreachable_` traps).
+- **Last commit**: `b03b853` — §9.6 / 6.1 chunk a (partial): all 50
+  realworld fixtures vendored + parser `data_count` ordering bug
+  fixed; parse + section decode 50/50 on three hosts.
+- **Next task**: §9.6 / 6.1 chunk b — extend
+  `test/realworld/runner.zig` to instantiate + invoke each
+  fixture via `cli/run.zig:runWasm`, satisfying the
+  "run-to-completion under v2 interp" exit criterion.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
 ## Active task — §9.6 / 6.1 (realworld run-to-completion coverage)
 
-Per §9.6 exit criterion: every one of the 50 vendored realworld
-.wasm fixtures must run to completion under v2 interp on Mac +
-Linux; no `Errno.unreachable_` traps from missing ops.
+Two-chunk delivery per the exit criterion's two halves:
 
-Today's `test/realworld/runner.zig` is parse-smoke only (Phase-2
-artefact) — it loads each fixture and checks parse + section
-decode. 6.1 extends it (or adds a sibling) to actually
-instantiate + invoke each fixture's `_start` / `main` until it
-exits cleanly OR the runtime traps with a *non-unreachable*
-condition (those are spec-conformant traps, not validator gaps).
+| Chunk | Scope                                                                                    | Status                |
+|-------|------------------------------------------------------------------------------------------|-----------------------|
+| a     | Vendor missing 43 fixtures (7 → 50); fix any parse-time gaps surfaced by the new corpus. | DONE `b03b853` (parser `data_count` bug fix included — bulk-memory §3.4 says 12 sits between element(9) and code(10), not between import(2) and function(3); TinyGo emits per spec). |
+| **b** | Extend `test/realworld/runner.zig` (or add `realworld_run_runner.zig`) to call `cli/run.zig:runWasm` over each fixture. PASS = `runWasm` returns any u8 exit code without surfacing a `Trap.Unreachable` from a missing op. INFO/SKIP for fixtures requiring WASI host state beyond §9.4 (proc / fd / clocks / random surface that is wired) — they instantiate but their entry point may legitimately exit early. | **NEXT** |
 
-Plan:
+Plan for chunk b:
 
-1. Survey `test/realworld/wasm/` to confirm the 50-fixture set
-   (`ls test/realworld/wasm/ | wc -l`).
-2. Extend `test/realworld/runner.zig` (or add a runner sibling)
-   to instantiate via `wasm_module_new` / `wasm_instance_new` /
-   `wasm_func_call`. Skip fixtures that need WASI host wiring
-   beyond the §9.4 surface; surface those as "needs WASI
-   extension" in the runner output.
-3. Three-host `zig build test-realworld` (or new step) — must
-   show 50/50 run-to-completion on Mac + Linux.
-4. Wire any new step into `test-all`.
+1. Decide the runner shape — extend `runner.zig` with a
+   `--run` flag, OR add a sibling `realworld_run_runner.zig`
+   wired to a separate `test-realworld-run` build step. Sibling
+   is cleaner since the parse-smoke gate stays useful as a
+   cheaper subset.
+2. Categorise each fixture's outcome: PASS (any u8 exit), INFO
+   (instantiate ok, runtime returned non-zero exit), SKIP-WASI
+   (instantiation surface gap), FAIL (Trap.Unreachable from a
+   missing op — the gate condition).
+3. Three-host gate: 50/50 must avoid the FAIL bucket. Bumps to
+   `test-all`.
 
 Phase-6 follow-ups in order: 6.2 differential gate (30+ samples
 match `wasmtime run` byte-for-byte) / 6.3 ClojureWasm guest
@@ -68,9 +66,8 @@ Carry-overs from §9.5 still queued (no consumer yet):
 
 Carry-over surfaced by §9.6 / 6.0:
 - `br-table-fuzzbug` v1 regression — needs multi-param `loop`
-  block validator support (Phase-2 chunk-3b carry-over already
-  queued; absorbed by Phase 6 per ADR-0008). Re-add to
-  `regen_v1_carry_over.sh` NAMES once the gap closes.
+  block validator support. Re-add to `regen_v1_carry_over.sh`
+  NAMES once the gap closes.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
