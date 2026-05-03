@@ -121,6 +121,25 @@ files to split, which numbers to centralise, which rules to
 revisit) emerges from discussion. Prefer "open questions for
 user" over "prescribed answers" in the first draft.
 
+### Carry-over reminders for ADR-0015 drafting (do not lose)
+
+- **ADR-0010 lessons**: premise-unverified `defer` (the 6.2 / 6.3
+  push-out via differential-gate-will-catch-it) was reversed by
+  ADR-0011. Refactor phase should include a "discovery" work item
+  that surfaces premise-checks for any future deferral / scope
+  reduction proposal — not just trusting the gate.
+- **ADR-0011 lessons**: "silent meaning-stretch" pattern (closing
+  a row by stretching its text's meaning, e.g. trap-time numbers
+  as bench baseline) was named and rejected. Refactor phase
+  should review scaffolding rules (§18 amendment policy,
+  audit_scaffolding heuristics) for whether they catch this
+  pattern; if not, add an explicit check.
+- **ADR-0012 §7 boundary**: bench history accretion suppression
+  (`bench/results/{recent,history}.yaml` split, phase-boundary-
+  only history append) is implemented in 6.H. Refactor phase
+  must NOT touch §7's contract — or must explicitly supersede
+  §7 in ADR-0015 if it does. Default: leave alone.
+
 ADR numbering: ADR-0014 (wiring, this commit, Accepted) and
 ADR-0015 (charter, next session, Proposed→Accepted) are
 reclaimed from ADR-0012's "forthcoming ADR-0014 (bench

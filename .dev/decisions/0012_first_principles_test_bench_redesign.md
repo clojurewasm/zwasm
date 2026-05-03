@@ -290,3 +290,19 @@ orchestration, no embedded test logic.
 - ADR-0014 (forthcoming, optional — bench infra expansion)
 - `.claude/rules/no_copy_from_v1.md` (re-derivation discipline for 6.A)
 - `.claude/rules/textbook_survey.md` (Step 0 Survey for each 6.x)
+
+## Amendment log
+
+- **2026-05-03 (commit a9d2b34, user-authorised in-place edit)**:
+  §6.J close criterion tightened from "honest close" (implicit
+  explicit-defer escape hatch) to **strict 100% PASS**. The only
+  permitted exception is a v1-era design-dependent fixture that v2
+  deliberately rejects on spec-fidelity grounds (P1); each must be
+  documented in `.dev/decisions/skip_<fixture>.md` AND removed from
+  the active manifest_runtime.txt or `# DEFER:`-marked, so the
+  runner's reported 0 failed is genuinely empty. ADR-0011 / 0014
+  + ROADMAP §9.6 / 6.J + handover.md updated in the same commit.
+  ADR scope, DAG, and work-item shape otherwise unchanged. The
+  user explicitly took responsibility for the direct edit (no
+  per-edit ADR) to avoid "ADR-of-an-ADR" recursion atop ADR-0011's
+  reopen + this ADR's breakdown + ADR-0014's wiring.
