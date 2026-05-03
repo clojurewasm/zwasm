@@ -17,59 +17,67 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
-  ADR-0008 🔒). 6.2 + 6.3 just deferred to Phase 7 per ADR-0010
-  (root-cause investigation showed behaviour bugs, not missing
-  ops; deferral preserves the 30+ match threshold for honest
-  Phase-7 closure rather than lowering it).
-- **Last commit**: `ae1a8a3` — §9.6 / 6.4 [x] + handover retarget
-  at 6.2 root-cause. Investigation landed in this iteration:
-  `[dispatch] unbound slot` instrumentation across 6 sampled
-  fixtures (c_integer_overflow, c_many_functions, c_control_flow,
-  rust_compression, rust_enum_match, c_btree, c_sha256_hash)
-  produced **zero** unbound-slot prints. Behavior bug, not
-  missing op. ADR-0010 filed; §9.6 / 6.2 + 6.3 annotated as
-  DEFERRED.
-- **Next task**: §9.6 / 6.8 — Phase-6 close (open §9.7 inline +
-  flip phase tracker + backfill §9.6 SHAs). All non-deferred
-  rows are now `[x]`.
+- **Phase**: **Phase 7 IN-PROGRESS** (JIT v1 ARM64 baseline). 6
+  closed per phase tracker; 6.2 + 6.3 deferred-in to §9.7 / 7.7
+  + 7.8 per ADR-0010.
+- **Last commit**: `a717ad3` — ADR-0010 deferral commit (§9.6 /
+  6.2 + 6.3 → §9.7); 6.8 phase close lands in this iteration's
+  ROADMAP-edit commit (SHA backfill + widget advance + §9.7
+  task table opened with 11 rows).
+- **Next task**: §9.7 / 7.0 — `src/jit/reg_class.zig` (define
+  GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special /
+  simd_base_special classes per ROADMAP §4.2 W54-class day-1
+  slot).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.6 / 6.8 (close Phase 6, open §9.7)
+## Active task — §9.7 / 7.0 (jit/reg_class.zig)
 
-Phase-6 closing protocol per `continue` skill:
+Per ROADMAP §4.2 the `RegClass` enum slot exists in `src/ir/zir.zig`
+with day-1 reservation (W54-class lesson — naming the class set
+upfront prevents the regalloc-stage IR shape from implicitly
+encoding "what classes exist" via downstream switches).
 
-1. Backfill SHA pointers for §9.6 rows 6.0, 6.1, 6.4, 6.5, 6.6,
-   6.7 (the closed rows). 6.2 + 6.3 retain their DEFERRED
-   annotation; they get fresh SHA columns when they land in
-   §9.7 per ADR-0010.
-2. Update Phase Status widget: §6 → DONE, §7 → IN-PROGRESS.
-3. Expand §9.7 task table inline. ROADMAP §9 / Phase 7 already
-   has Goal + Exit criterion bullets; expand into a numbered
-   `[ ]` table mirroring §9.5 / §9.6 structure. Add the two
-   ADR-0010 carry-over rows (realworld stdout diff +
-   ClojureWasm guest end-to-end) at the end of the table.
-4. Replace handover with §9.7's first open task (likely
-   `src/jit/regalloc.zig` greedy-local allocator).
+Today: `pub const RegClass = enum(u8) { gpr, fpr, simd, _ };`
+(non-exhaustive). Target shape per §9.7 / 7.0: add the three
+*_special variants. The classes are NAME-only at this phase; the
+matching machine-register tables are §9.7 / 7.2 (jit_arm64 ABI).
+
+Plan:
+
+1. Survey the W54 post-mortem references in
+   `~/Documents/MyProducts/zwasm/.dev/archive/w54-redesign-postmortem.md`
+   AND `~/zwasm/private/v2-investigation/notes/v1-audit.md`
+   §"Implicit Contract Sprawl" — both are mandatory inputs for
+   regalloc-touching work per `textbook_survey.md` Guard 4.
+2. Create `src/jit/reg_class.zig` that owns the canonical
+   `RegClass` enum + a "regclass info" table (sizeof / alignment
+   / call-clobbered status — placeholder, real values land
+   in 7.2's ABI work).
+3. Promote the §4.2 `zir.RegClass` to a re-export from this new
+   module so the slot identity is preserved (the old constraint:
+   "renaming or removing the type would be a §4.2 deviation
+   requiring an ADR" — re-exporting under the same name is fine).
+4. Tests: each class enum-value round-trips via @intFromEnum;
+   the regclass-info table covers every variant.
 5. Three-host `zig build test-all`.
 
-Carry-overs from §9.5 (still queued):
-- `no_hidden_allocations` zlinter re-evaluation (ADR-0009).
-- Per-feature handler split for validator.zig (with §9.1 / 1.7).
-- Liveness control-flow + memory-op coverage (Phase-7 regalloc
-  drives this directly).
-- Const-prop per-block analysis (Phase-15 hoisting).
-- `src/frontend/sections.zig` (1073 lines) soft-cap split.
+Carry-overs that consume regalloc work:
+- §9.5 / 5.4 liveness control-flow + memory-op coverage —
+  Phase-7 regalloc surfaces specific gaps; refine as needed.
+- ADR-0010 deferred-in §9.7 / 7.7 + 7.8 (realworld stdout diff
+  + ClojureWasm guest) — closeable once §9.7 / 7.6
+  `interp == jit_arm64` gate proves operand-stack discipline.
 
-Carry-overs from Phase 6:
-- `br-table-fuzzbug` v1 regression — multi-param `loop` block
-  validator gap (re-add to NAMES when gap closes; see §9.7
-  validator follow-up).
-- 10 realworld SKIP-VALIDATOR fixtures (Go + cpp_unique_ptr).
-- 39 realworld trap-mid-execution fixtures (root cause = behavior
-  bug per ADR-0010; investigation tooling lands with §9.7
-  `interp == jit_arm64` differential gate).
+Other carry-overs (still queued):
+- §9.5: `no_hidden_allocations` zlinter re-evaluation
+  (ADR-0009); per-feature handler split for validator.zig
+  (with §9.1 / 1.7); const-prop per-block (Phase-15 hoisting);
+  `src/frontend/sections.zig` (1073 lines) soft-cap split.
+- §9.6: `br-table-fuzzbug` v1 multi-param `loop` block; 10
+  realworld SKIP-VALIDATOR fixtures; 39 trap-mid-execution
+  fixtures (debugged in §9.7 / 7.6's `interp == jit_arm64`
+  differential gate).
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 

@@ -1128,8 +1128,8 @@ of each phase advances it.
 | 3     | DONE        | —                             |
 | 4     | DONE        | —                             |
 | 5     | DONE        | —                             |
-| 6     | IN-PROGRESS | v1 conformance baseline (ADR-0008) 🔒                          |
-| 7     | PENDING     | JIT v1 ARM64 baseline                                          |
+| 6     | DONE        | —                             |
+| 7     | IN-PROGRESS | JIT v1 ARM64 baseline                                          |
 | 8     | PENDING     | JIT v1 x86_64 baseline 🔒                                      |
 | 9     | PENDING     | SIMD-128                                                       |
 | 10    | PENDING     | GC, EH, Tail call, memory64 (Wasm 3.0 完備) 🔒                 |
@@ -1393,15 +1393,15 @@ widget enforces this.
 
 | #    | Description                                                                                              | Status         |
 |------|----------------------------------------------------------------------------------------------------------|----------------|
-| 6.0  | Vendor v1 regression tests not covered by spec testsuite into `test/v1_carry_over/`; add `zig build test-v1-carry-over` step. | [x]            |
-| 6.1  | Realworld coverage — all 50 vendored samples run to completion under v2 interp on Mac + Linux; no `Errno.unreachable_` traps. | [x]            |
+| 6.0  | Vendor v1 regression tests not covered by spec testsuite into `test/v1_carry_over/`; add `zig build test-v1-carry-over` step. | [x] 2a66d6a    |
+| 6.1  | Realworld coverage — all 50 vendored samples run to completion under v2 interp on Mac + Linux; no `Errno.unreachable_` traps. | [x] 251c493    |
 | 6.2  | Differential gate — 30+ realworld samples match `wasmtime run` byte-for-byte stdout (ADR-0006 target retargeted from §9.4 / 4.10). | DEFERRED → §9.7 per ADR-0010 |
 | 6.3  | ClojureWasm guest set runs end-to-end against zwasm v2 via `build.zig.zon` `path = ...`; no commits to ClojureWasm side required. | DEFERRED → §9.7 per ADR-0010 |
-| 6.4  | `bench/baseline_v1_regression.yaml` records interp-only wall-clock numbers as Phase-7+ comparison floor (spread + repeatability under noise; absolute speed irrelevant). | [x]            |
-| 6.5  | A13 (v1 regression suite stays green) wired into the merge gate.                                          | [x]            |
-| 6.6  | Verifier CI hook — `test/spec/runner.zig` calls `ir/verifier.verify` after lowering each function (carry-over from §9.5 / 5.5). | [x]            |
-| 6.7  | Phase-6 boundary `audit_scaffolding` pass.                                                                | [x]            |
-| 6.8  | Open §9.7 inline; flip phase tracker.                                                                     | [ ]            |
+| 6.4  | `bench/baseline_v1_regression.yaml` records interp-only wall-clock numbers as Phase-7+ comparison floor (spread + repeatability under noise; absolute speed irrelevant). | [x] 4f73288    |
+| 6.5  | A13 (v1 regression suite stays green) wired into the merge gate.                                          | [x] 0825794    |
+| 6.6  | Verifier CI hook — `test/spec/runner.zig` calls `ir/verifier.verify` after lowering each function (carry-over from §9.5 / 5.5). | [x] 9d029ef    |
+| 6.7  | Phase-6 boundary `audit_scaffolding` pass.                                                                | [x] ba2f8cb    |
+| 6.8  | Open §9.7 inline; flip phase tracker.                                                                     | [x]            |
 
 ### Phase 7 — JIT v1 ARM64 baseline
 
@@ -1421,6 +1421,22 @@ JIT.
 - `interp == jit_arm64` differential test 0 mismatch.
 
 **🔒 gate**: no (Linux is interpreter-only at this phase).
+
+#### §9.7 task list (expanded)
+
+| #    | Description                                                                                              | Status         |
+|------|----------------------------------------------------------------------------------------------------------|----------------|
+| 7.0  | `src/jit/reg_class.zig` — define GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special / simd_base_special classes (ROADMAP §4.2 / W54-class day-1 slot fill). | [ ]            |
+| 7.1  | `src/jit/regalloc.zig` — greedy-local allocator; `regalloc.verify(zir)` post-condition runs after every alloc. | [ ]            |
+| 7.2  | `src/jit_arm64/{inst,abi}.zig` — ARM64 instruction encoder + AAPCS64 calling convention layout.            | [ ]            |
+| 7.3  | `src/jit_arm64/emit.zig` — ZIR → ARM64 emit pass producing function bodies.                                | [ ]            |
+| 7.4  | spec test pass=fail=skip=0 via JIT on Mac aarch64 host (drives every Wasm 1.0 + 2.0 op the interp covers). | [ ]            |
+| 7.5  | 40+ realworld samples (out of 50) run via JIT — same fixtures as §9.6 / 6.1; trap categorisation reuses the run_runner buckets. | [ ]            |
+| 7.6  | `interp == jit_arm64` differential test: 0 mismatch over the spec testsuite + 40+ realworld samples (the §9.6 / 6.1 PASS bucket). | [ ]            |
+| 7.7  | Realworld stdout differential vs wasmtime: 30+ matches byte-for-byte (deferred-in from §9.6 / 6.2 per ADR-0010; uses the existing `test-realworld-diff` infrastructure). | [ ]            |
+| 7.8  | ClojureWasm guest end-to-end against zwasm v2 via `build.zig.zon` `path = ...` (deferred-in from §9.6 / 6.3 per ADR-0010). | [ ]            |
+| 7.9  | Phase-7 boundary `audit_scaffolding` pass.                                                                 | [ ]            |
+| 7.10 | Open §9.8 inline; flip phase tracker.                                                                      | [ ]            |
 
 ### Phase 8 — JIT v1 x86_64 baseline 🔒
 
