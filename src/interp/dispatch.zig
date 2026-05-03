@@ -94,7 +94,9 @@ pub fn run(
 const testing = std.testing;
 
 const StubHandlers = struct {
-    fn nop(_: *dispatch_table.InterpCtx, _: *const ZirInstr) anyerror!void {}
+    fn nop(_: *dispatch_table.InterpCtx, _: *const ZirInstr) anyerror!void {
+        // Test stub — intentionally empty.
+    }
 
     fn pushI32Const(opaque_ctx: *dispatch_table.InterpCtx, instr: *const ZirInstr) anyerror!void {
         const rt = Runtime.fromOpaque(opaque_ctx);

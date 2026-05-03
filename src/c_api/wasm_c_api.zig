@@ -359,7 +359,10 @@ fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
         .func => imp_func_count += 1,
         .global => imp_global_count += 1,
         .table => imp_table_count += 1,
-        else => {},
+        .memory => {
+            // Imported memories aren't counted by this loop —
+            // function/global/table tallies feed `func_types` sizing.
+        },
     };
 
     const func_types = alloc.alloc(zir.FuncType, imp_func_count + defined_func_indices.len) catch return false;
@@ -609,7 +612,7 @@ fn instantiateRuntime(
         var imp_idx: u32 = 0;
         for (imports_decoded.?.items) |it| {
             if (it.kind != .func) continue;
-            const thunk = wasi.lookupWasiThunk(it.name) orelse unreachable;
+            const thunk = wasi.lookupWasiThunk(it.name).?;
             host_calls[imp_idx] = .{ .fn_ptr = thunk, .ctx = host_ctx };
             imp_idx += 1;
         }

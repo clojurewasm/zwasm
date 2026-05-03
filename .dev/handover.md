@@ -157,9 +157,15 @@
   `_new` / `_copy` / `_delete`; `wasm_byte_vec_delete` moves
   here too). Out-of-band drop-in (mid-Phase 5): zlinter
   `no_deprecated` gate landed per **ADR-0009** — `zig build lint
-  -- --max-warnings 0` is now Mac-host pre-commit step 4. Fixed
-  two `std.meta.Int → @Int` call sites surfaced by the spike.
-  Phase B (additional rules) queued in
+  -- --max-warnings 0` is now Mac-host pre-commit step 4.
+  Phase B + C inspected and committed in the follow-up:
+  enabled `no_orelse_unreachable`, `no_empty_block`,
+  `require_exhaustive_enum_switch`, `no_unused` alongside
+  `no_deprecated` — 16 fixes across 9 files. Other inspected
+  rules (`no_hidden_allocations` / `no_inferred_error_unions` /
+  `no_undefined` / `no_swallow_error` / `function_naming` /
+  `field_naming` / `import_ordering` / `max_positional_args`)
+  are documented as not-adopted in
   `private/zlinter-builtins-survey-2026-05-03.md`.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).

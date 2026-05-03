@@ -210,11 +210,20 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_c_host.step);
     test_all_step.dependOn(&run_wasi_p1.step);
 
-    // SPIKE: zlinter no_deprecated rule.
-    const lint_step = b.step("lint", "Lint source code (no_deprecated only).");
+    // `zig build lint` — zlinter rule chain (ADR-0009 + Phase B
+    // expansion). See `private/zlinter-builtins-survey-2026-05-03.md`
+    // for per-rule rationale and the spike-time finding counts.
+    // Mac-host gate; not part of test-all (avoids fetching zlinter
+    // on the Linux/Windows runners). Run with `--max-warnings 0`
+    // for strict CI semantics.
+    const lint_step = b.step("lint", "Lint source code (zlinter).");
     lint_step.dependOn(blk: {
         var builder = zlinter.builder(b, .{});
         builder.addRule(.{ .builtin = .no_deprecated }, .{});
+        builder.addRule(.{ .builtin = .no_orelse_unreachable }, .{});
+        builder.addRule(.{ .builtin = .no_empty_block }, .{});
+        builder.addRule(.{ .builtin = .require_exhaustive_enum_switch }, .{});
+        builder.addRule(.{ .builtin = .no_unused }, .{});
         break :blk builder.build();
     });
 }

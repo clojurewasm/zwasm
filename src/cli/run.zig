@@ -99,11 +99,16 @@ pub fn runWasmCaptured(
     // the requested exit code. Other traps map to 1.
     // For non-exit traps, print the kind + message on stderr so
     // the CLI / `runWasm` callers can see what hit.
-    if (store.wasi_host) |host| if (host.exit_code) |_| {} else {
+    if (store.wasi_host) |host| if (host.exit_code) |_| {
+        // exit_code already carries the status; nothing else to surface.
+    } else {
         // Non-exit trap — surface the cause.
         var stderr_buf: [256]u8 = undefined;
         var sw = std.Io.File.stderr().writer(io, &stderr_buf);
         const w = &sw.interface;
+        // Best-effort stderr surface — if writing the trap report
+        // itself fails (closed pipe, OOM during print), we have
+        // nothing meaningful to do beyond the exit code below.
         if (trap.?.message_ptr) |p| {
             w.print("zwasm: trap kind={s} msg={s}\n", .{
                 @tagName(trap.?.kind),

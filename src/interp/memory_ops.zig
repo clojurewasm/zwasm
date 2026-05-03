@@ -67,15 +67,8 @@ pub fn register(table: *DispatchTable) void {
 
 const wasm_page_size: usize = 65536;
 
-fn effectiveAddr(rt: *Runtime, offset: u32, width: usize) Trap!usize {
-    const base = rt.popOperand().u32;
-    const ea: u64 = @as(u64, base) + @as(u64, offset);
-    if (ea + width > rt.memory.len) return Trap.OutOfBoundsLoad;
-    return @intCast(ea);
-}
-
 fn effectiveAddrStore(rt: *Runtime, offset: u32, width: usize) Trap!usize {
-    // Same shape as effectiveAddr but the trap kind says Store.
+    // Mirrors the inline addr math in `loadInt`; trap kind is Store here.
     const ea: u64 = @as(u64, rt.popOperand().u32) + @as(u64, offset);
     if (ea + width > rt.memory.len) return Trap.OutOfBoundsStore;
     return @intCast(ea);

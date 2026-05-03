@@ -67,9 +67,15 @@ test "DispatchTable: N_OPS matches ZirOp tag count" {
 
 test "DispatchTable: per-op slot can be set and read back" {
     const Stub = struct {
-        fn parse(_: *ParserCtx, _: *ZirInstr) anyerror!void {}
-        fn interp(_: *InterpCtx, _: *const ZirInstr) anyerror!void {}
-        fn emit(_: *EmitCtx, _: *const ZirInstr) anyerror!void {}
+        fn parse(_: *ParserCtx, _: *ZirInstr) anyerror!void {
+            // Test stub — intentionally empty.
+        }
+        fn interp(_: *InterpCtx, _: *const ZirInstr) anyerror!void {
+            // Test stub — intentionally empty.
+        }
+        fn emit(_: *EmitCtx, _: *const ZirInstr) anyerror!void {
+            // Test stub — intentionally empty.
+        }
     };
     var t = DispatchTable.init();
     const idx = @intFromEnum(ZirOp.@"i32.add");

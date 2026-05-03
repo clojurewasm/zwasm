@@ -90,7 +90,7 @@ const ControlFrame = struct {
     fn labelType(self: ControlFrame) BlockType {
         return switch (self.kind) {
             .loop => .empty,
-            else => self.block_type,
+            .block, .if_then, .else_open => self.block_type,
         };
     }
 

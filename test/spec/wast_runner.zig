@@ -44,7 +44,7 @@ pub fn main(init: std.process.Init) !void {
 
     var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
     defer arg_it.deinit();
-    _ = arg_it.next() orelse unreachable;
+    _ = arg_it.next().?;
     const corpus_root_arg = arg_it.next() orelse {
         try stdout.print("usage: wast_runner <corpus-root>\n", .{});
         try stdout.flush();

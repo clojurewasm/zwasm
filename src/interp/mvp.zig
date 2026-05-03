@@ -249,7 +249,9 @@ fn unreachableOp(_: *InterpCtx, _: *const ZirInstr) anyerror!void {
     return Trap.Unreachable;
 }
 
-fn nopOp(_: *InterpCtx, _: *const ZirInstr) anyerror!void {}
+fn nopOp(_: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    // Wasm `nop` — intentionally empty.
+}
 
 fn selectOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);

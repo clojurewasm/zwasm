@@ -19,7 +19,6 @@
 
 const std = @import("std");
 const wasm_c_api = @import("wasm_c_api.zig");
-const interp = @import("../interp/mod.zig");
 
 const testing = std.testing;
 

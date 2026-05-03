@@ -27,7 +27,7 @@ pub fn main(init: std.process.Init) !void {
 
     var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
     defer arg_it.deinit();
-    _ = arg_it.next() orelse unreachable;
+    _ = arg_it.next().?;
     const dir_arg = arg_it.next() orelse {
         try stdout.print("usage: wasi_runner <fixture-dir>\n", .{});
         try stdout.flush();
