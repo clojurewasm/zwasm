@@ -1,0 +1,51 @@
+# bench/baseline_v1_regression.yaml
+#
+# Per-fixture interp wall-clock baseline recorded for the
+# Phase-6 / §9.6 / 6.4 deliverable. Phase-7+ JIT runs compare
+# against this floor; A13 holds the regression suite green
+# from this point forward.
+#
+# Subset rationale: 5 of the 39 PASS-bucket realworld fixtures
+# the ones that runWasm carries to a stable u8 exit code
+# reproducibly. 35+ fixtures excluded as needs-Phase-6-follow-up
+# execution-coverage work (10 SKIP-VALIDATOR + 39 trap-mid-
+# execution; the 5 picked here are within the 39-trap subset
+# but produce stable wall-clock numbers because the trap site
+# is reproducible). Spread (stddev) and repeatability under
+# noise are what matter, not absolute speed (per ROADMAP §9.6
+# / 6.4 row text).
+#
+# Regen: bash scripts/record_baseline_v1_regression.sh
+
+- date: 2026-05-03T04:39:31Z
+  commit: ba2f8cb916c65c341f7b4011aea5302394126bc8
+  arch: aarch64-darwin
+  reason: "Initial Phase-6 / 6.4 interp wall-clock baseline"
+  runs: 5
+  warmup: 2
+  benches:
+    - name: c_integer_overflow
+      mean_ms: 10.91
+      stddev_ms: 1.29
+      min_ms: 9.30
+      max_ms: 12.40
+    - name: c_many_functions
+      mean_ms: 12.13
+      stddev_ms: 1.11
+      min_ms: 10.58
+      max_ms: 13.20
+    - name: c_control_flow
+      mean_ms: 11.42
+      stddev_ms: 1.39
+      min_ms: 9.16
+      max_ms: 12.64
+    - name: rust_compression
+      mean_ms: 24.10
+      stddev_ms: 12.83
+      min_ms: 16.51
+      max_ms: 46.82
+    - name: rust_enum_match
+      mean_ms: 15.95
+      stddev_ms: 1.13
+      min_ms: 14.33
+      max_ms: 17.41
