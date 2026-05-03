@@ -20,43 +20,40 @@
 - **Phase**: **Phase 5 IN-PROGRESS.** Phases 0–4 are `DONE` (all
   SHAs backfilled in §9.<N> task tables; `git log --grep="§9.<N>
   / N.M"` is the canonical lookup).
-- **Last commit**: `64447ce` — §9.5 / 5.2 land: validator + lowerer
-  test blocks carved to `*_tests.zig` siblings; both source files
-  drop out of §A2 soft-cap warn list (1426→939 / 1062→576).
-- **Next task**: §9.5 / 5.3 — `src/ir/loop_info.zig` (branch_targets,
-  loop_headers, loop_end computed for every fn).
+- **Last commit**: `ccbd91b` — §9.5 / 5.3 land: `src/ir/loop_info.zig`
+  analysis pass; `LoopInfo` slot fields filled (`loop_headers` +
+  `loop_end`).
+- **Next task**: §9.5 / 5.4 — `src/ir/liveness.zig` per-vreg live
+  ranges.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.5 / 5.3 (loop_info IR analysis)
+## Active task — §9.5 / 5.4 (per-vreg liveness analysis)
 
-`src/ir/loop_info.zig` adds the first IR-level analysis pass per
-ROADMAP §9.5. For every `ZirFunc` it computes:
+Adds `src/ir/liveness.zig` which computes per-vreg live ranges
+for every `ZirFunc`. Populates the `Liveness` slot reserved on
+`ZirFunc` since day-1 (per ROADMAP §4.2 / P13 / W54 lesson —
+"liveness is a `?Liveness` slot in `ZirFunc` from day 1").
 
-- `branch_targets: []u32` — each `br` / `br_if` / `br_table`
-  resolved to the absolute pc of its target instr (replacing the
-  current depth-walk in the dispatch loop).
-- `loop_headers: []u32` — instr indices of every `loop` open.
-- `loop_end: []u32` — instr index of each loop's `end` close.
-
-`ZirFunc` already carries a `branch_targets` slice (used by
-`br_table`); the §9.5 / 5.3 analysis fills it for the simple
-`br` / `br_if` cases too and surfaces the loop metadata for §9.5 /
-5.4 (liveness) consumption.
+Phase-5 scope is the analysis itself; consumers land later:
+- Phase-7 regalloc (`src/jit/`) reads live ranges to size live
+  intervals.
+- Phase-15 `const_prop` cross-references liveness to prove value
+  freshness.
 
 Plan:
 
-1. Survey existing branch-target handling in `interp/mvp.zig`
-   `doBranch` + `frame.popLabel` to identify the depth-walk that
-   the new analysis will short-circuit.
-2. Add the analysis fn (`computeLoopInfo`) under `src/ir/`; tests
-   alongside.
-3. Wire it into the lowerer / instantiation path so populated
-   `branch_targets` reaches `dispatch.run`.
-4. Three-host `zig build test-all` per usual.
+1. Audit how the interp's operand-stack model maps to "vreg"
+   identity. The MVP interp uses a stack-machine; ZIR ops are
+   stack-typed too. Liveness in this model is per stack slot
+   per program point — i.e. each push starts a range, each pop
+   closes it. Define the data shape on that basis.
+2. Add `Liveness` fields + `compute(allocator, *const ZirFunc)`
+   in `src/ir/liveness.zig` + tests.
+3. Three-host `zig build test-all`.
 
-Remaining §9.5 rows after 5.3: 5.4 `liveness`, 5.5 `verifier`,
-5.6 `const_prop`, 5.7 phase-boundary audit, 5.8 phase tracker.
+Remaining §9.5 rows after 5.4: 5.5 `verifier`, 5.6 `const_prop`,
+5.7 phase-boundary audit, 5.8 phase tracker.
 
 Queued for §9.5 / 5.7 (Phase-5 audit): re-evaluate
 `no_hidden_allocations` zlinter rule for the now-split c_api +
