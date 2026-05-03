@@ -20,47 +20,49 @@
 - **Phase**: **Phase 5 IN-PROGRESS.** Phases 0–4 are `DONE` (all
   SHAs backfilled in §9.<N> task tables; `git log --grep="§9.<N>
   / N.M"` is the canonical lookup).
-- **Last commit**: `98e015a` — chunk c land: vec family carved out
-  to `src/c_api/vec.zig`; `wasm_c_api.zig` 1742→1559 lines.
-- **Next task**: §9.5 / 5.0 chunk d — `src/c_api/instance.zig`
-  carve-out (see Active task table below).
+- **Last commit**: `2b26a07` — §9.5 / 5.0 chunk d land: Engine /
+  Store / Module / Instance / Func / Extern carved to
+  `src/c_api/instance.zig`; `wasm_c_api.zig` 1559→159 (pure
+  re-export hub). Chunk e is naturally absorbed.
+- **Next task**: §9.5 / 5.1 — split `src/interp/mvp.zig` into
+  int_ops / float_ops / conversions modules (see Active task).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.5 / 5.0 (split src/c_api/wasm_c_api.zig per ADR-0007)
+## Active task — §9.5 / 5.1 (split src/interp/mvp.zig)
 
-`wasm_c_api.zig` is at **1559 lines** (well inside §A2's 2000-
-line hard cap; ADR-0007 carve-out continues for the soft-cap and
-discoverability target). Carve-out progress:
+`src/interp/mvp.zig` is at **1977 lines** (against §A2's 2000-line
+hard cap — closest single file to the cap; soft-cap warning
+already raised by `file_size_check.sh`). Per ROADMAP §9.5 the
+target split is three sibling modules:
 
-| Chunk | Target file                  | Status                                                                                                                                                                |
-|-------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| a     | `src/c_api/wasi.zig`         | DONE `2dd29cc` (16 WASI thunks + `lookupWasiThunk` + `zwasm_wasi_config_*`)                                                                                           |
-| b     | `src/c_api/trap_surface.zig` | DONE `d894787` (`Trap` / `TrapKind` / `mapInterpTrap` / `wasm_trap_*`)                                                                                                |
-| c     | `src/c_api/vec.zig`          | DONE `98e015a` (`ByteVec` / `ValVec` / `ExternVec` + `WASM_DECLARE_VEC` family + byte/val full set + extern_vec `_new_empty` / `_new_uninitialized` / `_new`)         |
-| **d** | `src/c_api/instance.zig`     | **NEXT** (~650 lines: Engine / Store / Module / Instance / Func / Extern, `instantiateRuntime`, `*_new` / `*_delete`, `wasm_func_call`, `wasm_instance_exports`, also takes `wasm_extern_vec_delete`) |
-| e     | `wasm_c_api.zig`             | shrinks to ~600 lines: re-exports + module docs; keeps name-points stable                                                                                             |
+| File                              | Scope                                                       |
+|-----------------------------------|-------------------------------------------------------------|
+| `src/interp/mvp_int.zig`          | i32 / i64 ALU + bit ops + integer compare                   |
+| `src/interp/mvp_float.zig`        | f32 / f64 arithmetic + compare + min/max + neg/abs/copysign |
+| `src/interp/mvp_conversions.zig`  | trunc / convert / promote / demote / reinterpret            |
+| `src/interp/mvp.zig` (residual)   | nop / unreachable / drop / select / control + `register()` shell that calls into each split module's own `register()` |
 
-Plan (per remaining chunk):
+Plan:
 
-1. Move the chunk's block out; tests follow the code under test.
-2. After each move: `zig build test` (Mac) + `zig build lint
-   -- --max-warnings 0` (Mac, ADR-0009 gate). Retain three-host
-   `test-all` at the end of the full carve-out.
-3. `pub export fn` declarations stay (just relocated); C linker
-   symbols are unchanged.
-4. Per-chunk push is the established pattern (see `2dd29cc`,
-   `d894787`).
+1. Read `src/interp/mvp.zig` to map handlers to the three target
+   buckets (most are pure data).
+2. Move handlers + their tests out; each split module owns its
+   own `pub fn register(table: *DispatchTable) void` that the
+   shell `mvp.register` calls in sequence.
+3. Three-host `test-all` after the split lands; the dispatch
+   table-driven design (ROADMAP §A12) makes this verifiable
+   purely via the existing spec corpus.
 
-Watch: cross-file imports may cycle if e.g. `instance.zig` imports
-`trap_surface` (for `allocTrap`) and `trap_surface` imports
-`instance` (for the Store back-pointer in Trap). Resolve by
-threading the dependency one-way.
+After 5.1 lands: §9.5 / 5.2 — `validator.zig` + `lowerer.zig`
+carve toward §A2 soft cap (per phase-2 audit follow-up).
+Other §9.5 rows: 5.3 `loop_info`, 5.4 `liveness`, 5.5 `verifier`,
+5.6 `const_prop`, 5.7 phase-boundary audit, 5.8 phase tracker.
 
-After 5.0 lands, also: re-evaluate `no_hidden_allocations` zlinter
-rule for the carved files (deferred per ADR-0009 — the rule was
-not adopted in Phase B because all 13 hits were in the monolithic
-`wasm_c_api.zig`; per-zone exclusion becomes clean once split).
+Re-evaluate `no_hidden_allocations` zlinter rule for the now-split
+c_api modules (deferred per ADR-0009 — all 13 hits were in the
+monolithic `wasm_c_api.zig`; per-zone exclusion becomes clean now
+that it's split). Queue alongside §9.5 / 5.7 (Phase-5 audit).
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
