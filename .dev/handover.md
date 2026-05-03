@@ -18,14 +18,13 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 10,
+- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 11,
   6.F〜6.J pending).
-- **Last commit**: `a5d9023` — chore(p6) §9.6 / 6.E iter 9.
-  Iter 10 was a research iter (no source commit): diagnostic
-  trace narrowed the realworld underflow to one fixture
-  (`c_bitwise_ops.wasm`) at a single `i32.store` after a
-  returning call. See "outstanding spec gaps" below for the
-  ring-buffer sketch.
+- **Last commit**: `7b26760` — fix(p6) §9.6 / 6.E iter 11 split
+  Label arity (br vs end), wire defined globals. Three-host
+  green. The underflow's true cause was `loopOp` hardcoding
+  `arity=0` for both end and br paths (`tinygo_fib`'s
+  `loop (result i32)`); not c_bitwise_ops as iter 10 reported.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — drive Phase 6 to strict close (6.E → 6.F → … → 6.J; 100% PASS per ROADMAP §9.6 / 6.J)
@@ -34,11 +33,10 @@
 6.G / 6.H once 6.E unlocks them, with 6.I in parallel, terminating
 at 6.J Phase 6 close gate.
 
-### 6.E iter 11+ targets (current)
+### 6.E iter 12+ targets (current)
 
 `test-wasmtime-misc-runtime` standalone gate: **242 passed / 29
-failed** (78 → 65 → 45 → 41 → 39 → 30 → 29; iter 10 no commit).
-Clusters:
+failed** (78 → 65 → 45 → 41 → 39 → 30 → 29). Clusters:
 - 18 `invoke ExportNotFound` — table_copy_on_imported_tables
   modules 1/2 hit `UnsupportedCrossModuleTableImport`, current
   stays at module 0 which lacks `call_t`/`call_u`/`call_t_2`/
@@ -166,7 +164,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 ```
 6.A ✅  6.B ✅  6.C ✅  6.D ✅
  │
- ├─→ 6.E ⏳ (iter 10 done; iter 11+ → /continue continues)
+ ├─→ 6.E ⏳ (iter 11 done; iter 12+ → /continue continues)
  │    └─→ {6.F, 6.G, 6.H} → 6.J → §9.7 ADR-0015 drafting
  │
  └─→ 6.I (parallel)  ─→ 6.J
@@ -181,21 +179,6 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 - 39 trap-mid-execution realworld fixtures — 6.E target
 - 10 SKIP-VALIDATOR realworld fixtures
 - 29 wasmtime_misc runtime-runner failures (categorised above)
-- pre-existing operand-stack underflow when globals are wired:
-  iter 10 narrowed it down — only ONE realworld fixture
-  (`c_bitwise_ops.wasm`) underflows, exactly once, at an
-  `i32.store` immediately after a returning `call` that left
-  one fewer value on the stack than the caller's body expected.
-  Diagnostic trace captured the ring-buffer of dispatched ops
-  around the underflow and pointed at a `local.tee`/`i32.store`
-  pair after a function-level `end`. With graceful pop-on-empty
-  (returning zero), the wasm continues and exits cleanly with
-  exit=0 — it isn't a hot bug, but it IS a real stack-discipline
-  mismatch we don't yet explain. Pre-existing (not caused by
-  globals; globals just unmask it). Likely candidates: our
-  `loop`/`br`-target arity handling, `return`'s stack collapse,
-  or the lowerer placing instructions at wrong PCs for some
-  emcc-specific pattern. Queued for the next iter.
 
 ## Open questions / blockers
 
