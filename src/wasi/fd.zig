@@ -306,8 +306,8 @@ fn mapOpenError(err: anyerror) p1.Errno {
 ///   `notcapable`. The kernel-side `openat` would also block
 ///   most escapes, but the explicit pre-check is part of the
 ///   WASI security contract.
-/// - Open is delegated to `std.fs.Dir{.fd = slot.host_handle}
-///   .openFile`. Errors map through `mapOpenError`.
+/// - Open is delegated to `std.Io.Dir{.fd = slot.host_handle}
+///   .openFile(io, ...)`. Errors map through `mapOpenError`.
 ///
 /// On success, a new `.file` slot is appended to
 /// `host.fd_table`; the new guest fd is written to

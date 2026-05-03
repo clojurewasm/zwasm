@@ -59,7 +59,7 @@ pub fn build(b: *std.Build) void {
     // `zig build test` — unit tests inline in src/.
     //
     // Zig's `b.addTest` injects `std.testing.allocator` (a
-    // leak-detecting `std.heap.GeneralPurposeAllocator`-backed
+    // leak-detecting `std.heap.DebugAllocator`-backed
     // allocator) into every test. Any allocation that escapes a
     // test without a matching free prints `error(gpa): memory
     // address ... leaked` and fails the run. So `zig build test`

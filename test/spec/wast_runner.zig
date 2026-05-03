@@ -102,7 +102,7 @@ fn runCorpus(
     while (line_it.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \r\t");
         if (line.len == 0) continue;
-        const sp = std.mem.indexOfScalar(u8, line, ' ') orelse {
+        const sp = std.mem.findScalar(u8, line, ' ') orelse {
             try stdout.print("FAIL  {s}: bad manifest line '{s}'\n", .{ name, line });
             failed.* += 1;
             continue;
