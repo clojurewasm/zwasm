@@ -18,52 +18,59 @@
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
-  ADR-0008 🔒). Phase 5 closed; Phases 0–5 `DONE` with all §9.<N>
-  SHAs backfilled.
-- **Last commit**: `15e2c82` — §9.5 / 5.7 [x] + handover retarget
-  at 5.8 (phase-5 close). 5.8 itself lands in this iteration's
-  ROADMAP-edit commit (Phase Status widget advance + §9.5 SHA
-  backfill + §9.6 task table opened inline).
-- **Next task**: §9.6 / 6.0 — vendor v1 regression tests into
-  `test/v1_carry_over/` + add `zig build test-v1-carry-over`.
+  ADR-0008 🔒).
+- **Last commit**: `2a66d6a` — §9.6 / 6.0 land: `test/v1_carry_over/`
+  vendored (4 NAMES, 12 valid modules, all hosts green) + new
+  `test-v1-carry-over` build step wired into `test-all`.
+- **Next task**: §9.6 / 6.1 — realworld coverage (all 50 vendored
+  samples run to completion under v2 interp on Mac + Linux; no
+  `Errno.unreachable_` traps).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.6 / 6.0 (vendor v1 carry-over regression tests)
+## Active task — §9.6 / 6.1 (realworld run-to-completion coverage)
 
-Per ROADMAP §9.6 exit criterion #1: stand up the carry-over
-regression suite that the v1 codebase passes but isn't covered
-by the upstream spec testsuite, so v2 inherits every regression
-v1 fixed.
+Per §9.6 exit criterion: every one of the 50 vendored realworld
+.wasm fixtures must run to completion under v2 interp on Mac +
+Linux; no `Errno.unreachable_` traps from missing ops.
+
+Today's `test/realworld/runner.zig` is parse-smoke only (Phase-2
+artefact) — it loads each fixture and checks parse + section
+decode. 6.1 extends it (or adds a sibling) to actually
+instantiate + invoke each fixture's `_start` / `main` until it
+exits cleanly OR the runtime traps with a *non-unreachable*
+condition (those are spec-conformant traps, not validator gaps).
 
 Plan:
 
-1. Survey v1's regression tests: `~/Documents/MyProducts/zwasm/`
-   tree (read-only reference clone). Likely under `test/` or
-   `tests/`. Identify which tests duplicate spec coverage (skip)
-   vs add unique coverage (vendor).
-2. Vendor unique tests into `test/v1_carry_over/<name>.wast` (or
-   `.wasm` + expected stdout per `wasmtime run`).
-3. Add `zig build test-v1-carry-over` step in `build.zig`,
-   modelled on `test-spec`. Three-host gate.
-4. Add to `test-all` aggregate.
-5. Three-host `zig build test-all` per usual.
+1. Survey `test/realworld/wasm/` to confirm the 50-fixture set
+   (`ls test/realworld/wasm/ | wc -l`).
+2. Extend `test/realworld/runner.zig` (or add a runner sibling)
+   to instantiate via `wasm_module_new` / `wasm_instance_new` /
+   `wasm_func_call`. Skip fixtures that need WASI host wiring
+   beyond the §9.4 surface; surface those as "needs WASI
+   extension" in the runner output.
+3. Three-host `zig build test-realworld` (or new step) — must
+   show 50/50 run-to-completion on Mac + Linux.
+4. Wire any new step into `test-all`.
 
-Phase-6 follow-up tasks (already enumerated in §9.6 task table):
-6.1 realworld coverage / 6.2 differential gate / 6.3 ClojureWasm
-/ 6.4 bench baseline / 6.5 A13 merge gate / 6.6 verifier CI hook
-/ 6.7 boundary audit / 6.8 phase tracker.
+Phase-6 follow-ups in order: 6.2 differential gate (30+ samples
+match `wasmtime run` byte-for-byte) / 6.3 ClojureWasm guest
+end-to-end / 6.4 bench baseline / 6.5 A13 merge gate / 6.6
+verifier CI hook / 6.7 boundary audit / 6.8 phase tracker.
 
-Carry-overs from §9.5 (queued for Phase-6+ as consumer pressure
-builds):
-- `no_hidden_allocations` zlinter re-evaluation (ADR-0009 follow-
-  up; per-zone exclusion clean post-split).
-- Per-feature handler split for validator.zig (paired with
-  §9.1 / 1.7 dispatch-table migration per §A12).
+Carry-overs from §9.5 still queued (no consumer yet):
+- `no_hidden_allocations` zlinter re-evaluation (ADR-0009).
+- Per-feature handler split for validator.zig (with §9.1 / 1.7).
 - Liveness control-flow + memory-op coverage (Phase-7 regalloc).
-- Const-prop per-block analysis past first non-foldable op
-  (Phase-15 hoisting).
+- Const-prop per-block analysis (Phase-15 hoisting).
 - `src/frontend/sections.zig` (1073 lines) soft-cap split.
+
+Carry-over surfaced by §9.6 / 6.0:
+- `br-table-fuzzbug` v1 regression — needs multi-param `loop`
+  block validator support (Phase-2 chunk-3b carry-over already
+  queued; absorbed by Phase 6 per ADR-0008). Re-add to
+  `regen_v1_carry_over.sh` NAMES once the gap closes.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
