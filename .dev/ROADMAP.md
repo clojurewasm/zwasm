@@ -1426,6 +1426,7 @@ exception class and its documentation requirement).
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel; per ADR-0014 §2.1).                                                      | [ ]            |
 | 6.K.5 | Label arity formalisation + `.claude/rules/single_slot_dual_meaning.md` + §14 anti-pattern entry (parallel; per ADR-0014 §2.1). | [ ]            |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1〜6.K.3 (per ADR-0014 §2.1).                       | [ ]            |
+| 6.K.7 | Land `-Dsanitize=address` build option + `zig build run-repro -Dtask=<name>` step (per ADR-0015 §Decision Part 2 + Part 4). Mac + OrbStack only; Windows skip per ASan-ucrt gap. Parallel-eligible with 6.K.3〜6.K.6. | [ ]            |
 | 6.E  | Fix root cause of 39 trap-mid-execution realworld fixtures via 6.A's per-instr trace; move from trap-bucket to completion-bucket. **Re-measures after 6.K all-`[x]`** — the 28 misc-runtime fails this row's iter sequence accumulated all resolve through 6.K. | [ ] (paused on 6.K) |
 | 6.F  | `test-realworld-diff` 30+ byte-for-byte matches against wasmtime (original §9.6 / 6.2 strict close); re-add to `test-all`. | [ ]            |
 | 6.G  | ClojureWasm guest end-to-end via `build.zig.zon` `path = ...` (original §9.6 / 6.3 strict close).        | [ ]            |

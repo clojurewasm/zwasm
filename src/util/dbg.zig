@@ -66,8 +66,19 @@ fn initWhitelist() void {
     // entries. Since this is a debug-only path the cost is
     // immaterial.
     if (whitelist_initialised) return;
-    // Zig 0.16 dropped `std.posix.getenv`; the canonical "no
-    // allocator" lookup is `std.c.getenv`. Returns `?[*:0]u8`.
+    // TODO(adr-0015): remove the std.c.getenv dependency once Zig
+    // stdlib re-exposes a libc-free env-read suitable for a no-
+    // allocator init path. Today's options:
+    //   * std.posix.getenv         — removed in Zig 0.16 (was the
+    //                                canonical no-allocator path).
+    //   * std.process.getEnvVarOwned — needs an Allocator we don't
+    //                                  have here.
+    //   * std.process.Init.environ_map — only available via the
+    //                                    Juicy Main entrypoint.
+    // Until one of those becomes accessible from a leaf utility,
+    // dbg.zig is callable only from libc-linked compilation units
+    // (c_api binding + test runners — see ADR-0015 §1 "libc
+    // requirement" + Negative consequences).
     const raw = std.c.getenv("ZWASM_DEBUG");
     const value: []const u8 = if (raw) |p| std.mem.span(p) else "";
     if (std.mem.eql(u8, value, "*")) {
