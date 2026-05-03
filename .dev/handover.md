@@ -19,56 +19,57 @@
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
   ADR-0008 🔒).
-- **Last commit**: `581bae0` — §9.6 / 6.2 chunk a: `diff_runner`
-  + `test-realworld-diff` step landed; **gate not yet achievable**
-  (0 matched / 39 mismatched today — v2 traps mid-execution
-  before fd_write). Not wired into `test-all` to keep build
-  green; run explicitly when working on closing the gap.
-- **Next task**: §9.6 / 6.6 — verifier CI hook (deferred from
-  5.5; independent of the execution-coverage blocker holding
-  6.2–6.5).
+- **Last commit**: `9d029ef` — §9.6 / 6.6 land: verifier CI hook
+  in `c_api/instance.zig:instantiateRuntime`; every lowered
+  function now runs `loop_info` + `verifier.verify` before
+  reaching dispatch. All three hosts green.
+- **Next task**: §9.6 / 6.5 — A13 (v1 regression suite stays
+  green) merge gate. Doable today since 6.0 + 6.1 + 6.6 are all
+  in test-all and gating; need to add the merge-gate doc /
+  scripting layer.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.6 / 6.6 (verifier CI hook)
+## Active task — §9.6 / 6.5 (A13 merge gate)
 
-Wires `src/ir/verifier.verify` into the spec-runner so every
-function lowered during a `zig build test-spec` / `test-spec-
-wasm-2.0` / `test-realworld-run` invocation is checked against
-the §9.5 / 5.5 invariants (loop_info / liveness / branch_targets).
-Catches W54-class regressions in any analysis pass populated on
-ZirFunc.
+ROADMAP §A13 says the v1 regression suite stays green at every
+merge. v2's equivalent of the v1 suite is what currently rides
+in `test-all`:
+
+- `test` — unit tests (1700+ tests across src/)
+- `test-spec` — Wasm 1.0 curated corpus
+- `test-spec-wasm-2.0` — Wasm 2.0 manifest-driven corpus
+- `test-realworld` — 50-fixture parse-smoke
+- `test-realworld-run` — 50-fixture instantiate + invoke
+- `test-v1-carry-over` — vendored v1 regression bundle
+- `test-c-api` — c-host integration
+- `test-wasi-p1` — WASI fixtures
+
+A13's meta-gate is: every PR merge to `zwasm-from-scratch` must
+pass `zig build test-all` on Mac aarch64 + OrbStack Ubuntu
+x86_64 + windowsmini SSH. The `continue` skill's per-task TDD
+loop already enforces this for autonomous commits; documenting
+it as the policy formalises it.
 
 Plan:
 
-1. Locate the per-function lowering site in
-   `test/spec/runner.zig` and `test/spec/wast_runner.zig` (and
-   the realworld run runner via cli_run path).
-2. After lowering, populate `loop_info` (cheap; analysis already
-   exists) AND call `verifier.verify(&func)`. On error, print
-   the failed invariant + fixture name; exit non-zero.
-3. Liveness + const_prop are NOT populated by default (their
-   analyses can fail on control-flow modules per their
-   "out-of-scope" note); only `loop_info` is universally safe to
-   populate so the verifier has something to check.
-4. Three-host `zig build test-all` per usual.
+1. Document the A13 gate in ROADMAP §A13 (verify it's already
+   there — it is; was authored Phase 0).
+2. Add a `MERGE_GATE.md` (or extend `CLAUDE.md`) noting that
+   any merge to `zwasm-from-scratch` must run `test-all` on
+   three hosts, with the "Mandatory pre-commit checks" section
+   in CLAUDE.md being the per-commit equivalent.
+3. Three-host `test-all` confirms.
 
-Phase-6 outstanding (blocked on v2 execution coverage — none of
-these can honestly close until v2 runs realworld fixtures
-cleanly enough for stdout to match wasmtime):
+Phase-6 outstanding (blocked on v2 execution coverage):
 
-| #   | Description                                              | Blocker            |
-|-----|----------------------------------------------------------|--------------------|
-| 6.2 | wasmtime stdout differential (30+ matches)               | v2 trap mid-exec   |
-| 6.3 | ClojureWasm guest end-to-end                             | same as 6.2        |
-| 6.4 | `bench/baseline_v1_regression.yaml` interp wall-clock    | needs cleanly-running fixtures |
-| 6.5 | A13 (v1 regression suite stays green) merge gate         | meta-gate over 6.0 + 6.1 (both done) — possibly closeable |
-
-Per the carry-over queue in handover, the validator + dispatch
-gaps surfaced by 6.1 chunk b (10 SKIP-VALIDATOR fixtures, plus
-the trap-mid-exec on the other 39) are real Phase-6 refinement
-work but no single fix unblocks the gate. The §9.6 / 6.7 boundary
-audit will reassess once 6.6 lands.
+| #   | Description                                            | Blocker            |
+|-----|--------------------------------------------------------|--------------------|
+| 6.2 | wasmtime stdout differential (30+ matches)             | v2 trap mid-exec   |
+| 6.3 | ClojureWasm guest end-to-end                           | same as 6.2        |
+| 6.4 | `bench/baseline_v1_regression.yaml` interp wall-clock  | needs cleanly-running fixtures |
+| 6.7 | Phase-6 boundary audit                                 | unblocked          |
+| 6.8 | Open §9.7 inline; flip phase tracker                   | depends on 6.2-4   |
 
 Carry-overs from §9.5:
 - `no_hidden_allocations` zlinter re-evaluation (ADR-0009).
@@ -79,7 +80,7 @@ Carry-overs from §9.5:
 
 Carry-overs from Phase 6:
 - `br-table-fuzzbug` v1 regression — multi-param `loop` block
-  validator gap (re-add to NAMES when gap closes).
+  validator gap.
 - 10 realworld SKIP-VALIDATOR fixtures (Go + cpp_unique_ptr).
 - 39 realworld trap-mid-execution fixtures — root cause TBD.
 
