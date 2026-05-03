@@ -232,36 +232,30 @@ paths come from `std.fs.File.handle` etc.
 
 ## Active task — §9.5 / 5.0 (split src/c_api/wasm_c_api.zig per ADR-0007)
 
-The c_api file is at 2092 lines, over §A2's 2000-line hard cap.
-ADR-0007 specifies the carve-out into 5 files:
+`wasm_c_api.zig` started at 2092 lines (over §A2's 2000-line hard
+cap). After chunks a + b it is **1739 lines** (already inside the
+hard cap; ADR-0007 carve-out continues for the soft-cap and
+discoverability target). Carve-out progress:
 
-  src/c_api/
-    wasm_c_api.zig          ~600 lines  re-exports + module docs;
-                                        keeps name-points stable
-    trap_surface.zig        ~250 lines  Trap, TrapKind,
-                                        mapInterpTrap, allocTrap,
-                                        wasm_trap_*, wasm_byte_vec_delete
-    vec.zig                 ~350 lines  ByteVec / ValVec / ExternVec
-                                        + WASM_DECLARE_VEC family
-    instance.zig            ~650 lines  Engine / Store / Module /
-                                        Instance / Func / Extern,
-                                        instantiateRuntime, *_new /
-                                        *_delete, wasm_func_call,
-                                        wasm_instance_exports
-    wasi.zig                ~300 lines  zwasm_wasi_config_*, the
-                                        16 thunks, lookupWasiThunk
+| Chunk | Target file                  | Status                                                                                                                                                                                          |
+|-------|------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| a     | `src/c_api/wasi.zig`         | DONE `2dd29cc` (16 WASI thunks + `lookupWasiThunk` + `zwasm_wasi_config_*`)                                                                                                                     |
+| b     | `src/c_api/trap_surface.zig` | DONE `d894787` (`Trap` / `TrapKind` / `mapInterpTrap` / `wasm_trap_*`)                                                                                                                          |
+| **c** | `src/c_api/vec.zig`          | **NEXT** (~350 lines: `ByteVec` / `ValVec` / `ExternVec` shapes + `WASM_DECLARE_VEC` family `_new_empty` / `_new_uninit` / `_new` / `_copy` / `_delete`; `wasm_byte_vec_delete` moves here too) |
+| d     | `src/c_api/instance.zig`     | TODO (~650 lines: Engine / Store / Module / Instance / Func / Extern, `instantiateRuntime`, `*_new` / `*_delete`, `wasm_func_call`, `wasm_instance_exports`)                                    |
+| e     | `wasm_c_api.zig`             | shrinks to ~600 lines: re-exports + module docs; keeps name-points stable                                                                                                                       |
 
-Plan:
+Plan (per remaining chunk):
 
-1. Move blocks one carve-out at a time (smallest blast radius
-   first — trap_surface, then vec, then wasi, then instance,
-   then leave wasm_c_api as the re-export shell).
-2. After each move: zig build test (Mac) + retain three-host
-   gate at the end.
-3. Each carve-out: tests follow the code under test.
-4. `pub export fn` declarations stay (just relocated); C linker
+1. Move the chunk's block out; tests follow the code under test.
+2. After each move: `zig build test` (Mac) + `zig build lint
+   -- --max-warnings 0` (Mac, ADR-0009 gate). Retain three-host
+   `test-all` at the end of the full carve-out.
+3. `pub export fn` declarations stay (just relocated); C linker
    symbols are unchanged.
-5. Single push at the end with all 5 files in place.
+4. Single push when all five files settle (or per-chunk push if
+   the autonomous /continue loop chooses; per-chunk pushes are
+   already the established pattern, see `2dd29cc` and `d894787`).
 
 Watch: cross-file imports may cycle if e.g. instance.zig
 imports trap_surface (for allocTrap) and trap_surface imports
