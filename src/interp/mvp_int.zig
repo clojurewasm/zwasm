@@ -156,13 +156,15 @@ fn i32Popcnt(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
 
 // --- i32 binops ---
 
-fn popI32Pair(rt: *Runtime) struct { a: i32, b: i32 } {
+fn popI32Pair(rt: *Runtime) Trap!struct { a: i32, b: i32 } {
+    if (rt.operand_len < 2) return Trap.Unreachable;
     const b = rt.popOperand().i32;
     const a = rt.popOperand().i32;
     return .{ .a = a, .b = b };
 }
 
-fn popU32Pair(rt: *Runtime) struct { a: u32, b: u32 } {
+fn popU32Pair(rt: *Runtime) Trap!struct { a: u32, b: u32 } {
+    if (rt.operand_len < 2) return Trap.Unreachable;
     const b = rt.popOperand().u32;
     const a = rt.popOperand().u32;
     return .{ .a = a, .b = b };
@@ -170,25 +172,25 @@ fn popU32Pair(rt: *Runtime) struct { a: u32, b: u32 } {
 
 fn i32Add(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     try rt.pushOperand(.{ .i32 = p.a +% p.b });
 }
 
 fn i32Sub(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     try rt.pushOperand(.{ .i32 = p.a -% p.b });
 }
 
 fn i32Mul(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     try rt.pushOperand(.{ .i32 = p.a *% p.b });
 }
 
 fn i32DivS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     if (p.b == 0) return Trap.DivByZero;
     if (p.a == std.math.minInt(i32) and p.b == -1) return Trap.IntOverflow;
     try rt.pushOperand(.{ .i32 = @divTrunc(p.a, p.b) });
@@ -196,14 +198,14 @@ fn i32DivS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
 
 fn i32DivU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     if (p.b == 0) return Trap.DivByZero;
     try rt.pushOperand(.{ .u32 = p.a / p.b });
 }
 
 fn i32RemS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     if (p.b == 0) return Trap.DivByZero;
     // INT_MIN % -1 = 0 in Wasm; @rem would overflow.
     if (p.a == std.math.minInt(i32) and p.b == -1) {
@@ -215,60 +217,60 @@ fn i32RemS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
 
 fn i32RemU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     if (p.b == 0) return Trap.DivByZero;
     try rt.pushOperand(.{ .u32 = p.a % p.b });
 }
 
 fn i32And(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     try rt.pushOperand(.{ .u32 = p.a & p.b });
 }
 
 fn i32Or(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     try rt.pushOperand(.{ .u32 = p.a | p.b });
 }
 
 fn i32Xor(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     try rt.pushOperand(.{ .u32 = p.a ^ p.b });
 }
 
 fn i32Shl(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     const sh: u5 = @intCast(p.b & 31);
     try rt.pushOperand(.{ .u32 = p.a << sh });
 }
 
 fn i32ShrS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     const sh: u5 = @intCast(@as(u32, @bitCast(p.b)) & 31);
     try rt.pushOperand(.{ .i32 = p.a >> sh });
 }
 
 fn i32ShrU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     const sh: u5 = @intCast(p.b & 31);
     try rt.pushOperand(.{ .u32 = p.a >> sh });
 }
 
 fn i32Rotl(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     const sh: u5 = @intCast(p.b & 31);
     try rt.pushOperand(.{ .u32 = std.math.rotl(u32, p.a, sh) });
 }
 
 fn i32Rotr(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     const sh: u5 = @intCast(p.b & 31);
     try rt.pushOperand(.{ .u32 = std.math.rotr(u32, p.a, sh) });
 }
@@ -281,52 +283,52 @@ inline fn pushBool(rt: *Runtime, b: bool) anyerror!void {
 
 fn i32Eq(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     try pushBool(rt, p.a == p.b);
 }
 fn i32Ne(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     try pushBool(rt, p.a != p.b);
 }
 fn i32LtS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     try pushBool(rt, p.a < p.b);
 }
 fn i32LtU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     try pushBool(rt, p.a < p.b);
 }
 fn i32GtS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     try pushBool(rt, p.a > p.b);
 }
 fn i32GtU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     try pushBool(rt, p.a > p.b);
 }
 fn i32LeS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     try pushBool(rt, p.a <= p.b);
 }
 fn i32LeU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     try pushBool(rt, p.a <= p.b);
 }
 fn i32GeS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popI32Pair(rt);
+    const p = try popI32Pair(rt);
     try pushBool(rt, p.a >= p.b);
 }
 fn i32GeU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
-    const p = popU32Pair(rt);
+    const p = try popU32Pair(rt);
     try pushBool(rt, p.a >= p.b);
 }
 

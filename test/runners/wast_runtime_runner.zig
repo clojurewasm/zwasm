@@ -793,11 +793,24 @@ fn parseValue(text: []const u8) !wasm_c_api.Val {
     const num = text[colon + 1 ..];
 
     if (std.mem.eql(u8, ty, "i32")) {
-        const v = std.fmt.parseInt(i32, num, 0) catch return error.BadI32;
-        return .{ .kind = .i32, .of = .{ .i32 = v } };
+        // Wasm i32 values are bit-patterns; wast2json may emit
+        // them as either signed (negative) or unsigned (large
+        // positive). Try i32 first, then u32 + bitcast.
+        if (std.fmt.parseInt(i32, num, 0)) |v| {
+            return .{ .kind = .i32, .of = .{ .i32 = v } };
+        } else |_| {
+            // Fall through to the unsigned-bit-pattern attempt below.
+        }
+        const u = std.fmt.parseInt(u32, num, 0) catch return error.BadI32;
+        return .{ .kind = .i32, .of = .{ .i32 = @bitCast(u) } };
     } else if (std.mem.eql(u8, ty, "i64")) {
-        const v = std.fmt.parseInt(i64, num, 0) catch return error.BadI64;
-        return .{ .kind = .i64, .of = .{ .i64 = v } };
+        if (std.fmt.parseInt(i64, num, 0)) |v| {
+            return .{ .kind = .i64, .of = .{ .i64 = v } };
+        } else |_| {
+            // Fall through to the unsigned-bit-pattern attempt below.
+        }
+        const u = std.fmt.parseInt(u64, num, 0) catch return error.BadI64;
+        return .{ .kind = .i64, .of = .{ .i64 = @bitCast(u) } };
     } else if (std.mem.eql(u8, ty, "f32")) {
         if (std.mem.startsWith(u8, num, "0x")) {
             const bits = std.fmt.parseInt(u32, num[2..], 16) catch return error.BadF32;
