@@ -588,8 +588,10 @@ pub fn decodeExports(parent_alloc: Allocator, body: []const u8) Error!Exports {
 }
 
 /// Decode the body of an element section (Wasm 2.0 §5.5.12).
-/// Chunk 5d-2 supports forms 0/1/3 (funcref-via-funcidx-list);
-/// forms 2/4-7 return InvalidFunctype (deferred to chunk 5d-3).
+/// Supports all 8 forms (0–7) per ADR-0014 §2.1 / 6.K.4. Forms
+/// 0/1/3/4 ship in chunk 5d-2; 2/5/6/7 land in 6.K.4. Funcref is
+/// the only supported reftype in v0.1.0; externref defers to a
+/// follow-up row when the externref test corpus arrives.
 pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
     var arena = std.heap.ArenaAllocator.init(parent_alloc);
     errdefer arena.deinit();
@@ -663,7 +665,77 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
                     .funcidxs = funcs,
                 };
             },
-            else => return Error.InvalidFunctype, // 2/5-7 deferred
+            2 => {
+                // active, explicit tableidx, offset_expr, elemkind,
+                // vec(funcidx).
+                const tableidx = try leb128.readUleb128(u32, body, &pos);
+                const expr_start = pos;
+                while (pos < body.len and body[pos] != 0x0B) pos += 1;
+                if (pos >= body.len) return Error.UnexpectedEnd;
+                pos += 1;
+                const expr = body[expr_start..pos];
+                if (pos >= body.len) return Error.UnexpectedEnd;
+                const elemkind = body[pos];
+                pos += 1;
+                if (elemkind != 0x00) return Error.InvalidFunctype;
+                const n = try leb128.readUleb128(u32, body, &pos);
+                const funcs = try alloc.alloc(u32, n);
+                for (funcs) |*f| f.* = try leb128.readUleb128(u32, body, &pos);
+                e.* = .{
+                    .kind = .active,
+                    .tableidx = tableidx,
+                    .offset_expr = expr,
+                    .elem_type = .funcref,
+                    .funcidxs = funcs,
+                };
+            },
+            5 => {
+                // passive, reftype, vec(reftype-expr).
+                if (pos >= body.len) return Error.UnexpectedEnd;
+                const reftype = body[pos];
+                pos += 1;
+                if (reftype != 0x70) return Error.InvalidFunctype;
+                const n = try leb128.readUleb128(u32, body, &pos);
+                const funcs = try alloc.alloc(u32, n);
+                for (funcs) |*f| f.* = try readFuncrefInitExpr(body, &pos);
+                e.* = .{ .kind = .passive, .elem_type = .funcref, .funcidxs = funcs };
+            },
+            6 => {
+                // active, explicit tableidx, offset_expr, reftype,
+                // vec(reftype-expr).
+                const tableidx = try leb128.readUleb128(u32, body, &pos);
+                const expr_start = pos;
+                while (pos < body.len and body[pos] != 0x0B) pos += 1;
+                if (pos >= body.len) return Error.UnexpectedEnd;
+                pos += 1;
+                const expr = body[expr_start..pos];
+                if (pos >= body.len) return Error.UnexpectedEnd;
+                const reftype = body[pos];
+                pos += 1;
+                if (reftype != 0x70) return Error.InvalidFunctype;
+                const n = try leb128.readUleb128(u32, body, &pos);
+                const funcs = try alloc.alloc(u32, n);
+                for (funcs) |*f| f.* = try readFuncrefInitExpr(body, &pos);
+                e.* = .{
+                    .kind = .active,
+                    .tableidx = tableidx,
+                    .offset_expr = expr,
+                    .elem_type = .funcref,
+                    .funcidxs = funcs,
+                };
+            },
+            7 => {
+                // declarative, reftype, vec(reftype-expr).
+                if (pos >= body.len) return Error.UnexpectedEnd;
+                const reftype = body[pos];
+                pos += 1;
+                if (reftype != 0x70) return Error.InvalidFunctype;
+                const n = try leb128.readUleb128(u32, body, &pos);
+                const funcs = try alloc.alloc(u32, n);
+                for (funcs) |*f| f.* = try readFuncrefInitExpr(body, &pos);
+                e.* = .{ .kind = .declarative, .elem_type = .funcref, .funcidxs = funcs };
+            },
+            else => return Error.InvalidFunctype,
         }
     }
 
@@ -1047,9 +1119,82 @@ test "decodeElement: declarative form 3" {
     try testing.expectEqual(@as(usize, 0), e.items[0].funcidxs.len);
 }
 
-test "decodeElement: deferred form 2 returns InvalidFunctype" {
-    const body = [_]u8{ 0x01, 0x02 };
-    try testing.expectError(Error.InvalidFunctype, decodeElement(testing.allocator, &body));
+test "decodeElement: active form 2 with explicit tableidx" {
+    // Per Wasm 2.0 §5.5.12: flag=2, tableidx (uleb), offset_expr,
+    // elemkind, vec(funcidx).
+    // count=1; flag=2; tableidx=1; offset = i32.const 0; end;
+    // elemkind=0x00; n=2; funcs=[0,1]
+    const body = [_]u8{
+        0x01,
+        0x02,
+        0x01,
+        0x41, 0x00, 0x0B,
+        0x00,
+        0x02, 0x00, 0x01,
+    };
+    var e = try decodeElement(testing.allocator, &body);
+    defer e.deinit();
+    try testing.expectEqual(ElementKind.active, e.items[0].kind);
+    try testing.expectEqual(@as(u32, 1), e.items[0].tableidx);
+    try testing.expectEqualSlices(u32, &[_]u32{ 0, 1 }, e.items[0].funcidxs);
+}
+
+test "decodeElement: passive form 5 (reftype + expr-vec)" {
+    // Per Wasm 2.0 §5.5.12: flag=5, reftype, vec(reftype-expr).
+    // count=1; flag=5; reftype=0x70 (funcref); n=2;
+    // expr0 = ref.func 7; end; expr1 = ref.null funcref; end
+    const body = [_]u8{
+        0x01,
+        0x05,
+        0x70,
+        0x02,
+        0xD2, 0x07, 0x0B,
+        0xD0, 0x70, 0x0B,
+    };
+    var e = try decodeElement(testing.allocator, &body);
+    defer e.deinit();
+    try testing.expectEqual(ElementKind.passive, e.items[0].kind);
+    try testing.expectEqual(ValType.funcref, e.items[0].elem_type);
+    try testing.expectEqualSlices(u32, &[_]u32{ 7, std.math.maxInt(u32) }, e.items[0].funcidxs);
+}
+
+test "decodeElement: active form 6 (tableidx + offset + reftype + expr-vec)" {
+    // Per Wasm 2.0 §5.5.12: flag=6, tableidx, offset_expr,
+    // reftype, vec(reftype-expr).
+    // count=1; flag=6; tableidx=2; offset = i32.const 4; end;
+    // reftype=0x70; n=1; expr = ref.func 3; end
+    const body = [_]u8{
+        0x01,
+        0x06,
+        0x02,
+        0x41, 0x04, 0x0B,
+        0x70,
+        0x01,
+        0xD2, 0x03, 0x0B,
+    };
+    var e = try decodeElement(testing.allocator, &body);
+    defer e.deinit();
+    try testing.expectEqual(ElementKind.active, e.items[0].kind);
+    try testing.expectEqual(@as(u32, 2), e.items[0].tableidx);
+    try testing.expectEqual(ValType.funcref, e.items[0].elem_type);
+    try testing.expectEqualSlices(u32, &[_]u32{3}, e.items[0].funcidxs);
+}
+
+test "decodeElement: declarative form 7 (reftype + expr-vec)" {
+    // Per Wasm 2.0 §5.5.12: flag=7, reftype, vec(reftype-expr).
+    // count=1; flag=7; reftype=0x70; n=1; expr = ref.func 0; end
+    const body = [_]u8{
+        0x01,
+        0x07,
+        0x70,
+        0x01,
+        0xD2, 0x00, 0x0B,
+    };
+    var e = try decodeElement(testing.allocator, &body);
+    defer e.deinit();
+    try testing.expectEqual(ElementKind.declarative, e.items[0].kind);
+    try testing.expectEqual(ValType.funcref, e.items[0].elem_type);
+    try testing.expectEqualSlices(u32, &[_]u32{0}, e.items[0].funcidxs);
 }
 
 test "decodeTables: empty section" {

@@ -22,8 +22,6 @@
 //!
 //! Zone 3 (`src/c_api/`) — may import any layer below.
 
-const std = @import("std");
-
 const interp = @import("../interp/mod.zig");
 const interp_mvp = @import("../interp/mvp.zig");
 const dispatch_table_mod = @import("../ir/dispatch_table.zig");
