@@ -103,6 +103,7 @@ test {
     _ = @import("ir/dispatch_table.zig");
     _ = @import("ir/loop_info.zig");
     _ = @import("ir/liveness.zig");
+    _ = @import("ir/verifier.zig");
     _ = @import("frontend/parser.zig");
     _ = @import("frontend/validator.zig");
     _ = @import("frontend/validator_tests.zig");
