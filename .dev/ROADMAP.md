@@ -1428,7 +1428,7 @@ JIT.
 |------|----------------------------------------------------------------------------------------------------------|----------------|
 | 7.0  | `src/jit/reg_class.zig` — define GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special / simd_base_special classes (ROADMAP §4.2 / W54-class day-1 slot fill). | [x]            |
 | 7.1  | `src/jit/regalloc.zig` — greedy-local allocator; `regalloc.verify(zir)` post-condition runs after every alloc. | [x]            |
-| 7.2  | `src/jit_arm64/{inst,abi}.zig` — ARM64 instruction encoder + AAPCS64 calling convention layout.            | [ ]            |
+| 7.2  | `src/jit_arm64/{inst,abi}.zig` — ARM64 instruction encoder + AAPCS64 calling convention layout.            | [x]            |
 | 7.3  | `src/jit_arm64/emit.zig` — ZIR → ARM64 emit pass producing function bodies.                                | [ ]            |
 | 7.4  | spec test pass=fail=skip=0 via JIT on Mac aarch64 host (drives every Wasm 1.0 + 2.0 op the interp covers). | [ ]            |
 | 7.5  | 40+ realworld samples (out of 50) run via JIT — same fixtures as §9.6 / 6.1; trap categorisation reuses the run_runner buckets. | [ ]            |

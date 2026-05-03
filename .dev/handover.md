@@ -18,61 +18,59 @@
 ## Current state
 
 - **Phase**: **Phase 7 IN-PROGRESS** (JIT v1 ARM64 baseline).
-- **Last commit**: `a6bf0e7` — §9.7 / 7.1 land: greedy-local
-  regalloc + verify post-condition. 7 tests cover empty / 3-deep
-  / 2-deep binop / 4-deep stack / verify rejects (overlap forced
-  share, slot index too high, length mismatch). Strict `<` use-
-  edge overlap; LSRA convention.
-- **Next task**: §9.7 / 7.2 — `src/jit_arm64/{inst,abi}.zig`
-  (ARM64 instruction encoder + AAPCS64 calling convention layout).
+- **Last commit**: `3c89984` — §9.7 / 7.2 land: `src/jit_arm64/inst.zig`
+  (RET/MOVZ/MOVK/ADD imm/SUB imm/ADD reg/SUB reg/LDR/STR/BR
+  encoders, all bit-patterns cross-checked) + `src/jit_arm64/abi.zig`
+  (AAPCS64 register inventory + slotToReg mapper). All hosts green.
+- **Next task**: §9.7 / 7.3 — `src/jit_arm64/emit.zig` (ZIR →
+  ARM64 emit pass producing function bodies; consumes regalloc
+  slots from §9.7 / 7.1 + ABI from §9.7 / 7.2).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.7 / 7.2 (jit_arm64 inst + abi)
+## Active task — §9.7 / 7.3 (jit_arm64 emit pass)
 
-Per ROADMAP §9.7 exit criterion: `src/jit_arm64/{emit,inst,abi}.zig`
-produce AAPCS64-correct function bodies. 7.2 splits off the
-encoder / ABI layer; 7.3 wires the emit pass to consume them.
+Per ROADMAP §9.7 exit criterion: `src/jit_arm64/emit.zig`
+produces AAPCS64-correct function bodies. Walks a lowered
+`ZirFunc` (with `loop_info` + `liveness` + regalloc Allocation
+already populated) and emits a `[]u8` of fixed-width ARM64
+instructions.
 
-Phase-7 / 7.2 scope:
+Phase-7 / 7.3 scope (smallest viable first slice — straight-line
+arithmetic):
 
-- `src/jit_arm64/inst.zig` — minimum ARM64 instruction encoder
-  covering the ops the §9.7 / 7.3 emit will need: register
-  arithmetic (ADD/SUB/MUL), comparison (CMP/CSET), branches
-  (B/BL/BR/RET), loads/stores (LDR/STR), MOV imm, MOV reg→reg.
-  Each emitter returns a `u32` (ARM64 fixed-width insn).
-- `src/jit_arm64/abi.zig` — AAPCS64 register inventory: which
-  X-registers are caller-saved vs callee-saved, which X-regs
-  carry args 0..7, which is the platform reg / link reg / SP /
-  FP. Maps regalloc slot ids → ARM64 Xn (consumed by 7.3).
+- Function prologue: STP fp, lr, [sp, #-16]! ; MOV fp, sp ;
+  reserve frame slot space.
+- Per ZirOp emitter table — table-of-fn-pointers indexed by
+  ZirOp (mirrors `src/interp/dispatch_table.zig` pattern but
+  for emit). Initial coverage: i32.const → MOVZ/MOVK; i32.add /
+  sub / mul → ADD/SUB/MUL; local.get / local.set → LDR / STR;
+  end → epilogue + RET.
+- Function epilogue: LDP fp, lr, [sp], #16 ; RET.
+- Stack-frame sizing from regalloc.Allocation.n_slots × 8 bytes
+  (GPR width).
 
 Plan:
 
-1. Survey AAPCS64 (Arm-supplied PDF) + cranelift's
-   `cranelift/codegen/src/isa/aarch64/inst/emit.rs` for the
-   encoder shape — mandatory per `textbook_survey.md` Guard 4
-   (regalloc / per-arch emit). Output to
-   `private/notes/p7-7.2-survey.md`.
-2. `inst.zig` — per-mnemonic `pub fn enc<MNEMONIC>(rd, rn, rm,
-   imm) u32` with bit-pattern unit tests verifying each emit
-   matches the AAPCS64 encoding spec (and llvm-objdump -d's
-   disassembly when feasible).
-3. `abi.zig` — declarative tables: `caller_saved_gprs`,
-   `callee_saved_gprs`, `arg_gprs[0..8]`, `link_register`,
-   `frame_pointer`, `stack_pointer`. Plus a
-   `pub fn slotToReg(class, slot_id) Xn` mapper that the 7.3
-   emit pass consumes.
-4. Tests: bit-pattern for at least one of each instruction
-   family; ABI table covers every register in the AAPCS64 spec.
-5. Three-host `zig build test-all`.
+1. Survey wasmtime/winch's `wasmtime/winch/src/isa/aarch64/`
+   for the emit-table shape — mandatory per textbook_survey
+   Guard 4. Output: `private/notes/p7-7.3-survey.md`.
+2. `emit.zig` with `pub fn emit(allocator, *const ZirFunc,
+   Allocation) ![]u8` doing prologue → per-instr table dispatch
+   → epilogue.
+3. Tests: emit a 3-instr `(func (result i32) i32.const 42 end)`
+   ZirFunc, verify the produced bytes decode to a sensible
+   AArch64 sequence (movz x0, #42 ; ret) by re-decoding via
+   `inst.zig`'s bit patterns. Add an `(i32.add 1 2)` test for
+   the binop path.
+4. Three-host `zig build test-all`.
 
-Note: ARM64 instructions are little-endian fixed-width 32-bit;
-encoder tests validate each `u32` value against either the AAPCS
-spec or a known-good llvm-mc output. Mac aarch64 is the natural
-host for cross-checking via `llvm-mc -triple=aarch64 -show-encoding`.
+No execution-of-emitted-code on this iteration — that's §9.7 /
+7.4's spec-test-via-JIT gate (requires mmap'ing the buffer
+executable + branching into it).
 
-Phase-7 outstanding (post 7.2): 7.3 emit / 7.4 spec test JIT /
-7.5 40+ realworld JIT / 7.6 `interp == jit_arm64` differential /
+Phase-7 outstanding (post 7.3): 7.4 spec test JIT / 7.5 40+
+realworld JIT / 7.6 `interp == jit_arm64` differential /
 7.7 wasmtime stdout (ADR-0010) / 7.8 ClojureWasm (ADR-0010) /
 7.9 boundary audit / 7.10 phase tracker.
 
