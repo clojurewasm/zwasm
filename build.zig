@@ -121,6 +121,16 @@ pub fn build(b: *std.Build) void {
     const test_spec_2_0_step = b.step("test-spec-wasm-2.0", "Run the Wasm 2.0 wast-directive runner");
     test_spec_2_0_step.dependOn(&run_wast_2_0.step);
 
+    // `zig build test-v1-carry-over` — Phase 6 / §9.6 / 6.0.
+    // Drives the same wast_runner against the curated v1
+    // regression bundle re-vendored under `test/v1_carry_over/`.
+    // Initial set is parse + validate only; runtime assertion
+    // coverage lands alongside §9.6 / 6.1-6.2.
+    const run_v1_carry_over = b.addRunArtifact(wast_runner_exe);
+    run_v1_carry_over.addArg(b.pathFromRoot("test/v1_carry_over"));
+    const test_v1_carry_over_step = b.step("test-v1-carry-over", "Run the v1 carry-over regression corpus");
+    test_v1_carry_over_step.dependOn(&run_v1_carry_over.step);
+
     // `zig build test-realworld` — parse-smoke a vendored set of
     // toolchain-produced .wasm fixtures (Phase 2 / §9.2 / 2.6).
     const realworld_runner_mod = b.createModule(.{
@@ -211,6 +221,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_spec_mvp.step);
     test_all_step.dependOn(&run_realworld.step);
     test_all_step.dependOn(&run_wast_2_0.step);
+    test_all_step.dependOn(&run_v1_carry_over.step);
     test_all_step.dependOn(&run_c_host.step);
     test_all_step.dependOn(&run_wasi_p1.step);
 
