@@ -1400,7 +1400,7 @@ widget enforces this.
 | 6.4  | `bench/baseline_v1_regression.yaml` records interp-only wall-clock numbers as Phase-7+ comparison floor (spread + repeatability under noise; absolute speed irrelevant). | [ ]            |
 | 6.5  | A13 (v1 regression suite stays green) wired into the merge gate.                                          | [x]            |
 | 6.6  | Verifier CI hook — `test/spec/runner.zig` calls `ir/verifier.verify` after lowering each function (carry-over from §9.5 / 5.5). | [x]            |
-| 6.7  | Phase-6 boundary `audit_scaffolding` pass.                                                                | [ ]            |
+| 6.7  | Phase-6 boundary `audit_scaffolding` pass.                                                                | [x]            |
 | 6.8  | Open §9.7 inline; flip phase tracker.                                                                     | [ ]            |
 
 ### Phase 7 — JIT v1 ARM64 baseline

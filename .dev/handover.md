@@ -18,39 +18,57 @@
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
-  ADR-0008 🔒).
-- **Last commit**: `0825794` — §9.6 / 6.5 land: A13 merge-gate
-  documentation; `gate_merge.sh` + CLAUDE.md cross-reference
-  ROADMAP §A13. `test-all` (Mac + OrbStack + windowsmini) is the
-  enforcement point; it already aggregates every A13 layer v2
-  has stood up. ClojureWasm joins when §9.6 / 6.3 lands.
-- **Next task**: §9.6 / 6.7 — Phase-6 boundary `audit_scaffolding`
-  pass. Done early as a sanity check before deciding how to
-  approach the §9.6 / 6.2 + 6.3 + 6.4 execution-coverage blocker.
+  ADR-0008 🔒). 5 of 9 §9.6 rows closed; remaining 4 split into
+  one unblocked + three execution-coverage-blocked.
+- **Last commit**: `9c545d9` — §9.6 / 6.5 [x] + handover retarget
+  at 6.7. 6.7 audit landed in this iteration —
+  `private/audit-2026-05-03-phase6-mid.md` (gitignored). 0 block,
+  1 soon (deliberate prioritisation, documented), 3 watch (known
+  soft-cap + forward-looking ref).
+- **Next task**: §9.6 / 6.4 — `bench/baseline_v1_regression.yaml`
+  records interp wall-clock baseline. Doable today on the
+  fixtures that DO run cleanly under v2 (the 39/50 realworld +
+  whatever subset of v1 carry-over runs); produces a partial
+  baseline that future Phase-6 refinement work expands.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.6 / 6.7 (Phase-6 boundary audit, early)
+## Active task — §9.6 / 6.4 (interp wall-clock baseline)
 
-Run `audit_scaffolding` even though 6.2 + 6.3 + 6.4 are still
-`[ ]`. Rationale: the audit might surface false-positive triggers
-or stale doc that's misleading the loop's next-task choice; it
-costs nothing and may find scaffolding fixes. After the audit:
+Per §9.6 exit criterion: `bench/baseline_v1_regression.yaml`
+records interp-only wall-clock numbers as the Phase-7+ comparison
+floor. Spread + repeatability under noise matters; absolute speed
+irrelevant. The §9.6 / 6.4 row text doesn't promise full coverage
+of all 50 fixtures — it asks for "a baseline" that future
+phases can compare against.
 
-1. Local `block` findings → fix and commit inline.
-2. Non-local `block` findings → file ADR via §18, queue.
-3. The §9.6 / 6.8 phase tracker stays gated on 6.2-4 closing
-   (or being explicitly deferred via ADR-0008-style replan).
+Plan:
 
-Phase-6 outstanding (blocked on v2 execution coverage):
+1. Pick a small stable subset of fixtures that run cleanly via
+   `runWasm` (the 39 PASS from §9.6 / 6.1 chunk b). Subset
+   should be deterministic (no clock / random) and short enough
+   that 5–10 iterations finish in <30s total. Candidates:
+   c_integer_overflow, c_many_functions, rust_compression,
+   rust_enum_match — small, exit=1 from trap reproducibly.
+2. Use `hyperfine` (already in flake.nix) to measure each
+   fixture's `runWasm` wall-clock. Capture mean + stddev across
+   5 runs.
+3. Write `bench/baseline_v1_regression.yaml` with the per-
+   fixture results + a comment block documenting the subset and
+   why (35+ fixtures excluded as "needs Phase-6 follow-up
+   execution-coverage work").
+4. Add a `scripts/record_baseline_v1_regression.sh` script that
+   regens the file deterministically (similar to
+   `scripts/run_bench.sh`).
+5. Three-host `test-all` (no test changes, just bench artefact).
 
-| #   | Description                                            | Blocker            |
-|-----|--------------------------------------------------------|--------------------|
-| 6.2 | wasmtime stdout differential (30+ matches)             | v2 trap mid-exec   |
-| 6.3 | ClojureWasm guest end-to-end                           | same as 6.2        |
-| 6.4 | `bench/baseline_v1_regression.yaml` interp wall-clock  | needs cleanly-running fixtures |
-| 6.7 | Phase-6 boundary audit                                 | unblocked (NEXT)   |
-| 6.8 | Open §9.7 inline; flip phase tracker                   | depends on 6.2-4   |
+Phase-6 outstanding after 6.4:
+
+| #   | Description                                  | Blocker          |
+|-----|----------------------------------------------|------------------|
+| 6.2 | wasmtime stdout differential (30+ matches)   | v2 trap mid-exec |
+| 6.3 | ClojureWasm guest end-to-end                 | same as 6.2      |
+| 6.8 | Open §9.7 inline; flip phase tracker         | depends on 6.2-3 |
 
 Carry-overs from §9.5:
 - `no_hidden_allocations` zlinter re-evaluation (ADR-0009).
@@ -60,9 +78,8 @@ Carry-overs from §9.5:
 - `src/frontend/sections.zig` (1073 lines) soft-cap split.
 
 Carry-overs from Phase 6:
-- `br-table-fuzzbug` v1 regression — multi-param `loop` block
-  validator gap.
-- 10 realworld SKIP-VALIDATOR fixtures (Go + cpp_unique_ptr).
+- `br-table-fuzzbug` v1 regression — multi-param `loop` block.
+- 10 realworld SKIP-VALIDATOR fixtures.
 - 39 realworld trap-mid-execution fixtures — root cause TBD.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
