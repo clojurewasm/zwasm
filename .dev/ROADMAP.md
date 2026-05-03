@@ -1425,7 +1425,23 @@ exception class and its documentation requirement).
 | 6.G  | ClojureWasm guest end-to-end via `build.zig.zon` `path = ...` (original §9.6 / 6.3 strict close).        | [ ]            |
 | 6.H  | Bench honest-baseline migration: introduce `bench/results/{recent,history}.yaml` per ADR-0012 §7; regenerate baseline against completion-bucket fixtures. | [ ]            |
 | 6.I  | `bench/` restructure per ADR-0012 §3; vendor 5 sightglass benchmarks with in-repo C source + documented build script. Parallel to 6.E〜6.H. | [ ]            |
-| 6.J  | Phase 6 **strict close** gate (100% PASS): three-host `test-all` green AND every aggregated runner reports 0 failed (no soft-skip, no tolerated nonzero) + `bench-quick` green Mac-only + `audit_scaffolding` pass + Phase Status widget flip per ADR-0014 (new §9.7 = refactor & consolidation; old §9.7 JIT renumbers to §9.8; later phases shift +1; new §9.7 opens with row "7.0 Draft ADR-0015 — refactor phase charter"). The **only permitted exception** to the 0-failed requirement is a v1-era design-dependent fixture that v2 deliberately rejects on spec-fidelity grounds (P1) — each must be documented in `.dev/decisions/skip_<fixture>.md` (what v1 did, what current spec requires, why v2 declines) AND removed from the active manifest_runtime.txt or marked `# DEFER:` so the runner's tally is genuinely zero. | [ ]            |
+| 6.J  | Phase 6 **strict close** gate (100% PASS): three-host `test-all` green AND every aggregated runner reports 0 failed (no soft-skip, no tolerated nonzero) + `bench-quick` green Mac-only + `audit_scaffolding` pass + Phase Status widget flip via the standard `continue` skill handler (6 = DONE, 7 = IN-PROGRESS; no renumber). The **only permitted exception** to the 0-failed requirement is a v1-era design-dependent fixture that v2 deliberately rejects on spec-fidelity grounds (P1) — each must be documented in `.dev/decisions/skip_<fixture>.md` (what v1 did, what current spec requires, why v2 declines) AND removed from the active manifest_runtime.txt or marked `# DEFER:` so the runner's tally is genuinely zero. **Cannot fire until every 6.K row below is `[x]` per ADR-0014.** | [ ]            |
+
+##### §9.6 / 6.K work-item block (per ADR-0014)
+
+ADR-0014 inserts six work items inside Phase 6 to redesign +
+refactor before Phase 7 (JIT v1 ARM64) opens. Each row's scope,
+acceptance, and dependency graph live in ADR-0014 §2.1 — this
+table tracks status only.
+
+| #     | Description                                                                                                         | Status         |
+|-------|---------------------------------------------------------------------------------------------------------------------|----------------|
+| 6.K.1 | Replace bare-funcidx `Value.ref` with `*FuncEntity` pointer encoding (instance-bearing funcref).                    | [ ]            |
+| 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed` and the parallel borrowed-flag pattern.        | [ ]            |
+| 6.K.3 | Cross-module imports for table / global / func — drop `error.UnsupportedCrossModule*Import` (depends on 6.K.1 + 6.K.2). | [ ]            |
+| 6.K.4 | `decodeElement` forms 5 / 6 / 7 (passive / active-with-tableidx / declarative reftype-expr vec).                    | [ ]            |
+| 6.K.5 | Label arity formalisation: `arity` (end) + `branch_arity` (br) split codified; `.claude/rules/single_slot_dual_meaning.md` + ROADMAP §14 anti-pattern entry. | [ ]            |
+| 6.K.6 | Re-measure `partial-init-table-segment/indirect-call result[0] mismatch` after 6.K.1〜6.K.3.                        | [ ]            |
 
 ### Phase 7 — JIT v1 ARM64 baseline
 
@@ -1886,6 +1902,9 @@ that's fine, but the act of typing it is the act of re-deciding.
    (use dispatch-table registration; see §4.5 / A12)
 ❌ Numeric performance ratio targets baked into ROADMAP / CI gate
    (see §12.1)
+❌ Single field serving two distinct semantic axes (e.g. one
+   `arity` slot used by both `end` and `br`); split per axis from
+   day 1 (see rules/single_slot_dual_meaning.md, ADR-0014 §6.K.5)
 ```
 
 ---

@@ -181,13 +181,18 @@ orchestration, no embedded test logic.
  │              │
  │              └─→ 6.E (interp behaviour bug fixes)
  │                   │
- │                   ├─→ 6.F (test-realworld-diff 30+ matches)  ─┐
- │                   ├─→ 6.G (ClojureWasm guest e2e)              ├─→ 6.J
- │                   └─→ 6.H (bench honest baseline)              │
- │                                                                │
- └─→ 6.I (bench/ restructure + sightglass)  ──────────────────────┘
-       (parallel to 6.E〜6.H)
+ │                   └─→ 6.K (redesign + refactoring sweep, ADR-0014)
+ │                        │
+ │                        ├─→ 6.F (test-realworld-diff 30+ matches)  ─┐
+ │                        ├─→ 6.G (ClojureWasm guest e2e)              ├─→ 6.J
+ │                        └─→ 6.H (bench honest baseline)              │
+ │                                                                     │
+ └─→ 6.I (bench/ restructure + sightglass)  ───────────────────────────┘
+       (parallel to 6.E〜6.H + 6.K)
 ```
+
+(6.K appended by ADR-0014 §18 amendment; six sub-items
+6.K.1〜6.K.6 detailed in ADR-0014 §2.1.)
 
 | # | Action |
 |---|---|
@@ -200,7 +205,8 @@ orchestration, no embedded test logic.
 | **6.G** | ClojureWasm guest end-to-end via `build.zig.zon` `path = ...` (original §9.6 / 6.3). Parallel with 6.F after 6.E. |
 | **6.H** | Bench honest-baseline migration: introduce `bench/results/{recent,history}.yaml` per §7; move existing `bench/baseline_v1_regression.yaml` content to `history.yaml` as "Phase 6 reopen revert" entry, delete old file; regenerate honest baseline post-6.E and append as "Phase 6 close baseline" entry. Sequenced after 6.E. |
 | **6.I** | `bench/` restructure per §3; vendor 5 sightglass benchmarks with in-repo C source + documented build script. Reject v1's TinyGo binary-only and gc_* source-less artifacts. Parallel with 6.E〜6.H. |
-| **6.J** | Phase 6 close gate (**strict close — 100% PASS**): (i) `zig build test-all` green three hosts AND every aggregated runner reports 0 failed (no soft-skip, no "honest close" with non-empty FAIL bucket); (ii) `zig build bench-quick` green Mac-only; (iii) `audit_scaffolding` pass; (iv) Phase Status widget flip 6 → DONE / 7 → IN-PROGRESS; (v) handover retarget §9.7 / 7.0. The **only permitted exception** to (i) is a v1-era design-dependent fixture that v2 deliberately rejects on spec-fidelity grounds (P1) — each such fixture must be (a) documented in a per-fixture ADR-defer note (`.dev/decisions/skip_<fixture>.md`) explaining what v1 did, what current spec requires, and why v2 declines to implement; (b) physically removed from the active manifest_runtime.txt or marked `# DEFER:` so it is excluded from the runner's tally; the resulting 0 failed count is genuine, not a tolerated nonzero. |
+| **6.J** | Phase 6 close gate (**strict close — 100% PASS**): (i) `zig build test-all` green three hosts AND every aggregated runner reports 0 failed (no soft-skip, no "honest close" with non-empty FAIL bucket); (ii) `zig build bench-quick` green Mac-only; (iii) `audit_scaffolding` pass; (iv) Phase Status widget flip 6 → DONE / 7 → IN-PROGRESS (no renumber per ADR-0014); (v) handover retarget §9.7 / 7.0 (= JIT v1 ARM64 baseline, unchanged). The **only permitted exception** to (i) is a v1-era design-dependent fixture that v2 deliberately rejects on spec-fidelity grounds (P1) — each such fixture must be (a) documented in a per-fixture ADR-defer note (`.dev/decisions/skip_<fixture>.md`) explaining what v1 did, what current spec requires, and why v2 declines to implement; (b) physically removed from the active manifest_runtime.txt or marked `# DEFER:` so it is excluded from the runner's tally; the resulting 0 failed count is genuine, not a tolerated nonzero. **Cannot fire until every 6.K row is `[x]` per ADR-0014.** |
+| **6.K** | Redesign + refactoring sweep before Phase 7 (ADR-0014). Six sub-items: 6.K.1 `Value.ref` → `*FuncEntity`; 6.K.2 single-allocator Runtime + Instance back-ref; 6.K.3 cross-module imports table/global/func; 6.K.4 `decodeElement` forms 5/6/7; 6.K.5 Label arity formalisation + §14 anti-pattern entry; 6.K.6 partial-init-table re-measure. Per-row scope/acceptance/DAG in ADR-0014 §2.1. Sequenced after 6.E. |
 
 **Out of Phase-6 scope**:
 
@@ -268,11 +274,16 @@ orchestration, no embedded test logic.
 - **ADR-0013 (blocking prerequisite for 6.A)** — runtime-
   asserting WAST runner detailed design. Drafted when 6.A is
   active.
-- **ADR-0014 (parallel to 6.I, optional)** — bench infra
-  (sightglass vendoring, fixture-selection criteria). Filed
-  only if 6.I surfaces load-bearing decisions.
+- **ADR-0014** — redesign + refactoring sweep before Phase 7
+  (now Accepted, content replaced from the original placeholder
+  bench-infra slot). Adds §9.6 / 6.K with six sub-items. The
+  bench-infra wiring this slot originally held (sightglass
+  vendoring, fixture-selection criteria, parallel to 6.I) is no
+  longer pre-allocated; if 6.I surfaces a load-bearing decision,
+  file a fresh ADR at that moment under the next free number.
 - `versions.lock` introduction inline in 6.B unless it
-  surfaces a load-bearing decision (then ADR-0015).
+  surfaces a load-bearing decision (then file an ADR at the
+  next free number at the moment of decision).
 - `audit_scaffolding` runs after 6.B and after 6.J.
 - `/continue` autonomous loop re-arms once 6.A is the active
   task in handover.
@@ -287,7 +298,9 @@ orchestration, no embedded test logic.
 - ADR-0008 (Phase 6 charter — operationalised here)
 - ADR-0011 (Phase 6 reopen — this ADR is its Decision §6 follow-up)
 - ADR-0013 (forthcoming — runtime-asserting WAST runner design)
-- ADR-0014 (forthcoming, optional — bench infra expansion)
+- ADR-0014 (Accepted — redesign + refactoring sweep before
+  Phase 7; content replaces the original placeholder bench-
+  infra wiring this slot held when ADR-0012 was drafted)
 - `.claude/rules/no_copy_from_v1.md` (re-derivation discipline for 6.A)
 - `.claude/rules/textbook_survey.md` (Step 0 Survey for each 6.x)
 
