@@ -10,80 +10,64 @@
 
 1. `.dev/handover.md` (this file).
 2. `.dev/decisions/0012_first_principles_test_bench_redesign.md` —
-   the ADR that defines the Phase 6 reopen scope (work items
-   6.A〜6.J, DAG dependencies, deferred items).
-3. `.dev/decisions/0011_phase6_reopen.md` — the structural ADR
-   that reopened Phase 6 and defined the bench staged disposition.
+   defines Phase 6 reopen scope (work items 6.A〜6.J, DAG, deferred
+   items).
+3. `.dev/ROADMAP.md` §9.6 task table — see the §9.6 reopened
+   scope table (6.A〜6.J) for the active row.
 
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline,
-  reopened per ADR-0011, scope defined per ADR-0012).
-- **Last commit**: TBD — landing ADR-0012 (first-principles
-  test/bench redesign methodology) into `.dev/decisions/`.
-  Prior commit `a4e7405` landed ADR-0011 + Phase 7 semantic
-  revert.
+  reopened per ADR-0011 + ADR-0012).
+- **Last source commit**: `af411f0` — feat(p6) §9.6 / 6.A
+  runtime-asserting WAST runner + per-instr trace landed
+  (test/runners/wast_runtime_runner.zig + interp trace
+  plumbing); three-host green.
 - **Branch**: `zwasm-from-scratch`, pushed to
-  `origin/zwasm-from-scratch`. `main` is forbidden; `--force` is
-  forbidden.
-- **`/continue` autonomous loop**: explicitly halted. Re-arms
-  after 6.A becomes well-bounded (i.e. after ADR-0013 is
-  Accepted).
+  `origin/zwasm-from-scratch`. `main` is forbidden; `--force`
+  is forbidden.
 
-## Active task — 6.A: runtime-asserting WAST runner
+## Active task — 6.B: test/ restructure + 4 fixtures migration
 
-Per ADR-0012 §6 work item 6.A. **Blocking prerequisite: ADR-0013
-must be drafted and Accepted before 6.A implementation starts**
-(per ADR-0012 Consequences / Neutral / follow-ups).
+Per ADR-0012 §6 row 6.B. Sequenced after 6.A (now done).
 
-### 6.A scope (from ADR-0012 §6 row 6.A)
+Restructure `test/` per ADR-0012 §3 layout. Per-fixture migration
+of the 4 existing `test/v1_carry_over/` fixtures:
+- `add` and `f64-copysign` → verify content overlap with spec
+  testsuite. If overlapping → `test/spec/legacy/`. Else →
+  `test/wasmtime_misc/wast/basic/`.
+- `div-rem` and `empty` → `test/wasmtime_misc/wast/basic/`.
 
-Add `test/runners/wast_runtime_runner.zig`. v1's
-`e2e_runner.zig` (844 LOC) is the textbook reference; the v2
-runner is re-derived for v2's Zone shape per
-`.claude/rules/no_copy_from_v1.md`.
+Add `test/spec/legacy/` to layout. Update:
+- `scripts/gate_merge.sh` — replace `test-v1-carry-over` step
+  reference with the new step names.
+- ROADMAP §A13 reference to `test/v1_carry_over/` — reword to
+  the new origin-based directory names (load-bearing edit citing
+  ADR-0012).
+- `build.zig` — add `test-spec-legacy` step, update
+  `test-v1-carry-over` to point at new paths or remove if no
+  longer meaningful.
 
-Capability scope:
-- assert_return / assert_trap / assert_invalid /
-  assert_malformed / assert_unlinkable / assert_uninstantiable /
-  assert_exhaustion
-- register / action / module
-- cross-module Store sharing
-- per-instr execution trace (consumed by 6.E)
+Sub-tasks:
+1. Inspect each of the 4 fixtures' content; compare with spec
+   testsuite to determine spec-overlap vs wasmtime-misc-only.
+2. Create new directory tree: `test/spec/legacy/`,
+   `test/wasmtime_misc/wast/basic/`, plus README placeholders.
+3. Move fixtures + their `manifest.txt` entries.
+4. Update `build.zig` step paths.
+5. Update `scripts/gate_merge.sh` + ROADMAP §A13.
+6. Three-host `zig build test-all` green.
+7. Commit (chore(p6): land §9.6 / 6.B per ADR-0012).
 
-Deferred to relevant feature phases:
-- thread block
-- assert_return_canonical_nan / assert_return_arithmetic_nan
-
-### Sub-tasks
-
-1. ~~Draft ADR-0013~~ — **DONE** (Accepted).
-2. **Implement runner** per ADR-0013 design — **NEXT**.
-   Extend `src/interp/{mod,dispatch}.zig` with TraceEvent +
-   trace_cb, add `test/runners/wast_runtime_runner.zig` with
-   manifest parser + 9 directive handlers + value/trap parsing.
-3. **Wire into `build.zig`** as `test-runtime-runner-smoke`
-   step pointing at `test/runners/fixtures/`. The full
-   `test-wasmtime-misc` step lands populated in 6.D.
-4. **Three-host `zig build test` + `test-runtime-runner-smoke`
-   green**.
-
-## Phase 6 reopen DAG (from ADR-0012 §6)
+## Phase 6 reopen DAG (ADR-0012 §6)
 
 ```
-6.A (runtime-asserting runner + per-instr trace)        ← active
+6.A ✅ (af411f0)
  │
- ├─→ 6.B (test/ restructure + 4 fixtures migration)
- │    └─→ 6.C (vendor wasmtime_misc BATCH1-3 ≈ 55 fixtures)
- │         └─→ 6.D (wire 6.C into test-all via 6.A runner)
- │              └─→ 6.E (interp behaviour bug fixes)
- │                   ├─→ 6.F (test-realworld-diff 30+ matches)
- │                   ├─→ 6.G (ClojureWasm guest e2e)
- │                   └─→ 6.H (bench honest baseline)
- │                        └─→ 6.J (Phase 6 close gate)
+ ├─→ 6.B ← ACTIVE
+ │    └─→ 6.C → 6.D → 6.E → {6.F, 6.G, 6.H} → 6.J
  │
- └─→ 6.I (bench/ restructure + sightglass)  ─→ 6.J
-       (parallel to 6.E〜6.H)
+ └─→ 6.I (parallel to 6.E〜6.H)  ─→ 6.J
 ```
 
 ## Outstanding spec gaps (Phase 6 absorbs as v1 conformance)
@@ -99,8 +83,6 @@ Deferred to relevant feature phases:
 
 ## Open questions / blockers
 
-- **Blocker for `/continue` re-arm**: ADR-0013 is not yet
-  drafted. The next session draft + accept ADR-0013, then 6.A
-  implementation lands, then `/continue` re-arms with 6.B as
-  the active task. User session needed for ADR-0013 draft +
-  review.
+(none — `/continue` autonomous loop drives 6.B → 6.J per ADR-0012
+DAG; push to `origin/zwasm-from-scratch` is autonomous per the
+`continue` skill's Push policy.)

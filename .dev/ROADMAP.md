@@ -1403,6 +1403,27 @@ widget enforces this.
 | 6.7  | Phase-6 boundary `audit_scaffolding` pass.                                                                | [x] ba2f8cb    |
 | 6.8  | Open §9.7 inline; flip phase tracker.                                                                     | [ ] (reopened by ADR-0011 — was [x] 0f52be6) |
 
+##### §9.6 reopened scope (ADR-0012 §6, DAG order)
+
+ADR-0012 introduces 10 work items 6.A〜6.J that operationalise
+the §9.6 reopen. The original 6.0〜6.8 rows above stay as the
+legacy framing (some `[x]` survive ADR-0011, some reopened); the
+6.A〜6.J rows below define the actual work to honest-close
+Phase 6.
+
+| #    | Description                                                                                              | Status         |
+|------|----------------------------------------------------------------------------------------------------------|----------------|
+| 6.A  | Runtime-asserting WAST runner + per-instr trace (`test/runners/wast_runtime_runner.zig` + `src/interp/{mod,dispatch}.zig` trace plumbing). Per ADR-0013. | [x]            |
+| 6.B  | `test/` restructure per ADR-0012 §3 + 4 `v1_carry_over/` fixtures migration + ROADMAP §A13 reword.        | [ ]            |
+| 6.C  | Vendor wasmtime_misc BATCH1-3 (~55 fixtures) into `test/wasmtime_misc/wast/{basic,reftypes,embenchen,issues}/`; introduce `scripts/setup_corpora.sh`. | [ ]            |
+| 6.D  | Wire 6.C corpus into `test-wasmtime-misc` step + `test-all` aggregate via 6.A runner; existing parse/instantiate runners kept as-is. | [ ]            |
+| 6.E  | Fix root cause of 39 trap-mid-execution realworld fixtures via 6.A's per-instr trace; move from trap-bucket to completion-bucket. | [ ]            |
+| 6.F  | `test-realworld-diff` 30+ byte-for-byte matches against wasmtime (original §9.6 / 6.2 honest close); re-add to `test-all`. | [ ]            |
+| 6.G  | ClojureWasm guest end-to-end via `build.zig.zon` `path = ...` (original §9.6 / 6.3 honest close).        | [ ]            |
+| 6.H  | Bench honest-baseline migration: introduce `bench/results/{recent,history}.yaml` per ADR-0012 §7; regenerate baseline against completion-bucket fixtures. | [ ]            |
+| 6.I  | `bench/` restructure per ADR-0012 §3; vendor 5 sightglass benchmarks with in-repo C source + documented build script. Parallel to 6.E〜6.H. | [ ]            |
+| 6.J  | Phase 6 close gate: three-host `test-all` green + `bench-quick` green Mac-only + `audit_scaffolding` pass + Phase Status widget flip. | [ ]            |
+
 ### Phase 7 — JIT v1 ARM64 baseline
 
 **Goal**: ZIR compiles to ARM64 machine code; spec test passes via
