@@ -12,6 +12,18 @@
 # Phase 14+ folds the same logic into CI; the local gate stays as
 # the first line of defense.
 #
+# §A13 enforcement (Phase 6+ / §9.6 / 6.5): `test-all` aggregates
+# every layer in ROADMAP §A13's "v1 regression suite" definition
+# that v2 has stood up so far:
+#   - test-v1-carry-over   (§9.6 / 6.0; vendored v1 regression bundle)
+#   - test-realworld       (§9.6 / 6.1 chunk a; 50 fixtures, parse)
+#   - test-realworld-run   (§9.6 / 6.1 chunk b; 50 fixtures, run)
+#   - test-spec / test-spec-wasm-2.0 / test-c-api / test-wasi-p1
+# The "ClojureWasm guest" half of A13 lands when §9.6 / 6.3 wires
+# its `build.zig.zon` `path = ...` end-to-end. Until then this
+# gate is A13 minus ClojureWasm — every other A13 layer is
+# enforced on every push to `zwasm-from-scratch`.
+#
 # Exits non-zero on any host that built but had a failed test, on
 # any commit-gate failure, or on missing tools (orb / ssh) where
 # the corresponding host would be required by the current phase.
