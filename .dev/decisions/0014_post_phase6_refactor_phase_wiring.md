@@ -150,7 +150,7 @@ shorthand) was preferred per user direction.
 ## Consequences
 
 ### Positive
-- Phase 6 honest-close happens naturally (no scope-creep into
+- Phase 6 strict-close happens naturally (no scope-creep into
   refactor).
 - Phase 7 JIT lands atop a refactored substrate, not atop
   workaround-laden Phase 6 code.

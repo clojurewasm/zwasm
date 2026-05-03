@@ -24,7 +24,7 @@
   arity + trap-text mapping. Three-host green.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — drive Phase 6 to honest close (6.E → 6.F → … → 6.J)
+## Active task — drive Phase 6 to strict close (6.E → 6.F → … → 6.J; 100% PASS per ROADMAP §9.6 / 6.J)
 
 `/continue` autonomous loop continues iterating 6.E, then 6.F /
 6.G / 6.H once 6.E unlocks them, with 6.I in parallel, terminating
@@ -52,15 +52,18 @@ tag_map). Outstanding clusters:
 
 Sequence: pick one cluster per iteration, fix root cause, re-run,
 move fixtures from FAIL to PASS, commit. When `test-wasmtime-misc-
-runtime` reaches 0 failures (or all remaining failures are
-explicitly queued as defer notes), add it to `test-all` aggregate
-and proceed to 6.F.
+runtime` reaches 0 failures, add it to `test-all` aggregate and
+proceed to 6.F. Per ROADMAP §9.6 / 6.J the close is **strict 100%
+PASS**; the only permitted defer is a v1-era design-dependent
+fixture documented in `.dev/decisions/skip_<fixture>.md` AND
+physically removed / `# DEFER:`-marked from the active manifest so
+the runner's tally is genuinely zero.
 
 ## Phase 6 close → automatic refactor-phase ADR drafting
 
 **This is a hard wiring of the post-6.J transition.** When 6.J
-fires (Phase 6 honest-close), the standard "open §9.7 inline"
-step is **replaced** by:
+fires (Phase 6 strict-close — 100% PASS per ROADMAP §9.6 / 6.J),
+the standard "open §9.7 inline" step is **replaced** by:
 
 1. Phase Status widget gets `7 = IN-PROGRESS (refactor &
    consolidation; ADR-0015 draft pending)`. The current `7 =

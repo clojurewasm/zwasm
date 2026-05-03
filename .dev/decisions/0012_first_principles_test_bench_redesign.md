@@ -17,7 +17,11 @@ A v1 audit surfaced two facts that drive the design:
    runners do parse + (optionally) validate + (optionally)
    instantiate, but none execute `assert_return` /
    `assert_trap`. This is the literal blocker for the §9.6 /
-   6.2 honest close.
+   6.2 strict close (see §6.J below — Phase 6 requires 100%
+   PASS, with the only permitted exceptions being v1-era
+   design-dependent fixtures that v2 deliberately rejects on
+   spec-fidelity grounds, each documented in a per-fixture
+   ADR-defer note).
 2. **v1 was 80% planned, 20% ad-hoc.**
    - Re-derive: spec submodule + auto-bump, by-origin BATCH
      classification, in-repo realworld source, `gate-commit.sh`
@@ -196,7 +200,7 @@ orchestration, no embedded test logic.
 | **6.G** | ClojureWasm guest end-to-end via `build.zig.zon` `path = ...` (original §9.6 / 6.3). Parallel with 6.F after 6.E. |
 | **6.H** | Bench honest-baseline migration: introduce `bench/results/{recent,history}.yaml` per §7; move existing `bench/baseline_v1_regression.yaml` content to `history.yaml` as "Phase 6 reopen revert" entry, delete old file; regenerate honest baseline post-6.E and append as "Phase 6 close baseline" entry. Sequenced after 6.E. |
 | **6.I** | `bench/` restructure per §3; vendor 5 sightglass benchmarks with in-repo C source + documented build script. Reject v1's TinyGo binary-only and gc_* source-less artifacts. Parallel with 6.E〜6.H. |
-| **6.J** | Phase 6 close gate: (i) `zig build test-all` green three hosts; (ii) `zig build bench-quick` green Mac-only; (iii) `audit_scaffolding` pass; (iv) Phase Status widget flip 6 → DONE / 7 → IN-PROGRESS; (v) handover retarget §9.7 / 7.0. |
+| **6.J** | Phase 6 close gate (**strict close — 100% PASS**): (i) `zig build test-all` green three hosts AND every aggregated runner reports 0 failed (no soft-skip, no "honest close" with non-empty FAIL bucket); (ii) `zig build bench-quick` green Mac-only; (iii) `audit_scaffolding` pass; (iv) Phase Status widget flip 6 → DONE / 7 → IN-PROGRESS; (v) handover retarget §9.7 / 7.0. The **only permitted exception** to (i) is a v1-era design-dependent fixture that v2 deliberately rejects on spec-fidelity grounds (P1) — each such fixture must be (a) documented in a per-fixture ADR-defer note (`.dev/decisions/skip_<fixture>.md`) explaining what v1 did, what current spec requires, and why v2 declines to implement; (b) physically removed from the active manifest_runtime.txt or marked `# DEFER:` so it is excluded from the runner's tally; the resulting 0 failed count is genuine, not a tolerated nonzero. |
 
 **Out of Phase-6 scope**:
 
@@ -250,7 +254,7 @@ orchestration, no embedded test logic.
 - v1's bench/wasm mixing, prefix-as-hierarchy, source-less
   binaries, and ad-hoc bench history dissolve structurally.
 - The runtime-asserting runner gap (keystone blocker for §9.6 /
-  6.2 honest close) is named as the first action.
+  6.2 strict close) is named as the first action.
 
 ### Negative
 - Phase 6 reopen has 10 explicit work items; 6.E and 6.F carry

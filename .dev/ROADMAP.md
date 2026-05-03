@@ -1410,8 +1410,9 @@ widget enforces this.
 ADR-0012 introduces 10 work items 6.A〜6.J that operationalise
 the §9.6 reopen. The original 6.0〜6.8 rows above stay as the
 legacy framing (some `[x]` survive ADR-0011, some reopened); the
-6.A〜6.J rows below define the actual work to honest-close
-Phase 6.
+6.A〜6.J rows below define the actual work to strict-close
+Phase 6 (100% PASS — see 6.J below for the single permitted
+exception class and its documentation requirement).
 
 | #    | Description                                                                                              | Status         |
 |------|----------------------------------------------------------------------------------------------------------|----------------|
@@ -1420,11 +1421,11 @@ Phase 6.
 | 6.C  | Vendor wasmtime_misc BATCH1-3 (~55 fixtures) into `test/wasmtime_misc/wast/{basic,reftypes,embenchen,issues}/`; introduce `scripts/setup_corpora.sh`. | [x] (42 vendored, 13 queued for 6.E) |
 | 6.D  | Wire 6.C corpus into `test-wasmtime-misc` step + `test-all` aggregate via 6.A runner; existing parse/instantiate runners kept as-is. | [x] (test-wasmtime-misc-runtime step wired; not in test-all until 6.E closes interp gaps) |
 | 6.E  | Fix root cause of 39 trap-mid-execution realworld fixtures via 6.A's per-instr trace; move from trap-bucket to completion-bucket. | [ ]            |
-| 6.F  | `test-realworld-diff` 30+ byte-for-byte matches against wasmtime (original §9.6 / 6.2 honest close); re-add to `test-all`. | [ ]            |
-| 6.G  | ClojureWasm guest end-to-end via `build.zig.zon` `path = ...` (original §9.6 / 6.3 honest close).        | [ ]            |
+| 6.F  | `test-realworld-diff` 30+ byte-for-byte matches against wasmtime (original §9.6 / 6.2 strict close); re-add to `test-all`. | [ ]            |
+| 6.G  | ClojureWasm guest end-to-end via `build.zig.zon` `path = ...` (original §9.6 / 6.3 strict close).        | [ ]            |
 | 6.H  | Bench honest-baseline migration: introduce `bench/results/{recent,history}.yaml` per ADR-0012 §7; regenerate baseline against completion-bucket fixtures. | [ ]            |
 | 6.I  | `bench/` restructure per ADR-0012 §3; vendor 5 sightglass benchmarks with in-repo C source + documented build script. Parallel to 6.E〜6.H. | [ ]            |
-| 6.J  | Phase 6 close gate: three-host `test-all` green + `bench-quick` green Mac-only + `audit_scaffolding` pass + Phase Status widget flip per ADR-0014 (new §9.7 = refactor & consolidation; old §9.7 JIT renumbers to §9.8; later phases shift +1; new §9.7 opens with row "7.0 Draft ADR-0015 — refactor phase charter"). | [ ]            |
+| 6.J  | Phase 6 **strict close** gate (100% PASS): three-host `test-all` green AND every aggregated runner reports 0 failed (no soft-skip, no tolerated nonzero) + `bench-quick` green Mac-only + `audit_scaffolding` pass + Phase Status widget flip per ADR-0014 (new §9.7 = refactor & consolidation; old §9.7 JIT renumbers to §9.8; later phases shift +1; new §9.7 opens with row "7.0 Draft ADR-0015 — refactor phase charter"). The **only permitted exception** to the 0-failed requirement is a v1-era design-dependent fixture that v2 deliberately rejects on spec-fidelity grounds (P1) — each must be documented in `.dev/decisions/skip_<fixture>.md` (what v1 did, what current spec requires, why v2 declines) AND removed from the active manifest_runtime.txt or marked `# DEFER:` so the runner's tally is genuinely zero. | [ ]            |
 
 ### Phase 7 — JIT v1 ARM64 baseline
 
@@ -1447,7 +1448,7 @@ JIT.
 
 #### §9.7 task list (expanded)
 
-> Phase 7 is paused until Phase 6 honest-closes per ADR-0011; rows below describe the plan to re-enter from 7.0. Rows 7.7 + 7.8 (ADR-0010 deferred-in scope) were removed; that scope returns to §9.6 / 6.2 + 6.3.
+> Phase 7 is paused until Phase 6 strict-closes per ADR-0011 (100% PASS, see §9.6 / 6.J); rows below describe the plan to re-enter from 7.0. Rows 7.7 + 7.8 (ADR-0010 deferred-in scope) were removed; that scope returns to §9.6 / 6.2 + 6.3.
 
 | #    | Description                                                                                              | Status         |
 |------|----------------------------------------------------------------------------------------------------------|----------------|

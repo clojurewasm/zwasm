@@ -111,10 +111,10 @@ below.
   ADR-0008 charter scope is the heart of this ADR.
 - **§9.7 / 7.0 + 7.1 + 7.2**: `[x]` → `[ ]`. The `§9.7 task
   list (expanded)` table itself is preserved (it's the plan
-  Phase 7 returns to after Phase 6 honest-closes), but the
+  Phase 7 returns to after Phase 6 strict-closes), but the
   individual rows reset to unstarted state. Add a 1-line
   inline note above the table: `Phase 7 is paused until
-  Phase 6 honest-closes per ADR-0011; rows below describe
+  Phase 6 strict-closes per ADR-0011; rows below describe
   the plan to re-enter from 7.0.`
 - **§9.7 / 7.7 + 7.8**: removed from the §9.7 table. These
   were the ADR-0010 deferred-in rows; their scope returns to
@@ -140,7 +140,7 @@ revert commit. Its honest disposition lands in three steps:
    fixed and the 39 trap-mid-execution fixtures move into
    the completion bucket, the 5 baseline fixtures will
    transition from trap-time to completion-time numbers.
-3. **At Phase 6 honest-close**: regenerate the baseline
+3. **At Phase 6 strict-close**: regenerate the baseline
    against completion-bucket fixtures, delete or overwrite
    the trap-time yaml, and only then mark §9.6 / 6.4 `[x]`
    again.
@@ -227,7 +227,7 @@ lands and the working tree is in its reopened state.
 - The Phase 6 → Phase 7 transition that handover and audit
   scaffolding documents already record as `[x]` will appear
   twice in `git log` (once at `0f52be6`, once at the
-  eventual honest close). The commit message and ADR-0011
+  eventual strict close). The commit message and ADR-0011
   reference make the cause clear.
 
 ### Neutral / follow-ups
@@ -243,7 +243,7 @@ lands and the working tree is in its reopened state.
   until Phase 6 reopen has a clear next-task pointer in
   handover.
 - Phase 6's reopened scope (the work that defines what
-  "honest close" means in concrete rows) is established by
+  "strict close" means in concrete rows) is established by
   a subsequent decision, not by this ADR.
 
 ## References
