@@ -15,7 +15,7 @@
 # §A13 enforcement (Phase 6+ / §9.6 / 6.5): `test-all` aggregates
 # every layer in ROADMAP §A13's "v1 regression suite" definition
 # that v2 has stood up so far:
-#   - test-v1-carry-over   (§9.6 / 6.0; vendored v1 regression bundle)
+#   - test-wasmtime-misc-basic   (§9.6 / 6.B per ADR-0012; was test-v1-carry-over)
 #   - test-realworld       (§9.6 / 6.1 chunk a; 50 fixtures, parse)
 #   - test-realworld-run   (§9.6 / 6.1 chunk b; 50 fixtures, run)
 #   - test-spec / test-spec-wasm-2.0 / test-c-api / test-wasi-p1

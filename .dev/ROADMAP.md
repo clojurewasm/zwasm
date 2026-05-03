@@ -153,7 +153,7 @@ These do not change between phases. Changing one requires an ADR.
 | A10 | Spec test fail=0 / skip=0 is a merge gate (Phase 2+)                                                                                         | `zig build test-spec`                            |
 | A11 | All paths are `snake_case`; no hyphens in file or directory names                                                                            | Reviewer; convention                             |
 | A12 | Feature opcodes are added through dispatch-table registration, not pervasive build-time `if` branches                                        | §4.5 design                                     |
-| A13 | v1 regression suite (test/v1_carry_over/ + 50 realworld + ClojureWasm guest) stays green from Phase 6 onward (ADR-0008)                       | `zig build test-v1-carry-over` + Phase-6 gate    |
+| A13 | v1 regression suite (test/wasmtime_misc/wast/ + 50 realworld + ClojureWasm guest) stays green from Phase 6 onward (ADR-0008; renamed per ADR-0012 §6.B)                       | `zig build test-wasmtime-misc-basic` + Phase-6 gate    |
 
 ---
 
@@ -1370,9 +1370,11 @@ JIT / regalloc / W54-class lattice noise (see ADR-0008 + P14 +
 
 **Exit criterion**:
 
-- `test/v1_carry_over/` vendors v1's regression tests not already
-  covered by spec testsuite; `zig build test-v1-carry-over` runs
-  them; fail=0 on all three hosts.
+- `test/wasmtime_misc/wast/` vendors v1's regression tests not
+  already covered by spec testsuite (renamed from
+  `test/v1_carry_over/` per ADR-0012 §6.B);
+  `zig build test-wasmtime-misc-basic` runs them; fail=0 on all
+  three hosts.
 - All 50 realworld samples (Mac + Linux) run to completion under
   v2 interp — no `Errno.unreachable_` traps from missing ops.
 - 30+ realworld samples match `wasmtime run` byte-for-byte stdout
@@ -1393,7 +1395,7 @@ widget enforces this.
 
 | #    | Description                                                                                              | Status         |
 |------|----------------------------------------------------------------------------------------------------------|----------------|
-| 6.0  | Vendor v1 regression tests not covered by spec testsuite into `test/v1_carry_over/`; add `zig build test-v1-carry-over` step. | [x] 2a66d6a    |
+| 6.0  | Vendor v1 regression tests not covered by spec testsuite into `test/wasmtime_misc/wast/` (renamed per ADR-0012 §6.B; was `test/v1_carry_over/`); add `zig build test-wasmtime-misc-basic` step (was `test-v1-carry-over`). | [x] 2a66d6a    |
 | 6.1  | Realworld coverage — all 50 vendored samples run to completion under v2 interp on Mac + Linux; no `Errno.unreachable_` traps. | [x] 251c493    |
 | 6.2  | Differential gate — 30+ realworld samples match `wasmtime run` byte-for-byte stdout (ADR-0006 target retargeted from §9.4 / 4.10). | REOPENED in Phase 6 per ADR-0011 |
 | 6.3  | ClojureWasm guest set runs end-to-end against zwasm v2 via `build.zig.zon` `path = ...`; no commits to ClojureWasm side required. | REOPENED in Phase 6 per ADR-0011 |

@@ -121,15 +121,18 @@ pub fn build(b: *std.Build) void {
     const test_spec_2_0_step = b.step("test-spec-wasm-2.0", "Run the Wasm 2.0 wast-directive runner");
     test_spec_2_0_step.dependOn(&run_wast_2_0.step);
 
-    // `zig build test-v1-carry-over` — Phase 6 / §9.6 / 6.0.
-    // Drives the same wast_runner against the curated v1
-    // regression bundle re-vendored under `test/v1_carry_over/`.
-    // Initial set is parse + validate only; runtime assertion
-    // coverage lands alongside §9.6 / 6.1-6.2.
-    const run_v1_carry_over = b.addRunArtifact(wast_runner_exe);
-    run_v1_carry_over.addArg(b.pathFromRoot("test/v1_carry_over"));
-    const test_v1_carry_over_step = b.step("test-v1-carry-over", "Run the v1 carry-over regression corpus");
-    test_v1_carry_over_step.dependOn(&run_v1_carry_over.step);
+    // `zig build test-wasmtime-misc-basic` — Phase 6 / §9.6 / 6.B
+    // (per ADR-0012). Drives the wast_runner against the
+    // wasmtime misc_testsuite BATCH1 fixtures vendored under
+    // `test/wasmtime_misc/wast/basic/` (migrated in 6.B from the
+    // now-dissolved `test/v1_carry_over/`). Initial set is
+    // parse + validate only; runtime-asserting coverage lands
+    // when 6.D re-drives the same corpus through the
+    // wast_runtime_runner.
+    const run_wasmtime_misc_basic = b.addRunArtifact(wast_runner_exe);
+    run_wasmtime_misc_basic.addArg(b.pathFromRoot("test/wasmtime_misc/wast"));
+    const test_wasmtime_misc_basic_step = b.step("test-wasmtime-misc-basic", "Run the wasmtime misc_testsuite BATCH1 corpus (parse + validate)");
+    test_wasmtime_misc_basic_step.dependOn(&run_wasmtime_misc_basic.step);
 
     // `zig build test-runtime-runner-smoke` — Phase 6 / §9.6 / 6.A
     // (per ADR-0013). Drives the runtime-asserting WAST runner
@@ -294,7 +297,7 @@ pub fn build(b: *std.Build) void {
     // Run it explicitly via `zig build test-realworld-diff`
     // when working on closing the gap.
     test_all_step.dependOn(&run_wast_2_0.step);
-    test_all_step.dependOn(&run_v1_carry_over.step);
+    test_all_step.dependOn(&run_wasmtime_misc_basic.step);
     test_all_step.dependOn(&run_wast_runtime_smoke.step);
     test_all_step.dependOn(&run_c_host.step);
     test_all_step.dependOn(&run_wasi_p1.step);

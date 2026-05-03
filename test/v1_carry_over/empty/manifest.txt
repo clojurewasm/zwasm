@@ -1,6 +1,0 @@
-valid empty.0.wasm
-valid empty.1.wasm
-valid empty.2.wasm
-valid empty.3.wasm
-valid empty.4.wasm
-valid empty.5.wasm

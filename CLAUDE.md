@@ -232,7 +232,7 @@ ROADMAP §A13 / §9.6 / 6.5): every push to `zwasm-from-scratch`
 must pass `test-all` on Mac + OrbStack Ubuntu + windowsmini.
 `scripts/gate_merge.sh` automates this; the `continue` skill's
 per-task TDD loop already enforces it for autonomous commits.
-`test-all` aggregates `test-v1-carry-over` (§9.6 / 6.0),
+`test-all` aggregates `test-wasmtime-misc-basic` (§9.6 / 6.B per ADR-0012, was `test-v1-carry-over`),
 `test-realworld` + `test-realworld-run` (§9.6 / 6.1), and the
 unit / spec / c-api / wasi layers — i.e. every A13 component
 v2 has stood up. ClojureWasm guest joins when §9.6 / 6.3 lands.
