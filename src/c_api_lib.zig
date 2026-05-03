@@ -12,4 +12,5 @@ comptime {
     _ = @import("c_api/wasm_c_api.zig");
     _ = @import("c_api/wasi.zig");
     _ = @import("c_api/trap_surface.zig");
+    _ = @import("c_api/vec.zig");
 }

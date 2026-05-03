@@ -21,10 +21,12 @@ const interp = @import("../interp/mod.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi = @import("wasi.zig");
 const trap_surface = @import("trap_surface.zig");
+const vec = @import("vec.zig");
 // Carve-out re-exports (ADR-0007). The `pub export fn` C
-// symbols have moved to `wasi.zig` / `trap_surface.zig`; the
-// aliases below keep call sites (tests, `cli/run.zig`,
-// in-binding helpers) compiling through `wasm_c_api.<name>`.
+// symbols have moved to `wasi.zig` / `trap_surface.zig` /
+// `vec.zig`; the aliases below keep call sites (tests,
+// `cli/run.zig`, in-binding helpers) compiling through
+// `wasm_c_api.<name>`.
 pub const zwasm_wasi_config_new = wasi.zwasm_wasi_config_new;
 pub const zwasm_wasi_config_delete = wasi.zwasm_wasi_config_delete;
 pub const TrapKind = trap_surface.TrapKind;
@@ -34,6 +36,22 @@ pub const wasm_trap_delete = trap_surface.wasm_trap_delete;
 pub const wasm_trap_message = trap_surface.wasm_trap_message;
 const allocTrap = trap_surface.allocTrap;
 const mapInterpTrap = trap_surface.mapInterpTrap;
+pub const ByteVec = vec.ByteVec;
+pub const ValVec = vec.ValVec;
+pub const ExternVec = vec.ExternVec;
+pub const wasm_byte_vec_new_empty = vec.wasm_byte_vec_new_empty;
+pub const wasm_byte_vec_new_uninitialized = vec.wasm_byte_vec_new_uninitialized;
+pub const wasm_byte_vec_new = vec.wasm_byte_vec_new;
+pub const wasm_byte_vec_copy = vec.wasm_byte_vec_copy;
+pub const wasm_byte_vec_delete = vec.wasm_byte_vec_delete;
+pub const wasm_val_vec_new_empty = vec.wasm_val_vec_new_empty;
+pub const wasm_val_vec_new_uninitialized = vec.wasm_val_vec_new_uninitialized;
+pub const wasm_val_vec_new = vec.wasm_val_vec_new;
+pub const wasm_val_vec_copy = vec.wasm_val_vec_copy;
+pub const wasm_val_vec_delete = vec.wasm_val_vec_delete;
+pub const wasm_extern_vec_new_empty = vec.wasm_extern_vec_new_empty;
+pub const wasm_extern_vec_new_uninitialized = vec.wasm_extern_vec_new_uninitialized;
+pub const wasm_extern_vec_new = vec.wasm_extern_vec_new;
 const dispatch = @import("../interp/dispatch.zig");
 const interp_mvp = @import("../interp/mvp.zig");
 const ext_sign_ext = @import("../interp/ext_2_0/sign_ext.zig");
@@ -169,23 +187,9 @@ pub const Val = extern struct {
     },
 };
 
-/// `wasm_byte_vec_t` — generic vec(byte). The wasm.h header
-/// declares one such type per element variant via the
-/// `WASM_DECLARE_VEC` macro family; Zig needs only the byte
-/// flavour for now (string-typed identifiers in the binding's
-/// `wasm_module_new` path).
-pub const ByteVec = extern struct {
-    size: usize,
-    data: ?[*]u8,
-};
-
-/// `wasm_val_vec_t` — vec(wasm_val_t). Used for the
-/// `wasm_func_call` arg / result surfaces. The C host owns the
-/// `data` storage; the binding writes into it and never frees it.
-pub const ValVec = extern struct {
-    size: usize,
-    data: ?[*]Val,
-};
+// `ByteVec` and `ValVec` live in `src/c_api/vec.zig` after the
+// §9.5 / 5.0 chunk c carve-out (ADR-0007); see the re-exports
+// near the imports at the top of this file.
 
 /// `wasm_externkind_t` — tag identifying which Wasm extern shape
 /// an `Extern` carries. Numeric values match upstream wasm.h
@@ -214,14 +218,9 @@ pub const Extern = struct {
     func: ?*Func,
 };
 
-/// `wasm_extern_vec_t` — vec(wasm_extern_t*). Per upstream
-/// `WASM_DECLARE_VEC(extern, *)` discipline, data is an array of
-/// pointers; the vec owns both the array and each pointed-to
-/// `Extern`.
-pub const ExternVec = extern struct {
-    size: usize,
-    data: ?[*]?*Extern,
-};
+// `ExternVec` lives in `src/c_api/vec.zig` after the §9.5 / 5.0
+// chunk c carve-out (ADR-0007); see the re-exports near the
+// imports at the top of this file.
 
 // ============================================================
 // Engine constructors / destructors (§9.3 / 3.3)
@@ -819,110 +818,13 @@ fn marshalValOut(v: interp.Value, kind: zir.ValType) Val {
     };
 }
 
-// ============================================================
-// wasm_*_vec_t family (§9.3 / 3.7 chunk b)
-// ============================================================
-//
-// Per upstream `WASM_DECLARE_VEC(name, …)`, every vec type gets
-// `_new_empty` / `_new_uninitialized` / `_new` / `_copy` /
-// `_delete`. The data pointer is allocated from
-// `std.heap.c_allocator` so every vec is freeable through the
-// matching `_delete` regardless of which Engine produced it —
-// the allocator must be vec-global since C hosts can construct
-// vecs without an Engine handle (e.g. before `wasm_engine_new`).
-
-fn vecNewEmpty(comptime VecT: type, out: ?*VecT) void {
-    const o = out orelse return;
-    o.* = .{ .size = 0, .data = null };
-}
-
-fn vecNewUninitialized(comptime T: type, comptime VecT: type, out: ?*VecT, size: usize) void {
-    const o = out orelse return;
-    if (size == 0) {
-        o.* = .{ .size = 0, .data = null };
-        return;
-    }
-    const buf = std.heap.c_allocator.alloc(T, size) catch {
-        o.* = .{ .size = 0, .data = null };
-        return;
-    };
-    o.* = .{ .size = size, .data = buf.ptr };
-}
-
-fn vecNew(comptime T: type, comptime VecT: type, out: ?*VecT, size: usize, src: ?[*]const T) void {
-    const o = out orelse return;
-    if (size == 0 or src == null) {
-        o.* = .{ .size = 0, .data = null };
-        return;
-    }
-    const buf = std.heap.c_allocator.alloc(T, size) catch {
-        o.* = .{ .size = 0, .data = null };
-        return;
-    };
-    @memcpy(buf, src.?[0..size]);
-    o.* = .{ .size = size, .data = buf.ptr };
-}
-
-fn vecCopy(comptime T: type, comptime VecT: type, out: ?*VecT, src: ?*const VecT) void {
-    const o = out orelse return;
-    const s = src orelse {
-        o.* = .{ .size = 0, .data = null };
-        return;
-    };
-    vecNew(T, VecT, o, s.size, s.data);
-}
-
-fn vecDelete(comptime VecT: type, v: ?*VecT) void {
-    const handle = v orelse return;
-    if (handle.data) |p| std.heap.c_allocator.free(p[0..handle.size]);
-    handle.* = .{ .size = 0, .data = null };
-}
-
-// --- byte vec ---
-
-pub export fn wasm_byte_vec_new_empty(out: ?*ByteVec) callconv(.c) void {
-    vecNewEmpty(ByteVec, out);
-}
-
-pub export fn wasm_byte_vec_new_uninitialized(out: ?*ByteVec, size: usize) callconv(.c) void {
-    vecNewUninitialized(u8, ByteVec, out, size);
-}
-
-pub export fn wasm_byte_vec_new(out: ?*ByteVec, size: usize, src: ?[*]const u8) callconv(.c) void {
-    vecNew(u8, ByteVec, out, size, src);
-}
-
-pub export fn wasm_byte_vec_copy(out: ?*ByteVec, src: ?*const ByteVec) callconv(.c) void {
-    vecCopy(u8, ByteVec, out, src);
-}
-
-/// `wasm_byte_vec_delete(*ByteVec)` — free the data backing of a
-/// ByteVec. Pinned to `std.heap.c_allocator` (see header above).
-pub export fn wasm_byte_vec_delete(v: ?*ByteVec) callconv(.c) void {
-    vecDelete(ByteVec, v);
-}
-
-// --- val vec ---
-
-pub export fn wasm_val_vec_new_empty(out: ?*ValVec) callconv(.c) void {
-    vecNewEmpty(ValVec, out);
-}
-
-pub export fn wasm_val_vec_new_uninitialized(out: ?*ValVec, size: usize) callconv(.c) void {
-    vecNewUninitialized(Val, ValVec, out, size);
-}
-
-pub export fn wasm_val_vec_new(out: ?*ValVec, size: usize, src: ?[*]const Val) callconv(.c) void {
-    vecNew(Val, ValVec, out, size, src);
-}
-
-pub export fn wasm_val_vec_copy(out: ?*ValVec, src: ?*const ValVec) callconv(.c) void {
-    vecCopy(Val, ValVec, out, src);
-}
-
-pub export fn wasm_val_vec_delete(v: ?*ValVec) callconv(.c) void {
-    vecDelete(ValVec, v);
-}
+// The `wasm_*_vec_t` family (§9.3 / 3.7 chunk b) lives in
+// `src/c_api/vec.zig` after the §9.5 / 5.0 chunk c carve-out
+// (ADR-0007); see the re-exports near the imports at the top
+// of this file. `wasm_extern_vec_delete` stays in this file
+// because it cascades into `wasm_extern_delete` — threading the
+// dependency one-way keeps `vec.zig` cycle-free; the delete
+// moves with the rest of the extern surface in chunk d.
 
 // ============================================================
 // wasm_extern_t + wasm_instance_exports (§9.3 / 3.7 chunk c)
@@ -966,39 +868,10 @@ pub export fn wasm_extern_as_func(e: ?*Extern) callconv(.c) ?*Func {
 }
 
 // --- extern vec (pointer-vec; vec_delete also frees pointed-to objects)
-
-pub export fn wasm_extern_vec_new_empty(out: ?*ExternVec) callconv(.c) void {
-    const o = out orelse return;
-    o.* = .{ .size = 0, .data = null };
-}
-
-pub export fn wasm_extern_vec_new_uninitialized(out: ?*ExternVec, size: usize) callconv(.c) void {
-    const o = out orelse return;
-    if (size == 0) {
-        o.* = .{ .size = 0, .data = null };
-        return;
-    }
-    const buf = std.heap.c_allocator.alloc(?*Extern, size) catch {
-        o.* = .{ .size = 0, .data = null };
-        return;
-    };
-    @memset(buf, null);
-    o.* = .{ .size = size, .data = buf.ptr };
-}
-
-pub export fn wasm_extern_vec_new(out: ?*ExternVec, size: usize, src: ?[*]const ?*Extern) callconv(.c) void {
-    const o = out orelse return;
-    if (size == 0 or src == null) {
-        o.* = .{ .size = 0, .data = null };
-        return;
-    }
-    const buf = std.heap.c_allocator.alloc(?*Extern, size) catch {
-        o.* = .{ .size = 0, .data = null };
-        return;
-    };
-    @memcpy(buf, src.?[0..size]);
-    o.* = .{ .size = size, .data = buf.ptr };
-}
+//
+// `wasm_extern_vec_new_empty` / `_new_uninitialized` / `_new`
+// live in `src/c_api/vec.zig` after the §9.5 / 5.0 chunk c
+// carve-out (ADR-0007); only the delete cascade stays here.
 
 /// `wasm_extern_vec_delete(*ExternVec)` — free the vec's pointer
 /// array AND each non-null pointed-to Extern (per upstream's
@@ -1397,68 +1270,12 @@ test "wasm_func_call: arg-count mismatch returns Trap with message; both freed" 
 }
 
 
-test "wasm_byte_vec_new / copy / delete: round-trip with independent buffers" {
-    var src_bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
-    var v: ByteVec = .{ .size = 0, .data = null };
-    wasm_byte_vec_new(&v, src_bytes.len, &src_bytes);
-    defer wasm_byte_vec_delete(&v);
-    try testing.expectEqual(@as(usize, 4), v.size);
-    try testing.expectEqual(@as(u8, 0xDE), v.data.?[0]);
-    try testing.expectEqual(@as(u8, 0xEF), v.data.?[3]);
+// Byte/val vec round-trip + null-arg tests live in
+// `src/c_api/vec.zig` after the chunk c carve-out (ADR-0007);
+// only the extern-vec null-arg coverage stays here, alongside
+// `wasm_extern_vec_delete`.
 
-    var v2: ByteVec = .{ .size = 0, .data = null };
-    wasm_byte_vec_copy(&v2, &v);
-    defer wasm_byte_vec_delete(&v2);
-    try testing.expectEqual(v.size, v2.size);
-    try testing.expectEqual(@as(u8, 0xEF), v2.data.?[3]);
-    // Independent backing — copy must own a fresh buffer.
-    try testing.expect(v.data.? != v2.data.?);
-}
-
-test "wasm_byte_vec_new_empty / new_uninitialized" {
-    var stale: ByteVec = .{ .size = 99, .data = null };
-    wasm_byte_vec_new_empty(&stale);
-    try testing.expectEqual(@as(usize, 0), stale.size);
-    try testing.expect(stale.data == null);
-
-    var u: ByteVec = .{ .size = 0, .data = null };
-    wasm_byte_vec_new_uninitialized(&u, 8);
-    defer wasm_byte_vec_delete(&u);
-    try testing.expectEqual(@as(usize, 8), u.size);
-    try testing.expect(u.data != null);
-}
-
-test "wasm_val_vec_new / copy / delete: round-trip" {
-    var src: [2]Val = .{
-        .{ .kind = .i32, .of = .{ .i32 = 7 } },
-        .{ .kind = .i64, .of = .{ .i64 = -1 } },
-    };
-    var v: ValVec = .{ .size = 0, .data = null };
-    wasm_val_vec_new(&v, src.len, &src);
-    defer wasm_val_vec_delete(&v);
-    try testing.expectEqual(@as(usize, 2), v.size);
-    try testing.expectEqual(ValKind.i32, v.data.?[0].kind);
-    try testing.expectEqual(@as(i32, 7), v.data.?[0].of.i32);
-    try testing.expectEqual(ValKind.i64, v.data.?[1].kind);
-    try testing.expectEqual(@as(i64, -1), v.data.?[1].of.i64);
-
-    var v2: ValVec = .{ .size = 0, .data = null };
-    wasm_val_vec_copy(&v2, &v);
-    defer wasm_val_vec_delete(&v2);
-    try testing.expectEqual(v.size, v2.size);
-    try testing.expect(v.data.? != v2.data.?);
-}
-
-test "wasm_*_vec_*: null-arg discipline" {
-    wasm_byte_vec_new_empty(null);
-    wasm_byte_vec_new_uninitialized(null, 16);
-    wasm_byte_vec_new(null, 4, null);
-    wasm_byte_vec_copy(null, null);
-    wasm_val_vec_new_empty(null);
-    wasm_val_vec_new_uninitialized(null, 16);
-    wasm_val_vec_new(null, 4, null);
-    wasm_val_vec_copy(null, null);
-    wasm_val_vec_delete(null);
+test "wasm_extern_vec_*: null-arg discipline" {
     wasm_extern_vec_new_empty(null);
     wasm_extern_vec_new_uninitialized(null, 16);
     wasm_extern_vec_new(null, 4, null);
