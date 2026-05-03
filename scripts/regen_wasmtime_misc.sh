@@ -200,9 +200,11 @@ for c in d['commands']:
     tag_map = {
       'unreachable': 'Unreachable',
       'integer divide by zero': 'DivByZero',
+      'divide by zero': 'DivByZero',
       'integer overflow': 'IntOverflow',
       'invalid conversion to integer': 'InvalidConversionToInt',
       'out of bounds memory access': 'OutOfBounds',
+      'out of bounds': 'OutOfBounds',
       'out of bounds table access': 'OutOfBoundsTableAccess',
       'uninitialized element': 'UninitializedElement',
       'indirect call type mismatch': 'IndirectCallTypeMismatch',

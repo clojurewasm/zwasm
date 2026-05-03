@@ -690,10 +690,13 @@ fn handleAssertTrap(
         try args.append(a, v);
     }
 
-    // assert_trap doesn't care about the result vec size — wasm_func_call
-    // will trap before writing results. Pass 0 to keep the binding-error
-    // path from masking the genuine trap.
-    const result = invokeExport(ctx, export_name, args.items, 0, a) catch |err| {
+    // assert_trap doesn't care about the actual results, but the c_api
+    // binding enforces `results.size == sig.results.len` and synthesises
+    // a binding_error trap on mismatch. Sizing the buffer correctly lets
+    // the genuine trap (e.g. OOB load before `select` consumes it) reach
+    // the runner instead of being masked.
+    const arity = lookupResultArity(ctx, export_name) catch 0;
+    const result = invokeExport(ctx, export_name, args.items, arity, a) catch |err| {
         try stdout.print("PASS  {s}/{s} (assert_trap; runner-error counted as trap: {s})\n", .{ corpus_name, export_name, @errorName(err) });
         return true;
     };
