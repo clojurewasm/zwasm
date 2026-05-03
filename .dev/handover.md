@@ -18,77 +18,29 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3 unblocked by the
-  ADR-0014 amendment landing this session. Implementation cycle
-  resumes at the next /continue wakeup.
-- **Last source commit**: `6c223a9` — chore(p6) mark §9.6 / 6.K.8
-  [x]; delete ADR drafting override; retarget at 6.K.3. Baseline
-  242/29 misc-runtime fails. Plus a pending docs commit landing
-  the ADR-0014 amendment described below.
-- **6.K.3 design redone** (2026-05-04). The earlier spike found
-  that the 6.K.1 `*FuncEntity` encoding produces dangling pointers
-  on partial-init failures (Wasm 2.0 mandates that prior elem-
-  segment writes persist when a later segment OOB-traps; the
-  importer's arena destruction then leaves dangling references).
-  Research subagent confirmed wasmtime + wazero both solve this
-  with **zombie-instance keep-alive at Store level** (Alpha).
-  ADR-0014 amended in place: 6.K.2 gains sub-change 4 (Store
-  zombie list, parkAsZombie helper, walk in wasm_store_delete);
-  6.K.3 gains a runner-layer retention contract for
-  `wast_runtime_runner.zig`'s handleInstantiateExpectFail.
-  partial-init-table-segment is no longer deferred to 6.K.6 —
-  the contract makes it pass end-to-end. Spike code reverted;
-  design notes at `private/notes/p6-6K3-survey.md` +
-  `private/notes/p6-6K3-lifetime-survey.md`; encoding experiments
-  (Beta sketch — rejected) at
-  `private/dbg/p6-6K3-lifetime/encoding_experiments.zig` (11/11
-  unit tests; gitignored).
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3 done; 6.K.4 + 6.K.5
+  + 6.K.6 + 6.E + 6.F〜6.J pending.
+- **Last source commit**: `ffc0cf0` — feat(p6) §9.6 / 6.K.3
+  cross-module imports + zombie-instance contract. Three-host
+  green (Mac + OrbStack + windowsmini test-all). misc-runtime
+  244/27 (down from 242/29 baseline; partial-init-table-segment
+  + call_indirect.1.wasm + externref-segment recovered).
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.K.3 (cross-module imports) — re-attempt with zombie-instance contract
+## Active task — §9.6 / 6.K.4 (`decodeElement` forms 5 / 6 / 7)
 
-Per the ADR-0014 amendment, 6.K.3 is now a single coherent piece
-of work covering:
+Standard `/continue` TDD loop resumes. Per ADR-0014 §2.1 / 6.K.4:
+extend `src/frontend/sections.zig:decodeElement` to cover element-
+section binary forms 5, 6, 7 (currently only 0 / 1 / 4 are
+handled — see ROADMAP "Outstanding spec gaps"). Forms 2 / 5 / 6 /
+7 are listed in the gap inventory; ADR-0014 §2.1 / 6.K.4
+specifically targets 5 / 6 / 7. Form 2 is the active-segment
+explicit-tableidx case which works with the existing imported-
+table wiring from 6.K.3.
 
-1. **6.K.2 sub-change 4** (Store zombie list): add
-   `Store.zombies: ArrayList(Zombie)` where `Zombie = { runtime,
-   arena }`; `parkAsZombie(store, runtime, arena)` helper; the
-   catch in `wasm_instance_new` parks instead of destroys; same
-   for `wasm_instance_delete`; `wasm_store_delete` walks zombies
-   and frees them. Convert `Store` from `extern struct` to plain
-   struct (no C-ABI impact since `wasm_store_t` is opaque from
-   C's POV). ~50 LoC.
-2. **6.K.3 c_api wiring**: drop the three
-   `error.UnsupportedCrossModule*Import` guards; the cross-module
-   call thunk in `host_calls`; per-slot pointer aliasing for
-   globals (`Runtime.globals: []*Value` + `globals_storage`);
-   `FuncEntity.runtime = source_rt` for imported funcs.
-   ~150 LoC (the spike sketched this; available in the reverted
-   diff via `git reflog show stash` if needed; otherwise re-derive).
-3. **6.K.3 runner retention**: modify
-   `test/runners/wast_runtime_runner.zig`'s
-   `handleInstantiateExpectFail` to retain the failed
-   ActiveModule in `ctx.all` instead of letting
-   `instantiateWithImports`'s errdefers destroy it.
-   `buildImports` raises `error.UnregisteredImportSource` (or
-   similar) instead of silently null-slotting. ~50 LoC.
-
-Acceptance per the amended ADR:
-
-- `test-wasmtime-misc-runtime` failure count drops to ≤ 1
-  (partial-init-table-segment is now in scope, not deferred).
-- New unit test "zombie instance: failed instantiation's runtime
-  + arena live until store_delete" (per 6.K.2 sub-change 4).
-- New unit test for `buildImports` named-error path.
-
-Implementation order (TDD): runner test for zombie-keep-alive
-first (red), c_api zombie list (green), drop import guards,
-add cross-module wiring + runner retention, run misc-runtime,
-re-baseline.
-
-Step 0 Survey is **not needed** this cycle — the prior survey
-notes + research subagent output cover the design space; the
-remaining work is mechanical implementation per the amended ADR.
+Step 0 Survey brief: how the wasm-tools / spec interpreter /
+zware decode each form; 200-400 lines at
+`private/notes/p6-6K4-survey.md`.
 
 ## ROADMAP §9.6 — task table snapshot (authoritative is `.dev/ROADMAP.md`)
 
@@ -96,8 +48,8 @@ remaining work is mechanical implementation per the amended ADR.
 |-------|--------------------------------------------------------------------------------------|----------------|
 | 6.K.1 | `Value.ref` → `*FuncEntity` pointer encoding                                         | [x] 296d78e    |
 | 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`                 | [x] e6e5c20    |
-| 6.K.3 | Cross-module imports for table / global / func + zombie-instance contract (per amended ADR-0014) | [ ] **NEXT** |
-| 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [ ]            |
+| 6.K.3 | Cross-module imports for table / global / func + zombie-instance contract (per amended ADR-0014) | [x] ffc0cf0 |
+| 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [ ] **NEXT**   |
 | 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ]            |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ]            |
 | 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [ ]            |
