@@ -94,13 +94,21 @@ const ActiveModule = struct {
     engine: *wasm_c_api.Engine,
     store: *wasm_c_api.Store,
     module: *wasm_c_api.Module,
-    instance: *wasm_c_api.Instance,
+    /// `null` when this entry represents an
+    /// `assert_uninstantiable` / `assert_unlinkable` failure that
+    /// the runner retained so cross-module funcrefs into the
+    /// failed instance's funcs stay valid until corpus end (per
+    /// ADR-0014 §2.1 / 6.K.3 runner-retention contract). The
+    /// engine + store + module are kept alive so the c_api Store
+    /// zombie list (holding the failed instance's runtime +
+    /// arena) survives across subsequent assertions.
+    instance: ?*wasm_c_api.Instance,
     /// Cached export vector; populated lazily by `lookupExport`.
     exports: wasm_c_api.ExternVec = .{ .size = 0, .data = null },
 
     fn deinit(self: *ActiveModule) void {
         if (self.exports.size > 0) wasm_c_api.wasm_extern_vec_delete(&self.exports);
-        wasm_c_api.wasm_instance_delete(self.instance);
+        if (self.instance) |inst| wasm_c_api.wasm_instance_delete(inst);
         wasm_c_api.wasm_module_delete(self.module);
         wasm_c_api.wasm_store_delete(self.store);
         wasm_c_api.wasm_engine_delete(self.engine);
@@ -108,7 +116,8 @@ const ActiveModule = struct {
 
     fn ensureExports(self: *ActiveModule) void {
         if (self.exports.size == 0) {
-            wasm_c_api.wasm_instance_exports(self.instance, &self.exports);
+            if (self.instance) |inst|
+                wasm_c_api.wasm_instance_exports(inst, &self.exports);
         }
     }
 };
@@ -595,11 +604,16 @@ fn buildImports(ctx: *RunnerContext, wasm_bytes: []const u8) !?[]?*const wasm_c_
     for (imports.items, 0..) |it, idx| {
         if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) continue;
         const source = ctx.by_name.get(it.module) orelse continue;
+        // Failed-instance ActiveModules can't be sources for new
+        // imports — they're retained only so cross-module
+        // references already in foreign tables stay valid (per
+        // ADR-0014 §2.1 / 6.K.3 runner-retention contract). Skip.
+        const source_instance = source.instance orelse continue;
         // Walk source's exports to find one matching `it.name`,
         // build a transient Extern carrying the source instance +
         // export index. The Extern is arena-allocated so it lives
         // for the corpus.
-        for (source.instance.exports_storage) |exp| {
+        for (source_instance.exports_storage) |exp| {
             if (!std.mem.eql(u8, exp.name, it.name)) continue;
             const ext = try a.create(wasm_c_api.Extern);
             ext.* = .{
@@ -609,7 +623,7 @@ fn buildImports(ctx: *RunnerContext, wasm_bytes: []const u8) !?[]?*const wasm_c_
                     .memory => .memory,
                     .global => .global,
                 },
-                .instance = source.instance,
+                .instance = source_instance,
                 .table_idx = if (exp.kind == .table) exp.idx else 0,
                 .memory_idx = if (exp.kind == .memory) exp.idx else 0,
                 .global_idx = if (exp.kind == .global) exp.idx else 0,
@@ -699,11 +713,56 @@ fn handleInstantiateExpectFail(
     };
     defer a.free(wasm_bytes);
 
-    var am_tmp = instantiateWithImports(ctx, wasm_bytes) catch {
+    // Per ADR-0014 §2.1 / 6.K.3 runner-retention contract: when
+    // instance creation fails, retain the engine + store + module
+    // in `ctx.all` so subsequent `assert_return` directives can
+    // call into foreign-table cells that the failed instance
+    // partially initialised. The c_api Store zombie list (per
+    // 6.K.2 sub-change 4) holds the failed runtime + arena
+    // alive; this runner-side retention keeps the *Store itself*
+    // alive across asserts (errdefers in the success-path
+    // `instantiateWithImports` would destroy it otherwise).
+
+    const engine = wasm_c_api.wasm_engine_new() orelse return error.EngineAllocFailed;
+    var success = false;
+    errdefer if (!success) wasm_c_api.wasm_engine_delete(engine);
+
+    const store = wasm_c_api.wasm_store_new(engine) orelse return error.StoreAllocFailed;
+    errdefer if (!success) wasm_c_api.wasm_store_delete(store);
+
+    var bv: wasm_c_api.ByteVec = .{
+        .size = wasm_bytes.len,
+        .data = @constCast(wasm_bytes.ptr),
+    };
+    const module = wasm_c_api.wasm_module_new(store, &bv) orelse return error.ModuleAllocFailed;
+    errdefer if (!success) wasm_c_api.wasm_module_delete(module);
+
+    const imports_slice = try buildImports(ctx, wasm_bytes);
+    const imports_ptr: ?*const anyopaque = if (imports_slice) |slice|
+        @ptrCast(slice.ptr)
+    else
+        null;
+
+    const instance_opt = wasm_c_api.wasm_instance_new(store, module, imports_ptr, null);
+
+    // Whichever way it went, retain the bundle in ctx.all so
+    // the c_api Store (which holds the zombie runtime + arena
+    // for the failed-instance case) lives until corpus end.
+    const am = try a.create(ActiveModule);
+    am.* = .{
+        .engine = engine,
+        .store = store,
+        .module = module,
+        .instance = instance_opt, // null when instantiation failed
+    };
+    try ctx.all.append(a, am);
+    success = true; // suppress errdefer-on-error free; ctx.deinit() owns am now
+
+    if (instance_opt == null) {
         try stdout.print("PASS  {s}/{s} ({s})\n", .{ corpus_name, filename, label });
         return true;
-    };
-    am_tmp.deinit();
+    }
+
     try stdout.print("FAIL  {s}/{s} ({s}) — instantiate unexpectedly succeeded\n", .{ corpus_name, filename, label });
     return false;
 }
@@ -925,16 +984,17 @@ fn handleInvoke(
 /// trailing `-> <expected>` clause.
 fn lookupResultArity(ctx: *RunnerContext, export_name: []const u8) !usize {
     const am = ctx.current orelse return error.NoCurrentModule;
+    const inst = am.instance orelse return error.NoCurrentModule;
     am.ensureExports();
-    for (am.instance.exports_storage, 0..) |exp, i| {
+    for (inst.exports_storage, 0..) |exp, i| {
         if (exp.kind == .func and std.mem.eql(u8, exp.name, export_name)) {
             if (i >= am.exports.size) return error.ExportNotFound;
             const ext = am.exports.data.?[i] orelse return error.ExportNotFound;
             const fn_ptr = wasm_c_api.wasm_extern_as_func(ext) orelse return error.NotAFunction;
             // Func handle carries instance + func_idx; fish the sig
             // through the instance's func_ptrs_storage.
-            if (am.instance.func_ptrs_storage.len <= fn_ptr.func_idx) return error.ExportNotFound;
-            const zfunc = am.instance.func_ptrs_storage[fn_ptr.func_idx];
+            if (inst.func_ptrs_storage.len <= fn_ptr.func_idx) return error.ExportNotFound;
+            const zfunc = inst.func_ptrs_storage[fn_ptr.func_idx];
             return zfunc.sig.results.len;
         }
     }
@@ -955,10 +1015,11 @@ fn invokeExport(
     a: std.mem.Allocator,
 ) !InvokeResult {
     const am = ctx.current orelse return error.NoCurrentModule;
+    const inst = am.instance orelse return error.NoCurrentModule;
     am.ensureExports();
 
     var entry_idx: ?usize = null;
-    for (am.instance.exports_storage, 0..) |exp, i| {
+    for (inst.exports_storage, 0..) |exp, i| {
         if (exp.kind == .func and std.mem.eql(u8, exp.name, export_name)) {
             entry_idx = i;
             break;

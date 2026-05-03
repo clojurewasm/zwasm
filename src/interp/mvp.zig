@@ -360,7 +360,11 @@ inline fn sigEq(a: zir.FuncType, b: zir.FuncType) bool {
     return true;
 }
 
-fn invoke(rt: *Runtime, table: *const DispatchTable, callee: *const zir.ZirFunc) anyerror!void {
+/// Invoke a callee on the given runtime. Made public per
+/// ADR-0014 §2.1 / 6.K.3 so the cross-module call thunk in
+/// `c_api/instance.zig` can dispatch source-instance bodies on
+/// the source instance's runtime.
+pub fn invoke(rt: *Runtime, table: *const DispatchTable, callee: *const zir.ZirFunc) anyerror!void {
     const params_len = callee.sig.params.len;
     const total = params_len + callee.locals.len;
     const locals = try rt.alloc.alloc(interp.Value, total);
@@ -444,14 +448,14 @@ fn globalGet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const idx = instr.payload;
     if (idx >= rt.globals.len) return Trap.Unreachable;
-    try rt.pushOperand(rt.globals[idx]);
+    try rt.pushOperand(rt.globals[idx].*);
 }
 
 fn globalSet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const idx = instr.payload;
     if (idx >= rt.globals.len) return Trap.Unreachable;
-    rt.globals[idx] = rt.popOperand();
+    rt.globals[idx].* = rt.popOperand();
 }
 
 // ============================================================
@@ -716,13 +720,17 @@ test "globals: get/set round-trip" {
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
 
-    var globals = [_]Value{Value.fromI32(0)};
-    rt.globals = &globals;
+    // Per ADR-0014 §2.1 / 6.K.3: Runtime.globals is `[]*Value`
+    // (one pointer per slot, so cross-module imports can alias
+    // source storage). Tests build the slot array on the stack.
+    var storage = [_]Value{Value.fromI32(0)};
+    var slots = [_]*Value{&storage[0]};
+    rt.globals = &slots;
     defer rt.globals = &.{}; // prevent deinit from freeing the stack slice
 
     try driveOne(&rt, &t, .@"i32.const", @bitCast(@as(i32, 17)), 0);
     try driveOne(&rt, &t, .@"global.set", 0, 0);
-    try testing.expectEqual(@as(i32, 17), globals[0].i32);
+    try testing.expectEqual(@as(i32, 17), storage[0].i32);
 
     try driveOne(&rt, &t, .@"global.get", 0, 0);
     try testing.expectEqual(@as(i32, 17), rt.popOperand().i32);

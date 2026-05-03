@@ -39,6 +39,7 @@ const ext_ref_types = @import("../interp/ext_2_0/ref_types.zig");
 const ext_table_ops = @import("../interp/ext_2_0/table_ops.zig");
 const lowerer = @import("../frontend/lowerer.zig");
 const parser = @import("../frontend/parser.zig");
+const cross_module = @import("cross_module.zig");
 const sections = @import("../frontend/sections.zig");
 const validator = @import("../frontend/validator.zig");
 const zir = @import("../ir/zir.zig");
@@ -77,10 +78,16 @@ pub const Engine = extern struct {
 
 /// `wasm_store_t` — module-instantiation context. Carries a
 /// back-pointer to its owning Engine so subsequent C-API entries
-/// can recover the allocator without a global. Once §9.3 / 3.5
-/// (instance new) lands, this struct will also own a single
-/// `interp.Runtime` plus the GC root set.
-pub const Store = extern struct {
+/// can recover the allocator without a global. Hosts the
+/// per-Store zombie-instance list (ADR-0014 §2.1 / 6.K.2 sub-
+/// change 4) so cross-module funcrefs into a failed-or-
+/// destroyed instance still dispatch correctly until store
+/// teardown.
+///
+/// Plain (non-`extern`) struct: C only sees `wasm_store_t` as
+/// opaque per upstream wasm.h, so the layout is private.
+/// Matches the `Instance` shape choice for the same reason.
+pub const Store = struct {
     engine: ?*Engine,
     /// Optional WASI host (`zwasm_wasi_config_t` from C's
     /// perspective). Set via `zwasm_store_set_wasi`; ownership
@@ -90,6 +97,27 @@ pub const Store = extern struct {
     /// `wasi_snapshot_preview1.*` will then fail
     /// instantiation in §9.4 / 4.7's import-resolution path).
     wasi_host: ?*wasi_host.Host = null,
+    /// Per-Store zombie-instance list (ADR-0014 §2.1 / 6.K.2
+    /// sub-change 4). When `instantiateRuntime` traps mid-
+    /// element-segment processing, prior writes into a foreign
+    /// instance's table cells already hold `*FuncEntity`
+    /// pointers into the failing instance's arena. Per Wasm 2.0
+    /// partial-init semantics those writes must persist; the
+    /// failing instance's runtime + arena therefore park here
+    /// instead of being destroyed by the catch path.
+    /// `wasm_instance_delete` on a successfully-instantiated
+    /// handle also parks (so cross-module funcrefs stay valid
+    /// through the importer's lifetime). Walked + freed by
+    /// `wasm_store_delete`.
+    zombies: std.ArrayList(Zombie) = .empty,
+};
+
+/// One parked instance. Keeps the runtime + arena alive until
+/// `wasm_store_delete` walks the list. Per ADR-0014 §2.1 /
+/// 6.K.2 sub-change 4.
+pub const Zombie = struct {
+    runtime: *interp.Runtime,
+    arena: *std.heap.ArenaAllocator,
 };
 
 /// `wasm_module_t` — validated module. Owns a heap-allocated
@@ -273,17 +301,47 @@ pub export fn wasm_store_new(e: ?*Engine) callconv(.c) ?*Store {
 }
 
 /// `wasm_store_delete(*Store)` — free a Store. Null-tolerant.
-/// Tears down the attached WASI Host (if any) before releasing
-/// the struct itself.
+/// Walks the zombie-instance list (per ADR-0014 §2.1 / 6.K.2
+/// sub-change 4); tears down the attached WASI Host (if any);
+/// releases the struct itself.
 pub export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
     const handle = s orelse return;
     const engine = handle.engine orelse return; // dangling — leak rather than crash
     const alloc = engineAllocator(engine);
+    // Reap zombies first: each one's runtime + arena outlived the
+    // instance handle so cross-module funcrefs into it stayed
+    // valid; with the store going away, no foreign reference
+    // remains, so they can be freed.
+    for (handle.zombies.items) |z| {
+        z.runtime.deinit();
+        z.arena.deinit();
+        alloc.destroy(z.arena);
+        alloc.destroy(z.runtime);
+    }
+    handle.zombies.deinit(alloc);
     if (handle.wasi_host) |host| {
         host.deinit();
         alloc.destroy(host);
     }
     alloc.destroy(handle);
+}
+
+/// Park a runtime + arena pair on the store's zombie list. Used
+/// by `wasm_instance_new`'s catch path (failed instantiation
+/// retains its state per Wasm 2.0 partial-init semantics) and
+/// by `wasm_instance_delete` (cross-module funcrefs into the
+/// instance's funcs stay valid until store teardown). Per
+/// ADR-0014 §2.1 / 6.K.2 sub-change 4.
+fn parkAsZombie(
+    store_alloc: std.mem.Allocator,
+    store: *Store,
+    runtime: *interp.Runtime,
+    arena: *std.heap.ArenaAllocator,
+) std.mem.Allocator.Error!void {
+    try store.zombies.append(store_alloc, .{
+        .runtime = runtime,
+        .arena = arena,
+    });
 }
 
 // ============================================================
@@ -516,7 +574,8 @@ pub export fn wasm_module_delete(m: ?*Module) callconv(.c) void {
 /// a per-instance arena (held on `inst.arena`) into which all
 /// derived state lives — types, lowered `ZirFunc`s, and the
 /// `[]*const ZirFunc` table that `Runtime.funcs` borrows. On any
-/// failure the partial state is released by `freeInstanceState`.
+/// failure the partial state parks on the store's zombie list
+/// (`parkAsZombie`); the arena is freed at `wasm_store_delete`.
 ///
 /// 3.6 chunk a scope: types + functions + code section. Memory /
 /// data / element / table sections land alongside `wasm_func_call`
@@ -577,16 +636,14 @@ fn instantiateRuntime(
             // Iter 7 scope: only memory imports wire end-to-end.
             // Table / global / func imports remain unsupported
             // because their dispatch needs source-instance
-            // routing (funcidxs in shared tables resolve against
-            // the source's funcs, not the importer's). Failing
-            // loudly here keeps test outcomes deterministic and
-            // surfaces the next iter's target.
-            switch (it.kind) {
-                .memory => {},
-                .table => return error.UnsupportedCrossModuleTableImport,
-                .global => return error.UnsupportedCrossModuleGlobalImport,
-                .func => return error.UnsupportedCrossModuleFuncImport,
-            }
+            // Per ADR-0014 §2.1 / 6.K.3: every import kind (memory
+            // / table / global / func) is wired below. Memory at
+            // ~line 720 (slice-header alias). Table at ~line 790
+            // (TableInstance value-copy — refs slice is shared).
+            // Global at ~line 850 (per-slot pointer alias via
+            // `Runtime.globals: []*Value`). Func via cross-module
+            // call thunk at ~line 730 (host_calls slot routes the
+            // call through the source instance's runtime).
         }
     }
 
@@ -602,17 +659,22 @@ fn instantiateRuntime(
     };
 
     if (imp_func_count > 0) {
-        // Cross-module func imports defer to a later iter; the only
-        // funcs we currently wire are WASI thunks. If any imported
-        // function is non-WASI, fail loudly rather than silently
-        // dispatch to a placeholder.
+        // Per ADR-0014 §2.1 / 6.K.3: imported functions split into
+        // two routing strategies — WASI imports go through the
+        // store's WASI host (existing path); non-WASI imports go
+        // through a cross-module call thunk that switches the
+        // operand stack into the source instance's runtime.
+        var has_wasi_import = false;
         if (imports_decoded) |im| for (im.items) |it| {
             if (it.kind != .func) continue;
-            if (!std.mem.eql(u8, it.module, "wasi_snapshot_preview1"))
-                return error.UnsupportedCrossModuleFuncImport;
+            if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
+                has_wasi_import = true;
+            }
         };
-        const store = inst.store orelse return error.WasiNotConfigured;
-        if (store.wasi_host == null) return error.WasiNotConfigured;
+        if (has_wasi_import) {
+            const store = inst.store orelse return error.WasiNotConfigured;
+            if (store.wasi_host == null) return error.WasiNotConfigured;
+        }
     }
 
     // Type / function / code sections may be absent for modules
@@ -672,16 +734,46 @@ fn instantiateRuntime(
     for (funcs, 0..) |*f, i| func_ptrs[imp_func_count + i] = f;
     inst.func_ptrs_storage = func_ptrs;
 
-    // host_calls — wire each imported func to its WASI thunk.
+    // host_calls — wire each imported func to either a WASI thunk
+    // (`wasi_snapshot_preview1` imports) or a cross-module call
+    // thunk (other imports per ADR-0014 §2.1 / 6.K.3). The cross-
+    // module thunk pops args off the importer's operand stack,
+    // pushes onto the source instance's runtime, runs the source's
+    // dispatch on its own runtime context, then copies results
+    // back.
     if (imp_func_count > 0) {
         const host_calls = try a.alloc(?interp.HostCall, total_funcs);
         @memset(host_calls, null);
-        const host_ctx: *anyopaque = @ptrCast(inst.store.?.wasi_host.?);
         var imp_idx: u32 = 0;
-        for (imports_decoded.?.items) |it| {
+        for (imports_decoded.?.items, 0..) |it, idx| {
             if (it.kind != .func) continue;
-            const thunk = wasi.lookupWasiThunk(it.name).?;
-            host_calls[imp_idx] = .{ .fn_ptr = thunk, .ctx = host_ctx };
+            if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
+                const wasi_host_ptr: *anyopaque = @ptrCast(inst.store.?.wasi_host.?);
+                const thunk = wasi.lookupWasiThunk(it.name).?;
+                host_calls[imp_idx] = .{ .fn_ptr = thunk, .ctx = wasi_host_ptr };
+            } else {
+                const ext = (imports orelse return error.UnknownImportModule)[idx] orelse
+                    return error.UnknownImportModule;
+                const source_inst = ext.instance orelse return error.UnknownImportModule;
+                const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
+                const source_funcidx = blk: {
+                    for (source_inst.exports_storage) |exp| {
+                        if (exp.kind == .func and std.mem.eql(u8, exp.name, it.name))
+                            break :blk exp.idx;
+                    }
+                    return error.UnknownImportModule;
+                };
+                const ctx_ptr = try a.create(cross_module.CallCtx);
+                ctx_ptr.* = .{
+                    .source_rt = source_rt,
+                    .source_funcidx = source_funcidx,
+                    .dispatch_table = dispatchTable(),
+                };
+                host_calls[imp_idx] = .{
+                    .fn_ptr = cross_module.thunk,
+                    .ctx = @ptrCast(ctx_ptr),
+                };
+            }
             imp_idx += 1;
         }
         rt.host_calls = host_calls;
@@ -691,15 +783,45 @@ fn instantiateRuntime(
     rt.module_types = types.items;
 
     // §9.6 / 6.K.1 (ADR-0014 §2.1): per-instance FuncEntity array
-    // parallel to func_ptrs. Funcref values encode
-    // `@intFromPtr(*const FuncEntity)` so the table cell carries
-    // source-runtime identity without a separate routing layer.
+    // parallel to func_ptrs. Defined funcs point at this Runtime;
+    // imported funcs (per 6.K.3) point at the source instance's
+    // runtime so call_indirect through a foreign-funcref cell
+    // routes to the source's body via FuncEntity.runtime.
     if (total_funcs > 0) {
         const entities = try a.alloc(interp.FuncEntity, total_funcs);
         for (0..total_funcs) |i| entities[i] = .{
             .runtime = rt,
             .func_idx = @intCast(i),
         };
+        if (imp_func_count > 0 and imports_decoded != null) {
+            var imp_idx: u32 = 0;
+            for (imports_decoded.?.items, 0..) |it, idx| {
+                if (it.kind != .func) continue;
+                if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
+                    // WASI funcref isn't a realistic case (WASI
+                    // is called by funcidx, not by ref); leave
+                    // the local-placeholder pointer in place.
+                    imp_idx += 1;
+                    continue;
+                }
+                const ext = (imports orelse return error.UnknownImportModule)[idx] orelse
+                    return error.UnknownImportModule;
+                const source_inst = ext.instance orelse return error.UnknownImportModule;
+                const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
+                const source_funcidx = blk: {
+                    for (source_inst.exports_storage) |exp| {
+                        if (exp.kind == .func and std.mem.eql(u8, exp.name, it.name))
+                            break :blk exp.idx;
+                    }
+                    return error.UnknownImportModule;
+                };
+                entities[imp_idx] = .{
+                    .runtime = source_rt,
+                    .func_idx = source_funcidx,
+                };
+                imp_idx += 1;
+            }
+        }
         rt.func_entities = entities;
     }
 
@@ -839,18 +961,54 @@ fn instantiateRuntime(
         }
     }
 
-    // §9.6 / 6.E iter 11: defined globals. Imported globals stay
-    // unsupported pending cross-module wiring; defined ones get
-    // their init-expression evaluated and stored in `rt.globals`.
-    if (module.find(.global)) |global_section| {
-        var globals = try sections.decodeGlobals(a, global_section.body);
-        defer globals.deinit();
-        if (globals.items.len > 0) {
-            const total: usize = imp_global_count + globals.items.len;
-            const slots = try a.alloc(interp.Value, total);
-            @memset(slots, .zero);
-            for (globals.items, 0..) |g, i| {
-                slots[imp_global_count + i] = try evalConstExprValue(g.init_expr);
+    // §9.6 / 6.K.3 (ADR-0014 §2.1): wired globals — imported
+    // globals alias source-instance storage via per-slot pointer
+    // (`Runtime.globals: []*Value`); defined globals point at
+    // arena-owned slots in `globals_storage`.
+    {
+        var defined_count: usize = 0;
+        if (module.find(.global)) |global_section| {
+            var globals = try sections.decodeGlobals(a, global_section.body);
+            defer globals.deinit();
+            defined_count = globals.items.len;
+
+            const total = imp_global_count + defined_count;
+            if (total > 0) {
+                const slots = try a.alloc(*interp.Value, total);
+                const storage = try a.alloc(interp.Value, defined_count);
+                if (imp_global_count > 0 and imports_decoded != null) {
+                    var imp_idx: u32 = 0;
+                    for (imports_decoded.?.items, 0..) |it, idx| {
+                        if (it.kind != .global) continue;
+                        const ext = (imports orelse return error.UnknownImportModule)[idx] orelse
+                            return error.UnknownImportModule;
+                        const source_inst = ext.instance orelse return error.UnknownImportModule;
+                        const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
+                        if (ext.global_idx >= source_rt.globals.len) return error.UnknownImportModule;
+                        slots[imp_idx] = source_rt.globals[ext.global_idx];
+                        imp_idx += 1;
+                    }
+                }
+                for (globals.items, 0..) |g, i| {
+                    storage[i] = try evalConstExprValue(g.init_expr);
+                    slots[imp_global_count + i] = &storage[i];
+                }
+                rt.globals = slots;
+                rt.globals_storage = storage;
+            }
+        } else if (imp_global_count > 0 and imports_decoded != null) {
+            // Module has no defined globals but imports some.
+            const slots = try a.alloc(*interp.Value, imp_global_count);
+            var imp_idx: u32 = 0;
+            for (imports_decoded.?.items, 0..) |it, idx| {
+                if (it.kind != .global) continue;
+                const ext = (imports orelse return error.UnknownImportModule)[idx] orelse
+                    return error.UnknownImportModule;
+                const source_inst = ext.instance orelse return error.UnknownImportModule;
+                const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
+                if (ext.global_idx >= source_rt.globals.len) return error.UnknownImportModule;
+                slots[imp_idx] = source_rt.globals[ext.global_idx];
+                imp_idx += 1;
             }
             rt.globals = slots;
         }
@@ -915,16 +1073,6 @@ fn evalConstI32Expr(expr: []const u8) !i32 {
     return v;
 }
 
-fn freeInstanceState(parent_alloc: std.mem.Allocator, inst: *Instance) void {
-    if (inst.arena) |a| {
-        a.deinit();
-        parent_alloc.destroy(a);
-        inst.arena = null;
-    }
-    inst.funcs_storage = &.{};
-    inst.func_ptrs_storage = &.{};
-}
-
 /// `wasm_instance_new(store, module, imports, trap_out)` —
 /// allocate an Instance bound to the given Module and lower its
 /// code into the owned Runtime. The `imports` and `trap_out`
@@ -973,37 +1121,67 @@ pub export fn wasm_instance_new(
         return null;
     };
     instantiateRuntime(alloc, bytes_ptr[0..module.bytes_len], inst, runtime, imports_array) catch {
-        // Order matters per ADR-0014 §2.2 / 6.K.2: `runtime.deinit`
-        // must run while `rt.alloc` (the arena allocator) is still
-        // backed by a live arena. After `freeInstanceState` destroys
-        // the arena, the Allocator vtable points at freed memory and
-        // any `free` call on it is UAF.
-        runtime.deinit();
-        freeInstanceState(alloc, inst);
-        alloc.destroy(runtime);
+        // Per ADR-0014 §2.1 / 6.K.2 sub-change 4: park the failed
+        // instance's runtime + arena on the store's zombie list.
+        // Wasm 2.0 partial-init semantics may have committed
+        // cross-module writes (foreign tables holding *FuncEntity
+        // pointers into our arena); destroying the arena would
+        // turn those into dangling pointers and segfault later
+        // call_indirect dispatches.
+        if (inst.arena) |arena| {
+            // If parkAsZombie itself OOMs the store list, we have
+            // no graceful recovery — accept the leak (arena +
+            // runtime stay around until process exit) and report
+            // the original instantiation failure.
+            parkAsZombie(alloc, store, runtime, arena) catch {};
+            inst.arena = null;
+        } else {
+            // No arena to park (e.g., parser/import-decode failed
+            // before arena setup). Safe to fully free.
+            runtime.deinit();
+            alloc.destroy(runtime);
+        }
+        // Instance struct itself can go: the C-API caller never
+        // sees it (we return null below). The runtime + arena
+        // outlived it via the zombie list.
+        inst.funcs_storage = &.{};
+        inst.func_ptrs_storage = &.{};
         alloc.destroy(inst);
         return null;
     };
     return inst;
 }
 
-/// `wasm_instance_delete(*Instance)` — free an Instance returned
-/// by `wasm_instance_new`. Null-tolerant; tears down arena-owned
-/// derived state, then the Runtime, then the struct itself.
+/// `wasm_instance_delete(*Instance)` — release the C-side
+/// `wasm_instance_t` handle. Per ADR-0014 §2.1 / 6.K.2 sub-
+/// change 4 the underlying runtime + arena park as a zombie on
+/// the store: cross-module funcrefs into this instance's funcs
+/// from sibling instances stay valid until `wasm_store_delete`
+/// reaps the zombie. Mirrors wasmtime's instance-Arc lifetime
+/// (`store.rs:146`) and wazero's `involvingModuleInstances`
+/// (`internal/wasm/table.go:104`).
+///
+/// Null-tolerant.
 pub export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
     const handle = i orelse return;
     const store = handle.store orelse return;
     const alloc = storeAllocator(store) orelse return;
-    // Per ADR-0014 §2.2 / 6.K.2 ordering invariant: `rt.deinit`
-    // before `freeInstanceState` (which destroys the arena), so
-    // the arena Allocator vtable rt.alloc still references is live.
     if (handle.runtime) |rt| {
-        rt.deinit();
-        freeInstanceState(alloc, handle);
-        alloc.destroy(rt);
-    } else {
-        freeInstanceState(alloc, handle);
+        if (handle.arena) |arena| {
+            // Park instead of free. If parkAsZombie OOMs we accept
+            // the arena leak (process exit cleans it up) rather
+            // than UAF the cross-module references.
+            parkAsZombie(alloc, store, rt, arena) catch {};
+            handle.arena = null;
+        } else {
+            // Pre-arena state (couldn't happen on the success
+            // path but defensive): free the runtime directly.
+            rt.deinit();
+            alloc.destroy(rt);
+        }
     }
+    handle.funcs_storage = &.{};
+    handle.func_ptrs_storage = &.{};
     alloc.destroy(handle);
 }
 

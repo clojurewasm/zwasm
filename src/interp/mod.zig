@@ -272,7 +272,16 @@ pub const Runtime = struct {
     /// runtime back-ref. Not consulted on the hot path.
     instance: ?*anyopaque = null,
     memory: []u8 = &.{},
-    globals: []Value = &.{},
+    /// Module global slots. **Pointer-per-entry** so cross-module
+    /// global imports alias the source instance's storage (per
+    /// ADR-0014 §2.1 / 6.K.3). Defined globals point at slots in
+    /// `globals_storage`; imported globals point at the source
+    /// instance's slot. global.get / global.set dereference.
+    globals: []*Value = &.{},
+    /// Owning storage for **defined** globals. Imported globals
+    /// alias source storage and don't touch this slice. Arena-
+    /// owned in the c_api path; tests construct in-place.
+    globals_storage: []Value = &.{},
     /// Module function table — `funcs[i]` is the ZirFunc for the
     /// i-th function in the module's index space (imports first,
     /// then defined). The `call` handler indexes into this; the
@@ -360,7 +369,8 @@ pub const Runtime = struct {
         // arena-owned slices stay intact while testing.allocator-
         // owned slices still release without leaking.
         rawFreeOwned(self.alloc, u8, self.memory);
-        rawFreeOwned(self.alloc, Value, self.globals);
+        rawFreeOwned(self.alloc, *Value, self.globals);
+        rawFreeOwned(self.alloc, Value, self.globals_storage);
         rawFreeOwned(self.alloc, bool, self.data_dropped);
         rawFreeOwned(self.alloc, bool, self.elem_dropped);
     }
