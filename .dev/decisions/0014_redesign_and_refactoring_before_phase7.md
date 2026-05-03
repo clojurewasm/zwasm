@@ -174,7 +174,7 @@ plus the test sites above.
 
 #### 6.K.2 — Ownership model: Instance back-ref, allocator discipline
 
-**What**: Three sub-changes:
+**What**: Four sub-changes:
 
 1. `Runtime` gains `instance: ?*anyopaque = null` (Zone 2 cannot
    import Zone 3 directly; the c\_api binding stores a `*Instance`
@@ -191,6 +191,23 @@ plus the test sites above.
    making the importer's `rt.memory` slice header reference the
    source's bytes; no free path needs to know which is which
    (the source's arena owns the storage).
+4. **Zombie instance contract** (added 2026-05-04 after the 6.K.3
+   spike found a partial-init dangling-FuncEntity issue, see §3
+   amendment below). When an `instantiateRuntime` call traps
+   mid-element-segment processing, prior writes into a foreign
+   instance's table cells already hold `*FuncEntity` pointers
+   into the failing instance's arena (per Wasm 2.0 partial-init
+   semantics). Destroying that arena turns those into dangling
+   pointers. The failed instantiation's `Runtime` + arena
+   therefore park on a per-`Store` zombie list; they live until
+   `wasm_store_delete` walks and frees them. The Instance struct
+   itself is freed normally (the C-API caller never sees it),
+   but the underlying state is retained. `wasm_instance_delete`
+   on a successfully-instantiated handle parks it as a zombie
+   too, so cross-module funcrefs into it from sibling instances
+   stay valid until store teardown — matching wasmtime
+   (`crates/wasmtime/src/runtime/store.rs:146`) and wazero
+   (`internal/wasm/table.go:104` `involvingModuleInstances`).
 
 **Why this shape**: every introduced resource (globals,
 FuncEntity, future continuation-ref) inherits arena ownership
@@ -216,7 +233,8 @@ ADR proposing a per-table `refs` allocator routed directly at
 
 **Files touched**: `src/interp/mod.zig` (Runtime fields +
 deinit), `src/c_api/instance.zig` (instantiateRuntime allocator
-choice unified), `src/interp/ext_2_0/table_ops.zig`
+choice unified; the zombie list lives on Store and is walked by
+`wasm_store_delete`), `src/interp/ext_2_0/table_ops.zig`
 (`table.grow`'s realloc target).
 
 **Acceptance**:
@@ -230,6 +248,18 @@ choice unified), `src/interp/ext_2_0/table_ops.zig`
    init-value at the appended slots". Confirms arena-backed
    realloc semantics directly, since the existing test corpus
    does not heavily exercise `table.grow`.
+4. **(added 2026-05-04)** New unit test "zombie instance: failed
+   instantiation's runtime + arena live until store_delete; a
+   funcref into the zombie's funcs survives `wasm_instance_new`'s
+   null return and dispatches correctly when invoked from a
+   sibling live instance's table". Locks the Wasm 2.0
+   partial-init semantics this contract preserves.
+
+**Sub-tasks** (initial 6.K.2 work landed in commit `e6e5c20`):
+sub-changes 1-3 are `[x]` post-`e6e5c20`. **Sub-change 4
+(zombie list) is `[ ]` and lands as part of the 6.K.3 retry**
+since the two are inseparable: 6.K.3 cannot land safely without
+4, and 4 has no observable behaviour without 6.K.3 exercising it.
 
 #### 6.K.3 — Cross-module imports for table / global / func
 
@@ -241,11 +271,18 @@ choice unified), `src/interp/ext_2_0/table_ops.zig`
   metadata) Just Works. The importer's `rt.tables[idx]` holds a
   copy of the source's `TableInstance` struct value (refs slice
   is shared; mutations from either side propagate).
-- **Global import**: similar — `rt.globals[idx]` aliases the
-  source's slot. Globals are by-value Wasm types (no references);
-  shared-storage = shared-state. Need to be careful about
-  mutability: a mutable global mutated by the importer must reach
-  the source; the same slice-aliasing handles this.
+- **Global import**: per-slot pointer aliasing —
+  `Runtime.globals: []*Value` (was `[]Value`), with each slot
+  pointing at owning storage. Defined globals point at slots in a
+  per-instance `globals_storage: []Value` arena allocation;
+  imported globals point at the source instance's slot. global.get
+  / global.set dereference the pointer. Mutable global imports
+  reach the source via the shared pointer; immutable imports work
+  identically. **(amended 2026-05-04)** This replaces the
+  original "slice-alias" framing — a flat `[]Value` cannot share
+  individual slots between disjoint slice headers, so the encoding
+  shifts to per-slot pointers. Hot-path cost is one extra load
+  per global access; benchmarks tolerated.
 - **Func import**: the importer's funcidx 0..imp\_func\_count map
   to source instance functions. Build the importer's
   `host_calls[i]` to a thunk that pops args off the importer's
@@ -285,21 +322,48 @@ what 6.K.3 wants. **The only required source change for table
 imports** is removing the `UnsupportedCrossModuleTableImport`
 guard. Globals + funcs are new code.
 
+**Partial-init dangling-FuncEntity contract** (added 2026-05-04
+after the spike). When module B's element segment writes
+`*FuncEntity` pointers (per the 6.K.1 encoding) into module A's
+imported table, then a later segment in B traps OOB, partial-init
+semantics (Wasm 2.0) keep B's writes visible in A's table.
+B's instantiation fails; without further mitigation, B's arena
+is destroyed and A's table holds dangling pointers. The fix
+lives in 6.K.2's sub-change 4 (zombie-instance keep-alive at the
+c\_api Store level — see above). At the runner layer,
+`wast_runtime_runner.zig`'s `handleInstantiateExpectFail` must
+**retain the failed instance's engine + store + module + arena
+in `ctx.all`** — not run the inherited `errdefer
+wasm_engine_delete / wasm_store_delete / wasm_module_delete` from
+`instantiateWithImports`. The corpus-level `ctx.deinit()` walks
+`ctx.all` and frees everything at corpus end, which is when the
+last reference into a zombie's funcs is guaranteed to have been
+released. Mirrors wasmtime's wast runner shape (one Store across
+the whole `.wast` file).
+
 **Files touched**: `src/c_api/instance.zig`
 (remove `error.UnsupportedCrossModule*Import` guards; add
-global slice-aliasing + func thunk paths; the existing
-`tbl_storage[i] = ...` lines are preserved verbatim as the
-correct shared-refs path), `test/runners/wast_runtime_runner.zig`
-(`buildImports` raises a named error instead of silently null-
-slotting on unresolved imports — closes inventory item 7 from §1).
+global per-slot pointer aliasing + func thunk paths; add Store
+zombie list + `parkAsZombie` helper + walk in
+`wasm_store_delete`; preserve the existing
+`tbl_storage[i] = ...` lines as the correct shared-refs path),
+`src/interp/mod.zig` (`Runtime.globals: []*Value` shape change +
+`globals_storage: []Value` field), `src/interp/mvp.zig`
+(`globalGet` / `globalSet` deref + `globals` test setup
+adjusted), `test/runners/wast_runtime_runner.zig` (1)
+`buildImports` raises a named error instead of silently
+null-slotting on unresolved imports (closes inventory item 7
+from §1); (2) `handleInstantiateExpectFail` retains the failed
+ActiveModule in `ctx.all` instead of letting errdefers free it.
 
 **Acceptance**:
-1. After 6.K.1 + 6.K.2 land, the misc-runtime failure count
-   drops to **≤ 1** (the partial-init-table fixture reserved
-   for 6.K.6). Stating this relative to the post-6.K.1+6.K.2
-   state — not as an absolute "27 fixed" number — protects the
-   criterion from baseline drift if any other 6.K item resolves
-   a fail as a side effect.
+1. After 6.K.1 + 6.K.2 (including sub-change 4) land, the
+   misc-runtime failure count drops to **≤ 1** — partial-init-
+   table-segment is now a target, not a reserved-for-6.K.6 hold-out;
+   the fixture should pass. Stating this relative to the
+   post-6.K.1+6.K.2 state — not as an absolute "27 fixed" number —
+   protects the criterion from baseline drift if any other 6.K item
+   resolves a fail as a side effect.
 2. New unit test `buildImports` raises a named error
    (`error.UnregisteredImportSource` or similar) when an import
    names a module that was never registered, instead of silently
@@ -307,6 +371,10 @@ slotting on unresolved imports — closes inventory item 7 from §1).
    `UnknownImportModule`.
 3. The cross-module shared-table unit test from 6.K.1 (3) still
    passes end-to-end.
+4. **(added 2026-05-04)** Direct call_indirect into a zombie
+   funcref dispatches normally (matches wasmtime
+   `crates/wasmtime/src/runtime/instance.rs:327-350` partial-init
+   semantics). Spec-pure per `WebAssembly/spec/interpreter/exec/eval.ml:427-444`.
 
 #### 6.K.4 — decodeElement element-section forms 5 / 6 / 7
 
@@ -472,13 +540,46 @@ correctness, which is Phase 6's charter (per ADR-0008).
 ### γ — Packed (instance\_id, funcidx) registry
 
 Encode `Value.ref` as `(instance_id << 32) | funcidx`; maintain
-a global `instance_id → *Instance` registry. Rejected: requires
-a process-wide registry (introduces global mutable state, against
-§P3); the registry needs lifecycle management (free instance\_id
-on instance delete); JIT phase will want a direct pointer
+a global `instance_id → *Instance` registry.
+
+**Original rejection** (pre-2026-05-04): requires a process-wide
+registry (introduces global mutable state, against §P3); the
+registry needs lifecycle management (free instance\_id on
+instance delete); JIT phase will want a direct pointer
 dereference for `call_indirect` performance, not a registry
 lookup. The pointer-based approach (6.K.1) is what JIT will
 adopt anyway, so doing it now avoids a second migration.
+
+**Spike review (2026-05-04)** — the rejection still holds, but
+for different reasons than originally stated:
+
+1. The `*FuncEntity` pointer encoding (6.K.1) does have the
+   partial-init dangling-pointer issue this section originally
+   used to reject γ (the registry's lifecycle management is
+   what fixes it). But γ's "kill the pointer encoding entirely"
+   over-corrects — it makes dispatch into a still-valid foreign
+   function trap when the spec says it should succeed. Wasm 2.0
+   per `eval.ml:427-444` permits dispatch on cells whose
+   allocating module's instantiation later trapped; γ's
+   "instance gone → null lookup → trap" semantics deviate from
+   that.
+2. The right answer is **Alpha** (zombie keep-alive at Store
+   level, per 6.K.2 sub-change 4) — keeps the pointer encoding,
+   keeps the spec's dispatch-success semantics, fixes the
+   lifetime by retaining the arena until store-delete. Mirrors
+   wasmtime (`store.rs:146`) and wazero
+   (`internal/wasm/table.go:104` `involvingModuleInstances`),
+   both of which keep failed-instance state alive via their
+   respective lifetime mechanisms (Arc/Weak ref-counts in
+   wasmtime, GC roots in wazero).
+3. JIT-side prediction in the original rejection was correct for
+   the wrong reason: pointer-based dispatch IS what JIT will
+   adopt, but only because the arena lifetime is now carried by
+   the Store-level zombie list rather than by the dispatch-time
+   liveness check γ proposed.
+
+γ stays rejected; Alpha is the chosen design (locked in via
+6.K.2 sub-change 4 + 6.K.3's runner-layer retention).
 
 ### δ — Skip cross-module fixtures via per-fixture ADR
 
@@ -637,3 +738,39 @@ A → `no_copy_from_v1.md` cross-instance check; family B →
 - iter-5 / iter-7 / iter-11 commit messages
   (`bdef556` / `7cc6715` / `7b26760`) — the substrate work that
   surfaced the inventory
+
+## 7. Revision history
+
+- **2026-05-03 (initial Accepted)** — ADR replaced its own
+  placeholder content (the "Phase 7 = refactor / Phase 8 = JIT"
+  sketch) with the §9.6 / 6.K work-item block (6.K.1 funcref
+  encoding, 6.K.2 ownership model, 6.K.3 cross-module imports,
+  6.K.4 element forms, 6.K.5 Label arity, 6.K.6 partial-init
+  re-measure). Decision: keep Phase 7 = JIT v1 ARM64; absorb the
+  carry-over into Phase 6.
+- **2026-05-04** — Amendment after the 6.K.3 implementation
+  spike (reverted; design notes survive at
+  `private/notes/p6-6K3-survey.md` and
+  `private/notes/p6-6K3-lifetime-survey.md`). The 6.K.1
+  `*FuncEntity` pointer encoding has a partial-init dangling-
+  pointer issue: cross-module element-segment writes survive a
+  later OOB-trap in the importer (per Wasm 2.0 spec) and store
+  pointers into the failing instance's arena, which the catch
+  path destroys. Per the wasmtime / wazero / spec-interpreter
+  cross-reference, the load-bearing fix is a **per-Store zombie-
+  instance keep-alive contract** (Alpha): the failed runtime +
+  arena park on a Store-private list and live until
+  `wasm_store_delete`. 6.K.2 gains sub-change 4 (the zombie list);
+  6.K.3 gains the runner-layer retention path; §3.γ rejection is
+  re-justified on the more-principled ground that γ's "instance
+  gone → null lookup → trap" deviates from the spec's
+  dispatch-success semantics (the encoding is fine; it's the
+  lifetime that needed the fix). 6.K.6 expands from
+  "re-measure-only" to verifying the zombie contract holds across
+  the partial-init-table-segment fixture, which now passes
+  end-to-end rather than being deferred. The amendment edits
+  6.K.2 §2.1 ("Four sub-changes") + 6.K.3 §2.1 ("Partial-init
+  dangling-FuncEntity contract" sub-section) + §3.γ ("Spike
+  review (2026-05-04)") in place per ROADMAP §18.2's "edit-as-if-
+  always-so" discipline. ADR number stays `0014`; cross-references
+  in commits and other ADRs are unaffected.

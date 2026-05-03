@@ -18,46 +18,77 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS, BLOCKED on 6.K.3** pending
-  6.K.6-class lifetime fix (see Open questions / blockers).
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3 unblocked by the
+  ADR-0014 amendment landing this session. Implementation cycle
+  resumes at the next /continue wakeup.
 - **Last source commit**: `6c223a9` — chore(p6) mark §9.6 / 6.K.8
   [x]; delete ADR drafting override; retarget at 6.K.3. Baseline
-  242/29 misc-runtime fails restored.
-- **6.K.3 work attempted then reverted in this session** — the
-  spike unblocked table / global / func cross-module imports at
-  the c\_api level (drop the three `Unsupported*Import` guards,
-  add a cross-module call thunk in `host_calls`, set imported
-  `FuncEntity.runtime = source_rt`, switch `Runtime.globals` to
-  `[]*Value` with parallel `globals_storage`). Build green. But
-  exposed a pre-existing partial-init lifetime bug
-  (see blocker §1). Revert: `git restore src/`. The design notes
-  + survey survive at `private/notes/p6-6K3-survey.md`.
+  242/29 misc-runtime fails. Plus a pending docs commit landing
+  the ADR-0014 amendment described below.
+- **6.K.3 design redone** (2026-05-04). The earlier spike found
+  that the 6.K.1 `*FuncEntity` encoding produces dangling pointers
+  on partial-init failures (Wasm 2.0 mandates that prior elem-
+  segment writes persist when a later segment OOB-traps; the
+  importer's arena destruction then leaves dangling references).
+  Research subagent confirmed wasmtime + wazero both solve this
+  with **zombie-instance keep-alive at Store level** (Alpha).
+  ADR-0014 amended in place: 6.K.2 gains sub-change 4 (Store
+  zombie list, parkAsZombie helper, walk in wasm_store_delete);
+  6.K.3 gains a runner-layer retention contract for
+  `wast_runtime_runner.zig`'s handleInstantiateExpectFail.
+  partial-init-table-segment is no longer deferred to 6.K.6 —
+  the contract makes it pass end-to-end. Spike code reverted;
+  design notes at `private/notes/p6-6K3-survey.md` +
+  `private/notes/p6-6K3-lifetime-survey.md`; encoding experiments
+  (Beta sketch — rejected) at
+  `private/dbg/p6-6K3-lifetime/encoding_experiments.zig` (11/11
+  unit tests; gitignored).
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.K.3 BLOCKED. Next-tractable: §9.6 / 6.K.4 or 6.K.5
+## Active task — §9.6 / 6.K.3 (cross-module imports) — re-attempt with zombie-instance contract
 
-Per the autonomous loop's stop conditions, blocker §1 below is a
-**bucket-2 stop** (genuinely unsolvable without a load-bearing
-trade-off). The user must decide one of:
+Per the ADR-0014 amendment, 6.K.3 is now a single coherent piece
+of work covering:
 
-- **(A) Re-prioritise 6.K.6 (partial-init lifetime fix) before
-  6.K.3.** ADR-0014's "files touched" / "acceptance" list for
-  6.K.6 likely needs amending to include "imported-instance
-  arena keep-alive on instantiation failure" or equivalent.
-  After 6.K.6, return to 6.K.3 spike.
-- **(B) Land 6.K.3 with a guard against the partial-init scenario**
-  (e.g., reject element-segment writes to imported tables when the
-  importer might fail mid-init). Trades spec fidelity for
-  unblocking the misc-runtime fixtures that don't trigger
-  partial-init (table_copy_on_imported_tables, embenchen_*1,
-  externref-segment, elem-ref-null, call_indirect.1). ~5 of 19
-  failing fixtures still wouldn't pass. Needs ADR amendment.
-- **(C) Run 6.K.4 + 6.K.5 first** (parallel-eligible per
-  ADR-0014); they don't depend on cross-module dispatch. Returns
-  to 6.K.3 once 6.K.6 lands.
+1. **6.K.2 sub-change 4** (Store zombie list): add
+   `Store.zombies: ArrayList(Zombie)` where `Zombie = { runtime,
+   arena }`; `parkAsZombie(store, runtime, arena)` helper; the
+   catch in `wasm_instance_new` parks instead of destroys; same
+   for `wasm_instance_delete`; `wasm_store_delete` walks zombies
+   and frees them. Convert `Store` from `extern struct` to plain
+   struct (no C-ABI impact since `wasm_store_t` is opaque from
+   C's POV). ~50 LoC.
+2. **6.K.3 c_api wiring**: drop the three
+   `error.UnsupportedCrossModule*Import` guards; the cross-module
+   call thunk in `host_calls`; per-slot pointer aliasing for
+   globals (`Runtime.globals: []*Value` + `globals_storage`);
+   `FuncEntity.runtime = source_rt` for imported funcs.
+   ~150 LoC (the spike sketched this; available in the reverted
+   diff via `git reflog show stash` if needed; otherwise re-derive).
+3. **6.K.3 runner retention**: modify
+   `test/runners/wast_runtime_runner.zig`'s
+   `handleInstantiateExpectFail` to retain the failed
+   ActiveModule in `ctx.all` instead of letting
+   `instantiateWithImports`'s errdefers destroy it.
+   `buildImports` raises `error.UnregisteredImportSource` (or
+   similar) instead of silently null-slotting. ~50 LoC.
 
-The autonomous loop **does not** decide between (A) / (B) / (C)
-without explicit user direction.
+Acceptance per the amended ADR:
+
+- `test-wasmtime-misc-runtime` failure count drops to ≤ 1
+  (partial-init-table-segment is now in scope, not deferred).
+- New unit test "zombie instance: failed instantiation's runtime
+  + arena live until store_delete" (per 6.K.2 sub-change 4).
+- New unit test for `buildImports` named-error path.
+
+Implementation order (TDD): runner test for zombie-keep-alive
+first (red), c_api zombie list (green), drop import guards,
+add cross-module wiring + runner retention, run misc-runtime,
+re-baseline.
+
+Step 0 Survey is **not needed** this cycle — the prior survey
+notes + research subagent output cover the design space; the
+remaining work is mechanical implementation per the amended ADR.
 
 ## ROADMAP §9.6 — task table snapshot (authoritative is `.dev/ROADMAP.md`)
 
@@ -65,7 +96,7 @@ without explicit user direction.
 |-------|--------------------------------------------------------------------------------------|----------------|
 | 6.K.1 | `Value.ref` → `*FuncEntity` pointer encoding                                         | [x] 296d78e    |
 | 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`                 | [x] e6e5c20    |
-| 6.K.3 | Cross-module imports for table / global / func                                       | [ ] **BLOCKED** |
+| 6.K.3 | Cross-module imports for table / global / func + zombie-instance contract (per amended ADR-0014) | [ ] **NEXT** |
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [ ]            |
 | 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ]            |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ]            |
@@ -74,60 +105,11 @@ without explicit user direction.
 
 ## Open questions / blockers
 
-### §1 — 6.K.3 partial-init dangling-FuncEntity-pointer
-
-**Root cause**: when an importer's instantiation traps mid-element-
-segment processing on an imported table, the partial-init writes
-have already stored `*FuncEntity` pointers into the SOURCE
-instance's table. Those pointers reference the IMPORTER's
-`func_entities` array, allocated on the importer's arena. The
-catch in `wasm_instance_new` then destroys the importer's arena
-(`freeInstanceState` → `arena.deinit`). Subsequent reads of the
-source's table — e.g., `call_indirect` from a module-0 export
-that the wast runner invokes — dereference a now-freed
-`*FuncEntity` and **segfault** (`mvp.zig:344` on
-`callee_rt.funcs.len` at offset 0x50 from a freed `Runtime`).
-
-**Reproduces with the 6.K.3 spike code**: removing the three
-`UnsupportedCrossModuleTableImport` / `…GlobalImport` /
-`…FuncImport` guards in `c_api/instance.zig` lets the importer
-reach element-segment processing. The `partial-init-table-segment`
-reftypes fixture intentionally OOBs its second segment; pre-spike
-the importer rejected at the guard so module 0's table stayed
-clean. Post-spike, partial-init writes a dangling pointer into
-module 0's table; the next assert\_return on module 0's
-call\_indirect crashes.
-
-**ADR-0014 §2.1 / 6.K.3 didn't anticipate this**. Its acceptance
-criterion (1) ("misc-runtime fail count drops to ≤ 1, the
-partial-init-table fixture reserved for 6.K.6") was correct that
-6.K.6 owns the partial-init re-measure — but 6.K.3 itself
-becomes **unrunnable** when the partial-init segfault cascades to
-unrelated fixtures. The dangling pointer issue is logically a
-6.K.6 concern that 6.K.3 cannot avoid touching.
-
-**Tractable fixes** (ranked by effort):
-
-1. **Keep the importer's arena alive after instantiation failure**
-   until `wasm_store_delete` (or until no foreign reference
-   remains). Smallest change to wasm.h shape — `wasm_instance_new`
-   still returns null on failure, but the partial Instance lives
-   on a per-Store "failed instances" list. ~50 LoC.
-2. **Detect cross-module elem-seg writes pre-emptively**: before
-   any elem-seg write to an imported table, validate ALL segments
-   first. If any is OOB, reject the whole instantiation
-   atomically (no partial init). Violates Wasm 2.0 spec strictly,
-   but matches Wasm 1.0 semantics. A new `# DEFER:`-marked
-   fixture in the misc-runtime manifest documents the v2 deviation
-   per ROADMAP §9.6 / 6.J.
-3. **Allocate FuncEntity in a longer-lived allocator** (e.g.,
-   per-Store instead of per-instance). Touches the ownership
-   model 6.K.2 just unified; arguably regresses it. Not
-   recommended without ADR amendment.
-
-**Recommended path**: option 1 + amend ADR-0014 to make 6.K.6
-include the keep-alive logic, then return to 6.K.3. Estimated 1
-extra cycle.
+(none — 6.K.3 design is locked via the 2026-05-04 ADR-0014
+amendment; implementation cycle resumes with the zombie-instance
+contract as a co-deliverable. See `private/notes/p6-6K3-lifetime-survey.md`
+§4 for the wasmtime / wazero / spec-interpreter cross-reference
+that informed the redesign.)
 
 ## Phase 6 close → Phase 7 (JIT v1 ARM64) — direct transition
 
