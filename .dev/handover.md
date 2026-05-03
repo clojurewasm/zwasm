@@ -18,33 +18,25 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** — 6.K all `[x]` (6.K.1〜
-  6.K.8 done). 6.E re-measure + 6.F〜6.J pending.
-- **Last source commit**: `6750bc5` — feat(p6) §9.6 / 6.K.7
-  -Dsanitize=address + zig build run-repro steps (ADR-0015).
-  Three-host green. misc-runtime 266/5 unchanged (build-system
-  only).
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K + 6.E all `[x]`.
+  6.F〜6.J pending.
+- **Last source commit**: TBD — chore(p6) §9.6 / 6.E close —
+  266 PASS / 5 deferred via 2 skip-ADRs (`skip_embenchen_emcc_
+  env_imports.md` + `skip_externref_segment.md`).
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.E (re-measure + close)
+## Active task — §9.6 / 6.F (test-realworld-diff 30+ matches)
 
-Per ROADMAP §9.6 / 6.E: re-measure the misc-runtime corpus now
-that all 6.K rows are `[x]`. Current state: 266 passed / 5
-failed. Per the ADR-0014 §2.1 / 6.E text, the row exits when
-the corpus is integrated into `test-all`. Strict close (6.J)
-demands 0 failures or per-fixture skip ADRs.
+Per ROADMAP §9.6 / 6.F: drive `test-realworld-diff` to 30+
+byte-for-byte matches against wasmtime; re-add to `test-all`.
+This was the original §9.6 / 6.2 strict close, paused at the
+6.K reopen.
 
-Remaining 5 fails:
-- `embenchen_*1.wasm` × 4 — `register` manifest gap (script
-  format limitation; needs manifest-generation fix or
-  per-fixture skip ADR).
-- `externref-segment.0.wasm` — externref reftype deferred per
-  ADR-0014 §2.1 / 6.K.4 (funcref-only scope).
-
-Action: assess each — write a `.dev/decisions/skip_<fixture>.md`
-per ROADMAP §9.6 / 6.J's exception clause, OR fix-and-pass.
-Likely path: skip-ADRs since both gaps are documented in
-ADR-0014 / ADR-0015 already.
+Step 0 (Survey): inspect `test/realworld/` runner + the
+v1-era diff infrastructure for the byte-level comparison
+contract. Likely needs a fresh subagent survey since 6.K
+landed `*FuncEntity` + cross-module imports that change
+runtime output.
 
 ## ROADMAP §9.6 — task table snapshot (authoritative is `.dev/ROADMAP.md`)
 
@@ -58,6 +50,7 @@ ADR-0014 / ADR-0015 already.
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [x] (verify)   |
 | 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [x] 6750bc5    |
 | 6.K.8 | Error diagnostic M1 (Diagnostic core + CLI parity, per ADR-0016)                     | [x] 306dbc2    |
+| 6.E   | misc-runtime re-measure + close (266 PASS / 5 deferred via 2 skip-ADRs)              | [x] (this commit) |
 
 ## Open questions / blockers
 
