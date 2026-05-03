@@ -1,4 +1,5 @@
 const std = @import("std");
+const zlinter = @import("zlinter");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -208,6 +209,14 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_wast_2_0.step);
     test_all_step.dependOn(&run_c_host.step);
     test_all_step.dependOn(&run_wasi_p1.step);
+
+    // SPIKE: zlinter no_deprecated rule.
+    const lint_step = b.step("lint", "Lint source code (no_deprecated only).");
+    lint_step.dependOn(blk: {
+        var builder = zlinter.builder(b, .{});
+        builder.addRule(.{ .builtin = .no_deprecated }, .{});
+        break :blk builder.build();
+    });
 }
 
 pub const WasmLevel = enum { v1_0, v2_0, v3_0 };

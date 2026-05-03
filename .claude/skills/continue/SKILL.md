@@ -274,6 +274,19 @@ is cheap.
 While green. Apply only structural improvements that do not change
 behaviour.
 
+After refactor, before moving to Step 5, run the **Mac-host lint
+gate** (ADR-0009) once:
+
+```sh
+zig build lint -- --max-warnings 0
+```
+
+If this fails, the diff used a deprecated stdlib API. Fix at the
+call site (consult `.claude/rules/zig_tips.md` for the canonical
+0.16 replacement) and re-run before Step 5. The lint gate is
+Mac-only — it is **not** repeated on OrbStack / windowsmini, since
+deprecation findings are platform-independent.
+
 ### Step 5 — Test gate (three hosts)
 
 The gate command is whatever the active §9.<N>.<task>'s exit

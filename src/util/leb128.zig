@@ -134,7 +134,7 @@ pub fn readSleb128(comptime T: type, bytes: []const u8, pos: *usize) Error!T {
     comptime std.debug.assert(ti == .int and ti.int.signedness == .signed);
     const width: u16 = @bitSizeOf(T);
     const max_bytes: usize = (@as(usize, width) + 6) / 7;
-    const U = std.meta.Int(.unsigned, width);
+    const U = @Int(.unsigned, width);
     const ShiftU = std.math.Log2Int(U);
 
     var result: U = 0;

@@ -155,7 +155,12 @@
   `ByteVec` / `ValVec` / `ExternVec` shapes + the
   `WASM_DECLARE_VEC` family `_new_empty` / `_new_uninit` /
   `_new` / `_copy` / `_delete`; `wasm_byte_vec_delete` moves
-  here too).
+  here too). Out-of-band drop-in (mid-Phase 5): zlinter
+  `no_deprecated` gate landed per **ADR-0009** — `zig build lint
+  -- --max-warnings 0` is now Mac-host pre-commit step 4. Fixed
+  two `std.meta.Int → @Int` call sites surfaced by the spike.
+  Phase B (additional rules) queued in
+  `private/zlinter-builtins-survey-2026-05-03.md`.
 - **Branch**: `zwasm-from-scratch` (long-lived; v1 charter-derived,
   pushed to `origin/zwasm-from-scratch`).
 - **ADRs filed**:
@@ -180,6 +185,11 @@
     `src/c_api/wasm_c_api.zig` (2092-line) split into 5
     files (trap_surface / vec / instance / wasi /
     wasm_c_api re-exports); split lands as §9.5 / 5.0.
+  - `0009_zlinter_no_deprecated_gate.md` — adopts
+    `KurtWagner/zlinter` 0.16.x as the Mac-host pre-commit lint
+    gate (`no_deprecated` only for now; Phase B widens). Fixed
+    two `std.meta.Int → @Int` call sites in the same landing.
+    `zig-pkg/` added to `.gitignore`.
   - `0008_phase6_v1_conformance_baseline.md` — inserts a
     new Phase 6 (v1 conformance baseline) between the old
     Phase 5 (analysis layer) and the old Phase 6 (JIT v1

@@ -122,7 +122,7 @@ fn loadInt(rt: *Runtime, comptime W: type, comptime sign_extend: bool, offset: u
     if (ea + width > rt.memory.len) return Trap.OutOfBoundsLoad;
     const raw = std.mem.readInt(W, rt.memory[@intCast(ea)..][0..width], .little);
     if (sign_extend) {
-        const SignedW = std.meta.Int(.signed, @bitSizeOf(W));
+        const SignedW = @Int(.signed, @bitSizeOf(W));
         const sw: SignedW = @bitCast(raw);
         return @as(i64, sw);
     }

@@ -198,7 +198,10 @@ All of:
 2. `bash scripts/zone_check.sh --gate` — 0 violation
 3. `bash scripts/file_size_check.sh --gate` — within ≤ 2000 line
    hard cap
-4. As phases add layers, `zig build test-all` runs them too
+4. `zig build lint -- --max-warnings 0` — zlinter `no_deprecated`
+   gate per ADR-0009 (Mac-host only; not added to test-all to
+   keep the OrbStack / windowsmini runners network-free)
+5. As phases add layers, `zig build test-all` runs them too
 
 OrbStack Ubuntu x86_64 must also pass before push:
 - `orb run -m my-ubuntu-amd64 bash -c '... zig build test-all'`
