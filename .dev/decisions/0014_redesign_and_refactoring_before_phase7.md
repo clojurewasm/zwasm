@@ -108,9 +108,34 @@ a `FuncEntity` array at instantiation time (one per defined
 function). Element-segment population, `ref.func`, `table.fill`,
 `table.grow`, and `table.set` write `@intFromPtr(*FuncEntity)`
 into `Value.ref`. `call_indirect`, `ref.is_null`, `wasm_func_call`,
-`wasm_extern_as_func` reverse the cast. The null sentinel
-becomes literal `0` (no funcref ever has the address 0;
-allocation guarantees it).
+`wasm_extern_as_func` reverse the cast.
+
+**Null sentinel migration**: the current `Value.null_ref =
+maxInt(u64)` (`src/interp/mod.zig:50`) is replaced with literal
+`0`. Justification: `c_allocator.alloc` (the underlying allocator
+on all three target platforms — Mac aarch64 darwin, Linux x86_64
+glibc/musl, Windows x86_64 ucrt) returns non-zero on success per
+the C standard's `malloc` contract; address 0 is therefore a
+sound funcref-null sentinel. The migration must happen
+**atomically in one commit** because every consumer that compares
+`r == Value.null_ref` and every producer that constructs
+`.{ .ref = Value.null_ref }` is affected (4 null-check sites + 4
+producer sites surveyed in §1 Context). Add a compile-time
+check `comptime { std.debug.assert(Value.null_ref == 0); }` in
+`mod.zig` to catch any accidental re-introduction of the old
+value.
+
+**`wasm_func_t` representation choice**: the existing `Func`
+struct (`c_api/instance.zig:143`) carries `instance: ?*Instance`
++ `func_idx: u32`. After 6.K.1, **`Func` keeps its current
+shape**; `wasm_func_call` looks up the FuncEntity via
+`instance.func_entities[func_idx]`. Rationale: `wasm_func_t` is
+a public C-API handle; mutating its representation needs an
+ADR-grade decision because it affects ABI stability narrative
+(even pre-release, the C surface is documented). Internal
+`Value.ref` migration is an implementation choice; the C-API
+handle is intentionally insulated. Bridge cost: one
+array-indexed lookup at `wasm_func_call` entry, negligible.
 
 **Why this shape**: aligns with wasmtime's `*VMFuncRef`
 (textbook §Q3); avoids v1's Store-centric `shared` flag (§P10
@@ -135,9 +160,17 @@ pool. Mechanical but bulky.
 `src/interp/ext_2_0/{ref_types,table_ops}.zig`, `src/c_api/instance.zig`,
 plus the test sites above.
 
-**Acceptance**: existing tests green + a new unit test exercising
-"two instances share a table; each writes its own FuncEntity;
-call\_indirect dispatches into the correct source instance".
+**Acceptance**:
+1. Existing tests green.
+2. New unit test "two instances share a table; each writes its
+   own FuncEntity; `call_indirect` dispatches into the correct
+   source instance".
+3. New unit test "null funcref round-trip": a table cell
+   initialised null (`.ref = 0` post-migration) makes `ref.is_null`
+   return `1` AND `call_indirect` on it traps with
+   `UninitializedElement`. This catches a stale `== maxInt(u64)`
+   check anywhere.
+4. `comptime` assertion `Value.null_ref == 0` compiles.
 
 #### 6.K.2 — Ownership model: Instance back-ref, allocator discipline
 
@@ -163,18 +196,40 @@ call\_indirect dispatches into the correct source instance".
 FuncEntity, future continuation-ref) inherits arena ownership
 without re-inventing flags; `table.grow`'s realloc against
 arena allocator works when the arena's underlying allocator is
-the c\_allocator (which it is in c\_api today). Removes the iter-7
-`memory_borrowed` workaround. Removes the iter-5 "tables refs
-allocated from parent\_alloc but headers from arena" leak.
+the c\_allocator (which it is in c\_api today —
+`c_api/instance.zig:241` `engineAllocator(engine)` resolves to
+`std.heap.c_allocator`). Removes the iter-7 `memory_borrowed`
+workaround. Removes the iter-5 "tables refs allocated from
+parent\_alloc but headers from arena" leak.
+
+**Arena `realloc` trade-off**: Zig 0.16's `ArenaAllocator`
+implements `realloc` by allocating a new block and leaving the
+old one alive until arena teardown. For `table.grow`, repeated
+calls accumulate dead `refs` slices inside the arena. **Accepted
+for v0.1.0**: fixtures that exercise `table.grow` heavily are
+microbenchmarks, not realistic guest workloads; the arena is
+released at instance teardown so memory is bounded by the longest-
+lived instance. If this becomes a measurable bench regression
+post-6.H baseline (§F.4 — bench re-run check below), file an
+ADR proposing a per-table `refs` allocator routed directly at
+`parent_alloc` to recover free-on-realloc semantics.
 
 **Files touched**: `src/interp/mod.zig` (Runtime fields +
 deinit), `src/c_api/instance.zig` (instantiateRuntime allocator
 choice unified), `src/interp/ext_2_0/table_ops.zig`
 (`table.grow`'s realloc target).
 
-**Acceptance**: full test-all green on three hosts; no leak
-warnings under DebugAllocator (where available); the
-`memory_borrowed` field is deleted.
+**Acceptance**:
+1. Full test-all green on three hosts; no leak warnings under
+   DebugAllocator where available.
+2. `Runtime.memory_borrowed` field is deleted (grep -r returns
+   zero matches outside git history).
+3. New unit test "table.grow on a freshly-instantiated module
+   reallocates `rt.tables[0].refs` against the per-instance arena
+   and the grown slice contains the previous values plus the
+   init-value at the appended slots". Confirms arena-backed
+   realloc semantics directly, since the existing test corpus
+   does not heavily exercise `table.grow`.
 
 #### 6.K.3 — Cross-module imports for table / global / func
 
@@ -205,29 +260,68 @@ correctly). Globals are simple slice-aliasing. Func imports
 need an explicit thunk because operand stacks are per-Runtime;
 this is the same shape WASI thunks already use.
 
+**Cycle safety**: Wasm-to-Wasm cross-instance dispatch via the
+thunk pattern requires the dispatched-into runtime to be in a
+consistent state. A cycle (A imports `f` from B, B imports `g`
+from A) would re-enter the caller's runtime mid-dispatch and
+clobber the inline `operand_buf` / `frame_buf`. **Cycles are
+ruled out by Wasm's instantiation order**: a module cannot be
+instantiated until every module it imports from has been fully
+instantiated. The wast manifest format (`module … as $X` then
+`register …`) and `wast_runtime_runner` honour this. Document
+the invariant; do not add runtime cycle detection. If a future
+test corpus introduces cyclic instantiation by misuse, the
+thunk's first re-entry on the still-running runtime will
+manifest as an operand-stack assertion (debug builds) or
+undefined behaviour (release) — caller fixes the manifest.
+
+**Existing table-import wiring stays**: `c_api/instance.zig`
+already implements imported-table sharing at the
+`tbl_storage[i] = source_rt.tables[ext.table_idx]` value-copy
+step (iter 7; currently behind `error.UnsupportedCrossModule
+TableImport` guard around line 576). The value-copy of the
+`TableInstance` struct shares the `refs` slice header — exactly
+what 6.K.3 wants. **The only required source change for table
+imports** is removing the `UnsupportedCrossModuleTableImport`
+guard. Globals + funcs are new code.
+
 **Files touched**: `src/c_api/instance.zig`
-(`instantiateRuntime` import-resolution branch),
-`test/runners/wast_runtime_runner.zig` (`buildImports` no longer
-silently null-slots — surfaces named errors for unresolved
-imports per 6.K's "diagnostic chain" goal).
+(remove `error.UnsupportedCrossModule*Import` guards; add
+global slice-aliasing + func thunk paths; the existing
+`tbl_storage[i] = ...` lines are preserved verbatim as the
+correct shared-refs path), `test/runners/wast_runtime_runner.zig`
+(`buildImports` raises a named error instead of silently null-
+slotting on unresolved imports — closes inventory item 7 from §1).
 
-**Acceptance**: 27 of the 28 misc-runtime fails recovered (the
-28th is the 6.K.6 one). Cross-module unit test added per 6.K.1
-exercises the shared-table path end-to-end.
+**Acceptance**:
+1. After 6.K.1 + 6.K.2 land, the misc-runtime failure count
+   drops to **≤ 1** (the partial-init-table fixture reserved
+   for 6.K.6). Stating this relative to the post-6.K.1+6.K.2
+   state — not as an absolute "27 fixed" number — protects the
+   criterion from baseline drift if any other 6.K item resolves
+   a fail as a side effect.
+2. New unit test `buildImports` raises a named error
+   (`error.UnregisteredImportSource` or similar) when an import
+   names a module that was never registered, instead of silently
+   leaving slot null and surfacing two layers deep as
+   `UnknownImportModule`.
+3. The cross-module shared-table unit test from 6.K.1 (3) still
+   passes end-to-end.
 
-#### 6.K.4 — decodeElement element-section forms 5 / 7
+#### 6.K.4 — decodeElement element-section forms 5 / 6 / 7
 
 **What**: Extend `decodeElement` (`src/frontend/sections.zig`) to
-handle:
+handle the three remaining Wasm 2.0 §5.5.12 element-section
+encodings:
 
 - form 5: passive, reftype, vec(expr) — null-init or ref.func
   exprs
-- form 7: declarative, reftype, vec(expr) — same expr shape
+- form 6: active, tableidx, expr, reftype, vec(expr) — explicit
+  table + offset, reftype-tagged init exprs
+- form 7: declarative, reftype, vec(expr)
 
 Reuse iter-5's `readFuncrefInitExpr` helper (rename to
-`readReftypeInitExpr` and accept a reftype tag). Form 6
-(active, tableidx, expr, reftype, vec(expr)) is symmetrical;
-include it in the same change for completeness.
+`readReftypeInitExpr` and accept a reftype tag).
 
 **Why this shape**: completes the §9.2 / 5d-3 carry-over inside
 the same iter that needs externref support for table-import
@@ -239,8 +333,14 @@ Phase 6.
 `src/c_api/instance.zig` (element-segment population: handle
 externref + null per-cell).
 
-**Acceptance**: 2 reftypes fixtures (externref-segment.0,
-elem-ref-null.0) move from FAIL to PASS.
+**Acceptance**:
+1. `externref-segment.0` (form 6) moves from FAIL to PASS.
+2. `elem-ref-null.0` (form 5) moves from FAIL to PASS.
+3. A new fixture or unit test exercises form 7 (declarative)
+   to confirm it parses without error and registers the
+   declared funcrefs as initialised. Form 7 fixtures are not
+   in the misc-runtime corpus today; without an explicit test,
+   the form-7 path could be silently left unimplemented.
 
 #### 6.K.5 — Label arity formalisation + §14 anti-pattern
 
@@ -253,10 +353,16 @@ elem-ref-null.0) move from FAIL to PASS.
    ROADMAP §14.
 2. ROADMAP §14 (forbidden patterns) gains a one-line bullet:
    "single slot pulling double duty across distinct semantic
-   axes — must be split per axis from day 1".
-3. Optional: a small Zig-level guard test that asserts
-   `Label.arity` and `Label.branch_arity` exist as separate
-   fields (catches an accidental future merge).
+   axes — must be split per axis from day 1". **Already landed
+   in commit `9a5b360` when ADR-0014 was accepted**, so the
+   remaining 6.K.5 work skips this sub-step.
+3. **Mandatory** (was "optional" in earlier draft): a `comptime`
+   structural assertion in `src/interp/mod.zig` that
+   `@hasField(Label, "arity") and @hasField(Label, "branch_arity")`,
+   plus a unit test that constructs a `Label` with distinct
+   `arity` and `branch_arity` values and asserts neither is
+   silently aliased to the other. Catches an accidental future
+   merge (the precise regression this rule prevents).
 
 **Why this shape**: iter 11 fixed the bug but the design lesson
 needs a durable anchor; otherwise the same pattern reappears at
@@ -264,11 +370,14 @@ the next "looks like it can share a field" decision (operand
 arity vs result arity in some future opcode, etc.).
 
 **Files touched**: `.claude/rules/single_slot_dual_meaning.md`
-(new), `.dev/ROADMAP.md` §14.
+(new), `src/interp/mod.zig` (comptime assertion + unit test).
 
-**Acceptance**: the rule auto-loads when editing
-`src/interp/*.zig` (per `.claude/settings.json` rule glob);
-ROADMAP §14 entry visible.
+**Acceptance**:
+1. The new rule file exists and auto-loads when editing
+   `src/interp/*.zig` (per `.claude/settings.json` rule glob).
+2. ROADMAP §14 entry visible (already done — see (2) above).
+3. The `comptime` field check + the unit test compile and
+   pass.
 
 #### 6.K.6 — Re-measure partial-init-table-segment
 
@@ -282,8 +391,34 @@ investigate as a standalone interp behaviour bug.
 was almost certainly downstream of (1) / (2). Per
 `.claude/rules/no_workaround.md`: fix root causes, not symptoms.
 
-**Acceptance**: 28th failure resolved OR documented as a
-distinct bug with its own work item.
+**Acceptance**: one of:
+
+1. The fixture moves from FAIL to PASS (28th failure resolved)
+   — close 6.K.6 with the commit message documenting the
+   downstream cause confirmed.
+2. The fixture still fails AND a new work item `6.K.7` is
+   opened in the §9.6 task table with its own scope description
+   + acceptance criterion targeting the now-localised root
+   cause. 6.K.6 cannot close on "documented as a distinct bug"
+   alone; the bug must have a queued next-step. (This blocks
+   the cheap-out of "punt by note" — per `no_workaround.md`'s
+   §6 reviewer checklist on "what condition makes this expire".)
+
+### 2.1.7 Inventory → work-item coverage check
+
+| §1 item                                                                | Resolved by         |
+|------------------------------------------------------------------------|---------------------|
+| 1. `Unsupported*Import` for non-memory imports                          | 6.K.3               |
+| 2. `Value.ref` lacks instance identity                                  | 6.K.1               |
+| 3. Runtime ↔ Instance ↔ allocator ownership ad-hoc                      | 6.K.2               |
+| 4. Runtime has no Instance back-pointer                                 | 6.K.2               |
+| 5. `decodeElement` forms 5 / 7 (and 6) deferred                          | 6.K.4               |
+| 6. `Label.branch_arity = 0` for loop hardcoded                           | 6.K.5               |
+| 7. `buildImports` null-slots silently                                    | 6.K.3 (acceptance 2)|
+| 8. `partial-init-table-segment/indirect-call` uninvestigated             | 6.K.6               |
+
+All 8 inventory items map to a 6.K.X work item with at least
+one explicit acceptance line.
 
 ### 2.2 Phase 6 close criterion (unchanged in spirit)
 
@@ -306,6 +441,12 @@ FuncEntity layouts), that ADR is filed at the moment of
 decision, not pre-allocated.
 
 ## 3. Alternatives considered
+
+The accepted design (pointer-based `*FuncEntity` for `Value.ref`,
+single per-instance arena, thunk-based cross-module dispatch
+with cycle-free guarantee from instantiation order) is the §2
+Decision above. The four alternatives below were rejected.
+
 
 ### α — Defer to Phase 7 / Phase 11 (subagent's option 2)
 
@@ -384,13 +525,15 @@ skipping would be dishonest closure.
 
 ### Neutral / follow-ups
 
-- ROADMAP §9.6 gains 6.K rows. §9.6 / 6.J row text loses the
-  "Phase Status widget flip per ADR-0014 (new §9.7 = refactor &
-  consolidation; ...)" annotation — that wording referred to
-  the placeholder content this ADR replaces.
+- ROADMAP §9.6 gains 6.K rows (inlined between 6.D and 6.E in
+  the reopened-scope table per `continue` skill's first-`[ ]`
+  lookup convention; see commit `453c47a`). §9.6 / 6.J row text
+  loses the "Phase Status widget flip per ADR-0014 (new §9.7 =
+  refactor & consolidation; ...)" annotation — that wording
+  referred to the placeholder content this ADR replaces.
 - ROADMAP §9.7 (JIT v1 ARM64 baseline) stays at §9.7. No
   renumber. No §9.<N+1> shifts.
-- ADR-0008 (Phase 6 charter — correctness) is unaffected; 6.K
+- ADR-0008 (Phase 6 v1-conformance baseline) is unaffected; 6.K
   fits its charter because every item is a correctness gap
   surfaced by the misc-runtime gate.
 - ADR-0011 (Phase 6 reopen) is unaffected; its renumber-rejection
@@ -403,14 +546,32 @@ skipping would be dishonest closure.
   for ADR-0015 drafting" sections are removed (they referenced
   the placeholder this ADR replaces). They are replaced by a
   "Phase 6 / 6.K work item table" pointing at this ADR.
+- `audit_scaffolding` runs after 6.K.1 + 6.K.2 land in addition
+  to its existing pass at 6.J close. `src/interp/mod.zig` (currently
+  ~430 lines) gains the `FuncEntity` definition + the
+  `instance: ?*anyopaque` field + the comptime null-sentinel
+  assertion; if mod.zig grows past the soft cap, split into
+  `mod.zig` + `func_entity.zig`.
+- Bench delta check after 6.K.1: `call_indirect` gains one
+  pointer indirection. Run `bench-quick` on Mac after 6.K.1
+  lands; record the delta in `bench/results/recent.yaml`. If
+  `call_indirect`-heavy benchmarks regress >10% vs the pre-6.K.1
+  baseline, investigate before proceeding to 6.K.2 (e.g. the
+  arena allocator's locality may need tuning, or `FuncEntity`
+  layout may need cache-line packing). Per ROADMAP §12.1, no
+  hard ratio gate; this is an investigation trigger, not a
+  block.
 
 ## 5. Observations on what made this necessary
 
 Documented for future-self and for the §6.K.5 anti-pattern rule.
 
-The eight inventory items came from one common root: **v1's
+Two root-cause families showed up in iter 5–11:
+
+**Family A — single-instance-implicit carry-over from v1**.
+This is the dominant family: covers inventory items 1–4 + 7. v1's
 single-instance-implicit assumptions were carried into v2 without
-re-derivation**. The validator/lowerer survived because they're
+re-derivation. The validator/lowerer survived because they're
 per-module pure functions with no instance state. The interp
 runtime + c\_api binding inherited the assumption silently:
 - `Value.ref = funcidx` — single-instance.
@@ -436,17 +597,37 @@ doesn't exercise it. This protects against the same surface
 returning silently in continuation-ref / shared-memory /
 multi-thread land.
 
+**Family B — single field overloaded with two semantic axes**.
+Inventory item 6 (`Label.arity` doing both end-results and
+br-target-arity) is a different anti-pattern: not v1 carry-over
+but a design choice that fused two semantic purposes into one
+field "because they were equal in Wasm 1.0 for block/if". 6.K.5
+turns this into the durable rule
+`single_slot_dual_meaning.md` so the next "looks like one slot
+fits both" decision triggers a per-axis split from day 1.
+
+The two families share the iter-11 fix-after-the-fact
+characteristic but have distinct preventive scaffolding: family
+A → `no_copy_from_v1.md` cross-instance check; family B →
+`single_slot_dual_meaning.md`.
+
 ## 6. References
 
 - ROADMAP §9.6 (Phase 6 — gains 6.K work-item block per §2.1
-  above), §9.7 (JIT v1 ARM64 — unchanged), §P1 / §P3 / §P6 /
-  §P10 / §A12, §14 (gains anti-pattern entry per 6.K.5)
-- ADR-0008 (Phase 6 charter — correctness; 6.K fits)
-- ADR-0011 (Phase 6 reopen rules; renumber-rejection still
-  protects current Phase 6 numbering)
-- ADR-0012 (Phase 6 reopen scope, 6.A〜6.J DAG — gains 6.K
-  by §18 amendment)
-- ADR-0013 (runtime-asserting WAST runner — independent)
+  above), §9.7 (JIT v1 ARM64 — unchanged), §P1 / §P3 /
+  §P10 / §A12, §14 (gains anti-pattern entry per 6.K.5).
+  (§P6 — single-pass compilation — was incorrectly listed in an
+  earlier draft; §P6 governs the compiler pipeline shape, not
+  runtime data structures, so it is not invoked by this ADR.)
+- ADR-0008 (`0008_phase6_v1_conformance_baseline.md`) — Phase 6
+  charter; 6.K fits because every item is a correctness gap.
+- ADR-0011 (`0011_phase6_reopen.md`) — Phase 6 reopen rules;
+  renumber-rejection still protects current Phase 6 numbering.
+- ADR-0012 (`0012_first_principles_test_bench_redesign.md`) —
+  Phase 6 reopen scope, 6.A〜6.J DAG — gains 6.K by §18
+  amendment.
+- ADR-0013 (`0013_wast_runtime_runner.md`) — runtime-asserting
+  WAST runner; independent.
 - `.dev/handover.md` "Workaround / debt inventory" (the eight
   items 6.K addresses)
 - `.claude/rules/no_copy_from_v1.md` (the rule that should have
