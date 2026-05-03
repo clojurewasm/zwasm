@@ -21,17 +21,17 @@
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D + 6.K.1 + 6.K.2 done;
-  ADR-0015/0016 drafting next; then 6.K.3〜6.K.6 + 6.E + 6.F〜6.J).
-- **Last source commit**: `6b8981d` — feat(p6) debug toolkit
-  infrastructure pre-draft (dbg.zig env-gated logger, wasm-tools +
-  lldb in flake, private/dbg/_template/, demonstrator dbg.print at
-  c_api memory alloc). Three-host green. End-to-end verified:
-  ZWASM_DEBUG=c_api.alloc emits 21 dbg lines; unset emits 0.
-- **Pre-amble for next two cycles**: ADR-0015/0016 are non-TDD
-  cycles. Follow `## Autonomous loop override` below until both
-  ADRs are accepted, **then delete that block** (Step 7 of the
-  final ADR cycle removes the override; thereafter the standard
-  /continue TDD loop resumes for §9.6 / 6.K.3).
+  ADR-0015 done; ADR-0016 drafting next; then 6.K.3〜6.K.7 + 6.E +
+  6.F〜6.J).
+- **Last source commit**: `4d849ae` — docs(p6) land ADR-0015 +
+  ROADMAP §9.6 / 6.K.7. Self-review found 5 block + 7 nit; all
+  applied. Mac + OrbStack unit green; full three-host gate
+  deferred to next implementation cycle (text-only commit).
+- **Pre-amble for the next cycle**: ADR-0016 is a non-TDD cycle.
+  Follow `## Autonomous loop override` below until ADR-0016 is
+  accepted, **then delete that block** (Step H of the ADR-0016
+  cycle removes the override; thereafter the standard /continue
+  TDD loop resumes for §9.6 / 6.K.3).
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Autonomous loop override — ADR drafting cycles (ADR-0015 then 0016)
@@ -164,17 +164,18 @@ bucket-2 (genuinely unsolvable):
 - **Stop if Step F self-review returns a `block` that needs an
   ADR-grade redesign**. Same handling.
 
-## Active task — ADR-0015 (canonical debug toolkit)
+## Active task — ADR-0016 (error diagnostic system, phase 1)
 
 Cycle order:
 
 | #         | What                                                                                  | Status         |
 |-----------|---------------------------------------------------------------------------------------|----------------|
-| ADR-0015  | Canonical debug toolkit (cover for `6b8981d` + residual work)                         | [ ] **NEXT**   |
-| ADR-0016  | Error diagnostic system (Diagnostic type + CLI parity, phase 1 only)                  | [ ]            |
+| ADR-0015  | Canonical debug toolkit                                                               | [x] 4d849ae    |
+| ADR-0016  | Error diagnostic system (Diagnostic type + CLI parity, phase 1 only)                  | [ ] **NEXT**   |
 
-Once both [x], delete this section + override and resume standard
-TDD on §9.6 / 6.K.3.
+Once ADR-0016 [x], delete this section + the override above and
+resume standard TDD on §9.6 / 6.K.3 (the next [ ] row in
+`.dev/ROADMAP.md` §9.6 task table).
 
 ### ROADMAP §9.6 — task table snapshot (for reference; authoritative table is `.dev/ROADMAP.md`)
 
@@ -186,8 +187,8 @@ TDD on §9.6 / 6.K.3.
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [ ]            |
 | 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ]            |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ]            |
-| 6.K.7 | (added by ADR-0015 — debug toolkit residual work)                                    | [ ] (pending ADR-0015) |
-| 6.K.8 | (added by ADR-0016 — Diagnostic type + CLI parity phase 1)                           | [ ] (pending ADR-0016) |
+| 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [ ]            |
+| 6.K.8 | (to be added by ADR-0016 — Diagnostic type + CLI parity phase 1)                     | [ ] (pending ADR-0016) |
 
 After 6.K all-`[x]`, 6.E re-measures (29 fails flow through),
 then 6.F / 6.G / 6.H, 6.I parallel, then 6.J strict close.
