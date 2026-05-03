@@ -170,6 +170,28 @@ pub fn build(b: *std.Build) void {
     const test_realworld_run_step = b.step("test-realworld-run", "Run each realworld fixture end-to-end via cli_run.runWasm");
     test_realworld_run_step.dependOn(&run_realworld_run.step);
 
+    // `zig build test-realworld-diff` — Phase 6 / §9.6 / 6.2.
+    // Spawns `wasmtime run <fixture>` per fixture, captures
+    // stdout, compares byte-for-byte against
+    // `cli_run.runWasmCaptured`. Gate is 30+ matches; runner
+    // SKIPs gracefully when wasmtime is not on PATH (so the
+    // build remains green on hosts that lack it).
+    const realworld_diff_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/realworld/diff_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    realworld_diff_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    const realworld_diff_runner_exe = b.addExecutable(.{
+        .name = "zwasm-realworld-diff-runner",
+        .root_module = realworld_diff_runner_mod,
+    });
+    const run_realworld_diff = b.addRunArtifact(realworld_diff_runner_exe);
+    run_realworld_diff.addArg(b.pathFromRoot("test/realworld/wasm"));
+    const test_realworld_diff_step = b.step("test-realworld-diff", "Diff realworld fixtures' stdout against wasmtime");
+    test_realworld_diff_step.dependOn(&run_realworld_diff.step);
+
     // `zig build test-wasi-p1` — Phase 4 / §9.4 / 4.9. Walks
     // `test/wasi/` driving each .wasm fixture through
     // `cli_run.runWasm`, comparing the exit code against the
@@ -243,6 +265,13 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_spec_mvp.step);
     test_all_step.dependOn(&run_realworld.step);
     test_all_step.dependOn(&run_realworld_run.step);
+    // `run_realworld_diff` is intentionally NOT wired into
+    // `test-all` until §9.6 / 6.2 can honestly hit its 30+
+    // match gate — see handover. Today's corpus has v2 trapping
+    // on 39/50 fixtures before stdout is emitted, so wiring
+    // would break the build everywhere wasmtime is on PATH.
+    // Run it explicitly via `zig build test-realworld-diff`
+    // when working on closing the gap.
     test_all_step.dependOn(&run_wast_2_0.step);
     test_all_step.dependOn(&run_v1_carry_over.step);
     test_all_step.dependOn(&run_c_host.step);

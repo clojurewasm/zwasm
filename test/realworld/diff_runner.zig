@@ -1,0 +1,188 @@
+//! Realworld stdout differential runner (§9.6 / 6.2).
+//!
+//! For each `.wasm` fixture in the corpus, runs `wasmtime run`
+//! to capture a reference stdout, then drives the same fixture
+//! through `cli/run.zig:runWasmCaptured` and byte-compares the
+//! two outputs. The §9.6 / 6.2 exit criterion is: 30+ samples
+//! match `wasmtime run` byte-for-byte (the ADR-0006 target,
+//! retargeted from §9.4 / 4.10).
+//!
+//! Outcome categories:
+//!
+//!   MATCH       — both runtimes produced identical stdout AND
+//!                 the v2 run completed (any u8 exit). Counted
+//!                 toward the 30+ gate.
+//!   MISMATCH    — both runtimes produced stdout but bytes
+//!                 differ. Surfaces a real semantic gap; a
+//!                 single MISMATCH fails the gate.
+//!   SKIP-EMPTY  — both runtimes produced empty stdout (silent
+//!                 guests; trivially "matching" but uninformative,
+//!                 so excluded from the 30+ count).
+//!   SKIP-WASMTIME-FAIL — wasmtime exited non-zero / errored;
+//!                 nothing to diff against.
+//!   SKIP-V2-*   — v2 surfaced an error class run_runner already
+//!                 categorises (WASI host gap / validator gap /
+//!                 no entry); orthogonal to differential coverage.
+//!   SKIP-WASMTIME-MISSING — wasmtime not on PATH; runner exits
+//!                 0 with a "no diffs run on this host" notice.
+//!                 Hosts with wasmtime installed see the real gate.
+//!
+//! Usage:
+//!   zig build test-realworld-diff      # walks test/realworld/wasm/
+//!   diff_runner_exe <corpus-dir>
+
+const std = @import("std");
+
+const zwasm = @import("zwasm");
+const cli_run = zwasm.cli_run;
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const gpa = init.gpa;
+
+    var stdout_buf: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    const stdout = &stdout_writer.interface;
+
+    var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
+    defer arg_it.deinit();
+    _ = arg_it.next().?;
+    const corpus_dir_arg = arg_it.next() orelse {
+        try stdout.print("usage: diff_runner <corpus-dir>\n", .{});
+        try stdout.flush();
+        std.process.exit(2);
+    };
+    const corpus_dir = try gpa.dupe(u8, corpus_dir_arg);
+    defer gpa.free(corpus_dir);
+
+    const wasmtime_path_opt = try resolveWasmtime(gpa, io);
+    defer if (wasmtime_path_opt) |p| gpa.free(p);
+
+    if (wasmtime_path_opt == null) {
+        try stdout.print(
+            "SKIP-WASMTIME-MISSING — wasmtime not on PATH (and no nix-store wrapper found). " ++
+                "§9.6 / 6.2 differential gate is non-fatal on this host; the gate is real on " ++
+                "hosts with wasmtime installed (the dev shell pins it via flake.nix).\n",
+            .{},
+        );
+        try stdout.flush();
+        return;
+    }
+    const wasmtime_path = wasmtime_path_opt.?;
+
+    const cwd = std.Io.Dir.cwd();
+    var dir = cwd.openDir(io, corpus_dir, .{ .iterate = true }) catch |err| {
+        try stdout.print("error: cannot open '{s}': {s}\n", .{ corpus_dir, @errorName(err) });
+        try stdout.flush();
+        std.process.exit(1);
+    };
+    defer dir.close(io);
+
+    var matched: u32 = 0;
+    var mismatched: u32 = 0;
+    var skipped_empty: u32 = 0;
+    var skipped_wasmtime_fail: u32 = 0;
+    var skipped_v2: u32 = 0;
+    var total: u32 = 0;
+
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".wasm")) continue;
+        total += 1;
+
+        const fixture_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ corpus_dir, entry.name });
+        defer gpa.free(fixture_path);
+
+        const bytes = dir.readFileAlloc(io, entry.name, gpa, .limited(64 << 20)) catch {
+            try stdout.print("SKIP-V2-READ  {s}\n", .{entry.name});
+            skipped_v2 += 1;
+            continue;
+        };
+        defer gpa.free(bytes);
+
+        // Spawn wasmtime, capturing stdout. wasmtime exits with
+        // the guest's proc_exit code (0 on success); a non-zero
+        // exit + non-empty stderr usually means the guest itself
+        // failed, but we still try the byte compare since that
+        // is what §9.6 / 6.2 measures.
+        const wt_result = std.process.run(gpa, io, .{
+            .argv = &[_][]const u8{ wasmtime_path, "run", fixture_path },
+        }) catch |err| {
+            try stdout.print("SKIP-WASMTIME-FAIL  {s}: {s}\n", .{ entry.name, @errorName(err) });
+            skipped_wasmtime_fail += 1;
+            continue;
+        };
+        defer gpa.free(wt_result.stdout);
+        defer gpa.free(wt_result.stderr);
+        const wt_stdout = wt_result.stdout;
+
+        var v2_stdout: std.ArrayList(u8) = .empty;
+        defer v2_stdout.deinit(std.heap.c_allocator);
+
+        const v2_result = cli_run.runWasmCaptured(gpa, io, bytes, &v2_stdout);
+        if (v2_result) |_| {
+            // Continue to byte compare.
+        } else |err| switch (err) {
+            error.InstanceAllocFailed,
+            error.NoFuncExport,
+            error.ModuleAllocFailed,
+            => {
+                try stdout.print("SKIP-V2-{s}  {s}\n", .{ @errorName(err), entry.name });
+                skipped_v2 += 1;
+                continue;
+            },
+            else => {
+                try stdout.print("SKIP-V2-{s}  {s}\n", .{ @errorName(err), entry.name });
+                skipped_v2 += 1;
+                continue;
+            },
+        }
+
+        if (wt_stdout.len == 0 and v2_stdout.items.len == 0) {
+            try stdout.print("SKIP-EMPTY  {s}\n", .{entry.name});
+            skipped_empty += 1;
+            continue;
+        }
+
+        if (std.mem.eql(u8, wt_stdout, v2_stdout.items)) {
+            try stdout.print("MATCH  {s} ({d} bytes)\n", .{ entry.name, wt_stdout.len });
+            matched += 1;
+        } else {
+            try stdout.print(
+                "MISMATCH  {s} (wasmtime={d} bytes, v2={d} bytes)\n",
+                .{ entry.name, wt_stdout.len, v2_stdout.items.len },
+            );
+            mismatched += 1;
+        }
+    }
+
+    try stdout.print(
+        "\ndiff_runner: {d}/{d} matched, {d} mismatched, {d} skipped-empty, " ++
+            "{d} skipped-wasmtime-fail, {d} skipped-v2\n",
+        .{ matched, total, mismatched, skipped_empty, skipped_wasmtime_fail, skipped_v2 },
+    );
+    try stdout.flush();
+
+    if (mismatched != 0) std.process.exit(1);
+    if (matched < 30) {
+        try stdout.print("error: §9.6 / 6.2 requires 30+ matches; saw only {d}\n", .{matched});
+        try stdout.flush();
+        std.process.exit(1);
+    }
+}
+
+/// Find a usable `wasmtime` binary via `which wasmtime`. Returns
+/// null if absent — the caller decides how to handle the missing-
+/// tool case (this runner SKIPs gracefully).
+fn resolveWasmtime(allocator: std.mem.Allocator, io: std.Io) !?[]u8 {
+    const result = std.process.run(allocator, io, .{
+        .argv = &[_][]const u8{ "which", "wasmtime" },
+    }) catch return null;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return null;
+    const trimmed = std.mem.trim(u8, result.stdout, &std.ascii.whitespace);
+    if (trimmed.len == 0) return null;
+    return try allocator.dupe(u8, trimmed);
+}

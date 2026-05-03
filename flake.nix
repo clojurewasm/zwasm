@@ -23,6 +23,7 @@
             pkgs.yq-go
             pkgs.python3
             pkgs.wabt          # wat2wasm / wast2json — required by Phase 1+ spec runner
+            pkgs.wasmtime      # reference runtime — drives the §9.6 / 6.2 differential gate
           ];
 
           shellHook = ''
