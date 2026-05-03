@@ -1424,7 +1424,7 @@ Phase 6.
 | 6.G  | ClojureWasm guest end-to-end via `build.zig.zon` `path = ...` (original §9.6 / 6.3 honest close).        | [ ]            |
 | 6.H  | Bench honest-baseline migration: introduce `bench/results/{recent,history}.yaml` per ADR-0012 §7; regenerate baseline against completion-bucket fixtures. | [ ]            |
 | 6.I  | `bench/` restructure per ADR-0012 §3; vendor 5 sightglass benchmarks with in-repo C source + documented build script. Parallel to 6.E〜6.H. | [ ]            |
-| 6.J  | Phase 6 close gate: three-host `test-all` green + `bench-quick` green Mac-only + `audit_scaffolding` pass + Phase Status widget flip. | [ ]            |
+| 6.J  | Phase 6 close gate: three-host `test-all` green + `bench-quick` green Mac-only + `audit_scaffolding` pass + Phase Status widget flip per ADR-0014 (new §9.7 = refactor & consolidation; old §9.7 JIT renumbers to §9.8; later phases shift +1; new §9.7 opens with row "7.0 Draft ADR-0015 — refactor phase charter"). | [ ]            |
 
 ### Phase 7 — JIT v1 ARM64 baseline
 

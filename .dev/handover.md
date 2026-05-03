@@ -9,129 +9,121 @@
 ## Next 3 files to read (cold-start order)
 
 1. `.dev/handover.md` (this file).
-2. `.dev/decisions/0012_first_principles_test_bench_redesign.md` —
+2. `.dev/decisions/0014_post_phase6_refactor_phase_wiring.md` —
+   the wiring contract for the post-Phase-6 → refactor-phase
+   transition (renumber + ADR-0015 drafting flow). Active from
+   the moment §9.6 / 6.J fires.
+3. `.dev/decisions/0012_first_principles_test_bench_redesign.md` —
    Phase 6 reopen scope (work items 6.A〜6.J, DAG, deferred items).
-3. `.dev/ROADMAP.md` §9.6 task table — see "§9.6 reopened scope"
-   sub-table for the active row.
 
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 2,
   6.F〜6.J pending).
-- **Last commit**: `b10abef` — fix(p6) §9.6 / 6.E iter 2 workaround
-  cleanup (W-1〜W-7). Three-host green.
+- **Last commit**: `ba3e5ce` — chore(p6) handover update. Three-host
+  green at `b10abef`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — TWO threads, user choice on next session
+## Active task — drive Phase 6 to honest close (6.E → 6.F → … → 6.J)
 
-### Thread A (default): continue 6.E iter 3+ via /continue
+`/continue` autonomous loop continues iterating 6.E, then 6.F /
+6.G / 6.H once 6.E unlocks them, with 6.I in parallel, terminating
+at 6.J Phase 6 close gate.
 
-If `/continue` is invoked, drive 6.E forward: target the
-remaining 78 failures in `test-wasmtime-misc-runtime`.
-Categorised in `git show b10abef` commit message:
+### 6.E iter 3+ targets (current)
+
+The `test-wasmtime-misc-runtime` standalone gate has 78
+remaining failures categorised in `git show b10abef`:
 - ~50 trapped unexpectedly (fib / call_indirect / partial-init-
-  table-segment). Each cluster needs interp-side root-cause
-  investigation (operand-stack discipline / call mechanics).
-- ~10 InstanceAllocFailed (cross-module imports). Need to wire
-  `register` directive's named-module store sharing in the
-  runner.
-- ~7 BadValueSyntax 'hello?' (memory-copy-style string-literal
-  args). Runner parser extension.
+  table-segment) — interp behavior bugs (operand-stack
+  discipline / call mechanics).
+- ~10 InstanceAllocFailed (cross-module imports) — runner's
+  `register` directive needs named-module store sharing wired.
+- ~7 BadValueSyntax 'hello?' — runner parser extension for
+  string-literal args.
 - ~11 individual.
 
-When ≥5 wasmtime_misc fixtures fully pass + realworld traps
-shrink toward 30+ completion-bucket fixtures, advance to 6.F /
-6.G / 6.H. 6.I (bench restructure) is parallel-eligible
-throughout.
+Sequence: pick one cluster per iteration, fix root cause, re-run,
+move fixtures from FAIL to PASS, commit. When `test-wasmtime-misc-
+runtime` reaches 0 failures (or all remaining failures are
+explicitly queued as defer notes), add it to `test-all` aggregate
+and proceed to 6.F.
 
-### Thread B (user-elevated, **next session takes precedence**):
-draft "refactor & consolidation" ADR before resuming 6.E
+## Phase 6 close → automatic refactor-phase ADR drafting
 
-User raised in 2026-05-03 dialogue: before Phase 7 (JIT) starts,
-we should pause for a refactor phase that addresses the
-"あるべき論" gaps surfaced during Phase 6:
+**This is a hard wiring of the post-6.J transition.** When 6.J
+fires (Phase 6 honest-close), the standard "open §9.7 inline"
+step is **replaced** by:
 
-- root-design re-examination
-- code consolidation (where is logic duplicated across files?)
-- code separation (where is one file doing too much? e.g.
-  `src/c_api/instance.zig` 1494 LOC, `src/frontend/sections.zig`
-  1073 LOC — both flagged by `file_size_check.sh --gate`)
-- bug-discoverability (where do panics happen instead of
-  surfacing typed traps? — popOperand assert pattern is one
-  example; W-1 partially addressed)
-- magic numbers (operand_stack=4096, frame_stack=256, etc. —
-  audit for hardcoded vs spec-derived)
-- performance (interp dispatch cost, allocator threading)
-- maintainability (naming consistency, comment debt)
-- testability (per-feature test isolation, fixture organization)
-- benchmarkability (bench fixture coverage, history.yaml
-  hygiene)
-- "should-be" design (vs "currently-is" — where did we
-  compromise for time and where would a fresh re-derivation
-  produce a better design?)
-- workaround / temporary-fix audit (the W-1〜W-7 from
-  `b10abef` exposed the pattern; expect more)
-- root-cause vs symptom inventory
+1. Phase Status widget gets `7 = IN-PROGRESS (refactor &
+   consolidation; ADR-0015 draft pending)`. The current `7 =
+   PENDING (JIT v1 ARM64 baseline)` text moves down to slot `8`,
+   and every later phase's number increments by 1. This renumber
+   is acceptable here because Phase 6 is closed and ADR-0011's
+   renumber-rejection rule (which protected the open Phase 6)
+   no longer applies.
+2. `.dev/decisions/0014_refactor_phase_charter.md` is drafted as
+   the FIRST work item under the new §9.7 task table. Until
+   ADR-0015 is Accepted, §9.7 contains a single row "7.0 Draft
+   ADR-0015 (refactor phase charter)"; after ADR-0015 lands, its
+   Decision §6 (work-item DAG) populates §9.7 / 7.A〜7.X mirroring
+   the ADR-0012 pattern.
+3. `/continue` autonomous loop, on the wakeup after 6.J commit,
+   reads this handover, sees §9.7 / 7.0 as the active task,
+   and runs Step 0 Survey (subagent) on the refactor concept —
+   delivering survey input to the ADR-0015 draft author (the
+   user, in the next session) instead of advancing implementation.
 
-User's preferred placement (per dialogue): **insert as a new
-Phase between Phase 6 close and Phase 7 (JIT)**. Renumbering
-old Phase 7 → 8, old Phase 8 → 9, etc., is acceptable in this
-context (different from ADR-0011's renumber-rejection because
-this is post-Phase-6-close, not mid-Phase-6).
+The autonomous loop's standard §9.<N> → §9.<N+1> phase boundary
+handler does NOT need a code-level change for this — the
+handover-driven retargeting (above) gives the loop the right
+next pointer. The loop keeps running; the next active task
+just happens to be ADR-drafting rather than coding.
 
-**Next-session instruction (user request: keep generic, not
-prescriptive)**:
+## ADR-0015 draft brief (referenced by §9.7 / 7.0)
 
-> Open a fresh session. Read this handover. Then propose an
-> ADR for the refactor phase. Aim for a discussion ADR
-> (Proposed status, dialogue-driven), not a unilateral
-> Accepted ADR. Cover at minimum:
->
-> 1. Where in the ROADMAP this phase lives — defaulting to
->    "between Phase 6 close and current Phase 7", with the
->    renumber implications enumerated.
-> 2. The phase's Goal + Exit criterion (what "refactor done"
->    means, in measurable terms).
-> 3. The work-item taxonomy (mirror ADR-0012's §6 DAG style):
->    discovery / design / consolidation / split / bug-class
->    elimination / magic-number audit / etc. as separate work
->    items, not one giant blob.
-> 4. The relationship to ADR-0008 (Phase 6 charter), ADR-0011
->    (Phase 6 reopen), ADR-0012 (test/bench redesign). Does
->    this refactor phase carry forward any deferred items from
->    Phase 6?
-> 5. The relationship to the existing scaffolding rules
->    (ROADMAP §1-§5 / §11 / §14 / §18, .claude/rules/*) — is
->    any rule itself due for refactor?
-> 6. Out-of-scope items deferred to later phases.
->
-> Resist over-specifying work items at draft time — the user
-> wants the phase's *shape* discussed first. Implementation
-> detail (which files to split, which numbers to centralise)
-> emerges from discussion, not from the ADR draft. Lean
-> toward "open questions for the user" over "prescribed
-> answers" in the first draft.
->
-> ADR-0014 is the next available number. (ADR-0014 in
-> ADR-0012's "forthcoming" list was conditional on 6.I
-> surfacing load-bearing decisions; if 6.I lands in
-> conventional shape, ADR-0014 can be reclaimed for this
-> refactor phase, and the bench-infra forthcoming becomes
-> ADR-0015.)
+Generic by design — the draft phase is a discussion, not a
+prescribed plan. The drafter (user + Claude in dialogue) covers:
 
-When the refactor ADR drafting is done (or on session-pause),
-fall back to Thread A. The two threads do NOT block each
-other: 6.E iter N can land in parallel with refactor ADR
-discussion. The phase boundary discipline ensures the
-refactor phase does not start before Phase 6 honest-closes.
+1. **Placement**: confirm "between Phase 6 close and the JIT
+   phase". Document the renumber: old §9.7 (JIT v1 ARM64) →
+   §9.8, old §9.8 (JIT x86_64) → §9.9, etc.
+2. **Goal + Exit criterion** in measurable terms (what does
+   "refactor done" mean — code metrics? bug-class elimination?
+   test-coverage thresholds? all of the above?).
+3. **Work-item taxonomy** mirroring ADR-0012's §6 DAG style:
+   discovery / design re-examination / consolidation / split /
+   bug-class elimination / magic-number centralisation /
+   workaround inventory + root-cause replacement / test- and
+   bench-fixture organisation revisit / etc., as separate work
+   items with dependencies.
+4. **Relationship to existing ADRs** (0008 / 0011 / 0012 /
+   0013) — are any of those superseded or extended? Does this
+   phase carry forward any deferred items from Phase 6?
+5. **Relationship to scaffolding rules** (ROADMAP §1-§5 / §11
+   / §14 / §18, `.claude/rules/*`) — is any rule itself due
+   for refactor as part of this phase?
+6. **Out-of-scope items** deferred to later phases.
+
+Resist over-specifying work items at draft time — the phase's
+*shape* is the discussion target. Implementation detail (which
+files to split, which numbers to centralise, which rules to
+revisit) emerges from discussion. Prefer "open questions for
+user" over "prescribed answers" in the first draft.
+
+ADR numbering: ADR-0014 (wiring, this commit, Accepted) and
+ADR-0015 (charter, next session, Proposed→Accepted) are
+reclaimed from ADR-0012's "forthcoming ADR-0014 (bench
+infra)" conditional slot; the bench-infra ADR slips to
+ADR-0016 if it ever surfaces load-bearing decisions.
 
 ## Phase 6 reopen DAG (ADR-0012 §6)
 
 ```
 6.A ✅  6.B ✅  6.C ✅  6.D ✅
  │
- ├─→ 6.E ⏳ (iter 2 done; iter 3+ continues in Thread A)
- │    └─→ {6.F, 6.G, 6.H} → 6.J
+ ├─→ 6.E ⏳ (iter 2 done; iter 3+ → /continue continues)
+ │    └─→ {6.F, 6.G, 6.H} → 6.J → §9.7 ADR-0015 drafting
  │
  └─→ 6.I (parallel)  ─→ 6.J
 ```
@@ -144,15 +136,8 @@ refactor phase does not start before Phase 6 honest-closes.
 - 13 wasmtime_misc BATCH1-3 fixtures queued (validator gaps)
 - 39 trap-mid-execution realworld fixtures — 6.E target
 - 10 SKIP-VALIDATOR realworld fixtures
-- 78 wasmtime_misc runtime-runner failures (categorised in
-  Thread A)
+- 78 wasmtime_misc runtime-runner failures (categorised above)
 
 ## Open questions / blockers
 
-- **Thread B placement decision**: user prefers a new phase
-  between Phase 6 and Phase 7. Confirm during ADR-0014 draft.
-- **Scope of refactor**: how aggressive? Single-pass surface
-  cleanup (zone audit, magic-number centralisation) vs deep
-  redesign (e.g. revisit Runtime struct fields, dispatch table
-  layout). User's wording covers both ends; ADR draft is the
-  forum to scope.
+(none — autonomous loop continues 6.E → 6.J → ADR-0015 drafting.)
