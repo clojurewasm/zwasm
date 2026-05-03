@@ -24,6 +24,7 @@
 
 const std = @import("std");
 
+const dbg = @import("../util/dbg.zig");
 const interp = @import("../interp/mod.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi = @import("wasi.zig");
@@ -731,6 +732,9 @@ fn instantiateRuntime(
             const mem = try a.alloc(u8, bytes_total);
             @memset(mem, 0);
             rt.memory = mem; // arena-owned; reclaimed at instance teardown
+            dbg.print("c_api.alloc", "memory rt={x} ptr={x} len={d}", .{
+                @intFromPtr(rt), @intFromPtr(mem.ptr), mem.len,
+            });
         }
     }
 

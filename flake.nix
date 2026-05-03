@@ -24,11 +24,16 @@
             pkgs.python3
             pkgs.wabt          # wat2wasm / wast2json — required by Phase 1+ spec runner
             pkgs.wasmtime      # reference runtime — drives the §9.6 / 6.2 differential gate
+            pkgs.wasm-tools    # dump / validate / print / strip / smith / shrink — Phase 6+ debug + Phase 7 fuzz corpus (per ADR-0015 candidate)
+            pkgs.lldb          # interactive debugger + watchpoints (per ADR-0015 candidate)
           ];
 
           shellHook = ''
             echo "zwasm v2 dev shell"
             zig version
+            echo "wasm-tools: $(wasm-tools --version 2>/dev/null || echo 'NOT FOUND')"
+            echo "lldb:       $(lldb --version 2>/dev/null | head -1 || echo 'NOT FOUND')"
+            echo "dsymutil:   $(which dsymutil 2>/dev/null || echo 'NOT FOUND')"
           '';
         };
       });
