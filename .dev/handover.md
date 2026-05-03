@@ -20,59 +20,49 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E paused
-  on 28 fails; 6.F〜6.J pending; 6.K just opened per ADR-0014).
-- **Last source commit**: `7b26760` — fix(p6) §9.6 / 6.E iter 11
-  split Label arity (br vs end), wire defined globals. Three-host
-  green. The underflow's true cause was `loopOp` hardcoding
-  `arity=0` for both end and br paths (`tinygo_fib`'s
-  `loop (result i32)`).
+- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D + 6.K.1 done;
+  6.K.2〜6.K.6 + 6.E + 6.F〜6.J pending).
+- **Last source commit**: `296d78e` — feat(p6) §9.6 / 6.K.1 land
+  `Value.ref` → `*FuncEntity` pointer encoding + null_ref=0 atomic
+  migration. Three-host green. `test-wasmtime-misc-runtime`
+  242/29 byte-identical to baseline (handover's prior "28" was
+  off-by-one); no regression. The 29 fails resolve through 6.K.2
+  ownership model + 6.K.3 cross-module dispatch.
 - **ADR-0014 (Accepted)**: redesign + refactoring sweep before
-  Phase 7. Adds §9.6 / 6.K with six work items that unblock the
-  remaining 27 cross-module fails by re-deriving funcref
-  semantics + the ownership model, instead of patching around
-  them. No follow-up ADR; everything stays in Phase 6.
+  Phase 7. §9.6 / 6.K is the work-item block; no follow-up ADR.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.K.1 (first concrete next step)
+## Active task — §9.6 / 6.K.2 (single-allocator Runtime + Instance back-ref)
 
-`test-wasmtime-misc-runtime` baseline: **242 / 28** (trail
-78 → 65 → 45 → 41 → 39 → 30 → 29 → 28 across iter 5–11). The
-remaining 28 share one root: v1 carry-over of single-instance-
-implicit semantics. ADR-0014 resolves them through six work
-items inside Phase 6 (no Phase 7 deferral, no follow-up ADR).
-DAG / per-row scope / acceptance live in ADR-0014 §2.1; this
-table tracks status only.
+`test-wasmtime-misc-runtime` standing at **242 / 29** post-6.K.1
+(unchanged — 6.K.1 was an encoding migration; the remaining fails
+all involve cross-module routing or partial-init re-measure that
+6.K.2/6.K.3/6.K.6 carry).
 
 | #     | Description                                                                          | Status         |
 |-------|--------------------------------------------------------------------------------------|----------------|
-| 6.K.1 | `Value.ref` → `*FuncEntity` pointer encoding                                         | [ ] **NEXT**   |
-| 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`                 | [ ]            |
+| 6.K.1 | `Value.ref` → `*FuncEntity` pointer encoding                                         | [x] 296d78e    |
+| 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`                 | [ ] **NEXT**   |
 | 6.K.3 | Cross-module imports for table / global / func (after 6.K.1 + 6.K.2)                 | [ ]            |
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [ ]            |
 | 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ]            |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ]            |
 
-ROADMAP §9.6 reopened-scope table inlines 6.K.1〜6.K.6 between
-6.D and 6.E (so the `continue` skill picks 6.K.1 as the first
-`[ ]` row). After 6.K all-`[x]`, 6.E re-measures (the 28 fails
-flow through), then 6.F / 6.G / 6.H, with 6.I in parallel,
-then 6.J strict close.
+After 6.K all-`[x]`, 6.E re-measures (the 29 fails flow through),
+then 6.F / 6.G / 6.H, with 6.I in parallel, then 6.J strict close.
 
-Per-row TDD loop matches the rest of Phase 6 (Step 0 Survey
-subagent over Value/funcref design space → Plan → Red → Green →
+Step 0 brief for 6.K.2 should target `src/interp/mod.zig`
+(`Runtime.alloc` / `memory_borrowed` field — drop), and `src/c_api/instance.zig`
+(`instantiateRuntime` allocator threading: arena vs parent_alloc
+split; the cross-module memory-borrow path at iter 7 that
+introduces `memory_borrowed`). ADR-0014 §2.1 / 6.K.2's "Files
+touched" lists Runtime + Instance struct shape + the elem-segment
+loader (parent_alloc vs arena ambiguity surveyed in
+`p6-6K1-survey.md` §3 "Allocator ownership chain").
+
+Per-row TDD loop unchanged (Step 0 Survey → Plan → Red → Green →
 Refactor → three-host test gate → source commit → handover +
-push + re-arm). Step 0 brief for 6.K.1 should target
-`src/interp/{mod,mvp.zig,ext_2_0/{ref_types,table_ops}.zig}`,
-`src/c_api/instance.zig` (FuncEntity allocation in
-`instantiateRuntime`), and the 70+ test sites in
-`interp/ext_2_0/table_ops.zig` + `interp/trap_audit.zig` per
-ADR-0014 §2.1 / 6.K.1's "Files touched" list.
-
-Sequence: pick one cluster per iteration, fix root cause, re-run,
-move fixtures from FAIL to PASS, commit. When `test-wasmtime-misc-
-runtime` reaches 0 failures, add it to `test-all` aggregate and
-proceed to 6.F. Per ROADMAP §9.6 / 6.J the close is **strict 100%
+push + re-arm). Per ROADMAP §9.6 / 6.J the close is **strict 100%
 PASS**; the only permitted defer is a v1-era design-dependent
 fixture documented in `.dev/decisions/skip_<fixture>.md` AND
 physically removed / `# DEFER:`-marked from the active manifest so
