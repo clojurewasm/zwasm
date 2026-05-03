@@ -18,22 +18,23 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3 + 6.K.4 done; 6.K.5
-  + 6.K.6 + 6.E + 6.F〜6.J pending.
-- **Last source commit**: `30bb5fd` — feat(p6) §9.6 / 6.K.4
-  decodeElement forms 2/5/6/7. Three-host green. misc-runtime
-  266/5 (down from 244/27; 22 fixtures recovered — embenchen_*0
-  modules use form-5/6/7 element segments).
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3 + 6.K.4 + 6.K.5 done;
+  6.K.6 + 6.E + 6.F〜6.J pending.
+- **Last source commit**: `d020317` — docs(p6) §9.6 / 6.K.5 Label
+  arity formalisation + new rule `single_slot_dual_meaning.md` +
+  comptime field assertion + unit test. Three-host green. misc-
+  runtime 266/5 (unchanged; behaviour-preserving doc cycle).
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.K.5 (Label arity formalisation + `single_slot_dual_meaning.md` + §14 anti-pattern entry)
+## Active task — §9.6 / 6.K.6 (re-measure partial-init-table-segment)
 
-Per ADR-0014 §2.1 / 6.K.5: formalise the dual `arity` /
-`branch_arity` Label fields introduced ad-hoc in iter 11
-(`src/interp/mod.zig:Label`); add a `.claude/rules/single_slot_dual_meaning.md`
-rule documenting the anti-pattern that motivated the split; add a
-ROADMAP §14 entry for "Single field serving two distinct semantic
-axes". Doc-heavy; behaviour-preserving.
+Per ADR-0014 §2.1 / 6.K.6: re-measure the partial-init-table-
+segment fixture after 6.K.1〜6.K.3 land. Per the 2026-05-04 ADR
+amendment, that fixture is **already passing** (zombie-instance
+contract + cross-module imports together fixed the dangling-
+FuncEntity issue). 6.K.6 collapses to a verification check —
+confirm the fixture passes end-to-end and no other partial-init
+edge cases regress.
 
 ## ROADMAP §9.6 — task table snapshot (authoritative is `.dev/ROADMAP.md`)
 
@@ -43,8 +44,8 @@ axes". Doc-heavy; behaviour-preserving.
 | 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`                 | [x] e6e5c20    |
 | 6.K.3 | Cross-module imports for table / global / func + zombie-instance contract (per amended ADR-0014) | [x] ffc0cf0 |
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [x] 30bb5fd    |
-| 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ] **NEXT**   |
-| 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ]            |
+| 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [x] d020317    |
+| 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ] **NEXT**   |
 | 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [ ]            |
 | 6.K.8 | Error diagnostic M1 (Diagnostic core + CLI parity, per ADR-0016)                     | [x] 306dbc2    |
 
