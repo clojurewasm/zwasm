@@ -57,17 +57,16 @@ Deferred to relevant feature phases:
 
 ### Sub-tasks
 
-1. **Draft ADR-0013** — runtime-asserting WAST runner detailed
-   design. Includes Step 0 Survey of v1 `e2e_runner.zig` +
-   `.claude/rules/textbook_survey.md` Guard 1-5 compliance.
-   Output: `private/draft-adr-0013-*.md` → review →
-   `.dev/decisions/0013_*.md` Accepted.
-2. **Implement runner** per ADR-0013 design.
-3. **Wire into `build.zig`** as `test-wasmtime-misc` step (the
-   step itself lands populated in 6.D, but the runner binary
-   exists from 6.A).
-4. **Three-host `zig build test` green** (no fixture corpus yet
-   in 6.A; the runner is exercised by a minimal in-tree fixture).
+1. ~~Draft ADR-0013~~ — **DONE** (Accepted).
+2. **Implement runner** per ADR-0013 design — **NEXT**.
+   Extend `src/interp/{mod,dispatch}.zig` with TraceEvent +
+   trace_cb, add `test/runners/wast_runtime_runner.zig` with
+   manifest parser + 9 directive handlers + value/trap parsing.
+3. **Wire into `build.zig`** as `test-runtime-runner-smoke`
+   step pointing at `test/runners/fixtures/`. The full
+   `test-wasmtime-misc` step lands populated in 6.D.
+4. **Three-host `zig build test` + `test-runtime-runner-smoke`
+   green**.
 
 ## Phase 6 reopen DAG (from ADR-0012 §6)
 
