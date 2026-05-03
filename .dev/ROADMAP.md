@@ -1395,8 +1395,8 @@ widget enforces this.
 |------|----------------------------------------------------------------------------------------------------------|----------------|
 | 6.0  | Vendor v1 regression tests not covered by spec testsuite into `test/v1_carry_over/`; add `zig build test-v1-carry-over` step. | [x]            |
 | 6.1  | Realworld coverage — all 50 vendored samples run to completion under v2 interp on Mac + Linux; no `Errno.unreachable_` traps. | [x]            |
-| 6.2  | Differential gate — 30+ realworld samples match `wasmtime run` byte-for-byte stdout (ADR-0006 target retargeted from §9.4 / 4.10). | [ ]            |
-| 6.3  | ClojureWasm guest set runs end-to-end against zwasm v2 via `build.zig.zon` `path = ...`; no commits to ClojureWasm side required. | [ ]            |
+| 6.2  | Differential gate — 30+ realworld samples match `wasmtime run` byte-for-byte stdout (ADR-0006 target retargeted from §9.4 / 4.10). | DEFERRED → §9.7 per ADR-0010 |
+| 6.3  | ClojureWasm guest set runs end-to-end against zwasm v2 via `build.zig.zon` `path = ...`; no commits to ClojureWasm side required. | DEFERRED → §9.7 per ADR-0010 |
 | 6.4  | `bench/baseline_v1_regression.yaml` records interp-only wall-clock numbers as Phase-7+ comparison floor (spread + repeatability under noise; absolute speed irrelevant). | [x]            |
 | 6.5  | A13 (v1 regression suite stays green) wired into the merge gate.                                          | [x]            |
 | 6.6  | Verifier CI hook — `test/spec/runner.zig` calls `ir/verifier.verify` after lowering each function (carry-over from §9.5 / 5.5). | [x]            |

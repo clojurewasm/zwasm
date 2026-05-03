@@ -18,74 +18,58 @@
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
-  ADR-0008 🔒). 6 of 9 §9.6 rows closed; remaining 3 = 6.2 + 6.3
-  (execution-coverage blocked) + 6.8 (depends on 6.2-3).
-- **Last commit**: `4f73288` — §9.6 / 6.4 land:
-  `bench/baseline_v1_regression.yaml` (5 fixtures, 8.83-14.75 ms
-  mean, stddev 0.56-2.07 ms) + `record_baseline_v1_regression.sh`
-  regen script.
-- **Next task**: §9.6 / 6.2 + 6.3 are blocked on the same root
-  cause (v2 traps mid-execution before stdout). The §9.6 / 6.8
-  phase tracker close needs either both gaps closed OR an
-  ADR-0008-style replan documenting deferral. Investigate the
-  trap root cause to see if a single fix unblocks both gates.
+  ADR-0008 🔒). 6.2 + 6.3 just deferred to Phase 7 per ADR-0010
+  (root-cause investigation showed behaviour bugs, not missing
+  ops; deferral preserves the 30+ match threshold for honest
+  Phase-7 closure rather than lowering it).
+- **Last commit**: `ae1a8a3` — §9.6 / 6.4 [x] + handover retarget
+  at 6.2 root-cause. Investigation landed in this iteration:
+  `[dispatch] unbound slot` instrumentation across 6 sampled
+  fixtures (c_integer_overflow, c_many_functions, c_control_flow,
+  rust_compression, rust_enum_match, c_btree, c_sha256_hash)
+  produced **zero** unbound-slot prints. Behavior bug, not
+  missing op. ADR-0010 filed; §9.6 / 6.2 + 6.3 annotated as
+  DEFERRED.
+- **Next task**: §9.6 / 6.8 — Phase-6 close (open §9.7 inline +
+  flip phase tracker + backfill §9.6 SHAs). All non-deferred
+  rows are now `[x]`.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.6 / 6.2 root-cause investigation
+## Active task — §9.6 / 6.8 (close Phase 6, open §9.7)
 
-Goal: identify which interp op v2 is trapping on for the 39
-realworld fixtures (vs the 10 SKIP-VALIDATOR which fail at the
-typing layer). If a single missing op or single small bug is
-the cause, fixing it unblocks both 6.2 and 6.3 and lets the
-phase close cleanly.
+Phase-6 closing protocol per `continue` skill:
 
-Plan:
+1. Backfill SHA pointers for §9.6 rows 6.0, 6.1, 6.4, 6.5, 6.6,
+   6.7 (the closed rows). 6.2 + 6.3 retain their DEFERRED
+   annotation; they get fresh SHA columns when they land in
+   §9.7 per ADR-0010.
+2. Update Phase Status widget: §6 → DONE, §7 → IN-PROGRESS.
+3. Expand §9.7 task table inline. ROADMAP §9 / Phase 7 already
+   has Goal + Exit criterion bullets; expand into a numbered
+   `[ ]` table mirroring §9.5 / §9.6 structure. Add the two
+   ADR-0010 carry-over rows (realworld stdout diff +
+   ClojureWasm guest end-to-end) at the end of the table.
+4. Replace handover with §9.7's first open task (likely
+   `src/jit/regalloc.zig` greedy-local allocator).
+5. Three-host `zig build test-all`.
 
-1. Pick the smallest failing fixture (c_integer_overflow at
-   ~104 KB).
-2. Add temporary instrumentation to `interp/dispatch.zig:step`
-   to log the unbound-op id when `Trap.Unreachable` originates
-   from the dispatch table lookup (vs the wasm `unreachable`
-   opcode itself). Run the fixture; capture the trap site.
-3. If the cause is a missing op handler: register it in the
-   appropriate `interp/mvp_*.zig` or `ext_2_0/*.zig` module;
-   re-run; iterate until c_integer_overflow exits cleanly with
-   wasmtime-matching stdout.
-4. Re-run `test-realworld-diff` to see how many fixtures
-   newly match.
-5. If cause is something else (lowering bug, validator gap that
-   slipped through, etc.): document the finding, file ADR if
-   load-bearing, queue.
-6. Three-host `test-all` per usual.
-
-If the investigation determines the gap is more than a single-
-fix problem (likely — production wasms use a long tail of ops),
-then file an ADR-0008-style replan that deferrs 6.2 + 6.3 to
-Phase 7 (when JIT brings the same coverage pressure naturally)
-and closes Phase 6 with the gates that exist (6.0, 6.1, 6.4,
-6.5, 6.6, 6.7).
-
-Phase-6 outstanding:
-
-| #   | Description                                  | Blocker          |
-|-----|----------------------------------------------|------------------|
-| 6.2 | wasmtime stdout differential (30+ matches)   | v2 trap mid-exec |
-| 6.3 | ClojureWasm guest end-to-end                 | same root cause  |
-| 6.8 | Open §9.7 inline; flip phase tracker         | depends on 6.2-3 OR ADR-style replan |
-
-Carry-overs from §9.5:
+Carry-overs from §9.5 (still queued):
 - `no_hidden_allocations` zlinter re-evaluation (ADR-0009).
 - Per-feature handler split for validator.zig (with §9.1 / 1.7).
-- Liveness control-flow + memory-op coverage (Phase-7 regalloc).
+- Liveness control-flow + memory-op coverage (Phase-7 regalloc
+  drives this directly).
 - Const-prop per-block analysis (Phase-15 hoisting).
 - `src/frontend/sections.zig` (1073 lines) soft-cap split.
 
 Carry-overs from Phase 6:
-- `br-table-fuzzbug` v1 regression — multi-param `loop` block.
-- 10 realworld SKIP-VALIDATOR fixtures.
-- 39 realworld trap-mid-execution fixtures — investigation in
-  6.2 chunk b above.
+- `br-table-fuzzbug` v1 regression — multi-param `loop` block
+  validator gap (re-add to NAMES when gap closes; see §9.7
+  validator follow-up).
+- 10 realworld SKIP-VALIDATOR fixtures (Go + cpp_unique_ptr).
+- 39 realworld trap-mid-execution fixtures (root cause = behavior
+  bug per ADR-0010; investigation tooling lands with §9.7
+  `interp == jit_arm64` differential gate).
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
