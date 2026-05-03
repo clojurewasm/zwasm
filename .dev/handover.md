@@ -18,10 +18,10 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 5,
+- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 6,
   6.F〜6.J pending).
-- **Last commit**: `bdef556` — fix(p6) §9.6 / 6.E iter 5 wire
-  tables/elems + element form 4. Three-host green.
+- **Last commit**: `f5c3bb3` — fix(p6) §9.6 / 6.E iter 6 quote
+  spaced fields + splitTokens. Three-host green.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — drive Phase 6 to strict close (6.E → 6.F → … → 6.J; 100% PASS per ROADMAP §9.6 / 6.J)
@@ -30,26 +30,27 @@
 6.G / 6.H once 6.E unlocks them, with 6.I in parallel, terminating
 at 6.J Phase 6 close gate.
 
-### 6.E iter 6+ targets (current)
+### 6.E iter 7+ targets (current)
 
-The `test-wasmtime-misc-runtime` standalone gate has 45
-remaining failures (down from 78 → 65 → 45: iter 3 loop+br_if,
-iter 4 assert_trap arity / trap-text tags, iter 5 c_api wired
-defined tables + element segments + decodeElement form 4).
-Outstanding clusters:
+The `test-wasmtime-misc-runtime` standalone gate has 41
+remaining failures (78 → 65 → 45 → 41: iter 5 c_api tables/
+elems wiring, iter 6 quoted-field tokenizer + regen). Clusters:
 - 14 `invoke ExportNotFound` — table_copy_on_imported_tables
   routes invokes to module 1/2 which fail to instantiate (cross-
   module imports unwired); subsequent `call_t`/`call_u` resolve
   against the wrong current module.
-- 14 BadValueSyntax `'hello?'` / `'olleh?'` — manifest field
-  with embedded space (`is hello?` is the export name in
-  imported-memory-copy and memory-copy); regen needs to quote
-  fields, runner needs quoted-token tokenizer.
 - 8 `instantiate InstanceAllocFailed` — cross-module imports
   (call_indirect.1, embenchen_*.1, table_copy.0,
   table_copy_on_imported_tables.{0,1,2}, imported-memory-copy.1).
   Wiring `register` ↔ `wasm_instance_new`'s `imports` arg is
-  the next fix.
+  the next big fix; expected to also recover the 7 imported-
+  memory-copy ExportNotFound.
+- 7 `imported-memory-copy/is hello?|is olleh? ExportNotFound`
+  — current module after .1 fails is .0 which lacks the exports;
+  resolves with cross-module wiring.
+- 3 `memory-copy/is hello?|is olleh? result[0] mismatch` —
+  memory.copy semantics or test ordering bug; needs interp
+  trace to localise.
 - 3 `table_copy/call result[0] mismatch` — table.copy semantics
   bug (interp behaviour).
 - 3 `partial-init-memory-segment/load result[0] mismatch` —
@@ -162,7 +163,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 ```
 6.A ✅  6.B ✅  6.C ✅  6.D ✅
  │
- ├─→ 6.E ⏳ (iter 5 done; iter 6+ → /continue continues)
+ ├─→ 6.E ⏳ (iter 6 done; iter 7+ → /continue continues)
  │    └─→ {6.F, 6.G, 6.H} → 6.J → §9.7 ADR-0015 drafting
  │
  └─→ 6.I (parallel)  ─→ 6.J
@@ -176,7 +177,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 - 13 wasmtime_misc BATCH1-3 fixtures queued (validator gaps)
 - 39 trap-mid-execution realworld fixtures — 6.E target
 - 10 SKIP-VALIDATOR realworld fixtures
-- 45 wasmtime_misc runtime-runner failures (categorised above)
+- 41 wasmtime_misc runtime-runner failures (categorised above)
 
 ## Open questions / blockers
 
