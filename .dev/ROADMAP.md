@@ -1421,7 +1421,7 @@ exception class and its documentation requirement).
 | 6.C  | Vendor wasmtime_misc BATCH1-3 (~55 fixtures) into `test/wasmtime_misc/wast/{basic,reftypes,embenchen,issues}/`; introduce `scripts/setup_corpora.sh`. | [x] (42 vendored, 13 queued for 6.E) |
 | 6.D  | Wire 6.C corpus into `test-wasmtime-misc` step + `test-all` aggregate via 6.A runner; existing parse/instantiate runners kept as-is. | [x] (test-wasmtime-misc-runtime step wired; not in test-all until 6.E closes interp gaps) |
 | 6.K.1 | Replace bare-funcidx `Value.ref` with `*FuncEntity` pointer encoding (instance-bearing funcref). Per ADR-0014 §2.1. | [x]            |
-| 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`. Per ADR-0014 §2.1.                            | [ ]            |
+| 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`. Per ADR-0014 §2.1.                            | [x]            |
 | 6.K.3 | Cross-module imports for table / global / func — drop `error.UnsupportedCrossModule*Import` (after 6.K.1 + 6.K.2). Per ADR-0014 §2.1. | [ ]            |
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel; per ADR-0014 §2.1).                                                      | [ ]            |
 | 6.K.5 | Label arity formalisation + `.claude/rules/single_slot_dual_meaning.md` + §14 anti-pattern entry (parallel; per ADR-0014 §2.1). | [ ]            |

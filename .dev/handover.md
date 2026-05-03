@@ -20,45 +20,60 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D + 6.K.1 done;
-  6.K.2〜6.K.6 + 6.E + 6.F〜6.J pending).
-- **Last source commit**: `296d78e` — feat(p6) §9.6 / 6.K.1 land
-  `Value.ref` → `*FuncEntity` pointer encoding + null_ref=0 atomic
-  migration. Three-host green. `test-wasmtime-misc-runtime`
-  242/29 byte-identical to baseline (handover's prior "28" was
-  off-by-one); no regression. The 29 fails resolve through 6.K.2
-  ownership model + 6.K.3 cross-module dispatch.
+- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D + 6.K.1 + 6.K.2 done;
+  6.K.3〜6.K.6 + 6.E + 6.F〜6.J pending).
+- **Last source commit**: `e6e5c20` — feat(p6) §9.6 / 6.K.2 single-
+  allocator Runtime + Instance back-ref + drop `memory_borrowed`.
+  Three-host green. `test-wasmtime-misc-runtime` 242/29 byte-
+  identical to baseline. partial-init-memory-segment 9/9 PASS
+  restored (the regression that surfaced Zig 0.16's
+  `Allocator.free` 0xAA-poisoning behaviour — see commit body).
 - **ADR-0014 (Accepted)**: redesign + refactoring sweep before
   Phase 7. §9.6 / 6.K is the work-item block; no follow-up ADR.
+- **Open ADR drafts** (research delivered, awaiting write-up):
+  ADR-0015 = canonical debug toolkit (Nix flake + dbg.zig logger
+  + ASan + repro discipline) at `private/notes/debug-toolkit-survey.md`;
+  ADR-0016 = error diagnostic system (library + C boundary + CLI +
+  test runners) at `private/notes/error-system-survey.md`.
+  Trigger: 6.K.2 0xAA debug + `result[0] mismatch` runner UX.
+  Independent of 6.K funcref/ownership cascade. Land **before
+  6.K.3** so cross-module-import error surfaces start clean.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.K.2 (single-allocator Runtime + Instance back-ref)
+## Active task — ADR-0015 / 0016 drafting (gate before §9.6 / 6.K.3)
 
-`test-wasmtime-misc-runtime` standing at **242 / 29** post-6.K.1
-(unchanged — 6.K.1 was an encoding migration; the remaining fails
-all involve cross-module routing or partial-init re-measure that
-6.K.2/6.K.3/6.K.6 carry).
+After 6.K.2's 0xAA hunt, two ADRs were queued for drafting based on
+research surveys (gitignored under `private/notes/`):
+
+- **ADR-0015 — Canonical debug toolkit**: `dbg.zig` env-gated
+  logger (highest leverage, ~80 LoC), `-Dsanitize=address` Mac/
+  Linux opt-in, `private/dbg/<task>/` reproducer template,
+  `wasm-tools` added to `flake.nix`, `dsymutil` PATH note.
+  Outline already in survey §8.
+- **ADR-0016 — Error diagnostic system**: enum-driven Zig error
+  set + threadlocal `Diagnostic { kind, phase, location, message }`
+  payload (ClojureWasm-style hybrid). Recovers v1's
+  `formatWasmError` CLI parity (regression confirmed at
+  `src/cli/main.zig:58`). Unifies `interp.Trap` + `c_api.TrapKind`
+  duplicated enums. 5-phase migration path in survey §7.
+  **Q-A is the gating decision** (internal shape).
+
+Sequence: draft ADR-0015 → ADR-0016 → land them as Phase 6.K-
+adjacent (numbering is fresh; ADR-0014's "no follow-up ADR"
+applied to funcref/ownership only, not debug/error UX). Then
+proceed to §9.6 / 6.K.3.
 
 | #     | Description                                                                          | Status         |
 |-------|--------------------------------------------------------------------------------------|----------------|
 | 6.K.1 | `Value.ref` → `*FuncEntity` pointer encoding                                         | [x] 296d78e    |
-| 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`                 | [ ] **NEXT**   |
-| 6.K.3 | Cross-module imports for table / global / func (after 6.K.1 + 6.K.2)                 | [ ]            |
+| 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`                 | [x] e6e5c20    |
+| 6.K.3 | Cross-module imports for table / global / func (after 6.K.1 + 6.K.2)                 | [ ] (queued)   |
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [ ]            |
 | 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ]            |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ]            |
 
 After 6.K all-`[x]`, 6.E re-measures (the 29 fails flow through),
 then 6.F / 6.G / 6.H, with 6.I in parallel, then 6.J strict close.
-
-Step 0 brief for 6.K.2 should target `src/interp/mod.zig`
-(`Runtime.alloc` / `memory_borrowed` field — drop), and `src/c_api/instance.zig`
-(`instantiateRuntime` allocator threading: arena vs parent_alloc
-split; the cross-module memory-borrow path at iter 7 that
-introduces `memory_borrowed`). ADR-0014 §2.1 / 6.K.2's "Files
-touched" lists Runtime + Instance struct shape + the elem-segment
-loader (parent_alloc vs arena ambiguity surveyed in
-`p6-6K1-survey.md` §3 "Allocator ownership chain").
 
 Per-row TDD loop unchanged (Step 0 Survey → Plan → Red → Green →
 Refactor → three-host test gate → source commit → handover +
