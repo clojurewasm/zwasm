@@ -18,23 +18,33 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3〜6.K.6 done; 6.K.7
-  + 6.E + 6.F〜6.J pending.
-- **Last code commit**: `d020317` — docs(p6) §9.6 / 6.K.5 Label
-  arity formalisation. 6.K.6 was a verification-only check
-  (partial-init-table-segment all PASS post-6.K.3, no code
-  change needed). misc-runtime 266/5 unchanged.
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K all `[x]` (6.K.1〜
+  6.K.8 done). 6.E re-measure + 6.F〜6.J pending.
+- **Last source commit**: `6750bc5` — feat(p6) §9.6 / 6.K.7
+  -Dsanitize=address + zig build run-repro steps (ADR-0015).
+  Three-host green. misc-runtime 266/5 unchanged (build-system
+  only).
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.K.7 (`-Dsanitize=address` + `zig build run-repro` step)
+## Active task — §9.6 / 6.E (re-measure + close)
 
-Per ADR-0015 §Decision Part 2 + Part 4: wire
-`module.sanitize_c = .full` (and `.sanitize_thread = true`)
-through `addExecutable` / `addTest` when `-Dsanitize` is set
-(Mac aarch64 + OrbStack only; skip Windows). Add
-`zig build run-repro -Dtask=<name>` step that discovers
-`private/dbg/<task>/repro.zig` and links it against zwasm
-modules. Adopted as a weekly OrbStack lane, not per-commit.
+Per ROADMAP §9.6 / 6.E: re-measure the misc-runtime corpus now
+that all 6.K rows are `[x]`. Current state: 266 passed / 5
+failed. Per the ADR-0014 §2.1 / 6.E text, the row exits when
+the corpus is integrated into `test-all`. Strict close (6.J)
+demands 0 failures or per-fixture skip ADRs.
+
+Remaining 5 fails:
+- `embenchen_*1.wasm` × 4 — `register` manifest gap (script
+  format limitation; needs manifest-generation fix or
+  per-fixture skip ADR).
+- `externref-segment.0.wasm` — externref reftype deferred per
+  ADR-0014 §2.1 / 6.K.4 (funcref-only scope).
+
+Action: assess each — write a `.dev/decisions/skip_<fixture>.md`
+per ROADMAP §9.6 / 6.J's exception clause, OR fix-and-pass.
+Likely path: skip-ADRs since both gaps are documented in
+ADR-0014 / ADR-0015 already.
 
 ## ROADMAP §9.6 — task table snapshot (authoritative is `.dev/ROADMAP.md`)
 
@@ -46,7 +56,7 @@ modules. Adopted as a weekly OrbStack lane, not per-commit.
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [x] 30bb5fd    |
 | 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [x] d020317    |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [x] (verify)   |
-| 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [ ] **NEXT**   |
+| 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [x] 6750bc5    |
 | 6.K.8 | Error diagnostic M1 (Diagnostic core + CLI parity, per ADR-0016)                     | [x] 306dbc2    |
 
 ## Open questions / blockers
