@@ -19,43 +19,40 @@
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
   ADR-0008 🔒).
-- **Last commit**: `b03b853` — §9.6 / 6.1 chunk a (partial): all 50
-  realworld fixtures vendored + parser `data_count` ordering bug
-  fixed; parse + section decode 50/50 on three hosts.
-- **Next task**: §9.6 / 6.1 chunk b — extend
-  `test/realworld/runner.zig` to instantiate + invoke each
-  fixture via `cli/run.zig:runWasm`, satisfying the
-  "run-to-completion under v2 interp" exit criterion.
+- **Last commit**: `251c493` — §9.6 / 6.1 chunk b: end-to-end
+  `test-realworld-run` runner; 39 PASS / 1 SKIP-WASI / 10
+  SKIP-VALIDATOR / 0 FAIL across the 50-fixture corpus on three
+  hosts.
+- **Next task**: §9.6 / 6.2 — differential gate (30+ realworld
+  samples match `wasmtime run` byte-for-byte stdout).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.6 / 6.1 (realworld run-to-completion coverage)
+## Active task — §9.6 / 6.2 (differential gate vs wasmtime stdout)
 
-Two-chunk delivery per the exit criterion's two halves:
+Per ROADMAP §9.6 exit criterion: 30+ realworld samples match
+`wasmtime run` byte-for-byte stdout (the ADR-0006 target,
+retargeted from §9.4 / 4.10).
 
-| Chunk | Scope                                                                                    | Status                |
-|-------|------------------------------------------------------------------------------------------|-----------------------|
-| a     | Vendor missing 43 fixtures (7 → 50); fix any parse-time gaps surfaced by the new corpus. | DONE `b03b853` (parser `data_count` bug fix included — bulk-memory §3.4 says 12 sits between element(9) and code(10), not between import(2) and function(3); TinyGo emits per spec). |
-| **b** | Extend `test/realworld/runner.zig` (or add `realworld_run_runner.zig`) to call `cli/run.zig:runWasm` over each fixture. PASS = `runWasm` returns any u8 exit code without surfacing a `Trap.Unreachable` from a missing op. INFO/SKIP for fixtures requiring WASI host state beyond §9.4 (proc / fd / clocks / random surface that is wired) — they instantiate but their entry point may legitimately exit early. | **NEXT** |
+Plan:
 
-Plan for chunk b:
+1. Detect `wasmtime` in PATH (skip cleanly when absent — keeps
+   the gate non-fatal for hosts that lack it; gate is real only
+   on hosts where wasmtime is installed).
+2. For each realworld fixture: `wasmtime run <fixture> >ref` and
+   `runWasmCaptured` → compare stdout byte-by-byte. SKIP fixtures
+   that produce no stdout (silent guests). The 30+ target counts
+   matched-non-empty-stdout pairs.
+3. Build step `test-realworld-diff` (or extend
+   `realworld_run_runner.zig` with a `--diff <ref-dir>` mode).
+   Wire into `test-all` only when `wasmtime` is detected at build
+   configure time; else skip.
+4. Three-host check: hosts without wasmtime print "0 diff'd /
+   skipped"; hosts with wasmtime must hit ≥30 matches.
 
-1. Decide the runner shape — extend `runner.zig` with a
-   `--run` flag, OR add a sibling `realworld_run_runner.zig`
-   wired to a separate `test-realworld-run` build step. Sibling
-   is cleaner since the parse-smoke gate stays useful as a
-   cheaper subset.
-2. Categorise each fixture's outcome: PASS (any u8 exit), INFO
-   (instantiate ok, runtime returned non-zero exit), SKIP-WASI
-   (instantiation surface gap), FAIL (Trap.Unreachable from a
-   missing op — the gate condition).
-3. Three-host gate: 50/50 must avoid the FAIL bucket. Bumps to
-   `test-all`.
-
-Phase-6 follow-ups in order: 6.2 differential gate (30+ samples
-match `wasmtime run` byte-for-byte) / 6.3 ClojureWasm guest
-end-to-end / 6.4 bench baseline / 6.5 A13 merge gate / 6.6
-verifier CI hook / 6.7 boundary audit / 6.8 phase tracker.
+Phase-6 follow-ups in order: 6.3 ClojureWasm guest end-to-end /
+6.4 bench baseline / 6.5 A13 merge gate / 6.6 verifier CI hook /
+6.7 boundary audit / 6.8 phase tracker.
 
 Carry-overs from §9.5 still queued (no consumer yet):
 - `no_hidden_allocations` zlinter re-evaluation (ADR-0009).
@@ -64,10 +61,14 @@ Carry-overs from §9.5 still queued (no consumer yet):
 - Const-prop per-block analysis (Phase-15 hoisting).
 - `src/frontend/sections.zig` (1073 lines) soft-cap split.
 
-Carry-over surfaced by §9.6 / 6.0:
-- `br-table-fuzzbug` v1 regression — needs multi-param `loop`
-  block validator support. Re-add to `regen_v1_carry_over.sh`
-  NAMES once the gap closes.
+Carry-overs from Phase 6 so far:
+- `br-table-fuzzbug` v1 regression — multi-param `loop` block
+  validator gap (re-add to `regen_v1_carry_over.sh` NAMES when
+  the gap closes; surfaced by §9.6 / 6.0).
+- 10 realworld validator-gap fixtures (mostly Go + cpp_unique_ptr;
+  surfaced by §9.6 / 6.1 chunk b SKIP-VALIDATOR bucket). Each
+  is a per-function typing rule v2 hasn't taught yet — Phase-6
+  refinement opportunity, not a §9.6 exit-criterion blocker.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
