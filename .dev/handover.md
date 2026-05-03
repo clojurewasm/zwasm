@@ -18,29 +18,22 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3 done; 6.K.4 + 6.K.5
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3 + 6.K.4 done; 6.K.5
   + 6.K.6 + 6.E + 6.F〜6.J pending.
-- **Last source commit**: `ffc0cf0` — feat(p6) §9.6 / 6.K.3
-  cross-module imports + zombie-instance contract. Three-host
-  green (Mac + OrbStack + windowsmini test-all). misc-runtime
-  244/27 (down from 242/29 baseline; partial-init-table-segment
-  + call_indirect.1.wasm + externref-segment recovered).
+- **Last source commit**: `30bb5fd` — feat(p6) §9.6 / 6.K.4
+  decodeElement forms 2/5/6/7. Three-host green. misc-runtime
+  266/5 (down from 244/27; 22 fixtures recovered — embenchen_*0
+  modules use form-5/6/7 element segments).
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.K.4 (`decodeElement` forms 5 / 6 / 7)
+## Active task — §9.6 / 6.K.5 (Label arity formalisation + `single_slot_dual_meaning.md` + §14 anti-pattern entry)
 
-Standard `/continue` TDD loop resumes. Per ADR-0014 §2.1 / 6.K.4:
-extend `src/frontend/sections.zig:decodeElement` to cover element-
-section binary forms 5, 6, 7 (currently only 0 / 1 / 4 are
-handled — see ROADMAP "Outstanding spec gaps"). Forms 2 / 5 / 6 /
-7 are listed in the gap inventory; ADR-0014 §2.1 / 6.K.4
-specifically targets 5 / 6 / 7. Form 2 is the active-segment
-explicit-tableidx case which works with the existing imported-
-table wiring from 6.K.3.
-
-Step 0 Survey brief: how the wasm-tools / spec interpreter /
-zware decode each form; 200-400 lines at
-`private/notes/p6-6K4-survey.md`.
+Per ADR-0014 §2.1 / 6.K.5: formalise the dual `arity` /
+`branch_arity` Label fields introduced ad-hoc in iter 11
+(`src/interp/mod.zig:Label`); add a `.claude/rules/single_slot_dual_meaning.md`
+rule documenting the anti-pattern that motivated the split; add a
+ROADMAP §14 entry for "Single field serving two distinct semantic
+axes". Doc-heavy; behaviour-preserving.
 
 ## ROADMAP §9.6 — task table snapshot (authoritative is `.dev/ROADMAP.md`)
 
@@ -49,8 +42,8 @@ zware decode each form; 200-400 lines at
 | 6.K.1 | `Value.ref` → `*FuncEntity` pointer encoding                                         | [x] 296d78e    |
 | 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`                 | [x] e6e5c20    |
 | 6.K.3 | Cross-module imports for table / global / func + zombie-instance contract (per amended ADR-0014) | [x] ffc0cf0 |
-| 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [ ] **NEXT**   |
-| 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ]            |
+| 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [x] 30bb5fd    |
+| 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ] **NEXT**   |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ]            |
 | 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [ ]            |
 | 6.K.8 | Error diagnostic M1 (Diagnostic core + CLI parity, per ADR-0016)                     | [x] 306dbc2    |

@@ -1423,7 +1423,7 @@ exception class and its documentation requirement).
 | 6.K.1 | Replace bare-funcidx `Value.ref` with `*FuncEntity` pointer encoding (instance-bearing funcref). Per ADR-0014 §2.1. | [x]            |
 | 6.K.2 | Single-allocator Runtime + Instance back-ref; drop `memory_borrowed`. Per ADR-0014 §2.1.                            | [x]            |
 | 6.K.3 | Cross-module imports for table / global / func — drop `error.UnsupportedCrossModule*Import` (after 6.K.1 + 6.K.2). Per ADR-0014 §2.1. | [x]            |
-| 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel; per ADR-0014 §2.1).                                                      | [ ]            |
+| 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel; per ADR-0014 §2.1).                                                      | [x]            |
 | 6.K.5 | Label arity formalisation + `.claude/rules/single_slot_dual_meaning.md` + §14 anti-pattern entry (parallel; per ADR-0014 §2.1). | [ ]            |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1〜6.K.3 (per ADR-0014 §2.1).                       | [ ]            |
 | 6.K.7 | Land `-Dsanitize=address` build option + `zig build run-repro -Dtask=<name>` step (per ADR-0015 §Decision Part 2 + Part 4). Mac + OrbStack only; Windows skip per ASan-ucrt gap. Parallel-eligible with 6.K.3〜6.K.6. | [ ]            |
