@@ -18,10 +18,10 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 6,
+- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 7,
   6.F〜6.J pending).
-- **Last commit**: `f5c3bb3` — fix(p6) §9.6 / 6.E iter 6 quote
-  spaced fields + splitTokens. Three-host green.
+- **Last commit**: `7cc6715` — fix(p6) §9.6 / 6.E iter 7 wire
+  cross-module memory imports. Three-host green.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — drive Phase 6 to strict close (6.E → 6.F → … → 6.J; 100% PASS per ROADMAP §9.6 / 6.J)
@@ -30,37 +30,38 @@
 6.G / 6.H once 6.E unlocks them, with 6.I in parallel, terminating
 at 6.J Phase 6 close gate.
 
-### 6.E iter 7+ targets (current)
+### 6.E iter 8+ targets (current)
 
-The `test-wasmtime-misc-runtime` standalone gate has 41
-remaining failures (78 → 65 → 45 → 41: iter 5 c_api tables/
-elems wiring, iter 6 quoted-field tokenizer + regen). Clusters:
+`test-wasmtime-misc-runtime` standalone gate: **204 passed / 39
+failed** (78 → 65 → 45 → 41 → 39). Clusters:
 - 14 `invoke ExportNotFound` — table_copy_on_imported_tables
-  routes invokes to module 1/2 which fail to instantiate (cross-
-  module imports unwired); subsequent `call_t`/`call_u` resolve
-  against the wrong current module.
-- 8 `instantiate InstanceAllocFailed` — cross-module imports
-  (call_indirect.1, embenchen_*.1, table_copy.0,
-  table_copy_on_imported_tables.{0,1,2}, imported-memory-copy.1).
-  Wiring `register` ↔ `wasm_instance_new`'s `imports` arg is
-  the next big fix; expected to also recover the 7 imported-
-  memory-copy ExportNotFound.
-- 7 `imported-memory-copy/is hello?|is olleh? ExportNotFound`
-  — current module after .1 fails is .0 which lacks the exports;
-  resolves with cross-module wiring.
-- 3 `memory-copy/is hello?|is olleh? result[0] mismatch` —
-  memory.copy semantics or test ordering bug; needs interp
-  trace to localise.
-- 3 `table_copy/call result[0] mismatch` — table.copy semantics
-  bug (interp behaviour).
-- 3 `partial-init-memory-segment/load result[0] mismatch` —
-  bare `(invoke …)` action lines aren't emitted by regen, so
-  memory.copy never runs between asserts.
+  modules 1/2 hit `UnsupportedCrossModuleTableImport`, so
+  current stays at module 0 which lacks `call_t`/`call_u`
+  exports. Resolves only with cross-module table import + funcref
+  source-instance dispatch (deferred).
+- 9 `instantiate InstanceAllocFailed` — call_indirect.1
+  (table import), table_copy_on_imported_tables.{1,2} (table),
+  embenchen_*.1 ×4 (memory + table + globals + funcs),
+  table_copy.0 — wait, table_copy.0 should pass; verify.
+- 9 `result[0] mismatch` collective: 3 memory-copy + 3
+  imported-memory-copy + 3 partial-init-memory-segment +
+  1 partial-init-table-segment + … indicates a memory.copy
+  semantics bug or active-data-segment ordering bug. Picking
+  one and tracing the interp dispatch is the next iter.
+- 3 `table_copy/call result[0] mismatch` — table.copy on
+  intra-module tables; same semantics-bug investigation.
 - 1 `table_copy/copy assert_trap trap-kind mismatch` (expected
-  UninitializedElement, got OutOfBoundsTableAccess) — table.copy
-  trap-kind classification.
-- 1 `partial-init-table-segment/indirect-call result[0] mismatch`.
+  UninitializedElement, got OutOfBoundsTableAccess) — wrong
+  trap kind from table.copy bounds check.
+- 1 `register source module '$n' not registered` — cascading
+  from tcot.1 instantiation failure.
 - 1 `issue4840/f trapped unexpectedly`.
+
+Cross-module table/global/func imports remain off — funcref
+tables shared across instances need source-instance dispatch
+routing (the imported table's funcidxs resolve against the
+*source* module's `rt.funcs`, not the importer's). Bigger
+iter, not yet attempted.
 
 Sequence: pick one cluster per iteration, fix root cause, re-run,
 move fixtures from FAIL to PASS, commit. When `test-wasmtime-misc-
@@ -163,7 +164,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 ```
 6.A ✅  6.B ✅  6.C ✅  6.D ✅
  │
- ├─→ 6.E ⏳ (iter 6 done; iter 7+ → /continue continues)
+ ├─→ 6.E ⏳ (iter 7 done; iter 8+ → /continue continues)
  │    └─→ {6.F, 6.G, 6.H} → 6.J → §9.7 ADR-0015 drafting
  │
  └─→ 6.I (parallel)  ─→ 6.J
@@ -177,7 +178,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 - 13 wasmtime_misc BATCH1-3 fixtures queued (validator gaps)
 - 39 trap-mid-execution realworld fixtures — 6.E target
 - 10 SKIP-VALIDATOR realworld fixtures
-- 41 wasmtime_misc runtime-runner failures (categorised above)
+- 39 wasmtime_misc runtime-runner failures (categorised above)
 
 ## Open questions / blockers
 
