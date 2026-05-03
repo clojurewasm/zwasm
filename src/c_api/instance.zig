@@ -42,6 +42,8 @@ const sections = @import("../frontend/sections.zig");
 const validator = @import("../frontend/validator.zig");
 const zir = @import("../ir/zir.zig");
 const dispatch_table_mod = @import("../ir/dispatch_table.zig");
+const loop_info_mod = @import("../ir/loop_info.zig");
+const verifier_mod = @import("../ir/verifier.zig");
 
 const ByteVec = vec.ByteVec;
 const ValVec = vec.ValVec;
@@ -570,6 +572,12 @@ fn instantiateRuntime(
             if (type_idx >= types.items.len) return error.InvalidTypeIndex;
             funcs[i] = zir.ZirFunc.init(@intCast(imp_func_count + i), types.items[type_idx], code.locals);
             try lowerer.lowerFunctionBody(a, code.body, &funcs[i], types.items);
+            // §9.6 / 6.6: populate loop_info so the verifier has
+            // something analysis-derived to check, then run the
+            // §9.5 / 5.5 invariant pass. Both slices live on the
+            // per-instance arena alongside the lowered ZirFunc.
+            funcs[i].loop_info = try loop_info_mod.compute(a, &funcs[i]);
+            verifier_mod.verify(&funcs[i]) catch return error.InvalidModule;
         }
     }
     inst.funcs_storage = funcs;
