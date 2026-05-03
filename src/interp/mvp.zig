@@ -151,7 +151,12 @@ fn loopOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     try frame.pushLabel(.{
         .height = rt.operand_len,
         .arity = 0, // br to a loop discards the body's results.
-        .target_pc = blk.start_inst + 1,
+        // Branching to a loop pops the label (see doBranch) and jumps
+        // back to the loop opcode itself, which re-runs loopOp and
+        // re-pushes the label. Pointing target_pc past the opcode
+        // would skip that re-push and corrupt the label stack on the
+        // second iteration.
+        .target_pc = blk.start_inst,
     });
 }
 
