@@ -532,6 +532,15 @@ fn instantiateRuntime(
     inst.arena = arena;
     const a = arena.allocator();
 
+    // §9.6 / 6.K.2 (ADR-0014 §2.2): rebind the Runtime's allocator
+    // to the per-instance arena so every subsequent allocation
+    // (memory, globals, tables.refs, elems, func_entities, dropped
+    // flags, host_calls) and every `table.grow` realloc unifies on
+    // a single arena. Wire the Instance back-ref so 6.K.3 can
+    // recover the source instance from a FuncEntity's runtime.
+    rt.alloc = a;
+    rt.instance = inst;
+
     var module = try parser.parse(a, bytes);
     defer module.deinit(a);
 
@@ -705,10 +714,11 @@ fn instantiateRuntime(
             const ext = imports.?[idx] orelse return error.UnknownImportModule;
             const source_inst = ext.instance orelse return error.UnknownImportModule;
             const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
+            // Per ADR-0014 §2.2 / 6.K.2: arena `free` is a no-op,
+            // so the importer can hold the slice header without a
+            // borrowed flag. The source's arena owns the bytes
+            // and reclaims them at source-instance teardown.
             rt.memory = source_rt.memory;
-            // Mark memory as borrowed so Runtime.deinit doesn't free
-            // a slice it doesn't own.
-            rt.memory_borrowed = true;
             break;
         };
     } else if (module.find(.memory)) |memory_section| {
@@ -718,9 +728,9 @@ fn instantiateRuntime(
         if (memories.items.len == 1) {
             const pages = memories.items[0].min;
             const bytes_total: usize = @as(usize, pages) * 65536;
-            const mem = try parent_alloc.alloc(u8, bytes_total);
+            const mem = try a.alloc(u8, bytes_total);
             @memset(mem, 0);
-            rt.memory = mem; // ownership passes to Runtime; freed in Runtime.deinit
+            rt.memory = mem; // arena-owned; reclaimed at instance teardown
         }
     }
 
@@ -766,9 +776,11 @@ fn instantiateRuntime(
                     imp_idx += 1;
                 }
             }
-            // Then defined tables.
+            // Then defined tables. Allocated from the per-instance
+            // arena (ADR-0014 §2.2 / 6.K.2) so `table.grow`'s
+            // realloc against `rt.alloc` lands on the same arena.
             if (tables_owned) |t| for (t.items, 0..) |entry, i| {
-                const refs = try parent_alloc.alloc(interp.Value, entry.min);
+                const refs = try a.alloc(interp.Value, entry.min);
                 for (refs) |*r| r.* = .{ .ref = interp.Value.null_ref };
                 tbl_storage[imp_table_count + i] = .{
                     .refs = refs,
@@ -793,7 +805,7 @@ fn instantiateRuntime(
         defer elems.deinit();
         if (elems.items.len > 0) {
             const seg_storage = try a.alloc([]const interp.Value, elems.items.len);
-            const dropped = try parent_alloc.alloc(bool, elems.items.len);
+            const dropped = try a.alloc(bool, elems.items.len);
             @memset(dropped, false);
             for (elems.items, 0..) |seg, idx| {
                 const refs = try a.alloc(interp.Value, seg.funcidxs.len);
@@ -831,7 +843,7 @@ fn instantiateRuntime(
         defer globals.deinit();
         if (globals.items.len > 0) {
             const total: usize = imp_global_count + globals.items.len;
-            const slots = try parent_alloc.alloc(interp.Value, total);
+            const slots = try a.alloc(interp.Value, total);
             @memset(slots, .zero);
             for (globals.items, 0..) |g, i| {
                 slots[imp_global_count + i] = try evalConstExprValue(g.init_expr);
@@ -957,8 +969,13 @@ pub export fn wasm_instance_new(
         return null;
     };
     instantiateRuntime(alloc, bytes_ptr[0..module.bytes_len], inst, runtime, imports_array) catch {
-        freeInstanceState(alloc, inst);
+        // Order matters per ADR-0014 §2.2 / 6.K.2: `runtime.deinit`
+        // must run while `rt.alloc` (the arena allocator) is still
+        // backed by a live arena. After `freeInstanceState` destroys
+        // the arena, the Allocator vtable points at freed memory and
+        // any `free` call on it is UAF.
         runtime.deinit();
+        freeInstanceState(alloc, inst);
         alloc.destroy(runtime);
         alloc.destroy(inst);
         return null;
@@ -973,10 +990,15 @@ pub export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
     const handle = i orelse return;
     const store = handle.store orelse return;
     const alloc = storeAllocator(store) orelse return;
-    freeInstanceState(alloc, handle);
+    // Per ADR-0014 §2.2 / 6.K.2 ordering invariant: `rt.deinit`
+    // before `freeInstanceState` (which destroys the arena), so
+    // the arena Allocator vtable rt.alloc still references is live.
     if (handle.runtime) |rt| {
         rt.deinit();
+        freeInstanceState(alloc, handle);
         alloc.destroy(rt);
+    } else {
+        freeInstanceState(alloc, handle);
     }
     alloc.destroy(handle);
 }

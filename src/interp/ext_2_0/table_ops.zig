@@ -374,6 +374,46 @@ test "table.grow: extends refs and pushes prev_size" {
     try testing.expectEqual(@as(u64, 99), rt.tables[0].refs[4].ref);
 }
 
+test "6.K.2: table.grow against per-instance arena reallocs through rt.alloc" {
+    // Per ADR-0014 §2.2 / 6.K.2 acceptance: a freshly-instantiated
+    // module's `rt.alloc` is the per-instance arena, and `table.grow`
+    // realloc lands on that arena. The grown slice must hold the
+    // previous values plus the init-value at the appended slots.
+    var t = DispatchTable.init();
+    register(&t);
+
+    // Stand in for what `instantiateRuntime` does: a Runtime whose
+    // alloc is the per-instance arena's allocator. The arena's
+    // backing allocator (page_allocator here) reclaims everything
+    // at `arena.deinit()` regardless of which slices grew.
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var rt = Runtime.init(a);
+    defer rt.deinit();
+
+    // Defined-table refs come from the same arena per 6.K.2's
+    // single-allocator policy.
+    const initial = try a.alloc(Value, 2);
+    initial[0] = .{ .ref = 11 };
+    initial[1] = .{ .ref = 22 };
+    var tbls = [_]TableInstance{.{ .refs = initial, .elem_type = .funcref }};
+    rt.tables = &tbls;
+
+    // Grow by 3 with init = 99.
+    try rt.pushOperand(.{ .ref = 99 });
+    try rt.pushOperand(.{ .i32 = 3 });
+    try driveOne(&rt, &t, .@"table.grow", 0, 0);
+    try testing.expectEqual(@as(i32, 2), rt.popOperand().i32);
+    try testing.expectEqual(@as(usize, 5), rt.tables[0].refs.len);
+    try testing.expectEqual(@as(u64, 11), rt.tables[0].refs[0].ref);
+    try testing.expectEqual(@as(u64, 22), rt.tables[0].refs[1].ref);
+    try testing.expectEqual(@as(u64, 99), rt.tables[0].refs[2].ref);
+    try testing.expectEqual(@as(u64, 99), rt.tables[0].refs[3].ref);
+    try testing.expectEqual(@as(u64, 99), rt.tables[0].refs[4].ref);
+}
+
 test "table.grow: max-cap violation pushes -1" {
     var t = DispatchTable.init();
     register(&t);

@@ -95,6 +95,22 @@ comptime {
     std.debug.assert(Value.null_ref == 0);
 }
 
+/// Free a typed slice via `Allocator.rawFree`, skipping the
+/// `@memset(slice, undefined)` poisoning that `Allocator.free`
+/// performs. Required by `Runtime.deinit` per ADR-0014 §2.2 /
+/// 6.K.2 to keep cross-module-imported slices intact when an
+/// importer tears down.
+inline fn rawFreeOwned(alloc: Allocator, comptime T: type, slice: []T) void {
+    if (slice.len == 0) return;
+    const bytes = std.mem.sliceAsBytes(slice);
+    const non_const = @constCast(bytes);
+    alloc.rawFree(
+        non_const,
+        std.mem.Alignment.fromByteUnits(@alignOf(T)),
+        @returnAddress(),
+    );
+}
+
 /// Per-runtime function handle. One entry per index in
 /// `Runtime.funcs`; allocated in `instantiateRuntime`. A funcref
 /// `Value` stores `@intFromPtr(*const FuncEntity)` so dereference
@@ -239,13 +255,23 @@ pub const HostCall = struct {
 /// Per-instance interpreter state. Owns linear memory + globals
 /// (heap-backed); operand and frame stacks are inline.
 pub const Runtime = struct {
+    /// Allocator that backs every runtime-owned slice (memory,
+    /// globals, tables.refs, elems, func_entities, dropped flags).
+    /// In the c_api path this is the per-instance arena allocator
+    /// (per ADR-0014 §2.2 / 6.K.2) — `Runtime.deinit`'s `free` calls
+    /// then degrade to no-ops and the arena reclaims everything
+    /// uniformly when `Instance.arena.deinit()` runs at instance
+    /// teardown. Tests may pass `testing.allocator` directly when
+    /// they manage their own slices; `deinit` then performs real
+    /// frees.
     alloc: Allocator,
+    /// Optional back-pointer to the owning `c_api/instance.Instance`,
+    /// stored as `?*anyopaque` to keep Zone 2 (`src/interp/`) free
+    /// of any Zone 3 import. Used by §9.6 / 6.K.3 cross-module
+    /// dispatch to recover the source instance from a FuncEntity's
+    /// runtime back-ref. Not consulted on the hot path.
+    instance: ?*anyopaque = null,
     memory: []u8 = &.{},
-    /// Set when `memory` is borrowed from another instance (cross-
-    /// module memory import — §9.6 / 6.E iter 7). Runtime.deinit
-    /// must not free a borrowed slice; the source instance's
-    /// Runtime.deinit will release it.
-    memory_borrowed: bool = false,
     globals: []Value = &.{},
     /// Module function table — `funcs[i]` is the ZirFunc for the
     /// i-th function in the module's index space (imports first,
@@ -318,10 +344,25 @@ pub const Runtime = struct {
     }
 
     pub fn deinit(self: *Runtime) void {
-        if (self.memory.len > 0 and !self.memory_borrowed) self.alloc.free(self.memory);
-        if (self.globals.len > 0) self.alloc.free(self.globals);
-        if (self.data_dropped.len > 0) self.alloc.free(self.data_dropped);
-        if (self.elem_dropped.len > 0) self.alloc.free(self.elem_dropped);
+        // Per ADR-0014 §2.2 / 6.K.2: all resources are arena-owned
+        // in the c_api path; tests pass `testing.allocator` directly.
+        //
+        // Critically, this routes through `rawFree` rather than
+        // `Allocator.free`. The wrapper at `Allocator.free`
+        // `@memset(slice, undefined)`s the bytes (= 0xAA) BEFORE
+        // delegating to the underlying allocator's `rawFree` — and
+        // that poisoning lands on the *bytes themselves*. For arena
+        // allocators whose `rawFree` is the no-op trailing-shrink
+        // check, that means a cross-module import that aliased the
+        // source instance's memory slice would see its bytes
+        // overwritten with 0xAA whenever any importer's runtime
+        // tears down. `rawFree` skips the wrapper's poisoning, so
+        // arena-owned slices stay intact while testing.allocator-
+        // owned slices still release without leaking.
+        rawFreeOwned(self.alloc, u8, self.memory);
+        rawFreeOwned(self.alloc, Value, self.globals);
+        rawFreeOwned(self.alloc, bool, self.data_dropped);
+        rawFreeOwned(self.alloc, bool, self.elem_dropped);
     }
 
     pub fn pushOperand(self: *Runtime, v: Value) Trap!void {
