@@ -430,8 +430,19 @@ pub const ZirInstr = struct {
 /// Phase 5+: per-function liveness analysis result.
 pub const Liveness = struct {};
 
-/// Phase 5+: loop nesting + branch target resolution.
-pub const LoopInfo = struct {};
+/// Phase 5+: loop nesting + branch target resolution. Populated
+/// by `src/ir/loop_info.zig` from `ZirFunc.blocks` after the
+/// lowerer fills the block table. Slices borrowed; lifetime is
+/// the caller's (typically the per-instance arena, or
+/// `loop_info.deinit` on free).
+pub const LoopInfo = struct {
+    /// Instruction indices of `loop` opcodes in this function.
+    /// Parallel to `loop_end`. Empty for non-looping functions.
+    loop_headers: []const u32 = &.{},
+    /// Instruction indices of the matching `end` for each loop in
+    /// `loop_headers`. Same length as `loop_headers`.
+    loop_end: []const u32 = &.{},
+};
 
 /// Phase 5+: hoisted-constant pool seed.
 pub const ConstantPool = struct {};
