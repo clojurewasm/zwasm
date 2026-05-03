@@ -18,57 +18,61 @@
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
-  ADR-0008 🔒). 5 of 9 §9.6 rows closed; remaining 4 split into
-  one unblocked + three execution-coverage-blocked.
-- **Last commit**: `9c545d9` — §9.6 / 6.5 [x] + handover retarget
-  at 6.7. 6.7 audit landed in this iteration —
-  `private/audit-2026-05-03-phase6-mid.md` (gitignored). 0 block,
-  1 soon (deliberate prioritisation, documented), 3 watch (known
-  soft-cap + forward-looking ref).
-- **Next task**: §9.6 / 6.4 — `bench/baseline_v1_regression.yaml`
-  records interp wall-clock baseline. Doable today on the
-  fixtures that DO run cleanly under v2 (the 39/50 realworld +
-  whatever subset of v1 carry-over runs); produces a partial
-  baseline that future Phase-6 refinement work expands.
+  ADR-0008 🔒). 6 of 9 §9.6 rows closed; remaining 3 = 6.2 + 6.3
+  (execution-coverage blocked) + 6.8 (depends on 6.2-3).
+- **Last commit**: `4f73288` — §9.6 / 6.4 land:
+  `bench/baseline_v1_regression.yaml` (5 fixtures, 8.83-14.75 ms
+  mean, stddev 0.56-2.07 ms) + `record_baseline_v1_regression.sh`
+  regen script.
+- **Next task**: §9.6 / 6.2 + 6.3 are blocked on the same root
+  cause (v2 traps mid-execution before stdout). The §9.6 / 6.8
+  phase tracker close needs either both gaps closed OR an
+  ADR-0008-style replan documenting deferral. Investigate the
+  trap root cause to see if a single fix unblocks both gates.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.6 / 6.4 (interp wall-clock baseline)
+## Active task — §9.6 / 6.2 root-cause investigation
 
-Per §9.6 exit criterion: `bench/baseline_v1_regression.yaml`
-records interp-only wall-clock numbers as the Phase-7+ comparison
-floor. Spread + repeatability under noise matters; absolute speed
-irrelevant. The §9.6 / 6.4 row text doesn't promise full coverage
-of all 50 fixtures — it asks for "a baseline" that future
-phases can compare against.
+Goal: identify which interp op v2 is trapping on for the 39
+realworld fixtures (vs the 10 SKIP-VALIDATOR which fail at the
+typing layer). If a single missing op or single small bug is
+the cause, fixing it unblocks both 6.2 and 6.3 and lets the
+phase close cleanly.
 
 Plan:
 
-1. Pick a small stable subset of fixtures that run cleanly via
-   `runWasm` (the 39 PASS from §9.6 / 6.1 chunk b). Subset
-   should be deterministic (no clock / random) and short enough
-   that 5–10 iterations finish in <30s total. Candidates:
-   c_integer_overflow, c_many_functions, rust_compression,
-   rust_enum_match — small, exit=1 from trap reproducibly.
-2. Use `hyperfine` (already in flake.nix) to measure each
-   fixture's `runWasm` wall-clock. Capture mean + stddev across
-   5 runs.
-3. Write `bench/baseline_v1_regression.yaml` with the per-
-   fixture results + a comment block documenting the subset and
-   why (35+ fixtures excluded as "needs Phase-6 follow-up
-   execution-coverage work").
-4. Add a `scripts/record_baseline_v1_regression.sh` script that
-   regens the file deterministically (similar to
-   `scripts/run_bench.sh`).
-5. Three-host `test-all` (no test changes, just bench artefact).
+1. Pick the smallest failing fixture (c_integer_overflow at
+   ~104 KB).
+2. Add temporary instrumentation to `interp/dispatch.zig:step`
+   to log the unbound-op id when `Trap.Unreachable` originates
+   from the dispatch table lookup (vs the wasm `unreachable`
+   opcode itself). Run the fixture; capture the trap site.
+3. If the cause is a missing op handler: register it in the
+   appropriate `interp/mvp_*.zig` or `ext_2_0/*.zig` module;
+   re-run; iterate until c_integer_overflow exits cleanly with
+   wasmtime-matching stdout.
+4. Re-run `test-realworld-diff` to see how many fixtures
+   newly match.
+5. If cause is something else (lowering bug, validator gap that
+   slipped through, etc.): document the finding, file ADR if
+   load-bearing, queue.
+6. Three-host `test-all` per usual.
 
-Phase-6 outstanding after 6.4:
+If the investigation determines the gap is more than a single-
+fix problem (likely — production wasms use a long tail of ops),
+then file an ADR-0008-style replan that deferrs 6.2 + 6.3 to
+Phase 7 (when JIT brings the same coverage pressure naturally)
+and closes Phase 6 with the gates that exist (6.0, 6.1, 6.4,
+6.5, 6.6, 6.7).
+
+Phase-6 outstanding:
 
 | #   | Description                                  | Blocker          |
 |-----|----------------------------------------------|------------------|
 | 6.2 | wasmtime stdout differential (30+ matches)   | v2 trap mid-exec |
-| 6.3 | ClojureWasm guest end-to-end                 | same as 6.2      |
-| 6.8 | Open §9.7 inline; flip phase tracker         | depends on 6.2-3 |
+| 6.3 | ClojureWasm guest end-to-end                 | same root cause  |
+| 6.8 | Open §9.7 inline; flip phase tracker         | depends on 6.2-3 OR ADR-style replan |
 
 Carry-overs from §9.5:
 - `no_hidden_allocations` zlinter re-evaluation (ADR-0009).
@@ -80,7 +84,8 @@ Carry-overs from §9.5:
 Carry-overs from Phase 6:
 - `br-table-fuzzbug` v1 regression — multi-param `loop` block.
 - 10 realworld SKIP-VALIDATOR fixtures.
-- 39 realworld trap-mid-execution fixtures — root cause TBD.
+- 39 realworld trap-mid-execution fixtures — investigation in
+  6.2 chunk b above.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
