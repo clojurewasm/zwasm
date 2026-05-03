@@ -193,6 +193,8 @@ for c in d['commands']:
   elif t in ('assert_invalid', 'assert_malformed') and c.get('module_type') == 'binary':
     kind = 'invalid' if t == 'assert_invalid' else 'malformed'
     parse_lines.append(kind + ' ' + c['filename'])
+  elif t in ('assert_unlinkable', 'assert_uninstantiable') and c.get('module_type') == 'binary':
+    rt_lines.append(t + ' ' + c['filename'])
   elif t == 'assert_return':
     act = c.get('action', {})
     if act.get('type') != 'invoke':
@@ -206,6 +208,23 @@ for c in d['commands']:
     if args:
       rt_line += ' ' + ' '.join(args)
     rt_line += ' -> ' + (' '.join(expected) if expected else '')
+    rt_lines.append(rt_line.rstrip())
+  elif t == 'action':
+    # Bare `(invoke <field> <args>)` action lines mutate state
+    # between asserts (memory.copy / table.copy etc.). Emit
+    # them as `invoke <field> <args>` so the runtime runner
+    # actually executes them; without this the asserts that
+    # follow check stale memory/table state.
+    act = c.get('action', {})
+    if act.get('type') != 'invoke':
+      continue
+    args = encode_args(act.get('args'))
+    if args is None:
+      continue
+    field = quote_field(act.get('field', ''))
+    rt_line = 'invoke ' + field
+    if args:
+      rt_line += ' ' + ' '.join(args)
     rt_lines.append(rt_line.rstrip())
   elif t == 'assert_trap':
     act = c.get('action', {})
@@ -232,7 +251,12 @@ for c in d['commands']:
       'uninitialized element': 'UninitializedElement',
       'indirect call type mismatch': 'IndirectCallTypeMismatch',
       'call stack exhausted': 'StackOverflow',
-      'undefined element': 'UninitializedElement',
+      # `undefined element` is the wast-spec name for table-OOB
+      # accesses on bulk operations (table.copy / table.init).
+      # `uninitialized element` is the call_indirect-on-null trap.
+      # The two share wording in older wast files but map to
+      # distinct v2 TrapKinds.
+      'undefined element': 'OutOfBoundsTableAccess',
     }
     kind = tag_map.get(spec_text, 'Unreachable')
     rt_line = 'assert_trap ' + field
@@ -254,14 +278,21 @@ PY
     return
   fi
 
-  while read -r line; do
-    file="${line##* }"
-    if [[ "$file" == *.wasm ]]; then
-      if [ -f "$TMP/$file" ]; then
-        cp "$TMP/$file" "$out_dir/"
-      fi
-    fi
-  done < "$out_dir/manifest.txt"
+  # Walk both manifests so .wasm files referenced only by
+  # manifest_runtime.txt directives (e.g. `assert_uninstantiable`)
+  # also get copied into out_dir.
+  for src_manifest in "$out_dir/manifest.txt" "$out_dir/manifest_runtime.txt"; do
+    [ -f "$src_manifest" ] || continue
+    while read -r line; do
+      for tok in $line; do
+        if [[ "$tok" == *.wasm ]]; then
+          if [ -f "$TMP/$tok" ] && [ ! -f "$out_dir/$tok" ]; then
+            cp "$TMP/$tok" "$out_dir/"
+          fi
+        fi
+      done
+    done < "$src_manifest"
+  done
 
   landed+=("$cat/$name")
   rm -rf "$TMP"

@@ -1,1 +1,10 @@
 module linking-errors.0.wasm as $m
+assert_unlinkable linking-errors.1.wasm
+assert_unlinkable linking-errors.2.wasm
+assert_unlinkable linking-errors.3.wasm
+assert_unlinkable linking-errors.4.wasm
+assert_unlinkable linking-errors.5.wasm
+assert_unlinkable linking-errors.6.wasm
+assert_unlinkable linking-errors.7.wasm
+assert_unlinkable linking-errors.8.wasm
+assert_unlinkable linking-errors.9.wasm

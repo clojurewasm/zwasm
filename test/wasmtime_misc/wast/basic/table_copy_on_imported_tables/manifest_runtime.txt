@@ -7,13 +7,17 @@ assert_return call_t i32:0 i32:0 i32:1 i32:0 i32:0 i32:0 i32:2 -> i32:1
 assert_return call_u i32:0 i32:0 i32:0 i32:1 i32:0 i32:0 i32:0 -> i32:1
 assert_return call_u i32:0 i32:0 i32:0 i32:0 i32:1 i32:0 i32:1 -> i32:1
 assert_return call_u i32:0 i32:0 i32:0 i32:0 i32:0 i32:1 i32:2 -> i32:1
+invoke copy_into_t_from_u i32:3 i32:0 i32:3
 assert_return call_t i32:0 i32:0 i32:0 i32:1 i32:0 i32:0 i32:3 -> i32:1
 assert_return call_t i32:0 i32:0 i32:0 i32:0 i32:1 i32:0 i32:4 -> i32:1
 assert_return call_t i32:0 i32:0 i32:0 i32:0 i32:0 i32:1 i32:5 -> i32:1
+invoke copy_into_u_from_t i32:0 i32:0 i32:3
 assert_return call_u i32:1 i32:0 i32:0 i32:0 i32:0 i32:0 i32:0 -> i32:1
 assert_return call_u i32:0 i32:1 i32:0 i32:0 i32:0 i32:0 i32:1 -> i32:1
 assert_return call_u i32:0 i32:0 i32:1 i32:0 i32:0 i32:0 i32:2 -> i32:1
 register n from $n
 module table_copy_on_imported_tables.2.wasm as $o
+invoke copy_into_t_from_u_2 i32:0 i32:3 i32:1
 assert_return call_t_2 i32:0 i32:0 i32:0 i32:1 i32:0 i32:0 i32:0 -> i32:1
+invoke copy_into_u_from_t_2 i32:4 i32:1 i32:1
 assert_return call_u_2 i32:0 i32:1 i32:0 i32:0 i32:0 i32:0 i32:4 -> i32:1

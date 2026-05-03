@@ -1,4 +1,5 @@
 module empty.0.wasm
+invoke empty
 module empty.1.wasm
 module empty.2.wasm
 module empty.3.wasm
