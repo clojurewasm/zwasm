@@ -758,6 +758,12 @@ fn handleAssertReturn(
         return false;
     };
     if (result.trapped) {
+        // Surface the trap kind so a "trapped unexpectedly" line
+        // can be triaged without re-running with debug prints. The
+        // kind comes straight from `wasm_c_api.TrapKind` —
+        // `Unreachable` typically means we fell into an `unreachable`
+        // op (or hit an unbound dispatch slot); other kinds point at
+        // a specific handler (DivByZero, OutOfBounds*, etc.).
         const k: []const u8 = if (result.trap_kind) |kk| trapKindName(kk) else "<unknown>";
         try stdout.print("FAIL  {s}/{s} (assert_return) — trapped unexpectedly (kind={s})\n", .{ corpus_name, export_name, k });
         return false;

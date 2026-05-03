@@ -18,13 +18,19 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 11,
-  6.F〜6.J pending).
-- **Last commit**: `7b26760` — fix(p6) §9.6 / 6.E iter 11 split
-  Label arity (br vs end), wire defined globals. Three-host
+- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E paused
+  on 29 fails awaiting ADR-0015 inputs; 6.F〜6.J pending).
+- **Last source commit**: `7b26760` — fix(p6) §9.6 / 6.E iter 11
+  split Label arity (br vs end), wire defined globals. Three-host
   green. The underflow's true cause was `loopOp` hardcoding
   `arity=0` for both end and br paths (`tinygo_fib`'s
-  `loop (result i32)`); not c_bitwise_ops as iter 10 reported.
+  `loop (result i32)`).
+- **Iter 12 reverted**: cascade-quiet `register from $X` was
+  workaround-class; reverted so the root failure stays visible.
+- **Next**: ADR-0015 drafting session (with user) to plan the
+  cross-module / ownership / Value-semantics cleanup before the
+  remaining 27 fails close. See "Workaround / debt inventory"
+  below for the input list.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — drive Phase 6 to strict close (6.E → 6.F → … → 6.J; 100% PASS per ROADMAP §9.6 / 6.J)
@@ -33,35 +39,106 @@
 6.G / 6.H once 6.E unlocks them, with 6.I in parallel, terminating
 at 6.J Phase 6 close gate.
 
-### 6.E iter 12+ targets (current)
+### 6.E status: clearing inputs for ADR-0015 (clean-up before close)
 
 `test-wasmtime-misc-runtime` standalone gate: **242 passed / 29
-failed** (78 → 65 → 45 → 41 → 39 → 30 → 29). Clusters:
-- 18 `invoke ExportNotFound` — table_copy_on_imported_tables
-  modules 1/2 hit `UnsupportedCrossModuleTableImport`, current
-  stays at module 0 which lacks `call_t`/`call_u`/`call_t_2`/
-  `call_u_2` exports. Resolves only with cross-module table
-  import + funcref source-instance dispatch (deferred).
-- 9 `instantiate InstanceAllocFailed` — call_indirect.1 +
-  table_copy_on_imported_tables.{1,2} (table imports);
-  embenchen_*.1 ×4 (memory + table + globals + funcs);
-  imported-memory-copy.1 — wait, that one was wired in iter 7;
-  table_copy.0 needs verification — may be a remaining edge case.
-- 1 `partial-init-table-segment/indirect-call result[0] mismatch`
-  — interp behaviour bug (post-trap state of imported table?).
-- 1 `register source module '$n' not registered` — cascades
-  from tcot.1 instantiate failure (a module that fails to
-  instantiate also fails to register; subsequent `register n
-  from $n` then fails). Could be made resilient by registering
-  the placeholder ActiveModule even on instantiate failure.
-- 1 `issue4840/f trapped unexpectedly` — i32.trunc_f64_u or
-  related conversion edge case at value 2^31.
+failed** (78 → 65 → 45 → 41 → 39 → 30 → 29). Iterations 5–11
+landed real fixes; iter 12 attempted a `register`-cascade
+PASS-skip that was reverted as workaround-class. The remaining
+clusters all share one root: **funcref / cross-module dispatch
+needs (instance, funcidx) instead of bare funcidx**, and the
+allocator/ownership model around it is currently ad-hoc. That
+is ADR-0015 territory, not iter-by-iter.
 
-The 27 cross-module-table/global/func failures are the next big
-bucket — needs source-instance dispatch routing for funcref
-tables (the imported table's funcidxs resolve against the
-*source* module's `rt.funcs`, not the importer's). Bigger iter,
-not yet attempted.
+Current cluster shape:
+- 18 `invoke ExportNotFound` — tcot.1/2 hit
+  `UnsupportedCrossModuleTableImport`; current stays at module 0
+  which lacks `call_t`/`call_u`/`call_t_2`/`call_u_2`.
+- 9 `instantiate InstanceAllocFailed` — embenchen_*.1 ×4
+  (memory + table + globals + funcs); call_indirect.1 + tcot.{1,2}
+  (table); externref-segment.0 + elem-ref-null.0 (decodeElement
+  forms 5/7 still deferred).
+- 1 `partial-init-table-segment/indirect-call result[0] mismatch`
+  — likely resolves with proper funcref dispatch.
+- 1 `register source module '$n' not registered` — cascade from
+  tcot.1 instantiate failure (the would-be iter 12 fix was
+  reverted to keep root failure visible until ADR lands).
+
+### Workaround / debt inventory (input to ADR-0015)
+
+These are the items that warrant first-class redesign rather than
+piecemeal patches. Each is documented inline; ADR-0015 will decide
+the resolution sequence.
+
+1. **Cross-module imports beyond memory** — `c_api/instance.zig`
+   returns `error.UnsupportedCrossModuleTableImport` /
+   `…GlobalImport` / `…FuncImport`. Direct cause of 27 of the 29
+   misc-runtime failures. Resolution requires (a) a `FuncEntity`
+   (or equivalent) so a `funcref` carries the source instance,
+   (b) cross-instance dispatch for `call_indirect` and `call`,
+   (c) shared globals.
+2. **`Value` (`src/interp/mod.zig`) lacks instance identity** —
+   `funcref` is the low-32 of `ref`. Single-instance assumption
+   leaks throughout `call_indirect` / `table.*` / `ref.func` /
+   elem-segment population. Pre-Phase-6 design judgment that
+   doesn't survive cross-module.
+3. **Runtime ↔ Instance ↔ allocator ownership** — `rt.alloc` is
+   parent_alloc; `inst.arena` is a separate per-instance arena.
+   Table `refs` are split between the two (parent_alloc for grow-
+   compatibility, arena for per-segment slices). `rt.memory` got
+   a `memory_borrowed` flag in iter 7 because it can be aliased
+   from another instance and `Runtime.deinit` would otherwise
+   double-free. Tables / elems leak (no free path). Pattern
+   doesn't scale to globals / funcs.
+4. **Runtime has no Instance back-pointer** — Cross-instance
+   dispatch needs to know "which instance owns this Runtime" for
+   funcref resolution. Currently invented ad-hoc per call site.
+5. **`decodeElement` forms 5 / 7** — `src/frontend/sections.zig`
+   returns `Error.InvalidFunctype` for non-form-{0,1,3,4} element
+   segments. Comment marks `// 2/5-7 deferred`; affects 2
+   reftypes fixtures (externref-segment.0, elem-ref-null.0).
+   Phase 2 chunk 5d-3 carry-over — relocate or close in
+   ADR-0015.
+6. **`Label.branch_arity = 0` for loop** — iter 11 hardcoded for
+   Wasm 1.0; multivalue loop-with-params (Phase 2 chunk 3b
+   carry-over) re-opens this. ADR-0015c (formalise the
+   `arity` / `branch_arity` split as the canonical shape) +
+   §14 anti-pattern entry against single-slot dual-meaning.
+7. **`buildImports` (`test/runners/wast_runtime_runner.zig`)
+   silently sets a slot to null when the source isn't
+   registered or doesn't expose a matching name** — the import
+   then surfaces as `UnknownImportModule` two layers deeper.
+   Acceptable while imports are still being built out, but the
+   diagnostic chain is fragile.
+8. **`partial-init-table-segment/indirect-call` mismatch
+   uninvestigated** — root-cause not confirmed; almost
+   certainly downstream of (1)/(2). Re-measure after ADR-0015
+   item lands; do not patch in isolation.
+
+### ADR-0015 directionality (sketch — not yet a decision)
+
+The original ADR-0014 wiring assumed Phase 6 closes first, then
+ADR-0015 drafts the *next* refactor phase. The user has flagged
+that closing Phase 6 with workaround debt in place is wrong:
+the items above warrant resolution **before** §6.J close,
+because:
+
+- (1)/(2) block strict 100% PASS regardless.
+- (3)/(4) shape the API surface that (1)/(2)'s fix touches —
+  doing them after means rewriting freshly-landed code.
+- The "refactor phase as Phase 7" framing was meant to clean up
+  Phase 6 *afterthoughts*; if the cleanup is also the unblocker,
+  doing it inside Phase 6 is the cheaper path.
+
+ADR-0015 (next drafting session) decides:
+- Whether §9.6 gains a `6.K` work item (or similar) that
+  consolidates the above before `6.J` close, OR
+- Whether `6.J` close acceptance criterion is relaxed to
+  document-as-deferred for the cross-module subset.
+- The relationship to the planned post-Phase-6 refactor charter
+  (formerly ADR-0014's §9.7 task table).
+- Test-bench discipline: how to keep these debt items visible
+  in the gate so they don't accumulate silently again.
 
 Sequence: pick one cluster per iteration, fix root cause, re-run,
 move fixtures from FAIL to PASS, commit. When `test-wasmtime-misc-
@@ -164,7 +241,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 ```
 6.A ✅  6.B ✅  6.C ✅  6.D ✅
  │
- ├─→ 6.E ⏳ (iter 11 done; iter 12+ → /continue continues)
+ ├─→ 6.E ⏳ (iter 11 last source fix; ADR-0015 drafting next)
  │    └─→ {6.F, 6.G, 6.H} → 6.J → §9.7 ADR-0015 drafting
  │
  └─→ 6.I (parallel)  ─→ 6.J
