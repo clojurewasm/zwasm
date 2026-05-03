@@ -108,13 +108,18 @@ pub const TraceCallback = *const fn (ctx: *anyopaque, ev: TraceEvent) void;
 /// Control-label record. `block` / `if` push a label whose
 /// `target_pc` points one past the matching `end`; `loop` pushes a
 /// label whose `target_pc` points just after the `loop` opcode (so
-/// that `br` to a loop re-enters the body). `arity` is the number
-/// of result values transferred to the operand stack on branch
-/// (0 for blocks/loops without a result type, 1 for the MVP
-/// single-valtype block-types).
+/// that `br` to a loop re-enters the body).
+///
+/// Two arities because `loop` distinguishes them: `arity` is the
+/// number of result values the matching `end` transfers (i.e. the
+/// blocktype's result count); `branch_arity` is the number a `br`
+/// to this label transfers (= results for block/if; = params for
+/// loop, which is 0 in Wasm 1.0 — multivalue loop-with-params is
+/// a Phase 2 carry-over per ROADMAP §9.2 chunk 3b).
 pub const Label = struct {
     height: u32,
     arity: u32,
+    branch_arity: u32,
     target_pc: u32,
 };
 

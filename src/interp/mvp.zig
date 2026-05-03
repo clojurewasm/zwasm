@@ -138,6 +138,9 @@ fn blockOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     try frame.pushLabel(.{
         .height = rt.operand_len,
         .arity = instr.extra,
+        // br to a block targets its end, transferring the
+        // block's results; same value as `arity`.
+        .branch_arity = instr.extra,
         .target_pc = blk.end_inst + 1,
     });
 }
@@ -150,7 +153,18 @@ fn loopOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const blk = fnz.blocks.items[instr.payload];
     try frame.pushLabel(.{
         .height = rt.operand_len,
-        .arity = 0, // br to a loop discards the body's results.
+        // `end` of a loop transfers the loop's result arity to the
+        // operand stack (Wasm 2.0 multivalue: zero or more results).
+        // §9.2 / 2.3 chunk 3b's missing piece — without this, falling
+        // through a `loop (result T)` end drops the result and
+        // unbalances the caller's stack (cf. tinygo_fib's
+        // `loop (result i32)` recursion).
+        .arity = instr.extra,
+        // br to a loop targets the loop's start and transfers its
+        // *params*. Wasm 1.0 has no loop-params; multivalue loop-
+        // with-params lands alongside the rest of multivalue
+        // (Phase 2 chunk 3b carry-over).
+        .branch_arity = 0,
         // Branching to a loop pops the label (see doBranch) and jumps
         // back to the loop opcode itself, which re-runs loopOp and
         // re-pushes the label. Pointing target_pc past the opcode
@@ -170,6 +184,7 @@ fn ifOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     try frame.pushLabel(.{
         .height = rt.operand_len,
         .arity = instr.extra,
+        .branch_arity = instr.extra,
         .target_pc = blk.end_inst + 1,
     });
     if (cond == 0) {
@@ -235,7 +250,16 @@ inline fn doBranch(rt: *Runtime, frame: *interp.Frame, depth: u32) Trap!void {
     // opcode re-push if needed.
     var i: u32 = 0;
     while (i <= depth) : (i += 1) _ = frame.popLabel();
-    try restoreToLabel(rt, target);
+    // `restoreToLabel` uses `arity` — for branches we need
+    // branch_arity (= results for block/if; = 0 for loops in
+    // Wasm 1.0). Synthesise a label with the branch-time arity.
+    const branch_label: interp.Label = .{
+        .height = target.height,
+        .arity = target.branch_arity,
+        .branch_arity = target.branch_arity,
+        .target_pc = target.target_pc,
+    };
+    try restoreToLabel(rt, branch_label);
     frame.pc = target.target_pc;
 }
 

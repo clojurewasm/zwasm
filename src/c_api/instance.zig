@@ -806,10 +806,68 @@ fn instantiateRuntime(
         }
     }
 
+    // §9.6 / 6.E iter 11: defined globals. Imported globals stay
+    // unsupported pending cross-module wiring; defined ones get
+    // their init-expression evaluated and stored in `rt.globals`.
+    if (module.find(.global)) |global_section| {
+        var globals = try sections.decodeGlobals(a, global_section.body);
+        defer globals.deinit();
+        if (globals.items.len > 0) {
+            const total: usize = imp_global_count + globals.items.len;
+            const slots = try parent_alloc.alloc(interp.Value, total);
+            @memset(slots, .zero);
+            for (globals.items, 0..) |g, i| {
+                slots[imp_global_count + i] = try evalConstExprValue(g.init_expr);
+            }
+            rt.globals = slots;
+        }
+    }
+
     if (module.find(.@"export")) |export_section| {
         const exports = try sections.decodeExports(a, export_section.body);
         inst.exports_storage = exports.items;
     }
+}
+
+/// Evaluate a global init-expression and return the initial Value.
+/// Supported shapes for v0.1.0: `<i32|i64|f32|f64>.const N; end`
+/// and `ref.null funcref|externref; end`. `global.get N` (importing
+/// from another module's globals) defers with the rest of cross-
+/// module global imports.
+fn evalConstExprValue(expr: []const u8) !interp.Value {
+    if (expr.len < 2) return error.UnsupportedConstExpr;
+    const leb = @import("../util/leb128.zig");
+    var pos: usize = 1;
+    const v: interp.Value = switch (expr[0]) {
+        0x41 => blk: {
+            const n = try leb.readSleb128(i32, expr, &pos);
+            break :blk .{ .i32 = n };
+        },
+        0x42 => blk: {
+            const n = try leb.readSleb128(i64, expr, &pos);
+            break :blk .{ .i64 = n };
+        },
+        0x43 => blk: {
+            if (pos + 4 > expr.len) return error.UnsupportedConstExpr;
+            const bits = std.mem.readInt(u32, expr[pos..][0..4], .little);
+            pos += 4;
+            break :blk .{ .bits64 = bits };
+        },
+        0x44 => blk: {
+            if (pos + 8 > expr.len) return error.UnsupportedConstExpr;
+            const bits = std.mem.readInt(u64, expr[pos..][0..8], .little);
+            pos += 8;
+            break :blk .{ .bits64 = bits };
+        },
+        0xD0 => blk: {
+            if (pos >= expr.len) return error.UnsupportedConstExpr;
+            pos += 1;
+            break :blk .{ .ref = interp.Value.null_ref };
+        },
+        else => return error.UnsupportedConstExpr,
+    };
+    if (pos >= expr.len or expr[pos] != 0x0B) return error.UnsupportedConstExpr;
+    return v;
 }
 
 /// Evaluate a Wasm const-expression that resolves to an i32.
