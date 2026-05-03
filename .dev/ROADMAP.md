@@ -1416,7 +1416,7 @@ Phase 6.
 | #    | Description                                                                                              | Status         |
 |------|----------------------------------------------------------------------------------------------------------|----------------|
 | 6.A  | Runtime-asserting WAST runner + per-instr trace (`test/runners/wast_runtime_runner.zig` + `src/interp/{mod,dispatch}.zig` trace plumbing). Per ADR-0013. | [x]            |
-| 6.B  | `test/` restructure per ADR-0012 §3 + 4 `v1_carry_over/` fixtures migration + ROADMAP §A13 reword.        | [ ]            |
+| 6.B  | `test/` restructure per ADR-0012 §3 + 4 `v1_carry_over/` fixtures migration + ROADMAP §A13 reword.        | [x]            |
 | 6.C  | Vendor wasmtime_misc BATCH1-3 (~55 fixtures) into `test/wasmtime_misc/wast/{basic,reftypes,embenchen,issues}/`; introduce `scripts/setup_corpora.sh`. | [ ]            |
 | 6.D  | Wire 6.C corpus into `test-wasmtime-misc` step + `test-all` aggregate via 6.A runner; existing parse/instantiate runners kept as-is. | [ ]            |
 | 6.E  | Fix root cause of 39 trap-mid-execution realworld fixtures via 6.A's per-instr trace; move from trap-bucket to completion-bucket. | [ ]            |
