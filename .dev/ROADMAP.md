@@ -1343,7 +1343,7 @@ zwasm.
 | #    | Description                                                                                | Status         |
 |------|--------------------------------------------------------------------------------------------|----------------|
 | 5.0  | Split `src/c_api/wasm_c_api.zig` into trap_surface + vec + instance + wasi + wasm_c_api per ADR-0007. | [x]            |
-| 5.1  | Split `src/interp/mvp.zig` into int_ops / float_ops / conversions modules.                | [ ]            |
+| 5.1  | Split `src/interp/mvp.zig` into int_ops / float_ops / conversions modules.                | [x]            |
 | 5.2  | Carve `src/frontend/validator.zig` + `lowerer.zig` toward §A2 soft cap (per phase-2 audit). | [ ]            |
 | 5.3  | `src/ir/loop_info.zig` — branch_targets, loop_headers, loop_end computed for every fn.    | [ ]            |
 | 5.4  | `src/ir/liveness.zig` — per-vreg live ranges computed.                                    | [ ]            |

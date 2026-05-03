@@ -20,49 +20,42 @@
 - **Phase**: **Phase 5 IN-PROGRESS.** Phases 0–4 are `DONE` (all
   SHAs backfilled in §9.<N> task tables; `git log --grep="§9.<N>
   / N.M"` is the canonical lookup).
-- **Last commit**: `2b26a07` — §9.5 / 5.0 chunk d land: Engine /
-  Store / Module / Instance / Func / Extern carved to
-  `src/c_api/instance.zig`; `wasm_c_api.zig` 1559→159 (pure
-  re-export hub). Chunk e is naturally absorbed.
-- **Next task**: §9.5 / 5.1 — split `src/interp/mvp.zig` into
-  int_ops / float_ops / conversions modules (see Active task).
+- **Last commit**: `c7fbe0d` — §9.5 / 5.1 land: `mvp.zig` split
+  into mvp_int / mvp_float / mvp_conversions + residual shell;
+  `mvp.zig` 1977→693 lines (out of soft-cap warn list).
+- **Next task**: §9.5 / 5.2 — carve `validator.zig` (1426 lines)
+  + `lowerer.zig` (1062 lines) toward §A2 soft cap (per phase-2
+  audit follow-up).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.5 / 5.1 (split src/interp/mvp.zig)
+## Active task — §9.5 / 5.2 (carve frontend toward §A2 soft cap)
 
-`src/interp/mvp.zig` is at **1977 lines** (against §A2's 2000-line
-hard cap — closest single file to the cap; soft-cap warning
-already raised by `file_size_check.sh`). Per ROADMAP §9.5 the
-target split is three sibling modules:
+Two frontend monoliths still raise soft-cap warnings:
 
-| File                              | Scope                                                       |
-|-----------------------------------|-------------------------------------------------------------|
-| `src/interp/mvp_int.zig`          | i32 / i64 ALU + bit ops + integer compare                   |
-| `src/interp/mvp_float.zig`        | f32 / f64 arithmetic + compare + min/max + neg/abs/copysign |
-| `src/interp/mvp_conversions.zig`  | trunc / convert / promote / demote / reinterpret            |
-| `src/interp/mvp.zig` (residual)   | nop / unreachable / drop / select / control + `register()` shell that calls into each split module's own `register()` |
+| File                          | Lines | Likely split axis                                                          |
+|-------------------------------|-------|----------------------------------------------------------------------------|
+| `src/frontend/validator.zig`  | 1426  | per-feature validators (mvp / sign-ext / sat-trunc / bulk-mem / ref-types / table-ops) keyed off the dispatch-table model |
+| `src/frontend/lowerer.zig`    | 1062  | per-op lowerers; mirrors the interp `mvp_*` split where natural             |
 
 Plan:
 
-1. Read `src/interp/mvp.zig` to map handlers to the three target
-   buckets (most are pure data).
-2. Move handlers + their tests out; each split module owns its
-   own `pub fn register(table: *DispatchTable) void` that the
-   shell `mvp.register` calls in sequence.
-3. Three-host `test-all` after the split lands; the dispatch
-   table-driven design (ROADMAP §A12) makes this verifiable
-   purely via the existing spec corpus.
+1. Read each file's structure; pick the split that follows the
+   feature dispatch table (ROADMAP §A12 — same idiom as the
+   `interp/mvp_*` split that just landed).
+2. Land per-file (validator first, then lowerer) so each commit
+   stays bounded; three-host `zig build test-all` after each.
+3. Re-export shell stays at the original file path; behaviour
+   identical (§14 forbids visible API drift mid-Phase).
 
-After 5.1 lands: §9.5 / 5.2 — `validator.zig` + `lowerer.zig`
-carve toward §A2 soft cap (per phase-2 audit follow-up).
-Other §9.5 rows: 5.3 `loop_info`, 5.4 `liveness`, 5.5 `verifier`,
-5.6 `const_prop`, 5.7 phase-boundary audit, 5.8 phase tracker.
+Remaining §9.5 rows after 5.2: 5.3 `loop_info`, 5.4 `liveness`,
+5.5 `verifier`, 5.6 `const_prop`, 5.7 phase-boundary audit,
+5.8 phase tracker.
 
-Re-evaluate `no_hidden_allocations` zlinter rule for the now-split
-c_api modules (deferred per ADR-0009 — all 13 hits were in the
-monolithic `wasm_c_api.zig`; per-zone exclusion becomes clean now
-that it's split). Queue alongside §9.5 / 5.7 (Phase-5 audit).
+Queued for §9.5 / 5.7 (Phase-5 audit): re-evaluate
+`no_hidden_allocations` zlinter rule for the now-split c_api +
+mvp modules (deferred per ADR-0009 — all 13 monolith-era hits
+were in `wasm_c_api.zig`; per-zone exclusion is clean post-split).
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
