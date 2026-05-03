@@ -427,8 +427,22 @@ pub const ZirInstr = struct {
 // renaming or removing the type would be a §4.2 deviation
 // requiring an ADR (§18).
 
-/// Phase 5+: per-function liveness analysis result.
-pub const Liveness = struct {};
+/// Phase 5+: per-function liveness analysis result. Populated
+/// by `src/ir/liveness.zig`. Per-vreg live ranges; vreg ids are
+/// assigned in def order (0, 1, 2 …) as the analysis walks the
+/// instr stream simulating the operand stack. Slices borrowed —
+/// caller owns lifetime, mirrors `LoopInfo`.
+pub const Liveness = struct {
+    /// One entry per defined vreg. `ranges[v].def_pc` is the
+    /// instr index that pushed the value; `last_use_pc` is the
+    /// final consuming instr (pop-side or function-level end).
+    ranges: []const LiveRange = &.{},
+};
+
+pub const LiveRange = struct {
+    def_pc: u32,
+    last_use_pc: u32,
+};
 
 /// Phase 5+: loop nesting + branch target resolution. Populated
 /// by `src/ir/loop_info.zig` from `ZirFunc.blocks` after the
