@@ -9,92 +9,99 @@
 ## Next 3 files to read (cold-start order)
 
 1. `.dev/handover.md` (this file).
-2. `.dev/decisions/0011_phase6_reopen.md` — the ADR that defines
-   the current Phase 6 reopen state and the next-step structure.
-3. `.dev/ROADMAP.md` — read the **Phase Status** widget at the
-   top of §9 (Phase 6 IN-PROGRESS again per ADR-0011), then the
-   §9.6 task table to see which rows reopened.
+2. `.dev/decisions/0012_first_principles_test_bench_redesign.md` —
+   the ADR that defines the Phase 6 reopen scope (work items
+   6.A〜6.J, DAG dependencies, deferred items).
+3. `.dev/decisions/0011_phase6_reopen.md` — the structural ADR
+   that reopened Phase 6 and defined the bench staged disposition.
 
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline,
-  reopened per ADR-0011).
-- **Last commit**: TBD — the semantic revert commit landing
-  ADR-0011 + ADR-0010 supersession + Phase 7 code revert
-  (`src/jit/` + `src/jit_arm64/` deletions, `src/ir/zir.zig`
-  RegClass restoration to 3-variant, `src/main.zig` import
-  removals) + ROADMAP §9.6 / 6.4 + 6.8 unflip + §9.7 / 7.0/7.1/7.2
-  unflip + Phase Status widget revert.
+  reopened per ADR-0011, scope defined per ADR-0012).
+- **Last commit**: TBD — landing ADR-0012 (first-principles
+  test/bench redesign methodology) into `.dev/decisions/`.
+  Prior commit `a4e7405` landed ADR-0011 + Phase 7 semantic
+  revert.
 - **Branch**: `zwasm-from-scratch`, pushed to
   `origin/zwasm-from-scratch`. `main` is forbidden; `--force` is
   forbidden.
-- **`/continue` autonomous loop**: explicitly halted. Does not
-  re-arm until the v1-asset triage decision (separate ADR) lands
-  and provides a clear next-task pointer for Phase 6 reopen.
+- **`/continue` autonomous loop**: explicitly halted. Re-arms
+  after 6.A becomes well-bounded (i.e. after ADR-0013 is
+  Accepted).
 
-## Active task — v1-asset triage decision (separate ADR)
+## Active task — 6.A: runtime-asserting WAST runner
 
-Per ADR-0011 Decision §6: Phase 6 reopens with its original
-ADR-0008 charter intact (the §9.6 Goal "bring all v1-passing
-artefacts to green before any JIT or local-optimisation
-complexity is introduced" stands as written). The specific
-work breakdown (which v1 assets to ingest, in what order, with
-what runner shape, with what classification scheme) is
-established by a separate decision after this revert lands.
+Per ADR-0012 §6 work item 6.A. **Blocking prerequisite: ADR-0013
+must be drafted and Accepted before 6.A implementation starts**
+(per ADR-0012 Consequences / Neutral / follow-ups).
 
-Pending that decision, the working assumption per ADR-0011 §3:
+### 6.A scope (from ADR-0012 §6 row 6.A)
 
-- §9.6 / 6.2 (wasmtime stdout differential 30+) must close on
-  the completion bucket, not the trap bucket.
-- §9.6 / 6.3 (ClojureWasm guest end-to-end) must close honestly.
-- §9.6 / 6.4 (bench baseline) must close on completion-time
-  numbers (current `bench/baseline_v1_regression.yaml` retained
-  in tree per ADR-0011 §3 staged plan; regenerated and replaced
-  at honest-close).
-- §9.6 / 6.8 (Phase close + §9.7 reopen flip) lands last,
-  exactly as before.
-- New rows attach as §9.6 / 6.X with X assigned by the
-  forthcoming v1-asset triage ADR.
+Add `test/runners/wast_runtime_runner.zig`. v1's
+`e2e_runner.zig` (844 LOC) is the textbook reference; the v2
+runner is re-derived for v2's Zone shape per
+`.claude/rules/no_copy_from_v1.md`.
 
-Bench baseline staged disposition (ADR-0011 §3):
+Capability scope:
+- assert_return / assert_trap / assert_invalid /
+  assert_malformed / assert_unlinkable / assert_uninstantiable /
+  assert_exhaustion
+- register / action / module
+- cross-module Store sharing
+- per-instr execution trace (consumed by 6.E)
 
-1. Immediately after revert: re-run `bash
-   scripts/record_baseline_v1_regression.sh`, confirm current
-   interp produces the same trap-time numbers as a regression-
-   detection sanity check.
-2. During Phase 6 reopen: as interp behaviour bugs are fixed,
-   the 5 baseline fixtures transition from trap-time to
-   completion-time numbers.
-3. At Phase 6 honest-close: regenerate baseline against
-   completion-bucket fixtures, delete or overwrite the trap-
-   time yaml, then mark §9.6 / 6.4 `[x]` again.
+Deferred to relevant feature phases:
+- thread block
+- assert_return_canonical_nan / assert_return_arithmetic_nan
 
-## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
+### Sub-tasks
 
-These were surfaced during Phases 2–4 and deferred from their
-own phase. Phase 6 (ADR-0008 charter, ADR-0011 reopen) absorbs
-them as part of the v1 conformance baseline.
+1. **Draft ADR-0013** — runtime-asserting WAST runner detailed
+   design. Includes Step 0 Survey of v1 `e2e_runner.zig` +
+   `.claude/rules/textbook_survey.md` Guard 1-5 compliance.
+   Output: `private/draft-adr-0013-*.md` → review →
+   `.dev/decisions/0013_*.md` Accepted.
+2. **Implement runner** per ADR-0013 design.
+3. **Wire into `build.zig`** as `test-wasmtime-misc` step (the
+   step itself lands populated in 6.D, but the runner binary
+   exists from 6.A).
+4. **Three-host `zig build test` green** (no fixture corpus yet
+   in 6.A; the runner is exercised by a minimal in-tree fixture).
 
-- **multivalue blocks (multi-param)**: `BlockType` needs to
-  carry both params + results; `pushFrame` must consume params
-  (Phase 2 chunk 3b carry-over).
-- **element-section forms 2 / 4-7**: explicit-tableidx and
-  expression-list variants (Phase 2 chunk 5d-3).
-- **ref.func declaration-scope**: §5.4.1.4 strict declaration-
-  scope check (Phase 2 chunk 5e).
-- **Wasm-2.0 corpus expansion**: 47 of 97 upstream `.wast` files
-  deferred (block / loop / if 1-5, global 24, data 20, ref_*,
-  return_call*) — each surfaces a specific validator gap.
-- **39 trap-mid-execution realworld fixtures**: root cause is
-  interp behaviour drift vs wasmtime (ADR-0010 analysis
-  preserved as historical record). The v1-asset triage ADR
-  defines the runner shape that makes these tractable.
-- **10 SKIP-VALIDATOR realworld fixtures**: per-function
-  validator typing-rule gaps. Same context as above.
+## Phase 6 reopen DAG (from ADR-0012 §6)
+
+```
+6.A (runtime-asserting runner + per-instr trace)        ← active
+ │
+ ├─→ 6.B (test/ restructure + 4 fixtures migration)
+ │    └─→ 6.C (vendor wasmtime_misc BATCH1-3 ≈ 55 fixtures)
+ │         └─→ 6.D (wire 6.C into test-all via 6.A runner)
+ │              └─→ 6.E (interp behaviour bug fixes)
+ │                   ├─→ 6.F (test-realworld-diff 30+ matches)
+ │                   ├─→ 6.G (ClojureWasm guest e2e)
+ │                   └─→ 6.H (bench honest baseline)
+ │                        └─→ 6.J (Phase 6 close gate)
+ │
+ └─→ 6.I (bench/ restructure + sightglass)  ─→ 6.J
+       (parallel to 6.E〜6.H)
+```
+
+## Outstanding spec gaps (Phase 6 absorbs as v1 conformance)
+
+- multivalue blocks (multi-param) — Phase 2 chunk 3b carry-over
+- element-section forms 2 / 4-7 — Phase 2 chunk 5d-3
+- ref.func declaration-scope — Phase 2 chunk 5e
+- Wasm-2.0 corpus expansion (47 of 97 .wast files) — validator
+  gaps surface per .wast file
+- 39 trap-mid-execution realworld fixtures — 6.E target
+- 10 SKIP-VALIDATOR realworld fixtures — per-function validator
+  typing-rule gaps
 
 ## Open questions / blockers
 
-- **Blocker for `/continue` re-arm**: the v1-asset triage ADR
-  (the "ADR after ADR-0011" referenced in 0011 §6 + 0011 §4) is
-  not yet drafted. `/continue` does not re-arm until that ADR
-  lands. User session required to draft it.
+- **Blocker for `/continue` re-arm**: ADR-0013 is not yet
+  drafted. The next session draft + accept ADR-0013, then 6.A
+  implementation lands, then `/continue` re-arms with 6.B as
+  the active task. User session needed for ADR-0013 draft +
+  review.
