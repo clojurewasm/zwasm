@@ -131,20 +131,26 @@ pub fn parse(alloc: Allocator, input: []const u8) Error!Module {
 /// Wasm 1.0 §5.5 declares the order:
 ///   type(1), import(2), function(3), table(4), memory(5), global(6),
 ///   export(7), start(8), element(9), code(10), data(11)
-/// Bulk-memory adds data_count(12) which sits between import and code.
+/// Bulk-memory adds data_count(12) which sits between **element(9)
+/// and code(10)** per the Bulk Memory Operations proposal §3.4
+/// (the section was inserted at that position so producers can
+/// declare data segment count before parsing code that references
+/// it via `memory.init` / `data.drop`). TinyGo emits data_count
+/// at this position; an earlier mistaken placement between import
+/// and function rejected those modules with `SectionOutOfOrder`.
 /// Returns 0 for unknown ids; callers must reject those before calling.
 fn orderIndex(id: u8) u8 {
     return switch (id) {
         1 => 1,
         2 => 2,
-        12 => 3,
-        3 => 4,
-        4 => 5,
-        5 => 6,
-        6 => 7,
-        7 => 8,
-        8 => 9,
-        9 => 10,
+        3 => 3,
+        4 => 4,
+        5 => 5,
+        6 => 6,
+        7 => 7,
+        8 => 8,
+        9 => 9,
+        12 => 10,
         10 => 11,
         11 => 12,
         else => 0,
