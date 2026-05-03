@@ -19,47 +19,28 @@
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
   ADR-0008 🔒).
-- **Last commit**: `9d029ef` — §9.6 / 6.6 land: verifier CI hook
-  in `c_api/instance.zig:instantiateRuntime`; every lowered
-  function now runs `loop_info` + `verifier.verify` before
-  reaching dispatch. All three hosts green.
-- **Next task**: §9.6 / 6.5 — A13 (v1 regression suite stays
-  green) merge gate. Doable today since 6.0 + 6.1 + 6.6 are all
-  in test-all and gating; need to add the merge-gate doc /
-  scripting layer.
+- **Last commit**: `0825794` — §9.6 / 6.5 land: A13 merge-gate
+  documentation; `gate_merge.sh` + CLAUDE.md cross-reference
+  ROADMAP §A13. `test-all` (Mac + OrbStack + windowsmini) is the
+  enforcement point; it already aggregates every A13 layer v2
+  has stood up. ClojureWasm joins when §9.6 / 6.3 lands.
+- **Next task**: §9.6 / 6.7 — Phase-6 boundary `audit_scaffolding`
+  pass. Done early as a sanity check before deciding how to
+  approach the §9.6 / 6.2 + 6.3 + 6.4 execution-coverage blocker.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.6 / 6.5 (A13 merge gate)
+## Active task — §9.6 / 6.7 (Phase-6 boundary audit, early)
 
-ROADMAP §A13 says the v1 regression suite stays green at every
-merge. v2's equivalent of the v1 suite is what currently rides
-in `test-all`:
+Run `audit_scaffolding` even though 6.2 + 6.3 + 6.4 are still
+`[ ]`. Rationale: the audit might surface false-positive triggers
+or stale doc that's misleading the loop's next-task choice; it
+costs nothing and may find scaffolding fixes. After the audit:
 
-- `test` — unit tests (1700+ tests across src/)
-- `test-spec` — Wasm 1.0 curated corpus
-- `test-spec-wasm-2.0` — Wasm 2.0 manifest-driven corpus
-- `test-realworld` — 50-fixture parse-smoke
-- `test-realworld-run` — 50-fixture instantiate + invoke
-- `test-v1-carry-over` — vendored v1 regression bundle
-- `test-c-api` — c-host integration
-- `test-wasi-p1` — WASI fixtures
-
-A13's meta-gate is: every PR merge to `zwasm-from-scratch` must
-pass `zig build test-all` on Mac aarch64 + OrbStack Ubuntu
-x86_64 + windowsmini SSH. The `continue` skill's per-task TDD
-loop already enforces this for autonomous commits; documenting
-it as the policy formalises it.
-
-Plan:
-
-1. Document the A13 gate in ROADMAP §A13 (verify it's already
-   there — it is; was authored Phase 0).
-2. Add a `MERGE_GATE.md` (or extend `CLAUDE.md`) noting that
-   any merge to `zwasm-from-scratch` must run `test-all` on
-   three hosts, with the "Mandatory pre-commit checks" section
-   in CLAUDE.md being the per-commit equivalent.
-3. Three-host `test-all` confirms.
+1. Local `block` findings → fix and commit inline.
+2. Non-local `block` findings → file ADR via §18, queue.
+3. The §9.6 / 6.8 phase tracker stays gated on 6.2-4 closing
+   (or being explicitly deferred via ADR-0008-style replan).
 
 Phase-6 outstanding (blocked on v2 execution coverage):
 
@@ -68,7 +49,7 @@ Phase-6 outstanding (blocked on v2 execution coverage):
 | 6.2 | wasmtime stdout differential (30+ matches)             | v2 trap mid-exec   |
 | 6.3 | ClojureWasm guest end-to-end                           | same as 6.2        |
 | 6.4 | `bench/baseline_v1_regression.yaml` interp wall-clock  | needs cleanly-running fixtures |
-| 6.7 | Phase-6 boundary audit                                 | unblocked          |
+| 6.7 | Phase-6 boundary audit                                 | unblocked (NEXT)   |
 | 6.8 | Open §9.7 inline; flip phase tracker                   | depends on 6.2-4   |
 
 Carry-overs from §9.5:
