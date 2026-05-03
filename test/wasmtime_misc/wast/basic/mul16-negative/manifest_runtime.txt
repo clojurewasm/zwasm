@@ -1,0 +1,2 @@
+module mul16-negative.0.wasm
+assert_return mul16 i32:100 -> i32:4294960028

@@ -1,0 +1,2 @@
+module simple-unreachable.0.wasm
+assert_trap f !! Unreachable

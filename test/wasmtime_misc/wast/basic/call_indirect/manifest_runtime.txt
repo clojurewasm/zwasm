@@ -1,0 +1,9 @@
+module call_indirect.0.wasm
+module call_indirect.1.wasm
+assert_return type-i32 -> i32:306
+assert_return type-i64 -> i64:356
+assert_return type-index -> i64:100
+assert_return type-first-i32 -> i32:32
+assert_return type-first-i64 -> i64:64
+assert_return type-second-i32 -> i32:32
+assert_return type-second-i64 -> i64:64

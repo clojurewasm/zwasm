@@ -1,0 +1,4 @@
+module table_grow_with_funcref.0.wasm
+assert_return size -> i32:0
+assert_return grow-by-1 -> i32:0
+assert_return size -> i32:1

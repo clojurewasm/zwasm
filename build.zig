@@ -155,6 +155,27 @@ pub fn build(b: *std.Build) void {
     const test_runtime_runner_smoke_step = b.step("test-runtime-runner-smoke", "Run the runtime-asserting WAST runner against the smoke fixture");
     test_runtime_runner_smoke_step.dependOn(&run_wast_runtime_smoke.step);
 
+    // `zig build test-wasmtime-misc-runtime` — Phase 6 / §9.6 / 6.D
+    // (per ADR-0012). Drives the runtime-asserting runner against
+    // the same wasmtime_misc corpus as test-wasmtime-misc-basic, but
+    // consuming `manifest_runtime.txt` (assert_return / assert_trap /
+    // module / register / invoke) instead of the parse-only
+    // `manifest.txt`. Surfaces v2 interp behaviour gaps that the
+    // parse runner cannot see.
+    //
+    // **Not wired into `test-all` aggregate**. The current corpus
+    // panics inside `interp.popOperand`'s assert when a fixture
+    // exercises an operand-stack discipline bug (one of the 39
+    // trap-mid-execution patterns ADR-0011 surfaced). 6.E (interp
+    // behaviour bug investigation) addresses these; once the
+    // underlying gaps close, this step joins `test-all`.
+    // Until then, run standalone for triage:
+    //   zig build test-wasmtime-misc-runtime
+    const run_wasmtime_misc_runtime = b.addRunArtifact(wast_runtime_runner_exe);
+    run_wasmtime_misc_runtime.addArg(b.pathFromRoot("test/wasmtime_misc/wast"));
+    const test_wasmtime_misc_runtime_step = b.step("test-wasmtime-misc-runtime", "Run the runtime-asserting WAST runner against the wasmtime_misc corpus (NOT in test-all; surfaces 6.E targets)");
+    test_wasmtime_misc_runtime_step.dependOn(&run_wasmtime_misc_runtime.step);
+
     // `zig build test-realworld` — parse-smoke a vendored set of
     // toolchain-produced .wasm fixtures (Phase 2 / §9.2 / 2.6).
     const realworld_runner_mod = b.createModule(.{

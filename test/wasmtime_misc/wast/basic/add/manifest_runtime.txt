@@ -1,0 +1,2 @@
+module add.0.wasm
+assert_return add i32:1 i32:2 -> i32:3

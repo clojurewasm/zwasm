@@ -1,0 +1,1 @@
+module issue4890.0.wasm

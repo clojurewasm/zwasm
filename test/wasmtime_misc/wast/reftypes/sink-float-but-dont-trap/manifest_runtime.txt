@@ -1,0 +1,3 @@
+module sink-float-but-dont-trap.0.wasm
+assert_trap select-with-sink i32:65529 !! Unreachable
+assert_trap select-with-sink-other-way i32:65529 !! Unreachable

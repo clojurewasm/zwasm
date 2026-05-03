@@ -1,0 +1,2 @@
+module issue11748.0.wasm
+assert_return x -> i32:32

@@ -1,0 +1,30 @@
+module bit-and-conditions.0.wasm
+assert_return if_b20 i32:0 -> i32:200
+assert_return if_b20 i32:1048576 -> i32:100
+assert_return select_b20 i32:0 i32:100 i32:200 -> i32:200
+assert_return select_b20 i32:1048576 i32:100 i32:200 -> i32:100
+assert_return eqz_b20 i32:0 -> i32:1
+assert_return eqz_b20 i32:1048576 -> i32:0
+assert_return if_b40 i64:0 -> i64:200
+assert_return if_b40 i64:1099511627776 -> i64:100
+assert_return select_b40 i64:0 i64:100 i64:200 -> i64:200
+assert_return select_b40 i64:1099511627776 i64:100 i64:200 -> i64:100
+assert_return eqz_b40 i64:0 -> i32:1
+assert_return eqz_b40 i64:1099511627776 -> i32:0
+assert_return if_bit32 i32:0 i32:1 -> i32:200
+assert_return if_bit32 i32:0 i32:0 -> i32:200
+assert_return if_bit32 i32:1 i32:1 -> i32:200
+assert_return if_bit32 i32:1 i32:33 -> i32:200
+assert_return if_bit32 i32:1 i32:0 -> i32:100
+assert_return if_bit32 i32:1 i32:32 -> i32:100
+assert_return if_bit32 i32:1048576 i32:20 -> i32:100
+assert_return if_bit32 i32:1048576 i32:52 -> i32:100
+assert_return if_bit64 i64:0 i64:1 -> i64:200
+assert_return if_bit64 i64:0 i64:0 -> i64:200
+assert_return if_bit64 i64:1 i64:1 -> i64:200
+assert_return if_bit64 i64:1 i64:33 -> i64:200
+assert_return if_bit64 i64:1 i64:0 -> i64:100
+assert_return if_bit64 i64:1 i64:64 -> i64:100
+assert_return if_bit64 i64:1048576 i64:20 -> i64:100
+assert_return if_bit64 i64:1048576 i64:52 -> i64:200
+assert_return if_bit64 i64:1048576 i64:84 -> i64:100

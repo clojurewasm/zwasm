@@ -1,0 +1,10 @@
+module partial-init-memory-segment.0.wasm
+assert_return load i32:0 -> i32:97
+assert_return load i32:1 -> i32:98
+assert_return load i32:2 -> i32:99
+assert_return load i32:65530 -> i32:0
+assert_return load i32:65531 -> i32:0
+assert_return load i32:65532 -> i32:0
+assert_return load i32:65533 -> i32:0
+assert_return load i32:65534 -> i32:0
+assert_return load i32:65535 -> i32:0

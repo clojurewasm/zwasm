@@ -1,0 +1,8 @@
+module div-rem.0.wasm
+assert_return i32.div_s i32:4294967295 i32:4294967295 -> i32:1
+module div-rem.1.wasm
+assert_return i32.rem_s i32:123121 i32:4294967295 -> i32:0
+module div-rem.2.wasm
+assert_return i64.div_s i64:18446744073709551615 i64:18446744073709551615 -> i64:1
+module div-rem.3.wasm
+assert_return i64.rem_s i64:123121 i64:18446744073709551615 -> i64:0

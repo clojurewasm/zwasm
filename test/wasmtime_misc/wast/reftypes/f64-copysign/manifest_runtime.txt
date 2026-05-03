@@ -1,0 +1,2 @@
+module f64-copysign.0.wasm
+assert_return f -> i32:0

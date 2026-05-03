@@ -1,0 +1,3 @@
+module issue12318.0.wasm
+assert_return constants -> i32:25
+assert_return variables i32:24 i32:1 -> i32:25

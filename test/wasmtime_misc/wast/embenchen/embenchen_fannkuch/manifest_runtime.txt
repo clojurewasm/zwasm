@@ -1,0 +1,2 @@
+module embenchen_fannkuch.0.wasm
+module embenchen_fannkuch.1.wasm

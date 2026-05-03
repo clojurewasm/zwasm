@@ -1,0 +1,6 @@
+module empty.0.wasm
+module empty.1.wasm
+module empty.2.wasm
+module empty.3.wasm
+module empty.4.wasm
+module empty.5.wasm

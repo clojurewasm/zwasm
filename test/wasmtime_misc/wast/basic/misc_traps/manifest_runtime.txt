@@ -1,0 +1,18 @@
+module misc_traps.0.wasm
+assert_trap load_oob !! Unreachable
+assert_trap load_oob !! Unreachable
+module misc_traps.1.wasm
+assert_trap store_oob !! Unreachable
+assert_trap store_oob !! Unreachable
+module misc_traps.2.wasm
+assert_trap load_oob_0 !! Unreachable
+assert_trap load_oob_0 !! Unreachable
+module misc_traps.3.wasm
+assert_trap store_oob_0 !! Unreachable
+assert_trap store_oob_0 !! Unreachable
+module misc_traps.4.wasm
+assert_trap divbyzero !! Unreachable
+assert_trap divbyzero !! Unreachable
+module misc_traps.5.wasm
+assert_trap unreachable !! Unreachable
+assert_trap unreachable !! Unreachable

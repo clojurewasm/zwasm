@@ -110,20 +110,82 @@ vendor_one() {
   rm -rf "$out_dir"
   mkdir -p "$out_dir"
 
-  python3 - "$TMP/$name.json" "$out_dir/manifest.txt" <<'PY'
+  python3 - "$TMP/$name.json" "$out_dir/manifest.txt" "$out_dir/manifest_runtime.txt" <<'PY'
 import json, sys
-src, dst = sys.argv[1], sys.argv[2]
+src, dst_parse, dst_rt = sys.argv[1], sys.argv[2], sys.argv[3]
 d = json.load(open(src))
-lines = []
+parse_lines = []
+rt_lines = []
+
+def encode_value(v):
+  ty = v.get('type', '')
+  raw = v.get('value', '')
+  # wast2json emits ints as decimal strings, floats as bit-pattern
+  # decimal strings. Wrap in TLV per ADR-0013 §2 syntax.
+  if ty == 'i32':
+    try:
+      return f'i32:{int(raw)}'
+    except Exception:
+      return None
+  if ty == 'i64':
+    try:
+      return f'i64:{int(raw)}'
+    except Exception:
+      return None
+  # f32/f64/v128/refs deferred — runtime runner is i32-only
+  # in §9.6 / 6.A initial cut (per ADR-0013 §6).
+  return None
+
+def encode_args(values):
+  out = []
+  for v in values or []:
+    e = encode_value(v)
+    if e is None:
+      return None
+    out.append(e)
+  return out
+
 for c in d['commands']:
   t = c.get('type')
   if t == 'module':
-    lines.append('valid ' + c['filename'])
+    fn = c['filename']
+    parse_lines.append('valid ' + fn)
+    rt_lines.append('module ' + fn)
   elif t in ('assert_invalid', 'assert_malformed') and c.get('module_type') == 'binary':
     kind = 'invalid' if t == 'assert_invalid' else 'malformed'
-    lines.append(kind + ' ' + c['filename'])
-with open(dst, 'w') as f:
-  f.write('\n'.join(lines) + '\n')
+    parse_lines.append(kind + ' ' + c['filename'])
+  elif t == 'assert_return':
+    act = c.get('action', {})
+    if act.get('type') != 'invoke':
+      continue
+    args = encode_args(act.get('args'))
+    expected = encode_args(c.get('expected'))
+    if args is None or expected is None:
+      continue
+    field = act.get('field', '')
+    rt_line = 'assert_return ' + field
+    if args:
+      rt_line += ' ' + ' '.join(args)
+    rt_line += ' -> ' + (' '.join(expected) if expected else '')
+    rt_lines.append(rt_line.rstrip())
+  elif t == 'assert_trap':
+    act = c.get('action', {})
+    if act.get('type') != 'invoke':
+      continue
+    args = encode_args(act.get('args'))
+    if args is None:
+      continue
+    field = act.get('field', '')
+    rt_line = 'assert_trap ' + field
+    if args:
+      rt_line += ' ' + ' '.join(args)
+    rt_line += ' !! Unreachable'  # runtime runner uses any-kind matching in §9.6 / 6.A
+    rt_lines.append(rt_line)
+
+with open(dst_parse, 'w') as f:
+  f.write('\n'.join(parse_lines) + '\n')
+with open(dst_rt, 'w') as f:
+  f.write('\n'.join(rt_lines) + '\n')
 PY
 
   if [ ! -s "$out_dir/manifest.txt" ]; then

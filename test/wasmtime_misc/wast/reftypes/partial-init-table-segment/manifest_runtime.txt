@@ -1,0 +1,3 @@
+module partial-init-table-segment.0.wasm
+assert_return indirect-call i32:7 -> i32:1
+assert_return indirect-call i32:9 -> i32:0
