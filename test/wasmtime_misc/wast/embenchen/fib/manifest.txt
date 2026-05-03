@@ -1,0 +1,2 @@
+valid fib.0.wasm
+valid fib.1.wasm

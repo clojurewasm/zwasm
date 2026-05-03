@@ -1,0 +1,1 @@
+valid table_copy.0.wasm

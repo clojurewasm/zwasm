@@ -1,0 +1,1 @@
+valid table_grow_with_funcref.0.wasm

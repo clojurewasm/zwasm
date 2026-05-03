@@ -1,0 +1,2 @@
+valid embenchen_fannkuch.0.wasm
+valid embenchen_fannkuch.1.wasm

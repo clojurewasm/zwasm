@@ -1,0 +1,2 @@
+valid stack_overflow.0.wasm
+valid stack_overflow.1.wasm

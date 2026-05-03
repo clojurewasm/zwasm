@@ -1,0 +1,2 @@
+valid imported-memory-copy.0.wasm
+valid imported-memory-copy.1.wasm

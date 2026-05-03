@@ -1,0 +1,2 @@
+valid call_indirect.0.wasm
+valid call_indirect.1.wasm

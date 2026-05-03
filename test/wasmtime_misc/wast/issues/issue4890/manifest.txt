@@ -1,0 +1,1 @@
+valid issue4890.0.wasm

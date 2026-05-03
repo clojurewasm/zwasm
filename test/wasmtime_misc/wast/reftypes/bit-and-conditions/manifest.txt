@@ -1,0 +1,1 @@
+valid bit-and-conditions.0.wasm

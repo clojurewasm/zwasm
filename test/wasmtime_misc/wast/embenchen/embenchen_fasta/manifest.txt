@@ -1,0 +1,2 @@
+valid embenchen_fasta.0.wasm
+valid embenchen_fasta.1.wasm

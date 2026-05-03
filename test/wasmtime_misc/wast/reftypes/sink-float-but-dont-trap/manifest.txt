@@ -1,0 +1,1 @@
+valid sink-float-but-dont-trap.0.wasm

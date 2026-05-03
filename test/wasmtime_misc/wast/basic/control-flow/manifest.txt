@@ -1,0 +1,8 @@
+valid control-flow.0.wasm
+valid control-flow.1.wasm
+valid control-flow.2.wasm
+valid control-flow.3.wasm
+valid control-flow.4.wasm
+valid control-flow.5.wasm
+valid control-flow.6.wasm
+valid control-flow.7.wasm

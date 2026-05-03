@@ -1,0 +1,1 @@
+valid rs2wasm-add-func.0.wasm

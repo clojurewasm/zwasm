@@ -1,0 +1,1 @@
+valid partial-init-memory-segment.0.wasm

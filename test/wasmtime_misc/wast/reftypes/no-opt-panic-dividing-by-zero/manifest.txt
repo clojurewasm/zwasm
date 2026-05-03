@@ -1,0 +1,1 @@
+valid no-opt-panic-dividing-by-zero.0.wasm

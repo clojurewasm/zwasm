@@ -67,12 +67,53 @@ pub fn main(init: std.process.Init) !void {
     var it = root.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .directory) continue;
-        try runCorpus(io, gpa, &root, entry.name, stdout, &passed, &failed);
+        try walkCorpusOrCategory(io, gpa, &root, entry.name, stdout, &passed, &failed);
     }
 
     try stdout.print("\nwast_runner: {d} passed, {d} failed\n", .{ passed, failed });
     try stdout.flush();
     if (failed != 0) std.process.exit(1);
+}
+
+/// If `<root>/<name>` itself has a `manifest.txt`, run it as a leaf
+/// corpus. Otherwise treat it as a category dir and recurse one
+/// level (each immediate child becomes a leaf corpus). Allows the
+/// `test/wasmtime_misc/wast/{basic,reftypes,embenchen,issues}/<fixture>/`
+/// two-level layout introduced by §9.6 / 6.C without forcing per-
+/// category build steps.
+fn walkCorpusOrCategory(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: *std.Io.Dir,
+    name: []const u8,
+    stdout: *std.Io.Writer,
+    passed: *u32,
+    failed: *u32,
+) !void {
+    var dir = root.openDir(io, name, .{ .iterate = true }) catch {
+        try runCorpus(io, gpa, root, name, stdout, passed, failed);
+        return;
+    };
+    const has_manifest = blk: {
+        const probe = dir.openFile(io, "manifest.txt", .{}) catch {
+            break :blk false;
+        };
+        var f = probe;
+        f.close(io);
+        break :blk true;
+    };
+    if (has_manifest) {
+        dir.close(io);
+        try runCorpus(io, gpa, root, name, stdout, passed, failed);
+        return;
+    }
+    // Category dir: recurse one level.
+    var it = dir.iterate();
+    while (try it.next(io)) |child| {
+        if (child.kind != .directory) continue;
+        try runCorpus(io, gpa, &dir, child.name, stdout, passed, failed);
+    }
+    dir.close(io);
 }
 
 fn runCorpus(

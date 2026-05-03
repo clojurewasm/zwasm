@@ -1,0 +1,6 @@
+valid misc_traps.0.wasm
+valid misc_traps.1.wasm
+valid misc_traps.2.wasm
+valid misc_traps.3.wasm
+valid misc_traps.4.wasm
+valid misc_traps.5.wasm
