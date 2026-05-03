@@ -41,7 +41,16 @@ pub fn step(
     const idx = @intFromEnum(instr.op);
     if (idx >= dispatch_table.N_OPS) return Trap.Unreachable;
     const handler = table.interp[idx] orelse return Trap.Unreachable;
+    const saved_pc = if (rt.frame_len > 0) rt.currentFrame().pc else 0;
     try handler(rt.toOpaque(), instr);
+    if (rt.trace_cb) |cb| {
+        cb(rt.trace_ctx.?, .{
+            .pc = saved_pc,
+            .op = instr.op,
+            .operand_top = if (rt.operand_len > 0) rt.operand_buf[rt.operand_len - 1] else null,
+            .frame_depth = rt.frame_len,
+        });
+    }
 }
 
 /// Walk an instruction sequence linearly. The loop tracks `pc`
@@ -149,6 +158,56 @@ test "run: walks sequence, leaves operand stack with the const sequence" {
     try testing.expectEqual(@as(i32, 3), rt.popOperand().i32);
     try testing.expectEqual(@as(i32, 2), rt.popOperand().i32);
     try testing.expectEqual(@as(i32, 1), rt.popOperand().i32);
+}
+
+test "trace_cb: receives one event per dispatched instruction" {
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    const table = buildSmokeTable();
+
+    const TraceSink = struct {
+        events: [16]interp.TraceEvent = undefined,
+        len: u32 = 0,
+
+        fn cb(ctx: *anyopaque, ev: interp.TraceEvent) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            if (self.len < self.events.len) {
+                self.events[self.len] = ev;
+                self.len += 1;
+            }
+        }
+    };
+    var sink: TraceSink = .{};
+    rt.trace_cb = TraceSink.cb;
+    rt.trace_ctx = @ptrCast(&sink);
+
+    const instrs = [_]ZirInstr{
+        .{ .op = .@"i32.const", .payload = @bitCast(@as(i32, 11)), .extra = 0 },
+        .{ .op = .@"nop", .payload = 0, .extra = 0 },
+        .{ .op = .@"i32.const", .payload = @bitCast(@as(i32, 22)), .extra = 0 },
+    };
+    try run(&rt, &table, &instrs);
+
+    try testing.expectEqual(@as(u32, 3), sink.len);
+    try testing.expectEqual(ZirOp.@"i32.const", sink.events[0].op);
+    try testing.expectEqual(@as(i32, 11), sink.events[0].operand_top.?.i32);
+    try testing.expectEqual(ZirOp.@"nop", sink.events[1].op);
+    try testing.expectEqual(@as(i32, 11), sink.events[1].operand_top.?.i32);
+    try testing.expectEqual(ZirOp.@"i32.const", sink.events[2].op);
+    try testing.expectEqual(@as(i32, 22), sink.events[2].operand_top.?.i32);
+}
+
+test "trace_cb: null callback is zero-cost (no error path)" {
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    const table = buildSmokeTable();
+    // rt.trace_cb left null by default.
+
+    const instrs = [_]ZirInstr{
+        .{ .op = .@"i32.const", .payload = @bitCast(@as(i32, 5)), .extra = 0 },
+    };
+    try run(&rt, &table, &instrs);
+    try testing.expectEqual(@as(u32, 1), rt.operand_len);
 }
 
 test "run: bubbles handler trap and stops iteration" {

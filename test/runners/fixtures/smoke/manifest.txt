@@ -1,0 +1,12 @@
+# Phase 6 / §9.6 / 6.A smoke fixture. Exercises the runtime-asserting
+# WAST runner on a minimal self-contained corpus:
+#   - module load + instantiate (add.wasm has one i32.add export)
+#   - assert_return with i32 args + i32 result
+#   - module load (trap.wasm has one unreachable export)
+#   - assert_trap (any kind in 6.A; strict-kind matching wired in 6.D)
+#   - parse-only validity check
+module add.wasm
+assert_return add i32:7 i32:35 -> i32:42
+module trap.wasm
+assert_trap trap !! Unreachable
+valid add.wasm

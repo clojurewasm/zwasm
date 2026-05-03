@@ -37,8 +37,11 @@ v1 audit findings (Step 0 Survey):
   layout — `test/runners/` is the cross-origin runner directory).
 - Zone: **test code, not src code**. Imports allowed: `std`,
   `zwasm` module (Zone 1 `parser` / `sections` / `validator` /
-  `lowerer` / `zir`, Zone 2 `interp`). MUST NOT import Zone 3
-  (`c_api`, `cli`).
+  `lowerer` / `zir`, Zone 2 `interp`, **Zone 3 `cli_run` /
+  `c_api`** for the higher-level instantiate / invoke pipeline
+  matching the existing `test/realworld/run_runner.zig` pattern).
+  Zone discipline (`scripts/zone_check.sh`) does not apply to
+  `test/` per `.claude/rules/zone_deps.md` "Tests are exempt".
 - Build wiring: registered as the `test-wasmtime-misc` step
   executable in `build.zig` (the step itself is created by
   ADR-0012 §6.D; the runner binary lands at §6.A).

@@ -131,6 +131,27 @@ pub fn build(b: *std.Build) void {
     const test_v1_carry_over_step = b.step("test-v1-carry-over", "Run the v1 carry-over regression corpus");
     test_v1_carry_over_step.dependOn(&run_v1_carry_over.step);
 
+    // `zig build test-runtime-runner-smoke` — Phase 6 / §9.6 / 6.A
+    // (per ADR-0013). Drives the runtime-asserting WAST runner
+    // against the in-tree smoke fixture (`test/runners/fixtures/`).
+    // Smoke gate exercises module + assert_return + assert_trap +
+    // valid; the full wasmtime_misc corpus wires in 6.D.
+    const wast_runtime_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/runners/wast_runtime_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    wast_runtime_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    const wast_runtime_runner_exe = b.addExecutable(.{
+        .name = "zwasm-wast-runtime-runner",
+        .root_module = wast_runtime_runner_mod,
+    });
+    const run_wast_runtime_smoke = b.addRunArtifact(wast_runtime_runner_exe);
+    run_wast_runtime_smoke.addArg(b.pathFromRoot("test/runners/fixtures"));
+    const test_runtime_runner_smoke_step = b.step("test-runtime-runner-smoke", "Run the runtime-asserting WAST runner against the smoke fixture");
+    test_runtime_runner_smoke_step.dependOn(&run_wast_runtime_smoke.step);
+
     // `zig build test-realworld` — parse-smoke a vendored set of
     // toolchain-produced .wasm fixtures (Phase 2 / §9.2 / 2.6).
     const realworld_runner_mod = b.createModule(.{
@@ -274,6 +295,7 @@ pub fn build(b: *std.Build) void {
     // when working on closing the gap.
     test_all_step.dependOn(&run_wast_2_0.step);
     test_all_step.dependOn(&run_v1_carry_over.step);
+    test_all_step.dependOn(&run_wast_runtime_smoke.step);
     test_all_step.dependOn(&run_c_host.step);
     test_all_step.dependOn(&run_wasi_p1.step);
 

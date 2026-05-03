@@ -24,6 +24,7 @@ pub const sections = @import("frontend/sections.zig");
 pub const zir = @import("ir/zir.zig");
 pub const interp = @import("interp/mod.zig");
 pub const cli_run = @import("cli/run.zig");
+pub const c_api = @import("c_api/wasm_c_api.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

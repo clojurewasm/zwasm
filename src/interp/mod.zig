@@ -89,6 +89,22 @@ pub const max_operand_stack: u32 = 4096;
 pub const max_frame_stack: u32 = 256;
 pub const max_label_stack: u32 = 128;
 
+/// Per-instruction trace event (Phase 6 / §9.6 / 6.A per ADR-0013).
+/// Emitted post-handler when `Runtime.trace_cb` is set; consumed by
+/// the runtime-asserting WAST runner's `--trace` mode and by §9.6 /
+/// 6.E interp behaviour bug investigation. Zero-cost when disabled
+/// (one predicted-not-taken branch in the dispatch loop).
+pub const TraceEvent = struct {
+    pc: u32,
+    op: zir.ZirOp,
+    /// Top-of-stack value AFTER the handler ran. `null` when the
+    /// stack is empty (e.g. after a `drop` that empties it).
+    operand_top: ?Value,
+    frame_depth: u32,
+};
+
+pub const TraceCallback = *const fn (ctx: *anyopaque, ev: TraceEvent) void;
+
 /// Control-label record. `block` / `if` push a label whose
 /// `target_pc` points one past the matching `end`; `loop` pushes a
 /// label whose `target_pc` points just after the `loop` opcode (so
@@ -223,6 +239,13 @@ pub const Runtime = struct {
 
     frame_buf: [max_frame_stack]Frame = undefined,
     frame_len: u32 = 0,
+
+    /// Optional per-instruction trace hook (Phase 6 / §9.6 / 6.A
+    /// per ADR-0013). When non-null, `dispatch.step` invokes
+    /// `trace_cb(trace_ctx, event)` after each handler call.
+    /// Zero-cost when null.
+    trace_cb: ?TraceCallback = null,
+    trace_ctx: ?*anyopaque = null,
 
     pub fn init(alloc: Allocator) Runtime {
         return .{ .alloc = alloc };
