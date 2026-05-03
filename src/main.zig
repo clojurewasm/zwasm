@@ -104,6 +104,7 @@ test {
     _ = @import("ir/loop_info.zig");
     _ = @import("ir/liveness.zig");
     _ = @import("ir/verifier.zig");
+    _ = @import("ir/const_prop.zig");
     _ = @import("frontend/parser.zig");
     _ = @import("frontend/validator.zig");
     _ = @import("frontend/validator_tests.zig");

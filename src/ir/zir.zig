@@ -458,8 +458,25 @@ pub const LoopInfo = struct {
     loop_end: []const u32 = &.{},
 };
 
-/// Phase 5+: hoisted-constant pool seed.
-pub const ConstantPool = struct {};
+/// Phase 5+: hoisted-constant pool seed. Populated by
+/// `src/ir/const_prop.zig`. Each entry records a peephole-foldable
+/// binop site: the two `i*.const` def pcs that supplied the
+/// operands, the binop pc itself, and the constant-evaluated
+/// result encoded as a `(lo, hi)` `u32` pair (`result_lo` carries
+/// 32-bit results; `result_hi` carries the upper 32 bits for i64).
+/// Slice borrowed; lifetime is the caller's, mirrors LoopInfo /
+/// Liveness.
+pub const ConstantPool = struct {
+    folds: []const ConstantFold = &.{},
+};
+
+pub const ConstantFold = struct {
+    def_pc_a: u32,
+    def_pc_b: u32,
+    op_pc: u32,
+    result_lo: u32,
+    result_hi: u32 = 0,
+};
 
 /// Phase 7+: per-vreg register-class hint.
 pub const RegClass = enum(u8) { gpr, fpr, simd, _ };
