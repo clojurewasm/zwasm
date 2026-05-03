@@ -25,6 +25,8 @@ pub const zir = @import("ir/zir.zig");
 pub const interp = @import("interp/mod.zig");
 pub const cli_run = @import("cli/run.zig");
 pub const c_api = @import("c_api/wasm_c_api.zig");
+pub const diagnostic = @import("runtime/diagnostic.zig");
+pub const diag_print = @import("cli/diag_print.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -54,9 +56,19 @@ pub fn main(init: std.process.Init) !void {
             defer gpa.free(bytes);
 
             const code = cli_run.runWasm(gpa, io, bytes) catch |err| {
-                var buf: [256]u8 = undefined;
-                const msg = std.fmt.bufPrint(&buf, "zwasm run: {s}", .{@errorName(err)}) catch "zwasm run: failed";
-                try printlnErr(io, msg);
+                // Per ADR-0016 phase 1: prefer the structured
+                // diagnostic when one was set; fall back to the
+                // legacy `@errorName` form for unwired sites.
+                var stderr_buf: [1024]u8 = undefined;
+                var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buf);
+                const stderr = &stderr_writer.interface;
+                const source: diag_print.Source = .{ .filename = path, .bytes = bytes };
+                if (diagnostic.lastDiagnostic()) |diag| {
+                    diag_print.formatDiagnostic(diag, source, stderr) catch {};
+                } else {
+                    diag_print.renderFallback(err, source, stderr) catch {};
+                }
+                stderr.flush() catch {};
                 std.process.exit(1);
             };
             std.process.exit(code);
@@ -101,6 +113,8 @@ test "build options are wired" {
 test {
     _ = @import("util/leb128.zig");
     _ = @import("util/dbg.zig");
+    _ = @import("runtime/diagnostic.zig");
+    _ = @import("cli/diag_print.zig");
     _ = @import("ir/zir.zig");
     _ = @import("ir/dispatch_table.zig");
     _ = @import("ir/loop_info.zig");
