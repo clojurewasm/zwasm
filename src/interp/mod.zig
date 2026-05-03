@@ -187,6 +187,21 @@ pub const Label = struct {
     target_pc: u32,
 };
 
+comptime {
+    // ADR-0014 §6.K.5 + `.claude/rules/single_slot_dual_meaning.md`:
+    // the dual-arity split is load-bearing. `arity` is consumed by
+    // `endOp` (= block/loop result count); `branch_arity` is
+    // consumed by `brOp` (= block/if results, but loop *params*).
+    // Iter 11 of §9.6 / 6.E (commit 7b26760) split a previously
+    // single `arity` slot after `tinygo_fib`'s `loop (result i32)`
+    // dispatched the wrong pop-count. A future merge that drops
+    // either field would silently re-introduce the underflow; this
+    // assertion fails compilation if that happens.
+    if (!@hasField(Label, "arity") or !@hasField(Label, "branch_arity")) {
+        @compileError("Label.arity and Label.branch_arity must remain split per §14 (single_slot_dual_meaning).");
+    }
+}
+
 /// Per-call activation record. `locals` holds params followed by
 /// declared locals (validator's local-index space). `operand_base`
 /// is the operand-stack height at frame entry — `end` / `return`
@@ -453,6 +468,23 @@ test "Runtime.init / deinit clean (no allocations)" {
     try testing.expectEqual(@as(usize, 0), r.globals.len);
     try testing.expectEqual(@as(u32, 0), r.operand_len);
     try testing.expectEqual(@as(u32, 0), r.frame_len);
+}
+
+test "Label: arity and branch_arity hold distinct values without aliasing (ADR-0014 §6.K.5)" {
+    // Per `.claude/rules/single_slot_dual_meaning.md`: the two
+    // arities must be addressable as separate slots. `loop`
+    // dispatch is the load-bearing case — block result count vs
+    // br-target param count diverge for `loop (result T)`. A
+    // silent merge would alias them.
+    const l: Label = .{
+        .height = 0,
+        .arity = 1, // matches `loop (result i32)`'s end-arity
+        .branch_arity = 0, // matches `br` to a Wasm-1.0 loop (no params)
+        .target_pc = 42,
+    };
+    try testing.expectEqual(@as(u32, 1), l.arity);
+    try testing.expectEqual(@as(u32, 0), l.branch_arity);
+    try testing.expect(l.arity != l.branch_arity);
 }
 
 test "Runtime: push/pop operand stack round-trip" {
