@@ -17,52 +17,45 @@
 
 ## Current state
 
-- **Phase**: **Phase 5 IN-PROGRESS.** Phases 0–4 are `DONE` (all
-  SHAs backfilled in §9.<N> task tables; `git log --grep="§9.<N>
-  / N.M"` is the canonical lookup).
-- **Last commit**: `5215b87` — §9.5 / 5.6 land: `src/ir/const_prop.zig`
-  peephole folding analysis; `ConstantPool` slot filled
-  (`folds: []const ConstantFold`).
-- **Next task**: §9.5 / 5.7 — Phase-5 boundary `audit_scaffolding`
-  pass (adaptive cadence; absorbs the queued items below).
+- **Phase**: **Phase 5 IN-PROGRESS** (final task §9.5 / 5.8 in
+  flight). Phases 0–4 are `DONE` (all SHAs backfilled).
+- **Last commit**: `929cdd8` — §9.5 / 5.6 [x] + handover retarget
+  at 5.7 (audit). 5.7 audit landed in the same iteration —
+  `private/audit-2026-05-03.md` (gitignored). Findings: 1 block
+  (expected widget drift owned by 5.8), 2 soon (deferrals already
+  documented), 3 watch.
+- **Next task**: §9.5 / 5.8 — open §9.6 inline, advance Phase
+  Status widget, backfill §9.5 SHA pointers in one commit.
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.5 / 5.7 (Phase-5 boundary audit)
+## Active task — §9.5 / 5.8 (open §9.6, flip phase tracker)
 
-Run `audit_scaffolding` adaptively at the Phase-5 boundary; fix
-local `block` findings inline, file ADRs for non-local ones.
-Mirror the §9.4-end pattern.
+Phase-5 closing protocol per `continue` skill:
 
-Plan:
+1. Backfill SHA pointers for §9.5 task rows 5.0–5.7 in one
+   commit (`git log --grep="§9.5 / N.M" --pretty=%h | head -1`).
+2. Update the Phase Status widget at the top of §9: mark §9.5
+   as `DONE`, §9.6 as `IN-PROGRESS`.
+3. §9.6 (v1 conformance baseline per ADR-0008) is already
+   present; expand its task table inline if missing, mirror
+   §9.5's structure.
+4. Replace handover with §9.6's first open task.
+5. Three-host `zig build test-all` (no source change here, but
+   the gates verify the ROADMAP edit didn't break parsing).
 
-1. Invoke `audit_scaffolding`; review the produced report at
-   `private/audit-YYYY-MM-DD.md`.
-2. Local `block` findings → fix and commit.
-3. Non-local `block` findings → file `.dev/decisions/NNNN_*.md`
-   per §18, queue follow-ups in handover.
-4. Optionally run `simplify` over `git diff <phase-start>..HEAD
-   -- src/` — apply behaviour-preserving suggestions.
-5. Three-host `zig build test-all` after any source change.
-
-Remaining §9.5 rows after 5.7: 5.8 phase tracker (open §9.6 +
-flip Phase Status widget; backfill §9.5 SHAs in one commit per
-the boundary protocol).
-
-Carry-overs queued from earlier 5.* tasks (the audit may surface
-related findings or re-prioritise these):
-- Re-evaluate `no_hidden_allocations` zlinter rule for the now-
-  split c_api + mvp + frontend modules (deferred per ADR-0009).
-- Per-feature handler split for validator.zig (deferred from
-  5.2; lands alongside §9.1 / 1.7 dispatch-table migration per
-  ROADMAP §A12).
-- Liveness control-flow + memory-op coverage (deferred from 5.4;
-  Phase-7 regalloc consumer drives the refinement).
-- Verifier CI hook in `test/spec/runner.zig` (deferred from 5.5
-  to keep the runner-shape change out of analysis-pass commits).
-- Const-prop per-block analysis covering past first non-foldable
-  op (deferred from 5.6 — current pass stops at the cutoff;
-  Phase-15 hoisting consumer drives the refinement).
+Carry-overs from §9.5 to track in §9.6 / Phase-7 follow-ups:
+- `no_hidden_allocations` zlinter rule re-evaluation (ADR-0009
+  follow-up; per-zone exclusion clean post-split).
+- Per-feature handler split for validator.zig (paired with
+  §9.1 / 1.7 dispatch-table migration per ROADMAP §A12).
+- Liveness control-flow + memory-op coverage (Phase-7 regalloc
+  consumer drives the refinement).
+- Verifier CI hook in `test/spec/runner.zig`.
+- Const-prop per-block analysis past first non-foldable op
+  (Phase-15 hoisting consumer drives the refinement).
+- `src/frontend/sections.zig` (1073 lines) soft-cap split —
+  surfaced by 5.7 audit; queued for §9.6 follow-up.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
