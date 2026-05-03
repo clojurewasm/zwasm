@@ -644,6 +644,70 @@ fn instantiateRuntime(
         }
     }
 
+    // §9.6 / 6.E iter 5: tables + element segments. Allocate one
+    // TableInstance per defined table entry sized to `min`; refs
+    // come from `parent_alloc` so `table.grow`'s realloc (which
+    // also uses `rt.alloc == parent_alloc`) is well-formed.
+    // Imported tables remain unwired pending cross-module import
+    // resolution; modules that import a table fail earlier in the
+    // import-validation gate above.
+    if (module.find(.table)) |table_section| {
+        var tables = try sections.decodeTables(a, table_section.body);
+        defer tables.deinit();
+        if (tables.items.len > 0) {
+            const tbl_storage = try a.alloc(interp.TableInstance, tables.items.len);
+            for (tables.items, 0..) |entry, i| {
+                const refs = try parent_alloc.alloc(interp.Value, entry.min);
+                for (refs) |*r| r.* = .{ .ref = interp.Value.null_ref };
+                tbl_storage[i] = .{
+                    .refs = refs,
+                    .elem_type = entry.elem_type,
+                    .max = entry.max,
+                };
+            }
+            rt.tables = tbl_storage;
+        }
+    }
+
+    // §9.6 / 6.E iter 5: element segments. Resolve each segment's
+    // funcidxs into a runtime ref slice (low 32 bits = funcidx).
+    // Active segments additionally write their refs into the
+    // referenced table at the const-expr-evaluated offset, then
+    // count as immediately dropped (per spec); declarative
+    // segments are dropped on instantiation as well.
+    if (module.find(.element)) |elem_section| {
+        var elems = try sections.decodeElement(a, elem_section.body);
+        defer elems.deinit();
+        if (elems.items.len > 0) {
+            const seg_storage = try a.alloc([]const interp.Value, elems.items.len);
+            const dropped = try parent_alloc.alloc(bool, elems.items.len);
+            @memset(dropped, false);
+            for (elems.items, 0..) |seg, idx| {
+                const refs = try a.alloc(interp.Value, seg.funcidxs.len);
+                for (seg.funcidxs, 0..) |fidx, j| {
+                    refs[j] = if (fidx == std.math.maxInt(u32))
+                        .{ .ref = interp.Value.null_ref }
+                    else
+                        .{ .ref = @as(u64, fidx) };
+                }
+                seg_storage[idx] = refs;
+                if (seg.kind == .active) {
+                    if (seg.tableidx >= rt.tables.len) return error.InvalidTableIndex;
+                    const offset = try evalConstI32Expr(seg.offset_expr);
+                    const off_usize: usize = @intCast(offset);
+                    const dst_end = off_usize + refs.len;
+                    if (dst_end > rt.tables[seg.tableidx].refs.len) return error.ElementSegmentOutOfRange;
+                    @memcpy(rt.tables[seg.tableidx].refs[off_usize..dst_end], refs);
+                    dropped[idx] = true;
+                } else if (seg.kind == .declarative) {
+                    dropped[idx] = true;
+                }
+            }
+            rt.elems = seg_storage;
+            rt.elem_dropped = dropped;
+        }
+    }
+
     if (module.find(.@"export")) |export_section| {
         const exports = try sections.decodeExports(a, export_section.body);
         inst.exports_storage = exports.items;

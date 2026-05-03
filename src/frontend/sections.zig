@@ -639,12 +639,60 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
                 for (funcs) |*f| f.* = try leb128.readUleb128(u32, body, &pos);
                 e.* = .{ .kind = .declarative, .elem_type = .funcref, .funcidxs = funcs };
             },
-            else => return Error.InvalidFunctype, // 2/4-7 deferred
+            4 => {
+                // active, table 0, offset expr, vec(reftype-expr).
+                // wast2json with --enable-function-references emits
+                // funcref segments in this form. Each expr is either
+                // `ref.func F; end` (0xD2 LEB128(F) 0x0B) or
+                // `ref.null funcref; end` (0xD0 0x70 0x0B); the
+                // latter resolves to the spec null sentinel via
+                // `funcidxs` carrying `std.math.maxInt(u32)`.
+                const expr_start = pos;
+                while (pos < body.len and body[pos] != 0x0B) pos += 1;
+                if (pos >= body.len) return Error.UnexpectedEnd;
+                pos += 1;
+                const expr = body[expr_start..pos];
+                const n = try leb128.readUleb128(u32, body, &pos);
+                const funcs = try alloc.alloc(u32, n);
+                for (funcs) |*f| f.* = try readFuncrefInitExpr(body, &pos);
+                e.* = .{
+                    .kind = .active,
+                    .tableidx = 0,
+                    .offset_expr = expr,
+                    .elem_type = .funcref,
+                    .funcidxs = funcs,
+                };
+            },
+            else => return Error.InvalidFunctype, // 2/5-7 deferred
         }
     }
 
     if (pos != body.len) return Error.TrailingBytes;
     return .{ .arena = arena, .items = items };
+}
+
+/// Decode one funcref init expression appearing in element-section
+/// form 4 / 6: either `ref.func F; end` (0xD2 LEB128(F) 0x0B) or
+/// `ref.null funcref; end` (0xD0 0x70 0x0B). Returns the funcidx
+/// or `std.math.maxInt(u32)` for null.
+fn readFuncrefInitExpr(body: []const u8, pos: *usize) Error!u32 {
+    if (pos.* >= body.len) return Error.UnexpectedEnd;
+    const op = body[pos.*];
+    pos.* += 1;
+    const idx: u32 = switch (op) {
+        0xD2 => try leb128.readUleb128(u32, body, pos),
+        0xD0 => blk: {
+            if (pos.* >= body.len) return Error.UnexpectedEnd;
+            if (body[pos.*] != 0x70) return Error.BadValType;
+            pos.* += 1;
+            break :blk std.math.maxInt(u32);
+        },
+        else => return Error.InvalidFunctype,
+    };
+    if (pos.* >= body.len) return Error.UnexpectedEnd;
+    if (body[pos.*] != 0x0B) return Error.InvalidFunctype;
+    pos.* += 1;
+    return idx;
 }
 
 fn readValType(body: []const u8, pos: *usize) Error!ValType {
