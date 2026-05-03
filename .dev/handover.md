@@ -19,56 +19,69 @@
 
 - **Phase**: **Phase 6 IN-PROGRESS** (v1 conformance baseline per
   ADR-0008 🔒).
-- **Last commit**: `251c493` — §9.6 / 6.1 chunk b: end-to-end
-  `test-realworld-run` runner; 39 PASS / 1 SKIP-WASI / 10
-  SKIP-VALIDATOR / 0 FAIL across the 50-fixture corpus on three
-  hosts.
-- **Next task**: §9.6 / 6.2 — differential gate (30+ realworld
-  samples match `wasmtime run` byte-for-byte stdout).
+- **Last commit**: `581bae0` — §9.6 / 6.2 chunk a: `diff_runner`
+  + `test-realworld-diff` step landed; **gate not yet achievable**
+  (0 matched / 39 mismatched today — v2 traps mid-execution
+  before fd_write). Not wired into `test-all` to keep build
+  green; run explicitly when working on closing the gap.
+- **Next task**: §9.6 / 6.6 — verifier CI hook (deferred from
+  5.5; independent of the execution-coverage blocker holding
+  6.2–6.5).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.6 / 6.2 (differential gate vs wasmtime stdout)
+## Active task — §9.6 / 6.6 (verifier CI hook)
 
-Per ROADMAP §9.6 exit criterion: 30+ realworld samples match
-`wasmtime run` byte-for-byte stdout (the ADR-0006 target,
-retargeted from §9.4 / 4.10).
+Wires `src/ir/verifier.verify` into the spec-runner so every
+function lowered during a `zig build test-spec` / `test-spec-
+wasm-2.0` / `test-realworld-run` invocation is checked against
+the §9.5 / 5.5 invariants (loop_info / liveness / branch_targets).
+Catches W54-class regressions in any analysis pass populated on
+ZirFunc.
 
 Plan:
 
-1. Detect `wasmtime` in PATH (skip cleanly when absent — keeps
-   the gate non-fatal for hosts that lack it; gate is real only
-   on hosts where wasmtime is installed).
-2. For each realworld fixture: `wasmtime run <fixture> >ref` and
-   `runWasmCaptured` → compare stdout byte-by-byte. SKIP fixtures
-   that produce no stdout (silent guests). The 30+ target counts
-   matched-non-empty-stdout pairs.
-3. Build step `test-realworld-diff` (or extend
-   `realworld_run_runner.zig` with a `--diff <ref-dir>` mode).
-   Wire into `test-all` only when `wasmtime` is detected at build
-   configure time; else skip.
-4. Three-host check: hosts without wasmtime print "0 diff'd /
-   skipped"; hosts with wasmtime must hit ≥30 matches.
+1. Locate the per-function lowering site in
+   `test/spec/runner.zig` and `test/spec/wast_runner.zig` (and
+   the realworld run runner via cli_run path).
+2. After lowering, populate `loop_info` (cheap; analysis already
+   exists) AND call `verifier.verify(&func)`. On error, print
+   the failed invariant + fixture name; exit non-zero.
+3. Liveness + const_prop are NOT populated by default (their
+   analyses can fail on control-flow modules per their
+   "out-of-scope" note); only `loop_info` is universally safe to
+   populate so the verifier has something to check.
+4. Three-host `zig build test-all` per usual.
 
-Phase-6 follow-ups in order: 6.3 ClojureWasm guest end-to-end /
-6.4 bench baseline / 6.5 A13 merge gate / 6.6 verifier CI hook /
-6.7 boundary audit / 6.8 phase tracker.
+Phase-6 outstanding (blocked on v2 execution coverage — none of
+these can honestly close until v2 runs realworld fixtures
+cleanly enough for stdout to match wasmtime):
 
-Carry-overs from §9.5 still queued (no consumer yet):
+| #   | Description                                              | Blocker            |
+|-----|----------------------------------------------------------|--------------------|
+| 6.2 | wasmtime stdout differential (30+ matches)               | v2 trap mid-exec   |
+| 6.3 | ClojureWasm guest end-to-end                             | same as 6.2        |
+| 6.4 | `bench/baseline_v1_regression.yaml` interp wall-clock    | needs cleanly-running fixtures |
+| 6.5 | A13 (v1 regression suite stays green) merge gate         | meta-gate over 6.0 + 6.1 (both done) — possibly closeable |
+
+Per the carry-over queue in handover, the validator + dispatch
+gaps surfaced by 6.1 chunk b (10 SKIP-VALIDATOR fixtures, plus
+the trap-mid-exec on the other 39) are real Phase-6 refinement
+work but no single fix unblocks the gate. The §9.6 / 6.7 boundary
+audit will reassess once 6.6 lands.
+
+Carry-overs from §9.5:
 - `no_hidden_allocations` zlinter re-evaluation (ADR-0009).
 - Per-feature handler split for validator.zig (with §9.1 / 1.7).
 - Liveness control-flow + memory-op coverage (Phase-7 regalloc).
 - Const-prop per-block analysis (Phase-15 hoisting).
 - `src/frontend/sections.zig` (1073 lines) soft-cap split.
 
-Carry-overs from Phase 6 so far:
+Carry-overs from Phase 6:
 - `br-table-fuzzbug` v1 regression — multi-param `loop` block
-  validator gap (re-add to `regen_v1_carry_over.sh` NAMES when
-  the gap closes; surfaced by §9.6 / 6.0).
-- 10 realworld validator-gap fixtures (mostly Go + cpp_unique_ptr;
-  surfaced by §9.6 / 6.1 chunk b SKIP-VALIDATOR bucket). Each
-  is a per-function typing rule v2 hasn't taught yet — Phase-6
-  refinement opportunity, not a §9.6 exit-criterion blocker.
+  validator gap (re-add to NAMES when gap closes).
+- 10 realworld SKIP-VALIDATOR fixtures (Go + cpp_unique_ptr).
+- 39 realworld trap-mid-execution fixtures — root cause TBD.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
