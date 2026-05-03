@@ -300,6 +300,59 @@ fn takeFile(rest: []const u8) []const u8 {
     return it.next() orelse "";
 }
 
+/// Split a directive's argument list into tokens. Whitespace
+/// (space / tab) is the separator, except inside double-quoted
+/// strings which arrive verbatim as a single token. Backslash
+/// escapes `\"` and `\\` inside the quotes. Returned slices live
+/// on `a`; the outer slice is owned by the caller.
+fn splitTokens(a: std.mem.Allocator, line: []const u8) ![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    errdefer out.deinit(a);
+    var i: usize = 0;
+    while (i < line.len) {
+        while (i < line.len and (line[i] == ' ' or line[i] == '\t')) i += 1;
+        if (i >= line.len) break;
+        if (line[i] == '"') {
+            i += 1;
+            const start = i;
+            var has_escape = false;
+            // First pass: detect escapes so the no-escape path is
+            // zero-copy (returns a borrow into the original line).
+            var j = i;
+            while (j < line.len and line[j] != '"') {
+                if (line[j] == '\\' and j + 1 < line.len) {
+                    has_escape = true;
+                    j += 2;
+                } else j += 1;
+            }
+            if (!has_escape) {
+                try out.append(a, line[start..j]);
+            } else {
+                var buf: std.ArrayList(u8) = .empty;
+                errdefer buf.deinit(a);
+                var k = i;
+                while (k < line.len and line[k] != '"') {
+                    if (line[k] == '\\' and k + 1 < line.len) {
+                        try buf.append(a, line[k + 1]);
+                        k += 2;
+                    } else {
+                        try buf.append(a, line[k]);
+                        k += 1;
+                    }
+                }
+                try out.append(a, try buf.toOwnedSlice(a));
+            }
+            i = j;
+            if (i < line.len) i += 1; // consume closing "
+        } else {
+            const start = i;
+            while (i < line.len and line[i] != ' ' and line[i] != '\t') i += 1;
+            try out.append(a, line[start..i]);
+        }
+    }
+    return out.toOwnedSlice(a);
+}
+
 fn handleValidMalformedInvalid(
     ctx: *RunnerContext,
     dir: *std.Io.Dir,
@@ -606,16 +659,17 @@ fn handleAssertReturn(
     const left = std.mem.trim(u8, rest[0..arrow], " \t");
     const right = std.mem.trim(u8, rest[arrow + 2 ..], " \t");
 
-    var left_it = std.mem.tokenizeScalar(u8, left, ' ');
-    const export_name = left_it.next() orelse {
+    const a = ctx.alloc();
+    const left_tokens = try splitTokens(a, left);
+    if (left_tokens.len == 0) {
         try stdout.print("FAIL  {s}: assert_return missing export name\n", .{corpus_name});
         return false;
-    };
+    }
+    const export_name = left_tokens[0];
 
-    const a = ctx.alloc();
     var args: std.ArrayList(wasm_c_api.Val) = .empty;
     defer args.deinit(a);
-    while (left_it.next()) |arg_tok| {
+    for (left_tokens[1..]) |arg_tok| {
         const v = parseValue(arg_tok) catch |err| {
             try stdout.print("FAIL  {s}: assert_return bad arg '{s}': {s}\n", .{ corpus_name, arg_tok, @errorName(err) });
             return false;
@@ -626,8 +680,8 @@ fn handleAssertReturn(
     var expected: std.ArrayList(wasm_c_api.Val) = .empty;
     defer expected.deinit(a);
     if (right.len > 0) {
-        var right_it = std.mem.tokenizeScalar(u8, right, ' ');
-        while (right_it.next()) |exp_tok| {
+        const right_tokens = try splitTokens(a, right);
+        for (right_tokens) |exp_tok| {
             const v = parseValue(exp_tok) catch |err| {
                 try stdout.print("FAIL  {s}: assert_return bad expected '{s}': {s}\n", .{ corpus_name, exp_tok, @errorName(err) });
                 return false;
@@ -673,16 +727,17 @@ fn handleAssertTrap(
     const bang = std.mem.find(u8, rest, "!!") orelse rest.len;
     const left = std.mem.trim(u8, rest[0..bang], " \t");
 
-    var left_it = std.mem.tokenizeScalar(u8, left, ' ');
-    const export_name = left_it.next() orelse {
+    const a = ctx.alloc();
+    const left_tokens = try splitTokens(a, left);
+    if (left_tokens.len == 0) {
         try stdout.print("FAIL  {s}: assert_trap missing export name\n", .{corpus_name});
         return false;
-    };
+    }
+    const export_name = left_tokens[0];
 
-    const a = ctx.alloc();
     var args: std.ArrayList(wasm_c_api.Val) = .empty;
     defer args.deinit(a);
-    while (left_it.next()) |arg_tok| {
+    for (left_tokens[1..]) |arg_tok| {
         const v = parseValue(arg_tok) catch |err| {
             try stdout.print("FAIL  {s}: assert_trap bad arg '{s}': {s}\n", .{ corpus_name, arg_tok, @errorName(err) });
             return false;
@@ -759,16 +814,17 @@ fn handleInvoke(
     stdout: *std.Io.Writer,
     corpus_name: []const u8,
 ) !bool {
-    var tok_it = std.mem.tokenizeScalar(u8, rest, ' ');
-    const export_name = tok_it.next() orelse {
+    const a = ctx.alloc();
+    const tokens = try splitTokens(a, rest);
+    if (tokens.len == 0) {
         try stdout.print("FAIL  {s}: invoke missing export name\n", .{corpus_name});
         return false;
-    };
+    }
+    const export_name = tokens[0];
 
-    const a = ctx.alloc();
     var args: std.ArrayList(wasm_c_api.Val) = .empty;
     defer args.deinit(a);
-    while (tok_it.next()) |arg_tok| {
+    for (tokens[1..]) |arg_tok| {
         const v = parseValue(arg_tok) catch |err| {
             try stdout.print("FAIL  {s}: invoke bad arg '{s}': {s}\n", .{ corpus_name, arg_tok, @errorName(err) });
             return false;

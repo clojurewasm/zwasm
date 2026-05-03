@@ -1,8 +1,8 @@
 module memory-copy.0.wasm
-assert_return is hello? i32:1000 -> i32:1
-assert_return is olleh? i32:2000 -> i32:1
-assert_return is hello? i32:500 -> i32:1
-assert_return is hello? i32:1500 -> i32:1
-assert_return is olleh? i32:1998 -> i32:1
-assert_return is olleh? i32:2000 -> i32:1
-assert_return is olleh? i32:2000 -> i32:1
+assert_return "is hello?" i32:1000 -> i32:1
+assert_return "is olleh?" i32:2000 -> i32:1
+assert_return "is hello?" i32:500 -> i32:1
+assert_return "is hello?" i32:1500 -> i32:1
+assert_return "is olleh?" i32:1998 -> i32:1
+assert_return "is olleh?" i32:2000 -> i32:1
+assert_return "is olleh?" i32:2000 -> i32:1

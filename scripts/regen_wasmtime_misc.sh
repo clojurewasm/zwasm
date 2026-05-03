@@ -161,6 +161,15 @@ def encode_args(values):
     out.append(e)
   return out
 
+def quote_field(field):
+  # The runtime runner tokenises directives by whitespace, so any
+  # export name carrying a space (`is hello?`, etc.) must be wrapped
+  # in double quotes. Embedded double quotes are escaped with a
+  # backslash; the runner's token reader unescapes them.
+  if any(c in field for c in ' \t"'):
+    return '"' + field.replace('\\', '\\\\').replace('"', '\\"') + '"'
+  return field
+
 for c in d['commands']:
   t = c.get('type')
   if t == 'module':
@@ -179,7 +188,7 @@ for c in d['commands']:
     if args is None or expected is None:
       continue
     field = act.get('field', '')
-    rt_line = 'assert_return ' + field
+    rt_line = 'assert_return ' + quote_field(field)
     if args:
       rt_line += ' ' + ' '.join(args)
     rt_line += ' -> ' + (' '.join(expected) if expected else '')
@@ -191,7 +200,7 @@ for c in d['commands']:
     args = encode_args(act.get('args'))
     if args is None:
       continue
-    field = act.get('field', '')
+    field = quote_field(act.get('field', ''))
     # Map wast2json's spec-text trap message to the v2 c_api
     # TrapKind tag the runner expects. Names are the v2-side
     # tag names (see test/runners/wast_runtime_runner.zig
