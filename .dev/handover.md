@@ -21,47 +21,162 @@
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D + 6.K.1 + 6.K.2 done;
-  6.K.3〜6.K.6 + 6.E + 6.F〜6.J pending).
-- **Last source commit**: `e6e5c20` — feat(p6) §9.6 / 6.K.2 single-
-  allocator Runtime + Instance back-ref + drop `memory_borrowed`.
-  Three-host green. `test-wasmtime-misc-runtime` 242/29 byte-
-  identical to baseline. partial-init-memory-segment 9/9 PASS
-  restored (the regression that surfaced Zig 0.16's
-  `Allocator.free` 0xAA-poisoning behaviour — see commit body).
-- **ADR-0014 (Accepted)**: redesign + refactoring sweep before
-  Phase 7. §9.6 / 6.K is the work-item block; no follow-up ADR.
-- **Open ADR drafts** (research delivered, awaiting write-up):
-  ADR-0015 = canonical debug toolkit (Nix flake + dbg.zig logger
-  + ASan + repro discipline) at `private/notes/debug-toolkit-survey.md`;
-  ADR-0016 = error diagnostic system (library + C boundary + CLI +
-  test runners) at `private/notes/error-system-survey.md`.
-  Trigger: 6.K.2 0xAA debug + `result[0] mismatch` runner UX.
-  Independent of 6.K funcref/ownership cascade. Land **before
-  6.K.3** so cross-module-import error surfaces start clean.
+  ADR-0015/0016 drafting next; then 6.K.3〜6.K.6 + 6.E + 6.F〜6.J).
+- **Last source commit**: `6b8981d` — feat(p6) debug toolkit
+  infrastructure pre-draft (dbg.zig env-gated logger, wasm-tools +
+  lldb in flake, private/dbg/_template/, demonstrator dbg.print at
+  c_api memory alloc). Three-host green. End-to-end verified:
+  ZWASM_DEBUG=c_api.alloc emits 21 dbg lines; unset emits 0.
+- **Pre-amble for next two cycles**: ADR-0015/0016 are non-TDD
+  cycles. Follow `## Autonomous loop override` below until both
+  ADRs are accepted, **then delete that block** (Step 7 of the
+  final ADR cycle removes the override; thereafter the standard
+  /continue TDD loop resumes for §9.6 / 6.K.3).
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — ADR-0015 / 0016 drafting (gate before §9.6 / 6.K.3)
+## Autonomous loop override — ADR drafting cycles (ADR-0015 then 0016)
 
-After 6.K.2's 0xAA hunt, two ADRs were queued for drafting based on
-research surveys (gitignored under `private/notes/`):
+> **DELETE this entire section** at the end of the ADR-0016 cycle's
+> Step 7 (after ADR-0016 lands and ROADMAP §9.6 / 6.K.8 is marked
+> [x]). The standard `/continue` TDD loop resumes for §9.6 / 6.K.3
+> from the next wakeup. Until then, every wakeup follows this
+> override instead of the skill's default Step 0–7.
 
-- **ADR-0015 — Canonical debug toolkit**: `dbg.zig` env-gated
-  logger (highest leverage, ~80 LoC), `-Dsanitize=address` Mac/
-  Linux opt-in, `private/dbg/<task>/` reproducer template,
-  `wasm-tools` added to `flake.nix`, `dsymutil` PATH note.
-  Outline already in survey §8.
-- **ADR-0016 — Error diagnostic system**: enum-driven Zig error
-  set + threadlocal `Diagnostic { kind, phase, location, message }`
-  payload (ClojureWasm-style hybrid). Recovers v1's
-  `formatWasmError` CLI parity (regression confirmed at
-  `src/cli/main.zig:58`). Unifies `interp.Trap` + `c_api.TrapKind`
-  duplicated enums. 5-phase migration path in survey §7.
-  **Q-A is the gating decision** (internal shape).
+### When to apply
 
-Sequence: draft ADR-0015 → ADR-0016 → land them as Phase 6.K-
-adjacent (numbering is fresh; ADR-0014's "no follow-up ADR"
-applied to funcref/ownership only, not debug/error UX). Then
-proceed to §9.6 / 6.K.3.
+Apply this override iff `Active task` (below) names an ADR draft.
+Skip and use the standard TDD loop iff `Active task` names a
+ROADMAP §9.6 row.
+
+### ADR drafting cycle — Step A through Step H
+
+#### Step A — Read the input survey
+
+Inputs (gitignored, already produced by background research agents):
+
+- ADR-0015: `private/notes/debug-toolkit-survey.md` (588 lines)
+- ADR-0016: `private/notes/error-system-survey.md` (873 lines)
+
+#### Step B — Draft the ADR
+
+Land at `.dev/decisions/<NNNN>_<slug>.md`. Follow
+`.dev/decisions/0000_template.md` — Status / Date / Author / Tags
+front-matter, then Context / Decision / Alternatives / Consequences
+/ References. Imperative-mood title.
+
+ADR shape constraints:
+
+- ADR-0015 must **retroactively cover commit `6b8981d`** (already
+  landed: dbg.zig + flake additions + private/dbg/_template/) and
+  scope the **remaining** work as new ROADMAP rows.
+- ADR-0016 phase-1 scope is **CLI parity recovery + Diagnostic
+  type definition only**. Full 5-phase migration is queued in the
+  ADR's "Migration path" section but **only phase 1 lands inside
+  Phase 6**. Phases 2–5 land alongside §9.6 close or pre-v0.1.0.
+- Both ADRs amend ROADMAP §9.6 to add a new row (6.K.7 for
+  ADR-0015's residual work; 6.K.8 for ADR-0016 phase-1
+  implementation). The ADR itself is the §18 cover for the
+  amendment — this is the chicken-and-egg resolution.
+
+#### Step C — Self-review (background subagent, blind context)
+
+Dispatch via `Agent` tool, `subagent_type=general-purpose`,
+`run_in_background=true`. Brief shape:
+
+> Critique the attached ADR draft (`.dev/decisions/<NNNN>_<slug>.md`)
+> from a blind reviewer's perspective. Inputs: the draft itself,
+> the source survey at `private/notes/<file>.md`, and the
+> ROADMAP/CLAUDE.md context the project is built on. Flag:
+> (1) decisions that aren't actually justified by the survey,
+> (2) Alternatives section gaps (decisions presented as obvious
+>     when there are real competing options),
+> (3) Consequences gaps (cost / migration risk under-stated),
+> (4) ROADMAP §2 P/A or §14 forbidden-list violations,
+> (5) front-matter / structure deviations from
+>     `.dev/decisions/0000_template.md`,
+> (6) "carry-over from v1 with minor renames" smell — cite which
+>     v1 file the draft seems to mirror, if any.
+> Return ranked findings (block / nit / suggestion). Under 400 lines.
+
+While the agent runs, work on *implementation* (Step E) only if it
+can be undone cheaply; otherwise wait. Don't proceed to Step F
+until Step C completes.
+
+#### Step D — Apply review feedback
+
+For each `block` finding: address before commit. For `nit`: address
+unless cosmetic. For `suggestion`: judge — apply if cheap, defer to
+a follow-up ADR if not. Re-run Step C only if a finding required
+substantial rewrite.
+
+#### Step E — Implementation (only if ADR mandates code now)
+
+For ADR-0015: extend commit `6b8981d` with whatever the ADR
+mandates (e.g., `-Dsanitize=address` build option,
+`zig build run-repro -Dtask=...` step, ROADMAP §9.6 / 6.K.7 row
+added inline). Use TDD shape: red test → minimal green → refactor
+→ Mac lint → three-host gate.
+
+For ADR-0016 phase 1: implement the Diagnostic type +
+`setDiag(...)` + `formatDiagnostic(...)` + CLI render parity at
+`src/cli/main.zig:58`. Use TDD shape; the red test is the v1
+parity check (e.g., a known-failing wasm should print
+"trap: out-of-bounds memory access" not "ModuleAllocFailed").
+
+#### Step F — Self-review the implementation diff
+
+If Step E ran, dispatch `pr-review-toolkit:code-reviewer`
+subagent (`run_in_background=true`) with the diff and the ADR
+text. Brief: review for adherence to the ADR's Decision section,
+Zone discipline, ADR-0014 invariants, ROADMAP §14 forbidden list,
+v1 copy-paste smell. Apply feedback the same way as Step D.
+
+#### Step G — Commit + push
+
+Commit the ADR + any implementation in one commit (or two if
+chunkier — ADR commit then implementation commit, but both pushed
+together). Reference the ADR in the commit message.
+
+#### Step H — Handover update + re-arm
+
+1. Mark the just-finished ADR's row done in the table below
+   (`[x] <sha>`).
+2. If the next row is the other ADR: keep this section, update
+   `Active task` below.
+3. If both ADRs are done: **delete this entire `## Autonomous loop
+   override` section AND the `## Active task — ADR cycle` section
+   below**, replacing them with a fresh standard `## Active task`
+   section pointing at §9.6 / 6.K.3. The next wakeup will run the
+   standard TDD loop.
+4. `git push origin zwasm-from-scratch`.
+5. `ScheduleWakeup` re-arm (60–270s if cache warm, 1200s if a
+   long subagent is in flight).
+
+### Stop conditions specific to ADR cycles
+
+In addition to the skill's bucket-1 (user intervention) and
+bucket-2 (genuinely unsolvable):
+
+- **Stop if Step C self-review returns a `block` finding that
+  conflicts with ROADMAP §2 (P/A) or §14**. File the conflict in
+  `Open questions / blockers` below. Do not autonomously override
+  the ADR's design vs ROADMAP — that's user-judgment territory.
+- **Stop if Step F self-review returns a `block` that needs an
+  ADR-grade redesign**. Same handling.
+
+## Active task — ADR-0015 (canonical debug toolkit)
+
+Cycle order:
+
+| #         | What                                                                                  | Status         |
+|-----------|---------------------------------------------------------------------------------------|----------------|
+| ADR-0015  | Canonical debug toolkit (cover for `6b8981d` + residual work)                         | [ ] **NEXT**   |
+| ADR-0016  | Error diagnostic system (Diagnostic type + CLI parity, phase 1 only)                  | [ ]            |
+
+Once both [x], delete this section + override and resume standard
+TDD on §9.6 / 6.K.3.
+
+### ROADMAP §9.6 — task table snapshot (for reference; authoritative table is `.dev/ROADMAP.md`)
 
 | #     | Description                                                                          | Status         |
 |-------|--------------------------------------------------------------------------------------|----------------|
@@ -71,17 +186,11 @@ proceed to §9.6 / 6.K.3.
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [ ]            |
 | 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [ ]            |
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ]            |
+| 6.K.7 | (added by ADR-0015 — debug toolkit residual work)                                    | [ ] (pending ADR-0015) |
+| 6.K.8 | (added by ADR-0016 — Diagnostic type + CLI parity phase 1)                           | [ ] (pending ADR-0016) |
 
-After 6.K all-`[x]`, 6.E re-measures (the 29 fails flow through),
-then 6.F / 6.G / 6.H, with 6.I in parallel, then 6.J strict close.
-
-Per-row TDD loop unchanged (Step 0 Survey → Plan → Red → Green →
-Refactor → three-host test gate → source commit → handover +
-push + re-arm). Per ROADMAP §9.6 / 6.J the close is **strict 100%
-PASS**; the only permitted defer is a v1-era design-dependent
-fixture documented in `.dev/decisions/skip_<fixture>.md` AND
-physically removed / `# DEFER:`-marked from the active manifest so
-the runner's tally is genuinely zero.
+After 6.K all-`[x]`, 6.E re-measures (29 fails flow through),
+then 6.F / 6.G / 6.H, 6.I parallel, then 6.J strict close.
 
 ## Phase 6 close → Phase 7 (JIT v1 ARM64) — direct transition
 
