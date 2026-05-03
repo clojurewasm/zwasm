@@ -177,24 +177,62 @@ reflects the same lesson.
     skill always runs on Mac native first.
 
 - **Neutral / follow-ups**:
-  - **Phase B** — widen the rule set. Recommended candidates from
-    the spike (in priority order, by signal-to-noise): `no_deprecated`
-    (already on), `no_hidden_allocations`, `no_inferred_error_unions`,
-    `no_undefined`, `no_orelse_unreachable`, `no_swallow_error`,
-    `no_empty_block`, `no_unused`, `require_exhaustive_enum_switch`.
-    Each lands as one commit (rule on + every finding fixed).
-  - **Phase C** — case-by-case judgment for `function_naming`,
-    `field_naming`, `import_ordering`, `max_positional_args` (low
-    finding count; review and decide per rule).
-  - **Excluded** for the foreseeable future: `declaration_naming`
-    (1026 findings, conflicts with math/short-name conventions),
-    `field_ordering` (alphabetical-only rule), `require_doc_comment`
-    (cannot express "pub + non-self-evident"), `no_literal_args`
-    (low-level code uses constants).
+  - **Phase B** — widen the rule set. Candidates surveyed; outcome
+    in the Update section below.
+  - **Phase C** — case-by-case judgment for the remaining low-
+    finding rules; outcome in the Update section below.
   - **Sunset path**: when `@deprecated()` and `-fdeprecated` ship
     in Zig (likely 0.17+), revisit this ADR. Native compiler
     enforcement may obsolete the zlinter dependency entirely.
+    Tracked via `.dev/proposal_watch.md` (entry: ziglang/zig#22822)
+    so the quarterly watch refresh fires the re-eval.
+  - **Re-eval `no_hidden_allocations`** after §9.5 / 5.0 chunk e
+    closes (the `wasm_c_api.zig` carve-out completes). All 13
+    Phase-A hits were in the monolithic file; per-zone exclusion
+    becomes clean once split. Tracked in `.dev/handover.md` Active
+    task watch line.
   - `zig-pkg/` (zlinter's package cache) is added to `.gitignore`.
+
+## Update — 2026-05-03 (Phase B + C outcome, commit `1b5732b`)
+
+The candidate set in the original ADR has been walked one rule at
+a time. **Final adopted set: 5 rules** (`no_deprecated` from
+Phase A + 4 added in Phase B):
+
+| Rule                              | Phase | Notes                                                 |
+|-----------------------------------|-------|-------------------------------------------------------|
+| `no_deprecated`                   | A     | Original adoption.                                    |
+| `no_orelse_unreachable`           | B     | 6 fixes: `x orelse unreachable` → `x.?`               |
+| `no_empty_block`                  | B     | 6 fixes: added intent-comments inside empty bodies    |
+| `require_exhaustive_enum_switch`  | B     | 2 fixes: explicit tag enumeration over `else =>`      |
+| `no_unused`                       | B     | 2 fixes: deleted dead `const` import + dead helper    |
+
+**Inspected and not-adopted** (with reason — full per-rule
+rationale in `private/zlinter-builtins-survey-2026-05-03.md`):
+
+- `no_hidden_allocations` — 13 hits all in C ABI; pinned to
+  `c_allocator` per ADR-0007. Re-eval after §9.5 / 5.0 chunk e.
+- `no_inferred_error_unions` — flags canonical `pub fn main(init:
+  Init) !void`; explicit error sets re-introduce W54 Implicit
+  Contract Sprawl.
+- `no_undefined` — flags fixed-size operand / control / frame
+  buffers (canonical Zig idiom; bookkeeping guarantees no read-
+  before-write).
+- `no_swallow_error` — Zig 0.16 forbids both `catch |_| {}` and
+  `catch |err| { _ = err; }`; only `catch {}` compiles, which is
+  exactly what zlinter flags. Mutually unsatisfiable with the
+  compiler.
+- `function_naming` — 36 hits all `wasm_*` upstream `wasm.h` ABI
+  symbols (ADR-0004 pin).
+- `field_naming` — WASI `.in` / `.out`, ZirOp `.i32` /
+  `memory.atomic.notify` are spec-derived (P1 fidelity).
+- `import_ordering` — project uses logical grouping
+  (std → local → dependent), not alphabetical.
+- `max_positional_args` — WASI thunks mirror the WASI ABI (e.g.
+  `fdWrite` has 6 args by spec).
+
+Lint runtime stays sub-second on Mac aarch64. The Phase A "Mac-
+only" / "not in test-all" decisions stand.
 
 ## References
 

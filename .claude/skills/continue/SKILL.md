@@ -103,87 +103,14 @@ Out of scope (still ask the user / stop):
 - `git push --force` / `--force-with-lease` — denied; main push
   forbidden by §14.
 
-## Push policy — autonomous, no approval
+## Loop mechanics — see `LOOP.md`
 
-`git push origin zwasm-from-scratch` does **not** require user
-approval inside this skill. The loop pushes its own commits.
-Specifically:
-
-- Every commit lands on the local `zwasm-from-scratch` branch via
-  the per-task TDD loop (Step 6).
-- Push happens at one of two points, whichever comes first:
-  - End of a Step 5 cycle when `windowsmini` is the only host
-    blocking and the script needs `origin` to be current. Push,
-    re-run `bash scripts/run_remote_windows.sh`, evaluate gate.
-  - End of every Step 7, after `[x]` flip + handover update —
-    push so the gone-from-local risk is bounded by one task.
-- Push is **never to `main`** and **never `--force`**. If a
-  non-fast-forward error is raised, stop and surface to the user
-  (this is bucket 2 of the stop whitelist — unsolvable without
-  user input on history rewriting).
-- `--no-verify`, `--no-gpg-sign`, and any pre-commit / pre-push
-  hook bypass remain forbidden (ROADMAP §14).
-
-This overrides the "explicit user approval" wording elsewhere; that
-wording exists to forbid drive-by pushes outside this loop, not to
-gate the loop itself.
-
-## Self-perpetuation — overnight loop
-
-After every Step 7 commit lands and is pushed, the very last action
-of the turn is to schedule the next iteration so the loop survives
-without a fresh user message. **This is mandatory** — skipping it
-silently re-introduces user-babysitting.
-
-Use `ScheduleWakeup`:
-
-```
-ScheduleWakeup(
-  delaySeconds = 60,
-  reason = "loop iteration <task-id> committed; re-arming for next task",
-  prompt = "/continue"
-)
-```
-
-`prompt = "/continue"` re-fires this skill from the resume
-procedure on the next wakeup. (Do **not** pass
-`<<autonomous-loop-dynamic>>` — that sentinel is for `/loop`
-invocations started without any user prompt; this loop began
-with the user's `/continue` and must be re-invoked the same
-way.)
-
-`ScheduleWakeup` is a deferred tool. On the first iteration of
-a fresh session, load its schema via
-`ToolSearch(query="select:ScheduleWakeup", max_results=1)` once
-before the first call; subsequent calls in the same session do
-not need re-loading. Pick `delaySeconds` per the cache-window
-rule:
-
-- **60–270s** when work is actively flowing — Step 5 finished
-  green, Step 6 + 7 just landed, and the next task is small. Keeps
-  the prompt cache warm.
-- **1200–1800s** when a long subagent / build / audit was just
-  kicked off in the background and you need to wait for it.
-- Never choose 300s — pay the cache miss properly or stay under
-  it.
-
-If the user replies between iterations, that is automatic
-intervention — the wakeup is consumed by the new turn and the
-loop naturally resets to whatever the user said.
-
-If a `ScheduleWakeup` call would be the second one of the same
-turn (only one wakeup per turn is honoured), update the existing
-one with `ScheduleWakeup` again instead of stacking.
-
-End-of-turn checklist (every turn that ends with the task closed):
-
-1. Step 6 commit landed.
-2. Step 7 handover update + ROADMAP `[x]` flip committed.
-3. `git push` succeeded.
-4. `ScheduleWakeup` armed for the next iteration.
-5. Final user-facing text is **one sentence** stating what just
-   landed and what fires next. Do not write a long progress
-   summary — it invites pause.
+The two policy sections that govern the autonomous loop —
+**Push policy** (when / how `git push` happens without user
+approval) and **Self-perpetuation** (the `ScheduleWakeup` re-arm
+contract) — live in the sibling file `LOOP.md`. Read it once
+per session at the top of the resume procedure; it does not
+change between iterations.
 
 ## Resume procedure (run on every session pickup)
 
@@ -256,8 +183,22 @@ styles. The prohibition on copy-paste from v1 is in
 
 ### Step 1 — Plan
 
+Re-open `.dev/ROADMAP.md` §9.<N> task table and confirm the first
+`[ ]` row is still the one in `.dev/handover.md` Active task. If
+they disagree (someone — user or a prior loop iteration —
+re-prioritised between turns), trust ROADMAP and update handover;
+do not silently follow the stale handover.
+
 One sentence in chat: the smallest red test that captures the next
 behaviour. No permission needed.
+
+**Deviation watch.** If your Plan would touch §1, §2 (P/A), §4
+(architecture / Zone / ZirOp), §5 (layout), §9 phase scope or
+exit criteria, §11 layers, or §14 forbidden list — STOP. Write
+`.dev/decisions/NNNN_<slug>.md` first per ROADMAP §18.2, then
+return to Step 2. Discovering the deviation at Step 7 (commit
+time) is too late — Step 7's §18 self-check exists as a backstop,
+not as the primary checkpoint.
 
 ### Step 2 — Red
 
@@ -331,10 +272,20 @@ Never `git commit --no-verify` (forbidden by ROADMAP §14).
 
 ### Step 7 — Handover update + push + re-arm
 
-1. Update `.dev/handover.md` to reflect the just-completed task
-   and the next one (1-2 lines + retrievable identifiers). This
-   is the only mandatory documentation step — zwasm v2 does not
-   maintain the per-task / per-concept chapter cadence (P9).
+1. **Replace** (do not append to) `.dev/handover.md`'s `Current
+   state` block + `Active task` table:
+   - `Current state`: 5 lines max — Phase, last commit SHA + one-
+     line gist, next task id. **Delete** any per-task prose older
+     than the active task (it's already in `git log --grep="§9.<N>
+     / N.M"`, the canonical lookup; do not duplicate).
+   - `Active task`: refresh the chunk progress table (or
+     equivalent) so the **next** chunk is marked `**NEXT**`.
+   - Keep the whole file ≤ 100 lines. Anything stable across
+     phases (file shape, skill catalogue, layout) belongs in
+     `CLAUDE.md` or the relevant skill / rule file, not here.
+
+   This is the only mandatory documentation step — zwasm v2 does
+   not maintain the per-task / per-concept chapter cadence (P9).
 2. Mark `[x]` for the just-completed task in ROADMAP §9.<N>.
    Leave the Status column SHA blank (`[x]`) — the SHA pointer
    is **batch-backfilled at phase close**. The commit message

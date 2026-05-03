@@ -250,6 +250,25 @@ if (cond) {
 }
 ```
 
+## Cross-platform footgun: `STDIN_FILENO` on Windows
+
+`std.posix.STDIN_FILENO` (and `STDOUT_FILENO` / `STDERR_FILENO`)
+falls back to `else => 0` (a `comptime_int`) on every non-Linux
+target — NOT a `fd_t`-typed constant. On Windows,
+`fd_t = HANDLE = *anyopaque`, so passing `STDIN_FILENO` (or any
+int literal) where a `fd_t` is expected fails to compile with
+`expected '*anyopaque', found 'comptime_int'`.
+
+For tests that need a placeholder fd, use:
+
+```zig
+const fd: std.posix.fd_t = undefined;     // adapts to both shapes
+```
+
+`undefined` is the only literal whose type adapts to both
+POSIX-int and Windows-HANDLE shapes. Real fd values for production
+paths come from `std.fs.File.handle` etc.
+
 ## Variable shadowing
 
 Zig disallows locals that shadow struct method names. Rename the local.

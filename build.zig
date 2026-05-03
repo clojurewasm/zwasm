@@ -1,4 +1,8 @@
 const std = @import("std");
+// TODO(adr-0009): drop zlinter dep when Zig ships @deprecated()
+// builtin + -fdeprecated flag (ziglang/zig#22822, accepted on
+// urgent milestone, expected 0.17+). Tracked in
+// .dev/proposal_watch.md.
 const zlinter = @import("zlinter");
 
 pub fn build(b: *std.Build) void {

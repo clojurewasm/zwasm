@@ -49,7 +49,7 @@ Plus v1 parity items at Phase 5:
 | Wide arithmetic (i64x2 mul, ADC) | BigInt-relevant       | Phase 9 alongside SIMD (v0.1.0) |
 | Stack switching (continuations)  | Large; gates WASI 0.3 | v0.2.0+                         |
 | Compact import section           | Size opt              | v0.2.0+                         |
-| Custom page sizes                | memory tuning         | Phase 10 (v0.1.0)                |
+| Custom page sizes                | memory tuning         | Phase 10 (v0.1.0)               |
 | Custom Descriptors / JS Interop  | JS-only               | **SKIP**                        |
 
 ## Phase 2 — Proposed (watch only)
@@ -77,8 +77,16 @@ Text Encoding Builtins` (skip).
 | 0.2 (preview2) | post-v0.1.0   | Component Model required                |
 | 0.3            | post-v0.1.0   | async / streams; needs stack-switching  |
 
+## Toolchain proposals (non-Wasm; trigger zwasm scaffolding changes)
+
+| Proposal                                     | Status                                | Trigger                                                                                                                                       |
+|----------------------------------------------|---------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| Zig `@deprecated()` builtin + `-fdeprecated` | ziglang/zig#22822 — accepted, urgent | When this lands (likely 0.17+), revisit ADR-0009 — native compiler enforcement may obsolete the zlinter `no_deprecated` dependency entirely. |
+
 ## Review log
 
 - **2026-04-30** — initial table seeded from zwasm v1's
   `.dev/proposal-watch.md` and the pre-skeleton survey at
   `~/zwasm/private/v2-investigation/surveys/wasm-proposal-status.md`.
+- **2026-05-03** — added "Toolchain proposals" section tracking
+  ziglang/zig#22822 as the ADR-0009 sunset trigger.

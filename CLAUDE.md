@@ -149,6 +149,24 @@ bench/       benchmark history (append-only)
 private/     gitignored agent scratch
 ```
 
+### Key file shape (load-bearing — stable across phases)
+
+- **Frontend** (`src/frontend/`): `parser.zig` → `sections.zig`
+  decoders (type / function / code / import / global / table /
+  data / element) → `validator.zig` (full Wasm 1.0 + 2.0 ops,
+  single-result blocks, traps, table indirection) →
+  `lowerer.zig` (ZIR emit). All zone-clean.
+- **IR** (`src/ir/`): `zir.zig` (ZirOp catalogue + FuncType +
+  TableEntry + ZirInstr) + `dispatch_table.zig` (per-op slots).
+- **Interp** (`src/interp/`): `mod.zig` (Runtime + Value + Trap +
+  frames + tables / datas / elems / module_types) + `dispatch.zig`
+  (run loop) + `mvp.zig` + `memory_ops.zig` + `trap_audit.zig` +
+  `ext_2_0/{sign_ext, sat_trunc, bulk_memory, ref_types, table_ops}.zig`.
+- **Test surface** (`test/`): `spec/runner.zig` (wasm-1.0 curated),
+  `spec/wast_runner.zig` (wasm-2.0 manifest-driven),
+  `realworld/runner.zig` (toolchain wasms parse smoke),
+  `wasi/runner.zig` (WASI fixtures — ADR-0006 expansion ahead).
+
 ## Build & test
 
 ```sh
