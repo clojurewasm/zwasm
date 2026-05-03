@@ -758,7 +758,8 @@ fn handleAssertReturn(
         return false;
     };
     if (result.trapped) {
-        try stdout.print("FAIL  {s}/{s} (assert_return) — trapped unexpectedly\n", .{ corpus_name, export_name });
+        const k: []const u8 = if (result.trap_kind) |kk| trapKindName(kk) else "<unknown>";
+        try stdout.print("FAIL  {s}/{s} (assert_return) — trapped unexpectedly (kind={s})\n", .{ corpus_name, export_name, k });
         return false;
     }
 

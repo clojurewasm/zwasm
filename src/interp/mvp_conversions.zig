@@ -280,6 +280,19 @@ test "i32.trunc_f64_s: out of range traps IntOverflow" {
     try testing.expectError(Trap.IntOverflow, driveOne(&rt, &t, .@"i32.trunc_f64_s", 0, 0));
 }
 
+test "i32.trunc_f64_u: 2^31 must not trap (issue4840)" {
+    // The wasmtime issue4840 fixture exercises this exact value.
+    // It is in-range for u32 (well below 2^32) and used to trip
+    // a too-strict bound check.
+    var t = DispatchTable.init();
+    mvp.register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushOperand(.{ .f64 = 2147483648.0 });
+    try driveOne(&rt, &t, .@"i32.trunc_f64_u", 0, 0);
+    try testing.expectEqual(@as(u32, 2147483648), rt.popOperand().u32);
+}
+
 test "i32.trunc_f32_u: -0.5 truncates to 0" {
     // Wasm spec: trunc_*_u accepts inputs in (-1, max+1) range.
     var t = DispatchTable.init();
