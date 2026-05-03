@@ -148,6 +148,28 @@ pub fn build(b: *std.Build) void {
     const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
     test_realworld_step.dependOn(&run_realworld.step);
 
+    // `zig build test-realworld-run` — Phase 6 / §9.6 / 6.1
+    // chunk b. Drives each fixture through `cli_run.runWasm`
+    // end-to-end (engine → store → WASI → instantiate → entry
+    // → wasm_func_call). Outcome categories: PASS / SKIP-WASI /
+    // SKIP-NOENTRY / FAIL. The gate trips only on FAIL —
+    // SKIP-WASI counts but is orthogonal to interp-op coverage.
+    const realworld_run_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/realworld/run_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    realworld_run_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    const realworld_run_runner_exe = b.addExecutable(.{
+        .name = "zwasm-realworld-run-runner",
+        .root_module = realworld_run_runner_mod,
+    });
+    const run_realworld_run = b.addRunArtifact(realworld_run_runner_exe);
+    run_realworld_run.addArg(b.pathFromRoot("test/realworld/wasm"));
+    const test_realworld_run_step = b.step("test-realworld-run", "Run each realworld fixture end-to-end via cli_run.runWasm");
+    test_realworld_run_step.dependOn(&run_realworld_run.step);
+
     // `zig build test-wasi-p1` — Phase 4 / §9.4 / 4.9. Walks
     // `test/wasi/` driving each .wasm fixture through
     // `cli_run.runWasm`, comparing the exit code against the
@@ -220,6 +242,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_spec_smoke.step);
     test_all_step.dependOn(&run_spec_mvp.step);
     test_all_step.dependOn(&run_realworld.step);
+    test_all_step.dependOn(&run_realworld_run.step);
     test_all_step.dependOn(&run_wast_2_0.step);
     test_all_step.dependOn(&run_v1_carry_over.step);
     test_all_step.dependOn(&run_c_host.step);
