@@ -1,4 +1,5 @@
-module partial-init-memory-segment.0.wasm
+module partial-init-memory-segment.0.wasm as $m
+register m from $m
 assert_return load i32:0 -> i32:97
 assert_return load i32:1 -> i32:98
 assert_return load i32:2 -> i32:99

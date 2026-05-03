@@ -191,10 +191,12 @@ pub const ExternKind = enum(u8) {
 };
 
 /// `wasm_extern_t` — opaque-from-C handle for an exported /
-/// imported runtime entity. v0.1.0 wires only the `func`
-/// variant (the only one the interp dispatch path needs);
-/// global / table / memory variants land alongside their
-/// dispatch ops in later phases.
+/// imported runtime entity. The func variant carries an owned
+/// `Func` handle; table / memory variants carry a pointer back
+/// to the source instance plus the export's index in the source
+/// module's index space, so the import wiring (§9.6 / 6.E iter
+/// 7) can share the underlying TableInstance / memory slice.
+/// global is declared but not yet wired through imports.
 pub const Extern = struct {
     kind: ExternKind,
     /// Back-pointer for allocator recovery in `wasm_extern_delete`.
@@ -203,7 +205,17 @@ pub const Extern = struct {
     /// hosts borrow via `wasm_extern_as_func` (no transfer of
     /// ownership) and must NOT call `wasm_func_delete` on the
     /// returned pointer; `wasm_extern_delete` releases it.
-    func: ?*Func,
+    func: ?*Func = null,
+    /// For kind = table: index into the source instance's
+    /// runtime table list. Only meaningful when `kind == .table`.
+    table_idx: u32 = 0,
+    /// For kind = memory: always references the source instance's
+    /// single linear memory (multi-memory unsupported pre-v0.2).
+    /// Only meaningful when `kind == .memory`.
+    memory_idx: u32 = 0,
+    /// For kind = global: index into the source instance's
+    /// runtime globals list. Only meaningful when `kind == .global`.
+    global_idx: u32 = 0,
 };
 
 // `ExternVec` lives in `src/c_api/vec.zig` after the §9.5 / 5.0
@@ -513,6 +525,7 @@ fn instantiateRuntime(
     bytes: []const u8,
     inst: *Instance,
     rt: *interp.Runtime,
+    imports: ?[*]const ?*const Extern,
 ) !void {
     const arena = try parent_alloc.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(parent_alloc);
@@ -522,38 +535,90 @@ fn instantiateRuntime(
     var module = try parser.parse(a, bytes);
     defer module.deinit(a);
 
-    // §9.4 / 4.7: import section. Validate every entry against
-    // the binding's supported set, count imported functions for
-    // the funcidx-space layout (imports first, then defined),
-    // and remember the decoded items for thunk wiring below.
+    // §9.4 / 4.7 + §9.6 / 6.E iter 7: import section. WASI imports
+    // (module = "wasi_snapshot_preview1") wire to the Store's
+    // configured WASI host. All other imports must be resolved by
+    // a host-supplied `imports[]` array — the runner builds this
+    // by looking up registered modules' exports. An import without
+    // a corresponding extern (or with the wrong kind) fails
+    // instantiation.
     var imports_decoded: ?sections.Imports = null;
     defer if (imports_decoded) |*im| im.deinit();
     if (module.find(.import)) |import_section| {
         imports_decoded = try sections.decodeImports(a, import_section.body);
-        for (imports_decoded.?.items) |it| {
-            if (!std.mem.eql(u8, it.module, "wasi_snapshot_preview1"))
-                return error.UnknownImportModule;
-            if (it.kind == .func) {
-                if (wasi.lookupWasiThunk(it.name) == null) return error.UnsupportedWasiImport;
+        for (imports_decoded.?.items, 0..) |it, idx| {
+            if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
+                if (it.kind == .func) {
+                    if (wasi.lookupWasiThunk(it.name) == null) return error.UnsupportedWasiImport;
+                }
+                continue;
+            }
+            // Cross-module import: caller must have supplied an
+            // extern at the same index.
+            const extern_ptr = if (imports) |arr| arr[idx] else null;
+            const ext = extern_ptr orelse return error.UnknownImportModule;
+            const want_kind: ExternKind = switch (it.kind) {
+                .func => .func,
+                .table => .table,
+                .memory => .memory,
+                .global => .global,
+            };
+            if (ext.kind != want_kind) return error.ImportKindMismatch;
+            // Iter 7 scope: only memory imports wire end-to-end.
+            // Table / global / func imports remain unsupported
+            // because their dispatch needs source-instance
+            // routing (funcidxs in shared tables resolve against
+            // the source's funcs, not the importer's). Failing
+            // loudly here keeps test outcomes deterministic and
+            // surfaces the next iter's target.
+            switch (it.kind) {
+                .memory => {},
+                .table => return error.UnsupportedCrossModuleTableImport,
+                .global => return error.UnsupportedCrossModuleGlobalImport,
+                .func => return error.UnsupportedCrossModuleFuncImport,
             }
         }
     }
 
     var imp_func_count: u32 = 0;
-    if (imports_decoded) |im| for (im.items) |it| {
-        if (it.kind == .func) imp_func_count += 1;
+    var imp_table_count: u32 = 0;
+    var imp_memory_count: u32 = 0;
+    var imp_global_count: u32 = 0;
+    if (imports_decoded) |im| for (im.items) |it| switch (it.kind) {
+        .func => imp_func_count += 1,
+        .table => imp_table_count += 1,
+        .memory => imp_memory_count += 1,
+        .global => imp_global_count += 1,
     };
 
     if (imp_func_count > 0) {
+        // Cross-module func imports defer to a later iter; the only
+        // funcs we currently wire are WASI thunks. If any imported
+        // function is non-WASI, fail loudly rather than silently
+        // dispatch to a placeholder.
+        if (imports_decoded) |im| for (im.items) |it| {
+            if (it.kind != .func) continue;
+            if (!std.mem.eql(u8, it.module, "wasi_snapshot_preview1"))
+                return error.UnsupportedCrossModuleFuncImport;
+        };
         const store = inst.store orelse return error.WasiNotConfigured;
         if (store.wasi_host == null) return error.WasiNotConfigured;
     }
 
-    const type_section = module.find(.@"type") orelse return;
+    // Type / function / code sections may be absent for modules
+    // that only re-export imports (e.g. an emscripten "env" stub
+    // that exports memory + globals + functions for the next
+    // module to import). Handle their absence by leaving the
+    // function table empty rather than short-circuiting before
+    // memory + table + element + export wiring.
     const code_section_opt = module.find(.code);
     const func_section = module.find(.function);
+    const type_section_opt = module.find(.@"type");
 
-    const types = try sections.decodeTypes(a, type_section.body);
+    const types = if (type_section_opt) |s|
+        try sections.decodeTypes(a, s.body)
+    else
+        sections.Types{ .arena = std.heap.ArenaAllocator.init(a), .items = &.{} };
 
     // Defined-function lowering. If there's no code section,
     // `funcs` stays empty — valid for import-only modules.
@@ -615,10 +680,25 @@ fn instantiateRuntime(
     rt.funcs = func_ptrs;
     rt.module_types = types.items;
 
-    // §9.4 / 4.10 chunk b: memory + data section wiring. Allocate
-    // linear memory based on the memory section's initial pages,
-    // then apply each active data segment.
-    if (module.find(.memory)) |memory_section| {
+    // §9.4 / 4.10 chunk b + §9.6 / 6.E iter 7: memory + data
+    // section wiring. If the module imports a memory, alias the
+    // source instance's slice (no allocation, no copy — both
+    // modules see/mutate the same bytes). Otherwise allocate
+    // locally based on the memory section's initial pages.
+    if (imp_memory_count > 1) return error.MultiMemoryUnsupported;
+    if (imp_memory_count == 1) {
+        if (imports_decoded) |im| for (im.items, 0..) |it, idx| {
+            if (it.kind != .memory) continue;
+            const ext = imports.?[idx] orelse return error.UnknownImportModule;
+            const source_inst = ext.instance orelse return error.UnknownImportModule;
+            const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
+            rt.memory = source_rt.memory;
+            // Mark memory as borrowed so Runtime.deinit doesn't free
+            // a slice it doesn't own.
+            rt.memory_borrowed = true;
+            break;
+        };
+    } else if (module.find(.memory)) |memory_section| {
         var memories = try sections.decodeMemory(a, memory_section.body);
         defer memories.deinit();
         if (memories.items.len > 1) return error.MultiMemoryUnsupported;
@@ -644,27 +724,45 @@ fn instantiateRuntime(
         }
     }
 
-    // §9.6 / 6.E iter 5: tables + element segments. Allocate one
-    // TableInstance per defined table entry sized to `min`; refs
-    // come from `parent_alloc` so `table.grow`'s realloc (which
-    // also uses `rt.alloc == parent_alloc`) is well-formed.
-    // Imported tables remain unwired pending cross-module import
-    // resolution; modules that import a table fail earlier in the
-    // import-validation gate above.
-    if (module.find(.table)) |table_section| {
-        var tables = try sections.decodeTables(a, table_section.body);
-        defer tables.deinit();
-        if (tables.items.len > 0) {
-            const tbl_storage = try a.alloc(interp.TableInstance, tables.items.len);
-            for (tables.items, 0..) |entry, i| {
+    // §9.6 / 6.E iter 5 + iter 7: tables. Allocate one
+    // `TableInstance` per total-table-space slot. Imported slots
+    // alias the source instance's `refs` slice (so `table.copy`
+    // / `table.set` / `table.grow` mutate the shared cells).
+    // Defined slots get freshly allocated refs from `parent_alloc`
+    // so realloc against `rt.alloc` is well-formed.
+    {
+        var tables_owned: ?sections.Tables = if (module.find(.table)) |s|
+            try sections.decodeTables(a, s.body)
+        else
+            null;
+        defer if (tables_owned) |*t| t.deinit();
+        const def_table_count: u32 = if (tables_owned) |t| @intCast(t.items.len) else 0;
+        const total_table_count: u32 = imp_table_count + def_table_count;
+        if (total_table_count > 0) {
+            const tbl_storage = try a.alloc(interp.TableInstance, total_table_count);
+            // Imported tables first.
+            if (imp_table_count > 0) {
+                var imp_idx: u32 = 0;
+                for (imports_decoded.?.items, 0..) |it, idx| {
+                    if (it.kind != .table) continue;
+                    const ext = imports.?[idx] orelse return error.UnknownImportModule;
+                    const source_inst = ext.instance orelse return error.UnknownImportModule;
+                    const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
+                    if (ext.table_idx >= source_rt.tables.len) return error.UnknownImportModule;
+                    tbl_storage[imp_idx] = source_rt.tables[ext.table_idx];
+                    imp_idx += 1;
+                }
+            }
+            // Then defined tables.
+            if (tables_owned) |t| for (t.items, 0..) |entry, i| {
                 const refs = try parent_alloc.alloc(interp.Value, entry.min);
                 for (refs) |*r| r.* = .{ .ref = interp.Value.null_ref };
-                tbl_storage[i] = .{
+                tbl_storage[imp_table_count + i] = .{
                     .refs = refs,
                     .elem_type = entry.elem_type,
                     .max = entry.max,
                 };
-            }
+            };
             rt.tables = tbl_storage;
         }
     }
@@ -750,11 +848,18 @@ pub export fn wasm_instance_new(
     imports: ?*const anyopaque,
     trap_out: ?*?*Trap,
 ) callconv(.c) ?*Instance {
-    _ = imports;
     _ = trap_out;
     const store = s orelse return null;
     const module = m orelse return null;
     const alloc = storeAllocator(store) orelse return null;
+    // Upstream wasm.h declares `imports` as `wasm_extern_t* const
+    // imports[]`. We accept it as an opaque pointer and recast
+    // here to keep the C ABI byte-identical while letting the
+    // Zig side hand a typed slice to `instantiateRuntime`.
+    const imports_array: ?[*]const ?*const Extern = if (imports) |p|
+        @as([*]const ?*const Extern, @ptrCast(@alignCast(p)))
+    else
+        null;
 
     const runtime = alloc.create(interp.Runtime) catch return null;
     runtime.* = interp.Runtime.init(alloc);
@@ -776,7 +881,7 @@ pub export fn wasm_instance_new(
         alloc.destroy(inst);
         return null;
     };
-    instantiateRuntime(alloc, bytes_ptr[0..module.bytes_len], inst, runtime) catch {
+    instantiateRuntime(alloc, bytes_ptr[0..module.bytes_len], inst, runtime, imports_array) catch {
         freeInstanceState(alloc, inst);
         runtime.deinit();
         alloc.destroy(runtime);
@@ -964,15 +1069,19 @@ pub export fn wasm_instance_exports(i: ?*const Instance, out: ?*ExternVec) callc
         ext.* = .{
             .kind = exportDescToExternKind(exp.kind),
             .instance = @constCast(inst),
-            .func = null,
         };
-        if (ext.kind == .func) {
-            const fh = alloc.create(Func) catch {
-                alloc.destroy(ext);
-                break;
-            };
-            fh.* = .{ .instance = @constCast(inst), .func_idx = exp.idx };
-            ext.func = fh;
+        switch (ext.kind) {
+            .func => {
+                const fh = alloc.create(Func) catch {
+                    alloc.destroy(ext);
+                    break;
+                };
+                fh.* = .{ .instance = @constCast(inst), .func_idx = exp.idx };
+                ext.func = fh;
+            },
+            .table => ext.table_idx = exp.idx,
+            .memory => ext.memory_idx = exp.idx,
+            .global => ext.global_idx = exp.idx,
         }
         buf[idx] = ext;
         populated += 1;

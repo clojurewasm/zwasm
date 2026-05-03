@@ -1,2 +1,2 @@
-module embenchen_fasta.0.wasm
+module embenchen_fasta.0.wasm as $env
 module embenchen_fasta.1.wasm

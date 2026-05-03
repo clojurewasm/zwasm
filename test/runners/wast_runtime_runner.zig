@@ -537,16 +537,19 @@ fn handleModule(
     stdout: *std.Io.Writer,
     corpus_name: []const u8,
 ) !bool {
-    // Format: `module <file>` or `module <file> as <name>`.
-    var tok_it = std.mem.tokenizeScalar(u8, rest, ' ');
-    const filename = tok_it.next() orelse {
+    // Format: `module <file> [as <name>]`.
+    const a = ctx.alloc();
+    const tokens = try splitTokens(a, rest);
+    if (tokens.len == 0) {
         try stdout.print("FAIL  {s}: module directive missing file\n", .{corpus_name});
         return false;
-    };
-    const as_kw = tok_it.next();
-    const name_opt: ?[]const u8 = if (as_kw != null and std.mem.eql(u8, as_kw.?, "as")) tok_it.next() else null;
+    }
+    const filename = tokens[0];
+    const name_opt: ?[]const u8 = if (tokens.len >= 3 and std.mem.eql(u8, tokens[1], "as"))
+        tokens[2]
+    else
+        null;
 
-    const a = ctx.alloc();
     const wasm_bytes = dir.readFileAlloc(ctx.io, filename, a, .limited(4 << 20)) catch |err| {
         try stdout.print("FAIL  {s}/{s}: module read {s}\n", .{ corpus_name, filename, @errorName(err) });
         return false;
@@ -559,7 +562,7 @@ fn handleModule(
     // ctx.deinit() walks `ctx.all` and tears each ActiveModule down.
 
     const am = try a.create(ActiveModule);
-    am.* = instantiate(ctx, wasm_bytes) catch |err| {
+    am.* = instantiateWithImports(ctx, wasm_bytes) catch |err| {
         try stdout.print("FAIL  {s}/{s}: instantiate {s}\n", .{ corpus_name, filename, @errorName(err) });
         return false;
     };
@@ -574,8 +577,51 @@ fn handleModule(
     return true;
 }
 
-fn instantiate(ctx: *RunnerContext, wasm_bytes: []const u8) !ActiveModule {
-    _ = ctx;
+/// Decode the module's imports, look up each non-WASI import by
+/// (module-name, export-name) in `ctx.by_name`, and build the
+/// `wasm_extern_t*[]` array `wasm_instance_new` expects in import-
+/// section order. WASI imports leave the slot null — the c_api
+/// binding wires them through the Store's WASI host instead.
+fn buildImports(ctx: *RunnerContext, wasm_bytes: []const u8) !?[]?*const wasm_c_api.Extern {
+    const a = ctx.alloc();
+    var module = parser.parse(a, wasm_bytes) catch return null;
+    defer module.deinit(a);
+    const import_section = module.find(.import) orelse return null;
+    var imports = sections.decodeImports(a, import_section.body) catch return null;
+    defer imports.deinit();
+    if (imports.items.len == 0) return null;
+    const slots = try a.alloc(?*const wasm_c_api.Extern, imports.items.len);
+    @memset(slots, null);
+    for (imports.items, 0..) |it, idx| {
+        if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) continue;
+        const source = ctx.by_name.get(it.module) orelse continue;
+        // Walk source's exports to find one matching `it.name`,
+        // build a transient Extern carrying the source instance +
+        // export index. The Extern is arena-allocated so it lives
+        // for the corpus.
+        for (source.instance.exports_storage) |exp| {
+            if (!std.mem.eql(u8, exp.name, it.name)) continue;
+            const ext = try a.create(wasm_c_api.Extern);
+            ext.* = .{
+                .kind = switch (exp.kind) {
+                    .func => .func,
+                    .table => .table,
+                    .memory => .memory,
+                    .global => .global,
+                },
+                .instance = source.instance,
+                .table_idx = if (exp.kind == .table) exp.idx else 0,
+                .memory_idx = if (exp.kind == .memory) exp.idx else 0,
+                .global_idx = if (exp.kind == .global) exp.idx else 0,
+            };
+            slots[idx] = ext;
+            break;
+        }
+    }
+    return slots;
+}
+
+fn instantiateWithImports(ctx: *RunnerContext, wasm_bytes: []const u8) !ActiveModule {
     const engine = wasm_c_api.wasm_engine_new() orelse return error.EngineAllocFailed;
     errdefer wasm_c_api.wasm_engine_delete(engine);
 
@@ -589,7 +635,13 @@ fn instantiate(ctx: *RunnerContext, wasm_bytes: []const u8) !ActiveModule {
     const module = wasm_c_api.wasm_module_new(store, &bv) orelse return error.ModuleAllocFailed;
     errdefer wasm_c_api.wasm_module_delete(module);
 
-    const instance = wasm_c_api.wasm_instance_new(store, module, null, null) orelse
+    const imports_slice = try buildImports(ctx, wasm_bytes);
+    const imports_ptr: ?*const anyopaque = if (imports_slice) |slice|
+        @ptrCast(slice.ptr)
+    else
+        null;
+
+    const instance = wasm_c_api.wasm_instance_new(store, module, imports_ptr, null) orelse
         return error.InstanceAllocFailed;
     return .{
         .engine = engine,
@@ -605,16 +657,27 @@ fn handleRegister(
     stdout: *std.Io.Writer,
     corpus_name: []const u8,
 ) !bool {
-    var tok_it = std.mem.tokenizeScalar(u8, rest, ' ');
-    const as_name = tok_it.next() orelse {
+    // Format: `register <as-name> [from <module-id>]`.
+    const a = ctx.alloc();
+    const tokens = try splitTokens(a, rest);
+    if (tokens.len == 0) {
         try stdout.print("FAIL  {s}: register missing as-name\n", .{corpus_name});
         return false;
+    }
+    const as_name = tokens[0];
+    const am: *ActiveModule = blk: {
+        if (tokens.len >= 3 and std.mem.eql(u8, tokens[1], "from")) {
+            const id = tokens[2];
+            break :blk ctx.by_name.get(id) orelse {
+                try stdout.print("FAIL  {s}: register source module '{s}' not registered\n", .{ corpus_name, id });
+                return false;
+            };
+        }
+        break :blk ctx.current orelse {
+            try stdout.print("FAIL  {s}: register without prior module\n", .{corpus_name});
+            return false;
+        };
     };
-    const am = ctx.current orelse {
-        try stdout.print("FAIL  {s}: register without prior module\n", .{corpus_name});
-        return false;
-    };
-    const a = ctx.alloc();
     const stored = try a.dupe(u8, as_name);
     try ctx.by_name.put(a, stored, am);
     try stdout.print("PASS  {s} (register {s})\n", .{ corpus_name, as_name });
@@ -636,7 +699,7 @@ fn handleInstantiateExpectFail(
     };
     defer a.free(wasm_bytes);
 
-    var am_tmp = instantiate(ctx, wasm_bytes) catch {
+    var am_tmp = instantiateWithImports(ctx, wasm_bytes) catch {
         try stdout.print("PASS  {s}/{s} ({s})\n", .{ corpus_name, filename, label });
         return true;
     };

@@ -175,7 +175,21 @@ for c in d['commands']:
   if t == 'module':
     fn = c['filename']
     parse_lines.append('valid ' + fn)
-    rt_lines.append('module ' + fn)
+    line = 'module ' + fn
+    name = c.get('name')
+    if name:
+      # wast2json emits a `$id` for `(module $id ...)`; preserve it
+      # so a later `register` directive that references the module
+      # by id resolves cleanly.
+      line += ' as ' + quote_field(str(name))
+    rt_lines.append(line)
+  elif t == 'register':
+    as_name = c.get('as', '')
+    line = 'register ' + quote_field(as_name)
+    name = c.get('name')
+    if name:
+      line += ' from ' + quote_field(str(name))
+    rt_lines.append(line)
   elif t in ('assert_invalid', 'assert_malformed') and c.get('module_type') == 'binary':
     kind = 'invalid' if t == 'assert_invalid' else 'malformed'
     parse_lines.append(kind + ' ' + c['filename'])

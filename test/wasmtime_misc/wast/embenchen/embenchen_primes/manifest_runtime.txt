@@ -1,2 +1,2 @@
-module embenchen_primes.0.wasm
+module embenchen_primes.0.wasm as $env
 module embenchen_primes.1.wasm

@@ -1,3 +1,4 @@
-module partial-init-table-segment.0.wasm
+module partial-init-table-segment.0.wasm as $m
+register m from $m
 assert_return indirect-call i32:7 -> i32:1
 assert_return indirect-call i32:9 -> i32:0

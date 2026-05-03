@@ -1,4 +1,5 @@
 module call_indirect.0.wasm
+register test
 module call_indirect.1.wasm
 assert_return type-i32 -> i32:306
 assert_return type-i64 -> i64:356

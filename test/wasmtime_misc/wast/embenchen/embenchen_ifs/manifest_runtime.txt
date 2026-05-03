@@ -1,2 +1,2 @@
-module embenchen_ifs.0.wasm
+module embenchen_ifs.0.wasm as $env
 module embenchen_ifs.1.wasm

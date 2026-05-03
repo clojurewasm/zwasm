@@ -1,4 +1,5 @@
-module imported-memory-copy.0.wasm
+module imported-memory-copy.0.wasm as $foreign
+register foreign from $foreign
 module imported-memory-copy.1.wasm
 assert_return "is hello?" i32:1000 -> i32:1
 assert_return "is olleh?" i32:2000 -> i32:1

@@ -188,6 +188,11 @@ pub const HostCall = struct {
 pub const Runtime = struct {
     alloc: Allocator,
     memory: []u8 = &.{},
+    /// Set when `memory` is borrowed from another instance (cross-
+    /// module memory import — §9.6 / 6.E iter 7). Runtime.deinit
+    /// must not free a borrowed slice; the source instance's
+    /// Runtime.deinit will release it.
+    memory_borrowed: bool = false,
     globals: []Value = &.{},
     /// Module function table — `funcs[i]` is the ZirFunc for the
     /// i-th function in the module's index space (imports first,
@@ -252,7 +257,7 @@ pub const Runtime = struct {
     }
 
     pub fn deinit(self: *Runtime) void {
-        if (self.memory.len > 0) self.alloc.free(self.memory);
+        if (self.memory.len > 0 and !self.memory_borrowed) self.alloc.free(self.memory);
         if (self.globals.len > 0) self.alloc.free(self.globals);
         if (self.data_dropped.len > 0) self.alloc.free(self.data_dropped);
         if (self.elem_dropped.len > 0) self.alloc.free(self.elem_dropped);
