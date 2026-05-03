@@ -478,8 +478,25 @@ pub const ConstantFold = struct {
     result_hi: u32 = 0,
 };
 
-/// Phase 7+: per-vreg register-class hint.
-pub const RegClass = enum(u8) { gpr, fpr, simd, _ };
+/// Phase 7+: per-vreg register-class hint. The three `*_special`
+/// variants (§9.7 / 7.0) name the cache classes the W54 post-
+/// mortem named day-1 — `inst_ptr_special` is the inst_ptr cache
+/// (the v1 D117 dual-entry self-call workaround proved this slot
+/// MUST be expressible in the regalloc IR shape, not the
+/// per-arch emit pass), `vm_ptr_special` is the runtime base
+/// pointer, `simd_base_special` is the SIMD-lane base. The
+/// canonical class info table (size / alignment / call-clobbered
+/// status) lives in `src/jit/reg_class.zig` because it's a
+/// Zone-2 consumer concern.
+pub const RegClass = enum(u8) {
+    gpr,
+    fpr,
+    simd,
+    inst_ptr_special,
+    vm_ptr_special,
+    simd_base_special,
+    _,
+};
 
 /// Phase 7+: spilled-vreg stack slot record.
 pub const SpillSlot = struct {};
