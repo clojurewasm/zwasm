@@ -18,64 +18,71 @@
 ## Current state
 
 - **Phase**: **Phase 7 IN-PROGRESS** (JIT v1 ARM64 baseline).
-- **Last commit**: `b336e78` — §9.7 / 7.0 land: `src/jit/reg_class.zig`
-  with full `RegClass` set (gpr / fpr / simd + 3 `*_special`)
-  + RegClassInfo lookup table; zone discipline kept zir.RegClass
-  in Zone 1, RegClassInfo in Zone 2. All three hosts green.
-- **Next task**: §9.7 / 7.1 — `src/jit/regalloc.zig` greedy-local
-  allocator with `regalloc.verify(zir)` post-condition.
+- **Last commit**: `a6bf0e7` — §9.7 / 7.1 land: greedy-local
+  regalloc + verify post-condition. 7 tests cover empty / 3-deep
+  / 2-deep binop / 4-deep stack / verify rejects (overlap forced
+  share, slot index too high, length mismatch). Strict `<` use-
+  edge overlap; LSRA convention.
+- **Next task**: §9.7 / 7.2 — `src/jit_arm64/{inst,abi}.zig`
+  (ARM64 instruction encoder + AAPCS64 calling convention layout).
 - **Branch**: `zwasm-from-scratch`, pushed to `origin/zwasm-from-scratch`.
   `main` is forbidden; `--force` is forbidden.
 
-## Active task — §9.7 / 7.1 (greedy-local regalloc + verify)
+## Active task — §9.7 / 7.2 (jit_arm64 inst + abi)
 
-Per ROADMAP §9.7 exit criterion #1: `src/jit/regalloc.zig`
-greedy-local allocator; `regalloc.verify(zir)` runs as a post-
-condition after every alloc.
+Per ROADMAP §9.7 exit criterion: `src/jit_arm64/{emit,inst,abi}.zig`
+produce AAPCS64-correct function bodies. 7.2 splits off the
+encoder / ABI layer; 7.3 wires the emit pass to consume them.
 
-Phase-7 / 7.1 scope: stand up the data shape + a minimal greedy-
-local pass that operates on `ZirFunc.liveness` (already populated
-by §9.5 / 5.4) plus `ZirFunc.reg_class_hints` (the slot reserved
-in zir.ZirFunc since day 1 per §4.2). Real per-arch register
-assignment lands in §9.7 / 7.2 + 7.3 — this task delivers the
-allocator algorithm + the verify post-condition catching its
-invariants (every vreg has a class assignment; live ranges
-don't share a slot; etc.).
+Phase-7 / 7.2 scope:
+
+- `src/jit_arm64/inst.zig` — minimum ARM64 instruction encoder
+  covering the ops the §9.7 / 7.3 emit will need: register
+  arithmetic (ADD/SUB/MUL), comparison (CMP/CSET), branches
+  (B/BL/BR/RET), loads/stores (LDR/STR), MOV imm, MOV reg→reg.
+  Each emitter returns a `u32` (ARM64 fixed-width insn).
+- `src/jit_arm64/abi.zig` — AAPCS64 register inventory: which
+  X-registers are caller-saved vs callee-saved, which X-regs
+  carry args 0..7, which is the platform reg / link reg / SP /
+  FP. Maps regalloc slot ids → ARM64 Xn (consumed by 7.3).
 
 Plan:
 
-1. Survey W54 post-mortem + regalloc2 (Cranelift) for the
-   greedy-local idiom — mandatory per `textbook_survey.md`
-   Guard 4 (regalloc-touching).
-2. Define `Allocation` shape (per-vreg → physical slot index,
-   with class-aware spill fallback). Use `RegClassInfo` from
-   §9.7 / 7.0 for spill-slot stride.
-3. `compute(allocator, *ZirFunc) !Allocation` walks live ranges
-   in order, assigns the first free slot in the requested class.
-   `verify(*const ZirFunc, *const Allocation) !void` checks:
-   (a) every defined vreg has an assignment; (b) overlapping
-   live ranges never share the same physical slot; (c) class
-   assignment matches RegClassInfo (no FPR slot for a GPR vreg).
-4. Tests: simple straight-line case (3 vregs, 3 slots);
-   overlap case (2 simultaneously-live, must use 2 distinct
-   slots); class-mismatch case (verify rejects a forced bad
-   assignment).
+1. Survey AAPCS64 (Arm-supplied PDF) + cranelift's
+   `cranelift/codegen/src/isa/aarch64/inst/emit.rs` for the
+   encoder shape — mandatory per `textbook_survey.md` Guard 4
+   (regalloc / per-arch emit). Output to
+   `private/notes/p7-7.2-survey.md`.
+2. `inst.zig` — per-mnemonic `pub fn enc<MNEMONIC>(rd, rn, rm,
+   imm) u32` with bit-pattern unit tests verifying each emit
+   matches the AAPCS64 encoding spec (and llvm-objdump -d's
+   disassembly when feasible).
+3. `abi.zig` — declarative tables: `caller_saved_gprs`,
+   `callee_saved_gprs`, `arg_gprs[0..8]`, `link_register`,
+   `frame_pointer`, `stack_pointer`. Plus a
+   `pub fn slotToReg(class, slot_id) Xn` mapper that the 7.3
+   emit pass consumes.
+4. Tests: bit-pattern for at least one of each instruction
+   family; ABI table covers every register in the AAPCS64 spec.
 5. Three-host `zig build test-all`.
 
-Phase-7 outstanding (post 7.1): 7.2 jit_arm64 inst+abi /
-7.3 jit_arm64 emit / 7.4 spec test pass=fail=skip=0 via JIT /
-7.5 40+ realworld via JIT / 7.6 `interp == jit_arm64`
-differential / 7.7 wasmtime stdout diff (ADR-0010 deferred-in)
-/ 7.8 ClojureWasm (ADR-0010 deferred-in) / 7.9 boundary audit
-/ 7.10 phase tracker.
+Note: ARM64 instructions are little-endian fixed-width 32-bit;
+encoder tests validate each `u32` value against either the AAPCS
+spec or a known-good llvm-mc output. Mac aarch64 is the natural
+host for cross-checking via `llvm-mc -triple=aarch64 -show-encoding`.
+
+Phase-7 outstanding (post 7.2): 7.3 emit / 7.4 spec test JIT /
+7.5 40+ realworld JIT / 7.6 `interp == jit_arm64` differential /
+7.7 wasmtime stdout (ADR-0010) / 7.8 ClojureWasm (ADR-0010) /
+7.9 boundary audit / 7.10 phase tracker.
 
 Carry-overs queued:
 - §9.5: `no_hidden_allocations` zlinter (ADR-0009); validator.zig
   per-feature split (with §9.1 / 1.7); liveness control-flow +
-  memory-op coverage (drives directly here in 7.1+); const-prop
-  per-block (Phase-15); `sections.zig` (1073) soft-cap split.
+  memory-op coverage; const-prop per-block (Phase-15);
+  `sections.zig` (1073) soft-cap split.
 - §9.6: `br-table-fuzzbug` multi-param `loop`; 10 SKIP-VALIDATOR
-  realworld; 39 trap-mid-exec fixtures (debugged in §9.7 / 7.6).
+  realworld; 39 trap-mid-exec fixtures.
 
 ## Outstanding spec gaps (queued for Phase 6 — v1 conformance)
 
