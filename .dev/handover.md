@@ -18,23 +18,23 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3 + 6.K.4 + 6.K.5 done;
-  6.K.6 + 6.E + 6.F〜6.J pending.
-- **Last source commit**: `d020317` — docs(p6) §9.6 / 6.K.5 Label
-  arity formalisation + new rule `single_slot_dual_meaning.md` +
-  comptime field assertion + unit test. Three-host green. misc-
-  runtime 266/5 (unchanged; behaviour-preserving doc cycle).
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K.3〜6.K.6 done; 6.K.7
+  + 6.E + 6.F〜6.J pending.
+- **Last code commit**: `d020317` — docs(p6) §9.6 / 6.K.5 Label
+  arity formalisation. 6.K.6 was a verification-only check
+  (partial-init-table-segment all PASS post-6.K.3, no code
+  change needed). misc-runtime 266/5 unchanged.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.K.6 (re-measure partial-init-table-segment)
+## Active task — §9.6 / 6.K.7 (`-Dsanitize=address` + `zig build run-repro` step)
 
-Per ADR-0014 §2.1 / 6.K.6: re-measure the partial-init-table-
-segment fixture after 6.K.1〜6.K.3 land. Per the 2026-05-04 ADR
-amendment, that fixture is **already passing** (zombie-instance
-contract + cross-module imports together fixed the dangling-
-FuncEntity issue). 6.K.6 collapses to a verification check —
-confirm the fixture passes end-to-end and no other partial-init
-edge cases regress.
+Per ADR-0015 §Decision Part 2 + Part 4: wire
+`module.sanitize_c = .full` (and `.sanitize_thread = true`)
+through `addExecutable` / `addTest` when `-Dsanitize` is set
+(Mac aarch64 + OrbStack only; skip Windows). Add
+`zig build run-repro -Dtask=<name>` step that discovers
+`private/dbg/<task>/repro.zig` and links it against zwasm
+modules. Adopted as a weekly OrbStack lane, not per-commit.
 
 ## ROADMAP §9.6 — task table snapshot (authoritative is `.dev/ROADMAP.md`)
 
@@ -45,8 +45,8 @@ edge cases regress.
 | 6.K.3 | Cross-module imports for table / global / func + zombie-instance contract (per amended ADR-0014) | [x] ffc0cf0 |
 | 6.K.4 | `decodeElement` forms 5 / 6 / 7 (parallel)                                           | [x] 30bb5fd    |
 | 6.K.5 | Label arity formalisation + `single_slot_dual_meaning.md` + §14 entry (parallel)     | [x] d020317    |
-| 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [ ] **NEXT**   |
-| 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [ ]            |
+| 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [x] (verify)   |
+| 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [ ] **NEXT**   |
 | 6.K.8 | Error diagnostic M1 (Diagnostic core + CLI parity, per ADR-0016)                     | [x] 306dbc2    |
 
 ## Open questions / blockers
