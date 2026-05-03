@@ -18,10 +18,10 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 4,
+- **Phase**: **Phase 6 IN-PROGRESS** (6.A〜6.D done, 6.E iter 5,
   6.F〜6.J pending).
-- **Last commit**: `2a972be` — fix(p6) §9.6 / 6.E iter 4 assert_trap
-  arity + trap-text mapping. Three-host green.
+- **Last commit**: `bdef556` — fix(p6) §9.6 / 6.E iter 5 wire
+  tables/elems + element form 4. Three-host green.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — drive Phase 6 to strict close (6.E → 6.F → … → 6.J; 100% PASS per ROADMAP §9.6 / 6.J)
@@ -30,25 +30,36 @@
 6.G / 6.H once 6.E unlocks them, with 6.I in parallel, terminating
 at 6.J Phase 6 close gate.
 
-### 6.E iter 5+ targets (current)
+### 6.E iter 6+ targets (current)
 
-The `test-wasmtime-misc-runtime` standalone gate has 65
-remaining failures (down from 78: iter 3 fixed loop+br_if
-re-entry, iter 4 fixed assert_trap arity sizing + trap-text
-tag_map). Outstanding clusters:
-- ~43 trapped unexpectedly (call_indirect, table_copy,
-  table_grow_with_funcref, partial-init-table-segment,
-  issue4840, etc.) — mixed bag of interp behaviour bugs and
-  operand discipline.
-- ~10 InstanceAllocFailed (cross-module imports) — runner's
-  `register` directive needs named-module store sharing wired.
-- ~7 BadValueSyntax 'is hello?' — manifest field with embedded
-  space; regen needs to quote field, runner needs quoted-token
-  tokenizer.
-- ~7 partial-init-memory-segment "result mismatch" — bare
-  `(invoke …)` action lines aren't emitted by regen, so
-  memory.copy never runs between asserts. Plus partial-init data
-  semantics may need spec re-check.
+The `test-wasmtime-misc-runtime` standalone gate has 45
+remaining failures (down from 78 → 65 → 45: iter 3 loop+br_if,
+iter 4 assert_trap arity / trap-text tags, iter 5 c_api wired
+defined tables + element segments + decodeElement form 4).
+Outstanding clusters:
+- 14 `invoke ExportNotFound` — table_copy_on_imported_tables
+  routes invokes to module 1/2 which fail to instantiate (cross-
+  module imports unwired); subsequent `call_t`/`call_u` resolve
+  against the wrong current module.
+- 14 BadValueSyntax `'hello?'` / `'olleh?'` — manifest field
+  with embedded space (`is hello?` is the export name in
+  imported-memory-copy and memory-copy); regen needs to quote
+  fields, runner needs quoted-token tokenizer.
+- 8 `instantiate InstanceAllocFailed` — cross-module imports
+  (call_indirect.1, embenchen_*.1, table_copy.0,
+  table_copy_on_imported_tables.{0,1,2}, imported-memory-copy.1).
+  Wiring `register` ↔ `wasm_instance_new`'s `imports` arg is
+  the next fix.
+- 3 `table_copy/call result[0] mismatch` — table.copy semantics
+  bug (interp behaviour).
+- 3 `partial-init-memory-segment/load result[0] mismatch` —
+  bare `(invoke …)` action lines aren't emitted by regen, so
+  memory.copy never runs between asserts.
+- 1 `table_copy/copy assert_trap trap-kind mismatch` (expected
+  UninitializedElement, got OutOfBoundsTableAccess) — table.copy
+  trap-kind classification.
+- 1 `partial-init-table-segment/indirect-call result[0] mismatch`.
+- 1 `issue4840/f trapped unexpectedly`.
 
 Sequence: pick one cluster per iteration, fix root cause, re-run,
 move fixtures from FAIL to PASS, commit. When `test-wasmtime-misc-
@@ -151,7 +162,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 ```
 6.A ✅  6.B ✅  6.C ✅  6.D ✅
  │
- ├─→ 6.E ⏳ (iter 4 done; iter 5+ → /continue continues)
+ ├─→ 6.E ⏳ (iter 5 done; iter 6+ → /continue continues)
  │    └─→ {6.F, 6.G, 6.H} → 6.J → §9.7 ADR-0015 drafting
  │
  └─→ 6.I (parallel)  ─→ 6.J
@@ -165,7 +176,7 @@ ADR-0016 if it ever surfaces load-bearing decisions.
 - 13 wasmtime_misc BATCH1-3 fixtures queued (validator gaps)
 - 39 trap-mid-execution realworld fixtures — 6.E target
 - 10 SKIP-VALIDATOR realworld fixtures
-- 65 wasmtime_misc runtime-runner failures (categorised above)
+- 45 wasmtime_misc runtime-runner failures (categorised above)
 
 ## Open questions / blockers
 
