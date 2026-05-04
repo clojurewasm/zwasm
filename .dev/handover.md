@@ -14,96 +14,86 @@
 3. `.dev/lessons/INDEX.md` — keyword-grep for the active task's
    domain (`/continue` Step 0.4).
 4. `.dev/decisions/0014_redesign_and_refactoring_before_phase7.md`
-   — historical: §9.6 / 6.K block + Beta-vs-Alpha funcref
-   rationale. Phase 7 builds on top of the Alpha pointer encoding.
-5. `.dev/decisions/0011_phase6_reopen.md` — the original Phase 7
-   pause (now lifted with Phase 6 close).
+   — historical: §9.6 / 6.K block + Beta-vs-Alpha funcref.
+5. `git log --grep="§9.7 / 7\." --oneline` — per-cycle table for
+   §9.7 / 7.0–7.4c lives here (was inline; archived 2026-05-04).
 
-## Current state
+## Current state — autonomous loop PAUSED by user 2026-05-04
 
-- **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
-  op coverage CLOSED (111 ops: 88 numeric MVP + 23 conversions
-  including all 8 trapping trunc + 8 sat_trunc + 4 reinterpret +
-  3 width). 7.3 row stays `[ ]` pending 7.4 spec test gate.
-- **Last commit**: `93e2f2c` — feat(p7) §9.7 / 7.4 sub-7.4c (JIT
-  entry frame: inline-asm shim sets X24..X28 invariants + BLRs
-  entry; smoke test runs `(i32.const 0) (i32.load) end` against
-  a 16-byte memory buffer, returns 0xEFBEADDE — proving X28 +
-  bounds check + body epilogue all wire end-to-end). Sub-7.4d
-  (wasm-1.0 spec testsuite via JIT) is the gate that flips 7.3
-  + 7.4 to [x]. 718/718 unit / 3-host green. Phase 6 close at
-  `68843b0`.
+- **Phase**: Phase 7 IN-PROGRESS — §9.7 / 7.0–7.2 closed; 7.3 op
+  coverage CLOSED (111 ops); 7.4a/b/c closed.
+- **Last commit**: `cee0be8` (handover sync after `93e2f2c` 7.4c).
+  718/718 unit / 3-host green. Phase 6 close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
+## Active discussion — redesign decisions pending user direction
 
-Per ROADMAP §9.7 / 7.3 ("ZIR → ARM64 emit pass producing
-function bodies"). Row remains `[ ]` until MVP op coverage
-closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
+User raised concerns mid-loop and we agreed on a priority plan
+(2026-05-04 chat). Cold-start should treat **A** as the next
+concrete action and wait for user direction on B/C/D/E ordering.
 
-| Sub | Op group                                              | Status |
-|-----|-------------------------------------------------------|--------|
-| a   | prologue/epilogue + i32.const + end (skeleton)        | [x] `0463d69` |
-| b1-5| i32 ALU + shifts + rotr/l + cmps + eqz + clz/ctz/popcnt | [x] `98554b4`〜`d33073f` |
-| c   | locals (get/set/tee + frame slot allocation)          | [x] `5e89533` |
-| d1-2| i64 const + ALU + shifts + cmps + eqz + clz/ctz/popcnt | [x] `d8ad4d6` + `a072df7` |
-| d3-5| f32 + f64 const + ALU + cmps + unary + min/max + copysign | [x] `1ae712f`〜`1715fed` |
-| e1  | control flow: block + loop + br + br_if (label stack) | [x] `0149028` |
-| e2  | if / else / end (conditional branch + skip-else)      | [x] `06a7a65` |
-| e3  | br_table (linear CMP/B.NE/B chain)                    | [x] `a9aef00` |
-| f1  | i32.load + i32.store + bounds-check + trap stub        | [x] `82862e5` |
-| f2  | sub-byte + i64/f32/f64 load/store (23 ops total)      | [x] `fb5da38` |
-| f3  | memory.size + memory.grow (skeleton; grow returns -1) | [x] `129b93f` |
-| g1  | call (no-arg skeleton + BL fixup list)                | [x] `3cf4b77` |
-| g2  | call_indirect skeleton (X26=table_base; LDR-LSL3/BLR) | [x] `a49d4c2` |
-| g3a | sig-table threading + result-type-aware capture        | [x] `7ac65d1` |
-| g3b | AAPCS64 arg marshalling (X0..X7 + V0..V7)             | [x] `e25a9a5` |
-| g3c | call_indirect bounds + sig checks (typeidx side-array) | [x] `b870a90` |
-| h1  | integer width: wrap_i64 + extend_i32_s/u                | [x] `7a0c0ca` |
-| h2  | int↔float convert (8 ops: f32/f64.convert_i32/i64.s/u + demote/promote) | [x] `b8dd126` |
-| h5  | sat_trunc (Wasm 2.0; 8 ops via FCVTZS/U direct)         | [x] `e17254e` |
-| h4  | reinterpret (4 ops: bit-cast via existing FMOV W↔S/X↔D) | [x] `81445a4` |
-| h3a | trapping trunc, f32 source (4 ops; NaN + range checks)  | [x] `c29b243` |
-| h3b | trapping trunc, f64 source (4 ops; emitConstU64 stage)  | [x] `348a6ef` |
+### Concerns surfaced
 
-**§9.7 / 7.3 op coverage CLOSED.** §9.7 / 7.4 sub-rows:
+1. **regalloc pool overlaps reserved invariants** (重大)
+   `allocatable_gprs = caller_saved_scratch_gprs ++ callee_saved_gprs`
+   = X9..X15 + X19..X28. `slotToReg(14..16)` returns X26..X28 →
+   silent overwrite of caller-supplied `X24..X28` invariants when
+   ≥14 vregs live. Not yet hit (tests use ≤2 slots), but
+   structural latent bug. Doc/impl divergence — `abi.zig` says
+   "NOT in regalloc pool" but pool includes them.
+2. **Linux/Windows hosts skip JIT spec gate** until x86_64 emit
+   (currently scheduled Phase 8). User wants this pulled forward
+   into Phase 7 to avoid 3-host asymmetry bugs accumulating.
+3. **D-014 (Runtime injection)** still caller-supplied skeleton;
+   X24..X28 invariant set has grown to 5 — needs structural
+   Runtime-driven ABI.
+4. **emit.zig 3700+ lines** over 2000 hard cap. Pre-existing.
+   Responsibility split is feasible (numeric / memory / call /
+   conversion / control / helpers) but **not urgent**.
+5. **Edge-case test culture** — need a "気軽に追加" rule for
+   boundary tests as optimization phase approaches.
 
-| Sub | Step | Status |
-|-----|------|--------|
-| 7.4a | JIT executable-memory primitive (Mac aarch64) | [x] `1e71b53` |
-| 7.4b | Per-function emit + linker (patch call_fixups by absolute disp) | [x] `3e34d1a` |
-| 7.4c | Entry-frame setup (X24..X28 invariants; no-arg + i32 result) | [x] `93e2f2c` |
-| 7.4d | wasm-1.0 spec testsuite via JIT (pass=fail=skip=0) | [ ] **NEXT** |
+### Agreed priority order (pending final user OK)
 
-Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
-Plus 3 locals ops + end + 4 control-flow ops (block/loop/br/br_if).
+| # | Action | Status |
+|---|--------|--------|
+| A | regalloc pool: drop X24..X28; add `reserved_invariant_gprs` | **NEXT — small, do first** |
+| B | Runtime structurization (D-014 dissolve): X0 = `*const JitRuntime`, prologue LDRs X24..X28; ADR required | After A |
+| C | x86_64 emit pulled into Phase 7 (ROADMAP edit + ADR per §18) | Parallel/separate track; large |
+| D | Edge-case-test rule (`.claude/rules/edge_case_testing.md` + `/continue` Step-4 hook + `audit_scaffolding` check) | Parallel; small |
+| 7.4d | wasm-1.0 spec testsuite via JIT | After B (ABI change would force re-write of test harness) |
+| E | emit.zig responsibility split | After B/C/7.4d, opportunistic |
 
-## Open questions / blockers
+### Open user-decision points
 
-- **D-014 (`Runtime.io` injection point design)**: caller-supplied
-  invariant set is now substantial (X24..X28 = typeidx_base,
-  table_size, funcptr_base, mem_limit, vm_base). Phase 7 follow-up
-  wires Runtime structurally; the JIT compile() shape is ready to
-  receive it. D-014 has accumulated enough surface area that
-  dissolving it lands as its own dedicated cycle (post-7.3 close).
-- **D-022 (Diagnostic M3 / trace ringbuffer)**: stays
-  `blocked-by` until sub-f introduces trap surfaces.
-- **D-026 (env-stub host-func wiring)**: 4 embenchen + 1
-  externref-segment fixtures remain skip-ADR'd. The
-  validator gap (D-006) is closed; what remains is the
-  cross-module dispatch wiring for emcc-style env stubs
-  (Phase 7.3 sub-g territory).
+1. Is the order A → B → 7.4d → D∥C → E correct?
+2. **C scope**: full ARM64+x86_64 parity in Phase 7, or just
+   x86_64 foundation in Phase 7 with numeric ops in Phase 8?
+3. **B ABI design**: X0 = `*const JitRuntime` with Wasm args
+   shifted to X1+, vs. another reg convention?
+
+## Recently closed (per `git log`)
+
+- §9.7 / 7.3 sub-h3b `348a6ef` (trapping trunc f64 source).
+- §9.7 / 7.3 op coverage CLOSED (111 ops total).
+- §9.7 / 7.4a `1e71b53` JitBlock (mmap MAP_JIT + W^X toggle).
+- §9.7 / 7.4b `3e34d1a` linker (first JIT-to-JIT call works).
+- §9.7 / 7.4c `93e2f2c` entry frame (i32.load through X28 verified
+  end-to-end via inline-asm shim).
+
+## Open structural debt
+
+- **D-014** Runtime injection — see priority B above.
+- **D-022** Diagnostic M3 / trace ringbuffer — sub-f trap surfaces
+  exist; can dissolve when Phase 7 settles.
+- **D-026** env-stub host-func wiring — 4 embenchen + 1
+  externref-segment skip-ADR'd; cross-module dispatch.
+- **NEW** regalloc/reserved overlap — see priority A above.
+- **NEW** 3-host asymmetry (JIT only on Mac aarch64) — see C.
 
 ## Phase 6 close — archival snapshot
 
-Phase 6 final tally (all in `git log`):
-- 14 expanded rows in §9.6 task table (6.A〜6.J + 6.K.1〜6.K.8)
-  all `[x]` with SHA pointers.
-- 2 active skip-ADRs covering 5 deferred fixtures
-  (embenchen + externref-segment).
-- 14 active debt rows (all `blocked-by:` with named structural
-  barriers); 12 of original 24 discharged this phase.
-- 2 lessons recorded (Beta funcref rejection; auto-register
-  spike regression).
-- v1-class hyperfine baseline recorded as "Phase 6 close baseline"
+- 14 §9.6 rows all [x] with SHA. 2 active skip-ADRs (5 fixtures).
+- 14 active debt rows, all `blocked-by:` named barriers.
+- 2 lessons recorded. v1-class hyperfine baseline at Phase 6 close
   (26 fixtures: 9 shootout + 11 TinyGo + nbody + 5 cljw).
