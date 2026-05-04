@@ -24,11 +24,11 @@
 
 - **Phase**: Phase 7 IN-PROGRESS, scope expanded per ADR-0019
   (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12).
-- **Last commit**: `0010a03` — Step 2d-ii ADR-0017 (X19 =
-  runtime_ptr save reg, multi-call correctness; pool 10→9).
-  Step 2 (ADR-0017 Runtime ABI) **complete**. 736/736 unit /
-  3-host green. Step 3 (ADR-0020 edge-case rule) NEXT (small,
-  parallel-able with Step 4).
+- **Last commit**: `52efba4` — Step 3a ADR-0020
+  (`.claude/rules/edge_case_testing.md` rule landed; auto-loaded
+  on Zig + test edits). 736/736 unit / 3-host green. Sub-3b
+  (audit_scaffolding §I + /continue Step 4 hook) NEXT; sub-3c
+  bootstraps `test/edge_cases/p7/` fixtures.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active plan — implementation cycles after ADR acceptance
@@ -40,7 +40,7 @@ below corresponds to one or more `/continue` cycles.
 |---|------|-----|--------|
 | 1 | regalloc pool: remove X24..X28; add `reserved_invariant_gprs`; `Slot` union with first-class spill | 0018 | **DONE** — sub-1a `1d6d178`, sub-1b `7e880b8`, sub-1c `394e416` |
 | 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | **DONE** — sub-2a `0827b89`, sub-2b+2c `44b94a0`, sub-2d-i `10ab46d`, sub-2d-ii `0010a03`. **D-014 dissolved.** |
-| 3 | Edge-case test culture: rule + Step-4 hook + audit §I; bootstrap p7 fixtures | 0020 | **NEXT** |
+| 3 | Edge-case test culture: rule + Step-4 hook + audit §I; bootstrap p7 fixtures | 0020 | sub-3a `52efba4` (rule); **sub-3b (audit + /continue hook) NEXT**; sub-3c (p7 fixtures) |
 | 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | After Steps 1+2 |
 | 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After Step 4 |
 | 6 | §9.7 / 7.9–7.12: realworld ARM64 + x86_64, three-way differential, audit + open §9.8 | — | After Step 5 |
