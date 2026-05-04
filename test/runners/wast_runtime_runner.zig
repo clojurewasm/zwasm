@@ -56,6 +56,7 @@ const zwasm = @import("zwasm");
 
 const wasm_c_api = zwasm.c_api;
 const parser = zwasm.parser;
+const runtime = zwasm.runtime;
 const sections = zwasm.sections;
 
 /// Per-corpus state. Holds the active module pipeline + a name map
@@ -409,7 +410,7 @@ fn handleValidMalformedInvalid(
     }
 }
 
-fn validateAllFunctions(a: std.mem.Allocator, module: *parser.Module) !bool {
+fn validateAllFunctions(a: std.mem.Allocator, module: *runtime.Module) !bool {
     const validator = zwasm.validator;
     const zir = zwasm.zir;
 

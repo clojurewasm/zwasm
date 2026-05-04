@@ -15,6 +15,7 @@ const std = @import("std");
 
 const zwasm = @import("zwasm");
 const parser = zwasm.parser;
+const runtime = zwasm.runtime;
 const sections = zwasm.sections;
 const validator = zwasm.validator;
 
@@ -84,7 +85,7 @@ pub fn main(init: std.process.Init) !void {
 /// Decode the type / function / code sections of a parsed module and
 /// run the validator over each defined function. Returns on the first
 /// error (caller treats it as a per-fixture failure).
-fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
+fn runOne(gpa: std.mem.Allocator, module: *runtime.Module) !void {
     const type_section = module.find(.@"type");
     const import_section = module.find(.import);
     const func_section = module.find(.function);

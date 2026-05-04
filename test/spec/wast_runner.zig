@@ -31,6 +31,7 @@ const std = @import("std");
 
 const zwasm = @import("zwasm");
 const parser = zwasm.parser;
+const runtime = zwasm.runtime;
 const sections = zwasm.sections;
 const validator = zwasm.validator;
 
@@ -196,7 +197,7 @@ fn checkOne(gpa: std.mem.Allocator, directive: []const u8, wasm_bytes: []const u
     return false;
 }
 
-fn validateModule(gpa: std.mem.Allocator, module: *parser.Module) !void {
+fn validateModule(gpa: std.mem.Allocator, module: *runtime.Module) !void {
     try runOne(gpa, module);
 }
 
@@ -204,7 +205,7 @@ fn validateModule(gpa: std.mem.Allocator, module: *parser.Module) !void {
 /// and run the validator over each defined function. Mirrors
 /// `test/spec/runner.zig`'s helper of the same name (kept in sync
 /// because both runners exercise the same frontend pipeline).
-fn runOne(gpa: std.mem.Allocator, module: *parser.Module) !void {
+fn runOne(gpa: std.mem.Allocator, module: *runtime.Module) !void {
     const type_section = module.find(.@"type");
     const import_section = module.find(.import);
     const func_section = module.find(.function);

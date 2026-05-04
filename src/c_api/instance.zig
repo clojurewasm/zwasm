@@ -529,7 +529,7 @@ fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
     return true;
 }
 
-fn validateNoCode(_: std.mem.Allocator, _: *parser.Module) bool {
+fn validateNoCode(_: std.mem.Allocator, _: *runtime.Module) bool {
     // No code section: nothing per-function to validate. The
     // module's section-id ordering was already checked by
     // parser.parse, which is sufficient.
@@ -1061,7 +1061,7 @@ fn instantiateRuntime(
 ///   `source_min >= importer_min`; if importer specifies max,
 ///   source must too AND `source_max <= importer_max`.
 /// - Memory: same min/max sub-typing as table (no elem_type).
-fn checkImportTypeMatches(a: std.mem.Allocator, module: parser.Module, it: sections.Import, ext: *const Extern) !void {
+fn checkImportTypeMatches(a: std.mem.Allocator, module: runtime.Module, it: sections.Import, ext: *const Extern) !void {
     const source_inst = ext.instance orelse return error.ImportTypeMismatch;
     const idx: usize = switch (it.kind) {
         .func => blk: {
@@ -1161,7 +1161,7 @@ fn checkImportTypeMatches(a: std.mem.Allocator, module: parser.Module, it: secti
 /// - Memory: walk imports + decoded memories for limits.
 fn buildExportTypes(
     a: std.mem.Allocator,
-    module: parser.Module,
+    module: runtime.Module,
     exports_items: []sections.Export,
     imports_decoded: ?sections.Imports,
 ) ![]ExportType {

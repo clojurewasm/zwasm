@@ -19,8 +19,10 @@
 const std = @import("std");
 
 const leb128 = @import("../util/leb128.zig");
+const module_mod = @import("../runtime/module.zig");
 
 const Allocator = std.mem.Allocator;
+const Module = module_mod.Module;
 
 pub const MAGIC = [4]u8{ 0x00, 0x61, 0x73, 0x6d };
 pub const VERSION: u32 = 1;
@@ -57,32 +59,6 @@ pub const Error = error{
     DuplicateSection,
     OutOfMemory,
 } || leb128.Error;
-
-pub const Module = struct {
-    input: []const u8,
-    sections: std.ArrayList(Section),
-
-    pub fn deinit(self: *Module, alloc: Allocator) void {
-        self.sections.deinit(alloc);
-    }
-
-    /// Returns the first section with the given known id, or null.
-    /// O(N) but Phase 1's MVP corpora carry ≤ 13 sections.
-    pub fn find(self: *const Module, id: SectionId) ?Section {
-        for (self.sections.items) |s| {
-            if (s.id == id) return s;
-        }
-        return null;
-    }
-
-    pub fn countCustom(self: *const Module) usize {
-        var n: usize = 0;
-        for (self.sections.items) |s| {
-            if (s.id == .custom) n += 1;
-        }
-        return n;
-    }
-};
 
 /// Parse the magic/version header and the section sequence.
 /// Section bodies are borrowed slices of `input`; the caller must keep
