@@ -132,6 +132,7 @@ test {
     _ = @import("jit_arm64/abi.zig");
     _ = @import("jit_arm64/emit.zig");
     _ = @import("platform/jit_mem.zig");
+    _ = @import("jit/linker.zig");
     _ = @import("ir/loop_info.zig");
     _ = @import("ir/liveness.zig");
     _ = @import("ir/verifier.zig");
