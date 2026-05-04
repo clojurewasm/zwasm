@@ -44,6 +44,7 @@ const zir = @import("../ir/zir.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const regalloc = @import("../jit/regalloc.zig");
+const jit_abi = @import("../runtime/jit_abi.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
@@ -138,6 +139,17 @@ pub fn compile(
     const frame_bytes: u32 = (frame_bytes_unaligned + 15) & ~@as(u32, 15);
     try writeU32(allocator, &buf, encStpFpLrPreIdx());
     try writeU32(allocator, &buf, encMovSpToFp());
+    // ADR-0017 prologue: 5 LDRs from X0 = `*const JitRuntime`
+    // into the reserved invariant regs. Per ROADMAP §2 P3 (cold-
+    // start over peak throughput), 5 cycles uncached overhead is
+    // acceptable for Phase 7 baseline; Phase 15 optimisation may
+    // elide loads when the function provably doesn't use the
+    // corresponding invariant.
+    try writeU32(allocator, &buf, inst.encLdrImm(28, 0, jit_abi.vm_base_off));
+    try writeU32(allocator, &buf, inst.encLdrImm(27, 0, jit_abi.mem_limit_off));
+    try writeU32(allocator, &buf, inst.encLdrImm(26, 0, jit_abi.funcptr_base_off));
+    try writeU32(allocator, &buf, inst.encLdrImmW(25, 0, jit_abi.table_size_off));
+    try writeU32(allocator, &buf, inst.encLdrImm(24, 0, jit_abi.typeidx_base_off));
     if (frame_bytes > 0) {
         if (frame_bytes >= (@as(u32, 1) << 12)) return Error.SlotOverflow;
         try writeU32(allocator, &buf, inst.encSubImm12(31, 31, @intCast(frame_bytes)));
@@ -1997,7 +2009,7 @@ test "compile: empty function (no instrs, empty liveness) emits prologue+epilogu
     const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // 2 prologue u32s = 8 bytes.
-    try testing.expectEqual(@as(usize, 8), out.bytes.len);
+    try testing.expectEqual(@as(usize, 28), out.bytes.len);
     try testing.expectEqual(@as(u32, 0xA9BF7BFD), std.mem.readInt(u32, out.bytes[0..4], .little));
     try testing.expectEqual(@as(u32, 0x910003FD), std.mem.readInt(u32, out.bytes[4..8], .little));
 }
@@ -2016,20 +2028,20 @@ test "compile: (i32.const 42) end yields 5-instr body returning 42 in X0" {
 
     // Expected stream: STP / MOV-FP-SP / MOVZ-X9-#42 / MOV-X0-X9 / LDP / RET
     // = 6 u32 words = 24 bytes.
-    try testing.expectEqual(@as(usize, 24), out.bytes.len);
+    try testing.expectEqual(@as(usize, 44), out.bytes.len);
 
     // Word 0: STP prologue.
     try testing.expectEqual(@as(u32, 0xA9BF7BFD), std.mem.readInt(u32, out.bytes[0..4], .little));
     // Word 1: MOV X29, SP.
     try testing.expectEqual(@as(u32, 0x910003FD), std.mem.readInt(u32, out.bytes[4..8], .little));
     // Word 2: MOVZ X9, #42 — slot 0 → X9 per abi.slotToReg.
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 42)), std.mem.readInt(u32, out.bytes[8..12], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 42)), std.mem.readInt(u32, out.bytes[28..32], .little));
     // Word 3: MOV X0, X9 (ORR X0, XZR, X9).
-    try testing.expectEqual(@as(u32, 0xAA0903E0), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, 0xAA0903E0), std.mem.readInt(u32, out.bytes[32..36], .little));
     // Word 4: LDP epilogue.
-    try testing.expectEqual(@as(u32, 0xA8C17BFD), std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, 0xA8C17BFD), std.mem.readInt(u32, out.bytes[36..40], .little));
     // Word 5: RET.
-    try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[40..44], .little));
 }
 
 test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
@@ -2045,9 +2057,9 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
     defer deinit(testing.allocator, out);
 
     // 7 u32s now: STP / MOV-FP-SP / MOVZ / MOVK / MOV-X0 / LDP / RET.
-    try testing.expectEqual(@as(usize, 28), out.bytes.len);
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0x5678)), std.mem.readInt(u32, out.bytes[8..12], .little));
-    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0x1234, 1)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(usize, 48), out.bytes.len);
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0x5678)), std.mem.readInt(u32, out.bytes[28..32], .little));
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0x1234, 1)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
@@ -2090,10 +2102,10 @@ test "compile: (i32.const 7) (i32.const 5) i32.add end → returns 12 in X0" {
 
     // Stream: STP / MOV-FP / MOVZ X9 #7 / MOVZ X10 #5 / ADD X9 X9 X10 /
     //         MOV X0 X9 / LDP / RET = 8 u32s = 32 bytes.
-    try testing.expectEqual(@as(usize, 32), out.bytes.len);
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 7)),  std.mem.readInt(u32, out.bytes[8..12], .little));
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(10, 5)), std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encAddRegW(9, 9, 10)), std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(usize, 52), out.bytes.len);
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 7)),  std.mem.readInt(u32, out.bytes[28..32], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(10, 5)), std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encAddRegW(9, 9, 10)), std.mem.readInt(u32, out.bytes[36..40], .little));
 }
 
 test "compile: i32.sub / i32.mul / i32.and / i32.or / i32.xor / i32.shl / i32.shr_s / i32.shr_u each emit correct W-variant ALU op" {
@@ -2125,7 +2137,7 @@ test "compile: i32.sub / i32.mul / i32.and / i32.or / i32.xor / i32.shl / i32.sh
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
         // ALU op lives at u32 offset 4 (= byte 16).
-        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[16..20], .little));
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[36..40], .little));
     }
 }
 
@@ -2160,7 +2172,7 @@ test "compile: i32.rotr emits single RORV W-variant" {
     defer deinit(testing.allocator, out);
     // Stream: STP / MOV-FP / MOVZ #FF / MOVZ #4 / RORV / MOV X0 / LDP / RET
     // = 8 u32s. RORV at byte 16.
-    try testing.expectEqual(@as(u32, inst.encRorvRegW(9, 9, 10)), std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encRorvRegW(9, 9, 10)), std.mem.readInt(u32, out.bytes[36..40], .little));
 }
 
 test "compile: i32.rotl emits 3-instr NEG-via-MOVZ-SUB + RORV sequence" {
@@ -2182,9 +2194,9 @@ test "compile: i32.rotl emits 3-instr NEG-via-MOVZ-SUB + RORV sequence" {
     defer deinit(testing.allocator, out);
     // After 4 prologue+const u32s (16 bytes), expect:
     // MOVZ W16, #32  /  SUB W16, W16, W10  /  RORV W9, W9, W16
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 32)),    std.mem.readInt(u32, out.bytes[16..20], .little));
-    try testing.expectEqual(@as(u32, inst.encSubRegW(16, 16, 10)),  std.mem.readInt(u32, out.bytes[20..24], .little));
-    try testing.expectEqual(@as(u32, inst.encRorvRegW(9, 9, 16)),   std.mem.readInt(u32, out.bytes[24..28], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 32)),    std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encSubRegW(16, 16, 10)),  std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encRorvRegW(9, 9, 16)),   std.mem.readInt(u32, out.bytes[44..48], .little));
 }
 
 test "compile: i32 cmp ops each emit CMP + CSET with the right Cond mapping" {
@@ -2218,8 +2230,8 @@ test "compile: i32 cmp ops each emit CMP + CSET with the right Cond mapping" {
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
         // CMP at byte 16, CSET at byte 20.
-        try testing.expectEqual(@as(u32, inst.encCmpRegW(9, 10)), std.mem.readInt(u32, out.bytes[16..20], .little));
-        try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[20..24], .little));
+        try testing.expectEqual(@as(u32, inst.encCmpRegW(9, 10)), std.mem.readInt(u32, out.bytes[36..40], .little));
+        try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[40..44], .little));
     }
 }
 
@@ -2239,7 +2251,7 @@ test "compile: i32.clz emits direct CLZ" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // After STP/MOV-FP/MOVZ-W9-#FF (12 bytes): CLZ W9, W9.
-    try testing.expectEqual(@as(u32, inst.encClzW(9, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encClzW(9, 9)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: i32.ctz emits RBIT + CLZ" {
@@ -2258,8 +2270,8 @@ test "compile: i32.ctz emits RBIT + CLZ" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // After STP/MOV-FP/MOVZ-W9-#0x100 (12 bytes): RBIT W9, W9 / CLZ W9, W9.
-    try testing.expectEqual(@as(u32, inst.encRbitW(9, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encClzW(9, 9)),  std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encRbitW(9, 9)), std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encClzW(9, 9)),  std.mem.readInt(u32, out.bytes[36..40], .little));
 }
 
 test "compile: i32.popcnt emits 4-instr V-register SIMD pattern" {
@@ -2280,13 +2292,13 @@ test "compile: i32.popcnt emits 4-instr V-register SIMD pattern" {
     // After STP/MOV-FP/MOVZ-W9/MOVK-W9 (16 bytes) — 0xDEADBEEF
     // needs both lanes — the popcnt sequence starts.
     // FMOV S31, W9
-    try testing.expectEqual(@as(u32, inst.encFmovStoFromW(31, 9)),     std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovStoFromW(31, 9)),     std.mem.readInt(u32, out.bytes[36..40], .little));
     // CNT V31.8B, V31.8B
-    try testing.expectEqual(@as(u32, inst.encCntV8B(31, 31)),          std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encCntV8B(31, 31)),          std.mem.readInt(u32, out.bytes[40..44], .little));
     // ADDV B31, V31.8B
-    try testing.expectEqual(@as(u32, inst.encAddvB8B(31, 31)),         std.mem.readInt(u32, out.bytes[24..28], .little));
+    try testing.expectEqual(@as(u32, inst.encAddvB8B(31, 31)),         std.mem.readInt(u32, out.bytes[44..48], .little));
     // UMOV W9, V31.B[0]
-    try testing.expectEqual(@as(u32, inst.encUmovWFromVB0(9, 31)),     std.mem.readInt(u32, out.bytes[28..32], .little));
+    try testing.expectEqual(@as(u32, inst.encUmovWFromVB0(9, 31)),     std.mem.readInt(u32, out.bytes[48..52], .little));
 }
 
 test "compile: 1 local — prologue includes SUB SP,SP,#16; epilogue ADD SP,SP,#16" {
@@ -2309,15 +2321,15 @@ test "compile: 1 local — prologue includes SUB SP,SP,#16; epilogue ADD SP,SP,#
 
     // Stream: STP / MOV-FP / SUB-SP-#16 / MOVZ W9 #7 / STR W9 [SP,#0] /
     //         LDR W9 [SP,#0] / MOV X0 X9 / ADD-SP-#16 / LDP / RET = 10 u32s = 40 bytes.
-    try testing.expectEqual(@as(usize, 40), out.bytes.len);
+    try testing.expectEqual(@as(usize, 60), out.bytes.len);
     // Word 2: SUB SP, SP, #16.
-    try testing.expectEqual(@as(u32, inst.encSubImm12(31, 31, 16)), std.mem.readInt(u32, out.bytes[8..12], .little));
+    try testing.expectEqual(@as(u32, inst.encSubImm12(31, 31, 16)), std.mem.readInt(u32, out.bytes[28..32], .little));
     // Word 4: STR W9, [SP, #0].
-    try testing.expectEqual(@as(u32, inst.encStrImmW(9, 31, 0)),    std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encStrImmW(9, 31, 0)),    std.mem.readInt(u32, out.bytes[36..40], .little));
     // Word 5: LDR W9, [SP, #0].
-    try testing.expectEqual(@as(u32, inst.encLdrImmW(9, 31, 0)),    std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrImmW(9, 31, 0)),    std.mem.readInt(u32, out.bytes[40..44], .little));
     // Word 7: ADD SP, SP, #16.
-    try testing.expectEqual(@as(u32, inst.encAddImm12(31, 31, 16)), std.mem.readInt(u32, out.bytes[28..32], .little));
+    try testing.expectEqual(@as(u32, inst.encAddImm12(31, 31, 16)), std.mem.readInt(u32, out.bytes[48..52], .little));
 }
 
 test "compile: 3 locals — frame rounds up to 32 bytes (3*8=24 → align to 32)" {
@@ -2338,11 +2350,11 @@ test "compile: 3 locals — frame rounds up to 32 bytes (3*8=24 → align to 32)
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Word 2: SUB SP, SP, #32 (3*8=24 → aligned 32).
-    try testing.expectEqual(@as(u32, inst.encSubImm12(31, 31, 32)), std.mem.readInt(u32, out.bytes[8..12], .little));
+    try testing.expectEqual(@as(u32, inst.encSubImm12(31, 31, 32)), std.mem.readInt(u32, out.bytes[28..32], .little));
     // local.set 2 → STR at offset 2*8=16. Word 4 (after STP/MOV-FP/SUB/MOVZ).
-    try testing.expectEqual(@as(u32, inst.encStrImmW(9, 31, 16)),   std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encStrImmW(9, 31, 16)),   std.mem.readInt(u32, out.bytes[36..40], .little));
     // local.get 2 → LDR at offset 16. Word 5.
-    try testing.expectEqual(@as(u32, inst.encLdrImmW(9, 31, 16)),   std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrImmW(9, 31, 16)),   std.mem.readInt(u32, out.bytes[40..44], .little));
 }
 
 test "compile: local.tee writes to local but keeps value pushed" {
@@ -2363,11 +2375,11 @@ test "compile: local.tee writes to local but keeps value pushed" {
     defer deinit(testing.allocator, out);
     // Stream: STP / MOV-FP / SUB-SP / MOVZ W9 #42 / STR W9 [SP,#0] /
     //         MOV X0 X9 / ADD-SP / LDP / RET = 9 u32s = 36 bytes.
-    try testing.expectEqual(@as(usize, 36), out.bytes.len);
+    try testing.expectEqual(@as(usize, 56), out.bytes.len);
     // Word 4: STR (the tee).
-    try testing.expectEqual(@as(u32, inst.encStrImmW(9, 31, 0)), std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encStrImmW(9, 31, 0)), std.mem.readInt(u32, out.bytes[36..40], .little));
     // Word 5: MOV X0, X9 (the kept-on-stack value, then end consumes it).
-    try testing.expectEqual(@as(u32, 0xAA0903E0), std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, 0xAA0903E0), std.mem.readInt(u32, out.bytes[40..44], .little));
 }
 
 test "compile: i64.const small value emits single MOVZ" {
@@ -2382,7 +2394,7 @@ test "compile: i64.const small value emits single MOVZ" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Single MOVZ X9, #42 at byte 8.
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 42)), std.mem.readInt(u32, out.bytes[8..12], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 42)), std.mem.readInt(u32, out.bytes[28..32], .little));
 }
 
 test "compile: i64.const 0xCAFEBABEDEADBEEF emits MOVZ + 3 MOVK lanes" {
@@ -2398,10 +2410,10 @@ test "compile: i64.const 0xCAFEBABEDEADBEEF emits MOVZ + 3 MOVK lanes" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // MOVZ #BEEF / MOVK #DEAD lsl 16 / MOVK #BABE lsl 32 / MOVK #CAFE lsl 48.
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0xBEEF)),       std.mem.readInt(u32, out.bytes[8..12],  .little));
-    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0xDEAD, 1)),    std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0xBABE, 2)),    std.mem.readInt(u32, out.bytes[16..20], .little));
-    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0xCAFE, 3)),    std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0xBEEF)),       std.mem.readInt(u32, out.bytes[28..32],  .little));
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0xDEAD, 1)),    std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0xBABE, 2)),    std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0xCAFE, 3)),    std.mem.readInt(u32, out.bytes[40..44], .little));
 }
 
 test "compile: i64.add / sub / mul / and / or / xor each emit X-variant ALU op" {
@@ -2430,7 +2442,7 @@ test "compile: i64.add / sub / mul / and / or / xor each emit X-variant ALU op" 
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
-        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[16..20], .little));
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[36..40], .little));
     }
 }
 
@@ -2464,8 +2476,8 @@ test "compile: i64 cmp ops each emit CMP-X + CSET-W with the right Cond mapping"
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
-        try testing.expectEqual(@as(u32, inst.encCmpRegX(9, 10)),        std.mem.readInt(u32, out.bytes[16..20], .little));
-        try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[20..24], .little));
+        try testing.expectEqual(@as(u32, inst.encCmpRegX(9, 10)),        std.mem.readInt(u32, out.bytes[36..40], .little));
+        try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[40..44], .little));
     }
 }
 
@@ -2493,7 +2505,7 @@ test "compile: i64 shifts emit X-variant LSLV/LSRV/ASRV/RORV" {
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
-        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[16..20], .little));
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[36..40], .little));
     }
 }
 
@@ -2516,9 +2528,9 @@ test "compile: i64.rotl emits 3-instr X-variant NEG-via-MOVZ-#64-SUB + RORV" {
     defer deinit(testing.allocator, out);
     // After 4 prologue+const u32s (16 bytes):
     // MOVZ X16, #64 / SUB X16, X16, X10 / RORV X9, X9, X16.
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 64)),    std.mem.readInt(u32, out.bytes[16..20], .little));
-    try testing.expectEqual(@as(u32, inst.encSubReg(16, 16, 10)),   std.mem.readInt(u32, out.bytes[20..24], .little));
-    try testing.expectEqual(@as(u32, inst.encRorvRegX(9, 9, 16)),   std.mem.readInt(u32, out.bytes[24..28], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 64)),    std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encSubReg(16, 16, 10)),   std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encRorvRegX(9, 9, 16)),   std.mem.readInt(u32, out.bytes[44..48], .little));
 }
 
 test "compile: i64.clz emits direct CLZ X" {
@@ -2536,7 +2548,7 @@ test "compile: i64.clz emits direct CLZ X" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
-    try testing.expectEqual(@as(u32, inst.encClzX(9, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encClzX(9, 9)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: i64.ctz emits RBIT-X + CLZ-X" {
@@ -2554,8 +2566,8 @@ test "compile: i64.ctz emits RBIT-X + CLZ-X" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
-    try testing.expectEqual(@as(u32, inst.encRbitX(9, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encClzX(9, 9)),  std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encRbitX(9, 9)), std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encClzX(9, 9)),  std.mem.readInt(u32, out.bytes[36..40], .little));
 }
 
 test "compile: i64.popcnt emits FMOV-D + CNT/ADDV/UMOV V-register pattern" {
@@ -2575,10 +2587,10 @@ test "compile: i64.popcnt emits FMOV-D + CNT/ADDV/UMOV V-register pattern" {
     defer deinit(testing.allocator, out);
     // After STP/MOV-FP/MOVZ-X9 (12 bytes):
     // FMOV D31, X9 / CNT V31.8B / ADDV B31 / UMOV W9.
-    try testing.expectEqual(@as(u32, inst.encFmovDtoFromX(31, 9)),     std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encCntV8B(31, 31)),          std.mem.readInt(u32, out.bytes[16..20], .little));
-    try testing.expectEqual(@as(u32, inst.encAddvB8B(31, 31)),         std.mem.readInt(u32, out.bytes[20..24], .little));
-    try testing.expectEqual(@as(u32, inst.encUmovWFromVB0(9, 31)),     std.mem.readInt(u32, out.bytes[24..28], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovDtoFromX(31, 9)),     std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encCntV8B(31, 31)),          std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encAddvB8B(31, 31)),         std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encUmovWFromVB0(9, 31)),     std.mem.readInt(u32, out.bytes[44..48], .little));
 }
 
 test "compile: f32.const emits emitConstU32 + FMOV S, W" {
@@ -2598,11 +2610,11 @@ test "compile: f32.const emits emitConstU32 + FMOV S, W" {
     // emits MOVZ (low 16) and conditionally MOVK (high 16). For
     // 0x3F800000: low 16 = 0x0000, high 16 = 0x3F80. MOVZ #0; MOVK
     // #0x3F80 lsl 16; FMOV S16, W9.
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0)),       std.mem.readInt(u32, out.bytes[8..12],  .little));
-    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0x3F80, 1)), std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encFmovStoFromW(16, 9)),    std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0)),       std.mem.readInt(u32, out.bytes[28..32],  .little));
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0x3F80, 1)), std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovStoFromW(16, 9)),    std.mem.readInt(u32, out.bytes[36..40], .little));
     // end with f32 result → FMOV S0, S16 = 0x1E204000 | (16<<5) = 0x1E204200.
-    try testing.expectEqual(@as(u32, 0x1E204200),                     std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, 0x1E204200),                     std.mem.readInt(u32, out.bytes[40..44], .little));
 }
 
 test "compile: f32 binary ALU each emits S-form" {
@@ -2631,7 +2643,7 @@ test "compile: f32 binary ALU each emits S-form" {
         defer deinit(testing.allocator, out);
         // Each f32.const emits MOVZ + MOVK + FMOV (3 u32s = 12 bytes).
         // After STP/MOV-FP (8) + 2 consts (24) = byte 32, FP ALU fires.
-        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[32..36], .little));
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[52..56], .little));
     }
 }
 
@@ -2662,8 +2674,8 @@ test "compile: f32 cmps each emit FCMP-S + CSET-W with right Cond" {
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
         // FCMP at byte 32; CSET at byte 36.
-        try testing.expectEqual(@as(u32, inst.encFCmpS(16, 17)),         std.mem.readInt(u32, out.bytes[32..36], .little));
-        try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[36..40], .little));
+        try testing.expectEqual(@as(u32, inst.encFCmpS(16, 17)),         std.mem.readInt(u32, out.bytes[52..56], .little));
+        try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[56..60], .little));
     }
 }
 
@@ -2712,11 +2724,12 @@ test "compile: f32 unary ops + min/max each emit correct encoding" {
             .{ .slots = &slots_unary, .n_slots = 1 };
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
+        // After ADR-0017 prologue (STP+MOV-FP = 8 + 5 LDRs = 28 bytes):
         // For unary: 1 const = 3 u32s (MOVZ + MOVK for 0x3F800000 + FMOV S);
-        //   STP/MOV-FP (8) + const (12) = byte 20, op fires at byte 20.
+        //   28 + const (12) = byte 40, op fires at byte 40.
         // For binary: 2 consts = 6 u32s = 24 bytes;
-        //   STP/MOV-FP (8) + 2 consts (24) = byte 32.
-        const op_offset: usize = if (c.binary) 32 else 20;
+        //   28 + 2 consts (24) = byte 52.
+        const op_offset: usize = if (c.binary) 52 else 40;
         try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[op_offset..op_offset+4][0..4], .little));
     }
 }
@@ -2754,7 +2767,7 @@ test "compile: block + br 0 + end — forward unconditional branch fixup" {
     // [24]  LDP, RET ...
     //
     // Verify the B at [12] points to byte 16 (1 word forward).
-    const b_word = std.mem.readInt(u32, out.bytes[12..16], .little);
+    const b_word = std.mem.readInt(u32, out.bytes[32..36], .little);
     try testing.expectEqual(@as(u32, inst.encB(1)), b_word);
 }
 
@@ -2781,7 +2794,7 @@ test "compile: loop + br 0 + end — backward unconditional branch" {
     // Loop entry recorded at byte 8 (after STP/MOV-FP).
     // br targets it from byte 8 → disp = 0 words.
     // Then end (no-op for loop), then i32.const W9 #1, MOV X0, ...
-    const b_word = std.mem.readInt(u32, out.bytes[8..12], .little);
+    const b_word = std.mem.readInt(u32, out.bytes[28..32], .little);
     try testing.expectEqual(@as(u32, inst.encB(0)), b_word);
 }
 
@@ -2817,7 +2830,7 @@ test "compile: if (i32.const N) end — single-arm if; CBZ skips to end" {
     // [16]  MOVZ W9 #7               (then-body)
     // [20]  MOVZ W9 #99              (post-if; if's `end` lands here)
     // CBZ disp = (20 - 12) / 4 = 2.
-    const cbz = std.mem.readInt(u32, out.bytes[12..16], .little);
+    const cbz = std.mem.readInt(u32, out.bytes[32..36], .little);
     try testing.expectEqual(@as(u32, inst.encCbzW(9, 2)), cbz);
 }
 
@@ -2855,8 +2868,8 @@ test "compile: if/else/end — CBZ skips to else; B-uncond skips to end" {
     //
     // CBZ disp = (24 - 12) / 4 = 3.
     // B disp = (28 - 20) / 4 = 2.
-    const cbz = std.mem.readInt(u32, out.bytes[12..16], .little);
-    const b   = std.mem.readInt(u32, out.bytes[20..24], .little);
+    const cbz = std.mem.readInt(u32, out.bytes[32..36], .little);
+    const b   = std.mem.readInt(u32, out.bytes[40..44], .little);
     try testing.expectEqual(@as(u32, inst.encCbzW(9, 3)), cbz);
     try testing.expectEqual(@as(u32, inst.encB(2)),       b);
 }
@@ -2883,10 +2896,10 @@ test "compile: i32.load — emits zero-extend + bounds-check + LDR W reg-offset 
     //  [20]  CMP X16, X27              (bounds)
     //  [24]  B.HS  trap (placeholder + fixup)
     //  [28]  LDR W9, [X28, X16]
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(16, 31, 9)),  std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encAddImm12(16, 16, 4)), std.mem.readInt(u32, out.bytes[16..20], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpRegX(16, 27)),     std.mem.readInt(u32, out.bytes[20..24], .little));
-    try testing.expectEqual(@as(u32, inst.encLdrWReg(9, 28, 16)),  std.mem.readInt(u32, out.bytes[28..32], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(16, 31, 9)),  std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encAddImm12(16, 16, 4)), std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(16, 27)),     std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrWReg(9, 28, 16)),  std.mem.readInt(u32, out.bytes[48..52], .little));
     // Trap stub starts AFTER MOV X0/LDP/RET (3 u32s = 12 bytes after byte 32):
     //  [32] MOV X0, X9
     //  [36] LDP
@@ -2894,10 +2907,10 @@ test "compile: i32.load — emits zero-extend + bounds-check + LDR W reg-offset 
     //  [44] MOVZ X0, #1   (trap stub start)
     //  [48] LDP
     //  [52] RET
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(0, 1)),     std.mem.readInt(u32, out.bytes[44..48], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(0, 1)),     std.mem.readInt(u32, out.bytes[64..68], .little));
     // B.HS placeholder at [24] should be patched to point at byte 44.
     // disp = (44 - 24) / 4 = 5.
-    const bhs_patched = std.mem.readInt(u32, out.bytes[24..28], .little);
+    const bhs_patched = std.mem.readInt(u32, out.bytes[44..48], .little);
     try testing.expectEqual(@as(u32, inst.encBCond(.hs, 5)),       bhs_patched);
 }
 
@@ -2930,7 +2943,7 @@ test "compile: memory ops dispatch correctly per variant" {
         defer deinit(testing.allocator, out);
         // Stream: STP/MOV-FP (8) + MOVZ W9 (4) + ORR W16 (4) +
         // (offset==0 → no ADD) + CMP (4) + B.HS (4) = byte 24 for the LDR.
-        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[24..28], .little));
+        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[44..48], .little));
     }
 }
 
@@ -2955,7 +2968,7 @@ test "compile: f32.load + f64.load dispatch to S/D-form LDR" {
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
-        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[24..28], .little));
+        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[44..48], .little));
     }
 }
 
@@ -2973,7 +2986,7 @@ test "compile: memory.size emits LSR W_dest, W27, #16" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // After STP/MOV-FP (8 bytes), LSR fires.
-    try testing.expectEqual(@as(u32, inst.encLsrImmW(9, 27, 16)), std.mem.readInt(u32, out.bytes[8..12], .little));
+    try testing.expectEqual(@as(u32, inst.encLsrImmW(9, 27, 16)), std.mem.readInt(u32, out.bytes[28..32], .little));
 }
 
 test "compile: memory.grow emits MOVN W_dest, #0 (skeleton return -1)" {
@@ -2992,7 +3005,7 @@ test "compile: memory.grow emits MOVN W_dest, #0 (skeleton return -1)" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // STP/MOV-FP (8) + MOVZ W9 #1 (4) + MOVN W9 (4) at byte 12.
-    try testing.expectEqual(@as(u32, inst.encMovnImmW(9, 0)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encMovnImmW(9, 0)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: i32.store — emits bounds-check + STR W reg-offset" {
@@ -3021,9 +3034,9 @@ test "compile: i32.store — emits bounds-check + STR W reg-offset" {
     // [24]  B.HS trap (fixup)
     // [28]  STR W10, [X28, X16]
     // [32]  LDP / RET / trap stub ...
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(16, 31, 9)), std.mem.readInt(u32, out.bytes[16..20], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpRegX(16, 27)),    std.mem.readInt(u32, out.bytes[20..24], .little));
-    try testing.expectEqual(@as(u32, inst.encStrWReg(10, 28, 16)), std.mem.readInt(u32, out.bytes[28..32], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(16, 31, 9)), std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(16, 27)),    std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encStrWReg(10, 28, 16)), std.mem.readInt(u32, out.bytes[48..52], .little));
 }
 
 test "compile: br_table — emits CMP+B.NE+B chain + default B" {
@@ -3072,10 +3085,10 @@ test "compile: br_table — emits CMP+B.NE+B chain + default B" {
     // [28]  MOVZ W9 #99       ← inner-block-end target lands here
     // [32]  MOVZ W9 #1        ← outer-block-end target lands here
     // CMP at byte 12; B.NE at 16; case-0 B at 20 → +2 = byte 28; default B at 24 → +2 = byte 32.
-    try testing.expectEqual(@as(u32, inst.encCmpImmW(9, 0)),  std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encBCond(.ne, 2)),  std.mem.readInt(u32, out.bytes[16..20], .little));
-    try testing.expectEqual(@as(u32, inst.encB(2)),           std.mem.readInt(u32, out.bytes[20..24], .little));
-    try testing.expectEqual(@as(u32, inst.encB(2)),           std.mem.readInt(u32, out.bytes[24..28], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpImmW(9, 0)),  std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encBCond(.ne, 2)),  std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encB(2)),           std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encB(2)),           std.mem.readInt(u32, out.bytes[44..48], .little));
 }
 
 test "compile: br_if 0 — forward CBNZ fixup" {
@@ -3107,7 +3120,7 @@ test "compile: br_if 0 — forward CBNZ fixup" {
     // [16]  MOVZ W9 #7         (i32.const 7)
     // [20]  block end → target lands here
     // CBNZ disp_words = (20 - 12) / 4 = 2.
-    const cbnz = std.mem.readInt(u32, out.bytes[12..16], .little);
+    const cbnz = std.mem.readInt(u32, out.bytes[32..36], .little);
     try testing.expectEqual(@as(u32, inst.encCbnzW(9, 2)), cbnz);
 }
 
@@ -3132,21 +3145,21 @@ test "compile: f32.copysign emits 8-instr FMOV/BIC/AND/ORR sequence" {
     // After STP/MOV-FP (8) + 2 consts (each 3 u32s = 24) = byte 32.
     // Then 8 copysign instrs.
     // [32]: MOVZ X16, #0
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 0)),       std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 0)),       std.mem.readInt(u32, out.bytes[52..56], .little));
     // [36]: MOVK X16, #0x8000, lsl #16
-    try testing.expectEqual(@as(u32, inst.encMovkImm16(16, 0x8000, 1)), std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(16, 0x8000, 1)), std.mem.readInt(u32, out.bytes[56..60], .little));
     // [40]: FMOV W9, S16  (W_a from S_x at slot[result]=0 → V16)
-    try testing.expectEqual(@as(u32, inst.encFmovWFromS(9, 16)),       std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovWFromS(9, 16)),       std.mem.readInt(u32, out.bytes[60..64], .little));
     // [44]: BIC W9, W9, W16
-    try testing.expectEqual(@as(u32, inst.encBicRegW(9, 9, 16)),       std.mem.readInt(u32, out.bytes[44..48], .little));
+    try testing.expectEqual(@as(u32, inst.encBicRegW(9, 9, 16)),       std.mem.readInt(u32, out.bytes[64..68], .little));
     // [48]: FMOV W17, S17  (W17 from S_y at slot[rhs]=1 → V17)
-    try testing.expectEqual(@as(u32, inst.encFmovWFromS(17, 17)),      std.mem.readInt(u32, out.bytes[48..52], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovWFromS(17, 17)),      std.mem.readInt(u32, out.bytes[68..72], .little));
     // [52]: AND W17, W17, W16
-    try testing.expectEqual(@as(u32, inst.encAndRegW(17, 17, 16)),     std.mem.readInt(u32, out.bytes[52..56], .little));
+    try testing.expectEqual(@as(u32, inst.encAndRegW(17, 17, 16)),     std.mem.readInt(u32, out.bytes[72..76], .little));
     // [56]: ORR W9, W9, W17
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 9, 17)),       std.mem.readInt(u32, out.bytes[56..60], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 9, 17)),       std.mem.readInt(u32, out.bytes[76..80], .little));
     // [60]: FMOV S16, W9
-    try testing.expectEqual(@as(u32, inst.encFmovStoFromW(16, 9)),     std.mem.readInt(u32, out.bytes[60..64], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovStoFromW(16, 9)),     std.mem.readInt(u32, out.bytes[80..84], .little));
 }
 
 test "compile: f64.copysign emits X-form 8-instr sequence with hw=3 mask" {
@@ -3172,21 +3185,21 @@ test "compile: f64.copysign emits X-form 8-instr sequence with hw=3 mask" {
     // = 3 u32s. Same shape for -2.0. After STP/MOV-FP (8) + 6 u32s
     // (24) = byte 32.
     // [32]: MOVZ X16, #0
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 0)),       std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 0)),       std.mem.readInt(u32, out.bytes[52..56], .little));
     // [36]: MOVK X16, #0x8000, lsl #48
-    try testing.expectEqual(@as(u32, inst.encMovkImm16(16, 0x8000, 3)), std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(16, 0x8000, 3)), std.mem.readInt(u32, out.bytes[56..60], .little));
     // [40]: FMOV X9, D16
-    try testing.expectEqual(@as(u32, inst.encFmovXFromD(9, 16)),      std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovXFromD(9, 16)),      std.mem.readInt(u32, out.bytes[60..64], .little));
     // [44]: BIC X9, X9, X16
-    try testing.expectEqual(@as(u32, inst.encBicRegX(9, 9, 16)),      std.mem.readInt(u32, out.bytes[44..48], .little));
+    try testing.expectEqual(@as(u32, inst.encBicRegX(9, 9, 16)),      std.mem.readInt(u32, out.bytes[64..68], .little));
     // [48]: FMOV X17, D17
-    try testing.expectEqual(@as(u32, inst.encFmovXFromD(17, 17)),     std.mem.readInt(u32, out.bytes[48..52], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovXFromD(17, 17)),     std.mem.readInt(u32, out.bytes[68..72], .little));
     // [52]: AND X17, X17, X16
-    try testing.expectEqual(@as(u32, inst.encAndReg(17, 17, 16)),     std.mem.readInt(u32, out.bytes[52..56], .little));
+    try testing.expectEqual(@as(u32, inst.encAndReg(17, 17, 16)),     std.mem.readInt(u32, out.bytes[72..76], .little));
     // [56]: ORR X9, X9, X17
-    try testing.expectEqual(@as(u32, inst.encOrrReg(9, 9, 17)),       std.mem.readInt(u32, out.bytes[56..60], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrReg(9, 9, 17)),       std.mem.readInt(u32, out.bytes[76..80], .little));
     // [60]: FMOV D16, X9
-    try testing.expectEqual(@as(u32, inst.encFmovDtoFromX(16, 9)),    std.mem.readInt(u32, out.bytes[60..64], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovDtoFromX(16, 9)),    std.mem.readInt(u32, out.bytes[80..84], .little));
 }
 
 test "compile: f64 binary ALU each emits D-form" {
@@ -3220,7 +3233,7 @@ test "compile: f64 binary ALU each emits D-form" {
         // f64.const 2.0: bits=0x4000000000000000. Lane 3 = 0x4000.
         // Same shape.
         // After STP/MOV-FP (8) + 2 consts (24) = byte 32, ALU fires.
-        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[32..36], .little));
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[52..56], .little));
     }
 }
 
@@ -3239,8 +3252,8 @@ test "compile: i64.eqz emits CMP-X-imm-0 + CSET EQ" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
-    try testing.expectEqual(@as(u32, inst.encCmpImmX(9, 0)),    std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encCsetW(9, .eq)),    std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpImmX(9, 0)),    std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encCsetW(9, .eq)),    std.mem.readInt(u32, out.bytes[36..40], .little));
 }
 
 test "compile: function with non-empty params surfaces UnsupportedOp" {
@@ -3269,8 +3282,8 @@ test "compile: i32.eqz emits CMP-imm-0 + CSET EQ" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // After STP/MOV-FP/MOVZ-W9-#0 (12 bytes): CMP W9,#0 / CSET W9,EQ.
-    try testing.expectEqual(@as(u32, inst.encCmpImmW(9, 0)),   std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encCsetW(9, .eq)),   std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpImmW(9, 0)),   std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encCsetW(9, .eq)),   std.mem.readInt(u32, out.bytes[36..40], .little));
 }
 
 test "compile: call N (no-arg skeleton) emits BL placeholder + records fixup + result MOV W_dest, W0" {
@@ -3297,12 +3310,13 @@ test "compile: call N (no-arg skeleton) emits BL placeholder + records fixup + r
     // Layout after prologue (STP fp/lr + MOV fp,sp = 8 bytes):
     //   [8..12]  BL 0   (placeholder; fixup recorded)
     //   [12..16] ORR W9, WZR, W0  (MOV W9, W0 — slot 0 → X9)
-    try testing.expectEqual(@as(u32, inst.encBL(0)), std.mem.readInt(u32, out.bytes[8..12], .little));
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encBL(0)), std.mem.readInt(u32, out.bytes[28..32], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)), std.mem.readInt(u32, out.bytes[32..36], .little));
 
-    // One fixup recorded with byte_offset = 8 + target_func_idx = 7.
+    // One fixup recorded with byte_offset = 28 (after STP+MOV-FP+5 LDRs)
+    // + target_func_idx = 7.
     try testing.expectEqual(@as(usize, 1), out.call_fixups.len);
-    try testing.expectEqual(@as(u32, 8), out.call_fixups[0].byte_offset);
+    try testing.expectEqual(@as(u32, 28), out.call_fixups[0].byte_offset);
     try testing.expectEqual(@as(u32, 7), out.call_fixups[0].target_func_idx);
 }
 
@@ -3321,7 +3335,7 @@ test "compile: call N — i64 callee result captured via X-form ORR" {
     const out = try compile(testing.allocator, &f, alloc, &sigs, &.{});
     defer deinit(testing.allocator, out);
     // [8..12] BL 0 ; [12..16] ORR X9, XZR, X0 (X-form for i64).
-    try testing.expectEqual(@as(u32, inst.encOrrReg(9, 31, 0)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrReg(9, 31, 0)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: call N — f32 callee result captured via FMOV S, S0" {
@@ -3339,7 +3353,7 @@ test "compile: call N — f32 callee result captured via FMOV S, S0" {
     const out = try compile(testing.allocator, &f, alloc, &sigs, &.{});
     defer deinit(testing.allocator, out);
     // f32 slot 0 → V16; FMOV S16, S0.
-    try testing.expectEqual(@as(u32, inst.encFmovSReg(16, 0)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovSReg(16, 0)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: call N — i32 + i64 args marshalled into W0/X1, result in W0" {
@@ -3373,9 +3387,9 @@ test "compile: call N — i32 + i64 args marshalled into W0/X1, result in W0" {
     //   [24..28] ORR X1, XZR, X10         ; marshal arg1 i64 → X1
     //   [28..32] BL 0                     ; call placeholder
     //   [32..36] (W0 → W9 capture; W9 == W0 source after marshal but vreg aliasing is fine)
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(0, 31, 9)), std.mem.readInt(u32, out.bytes[20..24], .little));
-    try testing.expectEqual(@as(u32, inst.encOrrReg(1, 31, 10)), std.mem.readInt(u32, out.bytes[24..28], .little));
-    try testing.expectEqual(@as(u32, inst.encBL(0)),             std.mem.readInt(u32, out.bytes[28..32], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(0, 31, 9)), std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrReg(1, 31, 10)), std.mem.readInt(u32, out.bytes[44..48], .little));
+    try testing.expectEqual(@as(u32, inst.encBL(0)),             std.mem.readInt(u32, out.bytes[48..52], .little));
 }
 
 test "compile: call N — f32 + f64 args marshalled into S0/D1" {
@@ -3430,7 +3444,7 @@ test "compile: call N — void callee pushes no result vreg" {
     defer deinit(testing.allocator, out);
     // After [8..12] BL 0, no capture instruction; just RET (epilogue).
     // Bytes len = prologue (8) + BL (4) + epilogue (LDP+MOV-SP+RET = 12) = 24.
-    try testing.expectEqual(@as(u32, inst.encBL(0)), std.mem.readInt(u32, out.bytes[8..12], .little));
+    try testing.expectEqual(@as(u32, inst.encBL(0)), std.mem.readInt(u32, out.bytes[28..32], .little));
 }
 
 test "compile: call_indirect — bounds (CMP/B.HS) + sig (LDR/CMP/B.NE) + funcptr (LDR-LSL3/BLR)" {
@@ -3463,19 +3477,19 @@ test "compile: call_indirect — bounds (CMP/B.HS) + sig (LDR/CMP/B.NE) + funcpt
     //   [36..40] LDR X17, [X26, X17, LSL #3]   ; funcptr
     //   [40..44] BLR X17
     //   [44..48] ORR W9, WZR, W0               ; capture
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(17, 31, 9)),       std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpRegW(17, 25)),          std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(17, 31, 9)),       std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegW(17, 25)),          std.mem.readInt(u32, out.bytes[36..40], .little));
     // [20..24] is a B.HS placeholder + bounds_fixup; check the
     // opcode shape (cond=hs in low 4 bits).
-    const bhs = std.mem.readInt(u32, out.bytes[20..24], .little);
+    const bhs = std.mem.readInt(u32, out.bytes[40..44], .little);
     try testing.expectEqual(@as(u32, 0x2), bhs & 0xF); // cond=.hs
-    try testing.expectEqual(@as(u32, inst.encLdrWRegLsl2(16, 24, 17)),  std.mem.readInt(u32, out.bytes[24..28], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpImmW(16, 3)),           std.mem.readInt(u32, out.bytes[28..32], .little));
-    const bne = std.mem.readInt(u32, out.bytes[32..36], .little);
+    try testing.expectEqual(@as(u32, inst.encLdrWRegLsl2(16, 24, 17)),  std.mem.readInt(u32, out.bytes[44..48], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpImmW(16, 3)),           std.mem.readInt(u32, out.bytes[48..52], .little));
+    const bne = std.mem.readInt(u32, out.bytes[52..56], .little);
     try testing.expectEqual(@as(u32, 0x1), bne & 0xF); // cond=.ne
-    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(17, 26, 17)),  std.mem.readInt(u32, out.bytes[36..40], .little));
-    try testing.expectEqual(@as(u32, inst.encBLR(17)),                  std.mem.readInt(u32, out.bytes[40..44], .little));
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)),        std.mem.readInt(u32, out.bytes[44..48], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(17, 26, 17)),  std.mem.readInt(u32, out.bytes[56..60], .little));
+    try testing.expectEqual(@as(u32, inst.encBLR(17)),                  std.mem.readInt(u32, out.bytes[60..64], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)),        std.mem.readInt(u32, out.bytes[64..68], .little));
 }
 
 test "compile: i32.wrap_i64 emits MOV W,W (= ORR W, WZR, W)" {
@@ -3495,7 +3509,7 @@ test "compile: i32.wrap_i64 emits MOV W,W (= ORR W, WZR, W)" {
     defer deinit(testing.allocator, out);
     // After STP/MOV-FP (8) + MOVZ X9, #0xCAFE (4) = 12 bytes:
     //   [12..16] ORR W9, WZR, W9 (in-place wrap; valid no-op MOV)
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 9)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: i64.extend_i32_s emits SXTW X, W" {
@@ -3515,7 +3529,7 @@ test "compile: i64.extend_i32_s emits SXTW X, W" {
     defer deinit(testing.allocator, out);
     // After [8..16] MOVZ + MOVK to load 0xFFFFFFFF into W9 (8 bytes):
     //   [16..20] SXTW X9, W9
-    try testing.expectEqual(@as(u32, inst.encSxtw(9, 9)), std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encSxtw(9, 9)), std.mem.readInt(u32, out.bytes[36..40], .little));
 }
 
 test "compile: i64.extend_i32_u emits MOV W,W (zero-extends via W-write)" {
@@ -3535,7 +3549,7 @@ test "compile: i64.extend_i32_u emits MOV W,W (zero-extends via W-write)" {
     defer deinit(testing.allocator, out);
     // After STP/MOV-FP (8) + MOVZ W9, #42 (4) = 12 bytes:
     //   [12..16] ORR W9, WZR, W9
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 9)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: f32.convert_i32_s emits SCVTF S, W" {
@@ -3555,7 +3569,7 @@ test "compile: f32.convert_i32_s emits SCVTF S, W" {
     defer deinit(testing.allocator, out);
     // After STP/MOV-FP (8) + MOVZ W9, #7 (4) = 12 bytes:
     //   [12..16] SCVTF S16, W9 (slot 0 → V16 dest, X9 src)
-    try testing.expectEqual(@as(u32, inst.encScvtfSFromW(16, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encScvtfSFromW(16, 9)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: f64.convert_i64_u emits UCVTF D, X" {
@@ -3575,7 +3589,7 @@ test "compile: f64.convert_i64_u emits UCVTF D, X" {
     defer deinit(testing.allocator, out);
     // After STP/MOV-FP (8) + MOVZ X9, #0xDEAD (4) = 12 bytes (single hi16==0):
     //   [12..16] UCVTF D16, X9
-    try testing.expectEqual(@as(u32, inst.encUcvtfDFromX(16, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encUcvtfDFromX(16, 9)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
 test "compile: f32.demote_f64 emits FCVT S, D" {

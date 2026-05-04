@@ -1,20 +1,15 @@
-//! JIT entry frame (sub-7.4c).
+//! JIT entry frame (ADR-0017).
 //!
 //! Bridge from a Zig caller into a JIT-emitted Wasm function.
-//! Materialises the caller-supplied invariants (X24..X28 per
-//! `jit_arm64/abi.zig`) from a `RuntimeInvariants` struct, then
-//! `BLR`s the JIT entry pointer.
-//!
-//! Implementation: a single inline-asm block on Mac aarch64.
-//! The clobber list names every caller-saved GPR + V register
-//! the JIT body may touch, plus the callee-saved X24..X28 that
-//! THIS shim writes (so Zig doesn't assume they're preserved).
+//! Per ADR-0017, the JIT body's prologue loads X28..X24 from
+//! `*X0 = *const JitRuntime`, so the entry frame collapses to
+//! a standard AAPCS64 / System V function-pointer call passing
+//! `&runtime` as the first argument. No inline asm; no clobber
+//! list; same source compiles for both backends (Phase 7.6+).
 //!
 //! Argument marshalling for entry signatures with non-trivial
 //! parameters (`callI32_i32i32`, etc.) lands in follow-up sub-
-//! rows; this sub-7.4c starts with the no-arg + i32-result
-//! shape, sufficient to exercise X28 / X27 (linear-memory
-//! invariants) end-to-end.
+//! rows; this entry path covers the no-arg + i32-result shape.
 //!
 //! Zone 2 (`src/jit/`).
 
@@ -22,69 +17,24 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const linker = @import("linker.zig");
+const jit_abi = @import("../runtime/jit_abi.zig");
 
-pub const RuntimeInvariants = struct {
-    /// X28 — linear-memory base pointer.
-    vm_base: [*]u8,
-    /// X27 — linear-memory size in bytes (W27 used for the bounds
-    /// check; full X27 sufficient since W-write semantics ignore
-    /// upper 32).
-    mem_limit: usize,
-    /// X26 — table-0 funcptr array base (each entry u64).
-    funcptr_base: [*]const u64,
-    /// X25 — table-0 size (W25 used by call_indirect bounds check).
-    table_size: u32,
-    /// X24 — table-0 typeidx array base (each entry u32; same
-    /// indexing as funcptr_base).
-    typeidx_base: [*]const u32,
-};
+pub const JitRuntime = jit_abi.JitRuntime;
 
 /// Call a no-argument JIT function returning i32.
+///
+/// Per ADR-0017, X0 carries the runtime pointer; the body's
+/// prologue does `LDR X28, [X0, #0]` etc. to materialise the
+/// invariants. The native function-pointer call lowers to
+/// `mov x0, <rt>; blr fn` automatically.
 pub fn callI32NoArgs(
     module: linker.JitModule,
     func_idx: u32,
-    rt: RuntimeInvariants,
+    rt: *const JitRuntime,
 ) u32 {
-    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        @panic("JIT entry-frame currently Mac aarch64 only (Phase 8 / x86_64 emit follow-up)");
-    }
-    const fn_ptr = module.entry(func_idx, *const fn () callconv(.c) u32);
-
-    return asm volatile (
-        \\mov x28, %[vm_base]
-        \\mov x27, %[mem_limit]
-        \\mov x26, %[fp_base]
-        \\mov x25, %[t_size]
-        \\mov x24, %[ti_base]
-        \\blr %[fn_p]
-        : [_] "={w0}" (-> u32),
-        : [vm_base] "r" (rt.vm_base),
-          [mem_limit] "r" (rt.mem_limit),
-          [fp_base] "r" (rt.funcptr_base),
-          [t_size] "r" (rt.table_size),
-          [ti_base] "r" (rt.typeidx_base),
-          [fn_p] "r" (fn_ptr),
-        : .{
-            // Caller-saved GPRs the JIT body may freely clobber.
-            .x0 = true, .x1 = true, .x2 = true, .x3 = true,
-            .x4 = true, .x5 = true, .x6 = true, .x7 = true,
-            .x8 = true, .x9 = true, .x10 = true, .x11 = true,
-            .x12 = true, .x13 = true, .x14 = true, .x15 = true,
-            .x16 = true, .x17 = true,
-            // Callee-saved that this shim itself writes.
-            .x24 = true, .x25 = true, .x26 = true, .x27 = true, .x28 = true,
-            // Link register set by BLR.
-            .lr = true,
-            // V registers the JIT body may touch.
-            .v0 = true, .v1 = true, .v2 = true, .v3 = true,
-            .v4 = true, .v5 = true, .v6 = true, .v7 = true,
-            .v16 = true, .v17 = true, .v18 = true, .v19 = true,
-            .v20 = true, .v21 = true, .v22 = true, .v23 = true,
-            .v24 = true, .v25 = true, .v26 = true, .v27 = true,
-            .v28 = true, .v29 = true, .v30 = true, .v31 = true,
-            .nzcv = true,
-            .memory = true,
-        });
+    const Fn = *const fn (rt: *const JitRuntime) callconv(.c) u32;
+    const f = module.entry(func_idx, Fn);
+    return f(rt);
 }
 
 // ============================================================
@@ -128,13 +78,14 @@ test "entry: i32.load offset=0 reads memory[0..4] through X28 vm_base" {
 
     // Stage 16 bytes; the Wasm body reads memory[0..4] little-endian.
     var memory: [16]u8 = .{ 0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    const result = callI32NoArgs(module, 0, .{
+    const rt: JitRuntime = .{
         .vm_base = &memory,
         .mem_limit = memory.len,
         .funcptr_base = undefined,
         .table_size = 0,
         .typeidx_base = undefined,
-    });
+    };
+    const result = callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 0xEFBEADDE), result);
 }
 
@@ -171,13 +122,14 @@ test "entry: ADR-0018 sub-1c — spilled i32.const returns 42 via STR/LDR round-
     defer module.deinit(testing.allocator);
 
     var memory: [0]u8 = .{};
-    const result = callI32NoArgs(module, 0, .{
+    const rt: JitRuntime = .{
         .vm_base = &memory,
         .mem_limit = 0,
         .funcptr_base = undefined,
         .table_size = 0,
         .typeidx_base = undefined,
-    });
+    };
+    const result = callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 42), result);
 }
 
@@ -208,12 +160,13 @@ test "entry: pure constant function returns 42 (sanity — no memory access)" {
     defer module.deinit(testing.allocator);
 
     var memory: [0]u8 = .{};
-    const result = callI32NoArgs(module, 0, .{
+    const rt: JitRuntime = .{
         .vm_base = &memory,
         .mem_limit = 0,
         .funcptr_base = undefined,
         .table_size = 0,
         .typeidx_base = undefined,
-    });
+    };
+    const result = callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 42), result);
 }
