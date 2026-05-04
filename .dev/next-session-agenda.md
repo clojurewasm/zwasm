@@ -1,10 +1,21 @@
 # Session plan — 2026-05-04 design + refactor + rules cycle
 
-> **Purpose**: this session is **not** a /continue task-loop session.
-> It is a deliberate design + scaffolding cycle. The user invoked
-> "議論ファースト" then approved a sequenced implementation plan.
-> This file is the per-session source of truth; ROADMAP / ADRs /
-> rules are the durable artefacts. Overwrites the prior brain-dump.
+> **STATUS — POST-EXECUTION (2026-05-04 session close)**: this file
+> is now an **historical record** of the plan as written at session
+> start. The actual outcome **diverged in one place** — sub-deliverable
+> a's "142 site relativisation" was reduced to "4 demonstration sites
+> + ~128 sites sequenced under 7.5d sub-b". The reduction is recorded
+> load-bearingly in ADR-0021's Revision history; this file is left
+> as-written so the planning lineage is browseable. Future readers
+> wanting the authoritative outcome should read ADR-0021 and ADR-0022,
+> not this file.
+>
+> **Purpose** (at the time of writing): this session is **not** a
+> /continue task-loop session. It is a deliberate design + scaffolding
+> cycle. The user invoked "議論ファースト" then approved a sequenced
+> implementation plan. This file is the per-session source of truth;
+> ROADMAP / ADRs / rules are the durable artefacts. Overwrites the
+> prior brain-dump.
 
 ## Context (one paragraph)
 
