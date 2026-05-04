@@ -374,6 +374,72 @@ pub fn compile(
                 try writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
+            .@"f32.abs",
+            .@"f32.neg",
+            .@"f32.sqrt",
+            .@"f32.ceil",
+            .@"f32.floor",
+            .@"f32.trunc",
+            .@"f32.nearest",
+            .@"f64.abs",
+            .@"f64.neg",
+            .@"f64.sqrt",
+            .@"f64.ceil",
+            .@"f64.floor",
+            .@"f64.trunc",
+            .@"f64.nearest",
+            => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const word: u32 = switch (ins.op) {
+                    .@"f32.abs"     => inst.encFAbsS(vd, vn),
+                    .@"f32.neg"     => inst.encFNegS(vd, vn),
+                    .@"f32.sqrt"    => inst.encFSqrtS(vd, vn),
+                    .@"f32.ceil"    => inst.encFRintPS(vd, vn),
+                    .@"f32.floor"   => inst.encFRintMS(vd, vn),
+                    .@"f32.trunc"   => inst.encFRintZS(vd, vn),
+                    .@"f32.nearest" => inst.encFRintNS(vd, vn),
+                    .@"f64.abs"     => inst.encFAbsD(vd, vn),
+                    .@"f64.neg"     => inst.encFNegD(vd, vn),
+                    .@"f64.sqrt"    => inst.encFSqrtD(vd, vn),
+                    .@"f64.ceil"    => inst.encFRintPD(vd, vn),
+                    .@"f64.floor"   => inst.encFRintMD(vd, vn),
+                    .@"f64.trunc"   => inst.encFRintZD(vd, vn),
+                    .@"f64.nearest" => inst.encFRintND(vd, vn),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"f32.min",
+            .@"f32.max",
+            .@"f64.min",
+            .@"f64.max",
+            => {
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs = pushed_vregs.pop().?;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const vm = abi.fpSlotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const word: u32 = switch (ins.op) {
+                    .@"f32.min" => inst.encFMinS(vd, vn, vm),
+                    .@"f32.max" => inst.encFMaxS(vd, vn, vm),
+                    .@"f64.min" => inst.encFMinD(vd, vn, vm),
+                    .@"f64.max" => inst.encFMaxD(vd, vn, vm),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
             .@"f32.eq",
             .@"f32.ne",
             .@"f32.lt",
@@ -844,11 +910,12 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
-    // f32.abs (unary FP) not yet handled — sub-d4+ scope.
+    // f32.copysign not yet handled — sub-d5 scope (needs bit
+    // manipulation via FMOV W↔S detour).
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"f32.abs" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.copysign" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty));
@@ -1455,6 +1522,60 @@ test "compile: f32 cmps each emit FCMP-S + CSET-W with right Cond" {
         // FCMP at byte 32; CSET at byte 36.
         try testing.expectEqual(@as(u32, inst.encFCmpS(16, 17)),         std.mem.readInt(u32, out.bytes[32..36], .little));
         try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[36..40], .little));
+    }
+}
+
+test "compile: f32 unary ops + min/max each emit correct encoding" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
+    const Case = struct {
+        op: zir.ZirOp,
+        binary: bool,
+        want_word_at_offset: u32,
+    };
+    const cases = [_]Case{
+        .{ .op = .@"f32.abs",     .binary = false, .want_word_at_offset = inst.encFAbsS(16, 16) },
+        .{ .op = .@"f32.neg",     .binary = false, .want_word_at_offset = inst.encFNegS(16, 16) },
+        .{ .op = .@"f32.sqrt",    .binary = false, .want_word_at_offset = inst.encFSqrtS(16, 16) },
+        .{ .op = .@"f32.ceil",    .binary = false, .want_word_at_offset = inst.encFRintPS(16, 16) },
+        .{ .op = .@"f32.floor",   .binary = false, .want_word_at_offset = inst.encFRintMS(16, 16) },
+        .{ .op = .@"f32.trunc",   .binary = false, .want_word_at_offset = inst.encFRintZS(16, 16) },
+        .{ .op = .@"f32.nearest", .binary = false, .want_word_at_offset = inst.encFRintNS(16, 16) },
+        .{ .op = .@"f32.min",     .binary = true,  .want_word_at_offset = inst.encFMinS(16, 16, 17) },
+        .{ .op = .@"f32.max",     .binary = true,  .want_word_at_offset = inst.encFMaxS(16, 16, 17) },
+    };
+    for (cases) |c| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
+        var ranges_buf: [3]zir.LiveRange = undefined;
+        if (c.binary) {
+            try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
+            try f.instrs.append(testing.allocator, .{ .op = c.op });
+            ranges_buf[0] = .{ .def_pc = 0, .last_use_pc = 2 };
+            ranges_buf[1] = .{ .def_pc = 1, .last_use_pc = 2 };
+            ranges_buf[2] = .{ .def_pc = 2, .last_use_pc = 3 };
+            try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        } else {
+            try f.instrs.append(testing.allocator, .{ .op = c.op });
+            ranges_buf[0] = .{ .def_pc = 0, .last_use_pc = 1 };
+            ranges_buf[1] = .{ .def_pc = 1, .last_use_pc = 2 };
+            try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        }
+        f.liveness = .{ .ranges = if (c.binary) ranges_buf[0..3] else ranges_buf[0..2] };
+        const slots_binary = [_]u8{ 0, 1, 0 };
+        const slots_unary = [_]u8{ 0, 0 };
+        const alloc: regalloc.Allocation = if (c.binary)
+            .{ .slots = &slots_binary, .n_slots = 2 }
+        else
+            .{ .slots = &slots_unary, .n_slots = 1 };
+        const out = try compile(testing.allocator, &f, alloc);
+        defer deinit(testing.allocator, out);
+        // For unary: 1 const = 3 u32s (MOVZ + MOVK for 0x3F800000 + FMOV S);
+        //   STP/MOV-FP (8) + const (12) = byte 20, op fires at byte 20.
+        // For binary: 2 consts = 6 u32s = 24 bytes;
+        //   STP/MOV-FP (8) + 2 consts (24) = byte 32.
+        const op_offset: usize = if (c.binary) 32 else 20;
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[op_offset..op_offset+4][0..4], .little));
     }
 }
 

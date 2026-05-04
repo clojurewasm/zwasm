@@ -392,6 +392,46 @@ pub fn encFCmpD(vn: Vn, vm: Vn) u32 {
     return 0x1E602000 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5);
 }
 
+// ============================================================
+// Floating-point unary ops (abs/neg/sqrt + 4 rounding modes)
+// + binary min/max. All verified via clang assembler.
+// S-form (type=00) bases; D-form flips bit 22 → +0x400000.
+// ============================================================
+
+pub fn encFAbsS(vd: Vn, vn: Vn) u32 { return 0x1E20C000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+pub fn encFNegS(vd: Vn, vn: Vn) u32 { return 0x1E214000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+pub fn encFSqrtS(vd: Vn, vn: Vn) u32 { return 0x1E21C000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+/// FRINTP — round toward +∞ (Wasm `f32.ceil` / `f64.ceil`).
+pub fn encFRintPS(vd: Vn, vn: Vn) u32 { return 0x1E24C000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+/// FRINTM — round toward -∞ (Wasm `floor`).
+pub fn encFRintMS(vd: Vn, vn: Vn) u32 { return 0x1E254000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+/// FRINTZ — round toward zero (Wasm `trunc`).
+pub fn encFRintZS(vd: Vn, vn: Vn) u32 { return 0x1E25C000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+/// FRINTN — round to nearest even (Wasm `nearest`).
+pub fn encFRintNS(vd: Vn, vn: Vn) u32 { return 0x1E244000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+
+pub fn encFAbsD(vd: Vn, vn: Vn) u32 { return 0x1E60C000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+pub fn encFNegD(vd: Vn, vn: Vn) u32 { return 0x1E614000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+pub fn encFSqrtD(vd: Vn, vn: Vn) u32 { return 0x1E61C000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+pub fn encFRintPD(vd: Vn, vn: Vn) u32 { return 0x1E64C000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+pub fn encFRintMD(vd: Vn, vn: Vn) u32 { return 0x1E654000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+pub fn encFRintZD(vd: Vn, vn: Vn) u32 { return 0x1E65C000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+pub fn encFRintND(vd: Vn, vn: Vn) u32 { return 0x1E644000 | (@as(u32, vn) << 5) | @as(u32, vd); }
+
+/// FMIN / FMAX — NaN-propagating per Wasm spec semantics.
+pub fn encFMinS(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E205800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+pub fn encFMaxS(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E204800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+pub fn encFMinD(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E605800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+pub fn encFMaxD(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E604800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+
 /// V-register index 0..31 — ARM SIMD/FP register file. Same u5
 /// width as `Xn` but a separate type for documentation; the
 /// integer regalloc never allocates these (the §9.7 / 7.3
@@ -672,6 +712,25 @@ test "encFCmpS s1, s2 — `fcmp s1, s2` → 0x1E222020" {
 test "encFCmpD d1, d2 — `fcmp d1, d2` → 0x1E622020" {
     try testing.expectEqual(@as(u32, 0x1E622020), encFCmpD(1, 2));
 }
+
+test "encFAbsS s0, s1 → 0x1E20C020" { try testing.expectEqual(@as(u32, 0x1E20C020), encFAbsS(0, 1)); }
+test "encFNegS s0, s1 → 0x1E214020" { try testing.expectEqual(@as(u32, 0x1E214020), encFNegS(0, 1)); }
+test "encFSqrtS s0, s1 → 0x1E21C020" { try testing.expectEqual(@as(u32, 0x1E21C020), encFSqrtS(0, 1)); }
+test "encFRintPS s0, s1 → 0x1E24C020" { try testing.expectEqual(@as(u32, 0x1E24C020), encFRintPS(0, 1)); }
+test "encFRintMS s0, s1 → 0x1E254020" { try testing.expectEqual(@as(u32, 0x1E254020), encFRintMS(0, 1)); }
+test "encFRintZS s0, s1 → 0x1E25C020" { try testing.expectEqual(@as(u32, 0x1E25C020), encFRintZS(0, 1)); }
+test "encFRintNS s0, s1 → 0x1E244020" { try testing.expectEqual(@as(u32, 0x1E244020), encFRintNS(0, 1)); }
+test "encFAbsD d0, d1 → 0x1E60C020" { try testing.expectEqual(@as(u32, 0x1E60C020), encFAbsD(0, 1)); }
+test "encFNegD d0, d1 → 0x1E614020" { try testing.expectEqual(@as(u32, 0x1E614020), encFNegD(0, 1)); }
+test "encFSqrtD d0, d1 → 0x1E61C020" { try testing.expectEqual(@as(u32, 0x1E61C020), encFSqrtD(0, 1)); }
+test "encFRintPD d0, d1 → 0x1E64C020" { try testing.expectEqual(@as(u32, 0x1E64C020), encFRintPD(0, 1)); }
+test "encFRintMD d0, d1 → 0x1E654020" { try testing.expectEqual(@as(u32, 0x1E654020), encFRintMD(0, 1)); }
+test "encFRintZD d0, d1 → 0x1E65C020" { try testing.expectEqual(@as(u32, 0x1E65C020), encFRintZD(0, 1)); }
+test "encFRintND d0, d1 → 0x1E644020" { try testing.expectEqual(@as(u32, 0x1E644020), encFRintND(0, 1)); }
+test "encFMinS s0, s1, s2 → 0x1E225820" { try testing.expectEqual(@as(u32, 0x1E225820), encFMinS(0, 1, 2)); }
+test "encFMaxS s0, s1, s2 → 0x1E224820" { try testing.expectEqual(@as(u32, 0x1E224820), encFMaxS(0, 1, 2)); }
+test "encFMinD d0, d1, d2 → 0x1E625820" { try testing.expectEqual(@as(u32, 0x1E625820), encFMinD(0, 1, 2)); }
+test "encFMaxD d0, d1, d2 → 0x1E624820" { try testing.expectEqual(@as(u32, 0x1E624820), encFMaxD(0, 1, 2)); }
 
 // V-register encodings cross-checked via `clang -target
 // arm64-apple-darwin` assembler. See verifier session in
