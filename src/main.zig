@@ -128,6 +128,8 @@ test {
     _ = @import("ir/dispatch_table.zig");
     _ = @import("jit/reg_class.zig");
     _ = @import("jit/regalloc.zig");
+    _ = @import("jit_arm64/inst.zig");
+    _ = @import("jit_arm64/abi.zig");
     _ = @import("ir/loop_info.zig");
     _ = @import("ir/liveness.zig");
     _ = @import("ir/verifier.zig");
