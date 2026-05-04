@@ -169,6 +169,20 @@ pub fn main(init: std.process.Init) !void {
     try stdout.flush();
 
     if (mismatched != 0) std.process.exit(1);
+    // wasmtime resolved via `which` but every spawn failed (e.g. on
+    // windowsmini, where `which wasmtime` finds a stub that doesn't
+    // actually execute). Treat as SKIP-WASMTIME-MISSING so the gate
+    // remains portable; the gate is real on hosts where wasmtime
+    // genuinely runs.
+    if (matched == 0 and skipped_wasmtime_fail == total and total > 0) {
+        try stdout.print(
+            "SKIP-WASMTIME-UNUSABLE — wasmtime resolved but every spawn failed " ++
+                "({d} of {d} fixtures); §9.6 / 6.2 differential gate is non-fatal on this host.\n",
+            .{ skipped_wasmtime_fail, total },
+        );
+        try stdout.flush();
+        return;
+    }
     if (matched < 30) {
         try stdout.print("error: §9.6 / 6.2 requires 30+ matches; saw only {d}\n", .{matched});
         try stdout.flush();
