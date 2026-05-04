@@ -24,12 +24,12 @@
 
 - **Phase**: Phase 7 IN-PROGRESS, scope expanded per ADR-0019
   (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12).
-- **Last commit**: `7b5c4fe` — Step 4 sub-7.5c-iv (liveness
-  extension for branches; first branchy Wasm 1.0 fixture
-  end-to-end via JIT). Full Wasm 1.0 structured-CFG surface
-  now JIT-compileable. 741/741 unit + 16/16 edge-case /
-  3-host green. Sub-7.5c-v (wast iteration via existing spec
-  corpus) NEXT.
+- **Last commit**: `a58a2ba` — Step 4 sub-7.5c-v (6 op-coverage
+  fixtures: i32 ALU + locals + if/then/else; 22/22 pass via
+  JIT). Surfaced merge-point bug at `(if (result T))` — D-027 +
+  lesson; workaround via local-capture. 741/741 unit + 22/22
+  edge-case / 3-host green. Sub-7.5c-vi (D-027 emit fix:
+  merge-aware label stack for if/block-result branches) NEXT.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active plan — implementation cycles after ADR acceptance
@@ -42,7 +42,7 @@ below corresponds to one or more `/continue` cycles.
 | 1 | regalloc pool: remove X24..X28; add `reserved_invariant_gprs`; `Slot` union with first-class spill | 0018 | **DONE** — sub-1a `1d6d178`, sub-1b `7e880b8`, sub-1c `394e416` |
 | 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | **DONE** — sub-2a `0827b89`, sub-2b+2c `44b94a0`, sub-2d-i `10ab46d`, sub-2d-ii `0010a03`. **D-014 dissolved.** |
 | 3 | Edge-case test culture: rule + Step-4 hook + audit §I; bootstrap p7 fixtures | 0020 | **DONE** — sub-3a `52efba4` (rule), sub-3b `b787b19` (audit + hook), sub-3c `36b9ed8` (7 fixtures) |
-| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | 7.5a/b/c-i/ii/iii landed; 7.5c-iv `7b5c4fe` (branch liveness; 16/16 fixtures); **7.5c-v (wast iteration via existing spec corpus) NEXT**; 7.5c-vi (broader entry sigs); 7.5c-vii (close to pass=fail=skip=0) |
+| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | 7.5a..7.5c-iv landed; 7.5c-v `a58a2ba` (op-coverage; 22/22 fixtures); **7.5c-vi (D-027 emit merge-aware label stack) NEXT**; 7.5c-vii (broader entry sigs); 7.5c-viii (close to pass=fail=skip=0) |
 | 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After Step 4 |
 | 6 | §9.7 / 7.9–7.12: realworld ARM64 + x86_64, three-way differential, audit + open §9.8 | — | After Step 5 |
 | 7 | emit.zig responsibility split (no ADR; opportunistic) | — | After Phase 7 close |
