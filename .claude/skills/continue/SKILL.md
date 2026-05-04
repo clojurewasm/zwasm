@@ -132,14 +132,32 @@ change between iterations.
      task (cheaper than guessing what was half-done).
    - If local is ahead of origin: push immediately (no approval
      needed; see "Push policy") before the next Step 0.
-4. `zig build test` (Phase 0+) — confirm the build is green. From
+4. **Step 0.4 — Lesson scan**. Read `.dev/lessons/INDEX.md`. For
+   the active task's domain (interpreter, cross-module imports,
+   ABI, build.zig, validator, …), grep the keyword column for
+   pre-recorded learnings. Read every matching lesson **before**
+   starting Step 0 (Survey). This is cheap (≤ 30 s) and prevents
+   re-paying spike costs that prior cycles already paid. See
+   `.claude/rules/lessons_vs_adr.md` for the lesson concept.
+5. **Step 0.5 — Debt sweep**. Read `.dev/debt.md`. For every
+   row with `Status: now`, attempt to discharge it before
+   starting the active task. **Effort estimate is irrelevant**;
+   only structural impossibility (a `blocked-by: <X>` barrier
+   that the row's author named) prevents discharge. Discharge
+   commit messages take the form `chore(debt): close D-NNN
+   <one line>`; remove the row from `.dev/debt.md` in the same
+   commit. If a `blocked-by` row's structural barrier was
+   removed by recent work, flip its Status to `now` and
+   discharge alongside. New debts discovered during the active
+   task are appended at task close (Step 7), not mid-task.
+6. `zig build test` (Phase 0+) — confirm the build is green. From
    Phase 1, also run `zig build test-spec`. From Phase 7, also run
    the differential subset. **If output is large (>200 lines), run
    via subagent and ask only for pass/fail + the first failure.**
-5. **One-sentence** status to the user (phase + last commit + next
+7. **One-sentence** status to the user (phase + last commit + next
    task). Do **not** produce a multi-line summary; that is a stop
    antipattern (see "Self-perpetuation").
-6. **Immediately proceed into the TDD loop.** Do not wait for "go" —
+8. **Immediately proceed into the TDD loop.** Do not wait for "go" —
    `/continue` itself is the go signal, and so is the wakeup that
    fired it.
 
@@ -215,6 +233,32 @@ is cheap.
 While green. Apply only structural improvements that do not change
 behaviour.
 
+**Debt observation.** While editing, if you see a smell that doesn't
+fit this task's surgical scope (an obviously-incorrect docstring,
+a deprecated comment, a `catch {}` cluster, a positional API ripe
+for `Opts` struct refactor, etc.), do NOT silently leave it. Decide:
+
+- If discharging it now stays behaviour-preserving and is mechanical
+  (≤ 5 minutes of typing) — fix it inline with the rest of Step 4.
+- Otherwise — **append a debt entry to `.dev/debt.md`** with
+  `Status: now` (so the next resume's Step 0.5 picks it up). New
+  debts are never invisible; if you saw it, future-you must see
+  it too.
+
+The `now` vs `blocked-by` discipline is **structural impossibility
+only**, not effort estimation. See `.dev/debt.md`'s discipline
+header.
+
+**Workaround / extended-challenge check.** If the way you got
+green involved papering over a missing tool / file / capability
+("added a SKIP-X-MISSING fallback", "skipped a host's gate") —
+re-read `.claude/rules/extended_challenge.md`. The 3-step
+procedure (Confirm → Self-provision → Document specifically)
+may not have been walked. If it wasn't, walk it now before
+proceeding to Step 5. A workaround without paired investigation
+is forbidden; a workaround with a debt entry naming the
+structural barrier is acceptable.
+
 After refactor, before moving to Step 5, run the **Mac-host lint
 gate** (ADR-0009) once:
 
@@ -257,10 +301,19 @@ lines, delegate to a Bash subagent and ask for "pass/fail + first
 failure only"; otherwise inline.
 
 OrbStack VM setup: `.dev/orbstack_setup.md`. Windows SSH:
-`.dev/windows_ssh_setup.md`. If a host is absent (`error: machine
-not found` for OrbStack; `ssh: connection refused` for windowsmini),
-that is bucket 2 of the stop whitelist — surface to the user and
-stop. Do not attempt to provision autonomously.
+`.dev/windows_ssh_setup.md`. If a host appears absent (`error:
+machine not found` for OrbStack; `ssh: connection refused` for
+windowsmini), the bucket-2 stop whitelist requires "provably
+absent" — and what counts as "provable" is defined by
+`.claude/rules/extended_challenge.md`. Walk the 3-step procedure
+(Confirm → Self-provision → Document specifically) **first**;
+only stop if Steps 1+2 actually ran and confirmed the absence
+is structural. "I assume it's absent" is not a proof.
+
+Provisioning failures or missing tooling on a host that's
+otherwise reachable (e.g. windowsmini's wasmtime-stub case
+from §9.6 / 6.F) are usually not stop conditions — file a
+debt entry naming the structural barrier and proceed.
 
 ### Step 6 — Source commit
 
@@ -301,21 +354,33 @@ Never `git commit --no-verify` (forbidden by ROADMAP §14).
    part is a *deviation*; file `.dev/decisions/NNNN_<slug>.md`
    first per ROADMAP §18.2 and reference it in the commit
    message.
-3. `git add .dev/ROADMAP.md .dev/handover.md` and commit
-   (`chore(p<N>): mark §9.<N> / N.M [x]; retarget handover at
-   N.M+1`).
-4. **Push**. `git push origin zwasm-from-scratch`. No approval
+3. **Append new debt entries to `.dev/debt.md`**. Any debt
+   observation surfaced during Step 4 that wasn't discharged
+   inline gets a row here, with `Status: now` (default) or
+   `Status: blocked-by: <specific structural barrier>`. New
+   debts are appended at task close, not mid-task — this keeps
+   the active task's diff clean. If `.dev/debt.md` was modified,
+   include it in the next git add. Update `.dev/lessons/INDEX.md`
+   + add lesson files if a learning emerged (per
+   `.claude/rules/lessons_vs_adr.md`).
+4. `git add .dev/ROADMAP.md .dev/handover.md [.dev/debt.md]
+   [.dev/lessons/...]` and commit (`chore(p<N>): mark §9.<N> /
+   N.M [x]; retarget handover at N.M+1`).
+5. **Push**. `git push origin zwasm-from-scratch`. No approval
    needed (see "Push policy"). If push fails non-fast-forward,
    that is bucket 2 of the stop whitelist.
-5. **Re-arm** the loop with `ScheduleWakeup` (see
+6. **Re-arm** the loop with `ScheduleWakeup` (see
    "Self-perpetuation" for the call shape and `delaySeconds`
    choice). This is mandatory.
-6. Final user-facing text: one sentence. State the closed task
+7. Final user-facing text: one sentence. State the closed task
    id and the next task id. Do not write a status table.
 
-(Per-task notes in `private/notes/` are **optional**. Write them
-only if the survey or stuck-points are non-trivial enough to be
-worth re-reading later.)
+(Per-task notes in `private/notes/` are **optional and not
+load-bearing**. Write them only if the survey or stuck-points
+are non-trivial enough to be worth re-reading later. If a
+private note describes a load-bearing decision, promote it
+to an ADR or a lesson per `lessons_vs_adr.md`. The audit and
+resume procedures do not read `private/` as authoritative.)
 
 ## Auto-compact recovery
 
