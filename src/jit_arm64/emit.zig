@@ -895,38 +895,46 @@ pub fn compile(
                 }
             },
             .@"call_indirect" => {
-                // Sub-g2 skeleton: caller-supplied X26 = table_base
-                // (each entry a u64 funcptr). Pop idx, load funcptr,
-                // BLR. Bounds + sig check are sub-g3c's job.
+                // Type-idx → callee FuncType (sub-g3a).
+                if (ins.payload >= module_types.len) return Error.AllocationMissing;
+                const callee_sig: zir.FuncType = module_types[ins.payload];
+
+                // Stack at entry: [args..., idx]. Pop idx first (top
+                // of stack), then args (in reverse — last popped is
+                // arg 0 per AAPCS64).
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 const idx_vreg = pushed_vregs.pop().?;
-                const w_idx = abi.slotToReg(alloc.slots[idx_vreg]) orelse return Error.SlotOverflow;
 
-                // Argument marshalling — sub-g3b territory; today the
-                // skeleton still assumes 0-arg callees.
+                try marshalCallArgs(allocator, &buf, callee_sig, alloc, &pushed_vregs);
+
+                // After arg marshalling, materialise funcptr in X17
+                // and BLR. X17 is IP1 — caller-clobberable, so the
+                // arg moves into X0..X7 / V0..V7 (which don't touch
+                // X17) are safe in either order. Bounds + sig
+                // checks land at sub-g3c.
+                const w_idx = abi.slotToReg(alloc.slots[idx_vreg]) orelse return Error.SlotOverflow;
                 try writeU32(allocator, &buf, inst.encOrrRegW(17, 31, w_idx));
                 try writeU32(allocator, &buf, inst.encLdrXRegLsl3(17, 26, 17));
                 try writeU32(allocator, &buf, inst.encBLR(17));
 
-                // Type-idx → callee FuncType (sub-g3a).
-                if (ins.payload >= module_types.len) return Error.AllocationMissing;
-                const callee_sig: zir.FuncType = module_types[ins.payload];
                 try captureCallResult(allocator, &buf, callee_sig, alloc, &pushed_vregs, &next_vreg);
             },
             .@"call" => {
-                // Sub-g1 skeleton + sub-g3a: emit `BL 0` placeholder,
-                // record fixup, then capture the return value with the
-                // type that matches the callee's signature.
-                //
-                // Argument marshalling stays deferred to sub-g3b.
+                if (ins.payload >= func_sigs.len) return Error.AllocationMissing;
+                const callee_sig: zir.FuncType = func_sigs[ins.payload];
+
+                try marshalCallArgs(allocator, &buf, callee_sig, alloc, &pushed_vregs);
+
+                // BL placeholder; the post-emit linker patches via
+                // EmitOutput.call_fixups once function-body offsets
+                // are known.
                 const fixup_at: u32 = @intCast(buf.items.len);
                 try writeU32(allocator, &buf, inst.encBL(0));
                 try call_fixups.append(allocator, .{
                     .byte_offset = fixup_at,
                     .target_func_idx = ins.payload,
                 });
-                if (ins.payload >= func_sigs.len) return Error.AllocationMissing;
-                const callee_sig: zir.FuncType = func_sigs[ins.payload];
+
                 try captureCallResult(allocator, &buf, callee_sig, alloc, &pushed_vregs, &next_vreg);
             },
             .@"memory.size" => {
@@ -1301,6 +1309,84 @@ fn writeU32(allocator: Allocator, buf: *std.ArrayList(u8), word: u32) !void {
     var bytes: [4]u8 = undefined;
     std.mem.writeInt(u32, &bytes, word, .little);
     try buf.appendSlice(allocator, &bytes);
+}
+
+/// Marshal call arguments per AAPCS64: pop N arg vregs from
+/// `pushed_vregs` (in REVERSE — top of stack is the rightmost arg),
+/// then emit MOV/FMOV from each arg's home register into W0..W7
+/// (i32/i64) or S0..S7 / D0..D7 (f32/f64).
+///
+/// **No source-clobber risk by construction**: vregs are allocated
+/// out of `[X9..X15, X19..X28]` (GPR pool) and `[V16..V30]` (FP
+/// pool), neither of which overlaps with the AAPCS64 arg-passing
+/// registers `[X0..X7]` / `[V0..V7]`. So a naive sequential MOV
+/// per arg is correct without parallel-move analysis.
+///
+/// **Sub-g3b scope**: ≤ 8 GPR + ≤ 8 FP args. Stack-arg lowering
+/// (more than 8 args of a class) is post-MVP — surfaces as
+/// `UnsupportedOp`.
+fn marshalCallArgs(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    callee_sig: zir.FuncType,
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+) !void {
+    const n_args: u32 = @intCast(callee_sig.params.len);
+    if (n_args == 0) return;
+    if (pushed_vregs.items.len < n_args) return Error.AllocationMissing;
+
+    // Pop in reverse stack order: top of stack is arg N-1, deepest
+    // is arg 0. Stash them so we can iterate forward (arg 0 first).
+    var arg_vregs: [8]u32 = undefined; // limit to 8 args per class; UnsupportedOp below if exceeded
+    if (n_args > arg_vregs.len) return Error.UnsupportedOp;
+    var i: u32 = n_args;
+    while (i > 0) {
+        i -= 1;
+        arg_vregs[i] = pushed_vregs.pop().?;
+    }
+
+    var gpr_arg_slot: inst.Xn = 0;
+    var fp_arg_slot: inst.Vn = 0;
+    var k: u32 = 0;
+    while (k < n_args) : (k += 1) {
+        const src_vreg = arg_vregs[k];
+        switch (callee_sig.params[k]) {
+            .i32 => {
+                if (gpr_arg_slot >= 8) return Error.UnsupportedOp;
+                const ws = abi.slotToReg(alloc.slots[src_vreg]) orelse return Error.SlotOverflow;
+                if (ws != gpr_arg_slot) {
+                    try writeU32(allocator, buf, inst.encOrrRegW(gpr_arg_slot, 31, ws));
+                }
+                gpr_arg_slot += 1;
+            },
+            .i64 => {
+                if (gpr_arg_slot >= 8) return Error.UnsupportedOp;
+                const xs = abi.slotToReg(alloc.slots[src_vreg]) orelse return Error.SlotOverflow;
+                if (xs != gpr_arg_slot) {
+                    try writeU32(allocator, buf, inst.encOrrReg(gpr_arg_slot, 31, xs));
+                }
+                gpr_arg_slot += 1;
+            },
+            .f32 => {
+                if (fp_arg_slot >= 8) return Error.UnsupportedOp;
+                const vs = abi.fpSlotToReg(alloc.slots[src_vreg]) orelse return Error.SlotOverflow;
+                if (vs != fp_arg_slot) {
+                    try writeU32(allocator, buf, inst.encFmovSReg(fp_arg_slot, vs));
+                }
+                fp_arg_slot += 1;
+            },
+            .f64 => {
+                if (fp_arg_slot >= 8) return Error.UnsupportedOp;
+                const vs = abi.fpSlotToReg(alloc.slots[src_vreg]) orelse return Error.SlotOverflow;
+                if (vs != fp_arg_slot) {
+                    try writeU32(allocator, buf, inst.encFmovDReg(fp_arg_slot, vs));
+                }
+                fp_arg_slot += 1;
+            },
+            .v128, .funcref, .externref => return Error.UnsupportedOp,
+        }
+    }
 }
 
 /// Capture a call's return value into the next vreg, dispatching
@@ -2775,6 +2861,81 @@ test "compile: call N — f32 callee result captured via FMOV S, S0" {
     defer deinit(testing.allocator, out);
     // f32 slot 0 → V16; FMOV S16, S0.
     try testing.expectEqual(@as(u32, inst.encFmovSReg(16, 0)), std.mem.readInt(u32, out.bytes[12..16], .little));
+}
+
+test "compile: call N — i32 + i64 args marshalled into W0/X1, result in W0" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // (i32.const 7) (i64.const 0xDEADBEEF) call 0  ; callee: (i32, i64) → i32
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0xDEADBEEF, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 }, // arg0 i32 → slot 0
+        .{ .def_pc = 1, .last_use_pc = 2 }, // arg1 i64 → slot 1
+        .{ .def_pc = 2, .last_use_pc = 3 }, // result   → slot 0 (reuses)
+    } };
+    const slots = [_]u8{ 0, 1, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const sigs = [_]zir.FuncType{
+        .{ .params = &.{ .i32, .i64 }, .results = &.{ .i32 } },
+    };
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Layout (bytes):
+    //   [0..8]   STP fp/lr + MOV fp,sp
+    //   [8..12]  MOVZ W9, #7              ; arg0 → slot 0 → X9
+    //   [12..16] MOVZ X10, #0xBEEF        ; arg1 lo16
+    //   [16..20] MOVK X10, #0xDEAD lsl#16 ; arg1 hi16 (i64 const sub-d2 form)
+    //   [20..24] ORR W0, WZR, W9          ; marshal arg0 i32 → W0
+    //   [24..28] ORR X1, XZR, X10         ; marshal arg1 i64 → X1
+    //   [28..32] BL 0                     ; call placeholder
+    //   [32..36] (W0 → W9 capture; W9 == W0 source after marshal but vreg aliasing is fine)
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(0, 31, 9)), std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrReg(1, 31, 10)), std.mem.readInt(u32, out.bytes[24..28], .little));
+    try testing.expectEqual(@as(u32, inst.encBL(0)),             std.mem.readInt(u32, out.bytes[28..32], .little));
+}
+
+test "compile: call N — f32 + f64 args marshalled into S0/D1" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // f32.const + f64.const + call 0 ; callee: (f32, f64) → f32
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 }); // 2.0f
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40080000 }); // 3.0
+    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const sigs = [_]zir.FuncType{
+        .{ .params = &.{ .f32, .f64 }, .results = &.{ .f32 } },
+    };
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{});
+    defer deinit(testing.allocator, out);
+    // The two arg-marshal MOVs land just before the BL: search the
+    // tail for FMOV S0, S16 + FMOV D1, D17 + BL 0.
+    // These are stable within the byte stream irrespective of how
+    // the const-load prologue lays out — we locate the BL and walk
+    // backwards.
+    var bl_off: usize = 0;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        if (std.mem.readInt(u32, out.bytes[p..][0..4], .little) == inst.encBL(0)) {
+            bl_off = p;
+            break;
+        }
+    }
+    try testing.expect(bl_off >= 8);
+    try testing.expectEqual(@as(u32, inst.encFmovSReg(0, 16)), std.mem.readInt(u32, out.bytes[bl_off - 8 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovDReg(1, 17)), std.mem.readInt(u32, out.bytes[bl_off - 4 ..][0..4], .little));
 }
 
 test "compile: call N — void callee pushes no result vreg" {
