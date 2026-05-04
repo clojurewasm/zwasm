@@ -138,6 +138,53 @@ pub fn encStrXReg(rt: Xn, rn: Xn, rm: Xn) u32 {
     return 0xF8206800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
 }
 
+// ============================================================
+// Sub-byte + sign/zero-extending memory ops (sub-f2).
+// All verified via clang assembler.
+// ============================================================
+
+pub fn encLdrbWReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x38606800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+pub fn encLdrsbWReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x38E06800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+pub fn encLdrsbXReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x38A06800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+pub fn encLdrhWReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x78606800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+pub fn encLdrshWReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x78E06800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+pub fn encLdrshXReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x78A06800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+pub fn encLdrswXReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xB8A06800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+pub fn encStrbWReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x38206800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+pub fn encStrhWReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x78206800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
+/// `LDR St, [Xn, Xm]` — 32-bit FP load (lower 32 of V-register).
+pub fn encLdrSReg(vt: Vn, rn: Xn, rm: Xn) u32 {
+    return 0xBC606800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, vt);
+}
+pub fn encStrSReg(vt: Vn, rn: Xn, rm: Xn) u32 {
+    return 0xBC206800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, vt);
+}
+pub fn encLdrDReg(vt: Vn, rn: Xn, rm: Xn) u32 {
+    return 0xFC606800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, vt);
+}
+pub fn encStrDReg(vt: Vn, rn: Xn, rm: Xn) u32 {
+    return 0xFC206800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, vt);
+}
+
 /// `BR Xn` — unconditional branch to register.
 /// Encoding: `1101 0110 0001 1111 0000 00 [Rn:5] 00000`
 /// = `0xD61F0000` | (rn << 5).
@@ -637,6 +684,20 @@ test "encLdrXReg x0, [x28, x16] — `ldr x0, [x28, x16]` → 0xF8706B80" {
 test "encStrXReg x0, [x28, x16] — `str x0, [x28, x16]` → 0xF8306B80" {
     try testing.expectEqual(@as(u32, 0xF8306B80), encStrXReg(0, 28, 16));
 }
+
+test "encLdrbWReg w0, [x28, x16] → 0x38706B80" { try testing.expectEqual(@as(u32, 0x38706B80), encLdrbWReg(0, 28, 16)); }
+test "encLdrsbWReg w0, [x28, x16] → 0x38F06B80" { try testing.expectEqual(@as(u32, 0x38F06B80), encLdrsbWReg(0, 28, 16)); }
+test "encLdrsbXReg x0, [x28, x16] → 0x38B06B80" { try testing.expectEqual(@as(u32, 0x38B06B80), encLdrsbXReg(0, 28, 16)); }
+test "encLdrhWReg w0, [x28, x16] → 0x78706B80" { try testing.expectEqual(@as(u32, 0x78706B80), encLdrhWReg(0, 28, 16)); }
+test "encLdrshWReg w0, [x28, x16] → 0x78F06B80" { try testing.expectEqual(@as(u32, 0x78F06B80), encLdrshWReg(0, 28, 16)); }
+test "encLdrshXReg x0, [x28, x16] → 0x78B06B80" { try testing.expectEqual(@as(u32, 0x78B06B80), encLdrshXReg(0, 28, 16)); }
+test "encLdrswXReg x0, [x28, x16] → 0xB8B06B80" { try testing.expectEqual(@as(u32, 0xB8B06B80), encLdrswXReg(0, 28, 16)); }
+test "encStrbWReg w0, [x28, x16] → 0x38306B80" { try testing.expectEqual(@as(u32, 0x38306B80), encStrbWReg(0, 28, 16)); }
+test "encStrhWReg w0, [x28, x16] → 0x78306B80" { try testing.expectEqual(@as(u32, 0x78306B80), encStrhWReg(0, 28, 16)); }
+test "encLdrSReg s0, [x28, x16] → 0xBC706B80" { try testing.expectEqual(@as(u32, 0xBC706B80), encLdrSReg(0, 28, 16)); }
+test "encStrSReg s0, [x28, x16] → 0xBC306B80" { try testing.expectEqual(@as(u32, 0xBC306B80), encStrSReg(0, 28, 16)); }
+test "encLdrDReg d0, [x28, x16] → 0xFC706B80" { try testing.expectEqual(@as(u32, 0xFC706B80), encLdrDReg(0, 28, 16)); }
+test "encStrDReg d0, [x28, x16] → 0xFC306B80" { try testing.expectEqual(@as(u32, 0xFC306B80), encStrDReg(0, 28, 16)); }
 
 test "encBr x16 — `br x16` → 0xD61F0200" {
     try testing.expectEqual(@as(u32, 0xD61F0200), encBr(16));

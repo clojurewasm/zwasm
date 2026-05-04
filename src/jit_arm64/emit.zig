@@ -859,52 +859,107 @@ pub fn compile(
                     try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
                 }
             },
-            .@"i32.load",
-            .@"i32.store",
+            .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
+            .@"i32.load16_s", .@"i32.load16_u",
+            .@"i64.load", .@"i64.load8_s", .@"i64.load8_u",
+            .@"i64.load16_s", .@"i64.load16_u",
+            .@"i64.load32_s", .@"i64.load32_u",
+            .@"f32.load", .@"f64.load",
+            .@"i32.store", .@"i32.store8", .@"i32.store16",
+            .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
+            .@"f32.store", .@"f64.store",
             => {
-                // Memory access pattern (sub-f1):
-                //   ORR W16, WZR, W_addr   ; zero-extend
-                //   ADD X16, X16, #offset  ; effective addr
+                // Effective-address + bounds-check prologue (sub-f1
+                // pattern), then per-op LDR/STR. All memory ops
+                // share:
+                //   ORR W16, WZR, W_addr   ; zero-extend addr
+                //   ADD X16, X16, #offset  ; (skip if 0)
                 //   CMP X16, X27            ; vs mem_limit
                 //   B.HS trap_stub         ; placeholder + fixup
-                //   LDR/STR W, [X28, X16]
-                const is_store = ins.op == .@"i32.store";
+                // The final LDR/STR encoding differs per op.
+                const is_store = switch (ins.op) {
+                    .@"i32.store", .@"i32.store8", .@"i32.store16",
+                    .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
+                    .@"f32.store", .@"f64.store",
+                    => true,
+                    else => false,
+                };
+                const is_fp_value = switch (ins.op) {
+                    .@"f32.load", .@"f64.load", .@"f32.store", .@"f64.store" => true,
+                    else => false,
+                };
                 const ip0: inst.Xn = 16;
                 const offset_imm = ins.payload;
                 if (offset_imm > 0xFFF) return Error.SlotOverflow;
 
+                // Pop the address + (for stores) value vreg(s).
+                var addr_vreg: u32 = 0;
+                var val_vreg: u32 = 0;
                 if (is_store) {
                     if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
-                    const val_vreg = pushed_vregs.pop().?;
-                    const addr_vreg = pushed_vregs.pop().?;
-                    const w_addr = abi.slotToReg(alloc.slots[addr_vreg]) orelse return Error.SlotOverflow;
-                    const w_val = abi.slotToReg(alloc.slots[val_vreg]) orelse return Error.SlotOverflow;
-                    try writeU32(allocator, &buf, inst.encOrrRegW(ip0, 31, w_addr));
-                    if (offset_imm != 0) {
-                        try writeU32(allocator, &buf, inst.encAddImm12(ip0, ip0, @intCast(offset_imm)));
-                    }
-                    try writeU32(allocator, &buf, inst.encCmpRegX(ip0, 27));
-                    const fixup_at: u32 = @intCast(buf.items.len);
-                    try writeU32(allocator, &buf, inst.encBCond(.hs, 0));
-                    try bounds_fixups.append(allocator, fixup_at);
-                    try writeU32(allocator, &buf, inst.encStrWReg(w_val, 28, ip0));
+                    val_vreg = pushed_vregs.pop().?;
+                    addr_vreg = pushed_vregs.pop().?;
                 } else {
                     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                    const addr_vreg = pushed_vregs.pop().?;
+                    addr_vreg = pushed_vregs.pop().?;
+                }
+                const w_addr = abi.slotToReg(alloc.slots[addr_vreg]) orelse return Error.SlotOverflow;
+
+                // Effective-address + bounds prologue.
+                try writeU32(allocator, &buf, inst.encOrrRegW(ip0, 31, w_addr));
+                if (offset_imm != 0) {
+                    try writeU32(allocator, &buf, inst.encAddImm12(ip0, ip0, @intCast(offset_imm)));
+                }
+                try writeU32(allocator, &buf, inst.encCmpRegX(ip0, 27));
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try writeU32(allocator, &buf, inst.encBCond(.hs, 0));
+                try bounds_fixups.append(allocator, fixup_at);
+
+                // Final LDR/STR. Allocate result vreg first for loads.
+                if (is_store) {
+                    const wv: inst.Xn = if (is_fp_value)
+                        abi.fpSlotToReg(alloc.slots[val_vreg]) orelse return Error.SlotOverflow
+                    else
+                        abi.slotToReg(alloc.slots[val_vreg]) orelse return Error.SlotOverflow;
+                    const word: u32 = switch (ins.op) {
+                        .@"i32.store"   => inst.encStrWReg(wv, 28, ip0),
+                        .@"i32.store8"  => inst.encStrbWReg(wv, 28, ip0),
+                        .@"i32.store16" => inst.encStrhWReg(wv, 28, ip0),
+                        .@"i64.store"   => inst.encStrXReg(wv, 28, ip0),
+                        .@"i64.store8"  => inst.encStrbWReg(wv, 28, ip0),
+                        .@"i64.store16" => inst.encStrhWReg(wv, 28, ip0),
+                        .@"i64.store32" => inst.encStrWReg(wv, 28, ip0),
+                        .@"f32.store"   => inst.encStrSReg(wv, 28, ip0),
+                        .@"f64.store"   => inst.encStrDReg(wv, 28, ip0),
+                        else => unreachable,
+                    };
+                    try writeU32(allocator, &buf, word);
+                } else {
                     const result = next_vreg;
                     next_vreg += 1;
                     if (result >= alloc.slots.len) return Error.SlotOverflow;
-                    const w_addr = abi.slotToReg(alloc.slots[addr_vreg]) orelse return Error.SlotOverflow;
-                    const w_dest = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
-                    try writeU32(allocator, &buf, inst.encOrrRegW(ip0, 31, w_addr));
-                    if (offset_imm != 0) {
-                        try writeU32(allocator, &buf, inst.encAddImm12(ip0, ip0, @intCast(offset_imm)));
-                    }
-                    try writeU32(allocator, &buf, inst.encCmpRegX(ip0, 27));
-                    const fixup_at: u32 = @intCast(buf.items.len);
-                    try writeU32(allocator, &buf, inst.encBCond(.hs, 0));
-                    try bounds_fixups.append(allocator, fixup_at);
-                    try writeU32(allocator, &buf, inst.encLdrWReg(w_dest, 28, ip0));
+                    const wd: inst.Xn = if (is_fp_value)
+                        abi.fpSlotToReg(alloc.slots[result]) orelse return Error.SlotOverflow
+                    else
+                        abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                    const word: u32 = switch (ins.op) {
+                        .@"i32.load"     => inst.encLdrWReg(wd, 28, ip0),
+                        .@"i32.load8_s"  => inst.encLdrsbWReg(wd, 28, ip0),
+                        .@"i32.load8_u"  => inst.encLdrbWReg(wd, 28, ip0),
+                        .@"i32.load16_s" => inst.encLdrshWReg(wd, 28, ip0),
+                        .@"i32.load16_u" => inst.encLdrhWReg(wd, 28, ip0),
+                        .@"i64.load"     => inst.encLdrXReg(wd, 28, ip0),
+                        .@"i64.load8_s"  => inst.encLdrsbXReg(wd, 28, ip0),
+                        .@"i64.load8_u"  => inst.encLdrbWReg(wd, 28, ip0),
+                        .@"i64.load16_s" => inst.encLdrshXReg(wd, 28, ip0),
+                        .@"i64.load16_u" => inst.encLdrhWReg(wd, 28, ip0),
+                        .@"i64.load32_s" => inst.encLdrswXReg(wd, 28, ip0),
+                        .@"i64.load32_u" => inst.encLdrWReg(wd, 28, ip0),
+                        .@"f32.load"     => inst.encLdrSReg(wd, 28, ip0),
+                        .@"f64.load"     => inst.encLdrDReg(wd, 28, ip0),
+                        else => unreachable,
+                    };
+                    try writeU32(allocator, &buf, word);
                     try pushed_vregs.append(allocator, result);
                 }
             },
@@ -2134,6 +2189,64 @@ test "compile: i32.load — emits zero-extend + bounds-check + LDR W reg-offset 
     // disp = (44 - 24) / 4 = 5.
     const bhs_patched = std.mem.readInt(u32, out.bytes[24..28], .little);
     try testing.expectEqual(@as(u32, inst.encBCond(.hs, 5)),       bhs_patched);
+}
+
+test "compile: memory ops dispatch correctly per variant" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    const cases = [_]struct { op: zir.ZirOp, want_load_word: u32 }{
+        .{ .op = .@"i32.load8_u",  .want_load_word = inst.encLdrbWReg(9, 28, 16) },
+        .{ .op = .@"i32.load8_s",  .want_load_word = inst.encLdrsbWReg(9, 28, 16) },
+        .{ .op = .@"i32.load16_u", .want_load_word = inst.encLdrhWReg(9, 28, 16) },
+        .{ .op = .@"i32.load16_s", .want_load_word = inst.encLdrshWReg(9, 28, 16) },
+        .{ .op = .@"i64.load",     .want_load_word = inst.encLdrXReg(9, 28, 16) },
+        .{ .op = .@"i64.load8_s",  .want_load_word = inst.encLdrsbXReg(9, 28, 16) },
+        .{ .op = .@"i64.load16_s", .want_load_word = inst.encLdrshXReg(9, 28, 16) },
+        .{ .op = .@"i64.load32_s", .want_load_word = inst.encLdrswXReg(9, 28, 16) },
+        .{ .op = .@"i64.load32_u", .want_load_word = inst.encLdrWReg(9, 28, 16) },
+    };
+    for (cases) |c| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+        try f.instrs.append(testing.allocator, .{ .op = c.op, .payload = 0 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 1 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+        } };
+        const slots = [_]u8{ 0, 0 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+        const out = try compile(testing.allocator, &f, alloc);
+        defer deinit(testing.allocator, out);
+        // Stream: STP/MOV-FP (8) + MOVZ W9 (4) + ORR W16 (4) +
+        // (offset==0 → no ADD) + CMP (4) + B.HS (4) = byte 24 for the LDR.
+        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[24..28], .little));
+    }
+}
+
+test "compile: f32.load + f64.load dispatch to S/D-form LDR" {
+    const sig_s: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
+    const sig_d: zir.FuncType = .{ .params = &.{}, .results = &.{ .f64 } };
+    const cases = [_]struct { op: zir.ZirOp, sig: zir.FuncType, want_load_word: u32 }{
+        .{ .op = .@"f32.load", .sig = sig_s, .want_load_word = inst.encLdrSReg(16, 28, 16) },
+        .{ .op = .@"f64.load", .sig = sig_d, .want_load_word = inst.encLdrDReg(16, 28, 16) },
+    };
+    for (cases) |c| {
+        var f = ZirFunc.init(0, c.sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+        try f.instrs.append(testing.allocator, .{ .op = c.op, .payload = 0 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 1 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+        } };
+        const slots = [_]u8{ 0, 0 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+        const out = try compile(testing.allocator, &f, alloc);
+        defer deinit(testing.allocator, out);
+        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[24..28], .little));
+    }
 }
 
 test "compile: i32.store — emits bounds-check + STR W reg-offset" {
