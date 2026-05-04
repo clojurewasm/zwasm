@@ -223,6 +223,14 @@ pub fn encB(disp_words: i32) u32 {
     return 0x14000000 | masked;
 }
 
+/// `BL disp` — branch-with-link (call). Same imm26 form as B
+/// but with bit 31 set. Sets X30 (LR) to PC+4 then branches.
+/// Encoding: `1 00101 [imm26:26]` = `0x94000000`.
+pub fn encBL(disp_words: i32) u32 {
+    const masked: u32 = @as(u32, @bitCast(disp_words)) & 0x03FFFFFF;
+    return 0x94000000 | masked;
+}
+
 /// `CBZ Wn, disp` — branch when Wn == 0; 19-bit signed
 /// instruction-unit offset (range ±1 MiB).
 /// Encoding: `0 011010 0 [imm19:19] [Rt:5]` = `0x34000000`.
@@ -740,6 +748,10 @@ test "encB +1 — `b 1f / nop / 1:` → 0x14000001" {
 test "encB -1 — backward branch by 1 word → 0x17FFFFFF" {
     // imm26 sign-extended = -1; bit26 wraps. Mask to 26 bits = 0x3FFFFFF.
     try testing.expectEqual(@as(u32, 0x17FFFFFF), encB(-1));
+}
+
+test "encBL +1 — `bl 1f` (next instr) → 0x94000001" {
+    try testing.expectEqual(@as(u32, 0x94000001), encBL(1));
 }
 
 test "encCbnzW w0, +1 — `cbnz w0, 1f` → 0x35000020" {

@@ -58,6 +58,18 @@ pub const Error = error{
     OutOfMemory,
 };
 
+pub const CallFixup = struct {
+    /// Byte offset within the emitted bytes where a `BL`
+    /// placeholder lives. The caller (post-emit linker / runtime
+    /// harness) computes the target address relative to the
+    /// patch site and rewrites the imm26 field.
+    byte_offset: u32,
+    /// Wasm function index the call targets. The caller resolves
+    /// this against its function-body layout to produce the
+    /// concrete disp.
+    target_func_idx: u32,
+};
+
 pub const EmitOutput = struct {
     /// Encoded function body bytes (little-endian u32 stream).
     /// Caller owns; pair with `deinit` to free.
@@ -66,10 +78,15 @@ pub const EmitOutput = struct {
     /// The §9.7 / 7.4 gate consults this for stack-frame sizing
     /// when the spill follow-up lands.
     n_slots: u8,
+    /// `BL` fixup sites. Each is a placeholder that the caller
+    /// patches once function-body addresses are known.
+    /// Caller-owned; pair with `deinit` to free.
+    call_fixups: []CallFixup,
 };
 
 pub fn deinit(allocator: Allocator, out: EmitOutput) void {
     if (out.bytes.len != 0) allocator.free(out.bytes);
+    if (out.call_fixups.len != 0) allocator.free(out.call_fixups);
 }
 
 /// Emit ARM64 machine code for `func`. Requires `alloc.slots`
@@ -177,6 +194,14 @@ pub fn compile(
     // and all bounds_fixups are patched to point at it.
     var bounds_fixups: std.ArrayList(u32) = .empty;
     defer bounds_fixups.deinit(allocator);
+
+    // Call fixup list — exposed via EmitOutput for the post-emit
+    // linker / runtime to patch with concrete func-body offsets.
+    // Sub-g1 skeleton: only `call` is supported; call_indirect
+    // lands in sub-g2 with a different mechanism (table lookup +
+    // BLR).
+    var call_fixups: std.ArrayList(CallFixup) = .empty;
+    errdefer call_fixups.deinit(allocator);
 
     for (func.instrs.items, 0..) |ins, pc| {
         _ = pc;
@@ -859,6 +884,46 @@ pub fn compile(
                     try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
                 }
             },
+            .@"call" => {
+                // Sub-g1 skeleton: emit a `BL 0` placeholder, record
+                // a fixup with the target func_idx (= ins.payload),
+                // and push a single result vreg holding X0 (AAPCS64
+                // i32/i64 return register).
+                //
+                // Argument marshalling is INTENTIONALLY NOT EMITTED
+                // in this skeleton: callee signatures aren't yet
+                // threaded into compile() (the JIT body has no
+                // access to func_types[N] without the caller passing
+                // them). Sub-g3 wires that. Today this skeleton
+                // assumes (a) callees that take no args, OR (b) the
+                // caller post-processes the fixup with arg-marshal
+                // prologue inserted before the BL. The bytes emitted
+                // here are the raw `BL ?` + result-push.
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try writeU32(allocator, &buf, inst.encBL(0));
+                try call_fixups.append(allocator, .{
+                    .byte_offset = fixup_at,
+                    .target_func_idx = ins.payload,
+                });
+                // Push a result vreg. In sub-g1 we always assume
+                // a single i32/i64 return and that the caller's
+                // signature places the result in W0. The result
+                // vreg's GPR-pool register receives a move from
+                // W0; this mirrors the inverse of the `end`
+                // epilogue's MOV X0, Xsrc. Sub-g3 will widen this
+                // to f32/f64 (FMOV from S0/D0) and skip the result
+                // entirely for void-returning callees once the
+                // signature table is threaded in.
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.AllocationMissing;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                if (wd != 0) {
+                    // MOV Wd, W0 — encoded as ORR Wd, WZR, W0.
+                    try writeU32(allocator, &buf, inst.encOrrRegW(wd, 31, 0));
+                }
+                try pushed_vregs.append(allocator, result);
+            },
             .@"memory.size" => {
                 // Wasm memory.size returns current size in 64-KiB pages.
                 // X27 carries the byte limit; pages = bytes >> 16.
@@ -1223,6 +1288,7 @@ pub fn compile(
     return .{
         .bytes = try buf.toOwnedSlice(allocator),
         .n_slots = alloc.n_slots,
+        .call_fixups = try call_fixups.toOwnedSlice(allocator),
     };
 }
 
@@ -2590,6 +2656,35 @@ test "compile: i32.eqz emits CMP-imm-0 + CSET EQ" {
     // After STP/MOV-FP/MOVZ-W9-#0 (12 bytes): CMP W9,#0 / CSET W9,EQ.
     try testing.expectEqual(@as(u32, inst.encCmpImmW(9, 0)),   std.mem.readInt(u32, out.bytes[12..16], .little));
     try testing.expectEqual(@as(u32, inst.encCsetW(9, .eq)),   std.mem.readInt(u32, out.bytes[16..20], .little));
+}
+
+test "compile: call N (no-arg skeleton) emits BL placeholder + records fixup + result MOV W_dest, W0" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // call func_idx = 7 — a forward callee whose body offset isn't
+    // known to compile(); the post-emit linker patches the BL via
+    // EmitOutput.call_fixups.
+    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // Layout after prologue (STP fp/lr + MOV fp,sp = 8 bytes):
+    //   [8..12]  BL 0   (placeholder; fixup recorded)
+    //   [12..16] ORR W9, WZR, W0  (MOV W9, W0 — slot 0 → X9)
+    try testing.expectEqual(@as(u32, inst.encBL(0)), std.mem.readInt(u32, out.bytes[8..12], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)), std.mem.readInt(u32, out.bytes[12..16], .little));
+
+    // One fixup recorded with byte_offset = 8 + target_func_idx = 7.
+    try testing.expectEqual(@as(usize, 1), out.call_fixups.len);
+    try testing.expectEqual(@as(u32, 8), out.call_fixups[0].byte_offset);
+    try testing.expectEqual(@as(u32, 7), out.call_fixups[0].target_func_idx);
 }
 
 comptime {
