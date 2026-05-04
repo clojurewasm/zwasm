@@ -899,21 +899,43 @@ pub fn compile(
                 if (ins.payload >= module_types.len) return Error.AllocationMissing;
                 const callee_sig: zir.FuncType = module_types[ins.payload];
 
-                // Stack at entry: [args..., idx]. Pop idx first (top
-                // of stack), then args (in reverse — last popped is
-                // arg 0 per AAPCS64).
+                // Stack at entry: [args..., idx]. Pop idx first.
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 const idx_vreg = pushed_vregs.pop().?;
 
                 try marshalCallArgs(allocator, &buf, callee_sig, alloc, &pushed_vregs);
 
-                // After arg marshalling, materialise funcptr in X17
-                // and BLR. X17 is IP1 — caller-clobberable, so the
-                // arg moves into X0..X7 / V0..V7 (which don't touch
-                // X17) are safe in either order. Bounds + sig
-                // checks land at sub-g3c.
+                // Sub-g3c: bounds + sig check using the trap-stub at
+                // function tail (shared with memory bounds — single
+                // trap reason today; Diagnostic M3 / D-022 splits
+                // them later).
                 const w_idx = abi.slotToReg(alloc.slots[idx_vreg]) orelse return Error.SlotOverflow;
                 try writeU32(allocator, &buf, inst.encOrrRegW(17, 31, w_idx));
+
+                // Bounds: CMP W17, W25 ; B.HS trap.
+                try writeU32(allocator, &buf, inst.encCmpRegW(17, 25));
+                {
+                    const fixup_at: u32 = @intCast(buf.items.len);
+                    try writeU32(allocator, &buf, inst.encBCond(.hs, 0));
+                    try bounds_fixups.append(allocator, fixup_at);
+                }
+
+                // Sig: LDR W16, [X24, X17, LSL #2] ; CMP W16, #expected ; B.NE trap.
+                // Skeleton restricts expected typeidx to imm12 range
+                // (4096 distinct types is well above any realistic
+                // module's needs); larger typeidx → UnsupportedOp,
+                // which the lowerer / module-level driver may
+                // surface as an explicit bound to the user.
+                if (ins.payload >= 4096) return Error.UnsupportedOp;
+                try writeU32(allocator, &buf, inst.encLdrWRegLsl2(16, 24, 17));
+                try writeU32(allocator, &buf, inst.encCmpImmW(16, @intCast(ins.payload)));
+                {
+                    const fixup_at: u32 = @intCast(buf.items.len);
+                    try writeU32(allocator, &buf, inst.encBCond(.ne, 0));
+                    try bounds_fixups.append(allocator, fixup_at);
+                }
+
+                // Funcptr load + BLR.
                 try writeU32(allocator, &buf, inst.encLdrXRegLsl3(17, 26, 17));
                 try writeU32(allocator, &buf, inst.encBLR(17));
 
@@ -2954,14 +2976,12 @@ test "compile: call N — void callee pushes no result vreg" {
     try testing.expectEqual(@as(u32, inst.encBL(0)), std.mem.readInt(u32, out.bytes[8..12], .little));
 }
 
-test "compile: call_indirect (skeleton) emits ORR/LDR-LSL3/BLR + result MOV" {
+test "compile: call_indirect — bounds (CMP/B.HS) + sig (LDR/CMP/B.NE) + funcptr (LDR-LSL3/BLR)" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    // i32.const 5 — table index.
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
-    // call_indirect type_idx=0, table_idx=0.
-    try f.instrs.append(testing.allocator, .{ .op = .@"call_indirect", .payload = 0, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"call_indirect", .payload = 3, .extra = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"end" });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
@@ -2969,23 +2989,36 @@ test "compile: call_indirect (skeleton) emits ORR/LDR-LSL3/BLR + result MOV" {
     } };
     const slots = [_]u8{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const types = [_]zir.FuncType{ .{ .params = &.{}, .results = &.{ .i32 } } };
+    // module_types[3] is what `call_indirect type_idx=3` consults.
+    var types: [4]zir.FuncType = undefined;
+    for (&types) |*t| t.* = .{ .params = &.{}, .results = &.{} };
+    types[3] = .{ .params = &.{}, .results = &.{ .i32 } };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &types);
     defer deinit(testing.allocator, out);
 
     // After STP/MOV-FP (8) + MOVZ W9, #5 (4) = 12 bytes:
-    //   [12..16] ORR W17, WZR, W9      ; zero-extend idx
-    //   [16..20] LDR X17, [X26, X17, LSL #3]
-    //   [20..24] BLR X17
-    //   [24..28] ORR W9, WZR, W0       ; capture return
+    //   [12..16] ORR W17, WZR, W9             ; zero-extend idx
+    //   [16..20] CMP W17, W25                  ; bounds
+    //   [20..24] B.HS trap_stub                ; placeholder
+    //   [24..28] LDR W16, [X24, X17, LSL #2]   ; sig load
+    //   [28..32] CMP W16, #3                   ; sig compare
+    //   [32..36] B.NE trap_stub                ; placeholder
+    //   [36..40] LDR X17, [X26, X17, LSL #3]   ; funcptr
+    //   [40..44] BLR X17
+    //   [44..48] ORR W9, WZR, W0               ; capture
     try testing.expectEqual(@as(u32, inst.encOrrRegW(17, 31, 9)),       std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(17, 26, 17)),  std.mem.readInt(u32, out.bytes[16..20], .little));
-    try testing.expectEqual(@as(u32, inst.encBLR(17)),                  std.mem.readInt(u32, out.bytes[20..24], .little));
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)),        std.mem.readInt(u32, out.bytes[24..28], .little));
-
-    // No call_fixups: call_indirect is dispatched via X17 at
-    // runtime, not via a static BL — fixup list stays empty.
-    try testing.expectEqual(@as(usize, 0), out.call_fixups.len);
+    try testing.expectEqual(@as(u32, inst.encCmpRegW(17, 25)),          std.mem.readInt(u32, out.bytes[16..20], .little));
+    // [20..24] is a B.HS placeholder + bounds_fixup; check the
+    // opcode shape (cond=hs in low 4 bits).
+    const bhs = std.mem.readInt(u32, out.bytes[20..24], .little);
+    try testing.expectEqual(@as(u32, 0x2), bhs & 0xF); // cond=.hs
+    try testing.expectEqual(@as(u32, inst.encLdrWRegLsl2(16, 24, 17)),  std.mem.readInt(u32, out.bytes[24..28], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpImmW(16, 3)),           std.mem.readInt(u32, out.bytes[28..32], .little));
+    const bne = std.mem.readInt(u32, out.bytes[32..36], .little);
+    try testing.expectEqual(@as(u32, 0x1), bne & 0xF); // cond=.ne
+    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(17, 26, 17)),  std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, inst.encBLR(17)),                  std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)),        std.mem.readInt(u32, out.bytes[44..48], .little));
 }
 
 comptime {

@@ -141,6 +141,15 @@ pub fn encLdrXRegLsl3(rt: Xn, rn: Xn, rm: Xn) u32 {
     return 0xF8607800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
 }
 
+/// `LDR Wt, [Xn, Xm, LSL #2]` — 32-bit load with X-register
+/// offset scaled by element size (4 bytes). 32-bit counterpart
+/// of `encLdrXRegLsl3`. Used by sub-g3c's call_indirect sig
+/// check: `LDR W16, [X24, X17, LSL #2]` loads
+/// `typeidx_array[idx]` (each entry a u32 typeidx).
+pub fn encLdrWRegLsl2(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xB8607800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
 /// `BLR Xn` — branch-with-link to register. Used by
 /// `call_indirect` after the funcptr is materialized in a GPR.
 /// Encoding: `1101 0110 0011 1111 0000 00 nnnnn 0 0000` —
@@ -746,6 +755,9 @@ test "encLdrXReg x0, [x28, x16] — `ldr x0, [x28, x16]` → 0xF8706B80" {
 }
 test "encLdrXRegLsl3 x0, [x28, x16, lsl #3] → 0xF8707B80" {
     try testing.expectEqual(@as(u32, 0xF8707B80), encLdrXRegLsl3(0, 28, 16));
+}
+test "encLdrWRegLsl2 w16, [x24, x17, lsl #2] → 0xB8717B10" {
+    try testing.expectEqual(@as(u32, 0xB8717B10), encLdrWRegLsl2(16, 24, 17));
 }
 test "encBLR x17 — `blr x17` → 0xD63F0220" {
     try testing.expectEqual(@as(u32, 0xD63F0220), encBLR(17));

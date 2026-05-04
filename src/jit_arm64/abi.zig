@@ -59,17 +59,23 @@ pub const platform_gpr: Xn = 18;
 /// them, the epilogue restores them.
 ///
 /// **Reserved sub-set (caller-supplied invariants for the §9.7 /
-/// 7.3 skeleton)**: X26..X28 hold Runtime-derived pointers the
+/// 7.3 skeleton)**: X24..X28 hold Runtime-derived pointers the
 /// caller arranges before invoking the JIT body:
-///   X28 — vm_base    (linear-memory base ptr)
-///   X27 — mem_limit  (linear-memory size in bytes)
-///   X26 — table_base (sub-g2: table[0] base, each entry u64
-///                     funcptr; sig + bounds checks land at
-///                     sub-g3 with the typeidx table)
-/// These three are NOT in the regalloc pool; sub-g3 widens the
-/// invariant set as more Runtime-coupled ops land. D-014 (the
+///   X28 — vm_base       (linear-memory base ptr)
+///   X27 — mem_limit     (linear-memory size in bytes)
+///   X26 — funcptr_base  (table 0 — array of u64 funcptrs)
+///   X25 — table_size    (W25 = u32 count of entries — for the
+///                        bounds check)
+///   X24 — typeidx_base  (parallel array of u32 typeidx values
+///                        for the sig check; same indexing as
+///                        funcptr_base)
+/// These five are NOT in the regalloc pool today; D-014 (the
 /// Runtime injection point) dissolves once the structural wiring
-/// replaces this caller-supplied skeleton.
+/// replaces this caller-supplied skeleton with native Runtime
+/// indirection. Currently the regalloc pool naively spans
+/// [X9..X15, X19..X28] — 16+ slots reach into X24..X28; that
+/// pre-existing pool/reservation gap is tracked separately and
+/// is non-blocking for the §9.7 / 7.3 row.
 pub const callee_saved_gprs = [_]Xn{ 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
 
 pub const frame_pointer: Xn = 29;
