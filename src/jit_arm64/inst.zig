@@ -150,6 +150,13 @@ pub fn encLdrWRegLsl2(rt: Xn, rn: Xn, rm: Xn) u32 {
     return 0xB8607800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
 }
 
+/// `SXTW Xd, Wn` — sign-extend 32-bit Wn into 64-bit Xd. Alias
+/// for `SBFM Xd, Xn, #0, #31`. Used by `i64.extend_i32_s`.
+/// Encoding base 0x93407C00.
+pub fn encSxtw(xd: Xn, wn: Xn) u32 {
+    return 0x93407C00 | (@as(u32, wn) << 5) | @as(u32, xd);
+}
+
 /// `BLR Xn` — branch-with-link to register. Used by
 /// `call_indirect` after the funcptr is materialized in a GPR.
 /// Encoding: `1101 0110 0011 1111 0000 00 nnnnn 0 0000` —
@@ -758,6 +765,9 @@ test "encLdrXRegLsl3 x0, [x28, x16, lsl #3] → 0xF8707B80" {
 }
 test "encLdrWRegLsl2 w16, [x24, x17, lsl #2] → 0xB8717B10" {
     try testing.expectEqual(@as(u32, 0xB8717B10), encLdrWRegLsl2(16, 24, 17));
+}
+test "encSxtw x9, w10 — `sxtw x9, w10` → 0x93407D49" {
+    try testing.expectEqual(@as(u32, 0x93407D49), encSxtw(9, 10));
 }
 test "encBLR x17 — `blr x17` → 0xD63F0220" {
     try testing.expectEqual(@as(u32, 0xD63F0220), encBLR(17));

@@ -400,6 +400,33 @@ pub fn compile(
                 try writeU32(allocator, &buf, inst.encClzX(xd, xd));
                 try pushed_vregs.append(allocator, result);
             },
+            .@"i32.wrap_i64", .@"i64.extend_i32_u" => {
+                // Both lower to MOV Wd, Wn (= ORR Wd, WZR, Wn).
+                // i32.wrap_i64: read the source's lower 32 bits.
+                // i64.extend_i32_u: zero-extend (W-write implicitly
+                // zeros upper 32 bits of the X register).
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encOrrRegW(wd, 31, wn));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i64.extend_i32_s" => {
+                // SXTW Xd, Wn — sign-extend 32-bit into 64-bit.
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const xd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encSxtw(xd, wn));
+                try pushed_vregs.append(allocator, result);
+            },
             .@"f32.const" => {
                 // Stage the IEEE-754 bits via a GPR const, then
                 // FMOV S, W. The intermediate W-reg is the FP
@@ -1595,12 +1622,12 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
-    // i32.wrap_i64 (numeric conversion) not yet handled —
-    // sub-h scope.
+    // i32.trunc_f32_s (trapping float→int conversion) is still
+    // unsupported pending sub-h3.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"i32.wrap_i64" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_f32_s" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty, &.{}, &.{}));
@@ -3019,6 +3046,66 @@ test "compile: call_indirect — bounds (CMP/B.HS) + sig (LDR/CMP/B.NE) + funcpt
     try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(17, 26, 17)),  std.mem.readInt(u32, out.bytes[36..40], .little));
     try testing.expectEqual(@as(u32, inst.encBLR(17)),                  std.mem.readInt(u32, out.bytes[40..44], .little));
     try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)),        std.mem.readInt(u32, out.bytes[44..48], .little));
+}
+
+test "compile: i32.wrap_i64 emits MOV W,W (= ORR W, WZR, W)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0xCAFE, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.wrap_i64" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP (8) + MOVZ X9, #0xCAFE (4) = 12 bytes:
+    //   [12..16] ORR W9, WZR, W9 (in-place wrap; valid no-op MOV)
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+}
+
+test "compile: i64.extend_i32_s emits SXTW X, W" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xFFFFFFFF });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.extend_i32_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // After [8..16] MOVZ + MOVK to load 0xFFFFFFFF into W9 (8 bytes):
+    //   [16..20] SXTW X9, W9
+    try testing.expectEqual(@as(u32, inst.encSxtw(9, 9)), std.mem.readInt(u32, out.bytes[16..20], .little));
+}
+
+test "compile: i64.extend_i32_u emits MOV W,W (zero-extends via W-write)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.extend_i32_u" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP (8) + MOVZ W9, #42 (4) = 12 bytes:
+    //   [12..16] ORR W9, WZR, W9
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
 }
 
 comptime {
