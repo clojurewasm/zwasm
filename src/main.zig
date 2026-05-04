@@ -27,6 +27,8 @@ pub const cli_run = @import("cli/run.zig");
 pub const c_api = @import("c_api/wasm_c_api.zig");
 pub const diagnostic = @import("runtime/diagnostic.zig");
 pub const diag_print = @import("cli/diag_print.zig");
+pub const run_wasm = @import("jit/run_wasm.zig");
+pub const entry = @import("jit/entry.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

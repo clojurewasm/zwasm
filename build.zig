@@ -129,6 +129,25 @@ pub fn build(b: *std.Build) void {
     test_spec_step.dependOn(&run_spec_smoke.step);
     test_spec_step.dependOn(&run_spec_mvp.step);
 
+    // `zig build test-edge-cases` — sub-7.5b-iii fixture runner.
+    // Iterates `test/edge_cases/p7/` and runs each .wasm through
+    // the ARM64 JIT, comparing against the sibling .expect.
+    const edge_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/edge_cases/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    edge_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(edge_runner_mod, sanitize_c, sanitize_thread);
+    const edge_runner_exe = b.addExecutable(.{
+        .name = "zwasm-edge-runner",
+        .root_module = edge_runner_mod,
+    });
+    const run_edge_p7 = b.addRunArtifact(edge_runner_exe);
+    run_edge_p7.addArg(b.pathFromRoot("test/edge_cases/p7"));
+    const test_edge_step = b.step("test-edge-cases", "Run edge-case fixture runner (Mac aarch64 only)");
+    test_edge_step.dependOn(&run_edge_p7.step);
+
     // `zig build test-spec-wasm-2.0` — wast-directive runner
     // (Phase 2 / §9.2 / 2.7). Reads each subdir's manifest.txt
     // and processes module / assert_invalid / assert_malformed
