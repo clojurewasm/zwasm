@@ -416,6 +416,60 @@ pub fn compile(
                 try writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
+            .@"f32.copysign",
+            .@"f64.copysign",
+            => {
+                // ARM has no single copysign; emit FMOV → bit-mask
+                // detour. Wasm: result = (|x|) | sign(y).
+                //
+                // 8-instr sequence (f32) / 8-instr (f64):
+                //   MOVZ X16, #0
+                //   MOVK X16, #0x8000, lsl #(16 for f32, 48 for f64)
+                //   FMOV W_a, S_x  (or X_a, D_x for f64)
+                //   BIC W_a, W_a, W16   ; magnitude of x
+                //   FMOV W17, S_y  (or X17, D_y)
+                //   AND W17, W17, W16   ; sign of y
+                //   ORR W_a, W_a, W17
+                //   FMOV S_d, W_a  (or D_d, X_a)
+                //
+                // W_a = slot[result]'s GPR mapping (same slot id
+                // as the V-result, but distinct physical reg).
+                // IP0 (X16) = mask scratch; IP1 (X17) = sign scratch.
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs_y = pushed_vregs.pop().?; // sign source
+                const lhs_x = pushed_vregs.pop().?; // magnitude source
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn_x = abi.fpSlotToReg(alloc.slots[lhs_x]) orelse return Error.SlotOverflow;
+                const vm_y = abi.fpSlotToReg(alloc.slots[rhs_y]) orelse return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const w_a = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const ip0: inst.Xn = 16;
+                const ip1: inst.Xn = 17;
+                const is_d = ins.op == .@"f64.copysign";
+                // Build sign-bit mask in IP0 (lower 32 for f32 in W,
+                // top lane for f64 in X):
+                try writeU32(allocator, &buf, inst.encMovzImm16(ip0, 0));
+                const mask_lsl_hw: u2 = if (is_d) 3 else 1;
+                try writeU32(allocator, &buf, inst.encMovkImm16(ip0, 0x8000, mask_lsl_hw));
+                if (is_d) {
+                    try writeU32(allocator, &buf, inst.encFmovXFromD(w_a, vn_x));
+                    try writeU32(allocator, &buf, inst.encBicRegX(w_a, w_a, ip0));
+                    try writeU32(allocator, &buf, inst.encFmovXFromD(ip1, vm_y));
+                    try writeU32(allocator, &buf, inst.encAndReg(ip1, ip1, ip0));
+                    try writeU32(allocator, &buf, inst.encOrrReg(w_a, w_a, ip1));
+                    try writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, w_a));
+                } else {
+                    try writeU32(allocator, &buf, inst.encFmovWFromS(w_a, vn_x));
+                    try writeU32(allocator, &buf, inst.encBicRegW(w_a, w_a, ip0));
+                    try writeU32(allocator, &buf, inst.encFmovWFromS(ip1, vm_y));
+                    try writeU32(allocator, &buf, inst.encAndRegW(ip1, ip1, ip0));
+                    try writeU32(allocator, &buf, inst.encOrrRegW(w_a, w_a, ip1));
+                    try writeU32(allocator, &buf, inst.encFmovStoFromW(vd, w_a));
+                }
+                try pushed_vregs.append(allocator, result);
+            },
             .@"f32.min",
             .@"f32.max",
             .@"f64.min",
@@ -910,12 +964,12 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
-    // f32.copysign not yet handled — sub-d5 scope (needs bit
-    // manipulation via FMOV W↔S detour).
-    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
+    // i32.wrap_i64 (numeric conversion) not yet handled —
+    // sub-h scope.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"f32.copysign" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.wrap_i64" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty));
@@ -1577,6 +1631,84 @@ test "compile: f32 unary ops + min/max each emit correct encoding" {
         const op_offset: usize = if (c.binary) 32 else 20;
         try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[op_offset..op_offset+4][0..4], .little));
     }
+}
+
+test "compile: f32.copysign emits 8-instr FMOV/BIC/AND/ORR sequence" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // 1.5f magnitude src + (-2.0f) sign src → expect -1.5f
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3FC00000 });  // 1.5
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0xC0000000 });  // -2.0
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.copysign" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP (8) + 2 consts (each 3 u32s = 24) = byte 32.
+    // Then 8 copysign instrs.
+    // [32]: MOVZ X16, #0
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 0)),       std.mem.readInt(u32, out.bytes[32..36], .little));
+    // [36]: MOVK X16, #0x8000, lsl #16
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(16, 0x8000, 1)), std.mem.readInt(u32, out.bytes[36..40], .little));
+    // [40]: FMOV W9, S16  (W_a from S_x at slot[result]=0 → V16)
+    try testing.expectEqual(@as(u32, inst.encFmovWFromS(9, 16)),       std.mem.readInt(u32, out.bytes[40..44], .little));
+    // [44]: BIC W9, W9, W16
+    try testing.expectEqual(@as(u32, inst.encBicRegW(9, 9, 16)),       std.mem.readInt(u32, out.bytes[44..48], .little));
+    // [48]: FMOV W17, S17  (W17 from S_y at slot[rhs]=1 → V17)
+    try testing.expectEqual(@as(u32, inst.encFmovWFromS(17, 17)),      std.mem.readInt(u32, out.bytes[48..52], .little));
+    // [52]: AND W17, W17, W16
+    try testing.expectEqual(@as(u32, inst.encAndRegW(17, 17, 16)),     std.mem.readInt(u32, out.bytes[52..56], .little));
+    // [56]: ORR W9, W9, W17
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 9, 17)),       std.mem.readInt(u32, out.bytes[56..60], .little));
+    // [60]: FMOV S16, W9
+    try testing.expectEqual(@as(u32, inst.encFmovStoFromW(16, 9)),     std.mem.readInt(u32, out.bytes[60..64], .little));
+}
+
+test "compile: f64.copysign emits X-form 8-instr sequence with hw=3 mask" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // 1.5 + (-2.0) f64
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x3FF80000 });  // 1.5
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0xC0000000 });  // -2.0
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.copysign" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // f64.const 1.5: bits=0x3FF8000000000000. Lanes: l0=0,l1=0,
+    // l2=0,l3=0x3FF8. Only l3 nonzero → MOVZ + MOVK lane3 + FMOV D
+    // = 3 u32s. Same shape for -2.0. After STP/MOV-FP (8) + 6 u32s
+    // (24) = byte 32.
+    // [32]: MOVZ X16, #0
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 0)),       std.mem.readInt(u32, out.bytes[32..36], .little));
+    // [36]: MOVK X16, #0x8000, lsl #48
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(16, 0x8000, 3)), std.mem.readInt(u32, out.bytes[36..40], .little));
+    // [40]: FMOV X9, D16
+    try testing.expectEqual(@as(u32, inst.encFmovXFromD(9, 16)),      std.mem.readInt(u32, out.bytes[40..44], .little));
+    // [44]: BIC X9, X9, X16
+    try testing.expectEqual(@as(u32, inst.encBicRegX(9, 9, 16)),      std.mem.readInt(u32, out.bytes[44..48], .little));
+    // [48]: FMOV X17, D17
+    try testing.expectEqual(@as(u32, inst.encFmovXFromD(17, 17)),     std.mem.readInt(u32, out.bytes[48..52], .little));
+    // [52]: AND X17, X17, X16
+    try testing.expectEqual(@as(u32, inst.encAndReg(17, 17, 16)),     std.mem.readInt(u32, out.bytes[52..56], .little));
+    // [56]: ORR X9, X9, X17
+    try testing.expectEqual(@as(u32, inst.encOrrReg(9, 9, 17)),       std.mem.readInt(u32, out.bytes[56..60], .little));
+    // [60]: FMOV D16, X9
+    try testing.expectEqual(@as(u32, inst.encFmovDtoFromX(16, 9)),    std.mem.readInt(u32, out.bytes[60..64], .little));
 }
 
 test "compile: f64 binary ALU each emits D-form" {

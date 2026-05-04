@@ -432,6 +432,34 @@ pub fn encFMaxD(vd: Vn, vn: Vn, vm: Vn) u32 {
     return 0x1E604800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
 }
 
+// ============================================================
+// BIC + FMOV float→general (used by copysign sub-d5)
+// ============================================================
+
+/// `BIC Wd, Wn, Wm` — bitwise bit clear (Wd = Wn AND NOT Wm).
+/// 32-bit AND shifted-reg with N=1 (invert Rm). Encoding base
+/// 0x0A200000.
+pub fn encBicRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x0A200000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `BIC Xd, Xn, Xm` — 64-bit form of BIC.
+pub fn encBicRegX(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x8A200000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FMOV Wd, Sn` — move 32-bit V-register lower 32 → GPR.
+/// Counterpart of encFmovStoFromW. Encoding base 0x1E260000.
+pub fn encFmovWFromS(wd: Xn, vn: Vn) u32 {
+    return 0x1E260000 | (@as(u32, vn) << 5) | @as(u32, wd);
+}
+
+/// `FMOV Xd, Dn` — move 64-bit V-register → GPR.
+/// Counterpart of encFmovDtoFromX. Encoding base 0x9E660000.
+pub fn encFmovXFromD(xd: Xn, vn: Vn) u32 {
+    return 0x9E660000 | (@as(u32, vn) << 5) | @as(u32, xd);
+}
+
 /// V-register index 0..31 — ARM SIMD/FP register file. Same u5
 /// width as `Xn` but a separate type for documentation; the
 /// integer regalloc never allocates these (the §9.7 / 7.3
@@ -731,6 +759,11 @@ test "encFMinS s0, s1, s2 → 0x1E225820" { try testing.expectEqual(@as(u32, 0x1
 test "encFMaxS s0, s1, s2 → 0x1E224820" { try testing.expectEqual(@as(u32, 0x1E224820), encFMaxS(0, 1, 2)); }
 test "encFMinD d0, d1, d2 → 0x1E625820" { try testing.expectEqual(@as(u32, 0x1E625820), encFMinD(0, 1, 2)); }
 test "encFMaxD d0, d1, d2 → 0x1E624820" { try testing.expectEqual(@as(u32, 0x1E624820), encFMaxD(0, 1, 2)); }
+
+test "encBicRegW w0, w1, w2 → 0x0A220020" { try testing.expectEqual(@as(u32, 0x0A220020), encBicRegW(0, 1, 2)); }
+test "encBicRegX x0, x1, x2 → 0x8A220020" { try testing.expectEqual(@as(u32, 0x8A220020), encBicRegX(0, 1, 2)); }
+test "encFmovWFromS w0, s1 → 0x1E260020" { try testing.expectEqual(@as(u32, 0x1E260020), encFmovWFromS(0, 1)); }
+test "encFmovXFromD x0, d1 → 0x9E660020" { try testing.expectEqual(@as(u32, 0x9E660020), encFmovXFromD(0, 1)); }
 
 // V-register encodings cross-checked via `clang -target
 // arm64-apple-darwin` assembler. See verifier session in
