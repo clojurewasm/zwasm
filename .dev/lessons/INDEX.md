@@ -26,6 +26,7 @@
 |------------|---------------------------------------|----------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
 | 2026-05-04 | beta-funcref-encoding-rejected        | funcref, Value.ref, instance identity, cross-module dispatch   | Beta-style packed (instance_id, funcidx) was originally preferred on aesthetics; survey of wasmtime + wazero revealed Alpha (zombie keep-alive) is industry-standard. Beauty-driven design loses to 10 years of production experience. |
 | 2026-05-04 | autoregister-spike-regression         | wast_runtime_runner, register, embenchen, linking-errors       | Mirroring wasmtime's `(module $X ...)` → bare-name auto-register made 4 embenchen pass but regressed 9 linking-errors fixtures (5→14 fails); root cause is c_api's import-type validation gap, not the auto-register itself. |
+| 2026-05-04 | if-result-merge-point-bug             | jit emit, if/else/end, operand stack, merge points, CFG join   | `(if (result T))` returns junk for the cond=1 path — emit pass naively pushes both arms' result vregs but only the post-branch top survives. Workaround: use locals to merge; structural fix needs merge-aware label stack. |
 
 ## Promotion to ADR — when to escalate
 
