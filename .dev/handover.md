@@ -24,10 +24,10 @@
 
 - **Phase**: Phase 7 IN-PROGRESS, scope expanded per ADR-0019
   (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12).
-- **Last commit**: `44b94a0` — Step 2b+2c ADR-0017 (prologue 5 LDRs
-  from `*X0` + entry frame collapses to standard fn-ptr call;
-  D-014 Runtime injection dissolved). 735/735 unit / 3-host green.
-  Sub-2d (Wasm GPR arg shift X0→X1..X7 in `marshalCallArgs`) NEXT.
+- **Last commit**: `10ab46d` — Step 2d-i ADR-0017 (Wasm GPR arg
+  shift X0..X7 → X1..X7; leaf calls work). 735/735 unit / 3-host
+  green. Sub-2d-ii (X19 reserved as runtime_ptr save reg for
+  multi-call functions) NEXT.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active plan — implementation cycles after ADR acceptance
@@ -38,7 +38,7 @@ below corresponds to one or more `/continue` cycles.
 | # | Step | ADR | Status |
 |---|------|-----|--------|
 | 1 | regalloc pool: remove X24..X28; add `reserved_invariant_gprs`; `Slot` union with first-class spill | 0018 | **DONE** — sub-1a `1d6d178`, sub-1b `7e880b8`, sub-1c `394e416` |
-| 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | sub-2a [x] `0827b89`; sub-2b+2c [x] `44b94a0`; **sub-2d (Wasm GPR arg shift X0→X1..X7 in marshalCallArgs) NEXT**. **D-014 dissolved.** |
+| 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | sub-2a `0827b89`, sub-2b+2c `44b94a0`, sub-2d-i `10ab46d`; **sub-2d-ii (X19 = runtime_ptr save for multi-call) NEXT**. D-014 dissolved. |
 | 3 | Edge-case test culture: rule + Step-4 hook + audit §I; bootstrap p7 fixtures | 0020 | Parallel with 1/2 |
 | 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | After Steps 1+2 |
 | 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After Step 4 |
