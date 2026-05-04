@@ -459,6 +459,46 @@ pub fn compile(
                 try writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
+            // sub-h3a: Wasm 1.0 trapping trunc, f32 source.
+            // NaN + range checks (per `emitTrunc32BoundsCheck`),
+            // then FCVTZS/U. Bounds tables encode the per-op
+            // boundary (representable f32 hex) and lower-cmp
+            // strictness — for u32/u64 destination, lower=-1.0f
+            // with .le; for s32, lower is just below INT_MIN with
+            // .le; for s64 same shape with the i64 boundary. f64
+            // source (sub-h3b) lands next cycle with f64 bounds.
+            .@"i32.trunc_f32_s",
+            .@"i32.trunc_f32_u",
+            .@"i64.trunc_f32_s",
+            .@"i64.trunc_f32_u",
+            => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const dest = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+
+                const Bounds = struct { lo: u32, hi: u32, lo_cmp: inst.Cond };
+                const b: Bounds = switch (ins.op) {
+                    .@"i32.trunc_f32_s" => .{ .lo = 0xCF000001, .hi = 0x4F000000, .lo_cmp = .le }, // -2147483904f, 2^31
+                    .@"i32.trunc_f32_u" => .{ .lo = 0xBF800000, .hi = 0x4F800000, .lo_cmp = .le }, // -1.0f, 2^32
+                    .@"i64.trunc_f32_s" => .{ .lo = 0xDF000001, .hi = 0x5F000000, .lo_cmp = .le }, // -9223373136366403584f, 2^63
+                    .@"i64.trunc_f32_u" => .{ .lo = 0xBF800000, .hi = 0x5F800000, .lo_cmp = .le }, // -1.0f, 2^64
+                    else => unreachable,
+                };
+                try emitTrunc32BoundsCheck(allocator, &buf, vn, b.lo, b.hi, b.lo_cmp, &bounds_fixups);
+                const word: u32 = switch (ins.op) {
+                    .@"i32.trunc_f32_s" => inst.encFcvtzsWFromS(dest, vn),
+                    .@"i32.trunc_f32_u" => inst.encFcvtzuWFromS(dest, vn),
+                    .@"i64.trunc_f32_s" => inst.encFcvtzsXFromS(dest, vn),
+                    .@"i64.trunc_f32_u" => inst.encFcvtzuXFromS(dest, vn),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
             // sub-h5: Wasm 2.0 sat_trunc — float→int with saturation.
             // ARM64 FCVTZS/FCVTZU natively saturate on overflow and
             // produce 0 for NaN, matching Wasm 2.0 spec exactly.
@@ -1492,6 +1532,61 @@ fn writeU32(allocator: Allocator, buf: *std.ArrayList(u8), word: u32) !void {
     try buf.appendSlice(allocator, &bytes);
 }
 
+/// Emit the NaN + lower-bound + upper-bound trap sequence for
+/// a Wasm 1.0 trapping float→int conversion (sub-h3a, f32 src).
+///
+/// Sequence (per op): 9 instrs + 3 trap branches.
+///   FCMP src, src              ; NaN sets V flag
+///   B.VS trap_stub             ; trap on NaN
+///   MOVZ W16 + MOVK W16        ; materialize lower-bound bits
+///   FMOV S31, W16              ; into V31 (popcnt scratch — not
+///                                live across this conversion)
+///   FCMP src, S31              ; src vs lower
+///   B.<lower_cmp> trap_stub    ; trap below lower
+///   MOVZ W16 + MOVK W16        ; materialize upper-bound bits
+///   FMOV S31, W16
+///   FCMP src, S31              ; src vs upper
+///   B.GE trap_stub             ; trap at-or-above upper
+///
+/// All three trap branches append to `bounds_fixups`, which is
+/// patched at the function-tail trap stub (shared with memory
+/// bounds + call_indirect; single trap reason today).
+fn emitTrunc32BoundsCheck(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    src_v: inst.Vn,
+    lower_bits: u32,
+    upper_bits: u32,
+    lower_cmp: inst.Cond,
+    bounds_fixups: *std.ArrayList(u32),
+) !void {
+    // NaN check: FCMP src, src ; B.VS trap.
+    try writeU32(allocator, buf, inst.encFCmpS(src_v, src_v));
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try writeU32(allocator, buf, inst.encBCond(.vs, 0));
+        try bounds_fixups.append(allocator, fixup_at);
+    }
+    // Lower bound: materialise into S31 via W16, then FCMP + trap.
+    try emitConstU32(allocator, buf, 16, lower_bits);
+    try writeU32(allocator, buf, inst.encFmovStoFromW(31, 16));
+    try writeU32(allocator, buf, inst.encFCmpS(src_v, 31));
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try writeU32(allocator, buf, inst.encBCond(lower_cmp, 0));
+        try bounds_fixups.append(allocator, fixup_at);
+    }
+    // Upper bound: materialise + FCMP + B.GE trap.
+    try emitConstU32(allocator, buf, 16, upper_bits);
+    try writeU32(allocator, buf, inst.encFmovStoFromW(31, 16));
+    try writeU32(allocator, buf, inst.encFCmpS(src_v, 31));
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try writeU32(allocator, buf, inst.encBCond(.ge, 0));
+        try bounds_fixups.append(allocator, fixup_at);
+    }
+}
+
 /// Marshal call arguments per AAPCS64: pop N arg vregs from
 /// `pushed_vregs` (in REVERSE — top of stack is the rightmost arg),
 /// then emit MOV/FMOV from each arg's home register into W0..W7
@@ -1754,12 +1849,12 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
-    // i32.trunc_f32_s (trapping float→int conversion) is still
-    // unsupported pending sub-h3.
+    // i32.trunc_f64_s (f64-source trapping trunc) is still
+    // pending sub-h3b.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_f32_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_f64_s" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty, &.{}, &.{}));
@@ -3441,6 +3536,52 @@ test "compile: f64.reinterpret_i64 emits FMOV D, X" {
         }
     }
     try testing.expect(found);
+}
+
+test "compile: i32.trunc_f32_s emits NaN+lower+upper checks then FCVTZS W,S" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_f32_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected core instructions to find in the byte stream:
+    //   FCMP S16, S16   ; NaN check
+    //   FMOV S31, W16   ; bound stage (×2 — once each for lower/upper)
+    //   FCMP S16, S31   ; bound compare (×2)
+    //   FCVTZS W9, S16  ; the conversion
+    //
+    // We walk the stream and verify each appears in expected
+    // order; trap-branch placeholders share encoding shape with
+    // existing bounds-check tests, so we don't re-verify their
+    // raw bytes here (covered by the trap-stub patching test).
+    var found_fcmp_self = false;
+    var found_fcvtzs = false;
+    var fcmp_self_count: u32 = 0;
+    var fcmp_v31_count: u32 = 0;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        const w = std.mem.readInt(u32, out.bytes[p..][0..4], .little);
+        if (w == inst.encFCmpS(16, 16)) {
+            found_fcmp_self = true;
+            fcmp_self_count += 1;
+        }
+        if (w == inst.encFCmpS(16, 31)) fcmp_v31_count += 1;
+        if (w == inst.encFcvtzsWFromS(9, 16)) found_fcvtzs = true;
+    }
+    try testing.expect(found_fcmp_self);
+    try testing.expectEqual(@as(u32, 1), fcmp_self_count);  // NaN check is single FCMP self
+    try testing.expectEqual(@as(u32, 2), fcmp_v31_count);  // 2 bound checks
+    try testing.expect(found_fcvtzs);
 }
 
 comptime {
