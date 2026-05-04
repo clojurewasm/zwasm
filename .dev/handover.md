@@ -24,11 +24,12 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
   `68843b0` (3-host green; mandatory audit fired; widget flipped
   6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `d074a84` — feat(p7) §9.7 / 7.3 sub-d4
-  (FP unary abs/neg/sqrt + 4 rounding modes + min/max for f32
-  and f64). 627/627 unit / 3-host green. Earlier this cycle:
-  7.3 sub-a/b1-5/c/d1-3; 7.0/7.1/7.2; D-006 + bench v1-class
-  baseline.
+- **Last commit**: `1715fed` — feat(p7) §9.7 / 7.3 sub-d5
+  (f32/f64 copysign — 8-instr FMOV/BIC/AND/ORR sequence).
+  i32+i64+f32+f64 MVP op coverage **substantively complete**:
+  88 numeric ops + locals + end. 633/633 unit / 3-host green.
+  Earlier this cycle: 7.3 sub-a/b1-5/c/d1-4; 7.0/7.1/7.2;
+  D-006 + bench v1-class baseline.
 - **Branch**: `zwasm-from-scratch`, pushed.
 - **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
   all report identical test-all numbers (39/55 diff matched, 44/55
@@ -57,8 +58,11 @@ remains `[ ]` until MVP op coverage closes — exit gated by
 | d2  | i64 shifts + rotr/rotl + clz + ctz + popcnt           | [x] `a072df7` |
 | d3  | f32 + f64 const + binary ALU + cmps                   | [x] `1ae712f` |
 | d4  | FP unary (abs/neg/sqrt + 4 rounding) + min/max         | [x] `d074a84` |
-| d5  | FP copysign (FMOV W↔S detour for bit manipulation)    | [ ] **NEXT** |
-| e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ] |
+| d5  | FP copysign (FMOV W↔S detour for bit manipulation)    | [x] `1715fed` |
+| e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ] **NEXT** |
+| f   | memory load/store + bounds-check trap surface           | [ ]    |
+| g   | call / call_indirect + arg/return marshalling           | [ ]    |
+| h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ]   |
 | d   | i64 + f32 + f64 const + ALU                           | [ ]    |
 | e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ]   |
 | f   | memory load/store + bounds-check trap surface          | [ ]    |
