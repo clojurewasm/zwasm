@@ -149,6 +149,21 @@ pub fn encBLR(rn: Xn) u32 {
     return 0xD63F0000 | (@as(u32, rn) << 5);
 }
 
+/// `FMOV S<d>, S<n>` — single-precision register copy.
+/// Used by sub-g3a's f32 result-capture path: the AAPCS64 ABI
+/// places f32 returns in S0; this moves them into the result
+/// vreg's V-register.
+/// Encoding base 0x1E204000.
+pub fn encFmovSReg(vd: Vn, vn: Vn) u32 {
+    return 0x1E204000 | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+
+/// `FMOV D<d>, D<n>` — double-precision register copy. f64
+/// counterpart of `encFmovSReg`. Encoding base 0x1E604000.
+pub fn encFmovDReg(vd: Vn, vn: Vn) u32 {
+    return 0x1E604000 | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+
 /// `STR Xt, [Xn, Xm]` — 64-bit store with X-register offset.
 /// Encoding base 0xF8206800.
 pub fn encStrXReg(rt: Xn, rn: Xn, rm: Xn) u32 {
@@ -734,6 +749,12 @@ test "encLdrXRegLsl3 x0, [x28, x16, lsl #3] → 0xF8707B80" {
 }
 test "encBLR x17 — `blr x17` → 0xD63F0220" {
     try testing.expectEqual(@as(u32, 0xD63F0220), encBLR(17));
+}
+test "encFmovSReg s9, s0 — `fmov s9, s0` → 0x1E204009" {
+    try testing.expectEqual(@as(u32, 0x1E204009), encFmovSReg(9, 0));
+}
+test "encFmovDReg d9, d0 — `fmov d9, d0` → 0x1E604009" {
+    try testing.expectEqual(@as(u32, 0x1E604009), encFmovDReg(9, 0));
 }
 test "encStrXReg x0, [x28, x16] — `str x0, [x28, x16]` → 0xF8306B80" {
     try testing.expectEqual(@as(u32, 0xF8306B80), encStrXReg(0, 28, 16));
