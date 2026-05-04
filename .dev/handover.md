@@ -21,88 +21,63 @@
 
 ## Current state
 
-- **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
-  `68843b0` (3-host green; mandatory audit fired; widget flipped
-  6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `1715fed` — feat(p7) §9.7 / 7.3 sub-d5
-  (f32/f64 copysign — 8-instr FMOV/BIC/AND/ORR sequence).
-  i32+i64+f32+f64 MVP op coverage **substantively complete**:
-  88 numeric ops + locals + end. 633/633 unit / 3-host green.
-  Earlier this cycle: 7.3 sub-a/b1-5/c/d1-4; 7.0/7.1/7.2;
-  D-006 + bench v1-class baseline.
+- **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
+  in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
+  locals + control-flow-e1 done).
+- **Last commit**: `0149028` — feat(p7) §9.7 / 7.3 sub-e1
+  (block + loop + br + br_if; label stack + branch fixup).
+  641/641 unit / 3-host green. Phase 6 close at `68843b0`
+  (3-host green; mandatory audit; widget flipped).
 - **Branch**: `zwasm-from-scratch`, pushed.
-- **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
-  all report identical test-all numbers (39/55 diff matched, 44/55
-  realworld run, 1158 wast / 72 misc-runtime smoke / 5 wasmtime-misc
-  runtime / 50 realworld parse / 9+3 spec / 2 wasi).
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
 
 Per ROADMAP §9.7 / 7.3 ("ZIR → ARM64 emit pass producing
-function bodies"). Skeleton landed at `0463d69` (prologue +
-epilogue + i32.const + end → returns 42 in X0 verified). Row
-remains `[ ]` until MVP op coverage closes — exit gated by
-§9.7 / 7.4's spec test pass=fail=skip=0. Sub-progression
-(planned for subsequent cycles, not separate ROADMAP rows):
+function bodies"). Row remains `[ ]` until MVP op coverage
+closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 
 | Sub | Op group                                              | Status |
 |-----|-------------------------------------------------------|--------|
 | a   | prologue/epilogue + i32.const + end (skeleton)        | [x] `0463d69` |
-| b1  | i32 binary ALU (add/sub/mul/and/or/xor) — W-variant   | [x] `98554b4` + `3e10901` |
-| b2  | i32 shifts (shl/shr_s/shr_u) — W-variant              | [x] `3e10901` |
-| b3  | i32 rotl/rotr + 10 cmp ops + eqz                      | [x] `a76c647` |
-| b4  | i32 clz + ctz                                          | [x] `de7a76c` |
-| b5  | i32 popcnt (V-register CNT/ADDV/UMOV/FMOV pattern)    | [x] `d33073f` |
-| c   | local.get/set/tee + local frame slot allocation        | [x] `5e89533` |
-| d1  | i64 const + 6 binary ALU + 10 cmps + eqz              | [x] `d8ad4d6` |
-| d2  | i64 shifts + rotr/rotl + clz + ctz + popcnt           | [x] `a072df7` |
-| d3  | f32 + f64 const + binary ALU + cmps                   | [x] `1ae712f` |
-| d4  | FP unary (abs/neg/sqrt + 4 rounding) + min/max         | [x] `d074a84` |
-| d5  | FP copysign (FMOV W↔S detour for bit manipulation)    | [x] `1715fed` |
-| e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ] **NEXT** |
-| f   | memory load/store + bounds-check trap surface           | [ ]    |
-| g   | call / call_indirect + arg/return marshalling           | [ ]    |
+| b1-5| i32 ALU + shifts + rotr/l + cmps + eqz + clz/ctz/popcnt | [x] `98554b4`〜`d33073f` |
+| c   | locals (get/set/tee + frame slot allocation)          | [x] `5e89533` |
+| d1-2| i64 const + ALU + shifts + cmps + eqz + clz/ctz/popcnt | [x] `d8ad4d6` + `a072df7` |
+| d3-5| f32 + f64 const + ALU + cmps + unary + min/max + copysign | [x] `1ae712f`〜`1715fed` |
+| e1  | control flow: block + loop + br + br_if (label stack) | [x] `0149028` |
+| e2  | if / else / end (conditional branch + skip-else)      | [ ] **NEXT** |
+| e3  | br_table (indirect jump table)                         | [ ]    |
+| f   | memory load/store + bounds-check trap surface         | [ ]    |
+| g   | call / call_indirect + arg/return marshalling         | [ ]    |
 | h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ]   |
-| d   | i64 + f32 + f64 const + ALU                           | [ ]    |
-| e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ]   |
-| f   | memory load/store + bounds-check trap surface          | [ ]    |
-| g   | call / call_indirect + arg/return marshalling          | [ ]    |
 
-D-014 (Runtime.io injection point) stays `blocked-by` until
-sub-f or sub-g — those are the first sub-rows that need trap
-surface or host-call dispatch, both of which require Runtime
-access. Sub-b (pure ALU) does not.
-
-D-022 (Diagnostic M3 / trace ringbuffer) likewise stays
-`blocked-by` until sub-f introduces trap surfaces.
-
-## Phase 6 close — closing snapshot
-
-Phase 6 final tally:
-- 14 expanded rows in §9.6 task table (6.A〜6.J + 6.K.1〜6.K.8)
-  all `[x]` with SHA pointers.
-- 2 active skip-ADRs covering 5 deferred fixtures
-  (`skip_embenchen_emcc_env_imports.md`,
-  `skip_externref_segment.md`).
-- 14 active debt rows (all `blocked-by:` with named structural
-  barriers); 8 rows discharged this phase. `.dev/debt.md` is
-  current.
-- 2 lessons recorded
-  (`2026-05-04-beta-funcref-encoding-rejected.md`,
-  `2026-05-04-autoregister-spike-regression.md`).
+Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
+Plus 3 locals ops + end + 4 control-flow ops (block/loop/br/br_if).
 
 ## Open questions / blockers
 
-(Phase 6 cleanliness sweep 2026-05-04 closed: D-006, D-023, D-024,
-D-025. Plus D-001/2/3/4/5/8/13/15/19 from earlier cycles. 12 of
-the original 24 audit-noted debts discharged this Phase 6 cycle.)
+- **D-014 (`Runtime.io` injection point design)**: barrier
+  refined to "§9.7 / 7.3 emit pass first row touching Runtime".
+  Currently 7.3 sub-a..e1 are pure code emit (no Runtime
+  access). Sub-f (memory ops with bounds-check trap surface)
+  is the first to need Runtime — D-014 dissolves there.
+- **D-022 (Diagnostic M3 / trace ringbuffer)**: stays
+  `blocked-by` until sub-f introduces trap surfaces.
+- **D-026 (env-stub host-func wiring)**: 4 embenchen + 1
+  externref-segment fixtures remain skip-ADR'd. The
+  validator gap (D-006) is closed; what remains is the
+  cross-module dispatch wiring for emcc-style env stubs
+  (Phase 7.3 sub-g territory).
 
-- **D-026 (env-stub host-func wiring)** is the new sharper
-  successor to D-006's embenchen portion: 4 embenchen `_*1.wasm`
-  + 1 externref-segment fixture remain skip-ADR'd. Validator
-  gap (D-006) is closed; what remains is implementation-side
-  cross-module dispatch for emcc-style env stubs.
-- **D-014 (`Runtime.io` injection point design)**'s barrier
-  was refined this cycle to "§9.7 / 7.3 emit pass (or earliest
-  JIT row that touches Runtime)". Phase 7.0 + 7.1 don't touch
-  Runtime; D-014 stays blocked-by until 7.3.
+## Phase 6 close — archival snapshot
+
+Phase 6 final tally (all in `git log`):
+- 14 expanded rows in §9.6 task table (6.A〜6.J + 6.K.1〜6.K.8)
+  all `[x]` with SHA pointers.
+- 2 active skip-ADRs covering 5 deferred fixtures
+  (embenchen + externref-segment).
+- 14 active debt rows (all `blocked-by:` with named structural
+  barriers); 12 of original 24 discharged this phase.
+- 2 lessons recorded (Beta funcref rejection; auto-register
+  spike regression).
+- v1-class hyperfine baseline recorded as "Phase 6 close baseline"
+  (26 fixtures: 9 shootout + 11 TinyGo + nbody + 5 cljw).
