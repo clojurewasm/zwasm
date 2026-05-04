@@ -216,12 +216,12 @@ spill them because the body never modified them; AAPCS64
   (sub-g3b) loops over X0..X7 today. Becomes X1..X8 with X0 set
   to the runtime ptr.
 - **Existing code rewrite**:
-  - `src/jit_arm64/emit.zig`: prologue add 5 LDRs, arg
+  - `src/engine/codegen/arm64/emit.zig`: prologue add 5 LDRs, arg
     marshalling shift X0→X1, end handler shift result reg
     (already in W0/X0; unchanged).
-  - `src/jit/entry.zig`: inline-asm shim → standard function
+  - `src/engine/codegen/shared/entry.zig`: inline-asm shim → standard function
     pointer call.
-  - `src/jit_arm64/abi.zig`: ABI doc rewrite.
+  - `src/engine/codegen/arm64/abi.zig`: ABI doc rewrite.
   - All emit.zig tests with `params != []`: arg slot shift.
 
 ### Neutral / follow-ups
@@ -242,9 +242,9 @@ spill them because the body never modified them; AAPCS64
 - D-014 (`Runtime.io` injection point design — dissolved here)
 - Related ADRs: 0014 (pre-Phase-7 redesign), 0018 (regalloc
   reserved set + spill), 0019 (x86_64 in Phase 7)
-- `src/jit_arm64/abi.zig`, `src/jit_arm64/emit.zig`,
-  `src/jit/entry.zig` (current caller-supplied skeleton),
-  `src/jit/linker.zig`
+- `src/engine/codegen/arm64/abi.zig`, `src/engine/codegen/arm64/emit.zig`,
+  `src/engine/codegen/shared/entry.zig` (current caller-supplied skeleton),
+  `src/engine/codegen/shared/linker.zig`
 
 ## Revision history
 

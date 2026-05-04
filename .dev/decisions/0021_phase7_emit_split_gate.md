@@ -8,7 +8,7 @@
 ## Context
 
 ROADMAP §A2 / §14 forbidden list cap a single source file at 2000
-lines (hard cap). `src/jit_arm64/emit.zig` currently sits at 3989
+lines (hard cap). `src/engine/codegen/arm64/emit.zig` currently sits at 3989
 lines — already double the cap, with no §A2 audit having flagged
 it during Phase 7 implementation cycles. The cap was crossed
 incrementally across sub-7.3 (op coverage), sub-7.4 (runtime
@@ -50,7 +50,7 @@ test byte-offset abstraction" as a hard gate before row 7.6
 
 The 7.5d row contains two sub-deliverables:
 
-1. **emit.zig split** into ~9 modules under `src/jit_arm64/`
+1. **emit.zig split** into ~9 modules under `src/engine/codegen/arm64/`
    (proposed shapes documented in
    `.dev/lessons/2026-05-04-emit-monolith-cost.md`):
    - `emit.zig` — orchestrator, ≤ 1000 LOC
@@ -62,7 +62,7 @@ The 7.5d row contains two sub-deliverables:
    LOC; both within §A2 soft cap.
 
 2. **Test byte-offset abstraction** via a new
-   `src/jit_arm64/prologue.zig` module exposing `prologue_size(has_frame)`,
+   `src/engine/codegen/arm64/prologue.zig` module exposing `prologue_size(has_frame)`,
    `body_start_offset(has_frame)`, opcode constants
    (`FpLrSave.stp_word`, `FpLrSave.mov_fp_word`), and an
    `assert_prologue_opcodes(bytes)` helper. Migrate 142
@@ -169,4 +169,4 @@ it, ADR-0019's file-shape implication compounds.
 | Date       | Commit       | Summary                            |
 |------------|--------------|------------------------------------|
 | 2026-05-04 | `<backfill>` | Initial Decision; sub-gate inserted. |
-| 2026-05-04 | `<backfill>` | Sub-deliverable a scope reduced. **Why (gap, per the `adr-revision-history-misuse` lesson written this session)**: the original Decision text said "Migrate 142 relativisable test sites" in the same commit as the helper module. In practice that's a 132-site mechanical rewrite that benefits from running alongside the emit.zig split (sub-b), not as a standalone commit racing the rest of this session's design work. **What changed**: helper module `src/jit_arm64/prologue.zig` lands per the original plan; pattern demonstrated at 4 representative test sites + new rule (`edge_case_testing.md` §"Test-side byte offsets must be relative") gates new sites. Bulk migration of the remaining ~128 sites runs under sub-b. The hard gate "row 7.6 does not open until 7.5d closes" is unchanged — both sub-a and sub-b must close before x86_64 work begins. |
+| 2026-05-04 | `<backfill>` | Sub-deliverable a scope reduced. **Why (gap, per the `adr-revision-history-misuse` lesson written this session)**: the original Decision text said "Migrate 142 relativisable test sites" in the same commit as the helper module. In practice that's a 132-site mechanical rewrite that benefits from running alongside the emit.zig split (sub-b), not as a standalone commit racing the rest of this session's design work. **What changed**: helper module `src/engine/codegen/arm64/prologue.zig` lands per the original plan; pattern demonstrated at 4 representative test sites + new rule (`edge_case_testing.md` §"Test-side byte offsets must be relative") gates new sites. Bulk migration of the remaining ~128 sites runs under sub-b. The hard gate "row 7.6 does not open until 7.5d closes" is unchanged — both sub-a and sub-b must close before x86_64 work begins. |

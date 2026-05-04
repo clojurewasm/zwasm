@@ -7,7 +7,7 @@
 
 ## Context
 
-`src/jit_arm64/abi.zig` documents X24..X28 as caller-supplied
+`src/engine/codegen/arm64/abi.zig` documents X24..X28 as caller-supplied
 invariants ("NOT in the regalloc pool"), but the implementation:
 
 ```zig
@@ -212,8 +212,8 @@ addressing imm12 displacement stays small for hot paths).
 - W54 post-mortem (`~/Documents/MyProducts/zwasm/.dev/archive/w54-redesign-postmortem.md`)
 - Related ADRs: 0017 (JitRuntime ABI — pairs with this),
   0019 (x86_64 in Phase 7 — defines the x86_64 reserved set)
-- `src/jit/regalloc.zig`, `src/jit_arm64/abi.zig`,
-  `src/jit_arm64/emit.zig` (today's pool / impl)
+- `src/engine/codegen/shared/regalloc.zig`, `src/engine/codegen/arm64/abi.zig`,
+  `src/engine/codegen/arm64/emit.zig` (today's pool / impl)
 - `.claude/rules/single_slot_dual_meaning.md`
 
 ## Revision history
