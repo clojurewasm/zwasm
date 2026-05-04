@@ -337,6 +337,79 @@ missing or its `paths:` frontmatter no longer covers `src/**`
 + `test/**`, §I's premise is broken — `block` finding ("rule
 file missing; restore from ADR-0020 or supersede").
 
+## J. Meta-audit triggers (added 2026-05-04)
+
+Detect drift signals that suggest the user should fire the
+`meta_audit` skill. These checks **do not** fail the audit; they
+emit `suggest meta_audit` findings. The `meta_audit` skill is
+user-gated (per its SKILL.md "User-gated, not autonomous" §); this
+section's job is to surface the candidates for that decision.
+
+### J.1 §A2 soft-cap approach
+
+Any `src/**/*.zig` whose line count is ≥ 800 (= 80% of the
+ROADMAP §A2 soft cap of 1000). Surface as `suggest meta_audit`
+finding listing each match. The 2026-05-04 retrospective worked
+example: emit.zig at 3989 LOC was a §A2 hard-cap violation that
+should have triggered meta_audit at the 800-LOC mark (sub-7.3),
+not be discovered at the retrospective.
+
+### J.2 §A2 hard-cap violation
+
+Any `src/**/*.zig` whose line count is ≥ 2000 (the §A2 hard cap).
+This is a **§14 forbidden-list cross**, not a near-miss; emit
+`block` finding with severity hard-stop and explicit
+`fire meta_audit BEFORE next /continue resume`. Existing
+violations (e.g. emit.zig pre-discharge of ADR-0021 row 7.5d-b)
+are tracked but not re-fired each cycle while their discharging
+ADR is active.
+
+### J.3 Debt accumulation
+
+`.dev/debt.md` Active rows count > 15. The threshold is
+intentionally low — debt rows are supposed to discharge or
+escalate, not accumulate. Emit `suggest meta_audit` listing the
+oldest 5 rows by First-raised date.
+
+### J.4 Stale debt review
+
+Any debt row whose `Last reviewed` date is older than 5 resume
+cycles (where 1 cycle ≈ 1 day; tracked via the `audit_scaffolding`
+runs themselves). Dovetails with §F.2; promotes to `suggest
+meta_audit` when ≥ 3 rows are stale (§F.2 alone surfaces the
+single-row case).
+
+### J.5 §14 forbidden-list near-miss
+
+Detection patterns (heuristic; false-positives acceptable):
+
+- Any new `pub var` in `src/` (§14: "pub var as a vtable").
+- Any new `if (build_options\\.` in main code paths outside
+  `feature/` or `cli/` (§14: pervasive build-time flags;
+  exception: §A12 dispatch-table registration).
+- Any new `std.Thread.Mutex` / `std.io.AnyWriter` /
+  `std.io.fixedBufferStream` (§14 + §P4 + zig_tips.md
+  removed-API list).
+- Any new file path containing `-` (§14: hyphens in file names).
+
+Emit `suggest meta_audit` finding per match.
+
+### J.6 ADR cross-reference integrity
+
+ADR count grew by ≥ 5 since the last `meta_audit` retrospective
+report under `.dev/meta_audits/`. Without periodic cross-reference
+verification (Revision history SHAs, Dependencies sections — see
+the 2026-05-04 batch-dependency-order lesson), a 5-ADR batch
+risks the implicit-DAG anti-pattern. Emit `suggest meta_audit`
+when threshold reached.
+
+### J.7 Phase boundary
+
+When the Phase Status widget flips to `DONE` (§A.3 watches this).
+Emit `suggest meta_audit` as a routine cadence finding (severity
+informational). The user usually accepts this trigger; it is the
+default cadence for `meta_audit` per its SKILL.md.
+
 ## H. Output
 
 Write to `private/audit-YYYY-MM-DD.md`:

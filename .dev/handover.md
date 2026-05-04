@@ -22,8 +22,11 @@
    fixture culture + rule + audit hooks.
 7. `.dev/decisions/0022_post_session_retrospective.md` — 2026-05-04
    regret triage + emit-split sub-gate; process improvements.
-8. `.dev/debt.md` — discharge `Status: now` rows before active task.
-9. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
+8. `.claude/skills/meta_audit/SKILL.md` — periodic deliberate-
+   skepticism audit; user-gated; trigger conditions in
+   `.claude/skills/audit_scaffolding/CHECKS.md §J`.
+9. `.dev/debt.md` — discharge `Status: now` rows before active task.
+10. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
 
 ## Current state — design + refactor cycle CLOSED
 
