@@ -459,6 +459,40 @@ pub fn compile(
                 try writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
+            // sub-h5: Wasm 2.0 sat_trunc — float→int with saturation.
+            // ARM64 FCVTZS/FCVTZU natively saturate on overflow and
+            // produce 0 for NaN, matching Wasm 2.0 spec exactly.
+            // Source is V-reg (S/D), dest is GPR (W/X).
+            .@"i32.trunc_sat_f32_s",
+            .@"i32.trunc_sat_f32_u",
+            .@"i32.trunc_sat_f64_s",
+            .@"i32.trunc_sat_f64_u",
+            .@"i64.trunc_sat_f32_s",
+            .@"i64.trunc_sat_f32_u",
+            .@"i64.trunc_sat_f64_s",
+            .@"i64.trunc_sat_f64_u",
+            => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const dest = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const word: u32 = switch (ins.op) {
+                    .@"i32.trunc_sat_f32_s" => inst.encFcvtzsWFromS(dest, vn),
+                    .@"i32.trunc_sat_f32_u" => inst.encFcvtzuWFromS(dest, vn),
+                    .@"i32.trunc_sat_f64_s" => inst.encFcvtzsWFromD(dest, vn),
+                    .@"i32.trunc_sat_f64_u" => inst.encFcvtzuWFromD(dest, vn),
+                    .@"i64.trunc_sat_f32_s" => inst.encFcvtzsXFromS(dest, vn),
+                    .@"i64.trunc_sat_f32_u" => inst.encFcvtzuXFromS(dest, vn),
+                    .@"i64.trunc_sat_f64_s" => inst.encFcvtzsXFromD(dest, vn),
+                    .@"i64.trunc_sat_f64_u" => inst.encFcvtzuXFromD(dest, vn),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
             // sub-h2: float demote/promote. Both src and dest are
             // V-register slots (f32 ↔ f64).
             .@"f32.demote_f64", .@"f64.promote_f32" => {
@@ -3242,6 +3276,60 @@ test "compile: f64.promote_f32 emits FCVT D, S" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const expected = inst.encFcvtDFromS(16, 16);
+    var found = false;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        if (std.mem.readInt(u32, out.bytes[p..][0..4], .little) == expected) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: i32.trunc_sat_f32_s emits FCVTZS W, S" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_sat_f32_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    const expected = inst.encFcvtzsWFromS(9, 16); // dest W9, src V16
+    var found = false;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        if (std.mem.readInt(u32, out.bytes[p..][0..4], .little) == expected) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: i64.trunc_sat_f64_u emits FCVTZU X, D" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40080000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.trunc_sat_f64_u" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    const expected = inst.encFcvtzuXFromD(9, 16);
     var found = false;
     var p: usize = 0;
     while (p + 4 <= out.bytes.len) : (p += 4) {

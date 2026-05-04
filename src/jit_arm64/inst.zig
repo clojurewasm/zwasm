@@ -221,6 +221,56 @@ pub fn encFcvtDFromS(vd: Vn, vn: Vn) u32 {
     return 0x1E22C000 | (@as(u32, vn) << 5) | @as(u32, vd);
 }
 
+// ============================================================
+// Sub-h5: float→int trunc-toward-zero (FCVTZS / FCVTZU).
+// ARM64 FCVTZ{S,U} natively implements Wasm 2.0 sat_trunc
+// semantics: NaN → 0, ±Inf → INT_MAX/MIN, overflow saturates.
+// (Wasm 1.0 trapping trunc reuses these encodings + adds
+//  NaN/range branches; sub-h3 territory.)
+// All verified via clang assembler.
+// ============================================================
+
+/// `FCVTZS Wd, Sn` — saturating signed trunc (f32 → i32).
+/// Encoding base 0x1E380000.
+pub fn encFcvtzsWFromS(wd: Xn, vn: Vn) u32 {
+    return 0x1E380000 | (@as(u32, vn) << 5) | @as(u32, wd);
+}
+/// `FCVTZS Wd, Dn` — saturating signed trunc (f64 → i32).
+/// Encoding base 0x1E780000.
+pub fn encFcvtzsWFromD(wd: Xn, vn: Vn) u32 {
+    return 0x1E780000 | (@as(u32, vn) << 5) | @as(u32, wd);
+}
+/// `FCVTZU Wd, Sn` — saturating unsigned trunc (f32 → u32).
+/// Encoding base 0x1E390000.
+pub fn encFcvtzuWFromS(wd: Xn, vn: Vn) u32 {
+    return 0x1E390000 | (@as(u32, vn) << 5) | @as(u32, wd);
+}
+/// `FCVTZU Wd, Dn` — saturating unsigned trunc (f64 → u32).
+/// Encoding base 0x1E790000.
+pub fn encFcvtzuWFromD(wd: Xn, vn: Vn) u32 {
+    return 0x1E790000 | (@as(u32, vn) << 5) | @as(u32, wd);
+}
+/// `FCVTZS Xd, Sn` — saturating signed trunc (f32 → i64).
+/// Encoding base 0x9E380000.
+pub fn encFcvtzsXFromS(xd: Xn, vn: Vn) u32 {
+    return 0x9E380000 | (@as(u32, vn) << 5) | @as(u32, xd);
+}
+/// `FCVTZS Xd, Dn` — saturating signed trunc (f64 → i64).
+/// Encoding base 0x9E780000.
+pub fn encFcvtzsXFromD(xd: Xn, vn: Vn) u32 {
+    return 0x9E780000 | (@as(u32, vn) << 5) | @as(u32, xd);
+}
+/// `FCVTZU Xd, Sn` — saturating unsigned trunc (f32 → u64).
+/// Encoding base 0x9E390000.
+pub fn encFcvtzuXFromS(xd: Xn, vn: Vn) u32 {
+    return 0x9E390000 | (@as(u32, vn) << 5) | @as(u32, xd);
+}
+/// `FCVTZU Xd, Dn` — saturating unsigned trunc (f64 → u64).
+/// Encoding base 0x9E790000.
+pub fn encFcvtzuXFromD(xd: Xn, vn: Vn) u32 {
+    return 0x9E790000 | (@as(u32, vn) << 5) | @as(u32, xd);
+}
+
 /// `BLR Xn` — branch-with-link to register. Used by
 /// `call_indirect` after the funcptr is materialized in a GPR.
 /// Encoding: `1101 0110 0011 1111 0000 00 nnnnn 0 0000` —
@@ -843,6 +893,14 @@ test "encUcvtfDFromW d9, w10 → 0x1E630149" { try testing.expectEqual(@as(u32, 
 test "encUcvtfDFromX d9, x10 → 0x9E630149" { try testing.expectEqual(@as(u32, 0x9E630149), encUcvtfDFromX(9, 10)); }
 test "encFcvtSFromD s9, d10 → 0x1E624149" { try testing.expectEqual(@as(u32, 0x1E624149), encFcvtSFromD(9, 10)); }
 test "encFcvtDFromS d9, s10 → 0x1E22C149" { try testing.expectEqual(@as(u32, 0x1E22C149), encFcvtDFromS(9, 10)); }
+test "encFcvtzsWFromS w9, s10 → 0x1E380149" { try testing.expectEqual(@as(u32, 0x1E380149), encFcvtzsWFromS(9, 10)); }
+test "encFcvtzsWFromD w9, d10 → 0x1E780149" { try testing.expectEqual(@as(u32, 0x1E780149), encFcvtzsWFromD(9, 10)); }
+test "encFcvtzuWFromS w9, s10 → 0x1E390149" { try testing.expectEqual(@as(u32, 0x1E390149), encFcvtzuWFromS(9, 10)); }
+test "encFcvtzuWFromD w9, d10 → 0x1E790149" { try testing.expectEqual(@as(u32, 0x1E790149), encFcvtzuWFromD(9, 10)); }
+test "encFcvtzsXFromS x9, s10 → 0x9E380149" { try testing.expectEqual(@as(u32, 0x9E380149), encFcvtzsXFromS(9, 10)); }
+test "encFcvtzsXFromD x9, d10 → 0x9E780149" { try testing.expectEqual(@as(u32, 0x9E780149), encFcvtzsXFromD(9, 10)); }
+test "encFcvtzuXFromS x9, s10 → 0x9E390149" { try testing.expectEqual(@as(u32, 0x9E390149), encFcvtzuXFromS(9, 10)); }
+test "encFcvtzuXFromD x9, d10 → 0x9E790149" { try testing.expectEqual(@as(u32, 0x9E790149), encFcvtzuXFromD(9, 10)); }
 test "encBLR x17 — `blr x17` → 0xD63F0220" {
     try testing.expectEqual(@as(u32, 0xD63F0220), encBLR(17));
 }
