@@ -1,0 +1,15 @@
+Source: ~/Documents/OSS/sightglass/benchmarks/ @ 789ac0957b7f4932382bcdf4e8dcc09c4f044702
+Vendored: 2026-05-04T02:49:47Z
+Procedure: bench/sightglass/README.md (build script + version pin)
+Selected:
+  - noop      (sanity, 11 lines C)
+  - quicksort (178 lines C, classic compute)
+  - richards  (387 lines C, classic OO)
+  - bz2       (5779 lines C + 216 KB default.input, compression)
+  - gcc-loops (405 lines C++, vectorizer)
+
+Excluded categories per ADR-0012 §3:
+  - rust-benchmark/ subdirs (full Cargo crate vendor too heavy at this stage)
+  - Dockerfile-only benchmarks without colocated source
+  - libsodium-* (binary-only, no C source colocated)
+  - shootout/* (binary-only, source elsewhere in upstream)
