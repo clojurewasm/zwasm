@@ -24,10 +24,11 @@
 
 - **Phase**: Phase 7 IN-PROGRESS, scope expanded per ADR-0019
   (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12).
-- **Last commit**: `7e880b8` — Step 1b ADR-0018 (Slot union +
-  emit ~103-site migration + spill-detection at slot ≥
-  max_reg_slots; pool 12→10 with X14/X15 carved out as spill
-  stage). 730/730 unit / 3-host green.
+- **Last commit**: `394e416` — Step 1c ADR-0018 (first spill emit:
+  i32.const + end migrated; entry.zig test runs JIT body with
+  spilled vreg, returns 42 — first runtime-correct v2 spill).
+  Step 1 (ADR-0018 implementation) **complete**. 731/731 unit /
+  3-host green.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active plan — implementation cycles after ADR acceptance
@@ -37,8 +38,8 @@ below corresponds to one or more `/continue` cycles.
 
 | # | Step | ADR | Status |
 |---|------|-----|--------|
-| 1 | regalloc pool: remove X24..X28; add `reserved_invariant_gprs`; `Slot` union with first-class spill | 0018 | sub-1a [x] `1d6d178`; sub-1b [x] `7e880b8`; **sub-1c (STR/LDR spill emit) NEXT** |
-| 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | After Step 1 |
+| 1 | regalloc pool: remove X24..X28; add `reserved_invariant_gprs`; `Slot` union with first-class spill | 0018 | **DONE** — sub-1a `1d6d178`, sub-1b `7e880b8`, sub-1c `394e416` |
+| 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | **NEXT** |
 | 3 | Edge-case test culture: rule + Step-4 hook + audit §I; bootstrap p7 fixtures | 0020 | Parallel with 1/2 |
 | 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | After Steps 1+2 |
 | 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After Step 4 |
