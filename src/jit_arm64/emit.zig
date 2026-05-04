@@ -243,6 +243,33 @@ pub fn compile(
                 try writeU32(allocator, &buf, inst.encCsetW(wd, .eq));
                 try pushed_vregs.append(allocator, result);
             },
+            .@"i32.clz" => {
+                // CLZ has a direct ARM op: `CLZ Wd, Wn`.
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encClzW(wd, wn));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i32.ctz" => {
+                // No direct CTZ on ARM; emit RBIT + CLZ (canonical
+                // 2-instr idiom — RBIT reverses bits, CLZ then
+                // counts trailing zeros of the original).
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encRbitW(wd, wn));
+                try writeU32(allocator, &buf, inst.encClzW(wd, wd));
+                try pushed_vregs.append(allocator, result);
+            },
             .@"end" => {
                 // Function-level end: marshal the top-of-stack vreg
                 // into X0 (the AAPCS64 result register), then run
@@ -582,6 +609,45 @@ test "compile: i32 cmp ops each emit CMP + CSET with the right Cond mapping" {
         try testing.expectEqual(@as(u32, inst.encCmpRegW(9, 10)), std.mem.readInt(u32, out.bytes[16..20], .little));
         try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[20..24], .little));
     }
+}
+
+test "compile: i32.clz emits direct CLZ" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xFF });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.clz" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP/MOVZ-W9-#FF (12 bytes): CLZ W9, W9.
+    try testing.expectEqual(@as(u32, inst.encClzW(9, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+}
+
+test "compile: i32.ctz emits RBIT + CLZ" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0x100 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.ctz" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP/MOVZ-W9-#0x100 (12 bytes): RBIT W9, W9 / CLZ W9, W9.
+    try testing.expectEqual(@as(u32, inst.encRbitW(9, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encClzW(9, 9)),  std.mem.readInt(u32, out.bytes[16..20], .little));
 }
 
 test "compile: i32.eqz emits CMP-imm-0 + CSET EQ" {

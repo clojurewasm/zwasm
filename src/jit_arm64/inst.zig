@@ -248,6 +248,22 @@ pub fn encCsetW(rd: Xn, set_if: Cond) u32 {
     return 0x1A9F07E0 | (@as(u32, @intFromEnum(enc)) << 12) | @as(u32, rd);
 }
 
+/// `CLZ Wd, Wn` — count leading zeros (32-bit). The §9.7 / 7.3
+/// sub-b4 i32.clz handler emits this directly.
+/// Encoding (Data Processing 1-source, sf=0):
+///   `0 1 0 11010110 00000 000100 [Rn:5] [Rd:5]` = `0x5AC01000`.
+pub fn encClzW(rd: Xn, rn: Xn) u32 {
+    return 0x5AC01000 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `RBIT Wd, Wn` — reverse bits (32-bit). i32.ctz lowers to
+/// `RBIT scratch, val ; CLZ result, scratch` (the canonical
+/// ARM idiom). Encoding (Data Processing 1-source, sf=0):
+///   `0 1 0 11010110 00000 000000 [Rn:5] [Rd:5]` = `0x5AC00000`.
+pub fn encRbitW(rd: Xn, rn: Xn) u32 {
+    return 0x5AC00000 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 // ============================================================
 // Tests
 //
@@ -404,4 +420,13 @@ test "encCsetW w0, eq — `cset w0, eq` → 0x1A9F17E0" {
 test "encCsetW w3, lt — `cset w3, lt` → 0x1A9FA7E3" {
     // invert(LT=0xB) = 0xA = GE; (0xA << 12) = 0xA000; Rd=3.
     try testing.expectEqual(@as(u32, 0x1A9FA7E3), encCsetW(3, .lt));
+}
+
+test "encClzW w0, w1 — `clz w0, w1` → 0x5AC01020" {
+    // base 0x5AC01000; rn=1 (<<5)=0x20; rd=0.
+    try testing.expectEqual(@as(u32, 0x5AC01020), encClzW(0, 1));
+}
+
+test "encRbitW w0, w1 — `rbit w0, w1` → 0x5AC00020" {
+    try testing.expectEqual(@as(u32, 0x5AC00020), encRbitW(0, 1));
 }
