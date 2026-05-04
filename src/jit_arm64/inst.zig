@@ -103,6 +103,31 @@ pub fn encBr(rn: Xn) u32 {
     return 0xD61F0000 | (@as(u32, rn) << 5);
 }
 
+/// `MUL Xd, Xn, Xm` — alias for `MADD Xd, Xn, Xm, XZR`.
+/// Encoding (64-bit MADD): `1 00 11011 000 [Rm:5] 0 [Ra:5] [Rn:5] [Rd:5]`
+/// with Ra=31 (XZR). Base = `0x9B007C00` | (Rm<<16) | (Rn<<5) | Rd.
+pub fn encMulReg(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x9B007C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `AND Xd, Xn, Xm` (no shift). 64-bit AND shifted-reg, shift=0:
+/// `1 00 01010 00 0 [Rm:5] 000000 [Rn:5] [Rd:5]` = `0x8A000000` | …
+pub fn encAndReg(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x8A000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `ORR Xd, Xn, Xm` (no shift). 64-bit ORR shifted-reg, shift=0:
+/// `1 01 01010 00 0 [Rm:5] 000000 [Rn:5] [Rd:5]` = `0xAA000000` | …
+pub fn encOrrReg(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xAA000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `EOR Xd, Xn, Xm` (no shift). 64-bit EOR shifted-reg, shift=0:
+/// `1 10 01010 00 0 [Rm:5] 000000 [Rn:5] [Rd:5]` = `0xCA000000` | …
+pub fn encEorReg(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xCA000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 // ============================================================
 // Tests
 //
@@ -168,4 +193,21 @@ test "encStrImm x0, [x1, #16] — `str x0, [x1, #16]` → 0xF9000820" {
 
 test "encBr x16 — `br x16` → 0xD61F0200" {
     try testing.expectEqual(@as(u32, 0xD61F0200), encBr(16));
+}
+
+test "encMulReg x0, x1, x2 — `mul x0, x1, x2` → 0x9B027C20" {
+    // base 0x9B007C00; rm=2 (<<16)=0x20000; rn=1 (<<5)=0x20; rd=0.
+    try testing.expectEqual(@as(u32, 0x9B027C20), encMulReg(0, 1, 2));
+}
+
+test "encAndReg x0, x1, x2 — `and x0, x1, x2` → 0x8A020020" {
+    try testing.expectEqual(@as(u32, 0x8A020020), encAndReg(0, 1, 2));
+}
+
+test "encOrrReg x0, x1, x2 — `orr x0, x1, x2` → 0xAA020020" {
+    try testing.expectEqual(@as(u32, 0xAA020020), encOrrReg(0, 1, 2));
+}
+
+test "encEorReg x0, x1, x2 — `eor x0, x1, x2` → 0xCA020020" {
+    try testing.expectEqual(@as(u32, 0xCA020020), encEorReg(0, 1, 2));
 }

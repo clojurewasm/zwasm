@@ -118,6 +118,36 @@ pub fn compile(
                 try emitConstU32(allocator, &buf, xd, ins.payload);
                 try pushed_vregs.append(allocator, vreg);
             },
+            .@"i32.add",
+            .@"i32.sub",
+            .@"i32.mul",
+            .@"i32.and",
+            .@"i32.or",
+            .@"i32.xor",
+            => {
+                // Binary ALU: pop rhs, lhs; allocate next_vreg as
+                // result; emit `<op> Xd, Xn(lhs), Xm(rhs)`.
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs = pushed_vregs.pop().?;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const xn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const xm = abi.slotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const xd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const word: u32 = switch (ins.op) {
+                    .@"i32.add" => inst.encAddReg(xd, xn, xm),
+                    .@"i32.sub" => inst.encSubReg(xd, xn, xm),
+                    .@"i32.mul" => inst.encMulReg(xd, xn, xm),
+                    .@"i32.and" => inst.encAndReg(xd, xn, xm),
+                    .@"i32.or"  => inst.encOrrReg(xd, xn, xm),
+                    .@"i32.xor" => inst.encEorReg(xd, xn, xm),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
             .@"end" => {
                 // Function-level end: marshal the top-of-stack vreg
                 // into X0 (the AAPCS64 result register), then run
@@ -293,10 +323,85 @@ test "compile: unsupported op surfaces UnsupportedOp" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32, .i32 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"i32.add" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.popcnt" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty));
+}
+
+test "compile: (i32.const 7) (i32.const 5) i32.add end → returns 12 in X0" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.add" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    // 3 vregs: vreg0 = const 7, vreg1 = const 5, vreg2 = add result.
+    // vreg0 dies at pc=2 (consumed by add); vreg1 dies at pc=2;
+    // vreg2 dies at pc=3 (end).
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    // Greedy regalloc would assign slot 0 to vreg0, slot 1 to
+    // vreg1 (overlap), slot 0 again to vreg2 (vreg0 + vreg1 die
+    // at the add's pc=2, so slot 0 frees AT use). Hand-supplied
+    // allocation matches what greedy produces.
+    const slots = [_]u8{ 0, 1, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // Stream: STP / MOV-FP / MOVZ X9 #7 / MOVZ X10 #5 / ADD X9 X9 X10 /
+    //         MOV X0 X9 / LDP / RET = 8 u32s = 32 bytes.
+    try testing.expectEqual(@as(usize, 32), out.bytes.len);
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 7)),  std.mem.readInt(u32, out.bytes[8..12], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(10, 5)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encAddReg(9, 9, 10)), std.mem.readInt(u32, out.bytes[16..20], .little));
+}
+
+test "compile: i32.sub / i32.mul / i32.and / i32.or / i32.xor each emit correct ALU op" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    const cases = [_]struct { op: zir.ZirOp, want_word_at_offset: u32 }{
+        .{ .op = .@"i32.sub", .want_word_at_offset = inst.encSubReg(9, 9, 10) },
+        .{ .op = .@"i32.mul", .want_word_at_offset = inst.encMulReg(9, 9, 10) },
+        .{ .op = .@"i32.and", .want_word_at_offset = inst.encAndReg(9, 9, 10) },
+        .{ .op = .@"i32.or",  .want_word_at_offset = inst.encOrrReg(9, 9, 10) },
+        .{ .op = .@"i32.xor", .want_word_at_offset = inst.encEorReg(9, 9, 10) },
+    };
+    for (cases) |c| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
+        try f.instrs.append(testing.allocator, .{ .op = c.op });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 2 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+            .{ .def_pc = 2, .last_use_pc = 3 },
+        } };
+        const slots = [_]u8{ 0, 1, 0 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+        const out = try compile(testing.allocator, &f, alloc);
+        defer deinit(testing.allocator, out);
+        // ALU op lives at u32 offset 4 (= byte 16).
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[16..20], .little));
+    }
+}
+
+test "compile: stack underflow on ALU op with 1 pushed vreg surfaces AllocationMissing" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.add" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{.{ .def_pc = 0, .last_use_pc = 1 }} };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc));
 }
 
 comptime {
