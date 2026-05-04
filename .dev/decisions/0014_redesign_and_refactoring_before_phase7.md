@@ -322,6 +322,24 @@ what 6.K.3 wants. **The only required source change for table
 imports** is removing the `UnsupportedCrossModuleTableImport`
 guard. Globals + funcs are new code.
 
+**How this contract was discovered** (process note, 2026-05-04):
+the original 6.K.3 spike landed without anticipating the
+partial-init scenario — the fail manifested as a segfault when a
+2nd-stage `assert_unlinkable` element segment trapped after a
+1st-stage segment had already populated module A's imported
+table with B's funcrefs. Two days of investigation rebuilt the
+chain (B's arena freed → A's table cell points at undefined
+memory → first call_indirect through the dangling cell crashes).
+The contract below was designed retroactively against the
+discovered failure, then validated against
+`crates/wasmtime/src/runtime/instance.rs:327-350` and the spec
+interpreter at `WebAssembly/spec/interpreter/exec/eval.ml:427-444`
+for fidelity. The lesson: partial-init scenarios are **easier to
+miss in design than to debug after they segfault**; future
+table / global cross-module work should walk the partial-init
+fault tree explicitly during Step 0 survey, not only the
+happy-path.
+
 **Partial-init dangling-FuncEntity contract** (added 2026-05-04
 after the spike). When module B's element segment writes
 `*FuncEntity` pointers (per the 6.K.1 encoding) into module A's
@@ -581,6 +599,32 @@ for different reasons than originally stated:
 γ stays rejected; Alpha is the chosen design (locked in via
 6.K.2 sub-change 4 + 6.K.3's runner-layer retention).
 
+**Author candor (added 2026-05-04 per debt D-004 / lesson
+`2026-05-04-beta-funcref-encoding-rejected.md`)**: in the design
+discussion that preceded the Step 0 textbook survey, the author
+(Claude) initially preferred γ over Alpha on **aesthetic
+grounds** — the explicit identity packing felt cleaner than
+"hold every failed instance forever". The survey revealed two
+costs that the aesthetic preference hid:
+
+- A 2-level lookup on every cross-module call (registry +
+  instance + funcidx) doubles the dispatch hot path vs Alpha's
+  single pointer dereference. Aesthetic packing disappears under
+  the operational cost.
+- 10+ years of production wasm runtimes (wasmtime, wazero, the
+  spec interpreter) all chose pointer encoding **with full
+  awareness** of the dangling-pointer class — the failure-keep-
+  alive cost is bounded (one zombie per failed instantiation,
+  freed at store close), and they accepted it knowingly.
+
+The Phase 6 takeaway (recorded as a lesson, not a rule): when v2
+sits between two design choices and one *looks cleaner* while
+the other is what every mature wasm runtime does, the
+cleaner-looking one usually has implicit costs that 10 years of
+production has paid for elsewhere. Step 0 survey is specifically
+designed to surface those costs before v2 re-pays them; trust
+the survey output over the aesthetic preference.
+
 ### δ — Skip cross-module fixtures via per-fixture ADR
 
 Document each of the 27 fixtures in `.dev/decisions/skip_*.md`
@@ -738,8 +782,30 @@ A → `no_copy_from_v1.md` cross-instance check; family B →
 - iter-5 / iter-7 / iter-11 commit messages
   (`bdef556` / `7cc6715` / `7b26760`) — the substrate work that
   surfaced the inventory
+- `.dev/lessons/2026-05-04-beta-funcref-encoding-rejected.md` —
+  the observational framing of the §3.γ rejection's "aesthetic
+  preference vs production experience" learning; cited from
+  §3.γ "Author candor" §.
+- `.dev/lessons/2026-05-04-autoregister-spike-regression.md` —
+  related Phase 6 lesson on the import-type-validation gap
+  (debt D-006).
+- `.dev/debt.md` — D-006 (import-type validation), D-010
+  (`rawFreeOwned` long-term workaround pending Zig stdlib
+  semantics), D-018 (cross-module thunk arena).
 
 ## 7. Revision history
+
+| Date       | Commit       | Summary                                                                                          |
+|------------|--------------|--------------------------------------------------------------------------------------------------|
+| 2026-05-03 | `<backfill>` | Initial Accepted — replaced placeholder with §9.6 / 6.K work-item block.                         |
+| 2026-05-04 | `<backfill>` | 6.K.3 spike → zombie-instance contract (6.K.2 sub-change 4); §3.γ spike review; 6.K.6 expanded. |
+| 2026-05-04 | `<backfill>` | §3.γ "Author candor" + §6.K.3 "How this contract was discovered" added per debt D-004 + lessons. |
+
+(SHAs backfilled at the next phase boundary per
+`.dev/decisions/README.md` "Revision history" rules; verified by
+`scripts/check_adr_history.sh` at audit time.)
+
+### Detailed amendment notes
 
 - **2026-05-03 (initial Accepted)** — ADR replaced its own
   placeholder content (the "Phase 7 = refactor / Phase 8 = JIT"

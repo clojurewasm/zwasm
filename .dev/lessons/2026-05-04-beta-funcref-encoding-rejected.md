@@ -2,8 +2,9 @@
 
 - **Date**: 2026-05-04
 - **Phase**: Phase 6 / §9.6 / 6.K.3
-- **Citing**: ADR-0014 §3.γ; commit `ffc0cf0` (6.K.3 land);
-  `private/notes/p6-6K3-lifetime-survey.md` §4
+- **Citing**: ADR-0014 §3.γ "Author candor" (amend `<backfill>`);
+  commit `ffc0cf0` (6.K.3 land);
+  `private/notes/p6-6K3-lifetime-survey.md` §4 (gitignored survey)
 
 ## Context
 
