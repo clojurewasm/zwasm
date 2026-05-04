@@ -1482,6 +1482,7 @@ JIT.
 | 7.3  | `src/jit_arm64/emit.zig` — ZIR → ARM64 emit pass producing function bodies + Runtime prologue (5 LDRs from `*X0` per ADR-0017) + spill emit per ADR-0018. | [ ]            |
 | 7.4  | JIT runtime infra: `src/platform/jit_mem.zig` (RWX memory) + `src/jit/linker.zig` (BL fixup patcher) + `src/jit/entry.zig` (Zig caller bridge); ADR-0017 simplifies entry to a standard function-pointer call. | [ ] sub-7.4a/b/c landed (`1e71b53`/`3e34d1a`/`93e2f2c`); refactor per ADR-0017 ahead |
 | 7.5  | spec test pass=fail=skip=0 via ARM64 JIT on Mac aarch64 host (drives every Wasm 1.0 + 2.0 op the interp covers). | [ ]            |
+| 7.5d | emit.zig responsibility split (≤ 9 modules under `src/jit_arm64/`; orchestrator ≤ 1000 LOC; each module ≤ 400 LOC) + test byte-offset abstraction via `src/jit_arm64/prologue.zig`. **Hard gate before 7.6 opens** (per ADR-0021). Sub-deliverable a: byte-offset helper + 142 test sites relativised. Sub-deliverable b: emit.zig split per `.dev/lessons/2026-05-04-emit-monolith-cost.md`. | [ ]            |
 | 7.6  | `src/jit_x86/{reg_class, inst, abi}.zig` — x86_64 instruction encoder + System V (Linux) + Win64 (Windows) calling conventions + `reserved_invariant_gprs` (ADR-0018 mapping). | [ ]            |
 | 7.7  | `src/jit_x86/emit.zig` — ZIR → x86_64 emit pass producing function bodies (ADR-0017 prologue mapping for x86_64). | [ ]            |
 | 7.8  | spec test pass=fail=skip=0 via x86_64 JIT on Linux x86_64 AND Windows x86_64 hosts. | [ ]            |
@@ -1947,6 +1948,14 @@ that's fine, but the act of typing it is the act of re-deciding.
   tests + 50 realworld + ClojureWasm guest) actually pass under v2
   interp? If gaps remain (missing ops, semantic divergences),
   Phase 7 (JIT) does not open until they close (A13).
+- **End of Phase 7** — does the interpreter v1-surface readiness
+  (WASI 0.1 full = Phase 11; wasm-c-api full = Phase 13) merit
+  pulling forward before Phase 8 JIT optimisation? Re-evaluate
+  with realworld JIT data from §9.7 / 7.9 (ARM64 realworld) and
+  7.10 (x86_64 realworld), not speculation. Surfaced by the
+  2026-05-04 design dialogue (regret triage); ADR-0021 documents
+  the deferral. If reorder is justified, file an ADR amending
+  Phase 8/11/13 ordering at that point.
 - **End of Phase 8** — is the differential test pass rate stable?
   If frequent diff failures persist, the JIT design is wrong, not
   the test.

@@ -8,78 +8,79 @@
 
 ## Next files to read on a cold start (in order)
 
-0. **`.dev/next-session-agenda.md`** — 2026-05-04 セッション末で持ち越した
-   論点(Phase ordering 再評価 / AI 指示群更新 / リファクタ)。次セッション
-   はコードを動かす前にここを読み、ユーザーと議論ファーストで進める。
 1. `.dev/handover.md` (this file).
-2. `.dev/decisions/0017_jit_runtime_abi.md` — JitRuntime ABI (X0
-   = `*const JitRuntime`); D-014 dissolve.
-3. `.dev/decisions/0018_regalloc_reserved_set_and_spill.md` —
+2. `.dev/decisions/0021_phase7_emit_split_gate.md` — §9.7 / 7.5d
+   sub-gate (emit.zig split + byte-offset abstraction; hard gate
+   before 7.6 x86_64 opens). Operationally amends ADR-0019.
+3. `.dev/decisions/0019_x86_64_in_phase7.md` — Phase 7 covers ARM64
+   + x86_64 baseline; Phase 8 redefined as optimisation foundation.
+4. `.dev/decisions/0017_jit_runtime_abi.md` — JitRuntime ABI (X0
+   = `*const JitRuntime`); D-014 dissolved.
+5. `.dev/decisions/0018_regalloc_reserved_set_and_spill.md` —
    pool/reserved separation + first-class spill.
-4. `.dev/decisions/0019_x86_64_in_phase7.md` — x86_64 backend
-   pulled into Phase 7; Phase 8 redefined as optimisation foundation.
-5. `.dev/decisions/0020_edge_case_test_culture.md` — boundary
+6. `.dev/decisions/0020_edge_case_test_culture.md` — boundary
    fixture culture + rule + audit hooks.
-6. `.dev/debt.md` — discharge `Status: now` rows before active task.
-7. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
+7. `.dev/decisions/0022_post_session_retrospective.md` — 2026-05-04
+   regret triage + emit-split sub-gate; process improvements.
+8. `.dev/debt.md` — discharge `Status: now` rows before active task.
+9. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
 
-## Current state — autonomous loop RUNNING
+## Current state — design + refactor cycle CLOSED
 
-- **Phase**: Phase 7 IN-PROGRESS, scope expanded per ADR-0019
-  (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12).
-- **Last commit**: `8778349` — Step 4 sub-7.5c-vi (D-027 fix:
-  merge-aware label stack; native `(if (result T))` works via
-  JIT). 22/22 fixtures incl. native if-then=11 + if-else=22.
-  741/741 unit / 3-host green. Sub-7.5c-vii (broader entry
-  signature support: 1+ args, non-i32 results) NEXT.
-- **Branch**: `zwasm-from-scratch`, pushed.
+- **Phase**: Phase 7 IN-PROGRESS, scope per ADR-0019 + ADR-0021
+  (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12 plus
+  hard-gate row 7.5d).
+- **Last session**: 2026-05-04 design + refactor + rules cycle
+  (not /continue). User invoked discussion-first. Outputs:
+  ADR-0021 + ROADMAP §9.7 row 7.5d + §15 bullet, `bug_fix_survey`
+  rule, 5 lessons (regrets #1/2/3/7/10), 2 amendments to
+  `edge_case_testing.md` (regrets #4/6), `src/jit_arm64/prologue.zig`
+  helper + 142 test sites relativised, ADR-0022 retrospective.
+- **Branch**: `zwasm-from-scratch`, **commits LOCAL** (not pushed
+  — this session was not /continue; push requires user approval).
 
 ## Active plan — implementation cycles after ADR acceptance
 
-Sequence agreed during 2026-05-04 redesign dialogue. Each Step
-below corresponds to one or more `/continue` cycles.
-
 | # | Step | ADR | Status |
 |---|------|-----|--------|
-| 1 | regalloc pool: remove X24..X28; add `reserved_invariant_gprs`; `Slot` union with first-class spill | 0018 | **DONE** — sub-1a `1d6d178`, sub-1b `7e880b8`, sub-1c `394e416` |
-| 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | **DONE** — sub-2a `0827b89`, sub-2b+2c `44b94a0`, sub-2d-i `10ab46d`, sub-2d-ii `0010a03`. **D-014 dissolved.** |
-| 3 | Edge-case test culture: rule + Step-4 hook + audit §I; bootstrap p7 fixtures | 0020 | **DONE** — sub-3a `52efba4` (rule), sub-3b `b787b19` (audit + hook), sub-3c `36b9ed8` (7 fixtures) |
-| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | 7.5a..7.5c-v landed; 7.5c-vi `8778349` (D-027 merge fix; native if-result works); **7.5c-vii (broader entry sigs: 1+ args, non-i32 results) NEXT**; 7.5c-viii (close to pass=fail=skip=0) |
-| 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After Step 4 |
-| 6 | §9.7 / 7.9–7.12: realworld ARM64 + x86_64, three-way differential, audit + open §9.8 | — | After Step 5 |
-| 7 | emit.zig responsibility split (no ADR; opportunistic) | — | After Phase 7 close |
+| 1 | regalloc pool + first-class spill | 0018 | **DONE** |
+| 2 | JitRuntime struct + ABI | 0017 | **DONE** |
+| 3 | Edge-case test culture | 0020 | **DONE** |
+| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT | — | 7.5a..7.5c-vi DONE; **7.5d (this ADR-0021 row) sub-deliverable a DONE** (byte-offset abstraction); sub-deliverable b NEXT (emit.zig split per `.dev/lessons/2026-05-04-emit-monolith-cost.md`); 7.5c-vii (broader entry sigs) deferred until 7.5d-b closes |
+| 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After 7.5d closes (HARD GATE per ADR-0021) |
+| 6 | §9.7 / 7.9–7.12: realworld + three-way differential + audit | — | After Step 5 |
 
-## Implementation notes for the next cycle (Step 1 = ADR-0018)
+## Implementation notes for the next cycle (7.5d sub-b = emit.zig split)
 
-- Concrete edits:
-  - `src/jit_arm64/abi.zig`: `reserved_invariant_gprs = [_]Xn{24,25,26,27,28}`; `allocatable_gprs = caller_saved_scratch ++ [X19..X23]` (12 slot pool).
-  - `src/jit/regalloc.zig`: `Slot = union(enum) { reg: u8, spill: u32 }`; rename `n_slots` → `n_reg_slots`; add `n_spill_bytes`.
-  - `src/jit_arm64/emit.zig`: ~70 sites consume `alloc.slots[v]` — match on `Slot` tag; spill emit via STR/LDR through scratch reg (X15 reserved per ADR-0018 recommendation to avoid X16/X17 conflict with sub-g3c).
-  - Add a unit test forcing ≥12 vregs to exercise spill paths.
-- Pre-cycle Step 0 survey: regalloc2 (`~/Documents/OSS/regalloc2`) + wasmtime/cranelift register-class spill patterns.
+- See `.dev/lessons/2026-05-04-emit-monolith-cost.md` for the
+  proposed 9-module split target.
+- Survey-derived split (this session): emit.zig orchestrator
+  ≤ 1000 LOC; ops_const / ops_alu / ops_memory / ops_control
+  (with D-027 Label.merge_top_vreg) / ops_call (≤ 300 LOC each);
+  bounds_check / register / emit_helpers / label (≤ 120 LOC
+  each).
+- Test suite (1870 LOC) stays in emit.zig in this cycle; if the
+  orchestrator + tests blow past 2000 LOC, move tests to
+  `test/unit/jit_arm64/emit_test.zig`.
+- Mutable state pattern: `&buf`, `&pushed_vregs`, `&labels`,
+  `&bounds_fixups`, `&call_fixups`, `&next_vreg` thread through
+  per-handler params; emit.zig orchestrates.
 
-## Open structural debt (post-ADR-acceptance state)
+## Open structural debt
 
-- **D-014** Runtime injection — Step 2 dissolves via ADR-0017.
 - **D-022** Diagnostic M3 / trace ringbuffer — sub-f trap surfaces
   exist; revisit after Phase 7 close.
 - **D-026** env-stub host-func wiring — 4 embenchen + 1
   externref-segment skip-ADR'd; cross-module dispatch.
-- regalloc/reserved overlap — Step 1 dissolves via ADR-0018.
-- 3-host JIT asymmetry — Steps 5 dissolves via ADR-0019.
+- emit.zig at 3989 LOC — §A2 violation surfaced this session;
+  ADR-0021 row 7.5d-b discharges in next cycle.
+- 3-host JIT asymmetry — Step 5 dissolves via ADR-0019.
 
 ## Recently closed (per `git log`)
 
-- §9.7 / 7.3 op coverage CLOSED (111 ops total): width / convert /
-  trunc-trap / sat-trunc / reinterpret all landed.
-- §9.7 / 7.4a/b/c JIT runtime infra: jit_mem (`1e71b53`) + linker
-  (`3e34d1a`, first JIT-to-JIT call) + entry frame (`93e2f2c`,
-  i32.load through X28 verified end-to-end).
-- ADRs 0017/0018/0019/0020 drafted, self-reviewed, accepted.
-
-## Phase 6 close — archival snapshot
-
-- 14 §9.6 rows all [x] with SHA. 2 active skip-ADRs (5 fixtures).
-- 14 active debt rows, all `blocked-by:` named barriers.
-- 2 lessons recorded. v1-class hyperfine baseline at Phase 6 close
-  (26 fixtures: 9 shootout + 11 TinyGo + nbody + 5 cljw).
+- §9.7 / 7.3 op coverage CLOSED (111 ops total).
+- §9.7 / 7.4a/b/c JIT runtime infra.
+- ADRs 0017/0018/0019/0020 drafted, accepted.
+- ADR-0021 sub-gate inserted; 142 byte-offset test sites
+  relativised via `src/jit_arm64/prologue.zig`.
+- ADR-0022 retrospective recorded.
