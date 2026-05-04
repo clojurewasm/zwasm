@@ -1,9 +1,9 @@
-//! Realworld stdout differential runner (§9.6 / 6.2).
+//! Realworld stdout differential runner (§9.6 / 6.F).
 //!
 //! For each `.wasm` fixture in the corpus, runs `wasmtime run`
 //! to capture a reference stdout, then drives the same fixture
 //! through `cli/run.zig:runWasmCaptured` and byte-compares the
-//! two outputs. The §9.6 / 6.2 exit criterion is: 30+ samples
+//! two outputs. The §9.6 / 6.F exit criterion is: 30+ samples
 //! match `wasmtime run` byte-for-byte (the ADR-0006 target,
 //! retargeted from §9.4 / 4.10).
 //!
@@ -61,7 +61,7 @@ pub fn main(init: std.process.Init) !void {
     if (wasmtime_path_opt == null) {
         try stdout.print(
             "SKIP-WASMTIME-MISSING — wasmtime not on PATH (and no nix-store wrapper found). " ++
-                "§9.6 / 6.2 differential gate is non-fatal on this host; the gate is real on " ++
+                "§9.6 / 6.F differential gate is non-fatal on this host; the gate is real on " ++
                 "hosts with wasmtime installed (the dev shell pins it via flake.nix).\n",
             .{},
         );
@@ -105,7 +105,7 @@ pub fn main(init: std.process.Init) !void {
         // the guest's proc_exit code (0 on success); a non-zero
         // exit + non-empty stderr usually means the guest itself
         // failed, but we still try the byte compare since that
-        // is what §9.6 / 6.2 measures.
+        // is what §9.6 / 6.F measures.
         const wt_result = std.process.run(gpa, io, .{
             .argv = &[_][]const u8{ wasmtime_path, "run", fixture_path },
         }) catch |err| {
@@ -177,14 +177,14 @@ pub fn main(init: std.process.Init) !void {
     if (matched == 0 and skipped_wasmtime_fail == total and total > 0) {
         try stdout.print(
             "SKIP-WASMTIME-UNUSABLE — wasmtime resolved but every spawn failed " ++
-                "({d} of {d} fixtures); §9.6 / 6.2 differential gate is non-fatal on this host.\n",
+                "({d} of {d} fixtures); §9.6 / 6.F differential gate is non-fatal on this host.\n",
             .{ skipped_wasmtime_fail, total },
         );
         try stdout.flush();
         return;
     }
     if (matched < 30) {
-        try stdout.print("error: §9.6 / 6.2 requires 30+ matches; saw only {d}\n", .{matched});
+        try stdout.print("error: §9.6 / 6.F requires 30+ matches; saw only {d}\n", .{matched});
         try stdout.flush();
         std.process.exit(1);
     }

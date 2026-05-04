@@ -33,8 +33,8 @@ pub fn runWasm(
 /// to fd 1) into the caller-supplied `stdout_capture`. When
 /// non-null, the runner wires `host.stdout_buffer` to it; the
 /// caller owns the buffer and must release it. The realworld-
-/// diff runner (§9.4 / 4.10) uses this to byte-compare against
-/// frozen `.expected_stdout` files.
+/// diff runner (§9.6 / 6.F) uses this to byte-compare against
+/// wasmtime's stdout for the same fixture.
 ///
 /// `argv` is forwarded to the WASI host via `setArgs`; conventional
 /// WASI guests expect `argv[0]` to be the program name (matching
@@ -144,27 +144,31 @@ pub fn runWasmCaptured(
     if (store.wasi_host) |host| if (host.exit_code) |_| {
         // exit_code already carries the status; nothing else to surface.
     } else {
-        // Non-exit trap — surface the cause.
-        var stderr_buf: [256]u8 = undefined;
-        var sw = std.Io.File.stderr().writer(io, &stderr_buf);
-        const w = &sw.interface;
-        // Best-effort stderr surface — if writing the trap report
-        // itself fails (closed pipe, OOM during print), we have
-        // nothing meaningful to do beyond the exit code below.
-        if (trap.?.message_ptr) |p| {
-            w.print("zwasm: trap kind={s} msg={s}\n", .{
-                @tagName(trap.?.kind),
-                p[0..trap.?.message_len],
-            }) catch {};
-        } else {
-            w.print("zwasm: trap kind={s}\n", .{@tagName(trap.?.kind)}) catch {};
-        }
-        w.flush() catch {};
+        surfaceTrap(io, trap.?);
     };
     if (store.wasi_host) |host| if (host.exit_code) |code| {
         return @intCast(@min(code, std.math.maxInt(u8)));
     };
     return 1;
+}
+
+/// Best-effort stderr surface of a non-exit trap. If the underlying
+/// writer fails (closed pipe, OOM during print), there is nothing
+/// meaningful to do beyond the caller's exit-code path — the print
+/// errors are intentionally swallowed.
+fn surfaceTrap(io: std.Io, trap: anytype) void {
+    var stderr_buf: [256]u8 = undefined;
+    var sw = std.Io.File.stderr().writer(io, &stderr_buf);
+    const w = &sw.interface;
+    if (trap.message_ptr) |p| {
+        w.print("zwasm: trap kind={s} msg={s}\n", .{
+            @tagName(trap.kind),
+            p[0..trap.message_len],
+        }) catch {};
+    } else {
+        w.print("zwasm: trap kind={s}\n", .{@tagName(trap.kind)}) catch {};
+    }
+    w.flush() catch {};
 }
 
 // ============================================================

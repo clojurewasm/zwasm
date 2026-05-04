@@ -246,7 +246,7 @@ pub fn build(b: *std.Build) void {
     const test_realworld_run_step = b.step("test-realworld-run", "Run each realworld fixture end-to-end via cli_run.runWasm");
     test_realworld_run_step.dependOn(&run_realworld_run.step);
 
-    // `zig build test-realworld-diff` — Phase 6 / §9.6 / 6.2.
+    // `zig build test-realworld-diff` — Phase 6 / §9.6 / 6.F.
     // Spawns `wasmtime run <fixture>` per fixture, captures
     // stdout, compares byte-for-byte against
     // `cli_run.runWasmCaptured`. Gate is 30+ matches; runner

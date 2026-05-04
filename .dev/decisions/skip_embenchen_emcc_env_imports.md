@@ -56,6 +56,20 @@ turned on, those fixtures successfully resolve "m" → module 0
 but the type-mismatch checks that should reject the import
 silently allow it through.
 
+### Spike outcome (recorded so the same trial isn't retried)
+
+Date: 2026-05-04. Branch state: `b569b8f` (the 6.E close commit).
+Spike: edit `test/runners/wast_runtime_runner.zig:handleModule`
+to mirror wasmtime's `crates/wast/src/wast.rs:fn module` —
+register `(module $X ...)` under the bare name `X` (in addition
+to the script-id `$X`) so subsequent `m.X` imports resolve.
+Result: misc-runtime fail count went **5 → 14** (4 embenchen
+recovered as expected; 9 `linking-errors/linking-errors.{1-9}.wasm`
+regressed from PASS to FAIL because their assert\_unlinkable
+clauses depend on import-type validation that v2 doesn't yet do).
+Spike reverted in the same edit window. The full investigation
+also lives in `.dev/lessons/2026-05-04-autoregister-spike-regression.md`.
+
 ## What v2 needs to fix this honestly
 
 1. Implement proper Wasm 2.0 §3.4.10 import-matching rules in
