@@ -136,6 +136,7 @@ test {
     _ = @import("jit/entry.zig");
     _ = @import("runtime/jit_abi.zig");
     _ = @import("jit/compile_func.zig");
+    _ = @import("jit/run_wasm.zig");
     _ = @import("ir/loop_info.zig");
     _ = @import("ir/liveness.zig");
     _ = @import("ir/verifier.zig");

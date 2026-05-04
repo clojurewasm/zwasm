@@ -96,6 +96,11 @@ fn stackEffect(op: ZirOp) ?StackEffect {
         .@"f64.promote_f32",
         .@"i32.reinterpret_f32", .@"i64.reinterpret_f64",
         .@"f32.reinterpret_i32", .@"f64.reinterpret_i64",
+        // Wasm 2.0 sat_trunc (sub-h5).
+        .@"i32.trunc_sat_f32_s", .@"i32.trunc_sat_f32_u",
+        .@"i32.trunc_sat_f64_s", .@"i32.trunc_sat_f64_u",
+        .@"i64.trunc_sat_f32_s", .@"i64.trunc_sat_f32_u",
+        .@"i64.trunc_sat_f64_s", .@"i64.trunc_sat_f64_u",
         => .{ .pops = 1, .pushes = 1 },
         // 2 → 1 binop
         .@"i32.add", .@"i32.sub", .@"i32.mul",
