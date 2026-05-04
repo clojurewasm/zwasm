@@ -24,12 +24,11 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
   in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
   locals + control-flow-e1 done).
-- **Last commit**: `7a0c0ca` — feat(p7) §9.7 / 7.3 sub-h1
-  (integer width conversions: i32.wrap_i64 + i64.extend_i32_u →
-  MOV W,W; i64.extend_i32_s → SXTW). 3 ops landed; remaining
-  sub-h ops are int↔float convert (h2), trapping trunc (h3),
-  reinterpret (h4), sat_trunc 2.0 (h5). 682/682 unit / 3-host
-  green. Phase 6 close at `68843b0`.
+- **Last commit**: `b8dd126` — feat(p7) §9.7 / 7.3 sub-h2 (10
+  ops: 8 SCVTF/UCVTF int↔float convert variants + FCVT
+  demote/promote). Sub-h3 (trapping trunc), sub-h4 (reinterpret),
+  sub-h5 (sat_trunc) ahead. 696/696 unit / 3-host green. Phase 6
+  close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -57,8 +56,8 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | g3b | AAPCS64 arg marshalling (X0..X7 + V0..V7)             | [x] `e25a9a5` |
 | g3c | call_indirect bounds + sig checks (typeidx side-array) | [x] `b870a90` |
 | h1  | integer width: wrap_i64 + extend_i32_s/u                | [x] `7a0c0ca` |
-| h2  | int↔float convert (8 ops: f32/f64.convert_i32/i64.s/u + demote/promote) | [ ] **NEXT** |
-| h3  | trapping trunc (8 ops: i32/i64.trunc_f32/f64.s/u)       | [ ]    |
+| h2  | int↔float convert (8 ops: f32/f64.convert_i32/i64.s/u + demote/promote) | [x] `b8dd126` |
+| h3  | trapping trunc (8 ops: i32/i64.trunc_f32/f64.s/u)       | [ ] **NEXT** |
 | h4  | reinterpret (4 ops: bit-cast)                           | [ ]    |
 | h5  | sat_trunc (Wasm 2.0; 8 ops)                             | [ ]    |
 
