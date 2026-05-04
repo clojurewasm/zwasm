@@ -57,6 +57,16 @@ pub const VerifyError = error{
 /// hard cap is 255 here. Spilling (§9.7 / 7.3+) widens this.
 pub const max_slots: u8 = 255;
 
+/// Resolved slot — what physical home a vreg lives in.
+/// `reg`'s u8 indexes the per-arch `allocatable_gprs` /
+/// `allocatable_v_regs` table (interpreted by per-arch
+/// `slotToReg` / `fpSlotToReg`). `spill`'s u32 is a byte
+/// offset within the function's spill frame (8-aligned).
+pub const Slot = union(enum) {
+    reg: u8,
+    spill: u32,
+};
+
 pub const Allocation = struct {
     /// `slots[v]` is the dense physical slot id assigned to
     /// vreg `v`. Length matches `func.liveness.?.ranges.len`.
@@ -66,6 +76,31 @@ pub const Allocation = struct {
     /// empty-function case. Drives stack-frame sizing in the
     /// per-arch emit pass.
     n_slots: u8,
+    /// Per-arch pool size: slot ids `< max_reg_slots` resolve to
+    /// `Slot.reg`; ids `>= max_reg_slots` resolve to
+    /// `Slot.spill` (per ADR-0018).
+    ///
+    /// Default = 10 (ARM64 GPR allocatable pool: `caller_saved
+    /// _scratch (X9..X15) + allocatable_callee_saved (X19..X23)`
+    /// minus `spill_stage_gprs` X14+X15 reserved for spill
+    /// load/store staging). Per-class regalloc is a Phase 8
+    /// follow-up; today FP-class vregs use the same threshold,
+    /// which under-utilises the V-register pool but is correct.
+    max_reg_slots: u8 = 10,
+
+    /// Resolve a vreg's home: register slot or spill offset.
+    pub fn slot(self: Allocation, vreg: usize) Slot {
+        const id = self.slots[vreg];
+        if (id < self.max_reg_slots) return .{ .reg = id };
+        return .{ .spill = (@as(u32, id) - self.max_reg_slots) * 8 };
+    }
+
+    /// Total spill-frame bytes required by this allocation.
+    /// Adds to the function's stack frame in the prologue.
+    pub fn spillBytes(self: Allocation) u32 {
+        if (self.n_slots <= self.max_reg_slots) return 0;
+        return (@as(u32, self.n_slots) - self.max_reg_slots) * 8;
+    }
 };
 
 /// Greedy-local allocation. `func.liveness` MUST be populated
@@ -270,4 +305,37 @@ test "verify: rejects overlapping ranges sharing a slot" {
     const bad_slots = [_]u8{ 0, 0 };
     const bad: Allocation = .{ .slots = &bad_slots, .n_slots = 1 };
     try testing.expectError(VerifyError.OverlappingVregsShareSlot, verify(&f, bad));
+}
+
+// ========================================================
+// ADR-0018: Slot resolution + spill-frame sizing
+// ========================================================
+
+test "Allocation.slot: id < max_reg_slots resolves to .reg" {
+    const slots = [_]u8{ 0, 5, 9 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 10, .max_reg_slots = 10 };
+    try testing.expectEqual(Slot{ .reg = 0 }, alloc.slot(0));
+    try testing.expectEqual(Slot{ .reg = 5 }, alloc.slot(1));
+    try testing.expectEqual(Slot{ .reg = 9 }, alloc.slot(2));
+}
+
+test "Allocation.slot: id >= max_reg_slots resolves to .spill at 8-aligned offset" {
+    const slots = [_]u8{ 9, 10, 11, 12 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 13, .max_reg_slots = 10 };
+    try testing.expectEqual(Slot{ .reg = 9 }, alloc.slot(0));
+    try testing.expectEqual(Slot{ .spill = 0 }, alloc.slot(1));
+    try testing.expectEqual(Slot{ .spill = 8 }, alloc.slot(2));
+    try testing.expectEqual(Slot{ .spill = 16 }, alloc.slot(3));
+}
+
+test "Allocation.spillBytes: 0 when n_slots fits in pool" {
+    const slots = [_]u8{ 0, 1 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 2, .max_reg_slots = 10 };
+    try testing.expectEqual(@as(u32, 0), alloc.spillBytes());
+}
+
+test "Allocation.spillBytes: 8-byte stride past pool size" {
+    const slots = [_]u8{ 9, 10, 11, 12 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 13, .max_reg_slots = 10 };
+    try testing.expectEqual(@as(u32, 24), alloc.spillBytes()); // (13-10)*8
 }

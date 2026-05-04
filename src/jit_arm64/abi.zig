@@ -39,11 +39,30 @@ pub const arg_gprs = [_]Xn{ 0, 1, 2, 3, 4, 5, 6, 7 };
 /// returns a struct via memory.
 pub const indirect_result_gpr: Xn = 8;
 
-/// Caller-saved (volatile) GPRs other than args. The §9.7 / 7.3
-/// emit pass uses these as scratch between calls. (X0..X7 are
-/// caller-saved too but conceptually serve as args/returns
-/// rather than scratch.)
+/// Caller-saved (volatile) GPRs other than args. AAPCS64
+/// classifies X9..X15 as caller-clobberable temporaries; the
+/// §9.7 / 7.3 emit pass uses these as scratch between calls.
+/// (X0..X7 are caller-saved too but conceptually serve as args/
+/// returns rather than scratch.)
 pub const caller_saved_scratch_gprs = [_]Xn{ 9, 10, 11, 12, 13, 14, 15 };
+
+/// Reserved for spill load/store staging (per ADR-0018). The
+/// emit pass uses these as scratches when materialising a
+/// spilled vreg's value into a register before an op, or
+/// writing a result back to its spill slot. Two stage regs
+/// support binary ops where both operands are spilled.
+///
+/// Excluded from `allocatable_gprs` by construction. X16/X17
+/// (IP0/IP1) cannot serve this role because §9.7 / 7.3 sub-g3c
+/// already uses them mid-op for call_indirect's idx/typeidx
+/// pipeline; using them for spill staging would clobber
+/// in-flight values.
+pub const spill_stage_gprs = [_]Xn{ 14, 15 };
+
+/// Caller-saved scratch minus the spill-stage carve-out. Used by
+/// `allocatable_gprs` so the regalloc never lands a vreg on a
+/// stage reg.
+pub const allocatable_caller_saved_scratch_gprs = [_]Xn{ 9, 10, 11, 12, 13 };
 
 /// Intra-procedure-call scratch (linker-clobbered). Reserved
 /// for the platform's PLT veneer; emit may use these only
@@ -101,20 +120,24 @@ pub const link_register: Xn = 30;
 ///   - X24..X28 (`reserved_invariant_gprs` per ADR-0017+0018)
 ///   - X29 (FP), X30 (LR), X31 (SP/XZR)
 ///
-/// Pool size: 12 (was 17 pre-ADR-0018). A function with > 12
+/// Pool size: 10 (was 17 pre-ADR-0018). A function with > 10
 /// concurrently-live vregs spills to the function's spill frame
-/// per ADR-0018; today's slot id space stays the same, but the
-/// allocator returns a `Slot.spill` discriminant for the 13th+
-/// id (sub-1b implementation cycle).
-pub const allocatable_gprs = caller_saved_scratch_gprs ++ allocatable_callee_saved_gprs;
+/// per ADR-0018. Slot ids 0..9 resolve via this table; slot ids
+/// 10+ resolve to `Slot.spill` byte offsets (consumed by the
+/// emit pass via `regalloc.Allocation.slot()`).
+pub const allocatable_gprs = allocatable_caller_saved_scratch_gprs ++ allocatable_callee_saved_gprs;
 
-// Compile-time invariant: allocatable and reserved sets are disjoint.
-// Catching the overlap at comptime is the structural fix for the
-// W54-class regression that motivated ADR-0018.
+// Compile-time invariant: allocatable / reserved / spill_stage
+// sets are pairwise disjoint. Catching overlap at comptime is
+// the structural fix for the W54-class regression that motivated
+// ADR-0018.
 comptime {
     for (allocatable_gprs) |a| {
         for (reserved_invariant_gprs) |r| {
             if (a == r) @compileError("regalloc pool overlaps reserved_invariant_gprs — ADR-0018 invariant violated");
+        }
+        for (spill_stage_gprs) |s| {
+            if (a == s) @compileError("regalloc pool overlaps spill_stage_gprs — ADR-0018 invariant violated");
         }
     }
 }
@@ -187,8 +210,8 @@ test "callee_saved_gprs covers x19..x28" {
     try testing.expectEqual(@as(Xn, 28), callee_saved_gprs[9]);
 }
 
-test "allocatable_gprs covers caller-scratch + allocatable-callee-saved (12 regs post-ADR-0018)" {
-    try testing.expectEqual(@as(usize, 12), allocatable_gprs.len);
+test "allocatable_gprs covers allocatable-caller-scratch + allocatable-callee-saved (10 regs post-ADR-0018)" {
+    try testing.expectEqual(@as(usize, 10), allocatable_gprs.len);
 }
 
 test "reserved_invariant_gprs is exactly X24..X28 (5 regs)" {
@@ -197,28 +220,37 @@ test "reserved_invariant_gprs is exactly X24..X28 (5 regs)" {
     for (reserved_invariant_gprs, expected) |a, e| try testing.expectEqual(e, a);
 }
 
-test "allocatable_gprs and reserved_invariant_gprs are disjoint (runtime check; comptime guard above)" {
+test "spill_stage_gprs is exactly X14, X15 (2 regs for binary-op spill staging)" {
+    try testing.expectEqual(@as(usize, 2), spill_stage_gprs.len);
+    try testing.expectEqual(@as(Xn, 14), spill_stage_gprs[0]);
+    try testing.expectEqual(@as(Xn, 15), spill_stage_gprs[1]);
+}
+
+test "allocatable_gprs is pairwise disjoint with reserved + spill_stage (runtime check; comptime guard above)" {
     for (allocatable_gprs) |a| {
-        for (reserved_invariant_gprs) |r| {
-            try testing.expect(a != r);
-        }
+        for (reserved_invariant_gprs) |r| try testing.expect(a != r);
+        for (spill_stage_gprs) |s| try testing.expect(a != s);
     }
 }
 
-test "slotToReg: slot 0 maps to x9 (first caller-scratch)" {
+test "slotToReg: slot 0 maps to x9 (first allocatable caller-scratch)" {
     try testing.expectEqual(@as(Xn, 9), slotToReg(0).?);
 }
 
-test "slotToReg: slot 7 falls into allocatable callee-saved (x19) — caller-scratch exhausts at slot 6 (x15)" {
-    try testing.expectEqual(@as(Xn, 19), slotToReg(7).?);
+test "slotToReg: slot 4 maps to x13 (last allocatable caller-scratch; X14/X15 reserved for spill staging)" {
+    try testing.expectEqual(@as(Xn, 13), slotToReg(4).?);
 }
 
-test "slotToReg: slot 11 maps to x23 (last allocatable callee-saved before reserved)" {
-    try testing.expectEqual(@as(Xn, 23), slotToReg(11).?);
+test "slotToReg: slot 5 maps to x19 (first allocatable callee-saved; caller-scratch exhausts at slot 4)" {
+    try testing.expectEqual(@as(Xn, 19), slotToReg(5).?);
 }
 
-test "slotToReg: slot 12 returns null (pool exhausted; cue to spill per ADR-0018 sub-1b)" {
-    try testing.expect(slotToReg(12) == null);
+test "slotToReg: slot 9 maps to x23 (last allocatable callee-saved before reserved invariants)" {
+    try testing.expectEqual(@as(Xn, 23), slotToReg(9).?);
+}
+
+test "slotToReg: slot 10 returns null (pool exhausted; spill territory per ADR-0018)" {
+    try testing.expect(slotToReg(10) == null);
 }
 
 test "slotToReg: out-of-pool slot returns null (cue to spill)" {
