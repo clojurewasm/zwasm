@@ -24,10 +24,9 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
   in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
   locals + control-flow-e1 done).
-- **Last commit**: `82862e5` — feat(p7) §9.7 / 7.3 sub-f1
-  (i32.load + i32.store + bounds-check trap stub; X28=vm_base
-  / X27=mem_limit caller-supplied invariants). 650/650 unit /
-  3-host green. Phase 6 close at `68843b0`.
+- **Last commit**: `fb5da38` — feat(p7) §9.7 / 7.3 sub-f2 (sub-byte
+  + i64/f32/f64 memory ops; 23 ops total under one switch arm).
+  665/665 unit / 3-host green. Phase 6 close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -47,8 +46,8 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | e2  | if / else / end (conditional branch + skip-else)      | [x] `06a7a65` |
 | e3  | br_table (linear CMP/B.NE/B chain)                    | [x] `a9aef00` |
 | f1  | i32.load + i32.store + bounds-check + trap stub        | [x] `82862e5` |
-| f2  | i32 sub-byte load/store + i64/f32/f64 load/store      | [ ] **NEXT** |
-| f3  | memory.size, memory.grow                               | [ ]    |
+| f2  | sub-byte + i64/f32/f64 load/store (23 ops total)      | [x] `fb5da38` |
+| f3  | memory.size + memory.grow (need Runtime callout)      | [ ] **NEXT** |
 | g   | call / call_indirect + arg/return marshalling         | [ ]    |
 | h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ]   |
 
