@@ -24,10 +24,10 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
   `68843b0` (3-host green; mandatory audit fired; widget flipped
   6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `a76c647` — feat(p7) §9.7 / 7.3 sub-b3 (i32
-  rotl/rotr + 10 cmp ops + eqz). 553/553 unit / 3-host green.
-  Earlier this cycle: 7.3 sub-a (`0463d69`), b1 (`98554b4`),
-  b2 (`3e10901`); 7.0/7.1/7.2; D-006 + bench v1-class baseline.
+- **Last commit**: `de7a76c` — feat(p7) §9.7 / 7.3 sub-b4 (i32
+  clz + ctz). 557/557 unit / 3-host green. Earlier this cycle:
+  7.3 sub-a/b1/b2/b3; 7.0/7.1/7.2; D-006 + bench v1-class
+  baseline.
 - **Branch**: `zwasm-from-scratch`, pushed.
 - **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
   all report identical test-all numbers (39/55 diff matched, 44/55
@@ -49,7 +49,8 @@ remains `[ ]` until MVP op coverage closes — exit gated by
 | b1  | i32 binary ALU (add/sub/mul/and/or/xor) — W-variant   | [x] `98554b4` + `3e10901` |
 | b2  | i32 shifts (shl/shr_s/shr_u) — W-variant              | [x] `3e10901` |
 | b3  | i32 rotl/rotr + 10 cmp ops + eqz                      | [x] `a76c647` |
-| b4  | i32 clz/ctz/popcnt (CLZ direct; CTZ + POPCNT need fixup) | [ ] **NEXT** |
+| b4  | i32 clz + ctz                                          | [x] `de7a76c` |
+| b5  | i32 popcnt (V-register CNT/ADDV/UMOV/FMOV pattern)    | [ ] **NEXT** |
 | c   | local.get/set/tee + local frame slot allocation        | [ ]    |
 | d   | i64 + f32 + f64 const + ALU                           | [ ]    |
 | e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ]   |
