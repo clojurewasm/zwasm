@@ -227,6 +227,21 @@ pub fn encCmpImmW(rn: Xn, imm12: u12) u32 {
     return 0x7100001F | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5);
 }
 
+/// `CMP Xn, Xm` — alias for `SUBS XZR, Xn, Xm`. 64-bit form.
+/// Encoding: `1 11 01011 00 0 [Rm:5] 000000 [Rn:5] 11111`
+/// = `0xEB00001F` | (Rm<<16) | (Rn<<5).
+pub fn encCmpRegX(rn: Xn, rm: Xn) u32 {
+    return 0xEB00001F | (@as(u32, rm) << 16) | (@as(u32, rn) << 5);
+}
+
+/// `CMP Xn, #imm12` — alias for `SUBS XZR, Xn, #imm12, lsl #0`.
+/// 64-bit form. Encoding:
+///   `1 11 10001 0 0 [imm12:12] [Rn:5] 11111` = `0xF100001F`
+///   | (imm12<<10) | (Rn<<5).
+pub fn encCmpImmX(rn: Xn, imm12: u12) u32 {
+    return 0xF100001F | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5);
+}
+
 /// ARM condition codes (4-bit). The cond fed to `encCsetW` is
 /// the encoded condition under which the result becomes 0 (the
 /// CSINC alias inverts the user's "set if X" condition by XOR-1
@@ -464,6 +479,14 @@ test "encCmpImmW w1, #0 — `cmp w1, #0` → 0x7100003F" {
 test "encCmpImmW w1, #5 — `cmp w1, #5` → 0x7100143F" {
     // imm12=5 (<<10)=0x1400; rn=1 (<<5)=0x20.
     try testing.expectEqual(@as(u32, 0x7100143F), encCmpImmW(1, 5));
+}
+
+test "encCmpRegX x1, x2 — `cmp x1, x2` → 0xEB02003F" {
+    try testing.expectEqual(@as(u32, 0xEB02003F), encCmpRegX(1, 2));
+}
+
+test "encCmpImmX x1, #0 — `cmp x1, #0` → 0xF100003F" {
+    try testing.expectEqual(@as(u32, 0xF100003F), encCmpImmX(1, 0));
 }
 
 test "invertCond: eq <-> ne, lt <-> ge, lo <-> hs" {
