@@ -34,3 +34,6 @@ test/fuzz/corpus/
 
 # Generated headers (fetched by scripts/fetch_wasm_c_api.sh)
 include/wasm.h.upstream
+
+# Bench rolling per-commit results (history.yaml is committed; recent.yaml is local)
+bench/results/recent.yaml

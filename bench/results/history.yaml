@@ -1,0 +1,72 @@
+# bench/results/history.yaml — append-only per-phase-boundary
+# benchmark records.
+#
+# Migrated to this path 2026-05-04 per §9.6 / 6.H + ADR-0012 §7
+# (was `bench/baseline_v1_regression.yaml` + `bench/history.yaml`,
+# now superseded). Layout convention:
+#
+#   bench/results/recent.yaml   — gitignored, rolling per-commit
+#   bench/results/history.yaml  — committed, append-only, phase
+#                                 boundaries only
+#
+# Schema (per entry):
+#   - date: <ISO 8601 UTC>
+#     commit: <full SHA>
+#     arch: aarch64-darwin | x86_64-linux | x86_64-windows
+#     reason: "<phase-tag>: <one-line>"
+#     runs: <int>
+#     warmup: <int>
+#     benches:
+#       - name: <bench-name>
+#         median_ms: <float>      # preferred (P50)
+#         mean_ms: <float>        # legacy entries
+#         stddev_ms: <float>
+#         min_ms: <float>
+#         max_ms: <float>
+#
+# This file is append-only (ROADMAP §A9). Rows are added by
+# scripts/record_merge_bench.sh and (Phase 13+) the GitHub Actions
+# bench-record job. Never edit historical rows.
+#
+# **Status (2026-05-04 / Phase 6 reopen revert + 6.H migration)**:
+# the entry below is the pre-revert baseline preserved through
+# the Phase 6 reopen per ADR-0011 §3. Numbers are still trap-time,
+# not completion-time, so they document a frozen-in-time signal
+# rather than a runnable regression floor. The "Phase 6 close
+# baseline" entry (post-6.E completion-bucket lift) lands at
+# Phase 11+ when scripts/run_bench.sh + record_merge_bench.sh
+# finish their stub→hyperfine wiring (currently their TODO p11
+# markers).
+
+- date: 2026-05-03T04:39:31Z
+  commit: ba2f8cb916c65c341f7b4011aea5302394126bc8
+  arch: aarch64-darwin
+  reason: "Phase 6 reopen revert: pre-revert §9.6 / 6.4 trap-time baseline (preserved per ADR-0011 §3)"
+  runs: 5
+  warmup: 2
+  benches:
+    - name: c_integer_overflow
+      mean_ms: 10.91
+      stddev_ms: 1.29
+      min_ms: 9.30
+      max_ms: 12.40
+    - name: c_many_functions
+      mean_ms: 12.13
+      stddev_ms: 1.11
+      min_ms: 10.58
+      max_ms: 13.20
+    - name: c_control_flow
+      mean_ms: 11.42
+      stddev_ms: 1.39
+      min_ms: 9.16
+      max_ms: 12.64
+    - name: rust_compression
+      mean_ms: 24.10
+      stddev_ms: 12.83
+      min_ms: 16.51
+      max_ms: 46.82
+    - name: rust_enum_match
+      mean_ms: 15.95
+      stddev_ms: 1.13
+      min_ms: 14.33
+      max_ms: 17.41
