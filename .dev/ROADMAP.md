@@ -1469,7 +1469,7 @@ JIT.
 
 | #    | Description                                                                                              | Status         |
 |------|----------------------------------------------------------------------------------------------------------|----------------|
-| 7.0  | `src/jit/reg_class.zig` — define GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special / simd_base_special classes (ROADMAP §4.2 / W54-class day-1 slot fill). | [ ] (was [x] b336e78; reverted by ADR-0011) |
+| 7.0  | `src/jit/reg_class.zig` — define GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special / simd_base_special classes (ROADMAP §4.2 / W54-class day-1 slot fill). | [x] `e273149` (re-derived; b336e78 was reverted by ADR-0011) |
 | 7.1  | `src/jit/regalloc.zig` — greedy-local allocator; `regalloc.verify(zir)` post-condition runs after every alloc. | [ ] (was [x] a6bf0e7; reverted by ADR-0011) |
 | 7.2  | `src/jit_arm64/{inst,abi}.zig` — ARM64 instruction encoder + AAPCS64 calling convention layout.            | [ ] (was [x] 3c89984; reverted by ADR-0011) |
 | 7.3  | `src/jit_arm64/emit.zig` — ZIR → ARM64 emit pass producing function bodies.                                | [ ]            |

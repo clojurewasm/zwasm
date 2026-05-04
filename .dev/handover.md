@@ -24,29 +24,31 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
   `68843b0` (3-host green; mandatory audit fired; widget flipped
   6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `68843b0` — chore(p6) close §9.6 / 6.J. Earlier
-  same cycle: ADR-0014 Revision history backfill (`9a5b360` /
-  `73766b8` / `e4e7493`); §9.6 task table SHA backfill; audit
-  CHECKS.md §G.2 anchor `bash -c` wrapper.
+- **Last commit**: `e273149` — feat(p7) §9.7 / 7.0 `reg_class.zig`
+  re-derived (b336e78 was reverted by ADR-0011). 490/490 unit
+  tests / 3-host test-all green.
 - **Branch**: `zwasm-from-scratch`, pushed.
 - **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
   all report identical test-all numbers (39/55 diff matched, 44/55
   realworld run, 1158 wast / 72 misc-runtime smoke / 5 wasmtime-misc
   runtime / 50 realworld parse / 9+3 spec / 2 wasi).
 
-## Active task — §9.7 / 7.0 (`reg_class.zig` re-entry)
+## Active task — §9.7 / 7.1 (`regalloc.zig` greedy-local)
 
-Per ROADMAP §9.7 / 7.0: re-establish `src/jit/reg_class.zig` —
-define GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special /
-simd_base_special classes. The W54-class day-1-slot-fill rule
-(§4.2) is the reason this row exists — Phase 7 substrate cannot
-afford the post-hoc reg_class layering that broke v1 over W43〜W54.
+Per ROADMAP §9.7 / 7.1: `src/jit/regalloc.zig` — greedy-local
+allocator; `regalloc.verify(zir)` post-condition runs after every
+alloc. Consumes 7.0's `RegClassInfo` + (later) per-arch register
+inventories from 7.2.
 
-This row was previously `[x] b336e78` and reverted at the Phase 6
-reopen per ADR-0011. The reverted commit's tree is reachable via
-git; treat it as a starting reference, NOT a copy-paste source
-(`.claude/rules/no_copy_from_v1.md` applies even to reverted v2
-work).
+This row was previously `[x] a6bf0e7` and reverted at the Phase 6
+reopen per ADR-0011. Treat the reverted tree as design-space
+reference, not copy-paste source.
+
+Substrate now in place from 7.0:
+- `zir.RegClass` has all 6 named variants (3 standard + 3 special-cache).
+- `jit/reg_class.zig:info()` returns per-class invariants
+  (width / spill alignment / is_special_cache).
+- `comptime` length-match guards future variant drift.
 
 ## Phase 6 close — closing snapshot
 
