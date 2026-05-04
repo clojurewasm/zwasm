@@ -249,3 +249,24 @@ spill them because the body never modified them; AAPCS64
 ## Revision history
 
 - 2026-05-04 — Proposed. SHA: `<backfill at acceptance>`
+- 2026-05-04 — **Amendment**: X19 reserved as runtime_ptr save
+  register for multi-call functions. The original "Decision"
+  section specified the calling convention (X0 = runtime ptr)
+  but did not address X0 preservation across calls within a
+  body. Per AAPCS64, X0 is caller-saved — clobbered by every
+  BL/BLR. A body that calls 2+ other functions cannot pass
+  the inherited X0 to the second+ call (junk by then).
+  
+  **Decision**: prologue saves runtime ptr to X19 (added to
+  `reserved_invariant_gprs`); each call/call_indirect site
+  restores X0 from X19 before BL/BLR. X19 is callee-saved per
+  AAPCS64, so its value is preserved across calls without
+  explicit save/restore. Pool size drops from 10 to 9
+  (allocatable callee-saved becomes X20..X23).
+  
+  **Alternatives considered**: stack-save (1 STR in prologue +
+  1 LDR per call vs. 1 MOV in prologue + 1 MOV per call;
+  reg-save is cheaper and matches the register-resident
+  invariant pattern of the rest of ADR-0017 + ADR-0018).
+  
+  Sub-2d-ii implementation cycle. SHA: `<backfill at acceptance>`

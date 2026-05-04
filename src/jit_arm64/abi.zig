@@ -89,20 +89,31 @@ pub const callee_saved_gprs = [_]Xn{ 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
 ///   X26 — funcptr_base  (table 0 — array of u64 funcptrs)
 ///   X25 — table_size    (W25 = u32 count of entries)
 ///   X24 — typeidx_base  (parallel array of u32 typeidx values)
+///   X19 — runtime_ptr   (saved copy of *const JitRuntime; the
+///                        ADR-0017 sub-2d-ii amendment — used to
+///                        restore X0 before each BL/BLR since
+///                        AAPCS64 caller-saves X0)
 ///
-/// The function prologue LDRs these from `*X0` (= `*const
-/// JitRuntime`) once per call (ADR-0017). They are excluded from
-/// the regalloc pool by construction — `allocatable_gprs` is
-/// defined as the complement, so a future reorganisation that
-/// adds or removes a reserved reg automatically propagates.
-pub const reserved_invariant_gprs = [_]Xn{ 24, 25, 26, 27, 28 };
+/// The function prologue LDRs the first five from `*X0`, then
+/// MOVs X0 → X19 to preserve the runtime ptr across calls. They
+/// are excluded from the regalloc pool by construction —
+/// `allocatable_gprs` is defined as the complement, so a future
+/// reorganisation that adds or removes a reserved reg
+/// automatically propagates.
+pub const reserved_invariant_gprs = [_]Xn{ 19, 24, 25, 26, 27, 28 };
 
-/// Allocatable callee-saved GPRs = callee_saved_gprs minus
-/// reserved_invariant_gprs. Five regs (X19..X23). Kept as its
-/// own constant so `allocatable_gprs` reads cleanly and
+/// Mnemonic alias for the X19 = runtime_ptr_save reservation
+/// (per ADR-0017 sub-2d-ii). The prologue's `MOV X19, X0`
+/// stages the runtime ptr here; each call site emits `MOV X0,
+/// X19` before BL/BLR.
+pub const runtime_ptr_save_gpr: Xn = 19;
+
+/// Allocatable callee-saved GPRs = callee_saved_gprs minus the
+/// reserved subset. Four regs (X20..X23). Kept as its own
+/// constant so `allocatable_gprs` reads cleanly and
 /// `audit_scaffolding` can spot-check the reservation invariant
 /// (ADR-0018 §I).
-pub const allocatable_callee_saved_gprs = [_]Xn{ 19, 20, 21, 22, 23 };
+pub const allocatable_callee_saved_gprs = [_]Xn{ 20, 21, 22, 23 };
 
 pub const frame_pointer: Xn = 29;
 pub const link_register: Xn = 30;
@@ -210,14 +221,18 @@ test "callee_saved_gprs covers x19..x28" {
     try testing.expectEqual(@as(Xn, 28), callee_saved_gprs[9]);
 }
 
-test "allocatable_gprs covers allocatable-caller-scratch + allocatable-callee-saved (10 regs post-ADR-0018)" {
-    try testing.expectEqual(@as(usize, 10), allocatable_gprs.len);
+test "allocatable_gprs covers allocatable-caller-scratch + allocatable-callee-saved (9 regs post-ADR-0017 sub-2d-ii)" {
+    try testing.expectEqual(@as(usize, 9), allocatable_gprs.len);
 }
 
-test "reserved_invariant_gprs is exactly X24..X28 (5 regs)" {
-    try testing.expectEqual(@as(usize, 5), reserved_invariant_gprs.len);
-    const expected = [_]Xn{ 24, 25, 26, 27, 28 };
+test "reserved_invariant_gprs is exactly X19, X24..X28 (6 regs after sub-2d-ii)" {
+    try testing.expectEqual(@as(usize, 6), reserved_invariant_gprs.len);
+    const expected = [_]Xn{ 19, 24, 25, 26, 27, 28 };
     for (reserved_invariant_gprs, expected) |a, e| try testing.expectEqual(e, a);
+}
+
+test "runtime_ptr_save_gpr alias resolves to X19" {
+    try testing.expectEqual(@as(Xn, 19), runtime_ptr_save_gpr);
 }
 
 test "spill_stage_gprs is exactly X14, X15 (2 regs for binary-op spill staging)" {
@@ -241,16 +256,16 @@ test "slotToReg: slot 4 maps to x13 (last allocatable caller-scratch; X14/X15 re
     try testing.expectEqual(@as(Xn, 13), slotToReg(4).?);
 }
 
-test "slotToReg: slot 5 maps to x19 (first allocatable callee-saved; caller-scratch exhausts at slot 4)" {
-    try testing.expectEqual(@as(Xn, 19), slotToReg(5).?);
+test "slotToReg: slot 5 maps to x20 (first allocatable callee-saved; X19 now reserved as runtime_ptr_save)" {
+    try testing.expectEqual(@as(Xn, 20), slotToReg(5).?);
 }
 
-test "slotToReg: slot 9 maps to x23 (last allocatable callee-saved before reserved invariants)" {
-    try testing.expectEqual(@as(Xn, 23), slotToReg(9).?);
+test "slotToReg: slot 8 maps to x23 (last allocatable callee-saved before reserved invariants)" {
+    try testing.expectEqual(@as(Xn, 23), slotToReg(8).?);
 }
 
-test "slotToReg: slot 10 returns null (pool exhausted; spill territory per ADR-0018)" {
-    try testing.expect(slotToReg(10) == null);
+test "slotToReg: slot 9 returns null (pool exhausted; spill territory)" {
+    try testing.expect(slotToReg(9) == null);
 }
 
 test "slotToReg: out-of-pool slot returns null (cue to spill)" {

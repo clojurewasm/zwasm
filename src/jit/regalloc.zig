@@ -80,13 +80,14 @@ pub const Allocation = struct {
     /// `Slot.reg`; ids `>= max_reg_slots` resolve to
     /// `Slot.spill` (per ADR-0018).
     ///
-    /// Default = 10 (ARM64 GPR allocatable pool: `caller_saved
-    /// _scratch (X9..X15) + allocatable_callee_saved (X19..X23)`
-    /// minus `spill_stage_gprs` X14+X15 reserved for spill
-    /// load/store staging). Per-class regalloc is a Phase 8
+    /// Default = 9 (ARM64 GPR allocatable pool post-ADR-0017
+    /// sub-2d-ii: caller-scratch X9..X13 (5) + callee-saved
+    /// X20..X23 (4) = 9 regs; X14/X15 reserved as spill stages,
+    /// X19 reserved as runtime_ptr save, X24..X28 reserved as
+    /// runtime invariants). Per-class regalloc is a Phase 8
     /// follow-up; today FP-class vregs use the same threshold,
     /// which under-utilises the V-register pool but is correct.
-    max_reg_slots: u8 = 10,
+    max_reg_slots: u8 = 9,
 
     /// Resolve a vreg's home: register slot or spill offset.
     pub fn slot(self: Allocation, vreg: usize) Slot {
