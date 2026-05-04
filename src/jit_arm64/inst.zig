@@ -113,6 +113,31 @@ pub fn encStrImmW(rt: Xn, rn: Xn, byte_offset: u14) u32 {
     return 0xB9000000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rt);
 }
 
+/// `LDR Wt, [Xn, Xm]` — 32-bit load with X-register offset
+/// (no shift, full 64-bit add). Verified via clang assembler.
+/// Encoding base 0xB8606800.
+pub fn encLdrWReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xB8606800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
+/// `STR Wt, [Xn, Xm]` — 32-bit store with X-register offset.
+/// Encoding base 0xB8206800.
+pub fn encStrWReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xB8206800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
+/// `LDR Xt, [Xn, Xm]` — 64-bit load with X-register offset.
+/// Encoding base 0xF8606800.
+pub fn encLdrXReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xF8606800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
+/// `STR Xt, [Xn, Xm]` — 64-bit store with X-register offset.
+/// Encoding base 0xF8206800.
+pub fn encStrXReg(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xF8206800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
 /// `BR Xn` — unconditional branch to register.
 /// Encoding: `1101 0110 0001 1111 0000 00 [Rn:5] 00000`
 /// = `0xD61F0000` | (rn << 5).
@@ -598,6 +623,19 @@ test "encStrImmW w9, [sp, #0] — `str w9, [sp]` → 0xB90003E9" {
 test "encLdrImmW w10, [sp, #8] — `ldr w10, [sp, #8]` → 0xB9400BEA" {
     // imm12 = 8>>2 = 2; <<10 = 0x800.
     try testing.expectEqual(@as(u32, 0xB9400BEA), encLdrImmW(10, 31, 8));
+}
+
+test "encLdrWReg w0, [x28, x16] — `ldr w0, [x28, x16]` → 0xB8706B80" {
+    try testing.expectEqual(@as(u32, 0xB8706B80), encLdrWReg(0, 28, 16));
+}
+test "encStrWReg w0, [x28, x16] — `str w0, [x28, x16]` → 0xB8306B80" {
+    try testing.expectEqual(@as(u32, 0xB8306B80), encStrWReg(0, 28, 16));
+}
+test "encLdrXReg x0, [x28, x16] — `ldr x0, [x28, x16]` → 0xF8706B80" {
+    try testing.expectEqual(@as(u32, 0xF8706B80), encLdrXReg(0, 28, 16));
+}
+test "encStrXReg x0, [x28, x16] — `str x0, [x28, x16]` → 0xF8306B80" {
+    try testing.expectEqual(@as(u32, 0xF8306B80), encStrXReg(0, 28, 16));
 }
 
 test "encBr x16 — `br x16` → 0xD61F0200" {

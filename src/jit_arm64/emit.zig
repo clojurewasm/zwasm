@@ -155,6 +155,29 @@ pub fn compile(
         labels.deinit(allocator);
     }
 
+    // ============================================================
+    // Memory-bounds trap fixup list (sub-f1).
+    //
+    // Caller-supplied invariants for memory ops in this skeleton:
+    //   X28 = vm_base    (memory_base pointer)
+    //   X27 = mem_limit  (size in bytes)
+    // The caller arranges these before invoking the JIT body.
+    // Phase-7 follow-up wires Runtime → these regs structurally
+    // (D-014 `Runtime.io` injection point dissolves there).
+    //
+    // Each i32.load / i32.store / etc. emits:
+    //   ORR W16, WZR, W_addr   ; zero-extend addr to X16
+    //   ADD X16, X16, #imm     ; effective addr
+    //   CMP X16, X27           ; bounds
+    //   B.HS  trap_stub        ; branch on unsigned >= (placeholder + fixup)
+    //   LDR/STR W_dest, [X28, X16]
+    //
+    // The B.HS fixup byte_offset is appended here. At function-final
+    // `end`, after the regular epilogue+RET, a trap stub is emitted
+    // and all bounds_fixups are patched to point at it.
+    var bounds_fixups: std.ArrayList(u32) = .empty;
+    defer bounds_fixups.deinit(allocator);
+
     for (func.instrs.items, 0..) |ins, pc| {
         _ = pc;
         switch (ins.op) {
@@ -836,6 +859,55 @@ pub fn compile(
                     try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
                 }
             },
+            .@"i32.load",
+            .@"i32.store",
+            => {
+                // Memory access pattern (sub-f1):
+                //   ORR W16, WZR, W_addr   ; zero-extend
+                //   ADD X16, X16, #offset  ; effective addr
+                //   CMP X16, X27            ; vs mem_limit
+                //   B.HS trap_stub         ; placeholder + fixup
+                //   LDR/STR W, [X28, X16]
+                const is_store = ins.op == .@"i32.store";
+                const ip0: inst.Xn = 16;
+                const offset_imm = ins.payload;
+                if (offset_imm > 0xFFF) return Error.SlotOverflow;
+
+                if (is_store) {
+                    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                    const val_vreg = pushed_vregs.pop().?;
+                    const addr_vreg = pushed_vregs.pop().?;
+                    const w_addr = abi.slotToReg(alloc.slots[addr_vreg]) orelse return Error.SlotOverflow;
+                    const w_val = abi.slotToReg(alloc.slots[val_vreg]) orelse return Error.SlotOverflow;
+                    try writeU32(allocator, &buf, inst.encOrrRegW(ip0, 31, w_addr));
+                    if (offset_imm != 0) {
+                        try writeU32(allocator, &buf, inst.encAddImm12(ip0, ip0, @intCast(offset_imm)));
+                    }
+                    try writeU32(allocator, &buf, inst.encCmpRegX(ip0, 27));
+                    const fixup_at: u32 = @intCast(buf.items.len);
+                    try writeU32(allocator, &buf, inst.encBCond(.hs, 0));
+                    try bounds_fixups.append(allocator, fixup_at);
+                    try writeU32(allocator, &buf, inst.encStrWReg(w_val, 28, ip0));
+                } else {
+                    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                    const addr_vreg = pushed_vregs.pop().?;
+                    const result = next_vreg;
+                    next_vreg += 1;
+                    if (result >= alloc.slots.len) return Error.SlotOverflow;
+                    const w_addr = abi.slotToReg(alloc.slots[addr_vreg]) orelse return Error.SlotOverflow;
+                    const w_dest = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                    try writeU32(allocator, &buf, inst.encOrrRegW(ip0, 31, w_addr));
+                    if (offset_imm != 0) {
+                        try writeU32(allocator, &buf, inst.encAddImm12(ip0, ip0, @intCast(offset_imm)));
+                    }
+                    try writeU32(allocator, &buf, inst.encCmpRegX(ip0, 27));
+                    const fixup_at: u32 = @intCast(buf.items.len);
+                    try writeU32(allocator, &buf, inst.encBCond(.hs, 0));
+                    try bounds_fixups.append(allocator, fixup_at);
+                    try writeU32(allocator, &buf, inst.encLdrWReg(w_dest, 28, ip0));
+                    try pushed_vregs.append(allocator, result);
+                }
+            },
             .@"br_table" => {
                 // Pop index. Then linear CMP+B.NE+B chain for
                 // each in-range target, plus an unconditional B
@@ -1034,6 +1106,30 @@ pub fn compile(
                 }
                 try writeU32(allocator, &buf, encLdpFpLrPostIdx());
                 try writeU32(allocator, &buf, inst.encRet(abi.link_register));
+
+                // Trap stub (sub-f1): emitted after the regular RET
+                // when the function had any bounds-check fixups.
+                // Each fixup B.HS gets patched to point here.
+                //
+                // Stub: MOVZ X0, #1 (trap indicator) ; epilogue ; RET.
+                if (bounds_fixups.items.len > 0) {
+                    const trap_byte: u32 = @intCast(buf.items.len);
+                    try writeU32(allocator, &buf, inst.encMovzImm16(0, 1));
+                    if (frame_bytes > 0) {
+                        try writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
+                    }
+                    try writeU32(allocator, &buf, encLdpFpLrPostIdx());
+                    try writeU32(allocator, &buf, inst.encRet(abi.link_register));
+                    for (bounds_fixups.items) |fx_byte| {
+                        const disp_words: i32 = @as(i32, @intCast(trap_byte)) -
+                            @as(i32, @intCast(fx_byte));
+                        const orig = std.mem.readInt(u32, buf.items[fx_byte..][0..4], .little);
+                        // Recover cond from lower 4 bits of B.cond placeholder.
+                        const cond: inst.Cond = @enumFromInt(@as(u4, @intCast(orig & 0xF)));
+                        const new_word = inst.encBCond(cond, @divExact(disp_words, 4));
+                        std.mem.writeInt(u32, buf.items[fx_byte..][0..4], new_word, .little);
+                    }
+                }
                 break;
             },
             else => return Error.UnsupportedOp,
@@ -1998,6 +2094,77 @@ test "compile: if/else/end — CBZ skips to else; B-uncond skips to end" {
     const b   = std.mem.readInt(u32, out.bytes[20..24], .little);
     try testing.expectEqual(@as(u32, inst.encCbzW(9, 3)), cbz);
     try testing.expectEqual(@as(u32, inst.encB(2)),       b);
+}
+
+test "compile: i32.load — emits zero-extend + bounds-check + LDR W reg-offset + trap stub" {
+    // (i32.const 8) (i32.load offset=4) end
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 8 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.load", .payload = 4 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },  // addr
+        .{ .def_pc = 1, .last_use_pc = 2 },  // load result
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP/MOVZ-W9 (12 bytes), the load sequence:
+    //  [12]  ORR W16, WZR, W9         (zero-extend addr)
+    //  [16]  ADD X16, X16, #4          (effective addr)
+    //  [20]  CMP X16, X27              (bounds)
+    //  [24]  B.HS  trap (placeholder + fixup)
+    //  [28]  LDR W9, [X28, X16]
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(16, 31, 9)),  std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encAddImm12(16, 16, 4)), std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(16, 27)),     std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrWReg(9, 28, 16)),  std.mem.readInt(u32, out.bytes[28..32], .little));
+    // Trap stub starts AFTER MOV X0/LDP/RET (3 u32s = 12 bytes after byte 32):
+    //  [32] MOV X0, X9
+    //  [36] LDP
+    //  [40] RET
+    //  [44] MOVZ X0, #1   (trap stub start)
+    //  [48] LDP
+    //  [52] RET
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(0, 1)),     std.mem.readInt(u32, out.bytes[44..48], .little));
+    // B.HS placeholder at [24] should be patched to point at byte 44.
+    // disp = (44 - 24) / 4 = 5.
+    const bhs_patched = std.mem.readInt(u32, out.bytes[24..28], .little);
+    try testing.expectEqual(@as(u32, inst.encBCond(.hs, 5)),       bhs_patched);
+}
+
+test "compile: i32.store — emits bounds-check + STR W reg-offset" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 8 });   // addr
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });  // value
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.store", .payload = 0 });   // offset = 0
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // Stream:
+    //  [0]  STP / MOV-FP                      (8 bytes)
+    //  [8]  MOVZ W9 #8                         (addr)
+    // [12]  MOVZ W10 #42                       (value)
+    // [16]  ORR W16, WZR, W9                   (zero-extend addr)
+    // (offset == 0, no ADD)
+    // [20]  CMP X16, X27
+    // [24]  B.HS trap (fixup)
+    // [28]  STR W10, [X28, X16]
+    // [32]  LDP / RET / trap stub ...
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(16, 31, 9)), std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(16, 27)),    std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encStrWReg(10, 28, 16)), std.mem.readInt(u32, out.bytes[28..32], .little));
 }
 
 test "compile: br_table — emits CMP+B.NE+B chain + default B" {
