@@ -499,6 +499,45 @@ pub fn compile(
                 try writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
+            // sub-h3b: Wasm 1.0 trapping trunc, f64 source.
+            // Mirror of h3a but with f64 bounds (8-byte constants
+            // staged via emitConstU64 through X16) and FCMP/FCVTZ
+            // D-form. The bounds use exact f64 representations
+            // (i32 boundary INT_MIN-1 IS representable in f64;
+            // i64 boundary -2^63 IS representable so uses .lt
+            // strict instead of .le).
+            .@"i32.trunc_f64_s",
+            .@"i32.trunc_f64_u",
+            .@"i64.trunc_f64_s",
+            .@"i64.trunc_f64_u",
+            => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const dest = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+
+                const Bounds = struct { lo: u64, hi: u64, lo_cmp: inst.Cond };
+                const b: Bounds = switch (ins.op) {
+                    .@"i32.trunc_f64_s" => .{ .lo = 0xC1E0000000200000, .hi = 0x41E0000000000000, .lo_cmp = .le }, // -(2^31+1), 2^31
+                    .@"i32.trunc_f64_u" => .{ .lo = 0xBFF0000000000000, .hi = 0x41F0000000000000, .lo_cmp = .le }, // -1.0, 2^32
+                    .@"i64.trunc_f64_s" => .{ .lo = 0xC3E0000000000000, .hi = 0x43E0000000000000, .lo_cmp = .lt }, // -2^63 (.lt strict), 2^63
+                    .@"i64.trunc_f64_u" => .{ .lo = 0xBFF0000000000000, .hi = 0x43F0000000000000, .lo_cmp = .le }, // -1.0, 2^64
+                    else => unreachable,
+                };
+                try emitTrunc64BoundsCheck(allocator, &buf, vn, b.lo, b.hi, b.lo_cmp, &bounds_fixups);
+                const word: u32 = switch (ins.op) {
+                    .@"i32.trunc_f64_s" => inst.encFcvtzsWFromD(dest, vn),
+                    .@"i32.trunc_f64_u" => inst.encFcvtzuWFromD(dest, vn),
+                    .@"i64.trunc_f64_s" => inst.encFcvtzsXFromD(dest, vn),
+                    .@"i64.trunc_f64_u" => inst.encFcvtzuXFromD(dest, vn),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
             // sub-h5: Wasm 2.0 sat_trunc — float→int with saturation.
             // ARM64 FCVTZS/FCVTZU natively saturate on overflow and
             // produce 0 for NaN, matching Wasm 2.0 spec exactly.
@@ -1587,6 +1626,43 @@ fn emitTrunc32BoundsCheck(
     }
 }
 
+/// f64 counterpart of `emitTrunc32BoundsCheck` — same shape but
+/// uses `emitConstU64` (MOVZ + up to 3 MOVKs) staged through X16
+/// then FMOV D31, X16 + FCMP D-form. Used by sub-h3b's f64-source
+/// trapping trunc.
+fn emitTrunc64BoundsCheck(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    src_v: inst.Vn,
+    lower_bits: u64,
+    upper_bits: u64,
+    lower_cmp: inst.Cond,
+    bounds_fixups: *std.ArrayList(u32),
+) !void {
+    try writeU32(allocator, buf, inst.encFCmpD(src_v, src_v));
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try writeU32(allocator, buf, inst.encBCond(.vs, 0));
+        try bounds_fixups.append(allocator, fixup_at);
+    }
+    try emitConstU64(allocator, buf, 16, lower_bits);
+    try writeU32(allocator, buf, inst.encFmovDtoFromX(31, 16));
+    try writeU32(allocator, buf, inst.encFCmpD(src_v, 31));
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try writeU32(allocator, buf, inst.encBCond(lower_cmp, 0));
+        try bounds_fixups.append(allocator, fixup_at);
+    }
+    try emitConstU64(allocator, buf, 16, upper_bits);
+    try writeU32(allocator, buf, inst.encFmovDtoFromX(31, 16));
+    try writeU32(allocator, buf, inst.encFCmpD(src_v, 31));
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try writeU32(allocator, buf, inst.encBCond(.ge, 0));
+        try bounds_fixups.append(allocator, fixup_at);
+    }
+}
+
 /// Marshal call arguments per AAPCS64: pop N arg vregs from
 /// `pushed_vregs` (in REVERSE — top of stack is the rightmost arg),
 /// then emit MOV/FMOV from each arg's home register into W0..W7
@@ -1722,6 +1798,22 @@ fn emitConstU32(allocator: Allocator, buf: *std.ArrayList(u8), xd: Xn, value: u3
     }
 }
 
+/// Emit a 64-bit constant into Xd via MOVZ (hw=0) + up to 3
+/// MOVKs at hw=1,2,3. Halfwords that are zero are skipped after
+/// the initial MOVZ. Used by sub-h3b's f64 trapping-trunc
+/// bounds (8-byte hex constants like 0xC3E0000000000000 for
+/// -2^63), staged through X16 then FMOV D31, X16.
+fn emitConstU64(allocator: Allocator, buf: *std.ArrayList(u8), xd: Xn, value: u64) !void {
+    const hw0: u16 = @truncate(value & 0xFFFF);
+    const hw1: u16 = @truncate((value >> 16) & 0xFFFF);
+    const hw2: u16 = @truncate((value >> 32) & 0xFFFF);
+    const hw3: u16 = @truncate((value >> 48) & 0xFFFF);
+    try writeU32(allocator, buf, inst.encMovzImm16(xd, hw0));
+    if (hw1 != 0) try writeU32(allocator, buf, inst.encMovkImm16(xd, hw1, 1));
+    if (hw2 != 0) try writeU32(allocator, buf, inst.encMovkImm16(xd, hw2, 2));
+    if (hw3 != 0) try writeU32(allocator, buf, inst.encMovkImm16(xd, hw3, 3));
+}
+
 // ============================================================
 // AAPCS64 prologue / epilogue micro-encodings
 //
@@ -1849,12 +1941,13 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
-    // i32.trunc_f64_s (f64-source trapping trunc) is still
-    // pending sub-h3b.
-    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    // With sub-h block fully closed, the remaining unsupported MVP
+    // ops live in feature/ext_2_0 (e.g. memory.copy). Use one as
+    // the probe.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_f64_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"memory.copy" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty, &.{}, &.{}));
@@ -3581,6 +3674,39 @@ test "compile: i32.trunc_f32_s emits NaN+lower+upper checks then FCVTZS W,S" {
     try testing.expect(found_fcmp_self);
     try testing.expectEqual(@as(u32, 1), fcmp_self_count);  // NaN check is single FCMP self
     try testing.expectEqual(@as(u32, 2), fcmp_v31_count);  // 2 bound checks
+    try testing.expect(found_fcvtzs);
+}
+
+test "compile: i32.trunc_f64_s emits NaN+f64-lower+f64-upper checks then FCVTZS W,D" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40080000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_f64_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Walk the byte stream looking for the D-form NaN check + 2
+    // bounds compares + final FCVTZS.
+    var fcmp_self_count: u32 = 0;
+    var fcmp_v31_count: u32 = 0;
+    var found_fcvtzs = false;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        const w = std.mem.readInt(u32, out.bytes[p..][0..4], .little);
+        if (w == inst.encFCmpD(16, 16)) fcmp_self_count += 1;
+        if (w == inst.encFCmpD(16, 31)) fcmp_v31_count += 1;
+        if (w == inst.encFcvtzsWFromD(9, 16)) found_fcvtzs = true;
+    }
+    try testing.expectEqual(@as(u32, 1), fcmp_self_count);
+    try testing.expectEqual(@as(u32, 2), fcmp_v31_count);
     try testing.expect(found_fcvtzs);
 }
 
