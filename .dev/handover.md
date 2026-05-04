@@ -9,83 +9,72 @@
 ## Next files to read on a cold start (in order)
 
 1. `.dev/handover.md` (this file).
-2. `.dev/decisions/0021_phase7_emit_split_gate.md` — §9.7 / 7.5d
-   sub-gate (emit.zig split + byte-offset abstraction; hard gate
-   before 7.6 x86_64 opens). Operationally amends ADR-0019.
-3. `.dev/decisions/0019_x86_64_in_phase7.md` — Phase 7 covers ARM64
+2. `.dev/decisions/0023_src_directory_structure_normalization.md` —
+   src/ 構造の最終形と命名規約。**次セッションの最初の active task**
+   (§9.7 / 7.5e) はここから読む。実装順は §7 を参照。
+3. `.dev/decisions/0021_phase7_emit_split_gate.md` — §9.7 / 7.5d
+   sub-gate。emit.zig 分割は ADR-0023 完了後に新パス
+   `engine/codegen/arm64/` 上で実施。
+4. `.dev/decisions/0019_x86_64_in_phase7.md` — Phase 7 covers ARM64
    + x86_64 baseline; Phase 8 redefined as optimisation foundation.
-4. `.dev/decisions/0017_jit_runtime_abi.md` — JitRuntime ABI (X0
-   = `*const JitRuntime`); D-014 dissolved.
-5. `.dev/decisions/0018_regalloc_reserved_set_and_spill.md` —
-   pool/reserved separation + first-class spill.
-6. `.dev/decisions/0020_edge_case_test_culture.md` — boundary
-   fixture culture + rule + audit hooks.
-7. `.dev/decisions/0022_post_session_retrospective.md` — 2026-05-04
-   regret triage + emit-split sub-gate; process improvements.
-8. `.claude/skills/meta_audit/SKILL.md` — periodic deliberate-
-   skepticism audit; user-gated; trigger conditions in
-   `.claude/skills/audit_scaffolding/CHECKS.md §J`.
-9. `.dev/debt.md` — discharge `Status: now` rows before active task.
-10. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
+5. `.dev/decisions/0017_jit_runtime_abi.md` — JitRuntime ABI.
+6. `.dev/decisions/0018_regalloc_reserved_set_and_spill.md`.
+7. `.dev/decisions/0020_edge_case_test_culture.md`.
+8. `.dev/decisions/0022_post_session_retrospective.md` — regret triage 記録。
+9. `.claude/skills/meta_audit/SKILL.md` — 周期的メタ監査 skill。
+10. `.dev/debt.md` — discharge `Status: now` rows before active task.
+11. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
 
-## Current state — design + refactor cycle CLOSED
+## Current state — Phase 7 IN-PROGRESS
 
-- **Phase**: Phase 7 IN-PROGRESS, scope per ADR-0019 + ADR-0021
-  (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12 plus
-  hard-gate row 7.5d).
-- **Last session**: 2026-05-04 design + refactor + rules cycle
-  (not /continue). User invoked discussion-first. Outputs:
-  ADR-0021 + ROADMAP §9.7 row 7.5d + §15 bullet, `bug_fix_survey`
-  rule, 5 lessons (regrets #1/2/3/7/10), 2 amendments to
-  `edge_case_testing.md` (regrets #4/6), `src/jit_arm64/prologue.zig`
-  helper + 4 demonstration sites (~128 sites bulk-migration sequenced
-  under 7.5d sub-b), ADR-0022 retrospective.
-- **Branch**: `zwasm-from-scratch`, **commits LOCAL** (not pushed
-  — this session was not /continue; push requires user approval).
+- **Active task**: **§9.7 / 7.5e** — `src/` directory structure
+  normalization per ADR-0023. **Hard gate before 7.5d sub-b
+  (emit.zig 9-module split)**, which will land on the new path
+  `engine/codegen/arm64/` produced by 7.5e.
+- **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
+- **Branch**: `zwasm-from-scratch`、最新は ADR-0023 ランディング後の
+  state (next session で確認)。
 
-## Active plan — implementation cycles after ADR acceptance
+## Active plan — implementation cycles
 
 | # | Step | ADR | Status |
 |---|------|-----|--------|
 | 1 | regalloc pool + first-class spill | 0018 | **DONE** |
 | 2 | JitRuntime struct + ABI | 0017 | **DONE** |
 | 3 | Edge-case test culture | 0020 | **DONE** |
-| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT | — | 7.5a..7.5c-vi DONE; **7.5d sub-a PARTIAL** (`prologue.zig` helper landed + 4 demonstration sites + rule); 7.5d sub-b NEXT (emit.zig split per `.dev/lessons/2026-05-04-emit-monolith-cost.md`) — the ~128-site bulk relativisation runs alongside the split per ADR-0021 Revision history; 7.5c-vii (broader entry sigs) after 7.5d sub-b closes |
-| 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After 7.5d closes (HARD GATE per ADR-0021) |
-| 6 | §9.7 / 7.9–7.12: realworld + three-way differential + audit | — | After Step 5 |
+| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT | — | 7.5a..7.5c-vi DONE; 7.5d sub-a PARTIAL (`prologue.zig` helper + 4 demo sites). Bulk migration deferred to 7.5e (per ADR-0023 §7) |
+| 5 | **§9.7 / 7.5e — src/ structural normalization (ADR-0023)** | **0023** | **NEXT — active task**。実装順は ADR-0023 §7 の 18 項目。各 commit ごとに 3-host gate |
+| 6 | §9.7 / 7.5d sub-b — emit.zig 9-module split | 0021 | After 7.5e。新パス `engine/codegen/arm64/` 上で実施 |
+| 7 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After 7.5d sub-b (HARD GATE per ADR-0021) |
+| 8 | §9.7 / 7.9–7.12: realworld + three-way differential + audit | — | After Step 7 |
 
-## Implementation notes for the next cycle (7.5d sub-b = emit.zig split)
+## Implementation notes for the next cycle (Step 5 = ADR-0023)
 
-- See `.dev/lessons/2026-05-04-emit-monolith-cost.md` for the
-  proposed 9-module split target.
-- Survey-derived split (this session): emit.zig orchestrator
-  ≤ 1000 LOC; ops_const / ops_alu / ops_memory / ops_control
-  (with D-027 Label.merge_top_vreg) / ops_call (≤ 300 LOC each);
-  bounds_check / register / emit_helpers / label (≤ 120 LOC
-  each).
-- Test suite (1870 LOC) stays in emit.zig in this cycle; if the
-  orchestrator + tests blow past 2000 LOC, move tests to
-  `test/unit/jit_arm64/emit_test.zig`.
-- Mutable state pattern: `&buf`, `&pushed_vregs`, `&labels`,
-  `&bounds_fixups`, `&call_fixups`, `&next_vreg` thread through
-  per-handler params; emit.zig orchestrates.
+実装順は ADR-0023 §7 の 18 項目に従う。要点:
+
+- 1 項目 = 1 commit ではない、依存順は固定だが粒度は実施判断
+- 各 commit ごとに 3-host gate (Mac + OrbStack + windowsmini SSH)
+  通過。big-bang 厳禁
+- 重い項目: c_api/instance.zig 2216 LOC 分割 (item 5)、`runtime/`
+  全面再構成 (items 2-6)、`engine/` 新設 (item 10)、`api/` rename
+  (item 11)
+- 最後に emit.zig を新パスへ単純 mv (item 16 の前段)
+- ROADMAP §4.1 / §4.3 / §4.4 / §4.5 / §4.7 / §4.10 / §5 / §A2 は
+  ADR-0023 ランディング commit で同期済 (再編集不要)
+- 関連 ADR (0017 / 0018 / 0019 / 0021) の path citation 更新は item 17
 
 ## Open structural debt
 
-- **D-022** Diagnostic M3 / trace ringbuffer — sub-f trap surfaces
-  exist; revisit after Phase 7 close.
-- **D-026** env-stub host-func wiring — 4 embenchen + 1
-  externref-segment skip-ADR'd; cross-module dispatch.
-- emit.zig at 3989 LOC — §A2 violation surfaced this session;
-  ADR-0021 row 7.5d-b discharges in next cycle.
-- 3-host JIT asymmetry — Step 5 dissolves via ADR-0019.
+- **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
+- **D-026** env-stub host-func wiring — cross-module dispatch。
+- emit.zig 4008 LOC 状態は 7.5e 中も継続、7.5d sub-b で discharge。
+- c_api/instance.zig 2216 LOC §A2 違反 — 7.5e で discharge (ADR-0023 §7 item 5)。
+- 3-host JIT asymmetry — Step 7 dissolves via ADR-0019。
 
 ## Recently closed (per `git log`)
 
-- §9.7 / 7.3 op coverage CLOSED (111 ops total).
-- §9.7 / 7.4a/b/c JIT runtime infra.
-- ADRs 0017/0018/0019/0020 drafted, accepted.
-- ADR-0021 sub-gate inserted; `src/jit_arm64/prologue.zig` helper
-  + 4 demonstration test sites; ~128-site bulk migration sequenced
-  under 7.5d sub-b alongside the emit.zig split.
-- ADR-0022 retrospective recorded.
+- §9.7 / 7.3 op coverage (111 ops)、7.4a/b/c JIT runtime infra。
+- ADRs 0017 / 0018 / 0019 / 0020 drafted + accepted。
+- ADR-0021 sub-gate inserted; `prologue.zig` helper + 4 demo sites。
+- ADR-0022 retrospective recorded。
+- **ADR-0023 src/ structural normalization** accepted; ROADMAP §4.1/§4.3/§4.4/§4.5/§4.7/§4.10/§5/§A2 amended in same commit。

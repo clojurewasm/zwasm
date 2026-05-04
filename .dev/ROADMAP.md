@@ -209,31 +209,32 @@ These do not change between phases. Changing one requires an ADR.
 ### 4.1 Four-zone layered (absolute dependency direction)
 
 ```
-Zone 3: src/cli/ + src/main.zig         -- CLI entry, argparse, subcommand
-        src/c_api/                       -- C ABI export layer (wasm.h / wasi.h / zwasm.h)
-                                         ↓ may import anything below
+Zone 3: src/cli/ + src/main.zig          -- CLI entry, subcommand
+        src/api/                          -- C ABI export layer (wasm.h / wasi.h / zwasm.h impl)
+                                          ↓ may import anything below
 
-Zone 2: src/interp/                      -- Threaded-code interpreter
-        src/jit/                         -- Shared JIT (regalloc, reg_class, prologue, emit_common, aot)
-        src/jit_arm64/                   -- ARM64-specific emit
-        src/jit_x86/                     -- x86-specific emit
-        src/wasi/                        -- WASI 0.1 implementation
-                                         ↓ may import Zone 0+1
+Zone 2: src/engine/                       -- runner + interp loop + codegen (shared / arm64 / x86_64 / aot)
+        src/feature/                      -- VM-capability extensions: simd_128 / gc / exception_handling / tail_call / function_references / memory64 / threads (reserved) / stack_switching (reserved) / component (reserved)
+        src/instruction/                  -- Stateless opcode impls grouped by Wasm version (wasm_1_0 / wasm_2_0 / wasm_3_0)
+        src/wasi/                         -- WASI preview1 implementation
+        src/diagnostic/                   -- Cross-cutting: Diagnostic + trace
+                                          ↓ may import Zone 0+1
 
-Zone 1: src/ir/                          -- ZIR + verifier + analysis (loop_info, liveness)
-        src/runtime/                     -- Module / Instance / Store / Memory / Trap / Float / Value / GC
-        src/frontend/                    -- Parser / Validator / Lowerer (wasm body → ZIR)
-        src/feature/                     -- Per-spec-feature modules (registered into dispatch tables)
-                                         ↓ may import Zone 0 only
+Zone 1: src/ir/                           -- ZIR + dispatch table type + lower + verifier + analysis (loop_info / liveness / const_prop)
+        src/runtime/                      -- WASM Spec §4.2 Runtime Structure: Runtime / Engine / Store / Module / Value / Trap / Frame + instance/{instance, memory, table, global, func, element, data}
+        src/parse/                        -- Parser + sections + ctx (wasm bytes → structured Module)
+        src/validate/                     -- Validator (type stack + control stack)
+                                          ↓ may import Zone 0 only
 
-Zone 0: src/util/                        -- LEB128, duration, hash, sort
-        src/platform/                    -- Linux / Darwin / Windows / POSIX abstractions
-                                         ↑ imports nothing above
+Zone 0: src/support/                      -- dbg, leb128 (minimal specific helpers)
+        src/platform/                     -- jit_mem, signal, fs, time (OS abstractions)
+                                          ↑ imports nothing above
 ```
 
 Enforcement: `scripts/zone_check.sh --gate` parses every `@import`
-and rejects upward-direction violations. Cross-arch (`jit_arm64` ↔
-`jit_x86`) imports are also rejected (A3).
+and rejects upward-direction violations. Cross-arch
+(`engine/codegen/arm64` ↔ `engine/codegen/x86_64`) imports are
+also rejected (A3).
 
 When Zone 0/1 needs to call Zone 2+ (rare), use the **VTable
 pattern**: the lower zone declares the type, the upper zone installs
@@ -657,35 +658,41 @@ CI runs `verify()` across the spec corpus.
 ```
 [wasm bytes]
    │
-   ▼  src/frontend/  (parser → validator → lowerer)
+   ▼  src/parse/  (parser → sections → ctx)
+[Module]
+   │
+   ▼  src/validate/ (validator)
+[validated Module]
+   │
+   ▼  src/ir/lower.zig
 [ZIR]
    │
-   ▼  src/ir/       (loop_info → liveness → const_prop → verifier)
+   ▼  src/ir/analysis/ (loop_info → liveness → const_prop) + ir/verifier
 [ZIR (annotated)]
+   │
+   ▼  src/engine/runner.zig (dispatch via runtime.vtable)
    │
    ├── engine = interpreter ─┐
    │                          ▼
-   │                   src/interp/  (threaded-code dispatch)
+   │                   src/engine/interp/loop.zig (threaded-code dispatch)
    │                          │
-   │                          ▼  execute
+   │                          ▼  execute (handlers from instruction/ + feature/)
    │
    └── engine = jit ──────────┐
                               ▼
-                       src/jit/regalloc + reg_class
+                       src/engine/codegen/shared/  (regalloc + reg_class + linker + compile)
                               │
-                              ▼  src/jit_arm64/emit  or  src/jit_x86/emit
+                              ▼  src/engine/codegen/arm64/  or  src/engine/codegen/x86_64/  (emit)
                        [machine code]
                               │
                               ├── JIT mode: in-memory pages (mprotect + jump)
                               │              ▼  execute
                               │
-                              └── AOT mode: serialise to .cwasm + relocation
+                              └── AOT mode: src/engine/codegen/aot/ (format + linker)
                                             │
-                                            ▼  on-disk .cwasm file
+                                            ▼  serialise to .cwasm
                                             │
-                                            ▼  load (mmap)
-                                            │
-                                            ▼  execute
+                                            ▼  load (mmap) → execute
 ```
 
 **Key invariant**: JIT and AOT share the **same compiler pipeline**.
@@ -702,12 +709,16 @@ include/wasi.h     # wasmtime-compatible WASI extension
 include/zwasm.h    # zwasm extensions (allocator inj, fuel, cancel, fast invoke)
 ```
 
-Implementation:
+Implementation (per ADR-0023):
 
 ```
-src/c_api/wasm_c_api.zig    # implements wasm.h
-src/c_api/wasi_c_api.zig    # implements wasi.h
-src/c_api/zwasm_ext.zig     # implements zwasm.h
+src/api/wasm.zig          # implements wasm.h (was c_api/wasm_c_api.zig)
+src/api/wasi.zig          # implements wasi.h (was c_api/wasi_c_api.zig)
+src/api/zwasm.zig         # implements zwasm.h (was c_api/zwasm_ext.zig)
+src/api/vec.zig           # wasm_*_vec_t lifecycle helpers
+src/api/trap_surface.zig  # Trap → wasm_trap_t marshal
+src/api/cross_module.zig  # cross-module funcref dispatch
+src/api/lib_export.zig    # dylib symbol export surface (was c_api_lib.zig)
 ```
 
 Mass-generation of vec-type lifecycle functions via `comptime`:
@@ -722,34 +733,65 @@ wasm-c-api conformance suite.
 A core architectural decision: **per-spec-feature opcodes do not
 appear as `if (build_options.gc)` branches sprinkled across the
 parser, validator, lowerer, interpreter, and emitters.** Instead,
-each feature lives in its own subtree under `src/feature/` and
-registers its handlers into central dispatch tables at module-load
-time.
+opcode implementations are registered into central dispatch tables
+at module-load time.
+
+Per ADR-0023, opcode-bearing code is split along **two axes**:
+
+- **`src/instruction/wasm_X_Y/<category>.zig`** — stateless opcode
+  families that add new instructions but do not change the VM's
+  capability model. File axis follows WASM Spec §5.4 categories
+  (numeric / parametric / variable / memory / control / ...) for
+  Wasm 1.0, and proposal names (sign_extension / nontrap_conversion
+  / bulk_memory / ...) for Wasm 2.0+. Each `.zig` file exposes
+  `pub fn register(*DispatchTable)`.
+- **`src/feature/<X>/`** — VM-capability extensions that introduce
+  new runtime-state types, new type-system axes, ABI changes, or
+  wholesale changes to JIT output shape. Each subtree is
+  self-contained (register entry + ops + state files +
+  per-arch emit).
 
 ```
-src/feature/
-├── mvp/                  # Wasm 1.0 — always built
-├── ext_2_0/              # Wasm 2.0 additions (always built when -Dwasm>=2.0)
-│   ├── multivalue/
-│   ├── sign_ext/
-│   ├── sat_trunc/
-│   ├── bulk_memory/
-│   ├── ref_types/
-│   └── simd/
-├── ext_3_0/              # Wasm 3.0 additions (always built when -Dwasm>=3.0)
-│   ├── memory64/
-│   ├── eh/
-│   ├── tail_call/
-│   ├── func_refs/
-│   ├── gc/
-│   ├── extended_const/
-│   └── relaxed_simd/
-└── ext_proposals/        # Phase 3-4 proposals — built when explicitly enabled
-    ├── threads/
-    ├── wide_arith/
-    ├── stack_switching/
-    ├── custom_page_sizes/
-    └── memory_control/
+src/instruction/
+├── wasm_1_0/                                     # §5.4 categories
+│   ├── numeric_int.zig
+│   ├── numeric_float.zig
+│   ├── numeric_conversion.zig
+│   ├── parametric.zig
+│   ├── variable.zig
+│   ├── memory.zig
+│   └── control.zig
+├── wasm_2_0/                                     # proposal names
+│   ├── sign_extension.zig
+│   ├── nontrap_conversion.zig
+│   ├── multi_value.zig
+│   ├── bulk_memory.zig
+│   └── reference_types.zig
+└── wasm_3_0/
+    ├── extended_const.zig                        # doc-comment-only file
+    ├── wide_arith.zig
+    └── custom_page_sizes.zig
+
+src/feature/                                      # VM-capability extensions
+├── simd_128/                                     # SIMD-128 + relaxed-simd
+├── gc/                                           # WasmGC (managed heap)
+├── exception_handling/
+├── tail_call/
+├── function_references/
+├── memory64/
+├── threads/                                      # README-only reserved
+├── stack_switching/                              # README-only reserved
+└── component/                                    # README-only reserved
+```
+
+Within each `feature/<X>/`, the standard layout is:
+
+```
+register.zig                                  # pub fn register(*DispatchTable)
+ops.zig                                       # interp dispatch handlers
+<subsystem>_state.zig (multiple)              # subsystem-private state
+arm64.zig                                     # arm64 emit handlers
+x86_64.zig                                    # x86_64 emit handlers
 ```
 
 Each feature module exposes a `register` function:
@@ -795,14 +837,16 @@ function that inlines each feature's `register` call.
 
 ### 4.7 Runtime handle + std.Io DI
 
+The Runtime struct lives at `src/runtime/runtime.zig` per ADR-0023:
+
 ```zig
 pub const Runtime = struct {
     io: std.Io,
     gpa: std.mem.Allocator,
-    engine: Engine,         // wasm-c-api primary handle
+    engine: Engine,         // wasm-c-api primary handle (runtime/engine.zig)
     stores: ArrayList(*Store),
     config: Config,         // fuel limit, timeout, allocator injection
-    vtable: VTable,         // backend dispatch (interp / jit_arm64 / jit_x86)
+    vtable: VTable,         // backend dispatch (engine/runner.zig dispatches via vtable)
 };
 ```
 
@@ -834,12 +878,18 @@ down. Tests construct a mock Runtime.
 
 ### 4.10 GC subsystem (Phase 10+)
 
-WasmGC adds heap-allocated typed values (struct, array, i31). The
-implementation lives in `src/runtime/gc/`:
+WasmGC adds heap-allocated typed values (struct, array, i31). Per
+ADR-0023 the GC subsystem is vertically aggregated under
+`src/feature/gc/` (state-heavy VM-capability extension):
 
+- `register.zig` — `pub fn register(*DispatchTable)`
+- `ops.zig` — `struct.*` / `array.*` / `ref.test` / `ref.cast` / `ref.i31` / `i31.get_*` handlers
+- `heap.zig` — HeapHeader + 8-byte aligned tagged pointer scheme
 - `arena.zig` — phase-scoped arena (Phase 1+, infrastructure only)
 - `mark_sweep.zig` — mark-sweep collector (Phase 10+)
 - `roots.zig` — root tracking (operand stack + locals + globals + tables)
+- `type_hierarchy.zig` — struct / array subtyping + recursive types
+- `arm64.zig`, `x86_64.zig` — per-arch emit handlers
 
 GC values use a tagged pointer scheme (low 3 bits = type tag, since
 heap is 8-byte aligned). i31ref is unboxed in the tag.
@@ -865,115 +915,94 @@ zwasm_from_scratch/
 │   ├── wasi.h                  # WASI extension (Phase 4+)
 │   └── zwasm.h                 # zwasm extensions (allocator inj Phase 4+; fuel/cancel Phase 7+)
 │
-├── src/
-│   ├── main.zig
-│   ├── cli/
-│   │   ├── argparse.zig
+├── src/                        # Per ADR-0023; see that ADR for full per-file annotations.
+│   ├── main.zig                # CLI entry (Juicy Main)
+│   ├── parse/                  # WASM Binary Format → structured Module
+│   │   ├── parser.zig
+│   │   ├── sections.zig
+│   │   └── ctx.zig
+│   ├── validate/
+│   │   └── validator.zig
+│   ├── ir/                     # ZIR + analysis passes (loop_info / liveness / const_prop / verifier)
+│   │   ├── zir.zig
+│   │   ├── dispatch.zig        # central DispatchTable type
+│   │   ├── lower.zig           # wasm-op → ZirOp
+│   │   ├── verifier.zig
+│   │   └── analysis/
+│   ├── runtime/                # WASM Spec §4.2 "Runtime Structure"
+│   │   ├── runtime.zig         # central Runtime handle
+│   │   ├── engine.zig
+│   │   ├── store.zig
+│   │   ├── module.zig
+│   │   ├── value.zig
+│   │   ├── trap.zig
+│   │   ├── frame.zig
+│   │   └── instance/           # WASM Spec §4.2 "Instances"
+│   │       ├── instance.zig
+│   │       ├── memory.zig
+│   │       ├── table.zig
+│   │       ├── global.zig
+│   │       ├── func.zig        # FuncEntity per ADR-0014
+│   │       ├── element.zig
+│   │       └── data.zig
+│   ├── instruction/            # WASM Spec §5.4 categories — stateless opcode impls
+│   │   ├── wasm_1_0/           # numeric_int, numeric_float, numeric_conversion, parametric, variable, memory, control
+│   │   ├── wasm_2_0/           # sign_extension, nontrap_conversion, multi_value, bulk_memory, reference_types
+│   │   └── wasm_3_0/           # extended_const (doc-only), wide_arith, custom_page_sizes
+│   ├── feature/                # VM-capability extensions; vertical subtrees
+│   │   ├── simd_128/           # SIMD-128 + relaxed-simd folded in
+│   │   ├── gc/                 # WasmGC (managed heap)
+│   │   ├── exception_handling/
+│   │   ├── tail_call/
+│   │   ├── function_references/
+│   │   ├── memory64/
+│   │   ├── threads/            # README-only reserved slot (post-v0.2.0)
+│   │   ├── stack_switching/    # README-only reserved slot (post-v0.2.0)
+│   │   └── component/          # README-only reserved slot (Component Model)
+│   ├── engine/                 # interp / codegen sibling parity
+│   │   ├── runner.zig          # public entry: invoke ZirFunc via runtime.vtable
+│   │   ├── interp/
+│   │   │   ├── loop.zig        # threaded-code dispatch loop
+│   │   │   └── trap_audit.zig
+│   │   └── codegen/
+│   │       ├── shared/         # regalloc, reg_class, linker, compile, entry, prologue, jit_abi
+│   │       ├── arm64/          # emit (orchestrator) + op_const/alu/memory/control/call + bounds_check + inst + abi + prologue + label
+│   │       ├── x86_64/         # mirrors arm64/ (Phase 7.6+)
+│   │       └── aot/            # format + linker (Phase 8+ / Phase 12)
+│   ├── wasi/
+│   │   ├── preview1.zig        # preview1 entry + register
+│   │   ├── host.zig            # capability table
+│   │   ├── fd.zig
+│   │   ├── clocks.zig
+│   │   └── proc.zig
+│   ├── api/                    # wasm-c-api compatible C ABI (was c_api/)
+│   │   ├── wasm.zig            # wasm.h impl (was wasm_c_api.zig)
+│   │   ├── wasi.zig
+│   │   ├── zwasm.zig
+│   │   ├── vec.zig
+│   │   ├── trap_surface.zig
+│   │   ├── cross_module.zig
+│   │   └── lib_export.zig      # dylib symbols (was c_api_lib.zig)
+│   ├── cli/                    # subcommands
 │   │   ├── run.zig
-│   │   ├── compile.zig
+│   │   ├── compile.zig         # Phase 12
 │   │   ├── validate.zig
 │   │   ├── inspect.zig
 │   │   ├── features.zig
-│   │   ├── wat.zig
-│   │   └── wasm.zig
-│   │
-│   ├── frontend/
-│   │   ├── parser.zig
-│   │   ├── validator.zig
-│   │   ├── lowerer.zig
-│   │   └── opcode.zig
-│   │
-│   ├── ir/
-│   │   ├── zir.zig
-│   │   ├── verifier.zig
-│   │   ├── loop_info.zig
-│   │   ├── liveness.zig
-│   │   ├── const_prop.zig
-│   │   ├── opcode_table.zig
-│   │   └── dispatch_table.zig
-│   │
-│   ├── runtime/
-│   │   ├── module.zig
-│   │   ├── instance.zig
-│   │   ├── store.zig
-│   │   ├── engine.zig
-│   │   ├── memory.zig
-│   │   ├── table.zig
-│   │   ├── global.zig
-│   │   ├── trap.zig
-│   │   ├── float.zig
-│   │   ├── value.zig
-│   │   └── gc/
-│   │       ├── arena.zig
-│   │       ├── mark_sweep.zig
-│   │       └── roots.zig
-│   │
-│   ├── feature/
-│   │   ├── mvp/
-│   │   ├── ext_2_0/
-│   │   │   ├── multivalue/
-│   │   │   ├── sign_ext/
-│   │   │   ├── sat_trunc/
-│   │   │   ├── bulk_memory/
-│   │   │   ├── ref_types/
-│   │   │   └── simd/
-│   │   ├── ext_3_0/
-│   │   │   ├── memory64/
-│   │   │   ├── eh/
-│   │   │   ├── tail_call/
-│   │   │   ├── func_refs/
-│   │   │   ├── gc/
-│   │   │   ├── extended_const/
-│   │   │   └── relaxed_simd/
-│   │   └── ext_proposals/
-│   │       ├── threads/
-│   │       ├── wide_arith/
-│   │       ├── stack_switching/
-│   │       ├── custom_page_sizes/
-│   │       └── memory_control/
-│   │
-│   ├── interp/
-│   │   ├── threaded.zig
-│   │   └── handlers.zig
-│   │
-│   ├── jit/
-│   │   ├── regalloc.zig
-│   │   ├── reg_class.zig
-│   │   ├── emit_common.zig
-│   │   ├── prologue.zig
-│   │   └── aot.zig
-│   │
-│   ├── jit_arm64/
-│   │   ├── emit.zig
-│   │   ├── inst.zig
-│   │   └── abi.zig
-│   │
-│   ├── jit_x86/
-│   │   ├── emit.zig
-│   │   ├── inst.zig
-│   │   └── abi.zig
-│   │
-│   ├── wasi/
-│   │   ├── preview1.zig
-│   │   ├── fs.zig
-│   │   ├── time.zig
-│   │   └── random.zig
-│   │
-│   ├── c_api/
-│   │   ├── wasm_c_api.zig
-│   │   ├── wasi_c_api.zig
-│   │   └── zwasm_ext.zig
-│   │
+│   │   ├── wat.zig             # Phase 11
+│   │   ├── wasm.zig            # Phase 11
+│   │   └── diag_print.zig
 │   ├── platform/
-│   │   ├── linux.zig
-│   │   ├── darwin.zig
-│   │   ├── windows.zig
-│   │   └── posix.zig
-│   │
-│   └── util/
-│       ├── leb128.zig
-│       ├── duration.zig
-│       └── hash.zig
+│   │   ├── jit_mem.zig         # mmap (POSIX) / VirtualAlloc (Windows)
+│   │   ├── signal.zig          # Phase 7+: SIGSEGV → trap
+│   │   ├── fs.zig              # Phase 11: WASI fs adapter
+│   │   └── time.zig
+│   ├── diagnostic/             # cross-cutting (Ousterhout deep module)
+│   │   ├── diagnostic.zig
+│   │   └── trace.zig           # Phase 7+: trace ringbuffer per ADR-0016 M3
+│   └── support/                # minimal specific helpers
+│       ├── dbg.zig             # dev-only logger
+│       └── leb128.zig          # encoding helper (parse + codegen/aot)
 │
 ├── test/
 │   ├── README.md
@@ -1055,9 +1084,15 @@ zwasm_from_scratch/
 └── private/                    # gitignored agent scratch
 ```
 
-**File-size discipline (A2)**:
+**File-size discipline (A2)** (rubric finalised by ADR-0023):
 - Soft cap 1,000 lines: warning + ADR for split plan.
-- Hard cap 2,000 lines: gate fails.
+- Hard cap 2,000 lines: gate fails; §A2 violation requires ADR.
+- **Tests-split rubric**: production code ≤ 800 LOC requires
+  inline `test "..."` blocks. Production code > 800 LOC and
+  combined (production + tests) > 1,000 LOC permits a
+  `<file>_tests.zig` companion file. Production code > 2,000
+  LOC is the §A2 hard-cap violation regardless of test
+  placement.
 - Auto-generated files are exempt with `// AUTO-GENERATED FROM <source>`
   on lines 1-3.
 
@@ -1482,8 +1517,9 @@ JIT.
 | 7.3  | `src/jit_arm64/emit.zig` — ZIR → ARM64 emit pass producing function bodies + Runtime prologue (5 LDRs from `*X0` per ADR-0017) + spill emit per ADR-0018. | [ ]            |
 | 7.4  | JIT runtime infra: `src/platform/jit_mem.zig` (RWX memory) + `src/jit/linker.zig` (BL fixup patcher) + `src/jit/entry.zig` (Zig caller bridge); ADR-0017 simplifies entry to a standard function-pointer call. | [ ] sub-7.4a/b/c landed (`1e71b53`/`3e34d1a`/`93e2f2c`); refactor per ADR-0017 ahead |
 | 7.5  | spec test pass=fail=skip=0 via ARM64 JIT on Mac aarch64 host (drives every Wasm 1.0 + 2.0 op the interp covers). | [ ]            |
-| 7.5d | emit.zig responsibility split (≤ 9 modules under `src/jit_arm64/`; orchestrator ≤ 1000 LOC; each module ≤ 400 LOC) + test byte-offset abstraction via `src/jit_arm64/prologue.zig`. **Hard gate before 7.6 opens** (per ADR-0021). Sub-deliverable a: byte-offset helper + 142 test sites relativised. Sub-deliverable b: emit.zig split per `.dev/lessons/2026-05-04-emit-monolith-cost.md`. | [ ]            |
-| 7.6  | `src/jit_x86/{reg_class, inst, abi}.zig` — x86_64 instruction encoder + System V (Linux) + Win64 (Windows) calling conventions + `reserved_invariant_gprs` (ADR-0018 mapping). | [ ]            |
+| 7.5d | emit.zig responsibility split (≤ 9 modules under `src/engine/codegen/arm64/`; orchestrator ≤ 1000 LOC; each module ≤ 400 LOC) + test byte-offset abstraction via `src/engine/codegen/arm64/prologue.zig`. **Hard gate before 7.6 opens** (per ADR-0021). Sub-deliverable a: byte-offset helper + 4 demo + ~128-site bulk migration done as part of 7.5e. Sub-deliverable b: emit.zig split per `.dev/lessons/2026-05-04-emit-monolith-cost.md` — lands on the new path produced by 7.5e per ADR-0023. | [ ]            |
+| 7.5e | **src/ directory structure normalization per ADR-0023**: relocate to the final shape (parse / validate / ir / runtime / instruction / feature / engine / wasi / api / cli / platform / diagnostic / support). Includes c_api/instance.zig 2216 LOC split (D-1 in ADR-0023), interp/mod.zig Runtime extraction, c_api → api rename + wasm_c_api.zig → wasm.zig + c_api_lib.zig → api/lib_export.zig, frontend → parse + validate + ir/lower, instruction/{wasm_1_0, wasm_2_0, wasm_3_0}/ creation, feature/ 6 active + 3 reserved slots, engine/{runner, interp/loop, codegen/{shared, arm64, x86_64, aot}}/, util → support/, runtime/diagnostic → diagnostic/, runtime/jit_abi → engine/codegen/shared/jit_abi, wasi/p1.zig → wasi/preview1.zig. Implementation order detailed in ADR-0023 §7. **Hard gate before 7.5d sub-b emit.zig 9-module split**, which lands on the new path. | [ ]            |
+| 7.6  | `src/engine/codegen/x86_64/{reg_class, inst, abi}.zig` — x86_64 instruction encoder + System V (Linux) + Win64 (Windows) calling conventions + `reserved_invariant_gprs` (ADR-0018 mapping). | [ ]            |
 | 7.7  | `src/jit_x86/emit.zig` — ZIR → x86_64 emit pass producing function bodies (ADR-0017 prologue mapping for x86_64). | [ ]            |
 | 7.8  | spec test pass=fail=skip=0 via x86_64 JIT on Linux x86_64 AND Windows x86_64 hosts. | [ ]            |
 | 7.9  | 40+ realworld samples (out of 50) run via ARM64 JIT — same fixtures as §9.6 / 6.1; trap categorisation reuses the run_runner buckets. | [ ]            |
