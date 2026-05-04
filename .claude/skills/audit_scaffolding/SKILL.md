@@ -132,3 +132,13 @@ confuses the next session.
 The complementary failure mode is **over-auditing** — running the
 audit so often that the project never advances. The adaptive
 cadence (above) is the corrective.
+
+## Bridge to `meta_audit`
+
+`audit_scaffolding` checks scaffolding **integrity** (dead refs,
+bloat, lies, false positives). When integrity-side findings hint
+at deeper **correctness** drift (Phase scope mismatch, ADR
+honesty, §14 silent crosses), `CHECKS.md §J` emits `suggest
+meta_audit` findings. The user reads them at the next resume and
+decides whether to fire `.claude/skills/meta_audit/SKILL.md`
+(user-gated; not autonomous).

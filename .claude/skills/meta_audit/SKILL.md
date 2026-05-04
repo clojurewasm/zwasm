@@ -22,9 +22,12 @@ pause that asks.
 
 ### Default trigger — Phase boundary
 
-Phase boundaries are the natural cadence. The `/continue` skill's
-Phase boundary handler (after Phase Status flips DONE) **suggests**
-firing `meta_audit`; the user gates the actual run.
+Phase boundaries are the natural cadence. `audit_scaffolding §J.7`
+(which fires at every Phase boundary, invoked autonomously by
+`/continue`) emits a `suggest meta_audit` finding; the user sees
+it at the next resume and gates the actual run. This is the
+**indirect** linkage — `/continue` itself does not name meta_audit;
+the bridge lives in `audit_scaffolding/CHECKS.md §J.7`.
 
 ### Opportunistic triggers — `audit_scaffolding §J`
 
