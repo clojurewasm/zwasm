@@ -884,6 +884,39 @@ pub fn compile(
                     try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
                 }
             },
+            .@"call_indirect" => {
+                // Sub-g2 skeleton: assume caller-supplied X26 =
+                // table_base where each entry is a u64 funcptr.
+                // Pop idx vreg, load funcptr, BLR. Bounds check
+                // (idx < table_size) and signature check
+                // (table[idx].typeidx == ins.payload) land at
+                // sub-g3 with the typeidx side-array; this
+                // skeleton is unsafe by design — the byte layout
+                // is the deliverable.
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const idx_vreg = pushed_vregs.pop().?;
+                const w_idx = abi.slotToReg(alloc.slots[idx_vreg]) orelse return Error.SlotOverflow;
+
+                // ORR W17, WZR, W_idx — zero-extend idx to X17 (W
+                // writes implicitly clear upper 32 bits). X17 is
+                // an IP1 scratch reg, free between calls.
+                try writeU32(allocator, &buf, inst.encOrrRegW(17, 31, w_idx));
+                // LDR X17, [X26, X17, LSL #3] — table[idx].
+                try writeU32(allocator, &buf, inst.encLdrXRegLsl3(17, 26, 17));
+                // BLR X17.
+                try writeU32(allocator, &buf, inst.encBLR(17));
+
+                // Capture single-result return into the next vreg
+                // (mirror of sub-g1's `call` handler).
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.AllocationMissing;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                if (wd != 0) {
+                    try writeU32(allocator, &buf, inst.encOrrRegW(wd, 31, 0));
+                }
+                try pushed_vregs.append(allocator, result);
+            },
             .@"call" => {
                 // Sub-g1 skeleton: emit a `BL 0` placeholder, record
                 // a fixup with the target func_idx (= ins.payload),
@@ -2685,6 +2718,39 @@ test "compile: call N (no-arg skeleton) emits BL placeholder + records fixup + r
     try testing.expectEqual(@as(usize, 1), out.call_fixups.len);
     try testing.expectEqual(@as(u32, 8), out.call_fixups[0].byte_offset);
     try testing.expectEqual(@as(u32, 7), out.call_fixups[0].target_func_idx);
+}
+
+test "compile: call_indirect (skeleton) emits ORR/LDR-LSL3/BLR + result MOV" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // i32.const 5 — table index.
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
+    // call_indirect type_idx=0, table_idx=0.
+    try f.instrs.append(testing.allocator, .{ .op = .@"call_indirect", .payload = 0, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // After STP/MOV-FP (8) + MOVZ W9, #5 (4) = 12 bytes:
+    //   [12..16] ORR W17, WZR, W9      ; zero-extend idx
+    //   [16..20] LDR X17, [X26, X17, LSL #3]
+    //   [20..24] BLR X17
+    //   [24..28] ORR W9, WZR, W0       ; capture return
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(17, 31, 9)),       std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(17, 26, 17)),  std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encBLR(17)),                  std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)),        std.mem.readInt(u32, out.bytes[24..28], .little));
+
+    // No call_fixups: call_indirect is dispatched via X17 at
+    // runtime, not via a static BL — fixup list stays empty.
+    try testing.expectEqual(@as(usize, 0), out.call_fixups.len);
 }
 
 comptime {

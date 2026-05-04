@@ -57,6 +57,19 @@ pub const platform_gpr: Xn = 18;
 /// Callee-saved (non-volatile) GPRs. The §9.7 / 7.3 emit pass
 /// uses these for vregs that span calls — the prologue saves
 /// them, the epilogue restores them.
+///
+/// **Reserved sub-set (caller-supplied invariants for the §9.7 /
+/// 7.3 skeleton)**: X26..X28 hold Runtime-derived pointers the
+/// caller arranges before invoking the JIT body:
+///   X28 — vm_base    (linear-memory base ptr)
+///   X27 — mem_limit  (linear-memory size in bytes)
+///   X26 — table_base (sub-g2: table[0] base, each entry u64
+///                     funcptr; sig + bounds checks land at
+///                     sub-g3 with the typeidx table)
+/// These three are NOT in the regalloc pool; sub-g3 widens the
+/// invariant set as more Runtime-coupled ops land. D-014 (the
+/// Runtime injection point) dissolves once the structural wiring
+/// replaces this caller-supplied skeleton.
 pub const callee_saved_gprs = [_]Xn{ 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
 
 pub const frame_pointer: Xn = 29;
