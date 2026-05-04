@@ -10,6 +10,8 @@
 
 const std = @import("std");
 
+const FuncEntity = @import("instance/func.zig").FuncEntity;
+
 /// 64-bit value slot. The dispatch loop knows the type from the
 /// `ZirOp`; the union never carries a runtime tag (per §P3
 /// cold-start: no per-slot type byte). Float values are stored as
@@ -79,24 +81,8 @@ comptime {
     std.debug.assert(Value.null_ref == 0);
 }
 
-/// Per-runtime function handle. One entry per index in
-/// `Runtime.funcs`; allocated in `instantiateRuntime`. A funcref
-/// `Value` stores `@intFromPtr(*const FuncEntity)` so dereference
-/// reveals which Runtime owns the callee body — the encoding
-/// 6.K.3 needs to drop the cross-module-import error returns.
-///
-/// Per ADR-0014 §2.1 / 6.K.1: the source runtime back-ref lives
-/// here (rather than baked into the Runtime via 6.K.2's Instance
-/// back-ref) because the Value's encoding contract is what matters
-/// for the table cell — every consumer dereferences the FuncEntity
-/// and reads `runtime` + `func_idx` from a single cache line.
-pub const FuncEntity = struct {
-    /// Runtime whose `funcs[func_idx]` (and `host_calls[func_idx]`
-    /// when imported) describes the callee body.
-    runtime: *@import("runtime.zig").Runtime,
-    /// Index into `runtime.funcs`.
-    func_idx: u32,
-};
+// FuncEntity moved to runtime/instance/func.zig per ADR-0023 §7
+// item 6 + §3 reference table.
 
 const testing = std.testing;
 

@@ -44,7 +44,7 @@ const InterpCtx = dispatch_table.InterpCtx;
 // ============================================================
 
 pub const Value = value_mod.Value;
-pub const FuncEntity = value_mod.FuncEntity;
+pub const FuncEntity = @import("instance/func.zig").FuncEntity;
 
 pub const Trap = trap_mod.Trap;
 pub const TraceEvent = trap_mod.TraceEvent;
@@ -62,6 +62,7 @@ pub const Store = @import("store.zig").Store;
 pub const Zombie = @import("store.zig").Zombie;
 pub const Instance = @import("instance/instance.zig").Instance;
 pub const ExportType = @import("instance/instance.zig").ExportType;
+pub const TableInstance = @import("instance/table.zig").TableInstance;
 
 /// Free a typed slice via `Allocator.rawFree`, skipping the
 /// `@memset(slice, undefined)` poisoning that `Allocator.free`
@@ -78,15 +79,6 @@ inline fn rawFreeOwned(alloc: Allocator, comptime T: type, slice: []T) void {
         @returnAddress(),
     );
 }
-
-/// Runtime counterpart of `zir.TableEntry` — actually holds the
-/// reference cells. The runner allocates `refs` and threads the
-/// instance via `Runtime.tables`.
-pub const TableInstance = struct {
-    refs: []Value,
-    elem_type: zir.ValType,
-    max: ?u32 = null,
-};
 
 /// One host-call binding — stored at `Runtime.host_calls[i]`
 /// for each `i` that corresponds to an imported function. The
