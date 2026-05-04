@@ -1820,7 +1820,19 @@ fn marshalCallArgs(
         arg_vregs[i] = pushed_vregs.pop().?;
     }
 
-    var gpr_arg_slot: inst.Xn = 0;
+    // Per ADR-0017: X0 carries `*const JitRuntime`; Wasm GPR
+    // args occupy X1..X7 (one fewer than vanilla AAPCS64).
+    // FP args still occupy V0..V7 — V regs are unaffected by
+    // the X0 reservation.
+    //
+    // **sub-2d-i scope**: arg-shift only. The body's prologue
+    // sets X0 = runtime_ptr at function entry; body code never
+    // writes X0..X7; marshalling targets X1..X7. So at the BL,
+    // X0 inherits from the function entry (= runtime_ptr) for
+    // a LEAF call. Multi-call functions need X0 save/restore
+    // around calls (sub-2d-ii) — until that lands, multi-call
+    // bodies will pass junk to the second+ callee.
+    var gpr_arg_slot: inst.Xn = 1;
     var fp_arg_slot: inst.Vn = 0;
     var k: u32 = 0;
     while (k < n_args) : (k += 1) {
@@ -3356,7 +3368,7 @@ test "compile: call N — f32 callee result captured via FMOV S, S0" {
     try testing.expectEqual(@as(u32, inst.encFmovSReg(16, 0)), std.mem.readInt(u32, out.bytes[32..36], .little));
 }
 
-test "compile: call N — i32 + i64 args marshalled into W0/X1, result in W0" {
+test "compile: call N — i32 + i64 args marshalled into W1/X2 (X0=runtime ptr per ADR-0017), result in W0" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
@@ -3378,17 +3390,16 @@ test "compile: call N — i32 + i64 args marshalled into W0/X1, result in W0" {
     const out = try compile(testing.allocator, &f, alloc, &sigs, &.{});
     defer deinit(testing.allocator, out);
 
-    // Layout (bytes):
-    //   [0..8]   STP fp/lr + MOV fp,sp
-    //   [8..12]  MOVZ W9, #7              ; arg0 → slot 0 → X9
-    //   [12..16] MOVZ X10, #0xBEEF        ; arg1 lo16
-    //   [16..20] MOVK X10, #0xDEAD lsl#16 ; arg1 hi16 (i64 const sub-d2 form)
-    //   [20..24] ORR W0, WZR, W9          ; marshal arg0 i32 → W0
-    //   [24..28] ORR X1, XZR, X10         ; marshal arg1 i64 → X1
-    //   [28..32] BL 0                     ; call placeholder
-    //   [32..36] (W0 → W9 capture; W9 == W0 source after marshal but vreg aliasing is fine)
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(0, 31, 9)), std.mem.readInt(u32, out.bytes[40..44], .little));
-    try testing.expectEqual(@as(u32, inst.encOrrReg(1, 31, 10)), std.mem.readInt(u32, out.bytes[44..48], .little));
+    // Layout (bytes, post-ADR-0017 prologue = 8 + 5 LDRs = 28):
+    //   [28..32]  MOVZ W9, #7               ; arg0 → slot 0 → X9
+    //   [32..36]  MOVZ X10, #0xBEEF         ; arg1 lo16
+    //   [36..40]  MOVK X10, #0xDEAD lsl#16  ; arg1 hi16
+    //   [40..44]  ORR W1, WZR, W9           ; marshal arg0 i32 → W1 (X0=rt)
+    //   [44..48]  ORR X2, XZR, X10          ; marshal arg1 i64 → X2
+    //   [48..52]  BL 0                      ; call placeholder
+    //   [52..56]  ORR W9, WZR, W0           ; capture i32 result
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(1, 31, 9)), std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrReg(2, 31, 10)), std.mem.readInt(u32, out.bytes[44..48], .little));
     try testing.expectEqual(@as(u32, inst.encBL(0)),             std.mem.readInt(u32, out.bytes[48..52], .little));
 }
 
