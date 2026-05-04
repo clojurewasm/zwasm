@@ -17,7 +17,7 @@
 
 const std = @import("std");
 
-const wasm_c_api = @import("../c_api/wasm_c_api.zig");
+const wasm_c_api = @import("../api/wasm.zig");
 const diagnostic = @import("../diagnostic/diagnostic.zig");
 const wasi_host = @import("../wasi/host.zig");
 

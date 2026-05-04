@@ -24,7 +24,7 @@ pub const sections = @import("frontend/sections.zig");
 pub const zir = @import("ir/zir.zig");
 pub const runtime = @import("runtime/runtime.zig");
 pub const cli_run = @import("cli/run.zig");
-pub const c_api = @import("c_api/wasm_c_api.zig");
+pub const c_api = @import("api/wasm.zig");
 pub const diagnostic = @import("diagnostic/diagnostic.zig");
 pub const diag_print = @import("cli/diag_print.zig");
 pub const runner = @import("engine/runner.zig");
@@ -164,7 +164,7 @@ test {
     _ = @import("interp/ext_2_0/bulk_memory.zig");
     _ = @import("interp/ext_2_0/ref_types.zig");
     _ = @import("interp/ext_2_0/table_ops.zig");
-    _ = @import("c_api/wasm_c_api.zig");
+    _ = @import("api/wasm.zig");
     _ = @import("wasi/preview1.zig");
     _ = @import("wasi/host.zig");
     _ = @import("wasi/proc.zig");

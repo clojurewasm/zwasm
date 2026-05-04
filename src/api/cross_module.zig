@@ -20,7 +20,7 @@
 //! under the §A2 hard cap (2000 lines). Logically the same code
 //! family.
 //!
-//! Zone 3 (`src/c_api/`) — may import any layer below.
+//! Zone 3 (`src/api/`) — may import any layer below.
 
 const runtime = @import("../runtime/runtime.zig");
 const interp_mvp = @import("../interp/mvp.zig");

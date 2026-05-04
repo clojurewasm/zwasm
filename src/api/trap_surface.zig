@@ -1,24 +1,24 @@
 //! Trap surface of the C ABI binding (§9.5 / 5.0 chunk b
-//! carve-out from `wasm_c_api.zig` per ADR-0007).
+//! carve-out from `wasm.zig` per ADR-0007).
 //!
 //! Holds the `TrapKind` classification, the `Trap` shape itself,
 //! the interp-error → kind mapping, the message lookup, the
 //! binding-internal `allocTrap` helper, and the three
 //! `wasm_trap_*` C exports.
 //!
-//! `Store` and `ByteVec` are still defined in `wasm_c_api.zig`;
+//! `Store` and `ByteVec` are still defined in `wasm.zig`;
 //! we reach back through a module-level circular import (Zig 0.16
 //! resolves it because the references are pointer-only — no
 //! struct-layout cycle).
 //!
 //! `wasm_byte_vec_delete` ADR-listed alongside this file but
-//! actually has zero Trap coupling; it stays in `wasm_c_api.zig`
+//! actually has zero Trap coupling; it stays in `wasm.zig`
 //! and moves later with the rest of the vec family in chunk c.
 //!
-//! Zone 3 — same as the rest of `src/c_api/`.
+//! Zone 3 — same as the rest of `src/api/`.
 
 const std = @import("std");
-const wasm_c_api = @import("wasm_c_api.zig");
+const wasm_c_api = @import("wasm.zig");
 
 const testing = std.testing;
 

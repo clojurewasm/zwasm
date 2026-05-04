@@ -1,14 +1,14 @@
 //! WASI-side of the C ABI binding (§9.5 / 5.0 carve-out from
-//! `wasm_c_api.zig` per ADR-0007).
+//! `wasm.zig` per ADR-0007).
 //!
 //! Holds the host thunks that bridge guest WASI calls into the
 //! `src/wasi/*.zig` handlers, the dispatcher
 //! (`lookupWasiThunk`), and the standalone `zwasm_wasi_config_*`
-//! C exports. `zwasm_store_set_wasi` stays in `wasm_c_api.zig`
+//! C exports. `zwasm_store_set_wasi` stays in `wasm.zig`
 //! because it touches the `Store` shape; it moves later with
 //! `instance.zig`.
 //!
-//! Zone 3 — same as the rest of `src/c_api/`. May import any
+//! Zone 3 — same as the rest of `src/api/`. May import any
 //! lower zone (`interp/`, `wasi/`).
 
 const std = @import("std");

@@ -1,5 +1,5 @@
 //! Vec surface of the C ABI binding (§9.5 / 5.0 chunk c
-//! carve-out from `wasm_c_api.zig` per ADR-0007).
+//! carve-out from `wasm.zig` per ADR-0007).
 //!
 //! Holds the three vec shapes upstream `wasm.h` exposes
 //! (`ByteVec`, `ValVec`, `ExternVec`), the comptime-generic
@@ -9,7 +9,7 @@
 //! `wasm_extern_vec_new_empty` / `_new_uninitialized` / `_new`
 //! prefix of the extern-vec family.
 //!
-//! `wasm_extern_vec_delete` stays in `wasm_c_api.zig` because it
+//! `wasm_extern_vec_delete` stays in `wasm.zig` because it
 //! cascades into `wasm_extern_delete`; threading the dependency
 //! one-way keeps the cycle out of the carve-out (see ADR-0007 +
 //! handover note for chunk d). It moves with `instance.zig`.
@@ -19,13 +19,13 @@
 //! which Engine produced it — C hosts may construct vecs without
 //! holding an Engine handle (e.g. before `wasm_engine_new`).
 //!
-//! Zone 3 — same as the rest of `src/c_api/`. References `Val`
-//! and `Extern` from `wasm_c_api.zig` via a module-level circular
+//! Zone 3 — same as the rest of `src/api/`. References `Val`
+//! and `Extern` from `wasm.zig` via a module-level circular
 //! import; Zig 0.16 resolves it because the references are
 //! pointer-only (no struct-layout cycle).
 
 const std = @import("std");
-const wasm_c_api = @import("wasm_c_api.zig");
+const wasm_c_api = @import("wasm.zig");
 
 const testing = std.testing;
 
@@ -170,7 +170,7 @@ pub export fn wasm_val_vec_delete(v: ?*ValVec) callconv(.c) void {
 // generic helper.
 //
 // `wasm_extern_vec_delete` does NOT live here: it cascades into
-// `wasm_extern_delete`, which still lives in `wasm_c_api.zig`.
+// `wasm_extern_delete`, which still lives in `wasm.zig`.
 // Threading the dependency one-way keeps vec.zig cycle-free; the
 // delete moves with `instance.zig` in chunk d.
 // ============================================================
@@ -211,7 +211,7 @@ pub export fn wasm_extern_vec_new(out: ?*ExternVec, size: usize, src: ?[*]const 
 // ============================================================
 // Tests — byte/val vec round-trips + null-arg discipline
 //
-// Extern-vec null-arg coverage stays in `wasm_c_api.zig` until
+// Extern-vec null-arg coverage stays in `wasm.zig` until
 // chunk d moves `wasm_extern_vec_delete` alongside the rest of
 // the extern surface.
 // ============================================================

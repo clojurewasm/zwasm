@@ -1,6 +1,6 @@
 //! Engine / Store / Module / Instance / Func / Extern surface of
 //! the C ABI binding (§9.5 / 5.0 chunk d carve-out from
-//! `wasm_c_api.zig` per ADR-0007).
+//! `wasm.zig` per ADR-0007).
 //!
 //! Owns every value and handle type the wasm-c-api shapes the
 //! life cycle around: `Engine`, `Store`, `Module`, `Instance`,
@@ -15,11 +15,11 @@
 //! Reaches `ByteVec` / `ValVec` / `ExternVec` from `vec.zig` and
 //! `Trap` / `TrapKind` / `allocTrap` / `mapInterpTrap` from
 //! `trap_surface.zig` directly (sideways imports inside Zone 3).
-//! `wasm_c_api.zig` re-exports every public name in this file so
+//! `wasm.zig` re-exports every public name in this file so
 //! call sites (CLI, in-binding helpers, external tests) keep
 //! addressing them as `wasm_c_api.<name>`.
 //!
-//! Zone 3 — same as the rest of `src/c_api/`. Imports lower
+//! Zone 3 — same as the rest of `src/api/`. Imports lower
 //! zones (`interp/`, `wasi/`, `frontend/`, `ir/`, `util/`) freely.
 
 const std = @import("std");
@@ -102,7 +102,7 @@ pub const Func = struct {
     func_idx: u32,
 };
 
-// `Trap` and `TrapKind` live in `src/c_api/trap_surface.zig`
+// `Trap` and `TrapKind` live in `src/api/trap_surface.zig`
 // after the §9.5 / 5.0 chunk b carve-out (ADR-0007); see the
 // re-exports near the imports at the top of this file.
 
@@ -132,7 +132,7 @@ pub const Val = extern struct {
     },
 };
 
-// `ByteVec` and `ValVec` live in `src/c_api/vec.zig` after the
+// `ByteVec` and `ValVec` live in `src/api/vec.zig` after the
 // §9.5 / 5.0 chunk c carve-out (ADR-0007); see the re-exports
 // near the imports at the top of this file.
 
@@ -175,7 +175,7 @@ pub const Extern = struct {
     global_idx: u32 = 0,
 };
 
-// `ExternVec` lives in `src/c_api/vec.zig` after the §9.5 / 5.0
+// `ExternVec` lives in `src/api/vec.zig` after the §9.5 / 5.0
 // chunk c carve-out (ADR-0007); see the re-exports near the
 // imports at the top of this file.
 
@@ -278,7 +278,7 @@ fn parkAsZombie(
 // ============================================================
 //
 // `zwasm_wasi_config_new` and `zwasm_wasi_config_delete` live in
-// `src/c_api/wasi.zig` (§9.5 / 5.0 carve-out per ADR-0007); only
+// `src/api/wasi.zig` (§9.5 / 5.0 carve-out per ADR-0007); only
 // the Store-touching `zwasm_store_set_wasi` remains here.
 
 /// `zwasm_store_set_wasi(*Store, ?*Host)` — install a WASI
@@ -1484,7 +1484,7 @@ pub export fn wasm_extern_as_func(e: ?*Extern) callconv(.c) ?*Func {
 // --- extern vec (pointer-vec; vec_delete also frees pointed-to objects)
 //
 // `wasm_extern_vec_new_empty` / `_new_uninitialized` / `_new`
-// live in `src/c_api/vec.zig`; only the delete cascade lives
+// live in `src/api/vec.zig`; only the delete cascade lives
 // here because it must call back into `wasm_extern_delete`.
 
 /// `wasm_extern_vec_delete(*ExternVec)` — free the vec's pointer
@@ -1878,7 +1878,7 @@ test "wasm_func_call: arg-count mismatch returns Trap with message; both freed" 
 
 // Extern-vec null-arg coverage lives here alongside
 // `wasm_extern_vec_delete`; byte/val vec round-trip + null-arg
-// tests live in `src/c_api/vec.zig`.
+// tests live in `src/api/vec.zig`.
 
 test "wasm_extern_vec_*: null-arg discipline" {
     vec.wasm_extern_vec_new_empty(null);
