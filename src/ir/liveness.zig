@@ -144,7 +144,24 @@ fn isControlFlow(op: ZirOp) bool {
 
 /// Compute per-vreg live ranges. Returns a `Liveness` whose
 /// `ranges` slice the caller owns.
-pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Liveness {
+///
+/// `func_sigs` indexes function signatures by func_idx; consulted
+/// by `call N` to determine the pop/push count. `module_types`
+/// indexes type signatures by typeidx; consulted by
+/// `call_indirect type_idx`. Pass empty slices when the function
+/// has no calls (the existing straight-line tests).
+///
+/// **Phase 7.5 scope**: extends Phase-5's straight-line MVP +
+/// conversions + sat_trunc (sub-h5) with `call` + `call_indirect`.
+/// Block-level control flow (block / loop / if / else / br / etc.)
+/// still rejects; sub-7.5c-future widens this to structured-CFG-
+/// aware analysis.
+pub fn compute(
+    allocator: Allocator,
+    func: *const ZirFunc,
+    func_sigs: []const zir.FuncType,
+    module_types: []const zir.FuncType,
+) Error!Liveness {
     var ranges: std.ArrayList(LiveRange) = .empty;
     errdefer ranges.deinit(allocator);
 
@@ -155,14 +172,7 @@ pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Liveness {
         const pc: u32 = @intCast(idx);
 
         // The function-level `end` closes every still-live vreg.
-        // Per the §9.5 / 5.4 scope this is the only control-flow
-        // op we model; nested block/loop/if frames are
-        // out-of-scope.
         if (instr.op == .@"end") {
-            // Function-level end is permitted only as the final
-            // instr (the lowerer guarantees this for straight-line
-            // functions). Any earlier `end` would belong to a
-            // block/loop/if frame, which we reject as control flow.
             if (idx + 1 != func.instrs.items.len) {
                 return Error.UnsupportedControlFlow;
             }
@@ -170,6 +180,44 @@ pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Liveness {
                 sim_len -= 1;
                 const vreg = sim_stack[sim_len];
                 ranges.items[vreg].last_use_pc = pc;
+            }
+            continue;
+        }
+
+        // call / call_indirect: pop callee-sig.params, push callee-sig.results.
+        if (instr.op == .@"call" or instr.op == .@"call_indirect") {
+            const callee_sig: zir.FuncType = blk: {
+                if (instr.op == .@"call") {
+                    if (instr.payload >= func_sigs.len) return Error.UnsupportedOp;
+                    break :blk func_sigs[instr.payload];
+                } else {
+                    if (instr.payload >= module_types.len) return Error.UnsupportedOp;
+                    break :blk module_types[instr.payload];
+                }
+            };
+            // call_indirect's stack at entry is [args..., idx]; pop idx first.
+            if (instr.op == .@"call_indirect") {
+                if (sim_len == 0) return Error.OperandStackUnderflow;
+                sim_len -= 1;
+                const idx_vreg = sim_stack[sim_len];
+                ranges.items[idx_vreg].last_use_pc = pc;
+            }
+            // Pop N args (in reverse stack order).
+            const n_args: usize = callee_sig.params.len;
+            if (sim_len < n_args) return Error.OperandStackUnderflow;
+            var ai: usize = 0;
+            while (ai < n_args) : (ai += 1) {
+                sim_len -= 1;
+                const arg_vreg = sim_stack[sim_len];
+                ranges.items[arg_vreg].last_use_pc = pc;
+            }
+            // Push results.
+            for (callee_sig.results) |_| {
+                const vreg: u32 = @intCast(ranges.items.len);
+                try ranges.append(allocator, .{ .def_pc = pc, .last_use_pc = pc });
+                if (sim_len == max_simulated_stack) return Error.OperandStackUnderflow;
+                sim_stack[sim_len] = vreg;
+                sim_len += 1;
             }
             continue;
         }
@@ -225,7 +273,7 @@ test "compute: straight-line i32.const + i32.const + i32.add + drop + end" {
     });
     defer f.deinit(testing.allocator);
 
-    const live = try compute(testing.allocator, &f);
+    const live = try compute(testing.allocator, &f, &.{}, &.{});
     defer deinit(testing.allocator, live);
 
     try testing.expectEqual(@as(usize, 3), live.ranges.len);
@@ -248,7 +296,7 @@ test "compute: function-level end closes the still-live vreg" {
     });
     defer f.deinit(testing.allocator);
 
-    const live = try compute(testing.allocator, &f);
+    const live = try compute(testing.allocator, &f, &.{}, &.{});
     defer deinit(testing.allocator, live);
 
     try testing.expectEqual(@as(usize, 1), live.ranges.len);
@@ -266,7 +314,7 @@ test "compute: local.tee bridges def at the tee instr" {
     });
     defer f.deinit(testing.allocator);
 
-    const live = try compute(testing.allocator, &f);
+    const live = try compute(testing.allocator, &f, &.{}, &.{});
     defer deinit(testing.allocator, live);
 
     try testing.expectEqual(@as(usize, 2), live.ranges.len);
@@ -286,7 +334,7 @@ test "compute: control flow op returns UnsupportedControlFlow" {
     });
     defer f.deinit(testing.allocator);
 
-    try testing.expectError(Error.UnsupportedControlFlow, compute(testing.allocator, &f));
+    try testing.expectError(Error.UnsupportedControlFlow, compute(testing.allocator, &f, &.{}, &.{}));
 }
 
 test "compute: stack underflow when pop with empty stack" {
@@ -296,7 +344,7 @@ test "compute: stack underflow when pop with empty stack" {
     });
     defer f.deinit(testing.allocator);
 
-    try testing.expectError(Error.OperandStackUnderflow, compute(testing.allocator, &f));
+    try testing.expectError(Error.OperandStackUnderflow, compute(testing.allocator, &f, &.{}, &.{}));
 }
 
 test "compute: select consumes 3 vregs and produces 1" {
@@ -311,7 +359,7 @@ test "compute: select consumes 3 vregs and produces 1" {
     });
     defer f.deinit(testing.allocator);
 
-    const live = try compute(testing.allocator, &f);
+    const live = try compute(testing.allocator, &f, &.{}, &.{});
     defer deinit(testing.allocator, live);
 
     try testing.expectEqual(@as(usize, 4), live.ranges.len);
@@ -331,7 +379,7 @@ test "compute: install onto ZirFunc.liveness slot round-trips" {
     });
     defer f.deinit(testing.allocator);
 
-    f.liveness = try compute(testing.allocator, &f);
+    f.liveness = try compute(testing.allocator, &f, &.{}, &.{});
     defer if (f.liveness) |li| deinit(testing.allocator, li);
 
     try testing.expect(f.liveness != null);

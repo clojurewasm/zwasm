@@ -73,7 +73,7 @@ pub fn compileOne(
 
     try lowerer.lowerFunctionBody(allocator, body, &func, module_types);
 
-    const lv = try liveness.compute(allocator, &func);
+    const lv = try liveness.compute(allocator, &func, func_sigs, module_types);
     func.liveness = lv;
 
     const alloc = try regalloc.compute(allocator, &func);
