@@ -28,11 +28,11 @@
 //!
 //! Lifetime: caller-allocated; pair `compute` with `deinit`.
 //!
-//! Zone 2 (`src/jit/`).
+//! Zone 2 (`src/engine/codegen/shared/`).
 
 const std = @import("std");
 
-const zir = @import("../ir/zir.zig");
+const zir = @import("../../../ir/zir.zig");
 const reg_class = @import("reg_class.zig");
 
 const Allocator = std.mem.Allocator;

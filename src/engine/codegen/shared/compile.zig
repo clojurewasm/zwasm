@@ -17,18 +17,18 @@
 //! callable function. The §9.7 / 7.5 spec gate consumes this for
 //! every spec testsuite assertion.
 //!
-//! Zone 2 (`src/jit/`).
+//! Zone 2 (`src/engine/codegen/shared/`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const zir = @import("../ir/zir.zig");
+const zir = @import("../../../ir/zir.zig");
 const ZirFunc = zir.ZirFunc;
 const FuncType = zir.FuncType;
-const lowerer = @import("../frontend/lowerer.zig");
-const liveness = @import("../ir/liveness.zig");
+const lowerer = @import("../../../frontend/lowerer.zig");
+const liveness = @import("../../../ir/liveness.zig");
 const regalloc = @import("regalloc.zig");
-const emit = @import("../jit_arm64/emit.zig");
+const emit = @import("../arm64/emit.zig");
 
 pub const Error = lowerer.Error || liveness.Error || regalloc.Error || emit.Error || Allocator.Error;
 

@@ -11,13 +11,13 @@
 //! parameters (`callI32_i32i32`, etc.) lands in follow-up sub-
 //! rows; this entry path covers the no-arg + i32-result shape.
 //!
-//! Zone 2 (`src/jit/`).
+//! Zone 2 (`src/engine/codegen/shared/`).
 
 const std = @import("std");
 const builtin = @import("builtin");
 
 const linker = @import("linker.zig");
-const jit_abi = @import("../engine/codegen/shared/jit_abi.zig");
+const jit_abi = @import("jit_abi.zig");
 
 pub const JitRuntime = jit_abi.JitRuntime;
 
@@ -58,10 +58,10 @@ pub fn callI32NoArgs(
 // ============================================================
 
 const testing = std.testing;
-const zir = @import("../ir/zir.zig");
+const zir = @import("../../../ir/zir.zig");
 const ZirFunc = zir.ZirFunc;
 const regalloc = @import("regalloc.zig");
-const emit = @import("../jit_arm64/emit.zig");
+const emit = @import("../arm64/emit.zig");
 
 test "entry: i32.load offset=0 reads memory[0..4] through X28 vm_base" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {

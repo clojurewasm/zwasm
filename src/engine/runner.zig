@@ -12,7 +12,7 @@
 //!     in the JIT body crashes the process; only value-
 //!     returning fixtures pass through this driver cleanly)
 //!
-//! Zone 2 (`src/jit/`).
+//! Zone 2 (`src/engine/`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -21,9 +21,9 @@ const parser = @import("../frontend/parser.zig");
 const sections = @import("../frontend/sections.zig");
 const zir = @import("../ir/zir.zig");
 const FuncType = zir.FuncType;
-const compile_func = @import("compile_func.zig");
-const linker = @import("linker.zig");
-const entry = @import("entry.zig");
+const compile_func = @import("codegen/shared/compile.zig");
+const linker = @import("codegen/shared/linker.zig");
+const entry = @import("codegen/shared/entry.zig");
 
 pub const Error = error{
     UnsupportedImports,

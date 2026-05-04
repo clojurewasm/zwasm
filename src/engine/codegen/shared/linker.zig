@@ -11,7 +11,7 @@
 //! alignment) starting at the JitBlock origin; offsets recorded
 //! per-function in `func_offsets`.
 //!
-//! Zone 2 (`src/jit/`) — shared across per-arch backends because
+//! Zone 2 (`src/engine/codegen/shared/`) — shared across per-arch backends because
 //! the BL displacement encoding (imm26 word offset) is uniform on
 //! ARM64 and the linker is arch-neutral except for the
 //! placeholder-patching step (which currently assumes ARM64 BL;
@@ -20,9 +20,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const jit_mem = @import("../platform/jit_mem.zig");
-const emit = @import("../jit_arm64/emit.zig");
-const inst = @import("../jit_arm64/inst.zig");
+const jit_mem = @import("../../../platform/jit_mem.zig");
+const emit = @import("../arm64/emit.zig");
+const inst = @import("../arm64/inst.zig");
 
 pub const Error = error{
     /// A call_fixup names a target_func_idx outside `func_bodies`.
@@ -114,7 +114,7 @@ pub fn link(allocator: Allocator, func_bodies: []const FuncBody) Error!JitModule
 
 const builtin = @import("builtin");
 const testing = std.testing;
-const zir = @import("../ir/zir.zig");
+const zir = @import("../../../ir/zir.zig");
 const ZirFunc = zir.ZirFunc;
 const regalloc = @import("regalloc.zig");
 

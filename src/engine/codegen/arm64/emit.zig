@@ -40,12 +40,12 @@
 
 const std = @import("std");
 
-const zir = @import("../ir/zir.zig");
+const zir = @import("../../../ir/zir.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const prologue = @import("prologue.zig");
-const regalloc = @import("../jit/regalloc.zig");
-const jit_abi = @import("../engine/codegen/shared/jit_abi.zig");
+const regalloc = @import("../shared/regalloc.zig");
+const jit_abi = @import("../shared/jit_abi.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
@@ -2075,7 +2075,7 @@ fn encOrrZrIntoX0(rm: Xn) u32 {
 // ============================================================
 
 const testing = std.testing;
-const liveness_mod = @import("../ir/liveness.zig");
+const liveness_mod = @import("../../../ir/liveness.zig");
 
 test "compile: empty body without liveness errors" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };

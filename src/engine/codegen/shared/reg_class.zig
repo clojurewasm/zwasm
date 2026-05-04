@@ -14,11 +14,11 @@
 //! register tables land at 7.2; the regalloc that consumes
 //! both lands at 7.1.
 //!
-//! Zone 2 (`src/jit/`).
+//! Zone 2 (`src/engine/codegen/shared/`).
 
 const std = @import("std");
 
-const zir = @import("../ir/zir.zig");
+const zir = @import("../../../ir/zir.zig");
 
 pub const RegClass = zir.RegClass;
 

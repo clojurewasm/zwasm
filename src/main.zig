@@ -27,8 +27,8 @@ pub const cli_run = @import("cli/run.zig");
 pub const c_api = @import("c_api/wasm_c_api.zig");
 pub const diagnostic = @import("diagnostic/diagnostic.zig");
 pub const diag_print = @import("cli/diag_print.zig");
-pub const run_wasm = @import("jit/run_wasm.zig");
-pub const entry = @import("jit/entry.zig");
+pub const runner = @import("engine/runner.zig");
+pub const entry = @import("engine/codegen/shared/entry.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -128,17 +128,17 @@ test {
     _ = @import("cli/diag_print.zig");
     _ = @import("ir/zir.zig");
     _ = @import("ir/dispatch_table.zig");
-    _ = @import("jit/reg_class.zig");
-    _ = @import("jit/regalloc.zig");
-    _ = @import("jit_arm64/inst.zig");
-    _ = @import("jit_arm64/abi.zig");
-    _ = @import("jit_arm64/emit.zig");
+    _ = @import("engine/codegen/shared/reg_class.zig");
+    _ = @import("engine/codegen/shared/regalloc.zig");
+    _ = @import("engine/codegen/arm64/inst.zig");
+    _ = @import("engine/codegen/arm64/abi.zig");
+    _ = @import("engine/codegen/arm64/emit.zig");
     _ = @import("platform/jit_mem.zig");
-    _ = @import("jit/linker.zig");
-    _ = @import("jit/entry.zig");
+    _ = @import("engine/codegen/shared/linker.zig");
+    _ = @import("engine/codegen/shared/entry.zig");
     _ = @import("engine/codegen/shared/jit_abi.zig");
-    _ = @import("jit/compile_func.zig");
-    _ = @import("jit/run_wasm.zig");
+    _ = @import("engine/codegen/shared/compile.zig");
+    _ = @import("engine/runner.zig");
     _ = @import("ir/loop_info.zig");
     _ = @import("ir/liveness.zig");
     _ = @import("ir/verifier.zig");
