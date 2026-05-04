@@ -24,13 +24,13 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
   in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
   locals + control-flow-e1 done).
-- **Last commit**: `e25a9a5` — feat(p7) §9.7 / 7.3 sub-g3b
-  (AAPCS64 arg marshalling: `marshalCallArgs` helper pops N arg
-  vregs and emits MOV/FMOV into X0..X7 / V0..V7 before BL/BLR;
-  no source-clobber by construction since vreg pool is disjoint
-  from arg-passing regs). Sub-g3c (call_indirect bounds + sig
-  checks) ahead. 678/678 unit / 3-host green. Phase 6 close at
-  `68843b0`.
+- **Last commit**: `b870a90` — feat(p7) §9.7 / 7.3 sub-g3c
+  (call_indirect bounds + sig checks: CMP+B.HS for bounds,
+  LDR W16 typeidx + CMP imm12 + B.NE for sig; both share the
+  function-tail trap stub via bounds_fixups). Sub-g block fully
+  closed (call + call_indirect + arg/result marshalling). Sub-h
+  (numeric conversions) is the last 7.3 op group. 679/679 unit /
+  3-host green. Phase 6 close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -56,18 +56,20 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | g2  | call_indirect skeleton (X26=table_base; LDR-LSL3/BLR) | [x] `a49d4c2` |
 | g3a | sig-table threading + result-type-aware capture        | [x] `7ac65d1` |
 | g3b | AAPCS64 arg marshalling (X0..X7 + V0..V7)             | [x] `e25a9a5` |
-| g3c | call_indirect bounds + sig checks (typeidx side-array) | [ ] **NEXT** |
-| h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ]   |
+| g3c | call_indirect bounds + sig checks (typeidx side-array) | [x] `b870a90` |
+| h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ] **NEXT** |
 
 Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
 Plus 3 locals ops + end + 4 control-flow ops (block/loop/br/br_if).
 
 ## Open questions / blockers
 
-- **D-014 (`Runtime.io` injection point design)**: barrier
-  refined to "§9.7 / 7.3 emit pass first row touching Runtime".
-  Sub-g3 (arg marshalling) is the first to thread the
-  signature table through — D-014 dissolves there.
+- **D-014 (`Runtime.io` injection point design)**: caller-supplied
+  invariant set is now substantial (X24..X28 = typeidx_base,
+  table_size, funcptr_base, mem_limit, vm_base). Phase 7 follow-up
+  wires Runtime structurally; the JIT compile() shape is ready to
+  receive it. D-014 has accumulated enough surface area that
+  dissolving it lands as its own dedicated cycle (post-7.3 close).
 - **D-022 (Diagnostic M3 / trace ringbuffer)**: stays
   `blocked-by` until sub-f introduces trap surfaces.
 - **D-026 (env-stub host-func wiring)**: 4 embenchen + 1
