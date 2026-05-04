@@ -185,6 +185,29 @@ pub fn encStrDReg(vt: Vn, rn: Xn, rm: Xn) u32 {
     return 0xFC206800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, vt);
 }
 
+/// `LSR Wd, Wn, #imm` — alias for UBFM Wd, Wn, #imm, #31.
+/// Logical right shift with immediate count (1..31). Encoding
+/// (32-bit UBFM, sf=0, opc=10):
+///   `0 10 100110 0 [immr:6] [imms:6] [Rn:5] [Rd:5]`
+/// = 0x53000000 | (immr<<16) | (imms<<10) | (Rn<<5) | Rd.
+/// For LSR: immr = imm, imms = 31.
+pub fn encLsrImmW(rd: Xn, rn: Xn, imm: u5) u32 {
+    return 0x53000000 |
+        (@as(u32, imm) << 16) |
+        (@as(u32, 31) << 10) |
+        (@as(u32, rn) << 5) |
+        @as(u32, rd);
+}
+
+/// `MOVN Wd, #imm16, lsl #0` — move ~imm16 (zeroed-then-NOT
+/// the lower 16). `MOVN Wd, #0` produces 0xFFFFFFFF = -1
+/// (used by memory.grow's "failure" stub return).
+/// Encoding (32-bit MOVN, sf=0, hw=0):
+///   `0 00 100101 hw imm16 Rd` = `0x12800000`.
+pub fn encMovnImmW(rd: Xn, imm16: u16) u32 {
+    return 0x12800000 | (@as(u32, imm16) << 5) | @as(u32, rd);
+}
+
 /// `BR Xn` — unconditional branch to register.
 /// Encoding: `1101 0110 0001 1111 0000 00 [Rn:5] 00000`
 /// = `0xD61F0000` | (rn << 5).
@@ -698,6 +721,13 @@ test "encLdrSReg s0, [x28, x16] → 0xBC706B80" { try testing.expectEqual(@as(u3
 test "encStrSReg s0, [x28, x16] → 0xBC306B80" { try testing.expectEqual(@as(u32, 0xBC306B80), encStrSReg(0, 28, 16)); }
 test "encLdrDReg d0, [x28, x16] → 0xFC706B80" { try testing.expectEqual(@as(u32, 0xFC706B80), encLdrDReg(0, 28, 16)); }
 test "encStrDReg d0, [x28, x16] → 0xFC306B80" { try testing.expectEqual(@as(u32, 0xFC306B80), encStrDReg(0, 28, 16)); }
+
+test "encLsrImmW w0, w27, #16 → 0x53107F60" {
+    try testing.expectEqual(@as(u32, 0x53107F60), encLsrImmW(0, 27, 16));
+}
+test "encMovnImmW w0, #0 → 0x12800000 (= -1 in W)" {
+    try testing.expectEqual(@as(u32, 0x12800000), encMovnImmW(0, 0));
+}
 
 test "encBr x16 — `br x16` → 0xD61F0200" {
     try testing.expectEqual(@as(u32, 0xD61F0200), encBr(16));

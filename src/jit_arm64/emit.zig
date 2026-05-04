@@ -859,6 +859,35 @@ pub fn compile(
                     try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
                 }
             },
+            .@"memory.size" => {
+                // Wasm memory.size returns current size in 64-KiB pages.
+                // X27 carries the byte limit; pages = bytes >> 16.
+                // Pop nothing (Wasm signature: () → i32). Push the
+                // result vreg.
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encLsrImmW(wd, 27, 16));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"memory.grow" => {
+                // Skeleton: emit `MOVN Wd, #0` = 0xFFFFFFFF = -1
+                // (Wasm spec: -1 indicates grow-failed). Real grow
+                // requires a Runtime callout that allocates new
+                // pages + updates X27 + the underlying memory_base.
+                // Phase 7 follow-up: emit BL to a runtime helper
+                // pointer; Runtime.io injection (D-014) dissolves
+                // alongside this step.
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                _ = pushed_vregs.pop().?; // delta arg, unused in skeleton
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encMovnImmW(wd, 0));
+                try pushed_vregs.append(allocator, result);
+            },
             .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
             .@"i32.load16_s", .@"i32.load16_u",
             .@"i64.load", .@"i64.load8_s", .@"i64.load8_u",
@@ -2247,6 +2276,42 @@ test "compile: f32.load + f64.load dispatch to S/D-form LDR" {
         defer deinit(testing.allocator, out);
         try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[24..28], .little));
     }
+}
+
+test "compile: memory.size emits LSR W_dest, W27, #16" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"memory.size" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP (8 bytes), LSR fires.
+    try testing.expectEqual(@as(u32, inst.encLsrImmW(9, 27, 16)), std.mem.readInt(u32, out.bytes[8..12], .little));
+}
+
+test "compile: memory.grow emits MOVN W_dest, #0 (skeleton return -1)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });   // delta
+    try f.instrs.append(testing.allocator, .{ .op = .@"memory.grow" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // STP/MOV-FP (8) + MOVZ W9 #1 (4) + MOVN W9 (4) at byte 12.
+    try testing.expectEqual(@as(u32, inst.encMovnImmW(9, 0)), std.mem.readInt(u32, out.bytes[12..16], .little));
 }
 
 test "compile: i32.store — emits bounds-check + STR W reg-offset" {
