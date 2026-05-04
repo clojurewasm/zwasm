@@ -132,22 +132,16 @@ fn stackEffect(op: ZirOp) ?StackEffect {
 }
 
 fn isControlFlow(op: ZirOp) bool {
+    // After sub-7.5c-iv, every Wasm 1.0 control-flow op is
+    // handled explicitly in `compute`. The function exists
+    // only as documentation of the categories; nothing in the
+    // analysis branches on it now.
     return switch (op) {
-        // Branches and unreachable still reject — they cause CFG
-        // joins that single-pass liveness can't model precisely.
-        // sub-7.5c-iv will refine to a fixed-point analysis.
         .@"unreachable",
         .@"br", .@"br_if", .@"br_table", .@"return",
-        => true,
-        // Block / loop / if / else / end are STRUCTURAL markers
-        // for the emit pass; at the liveness level they are
-        // transparent (or, for `if`, pop the condition). Handled
-        // explicitly in `compute` rather than via stackEffect.
         .@"block", .@"loop", .@"if", .@"else", .@"end",
-        // call / call_indirect are handled explicitly in compute
-        // using func_sigs / module_types.
         .@"call", .@"call_indirect",
-        => false,
+        => true,
         else => false,
     };
 }
@@ -178,6 +172,16 @@ pub fn compute(
     var sim_stack: [max_simulated_stack]u32 = undefined;
     var sim_len: usize = 0;
 
+    // Sub-7.5c-iv: after an unconditional branch (br / return /
+    // unreachable) the rest of the block body is dead code per
+    // Wasm's polymorphic-stack rule. Dead-code liveness does
+    // nothing structurally — vregs that the dead region produces
+    // would never reach a real consumer; their ranges stay
+    // collapsed to a single pc by virtue of no later instr
+    // popping them. So we don't track a separate dead flag
+    // explicitly; the conservative pop-on-branch handling below
+    // is enough.
+
     for (func.instrs.items, 0..) |instr, idx| {
         const pc: u32 = @intCast(idx);
 
@@ -207,6 +211,45 @@ pub fn compute(
 
         // if: pops the condition (1 operand), no push.
         if (instr.op == .@"if") {
+            if (sim_len == 0) return Error.OperandStackUnderflow;
+            sim_len -= 1;
+            const cond_vreg = sim_stack[sim_len];
+            ranges.items[cond_vreg].last_use_pc = pc;
+            continue;
+        }
+
+        // Branches: conservative single-pass liveness.
+        //   br N           — unconditional. Result values for
+        //                     label N stay on the operand stack
+        //                     at the target. For us: close every
+        //                     vreg currently live (pessimistic;
+        //                     forces spill if reused after target).
+        //   br_if N        — pop 1 (condition); operand stack
+        //                     otherwise unchanged (the K result
+        //                     values for label N stay on stack
+        //                     for both branch paths).
+        //   br_table       — pop 1 (table index); same as br_if.
+        //   return         — close all live vregs (function exits).
+        //   unreachable    — trap; subsequent code dead.
+        //
+        // After unconditional branches the rest of the body is
+        // dead per Wasm's polymorphic-stack rule. The Wasm
+        // validator already accepts dead-code stack
+        // arbitrariness; for liveness we just don't touch ranges
+        // in that region. Implementation: continue iterating
+        // until the matching `end` (the lowerer guarantees one
+        // exists per Wasm validator rules); subsequent ops may
+        // re-push fresh vregs they themselves define, which we
+        // treat conservatively.
+        if (instr.op == .@"br" or instr.op == .@"return" or instr.op == .@"unreachable") {
+            while (sim_len > 0) {
+                sim_len -= 1;
+                const vreg = sim_stack[sim_len];
+                ranges.items[vreg].last_use_pc = pc;
+            }
+            continue;
+        }
+        if (instr.op == .@"br_if" or instr.op == .@"br_table") {
             if (sim_len == 0) return Error.OperandStackUnderflow;
             sim_len -= 1;
             const cond_vreg = sim_stack[sim_len];
@@ -356,7 +399,9 @@ test "compute: local.tee bridges def at the tee instr" {
     try testing.expectEqual(@as(u32, 2), live.ranges[1].last_use_pc);
 }
 
-test "compute: control flow op returns UnsupportedControlFlow" {
+test "compute: br closes all live vregs at branch site (sub-7.5c-iv)" {
+    // (i32.const 1) (br) (end) — `br` is now handled, not rejected.
+    // The const's vreg should have last_use_pc == br's pc.
     var f = try buildFunc(testing.allocator, &.{
         .{ .op = .@"i32.const", .payload = 1 },
         .{ .op = .@"br" },
@@ -364,7 +409,10 @@ test "compute: control flow op returns UnsupportedControlFlow" {
     });
     defer f.deinit(testing.allocator);
 
-    try testing.expectError(Error.UnsupportedControlFlow, compute(testing.allocator, &f, &.{}, &.{}));
+    const live = try compute(testing.allocator, &f, &.{}, &.{});
+    defer testing.allocator.free(live.ranges);
+    try testing.expectEqual(@as(usize, 1), live.ranges.len);
+    try testing.expectEqual(@as(u32, 1), live.ranges[0].last_use_pc); // br at pc=1
 }
 
 test "compute: stack underflow when pop with empty stack" {
