@@ -24,13 +24,12 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
   in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
   locals + control-flow-e1 done).
-- **Last commit**: `b870a90` — feat(p7) §9.7 / 7.3 sub-g3c
-  (call_indirect bounds + sig checks: CMP+B.HS for bounds,
-  LDR W16 typeidx + CMP imm12 + B.NE for sig; both share the
-  function-tail trap stub via bounds_fixups). Sub-g block fully
-  closed (call + call_indirect + arg/result marshalling). Sub-h
-  (numeric conversions) is the last 7.3 op group. 679/679 unit /
-  3-host green. Phase 6 close at `68843b0`.
+- **Last commit**: `7a0c0ca` — feat(p7) §9.7 / 7.3 sub-h1
+  (integer width conversions: i32.wrap_i64 + i64.extend_i32_u →
+  MOV W,W; i64.extend_i32_s → SXTW). 3 ops landed; remaining
+  sub-h ops are int↔float convert (h2), trapping trunc (h3),
+  reinterpret (h4), sat_trunc 2.0 (h5). 682/682 unit / 3-host
+  green. Phase 6 close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -57,7 +56,11 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | g3a | sig-table threading + result-type-aware capture        | [x] `7ac65d1` |
 | g3b | AAPCS64 arg marshalling (X0..X7 + V0..V7)             | [x] `e25a9a5` |
 | g3c | call_indirect bounds + sig checks (typeidx side-array) | [x] `b870a90` |
-| h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ] **NEXT** |
+| h1  | integer width: wrap_i64 + extend_i32_s/u                | [x] `7a0c0ca` |
+| h2  | int↔float convert (8 ops: f32/f64.convert_i32/i64.s/u + demote/promote) | [ ] **NEXT** |
+| h3  | trapping trunc (8 ops: i32/i64.trunc_f32/f64.s/u)       | [ ]    |
+| h4  | reinterpret (4 ops: bit-cast)                           | [ ]    |
+| h5  | sat_trunc (Wasm 2.0; 8 ops)                             | [ ]    |
 
 Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
 Plus 3 locals ops + end + 4 control-flow ops (block/loop/br/br_if).
