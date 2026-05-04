@@ -143,7 +143,7 @@ These do not change between phases. Changing one requires an ADR.
 |-----|----------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------|
 | A1  | Lower zones do not import upper zones                                                                                                        | `scripts/zone_check.sh --gate`                   |
 | A2  | One file ≤ 1,000 lines (soft) / ≤ 2,000 lines (hard)                                                                                       | `scripts/file_size_check.sh`                     |
-| A3  | Cross-arch backends do not import each other (`jit_arm64` ↔ `jit_x86`)                                                                      | `scripts/zone_check.sh --gate`                   |
+| A3  | Cross-arch backends do not import each other (`engine/codegen/arm64` ↔ `engine/codegen/x86_64`) per ADR-0023                                | `scripts/zone_check.sh --gate`                   |
 | A4  | `ZIR.verify()` runs after every analysis pass                                                                                                | Inline in `src/ir/verifier.zig`; called per pass |
 | A5  | Differential test gates every wasm-execution test (Phase 7+)                                                                                 | `zig build test-all`                             |
 | A6  | ADR is required for: layer/contract change, ZIR shape change, C ABI surface change, phase order change, regression allowance, tier promotion | Reviewer checklist; pre-merge audit              |
@@ -819,8 +819,11 @@ included in the build, not pervasive `if` branches.
 
 ```
 -Dwasm=3.0|2.0|1.0          (default 3.0; 2.0 omits Phase-9 features; 1.0 omits SIMD too)
--Dwasi=p1                   (default p1 only at v0.1.0; p2 lights up post-v0.1.0)
+-Dwasi=preview1             (default preview1 at v0.1.0; preview2 lights up post-v0.1.0)
 -Dengine=both|jit|interp    (default both; selects which engines are compiled in)
+-Daot=true|false            (default false at v0.1.0; lights up Phase 8+)
+-Denable=<feature>          (per-feature toggle within feature/; granular opt-out)
+-Dapi=c|none                (default c; -Dapi=none drops api/ subtree for embed-only builds)
 -Doptimize=Debug|ReleaseFast|ReleaseSafe|ReleaseSmall  (Zig standard)
 -Dstrip=true|false          (default false; strips debug info from the CLI binary)
 ```
@@ -829,7 +832,7 @@ Source-separation principle (A12): each feature module is its own
 directory; the build system includes/excludes the directory based
 on flags. There is **no `if (gc_enabled)`** in the parser /
 validator / interp / emitter. The dispatch table is populated only
-if `gc/mod.zig` was compiled in.
+if `feature/gc/register.zig` was compiled in.
 
 Zig's `comptime` makes this clean: the build system passes the set
 of enabled feature modules to a comptime-generated `register_all`
@@ -1514,13 +1517,13 @@ JIT.
 | 7.0  | `src/jit/reg_class.zig` — define GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special / simd_base_special classes (ROADMAP §4.2 / W54-class day-1 slot fill). | [x] `e273149` (re-derived; b336e78 was reverted by ADR-0011) |
 | 7.1  | `src/jit/regalloc.zig` — greedy-local allocator + first-class spill (`Slot` union, `n_reg_slots` / `n_spill_bytes`) per ADR-0018; `regalloc.verify(zir)` post-condition runs after every alloc. | [x] `e7ad654` (re-derived; a6bf0e7 was reverted by ADR-0011; ADR-0018 implementation cycle re-touches) |
 | 7.2  | `src/jit_arm64/{inst,abi}.zig` — ARM64 instruction encoder + AAPCS64 calling convention layout + `reserved_invariant_gprs` (ADR-0018) + JitRuntime ABI offsets (ADR-0017). | [x] `4389a50` (re-derived; 3c89984 was reverted by ADR-0011; ADR-0017+0018 implementation cycle re-touches) |
-| 7.3  | `src/jit_arm64/emit.zig` — ZIR → ARM64 emit pass producing function bodies + Runtime prologue (5 LDRs from `*X0` per ADR-0017) + spill emit per ADR-0018. | [ ]            |
-| 7.4  | JIT runtime infra: `src/platform/jit_mem.zig` (RWX memory) + `src/jit/linker.zig` (BL fixup patcher) + `src/jit/entry.zig` (Zig caller bridge); ADR-0017 simplifies entry to a standard function-pointer call. | [ ] sub-7.4a/b/c landed (`1e71b53`/`3e34d1a`/`93e2f2c`); refactor per ADR-0017 ahead |
+| 7.3  | `src/engine/codegen/arm64/emit.zig` (post-7.5e path; was `src/jit_arm64/emit.zig`) — ZIR → ARM64 emit pass producing function bodies + Runtime prologue (5 LDRs from `*X0` per ADR-0017) + spill emit per ADR-0018. | [ ]            |
+| 7.4  | JIT runtime infra: `src/platform/jit_mem.zig` (RWX memory) + `src/engine/codegen/shared/linker.zig` (BL fixup patcher; was `src/jit/linker.zig`) + `src/engine/codegen/shared/entry.zig` (Zig caller bridge; was `src/jit/entry.zig`); ADR-0017 simplifies entry to a standard function-pointer call. | [ ] sub-7.4a/b/c landed (`1e71b53`/`3e34d1a`/`93e2f2c`); refactor per ADR-0017 ahead |
 | 7.5  | spec test pass=fail=skip=0 via ARM64 JIT on Mac aarch64 host (drives every Wasm 1.0 + 2.0 op the interp covers). | [ ]            |
 | 7.5d | emit.zig responsibility split (≤ 9 modules under `src/engine/codegen/arm64/`; orchestrator ≤ 1000 LOC; each module ≤ 400 LOC) + test byte-offset abstraction via `src/engine/codegen/arm64/prologue.zig`. **Hard gate before 7.6 opens** (per ADR-0021). Sub-deliverable a: byte-offset helper + 4 demo + ~128-site bulk migration done as part of 7.5e. Sub-deliverable b: emit.zig split per `.dev/lessons/2026-05-04-emit-monolith-cost.md` — lands on the new path produced by 7.5e per ADR-0023. | [ ]            |
 | 7.5e | **src/ directory structure normalization per ADR-0023**: relocate to the final shape (parse / validate / ir / runtime / instruction / feature / engine / wasi / api / cli / platform / diagnostic / support). Includes c_api/instance.zig 2216 LOC split (D-1 in ADR-0023), interp/mod.zig Runtime extraction, c_api → api rename + wasm_c_api.zig → wasm.zig + c_api_lib.zig → api/lib_export.zig, frontend → parse + validate + ir/lower, instruction/{wasm_1_0, wasm_2_0, wasm_3_0}/ creation, feature/ 6 active + 3 reserved slots, engine/{runner, interp/loop, codegen/{shared, arm64, x86_64, aot}}/, util → support/, runtime/diagnostic → diagnostic/, runtime/jit_abi → engine/codegen/shared/jit_abi, wasi/p1.zig → wasi/preview1.zig. Implementation order detailed in ADR-0023 §7. **Hard gate before 7.5d sub-b emit.zig 9-module split**, which lands on the new path. | [ ]            |
 | 7.6  | `src/engine/codegen/x86_64/{reg_class, inst, abi}.zig` — x86_64 instruction encoder + System V (Linux) + Win64 (Windows) calling conventions + `reserved_invariant_gprs` (ADR-0018 mapping). | [ ]            |
-| 7.7  | `src/jit_x86/emit.zig` — ZIR → x86_64 emit pass producing function bodies (ADR-0017 prologue mapping for x86_64). | [ ]            |
+| 7.7  | `src/engine/codegen/x86_64/emit.zig` — ZIR → x86_64 emit pass producing function bodies (ADR-0017 prologue mapping for x86_64). | [ ]            |
 | 7.8  | spec test pass=fail=skip=0 via x86_64 JIT on Linux x86_64 AND Windows x86_64 hosts. | [ ]            |
 | 7.9  | 40+ realworld samples (out of 50) run via ARM64 JIT — same fixtures as §9.6 / 6.1; trap categorisation reuses the run_runner buckets. | [ ]            |
 | 7.10 | 40+ realworld samples (out of 50) run via x86_64 JIT on both Linux + Windows hosts. | [ ]            |

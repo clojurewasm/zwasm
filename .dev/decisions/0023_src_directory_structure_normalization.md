@@ -456,9 +456,10 @@ the count of commits.
    (`simd_128, gc, exception_handling, tail_call,
    function_references, memory64`) and 3 reserved slots
    (`threads, stack_switching, component`). Reserved slots
-   contain only `README.md` naming the target Phase. SIMD-128
-   uses the existing ext_2_0 SIMD pieces (currently minimal)
-   to seed the subsystem with a `register.zig` skeleton.
+   contain only `README.md` naming the target Phase. v0.1.0 has
+   no existing v2 SIMD code — `feature/simd_128/register.zig`
+   is a stub only; full SIMD implementation lands in a future
+   Phase per ROADMAP §11.
 10. Create `engine/{runner.zig, interp/, codegen/{shared, arm64,
     x86_64, aot}/}`: relocate `jit/*` → `engine/codegen/shared/`;
     `jit_arm64/*` → `engine/codegen/arm64/`; `interp/{dispatch,
@@ -483,8 +484,18 @@ the count of commits.
     `runtime/diagnostic.zig` → `diagnostic/diagnostic.zig`
     (already covered by step 2). `cli/diag_print.zig` stays in
     `cli/`.
-16. Land the emit.zig 9-module split (ADR-0021 row 7.5d sub-b)
-    on the new path `engine/codegen/arm64/`.
+16. Move `src/jit_arm64/emit.zig` (verbatim, the 4008-LOC
+    monolith) to `src/engine/codegen/arm64/emit.zig` as part of
+    item 10's relocation. Move
+    `src/jit_arm64/{abi, inst, prologue}.zig` likewise.
+    Relativise the remaining ~128 byte-offset test sites in the
+    relocated `emit.zig` using the existing `prologue.zig` helper
+    (this is the bulk completion of ADR-0021 row 7.5d sub-a, which
+    landed only 4 demonstration sites). The 9-module content
+    split (ADR-0021 row 7.5d sub-b) follows in a **separate task
+    after 7.5e closes**, on the new path. Do not perform the
+    content split inside 7.5e — that conflates the structural
+    reorg with the file-content refactor.
 17. Sync `handover.md` and update path citations in related
     ADRs (ADR-0017 / 0018 / 0019 / 0021).
 18. Sweep the codebase for stale references and update
