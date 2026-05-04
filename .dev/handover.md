@@ -24,36 +24,43 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
   `68843b0` (3-host green; mandatory audit fired; widget flipped
   6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `4389a50` — feat(p7) §9.7 / 7.2 jit_arm64
-  `inst.zig` (encoder, 13 ops + tests) + `abi.zig` (AAPCS64
-  inventory + slotToReg). 521/521 unit / 3-host green. Earlier
-  same cycle: 7.0 (`e273149`), 7.1 (`e7ad654`); D-006/D-023/D-024/
-  D-025 discharged + bench v1-class baseline.
+- **Last commit**: `0463d69` — feat(p7) §9.7 / 7.3 emit.zig
+  ZIR→ARM64 skeleton (prologue + epilogue + i32.const + end).
+  526/526 unit / 3-host green. Earlier this cycle: 7.0
+  (`e273149`), 7.1 (`e7ad654`), 7.2 (`4389a50`); D-006 + bench
+  v1-class baseline.
 - **Branch**: `zwasm-from-scratch`, pushed.
 - **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
   all report identical test-all numbers (39/55 diff matched, 44/55
   realworld run, 1158 wast / 72 misc-runtime smoke / 5 wasmtime-misc
   runtime / 50 realworld parse / 9+3 spec / 2 wasi).
 
-## Active task — §9.7 / 7.3 (`jit_arm64/emit.zig` ZIR→ARM64)
+## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
 
-Per ROADMAP §9.7 / 7.3: `src/jit_arm64/emit.zig` — ZIR → ARM64
-emit pass producing function bodies. Consumes:
-- `jit/regalloc.compute()` for slot assignments per vreg.
-- `jit_arm64/inst.enc*` for fixed-width u32 encodings.
-- `jit_arm64/abi.slotToReg / isCallerSaved / isCalleeSaved` for
-  per-arch wiring.
+Per ROADMAP §9.7 / 7.3 ("ZIR → ARM64 emit pass producing
+function bodies"). Skeleton landed at `0463d69` (prologue +
+epilogue + i32.const + end → returns 42 in X0 verified). Row
+remains `[ ]` until MVP op coverage closes — exit gated by
+§9.7 / 7.4's spec test pass=fail=skip=0. Sub-progression
+(planned for subsequent cycles, not separate ROADMAP rows):
 
-This row also dissolves D-014's barrier ("§9.7 / 7.3 emit pass
-or earliest JIT row that touches Runtime"). The Runtime.io
-injection-point design needs its decision here (or before).
-Step 0.5 of the next /continue cycle should flip D-014 to `now`
-and discharge alongside.
+| Sub | Op group                                              | Status |
+|-----|-------------------------------------------------------|--------|
+| a   | prologue/epilogue + i32.const + end (skeleton)        | [x] `0463d69` |
+| b   | i32 ALU (add/sub/mul/and/or/xor/shifts/cmp + eqz)     | [ ] **NEXT** |
+| c   | local.get/set/tee + local frame slot allocation        | [ ]    |
+| d   | i64 + f32 + f64 const + ALU                           | [ ]    |
+| e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ]   |
+| f   | memory load/store + bounds-check trap surface          | [ ]    |
+| g   | call / call_indirect + arg/return marshalling          | [ ]    |
 
-7.3 is also the row where Diagnostic M3 (interp trap location +
-trace ringbuffer per ADR-0016) becomes more useful since JIT
-trap surfacing inherits from interp's machinery — D-022 may
-flip to `now` here too.
+D-014 (Runtime.io injection point) stays `blocked-by` until
+sub-f or sub-g — those are the first sub-rows that need trap
+surface or host-call dispatch, both of which require Runtime
+access. Sub-b (pure ALU) does not.
+
+D-022 (Diagnostic M3 / trace ringbuffer) likewise stays
+`blocked-by` until sub-f introduces trap surfaces.
 
 ## Phase 6 close — closing snapshot
 
