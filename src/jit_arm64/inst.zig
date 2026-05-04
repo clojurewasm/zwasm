@@ -120,6 +120,36 @@ pub fn encBr(rn: Xn) u32 {
     return 0xD61F0000 | (@as(u32, rn) << 5);
 }
 
+/// `B disp` — unconditional 26-bit-signed-offset branch (PC-relative,
+/// in instruction units = 4 bytes). Range ±128 MiB.
+/// Encoding: `0 00101 [imm26:26]` = `0x14000000`.
+pub fn encB(disp_words: i32) u32 {
+    const masked: u32 = @as(u32, @bitCast(disp_words)) & 0x03FFFFFF;
+    return 0x14000000 | masked;
+}
+
+/// `CBZ Wn, disp` — branch when Wn == 0; 19-bit signed
+/// instruction-unit offset (range ±1 MiB).
+/// Encoding: `0 011010 0 [imm19:19] [Rt:5]` = `0x34000000`.
+pub fn encCbzW(rt: Xn, disp_words: i32) u32 {
+    const masked: u32 = @as(u32, @bitCast(disp_words)) & 0x0007FFFF;
+    return 0x34000000 | (masked << 5) | @as(u32, rt);
+}
+
+/// `CBNZ Wn, disp` — branch when Wn != 0; 19-bit signed offset.
+/// Encoding: `0 011010 1 [imm19:19] [Rt:5]` = `0x35000000`.
+pub fn encCbnzW(rt: Xn, disp_words: i32) u32 {
+    const masked: u32 = @as(u32, @bitCast(disp_words)) & 0x0007FFFF;
+    return 0x35000000 | (masked << 5) | @as(u32, rt);
+}
+
+/// `B.cond disp` — conditional branch; 19-bit signed offset.
+/// Encoding: `01010100 [imm19:19] 0 [cond:4]` = `0x54000000`.
+pub fn encBCond(cond: Cond, disp_words: i32) u32 {
+    const masked: u32 = @as(u32, @bitCast(disp_words)) & 0x0007FFFF;
+    return 0x54000000 | (masked << 5) | @as(u32, @intFromEnum(cond));
+}
+
 /// `MUL Xd, Xn, Xm` — alias for `MADD Xd, Xn, Xm, XZR`.
 /// Encoding (64-bit MADD): `1 00 11011 000 [Rm:5] 0 [Ra:5] [Rn:5] [Rd:5]`
 /// with Ra=31 (XZR). Base = `0x9B007C00` | (Rm<<16) | (Rn<<5) | Rd.
@@ -572,6 +602,27 @@ test "encLdrImmW w10, [sp, #8] — `ldr w10, [sp, #8]` → 0xB9400BEA" {
 
 test "encBr x16 — `br x16` → 0xD61F0200" {
     try testing.expectEqual(@as(u32, 0xD61F0200), encBr(16));
+}
+
+test "encB +1 — `b 1f / nop / 1:` → 0x14000001" {
+    try testing.expectEqual(@as(u32, 0x14000001), encB(1));
+}
+
+test "encB -1 — backward branch by 1 word → 0x17FFFFFF" {
+    // imm26 sign-extended = -1; bit26 wraps. Mask to 26 bits = 0x3FFFFFF.
+    try testing.expectEqual(@as(u32, 0x17FFFFFF), encB(-1));
+}
+
+test "encCbnzW w0, +1 — `cbnz w0, 1f` → 0x35000020" {
+    try testing.expectEqual(@as(u32, 0x35000020), encCbnzW(0, 1));
+}
+
+test "encCbzW w0, +1 — `cbz w0, 1f` → 0x34000020" {
+    try testing.expectEqual(@as(u32, 0x34000020), encCbzW(0, 1));
+}
+
+test "encBCond .eq, +1 — `b.eq 1f` → 0x54000020" {
+    try testing.expectEqual(@as(u32, 0x54000020), encBCond(.eq, 1));
 }
 
 test "encMulReg x0, x1, x2 — `mul x0, x1, x2` → 0x9B027C20" {

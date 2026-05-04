@@ -119,6 +119,37 @@ pub fn compile(
     defer pushed_vregs.deinit(allocator);
     var next_vreg: u32 = 0;
 
+    // ============================================================
+    // Label stack — supports `block` / `loop` + `br N` / `br_if N`.
+    //
+    // Each entry tracks:
+    //   kind      — .block (forward branches resolve at `end`) or
+    //               .loop (backward branches resolve at the loop
+    //               entry).
+    //   target_byte_offset — for .loop, the byte offset of the
+    //               loop entry. For .block, undefined until `end`
+    //               lands; pending fixups are patched at that
+    //               point.
+    //   pending   — fixup records (byte_offset of branch + kind)
+    //               needing patch when the label resolves.
+    //
+    // This lives in emit.zig (not as a separate type) because the
+    // patching machinery is tightly coupled to the buf layout.
+    // ============================================================
+    const LabelKind = enum { block, loop };
+    const FixupKind = enum { b_uncond, cbnz_w };
+    const Fixup = struct { byte_offset: u32, kind: FixupKind };
+    const Label = struct {
+        kind: LabelKind,
+        target_byte_offset: u32,
+        pending: std.ArrayList(Fixup),
+    };
+    var labels: std.ArrayList(Label) = .empty;
+    defer {
+        for (labels.items) |*l| l.pending.deinit(allocator);
+        labels.deinit(allocator);
+    }
+
     for (func.instrs.items, 0..) |ins, pc| {
         _ = pc;
         switch (ins.op) {
@@ -769,13 +800,90 @@ pub fn compile(
                 try writeU32(allocator, &buf, inst.encUmovWFromVB0(wd, v_scratch));
                 try pushed_vregs.append(allocator, result);
             },
+            .@"block" => {
+                try labels.append(allocator, .{
+                    .kind = .block,
+                    .target_byte_offset = 0, // unknown until matching `end`
+                    .pending = .empty,
+                });
+            },
+            .@"loop" => {
+                try labels.append(allocator, .{
+                    .kind = .loop,
+                    .target_byte_offset = @intCast(buf.items.len),
+                    .pending = .empty,
+                });
+            },
+            .@"br" => {
+                // Resolve label at depth = ins.payload (0 = innermost).
+                if (ins.payload >= labels.items.len) return Error.UnsupportedOp;
+                const tgt_idx = labels.items.len - 1 - ins.payload;
+                const tgt = &labels.items[tgt_idx];
+                const fixup_at: u32 = @intCast(buf.items.len);
+                if (tgt.kind == .loop) {
+                    // Backward branch — target is known.
+                    const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+                        @as(i32, @intCast(fixup_at));
+                    try writeU32(allocator, &buf, inst.encB(@divExact(disp_words, 4)));
+                } else {
+                    // Forward branch — record fixup, emit placeholder.
+                    try writeU32(allocator, &buf, inst.encB(0));
+                    try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
+                }
+            },
+            .@"br_if" => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const cond = pushed_vregs.pop().?;
+                const wn = abi.slotToReg(alloc.slots[cond]) orelse return Error.SlotOverflow;
+                if (ins.payload >= labels.items.len) return Error.UnsupportedOp;
+                const tgt_idx = labels.items.len - 1 - ins.payload;
+                const tgt = &labels.items[tgt_idx];
+                const fixup_at: u32 = @intCast(buf.items.len);
+                if (tgt.kind == .loop) {
+                    // Backward conditional branch.
+                    const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+                        @as(i32, @intCast(fixup_at));
+                    try writeU32(allocator, &buf, inst.encCbnzW(wn, @divExact(disp_words, 4)));
+                } else {
+                    try writeU32(allocator, &buf, inst.encCbnzW(wn, 0));
+                    try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .cbnz_w });
+                }
+            },
             .@"end" => {
-                // Function-level end: marshal the top-of-stack vreg
-                // into the result register, then run the epilogue.
-                // AAPCS64 §6.4: integer / pointer returns in X0;
-                // floating-point returns in V0 (S0 for f32, D0
-                // for f64). Only fires once per function in the
-                // 7.3 skeleton (multi-end via blocks lands later).
+                // Two distinct forms:
+                // (A) Intra-function `end`: pops a label off the stack
+                //     and patches forward fixups (block) / no-op for loop.
+                // (B) Function-level `end`: marshals result, runs
+                //     epilogue, returns.
+                //
+                // Disambiguation: if `labels` is non-empty, we're in
+                // form (A). Otherwise form (B).
+                if (labels.items.len > 0) {
+                    var lbl = labels.pop().?;
+                    defer lbl.pending.deinit(allocator);
+                    if (lbl.kind == .block) {
+                        const target_byte: u32 = @intCast(buf.items.len);
+                        for (lbl.pending.items) |fx| {
+                            const disp_words: i32 = @as(i32, @intCast(target_byte)) -
+                                @as(i32, @intCast(fx.byte_offset));
+                            const new_word: u32 = switch (fx.kind) {
+                                .b_uncond => inst.encB(@divExact(disp_words, 4)),
+                                .cbnz_w => blk: {
+                                    // Read original to recover Rt.
+                                    const orig = std.mem.readInt(u32, buf.items[fx.byte_offset..][0..4], .little);
+                                    const rt: inst.Xn = @intCast(orig & 0x1F);
+                                    break :blk inst.encCbnzW(rt, @divExact(disp_words, 4));
+                                },
+                            };
+                            std.mem.writeInt(u32, buf.items[fx.byte_offset..][0..4], new_word, .little);
+                        }
+                    }
+                    // Loop: nothing to patch (backward branches already
+                    // had concrete offsets). Both block/loop ends are
+                    // still followed by the next instruction.
+                    continue;
+                }
+                // Function-level end (labels stack is empty).
                 if (pushed_vregs.items.len > 0 and func.sig.results.len > 0) {
                     const top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
                     const result_kind = func.sig.results[0];
@@ -1631,6 +1739,103 @@ test "compile: f32 unary ops + min/max each emit correct encoding" {
         const op_offset: usize = if (c.binary) 32 else 20;
         try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[op_offset..op_offset+4][0..4], .little));
     }
+}
+
+test "compile: block + br 0 + end — forward unconditional branch fixup" {
+    // (block (i32.const 7) (br 0) (i32.const 99) end (i32.const 1) end)
+    // The br skips the second i32.const; the third lands as the
+    // returned value (just to keep the func valid). For sub-e1
+    // skeleton, just check the bytes — no execution.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 1, .last_use_pc = 5 },  // dropped at br but tracked
+        .{ .def_pc = 4, .last_use_pc = 5 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // Stream:
+    //  [0]  STP                (prologue)
+    //  [4]  MOV X29, SP
+    //  [8]  MOVZ W9 #7         (i32.const 7)
+    // [12]  B + (forward, patched)  ← block-end fixup
+    // [16]  MOVZ W9 #1         (i32.const 1, after block)
+    // [20]  MOV X0, X9
+    // [24]  LDP, RET ...
+    //
+    // Verify the B at [12] points to byte 16 (1 word forward).
+    const b_word = std.mem.readInt(u32, out.bytes[12..16], .little);
+    try testing.expectEqual(@as(u32, inst.encB(1)), b_word);
+}
+
+test "compile: loop + br 0 + end — backward unconditional branch" {
+    // (loop (br 0) end (i32.const 1) end) — infinite-loop pattern
+    // (the loop's br targets the loop's start). Verify the B's
+    // disp is negative.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"loop" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 3, .last_use_pc = 4 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // Loop entry recorded at byte 8 (after STP/MOV-FP).
+    // br targets it from byte 8 → disp = 0 words.
+    // Then end (no-op for loop), then i32.const W9 #1, MOV X0, ...
+    const b_word = std.mem.readInt(u32, out.bytes[8..12], .little);
+    try testing.expectEqual(@as(u32, inst.encB(0)), b_word);
+}
+
+test "compile: br_if 0 — forward CBNZ fixup" {
+    // (block (i32.const 0) (br_if 0) (i32.const 7) end (i32.const 1) end)
+    // br_if 0 reads the cond (0 → no branch, continues to const 7).
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br_if", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 3, .last_use_pc = 5 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // Stream:
+    //  [0]  STP                (prologue)
+    //  [4]  MOV X29, SP
+    //  [8]  MOVZ W9 #0         (i32.const 0 → the cond)
+    // [12]  CBNZ W9, +2        (br_if; patched to skip past const 7 → end of block)
+    // [16]  MOVZ W9 #7         (i32.const 7)
+    // [20]  block end → target lands here
+    // CBNZ disp_words = (20 - 12) / 4 = 2.
+    const cbnz = std.mem.readInt(u32, out.bytes[12..16], .little);
+    try testing.expectEqual(@as(u32, inst.encCbnzW(9, 2)), cbnz);
 }
 
 test "compile: f32.copysign emits 8-instr FMOV/BIC/AND/ORR sequence" {
