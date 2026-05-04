@@ -37,7 +37,7 @@
 const std = @import("std");
 
 const leb128 = @import("../support/leb128.zig");
-const zir = @import("../ir/zir.zig");
+const zir = @import("zir.zig");
 
 const Allocator = std.mem.Allocator;
 const ValType = zir.ValType;

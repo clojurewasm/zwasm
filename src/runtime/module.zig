@@ -2,14 +2,14 @@
 //! counterpart of the wasm-c-api `wasm_module_t` handle.
 //!
 //! Per ADR-0023 §3 P-A and §3 reference table: extracted from the
-//! pre-ADR `frontend/parser.zig`'s Module struct. Parser logic
+//! pre-ADR `parse/parser.zig`'s Module struct. Parser logic
 //! (magic/version validation + section iteration) stays in
-//! `frontend/parser.zig`; this file owns only the parsed-module
+//! `parse/parser.zig`; this file owns only the parsed-module
 //! data shape so that downstream consumers (`api/wasm.zig`'s
 //! `wasm_module_*`, validator, lowerer, instance binding) can
 //! depend on `runtime/` without importing `frontend/`.
 //!
-//! Section / SectionId types remain in `frontend/parser.zig` —
+//! Section / SectionId types remain in `parse/parser.zig` —
 //! they are parsing concerns (binary-format byte ids, ordering
 //! rules per Wasm 1.0 §5.5) rather than runtime structure. The
 //! Module struct holds a `[]Section` for iteration but does not
@@ -19,7 +19,7 @@
 
 const std = @import("std");
 
-const parser = @import("../frontend/parser.zig");
+const parser = @import("../parse/parser.zig");
 
 const Allocator = std.mem.Allocator;
 const Section = parser.Section;

@@ -4,24 +4,24 @@
 //! `register(*DispatchTable)` installs per-opcode handlers into the
 //! `parsers` slot. Each handler reads its immediate operand(s) (if
 //! any) from a `*ParserCtx` (cast back to the concrete `Ctx` from
-//! `frontend/parse_ctx.zig`) and packs the result into the
+//! `parse/ctx.zig`) and packs the result into the
 //! caller-supplied `*ZirInstr`. The caller pre-fills `instr.op` and
 //! positions the `Ctx` cursor immediately after the opcode byte.
 //!
 //! Phase 1.7 establishes the registration pattern with the MVP
-//! opcode subset already lowered by `frontend/lowerer.zig`. The
+//! opcode subset already lowered by `ir/lower.zig`. The
 //! lowerer keeps its inline switch for Phase 1; the production
 //! frontend migrates to dispatch-table consumption when Phase 2
 //! (interp) wires the table for runtime dispatch.
 //!
 //! Zone 1 (`src/feature/mvp/`) — imports Zone 1 (`ir/`,
-//! `frontend/parse_ctx.zig`).
+//! `parse/ctx.zig`).
 
 const std = @import("std");
 
 const dispatch = @import("../../ir/dispatch_table.zig");
 const zir = @import("../../ir/zir.zig");
-const parse_ctx = @import("../../frontend/parse_ctx.zig");
+const parse_ctx = @import("../../parse/ctx.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;

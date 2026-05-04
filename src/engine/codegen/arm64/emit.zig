@@ -2075,7 +2075,7 @@ fn encOrrZrIntoX0(rm: Xn) u32 {
 // ============================================================
 
 const testing = std.testing;
-const liveness_mod = @import("../../../ir/liveness.zig");
+const liveness_mod = @import("../../../ir/analysis/liveness.zig");
 
 test "compile: empty body without liveness errors" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };

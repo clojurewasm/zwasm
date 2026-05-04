@@ -17,8 +17,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const parser = @import("../frontend/parser.zig");
-const sections = @import("../frontend/sections.zig");
+const parser = @import("../parse/parser.zig");
+const sections = @import("../parse/sections.zig");
 const zir = @import("../ir/zir.zig");
 const FuncType = zir.FuncType;
 const compile_func = @import("codegen/shared/compile.zig");

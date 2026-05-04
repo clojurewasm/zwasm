@@ -17,10 +17,10 @@ pub const version = "0.0.0-pre";
 // Public re-exports so build-time consumers (test/spec/runner.zig,
 // integration tests) can import the frontend without poking at
 // individual files.
-pub const parser = @import("frontend/parser.zig");
-pub const validator = @import("frontend/validator.zig");
-pub const lowerer = @import("frontend/lowerer.zig");
-pub const sections = @import("frontend/sections.zig");
+pub const parser = @import("parse/parser.zig");
+pub const validator = @import("validate/validator.zig");
+pub const lowerer = @import("ir/lower.zig");
+pub const sections = @import("parse/sections.zig");
 pub const zir = @import("ir/zir.zig");
 pub const runtime = @import("runtime/runtime.zig");
 pub const cli_run = @import("cli/run.zig");
@@ -139,18 +139,18 @@ test {
     _ = @import("engine/codegen/shared/jit_abi.zig");
     _ = @import("engine/codegen/shared/compile.zig");
     _ = @import("engine/runner.zig");
-    _ = @import("ir/loop_info.zig");
-    _ = @import("ir/liveness.zig");
+    _ = @import("ir/analysis/loop_info.zig");
+    _ = @import("ir/analysis/liveness.zig");
     _ = @import("ir/verifier.zig");
-    _ = @import("ir/const_prop.zig");
-    _ = @import("frontend/parser.zig");
-    _ = @import("frontend/validator.zig");
-    _ = @import("frontend/validator_tests.zig");
-    _ = @import("frontend/lowerer.zig");
-    _ = @import("frontend/lowerer_tests.zig");
-    _ = @import("frontend/parse_ctx.zig");
+    _ = @import("ir/analysis/const_prop.zig");
+    _ = @import("parse/parser.zig");
+    _ = @import("validate/validator.zig");
+    _ = @import("validate/validator_tests.zig");
+    _ = @import("ir/lower.zig");
+    _ = @import("ir/lower_tests.zig");
+    _ = @import("parse/ctx.zig");
     _ = @import("feature/mvp/mod.zig");
-    _ = @import("frontend/sections.zig");
+    _ = @import("parse/sections.zig");
     _ = @import("runtime/runtime.zig");
     _ = @import("runtime/value.zig");
     _ = @import("runtime/trap.zig");

@@ -25,8 +25,8 @@ const Allocator = std.mem.Allocator;
 const zir = @import("../../../ir/zir.zig");
 const ZirFunc = zir.ZirFunc;
 const FuncType = zir.FuncType;
-const lowerer = @import("../../../frontend/lowerer.zig");
-const liveness = @import("../../../ir/liveness.zig");
+const lowerer = @import("../../../ir/lower.zig");
+const liveness = @import("../../../ir/analysis/liveness.zig");
 const regalloc = @import("regalloc.zig");
 const emit = @import("../arm64/emit.zig");
 

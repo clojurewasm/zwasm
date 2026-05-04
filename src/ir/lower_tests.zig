@@ -8,8 +8,8 @@
 
 const std = @import("std");
 
-const lowerer = @import("lowerer.zig");
-const zir = @import("../ir/zir.zig");
+const lowerer = @import("lower.zig");
+const zir = @import("zir.zig");
 
 const lowerFunctionBody = lowerer.lowerFunctionBody;
 const Error = lowerer.Error;

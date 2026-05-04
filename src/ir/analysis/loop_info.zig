@@ -23,7 +23,7 @@
 
 const std = @import("std");
 
-const zir = @import("zir.zig");
+const zir = @import("../zir.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;

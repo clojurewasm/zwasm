@@ -20,7 +20,7 @@ const std = @import("std");
 
 const runtime_mod = @import("../runtime.zig");
 const store_mod = @import("../store.zig");
-const sections = @import("../../frontend/sections.zig");
+const sections = @import("../../parse/sections.zig");
 const zir = @import("../../ir/zir.zig");
 
 const Store = store_mod.Store;
@@ -73,7 +73,7 @@ pub const Instance = struct {
 };
 
 /// Structural type of an exported entity. Mirrors the four
-/// `ImportPayload` variants in `frontend/sections.zig` but with
+/// `ImportPayload` variants in `parse/sections.zig` but with
 /// `func` resolving the typeidx to a concrete `FuncType` so the
 /// importer-vs-exporter comparison is direct.
 pub const ExportType = union(sections.ImportKind) {
