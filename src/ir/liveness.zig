@@ -133,11 +133,21 @@ fn stackEffect(op: ZirOp) ?StackEffect {
 
 fn isControlFlow(op: ZirOp) bool {
     return switch (op) {
+        // Branches and unreachable still reject — they cause CFG
+        // joins that single-pass liveness can't model precisely.
+        // sub-7.5c-iv will refine to a fixed-point analysis.
         .@"unreachable",
-        .@"block", .@"loop", .@"if", .@"else", .@"end",
         .@"br", .@"br_if", .@"br_table", .@"return",
-        .@"call", .@"call_indirect",
         => true,
+        // Block / loop / if / else / end are STRUCTURAL markers
+        // for the emit pass; at the liveness level they are
+        // transparent (or, for `if`, pop the condition). Handled
+        // explicitly in `compute` rather than via stackEffect.
+        .@"block", .@"loop", .@"if", .@"else", .@"end",
+        // call / call_indirect are handled explicitly in compute
+        // using func_sigs / module_types.
+        .@"call", .@"call_indirect",
+        => false,
         else => false,
     };
 }
@@ -173,14 +183,34 @@ pub fn compute(
 
         // The function-level `end` closes every still-live vreg.
         if (instr.op == .@"end") {
-            if (idx + 1 != func.instrs.items.len) {
-                return Error.UnsupportedControlFlow;
+            const is_function_end = (idx + 1 == func.instrs.items.len);
+            if (is_function_end) {
+                while (sim_len > 0) {
+                    sim_len -= 1;
+                    const vreg = sim_stack[sim_len];
+                    ranges.items[vreg].last_use_pc = pc;
+                }
             }
-            while (sim_len > 0) {
-                sim_len -= 1;
-                const vreg = sim_stack[sim_len];
-                ranges.items[vreg].last_use_pc = pc;
-            }
+            // Mid-function `end` (block/loop/if frame closer) is
+            // transparent at the liveness level — values produced
+            // inside the block stay on the operand stack and flow
+            // naturally to the next consumer. The Wasm validator
+            // already enforces stack-shape consistency at block
+            // boundaries.
+            continue;
+        }
+
+        // block / loop / else: structural markers, transparent.
+        if (instr.op == .@"block" or instr.op == .@"loop" or instr.op == .@"else") {
+            continue;
+        }
+
+        // if: pops the condition (1 operand), no push.
+        if (instr.op == .@"if") {
+            if (sim_len == 0) return Error.OperandStackUnderflow;
+            sim_len -= 1;
+            const cond_vreg = sim_stack[sim_len];
+            ranges.items[cond_vreg].last_use_pc = pc;
             continue;
         }
 
