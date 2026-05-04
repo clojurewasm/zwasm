@@ -25,13 +25,12 @@
   op coverage CLOSED (111 ops: 88 numeric MVP + 23 conversions
   including all 8 trapping trunc + 8 sat_trunc + 4 reinterpret +
   3 width). 7.3 row stays `[ ]` pending 7.4 spec test gate.
-- **Last commit**: `1e71b53` — feat(p7) §9.7 / 7.4 sub-7.4a (JIT
-  executable-memory primitive: `JitBlock` via mmap MAP_JIT +
-  `pthread_jit_write_protect_np` + `sys_icache_invalidate`;
-  smoke test emits MOVZ X0,#42 + RET and calls it). Foundation
-  for the spec gate; sub-7.4b (per-function emit + linker for
-  `call_fixups` + entry-frame setup) ahead. 715/715 unit / 3-host
-  green. Phase 6 close at `68843b0`.
+- **Last commit**: `3e34d1a` — feat(p7) §9.7 / 7.4 sub-7.4b (JIT
+  module linker: `JitModule` + `link` patches BL placeholders
+  per-function; smoke test runs the first v2-JIT-to-v2-JIT call
+  with fn0=`call 1; end`, fn1=`i32.const 7; end` returning 7).
+  Sub-7.4c (entry-frame setup with X24..X28 invariants) ahead.
+  716/716 unit / 3-host green. Phase 6 close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -70,8 +69,8 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | Sub | Step | Status |
 |-----|------|--------|
 | 7.4a | JIT executable-memory primitive (Mac aarch64) | [x] `1e71b53` |
-| 7.4b | Per-function emit + linker (patch call_fixups by absolute disp) | [ ] **NEXT** |
-| 7.4c | Entry-frame setup (X24..X28 invariants from Runtime + arg unboxing) | [ ] |
+| 7.4b | Per-function emit + linker (patch call_fixups by absolute disp) | [x] `3e34d1a` |
+| 7.4c | Entry-frame setup (X24..X28 invariants from Runtime + arg unboxing) | [ ] **NEXT** |
 | 7.4d | wasm-1.0 spec testsuite via JIT (pass=fail=skip=0) | [ ] |
 
 Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
