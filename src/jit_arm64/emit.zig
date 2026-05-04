@@ -43,6 +43,7 @@ const std = @import("std");
 const zir = @import("../ir/zir.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
+const prologue = @import("prologue.zig");
 const regalloc = @import("../jit/regalloc.zig");
 const jit_abi = @import("../runtime/jit_abi.zig");
 
@@ -2058,6 +2059,19 @@ fn encOrrZrIntoX0(rm: Xn) u32 {
 
 // ============================================================
 // Tests
+//
+// Byte-offset abstraction (regret #6 / ADR-0021 sub-deliverable a):
+// new test sites MUST use `prologue.body_start_offset(has_frame)`
+// + relative deltas instead of literal `out.bytes[N..M]`. The
+// pattern is demonstrated at 4 representative sites below
+// (`empty function`, `(i32.const 42)`, `i32.const 0x12345678`,
+// `i32.add`). Bulk migration of the remaining ~128 sites is
+// sequenced under §9.7 / 7.5d sub-deliverable b (emit.zig split)
+// so the relativisation runs in a single review-friendly cycle
+// rather than colliding with this session's design + scaffolding
+// commits. The rule in `.claude/rules/edge_case_testing.md`
+// (§"Test-side byte offsets must be relative") forbids new
+// hardcoded literals from this commit forward.
 // ============================================================
 
 const testing = std.testing;
@@ -2085,8 +2099,8 @@ test "compile: empty function (no instrs, empty liveness) emits prologue+epilogu
     defer deinit(testing.allocator, out);
     // 2 prologue u32s = 8 bytes.
     try testing.expectEqual(@as(usize, 32), out.bytes.len);
-    try testing.expectEqual(@as(u32, 0xA9BF7BFD), std.mem.readInt(u32, out.bytes[0..4], .little));
-    try testing.expectEqual(@as(u32, 0x910003FD), std.mem.readInt(u32, out.bytes[4..8], .little));
+    // Use the centralised opcode constants; ABI-pinned offsets [0..4] / [4..8].
+    try prologue.assertPrologueOpcodes(out.bytes);
 }
 
 test "compile: (i32.const 42) end yields 5-instr body returning 42 in X0" {
@@ -2105,18 +2119,21 @@ test "compile: (i32.const 42) end yields 5-instr body returning 42 in X0" {
     // = 6 u32 words = 24 bytes.
     try testing.expectEqual(@as(usize, 48), out.bytes.len);
 
-    // Word 0: STP prologue.
-    try testing.expectEqual(@as(u32, 0xA9BF7BFD), std.mem.readInt(u32, out.bytes[0..4], .little));
-    // Word 1: MOV X29, SP.
-    try testing.expectEqual(@as(u32, 0x910003FD), std.mem.readInt(u32, out.bytes[4..8], .little));
+    // Word 0: STP prologue (ABI-pinned per AAPCS64; offset fixed).
+    try testing.expectEqual(prologue.FpLrSave.stp_word, std.mem.readInt(u32, out.bytes[0..4], .little));
+    // Word 1: MOV X29, SP (ABI-pinned).
+    try testing.expectEqual(prologue.FpLrSave.mov_fp_word, std.mem.readInt(u32, out.bytes[4..8], .little));
+    // Body words use `prologue.body_start_offset(has_frame)` so a
+    // future prologue-shape change updates one helper, not 142 sites.
+    const body0 = prologue.body_start_offset(false);
     // Word 2: MOVZ X9, #42 — slot 0 → X9 per abi.slotToReg.
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 42)), std.mem.readInt(u32, out.bytes[32..36], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 42)), std.mem.readInt(u32, out.bytes[body0..][0..4], .little));
     // Word 3: MOV X0, X9 (ORR X0, XZR, X9).
-    try testing.expectEqual(@as(u32, 0xAA0903E0), std.mem.readInt(u32, out.bytes[36..40], .little));
+    try testing.expectEqual(@as(u32, 0xAA0903E0), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
     // Word 4: LDP epilogue.
-    try testing.expectEqual(@as(u32, 0xA8C17BFD), std.mem.readInt(u32, out.bytes[40..44], .little));
+    try testing.expectEqual(@as(u32, 0xA8C17BFD), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
     // Word 5: RET.
-    try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[44..48], .little));
+    try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
 }
 
 test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
@@ -2133,8 +2150,9 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 
     // 7 u32s now: STP / MOV-FP-SP / MOVZ / MOVK / MOV-X0 / LDP / RET.
     try testing.expectEqual(@as(usize, 52), out.bytes.len);
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0x5678)), std.mem.readInt(u32, out.bytes[32..36], .little));
-    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0x1234, 1)), std.mem.readInt(u32, out.bytes[36..40], .little));
+    const body0 = prologue.body_start_offset(false);
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0x5678)), std.mem.readInt(u32, out.bytes[body0..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0x1234, 1)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
@@ -2178,9 +2196,10 @@ test "compile: (i32.const 7) (i32.const 5) i32.add end → returns 12 in X0" {
     // Stream: STP / MOV-FP / MOVZ X9 #7 / MOVZ X10 #5 / ADD X9 X9 X10 /
     //         MOV X0 X9 / LDP / RET = 8 u32s = 32 bytes.
     try testing.expectEqual(@as(usize, 56), out.bytes.len);
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 7)),  std.mem.readInt(u32, out.bytes[32..36], .little));
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(10, 5)), std.mem.readInt(u32, out.bytes[36..40], .little));
-    try testing.expectEqual(@as(u32, inst.encAddRegW(9, 9, 10)), std.mem.readInt(u32, out.bytes[40..44], .little));
+    const body0 = prologue.body_start_offset(false);
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 7)), std.mem.readInt(u32, out.bytes[body0..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(10, 5)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encAddRegW(9, 9, 10)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
 }
 
 test "compile: i32.sub / i32.mul / i32.and / i32.or / i32.xor / i32.shl / i32.shr_s / i32.shr_u each emit correct W-variant ALU op" {

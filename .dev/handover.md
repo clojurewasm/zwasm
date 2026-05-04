@@ -46,7 +46,7 @@
 | 1 | regalloc pool + first-class spill | 0018 | **DONE** |
 | 2 | JitRuntime struct + ABI | 0017 | **DONE** |
 | 3 | Edge-case test culture | 0020 | **DONE** |
-| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT | — | 7.5a..7.5c-vi DONE; **7.5d (this ADR-0021 row) sub-deliverable a DONE** (byte-offset abstraction); sub-deliverable b NEXT (emit.zig split per `.dev/lessons/2026-05-04-emit-monolith-cost.md`); 7.5c-vii (broader entry sigs) deferred until 7.5d-b closes |
+| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT | — | 7.5a..7.5c-vi DONE; **7.5d sub-a PARTIAL** (`prologue.zig` helper landed + 4 demonstration sites + rule); 7.5d sub-b NEXT (emit.zig split per `.dev/lessons/2026-05-04-emit-monolith-cost.md`) — the ~128-site bulk relativisation runs alongside the split per ADR-0021 Revision history; 7.5c-vii (broader entry sigs) after 7.5d sub-b closes |
 | 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After 7.5d closes (HARD GATE per ADR-0021) |
 | 6 | §9.7 / 7.9–7.12: realworld + three-way differential + audit | — | After Step 5 |
 
