@@ -147,7 +147,102 @@ ROADMAP §11.1 lists `zig build test-*` steps. `build.zig` should
 declare each one when its phase opens. Missing step at a phase
 where it's promised → `block`.
 
-## F. Output
+## F. Debt + lessons coherence (added 2026-05-04)
+
+### F.1 Debt-ledger Refs validity
+
+For every row in `.dev/debt.md`, check the Refs column points to
+something that still exists:
+
+- File path → `test -e <path>`. Missing file → `block`.
+- ADR § anchor → grep the ADR for the section. Missing → `soon`.
+- Lesson slug → grep `.dev/lessons/INDEX.md` for the row. Missing
+  → `block`.
+- Skill / rule path → `test -e <path>`. Missing → `block`.
+
+A debt row whose Refs are invalid is itself debt; either the
+debt has been discharged (delete the row) or the reference is
+stale (fix it).
+
+### F.2 Debt-row Status integrity
+
+Every row in `.dev/debt.md` MUST have `Status: now` OR
+`Status: blocked-by: <specific structural barrier>`. Vague
+"later" / "low priority" / "small effort" / "TODO" entries are
+forbidden by the file's own discipline header.
+
+- Row missing `Status:` field → `block`.
+- Row with `Status: blocked-by` followed by an empty / vague
+  string ("blocked-by: later", "blocked-by: someone") →
+  `block`.
+- Row whose `blocked-by` barrier has demonstrably been removed
+  (e.g. cited Phase has closed; cited ADR has landed) →
+  `soon` ("flip to `now` and discharge").
+
+### F.3 Lessons INDEX coverage
+
+Every file in `.dev/lessons/` (excluding INDEX.md and the
+`archive/` subtree) MUST have a corresponding row in
+`.dev/lessons/INDEX.md`:
+
+- Lesson file without an INDEX row → `block`.
+- INDEX row pointing at a missing file → `block`.
+- INDEX row's keyword column empty → `soon` (keyword is the
+  search anchor; without it, lesson is undiscoverable).
+
+### F.4 Lessons promotion candidates
+
+For each lesson, count citations across the codebase + commit
+log:
+
+- 3+ citations (in commit messages, code comments, ADR
+  Alternatives sections) → `soon` ("promote to ADR per
+  `lessons_vs_adr.md`").
+- Same lesson title appearing in multiple lesson files →
+  `block` (de-dup).
+
+### F.5 Skip-ADR Removal-condition currency
+
+Run `bash scripts/check_skip_adrs.sh` and parse output:
+
+- Any "MISSING ON DISK" → `block`.
+- Skip-ADR Removal condition obviously satisfied (e.g. cited
+  follow-up ADR has been Accepted, cited Phase has closed) →
+  `soon` ("remove skip-ADR; restore fixtures to runner").
+
+### F.6 ADR Revision-history SHA validity
+
+Run `bash scripts/check_adr_history.sh` and parse output:
+
+- Any "UNKNOWN" SHA → `block`.
+- `<backfill>` placeholder older than the current phase →
+  `soon` ("backfill SHA at phase boundary").
+
+## G. Extended-challenge consistency
+
+### G.1 Workaround pairings
+
+For each "SKIP-X-MISSING" / "SKIP-X-UNUSABLE" / similar fallback
+in source / test runners, verify it's paired with **either** an
+ADR documenting the choice **or** a debt row naming the
+structural barrier:
+
+- Workaround without paired investigation → `block`
+  (violates `.claude/rules/extended_challenge.md`).
+- Workaround whose paired debt row was discharged but the
+  workaround code still exists → `soon`.
+
+### G.2 Anchor-command currency
+
+The `.claude/rules/extended_challenge.md` "Phase 6 case study"
+references specific commands (`ssh windowsmini "command -v
+zig"`, `orb run -m my-ubuntu-amd64 bash -c 'command -v zig'`).
+Re-run them periodically:
+
+- Any anchor command failing → `soon` (the rule's example may
+  be stale).
+
+## H. Output
 
 Write to `private/audit-YYYY-MM-DD.md`:
 
