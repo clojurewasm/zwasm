@@ -272,6 +272,71 @@ Step 1 that was missing in Phase 6 — the audit now fires it
 on every audit run rather than waiting for the human to
 notice.
 
+## I. Edge-case fixture coverage (added 2026-05-04 per ADR-0020)
+
+Verifies the `test/edge_cases/p<N>/` fixture corpus stays in
+sync with semantic-boundary code touched in recent commits.
+The discipline lives in
+[`.claude/rules/edge_case_testing.md`](../../rules/edge_case_testing.md):
+boundary-touching commits land their fixture in the same diff.
+
+### I.1 Fixture triple integrity
+
+For each `test/edge_cases/**/<case>.wat`:
+
+```bash
+test -f "${case%.wat}.wasm"   || warn "missing .wasm artifact"
+test -f "${case%.wat}.expect" || warn "missing .expect file"
+```
+
+Findings:
+
+- Missing `.wasm` for an existing `.wat` → `warn` ("re-compile
+  via `wat2wasm`; check fixture-build target wires it").
+- Missing `.expect` → `warn` ("each fixture's expected output
+  must be declared; trap-only fixtures still need `trap:
+  <reason>`").
+
+### I.2 Fixture artifact freshness
+
+For each `<case>.wasm` paired with `<case>.wat`, verify the
+artifact's mtime ≥ the source's mtime. Stale artifact → `warn`
+finding ("re-compile + commit the updated `.wasm`").
+
+### I.3 Boundary-touch / fixture-add correspondence
+
+Walks recent commits (last 20 by default, or since last phase
+boundary) and cross-references "boundary-touching" file
+changes with fixture additions:
+
+- **Boundary-touching** = commits that modify Zig source under
+  `src/jit_arm64/emit.zig`, `src/interp/`, `src/feature/` (op
+  handler surfaces) OR `.dev/decisions/` (ADRs that change
+  semantics).
+- **Fixture additions** = new files under `test/edge_cases/**`.
+
+For each boundary-touching commit lacking a paired fixture
+addition: `soon` finding ("touches semantic boundary without
+fixture addition; verify rationale per
+`.claude/rules/edge_case_testing.md`'s 'When NOT to add a
+fixture' section").
+
+Intentionally noisy at first; calibration happens via the
+rule's exclusion list and per-commit rationale.
+
+### I.4 Convention checks
+
+All fixture paths must match
+`test/edge_cases/p<N>/<concept>/<case>.{wat,wasm,expect}`.
+Any deviation → `warn` finding.
+
+### I.5 Stale-ness
+
+If the rule file (`.claude/rules/edge_case_testing.md`) is
+missing or its `paths:` frontmatter no longer covers `src/**`
++ `test/**`, §I's premise is broken — `block` finding ("rule
+file missing; restore from ADR-0020 or supersede").
+
 ## H. Output
 
 Write to `private/audit-YYYY-MM-DD.md`:

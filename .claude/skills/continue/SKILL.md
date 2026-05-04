@@ -280,6 +280,21 @@ proceeding to Step 5. A workaround without paired investigation
 is forbidden; a workaround with a debt entry naming the
 structural barrier is acceptable.
 
+**Boundary-fixture check** (per ADR-0020 / `.claude/rules/edge_
+case_testing.md`). If this cycle's diff touched a semantic
+boundary — numeric edge, special FP value (NaN/±Inf/±0/
+denormal), strictness-sensitive comparison, spec-defined trap
+condition, or a regalloc/spill/ABI invariant — **add a fixture
+under `test/edge_cases/p<N>/<concept>/<case>.{wat,wasm,expect}`
+in this commit** unless one already exists. The rule's "When
+NOT to add a fixture" section lists exemptions; if you decline,
+record the rationale in `private/notes/p<N>-edge-case-rationale.md`
+(gitignored — the rationale matters for future-you, not for
+git history). Skipping this check silently is a guideline
+violation; the rule is load-bearing for Phase 8 / 15
+optimisation work that depends on regression-detecting
+fixtures.
+
 After refactor, before moving to Step 5, run the **Mac-host lint
 gate** (ADR-0009) once:
 
