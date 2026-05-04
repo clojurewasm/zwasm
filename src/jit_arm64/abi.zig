@@ -80,6 +80,31 @@ pub fn slotToReg(slot_id: u8) ?Xn {
     return allocatable_gprs[slot_id];
 }
 
+/// Float / SIMD V-register pool (caller-saved scratch range,
+/// V16..V30 → 15 slots). V31 is reserved for popcnt's V-register
+/// pipeline. V0..V7 are arg/return; V8..V15 callee-saved (skipped
+/// to avoid prologue cost). `fpSlotToReg` is the float-class
+/// counterpart of `slotToReg` — the §9.7 / 7.3 sub-d3 f32/f64
+/// handlers use it.
+///
+/// **Mixing caveat**: a vreg's slot id is per-class. Within a
+/// single function's live ranges, a slot id used by a GPR vreg
+/// and a slot id used by a V-vreg map to *different* physical
+/// registers (X9 vs V16 for slot 0). This is correct semantically
+/// because the regalloc only ensures non-overlapping VREG ids,
+/// not non-overlapping physical regs. Phase-7 follow-up will add
+/// per-class slot pools so the regalloc is fully class-aware;
+/// today the int + float pools coexist by physical-register
+/// disjointness.
+pub const allocatable_v_regs = [_]Xn{
+    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+};
+
+pub fn fpSlotToReg(slot_id: u8) ?Xn {
+    if (slot_id >= allocatable_v_regs.len) return null;
+    return allocatable_v_regs[slot_id];
+}
+
 /// Is `xn` caller-saved per AAPCS64? Used by emit to decide
 /// whether a vreg held in `xn` needs a save before a call.
 pub fn isCallerSaved(xn: Xn) bool {
@@ -150,4 +175,16 @@ test "isCalleeSaved: x19..x28" {
 test "frame_pointer + link_register tracked" {
     try testing.expectEqual(@as(Xn, 29), frame_pointer);
     try testing.expectEqual(@as(Xn, 30), link_register);
+}
+
+test "fpSlotToReg: slot 0 → V16 (first caller-saved scratch V)" {
+    try testing.expectEqual(@as(Xn, 16), fpSlotToReg(0).?);
+}
+
+test "fpSlotToReg: slot 14 → V30 (last in the 15-slot pool)" {
+    try testing.expectEqual(@as(Xn, 30), fpSlotToReg(14).?);
+}
+
+test "fpSlotToReg: slot 15 returns null (V31 reserved for popcnt scratch)" {
+    try testing.expect(fpSlotToReg(15) == null);
 }

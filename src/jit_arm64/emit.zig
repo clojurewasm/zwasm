@@ -306,6 +306,121 @@ pub fn compile(
                 try writeU32(allocator, &buf, inst.encClzX(xd, xd));
                 try pushed_vregs.append(allocator, result);
             },
+            .@"f32.const" => {
+                // Stage the IEEE-754 bits via a GPR const, then
+                // FMOV S, W. The intermediate W-reg is the FP
+                // vreg's slot's GPR-pool counterpart (slot K → X9+K
+                // for K<7, etc.) reused as scratch for the move.
+                // Per the per-class slot mapping note in abi.zig
+                // (allocatable_v_regs comment), GPR slot 0 maps to
+                // X9 — we use that as the immediate scratch.
+                const vreg = next_vreg;
+                next_vreg += 1;
+                if (vreg >= alloc.slots.len) return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+                const w_scratch = abi.slotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+                try emitConstU32(allocator, &buf, w_scratch, ins.payload);
+                try writeU32(allocator, &buf, inst.encFmovStoFromW(vd, w_scratch));
+                try pushed_vregs.append(allocator, vreg);
+            },
+            .@"f64.const" => {
+                // Similar to f32.const but for 64-bit (FMOV D, X).
+                const vreg = next_vreg;
+                next_vreg += 1;
+                if (vreg >= alloc.slots.len) return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+                const x_scratch = abi.slotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+                const value: u64 = (@as(u64, ins.extra) << 32) | @as(u64, ins.payload);
+                const lane0: u16 = @truncate(value & 0xFFFF);
+                const lane1: u16 = @truncate((value >> 16) & 0xFFFF);
+                const lane2: u16 = @truncate((value >> 32) & 0xFFFF);
+                const lane3: u16 = @truncate((value >> 48) & 0xFFFF);
+                try writeU32(allocator, &buf, inst.encMovzImm16(x_scratch, lane0));
+                if (lane1 != 0) try writeU32(allocator, &buf, inst.encMovkImm16(x_scratch, lane1, 1));
+                if (lane2 != 0) try writeU32(allocator, &buf, inst.encMovkImm16(x_scratch, lane2, 2));
+                if (lane3 != 0) try writeU32(allocator, &buf, inst.encMovkImm16(x_scratch, lane3, 3));
+                try writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, x_scratch));
+                try pushed_vregs.append(allocator, vreg);
+            },
+            .@"f32.add",
+            .@"f32.sub",
+            .@"f32.mul",
+            .@"f32.div",
+            .@"f64.add",
+            .@"f64.sub",
+            .@"f64.mul",
+            .@"f64.div",
+            => {
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs = pushed_vregs.pop().?;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const vm = abi.fpSlotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const word: u32 = switch (ins.op) {
+                    .@"f32.add" => inst.encFAddS(vd, vn, vm),
+                    .@"f32.sub" => inst.encFSubS(vd, vn, vm),
+                    .@"f32.mul" => inst.encFMulS(vd, vn, vm),
+                    .@"f32.div" => inst.encFDivS(vd, vn, vm),
+                    .@"f64.add" => inst.encFAddD(vd, vn, vm),
+                    .@"f64.sub" => inst.encFSubD(vd, vn, vm),
+                    .@"f64.mul" => inst.encFMulD(vd, vn, vm),
+                    .@"f64.div" => inst.encFDivD(vd, vn, vm),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"f32.eq",
+            .@"f32.ne",
+            .@"f32.lt",
+            .@"f32.gt",
+            .@"f32.le",
+            .@"f32.ge",
+            .@"f64.eq",
+            .@"f64.ne",
+            .@"f64.lt",
+            .@"f64.gt",
+            .@"f64.le",
+            .@"f64.ge",
+            => {
+                // FCMP S/D → CSET W. Wasm FP cmps are ordered:
+                // NaN inputs always yield false. The ARM Cond
+                // codes used here naturally satisfy that:
+                // - eq/ne: EQ/NE (Z flag; FCMP unordered → Z=0,V=1).
+                // - lt: MI (N=1; FCMP unordered → N=0).
+                // - gt: GT (Z=0 ∧ N=V).
+                // - le: LS (C=0 ∨ Z=1; FCMP unordered → C=1).
+                // - ge: GE (N=V; FCMP unordered → N=0,V=1 → false).
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs = pushed_vregs.pop().?;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const vm = abi.fpSlotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const is_d = switch (ins.op) {
+                    .@"f64.eq", .@"f64.ne", .@"f64.lt", .@"f64.gt", .@"f64.le", .@"f64.ge" => true,
+                    else => false,
+                };
+                const cond: inst.Cond = switch (ins.op) {
+                    .@"f32.eq", .@"f64.eq" => .eq,
+                    .@"f32.ne", .@"f64.ne" => .ne,
+                    .@"f32.lt", .@"f64.lt" => .mi,
+                    .@"f32.gt", .@"f64.gt" => .gt,
+                    .@"f32.le", .@"f64.le" => .ls,
+                    .@"f32.ge", .@"f64.ge" => .ge,
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, if (is_d) inst.encFCmpD(vn, vm) else inst.encFCmpS(vn, vm));
+                try writeU32(allocator, &buf, inst.encCsetW(wd, cond));
+                try pushed_vregs.append(allocator, result);
+            },
             .@"i64.popcnt" => {
                 // 64-bit popcount via SIMD: same shape as i32.popcnt
                 // but FMOV D (not S) stages the full 64 bits into
@@ -536,15 +651,35 @@ pub fn compile(
             },
             .@"end" => {
                 // Function-level end: marshal the top-of-stack vreg
-                // into X0 (the AAPCS64 result register), then run
-                // the epilogue. Only fires once per function in the
+                // into the result register, then run the epilogue.
+                // AAPCS64 §6.4: integer / pointer returns in X0;
+                // floating-point returns in V0 (S0 for f32, D0
+                // for f64). Only fires once per function in the
                 // 7.3 skeleton (multi-end via blocks lands later).
-                if (pushed_vregs.items.len > 0) {
+                if (pushed_vregs.items.len > 0 and func.sig.results.len > 0) {
                     const top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
-                    const src_xn = abi.slotToReg(alloc.slots[top_vreg]) orelse return Error.SlotOverflow;
-                    if (src_xn != 0) {
-                        // MOV X0, Xsrc — encoded as ORR X0, XZR, Xsrc.
-                        try writeU32(allocator, &buf, encOrrZrIntoX0(src_xn));
+                    const result_kind = func.sig.results[0];
+                    const is_fp = switch (result_kind) {
+                        .f32, .f64 => true,
+                        .i32, .i64, .v128, .funcref, .externref => false,
+                    };
+                    if (is_fp) {
+                        const src_vn = abi.fpSlotToReg(alloc.slots[top_vreg]) orelse return Error.SlotOverflow;
+                        if (src_vn != 0) {
+                            // FMOV S0, Sn or FMOV D0, Dn — encoded
+                            // via the FP-FP move (FMOV reg-reg).
+                            // Encoding: `0 0 0 11110 type 1 0000 0 10 0000 [Rn:5] [Rd:5]`
+                            // type = 00 single → 0x1E204000
+                            // type = 01 double → 0x1E604000
+                            const base: u32 = if (result_kind == .f64) 0x1E604000 else 0x1E204000;
+                            try writeU32(allocator, &buf, base | (@as(u32, src_vn) << 5));
+                        }
+                    } else {
+                        const src_xn = abi.slotToReg(alloc.slots[top_vreg]) orelse return Error.SlotOverflow;
+                        if (src_xn != 0) {
+                            // MOV X0, Xsrc — encoded as ORR X0, XZR, Xsrc.
+                            try writeU32(allocator, &buf, encOrrZrIntoX0(src_xn));
+                        }
                     }
                 }
                 if (frame_bytes > 0) {
@@ -709,12 +844,11 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
-    // Pick an op definitely not yet handled — f32.add (no
-    // float support yet; sub-d2+ work).
-    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32, .f32 } };
+    // f32.abs (unary FP) not yet handled — sub-d4+ scope.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"f32.add" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.abs" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty));
@@ -1236,6 +1370,127 @@ test "compile: i64.popcnt emits FMOV-D + CNT/ADDV/UMOV V-register pattern" {
     try testing.expectEqual(@as(u32, inst.encCntV8B(31, 31)),          std.mem.readInt(u32, out.bytes[16..20], .little));
     try testing.expectEqual(@as(u32, inst.encAddvB8B(31, 31)),         std.mem.readInt(u32, out.bytes[20..24], .little));
     try testing.expectEqual(@as(u32, inst.encUmovWFromVB0(9, 31)),     std.mem.readInt(u32, out.bytes[24..28], .little));
+}
+
+test "compile: f32.const emits emitConstU32 + FMOV S, W" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // 1.0f bits = 0x3F800000.
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{.{ .def_pc = 0, .last_use_pc = 1 }} };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP (8 bytes): MOVZ + MOVK (lo=0x0000, hi=0x3F80)
+    // — but lo=0 so just MOVK fires? No wait: emitConstU32 always
+    // emits MOVZ (low 16) and conditionally MOVK (high 16). For
+    // 0x3F800000: low 16 = 0x0000, high 16 = 0x3F80. MOVZ #0; MOVK
+    // #0x3F80 lsl 16; FMOV S16, W9.
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0)),       std.mem.readInt(u32, out.bytes[8..12],  .little));
+    try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0x3F80, 1)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encFmovStoFromW(16, 9)),    std.mem.readInt(u32, out.bytes[16..20], .little));
+    // end with f32 result → FMOV S0, S16 = 0x1E204000 | (16<<5) = 0x1E204200.
+    try testing.expectEqual(@as(u32, 0x1E204200),                     std.mem.readInt(u32, out.bytes[20..24], .little));
+}
+
+test "compile: f32 binary ALU each emits S-form" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
+    const cases = [_]struct { op: zir.ZirOp, want_word_at_offset: u32 }{
+        .{ .op = .@"f32.add", .want_word_at_offset = inst.encFAddS(16, 16, 17) },
+        .{ .op = .@"f32.sub", .want_word_at_offset = inst.encFSubS(16, 16, 17) },
+        .{ .op = .@"f32.mul", .want_word_at_offset = inst.encFMulS(16, 16, 17) },
+        .{ .op = .@"f32.div", .want_word_at_offset = inst.encFDivS(16, 16, 17) },
+    };
+    for (cases) |c| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
+        try f.instrs.append(testing.allocator, .{ .op = c.op });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 2 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+            .{ .def_pc = 2, .last_use_pc = 3 },
+        } };
+        const slots = [_]u8{ 0, 1, 0 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+        const out = try compile(testing.allocator, &f, alloc);
+        defer deinit(testing.allocator, out);
+        // Each f32.const emits MOVZ + MOVK + FMOV (3 u32s = 12 bytes).
+        // After STP/MOV-FP (8) + 2 consts (24) = byte 32, FP ALU fires.
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[32..36], .little));
+    }
+}
+
+test "compile: f32 cmps each emit FCMP-S + CSET-W with right Cond" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    const cases = [_]struct { op: zir.ZirOp, want_cond: inst.Cond }{
+        .{ .op = .@"f32.eq", .want_cond = .eq },
+        .{ .op = .@"f32.ne", .want_cond = .ne },
+        .{ .op = .@"f32.lt", .want_cond = .mi },
+        .{ .op = .@"f32.gt", .want_cond = .gt },
+        .{ .op = .@"f32.le", .want_cond = .ls },
+        .{ .op = .@"f32.ge", .want_cond = .ge },
+    };
+    for (cases) |c| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
+        try f.instrs.append(testing.allocator, .{ .op = c.op });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 2 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+            .{ .def_pc = 2, .last_use_pc = 3 },
+        } };
+        const slots = [_]u8{ 0, 1, 0 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+        const out = try compile(testing.allocator, &f, alloc);
+        defer deinit(testing.allocator, out);
+        // FCMP at byte 32; CSET at byte 36.
+        try testing.expectEqual(@as(u32, inst.encFCmpS(16, 17)),         std.mem.readInt(u32, out.bytes[32..36], .little));
+        try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[36..40], .little));
+    }
+}
+
+test "compile: f64 binary ALU each emits D-form" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f64 } };
+    const cases = [_]struct { op: zir.ZirOp, want_word_at_offset: u32 }{
+        .{ .op = .@"f64.add", .want_word_at_offset = inst.encFAddD(16, 16, 17) },
+        .{ .op = .@"f64.sub", .want_word_at_offset = inst.encFSubD(16, 16, 17) },
+        .{ .op = .@"f64.mul", .want_word_at_offset = inst.encFMulD(16, 16, 17) },
+        .{ .op = .@"f64.div", .want_word_at_offset = inst.encFDivD(16, 16, 17) },
+    };
+    for (cases) |c| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        // 1.0 + 2.0 (f64 bits): payload = lo32, extra = hi32.
+        try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0x00000000, .extra = 0x3FF00000 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0x00000000, .extra = 0x40000000 });
+        try f.instrs.append(testing.allocator, .{ .op = c.op });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 2 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+            .{ .def_pc = 2, .last_use_pc = 3 },
+        } };
+        const slots = [_]u8{ 0, 1, 0 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+        const out = try compile(testing.allocator, &f, alloc);
+        defer deinit(testing.allocator, out);
+        // f64.const 1.0: bits=0x3FF0000000000000. Lanes: lo=0, l1=0,
+        // l2=0, l3=0x3FF0. Only lane 3 nonzero (besides lane 0).
+        // So const emits MOVZ + MOVK lane3 + FMOV D = 3 u32s.
+        // f64.const 2.0: bits=0x4000000000000000. Lane 3 = 0x4000.
+        // Same shape.
+        // After STP/MOV-FP (8) + 2 consts (24) = byte 32, ALU fires.
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[32..36], .little));
+    }
 }
 
 test "compile: i64.eqz emits CMP-X-imm-0 + CSET EQ" {

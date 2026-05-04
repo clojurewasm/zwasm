@@ -343,6 +343,55 @@ pub fn encFmovDtoFromX(vd: Vn, xn: Xn) u32 {
     return 0x9E670000 | (@as(u32, xn) << 5) | @as(u32, vd);
 }
 
+// ============================================================
+// Floating-point binary ALU + compare (S/D forms).
+//
+// Bit pattern: `0 0 0 11110 type 1 [Rm:5] [opcode:4] 10 [Rn:5] [Rd:5]`
+//   type = 00 (single, S-form) → bits 23-22 = 00
+//   type = 01 (double, D-form) → bits 23-22 = 01 (flips bit 22)
+//   opcode = 0010 (FADD), 0011 (FSUB), 0000 (FMUL), 0001 (FDIV)
+//
+// All verified via `clang -target arm64-apple-darwin` assembler.
+// ============================================================
+
+pub fn encFAddS(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E202800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+pub fn encFSubS(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E203800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+pub fn encFMulS(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E200800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+pub fn encFDivS(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E201800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+
+pub fn encFAddD(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E602800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+pub fn encFSubD(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E603800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+pub fn encFMulD(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E600800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+pub fn encFDivD(vd: Vn, vn: Vn, vm: Vn) u32 {
+    return 0x1E601800 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+
+/// `FCMP Sn, Sm` — sets NZCV from FP compare (single).
+/// Encoding (FP compare): `0 0 0 11110 00 1 [Rm:5] 0010 00 [Rn:5] 00000`
+/// = `0x1E202000` | (Rm<<16) | (Rn<<5).
+pub fn encFCmpS(vn: Vn, vm: Vn) u32 {
+    return 0x1E202000 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5);
+}
+
+/// `FCMP Dn, Dm` — same as encFCmpS but D-form (type=01).
+pub fn encFCmpD(vn: Vn, vm: Vn) u32 {
+    return 0x1E602000 | (@as(u32, vm) << 16) | (@as(u32, vn) << 5);
+}
+
 /// V-register index 0..31 — ARM SIMD/FP register file. Same u5
 /// width as `Xn` but a separate type for documentation; the
 /// integer regalloc never allocates these (the §9.7 / 7.3
@@ -591,6 +640,37 @@ test "encRbitX x0, x1 — `rbit x0, x1` → 0xDAC00020" {
 
 test "encFmovDtoFromX d31, x9 — `fmov d31, x9` → 0x9E67013F" {
     try testing.expectEqual(@as(u32, 0x9E67013F), encFmovDtoFromX(31, 9));
+}
+
+test "encFAddS s0, s1, s2 — `fadd s0, s1, s2` → 0x1E222820" {
+    try testing.expectEqual(@as(u32, 0x1E222820), encFAddS(0, 1, 2));
+}
+test "encFSubS s0, s1, s2 — `fsub s0, s1, s2` → 0x1E223820" {
+    try testing.expectEqual(@as(u32, 0x1E223820), encFSubS(0, 1, 2));
+}
+test "encFMulS s0, s1, s2 — `fmul s0, s1, s2` → 0x1E220820" {
+    try testing.expectEqual(@as(u32, 0x1E220820), encFMulS(0, 1, 2));
+}
+test "encFDivS s0, s1, s2 — `fdiv s0, s1, s2` → 0x1E221820" {
+    try testing.expectEqual(@as(u32, 0x1E221820), encFDivS(0, 1, 2));
+}
+test "encFAddD d0, d1, d2 — `fadd d0, d1, d2` → 0x1E622820" {
+    try testing.expectEqual(@as(u32, 0x1E622820), encFAddD(0, 1, 2));
+}
+test "encFSubD d0, d1, d2 — `fsub d0, d1, d2` → 0x1E623820" {
+    try testing.expectEqual(@as(u32, 0x1E623820), encFSubD(0, 1, 2));
+}
+test "encFMulD d0, d1, d2 — `fmul d0, d1, d2` → 0x1E620820" {
+    try testing.expectEqual(@as(u32, 0x1E620820), encFMulD(0, 1, 2));
+}
+test "encFDivD d0, d1, d2 — `fdiv d0, d1, d2` → 0x1E621820" {
+    try testing.expectEqual(@as(u32, 0x1E621820), encFDivD(0, 1, 2));
+}
+test "encFCmpS s1, s2 — `fcmp s1, s2` → 0x1E222020" {
+    try testing.expectEqual(@as(u32, 0x1E222020), encFCmpS(1, 2));
+}
+test "encFCmpD d1, d2 — `fcmp d1, d2` → 0x1E622020" {
+    try testing.expectEqual(@as(u32, 0x1E622020), encFCmpD(1, 2));
 }
 
 // V-register encodings cross-checked via `clang -target
