@@ -33,7 +33,7 @@ pub const Error = error{
     ExportNotFound,
     ExportIsNotFunction,
     UnsupportedEntrySignature,
-} || compile_func.Error || parser.Error || sections.Error || linker.Error;
+} || compile_func.Error || parser.Error || sections.Error || linker.Error || entry.Error;
 
 /// Compile every defined function in `wasm_bytes` and link into
 /// a single JitModule. Caller owns the module — pair with
@@ -163,12 +163,13 @@ pub fn runI32Export(
     }
 
     var memory: [0]u8 = .{};
-    const rt: entry.JitRuntime = .{
+    var rt: entry.JitRuntime = .{
         .vm_base = &memory,
         .mem_limit = 0,
         .funcptr_base = undefined,
         .table_size = 0,
         .typeidx_base = undefined,
+        .trap_flag = 0,
     };
     return entry.callI32NoArgs(compiled.module, func_idx, &rt);
 }
@@ -237,4 +238,23 @@ test "runI32Export: trunc_sat_f32_s/neg_inf returns INT32_MIN (as u32 = 0x800000
     };
     const result = try runI32Export(testing.allocator, &bytes, "test");
     try testing.expectEqual(@as(u32, 0x80000000), result);
+}
+
+test "runI32Export: trunc_f32_s/nan traps (sub-7.5b-ii trap_flag detection)" {
+    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
+        return error.SkipZigTest;
+    }
+    // (module (func (export "test") (result i32) f32.const nan
+    //   i32.trunc_f32_s)) — Wasm 1.0 trapping trunc; NaN → trap.
+    // Same module shape as the sat variant, only the opcode
+    // differs: 0xa8 (i32.trunc_f32_s) instead of 0xfc 0x00.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f,
+        0x03, 0x02, 0x01, 0x00,
+        0x07, 0x08, 0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00, 0x00,
+        0x0a, 0x0a, 0x01, 0x08, 0x00,
+        0x43, 0x00, 0x00, 0xc0, 0x7f, 0xa8, 0x0b,
+    };
+    try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "test"));
 }

@@ -48,6 +48,20 @@ pub const JitRuntime = extern struct {
     /// against the call site's expected typeidx, traps on
     /// mismatch.
     typeidx_base: [*]const u32,
+    /// Trap flag — JIT body's trap stub stores `1` here
+    /// before returning, allowing the entry frame to
+    /// distinguish "function trapped (and unwound to its
+    /// epilogue with a sentinel return)" from "function
+    /// returned a value that happens to equal the sentinel".
+    /// Caller (host) zeroes this before each call; reads it
+    /// after to detect trap.
+    ///
+    /// Sub-7.5b-ii scope: single boolean. Diagnostic M3 (D-022)
+    /// will widen this to a per-trap-kind code (mem OOB, sig
+    /// mismatch, idx OOB, NaN, integer overflow, etc.) +
+    /// optional trap-site PC for source-location surfacing.
+    trap_flag: u32,
+    _pad1: u32 = 0,
 };
 
 // ============================================================
@@ -67,6 +81,7 @@ pub const mem_limit_off: u12 = @offsetOf(JitRuntime, "mem_limit");
 pub const funcptr_base_off: u12 = @offsetOf(JitRuntime, "funcptr_base");
 pub const table_size_off: u12 = @offsetOf(JitRuntime, "table_size");
 pub const typeidx_base_off: u12 = @offsetOf(JitRuntime, "typeidx_base");
+pub const trap_flag_off: u12 = @offsetOf(JitRuntime, "trap_flag");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -85,13 +100,15 @@ comptime {
     // table_size is W-form (4 bytes); imm12 scales by 4. Must
     // be 4-aligned.
     if ((table_size_off & 3) != 0) @compileError("table_size_off not 4-aligned");
-    // imm12 budget. With current 5 fields all near offset 0, this
+    if ((trap_flag_off & 3) != 0) @compileError("trap_flag_off not 4-aligned");
+    // imm12 budget. With current 6 fields all near offset 0, this
     // is comfortable; future tail-extensions could exceed it.
     if (vm_base_off > 32760) @compileError("vm_base_off exceeds X-form imm12 budget");
     if (mem_limit_off > 32760) @compileError("mem_limit_off exceeds X-form imm12 budget");
     if (funcptr_base_off > 32760) @compileError("funcptr_base_off exceeds X-form imm12 budget");
     if (typeidx_base_off > 32760) @compileError("typeidx_base_off exceeds X-form imm12 budget");
     if (table_size_off > 16380) @compileError("table_size_off exceeds W-form imm12 budget");
+    if (trap_flag_off > 16380) @compileError("trap_flag_off exceeds W-form imm12 budget");
 }
 
 // ============================================================
@@ -101,18 +118,16 @@ comptime {
 const testing = std.testing;
 
 test "JitRuntime: layout offsets match documented prologue load sequence" {
-    // Layout must be: vm_base@0, mem_limit@8, funcptr_base@16,
-    // table_size@24, _pad0@28, typeidx_base@32. Drift here means
-    // the per-arch prologue's hard-coded load sequence is wrong.
     try testing.expectEqual(@as(u12, 0), vm_base_off);
     try testing.expectEqual(@as(u12, 8), mem_limit_off);
     try testing.expectEqual(@as(u12, 16), funcptr_base_off);
     try testing.expectEqual(@as(u12, 24), table_size_off);
     try testing.expectEqual(@as(u12, 32), typeidx_base_off);
+    try testing.expectEqual(@as(u12, 40), trap_flag_off);
 }
 
-test "JitRuntime: total size = 40 bytes (5 head fields + pad)" {
-    try testing.expectEqual(@as(u32, 40), head_size);
+test "JitRuntime: total size = 48 bytes (6 head fields + 2 pads)" {
+    try testing.expectEqual(@as(u32, 48), head_size);
 }
 
 test "JitRuntime: round-trip construction + field reads" {
@@ -125,10 +140,12 @@ test "JitRuntime: round-trip construction + field reads" {
         .funcptr_base = &funcptrs,
         .table_size = 1,
         .typeidx_base = &typeidxs,
+        .trap_flag = 0,
     };
     try testing.expectEqual(@as(u64, 16), rt.mem_limit);
     try testing.expectEqual(@as(u32, 1), rt.table_size);
     try testing.expectEqual(@as(u8, 0xDE), rt.vm_base[0]);
     try testing.expectEqual(@as(u64, 0xCAFE0000), rt.funcptr_base[0]);
     try testing.expectEqual(@as(u32, 7), rt.typeidx_base[0]);
+    try testing.expectEqual(@as(u32, 0), rt.trap_flag);
 }

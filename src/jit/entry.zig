@@ -21,20 +21,36 @@ const jit_abi = @import("../runtime/jit_abi.zig");
 
 pub const JitRuntime = jit_abi.JitRuntime;
 
+pub const Error = error{
+    /// The JIT body trapped — its trap stub stored 1 to
+    /// `runtime.trap_flag` before unwinding. Sub-7.5b-ii
+    /// detection is single-bit; Diagnostic M3 (D-022) widens
+    /// this to per-trap-kind reasons.
+    Trap,
+};
+
 /// Call a no-argument JIT function returning i32.
 ///
 /// Per ADR-0017, X0 carries the runtime pointer; the body's
 /// prologue does `LDR X28, [X0, #0]` etc. to materialise the
 /// invariants. The native function-pointer call lowers to
 /// `mov x0, <rt>; blr fn` automatically.
+///
+/// Sub-7.5b-ii: takes `*JitRuntime` (mutable) so the trap stub
+/// can write `rt.trap_flag = 1` on trap. This fn zeroes
+/// `trap_flag` before each call and returns `Error.Trap` if it
+/// was set after the call.
 pub fn callI32NoArgs(
     module: linker.JitModule,
     func_idx: u32,
-    rt: *const JitRuntime,
-) u32 {
+    rt: *JitRuntime,
+) Error!u32 {
+    rt.trap_flag = 0;
     const Fn = *const fn (rt: *const JitRuntime) callconv(.c) u32;
     const f = module.entry(func_idx, Fn);
-    return f(rt);
+    const result = f(rt);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
 }
 
 // ============================================================
@@ -78,14 +94,15 @@ test "entry: i32.load offset=0 reads memory[0..4] through X28 vm_base" {
 
     // Stage 16 bytes; the Wasm body reads memory[0..4] little-endian.
     var memory: [16]u8 = .{ 0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    const rt: JitRuntime = .{
+    var rt: JitRuntime = .{
         .vm_base = &memory,
         .mem_limit = memory.len,
         .funcptr_base = undefined,
         .table_size = 0,
         .typeidx_base = undefined,
+        .trap_flag = 0,
     };
-    const result = callI32NoArgs(module, 0, &rt);
+    const result = try callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 0xEFBEADDE), result);
 }
 
@@ -122,14 +139,15 @@ test "entry: ADR-0018 sub-1c — spilled i32.const returns 42 via STR/LDR round-
     defer module.deinit(testing.allocator);
 
     var memory: [0]u8 = .{};
-    const rt: JitRuntime = .{
+    var rt: JitRuntime = .{
         .vm_base = &memory,
         .mem_limit = 0,
         .funcptr_base = undefined,
         .table_size = 0,
         .typeidx_base = undefined,
+        .trap_flag = 0,
     };
-    const result = callI32NoArgs(module, 0, &rt);
+    const result = try callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 42), result);
 }
 
@@ -160,13 +178,14 @@ test "entry: pure constant function returns 42 (sanity — no memory access)" {
     defer module.deinit(testing.allocator);
 
     var memory: [0]u8 = .{};
-    const rt: JitRuntime = .{
+    var rt: JitRuntime = .{
         .vm_base = &memory,
         .mem_limit = 0,
         .funcptr_base = undefined,
         .table_size = 0,
         .typeidx_base = undefined,
+        .trap_flag = 0,
     };
-    const result = callI32NoArgs(module, 0, &rt);
+    const result = try callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 42), result);
 }

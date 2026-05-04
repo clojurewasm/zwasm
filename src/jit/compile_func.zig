@@ -118,13 +118,14 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     defer module.deinit(testing.allocator);
 
     var memory: [0]u8 = .{};
-    const rt: entry.JitRuntime = .{
+    var rt: entry.JitRuntime = .{
         .vm_base = &memory,
         .mem_limit = 0,
         .funcptr_base = undefined,
         .table_size = 0,
         .typeidx_base = undefined,
+        .trap_flag = 0,
     };
-    const result = entry.callI32NoArgs(module, 0, &rt);
+    const result = try entry.callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 7), result);
 }

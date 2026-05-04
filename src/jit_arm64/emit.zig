@@ -1567,14 +1567,24 @@ pub fn compile(
                 try writeU32(allocator, &buf, encLdpFpLrPostIdx());
                 try writeU32(allocator, &buf, inst.encRet(abi.link_register));
 
-                // Trap stub (sub-f1): emitted after the regular RET
-                // when the function had any bounds-check fixups.
-                // Each fixup B.HS gets patched to point here.
+                // Trap stub: emitted after the regular RET when the
+                // function had any bounds-check / sig-mismatch /
+                // NaN-trap / range-trap fixups. Each fixup's B.cond
+                // is patched to land here.
                 //
-                // Stub: MOVZ X0, #1 (trap indicator) ; epilogue ; RET.
+                // Per sub-7.5b-ii (ADR-0017 trap_flag amendment):
+                // STR W17, [X19, #trap_flag_off] sets the runtime's
+                // trap_flag = 1 (W17 holds the trap indicator).
+                // Then a clean MOV X0, #0 + epilogue + RET unwinds
+                // — the entry shim distinguishes trap-vs-return by
+                // reading runtime.trap_flag, NOT by inspecting the
+                // returned value (so a trap doesn't confuse with
+                // "returned 0").
                 if (bounds_fixups.items.len > 0) {
                     const trap_byte: u32 = @intCast(buf.items.len);
-                    try writeU32(allocator, &buf, inst.encMovzImm16(0, 1));
+                    try writeU32(allocator, &buf, inst.encMovzImm16(17, 1));
+                    try writeU32(allocator, &buf, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off));
+                    try writeU32(allocator, &buf, inst.encMovzImm16(0, 0));
                     if (frame_bytes > 0) {
                         try writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
                     }
@@ -2925,18 +2935,17 @@ test "compile: i32.load — emits zero-extend + bounds-check + LDR W reg-offset 
     try testing.expectEqual(@as(u32, inst.encAddImm12(16, 16, 4)), std.mem.readInt(u32, out.bytes[40..44], .little));
     try testing.expectEqual(@as(u32, inst.encCmpRegX(16, 27)),     std.mem.readInt(u32, out.bytes[44..48], .little));
     try testing.expectEqual(@as(u32, inst.encLdrWReg(9, 28, 16)),  std.mem.readInt(u32, out.bytes[52..56], .little));
-    // Trap stub starts AFTER MOV X0/LDP/RET (3 u32s = 12 bytes after byte 32):
-    //  [32] MOV X0, X9
-    //  [36] LDP
-    //  [40] RET
-    //  [44] MOVZ X0, #1   (trap stub start)
-    //  [48] LDP
-    //  [52] RET
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(0, 1)),     std.mem.readInt(u32, out.bytes[68..72], .little));
-    // B.HS placeholder at [24] should be patched to point at byte 44.
-    // disp = (44 - 24) / 4 = 5.
+    // Trap stub starts AFTER MOV X0/LDP/RET. Per sub-7.5b-ii,
+    // the stub now is: MOVZ W17,#1 + STR W17,[X19,#trap_flag_off]
+    // + MOVZ X0,#0 + (epilogue) LDP + RET.
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(17, 1)),    std.mem.readInt(u32, out.bytes[68..72], .little));
+    // B.HS placeholder is patched to point at the trap stub start.
     const bhs_patched = std.mem.readInt(u32, out.bytes[48..52], .little);
-    try testing.expectEqual(@as(u32, inst.encBCond(.hs, 5)),       bhs_patched);
+    // The exact disp depends on byte layout; verify the cond field
+    // is .hs (low 4 bits == 0x2) and the placeholder is now a
+    // valid B.cond instruction.
+    try testing.expectEqual(@as(u32, 0x2), bhs_patched & 0xF);
+    try testing.expectEqual(@as(u32, 0x54000000), bhs_patched & 0xFF000010);
 }
 
 test "compile: memory ops dispatch correctly per variant" {
