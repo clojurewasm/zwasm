@@ -296,6 +296,53 @@ pub fn encRbitW(rd: Xn, rn: Xn) u32 {
     return 0x5AC00000 | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+// ============================================================
+// 64-bit X-variants of the i32 sub-b ops (sf=1 form).
+// ============================================================
+
+/// `LSL Xd, Xn, Xm` — 64-bit variable left shift (LSLV X form).
+/// Same as LSLV W with sf=1. Encoding base: `0x9AC02000`.
+pub fn encLslvRegX(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x9AC02000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `LSR Xd, Xn, Xm` — 64-bit variable logical right shift.
+pub fn encLsrvRegX(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x9AC02400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `ASR Xd, Xn, Xm` — 64-bit variable arithmetic right shift.
+pub fn encAsrvRegX(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x9AC02800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `ROR Xd, Xn, Xm` — 64-bit variable right rotate.
+pub fn encRorvRegX(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x9AC02C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `CLZ Xd, Xn` — 64-bit count leading zeros. sf=1 vs encClzW.
+/// Encoding: `1 1 0 11010110 00000 000100 [Rn:5] [Rd:5]` = `0xDAC01000`.
+pub fn encClzX(rd: Xn, rn: Xn) u32 {
+    return 0xDAC01000 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `RBIT Xd, Xn` — 64-bit reverse bits.
+/// Encoding: `1 1 0 11010110 00000 000000 [Rn:5] [Rd:5]` = `0xDAC00000`.
+pub fn encRbitX(rd: Xn, rn: Xn) u32 {
+    return 0xDAC00000 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FMOV Dd, Xn` — move 64-bit GPR to lower 64 of V-register
+/// (D-form). Used by i64.popcnt to stage the value into the
+/// SIMD unit. Encoding (FMOV general, sf=1, type=01 double,
+/// opcode=111):
+///   `1 0 0 11110 01 1 00 111 000000 [Rn:5] [Rd:5]` = `0x9E670000`.
+/// Verified via `clang -target arm64-apple-darwin` assembler.
+pub fn encFmovDtoFromX(vd: Vn, xn: Xn) u32 {
+    return 0x9E670000 | (@as(u32, xn) << 5) | @as(u32, vd);
+}
+
 /// V-register index 0..31 — ARM SIMD/FP register file. Same u5
 /// width as `Xn` but a separate type for documentation; the
 /// integer regalloc never allocates these (the §9.7 / 7.3
@@ -516,6 +563,34 @@ test "encClzW w0, w1 — `clz w0, w1` → 0x5AC01020" {
 
 test "encRbitW w0, w1 — `rbit w0, w1` → 0x5AC00020" {
     try testing.expectEqual(@as(u32, 0x5AC00020), encRbitW(0, 1));
+}
+
+test "encLslvRegX x0, x1, x2 — `lsl x0, x1, x2` → 0x9AC22020" {
+    try testing.expectEqual(@as(u32, 0x9AC22020), encLslvRegX(0, 1, 2));
+}
+
+test "encLsrvRegX x0, x1, x2 — `lsr x0, x1, x2` → 0x9AC22420" {
+    try testing.expectEqual(@as(u32, 0x9AC22420), encLsrvRegX(0, 1, 2));
+}
+
+test "encAsrvRegX x0, x1, x2 — `asr x0, x1, x2` → 0x9AC22820" {
+    try testing.expectEqual(@as(u32, 0x9AC22820), encAsrvRegX(0, 1, 2));
+}
+
+test "encRorvRegX x0, x1, x2 — `ror x0, x1, x2` → 0x9AC22C20" {
+    try testing.expectEqual(@as(u32, 0x9AC22C20), encRorvRegX(0, 1, 2));
+}
+
+test "encClzX x0, x1 — `clz x0, x1` → 0xDAC01020" {
+    try testing.expectEqual(@as(u32, 0xDAC01020), encClzX(0, 1));
+}
+
+test "encRbitX x0, x1 — `rbit x0, x1` → 0xDAC00020" {
+    try testing.expectEqual(@as(u32, 0xDAC00020), encRbitX(0, 1));
+}
+
+test "encFmovDtoFromX d31, x9 — `fmov d31, x9` → 0x9E67013F" {
+    try testing.expectEqual(@as(u32, 0x9E67013F), encFmovDtoFromX(31, 9));
 }
 
 // V-register encodings cross-checked via `clang -target

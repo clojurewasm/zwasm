@@ -236,6 +236,97 @@ pub fn compile(
                 try writeU32(allocator, &buf, inst.encCsetW(wd, .eq));
                 try pushed_vregs.append(allocator, result);
             },
+            .@"i64.shl",
+            .@"i64.shr_s",
+            .@"i64.shr_u",
+            .@"i64.rotr",
+            => {
+                // Direct X-variant shifts.
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs = pushed_vregs.pop().?;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const xn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const xm = abi.slotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const xd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const word: u32 = switch (ins.op) {
+                    .@"i64.shl"   => inst.encLslvRegX(xd, xn, xm),
+                    .@"i64.shr_s" => inst.encAsrvRegX(xd, xn, xm),
+                    .@"i64.shr_u" => inst.encLsrvRegX(xd, xn, xm),
+                    .@"i64.rotr"  => inst.encRorvRegX(xd, xn, xm),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i64.rotl" => {
+                // No direct LEFT rotate on ARM. rotl(val, n) =
+                // ror(val, 64-n). 3-instr sequence with IP0 (X16)
+                // as scratch:
+                //   MOVZ X16, #64
+                //   SUB  X16, X16, Xcount
+                //   ROR  Xd,  Xval, X16
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs = pushed_vregs.pop().?;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const xn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const xm = abi.slotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const xd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const ip0: inst.Xn = 16;
+                try writeU32(allocator, &buf, inst.encMovzImm16(ip0, 64));
+                try writeU32(allocator, &buf, inst.encSubReg(ip0, ip0, xm));
+                try writeU32(allocator, &buf, inst.encRorvRegX(xd, xn, ip0));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i64.clz" => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const xn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const xd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encClzX(xd, xn));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i64.ctz" => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const xn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const xd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encRbitX(xd, xn));
+                try writeU32(allocator, &buf, inst.encClzX(xd, xd));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i64.popcnt" => {
+                // 64-bit popcount via SIMD: same shape as i32.popcnt
+                // but FMOV D (not S) stages the full 64 bits into
+                // V31's lower 64. CNT/ADDV/UMOV are unchanged
+                // (operate on lower 8 bytes regardless of whether
+                // upper 4 came from FMOV S or full 8 bytes from
+                // FMOV D). Result fits in W (max 64 < 256).
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const xn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const v_scratch: inst.Vn = 31;
+                try writeU32(allocator, &buf, inst.encFmovDtoFromX(v_scratch, xn));
+                try writeU32(allocator, &buf, inst.encCntV8B(v_scratch, v_scratch));
+                try writeU32(allocator, &buf, inst.encAddvB8B(v_scratch, v_scratch));
+                try writeU32(allocator, &buf, inst.encUmovWFromVB0(wd, v_scratch));
+                try pushed_vregs.append(allocator, result);
+            },
             .@"i32.add",
             .@"i32.sub",
             .@"i32.mul",
@@ -1033,6 +1124,118 @@ test "compile: i64 cmp ops each emit CMP-X + CSET-W with the right Cond mapping"
         try testing.expectEqual(@as(u32, inst.encCmpRegX(9, 10)),        std.mem.readInt(u32, out.bytes[16..20], .little));
         try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[20..24], .little));
     }
+}
+
+test "compile: i64 shifts emit X-variant LSLV/LSRV/ASRV/RORV" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i64 } };
+    const cases = [_]struct { op: zir.ZirOp, want_word_at_offset: u32 }{
+        .{ .op = .@"i64.shl",   .want_word_at_offset = inst.encLslvRegX(9, 9, 10) },
+        .{ .op = .@"i64.shr_s", .want_word_at_offset = inst.encAsrvRegX(9, 9, 10) },
+        .{ .op = .@"i64.shr_u", .want_word_at_offset = inst.encLsrvRegX(9, 9, 10) },
+        .{ .op = .@"i64.rotr",  .want_word_at_offset = inst.encRorvRegX(9, 9, 10) },
+    };
+    for (cases) |c| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 7, .extra = 0 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 5, .extra = 0 });
+        try f.instrs.append(testing.allocator, .{ .op = c.op });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 2 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+            .{ .def_pc = 2, .last_use_pc = 3 },
+        } };
+        const slots = [_]u8{ 0, 1, 0 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+        const out = try compile(testing.allocator, &f, alloc);
+        defer deinit(testing.allocator, out);
+        try testing.expectEqual(c.want_word_at_offset, std.mem.readInt(u32, out.bytes[16..20], .little));
+    }
+}
+
+test "compile: i64.rotl emits 3-instr X-variant NEG-via-MOVZ-#64-SUB + RORV" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0xFF, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 4, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.rotl" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After 4 prologue+const u32s (16 bytes):
+    // MOVZ X16, #64 / SUB X16, X16, X10 / RORV X9, X9, X16.
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 64)),    std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encSubReg(16, 16, 10)),   std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encRorvRegX(9, 9, 16)),   std.mem.readInt(u32, out.bytes[24..28], .little));
+}
+
+test "compile: i64.clz emits direct CLZ X" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0xFF, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.clz" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    try testing.expectEqual(@as(u32, inst.encClzX(9, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+}
+
+test "compile: i64.ctz emits RBIT-X + CLZ-X" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0x100, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.ctz" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    try testing.expectEqual(@as(u32, inst.encRbitX(9, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encClzX(9, 9)),  std.mem.readInt(u32, out.bytes[16..20], .little));
+}
+
+test "compile: i64.popcnt emits FMOV-D + CNT/ADDV/UMOV V-register pattern" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0xFF, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.popcnt" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP/MOVZ-X9 (12 bytes):
+    // FMOV D31, X9 / CNT V31.8B / ADDV B31 / UMOV W9.
+    try testing.expectEqual(@as(u32, inst.encFmovDtoFromX(31, 9)),     std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encCntV8B(31, 31)),          std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encAddvB8B(31, 31)),         std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encUmovWFromVB0(9, 31)),     std.mem.readInt(u32, out.bytes[24..28], .little));
 }
 
 test "compile: i64.eqz emits CMP-X-imm-0 + CSET EQ" {
