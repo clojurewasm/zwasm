@@ -96,13 +96,13 @@ pub fn setWritable(block: JitBlock) Error!void {
 }
 
 const testing = std.testing;
-const inst = @import("../jit_arm64/inst.zig");
 
 test "JitBlock: emit MOVZ X0,#42 + RET, execute, returns 42" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
         // Other hosts: the JIT spec gate is not yet wired; skip.
         return error.SkipZigTest;
     }
+    const inst = @import("../jit_arm64/inst.zig");
     var block = try alloc(page_size);
     defer free(block);
     // The block starts writable (MAP_JIT + thread W^X disabled).
