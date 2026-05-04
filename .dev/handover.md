@@ -24,11 +24,12 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
   in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
   locals + control-flow-e1 done).
-- **Last commit**: `e17254e` — feat(p7) §9.7 / 7.3 sub-h5 (Wasm
-  2.0 sat_trunc: 8 ops via FCVTZS/U, encodings reused for sub-h3
-  later). Sub-h4 (reinterpret) + sub-h3 (trapping trunc with
-  NaN/range checks) remain. 706/706 unit / 3-host green. Phase 6
-  close at `68843b0`.
+- **Last commit**: `81445a4` — feat(p7) §9.7 / 7.3 sub-h4
+  (reinterpret bit-casts: 4 ops via FMOV W↔S / X↔D, encoders
+  reused). Sub-h3 (trapping trunc with NaN/range checks) is the
+  last remaining sub-h row before §9.7 / 7.3 closes and the 7.4
+  spec gate fires. 708/708 unit / 3-host green. Phase 6 close at
+  `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -58,8 +59,8 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | h1  | integer width: wrap_i64 + extend_i32_s/u                | [x] `7a0c0ca` |
 | h2  | int↔float convert (8 ops: f32/f64.convert_i32/i64.s/u + demote/promote) | [x] `b8dd126` |
 | h5  | sat_trunc (Wasm 2.0; 8 ops via FCVTZS/U direct)         | [x] `e17254e` |
-| h4  | reinterpret (4 ops: bit-cast via existing FMOV W↔S/X↔D) | [ ] **NEXT** |
-| h3  | trapping trunc (8 ops: NaN check + range bounds + FCVTZ) | [ ]    |
+| h4  | reinterpret (4 ops: bit-cast via existing FMOV W↔S/X↔D) | [x] `81445a4` |
+| h3  | trapping trunc (8 ops: NaN check + range bounds + FCVTZ) | [ ] **NEXT** |
 
 Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
 Plus 3 locals ops + end + 4 control-flow ops (block/loop/br/br_if).
