@@ -21,21 +21,35 @@
 ## Current state
 
 - **Phase**: **Phase 6 IN-PROGRESS** — 6.K + 6.E + 6.F + 6.G + 6.H
-  all `[x]`. 6.I + 6.J pending.
-- **Last commit**: `841df04` — feat(p6) §9.6 / 6.H bench results
-  layout migration (structural; Phase 11 hyperfine wiring still
-  pending). Plus `cb07e11` (D-008 close) + `5205319` (diff_runner
-  PATH-lookup fix making windowsmini real-match).
+  + 6.I all `[x]`. **Only 6.J (strict close gate) remains**.
+- **Last commit**: `f3655f8` — feat(p6) §9.6 / 6.I — vendor 5
+  sightglass benchmarks (noop / quicksort / richards / bz2 /
+  gcc-loops; harness host wiring deferred to Phase 11).
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.I (sightglass benchmarks vendor + bench restructure)
+## Active task — §9.6 / 6.J (Phase 6 strict close)
 
-Per ROADMAP §9.6 / 6.I: vendor 5 sightglass benchmarks with
-in-repo C source + documented build script per ADR-0012 §3.
-Reject v1's TinyGo binary-only and gc_* source-less artifacts.
+Per ROADMAP §9.6 / 6.J: three-host `test-all` 0-failed AND every
+aggregated runner reports 0 failed (no soft-skip, no tolerated
+nonzero) AND `bench-quick` green Mac-only AND
+`audit_scaffolding` pass AND Phase Status widget flip.
 
-This is parallel to 6.E〜6.H (which all `[x]`) and the last
-bench-side row before 6.J close.
+The "only permitted exception" to 0-failed is a v1-era design-
+dependent fixture v2 deliberately rejects on spec-fidelity
+grounds — already satisfied by `skip_embenchen_emcc_env_imports.md`
++ `skip_externref_segment.md` (5 fixtures total).
+
+Concretely:
+- Re-confirm `zig build test-all` 0 failed on Mac + OrbStack
+  Ubuntu + windowsmini.
+- Run `audit_scaffolding` (mandatory at phase boundary per
+  recently-strengthened skill).
+- Decide D-006 (linking-errors / import-type validation gap):
+  discharge before 6.J or persist into Phase 7 deliberately.
+- Flip Phase Status widget at top of §9 to `6 = DONE,
+  7 = IN-PROGRESS`.
+- Backfill SHA pointers for §9.6 task table.
+- Open §9.7 task table inline (mirroring §9.6's structure).
 
 ## Today's meta-improvement landings (Phase 6 honest-debt cycle)
 
@@ -70,8 +84,8 @@ Commits (`8be96bc..d9aecda`):
 | 6.F   | test-realworld-diff 30+ matches + re-add to test-all (39/50 matched, 0 mismatched)   | [x] `ccd537d`  |
 | 6.G   | CW guest end-to-end (CW v1 vendor per [`cw_guest_setup.md`](cw_guest_setup.md))      | [x] `0735f93`  |
 | 6.H   | bench honest-baseline migration — structural (Phase 11 hyperfine deferred)           | [x] `841df04`  |
-| 6.I   | bench restructure + sightglass (per ADR-0012 §3)                                     | [ ] **NEXT**   |
-| 6.J   | strict close gate (100% PASS or skip-ADR; Phase Status widget flip)                  | [ ]            |
+| 6.I   | bench restructure + sightglass (per ADR-0012 §3)                                     | [x] `f3655f8`  |
+| 6.J   | strict close gate (100% PASS or skip-ADR; Phase Status widget flip)                  | [ ] **NEXT**   |
 
 ## Open questions / blockers
 
