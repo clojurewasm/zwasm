@@ -11,12 +11,12 @@
 //! per-decoder allocations in one go (per ROADMAP §P3 cold-start —
 //! single arena drop instead of N free()s).
 //!
-//! Zone 1 (`src/frontend/`) — imports Zone 0 (`util/leb128.zig`)
+//! Zone 1 (`src/frontend/`) — imports Zone 0 (`support/leb128.zig`)
 //! and Zone 1 (`ir/zir.zig`).
 
 const std = @import("std");
 
-const leb128 = @import("../util/leb128.zig");
+const leb128 = @import("../support/leb128.zig");
 const zir = @import("../ir/zir.zig");
 
 const Allocator = std.mem.Allocator;

@@ -122,8 +122,8 @@ test "build options are wired" {
 }
 
 test {
-    _ = @import("util/leb128.zig");
-    _ = @import("util/dbg.zig");
+    _ = @import("support/leb128.zig");
+    _ = @import("support/dbg.zig");
     _ = @import("diagnostic/diagnostic.zig");
     _ = @import("cli/diag_print.zig");
     _ = @import("ir/zir.zig");

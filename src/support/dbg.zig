@@ -18,7 +18,7 @@
 //! ## Usage
 //!
 //! ```zig
-//! const dbg = @import("util/dbg.zig");
+//! const dbg = @import("support/dbg.zig");
 //!
 //! dbg.print("interp.alloc", "rt={x} mem.ptr={x} len={d}", .{
 //!     @intFromPtr(rt), @intFromPtr(mem.ptr), mem.len,

@@ -31,12 +31,12 @@
 //! that subset return `Error.NotImplemented` until §9.1 / 1.7 wires
 //! per-feature handlers via `DispatchTable` per ROADMAP §A12.
 //!
-//! Zone 1 (`src/frontend/`) — may import Zone 0 (`src/util/leb128.zig`)
+//! Zone 1 (`src/frontend/`) — may import Zone 0 (`src/support/leb128.zig`)
 //! and Zone 1 (`src/ir/`). No upward imports.
 
 const std = @import("std");
 
-const leb128 = @import("../util/leb128.zig");
+const leb128 = @import("../support/leb128.zig");
 const zir = @import("../ir/zir.zig");
 
 const Allocator = std.mem.Allocator;

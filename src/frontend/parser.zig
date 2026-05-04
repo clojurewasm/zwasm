@@ -13,12 +13,12 @@
 //! exception handling) is reserved for Phase 1.5+ — currently rejected
 //! as an unknown id.
 //!
-//! Zone 1 (`src/frontend/`) — may import Zone 0 (`src/util/leb128.zig`)
+//! Zone 1 (`src/frontend/`) — may import Zone 0 (`src/support/leb128.zig`)
 //! and Zone 1 (`src/ir/`). No upward imports.
 
 const std = @import("std");
 
-const leb128 = @import("../util/leb128.zig");
+const leb128 = @import("../support/leb128.zig");
 const module_mod = @import("../runtime/module.zig");
 
 const Allocator = std.mem.Allocator;

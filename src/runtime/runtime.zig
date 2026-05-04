@@ -19,7 +19,7 @@
 //! §P3 — no allocation per call. Linear memory and global slots
 //! are heap-allocated once at instance construction.
 //!
-//! Zone 1 (`src/runtime/`) — may import Zone 0 (`util/leb128.zig`)
+//! Zone 1 (`src/runtime/`) — may import Zone 0 (`support/leb128.zig`)
 //! and Zone 1 (`ir/`). MUST NOT import Zone 2+ (`interp/`, `jit*/`,
 //! `wasi/`, `c_api/`, `cli/`).
 

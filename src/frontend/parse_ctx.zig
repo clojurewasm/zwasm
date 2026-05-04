@@ -7,12 +7,12 @@
 //! `src/feature/<feature>/` cast back to `Ctx` via
 //! `Ctx.fromOpaque` to read immediates from the body.
 //!
-//! Zone 1 — imports Zone 0 (`util/leb128.zig`) + Zone 1
+//! Zone 1 — imports Zone 0 (`support/leb128.zig`) + Zone 1
 //! (`ir/dispatch_table.zig`).
 
 const std = @import("std");
 
-const leb128 = @import("../util/leb128.zig");
+const leb128 = @import("../support/leb128.zig");
 const dispatch = @import("../ir/dispatch_table.zig");
 
 pub const Error = error{UnexpectedEnd} || leb128.Error;

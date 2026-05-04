@@ -34,7 +34,7 @@
 //! every libc-linked compilation unit. A future no-libc
 //! embedded build (none today) would need either a Zig stdlib
 //! no-libc TLS path or a compile-mode shim. This is the same
-//! constraint ADR-0015 documents for `util/dbg.zig`'s
+//! constraint ADR-0015 documents for `support/dbg.zig`'s
 //! `std.c.getenv`; one TODO at `dbg.zig:69` covers the family.
 //!
 //! Zone 1 (`src/runtime/`) — may import Zone 0 only.

@@ -24,7 +24,7 @@
 
 const std = @import("std");
 
-const dbg = @import("../util/dbg.zig");
+const dbg = @import("../support/dbg.zig");
 const runtime = @import("../runtime/runtime.zig");
 const runtime_instance = @import("../runtime/instance/instance.zig");
 const wasi_host = @import("../wasi/host.zig");
@@ -1207,7 +1207,7 @@ fn buildExportTypes(
 /// module global imports.
 fn evalConstExprValue(expr: []const u8) !runtime.Value {
     if (expr.len < 2) return error.UnsupportedConstExpr;
-    const leb = @import("../util/leb128.zig");
+    const leb = @import("../support/leb128.zig");
     var pos: usize = 1;
     const v: runtime.Value = switch (expr[0]) {
         0x41 => blk: {
@@ -1248,7 +1248,7 @@ fn evalConstExprValue(expr: []const u8) !runtime.Value {
 fn evalConstI32Expr(expr: []const u8) !i32 {
     if (expr.len < 2 or expr[0] != 0x41) return error.UnsupportedConstExpr;
     var pos: usize = 1;
-    const v = try @import("../util/leb128.zig").readSleb128(i32, expr, &pos);
+    const v = try @import("../support/leb128.zig").readSleb128(i32, expr, &pos);
     if (pos >= expr.len or expr[pos] != 0x0B) return error.UnsupportedConstExpr;
     return v;
 }
