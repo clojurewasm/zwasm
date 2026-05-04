@@ -44,7 +44,7 @@ for f in "${adr_files[@]}"; do
 
   # Only process files that have a Revision history § (header H2
   # with the exact text "Revision history").
-  if ! grep -q '^## Revision history' "$f"; then
+  if ! grep -q '^## .*Revision history' "$f"; then
     continue
   fi
 
@@ -54,8 +54,11 @@ for f in "${adr_files[@]}"; do
   # Extract SHA-shaped tokens from the Revision history § only.
   in_rev=false
   while IFS= read -r line; do
+    if [[ "$line" =~ ^##[[:space:]].*Revision[[:space:]]history ]]; then
+      in_rev=true
+      continue
+    fi
     case "$line" in
-      "## Revision history"*) in_rev=true; continue ;;
       "## "*) in_rev=false ;;
     esac
     if $in_rev; then
@@ -82,7 +85,7 @@ done
 
 echo
 echo "============================================================"
-echo "ADRs with Revision history: $(grep -lc '^## Revision history' "${adr_files[@]}" 2>/dev/null | wc -l | tr -d ' ')"
+echo "ADRs with Revision history: $(grep -l '^## .*Revision history' "${adr_files[@]}" 2>/dev/null | wc -l | tr -d ' ')"
 echo "Pending backfills (<backfill>): $backfill_count"
 echo "Unknown-SHA violations: $violations"
 
