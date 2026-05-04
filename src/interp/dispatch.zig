@@ -4,7 +4,7 @@
 //! `DispatchTable.interp` and invokes it. Per ROADMAP §A12 the
 //! dispatcher does not branch on feature flags; an unbound slot
 //! is `Trap.Unreachable`. The full MVP handler set lands in
-//! §9.2 / 2.2 (feature/mvp/interp.zig); 2.1 only delivers the
+//! §9.2 / 2.2 (feature/mvp/runtime.zig); 2.1 only delivers the
 //! dispatch primitive plus a smoke-shaped `run` outer loop.
 //!
 //! The Zig 0.16 toolchain does not guarantee tail-call elimination
@@ -16,19 +16,19 @@
 //! priority over μs/op throughput.
 //!
 //! Zone 2 (`src/interp/`) — may import Zone 0 + 1 + sibling
-//! `src/interp/mod.zig`.
+//! `src/runtime/runtime.zig`.
 
 const std = @import("std");
 
 pub const zir = @import("../ir/zir.zig");
 const dispatch_table = @import("../ir/dispatch_table.zig");
-const interp = @import("mod.zig");
+const runtime = @import("../runtime/runtime.zig");
 
 const ZirInstr = zir.ZirInstr;
 const ZirOp = zir.ZirOp;
 const DispatchTable = dispatch_table.DispatchTable;
-const Runtime = interp.Runtime;
-const Trap = interp.Trap;
+const Runtime = runtime.Runtime;
+const Trap = runtime.Trap;
 
 /// Run a single instruction by looking up its handler in `table` and
 /// invoking it. An unbound slot returns `Trap.Unreachable` per
@@ -166,10 +166,10 @@ test "trace_cb: receives one event per dispatched instruction" {
     const table = buildSmokeTable();
 
     const TraceSink = struct {
-        events: [16]interp.TraceEvent = undefined,
+        events: [16]runtime.TraceEvent = undefined,
         len: u32 = 0,
 
-        fn cb(ctx: *anyopaque, ev: interp.TraceEvent) void {
+        fn cb(ctx: *anyopaque, ev: runtime.TraceEvent) void {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             if (self.len < self.events.len) {
                 self.events[self.len] = ev;

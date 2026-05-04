@@ -14,13 +14,13 @@ const std = @import("std");
 
 const dispatch = @import("../../ir/dispatch_table.zig");
 const zir = @import("../../ir/zir.zig");
-const interp = @import("../mod.zig");
+const runtime = @import("../../runtime/runtime.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
 const DispatchTable = dispatch.DispatchTable;
 const InterpCtx = dispatch.InterpCtx;
-const Runtime = interp.Runtime;
+const Runtime = runtime.Runtime;
 
 inline fn op(o: ZirOp) usize {
     return @intFromEnum(o);
@@ -75,7 +75,7 @@ fn i64Extend32s(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
 
 const testing = std.testing;
 const dispatch_loop = @import("../dispatch.zig");
-const Trap = interp.Trap;
+const Trap = runtime.Trap;
 
 fn driveOne(rt: *Runtime, table: *const DispatchTable, t: ZirOp, payload: u32, extra: u32) !void {
     const instr: ZirInstr = .{ .op = t, .payload = payload, .extra = extra };

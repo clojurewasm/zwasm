@@ -18,14 +18,14 @@ const std = @import("std");
 
 const dispatch = @import("../ir/dispatch_table.zig");
 const zir = @import("../ir/zir.zig");
-const interp = @import("mod.zig");
+const runtime = @import("../runtime/runtime.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
 const DispatchTable = dispatch.DispatchTable;
 const InterpCtx = dispatch.InterpCtx;
-const Runtime = interp.Runtime;
-const Trap = interp.Trap;
+const Runtime = runtime.Runtime;
+const Trap = runtime.Trap;
 
 inline fn op(t: ZirOp) usize {
     return @intFromEnum(t);

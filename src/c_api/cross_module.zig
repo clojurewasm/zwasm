@@ -22,7 +22,7 @@
 //!
 //! Zone 3 (`src/c_api/`) — may import any layer below.
 
-const interp = @import("../interp/mod.zig");
+const runtime = @import("../runtime/runtime.zig");
 const interp_mvp = @import("../interp/mvp.zig");
 const dispatch_table_mod = @import("../ir/dispatch_table.zig");
 
@@ -33,23 +33,23 @@ const dispatch_table_mod = @import("../ir/dispatch_table.zig");
 /// cross-module thunk is valid even if the importer's
 /// instantiation later traps.
 pub const CallCtx = struct {
-    source_rt: *interp.Runtime,
+    source_rt: *runtime.Runtime,
     source_funcidx: u32,
     dispatch_table: *const dispatch_table_mod.DispatchTable,
 };
 
 /// Cross-module dispatch helper invoked by `mvp.callOp` when the
 /// importing module's `host_calls[i]` slot points here.
-pub fn thunk(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+pub fn thunk(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const cmc: *const CallCtx = @ptrCast(@alignCast(ctx));
     const source_rt = cmc.source_rt;
-    if (cmc.source_funcidx >= source_rt.funcs.len) return interp.Trap.Unreachable;
+    if (cmc.source_funcidx >= source_rt.funcs.len) return runtime.Trap.Unreachable;
     const callee = source_rt.funcs[cmc.source_funcidx];
 
     // Transfer args importer-stack → source-stack. Args sit at the
     // top of the importer's operand_buf in left-to-right order.
     const num_params: u32 = @intCast(callee.sig.params.len);
-    if (rt.operand_len < num_params) return interp.Trap.StackOverflow;
+    if (rt.operand_len < num_params) return runtime.Trap.StackOverflow;
     const args_start = rt.operand_len - num_params;
     var i: u32 = 0;
     while (i < num_params) : (i += 1) {
@@ -61,7 +61,7 @@ pub fn thunk(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
 
     // Transfer results source-stack → importer-stack.
     const num_results: u32 = @intCast(callee.sig.results.len);
-    if (source_rt.operand_len < num_results) return interp.Trap.StackOverflow;
+    if (source_rt.operand_len < num_results) return runtime.Trap.StackOverflow;
     const results_start = source_rt.operand_len - num_results;
     i = 0;
     while (i < num_results) : (i += 1) {

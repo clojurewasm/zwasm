@@ -12,7 +12,7 @@
 //! lower zone (`interp/`, `wasi/`).
 
 const std = @import("std");
-const interp = @import("../interp/mod.zig");
+const runtime = @import("../runtime/runtime.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi_fd = @import("../wasi/fd.zig");
 const wasi_proc = @import("../wasi/proc.zig");
@@ -70,9 +70,9 @@ pub export fn zwasm_wasi_config_delete(h: ?*wasi_host.Host) callconv(.c) void {
 /// Type-erased thunk pointer surface. The `*anyopaque` ctx is
 /// the `*wasi_host.Host` installed on the Store at
 /// instantiation time.
-pub const HostThunkFn = *const fn (*interp.Runtime, *anyopaque) anyerror!void;
+pub const HostThunkFn = *const fn (*runtime.Runtime, *anyopaque) anyerror!void;
 
-fn thunkFdWrite(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkFdWrite(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const nwritten_ptr = rt.popOperand().u32;
     const ciovec_count = rt.popOperand().u32;
@@ -82,37 +82,37 @@ fn thunkFdWrite(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
     try rt.pushOperand(.{ .i32 = @intCast(@intFromEnum(errno)) });
 }
 
-fn thunkProcExit(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkProcExit(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const rval = rt.popOperand().u32;
     _ = wasi_proc.procExit(host, rval);
     return error.WasiExit;
 }
 
-fn pushErrno(rt: *interp.Runtime, errno: Errno) !void {
+fn pushErrno(rt: *runtime.Runtime, errno: Errno) !void {
     try rt.pushOperand(.{ .i32 = @intCast(@intFromEnum(errno)) });
 }
 
 // args / environ thunks
-fn thunkArgsSizesGet(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkArgsSizesGet(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const buf_size_ptr = rt.popOperand().u32;
     const argc_ptr = rt.popOperand().u32;
     return pushErrno(rt, wasi_proc.argsSizesGet(host, rt.memory, argc_ptr, buf_size_ptr));
 }
-fn thunkArgsGet(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkArgsGet(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const argv_buf_ptr = rt.popOperand().u32;
     const argv_ptr = rt.popOperand().u32;
     return pushErrno(rt, wasi_proc.argsGet(host, rt.memory, argv_ptr, argv_buf_ptr));
 }
-fn thunkEnvironSizesGet(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkEnvironSizesGet(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const buf_size_ptr = rt.popOperand().u32;
     const count_ptr = rt.popOperand().u32;
     return pushErrno(rt, wasi_proc.environSizesGet(host, rt.memory, count_ptr, buf_size_ptr));
 }
-fn thunkEnvironGet(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkEnvironGet(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const environ_buf_ptr = rt.popOperand().u32;
     const environ_ptr = rt.popOperand().u32;
@@ -120,20 +120,20 @@ fn thunkEnvironGet(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
 }
 
 // clock / random / poll thunks
-fn thunkClockTimeGet(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkClockTimeGet(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const time_ptr = rt.popOperand().u32;
     const precision = rt.popOperand().u64;
     const clock_id = rt.popOperand().u32;
     return pushErrno(rt, wasi_clocks.clockTimeGet(host, rt.memory, clock_id, precision, time_ptr));
 }
-fn thunkRandomGet(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkRandomGet(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const buf_len = rt.popOperand().u32;
     const buf_ptr = rt.popOperand().u32;
     return pushErrno(rt, wasi_clocks.randomGet(host, rt.memory, buf_ptr, buf_len));
 }
-fn thunkPollOneoff(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkPollOneoff(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const nevents_ptr = rt.popOperand().u32;
     const nsubscriptions = rt.popOperand().u32;
@@ -143,7 +143,7 @@ fn thunkPollOneoff(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
 }
 
 // fd thunks
-fn thunkFdRead(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkFdRead(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const nread_ptr = rt.popOperand().u32;
     const iovec_count = rt.popOperand().u32;
@@ -151,12 +151,12 @@ fn thunkFdRead(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
     const fd = rt.popOperand().u32;
     return pushErrno(rt, wasi_fd.fdRead(host, rt.memory, fd, iovec_ptr, iovec_count, nread_ptr));
 }
-fn thunkFdClose(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkFdClose(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const fd = rt.popOperand().u32;
     return pushErrno(rt, wasi_fd.fdClose(host, fd));
 }
-fn thunkFdSeek(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkFdSeek(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const new_pos_ptr = rt.popOperand().u32;
     const whence: u8 = @intCast(rt.popOperand().u32 & 0xFF);
@@ -164,25 +164,25 @@ fn thunkFdSeek(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
     const fd = rt.popOperand().u32;
     return pushErrno(rt, wasi_fd.fdSeek(host, rt.memory, fd, offset, whence, new_pos_ptr));
 }
-fn thunkFdTell(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkFdTell(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const pos_ptr = rt.popOperand().u32;
     const fd = rt.popOperand().u32;
     return pushErrno(rt, wasi_fd.fdTell(host, rt.memory, fd, pos_ptr));
 }
-fn thunkFdFdstatGet(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkFdFdstatGet(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const fdstat_ptr = rt.popOperand().u32;
     const fd = rt.popOperand().u32;
     return pushErrno(rt, wasi_fd.fdFdstatGet(host, rt.memory, fd, fdstat_ptr));
 }
-fn thunkFdFdstatSetFlags(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkFdFdstatSetFlags(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const flags: u16 = @intCast(rt.popOperand().u32 & 0xFFFF);
     const fd = rt.popOperand().u32;
     return pushErrno(rt, wasi_fd.fdFdstatSetFlags(host, fd, flags));
 }
-fn thunkPathOpen(rt: *interp.Runtime, ctx: *anyopaque) anyerror!void {
+fn thunkPathOpen(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const opened_fd_ptr = rt.popOperand().u32;
     const fdflags: u16 = @intCast(rt.popOperand().u32 & 0xFFFF);

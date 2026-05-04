@@ -21,14 +21,14 @@ const std = @import("std");
 
 const dispatch = @import("../../ir/dispatch_table.zig");
 const zir = @import("../../ir/zir.zig");
-const interp = @import("../mod.zig");
+const runtime = @import("../../runtime/runtime.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
 const DispatchTable = dispatch.DispatchTable;
 const InterpCtx = dispatch.InterpCtx;
-const Runtime = interp.Runtime;
-const Value = interp.Value;
+const Runtime = runtime.Runtime;
+const Value = runtime.Value;
 
 inline fn op(o: ZirOp) usize {
     return @intFromEnum(o);
@@ -54,7 +54,7 @@ fn refIsNull(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
 fn refFunc(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const idx = instr.payload;
-    if (idx >= rt.func_entities.len) return interp.Trap.Unreachable;
+    if (idx >= rt.func_entities.len) return runtime.Trap.Unreachable;
     try rt.pushOperand(Value.fromFuncRef(&rt.func_entities[idx]));
 }
 
@@ -112,7 +112,7 @@ test "ref.func: payload resolves to FuncEntity pointer" {
 
     // Stub func_entities so payload 1 resolves; Runtime is the only
     // owner the test cares about.
-    var entities = [_]interp.FuncEntity{
+    var entities = [_]runtime.FuncEntity{
         .{ .runtime = &rt, .func_idx = 0 },
         .{ .runtime = &rt, .func_idx = 1 },
     };
@@ -131,7 +131,7 @@ test "ref round-trip: ref.func 0 ; ref.is_null → 0" {
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
 
-    var entities = [_]interp.FuncEntity{.{ .runtime = &rt, .func_idx = 0 }};
+    var entities = [_]runtime.FuncEntity{.{ .runtime = &rt, .func_idx = 0 }};
     rt.func_entities = &entities;
 
     try driveOne(&rt, &t, .@"ref.func", 0, 0);

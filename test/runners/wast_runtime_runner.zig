@@ -41,7 +41,7 @@
 //! end-to-end; broader value-type comparison lands per directive
 //! when 6.D wires the wasmtime_misc corpus that exercises it.
 //!
-//! Per-instr execution trace: the underlying `interp.Runtime` carries
+//! Per-instr execution trace: the underlying `runtime.Runtime` carries
 //! `trace_cb` / `trace_ctx` (added in 6.A alongside this runner). The
 //! `--trace <fixture>` CLI flag will hook a trace sink in 6.E when
 //! interp behaviour bug investigation needs it; not wired in 6.A.

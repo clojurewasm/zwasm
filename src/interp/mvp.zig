@@ -4,7 +4,7 @@
 //! central `DispatchTable.interp` via `register(*DispatchTable)`.
 //! The dispatcher (`src/interp/dispatch.zig`) calls them with an
 //! opaque `*InterpCtx` cast back to the concrete `*Runtime` from
-//! `src/interp/mod.zig`.
+//! `src/runtime/runtime.zig`.
 //!
 //! After §9.5 / 5.1 (ADR-0007 follow-on for `mvp.zig` discoverability)
 //! the handler set is split across siblings:
@@ -42,7 +42,7 @@ const std = @import("std");
 
 const dispatch = @import("../ir/dispatch_table.zig");
 const zir = @import("../ir/zir.zig");
-const interp = @import("mod.zig");
+const runtime = @import("../runtime/runtime.zig");
 const memory_ops = @import("memory_ops.zig");
 const mvp_int = @import("mvp_int.zig");
 const mvp_float = @import("mvp_float.zig");
@@ -52,9 +52,9 @@ const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
 const DispatchTable = dispatch.DispatchTable;
 const InterpCtx = dispatch.InterpCtx;
-const Runtime = interp.Runtime;
-const Value = interp.Value;
-const Trap = interp.Trap;
+const Runtime = runtime.Runtime;
+const Value = runtime.Value;
+const Trap = runtime.Trap;
 
 // ============================================================
 // Public registration
@@ -221,7 +221,7 @@ fn endOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
 /// ceiling.
 const max_block_arity: u32 = 16;
 
-inline fn restoreToLabel(rt: *Runtime, label: interp.Label) Trap!void {
+inline fn restoreToLabel(rt: *Runtime, label: runtime.Label) Trap!void {
     // Save `arity` topmost values, drop down to label.height, push back.
     if (label.arity == 0) {
         rt.operand_len = label.height;
@@ -241,7 +241,7 @@ inline fn restoreToLabel(rt: *Runtime, label: interp.Label) Trap!void {
     }
 }
 
-inline fn doBranch(rt: *Runtime, frame: *interp.Frame, depth: u32) Trap!void {
+inline fn doBranch(rt: *Runtime, frame: *runtime.Frame, depth: u32) Trap!void {
     if (depth >= frame.label_len) return Trap.Unreachable;
     const target = frame.labelAt(depth);
     // Pop (depth + 1) labels off the control stack — except for loop
@@ -253,7 +253,7 @@ inline fn doBranch(rt: *Runtime, frame: *interp.Frame, depth: u32) Trap!void {
     // `restoreToLabel` uses `arity` — for branches we need
     // branch_arity (= results for block/if; = 0 for loops in
     // Wasm 1.0). Synthesise a label with the branch-time arity.
-    const branch_label: interp.Label = .{
+    const branch_label: runtime.Label = .{
         .height = target.height,
         .arity = target.branch_arity,
         .branch_arity = target.branch_arity,
@@ -339,7 +339,7 @@ fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const sel = rt.popOperand().u32;
     if (sel >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
     const ref_v = tbl.refs[sel];
-    const fe = interp.Value.refAsFuncEntity(ref_v) orelse return Trap.UninitializedElement;
+    const fe = runtime.Value.refAsFuncEntity(ref_v) orelse return Trap.UninitializedElement;
     const callee_rt = fe.runtime;
     if (fe.func_idx >= callee_rt.funcs.len) return Trap.UninitializedElement;
     const callee = callee_rt.funcs[fe.func_idx];
@@ -367,7 +367,7 @@ inline fn sigEq(a: zir.FuncType, b: zir.FuncType) bool {
 pub fn invoke(rt: *Runtime, table: *const DispatchTable, callee: *const zir.ZirFunc) anyerror!void {
     const params_len = callee.sig.params.len;
     const total = params_len + callee.locals.len;
-    const locals = try rt.alloc.alloc(interp.Value, total);
+    const locals = try rt.alloc.alloc(runtime.Value, total);
     defer rt.alloc.free(locals);
 
     // Pop args in reverse (last param popped first lands at locals[params_len-1]).
@@ -379,7 +379,7 @@ pub fn invoke(rt: *Runtime, table: *const DispatchTable, callee: *const zir.ZirF
     }
     // Zero-init declared locals.
     var j: usize = params_len;
-    while (j < total) : (j += 1) locals[j] = interp.Value.zero;
+    while (j < total) : (j += 1) locals[j] = runtime.Value.zero;
 
     try rt.pushFrame(.{
         .sig = callee.sig,
@@ -708,7 +708,7 @@ test "select_typed: same runtime semantics as select" {
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
     try rt.pushOperand(.{ .ref = 7 });
-    try rt.pushOperand(.{ .ref = interp.Value.null_ref });
+    try rt.pushOperand(.{ .ref = runtime.Value.null_ref });
     try rt.pushOperand(.{ .i32 = 1 }); // cond=true → pick first
     try driveOne(&rt, &t, .@"select_typed", 0, 0x70);
     try testing.expectEqual(@as(u64, 7), rt.popOperand().ref);

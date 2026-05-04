@@ -27,7 +27,7 @@
 
 const std = @import("std");
 
-const interp = @import("../interp/mod.zig");
+const runtime = @import("../runtime/runtime.zig");
 const wasi = @import("wasi.zig");
 const trap_surface = @import("trap_surface.zig");
 const vec = @import("vec.zig");
@@ -152,8 +152,8 @@ test "wasm_c_api: ByteVec carries size + data" {
 
 test "wasm_c_api: imports interp namespace (Zone-3 layering)" {
     // Compile-time check that the binding can reach
-    // `interp.Runtime` shape; the §9.3 / 3.5 instance binding
+    // `runtime.Runtime` shape; the §9.3 / 3.5 instance binding
     // will own one. Just touch the type name to assert the
     // import resolves.
-    _ = interp.Runtime;
+    _ = runtime.Runtime;
 }

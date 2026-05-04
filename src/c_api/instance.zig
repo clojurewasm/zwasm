@@ -25,7 +25,7 @@
 const std = @import("std");
 
 const dbg = @import("../util/dbg.zig");
-const interp = @import("../interp/mod.zig");
+const runtime = @import("../runtime/runtime.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi = @import("wasi.zig");
 const trap_surface = @import("trap_surface.zig");
@@ -116,7 +116,7 @@ pub const Store = struct {
 /// `wasm_store_delete` walks the list. Per ADR-0014 §2.1 /
 /// 6.K.2 sub-change 4.
 pub const Zombie = struct {
-    runtime: *interp.Runtime,
+    runtime: *runtime.Runtime,
     arena: *std.heap.ArenaAllocator,
 };
 
@@ -133,7 +133,7 @@ pub const Module = extern struct {
 };
 
 /// `wasm_instance_t` — instantiated module. Owns one
-/// `interp.Runtime` plus a per-instance arena that backs every
+/// `runtime.Runtime` plus a per-instance arena that backs every
 /// derived state slice (types, lowered `ZirFunc`s, the func-
 /// pointer table seen by `Runtime.funcs`). C only ever sees a
 /// pointer to this struct (the upstream wasm.h declares
@@ -149,7 +149,7 @@ pub const Module = extern struct {
 pub const Instance = struct {
     store: ?*Store,
     module: ?*const Module,
-    runtime: ?*interp.Runtime,
+    runtime: ?*runtime.Runtime,
     /// Per-instance arena holding every derived-state slice. A
     /// single `arena.deinit()` releases types, lowered ZirFunc
     /// state, the func-pointer table — uniformly. Owned (heap-
@@ -355,11 +355,11 @@ pub export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
 fn parkAsZombie(
     store_alloc: std.mem.Allocator,
     store: *Store,
-    runtime: *interp.Runtime,
+    rt: *runtime.Runtime,
     arena: *std.heap.ArenaAllocator,
 ) std.mem.Allocator.Error!void {
     try store.zombies.append(store_alloc, .{
-        .runtime = runtime,
+        .runtime = rt,
         .arena = arena,
     });
 }
@@ -604,7 +604,7 @@ fn instantiateRuntime(
     parent_alloc: std.mem.Allocator,
     bytes: []const u8,
     inst: *Instance,
-    rt: *interp.Runtime,
+    rt: *runtime.Runtime,
     imports: ?[*]const ?*const Extern,
 ) !void {
     const arena = try parent_alloc.create(std.heap.ArenaAllocator);
@@ -770,7 +770,7 @@ fn instantiateRuntime(
     // dispatch on its own runtime context, then copies results
     // back.
     if (imp_func_count > 0) {
-        const host_calls = try a.alloc(?interp.HostCall, total_funcs);
+        const host_calls = try a.alloc(?runtime.HostCall, total_funcs);
         @memset(host_calls, null);
         var imp_idx: u32 = 0;
         for (imports_decoded.?.items, 0..) |it, idx| {
@@ -816,7 +816,7 @@ fn instantiateRuntime(
     // runtime so call_indirect through a foreign-funcref cell
     // routes to the source's body via FuncEntity.runtime.
     if (total_funcs > 0) {
-        const entities = try a.alloc(interp.FuncEntity, total_funcs);
+        const entities = try a.alloc(runtime.FuncEntity, total_funcs);
         for (0..total_funcs) |i| entities[i] = .{
             .runtime = rt,
             .func_idx = @intCast(i),
@@ -916,7 +916,7 @@ fn instantiateRuntime(
         const def_table_count: u32 = if (tables_owned) |t| @intCast(t.items.len) else 0;
         const total_table_count: u32 = imp_table_count + def_table_count;
         if (total_table_count > 0) {
-            const tbl_storage = try a.alloc(interp.TableInstance, total_table_count);
+            const tbl_storage = try a.alloc(runtime.TableInstance, total_table_count);
             // Imported tables first.
             if (imp_table_count > 0) {
                 var imp_idx: u32 = 0;
@@ -934,8 +934,8 @@ fn instantiateRuntime(
             // arena (ADR-0014 §2.2 / 6.K.2) so `table.grow`'s
             // realloc against `rt.alloc` lands on the same arena.
             if (tables_owned) |t| for (t.items, 0..) |entry, i| {
-                const refs = try a.alloc(interp.Value, entry.min);
-                for (refs) |*r| r.* = .{ .ref = interp.Value.null_ref };
+                const refs = try a.alloc(runtime.Value, entry.min);
+                for (refs) |*r| r.* = .{ .ref = runtime.Value.null_ref };
                 tbl_storage[imp_table_count + i] = .{
                     .refs = refs,
                     .elem_type = entry.elem_type,
@@ -958,16 +958,16 @@ fn instantiateRuntime(
         var elems = try sections.decodeElement(a, elem_section.body);
         defer elems.deinit();
         if (elems.items.len > 0) {
-            const seg_storage = try a.alloc([]const interp.Value, elems.items.len);
+            const seg_storage = try a.alloc([]const runtime.Value, elems.items.len);
             const dropped = try a.alloc(bool, elems.items.len);
             @memset(dropped, false);
             for (elems.items, 0..) |seg, idx| {
-                const refs = try a.alloc(interp.Value, seg.funcidxs.len);
+                const refs = try a.alloc(runtime.Value, seg.funcidxs.len);
                 for (seg.funcidxs, 0..) |fidx, j| {
                     refs[j] = if (fidx == std.math.maxInt(u32))
-                        .{ .ref = interp.Value.null_ref }
+                        .{ .ref = runtime.Value.null_ref }
                     else if (fidx < rt.func_entities.len)
-                        interp.Value.fromFuncRef(&rt.func_entities[fidx])
+                        runtime.Value.fromFuncRef(&rt.func_entities[fidx])
                     else
                         return error.InvalidElementFuncIndex;
                 }
@@ -1002,8 +1002,8 @@ fn instantiateRuntime(
 
             const total = imp_global_count + defined_count;
             if (total > 0) {
-                const slots = try a.alloc(*interp.Value, total);
-                const storage = try a.alloc(interp.Value, defined_count);
+                const slots = try a.alloc(*runtime.Value, total);
+                const storage = try a.alloc(runtime.Value, defined_count);
                 if (imp_global_count > 0 and imports_decoded != null) {
                     var imp_idx: u32 = 0;
                     for (imports_decoded.?.items, 0..) |it, idx| {
@@ -1026,7 +1026,7 @@ fn instantiateRuntime(
             }
         } else if (imp_global_count > 0 and imports_decoded != null) {
             // Module has no defined globals but imports some.
-            const slots = try a.alloc(*interp.Value, imp_global_count);
+            const slots = try a.alloc(*runtime.Value, imp_global_count);
             var imp_idx: u32 = 0;
             for (imports_decoded.?.items, 0..) |it, idx| {
                 if (it.kind != .global) continue;
@@ -1295,11 +1295,11 @@ fn buildExportTypes(
 /// and `ref.null funcref|externref; end`. `global.get N` (importing
 /// from another module's globals) defers with the rest of cross-
 /// module global imports.
-fn evalConstExprValue(expr: []const u8) !interp.Value {
+fn evalConstExprValue(expr: []const u8) !runtime.Value {
     if (expr.len < 2) return error.UnsupportedConstExpr;
     const leb = @import("../util/leb128.zig");
     var pos: usize = 1;
-    const v: interp.Value = switch (expr[0]) {
+    const v: runtime.Value = switch (expr[0]) {
         0x41 => blk: {
             const n = try leb.readSleb128(i32, expr, &pos);
             break :blk .{ .i32 = n };
@@ -1323,7 +1323,7 @@ fn evalConstExprValue(expr: []const u8) !interp.Value {
         0xD0 => blk: {
             if (pos >= expr.len) return error.UnsupportedConstExpr;
             pos += 1;
-            break :blk .{ .ref = interp.Value.null_ref };
+            break :blk .{ .ref = runtime.Value.null_ref };
         },
         else => return error.UnsupportedConstExpr,
     };
@@ -1370,27 +1370,27 @@ pub export fn wasm_instance_new(
     else
         null;
 
-    const runtime = alloc.create(interp.Runtime) catch return null;
-    runtime.* = interp.Runtime.init(alloc);
+    const inst_rt = alloc.create(runtime.Runtime) catch return null;
+    inst_rt.* = runtime.Runtime.init(alloc);
 
     const inst = alloc.create(Instance) catch {
-        runtime.deinit();
-        alloc.destroy(runtime);
+        inst_rt.deinit();
+        alloc.destroy(inst_rt);
         return null;
     };
     inst.* = .{
         .store = store,
         .module = module,
-        .runtime = runtime,
+        .runtime = inst_rt,
     };
 
     const bytes_ptr = module.bytes_ptr orelse {
-        runtime.deinit();
-        alloc.destroy(runtime);
+        inst_rt.deinit();
+        alloc.destroy(inst_rt);
         alloc.destroy(inst);
         return null;
     };
-    instantiateRuntime(alloc, bytes_ptr[0..module.bytes_len], inst, runtime, imports_array) catch {
+    instantiateRuntime(alloc, bytes_ptr[0..module.bytes_len], inst, inst_rt, imports_array) catch {
         // Per ADR-0014 §2.1 / 6.K.2 sub-change 4: park the failed
         // instance's runtime + arena on the store's zombie list.
         // Wasm 2.0 partial-init semantics may have committed
@@ -1403,13 +1403,13 @@ pub export fn wasm_instance_new(
             // no graceful recovery — accept the leak (arena +
             // runtime stay around until process exit) and report
             // the original instantiation failure.
-            parkAsZombie(alloc, store, runtime, arena) catch {};
+            parkAsZombie(alloc, store, inst_rt, arena) catch {};
             inst.arena = null;
         } else {
             // No arena to park (e.g., parser/import-decode failed
             // before arena setup). Safe to fully free.
-            runtime.deinit();
-            alloc.destroy(runtime);
+            inst_rt.deinit();
+            alloc.destroy(inst_rt);
         }
         // Instance struct itself can go: the C-API caller never
         // sees it (we return null below). The runtime + arena
@@ -1508,24 +1508,24 @@ pub export fn wasm_func_delete(f: ?*Func) callconv(.c) void {
     alloc.destroy(handle);
 }
 
-fn marshalValIn(v: Val) interp.Value {
+fn marshalValIn(v: Val) runtime.Value {
     return switch (v.kind) {
         .i32 => .{ .i32 = v.of.i32 },
         .i64 => .{ .i64 = v.of.i64 },
         .f32 => .{ .bits64 = @as(u64, @as(u32, @bitCast(v.of.f32))) },
         .f64 => .{ .bits64 = @bitCast(v.of.f64) },
-        .anyref, .funcref => .{ .ref = if (v.of.ref) |p| @intFromPtr(p) else interp.Value.null_ref },
+        .anyref, .funcref => .{ .ref = if (v.of.ref) |p| @intFromPtr(p) else runtime.Value.null_ref },
     };
 }
 
-fn marshalValOut(v: interp.Value, kind: zir.ValType) Val {
+fn marshalValOut(v: runtime.Value, kind: zir.ValType) Val {
     return switch (kind) {
         .i32 => .{ .kind = .i32, .of = .{ .i32 = v.i32 } },
         .i64 => .{ .kind = .i64, .of = .{ .i64 = v.i64 } },
         .f32 => .{ .kind = .f32, .of = .{ .f32 = @bitCast(@as(u32, @truncate(v.bits64))) } },
         .f64 => .{ .kind = .f64, .of = .{ .f64 = @bitCast(v.bits64) } },
-        .funcref => .{ .kind = .funcref, .of = .{ .ref = if (v.ref == interp.Value.null_ref) null else @ptrFromInt(v.ref) } },
-        .externref => .{ .kind = .anyref, .of = .{ .ref = if (v.ref == interp.Value.null_ref) null else @ptrFromInt(v.ref) } },
+        .funcref => .{ .kind = .funcref, .of = .{ .ref = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref) } },
+        .externref => .{ .kind = .anyref, .of = .{ .ref = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref) } },
         .v128 => .{ .kind = .i64, .of = .{ .i64 = 0 } }, // unreachable for MVP
     };
 }
@@ -1686,7 +1686,7 @@ pub export fn wasm_func_call(
     if (results_size != sig.results.len) return allocTrap(alloc, store, .binding_error);
 
     const num_locals = sig.params.len + zfunc.locals.len;
-    const locals = alloc.alloc(interp.Value, num_locals) catch return allocTrap(alloc, store, .out_of_memory);
+    const locals = alloc.alloc(runtime.Value, num_locals) catch return allocTrap(alloc, store, .out_of_memory);
     defer alloc.free(locals);
     for (locals) |*l| l.* = .{ .bits64 = 0 };
     if (args) |a| if (a.data) |dp| {

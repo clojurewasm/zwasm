@@ -27,7 +27,7 @@ const testing = std.testing;
 // ============================================================
 
 /// `wasm_trap_kind_t` — internal classification of a Trap.
-/// Maps `interp.Trap` conditions to the spec-conformant message
+/// Maps `runtime.Trap` conditions to the spec-conformant message
 /// strings the C host expects (per Wasm spec assertion text);
 /// also covers binding-layer failures such as arg-count
 /// mismatches that wasm.h surfaces as traps too.

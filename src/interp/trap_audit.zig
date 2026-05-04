@@ -14,15 +14,15 @@ const std = @import("std");
 
 const dispatch = @import("../ir/dispatch_table.zig");
 const zir = @import("../ir/zir.zig");
-const interp = @import("mod.zig");
+const runtime = @import("../runtime/runtime.zig");
 const mvp = @import("mvp.zig");
 const dispatch_loop = @import("dispatch.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
 const DispatchTable = dispatch.DispatchTable;
-const Runtime = interp.Runtime;
-const Trap = interp.Trap;
+const Runtime = runtime.Runtime;
+const Trap = runtime.Trap;
 
 const testing = std.testing;
 
@@ -37,8 +37,8 @@ test "call_indirect: selector OOB → OutOfBoundsTableAccess" {
     mvp.register(&t);
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
-    var refs = [_]interp.Value{.{ .ref = interp.Value.null_ref }};
-    var tbls = [_]interp.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    var refs = [_]runtime.Value{.{ .ref = runtime.Value.null_ref }};
+    var tbls = [_]runtime.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
     rt.tables = &tbls;
     const types = [_]zir.FuncType{.{ .params = &.{}, .results = &.{} }};
     rt.module_types = &types;
@@ -59,8 +59,8 @@ test "call_indirect: null table cell → UninitializedElement" {
     mvp.register(&t);
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
-    var refs = [_]interp.Value{.{ .ref = interp.Value.null_ref }};
-    var tbls = [_]interp.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    var refs = [_]runtime.Value{.{ .ref = runtime.Value.null_ref }};
+    var tbls = [_]runtime.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
     rt.tables = &tbls;
     const types = [_]zir.FuncType{.{ .params = &.{}, .results = &.{} }};
     rt.module_types = &types;
@@ -90,10 +90,10 @@ test "call_indirect: sig mismatch → IndirectCallTypeMismatch" {
     defer rt.deinit();
     const funcs = [_]*const zir.ZirFunc{&callee};
     rt.funcs = &funcs;
-    var entities = [_]interp.FuncEntity{.{ .runtime = &rt, .func_idx = 0 }};
+    var entities = [_]runtime.FuncEntity{.{ .runtime = &rt, .func_idx = 0 }};
     rt.func_entities = &entities;
-    var refs = [_]interp.Value{interp.Value.fromFuncRef(&entities[0])};
-    var tbls = [_]interp.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    var refs = [_]runtime.Value{runtime.Value.fromFuncRef(&entities[0])};
+    var tbls = [_]runtime.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
     rt.tables = &tbls;
     const types = [_]zir.FuncType{.{ .params = &.{}, .results = &.{} }};
     rt.module_types = &types;
@@ -122,10 +122,10 @@ test "call_indirect: matching sig invokes callee through table" {
     defer rt.deinit();
     const funcs = [_]*const zir.ZirFunc{&callee};
     rt.funcs = &funcs;
-    var entities = [_]interp.FuncEntity{.{ .runtime = &rt, .func_idx = 0 }};
+    var entities = [_]runtime.FuncEntity{.{ .runtime = &rt, .func_idx = 0 }};
     rt.func_entities = &entities;
-    var refs = [_]interp.Value{interp.Value.fromFuncRef(&entities[0])};
-    var tbls = [_]interp.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    var refs = [_]runtime.Value{runtime.Value.fromFuncRef(&entities[0])};
+    var tbls = [_]runtime.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
     rt.tables = &tbls;
     const types = [_]zir.FuncType{.{ .params = &.{}, .results = &i32_arr }};
     rt.module_types = &types;
@@ -147,11 +147,11 @@ test "6.K.1: null funcref round-trip — ref.is_null + call_indirect" {
     mvp.register(&t);
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
-    var refs = [_]interp.Value{.{ .ref = interp.Value.null_ref }};
+    var refs = [_]runtime.Value{.{ .ref = runtime.Value.null_ref }};
     // Encoding contract per ADR-0014 §2.1 / 6.K.1: null is literal 0.
     try testing.expectEqual(@as(u64, 0), refs[0].ref);
 
-    var tbls = [_]interp.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    var tbls = [_]runtime.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
     rt.tables = &tbls;
     const types = [_]zir.FuncType{.{ .params = &.{}, .results = &.{} }};
     rt.module_types = &types;
@@ -176,7 +176,7 @@ test "6.K.1: two runtimes share a table; FuncEntity routes to source" {
     defer rt_a.deinit();
     const funcs_a = [_]*const zir.ZirFunc{&callee_a};
     rt_a.funcs = &funcs_a;
-    var entities_a = [_]interp.FuncEntity{.{ .runtime = &rt_a, .func_idx = 0 }};
+    var entities_a = [_]runtime.FuncEntity{.{ .runtime = &rt_a, .func_idx = 0 }};
     rt_a.func_entities = &entities_a;
 
     var caller = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &i32_arr }, &.{});
@@ -190,8 +190,8 @@ test "6.K.1: two runtimes share a table; FuncEntity routes to source" {
     var rt_b = Runtime.init(testing.allocator);
     defer rt_b.deinit();
     // rt_b has no funcs of its own — proves dispatch routes to rt_a.
-    var refs = [_]interp.Value{interp.Value.fromFuncRef(&entities_a[0])};
-    var tbls = [_]interp.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
+    var refs = [_]runtime.Value{runtime.Value.fromFuncRef(&entities_a[0])};
+    var tbls = [_]runtime.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
     rt_b.tables = &tbls;
     const types = [_]zir.FuncType{.{ .params = &.{}, .results = &i32_arr }};
     rt_b.module_types = &types;
