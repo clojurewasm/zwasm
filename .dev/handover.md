@@ -24,11 +24,12 @@
 
 - **Phase**: Phase 7 IN-PROGRESS, scope expanded per ADR-0019
   (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12).
-- **Last commit**: `aa1adc3` — Step 4 sub-7.5c-iii (liveness
-  extension for structural CFG markers; block/loop/if/else/end
-  pass-through liveness). 741/741 unit + 15/15 edge-case /
-  3-host green. Sub-7.5c-iv (branch handling: br/br_if/
-  br_table/return/unreachable + CFG-aware analysis) NEXT.
+- **Last commit**: `7b5c4fe` — Step 4 sub-7.5c-iv (liveness
+  extension for branches; first branchy Wasm 1.0 fixture
+  end-to-end via JIT). Full Wasm 1.0 structured-CFG surface
+  now JIT-compileable. 741/741 unit + 16/16 edge-case /
+  3-host green. Sub-7.5c-v (wast iteration via existing spec
+  corpus) NEXT.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active plan — implementation cycles after ADR acceptance
@@ -41,7 +42,7 @@ below corresponds to one or more `/continue` cycles.
 | 1 | regalloc pool: remove X24..X28; add `reserved_invariant_gprs`; `Slot` union with first-class spill | 0018 | **DONE** — sub-1a `1d6d178`, sub-1b `7e880b8`, sub-1c `394e416` |
 | 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | **DONE** — sub-2a `0827b89`, sub-2b+2c `44b94a0`, sub-2d-i `10ab46d`, sub-2d-ii `0010a03`. **D-014 dissolved.** |
 | 3 | Edge-case test culture: rule + Step-4 hook + audit §I; bootstrap p7 fixtures | 0020 | **DONE** — sub-3a `52efba4` (rule), sub-3b `b787b19` (audit + hook), sub-3c `36b9ed8` (7 fixtures) |
-| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | 7.5a/b/c-i landed; 7.5c-ii `f892244` (call liveness), 7.5c-iii `aa1adc3` (structural-marker liveness; 15/15 fixtures); **7.5c-iv (branch handling) NEXT**; 7.5c-v (wast iteration); 7.5c-vi (broader entry sigs); 7.5c-vii (close to pass=fail=skip=0) |
+| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | 7.5a/b/c-i/ii/iii landed; 7.5c-iv `7b5c4fe` (branch liveness; 16/16 fixtures); **7.5c-v (wast iteration via existing spec corpus) NEXT**; 7.5c-vi (broader entry sigs); 7.5c-vii (close to pass=fail=skip=0) |
 | 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After Step 4 |
 | 6 | §9.7 / 7.9–7.12: realworld ARM64 + x86_64, three-way differential, audit + open §9.8 | — | After Step 5 |
 | 7 | emit.zig responsibility split (no ADR; opportunistic) | — | After Phase 7 close |
