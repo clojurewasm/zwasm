@@ -20,27 +20,28 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** — 6.K + 6.E + 6.F all `[x]`.
-  6.G〜6.J pending. Today's session also landed a meta-improvement
-  pass (debt + lessons + extended-challenge + ADR amend) — **not
-  pushed yet**.
-- **Last commit**: `d9aecda` — chore(meta) §14 anchor extended_challenge
-  rule. (ahead of origin by ~10 meta commits since `ccd537d`.)
-- **Branch**: `zwasm-from-scratch`. **Push pending user approval**
-  (per CLAUDE.md "Pushing outside the autonomous /continue loop
-  requires explicit user approval"; today's commits were authored
-  in dialogue not in the loop).
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K + 6.E + 6.F + 6.G all
+  `[x]`. 6.H〜6.J pending.
+- **Last commit**: `0735f93` — feat(p6) land §9.6 / 6.G — vendor
+  5 CW v1 fixtures (cljw_fib/gcd/arith/sieve/tak; 5/5 PASS in
+  parse + run; 5/5 SKIP-EMPTY in diff = compute-only guest
+  parity).
+- **Branch**: `zwasm-from-scratch`, pushed (autonomous push under
+  /continue loop firing).
 
-## Active task — §9.6 / 6.G (ClojureWasm guest end-to-end)
+## Active task — §9.6 / 6.H (bench honest-baseline migration)
 
-Per ROADMAP §9.6 / 6.G: substrate is CW v1 (vendoring procedure
-in [`.dev/cw_guest_setup.md`](cw_guest_setup.md), landed today
-in `65b155a`). CW v2's wasm backend ships at CW Phase 14+; the
-path-dep mechanism is deferred until then.
+Per ROADMAP §9.6 / 6.H: introduce `bench/results/{recent,history}.yaml`
+per ADR-0012 §7. Regenerate baseline against the now-stable
+post-6.K interpreter. Concretely:
+- Stand up `bench/results/recent.yaml` (current run snapshot).
+- Stand up `bench/results/history.yaml` (append-only log of runs
+  with commit SHA + date + numbers).
+- Run hyperfine over an initial bench corpus (likely a small
+  subset to validate the pipeline; full sightglass is 6.I).
+- Update bench/README or equivalent with the running discipline.
 
-Concretely: vendor `~/Documents/MyProducts/ClojureWasm/bench/wasm/{fib,gcd,arith,sieve,tak}.wasm`
-into `test/realworld/wasm/cljw_*.wasm`, run the existing 3-runner
-pipeline (parse / run / diff vs wasmtime), close 6.G.
+Discharges debt D-023.
 
 ## Today's meta-improvement landings (Phase 6 honest-debt cycle)
 
