@@ -24,11 +24,12 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
   `68843b0` (3-host green; mandatory audit fired; widget flipped
   6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `a072df7` — feat(p7) §9.7 / 7.3 sub-d2
-  (i64 shifts/rotr/rotl/clz/ctz/popcnt). i64 op coverage in
-  emit.zig now substantively complete (25 ops, mirror of i32).
-  591/591 unit / 3-host green. Earlier this cycle: 7.3
-  sub-a/b1-5/c/d1; 7.0/7.1/7.2; D-006 + bench v1-class baseline.
+- **Last commit**: `1ae712f` — feat(p7) §9.7 / 7.3 sub-d3
+  (f32 + f64 const + 4 binary ALU + 6 cmps each; 22 FP ops +
+  V-register slot mapping + FP-aware return-marshalling).
+  608/608 unit / 3-host green. Earlier this cycle: 7.3
+  sub-a/b1-5/c/d1-2; 7.0/7.1/7.2; D-006 + bench v1-class
+  baseline.
 - **Branch**: `zwasm-from-scratch`, pushed.
 - **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
   all report identical test-all numbers (39/55 diff matched, 44/55
@@ -55,7 +56,9 @@ remains `[ ]` until MVP op coverage closes — exit gated by
 | c   | local.get/set/tee + local frame slot allocation        | [x] `5e89533` |
 | d1  | i64 const + 6 binary ALU + 10 cmps + eqz              | [x] `d8ad4d6` |
 | d2  | i64 shifts + rotr/rotl + clz + ctz + popcnt           | [x] `a072df7` |
-| d3  | f32 + f64 const + binary ALU + cmps                   | [ ] **NEXT** |
+| d3  | f32 + f64 const + binary ALU + cmps                   | [x] `1ae712f` |
+| d4  | FP unary (abs/neg/sqrt/ceil/floor/trunc/nearest) + min/max/copysign | [ ] **NEXT** |
+| e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ] |
 | d   | i64 + f32 + f64 const + ALU                           | [ ]    |
 | e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ]   |
 | f   | memory load/store + bounds-check trap surface          | [ ]    |
