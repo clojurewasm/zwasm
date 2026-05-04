@@ -24,12 +24,13 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
   in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
   locals + control-flow-e1 done).
-- **Last commit**: `7ac65d1` — feat(p7) §9.7 / 7.3 sub-g3a
-  (sig-table threading: `func_sigs` + `module_types` params on
-  compile(); result-type-aware capture via i32/i64/f32/f64/void
-  dispatch in `captureCallResult`). Sub-g3b (arg marshalling) +
-  sub-g3c (bounds/sig checks) ahead. 676/676 unit / 3-host green.
-  Phase 6 close at `68843b0`.
+- **Last commit**: `e25a9a5` — feat(p7) §9.7 / 7.3 sub-g3b
+  (AAPCS64 arg marshalling: `marshalCallArgs` helper pops N arg
+  vregs and emits MOV/FMOV into X0..X7 / V0..V7 before BL/BLR;
+  no source-clobber by construction since vreg pool is disjoint
+  from arg-passing regs). Sub-g3c (call_indirect bounds + sig
+  checks) ahead. 678/678 unit / 3-host green. Phase 6 close at
+  `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -54,8 +55,8 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | g1  | call (no-arg skeleton + BL fixup list)                | [x] `3cf4b77` |
 | g2  | call_indirect skeleton (X26=table_base; LDR-LSL3/BLR) | [x] `a49d4c2` |
 | g3a | sig-table threading + result-type-aware capture        | [x] `7ac65d1` |
-| g3b | AAPCS64 arg marshalling (X0..X7 + V0..V7)             | [ ] **NEXT** |
-| g3c | call_indirect bounds + sig checks (typeidx side-array) | [ ]    |
+| g3b | AAPCS64 arg marshalling (X0..X7 + V0..V7)             | [x] `e25a9a5` |
+| g3c | call_indirect bounds + sig checks (typeidx side-array) | [ ] **NEXT** |
 | h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ]   |
 
 Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
