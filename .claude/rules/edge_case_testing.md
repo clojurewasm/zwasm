@@ -153,6 +153,65 @@ internal mechanism.
   discipline matters because Phase boundaries are months apart;
   fixture coverage atrophies during the gap.
 
+## Fixture-internal workarounds trigger debt entries
+
+When a fixture file contains any of:
+
+- A `// FIXME` / `// TODO` / `// HACK` comment marking incomplete
+  coverage of the boundary.
+- A constant substituted in the WAT to bypass a feature gap
+  (e.g. using `i32.const 0` where a real test would expect a
+  computed value the runtime can't yet produce).
+- A hardcoded shortcut (e.g. precomputed result instead of
+  letting the runtime compute it).
+
+…**file a `D-NNN` row in `.dev/debt.md`** in the same commit that
+adds the fixture, naming the structural barrier (`Status:
+blocked-by: <specific barrier>`). The fixture is not "complete";
+it documents the boundary AND the gap.
+
+Forbidden phrasing in fixture comments:
+
+- `// quick fix to make this pass` — escalate to a debt entry
+- `// remove when X works` without naming X precisely
+
+This catches the fixture-as-workaround anti-pattern surfaced by
+the 2026-05-04 retrospective (regret #4): fixture-internal
+workarounds were not load-bearing in any debt or lesson, so
+they atrophied silently across Phase boundaries.
+
+## Test-side byte offsets must be relative
+
+Tests that assert specific byte offsets in JIT-emitted machine
+code (e.g. `out.bytes[32..36] == ...`) **must** compute the
+offset via the prologue helper rather than hard-coding the
+literal byte offset:
+
+```zig
+// REJECTED — hardcoded
+try testing.expectEqual(expected, std.mem.readInt(u32, out.bytes[32..36], .little));
+
+// REQUIRED — via helper
+const body_start = prologue.body_start_offset(/* has_frame = */ false);
+try testing.expectEqual(expected, std.mem.readInt(u32, out.bytes[body_start..body_start+4], .little));
+```
+
+The helper lives at `src/jit_arm64/prologue.zig` (and
+analogously `src/jit_x86/prologue.zig` once x86_64 lands per
+ADR-0019 / ADR-0021). The 142 site relativisation landed
+2026-05-04 per ADR-0021.
+
+The **only exception** is opcode-pinned offsets (the prologue's
+first two words assert AAPCS64 fixed opcodes per Arm IHI 0055
+§6.4). Those use the constants `prologue.FpLrSave.stp_word`
+and `prologue.FpLrSave.mov_fp_word` for value comparison but
+keep the byte offsets `[0..4]` and `[4..8]` literal.
+
+This is regret #6 from the 2026-05-04 retrospective: the
+prologue size change in sub-2 (ADR-0017's 5 LDRs) caused 124+
+test sites to need manual updates. A helper isolates the
+prologue-shape knowledge to one place.
+
 ## Stale-ness
 
 Fixtures can stale when implementation choices legitimately
