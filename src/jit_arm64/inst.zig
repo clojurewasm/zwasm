@@ -264,6 +264,44 @@ pub fn encRbitW(rd: Xn, rn: Xn) u32 {
     return 0x5AC00000 | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+/// V-register index 0..31 — ARM SIMD/FP register file. Same u5
+/// width as `Xn` but a separate type for documentation; the
+/// integer regalloc never allocates these (the §9.7 / 7.3
+/// sub-b5 popcnt handler uses V31 as fixed scratch — it's
+/// caller-saved per AAPCS64 so emit can clobber it freely).
+pub const Vn = u5;
+
+/// `FMOV S<d>, W<n>` — move 32-bit GPR to lower 32 of V<d>.
+/// Encoding (FMOV general, type=00 single, opcode=111, sf=0):
+///   `0 0 0 11110 00 1 00 111 000000 [Rn:5] [Rd:5]` = `0x1E270000`.
+/// Verified via `clang -target arm64-apple-darwin` assembler.
+pub fn encFmovStoFromW(vd: Vn, wn: Xn) u32 {
+    return 0x1E270000 | (@as(u32, wn) << 5) | @as(u32, vd);
+}
+
+/// `CNT V<d>.8B, V<n>.8B` — Advanced SIMD count bits per byte
+/// (8-byte form, lower 64 bits). Encoding:
+///   `0 0 0 01110 00 1 00000 00101 1 0 [Rn:5] [Rd:5]` = `0x0E205800`.
+pub fn encCntV8B(vd: Vn, vn: Vn) u32 {
+    return 0x0E205800 | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+
+/// `ADDV B<d>, V<n>.8B` — Advanced SIMD across-vector add of
+/// bytes (sums 8 bytes into byte 0 of Vd; upper bytes zero).
+/// Encoding:
+///   `0 0 0 01110 00 1 1000 1 1011 10 [Rn:5] [Rd:5]` = `0x0E31B800`.
+pub fn encAddvB8B(vd: Vn, vn: Vn) u32 {
+    return 0x0E31B800 | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+
+/// `UMOV W<d>, V<n>.B[0]` — Advanced SIMD extract byte 0 to
+/// 32-bit GPR (zero-extends). Encoding:
+///   `0 0 0 01110 000 00001 0 0111 1 [Rn:5] [Rd:5]` = `0x0E013C00`.
+/// (imm5=00001 selects B-element, index 0.)
+pub fn encUmovWFromVB0(wd: Xn, vn: Vn) u32 {
+    return 0x0E013C00 | (@as(u32, vn) << 5) | @as(u32, wd);
+}
+
 // ============================================================
 // Tests
 //
@@ -429,4 +467,41 @@ test "encClzW w0, w1 — `clz w0, w1` → 0x5AC01020" {
 
 test "encRbitW w0, w1 — `rbit w0, w1` → 0x5AC00020" {
     try testing.expectEqual(@as(u32, 0x5AC00020), encRbitW(0, 1));
+}
+
+// V-register encodings cross-checked via `clang -target
+// arm64-apple-darwin` assembler. See verifier session in
+// commit history (popcnt sub-b5 prep).
+
+test "encFmovStoFromW s0, w0 — `fmov s0, w0` → 0x1E270000" {
+    try testing.expectEqual(@as(u32, 0x1E270000), encFmovStoFromW(0, 0));
+}
+
+test "encFmovStoFromW s31, w9 — `fmov s31, w9` → 0x1E27013F" {
+    // Rn=9 (<<5)=0x120; Rd=31; base=0x1E270000.
+    try testing.expectEqual(@as(u32, 0x1E27013F), encFmovStoFromW(31, 9));
+}
+
+test "encCntV8B v0.8b ← v0.8b — `cnt v0.8b, v0.8b` → 0x0E205800" {
+    try testing.expectEqual(@as(u32, 0x0E205800), encCntV8B(0, 0));
+}
+
+test "encCntV8B v31.8b ← v31.8b — `cnt v31.8b, v31.8b` → 0x0E205BFF" {
+    try testing.expectEqual(@as(u32, 0x0E205BFF), encCntV8B(31, 31));
+}
+
+test "encAddvB8B b0 ← v0.8b — `addv b0, v0.8b` → 0x0E31B800" {
+    try testing.expectEqual(@as(u32, 0x0E31B800), encAddvB8B(0, 0));
+}
+
+test "encAddvB8B b31 ← v31.8b — `addv b31, v31.8b` → 0x0E31BBFF" {
+    try testing.expectEqual(@as(u32, 0x0E31BBFF), encAddvB8B(31, 31));
+}
+
+test "encUmovWFromVB0 w0 ← v0.B[0] — `umov w0, v0.b[0]` → 0x0E013C00" {
+    try testing.expectEqual(@as(u32, 0x0E013C00), encUmovWFromVB0(0, 0));
+}
+
+test "encUmovWFromVB0 w10 ← v31.B[0] — `umov w10, v31.b[0]` → 0x0E013FEA" {
+    try testing.expectEqual(@as(u32, 0x0E013FEA), encUmovWFromVB0(10, 31));
 }

@@ -270,6 +270,27 @@ pub fn compile(
                 try writeU32(allocator, &buf, inst.encClzW(wd, wd));
                 try pushed_vregs.append(allocator, result);
             },
+            .@"i32.popcnt" => {
+                // ARM has no GPR-side popcount; the canonical idiom
+                // moves the value to a V-register, runs SIMD CNT
+                // per-byte, sums 8 bytes via ADDV, and extracts the
+                // sum back to a GPR. 4-instr sequence using V31 as
+                // scratch (caller-saved per AAPCS64; never in the
+                // integer regalloc pool).
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const v_scratch: inst.Vn = 31;
+                try writeU32(allocator, &buf, inst.encFmovStoFromW(v_scratch, wn));
+                try writeU32(allocator, &buf, inst.encCntV8B(v_scratch, v_scratch));
+                try writeU32(allocator, &buf, inst.encAddvB8B(v_scratch, v_scratch));
+                try writeU32(allocator, &buf, inst.encUmovWFromVB0(wd, v_scratch));
+                try pushed_vregs.append(allocator, result);
+            },
             .@"end" => {
                 // Function-level end: marshal the top-of-stack vreg
                 // into X0 (the AAPCS64 result register), then run
@@ -442,10 +463,11 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
-    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32, .i32 } };
+    // Pick an op definitely not yet handled — i64.add (sub-d).
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i64, .i64 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"i32.popcnt" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.add" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty));
@@ -648,6 +670,33 @@ test "compile: i32.ctz emits RBIT + CLZ" {
     // After STP/MOV-FP/MOVZ-W9-#0x100 (12 bytes): RBIT W9, W9 / CLZ W9, W9.
     try testing.expectEqual(@as(u32, inst.encRbitW(9, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
     try testing.expectEqual(@as(u32, inst.encClzW(9, 9)),  std.mem.readInt(u32, out.bytes[16..20], .little));
+}
+
+test "compile: i32.popcnt emits 4-instr V-register SIMD pattern" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xDEADBEEF });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.popcnt" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP/MOVZ-W9/MOVK-W9 (16 bytes) — 0xDEADBEEF
+    // needs both lanes — the popcnt sequence starts.
+    // FMOV S31, W9
+    try testing.expectEqual(@as(u32, inst.encFmovStoFromW(31, 9)),     std.mem.readInt(u32, out.bytes[16..20], .little));
+    // CNT V31.8B, V31.8B
+    try testing.expectEqual(@as(u32, inst.encCntV8B(31, 31)),          std.mem.readInt(u32, out.bytes[20..24], .little));
+    // ADDV B31, V31.8B
+    try testing.expectEqual(@as(u32, inst.encAddvB8B(31, 31)),         std.mem.readInt(u32, out.bytes[24..28], .little));
+    // UMOV W9, V31.B[0]
+    try testing.expectEqual(@as(u32, inst.encUmovWFromVB0(9, 31)),     std.mem.readInt(u32, out.bytes[28..32], .little));
 }
 
 test "compile: i32.eqz emits CMP-imm-0 + CSET EQ" {
