@@ -88,10 +88,24 @@ pub fn compile(
     errdefer buf.deinit(allocator);
 
     // ============================================================
-    // Prologue: STP FP, LR, [SP, #-16]! ; MOV FP, SP
+    // Prologue: STP FP, LR, [SP, #-16]! ; MOV FP, SP ; SUB SP, SP, #frame
+    //
+    // Locals layout (per ZirFunc.locals; params unsupported in this
+    // skeleton — see scope note below): each i32 local occupies an
+    // 8-byte slot at [SP, #(K*8)] for stable 8-byte alignment +
+    // simple imm12 LDR/STR W addressing. Frame size rounds up to
+    // 16 bytes per AAPCS64 §6.4 (SP must stay 16-byte aligned).
     // ============================================================
+    if (func.sig.params.len > 0) return Error.UnsupportedOp;
+    const num_locals: u32 = @intCast(func.locals.len);
+    const frame_bytes_unaligned: u32 = num_locals * 8;
+    const frame_bytes: u32 = (frame_bytes_unaligned + 15) & ~@as(u32, 15);
     try writeU32(allocator, &buf, encStpFpLrPreIdx());
     try writeU32(allocator, &buf, encMovSpToFp());
+    if (frame_bytes > 0) {
+        if (frame_bytes >= (@as(u32, 1) << 12)) return Error.SlotOverflow;
+        try writeU32(allocator, &buf, inst.encSubImm12(31, 31, @intCast(frame_bytes)));
+    }
 
     // ============================================================
     // Body: walk instrs, dispatch per op.
@@ -270,6 +284,40 @@ pub fn compile(
                 try writeU32(allocator, &buf, inst.encClzW(wd, wd));
                 try pushed_vregs.append(allocator, result);
             },
+            .@"local.get" => {
+                // Push a fresh vreg holding the value loaded from
+                // [SP, #(local_idx * 8)].
+                const local_idx = ins.payload;
+                if (local_idx >= num_locals) return Error.UnsupportedOp;
+                const offset: u14 = @intCast(local_idx * 8);
+                const vreg = next_vreg;
+                next_vreg += 1;
+                if (vreg >= alloc.slots.len) return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encLdrImmW(wd, 31, offset));
+                try pushed_vregs.append(allocator, vreg);
+            },
+            .@"local.set" => {
+                // Pop top vreg, write to [SP, #(local_idx * 8)].
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const local_idx = ins.payload;
+                if (local_idx >= num_locals) return Error.UnsupportedOp;
+                const offset: u14 = @intCast(local_idx * 8);
+                const src = pushed_vregs.pop().?;
+                const ws = abi.slotToReg(alloc.slots[src]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encStrImmW(ws, 31, offset));
+            },
+            .@"local.tee" => {
+                // Write top vreg to [SP, #(local_idx * 8)] WITHOUT
+                // popping — the value remains pushed.
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const local_idx = ins.payload;
+                if (local_idx >= num_locals) return Error.UnsupportedOp;
+                const offset: u14 = @intCast(local_idx * 8);
+                const src = pushed_vregs.items[pushed_vregs.items.len - 1];
+                const ws = abi.slotToReg(alloc.slots[src]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encStrImmW(ws, 31, offset));
+            },
             .@"i32.popcnt" => {
                 // ARM has no GPR-side popcount; the canonical idiom
                 // moves the value to a V-register, runs SIMD CNT
@@ -303,6 +351,9 @@ pub fn compile(
                         // MOV X0, Xsrc — encoded as ORR X0, XZR, Xsrc.
                         try writeU32(allocator, &buf, encOrrZrIntoX0(src_xn));
                     }
+                }
+                if (frame_bytes > 0) {
+                    try writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
                 }
                 try writeU32(allocator, &buf, encLdpFpLrPostIdx());
                 try writeU32(allocator, &buf, inst.encRet(abi.link_register));
@@ -697,6 +748,97 @@ test "compile: i32.popcnt emits 4-instr V-register SIMD pattern" {
     try testing.expectEqual(@as(u32, inst.encAddvB8B(31, 31)),         std.mem.readInt(u32, out.bytes[24..28], .little));
     // UMOV W9, V31.B[0]
     try testing.expectEqual(@as(u32, inst.encUmovWFromVB0(9, 31)),     std.mem.readInt(u32, out.bytes[28..32], .little));
+}
+
+test "compile: 1 local — prologue includes SUB SP,SP,#16; epilogue ADD SP,SP,#16" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    const locals = [_]zir.ValType{.i32};
+    var f = ZirFunc.init(0, sig, &locals);
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.set", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // Stream: STP / MOV-FP / SUB-SP-#16 / MOVZ W9 #7 / STR W9 [SP,#0] /
+    //         LDR W9 [SP,#0] / MOV X0 X9 / ADD-SP-#16 / LDP / RET = 10 u32s = 40 bytes.
+    try testing.expectEqual(@as(usize, 40), out.bytes.len);
+    // Word 2: SUB SP, SP, #16.
+    try testing.expectEqual(@as(u32, inst.encSubImm12(31, 31, 16)), std.mem.readInt(u32, out.bytes[8..12], .little));
+    // Word 4: STR W9, [SP, #0].
+    try testing.expectEqual(@as(u32, inst.encStrImmW(9, 31, 0)),    std.mem.readInt(u32, out.bytes[16..20], .little));
+    // Word 5: LDR W9, [SP, #0].
+    try testing.expectEqual(@as(u32, inst.encLdrImmW(9, 31, 0)),    std.mem.readInt(u32, out.bytes[20..24], .little));
+    // Word 7: ADD SP, SP, #16.
+    try testing.expectEqual(@as(u32, inst.encAddImm12(31, 31, 16)), std.mem.readInt(u32, out.bytes[28..32], .little));
+}
+
+test "compile: 3 locals — frame rounds up to 32 bytes (3*8=24 → align to 32)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    const locals = [_]zir.ValType{ .i32, .i32, .i32 };
+    var f = ZirFunc.init(0, sig, &locals);
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.set", .payload = 2 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 2 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // Word 2: SUB SP, SP, #32 (3*8=24 → aligned 32).
+    try testing.expectEqual(@as(u32, inst.encSubImm12(31, 31, 32)), std.mem.readInt(u32, out.bytes[8..12], .little));
+    // local.set 2 → STR at offset 2*8=16. Word 4 (after STP/MOV-FP/SUB/MOVZ).
+    try testing.expectEqual(@as(u32, inst.encStrImmW(9, 31, 16)),   std.mem.readInt(u32, out.bytes[16..20], .little));
+    // local.get 2 → LDR at offset 16. Word 5.
+    try testing.expectEqual(@as(u32, inst.encLdrImmW(9, 31, 16)),   std.mem.readInt(u32, out.bytes[20..24], .little));
+}
+
+test "compile: local.tee writes to local but keeps value pushed" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    const locals = [_]zir.ValType{.i32};
+    var f = ZirFunc.init(0, sig, &locals);
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.tee", .payload = 0 });
+    // After tee, vreg0 still on stack. end consumes it.
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // Stream: STP / MOV-FP / SUB-SP / MOVZ W9 #42 / STR W9 [SP,#0] /
+    //         MOV X0 X9 / ADD-SP / LDP / RET = 9 u32s = 36 bytes.
+    try testing.expectEqual(@as(usize, 36), out.bytes.len);
+    // Word 4: STR (the tee).
+    try testing.expectEqual(@as(u32, inst.encStrImmW(9, 31, 0)), std.mem.readInt(u32, out.bytes[16..20], .little));
+    // Word 5: MOV X0, X9 (the kept-on-stack value, then end consumes it).
+    try testing.expectEqual(@as(u32, 0xAA0903E0), std.mem.readInt(u32, out.bytes[20..24], .little));
+}
+
+test "compile: function with non-empty params surfaces UnsupportedOp" {
+    const params = [_]zir.ValType{.i32};
+    const sig: zir.FuncType = .{ .params = &params, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    f.liveness = .{ .ranges = &.{} };
+    const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
+    try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty));
 }
 
 test "compile: i32.eqz emits CMP-imm-0 + CSET EQ" {

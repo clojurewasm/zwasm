@@ -96,6 +96,23 @@ pub fn encStrImm(rt: Xn, rn: Xn, byte_offset: u15) u32 {
     return 0xF9000000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rt);
 }
 
+/// `LDR Wt, [Xn, #imm]` — load 32-bit at unsigned imm12 offset
+/// scaled by 4. byte_offset MUST be 4-byte aligned and < 16384.
+/// Encoding (32-bit LDR unsigned offset):
+///   `1011 1001 01 [imm12:12] [Rn:5] [Rt:5]` = `0xB9400000`.
+pub fn encLdrImmW(rt: Xn, rn: Xn, byte_offset: u14) u32 {
+    const imm12: u12 = @intCast(byte_offset >> 2);
+    return 0xB9400000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
+/// `STR Wt, [Xn, #imm]` — store 32-bit at unsigned imm12 offset
+/// scaled by 4. Encoding:
+///   `1011 1001 00 [imm12:12] [Rn:5] [Rt:5]` = `0xB9000000`.
+pub fn encStrImmW(rt: Xn, rn: Xn, byte_offset: u14) u32 {
+    const imm12: u12 = @intCast(byte_offset >> 2);
+    return 0xB9000000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
 /// `BR Xn` — unconditional branch to register.
 /// Encoding: `1101 0110 0001 1111 0000 00 [Rn:5] 00000`
 /// = `0xD61F0000` | (rn << 5).
@@ -363,6 +380,15 @@ test "encLdrImm x0, [x1, #8] — `ldr x0, [x1, #8]` → 0xF9400420" {
 
 test "encStrImm x0, [x1, #16] — `str x0, [x1, #16]` → 0xF9000820" {
     try testing.expectEqual(@as(u32, 0xF9000820), encStrImm(0, 1, 16));
+}
+
+test "encStrImmW w9, [sp, #0] — `str w9, [sp]` → 0xB90003E9" {
+    try testing.expectEqual(@as(u32, 0xB90003E9), encStrImmW(9, 31, 0));
+}
+
+test "encLdrImmW w10, [sp, #8] — `ldr w10, [sp, #8]` → 0xB9400BEA" {
+    // imm12 = 8>>2 = 2; <<10 = 0x800.
+    try testing.expectEqual(@as(u32, 0xB9400BEA), encLdrImmW(10, 31, 8));
 }
 
 test "encBr x16 — `br x16` → 0xD61F0200" {
