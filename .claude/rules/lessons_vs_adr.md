@@ -72,9 +72,32 @@ Examples (seeded today):
   wasmtime harness behaviour requires the underlying validator
   to already match wasmtime strictness".
 
+## Lesson alongside ADR amend (both stay)
+
+A common case: a lesson exists, and the same evidence triggers an
+**amendment** to an existing ADR (not creation of a new ADR).
+Both artefacts coexist:
+
+- The lesson stays where it is — it preserves the observational,
+  re-derivable framing.
+- The ADR amendment expands the load-bearing section (typically
+  `Alternatives` or `Consequences`) and adds a `Revision history`
+  row per `.dev/decisions/README.md`.
+- The ADR amendment SHOULD cite the lesson by path in its
+  `References` section so the lineage is traceable.
+- The lesson's `Citing:` header SHOULD list the amend commit's
+  SHA (or `<backfill>` until the commit lands; backfill at the
+  next phase boundary is acceptable).
+
+This case is **not** a promotion — promotion is for creating a
+**new** ADR seeded by a lesson. Distinguishing the two prevents
+the "I converted my lesson to an ADR but the lesson is still
+there" duplicate-content failure mode.
+
 ## Promotion: lesson → ADR
 
-A lesson **promotes** to an ADR when ANY of the below fire:
+A lesson **promotes** to an ADR (creating a new ADR, deleting the
+lesson) when ANY of the below fire:
 
 1. The same lesson is cited from 3+ places (commits, code comments,
    ADR Alternatives sections).

@@ -8,7 +8,7 @@
 
 ## Fixture
 
-- `test/wasmtime_misc/wast/externref-segment/externref-segment.0.wasm`
+- `test/wasmtime_misc/wast/reftypes/externref-segment/externref-segment.0.wasm`
 
 The fixture declares an `externref` table + an `(elem ... externref)`
 segment with `ref.null extern` initializers, then exports a getter
