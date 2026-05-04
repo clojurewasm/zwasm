@@ -24,9 +24,9 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
   in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
   locals + control-flow-e1 done).
-- **Last commit**: `06a7a65` — feat(p7) §9.7 / 7.3 sub-e2
-  (if / else / end conditional control flow). 643/643 unit /
-  3-host green. Phase 6 close at `68843b0`.
+- **Last commit**: `a9aef00` — feat(p7) §9.7 / 7.3 sub-e3
+  (br_table linear CMP/B.NE/B chain). All control-flow MVP ops
+  done. 644/644 unit / 3-host green. Phase 6 close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -44,8 +44,8 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | d3-5| f32 + f64 const + ALU + cmps + unary + min/max + copysign | [x] `1ae712f`〜`1715fed` |
 | e1  | control flow: block + loop + br + br_if (label stack) | [x] `0149028` |
 | e2  | if / else / end (conditional branch + skip-else)      | [x] `06a7a65` |
-| e3  | br_table (indirect jump table)                         | [ ] **NEXT** |
-| f   | memory load/store + bounds-check trap surface         | [ ]    |
+| e3  | br_table (linear CMP/B.NE/B chain)                    | [x] `a9aef00` |
+| f   | memory load/store + bounds-check trap surface         | [ ] **NEXT** |
 | g   | call / call_indirect + arg/return marshalling         | [ ]    |
 | h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ]   |
 
