@@ -478,8 +478,35 @@ pub const ConstantFold = struct {
     result_hi: u32 = 0,
 };
 
-/// Phase 7+: per-vreg register-class hint.
-pub const RegClass = enum(u8) { gpr, fpr, simd, _ };
+/// Per-vreg register-class identity. The IR carries the class
+/// so the regalloc IR shape is per-arch-independent (the W54
+/// post-mortem identified per-arch IR drift as the v1 D117
+/// dual-entry-self-call workaround's root cause). Per-class
+/// invariants (width, spill alignment, special-cache discipline)
+/// live in `src/jit/reg_class.zig` (Zone 2); the per-arch
+/// physical register inventory lives in
+/// `src/jit_<arch>/abi.zig` (Phase 7.2). This 3-way split is the
+/// "split class identity from per-arch register inventory" rule
+/// made structural.
+///
+/// The three `*_special` variants are the W54-class day-1 slot
+/// fill (ROADMAP §4.2 + §9.7 / 7.0) — they reserve regalloc IR
+/// slots that the v1 design discovered late and patched with
+/// per-callsite workarounds:
+///   - `inst_ptr_special`  — the `inst_ptr` cache that v1's
+///     D117 workaround proved must be expressible in regalloc
+///     IR, not the per-arch emit pass.
+///   - `vm_ptr_special`    — the runtime base pointer.
+///   - `simd_base_special` — the SIMD-lane base pointer.
+pub const RegClass = enum(u8) {
+    gpr,
+    fpr,
+    simd,
+    inst_ptr_special,
+    vm_ptr_special,
+    simd_base_special,
+    _,
+};
 
 /// Phase 7+: spilled-vreg stack slot record.
 pub const SpillSlot = struct {};
