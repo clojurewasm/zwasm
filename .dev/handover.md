@@ -24,10 +24,11 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
   `68843b0` (3-host green; mandatory audit fired; widget flipped
   6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `98554b4` — feat(p7) §9.7 / 7.3 sub-b
-  (i32 binary ALU: add/sub/mul/and/or/xor). 533/533 unit /
-  3-host green. Earlier this cycle: 7.3 sub-a (`0463d69`),
-  7.0/7.1/7.2; D-006 + bench v1-class baseline.
+- **Last commit**: `3e10901` — feat(p7) §9.7 / 7.3 sub-b2
+  (W-variant ALU correctness fix + i32 shifts shl/shr_s/shr_u).
+  542/542 unit / 3-host green. Earlier this cycle: 7.3 sub-a
+  (`0463d69`), sub-b1 (`98554b4`); 7.0/7.1/7.2; D-006 + bench
+  v1-class baseline.
 - **Branch**: `zwasm-from-scratch`, pushed.
 - **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
   all report identical test-all numbers (39/55 diff matched, 44/55
@@ -46,8 +47,9 @@ remains `[ ]` until MVP op coverage closes — exit gated by
 | Sub | Op group                                              | Status |
 |-----|-------------------------------------------------------|--------|
 | a   | prologue/epilogue + i32.const + end (skeleton)        | [x] `0463d69` |
-| b1  | i32 binary ALU (add/sub/mul/and/or/xor)               | [x] `98554b4` |
-| b2  | i32 shifts (shl/shr_s/shr_u/rotl/rotr) + cmp + eqz    | [ ] **NEXT** |
+| b1  | i32 binary ALU (add/sub/mul/and/or/xor) — now W-variant | [x] `98554b4` + `3e10901` |
+| b2  | i32 shifts (shl/shr_s/shr_u) — W-variant                | [x] `3e10901` |
+| b3  | i32 rotl/rotr + cmp (eq/ne/lt/gt/le/ge × s/u) + eqz     | [ ] **NEXT** |
 | c   | local.get/set/tee + local frame slot allocation        | [ ]    |
 | d   | i64 + f32 + f64 const + ALU                           | [ ]    |
 | e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ]   |
