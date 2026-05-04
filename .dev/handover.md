@@ -8,6 +8,9 @@
 
 ## Next files to read on a cold start (in order)
 
+0. **`.dev/next-session-agenda.md`** — 2026-05-04 セッション末で持ち越した
+   論点(Phase ordering 再評価 / AI 指示群更新 / リファクタ)。次セッション
+   はコードを動かす前にここを読み、ユーザーと議論ファーストで進める。
 1. `.dev/handover.md` (this file).
 2. `.dev/decisions/0017_jit_runtime_abi.md` — JitRuntime ABI (X0
    = `*const JitRuntime`); D-014 dissolve.
