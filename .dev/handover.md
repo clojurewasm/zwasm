@@ -24,9 +24,11 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
   in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
   locals + control-flow-e1 done).
-- **Last commit**: `fb5da38` — feat(p7) §9.7 / 7.3 sub-f2 (sub-byte
-  + i64/f32/f64 memory ops; 23 ops total under one switch arm).
-  665/665 unit / 3-host green. Phase 6 close at `68843b0`.
+- **Last commit**: `129b93f` — feat(p7) §9.7 / 7.3 sub-f3
+  (memory.size + memory.grow skeleton; grow returns -1 until
+  Runtime callout lands at sub-g). Memory MVP coverage now
+  substantively complete (25 ops). 669/669 unit / 3-host green.
+  Phase 6 close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -47,8 +49,8 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | e3  | br_table (linear CMP/B.NE/B chain)                    | [x] `a9aef00` |
 | f1  | i32.load + i32.store + bounds-check + trap stub        | [x] `82862e5` |
 | f2  | sub-byte + i64/f32/f64 load/store (23 ops total)      | [x] `fb5da38` |
-| f3  | memory.size + memory.grow (need Runtime callout)      | [ ] **NEXT** |
-| g   | call / call_indirect + arg/return marshalling         | [ ]    |
+| f3  | memory.size + memory.grow (skeleton; grow returns -1) | [x] `129b93f` |
+| g   | call / call_indirect + arg/return marshalling         | [ ] **NEXT** |
 | h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ]   |
 
 Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
