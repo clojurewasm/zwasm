@@ -134,6 +134,7 @@ test {
     _ = @import("platform/jit_mem.zig");
     _ = @import("jit/linker.zig");
     _ = @import("jit/entry.zig");
+    _ = @import("runtime/jit_abi.zig");
     _ = @import("ir/loop_info.zig");
     _ = @import("ir/liveness.zig");
     _ = @import("ir/verifier.zig");
