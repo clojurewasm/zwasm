@@ -24,11 +24,11 @@
 
 - **Phase**: Phase 7 IN-PROGRESS, scope expanded per ADR-0019
   (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12).
-- **Last commit**: `394e416` — Step 1c ADR-0018 (first spill emit:
-  i32.const + end migrated; entry.zig test runs JIT body with
-  spilled vreg, returns 42 — first runtime-correct v2 spill).
-  Step 1 (ADR-0018 implementation) **complete**. 731/731 unit /
-  3-host green.
+- **Last commit**: `0827b89` — Step 2a ADR-0017 (JitRuntime extern
+  struct in `src/runtime/jit_abi.zig` + comptime offset constants
+  for prologue emit). Pure type definition; no emit changes.
+  Step 2b (prologue LDR sequence) NEXT. 734/734 unit / 3-host
+  green.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active plan — implementation cycles after ADR acceptance
@@ -39,7 +39,7 @@ below corresponds to one or more `/continue` cycles.
 | # | Step | ADR | Status |
 |---|------|-----|--------|
 | 1 | regalloc pool: remove X24..X28; add `reserved_invariant_gprs`; `Slot` union with first-class spill | 0018 | **DONE** — sub-1a `1d6d178`, sub-1b `7e880b8`, sub-1c `394e416` |
-| 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | **NEXT** |
+| 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | sub-2a [x] `0827b89`; **sub-2b (prologue LDR sequence) NEXT**; sub-2c (entry simplification); sub-2d (arg shift X0→X1) |
 | 3 | Edge-case test culture: rule + Step-4 hook + audit §I; bootstrap p7 fixtures | 0020 | Parallel with 1/2 |
 | 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | After Steps 1+2 |
 | 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After Step 4 |
