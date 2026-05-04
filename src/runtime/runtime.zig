@@ -1,99 +1,60 @@
-//! Threaded-code interpreter scaffold (Phase 2 / §9.2 / 2.0).
+//! WASM Spec §4.2 "Runtime Structure" — Runtime central handle.
 //!
-//! 2.0 declares the runtime data shapes only — no dispatch loop,
-//! no opcode semantics. Per ROADMAP §P13 (type up-front), the
-//! invariants of operand-stack / frame-stack / Value / Trap are
-//! fixed here so later tasks (2.1 dispatch, 2.2 MVP handlers,
-//! 2.3 Wasm-2.0 features, 2.4 trap semantics) can populate
-//! behaviour without redesigning the substrate.
+//! Per ADR-0023 §3 P-A (single source of truth) and §3 P-D (vertical
+//! slicing within `runtime/`): this file owns the `Runtime` struct
+//! itself plus the small support types (`TableInstance`, `HostCall`)
+//! that don't yet justify their own files. Spec §4.2 concepts that
+//! do justify their own files are extracted to siblings:
+//!
+//! - `value.zig` — `Value`, `FuncEntity`
+//! - `trap.zig`  — `Trap`, `TraceEvent`, `TraceCallback`
+//! - `frame.zig` — `Frame`, `Label`, `max_*` stack-bound constants
+//!
+//! Module / Engine / Store / per-instance types follow in
+//! ADR-0023 §7 items 4–6. Until they land, `instance` is an opaque
+//! back-pointer (the `?*anyopaque` field below).
 //!
 //! Memory discipline: bounded inline buffers for both operand
 //! stack (4096 slots) and frame stack (256 frames) per ROADMAP
 //! §P3 — no allocation per call. Linear memory and global slots
 //! are heap-allocated once at instance construction.
 //!
-//! Zone 2 (`src/interp/`) — may import Zone 0 (`util/leb128.zig`)
-//! and Zone 1 (`ir/`). MUST NOT import Zone 2-other (`jit*/`,
-//! `wasi/`) or Zone 3 (`c_api/`, `cli/`).
+//! Zone 1 (`src/runtime/`) — may import Zone 0 (`util/leb128.zig`)
+//! and Zone 1 (`ir/`). MUST NOT import Zone 2+ (`interp/`, `jit*/`,
+//! `wasi/`, `c_api/`, `cli/`).
 
 const std = @import("std");
 
 pub const zir = @import("../ir/zir.zig");
 pub const dispatch_table = @import("../ir/dispatch_table.zig");
 
+const value_mod = @import("value.zig");
+const trap_mod = @import("trap.zig");
+const frame_mod = @import("frame.zig");
+
 const Allocator = std.mem.Allocator;
 const ValType = zir.ValType;
 const FuncType = zir.FuncType;
 const InterpCtx = dispatch_table.InterpCtx;
 
-/// 64-bit value slot. The dispatch loop knows the type from the
-/// `ZirOp`; the union never carries a runtime tag (per §P3
-/// cold-start: no per-slot type byte). Float values are stored as
-/// their IEEE-754 bit pattern via `bits64` on entry/exit so NaN
-/// canonicalisation can be deferred to the boundary opcodes that
-/// need it (Wasm 1.0 §6.2.3).
-pub const Value = extern union {
-    i32: i32,
-    u32: u32,
-    i64: i64,
-    u64: u64,
-    f32: f32,
-    f64: f64,
-    bits64: u64,
-    /// Reference value (Wasm 2.0 §9.2 / 2.3 chunk 5). Funcref:
-    /// `@intFromPtr(*const FuncEntity)` — the pointer carries
-    /// source-runtime identity so cross-module `call_indirect`
-    /// can route to the source's function table without a
-    /// separate routing layer (per ADR-0014 §2.1 / 6.K.1).
-    /// Externref: opaque 64-bit host handle (unchanged). The
-    /// sentinel `null_ref` represents the spec null reference;
-    /// it equals literal `0` because `c_allocator.alloc` cannot
-    /// return address 0 on any of the three target platforms
-    /// (Mac aarch64 darwin, Linux x86_64 glibc/musl, Windows
-    /// x86_64 ucrt) per the C-standard `malloc` contract.
-    ref: u64,
+// ============================================================
+// Re-exports — keep `runtime.X` callsites stable across the
+// sub-file split. Each sibling file is the source of truth; this
+// file presents the unified `Runtime`-package surface.
+// ============================================================
 
-    pub const zero: Value = .{ .bits64 = 0 };
-    pub const null_ref: u64 = 0;
+pub const Value = value_mod.Value;
+pub const FuncEntity = value_mod.FuncEntity;
 
-    pub fn fromI32(v: i32) Value {
-        return .{ .i32 = v };
-    }
-    pub fn fromI64(v: i64) Value {
-        return .{ .i64 = v };
-    }
-    pub fn fromF32Bits(b: u32) Value {
-        return .{ .bits64 = b };
-    }
-    pub fn fromF64Bits(b: u64) Value {
-        return .{ .bits64 = b };
-    }
-    pub fn fromRef(r: u64) Value {
-        return .{ .ref = r };
-    }
+pub const Trap = trap_mod.Trap;
+pub const TraceEvent = trap_mod.TraceEvent;
+pub const TraceCallback = trap_mod.TraceCallback;
 
-    /// Encode a `*FuncEntity` as a funcref `Value`. The pointer
-    /// must outlive every read of this Value (its lifetime is
-    /// tied to the owning Runtime's `func_entities` array, which
-    /// the per-instance arena holds for the Runtime's lifetime).
-    pub fn fromFuncRef(fe: *const FuncEntity) Value {
-        return .{ .ref = @intFromPtr(fe) };
-    }
-
-    /// Decode a funcref `Value` to its `*const FuncEntity` source,
-    /// or `null` if the cell holds the null reference.
-    pub fn refAsFuncEntity(v: Value) ?*const FuncEntity {
-        if (v.ref == null_ref) return null;
-        return @ptrFromInt(v.ref);
-    }
-};
-
-comptime {
-    // Locks in the platform contract above: any future change to
-    // null_ref must re-survey the malloc guarantees on all three
-    // target hosts. A change here without an ADR is a §18 deviation.
-    std.debug.assert(Value.null_ref == 0);
-}
+pub const Frame = frame_mod.Frame;
+pub const Label = frame_mod.Label;
+pub const max_operand_stack = frame_mod.max_operand_stack;
+pub const max_frame_stack = frame_mod.max_frame_stack;
+pub const max_label_stack = frame_mod.max_label_stack;
 
 /// Free a typed slice via `Allocator.rawFree`, skipping the
 /// `@memset(slice, undefined)` poisoning that `Allocator.free`
@@ -110,142 +71,6 @@ inline fn rawFreeOwned(alloc: Allocator, comptime T: type, slice: []T) void {
         @returnAddress(),
     );
 }
-
-/// Per-runtime function handle. One entry per index in
-/// `Runtime.funcs`; allocated in `instantiateRuntime`. A funcref
-/// `Value` stores `@intFromPtr(*const FuncEntity)` so dereference
-/// reveals which Runtime owns the callee body — the encoding
-/// 6.K.3 needs to drop the cross-module-import error returns.
-///
-/// Per ADR-0014 §2.1 / 6.K.1: the source runtime back-ref lives
-/// here (rather than baked into the Runtime via 6.K.2's Instance
-/// back-ref) because the Value's encoding contract is what matters
-/// for the table cell — every consumer dereferences the FuncEntity
-/// and reads `runtime` + `func_idx` from a single cache line.
-pub const FuncEntity = struct {
-    /// Runtime whose `funcs[func_idx]` (and `host_calls[func_idx]`
-    /// when imported) describes the callee body.
-    runtime: *Runtime,
-    /// Index into `runtime.funcs`.
-    func_idx: u32,
-};
-
-/// Trap conditions. The dispatch loop returns one of these on the
-/// `Trap!` error union when a runtime-checked invariant fails.
-/// `OutOfMemory` is included so allocator-backed paths can bubble
-/// up uniformly.
-pub const Trap = error{
-    Unreachable,
-    DivByZero,
-    IntOverflow,
-    InvalidConversionToInt,
-    OutOfBoundsLoad,
-    OutOfBoundsStore,
-    OutOfBoundsTableAccess,
-    UninitializedElement,
-    IndirectCallTypeMismatch,
-    StackOverflow,
-    CallStackExhausted,
-    OutOfMemory,
-};
-
-pub const max_operand_stack: u32 = 4096;
-pub const max_frame_stack: u32 = 256;
-pub const max_label_stack: u32 = 128;
-
-/// Per-instruction trace event (Phase 6 / §9.6 / 6.A per ADR-0013).
-/// Emitted post-handler when `Runtime.trace_cb` is set; consumed by
-/// the runtime-asserting WAST runner's `--trace` mode and by §9.6 /
-/// 6.E interp behaviour bug investigation. Zero-cost when disabled
-/// (one predicted-not-taken branch in the dispatch loop).
-pub const TraceEvent = struct {
-    pc: u32,
-    op: zir.ZirOp,
-    /// Top-of-stack value AFTER the handler ran. `null` when the
-    /// stack is empty (e.g. after a `drop` that empties it).
-    operand_top: ?Value,
-    frame_depth: u32,
-};
-
-pub const TraceCallback = *const fn (ctx: *anyopaque, ev: TraceEvent) void;
-
-/// Control-label record. `block` / `if` push a label whose
-/// `target_pc` points one past the matching `end`; `loop` pushes a
-/// label whose `target_pc` points just after the `loop` opcode (so
-/// that `br` to a loop re-enters the body).
-///
-/// Two arities because `loop` distinguishes them: `arity` is the
-/// number of result values the matching `end` transfers (i.e. the
-/// blocktype's result count); `branch_arity` is the number a `br`
-/// to this label transfers (= results for block/if; = params for
-/// loop, which is 0 in Wasm 1.0 — multivalue loop-with-params is
-/// a Phase 2 carry-over per ROADMAP §9.2 chunk 3b).
-pub const Label = struct {
-    height: u32,
-    arity: u32,
-    branch_arity: u32,
-    target_pc: u32,
-};
-
-comptime {
-    // ADR-0014 §6.K.5 + `.claude/rules/single_slot_dual_meaning.md`:
-    // the dual-arity split is load-bearing. `arity` is consumed by
-    // `endOp` (= block/loop result count); `branch_arity` is
-    // consumed by `brOp` (= block/if results, but loop *params*).
-    // Iter 11 of §9.6 / 6.E (commit 7b26760) split a previously
-    // single `arity` slot after `tinygo_fib`'s `loop (result i32)`
-    // dispatched the wrong pop-count. A future merge that drops
-    // either field would silently re-introduce the underflow; this
-    // assertion fails compilation if that happens.
-    if (!@hasField(Label, "arity") or !@hasField(Label, "branch_arity")) {
-        @compileError("Label.arity and Label.branch_arity must remain split per §14 (single_slot_dual_meaning).");
-    }
-}
-
-/// Per-call activation record. `locals` holds params followed by
-/// declared locals (validator's local-index space). `operand_base`
-/// is the operand-stack height at frame entry — `end` / `return`
-/// pop the stack down to this height before pushing results.
-/// `pc` is the instruction index into the corresponding
-/// `ZirFunc.instrs` array.
-pub const Frame = struct {
-    sig: FuncType,
-    locals: []Value,
-    operand_base: u32,
-    pc: u32,
-    /// Borrowed pointer to the active `ZirFunc` so control-flow
-    /// handlers can resolve `instr.payload` (a block index) into
-    /// `BlockInfo` (`start_inst`, `end_inst`, `else_inst`). Set
-    /// by `call` / external runner; left null for ad-hoc test
-    /// frames that don't exercise control flow.
-    func: ?*const zir.ZirFunc = null,
-    /// Set by `end` / `return` handlers to signal the dispatch
-    /// loop to break out of the body. Distinct from `pc >=
-    /// instrs.len` so handlers can stop early without computing
-    /// the bound themselves.
-    done: bool = false,
-
-    label_buf: [max_label_stack]Label = undefined,
-    label_len: u32 = 0,
-
-    pub fn pushLabel(self: *Frame, l: Label) Trap!void {
-        if (self.label_len == max_label_stack) return Trap.StackOverflow;
-        self.label_buf[self.label_len] = l;
-        self.label_len += 1;
-    }
-
-    pub fn popLabel(self: *Frame) Label {
-        std.debug.assert(self.label_len > 0);
-        self.label_len -= 1;
-        return self.label_buf[self.label_len];
-    }
-
-    /// Index 0 = innermost. Caller must ensure depth < label_len.
-    pub fn labelAt(self: *Frame, depth: u32) Label {
-        std.debug.assert(depth < self.label_len);
-        return self.label_buf[self.label_len - 1 - depth];
-    }
-};
 
 /// Runtime counterpart of `zir.TableEntry` — actually holds the
 /// reference cells. The runner allocates `refs` and threads the
@@ -281,7 +106,7 @@ pub const Runtime = struct {
     /// frees.
     alloc: Allocator,
     /// Optional back-pointer to the owning `c_api/instance.Instance`,
-    /// stored as `?*anyopaque` to keep Zone 2 (`src/interp/`) free
+    /// stored as `?*anyopaque` to keep Zone 1 (`src/runtime/`) free
     /// of any Zone 3 import. Used by §9.6 / 6.K.3 cross-module
     /// dispatch to recover the source instance from a FuncEntity's
     /// runtime back-ref. Not consulted on the hot path.
@@ -434,32 +259,12 @@ pub const Runtime = struct {
 };
 
 // ============================================================
-// Tests
+// Tests — Runtime / sub-file integration.
+// Per-type tests live in the owning sub-files (value.zig /
+// trap.zig / frame.zig).
 // ============================================================
 
 const testing = std.testing;
-
-test "Value: extern union slot is 8 bytes" {
-    try testing.expectEqual(@as(usize, 8), @sizeOf(Value));
-}
-
-test "Value.fromI32 / fromI64 round-trip" {
-    const a = Value.fromI32(-7);
-    try testing.expectEqual(@as(i32, -7), a.i32);
-
-    const b = Value.fromI64(0x7FFF_FFFF_FFFF_FFFF);
-    try testing.expectEqual(@as(i64, 0x7FFF_FFFF_FFFF_FFFF), b.i64);
-}
-
-test "Value.fromF32Bits / fromF64Bits store IEEE bits" {
-    const f32_one_bits: u32 = 0x3F800000;
-    const a = Value.fromF32Bits(f32_one_bits);
-    try testing.expectEqual(@as(u64, f32_one_bits), a.bits64);
-
-    const f64_one_bits: u64 = 0x3FF0_0000_0000_0000;
-    const b = Value.fromF64Bits(f64_one_bits);
-    try testing.expectEqual(f64_one_bits, b.bits64);
-}
 
 test "Runtime.init / deinit clean (no allocations)" {
     var r = Runtime.init(testing.allocator);
@@ -468,23 +273,6 @@ test "Runtime.init / deinit clean (no allocations)" {
     try testing.expectEqual(@as(usize, 0), r.globals.len);
     try testing.expectEqual(@as(u32, 0), r.operand_len);
     try testing.expectEqual(@as(u32, 0), r.frame_len);
-}
-
-test "Label: arity and branch_arity hold distinct values without aliasing (ADR-0014 §6.K.5)" {
-    // Per `.claude/rules/single_slot_dual_meaning.md`: the two
-    // arities must be addressable as separate slots. `loop`
-    // dispatch is the load-bearing case — block result count vs
-    // br-target param count diverge for `loop (result T)`. A
-    // silent merge would alias them.
-    const l: Label = .{
-        .height = 0,
-        .arity = 1, // matches `loop (result i32)`'s end-arity
-        .branch_arity = 0, // matches `br` to a Wasm-1.0 loop (no params)
-        .target_pc = 42,
-    };
-    try testing.expectEqual(@as(u32, 1), l.arity);
-    try testing.expectEqual(@as(u32, 0), l.branch_arity);
-    try testing.expect(l.arity != l.branch_arity);
 }
 
 test "Runtime: push/pop operand stack round-trip" {

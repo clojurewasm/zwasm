@@ -151,7 +151,10 @@ test {
     _ = @import("frontend/parse_ctx.zig");
     _ = @import("feature/mvp/mod.zig");
     _ = @import("frontend/sections.zig");
-    _ = ("runtime/runtime.zig");
+    _ = @import("runtime/runtime.zig");
+    _ = @import("runtime/value.zig");
+    _ = @import("runtime/trap.zig");
+    _ = @import("runtime/frame.zig");
     _ = @import("interp/dispatch.zig");
     _ = @import("interp/mvp.zig");
     _ = @import("interp/memory_ops.zig");
