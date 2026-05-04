@@ -39,7 +39,6 @@
 | D-020 | infra  | blocked-by: `private/dbg/<task>` reaches 5 entries      | `zig build run-repro -Dtask=<name>` step has no listing (`--help` shows no enumerated tasks). Add `scripts/list_repros.sh` when the corpus grows. | 2026-05-04 | 2026-05-04 | `build.zig` run-repro step, ADR-0015                              |
 | D-021 | code   | blocked-by: Phase 14 concurrency phase                  | `Diagnostic` is `threadlocal var` per ADR-0016 phase 1. Concurrent guest threads (Phase 14+) require a thread-mapping decision. | 2026-05-04 | 2026-05-04 | `src/runtime/diagnostic.zig`                                       |
 | D-022 | code   | blocked-by: ADR-0016 M3 work item                       | `wast_runtime_runner` cannot localise `result[0] mismatch` — needs M3 (interp trap location + trace ringbuffer). 5 deferred misc-runtime fixtures' silent-failure path is gated on this. | 2026-05-04 | 2026-05-04 | `test/runners/wast_runtime_runner.zig`                            |
-| D-027 | code   | blocked-by: dedicated emit-pass merge-aware label-stack restructuring | `(if (result T))` returns junk for the cond=1 path — emit pushes both arms' result vregs but only the post-branch top is read by `end`. Same shape will affect `block (result T)` with `br` and any non-zero-arity loop / br_table. Workaround in `test/edge_cases/p7/if_then_else/*.wat` uses local-capture; real spec testsuite assertions need the structural fix. Lesson: `.dev/lessons/2026-05-04-if-result-merge-point-bug.md`. | 2026-05-04 | 2026-05-04 | `src/jit_arm64/emit.zig` if/else/end + br emit; `.dev/lessons/2026-05-04-if-result-merge-point-bug.md` |
 
 ## Recently discharged
 
@@ -59,6 +58,7 @@
 | D-006 | 2026-05-04  | Substantial discharge: ImportPayload extended (table/memory limits surfaced); Instance.export_types populated during instantiation; checkImportTypeMatches per Wasm 2.0 §3.4.10 covers global valtype+mut, table elem-type+limits, memory limits, func sig. wast_runtime_runner re-adds bare-name auto-register. linking-errors {1-9} now PASS via `error.ImportTypeMismatch` (the spec-honest reason) instead of UnknownImportModule. Embenchen-stub host-func wiring split off as D-026. |
 | D-025 | 2026-05-04  | bench infra real hyperfine numbers landed (commit `e568077`). 26 fixtures ran; "Phase 6 close baseline" entry recorded in bench/results/history.yaml. The 6.J row text is now substantively met (was structural-only). |
 | D-024 | 2026-05-04  | `git log -- flake.lock` shows no churn since `5762fd3` (initial Phase 0). The 6.K.7 ADR-0015 flake.nix edits added tools but didn't update lock — confirmed via git history. Concern was hypothetical; closing without further work. |
+| D-027 | 2026-05-04  | Merge-aware label stack landed in emit.zig. `Label.merge_top_vreg` captures the then arm's result vreg at `else`; `end` of else_open frame emits MOV merge_reg ← else_result_reg before patching B-uncond fixups so both arms converge on the merge target's register. Native `(if (result T))` fixtures (then=11, else=22) pass via JIT. Block-result + loop-result + br-with-target-arity may still need similar attention, but the if-frame case is closed. |
 
 ## How to read this file
 

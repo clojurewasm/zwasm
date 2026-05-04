@@ -201,6 +201,13 @@ pub fn compile(
         /// or at `end` (to end of if). Cleared when transitioning
         /// to `.else_open`.
         if_skip_byte: ?u32 = null,
+        /// D-027 fix (sub-7.5c-vi): for `if (result T)` blocks,
+        /// the then arm's result vreg is captured at `else`;
+        /// the else arm's result is MOVed into this vreg's
+        /// register at the if-frame's `end` so both paths
+        /// converge on the same physical reg. Null for blocks
+        /// without arity OR when no `else` was emitted.
+        merge_top_vreg: ?u32 = null,
     };
     var labels: std.ArrayList(Label) = .empty;
     defer {
@@ -1446,17 +1453,26 @@ pub fn compile(
                 // if's CBZ to point to current byte (= start of
                 // else-body, right after this B). Transition the
                 // label to .else_open.
+                //
+                // D-027 fix (sub-7.5c-vi): if the then arm pushed
+                // a result vreg, capture it as the merge target.
+                // The MOV that copies the else arm's result into
+                // this vreg's register lands at `end` of the
+                // if-frame.
                 if (labels.items.len == 0 or
                     labels.items[labels.items.len - 1].kind != .if_then)
                 {
                     return Error.UnsupportedOp;
                 }
+                const lbl_idx = labels.items.len - 1;
+                if (pushed_vregs.items.len > 0) {
+                    labels.items[lbl_idx].merge_top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
+                }
                 const b_byte: u32 = @intCast(buf.items.len);
                 try writeU32(allocator, &buf, inst.encB(0));
                 const else_start: u32 = @intCast(buf.items.len);
-                const lbl = &labels.items[labels.items.len - 1];
+                const lbl = &labels.items[lbl_idx];
                 const skip_byte = lbl.if_skip_byte.?;
-                // Patch the CBZ: disp_words from skip_byte to else_start.
                 const skip_disp: i32 = @as(i32, @intCast(else_start)) -
                     @as(i32, @intCast(skip_byte));
                 const orig_cbz = std.mem.readInt(u32, buf.items[skip_byte..][0..4], .little);
@@ -1497,6 +1513,31 @@ pub fn compile(
                 if (labels.items.len > 0) {
                     var lbl = labels.pop().?;
                     defer lbl.pending.deinit(allocator);
+
+                    // D-027 fix (sub-7.5c-vi): if this is an
+                    // `else_open` label with a captured merge
+                    // target, the else arm's result is on top
+                    // of pushed_vregs; emit MOV merge_reg ←
+                    // else_result_reg BEFORE the join label so
+                    // both arms converge. Then drop the else
+                    // arm's result vreg (its value now lives in
+                    // the merge target's reg).
+                    if (lbl.kind == .else_open and lbl.merge_top_vreg != null) {
+                        if (pushed_vregs.items.len < 2) return Error.UnsupportedOp;
+                        const else_result = pushed_vregs.pop().?;
+                        const merge_vreg = lbl.merge_top_vreg.?;
+                        // Sanity: top-of-stack-after-pop should
+                        // be the captured merge target.
+                        if (pushed_vregs.items[pushed_vregs.items.len - 1] != merge_vreg) {
+                            return Error.UnsupportedOp;
+                        }
+                        const merge_reg = try resolveGpr(alloc, merge_vreg);
+                        const else_reg = try resolveGpr(alloc, else_result);
+                        if (merge_reg != else_reg) {
+                            try writeU32(allocator, &buf, inst.encOrrRegW(merge_reg, 31, else_reg));
+                        }
+                    }
+
                     const target_byte: u32 = @intCast(buf.items.len);
                     // Patch the if-then's skip-CBZ if it's still
                     // pending (no `else` was encountered).

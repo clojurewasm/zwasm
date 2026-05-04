@@ -1,9 +1,8 @@
-;; Boundary: if/then/else with cond=0 (else arm). Local-capture
-;; pattern (see then_branch.wat for the merge-point rationale).
+;; Boundary: if/then/else with cond=0 (else arm), block-result.
+;; Verifies the same merge fix from then_branch.wat — the else
+;; arm's result is MOVed into the then arm's reg at the if-end.
 (module
   (func (export "test") (result i32)
-    (local i32)
-    (if (i32.const 0)
-      (then (i32.const 11) local.set 0)
-      (else (i32.const 22) local.set 0))
-    local.get 0))
+    (if (result i32) (i32.const 0)
+      (then (i32.const 11))
+      (else (i32.const 22)))))
