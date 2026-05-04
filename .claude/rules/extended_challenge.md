@@ -84,6 +84,56 @@ profile lacks nix; please install wasmtime via the host's package
 manager or whitelist the workaround in an ADR" — instead of a
 vague "windowsmini wasmtime broken, skipping".
 
+### Step 4 — Reach beyond the local procedure when justified
+
+When Steps 1-3 don't shape the decision (or when **裏取り** —
+verification — is needed before committing to a design choice),
+reach for:
+
+- **WebFetch / WebSearch**: Wasm spec text (W3C / WebAssembly
+  GitHub), AAPCS64 ABI docs (Arm IHI 0055), upstream bug
+  trackers, language stdlib changelogs (Zig release notes,
+  upstream issues). Prefer authoritative sources; **cite the URL
+  inline in the commit message OR ADR References** so future
+  readers can re-verify.
+- **Reference repository deep-read**: `~/Documents/OSS/` (wasmtime
+  / cranelift / regalloc2 / wasm3 / zware / wasmer / wazero / etc)
+  + `~/Documents/MyProducts/zwasm/` (v1) +
+  `~/zwasm/private/v2-investigation/`. Already covered by
+  `textbook_survey.md` for Step 0 (task-start) — Step 4 makes
+  it **explicitly allowed mid-cycle**, when an unforeseen sub-
+  question surfaces during implementation.
+- **Spike (throwaway code)**: under `private/spikes/<slug>/`
+  (gitignored per `no_workaround.md` spike discipline). Use
+  when an assumption needs runtime verification — encoder
+  output, type-system behaviour, hot-loop timing. Bound: ≤ 1
+  day; outcome → ADR (Rejected if rejected; or merged into the
+  real implementation) or lesson if observational.
+
+**Trigger**: any in-flight decision that hinges on an unverified
+assumption ("I think the AAPCS64 stack alignment is 16 bytes" /
+"regalloc2 probably doesn't reuse spilled slots" / "Zig 0.16
+stdlib changed `mem.indexOf` semantics"). The cost of 5 minutes
+of search / spike is far less than the cost of landing wrong-
+shape design that later needs re-derivation.
+
+**Authority**: this Step is **autonomous within the same scope as
+Step 2 self-provisioning** — i.e. fire it without surfacing to
+user, but record the consultation:
+
+- Web fetches → cite URL in the commit body or ADR Reference §.
+- Reference repo reads → name the file path + line range in the
+  commit body or survey note.
+- Spikes → outcome lands as ADR (`Rejected` or merged) or lesson;
+  never as flag-gated workaround on `zwasm-from-scratch`.
+
+This Step exists because the prior 3-step shape was **defensive
+(only when stuck on infrastructure)** — it didn't capture the
+**investigative use case** of mid-cycle 裏取り. The 2026-05-04
+retrospective surfaced this gap as a session-end observation
+(see `.dev/decisions/0022_post_session_retrospective.md`'s
+"Process improvements" §).
+
 ## Forbidden anti-patterns
 
 - **"It might not work, so I'll skip"** — the only valid skip is

@@ -220,6 +220,15 @@ for when to skip Step 0 and how to avoid being pulled by upstream
 styles. The prohibition on copy-paste from v1 is in
 [`.claude/rules/no_copy_from_v1.md`](../../rules/no_copy_from_v1.md).
 
+**Mid-cycle stuck or wanting 裏取り (verification)**: when an
+implementation-time question surfaces that Step 0's survey
+didn't anticipate, see
+[`.claude/rules/extended_challenge.md`](../../rules/extended_challenge.md)
+**Step 4** — `WebFetch` / `WebSearch` for spec / ABI / upstream
+docs, mid-cycle reference-repo deep reads, and `private/spikes/`
+throwaway experiments are all in scope and autonomous. Cite
+URLs / file paths in the commit body or ADR References.
+
 ### Step 1 — Plan
 
 Re-open `.dev/ROADMAP.md` §9.<N> task table and confirm the first
