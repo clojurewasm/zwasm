@@ -39,7 +39,6 @@
 | D-020 | infra  | blocked-by: `private/dbg/<task>` reaches 5 entries      | `zig build run-repro -Dtask=<name>` step has no listing (`--help` shows no enumerated tasks). Add `scripts/list_repros.sh` when the corpus grows. | 2026-05-04 | 2026-05-04 | `build.zig` run-repro step, ADR-0015                              |
 | D-021 | code   | blocked-by: Phase 14 concurrency phase                  | `Diagnostic` is `threadlocal var` per ADR-0016 phase 1. Concurrent guest threads (Phase 14+) require a thread-mapping decision. | 2026-05-04 | 2026-05-04 | `src/runtime/diagnostic.zig`                                       |
 | D-022 | code   | blocked-by: ADR-0016 M3 work item                       | `wast_runtime_runner` cannot localise `result[0] mismatch` — needs M3 (interp trap location + trace ringbuffer). 5 deferred misc-runtime fixtures' silent-failure path is gated on this. | 2026-05-04 | 2026-05-04 | `test/runners/wast_runtime_runner.zig`                            |
-| D-023 | infra  | blocked-by: §9.6 / 6.H bench honest-baseline            | `bench/results/{recent,history}.yaml` (per ADR-0012 §7) not yet generated. 6.K cycle changed the interpreter; performance impact unmeasured. | 2026-05-04 | 2026-05-04 | `.dev/ROADMAP.md` §9.6 / 6.H, ADR-0012 §7                         |
 | D-024 | infra  | blocked-by: `audit_scaffolding` next run                 | `flake.lock` may have churned during 6.K.7 (wasm-tools + lldb addition). dev-shell startup time impact unmeasured. Trigger via the audit skill, not standalone. | 2026-05-04 | 2026-05-04 | `flake.nix`, `flake.lock`                                          |
 
 ## Recently discharged
@@ -56,6 +55,7 @@
 | D-019 | 2026-05-04  | `test/realworld/README.md` documents argv basename convention.                  |
 | D-015 | 2026-05-04  | ADR-0014 §3.γ (Author candor) + §6.K.3 (How this contract was discovered) inline the load-bearing parts of `p6-6K3-lifetime-survey.md`. Remaining survey content stays in `private/notes/` as scratch. |
 | D-008 | 2026-05-04  | `diff_runner.resolveWasmtime` drops `which`-based path resolution; uses bare `"wasmtime"` argv[0] so Zig's spawn does PATH lookup uniformly. Three-host gate: 39/55 matched on all of Mac aarch64 + OrbStack Ubuntu + windowsmini (was 0/55 SKIP-WASMTIME-UNUSABLE on windowsmini). |
+| D-023 | 2026-05-04  | `bench/results/{recent,history}.yaml` layout introduced; old `baseline_v1_regression.yaml` + `history.yaml` migrated. Hyperfine wiring stays Phase 11 deferred (scripts' own TODO p11). |
 
 ## How to read this file
 

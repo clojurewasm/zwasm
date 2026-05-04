@@ -20,28 +20,22 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** — 6.K + 6.E + 6.F + 6.G all
-  `[x]`. 6.H〜6.J pending.
-- **Last commit**: `0735f93` — feat(p6) land §9.6 / 6.G — vendor
-  5 CW v1 fixtures (cljw_fib/gcd/arith/sieve/tak; 5/5 PASS in
-  parse + run; 5/5 SKIP-EMPTY in diff = compute-only guest
-  parity).
-- **Branch**: `zwasm-from-scratch`, pushed (autonomous push under
-  /continue loop firing).
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K + 6.E + 6.F + 6.G + 6.H
+  all `[x]`. 6.I + 6.J pending.
+- **Last commit**: `841df04` — feat(p6) §9.6 / 6.H bench results
+  layout migration (structural; Phase 11 hyperfine wiring still
+  pending). Plus `cb07e11` (D-008 close) + `5205319` (diff_runner
+  PATH-lookup fix making windowsmini real-match).
+- **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.H (bench honest-baseline migration)
+## Active task — §9.6 / 6.I (sightglass benchmarks vendor + bench restructure)
 
-Per ROADMAP §9.6 / 6.H: introduce `bench/results/{recent,history}.yaml`
-per ADR-0012 §7. Regenerate baseline against the now-stable
-post-6.K interpreter. Concretely:
-- Stand up `bench/results/recent.yaml` (current run snapshot).
-- Stand up `bench/results/history.yaml` (append-only log of runs
-  with commit SHA + date + numbers).
-- Run hyperfine over an initial bench corpus (likely a small
-  subset to validate the pipeline; full sightglass is 6.I).
-- Update bench/README or equivalent with the running discipline.
+Per ROADMAP §9.6 / 6.I: vendor 5 sightglass benchmarks with
+in-repo C source + documented build script per ADR-0012 §3.
+Reject v1's TinyGo binary-only and gc_* source-less artifacts.
 
-Discharges debt D-023.
+This is parallel to 6.E〜6.H (which all `[x]`) and the last
+bench-side row before 6.J close.
 
 ## Today's meta-improvement landings (Phase 6 honest-debt cycle)
 
@@ -74,9 +68,9 @@ Commits (`8be96bc..d9aecda`):
 | 6.K.* | 6.K.1〜6.K.8 (per ADR-0014 §2.1)                                                     | all [x]        |
 | 6.E   | misc-runtime re-measure + close (266 PASS / 5 deferred via 2 skip-ADRs)              | [x] `b569b8f`  |
 | 6.F   | test-realworld-diff 30+ matches + re-add to test-all (39/50 matched, 0 mismatched)   | [x] `ccd537d`  |
-| 6.G   | CW guest end-to-end (CW v1 vendor per [`cw_guest_setup.md`](cw_guest_setup.md))      | [ ] **NEXT**   |
-| 6.H   | bench honest-baseline migration (per ADR-0012 §7)                                    | [ ]            |
-| 6.I   | bench restructure + sightglass (per ADR-0012 §3)                                     | [ ]            |
+| 6.G   | CW guest end-to-end (CW v1 vendor per [`cw_guest_setup.md`](cw_guest_setup.md))      | [x] `0735f93`  |
+| 6.H   | bench honest-baseline migration — structural (Phase 11 hyperfine deferred)           | [x] `841df04`  |
+| 6.I   | bench restructure + sightglass (per ADR-0012 §3)                                     | [ ] **NEXT**   |
 | 6.J   | strict close gate (100% PASS or skip-ADR; Phase Status widget flip)                  | [ ]            |
 
 ## Open questions / blockers
