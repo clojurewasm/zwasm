@@ -1,0 +1,37 @@
+Source: ~/Documents/MyProducts/zwasm/bench/wasm/  (zwasm v1 baseline corpus)
+Vendored: 2026-05-04T12:56Z
+Subset rationale: v2's CLI does not yet support `--invoke fn args` mode,
+so only WASI _start-runnable fixtures from v1's corpus are vendored.
+This is the "v1-class comprehensive baseline" per the 2026-05-04 user
+directive (Phase 6 cleanliness + pre-Phase-7-optimisation baseline).
+
+shootout/  (9 sightglass-shootout WASI guests; pre-built by v1 without
+            the `bench::start/end` harness imports)
+  fib2 sieve nestedloop matrix heapsort base64 gimli memmove keccak
+
+tinygo/    (11 TinyGo-compiled WASI guests with internal benchmark
+            loops invoked from `_start`)
+  arith fib fib_loop gcd list_build mfr nqueens real_work sieve string_ops tak
+
+handwritten/  (1 hand-written numeric benchmark)
+  nbody
+
+cljw_*.wasm fixtures (5 ClojureWasm v1 guests) live in
+test/realworld/wasm/ from §9.6 / 6.G — bench scripts reference them
+in place rather than duplicating.
+
+Excluded from this vendor (require `--invoke` mode, not yet in v2):
+- gc_alloc, gc_tree (GC proposal benchmarks)
+- sieve, tak, fib (hand-written WAT — :invoke entry point)
+- ackermann (v1 shootout that v2 cannot run today; debt for follow-up)
+
+Excluded categories (not source-less per ADR-0012 §3 requirements):
+- v1's pre-built TinyGo binaries are vendored as snapshots, parallel
+  to test/realworld/wasm/'s c_*/cpp_*/rust_*/tinygo_* — these are
+  toolchain outputs whose source lives in v1's bench/src/, not new
+  zwasm-authored code. The "no copy-paste from v1" rule applies to
+  zwasm-authored Zig/C source; binary toolchain outputs are
+  upstream-snapshot category (per `.claude/rules/no_copy_from_v1.md`
+  "Exception: spec testsuite, sample wasm, third-party SDKs").
+
+Total vendor size: ~300 KB / 21 files.

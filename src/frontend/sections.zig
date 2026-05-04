@@ -128,8 +128,8 @@ pub const Import = struct {
 
 pub const ImportPayload = union(enum) {
     func_typeidx: u32,
-    table: void,
-    memory: void,
+    table: struct { elem_type: ValType, min: u32, max: ?u32 },
+    memory: struct { min: u32, max: ?u32 },
     global: struct { valtype: ValType, mutable: bool },
 };
 
@@ -172,14 +172,19 @@ pub fn decodeImports(parent_alloc: Allocator, body: []const u8) Error!Imports {
             .func => .{ .func_typeidx = try leb128.readUleb128(u32, body, &pos) },
             .table => blk: {
                 if (pos >= body.len) return Error.UnexpectedEnd;
-                _ = body[pos]; // reftype byte
+                const reftype_byte = body[pos];
                 pos += 1;
-                try skipLimits(body, &pos);
-                break :blk .table;
+                const elem_type: ValType = switch (reftype_byte) {
+                    0x70 => .funcref,
+                    0x6f => .externref,
+                    else => return Error.InvalidFunctype,
+                };
+                const limits = try readLimits(body, &pos);
+                break :blk .{ .table = .{ .elem_type = elem_type, .min = limits.min, .max = limits.max } };
             },
             .memory => blk: {
-                try skipLimits(body, &pos);
-                break :blk .memory;
+                const limits = try readLimits(body, &pos);
+                break :blk .{ .memory = .{ .min = limits.min, .max = limits.max } };
             },
             .global => blk: {
                 const t = try readValType(body, &pos);
@@ -206,14 +211,14 @@ fn readName(body: []const u8, pos: *usize) Error![]const u8 {
     return slice;
 }
 
-fn skipLimits(body: []const u8, pos: *usize) Error!void {
+fn readLimits(body: []const u8, pos: *usize) Error!struct { min: u32, max: ?u32 } {
     if (pos.* >= body.len) return Error.UnexpectedEnd;
     const flag = body[pos.*];
     pos.* += 1;
-    _ = try leb128.readUleb128(u32, body, pos); // min
-    if (flag & 1 != 0) {
-        _ = try leb128.readUleb128(u32, body, pos); // max
-    }
+    if (flag > 1) return Error.InvalidFunctype;
+    const min = try leb128.readUleb128(u32, body, pos);
+    const max: ?u32 = if (flag & 1 != 0) try leb128.readUleb128(u32, body, pos) else null;
+    return .{ .min = min, .max = max };
 }
 
 pub const Tables = struct {

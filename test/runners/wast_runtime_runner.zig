@@ -578,8 +578,22 @@ fn handleModule(
     try ctx.all.append(a, am);
     ctx.current = am;
     if (name_opt) |n| {
-        const stored_name = try a.dupe(u8, n);
-        try ctx.by_name.put(a, stored_name, am);
+        // Store under the wast-script-local id (e.g. `$env`) AND
+        // the bare public name (`env`) — wasmtime's wast runner
+        // does the same auto-register
+        // (`crates/wast/src/wast.rs:fn module`) so embenchen-style
+        // fixtures resolve `m.X` imports without an explicit
+        // `(register "X" $X)` directive.
+        const stored_id = try a.dupe(u8, n);
+        try ctx.by_name.put(a, stored_id, am);
+        if (std.mem.startsWith(u8, n, "$") and n.len > 1) {
+            const bare = try a.dupe(u8, n[1..]);
+            if (!ctx.by_name.contains(bare)) {
+                try ctx.by_name.put(a, bare, am);
+            } else {
+                a.free(bare);
+            }
+        }
     }
 
     try stdout.print("PASS  {s}/{s} (module)\n", .{ corpus_name, filename });

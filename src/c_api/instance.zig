@@ -162,6 +162,26 @@ pub const Instance = struct {
     /// `wasm_instance_exports` to surface the upstream-standard
     /// discovery path.
     exports_storage: []sections.Export = &.{},
+    /// Parallel to `exports_storage` — `export_types[i]` is the
+    /// structural type of `exports_storage[i]`. Populated during
+    /// `instantiateRuntime` so cross-module imports can validate
+    /// import-vs-export type matching at the c_api boundary
+    /// (Wasm 2.0 §3.4.10). See `ExportType` below + the
+    /// validation site at the import-resolution loop. Discharges
+    /// debt D-006 (the "linking-errors-pass-for-the-wrong-reason"
+    /// gap exposed by the auto-register spike).
+    export_types: []ExportType = &.{},
+};
+
+/// Structural type of an exported entity. Mirrors the four
+/// `ImportPayload` variants in `frontend/sections.zig` but with
+/// `func` resolving the typeidx to a concrete `FuncType` so the
+/// importer-vs-exporter comparison is direct.
+pub const ExportType = union(sections.ImportKind) {
+    func: zir.FuncType,
+    table: struct { elem_type: zir.ValType, min: u32, max: ?u32 },
+    memory: struct { min: u32, max: ?u32 },
+    global: struct { valtype: zir.ValType, mutable: bool },
 };
 
 /// `wasm_func_t` — exported / imported function handle. Carries a
@@ -633,6 +653,14 @@ fn instantiateRuntime(
                 .global => .global,
             };
             if (ext.kind != want_kind) return error.ImportKindMismatch;
+            // Per Wasm 2.0 §3.4.10: import-vs-export type matching.
+            // Discharges debt D-006 (the gap exposed by the
+            // auto-register spike — 9 linking-errors fixtures
+            // previously passed for the wrong reason because
+            // manifest-discovery rejected before this check ever
+            // fired). Importer's type table needed for func-sig
+            // resolution; decode it lazily on first need.
+            try checkImportTypeMatches(a, module, it, ext);
             // Iter 7 scope: only memory imports wire end-to-end.
             // Table / global / func imports remain unsupported
             // because their dispatch needs source-instance
@@ -1017,7 +1045,249 @@ fn instantiateRuntime(
     if (module.find(.@"export")) |export_section| {
         const exports = try sections.decodeExports(a, export_section.body);
         inst.exports_storage = exports.items;
+        // Populate parallel export_types so cross-module imports
+        // can validate type-equality at the c_api boundary.
+        inst.export_types = try buildExportTypes(a, module, exports.items, imports_decoded);
     }
+}
+
+/// Wasm 2.0 §3.4.10 import-matching check. The importer's
+/// `it.payload` carries its expected type; the source's
+/// `ext` reaches the source `Instance.export_types[ext.<idx>]`
+/// for the actual exported type. Matching rules (per spec):
+/// - Func: signatures must be equal (params / results in-order).
+/// - Global: valtype + mutability must be equal.
+/// - Table: elem_type must match; min must satisfy
+///   `source_min >= importer_min`; if importer specifies max,
+///   source must too AND `source_max <= importer_max`.
+/// - Memory: same min/max sub-typing as table (no elem_type).
+fn checkImportTypeMatches(a: std.mem.Allocator, module: parser.Module, it: sections.Import, ext: *const Extern) !void {
+    const source_inst = ext.instance orelse return error.ImportTypeMismatch;
+    const idx: usize = switch (it.kind) {
+        .func => blk: {
+            const fh = ext.func orelse return error.ImportTypeMismatch;
+            break :blk @intCast(fh.func_idx);
+        },
+        .global => @intCast(ext.global_idx),
+        .table => @intCast(ext.table_idx),
+        .memory => @intCast(ext.memory_idx),
+    };
+    // Find the matching entry in source's export_types via name match.
+    if (source_inst.exports_storage.len != source_inst.export_types.len)
+        return error.ImportTypeMismatch;
+    const src_type: ExportType = blk: {
+        for (source_inst.exports_storage, 0..) |exp, i| {
+            const exp_kind: sections.ImportKind = switch (exp.kind) {
+                .func => .func,
+                .table => .table,
+                .memory => .memory,
+                .global => .global,
+            };
+            if (exp_kind == it.kind and exp.idx == idx) {
+                break :blk source_inst.export_types[i];
+            }
+        }
+        return error.ImportTypeMismatch;
+    };
+    switch (it.kind) {
+        .func => {
+            const want_tidx = it.payload.func_typeidx;
+            // Resolve importer's typeidx via its type section.
+            const type_sec = module.find(.@"type") orelse return error.ImportTypeMismatch;
+            var types = try sections.decodeTypes(a, type_sec.body);
+            defer types.deinit();
+            if (want_tidx >= types.items.len) return error.ImportTypeMismatch;
+            const want_ft = types.items[want_tidx];
+            switch (src_type) {
+                .func => |sft| {
+                    if (sft.params.len != want_ft.params.len) return error.ImportTypeMismatch;
+                    if (sft.results.len != want_ft.results.len) return error.ImportTypeMismatch;
+                    for (sft.params, want_ft.params) |sp, wp| {
+                        if (sp != wp) return error.ImportTypeMismatch;
+                    }
+                    for (sft.results, want_ft.results) |sr, wr| {
+                        if (sr != wr) return error.ImportTypeMismatch;
+                    }
+                },
+                else => return error.ImportTypeMismatch,
+            }
+        },
+        .global => {
+            const want = it.payload.global;
+            switch (src_type) {
+                .global => |sg| {
+                    if (sg.valtype != want.valtype) return error.ImportTypeMismatch;
+                    if (sg.mutable != want.mutable) return error.ImportTypeMismatch;
+                },
+                else => return error.ImportTypeMismatch,
+            }
+        },
+        .table => {
+            const want = it.payload.table;
+            switch (src_type) {
+                .table => |st| {
+                    if (st.elem_type != want.elem_type) return error.ImportTypeMismatch;
+                    if (st.min < want.min) return error.ImportTypeMismatch;
+                    if (want.max) |wm| {
+                        const sm = st.max orelse return error.ImportTypeMismatch;
+                        if (sm > wm) return error.ImportTypeMismatch;
+                    }
+                },
+                else => return error.ImportTypeMismatch,
+            }
+        },
+        .memory => {
+            const want = it.payload.memory;
+            switch (src_type) {
+                .memory => |sm| {
+                    if (sm.min < want.min) return error.ImportTypeMismatch;
+                    if (want.max) |wm| {
+                        const max_s = sm.max orelse return error.ImportTypeMismatch;
+                        if (max_s > wm) return error.ImportTypeMismatch;
+                    }
+                },
+                else => return error.ImportTypeMismatch,
+            }
+        },
+    }
+}
+
+/// Resolve each export's structural type so import-side
+/// validation is a direct compare. For each export:
+/// - Func: walk imports + defined-funcs to find which one is at
+///   `idx`; resolve typeidx via the source's type section.
+/// - Global: walk imports + decoded globals for type info.
+/// - Table: walk imports + decoded tables for elem_type + limits.
+/// - Memory: walk imports + decoded memories for limits.
+fn buildExportTypes(
+    a: std.mem.Allocator,
+    module: parser.Module,
+    exports_items: []sections.Export,
+    imports_decoded: ?sections.Imports,
+) ![]ExportType {
+    if (exports_items.len == 0) return &.{};
+    const out = try a.alloc(ExportType, exports_items.len);
+    errdefer a.free(out);
+
+    // Decode the type section once (used for func sig resolution).
+    var types_owned: ?sections.Types = null;
+    defer if (types_owned) |*t| t.deinit();
+    if (module.find(.@"type")) |s| {
+        types_owned = try sections.decodeTypes(a, s.body);
+    }
+    var func_section_funcs: ?[]u32 = null;
+    if (module.find(.function)) |s| {
+        func_section_funcs = try sections.decodeFunctions(a, s.body);
+    }
+    defer if (func_section_funcs) |slice| a.free(slice);
+
+    var defined_globals: ?sections.Globals = null;
+    defer if (defined_globals) |*g| g.deinit();
+    if (module.find(.global)) |s| {
+        defined_globals = try sections.decodeGlobals(a, s.body);
+    }
+    var defined_tables: ?sections.Tables = null;
+    defer if (defined_tables) |*t| t.deinit();
+    if (module.find(.table)) |s| {
+        defined_tables = try sections.decodeTables(a, s.body);
+    }
+    var defined_memories: ?sections.Memories = null;
+    defer if (defined_memories) |*m| m.deinit();
+    if (module.find(.memory)) |s| {
+        defined_memories = try sections.decodeMemory(a, s.body);
+    }
+
+    for (exports_items, 0..) |exp, i| {
+        out[i] = switch (exp.kind) {
+            .func => blk: {
+                // Find this funcidx among (imports' funcs ++ defined funcs).
+                var imp_count: u32 = 0;
+                if (imports_decoded) |im| {
+                    var idx: u32 = 0;
+                    for (im.items) |it| {
+                        if (it.kind != .func) continue;
+                        if (idx == exp.idx) {
+                            const tidx = it.payload.func_typeidx;
+                            const ft = if (types_owned) |t| t.items[tidx] else
+                                return error.UnsupportedImport;
+                            break :blk .{ .func = ft };
+                        }
+                        idx += 1;
+                    }
+                    imp_count = idx; // total func imports walked
+                }
+                // Defined func: index = exp.idx - imp_count
+                const def_idx = exp.idx - imp_count;
+                const fs = func_section_funcs orelse return error.UnsupportedImport;
+                if (def_idx >= fs.len) return error.UnsupportedImport;
+                const tidx = fs[def_idx];
+                const ft = if (types_owned) |t| t.items[tidx] else
+                    return error.UnsupportedImport;
+                break :blk .{ .func = ft };
+            },
+            .table => blk: {
+                var imp_count: u32 = 0;
+                if (imports_decoded) |im| {
+                    var idx: u32 = 0;
+                    for (im.items) |it| {
+                        if (it.kind != .table) continue;
+                        if (idx == exp.idx) {
+                            const t = it.payload.table;
+                            break :blk .{ .table = .{ .elem_type = t.elem_type, .min = t.min, .max = t.max } };
+                        }
+                        idx += 1;
+                    }
+                    imp_count = idx;
+                }
+                const def_idx = exp.idx - imp_count;
+                const dt = (defined_tables orelse return error.UnsupportedImport).items;
+                if (def_idx >= dt.len) return error.UnsupportedImport;
+                const t = dt[def_idx];
+                break :blk .{ .table = .{ .elem_type = t.elem_type, .min = t.min, .max = t.max } };
+            },
+            .memory => blk: {
+                var imp_count: u32 = 0;
+                if (imports_decoded) |im| {
+                    var idx: u32 = 0;
+                    for (im.items) |it| {
+                        if (it.kind != .memory) continue;
+                        if (idx == exp.idx) {
+                            const m = it.payload.memory;
+                            break :blk .{ .memory = .{ .min = m.min, .max = m.max } };
+                        }
+                        idx += 1;
+                    }
+                    imp_count = idx;
+                }
+                const def_idx = exp.idx - imp_count;
+                const dm = (defined_memories orelse return error.UnsupportedImport).items;
+                if (def_idx >= dm.len) return error.UnsupportedImport;
+                const m = dm[def_idx];
+                break :blk .{ .memory = .{ .min = m.min, .max = m.max } };
+            },
+            .global => blk: {
+                var imp_count: u32 = 0;
+                if (imports_decoded) |im| {
+                    var idx: u32 = 0;
+                    for (im.items) |it| {
+                        if (it.kind != .global) continue;
+                        if (idx == exp.idx) {
+                            const g = it.payload.global;
+                            break :blk .{ .global = .{ .valtype = g.valtype, .mutable = g.mutable } };
+                        }
+                        idx += 1;
+                    }
+                    imp_count = idx;
+                }
+                const def_idx = exp.idx - imp_count;
+                const dg = (defined_globals orelse return error.UnsupportedImport).items;
+                if (def_idx >= dg.len) return error.UnsupportedImport;
+                const g = dg[def_idx];
+                break :blk .{ .global = .{ .valtype = g.valtype, .mutable = g.mutable } };
+            },
+        };
+    }
+    return out;
 }
 
 /// Evaluate a global init-expression and return the initial Value.
