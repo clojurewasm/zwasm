@@ -136,13 +136,18 @@ pub fn compile(
     // This lives in emit.zig (not as a separate type) because the
     // patching machinery is tightly coupled to the buf layout.
     // ============================================================
-    const LabelKind = enum { block, loop };
+    const LabelKind = enum { block, loop, if_then, else_open };
     const FixupKind = enum { b_uncond, cbnz_w };
     const Fixup = struct { byte_offset: u32, kind: FixupKind };
     const Label = struct {
         kind: LabelKind,
         target_byte_offset: u32,
         pending: std.ArrayList(Fixup),
+        /// When `.if_then`, byte offset of the CBZ that skips
+        /// the then-body. Patched at `else` (to else-body start)
+        /// or at `end` (to end of if). Cleared when transitioning
+        /// to `.else_open`.
+        if_skip_byte: ?u32 = null,
     };
     var labels: std.ArrayList(Label) = .empty;
     defer {
@@ -831,6 +836,51 @@ pub fn compile(
                     try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
                 }
             },
+            .@"if" => {
+                // Pop cond vreg. Emit `CBZ Wn, 0` placeholder
+                // that skips the then-body when cond=0. The skip
+                // target is patched at the matching `else` (to
+                // the else-body start) or at `end` (to end-of-if).
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const cond = pushed_vregs.pop().?;
+                const wn = abi.slotToReg(alloc.slots[cond]) orelse return Error.SlotOverflow;
+                const skip_byte: u32 = @intCast(buf.items.len);
+                try writeU32(allocator, &buf, inst.encCbzW(wn, 0));
+                try labels.append(allocator, .{
+                    .kind = .if_then,
+                    .target_byte_offset = 0,
+                    .pending = .empty,
+                    .if_skip_byte = skip_byte,
+                });
+            },
+            .@"else" => {
+                // Emit `B 0` placeholder that jumps from the end
+                // of the then-body to the end of the if/else
+                // (patched at matching `end`). Then patch the
+                // if's CBZ to point to current byte (= start of
+                // else-body, right after this B). Transition the
+                // label to .else_open.
+                if (labels.items.len == 0 or
+                    labels.items[labels.items.len - 1].kind != .if_then)
+                {
+                    return Error.UnsupportedOp;
+                }
+                const b_byte: u32 = @intCast(buf.items.len);
+                try writeU32(allocator, &buf, inst.encB(0));
+                const else_start: u32 = @intCast(buf.items.len);
+                const lbl = &labels.items[labels.items.len - 1];
+                const skip_byte = lbl.if_skip_byte.?;
+                // Patch the CBZ: disp_words from skip_byte to else_start.
+                const skip_disp: i32 = @as(i32, @intCast(else_start)) -
+                    @as(i32, @intCast(skip_byte));
+                const orig_cbz = std.mem.readInt(u32, buf.items[skip_byte..][0..4], .little);
+                const cbz_rt: inst.Xn = @intCast(orig_cbz & 0x1F);
+                const new_cbz = inst.encCbzW(cbz_rt, @divExact(skip_disp, 4));
+                std.mem.writeInt(u32, buf.items[skip_byte..][0..4], new_cbz, .little);
+                lbl.if_skip_byte = null;
+                lbl.kind = .else_open;
+                try lbl.pending.append(allocator, .{ .byte_offset = b_byte, .kind = .b_uncond });
+            },
             .@"br_if" => {
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 const cond = pushed_vregs.pop().?;
@@ -861,15 +911,27 @@ pub fn compile(
                 if (labels.items.len > 0) {
                     var lbl = labels.pop().?;
                     defer lbl.pending.deinit(allocator);
-                    if (lbl.kind == .block) {
-                        const target_byte: u32 = @intCast(buf.items.len);
+                    const target_byte: u32 = @intCast(buf.items.len);
+                    // Patch the if-then's skip-CBZ if it's still
+                    // pending (no `else` was encountered).
+                    if (lbl.if_skip_byte) |skip_byte| {
+                        const disp: i32 = @as(i32, @intCast(target_byte)) -
+                            @as(i32, @intCast(skip_byte));
+                        const orig = std.mem.readInt(u32, buf.items[skip_byte..][0..4], .little);
+                        const rt: inst.Xn = @intCast(orig & 0x1F);
+                        const new_cbz = inst.encCbzW(rt, @divExact(disp, 4));
+                        std.mem.writeInt(u32, buf.items[skip_byte..][0..4], new_cbz, .little);
+                    }
+                    // Patch all forward br fixups that targeted
+                    // this label (block, if_then with br inside,
+                    // else_open including the else-end B).
+                    if (lbl.kind == .block or lbl.kind == .if_then or lbl.kind == .else_open) {
                         for (lbl.pending.items) |fx| {
                             const disp_words: i32 = @as(i32, @intCast(target_byte)) -
                                 @as(i32, @intCast(fx.byte_offset));
                             const new_word: u32 = switch (fx.kind) {
                                 .b_uncond => inst.encB(@divExact(disp_words, 4)),
                                 .cbnz_w => blk: {
-                                    // Read original to recover Rt.
                                     const orig = std.mem.readInt(u32, buf.items[fx.byte_offset..][0..4], .little);
                                     const rt: inst.Xn = @intCast(orig & 0x1F);
                                     break :blk inst.encCbnzW(rt, @divExact(disp_words, 4));
@@ -1803,6 +1865,82 @@ test "compile: loop + br 0 + end — backward unconditional branch" {
     // Then end (no-op for loop), then i32.const W9 #1, MOV X0, ...
     const b_word = std.mem.readInt(u32, out.bytes[8..12], .little);
     try testing.expectEqual(@as(u32, inst.encB(0)), b_word);
+}
+
+test "compile: if (i32.const N) end — single-arm if; CBZ skips to end" {
+    // (i32.const 1) (if) (i32.const 7) (end) (i32.const 99) (end)
+    // The if takes the cond from the const 1, and unconditionally
+    // executes its then-body (i32.const 7) since 1 != 0. We're
+    // testing the byte layout, not execution.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"if" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });   // closes if
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });   // closes function
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },  // cond
+        .{ .def_pc = 2, .last_use_pc = 3 },  // then-body's const
+        .{ .def_pc = 4, .last_use_pc = 5 },  // post-if
+    } };
+    const slots = [_]u8{ 0, 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // Stream:
+    //  [0]  STP                     (prologue)
+    //  [4]  MOV X29, SP
+    //  [8]  MOVZ W9 #1               (cond)
+    // [12]  CBZ  W9, +2 (= byte 20)  (if-skip; patched at end)
+    // [16]  MOVZ W9 #7               (then-body)
+    // [20]  MOVZ W9 #99              (post-if; if's `end` lands here)
+    // CBZ disp = (20 - 12) / 4 = 2.
+    const cbz = std.mem.readInt(u32, out.bytes[12..16], .little);
+    try testing.expectEqual(@as(u32, inst.encCbzW(9, 2)), cbz);
+}
+
+test "compile: if/else/end — CBZ skips to else; B-uncond skips to end" {
+    // (i32.const 0) (if) (i32.const 7) (else) (i32.const 99) (end) (end)
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"if" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"else" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });   // closes if
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });   // closes function
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },  // cond
+        .{ .def_pc = 2, .last_use_pc = 3 },  // then-body
+        .{ .def_pc = 4, .last_use_pc = 6 },  // else-body
+    } };
+    const slots = [_]u8{ 0, 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // Stream:
+    //  [0]  STP
+    //  [4]  MOV X29, SP
+    //  [8]  MOVZ W9 #0   (cond)
+    // [12]  CBZ  W9, ?   (patched at `else` to skip then-body)
+    // [16]  MOVZ W9 #7   (then-body)
+    // [20]  B    ?       (skip else-body; patched at `end`)
+    // [24]  MOVZ W9 #99  (else-body; CBZ patched to here)
+    // [28]  ...           (if's `end` lands here; B patched to here)
+    //
+    // CBZ disp = (24 - 12) / 4 = 3.
+    // B disp = (28 - 20) / 4 = 2.
+    const cbz = std.mem.readInt(u32, out.bytes[12..16], .little);
+    const b   = std.mem.readInt(u32, out.bytes[20..24], .little);
+    try testing.expectEqual(@as(u32, inst.encCbzW(9, 3)), cbz);
+    try testing.expectEqual(@as(u32, inst.encB(2)),       b);
 }
 
 test "compile: br_if 0 — forward CBNZ fixup" {
