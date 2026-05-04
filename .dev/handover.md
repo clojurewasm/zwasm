@@ -24,34 +24,36 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
   `68843b0` (3-host green; mandatory audit fired; widget flipped
   6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `e568077` — feat(p6) close D-006 (linking-errors
-  honest pass via Wasm 2.0 §3.4.10 import-type validator) +
-  D-023+D-025 (v1-class hyperfine baseline: 26 fixtures recorded
-  in bench/results/history.yaml as "Phase 6 close baseline").
-  Earlier same cycle: 7.0 reg_class.zig (`e273149`) + 7.1
-  regalloc.zig (`e7ad654`).
+- **Last commit**: `4389a50` — feat(p7) §9.7 / 7.2 jit_arm64
+  `inst.zig` (encoder, 13 ops + tests) + `abi.zig` (AAPCS64
+  inventory + slotToReg). 521/521 unit / 3-host green. Earlier
+  same cycle: 7.0 (`e273149`), 7.1 (`e7ad654`); D-006/D-023/D-024/
+  D-025 discharged + bench v1-class baseline.
 - **Branch**: `zwasm-from-scratch`, pushed.
 - **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
   all report identical test-all numbers (39/55 diff matched, 44/55
   realworld run, 1158 wast / 72 misc-runtime smoke / 5 wasmtime-misc
   runtime / 50 realworld parse / 9+3 spec / 2 wasi).
 
-## Active task — §9.7 / 7.2 (`jit_arm64/{inst,abi}.zig`)
+## Active task — §9.7 / 7.3 (`jit_arm64/emit.zig` ZIR→ARM64)
 
-Per ROADMAP §9.7 / 7.2: `src/jit_arm64/{inst,abi}.zig` — ARM64
-instruction encoder + AAPCS64 calling convention layout. Wires
-the per-arch physical register inventory that maps `RegClass` →
-specific X / D / V registers.
+Per ROADMAP §9.7 / 7.3: `src/jit_arm64/emit.zig` — ZIR → ARM64
+emit pass producing function bodies. Consumes:
+- `jit/regalloc.compute()` for slot assignments per vreg.
+- `jit_arm64/inst.enc*` for fixed-width u32 encodings.
+- `jit_arm64/abi.slotToReg / isCallerSaved / isCalleeSaved` for
+  per-arch wiring.
 
-This row was previously `[x] 3c89984` and reverted at the Phase 6
-reopen per ADR-0011. Treat the reverted tree as design-space
-reference, not copy-paste source.
+This row also dissolves D-014's barrier ("§9.7 / 7.3 emit pass
+or earliest JIT row that touches Runtime"). The Runtime.io
+injection-point design needs its decision here (or before).
+Step 0.5 of the next /continue cycle should flip D-014 to `now`
+and discharge alongside.
 
-Substrate now in place from 7.0 + 7.1:
-- `zir.RegClass` (6 named variants).
-- `jit/reg_class.zig:info()` (per-class invariants).
-- `jit/regalloc.zig:compute() / verify()` (slot-only allocator;
-  per-class refinement hooks here at 7.2).
+7.3 is also the row where Diagnostic M3 (interp trap location +
+trace ringbuffer per ADR-0016) becomes more useful since JIT
+trap surfacing inherits from interp's machinery — D-022 may
+flip to `now` here too.
 
 ## Phase 6 close — closing snapshot
 
