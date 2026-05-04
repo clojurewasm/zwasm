@@ -17,7 +17,7 @@ const wasi_host = @import("../wasi/host.zig");
 const wasi_fd = @import("../wasi/fd.zig");
 const wasi_proc = @import("../wasi/proc.zig");
 const wasi_clocks = @import("../wasi/clocks.zig");
-const Errno = @import("../wasi/p1.zig").Errno;
+const Errno = @import("../wasi/preview1.zig").Errno;
 
 const testing = std.testing;
 

@@ -18,7 +18,7 @@
 
 const std = @import("std");
 
-const p1 = @import("p1.zig");
+const p1 = @import("preview1.zig");
 
 const Allocator = std.mem.Allocator;
 

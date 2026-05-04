@@ -22,7 +22,7 @@ pub const validator = @import("frontend/validator.zig");
 pub const lowerer = @import("frontend/lowerer.zig");
 pub const sections = @import("frontend/sections.zig");
 pub const zir = @import("ir/zir.zig");
-pub const runtime = ("runtime/runtime.zig");
+pub const runtime = @import("runtime/runtime.zig");
 pub const cli_run = @import("cli/run.zig");
 pub const c_api = @import("c_api/wasm_c_api.zig");
 pub const diagnostic = @import("diagnostic/diagnostic.zig");
@@ -165,7 +165,7 @@ test {
     _ = @import("interp/ext_2_0/ref_types.zig");
     _ = @import("interp/ext_2_0/table_ops.zig");
     _ = @import("c_api/wasm_c_api.zig");
-    _ = @import("wasi/p1.zig");
+    _ = @import("wasi/preview1.zig");
     _ = @import("wasi/host.zig");
     _ = @import("wasi/proc.zig");
     _ = @import("wasi/fd.zig");

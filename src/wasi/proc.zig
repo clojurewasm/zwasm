@@ -23,7 +23,7 @@
 
 const std = @import("std");
 
-const p1 = @import("p1.zig");
+const p1 = @import("preview1.zig");
 const host_mod = @import("host.zig");
 
 const Host = host_mod.Host;
