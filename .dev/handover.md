@@ -24,12 +24,12 @@
 
 - **Phase**: Phase 7 IN-PROGRESS, scope expanded per ADR-0019
   (ARM64 + x86_64 baseline both in Phase 7; §9.7 = 7.0..7.12).
-- **Last commit**: `36b9ed8` — Step 3c ADR-0020 (7 p7 fixtures
-  bootstrapped: trunc_f32_s 4 + trunc_sat_f32_s 3, with .wat +
-  .wasm + .expect triples). Step 3 (ADR-0020 edge-case rule)
-  **complete**. 736/736 unit / 3-host green. Step 4 (§9.7 / 7.5
-  spec testsuite via ARM64 JIT) NEXT — the row that flips 7.0–
-  7.5 to [x] collectively.
+- **Last commit**: `e4c248b` — Step 4 sub-7.5a (JIT pipeline
+  driver: `src/jit/compile_func.zig` integrates lowerer →
+  liveness → regalloc → emit; smoke test runs frontend-produced
+  ZIR on real CPU for first time). 737/737 unit / 3-host green.
+  Sub-7.5b (wast-runner spec gate iterating wasm-1.0 testsuite
+  assertions through compile_func) NEXT.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active plan — implementation cycles after ADR acceptance
@@ -42,7 +42,7 @@ below corresponds to one or more `/continue` cycles.
 | 1 | regalloc pool: remove X24..X28; add `reserved_invariant_gprs`; `Slot` union with first-class spill | 0018 | **DONE** — sub-1a `1d6d178`, sub-1b `7e880b8`, sub-1c `394e416` |
 | 2 | JitRuntime struct + ABI: X0 = `*const JitRuntime`, prologue LDRs invariants, entry-frame collapses to standard fn-ptr call | 0017 | **DONE** — sub-2a `0827b89`, sub-2b+2c `44b94a0`, sub-2d-i `10ab46d`, sub-2d-ii `0010a03`. **D-014 dissolved.** |
 | 3 | Edge-case test culture: rule + Step-4 hook + audit §I; bootstrap p7 fixtures | 0020 | **DONE** — sub-3a `52efba4` (rule), sub-3b `b787b19` (audit + hook), sub-3c `36b9ed8` (7 fixtures) |
-| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | **NEXT** |
+| 4 | §9.7 / 7.5 spec testsuite via ARM64 JIT (was 7.4d; renumbered per ADR-0019) | — | sub-7.5a `e4c248b` (pipeline driver); **sub-7.5b (wast iter through driver) NEXT**; sub-7.5c (chase failures to pass=fail=skip=0) |
 | 5 | §9.7 / 7.6 + 7.7 + 7.8: x86_64 reg_class/abi + emit + spec gate | 0019 | After Step 4 |
 | 6 | §9.7 / 7.9–7.12: realworld ARM64 + x86_64, three-way differential, audit + open §9.8 | — | After Step 5 |
 | 7 | emit.zig responsibility split (no ADR; opportunistic) | — | After Phase 7 close |
