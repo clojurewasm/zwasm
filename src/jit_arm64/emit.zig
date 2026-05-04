@@ -836,6 +836,63 @@ pub fn compile(
                     try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
                 }
             },
+            .@"br_table" => {
+                // Pop index. Then linear CMP+B.NE+B chain for
+                // each in-range target, plus an unconditional B
+                // to the default at the end.
+                //
+                // Per ZirInstr encoding (mvp.zig:brTableOp):
+                //   payload = count  (number of in-range targets)
+                //   extra   = start  (offset into branch_targets array)
+                // branch_targets[start..start+count] = case depths
+                // branch_targets[start+count]        = default depth
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const idx_vreg = pushed_vregs.pop().?;
+                const wn = abi.slotToReg(alloc.slots[idx_vreg]) orelse return Error.SlotOverflow;
+                const count = ins.payload;
+                const start = ins.extra;
+                if (count >= (@as(u32, 1) << 12)) return Error.SlotOverflow;
+                const targets = func.branch_targets.items;
+                if (start + count >= targets.len) return Error.UnsupportedOp;
+
+                // Helper emits a `B target_for_depth` (direct backward
+                // to loop, or forward placeholder + fixup to block-
+                // family label).
+                const emitBranchToDepth = struct {
+                    fn run(
+                        a: Allocator,
+                        b: *std.ArrayList(u8),
+                        labs: []Label,
+                        depth: u32,
+                    ) !void {
+                        if (depth >= labs.len) return Error.UnsupportedOp;
+                        const tgt_idx = labs.len - 1 - depth;
+                        const tgt = &labs[tgt_idx];
+                        const fixup_at: u32 = @intCast(b.items.len);
+                        if (tgt.kind == .loop) {
+                            const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+                                @as(i32, @intCast(fixup_at));
+                            const word = inst.encB(@divExact(disp_words, 4));
+                            var bytes: [4]u8 = undefined;
+                            std.mem.writeInt(u32, &bytes, word, .little);
+                            try b.appendSlice(a, &bytes);
+                        } else {
+                            var bytes: [4]u8 = undefined;
+                            std.mem.writeInt(u32, &bytes, inst.encB(0), .little);
+                            try b.appendSlice(a, &bytes);
+                            try tgt.pending.append(a, .{ .byte_offset = fixup_at, .kind = .b_uncond });
+                        }
+                    }
+                }.run;
+
+                var i: u32 = 0;
+                while (i < count) : (i += 1) {
+                    try writeU32(allocator, &buf, inst.encCmpImmW(wn, @intCast(i)));
+                    try writeU32(allocator, &buf, inst.encBCond(.ne, 2));
+                    try emitBranchToDepth(allocator, &buf, labels.items, targets[start + i]);
+                }
+                try emitBranchToDepth(allocator, &buf, labels.items, targets[start + count]);
+            },
             .@"if" => {
                 // Pop cond vreg. Emit `CBZ Wn, 0` placeholder
                 // that skips the then-body when cond=0. The skip
@@ -1941,6 +1998,58 @@ test "compile: if/else/end — CBZ skips to else; B-uncond skips to end" {
     const b   = std.mem.readInt(u32, out.bytes[20..24], .little);
     try testing.expectEqual(@as(u32, inst.encCbzW(9, 3)), cbz);
     try testing.expectEqual(@as(u32, inst.encB(2)),       b);
+}
+
+test "compile: br_table — emits CMP+B.NE+B chain + default B" {
+    // (block               ; outer block 1 (depth 1)
+    //   (block             ; inner block 0 (depth 0)
+    //     (i32.const 0)    ; index value
+    //     (br_table 0 1)   ; case 0 → depth 0, default → depth 1
+    //     (i32.const 7)    ; never reached
+    //   end)               ; inner end
+    //   (i32.const 99)
+    // end)                 ; outer end
+    // (i32.const 1) (end)  ; func end
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // Build branch_targets: [0, 1] — case 0 → 0, default → 1.
+    try f.branch_targets.append(testing.allocator, 0);
+    try f.branch_targets.append(testing.allocator, 1);
+    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br_table", .payload = 1, .extra = 0 }); // count=1, start=0
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" }); // inner block end
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" }); // outer block end
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" }); // func end
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 2, .last_use_pc = 3 },  // index
+        .{ .def_pc = 5, .last_use_pc = 6 },  // post-inner block
+        .{ .def_pc = 7, .last_use_pc = 8 },  // post-outer block
+    } };
+    const slots = [_]u8{ 0, 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+
+    // Stream:
+    //  [0]  STP
+    //  [4]  MOV X29, SP
+    //  [8]  MOVZ W9 #0      (index)
+    // [12]  CMP W9, #0       (br_table case 0 cmp)
+    // [16]  B.NE +2          (skip the next B if not equal)
+    // [20]  B  ?             (forward fixup → inner-block end target)
+    // [24]  B  ?             (forward fixup → outer-block end / default)
+    // [28]  MOVZ W9 #99       ← inner-block-end target lands here
+    // [32]  MOVZ W9 #1        ← outer-block-end target lands here
+    // CMP at byte 12; B.NE at 16; case-0 B at 20 → +2 = byte 28; default B at 24 → +2 = byte 32.
+    try testing.expectEqual(@as(u32, inst.encCmpImmW(9, 0)),  std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encBCond(.ne, 2)),  std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encB(2)),           std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encB(2)),           std.mem.readInt(u32, out.bytes[24..28], .little));
 }
 
 test "compile: br_if 0 — forward CBNZ fixup" {
