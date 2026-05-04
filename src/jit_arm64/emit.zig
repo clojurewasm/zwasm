@@ -427,6 +427,56 @@ pub fn compile(
                 try writeU32(allocator, &buf, inst.encSxtw(xd, wn));
                 try pushed_vregs.append(allocator, result);
             },
+            // sub-h2: int → float convert. Source is GPR slot
+            // (i32→W, i64→X), dest is V slot (f32→S, f64→D).
+            .@"f32.convert_i32_s",
+            .@"f32.convert_i32_u",
+            .@"f32.convert_i64_s",
+            .@"f32.convert_i64_u",
+            .@"f64.convert_i32_s",
+            .@"f64.convert_i32_u",
+            .@"f64.convert_i64_s",
+            .@"f64.convert_i64_u",
+            => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const src = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const word: u32 = switch (ins.op) {
+                    .@"f32.convert_i32_s" => inst.encScvtfSFromW(vd, src),
+                    .@"f32.convert_i32_u" => inst.encUcvtfSFromW(vd, src),
+                    .@"f32.convert_i64_s" => inst.encScvtfSFromX(vd, src),
+                    .@"f32.convert_i64_u" => inst.encUcvtfSFromX(vd, src),
+                    .@"f64.convert_i32_s" => inst.encScvtfDFromW(vd, src),
+                    .@"f64.convert_i32_u" => inst.encUcvtfDFromW(vd, src),
+                    .@"f64.convert_i64_s" => inst.encScvtfDFromX(vd, src),
+                    .@"f64.convert_i64_u" => inst.encUcvtfDFromX(vd, src),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
+            // sub-h2: float demote/promote. Both src and dest are
+            // V-register slots (f32 ↔ f64).
+            .@"f32.demote_f64", .@"f64.promote_f32" => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const word: u32 = switch (ins.op) {
+                    .@"f32.demote_f64" => inst.encFcvtSFromD(vd, vn),
+                    .@"f64.promote_f32" => inst.encFcvtDFromS(vd, vn),
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, word);
+                try pushed_vregs.append(allocator, result);
+            },
             .@"f32.const" => {
                 // Stage the IEEE-754 bits via a GPR const, then
                 // FMOV S, W. The intermediate W-reg is the FP
@@ -3106,6 +3156,101 @@ test "compile: i64.extend_i32_u emits MOV W,W (zero-extends via W-write)" {
     // After STP/MOV-FP (8) + MOVZ W9, #42 (4) = 12 bytes:
     //   [12..16] ORR W9, WZR, W9
     try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+}
+
+test "compile: f32.convert_i32_s emits SCVTF S, W" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.convert_i32_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP (8) + MOVZ W9, #7 (4) = 12 bytes:
+    //   [12..16] SCVTF S16, W9 (slot 0 → V16 dest, X9 src)
+    try testing.expectEqual(@as(u32, inst.encScvtfSFromW(16, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+}
+
+test "compile: f64.convert_i64_u emits UCVTF D, X" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0xDEAD, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.convert_i64_u" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP (8) + MOVZ X9, #0xDEAD (4) = 12 bytes (single hi16==0):
+    //   [12..16] UCVTF D16, X9
+    try testing.expectEqual(@as(u32, inst.encUcvtfDFromX(16, 9)), std.mem.readInt(u32, out.bytes[12..16], .little));
+}
+
+test "compile: f32.demote_f64 emits FCVT S, D" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40080000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.demote_f64" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Find FCVT S16, D16 in the byte stream.
+    const expected = inst.encFcvtSFromD(16, 16);
+    var found = false;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        if (std.mem.readInt(u32, out.bytes[p..][0..4], .little) == expected) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: f64.promote_f32 emits FCVT D, S" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.promote_f32" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    const expected = inst.encFcvtDFromS(16, 16);
+    var found = false;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        if (std.mem.readInt(u32, out.bytes[p..][0..4], .little) == expected) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
 }
 
 comptime {

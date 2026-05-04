@@ -157,6 +157,70 @@ pub fn encSxtw(xd: Xn, wn: Xn) u32 {
     return 0x93407C00 | (@as(u32, wn) << 5) | @as(u32, xd);
 }
 
+// ============================================================
+// Sub-h2: int↔float conversions (SCVTF / UCVTF / FCVT).
+// All verified via clang assembler.
+//
+// SCVTF/UCVTF: signed/unsigned int → float. The src reg's width
+// (W vs X) and the dest reg's precision (S vs D) each toggle one
+// bit in the base encoding:
+//   S/D toggle: bit 22 (clear → S, set → D)        — `_S` vs `_D`
+//   sf  toggle: bit 31 (clear → 32-bit, set → 64-bit src)
+//   U   toggle: bit 16 (clear → SCVTF, set → UCVTF)
+// Each combination has its own helper for clarity.
+// ============================================================
+
+/// `SCVTF Sd, Wn` — single-prec from signed 32-bit int.
+/// Encoding base 0x1E220000.
+pub fn encScvtfSFromW(vd: Vn, wn: Xn) u32 {
+    return 0x1E220000 | (@as(u32, wn) << 5) | @as(u32, vd);
+}
+/// `SCVTF Sd, Xn` — single-prec from signed 64-bit int.
+/// Encoding base 0x9E220000.
+pub fn encScvtfSFromX(vd: Vn, xn: Xn) u32 {
+    return 0x9E220000 | (@as(u32, xn) << 5) | @as(u32, vd);
+}
+/// `UCVTF Sd, Wn` — single-prec from unsigned 32-bit int.
+/// Encoding base 0x1E230000.
+pub fn encUcvtfSFromW(vd: Vn, wn: Xn) u32 {
+    return 0x1E230000 | (@as(u32, wn) << 5) | @as(u32, vd);
+}
+/// `UCVTF Sd, Xn` — single-prec from unsigned 64-bit int.
+/// Encoding base 0x9E230000.
+pub fn encUcvtfSFromX(vd: Vn, xn: Xn) u32 {
+    return 0x9E230000 | (@as(u32, xn) << 5) | @as(u32, vd);
+}
+/// `SCVTF Dd, Wn` — double-prec from signed 32-bit int.
+/// Encoding base 0x1E620000.
+pub fn encScvtfDFromW(vd: Vn, wn: Xn) u32 {
+    return 0x1E620000 | (@as(u32, wn) << 5) | @as(u32, vd);
+}
+/// `SCVTF Dd, Xn` — double-prec from signed 64-bit int.
+/// Encoding base 0x9E620000.
+pub fn encScvtfDFromX(vd: Vn, xn: Xn) u32 {
+    return 0x9E620000 | (@as(u32, xn) << 5) | @as(u32, vd);
+}
+/// `UCVTF Dd, Wn` — double-prec from unsigned 32-bit int.
+/// Encoding base 0x1E630000.
+pub fn encUcvtfDFromW(vd: Vn, wn: Xn) u32 {
+    return 0x1E630000 | (@as(u32, wn) << 5) | @as(u32, vd);
+}
+/// `UCVTF Dd, Xn` — double-prec from unsigned 64-bit int.
+/// Encoding base 0x9E630000.
+pub fn encUcvtfDFromX(vd: Vn, xn: Xn) u32 {
+    return 0x9E630000 | (@as(u32, xn) << 5) | @as(u32, vd);
+}
+/// `FCVT Sd, Dn` — float demote (double → single).
+/// Encoding base 0x1E624000.
+pub fn encFcvtSFromD(vd: Vn, vn: Vn) u32 {
+    return 0x1E624000 | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+/// `FCVT Dd, Sn` — float promote (single → double).
+/// Encoding base 0x1E22C000.
+pub fn encFcvtDFromS(vd: Vn, vn: Vn) u32 {
+    return 0x1E22C000 | (@as(u32, vn) << 5) | @as(u32, vd);
+}
+
 /// `BLR Xn` — branch-with-link to register. Used by
 /// `call_indirect` after the funcptr is materialized in a GPR.
 /// Encoding: `1101 0110 0011 1111 0000 00 nnnnn 0 0000` —
@@ -769,6 +833,16 @@ test "encLdrWRegLsl2 w16, [x24, x17, lsl #2] → 0xB8717B10" {
 test "encSxtw x9, w10 — `sxtw x9, w10` → 0x93407D49" {
     try testing.expectEqual(@as(u32, 0x93407D49), encSxtw(9, 10));
 }
+test "encScvtfSFromW s9, w10 → 0x1E220149" { try testing.expectEqual(@as(u32, 0x1E220149), encScvtfSFromW(9, 10)); }
+test "encScvtfSFromX s9, x10 → 0x9E220149" { try testing.expectEqual(@as(u32, 0x9E220149), encScvtfSFromX(9, 10)); }
+test "encUcvtfSFromW s9, w10 → 0x1E230149" { try testing.expectEqual(@as(u32, 0x1E230149), encUcvtfSFromW(9, 10)); }
+test "encUcvtfSFromX s9, x10 → 0x9E230149" { try testing.expectEqual(@as(u32, 0x9E230149), encUcvtfSFromX(9, 10)); }
+test "encScvtfDFromW d9, w10 → 0x1E620149" { try testing.expectEqual(@as(u32, 0x1E620149), encScvtfDFromW(9, 10)); }
+test "encScvtfDFromX d9, x10 → 0x9E620149" { try testing.expectEqual(@as(u32, 0x9E620149), encScvtfDFromX(9, 10)); }
+test "encUcvtfDFromW d9, w10 → 0x1E630149" { try testing.expectEqual(@as(u32, 0x1E630149), encUcvtfDFromW(9, 10)); }
+test "encUcvtfDFromX d9, x10 → 0x9E630149" { try testing.expectEqual(@as(u32, 0x9E630149), encUcvtfDFromX(9, 10)); }
+test "encFcvtSFromD s9, d10 → 0x1E624149" { try testing.expectEqual(@as(u32, 0x1E624149), encFcvtSFromD(9, 10)); }
+test "encFcvtDFromS d9, s10 → 0x1E22C149" { try testing.expectEqual(@as(u32, 0x1E22C149), encFcvtDFromS(9, 10)); }
 test "encBLR x17 — `blr x17` → 0xD63F0220" {
     try testing.expectEqual(@as(u32, 0xD63F0220), encBLR(17));
 }
