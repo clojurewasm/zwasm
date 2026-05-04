@@ -493,6 +493,54 @@ pub fn compile(
                 try writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
+            // sub-h4: reinterpret (bit-cast). All 4 ops compile to
+            // a single FMOV register-class crossing instruction —
+            // the underlying bits don't change, just the type the
+            // regalloc pools track.
+            .@"i32.reinterpret_f32" => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encFmovWFromS(wd, vn));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i64.reinterpret_f64" => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const vn = abi.fpSlotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const xd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encFmovXFromD(xd, vn));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"f32.reinterpret_i32" => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encFmovStoFromW(vd, wn));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"f64.reinterpret_i64" => {
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const xn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const vd = abi.fpSlotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, xn));
+                try pushed_vregs.append(allocator, result);
+            },
             // sub-h2: float demote/promote. Both src and dest are
             // V-register slots (f32 ↔ f64).
             .@"f32.demote_f64", .@"f64.promote_f32" => {
@@ -3330,6 +3378,60 @@ test "compile: i64.trunc_sat_f64_u emits FCVTZU X, D" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const expected = inst.encFcvtzuXFromD(9, 16);
+    var found = false;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        if (std.mem.readInt(u32, out.bytes[p..][0..4], .little) == expected) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: i32.reinterpret_f32 emits FMOV W, S" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.reinterpret_f32" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    const expected = inst.encFmovWFromS(9, 16);
+    var found = false;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        if (std.mem.readInt(u32, out.bytes[p..][0..4], .little) == expected) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: f64.reinterpret_i64 emits FMOV D, X" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .f64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0xCAFE, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.reinterpret_i64" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    const expected = inst.encFmovDtoFromX(16, 9);
     var found = false;
     var p: usize = 0;
     while (p + 4 <= out.bytes.len) : (p += 4) {
