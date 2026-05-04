@@ -24,11 +24,11 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — §9.7 / 7.0–7.2 closed; 7.3
   in multi-cycle build-out (i32+i64+f32+f64 numeric coverage +
   locals + control-flow-e1 done).
-- **Last commit**: `129b93f` — feat(p7) §9.7 / 7.3 sub-f3
-  (memory.size + memory.grow skeleton; grow returns -1 until
-  Runtime callout lands at sub-g). Memory MVP coverage now
-  substantively complete (25 ops). 669/669 unit / 3-host green.
-  Phase 6 close at `68843b0`.
+- **Last commit**: `3cf4b77` — feat(p7) §9.7 / 7.3 sub-g1
+  (`call N` no-arg skeleton + BL fixup list; EmitOutput grows
+  `call_fixups: []CallFixup` for post-emit linker). Sub-g2
+  (`call_indirect`) + sub-g3 (AAPCS64 arg marshalling) ahead.
+  670/670 unit / 3-host green. Phase 6 close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -50,7 +50,9 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | f1  | i32.load + i32.store + bounds-check + trap stub        | [x] `82862e5` |
 | f2  | sub-byte + i64/f32/f64 load/store (23 ops total)      | [x] `fb5da38` |
 | f3  | memory.size + memory.grow (skeleton; grow returns -1) | [x] `129b93f` |
-| g   | call / call_indirect + arg/return marshalling         | [ ] **NEXT** |
+| g1  | call (no-arg skeleton + BL fixup list)                | [x] `3cf4b77` |
+| g2  | call_indirect (table lookup + BLR)                    | [ ] **NEXT** |
+| g3  | AAPCS64 arg/return marshalling (X0..X7 + V0..V7)      | [ ]    |
 | h   | numeric conversions (wrap/extend/trunc/convert/reinterpret) | [ ]   |
 
 Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
@@ -60,9 +62,8 @@ Plus 3 locals ops + end + 4 control-flow ops (block/loop/br/br_if).
 
 - **D-014 (`Runtime.io` injection point design)**: barrier
   refined to "§9.7 / 7.3 emit pass first row touching Runtime".
-  Currently 7.3 sub-a..e1 are pure code emit (no Runtime
-  access). Sub-f (memory ops with bounds-check trap surface)
-  is the first to need Runtime — D-014 dissolves there.
+  Sub-g3 (arg marshalling) is the first to thread the
+  signature table through — D-014 dissolves there.
 - **D-022 (Diagnostic M3 / trace ringbuffer)**: stays
   `blocked-by` until sub-f introduces trap surfaces.
 - **D-026 (env-stub host-func wiring)**: 4 embenchen + 1
