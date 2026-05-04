@@ -57,6 +57,9 @@ pub const max_frame_stack = frame_mod.max_frame_stack;
 pub const max_label_stack = frame_mod.max_label_stack;
 
 pub const Module = @import("module.zig").Module;
+pub const Engine = @import("engine.zig").Engine;
+pub const Store = @import("store.zig").Store;
+pub const Zombie = @import("store.zig").Zombie;
 
 /// Free a typed slice via `Allocator.rawFree`, skipping the
 /// `@memset(slice, undefined)` poisoning that `Allocator.free`

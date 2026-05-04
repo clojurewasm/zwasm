@@ -66,59 +66,9 @@ const testing = std.testing;
 /// `std.heap.c_allocator` so C hosts get malloc-equivalent
 /// lifetime; a future `zwasm.h` extension will let the host
 /// inject its own.
-pub const Engine = extern struct {
-    /// Type-erased allocator pointer + vtable. Stored as two
-    /// `*anyopaque` so the layout is C-stable — Zig's
-    /// `std.mem.Allocator` is `extern struct { ptr: *anyopaque,
-    /// vtable: *const VTable }` so a memcpy / pointer cast
-    /// round-trips.
-    alloc_ptr: ?*anyopaque,
-    alloc_vtable: ?*const anyopaque,
-};
-
-/// `wasm_store_t` — module-instantiation context. Carries a
-/// back-pointer to its owning Engine so subsequent C-API entries
-/// can recover the allocator without a global. Hosts the
-/// per-Store zombie-instance list (ADR-0014 §2.1 / 6.K.2 sub-
-/// change 4) so cross-module funcrefs into a failed-or-
-/// destroyed instance still dispatch correctly until store
-/// teardown.
-///
-/// Plain (non-`extern`) struct: C only sees `wasm_store_t` as
-/// opaque per upstream wasm.h, so the layout is private.
-/// Matches the `Instance` shape choice for the same reason.
-pub const Store = struct {
-    engine: ?*Engine,
-    /// Optional WASI host (`zwasm_wasi_config_t` from C's
-    /// perspective). Set via `zwasm_store_set_wasi`; ownership
-    /// transfers to the Store and is freed in
-    /// `wasm_store_delete`. Null when the store has no WASI
-    /// hosting configured (modules that import
-    /// `wasi_snapshot_preview1.*` will then fail
-    /// instantiation in §9.4 / 4.7's import-resolution path).
-    wasi_host: ?*wasi_host.Host = null,
-    /// Per-Store zombie-instance list (ADR-0014 §2.1 / 6.K.2
-    /// sub-change 4). When `instantiateRuntime` traps mid-
-    /// element-segment processing, prior writes into a foreign
-    /// instance's table cells already hold `*FuncEntity`
-    /// pointers into the failing instance's arena. Per Wasm 2.0
-    /// partial-init semantics those writes must persist; the
-    /// failing instance's runtime + arena therefore park here
-    /// instead of being destroyed by the catch path.
-    /// `wasm_instance_delete` on a successfully-instantiated
-    /// handle also parks (so cross-module funcrefs stay valid
-    /// through the importer's lifetime). Walked + freed by
-    /// `wasm_store_delete`.
-    zombies: std.ArrayList(Zombie) = .empty,
-};
-
-/// One parked instance. Keeps the runtime + arena alive until
-/// `wasm_store_delete` walks the list. Per ADR-0014 §2.1 /
-/// 6.K.2 sub-change 4.
-pub const Zombie = struct {
-    runtime: *runtime.Runtime,
-    arena: *std.heap.ArenaAllocator,
-};
+pub const Engine = runtime.Engine;
+pub const Store = runtime.Store;
+pub const Zombie = runtime.Zombie;
 
 /// `wasm_module_t` — validated module. Owns a heap-allocated
 /// copy of the input bytes (so the C host can free its
@@ -339,7 +289,8 @@ pub export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
         alloc.destroy(z.runtime);
     }
     handle.zombies.deinit(alloc);
-    if (handle.wasi_host) |host| {
+    if (handle.wasi_host) |host_opaque| {
+        const host: *wasi_host.Host = @ptrCast(@alignCast(host_opaque));
         host.deinit();
         alloc.destroy(host);
     }
@@ -380,11 +331,12 @@ fn parkAsZombie(
 /// + free the existing Host.
 pub export fn zwasm_store_set_wasi(s: ?*Store, h: ?*wasi_host.Host) callconv(.c) void {
     const store = s orelse return;
-    if (store.wasi_host) |old| {
+    if (store.wasi_host) |old_opaque| {
+        const old: *wasi_host.Host = @ptrCast(@alignCast(old_opaque));
         old.deinit();
         std.heap.c_allocator.destroy(old);
     }
-    store.wasi_host = h;
+    store.wasi_host = if (h) |hp| @as(*anyopaque, @ptrCast(hp)) else null;
 }
 
 // ============================================================
@@ -1765,7 +1717,7 @@ test "zwasm_wasi_config_new / set / store_delete: ownership round-trip" {
 
     const cfg = wasi.zwasm_wasi_config_new() orelse return error.ConfigAllocFailed;
     zwasm_store_set_wasi(s, cfg);
-    try testing.expect(s.wasi_host == cfg);
+    try testing.expect(s.wasi_host == @as(*anyopaque, @ptrCast(cfg)));
 
     // wasm_store_delete tears down the attached host transitively;
     // the test passes if no leak escapes through c_allocator.
@@ -2121,7 +2073,8 @@ test "wasm_func_call: dispatches main → proc_exit(42) → host.exit_code (4.7d
 
     // The host now carries the exit code.
     try testing.expect(s.wasi_host != null);
-    try testing.expectEqual(@as(u32, 42), s.wasi_host.?.exit_code.?);
+    const host_typed: *wasi_host.Host = @ptrCast(@alignCast(s.wasi_host.?));
+    try testing.expectEqual(@as(u32, 42), host_typed.exit_code.?);
 }
 
 test "wasm_instance_new: succeeds for WASI imports when host configured (4.7c)" {

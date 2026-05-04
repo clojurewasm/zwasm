@@ -19,6 +19,7 @@ const std = @import("std");
 
 const wasm_c_api = @import("../c_api/wasm_c_api.zig");
 const diagnostic = @import("../diagnostic/diagnostic.zig");
+const wasi_host = @import("../wasi/host.zig");
 
 pub fn runWasm(
     alloc: std.mem.Allocator,
@@ -141,14 +142,22 @@ pub fn runWasmCaptured(
     // the requested exit code. Other traps map to 1.
     // For non-exit traps, print the kind + message on stderr so
     // the CLI / `runWasm` callers can see what hit.
-    if (store.wasi_host) |host| if (host.exit_code) |_| {
-        // exit_code already carries the status; nothing else to surface.
+    if (store.wasi_host) |host_opaque| {
+        const host: *wasi_host.Host = @ptrCast(@alignCast(host_opaque));
+        if (host.exit_code) |_| {
+            // exit_code already carries the status; nothing else to surface.
+        } else {
+            surfaceTrap(io, trap.?);
+        }
     } else {
         surfaceTrap(io, trap.?);
-    };
-    if (store.wasi_host) |host| if (host.exit_code) |code| {
-        return @intCast(@min(code, std.math.maxInt(u8)));
-    };
+    }
+    if (store.wasi_host) |host_opaque| {
+        const host: *wasi_host.Host = @ptrCast(@alignCast(host_opaque));
+        if (host.exit_code) |code| {
+            return @intCast(@min(code, std.math.maxInt(u8)));
+        }
+    }
     return 1;
 }
 
