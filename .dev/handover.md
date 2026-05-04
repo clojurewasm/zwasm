@@ -24,10 +24,11 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
   `68843b0` (3-host green; mandatory audit fired; widget flipped
   6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `5e89533` — feat(p7) §9.7 / 7.3 sub-c
-  (local.get/set/tee + frame slot allocation). 572/572 unit /
-  3-host green. Earlier this cycle: 7.3 sub-a/b1/b2/b3/b4/b5;
-  7.0/7.1/7.2; D-006 + bench v1-class baseline.
+- **Last commit**: `d8ad4d6` — feat(p7) §9.7 / 7.3 sub-d partial
+  (i64 const + 6 binary ALU + 10 cmps + eqz; 18 i64 ops
+  landed). 579/579 unit / 3-host green. Earlier this cycle: 7.3
+  sub-a/b1/b2/b3/b4/b5/c; 7.0/7.1/7.2; D-006 + bench v1-class
+  baseline.
 - **Branch**: `zwasm-from-scratch`, pushed.
 - **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
   all report identical test-all numbers (39/55 diff matched, 44/55
@@ -52,7 +53,9 @@ remains `[ ]` until MVP op coverage closes — exit gated by
 | b4  | i32 clz + ctz                                          | [x] `de7a76c` |
 | b5  | i32 popcnt (V-register CNT/ADDV/UMOV/FMOV pattern)    | [x] `d33073f` |
 | c   | local.get/set/tee + local frame slot allocation        | [x] `5e89533` |
-| d   | i64 + f32 + f64 const + ALU                           | [ ] **NEXT** |
+| d1  | i64 const + 6 binary ALU + 10 cmps + eqz              | [x] `d8ad4d6` |
+| d2  | i64 shifts + rotr/rotl + clz + ctz + popcnt           | [ ] **NEXT** |
+| d3  | f32 + f64 const + binary ALU + cmps                   | [ ]    |
 | d   | i64 + f32 + f64 const + ALU                           | [ ]    |
 | e   | control flow (block/loop/if/else/end/br/br_if/br_table) | [ ]   |
 | f   | memory load/store + bounds-check trap surface          | [ ]    |
