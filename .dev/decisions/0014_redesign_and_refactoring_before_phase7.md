@@ -797,9 +797,9 @@ A → `no_copy_from_v1.md` cross-instance check; family B →
 
 | Date       | Commit       | Summary                                                                                          |
 |------------|--------------|--------------------------------------------------------------------------------------------------|
-| 2026-05-03 | `<backfill>` | Initial Accepted — replaced placeholder with §9.6 / 6.K work-item block.                         |
-| 2026-05-04 | `<backfill>` | 6.K.3 spike → zombie-instance contract (6.K.2 sub-change 4); §3.γ spike review; 6.K.6 expanded. |
-| 2026-05-04 | `<backfill>` | §3.γ "Author candor" + §6.K.3 "How this contract was discovered" added per debt D-004 + lessons. |
+| 2026-05-03 | `9a5b360`    | Initial Accepted — replaced placeholder with §9.6 / 6.K work-item block.                         |
+| 2026-05-04 | `73766b8`    | 6.K.3 spike → zombie-instance contract (6.K.2 sub-change 4); §3.γ spike review; 6.K.6 expanded. |
+| 2026-05-04 | `e4e7493`    | §3.γ "Author candor" + §6.K.3 "How this contract was discovered" added per debt D-004 + lessons. |
 
 (SHAs backfilled at the next phase boundary per
 `.dev/decisions/README.md` "Revision history" rules; verified by

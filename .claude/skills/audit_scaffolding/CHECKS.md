@@ -240,16 +240,18 @@ The audit fires these inline (one Bash call per command, parallel-
 batched), captures the output verbatim into the day's audit
 report, and grades:
 
-- `ssh windowsmini "command -v zig"` — Windows host reachable +
-  zig present.
-- `ssh windowsmini "command -v wasmtime"` — windowsmini wasmtime
-  resolution (the D-008 case). Expected today: resolves to a
-  stub.
-- `ssh windowsmini "wasmtime --version"` — does the resolved
-  binary actually run? Expected today: no. **If this starts
-  succeeding**, the SKIP-WASMTIME-UNUSABLE fallback is now a
-  pure workaround (no longer paired with a real barrier) and
-  the audit MUST flag `soon` — D-008 just discharged.
+- `ssh windowsmini 'bash -c "command -v zig"'` — Windows host
+  reachable + zig present (note: must wrap in `bash -c` because
+  the default SSH shell on windowsmini is PowerShell, where
+  `command -v` resolves through different rules and zig isn't
+  visible by default; the project's bash-side install IS visible).
+- `ssh windowsmini 'bash -c "command -v wasmtime"'` —
+  windowsmini wasmtime resolution. Expected (post-D-008
+  discharge): resolves to `/c/Users/.../wasmtime`.
+- `ssh windowsmini "wasmtime --version"` — does the binary run
+  via the SSH default shell? Expected (post-D-008 discharge):
+  yes (`wasmtime 42.0.1 (...)`). **If this starts failing**, a
+  windowsmini-side regression occurred — flag `block`.
 - `orb run -m my-ubuntu-amd64 bash -c 'command -v zig'` — Linux
   reachable + zig present.
 - `orb run -m my-ubuntu-amd64 bash -c 'zig version'` — version
