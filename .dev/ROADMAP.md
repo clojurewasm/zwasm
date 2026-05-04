@@ -1129,8 +1129,8 @@ of each phase advances it.
 | 4     | DONE        | —                             |
 | 5     | DONE        | —                             |
 | 6     | DONE        | —                                                              |
-| 7     | IN-PROGRESS | JIT v1 ARM64 baseline                                          |
-| 8     | PENDING     | JIT v1 x86_64 baseline 🔒                                      |
+| 7     | IN-PROGRESS | JIT v1 ARM64 + x86_64 baseline 🔒 (per ADR-0019)               |
+| 8     | PENDING     | JIT optimisation foundation 🔒 (per ADR-0019)                  |
 | 9     | PENDING     | SIMD-128                                                       |
 | 10    | PENDING     | GC, EH, Tail call, memory64 (Wasm 3.0 完備) 🔒                 |
 | 11    | PENDING     | WASI 0.1 full + bench infra                                    |
@@ -1465,36 +1465,59 @@ JIT.
 
 #### §9.7 task list (expanded)
 
-> Phase 7 is paused until Phase 6 strict-closes per ADR-0011 (100% PASS, see §9.6 / 6.J); rows below describe the plan to re-enter from 7.0. Rows 7.7 + 7.8 (ADR-0010 deferred-in scope) were removed; that scope returns to §9.6 / 6.2 + 6.3.
+> Phase 7 covers BOTH backends (ARM64 + x86_64) per ADR-0019,
+> operationalising P7 backend equality within a single Phase
+> rather than staggering ARM64 → Phase 8 x86_64. Rows 7.0/7.1/7.2
+> were closed before the ADR-0017/0018 redesign; their underlying
+> code is re-touched by the implementation cycles for those ADRs
+> per §18.3 ("edit in place as if it had always been so"); the
+> rows themselves stay [x]. Rows 7.6/7.7/7.8/7.10 are new per
+> ADR-0019. The 🔒 exit gate (was Phase 8) carries forward to 7.11.
 
 | #    | Description                                                                                              | Status         |
 |------|----------------------------------------------------------------------------------------------------------|----------------|
 | 7.0  | `src/jit/reg_class.zig` — define GPR / FPR / SIMD / inst_ptr_special / vm_ptr_special / simd_base_special classes (ROADMAP §4.2 / W54-class day-1 slot fill). | [x] `e273149` (re-derived; b336e78 was reverted by ADR-0011) |
-| 7.1  | `src/jit/regalloc.zig` — greedy-local allocator; `regalloc.verify(zir)` post-condition runs after every alloc. | [x] `e7ad654` (re-derived; a6bf0e7 was reverted by ADR-0011) |
-| 7.2  | `src/jit_arm64/{inst,abi}.zig` — ARM64 instruction encoder + AAPCS64 calling convention layout.            | [x] `4389a50` (re-derived; 3c89984 was reverted by ADR-0011) |
-| 7.3  | `src/jit_arm64/emit.zig` — ZIR → ARM64 emit pass producing function bodies.                                | [ ]            |
-| 7.4  | spec test pass=fail=skip=0 via JIT on Mac aarch64 host (drives every Wasm 1.0 + 2.0 op the interp covers). | [ ]            |
-| 7.5  | 40+ realworld samples (out of 50) run via JIT — same fixtures as §9.6 / 6.1; trap categorisation reuses the run_runner buckets. | [ ]            |
-| 7.6  | `interp == jit_arm64` differential test: 0 mismatch over the spec testsuite + 40+ realworld samples (the §9.6 / 6.1 PASS bucket). | [ ]            |
-| 7.7  | Phase-7 boundary `audit_scaffolding` pass.                                                                 | [ ]            |
-| 7.8  | Open §9.8 inline; flip phase tracker.                                                                      | [ ]            |
+| 7.1  | `src/jit/regalloc.zig` — greedy-local allocator + first-class spill (`Slot` union, `n_reg_slots` / `n_spill_bytes`) per ADR-0018; `regalloc.verify(zir)` post-condition runs after every alloc. | [x] `e7ad654` (re-derived; a6bf0e7 was reverted by ADR-0011; ADR-0018 implementation cycle re-touches) |
+| 7.2  | `src/jit_arm64/{inst,abi}.zig` — ARM64 instruction encoder + AAPCS64 calling convention layout + `reserved_invariant_gprs` (ADR-0018) + JitRuntime ABI offsets (ADR-0017). | [x] `4389a50` (re-derived; 3c89984 was reverted by ADR-0011; ADR-0017+0018 implementation cycle re-touches) |
+| 7.3  | `src/jit_arm64/emit.zig` — ZIR → ARM64 emit pass producing function bodies + Runtime prologue (5 LDRs from `*X0` per ADR-0017) + spill emit per ADR-0018. | [ ]            |
+| 7.4  | JIT runtime infra: `src/platform/jit_mem.zig` (RWX memory) + `src/jit/linker.zig` (BL fixup patcher) + `src/jit/entry.zig` (Zig caller bridge); ADR-0017 simplifies entry to a standard function-pointer call. | [ ] sub-7.4a/b/c landed (`1e71b53`/`3e34d1a`/`93e2f2c`); refactor per ADR-0017 ahead |
+| 7.5  | spec test pass=fail=skip=0 via ARM64 JIT on Mac aarch64 host (drives every Wasm 1.0 + 2.0 op the interp covers). | [ ]            |
+| 7.6  | `src/jit_x86/{reg_class, inst, abi}.zig` — x86_64 instruction encoder + System V (Linux) + Win64 (Windows) calling conventions + `reserved_invariant_gprs` (ADR-0018 mapping). | [ ]            |
+| 7.7  | `src/jit_x86/emit.zig` — ZIR → x86_64 emit pass producing function bodies (ADR-0017 prologue mapping for x86_64). | [ ]            |
+| 7.8  | spec test pass=fail=skip=0 via x86_64 JIT on Linux x86_64 AND Windows x86_64 hosts. | [ ]            |
+| 7.9  | 40+ realworld samples (out of 50) run via ARM64 JIT — same fixtures as §9.6 / 6.1; trap categorisation reuses the run_runner buckets. | [ ]            |
+| 7.10 | 40+ realworld samples (out of 50) run via x86_64 JIT on both Linux + Windows hosts. | [ ]            |
+| 7.11 | Three-way differential (`interp == jit_arm64 == jit_x86`): 0 mismatch over the spec testsuite + 40+ realworld samples on each host. **🔒 gate**: this is the most important gate of the project (was Phase 8 lock; carries forward per ADR-0019). | [ ]            |
+| 7.12 | Phase-7 boundary `audit_scaffolding` pass + open §9.8 inline + flip phase tracker. | [ ]            |
 
-### Phase 8 — JIT v1 x86_64 baseline 🔒
+### Phase 8 — JIT optimisation foundation 🔒
 
-**Goal**: x86_64 backend equal to ARM64; differential test gate.
+**Goal**: port v1's optimisation work (W43 / W44 / W45 / W54-class
+hoist + coalescer + better regalloc heuristics) onto v2's ZIR
+substrate, where the slots already exist (P14). Also opens AOT
+skeleton work that previously lived entirely in Phase 12.
+
+**Scope shift per ADR-0019**: Phase 8 was originally "JIT v1 x86_64
+baseline"; that scope moved into Phase 7.6–7.11 (operationalising
+P7 backend equality within Phase 7). Phase 8 takes on the
+optimisation foundation work + partial AOT skeleton (transferred
+from Phase 12).
 
 **Exit criterion**:
 
-- `src/jit_x86/{emit, inst, abi}.zig` (REX, ModR/M, SIB; SystemV +
-  Win64 ABIs).
-- spec test pass=fail=skip=0 via JIT on Linux x86_64 AND Windows
-  x86_64.
-- All 50 realworld samples pass via JIT on both archs.
-- **Three-way differential test (`interp == jit_native`) on each
-  host** — 0 mismatch. The two-platform local gate plus Windows-mini
-  SSH gives `interp == jit_arm64 == jit_x86` transitively.
+- Hoist + coalesce passes implemented as ZIR transformations
+  (slots reserved P13).
+- Regalloc upgraded from greedy-local (Phase 7.1) to linear-scan
+  with live-range splitting + reuse.
+- AOT skeleton: `zwasm compile foo.wasm -o foo.cwasm` produces a
+  loadable artifact (the generator pipeline; the consumer side
+  finalises in Phase 12).
+- Bench history records optimisation deltas vs. Phase 7 baseline
+  (≥10% improvement on at least 3 of the v1-class hyperfine
+  fixtures, signal of the optimisation paying off).
 
-**🔒 gate**: yes — this is the most important gate of the project.
+**🔒 gate**: yes — optimisation pipeline correctness is checked
+via the three-way differential carried forward from Phase 7.11.
 
 ### Phase 9 — SIMD-128
 
