@@ -120,7 +120,11 @@ pub fn main(init: std.process.Init) !void {
         var v2_stdout: std.ArrayList(u8) = .empty;
         defer v2_stdout.deinit(std.heap.c_allocator);
 
-        const v2_result = cli_run.runWasmCaptured(gpa, io, bytes, &v2_stdout);
+        // Mirror wasmtime's default of `argv[0] = <wasm filename>`
+        // so guests like `c_hello_wasi` that print argv[0] produce
+        // identical bytes.
+        const v2_argv: [1][]const u8 = .{entry.name};
+        const v2_result = cli_run.runWasmCaptured(gpa, io, bytes, &v2_argv, &v2_stdout);
         if (v2_result) |_| {
             // Continue to byte compare.
         } else |err| switch (err) {

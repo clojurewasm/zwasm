@@ -103,7 +103,8 @@ pub fn main(init: std.process.Init) !void {
         };
         defer gpa.free(bytes);
 
-        const result = cli_run.runWasm(gpa, io, bytes);
+        const run_argv: [1][]const u8 = .{entry.name};
+        const result = cli_run.runWasm(gpa, io, bytes, &run_argv);
         if (result) |exit_code| {
             try stdout.print("PASS  {s} (exit={d})\n", .{ entry.name, exit_code });
             passed += 1;

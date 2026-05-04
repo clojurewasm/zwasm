@@ -24,8 +24,9 @@ pub fn runWasm(
     alloc: std.mem.Allocator,
     io: std.Io,
     bytes: []const u8,
+    argv: []const []const u8,
 ) !u8 {
-    return runWasmCaptured(alloc, io, bytes, null);
+    return runWasmCaptured(alloc, io, bytes, argv, null);
 }
 
 /// Like `runWasm` but routes guest stdout writes (`fd_write`
@@ -34,10 +35,16 @@ pub fn runWasm(
 /// caller owns the buffer and must release it. The realworld-
 /// diff runner (§9.4 / 4.10) uses this to byte-compare against
 /// frozen `.expected_stdout` files.
+///
+/// `argv` is forwarded to the WASI host via `setArgs`; conventional
+/// WASI guests expect `argv[0]` to be the program name (matching
+/// wasmtime's default of using the wasm filename). Pass `&.{}` for
+/// "no args" — empty argv yields argc=0.
 pub fn runWasmCaptured(
     alloc: std.mem.Allocator,
     io: std.Io,
     bytes: []const u8,
+    argv: []const []const u8,
     stdout_capture: ?*std.ArrayList(u8),
 ) !u8 {
     _ = alloc; // engine + store own their own c_allocator paths
@@ -67,6 +74,11 @@ pub fn runWasmCaptured(
     };
     cfg.io = io;
     if (stdout_capture) |buf| cfg.stdout_buffer = buf;
+    if (argv.len > 0) cfg.setArgs(argv) catch {
+        diagnostic.setDiag(.instantiate, .config_alloc_failed, .unknown, "wasi argv allocation failed", .{});
+        wasm_c_api.zwasm_wasi_config_delete(cfg);
+        return error.ConfigAllocFailed;
+    };
     wasm_c_api.zwasm_store_set_wasi(store, cfg);
 
     var bv: wasm_c_api.ByteVec = .{
@@ -189,7 +201,7 @@ const proc_exit_42_wasm = [_]u8{
 };
 
 test "runWasm: proc_exit_42 fixture returns exit code 42" {
-    const code = try runWasm(testing.allocator, testing.io, &proc_exit_42_wasm);
+    const code = try runWasm(testing.allocator, testing.io, &proc_exit_42_wasm, &.{});
     try testing.expectEqual(@as(u8, 42), code);
 }
 
@@ -200,7 +212,7 @@ test "runWasm: proc_exit_42 fixture returns exit code 42" {
 const malformed_magic_wasm = [_]u8{ 0x00, 0x61, 0x73, 0x6d, 0xff, 0xff, 0xff, 0xff };
 
 test "runWasm: malformed wasm produces an instantiate-phase diagnostic" {
-    const result = runWasm(testing.allocator, testing.io, &malformed_magic_wasm);
+    const result = runWasm(testing.allocator, testing.io, &malformed_magic_wasm, &.{});
     try testing.expectError(error.ModuleAllocFailed, result);
 
     const diag = diagnostic.lastDiagnostic().?;
@@ -214,7 +226,7 @@ test "runWasm: clearDiag is invoked on entry — fresh call clears prior state" 
     try testing.expect(diagnostic.lastDiagnostic() != null);
 
     // Successful run path — should clear the stale diag at entry.
-    _ = try runWasm(testing.allocator, testing.io, &proc_exit_42_wasm);
+    _ = try runWasm(testing.allocator, testing.io, &proc_exit_42_wasm, &.{});
     // After a successful run, no diagnostic should be set.
     try testing.expect(diagnostic.lastDiagnostic() == null);
 }

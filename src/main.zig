@@ -55,7 +55,16 @@ pub fn main(init: std.process.Init) !void {
             };
             defer gpa.free(bytes);
 
-            const code = cli_run.runWasm(gpa, io, bytes) catch |err| {
+            // Build argv for the WASI guest. Wasmtime's default is
+            // argv[0] = wasm filename + any trailing args; mirror
+            // that here so guests that print argv produce parity
+            // bytes.
+            var argv_list: std.ArrayList([]const u8) = .empty;
+            defer argv_list.deinit(gpa);
+            try argv_list.append(gpa, path);
+            while (arg_it.next()) |a| try argv_list.append(gpa, a);
+
+            const code = cli_run.runWasm(gpa, io, bytes, argv_list.items) catch |err| {
                 // Per ADR-0016 phase 1: prefer the structured
                 // diagnostic when one was set; fall back to the
                 // legacy `@errorName` form for unwired sites.

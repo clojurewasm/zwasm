@@ -345,13 +345,14 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_spec_mvp.step);
     test_all_step.dependOn(&run_realworld.step);
     test_all_step.dependOn(&run_realworld_run.step);
-    // `run_realworld_diff` is intentionally NOT wired into
-    // `test-all` until §9.6 / 6.2 can honestly hit its 30+
-    // match gate — see handover. Today's corpus has v2 trapping
-    // on 39/50 fixtures before stdout is emitted, so wiring
-    // would break the build everywhere wasmtime is on PATH.
-    // Run it explicitly via `zig build test-realworld-diff`
-    // when working on closing the gap.
+    // `run_realworld_diff` was wired in at §9.6 / 6.F (39/50
+    // matched, 0 mismatched). The remaining 11 SKIP-V2-* are
+    // Go fixtures gated on the validator's typing-rule gap
+    // (§9.6 outstanding spec gap "10 SKIP-VALIDATOR realworld
+    // fixtures") — they are SKIP, not FAIL, so the runner
+    // exits zero. Hosts without `wasmtime` on PATH degrade to
+    // SKIP-WASMTIME-FAIL gracefully and do not break the gate.
+    test_all_step.dependOn(&run_realworld_diff.step);
     test_all_step.dependOn(&run_wast_2_0.step);
     test_all_step.dependOn(&run_wasmtime_misc_basic.step);
     test_all_step.dependOn(&run_wast_runtime_smoke.step);
