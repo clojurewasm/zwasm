@@ -1,0 +1,4 @@
+Source: /Users/shota.508/Documents/MyProducts/ClojureWasm @ 184c873f1de2e34b067ab062fb50238551dc5cf7
+Vendored: 2026-05-04T02:05:19Z
+Procedure: .dev/cw_guest_setup.md
+Fixtures: cljw_fib cljw_gcd cljw_arith cljw_sieve cljw_tak

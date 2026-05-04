@@ -78,11 +78,20 @@ runners walk `test/realworld/wasm/` recursively for `.wasm`.
 - All 5 `cljw_*.wasm` fixtures PASS in
   `test/realworld/runner.zig` (parse).
 - All 5 PASS in `test/realworld/run_runner.zig` (execute, exit 0).
-- All 5 MATCH in `test/realworld/diff_runner.zig` (vs wasmtime
-  byte-for-byte).
+- All 5 in `test/realworld/diff_runner.zig` produce **either**
+  `MATCH` (both runtimes byte-equal non-empty stdout) **or**
+  `SKIP-EMPTY` (both runtimes produced empty stdout — trivially
+  equal). CW v1's `bench/` fixtures are compute-only: their
+  `_start` runs silently and the computed result is exposed via
+  named exports (e.g. `fib`) intended for a host harness, so
+  SKIP-EMPTY is the expected outcome under direct CLI invocation.
+  `MISMATCH` or `SKIP-V2-*` is a real fail and triggers the
+  spec-gap escape clause (debt or skip-ADR per §9.6 / 6.J).
 
-If any fixture fails, treat as a real spec / runtime gap (debt
-or skip-ADR per ROADMAP §9.6 / 6.J's exception clause).
+If a future fixture exercises a printing path (e.g. a CW v2
+`(println ...)` form once that lands), it should appear as
+MATCH; the gate remains "both runtimes agreed on stdout
+bytes", whatever that byte count is.
 
 ## Removal / migration path
 
