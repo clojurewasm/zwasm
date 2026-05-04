@@ -190,17 +190,26 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-/// Find a usable `wasmtime` binary via `which wasmtime`. Returns
-/// null if absent — the caller decides how to handle the missing-
-/// tool case (this runner SKIPs gracefully).
+/// Test whether `wasmtime` is reachable on PATH. Returns the
+/// bare command name (`"wasmtime"`) if reachable, null otherwise.
+///
+/// We deliberately do NOT return the path from `which` /
+/// `where.exe` because on Windows MSYS / Git-Bash hosts (e.g.
+/// the project's `windowsmini`) `which` returns a Unix-style
+/// `/c/...` path that Zig's native Windows process spawn cannot
+/// resolve to the actual binary. Returning the bare command name
+/// lets `std.process.run` do its own PATH lookup, which works
+/// uniformly on Mac aarch64, OrbStack Ubuntu, and Windows native.
+///
+/// Discharges debt D-008 (the previous "wasmtime stub on
+/// windowsmini" framing was wrong; wasmtime IS installed there
+/// — `which`'s MSYS-format path was the actual blocker).
 fn resolveWasmtime(allocator: std.mem.Allocator, io: std.Io) !?[]u8 {
     const result = std.process.run(allocator, io, .{
-        .argv = &[_][]const u8{ "which", "wasmtime" },
+        .argv = &[_][]const u8{ "wasmtime", "--version" },
     }) catch return null;
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     if (result.term != .exited or result.term.exited != 0) return null;
-    const trimmed = std.mem.trim(u8, result.stdout, &std.ascii.whitespace);
-    if (trimmed.len == 0) return null;
-    return try allocator.dupe(u8, trimmed);
+    return try allocator.dupe(u8, "wasmtime");
 }
