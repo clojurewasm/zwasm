@@ -155,6 +155,94 @@ pub fn compile(
                 try writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
+            .@"i32.rotr" => {
+                // rotr is direct: `RORV Wd, Wn, Wm`.
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs = pushed_vregs.pop().?;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wm = abi.slotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encRorvRegW(wd, wn, wm));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i32.rotl" => {
+                // ARM has only ROR; rotl(val, n) = ror(val, 32-n).
+                // 3-instr sequence using IP0 (W16) as scratch (not
+                // in the regalloc pool, safe to clobber):
+                //   MOVZ W16, #32
+                //   SUB  W16, W16, Wcount
+                //   ROR  Wd,  Wval, W16
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs = pushed_vregs.pop().?;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wm = abi.slotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const ip0: Xn = 16;
+                try writeU32(allocator, &buf, inst.encMovzImm16(ip0, 32));
+                try writeU32(allocator, &buf, inst.encSubRegW(ip0, ip0, wm));
+                try writeU32(allocator, &buf, inst.encRorvRegW(wd, wn, ip0));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i32.eq",
+            .@"i32.ne",
+            .@"i32.lt_s",
+            .@"i32.lt_u",
+            .@"i32.gt_s",
+            .@"i32.gt_u",
+            .@"i32.le_s",
+            .@"i32.le_u",
+            .@"i32.ge_s",
+            .@"i32.ge_u",
+            => {
+                // 2-instr CMP + CSET pattern. Each Wasm cmp maps
+                // to an ARM `Cond` (set-if-true).
+                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+                const rhs = pushed_vregs.pop().?;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wm = abi.slotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const cond: inst.Cond = switch (ins.op) {
+                    .@"i32.eq"   => .eq,
+                    .@"i32.ne"   => .ne,
+                    .@"i32.lt_s" => .lt,
+                    .@"i32.lt_u" => .lo,
+                    .@"i32.gt_s" => .gt,
+                    .@"i32.gt_u" => .hi,
+                    .@"i32.le_s" => .le,
+                    .@"i32.le_u" => .ls,
+                    .@"i32.ge_s" => .ge,
+                    .@"i32.ge_u" => .hs,
+                    else => unreachable,
+                };
+                try writeU32(allocator, &buf, inst.encCmpRegW(wn, wm));
+                try writeU32(allocator, &buf, inst.encCsetW(wd, cond));
+                try pushed_vregs.append(allocator, result);
+            },
+            .@"i32.eqz" => {
+                // Compare against #0 then CSET EQ.
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                const lhs = pushed_vregs.pop().?;
+                const result = next_vreg;
+                next_vreg += 1;
+                if (result >= alloc.slots.len) return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                try writeU32(allocator, &buf, inst.encCmpImmW(wn, 0));
+                try writeU32(allocator, &buf, inst.encCsetW(wd, .eq));
+                try pushed_vregs.append(allocator, result);
+            },
             .@"end" => {
                 // Function-level end: marshal the top-of-stack vreg
                 // into X0 (the AAPCS64 result register), then run
@@ -412,6 +500,108 @@ test "compile: stack underflow on ALU op with 1 pushed vreg surfaces AllocationM
     const slots = [_]u8{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc));
+}
+
+test "compile: i32.rotr emits single RORV W-variant" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xFF });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 4 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.rotr" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // Stream: STP / MOV-FP / MOVZ #FF / MOVZ #4 / RORV / MOV X0 / LDP / RET
+    // = 8 u32s. RORV at byte 16.
+    try testing.expectEqual(@as(u32, inst.encRorvRegW(9, 9, 10)), std.mem.readInt(u32, out.bytes[16..20], .little));
+}
+
+test "compile: i32.rotl emits 3-instr NEG-via-MOVZ-SUB + RORV sequence" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xFF });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 4 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.rotl" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After 4 prologue+const u32s (16 bytes), expect:
+    // MOVZ W16, #32  /  SUB W16, W16, W10  /  RORV W9, W9, W16
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(16, 32)),    std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encSubRegW(16, 16, 10)),  std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, inst.encRorvRegW(9, 9, 16)),   std.mem.readInt(u32, out.bytes[24..28], .little));
+}
+
+test "compile: i32 cmp ops each emit CMP + CSET with the right Cond mapping" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    const cases = [_]struct { op: zir.ZirOp, want_cond: inst.Cond }{
+        .{ .op = .@"i32.eq",   .want_cond = .eq },
+        .{ .op = .@"i32.ne",   .want_cond = .ne },
+        .{ .op = .@"i32.lt_s", .want_cond = .lt },
+        .{ .op = .@"i32.lt_u", .want_cond = .lo },
+        .{ .op = .@"i32.gt_s", .want_cond = .gt },
+        .{ .op = .@"i32.gt_u", .want_cond = .hi },
+        .{ .op = .@"i32.le_s", .want_cond = .le },
+        .{ .op = .@"i32.le_u", .want_cond = .ls },
+        .{ .op = .@"i32.ge_s", .want_cond = .ge },
+        .{ .op = .@"i32.ge_u", .want_cond = .hs },
+    };
+    for (cases) |c| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
+        try f.instrs.append(testing.allocator, .{ .op = c.op });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 2 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+            .{ .def_pc = 2, .last_use_pc = 3 },
+        } };
+        const slots = [_]u8{ 0, 1, 0 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+        const out = try compile(testing.allocator, &f, alloc);
+        defer deinit(testing.allocator, out);
+        // CMP at byte 16, CSET at byte 20.
+        try testing.expectEqual(@as(u32, inst.encCmpRegW(9, 10)), std.mem.readInt(u32, out.bytes[16..20], .little));
+        try testing.expectEqual(@as(u32, inst.encCsetW(9, c.want_cond)), std.mem.readInt(u32, out.bytes[20..24], .little));
+    }
+}
+
+test "compile: i32.eqz emits CMP-imm-0 + CSET EQ" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.eqz" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc);
+    defer deinit(testing.allocator, out);
+    // After STP/MOV-FP/MOVZ-W9-#0 (12 bytes): CMP W9,#0 / CSET W9,EQ.
+    try testing.expectEqual(@as(u32, inst.encCmpImmW(9, 0)),   std.mem.readInt(u32, out.bytes[12..16], .little));
+    try testing.expectEqual(@as(u32, inst.encCsetW(9, .eq)),   std.mem.readInt(u32, out.bytes[16..20], .little));
 }
 
 comptime {

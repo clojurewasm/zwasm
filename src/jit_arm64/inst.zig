@@ -189,6 +189,65 @@ pub fn encAsrvRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
     return 0x1AC02800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+/// `ROR Wd, Wn, Wm` — variable right rotate; ARM `RORV`.
+/// Encoding: `... 0010 11 ...` = `0x1AC02C00`.
+pub fn encRorvRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x1AC02C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `CMP Wn, Wm` — alias for `SUBS WZR, Wn, Wm`. Sets NZCV; the
+/// result is discarded into WZR. Encoding (32-bit SUBS shifted-
+/// reg, shift=0): `0 11 01011 00 0 [Rm:5] 000000 [Rn:5] 11111`
+/// = `0x6B00001F` | (Rm<<16) | (Rn<<5).
+pub fn encCmpRegW(rn: Xn, rm: Xn) u32 {
+    return 0x6B00001F | (@as(u32, rm) << 16) | (@as(u32, rn) << 5);
+}
+
+/// `CMP Wn, #imm12` — alias for `SUBS WZR, Wn, #imm12, lsl #0`.
+/// Encoding (32-bit SUBS imm, sh=0): `0 11 10001 0 0 [imm12:12]
+/// [Rn:5] 11111` = `0x7100001F` | (imm12<<10) | (Rn<<5).
+pub fn encCmpImmW(rn: Xn, imm12: u12) u32 {
+    return 0x7100001F | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5);
+}
+
+/// ARM condition codes (4-bit). The cond fed to `encCsetW` is
+/// the encoded condition under which the result becomes 0 (the
+/// CSINC alias inverts the user's "set if X" condition by XOR-1
+/// with the lowest bit; this enum uses the encoded form so
+/// callers do the XOR explicitly when needed).
+pub const Cond = enum(u4) {
+    eq = 0x0,
+    ne = 0x1,
+    hs = 0x2,  // unsigned >=
+    lo = 0x3,  // unsigned <
+    mi = 0x4,
+    pl = 0x5,
+    vs = 0x6,
+    vc = 0x7,
+    hi = 0x8,  // unsigned >
+    ls = 0x9,  // unsigned <=
+    ge = 0xA,  // signed >=
+    lt = 0xB,  // signed <
+    gt = 0xC,  // signed >
+    le = 0xD,  // signed <=
+};
+
+/// Invert the lowest bit of a `Cond` — the relationship between
+/// "set if X" and the encoded form for `CSET`/`CSINC` aliases.
+/// `EQ <-> NE`, `LT <-> GE`, `LO <-> HS`, etc.
+pub fn invertCond(c: Cond) Cond {
+    return @enumFromInt(@intFromEnum(c) ^ 1);
+}
+
+/// `CSET Wd, cond` — set Wd to 1 if cond holds, else 0. Encoded
+/// as `CSINC Wd, WZR, WZR, invert(cond)`. The 32-bit CSINC:
+/// `0 00 11010100 [Rm:5] [cond:4] 01 [Rn:5] [Rd:5]` with Rm = Rn
+/// = WZR (31). Base = `0x1A9F07E0` | (encoded_cond<<12) | Rd.
+pub fn encCsetW(rd: Xn, set_if: Cond) u32 {
+    const enc = invertCond(set_if);
+    return 0x1A9F07E0 | (@as(u32, @intFromEnum(enc)) << 12) | @as(u32, rd);
+}
+
 // ============================================================
 // Tests
 //
@@ -307,4 +366,42 @@ test "encLsrvRegW w0, w1, w2 — `lsr w0, w1, w2` → 0x1AC22420" {
 
 test "encAsrvRegW w0, w1, w2 — `asr w0, w1, w2` → 0x1AC22820" {
     try testing.expectEqual(@as(u32, 0x1AC22820), encAsrvRegW(0, 1, 2));
+}
+
+test "encRorvRegW w0, w1, w2 — `ror w0, w1, w2` → 0x1AC22C20" {
+    try testing.expectEqual(@as(u32, 0x1AC22C20), encRorvRegW(0, 1, 2));
+}
+
+test "encCmpRegW w1, w2 — `cmp w1, w2` → 0x6B02003F" {
+    // base 0x6B00001F; rm=2 (<<16)=0x20000; rn=1 (<<5)=0x20.
+    try testing.expectEqual(@as(u32, 0x6B02003F), encCmpRegW(1, 2));
+}
+
+test "encCmpImmW w1, #0 — `cmp w1, #0` → 0x7100003F" {
+    try testing.expectEqual(@as(u32, 0x7100003F), encCmpImmW(1, 0));
+}
+
+test "encCmpImmW w1, #5 — `cmp w1, #5` → 0x7100143F" {
+    // imm12=5 (<<10)=0x1400; rn=1 (<<5)=0x20.
+    try testing.expectEqual(@as(u32, 0x7100143F), encCmpImmW(1, 5));
+}
+
+test "invertCond: eq <-> ne, lt <-> ge, lo <-> hs" {
+    try testing.expectEqual(Cond.ne, invertCond(.eq));
+    try testing.expectEqual(Cond.eq, invertCond(.ne));
+    try testing.expectEqual(Cond.ge, invertCond(.lt));
+    try testing.expectEqual(Cond.lt, invertCond(.ge));
+    try testing.expectEqual(Cond.hs, invertCond(.lo));
+    try testing.expectEqual(Cond.lo, invertCond(.hs));
+}
+
+test "encCsetW w0, eq — `cset w0, eq` → 0x1A9F17E0" {
+    // CSET Wd, EQ → CSINC Wd, WZR, WZR, NE.
+    // base 0x1A9F07E0; cond=NE (0x1 << 12) = 0x1000; Rd=0.
+    try testing.expectEqual(@as(u32, 0x1A9F17E0), encCsetW(0, .eq));
+}
+
+test "encCsetW w3, lt — `cset w3, lt` → 0x1A9FA7E3" {
+    // invert(LT=0xB) = 0xA = GE; (0xA << 12) = 0xA000; Rd=3.
+    try testing.expectEqual(@as(u32, 0x1A9FA7E3), encCsetW(3, .lt));
 }
