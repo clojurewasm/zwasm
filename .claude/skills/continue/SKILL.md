@@ -150,6 +150,27 @@ change between iterations.
    removed by recent work, flip its Status to `now` and
    discharge alongside. New debts discovered during the active
    task are appended at task close (Step 7), not mid-task.
+
+   **Stale-barrier check**: scan every `Status: blocked-by:`
+   row's `Last reviewed` date. Any row reviewed more than 3
+   resume cycles ago (or > 14 days) gets its barrier
+   re-evaluated NOW: walk the named barrier ("did this still
+   exist?"), then either (a) the barrier still holds — update
+   `Last reviewed` to today, OR (b) the barrier dissolved —
+   flip Status to `now` and discharge. **If 3+ rows hit the
+   stale check in one resume**, fire `audit_scaffolding` in
+   narrow mode (`§F` debt-coherence checks only) before
+   continuing — this catches the failure mode where multiple
+   barriers quietly evaporated together (a closed phase, a
+   landed ADR, a Zig version bump).
+
+   The discipline that makes Step 0.5 work: **a barrier named
+   in concrete terms always names something testable**. "Phase
+   7 design ADR" → grep for the ADR; "Zig 0.17 stdlib API" →
+   check current Zig version; "ADR-0016 M3 work item" → grep
+   ROADMAP for M3 status. Vague barriers ("later", "TBD") were
+   forbidden at file creation; if one slipped in, the audit
+   `§F.2` rejects the row.
 6. `zig build test` (Phase 0+) — confirm the build is green. From
    Phase 1, also run `zig build test-spec`. From Phase 7, also run
    the differential subset. **If output is large (>200 lines), run
@@ -432,12 +453,18 @@ this cycle.
 A Phase closes when the last `[ ]` in §9.<N> flips to `[x]`. At
 that point:
 
-1. Optional: invoke `audit_scaffolding` (slash command). It
-   produces `private/audit-YYYY-MM-DD.md`. If a `block` finding
-   is local and obvious, fix in the next commit. If a `block`
-   finding requires a load-bearing change, file an ADR via §18,
-   queue in handover, then continue. **Either path continues the
-   loop** — phase boundaries are non-stop.
+1. **Mandatory: invoke `audit_scaffolding`** (the skill's
+   "Mandatory" trigger — phase boundary). It produces
+   `private/audit-YYYY-MM-DD.md`. The skill reviews ALL §A〜G
+   categories with extra weight on §F (debt-coherence;
+   `blocked-by:` rows whose barrier just dissolved at the
+   closing phase) and §G (extended-challenge anchor commands;
+   re-runs `ssh windowsmini "command -v zig"` etc.).
+   If a `block` finding is local and obvious, fix in the next
+   commit. If a `block` finding requires a load-bearing change,
+   file an ADR via §18, queue in handover, then continue.
+   **Either path continues the loop** — phase boundaries are
+   non-stop.
 2. Optional: run built-in `simplify` on `git diff
    <phase-start>..HEAD -- src/`. Apply behaviour-preserving
    suggestions; queue larger ones in `handover.md`.

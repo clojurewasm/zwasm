@@ -21,9 +21,26 @@ The full check list, grouped by category, lives in
 [`CHECKS.md`](./CHECKS.md) next to this file. Read it when running
 the audit.
 
-## When to invoke (adaptive cadence)
+## When to invoke
 
-Trigger this skill when **any** of:
+Two firing modes:
+
+### Mandatory (the loop fires this skill automatically)
+
+- **Phase boundary** — when the `/continue` skill's per-task TDD
+  loop detects the last `[ ]` of `§9.<N>` flipping to `[x]`, it
+  fires `audit_scaffolding` inline as part of the boundary
+  handler before opening `§9.<N+1>`. This guarantees `blocked-by:
+  <Phase-N>` debt rows + `flake.lock` churn + ROADMAP drift
+  inherent to the closing phase get walked at the moment of
+  closure, not "next time someone notices".
+- **Stale debt review** — when the `/continue` Step 0.5 debt
+  sweep detects a `blocked-by` row whose `Last reviewed` field
+  is more than 3 resume cycles stale, fires this skill in
+  "narrow mode" (only §F debt-coherence checks) so the row's
+  barrier is re-evaluated before silently being trusted again.
+
+### Adaptive (user / agent judgment)
 
 - The scaffolding feels off — handover.md disagrees with ROADMAP, an
   ADR cites a section that has moved, etc.
@@ -33,11 +50,13 @@ Trigger this skill when **any** of:
 - The user explicitly says "audit scaffolding" / "check for drift" /
   similar.
 
-There is **no fixed cadence** (e.g. "every phase boundary" or "every
-N commits"). Strict cadence creates noise; adaptive cadence catches
-real issues. Local-optimisation drift (audit-fix-audit-fix at the
-expense of phase progress) is a failure mode the audit itself can
-flag — keep an eye on whether the audit is helping or hindering.
+The mandatory triggers are recent (added 2026-05-04 to close the
+gap that Phase 6 surfaced: a `blocked-by:` debt row whose barrier
+quietly disappeared was never re-evaluated until human
+intervention). Local-optimisation drift (audit-fix-audit-fix at
+the expense of phase progress) is still a failure mode this skill
+can flag — keep an eye on whether the audit is helping or
+hindering.
 
 ## Procedure
 

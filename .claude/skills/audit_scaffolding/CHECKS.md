@@ -234,13 +234,41 @@ structural barrier:
 
 ### G.2 Anchor-command currency
 
-The `.claude/rules/extended_challenge.md` "Phase 6 case study"
-references specific commands (`ssh windowsmini "command -v
-zig"`, `orb run -m my-ubuntu-amd64 bash -c 'command -v zig'`).
-Re-run them periodically:
+Re-run the diagnostic anchor commands the loop has been silently
+trusting; flag drift between "what we assume" and "what is".
+The audit fires these inline (one Bash call per command, parallel-
+batched), captures the output verbatim into the day's audit
+report, and grades:
 
-- Any anchor command failing → `soon` (the rule's example may
-  be stale).
+- `ssh windowsmini "command -v zig"` — Windows host reachable +
+  zig present.
+- `ssh windowsmini "command -v wasmtime"` — windowsmini wasmtime
+  resolution (the D-008 case). Expected today: resolves to a
+  stub.
+- `ssh windowsmini "wasmtime --version"` — does the resolved
+  binary actually run? Expected today: no. **If this starts
+  succeeding**, the SKIP-WASMTIME-UNUSABLE fallback is now a
+  pure workaround (no longer paired with a real barrier) and
+  the audit MUST flag `soon` — D-008 just discharged.
+- `orb run -m my-ubuntu-amd64 bash -c 'command -v zig'` — Linux
+  reachable + zig present.
+- `orb run -m my-ubuntu-amd64 bash -c 'zig version'` — version
+  parity vs Mac (mismatch = the OrbStack VM drifted).
+
+Each command's outcome:
+
+- Expected (per current debt rows) → record verbatim, no
+  finding.
+- Different from expected → `soon` finding ("D-NNN's barrier
+  may have changed; flip Status to `now` and re-evaluate").
+- Command itself fails to even run (host unreachable) → `block`
+  finding ("the audit's anchor is broken; fix host setup
+  per `.dev/{orbstack,windows_ssh}_setup.md`").
+
+This is the "mandatory walking" of `extended_challenge.md`
+Step 1 that was missing in Phase 6 — the audit now fires it
+on every audit run rather than waiting for the human to
+notice.
 
 ## H. Output
 
