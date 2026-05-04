@@ -138,6 +138,49 @@ test "entry: i32.load offset=0 reads memory[0..4] through X28 vm_base" {
     try testing.expectEqual(@as(u32, 0xEFBEADDE), result);
 }
 
+test "entry: ADR-0018 sub-1c — spilled i32.const returns 42 via STR/LDR round-trip" {
+    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
+        return error.SkipZigTest;
+    }
+    // Force vreg 0 into spill territory (slot 10). The JIT body's
+    // prologue extends frame by 8 + 16-align = 16 bytes; i32.const
+    // emits MOVZ X14,#42 + STR X14,[SP]; end emits LDR X14,[SP] +
+    // MOV X0,X14. Calling via the entry-frame returns 42.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    var fn0 = ZirFunc.init(0, sig, &.{});
+    defer fn0.deinit(testing.allocator);
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"end" });
+    fn0.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{10};
+    const alloc: regalloc.Allocation = .{
+        .slots = &slots,
+        .n_slots = 11,
+        .max_reg_slots = 10,
+    };
+    const sigs = [_]zir.FuncType{sig};
+    const out = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{});
+    defer emit.deinit(testing.allocator, out);
+
+    const bodies = [_]linker.FuncBody{
+        .{ .bytes = out.bytes, .call_fixups = out.call_fixups },
+    };
+    var module = try linker.link(testing.allocator, &bodies);
+    defer module.deinit(testing.allocator);
+
+    var memory: [0]u8 = .{};
+    const result = callI32NoArgs(module, 0, .{
+        .vm_base = &memory,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+    });
+    try testing.expectEqual(@as(u32, 42), result);
+}
+
 test "entry: pure constant function returns 42 (sanity — no memory access)" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
         return error.SkipZigTest;

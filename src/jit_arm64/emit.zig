@@ -125,7 +125,16 @@ pub fn compile(
     // ============================================================
     if (func.sig.params.len > 0) return Error.UnsupportedOp;
     const num_locals: u32 = @intCast(func.locals.len);
-    const frame_bytes_unaligned: u32 = num_locals * 8;
+    const locals_bytes: u32 = num_locals * 8;
+    // ADR-0018: extend frame by spill region. Layout:
+    //   [SP + 0 .. locals_bytes-1]                   locals
+    //   [SP + locals_bytes .. +spill_bytes-1]        spills
+    // `spill_base_off` is the absolute SP-relative offset where
+    // spill slot 0 lives; `gprLoadSpilled`/`gprStoreSpilled`
+    // consume it via byte_offset = spill_base_off + slot.spill.
+    const spill_bytes: u32 = alloc.spillBytes();
+    const spill_base_off: u32 = locals_bytes;
+    const frame_bytes_unaligned: u32 = locals_bytes + spill_bytes;
     const frame_bytes: u32 = (frame_bytes_unaligned + 15) & ~@as(u32, 15);
     try writeU32(allocator, &buf, encStpFpLrPreIdx());
     try writeU32(allocator, &buf, encMovSpToFp());
@@ -218,12 +227,14 @@ pub fn compile(
         switch (ins.op) {
             .@"i32.const" => {
                 // The const's destination vreg is the next-to-be-pushed
-                // vreg id. Slot it and emit MOVZ + optional MOVK lanes.
+                // vreg id. Slot it; if spilled, materialise into a
+                // stage reg + STR to the spill frame (sub-1c).
                 const vreg = next_vreg;
                 next_vreg += 1;
                 if (vreg >= alloc.slots.len) return Error.SlotOverflow;
-                const xd = try resolveGpr(alloc, vreg);
+                const xd = try gprDefSpilled(alloc, vreg, 0);
                 try emitConstU32(allocator, &buf, xd, ins.payload);
+                try gprStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
                 try pushed_vregs.append(allocator, vreg);
             },
             .@"i64.const" => {
@@ -1516,9 +1527,12 @@ pub fn compile(
                             try writeU32(allocator, &buf, base | (@as(u32, src_vn) << 5));
                         }
                     } else {
-                        const src_xn = try resolveGpr(alloc, top_vreg);
+                        // GPR result: spill-aware load (sub-1c). For
+                        // an in-reg vreg, returns the home reg; for
+                        // a spilled vreg, emits LDR X14, [SP, #off]
+                        // and returns X14. Then MOV X0, Xsrc.
+                        const src_xn = try gprLoadSpilled(allocator, &buf, alloc, spill_base_off, top_vreg, 0);
                         if (src_xn != 0) {
-                            // MOV X0, Xsrc — encoded as ORR X0, XZR, Xsrc.
                             try writeU32(allocator, &buf, encOrrZrIntoX0(src_xn));
                         }
                     }
@@ -1572,19 +1586,90 @@ fn writeU32(allocator: Allocator, buf: *std.ArrayList(u8), word: u32) !void {
 }
 
 /// Resolve a vreg's home register (GPR class). Returns the
-/// allocated reg or surfaces `Error.UnsupportedOp` for spilled
-/// vregs — sub-1c (next implementation cycle) replaces the
-/// UnsupportedOp branches with actual STR/LDR machinery
-/// staged through `abi.spill_stage_gprs`.
+/// allocated reg or `Error.UnsupportedOp` for spilled vregs.
 ///
-/// Until then, functions with > 10 concurrently-live GPR vregs
-/// surface UnsupportedOp at compile time, which the regalloc
-/// detector test (added below) relies on.
+/// **Sub-1b shape** (today): handlers that haven't been migrated
+/// to spill-aware emission still use `resolveGpr` and decline
+/// (UnsupportedOp) when a spill is needed. **Sub-1c migration**
+/// (this cycle, in-progress): per-handler conversion to use
+/// `gprLoadSpilled` / `gprStoreSpilled` for actual STR/LDR
+/// staging. The `i32.const` handler is the first migrated
+/// example; further migrations land per follow-up cycles as
+/// realworld fixtures surface needs.
 fn resolveGpr(alloc: regalloc.Allocation, vreg: usize) Error!inst.Xn {
     return switch (alloc.slot(vreg)) {
         .reg => |id| abi.slotToReg(id) orelse Error.SlotOverflow,
         .spill => Error.UnsupportedOp,
     };
+}
+
+/// Resolve a vreg's home for **op operand load**. If the vreg
+/// is in a register, returns that reg directly. If spilled,
+/// emits `LDR X_stage, [SP, #(spill_base_off + spill_off)]`
+/// staging through `abi.spill_stage_gprs[stage_idx]` and
+/// returns the stage reg.
+///
+/// `stage_idx` selects which stage reg (0=X14, 1=X15). Use 0
+/// for the first/only operand, 1 for the second operand of a
+/// binary op (so two spilled operands don't collide).
+fn gprLoadSpilled(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    spill_base_off: u32,
+    vreg: usize,
+    stage_idx: u8,
+) Error!inst.Xn {
+    return switch (alloc.slot(vreg)) {
+        .reg => |id| abi.slotToReg(id) orelse Error.SlotOverflow,
+        .spill => |off| blk: {
+            const stage = abi.spill_stage_gprs[stage_idx];
+            const abs_off = spill_base_off + off;
+            // X-form imm12 scales by 8; max byte offset is 8*4095 = 32760.
+            if (abs_off > 32760 or (abs_off & 7) != 0) return Error.SlotOverflow;
+            try writeU32(allocator, buf, inst.encLdrImm(stage, 31, @intCast(abs_off)));
+            break :blk stage;
+        },
+    };
+}
+
+/// Resolve a vreg's home for **op result def**. If the vreg
+/// is in a register, returns that reg directly. If spilled,
+/// returns the stage reg (caller encodes the op writing into
+/// it; then calls `gprStoreSpilled` to flush to the spill
+/// slot).
+fn gprDefSpilled(
+    alloc: regalloc.Allocation,
+    vreg: usize,
+    stage_idx: u8,
+) Error!inst.Xn {
+    return switch (alloc.slot(vreg)) {
+        .reg => |id| abi.slotToReg(id) orelse Error.SlotOverflow,
+        .spill => abi.spill_stage_gprs[stage_idx],
+    };
+}
+
+/// Pair of `gprDefSpilled`. After encoding the op (which wrote
+/// the result into the stage reg), emits `STR X_stage, [SP,
+/// #(spill_base_off + spill_off)]`. No-op for vregs in
+/// registers (the result is already in its home).
+fn gprStoreSpilled(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    spill_base_off: u32,
+    vreg: usize,
+    stage_idx: u8,
+) Error!void {
+    switch (alloc.slot(vreg)) {
+        .reg => {},
+        .spill => |off| {
+            const stage = abi.spill_stage_gprs[stage_idx];
+            const abs_off = spill_base_off + off;
+            if (abs_off > 32760 or (abs_off & 7) != 0) return Error.SlotOverflow;
+            try writeU32(allocator, buf, inst.encStrImm(stage, 31, @intCast(abs_off)));
+        },
+    }
 }
 
 /// FP-class counterpart of `resolveGpr`. Same Step-1c follow-up
@@ -3735,15 +3820,16 @@ test "compile: i32.trunc_f64_s emits NaN+f64-lower+f64-upper checks then FCVTZS 
     try testing.expect(found_fcvtzs);
 }
 
-test "compile: ADR-0018 — vreg in spill territory (slot >= max_reg_slots) surfaces UnsupportedOp" {
-    // Forge an allocation that places vreg 0 at slot id 10 (the
-    // first spill index for the post-ADR-0018 pool of 10). The
-    // emit pass should surface UnsupportedOp; spill emit lands
-    // in the next implementation cycle (sub-1c).
+test "compile: ADR-0018 sub-1c — i32.const into spilled vreg, full round-trip via STR + LDR" {
+    // Force vreg 0 into spill territory (slot 10). The frame
+    // extends by spillBytes() = 8; spill base offset = 0
+    // (no locals). i32.const handler emits MOVZ X14 #42 + STR
+    // X14, [SP, #0]. end handler emits LDR X14, [SP, #0] + MOV
+    // X0, X14. Inspect bytes for these key instructions.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
     try f.instrs.append(testing.allocator, .{ .op = .@"end" });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
@@ -3754,7 +3840,29 @@ test "compile: ADR-0018 — vreg in spill territory (slot >= max_reg_slots) surf
         .n_slots = 11,
         .max_reg_slots = 10,
     };
-    try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, alloc, &.{}, &.{}));
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Bytes contain (in order): STP+MOVfp + SUB sp,#16 (frame
+    // rounded up to 16) + MOVZ X14,#42 + STR X14,[SP] + ORR X0,XZR,X14
+    // + ADD sp,#16 + LDP + RET.
+    const expected_movz = inst.encMovzImm16(14, 42);
+    const expected_str = inst.encStrImm(14, 31, 0);
+    const expected_ldr_at_end = inst.encLdrImm(14, 31, 0);
+
+    var saw_movz = false;
+    var saw_str = false;
+    var saw_ldr_at_end = false;
+    var p: usize = 0;
+    while (p + 4 <= out.bytes.len) : (p += 4) {
+        const w = std.mem.readInt(u32, out.bytes[p..][0..4], .little);
+        if (w == expected_movz) saw_movz = true;
+        if (w == expected_str) saw_str = true;
+        if (w == expected_ldr_at_end) saw_ldr_at_end = true;
+    }
+    try testing.expect(saw_movz);
+    try testing.expect(saw_str);
+    try testing.expect(saw_ldr_at_end);
 }
 
 test "compile: ADR-0018 — slot 9 = last reg (X23), slot 10 = first spill" {
