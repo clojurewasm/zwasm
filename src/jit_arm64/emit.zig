@@ -124,25 +124,32 @@ pub fn compile(
             .@"i32.and",
             .@"i32.or",
             .@"i32.xor",
+            .@"i32.shl",
+            .@"i32.shr_s",
+            .@"i32.shr_u",
             => {
-                // Binary ALU: pop rhs, lhs; allocate next_vreg as
-                // result; emit `<op> Xd, Xn(lhs), Xm(rhs)`.
+                // Binary i32 ALU: pop rhs, lhs; allocate result;
+                // emit a W-variant op so the upper 32 bits stay
+                // zero-extended (Wasm i32 wraps mod 2^32).
                 if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
                 const rhs = pushed_vregs.pop().?;
                 const lhs = pushed_vregs.pop().?;
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
-                const xm = abi.slotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
-                const xd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+                const wn = abi.slotToReg(alloc.slots[lhs]) orelse return Error.SlotOverflow;
+                const wm = abi.slotToReg(alloc.slots[rhs]) orelse return Error.SlotOverflow;
+                const wd = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
                 const word: u32 = switch (ins.op) {
-                    .@"i32.add" => inst.encAddReg(xd, xn, xm),
-                    .@"i32.sub" => inst.encSubReg(xd, xn, xm),
-                    .@"i32.mul" => inst.encMulReg(xd, xn, xm),
-                    .@"i32.and" => inst.encAndReg(xd, xn, xm),
-                    .@"i32.or"  => inst.encOrrReg(xd, xn, xm),
-                    .@"i32.xor" => inst.encEorReg(xd, xn, xm),
+                    .@"i32.add"   => inst.encAddRegW(wd, wn, wm),
+                    .@"i32.sub"   => inst.encSubRegW(wd, wn, wm),
+                    .@"i32.mul"   => inst.encMulRegW(wd, wn, wm),
+                    .@"i32.and"   => inst.encAndRegW(wd, wn, wm),
+                    .@"i32.or"    => inst.encOrrRegW(wd, wn, wm),
+                    .@"i32.xor"   => inst.encEorRegW(wd, wn, wm),
+                    .@"i32.shl"   => inst.encLslvRegW(wd, wn, wm),
+                    .@"i32.shr_s" => inst.encAsrvRegW(wd, wn, wm),
+                    .@"i32.shr_u" => inst.encLsrvRegW(wd, wn, wm),
                     else => unreachable,
                 };
                 try writeU32(allocator, &buf, word);
@@ -359,17 +366,20 @@ test "compile: (i32.const 7) (i32.const 5) i32.add end → returns 12 in X0" {
     try testing.expectEqual(@as(usize, 32), out.bytes.len);
     try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 7)),  std.mem.readInt(u32, out.bytes[8..12], .little));
     try testing.expectEqual(@as(u32, inst.encMovzImm16(10, 5)), std.mem.readInt(u32, out.bytes[12..16], .little));
-    try testing.expectEqual(@as(u32, inst.encAddReg(9, 9, 10)), std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, inst.encAddRegW(9, 9, 10)), std.mem.readInt(u32, out.bytes[16..20], .little));
 }
 
-test "compile: i32.sub / i32.mul / i32.and / i32.or / i32.xor each emit correct ALU op" {
+test "compile: i32.sub / i32.mul / i32.and / i32.or / i32.xor / i32.shl / i32.shr_s / i32.shr_u each emit correct W-variant ALU op" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
     const cases = [_]struct { op: zir.ZirOp, want_word_at_offset: u32 }{
-        .{ .op = .@"i32.sub", .want_word_at_offset = inst.encSubReg(9, 9, 10) },
-        .{ .op = .@"i32.mul", .want_word_at_offset = inst.encMulReg(9, 9, 10) },
-        .{ .op = .@"i32.and", .want_word_at_offset = inst.encAndReg(9, 9, 10) },
-        .{ .op = .@"i32.or",  .want_word_at_offset = inst.encOrrReg(9, 9, 10) },
-        .{ .op = .@"i32.xor", .want_word_at_offset = inst.encEorReg(9, 9, 10) },
+        .{ .op = .@"i32.sub",   .want_word_at_offset = inst.encSubRegW(9, 9, 10) },
+        .{ .op = .@"i32.mul",   .want_word_at_offset = inst.encMulRegW(9, 9, 10) },
+        .{ .op = .@"i32.and",   .want_word_at_offset = inst.encAndRegW(9, 9, 10) },
+        .{ .op = .@"i32.or",    .want_word_at_offset = inst.encOrrRegW(9, 9, 10) },
+        .{ .op = .@"i32.xor",   .want_word_at_offset = inst.encEorRegW(9, 9, 10) },
+        .{ .op = .@"i32.shl",   .want_word_at_offset = inst.encLslvRegW(9, 9, 10) },
+        .{ .op = .@"i32.shr_s", .want_word_at_offset = inst.encAsrvRegW(9, 9, 10) },
+        .{ .op = .@"i32.shr_u", .want_word_at_offset = inst.encLsrvRegW(9, 9, 10) },
     };
     for (cases) |c| {
         var f = ZirFunc.init(0, sig, &.{});

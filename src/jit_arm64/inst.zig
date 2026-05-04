@@ -129,6 +129,67 @@ pub fn encEorReg(rd: Xn, rn: Xn, rm: Xn) u32 {
 }
 
 // ============================================================
+// W-register (32-bit) variants
+//
+// Wasm i32 ops are 32-bit modulo 2^32. The W-variants implicitly
+// zero-extend the 32-bit result into the upper 32 bits of the
+// 64-bit X-register, which is what the spec demands. Bit 31 of
+// the encoding (sf) is the only structural difference vs the
+// X-variants — when sf=0 the op is W; when sf=1 it's X.
+// ============================================================
+
+/// `ADD Wd, Wn, Wm` — 32-bit register add, no shift.
+/// Encoding: same as ADD X but sf=0. Base = `0x0B000000`.
+pub fn encAddRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x0B000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `SUB Wd, Wn, Wm` — 32-bit register subtract, no shift. Base = `0x4B000000`.
+pub fn encSubRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x4B000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `MUL Wd, Wn, Wm` — alias for `MADD Wd, Wn, Wm, WZR` (sf=0).
+/// Base = `0x1B007C00`.
+pub fn encMulRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x1B007C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `AND Wd, Wn, Wm` (no shift). Base = `0x0A000000`.
+pub fn encAndRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x0A000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `ORR Wd, Wn, Wm` (no shift). Base = `0x2A000000`.
+pub fn encOrrRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x2A000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `EOR Wd, Wn, Wm` (no shift). Base = `0x4A000000`.
+pub fn encEorRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x4A000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `LSL Wd, Wn, Wm` — variable left shift; ARM `LSLV`.
+/// Encoding (32-bit LSLV):
+///   `0 00 11010110 [Rm:5] 0010 00 [Rn:5] [Rd:5]` = `0x1AC02000`.
+pub fn encLslvRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x1AC02000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `LSR Wd, Wn, Wm` — variable logical right shift; ARM `LSRV`.
+/// Encoding: `... 0010 01 ...` = `0x1AC02400`.
+pub fn encLsrvRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x1AC02400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `ASR Wd, Wn, Wm` — variable arithmetic right shift; ARM `ASRV`.
+/// Encoding: `... 0010 10 ...` = `0x1AC02800`.
+pub fn encAsrvRegW(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x1AC02800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+// ============================================================
 // Tests
 //
 // Bit patterns cross-checked against the Arm Architecture
@@ -210,4 +271,40 @@ test "encOrrReg x0, x1, x2 — `orr x0, x1, x2` → 0xAA020020" {
 
 test "encEorReg x0, x1, x2 — `eor x0, x1, x2` → 0xCA020020" {
     try testing.expectEqual(@as(u32, 0xCA020020), encEorReg(0, 1, 2));
+}
+
+test "encAddRegW w0, w1, w2 — `add w0, w1, w2` → 0x0B020020" {
+    try testing.expectEqual(@as(u32, 0x0B020020), encAddRegW(0, 1, 2));
+}
+
+test "encSubRegW w0, w1, w2 — `sub w0, w1, w2` → 0x4B020020" {
+    try testing.expectEqual(@as(u32, 0x4B020020), encSubRegW(0, 1, 2));
+}
+
+test "encMulRegW w0, w1, w2 — `mul w0, w1, w2` → 0x1B027C20" {
+    try testing.expectEqual(@as(u32, 0x1B027C20), encMulRegW(0, 1, 2));
+}
+
+test "encAndRegW w0, w1, w2 — `and w0, w1, w2` → 0x0A020020" {
+    try testing.expectEqual(@as(u32, 0x0A020020), encAndRegW(0, 1, 2));
+}
+
+test "encOrrRegW w0, w1, w2 — `orr w0, w1, w2` → 0x2A020020" {
+    try testing.expectEqual(@as(u32, 0x2A020020), encOrrRegW(0, 1, 2));
+}
+
+test "encEorRegW w0, w1, w2 — `eor w0, w1, w2` → 0x4A020020" {
+    try testing.expectEqual(@as(u32, 0x4A020020), encEorRegW(0, 1, 2));
+}
+
+test "encLslvRegW w0, w1, w2 — `lsl w0, w1, w2` → 0x1AC22020" {
+    try testing.expectEqual(@as(u32, 0x1AC22020), encLslvRegW(0, 1, 2));
+}
+
+test "encLsrvRegW w0, w1, w2 — `lsr w0, w1, w2` → 0x1AC22420" {
+    try testing.expectEqual(@as(u32, 0x1AC22420), encLsrvRegW(0, 1, 2));
+}
+
+test "encAsrvRegW w0, w1, w2 — `asr w0, w1, w2` → 0x1AC22820" {
+    try testing.expectEqual(@as(u32, 0x1AC22820), encAsrvRegW(0, 1, 2));
 }
