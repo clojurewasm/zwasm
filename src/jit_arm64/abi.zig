@@ -54,40 +54,70 @@ pub const ip_gprs = [_]Xn{ 16, 17 };
 /// for the OS, so we treat it as never-allocatable.
 pub const platform_gpr: Xn = 18;
 
-/// Callee-saved (non-volatile) GPRs. The §9.7 / 7.3 emit pass
-/// uses these for vregs that span calls — the prologue saves
-/// them, the epilogue restores them.
-///
-/// **Reserved sub-set (caller-supplied invariants for the §9.7 /
-/// 7.3 skeleton)**: X24..X28 hold Runtime-derived pointers the
-/// caller arranges before invoking the JIT body:
-///   X28 — vm_base       (linear-memory base ptr)
+/// Callee-saved (non-volatile) GPRs per AAPCS64 §6.4.1.
+/// Callee must preserve these across calls; saved in prologue,
+/// restored in epilogue. The full callee-saved range is
+/// X19..X28; `reserved_invariant_gprs` carves out X24..X28 for
+/// JitRuntime-derived invariants (per ADR-0017 / 0018), leaving
+/// `allocatable_callee_saved_gprs` (X19..X23) available to the
+/// regalloc.
+pub const callee_saved_gprs = [_]Xn{ 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
+
+/// Registers reserved for runtime invariants (per ADR-0017 +
+/// ADR-0018):
+///   X28 — vm_base       (linear-memory base pointer)
 ///   X27 — mem_limit     (linear-memory size in bytes)
 ///   X26 — funcptr_base  (table 0 — array of u64 funcptrs)
-///   X25 — table_size    (W25 = u32 count of entries — for the
-///                        bounds check)
-///   X24 — typeidx_base  (parallel array of u32 typeidx values
-///                        for the sig check; same indexing as
-///                        funcptr_base)
-/// These five are NOT in the regalloc pool today; D-014 (the
-/// Runtime injection point) dissolves once the structural wiring
-/// replaces this caller-supplied skeleton with native Runtime
-/// indirection. Currently the regalloc pool naively spans
-/// [X9..X15, X19..X28] — 16+ slots reach into X24..X28; that
-/// pre-existing pool/reservation gap is tracked separately and
-/// is non-blocking for the §9.7 / 7.3 row.
-pub const callee_saved_gprs = [_]Xn{ 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
+///   X25 — table_size    (W25 = u32 count of entries)
+///   X24 — typeidx_base  (parallel array of u32 typeidx values)
+///
+/// The function prologue LDRs these from `*X0` (= `*const
+/// JitRuntime`) once per call (ADR-0017). They are excluded from
+/// the regalloc pool by construction — `allocatable_gprs` is
+/// defined as the complement, so a future reorganisation that
+/// adds or removes a reserved reg automatically propagates.
+pub const reserved_invariant_gprs = [_]Xn{ 24, 25, 26, 27, 28 };
+
+/// Allocatable callee-saved GPRs = callee_saved_gprs minus
+/// reserved_invariant_gprs. Five regs (X19..X23). Kept as its
+/// own constant so `allocatable_gprs` reads cleanly and
+/// `audit_scaffolding` can spot-check the reservation invariant
+/// (ADR-0018 §I).
+pub const allocatable_callee_saved_gprs = [_]Xn{ 19, 20, 21, 22, 23 };
 
 pub const frame_pointer: Xn = 29;
 pub const link_register: Xn = 30;
 
 /// Pool of GPRs the regalloc may freely use, in priority order:
 /// caller-saved scratch first (cheapest, no prologue cost), then
-/// callee-saved (forces save/restore). X0..X7 are NOT in this
-/// pool by default — emit reserves them for arg / return
-/// marshalling. X8 / X16-18 / X29-30 are reserved for special
-/// purposes.
-pub const allocatable_gprs = caller_saved_scratch_gprs ++ callee_saved_gprs;
+/// allocatable callee-saved (forces save/restore but invariant-safe).
+///
+/// **Excluded from the pool by construction**:
+///   - X0..X7 (arg / return marshalling)
+///   - X8 (indirect-result-location ptr)
+///   - X16/X17 (IP0/IP1, used as op-handler scratches per
+///     `single_slot_dual_meaning.md`)
+///   - X18 (Apple/Darwin platform-reserved)
+///   - X24..X28 (`reserved_invariant_gprs` per ADR-0017+0018)
+///   - X29 (FP), X30 (LR), X31 (SP/XZR)
+///
+/// Pool size: 12 (was 17 pre-ADR-0018). A function with > 12
+/// concurrently-live vregs spills to the function's spill frame
+/// per ADR-0018; today's slot id space stays the same, but the
+/// allocator returns a `Slot.spill` discriminant for the 13th+
+/// id (sub-1b implementation cycle).
+pub const allocatable_gprs = caller_saved_scratch_gprs ++ allocatable_callee_saved_gprs;
+
+// Compile-time invariant: allocatable and reserved sets are disjoint.
+// Catching the overlap at comptime is the structural fix for the
+// W54-class regression that motivated ADR-0018.
+comptime {
+    for (allocatable_gprs) |a| {
+        for (reserved_invariant_gprs) |r| {
+            if (a == r) @compileError("regalloc pool overlaps reserved_invariant_gprs — ADR-0018 invariant violated");
+        }
+    }
+}
 
 /// Translate a regalloc slot id (from `jit/regalloc.compute`)
 /// into a concrete X-register via the allocatable pool.
@@ -157,16 +187,38 @@ test "callee_saved_gprs covers x19..x28" {
     try testing.expectEqual(@as(Xn, 28), callee_saved_gprs[9]);
 }
 
-test "allocatable_gprs covers caller-scratch + callee-saved (17 regs)" {
-    try testing.expectEqual(@as(usize, 17), allocatable_gprs.len);
+test "allocatable_gprs covers caller-scratch + allocatable-callee-saved (12 regs post-ADR-0018)" {
+    try testing.expectEqual(@as(usize, 12), allocatable_gprs.len);
+}
+
+test "reserved_invariant_gprs is exactly X24..X28 (5 regs)" {
+    try testing.expectEqual(@as(usize, 5), reserved_invariant_gprs.len);
+    const expected = [_]Xn{ 24, 25, 26, 27, 28 };
+    for (reserved_invariant_gprs, expected) |a, e| try testing.expectEqual(e, a);
+}
+
+test "allocatable_gprs and reserved_invariant_gprs are disjoint (runtime check; comptime guard above)" {
+    for (allocatable_gprs) |a| {
+        for (reserved_invariant_gprs) |r| {
+            try testing.expect(a != r);
+        }
+    }
 }
 
 test "slotToReg: slot 0 maps to x9 (first caller-scratch)" {
     try testing.expectEqual(@as(Xn, 9), slotToReg(0).?);
 }
 
-test "slotToReg: slot 7 falls into callee_saved (x19) since caller_scratch exhausts at slot 6 (x15)" {
+test "slotToReg: slot 7 falls into allocatable callee-saved (x19) — caller-scratch exhausts at slot 6 (x15)" {
     try testing.expectEqual(@as(Xn, 19), slotToReg(7).?);
+}
+
+test "slotToReg: slot 11 maps to x23 (last allocatable callee-saved before reserved)" {
+    try testing.expectEqual(@as(Xn, 23), slotToReg(11).?);
+}
+
+test "slotToReg: slot 12 returns null (pool exhausted; cue to spill per ADR-0018 sub-1b)" {
+    try testing.expect(slotToReg(12) == null);
 }
 
 test "slotToReg: out-of-pool slot returns null (cue to spill)" {
