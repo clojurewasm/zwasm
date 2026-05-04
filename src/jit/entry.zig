@@ -17,7 +17,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const linker = @import("linker.zig");
-const jit_abi = @import("../runtime/jit_abi.zig");
+const jit_abi = @import("../engine/codegen/shared/jit_abi.zig");
 
 pub const JitRuntime = jit_abi.JitRuntime;
 

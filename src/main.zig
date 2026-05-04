@@ -25,7 +25,7 @@ pub const zir = @import("ir/zir.zig");
 pub const interp = @import("interp/mod.zig");
 pub const cli_run = @import("cli/run.zig");
 pub const c_api = @import("c_api/wasm_c_api.zig");
-pub const diagnostic = @import("runtime/diagnostic.zig");
+pub const diagnostic = @import("diagnostic/diagnostic.zig");
 pub const diag_print = @import("cli/diag_print.zig");
 pub const run_wasm = @import("jit/run_wasm.zig");
 pub const entry = @import("jit/entry.zig");
@@ -124,7 +124,7 @@ test "build options are wired" {
 test {
     _ = @import("util/leb128.zig");
     _ = @import("util/dbg.zig");
-    _ = @import("runtime/diagnostic.zig");
+    _ = @import("diagnostic/diagnostic.zig");
     _ = @import("cli/diag_print.zig");
     _ = @import("ir/zir.zig");
     _ = @import("ir/dispatch_table.zig");
@@ -136,7 +136,7 @@ test {
     _ = @import("platform/jit_mem.zig");
     _ = @import("jit/linker.zig");
     _ = @import("jit/entry.zig");
-    _ = @import("runtime/jit_abi.zig");
+    _ = @import("engine/codegen/shared/jit_abi.zig");
     _ = @import("jit/compile_func.zig");
     _ = @import("jit/run_wasm.zig");
     _ = @import("ir/loop_info.zig");

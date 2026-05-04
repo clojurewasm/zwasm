@@ -18,7 +18,7 @@
 const std = @import("std");
 
 const wasm_c_api = @import("../c_api/wasm_c_api.zig");
-const diagnostic = @import("../runtime/diagnostic.zig");
+const diagnostic = @import("../diagnostic/diagnostic.zig");
 
 pub fn runWasm(
     alloc: std.mem.Allocator,

@@ -1,4 +1,4 @@
-//! CLI-side renderer for `runtime/diagnostic.zig` payloads
+//! CLI-side renderer for `diagnostic/diagnostic.zig` payloads
 //! (ADR-0016 phase 1).
 //!
 //! `formatDiagnostic` is the data-driven renderer the CLI / test
@@ -17,7 +17,7 @@
 
 const std = @import("std");
 
-const diagnostic = @import("../runtime/diagnostic.zig");
+const diagnostic = @import("../diagnostic/diagnostic.zig");
 
 const Info = diagnostic.Info;
 const Kind = diagnostic.Kind;

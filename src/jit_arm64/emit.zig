@@ -45,7 +45,7 @@ const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const prologue = @import("prologue.zig");
 const regalloc = @import("../jit/regalloc.zig");
-const jit_abi = @import("../runtime/jit_abi.zig");
+const jit_abi = @import("../engine/codegen/shared/jit_abi.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;

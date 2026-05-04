@@ -26,8 +26,8 @@ zone_of() {
     local path="$1"
     case "$path" in
         src/util/*|src/platform/*)                           echo 0 ;;
-        src/ir/*|src/runtime/*|src/frontend/*|src/feature/*) echo 1 ;;
-        src/interp/*|src/jit/*|src/jit_arm64/*|src/jit_x86/*|src/wasi/*) echo 2 ;;
+        src/ir/*|src/runtime/*|src/frontend/*|src/feature/*|src/diagnostic/*) echo 1 ;;
+        src/interp/*|src/jit/*|src/jit_arm64/*|src/jit_x86/*|src/wasi/*|src/engine/codegen/shared/*) echo 2 ;;
         src/c_api/*|src/cli/*|src/main.zig)                  echo 3 ;;
         *)                                                   echo "x" ;;
     esac
