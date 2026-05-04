@@ -35,7 +35,8 @@
   ADR-0021 + ROADMAP §9.7 row 7.5d + §15 bullet, `bug_fix_survey`
   rule, 5 lessons (regrets #1/2/3/7/10), 2 amendments to
   `edge_case_testing.md` (regrets #4/6), `src/jit_arm64/prologue.zig`
-  helper + 142 test sites relativised, ADR-0022 retrospective.
+  helper + 4 demonstration sites (~128 sites bulk-migration sequenced
+  under 7.5d sub-b), ADR-0022 retrospective.
 - **Branch**: `zwasm-from-scratch`, **commits LOCAL** (not pushed
   — this session was not /continue; push requires user approval).
 
@@ -81,6 +82,7 @@
 - §9.7 / 7.3 op coverage CLOSED (111 ops total).
 - §9.7 / 7.4a/b/c JIT runtime infra.
 - ADRs 0017/0018/0019/0020 drafted, accepted.
-- ADR-0021 sub-gate inserted; 142 byte-offset test sites
-  relativised via `src/jit_arm64/prologue.zig`.
+- ADR-0021 sub-gate inserted; `src/jit_arm64/prologue.zig` helper
+  + 4 demonstration test sites; ~128-site bulk migration sequenced
+  under 7.5d sub-b alongside the emit.zig split.
 - ADR-0022 retrospective recorded.

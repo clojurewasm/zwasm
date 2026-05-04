@@ -198,8 +198,11 @@ try testing.expectEqual(expected, std.mem.readInt(u32, out.bytes[body_start..bod
 
 The helper lives at `src/jit_arm64/prologue.zig` (and
 analogously `src/jit_x86/prologue.zig` once x86_64 lands per
-ADR-0019 / ADR-0021). The 142 site relativisation landed
-2026-05-04 per ADR-0021.
+ADR-0019 / ADR-0021). The helper landed 2026-05-04 per ADR-0021
+(sub-deliverable a, partial); the ~128-site bulk migration runs
+alongside the emit.zig split (§9.7 / 7.5d sub-b). New test sites
+from this commit forward MUST use the helper, regardless of
+whether existing sites have been retroactively migrated.
 
 The **only exception** is opcode-pinned offsets (the prologue's
 first two words assert AAPCS64 fixed opcodes per Arm IHI 0055

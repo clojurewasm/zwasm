@@ -116,7 +116,7 @@ test reruns + 3-host gate).
 
 | Rule                          | Interaction                                                                                         |
 |-------------------------------|-----------------------------------------------------------------------------------------------------|
-| `textbook_survey.md`          | That rule = task-start; this rule = bug-fix-time. Mutually exclusive triggers; both can fire.       |
+| `textbook_survey.md`          | That rule = task-start design survey; this rule = bug-fix-time grep within `src/`. Triggers are mutually exclusive — at any moment one applies, never both. |
 | `single_slot_dual_meaning.md` | Step 3 of this rule cites §14's slot-dual-meaning entry when the bug is in that neighborhood.       |
 | `no_workaround.md`            | Bug-fix-time grep often surfaces "we worked around this elsewhere too" — escalate per no_workaround. |
 | `edge_case_testing.md`        | When the grep surfaces a sibling boundary, add an edge-case fixture in the same commit.             |
