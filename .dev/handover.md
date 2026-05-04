@@ -25,12 +25,13 @@
   op coverage CLOSED (111 ops: 88 numeric MVP + 23 conversions
   including all 8 trapping trunc + 8 sat_trunc + 4 reinterpret +
   3 width). 7.3 row stays `[ ]` pending 7.4 spec test gate.
-- **Last commit**: `348a6ef` — feat(p7) §9.7 / 7.3 sub-h3b
-  (trapping trunc, f64 source: 4 ops with f64-bound `emitConstU64`
-  + `emitTrunc64BoundsCheck`). Closes sub-h3, sub-h, and the
-  entire 7.3 op-coverage block. 7.4 spec gate is NEXT — runs
-  `zig build test-spec` via JIT and gates 7.3's [x] flip.
-  713/713 unit / 3-host green. Phase 6 close at `68843b0`.
+- **Last commit**: `1e71b53` — feat(p7) §9.7 / 7.4 sub-7.4a (JIT
+  executable-memory primitive: `JitBlock` via mmap MAP_JIT +
+  `pthread_jit_write_protect_np` + `sys_icache_invalidate`;
+  smoke test emits MOVZ X0,#42 + RET and calls it). Foundation
+  for the spec gate; sub-7.4b (per-function emit + linker for
+  `call_fixups` + entry-frame setup) ahead. 715/715 unit / 3-host
+  green. Phase 6 close at `68843b0`.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
 ## Active task — §9.7 / 7.3 (`emit.zig` op coverage build-out)
@@ -64,11 +65,14 @@ closes — exit gated by §9.7 / 7.4's spec test pass=fail=skip=0.
 | h3a | trapping trunc, f32 source (4 ops; NaN + range checks)  | [x] `c29b243` |
 | h3b | trapping trunc, f64 source (4 ops; emitConstU64 stage)  | [x] `348a6ef` |
 
-**§9.7 / 7.3 op coverage CLOSED.** Next row: **§9.7 / 7.4** —
-spec test gate (pass=fail=skip=0 via JIT). Wires the
-caller-supplied skeleton invariants (X24..X28 = typeidx_base,
-table_size, funcptr_base, mem_limit, vm_base) into the
-test-spec runner, then runs the wasm-1.0 testsuite via JIT.
+**§9.7 / 7.3 op coverage CLOSED.** §9.7 / 7.4 sub-rows:
+
+| Sub | Step | Status |
+|-----|------|--------|
+| 7.4a | JIT executable-memory primitive (Mac aarch64) | [x] `1e71b53` |
+| 7.4b | Per-function emit + linker (patch call_fixups by absolute disp) | [ ] **NEXT** |
+| 7.4c | Entry-frame setup (X24..X28 invariants from Runtime + arg unboxing) | [ ] |
+| 7.4d | wasm-1.0 spec testsuite via JIT (pass=fail=skip=0) | [ ] |
 
 Numeric MVP op coverage (88 ops total): i32 25 + i64 25 + f32 19 + f64 19.
 Plus 3 locals ops + end + 4 control-flow ops (block/loop/br/br_if).
