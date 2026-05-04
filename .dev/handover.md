@@ -18,25 +18,23 @@
 
 ## Current state
 
-- **Phase**: **Phase 6 IN-PROGRESS** — 6.K + 6.E all `[x]`.
-  6.F〜6.J pending.
-- **Last source commit**: TBD — chore(p6) §9.6 / 6.E close —
-  266 PASS / 5 deferred via 2 skip-ADRs (`skip_embenchen_emcc_
-  env_imports.md` + `skip_externref_segment.md`).
+- **Phase**: **Phase 6 IN-PROGRESS** — 6.K + 6.E + 6.F all `[x]`.
+  6.G〜6.J pending.
+- **Last source commit**: `e4095e8` — fix(p6) diff_runner —
+  SKIP-WASMTIME-UNUSABLE when every spawn fails.
 - **Branch**: `zwasm-from-scratch`, pushed.
 
-## Active task — §9.6 / 6.F (test-realworld-diff 30+ matches)
+## Active task — §9.6 / 6.G (ClojureWasm guest end-to-end)
 
-Per ROADMAP §9.6 / 6.F: drive `test-realworld-diff` to 30+
-byte-for-byte matches against wasmtime; re-add to `test-all`.
-This was the original §9.6 / 6.2 strict close, paused at the
-6.K reopen.
+Per ROADMAP §9.6 / 6.G: ClojureWasm guest end-to-end via
+`build.zig.zon` `path = ...` (original §9.6 / 6.3 strict close).
+This wires the in-tree ClojureWasm v2 (`~/Documents/MyProducts/
+ClojureWasmFromScratch/`) as a Zig package dependency and runs
+its emitted .wasm guest under zwasm.
 
-Step 0 (Survey): inspect `test/realworld/` runner + the
-v1-era diff infrastructure for the byte-level comparison
-contract. Likely needs a fresh subagent survey since 6.K
-landed `*FuncEntity` + cross-module imports that change
-runtime output.
+Step 0 (Survey): inspect ClojureWasmFromScratch's current
+build.zig.zon export surface + zwasm v1's prior CW guest harness
+to understand the contract. Likely needs a subagent survey.
 
 ## ROADMAP §9.6 — task table snapshot (authoritative is `.dev/ROADMAP.md`)
 
@@ -50,7 +48,8 @@ runtime output.
 | 6.K.6 | Re-measure `partial-init-table-segment/indirect-call` after 6.K.1–6.K.3              | [x] (verify)   |
 | 6.K.7 | -Dsanitize=address + zig build run-repro (per ADR-0015)                              | [x] 6750bc5    |
 | 6.K.8 | Error diagnostic M1 (Diagnostic core + CLI parity, per ADR-0016)                     | [x] 306dbc2    |
-| 6.E   | misc-runtime re-measure + close (266 PASS / 5 deferred via 2 skip-ADRs)              | [x] (this commit) |
+| 6.E   | misc-runtime re-measure + close (266 PASS / 5 deferred via 2 skip-ADRs)              | [x] b569b8f       |
+| 6.F   | test-realworld-diff 30+ matches + re-add to test-all (39/50 matched, 0 mismatched)   | [x] (this commit) |
 
 ## Open questions / blockers
 
