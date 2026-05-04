@@ -116,23 +116,40 @@ session.
   reference the ADR in the commit. Quiet edits are forbidden.
 - `private/` is gitignored agent scratch. It is **not authoritative**
   — the audit and resume procedures do not read it as load-bearing.
-  If a `private/` proposal matters, promote it to ROADMAP / ADR /
-  `handover.md` (all tracked in git); otherwise let it stay scratch.
+  If a `private/` proposal matters, promote it to a load-bearing
+  artefact (ROADMAP / ADR / lesson / debt entry / `handover.md`,
+  all tracked in git); otherwise let it stay scratch.
+- **Debt + lessons live in git, not in your head.** `.dev/debt.md`
+  is the ledger (refresh on every `/continue` resume; `now` rows
+  must discharge before the active task — see `continue` skill
+  Step 0.5). `.dev/lessons/` holds re-derivable observations
+  (`INDEX.md` is the keyword index; grep before each task — Step
+  0.4). The ADR-vs-lesson boundary is documented in
+  [`.claude/rules/lessons_vs_adr.md`](.claude/rules/lessons_vs_adr.md).
+- **Don't paper over absences.** When something appears missing
+  (tool, host, file), walk the 3-step procedure in
+  [`.claude/rules/extended_challenge.md`](.claude/rules/extended_challenge.md)
+  before invoking the bucket-2 stop or shipping a SKIP-X-MISSING
+  workaround.
 
 ## Skills (the runnable procedures)
 
 These hold the canonical procedures; CLAUDE.md only points to them.
 
-- **`continue`** — resume procedure + per-task TDD loop (Step 0
-  Survey, Step 5 three-host test gate, Step 7 handover update + 60 %
-  compact gate). Auto-triggers on "続けて" / "/continue" / "resume".
+- **`continue`** — resume procedure + per-task TDD loop. Auto-
+  triggers on "続けて" / "/continue" / "resume". Resume now
+  includes Step 0.4 (lesson scan) + Step 0.5 (debt sweep) before
+  the active task; per-task Step 4 (Refactor) gains debt-
+  observation discipline; Step 7 appends new debt + lesson rows.
   **Fully autonomous from invocation**. Stops only when the user
-  intervenes or a problem genuinely cannot be solved.
+  intervenes or a problem genuinely cannot be solved (per
+  `extended_challenge.md`'s "provably absent" definition).
 - **`audit_scaffolding`** — adaptive-cadence audit for staleness,
-  bloat, lies, and false positives across the tracked scaffolding
-  (CLAUDE.md, `.dev/`, `.claude/`, `scripts/`). Invoked when
-  scaffolding feels off, after large refactors, before release tags,
-  or on user request.
+  bloat, lies, false positives, **debt + lessons coherence (F)**,
+  and **extended-challenge consistency (G)** across the tracked
+  scaffolding (CLAUDE.md, `.dev/`, `.claude/`, `scripts/`).
+  Invoked when scaffolding feels off, after large refactors,
+  before release tags, or on user request.
 
 ## Layout
 
@@ -141,9 +158,9 @@ src/         Zig source (frontend / ir / runtime / feature / interp / jit / wasi
 include/     Public C headers (wasm.h / wasi.h / zwasm.h)
 build.zig    Build script (Zig 0.16 idiom, with -Dwasm / -Dwasi / -Dengine flags)
 flake.nix    Nix dev shell pinned to Zig 0.16.0 + hyperfine + yq + wabt
-.dev/        ROADMAP + handover + ADRs + proposal_watch + orbstack_setup + windows_ssh_setup
-.claude/     settings, skills, rules, output_styles
-scripts/     gate, zone_check, file_size_check, bench, run_remote_windows
+.dev/        ROADMAP + handover + debt ledger + lessons/ + ADRs + proposal_watch + orbstack_setup + windows_ssh_setup
+.claude/     settings, skills, rules (zone_deps / no_workaround / no_copy_from_v1 / textbook_survey / lessons_vs_adr / extended_challenge / …), output_styles
+scripts/     gate, zone_check, file_size_check, bench, run_remote_windows, check_skip_adrs, check_adr_history
 test/        unified runner via `zig build test-all` + per-layer suites (unit / spec / e2e / realworld / c_api / fuzz)
 bench/       benchmark history (append-only)
 private/     gitignored agent scratch
@@ -200,8 +217,14 @@ bash scripts/run_remote_windows.sh test-all
   in this file conflicts with the roadmap, the roadmap wins.
 - [`.dev/handover.md`](.dev/handover.md) — short, mutable, current
   state.
+- [`.dev/debt.md`](.dev/debt.md) — debt ledger. Refresh on every
+  resume; `now` rows must discharge before the active task.
+- [`.dev/lessons/`](.dev/lessons/) — re-derivable observational
+  notes, indexed by [`INDEX.md`](.dev/lessons/INDEX.md).
 - [`.dev/decisions/`](.dev/decisions/) — ADRs (load-bearing
-  deviations from ROADMAP).
+  deviations from ROADMAP). See
+  [`README.md`](.dev/decisions/README.md) for amendment / two-
+  commit / Revision-history conventions.
 - [`.dev/proposal_watch.md`](.dev/proposal_watch.md) — Wasm proposal
   phase tracking, reviewed quarterly.
 - [`.dev/orbstack_setup.md`](.dev/orbstack_setup.md) — OrbStack VM
