@@ -24,9 +24,12 @@
 - **Phase**: **Phase 7 IN-PROGRESS** — Phase 6 closed at
   `68843b0` (3-host green; mandatory audit fired; widget flipped
   6=DONE / 7=IN-PROGRESS).
-- **Last commit**: `e7ad654` — feat(p7) §9.7 / 7.1 `regalloc.zig`
-  greedy-local + verify post-condition re-derived. 499/499 unit
-  tests / 3-host test-all green.
+- **Last commit**: `e568077` — feat(p6) close D-006 (linking-errors
+  honest pass via Wasm 2.0 §3.4.10 import-type validator) +
+  D-023+D-025 (v1-class hyperfine baseline: 26 fixtures recorded
+  in bench/results/history.yaml as "Phase 6 close baseline").
+  Earlier same cycle: 7.0 reg_class.zig (`e273149`) + 7.1
+  regalloc.zig (`e7ad654`).
 - **Branch**: `zwasm-from-scratch`, pushed.
 - **Three-host parity**: Mac aarch64 + OrbStack Ubuntu + windowsmini
   all report identical test-all numbers (39/55 diff matched, 44/55
@@ -67,12 +70,16 @@ Phase 6 final tally:
 
 ## Open questions / blockers
 
-- **D-006 (linking-errors / import-type validation gap)** carried
-  into Phase 7+. The 9 fixtures currently pass for the wrong
-  reason (manifest-discovery rejects before type-check would
-  fire). The phase-7-or-later resolution path is documented in
-  `.dev/debt.md` D-006 + `skip_embenchen_emcc_env_imports.md`
-  "What v2 needs to fix this honestly" §.
-- **D-014 (`Runtime.io` injection point design)** has its
-  Phase-7-design-ADR barrier dissolving as Phase 7 begins. Step
-  0.5 of the next /continue cycle should flip D-014 to `now`.
+(Phase 6 cleanliness sweep 2026-05-04 closed: D-006, D-023, D-024,
+D-025. Plus D-001/2/3/4/5/8/13/15/19 from earlier cycles. 12 of
+the original 24 audit-noted debts discharged this Phase 6 cycle.)
+
+- **D-026 (env-stub host-func wiring)** is the new sharper
+  successor to D-006's embenchen portion: 4 embenchen `_*1.wasm`
+  + 1 externref-segment fixture remain skip-ADR'd. Validator
+  gap (D-006) is closed; what remains is implementation-side
+  cross-module dispatch for emcc-style env stubs.
+- **D-014 (`Runtime.io` injection point design)**'s barrier
+  was refined this cycle to "§9.7 / 7.3 emit pass (or earliest
+  JIT row that touches Runtime)". Phase 7.0 + 7.1 don't touch
+  Runtime; D-014 stays blocked-by until 7.3.
