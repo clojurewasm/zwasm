@@ -137,6 +137,10 @@ pub fn compile(
             .@"i32.add", .@"i32.sub", .@"i32.mul",
             .@"i32.and", .@"i32.or", .@"i32.xor",
             => try emitI32Binary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i32.eq", .@"i32.ne",
+            .@"i32.lt_s", .@"i32.lt_u", .@"i32.gt_s", .@"i32.gt_u",
+            .@"i32.le_s", .@"i32.le_u", .@"i32.ge_s", .@"i32.ge_u",
+            => try emitI32Compare(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"end" => {
                 // Function-level end (skeleton: no label stack
                 // yet, so every `end` is the function-level form).
@@ -209,6 +213,56 @@ fn emitI32Binary(
         else => unreachable,
     };
     try buf.appendSlice(allocator, enc.slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// i32 compare handler (eq / ne / lt_s / lt_u / gt_s / gt_u /
+/// le_s / le_u / ge_s / ge_u — 10 ops). x86_64 pattern:
+///
+///   CMP lhs, rhs           ; sets EFLAGS based on lhs - rhs
+///   SETcc dst_low8         ; writes 0 / 1 to low byte of dst
+///   MOVZX dst, dst_low8    ; zero-extend to 32 bits
+///
+/// Wasm result type i32 (0 or 1). Total ~10 bytes per compare
+/// (3 instr × 3-4 bytes each with REX). Signed vs unsigned
+/// distinction is the cc code only — operand encoding is
+/// identical.
+fn emitI32Compare(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const lhs_r = abi.slotToReg(alloc.slots[lhs_v]) orelse return Error.SlotOverflow;
+    const rhs_r = abi.slotToReg(alloc.slots[rhs_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    const cc: inst.Cond = switch (op) {
+        .@"i32.eq"   => .e,
+        .@"i32.ne"   => .ne,
+        .@"i32.lt_s" => .l,
+        .@"i32.lt_u" => .b,
+        .@"i32.gt_s" => .g,
+        .@"i32.gt_u" => .a,
+        .@"i32.le_s" => .le,
+        .@"i32.le_u" => .be,
+        .@"i32.ge_s" => .ge,
+        .@"i32.ge_u" => .ae,
+        else => unreachable,
+    };
+
+    try buf.appendSlice(allocator, inst.encCmpRR(.d, lhs_r, rhs_r).slice());
+    try buf.appendSlice(allocator, inst.encSetccR(cc, dst_r).slice());
+    try buf.appendSlice(allocator, inst.encMovzxR32R8(dst_r, dst_r).slice());
+
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -400,6 +454,73 @@ test "compile: (i32.const 6) (i32.const 7) i32.mul end — IMUL 0F AF" {
     // → REX = 0x41. ModR/M: mod=11, reg=011 (ebx), rm=011 (r11) → DB.
     // So 41 0F AF DB at offset 19..23.
     try testing.expectEqualSlices(u8, &.{ 0x41, 0x0F, 0xAF, 0xDB }, out.bytes[19..23]);
+}
+
+test "compile: (i32.const 7) (i32.const 5) i32.eq end — CMP+SETE+MOVZX" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.eq" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 2 }; // R10D, R11D, EBX
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected stream:
+    //   55 48 89 E5                     prologue
+    //   41 BA 07 00 00 00               MOV R10D, #7
+    //   41 BB 05 00 00 00               MOV R11D, #5
+    //   45 39 DA                        CMP R10D, R11D
+    //   40 0F 94 C3                     SETE BL
+    //   40 0F B6 DB                     MOVZX EBX, BL
+    //   89 D8                           MOV EAX, EBX
+    //   5D C3                           POP RBP ; RET
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x41, 0xBA, 0x07, 0x00, 0x00, 0x00,
+        0x41, 0xBB, 0x05, 0x00, 0x00, 0x00,
+        0x45, 0x39, 0xDA,
+        0x40, 0x0F, 0x94, 0xC3,
+        0x40, 0x0F, 0xB6, 0xDB,
+        0x89, 0xD8,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: i32.lt_s vs i32.lt_u — different cc codes" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    inline for (.{ .{ .op = .@"i32.lt_s", .cc = @as(u8, 0x9C) }, .{ .op = .@"i32.lt_u", .cc = @as(u8, 0x92) } }) |case| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 2 });
+        try f.instrs.append(testing.allocator, .{ .op = case.op });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 2 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+            .{ .def_pc = 2, .last_use_pc = 3 },
+        } };
+        const slots = [_]u8{ 0, 1, 2 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+        defer deinit(testing.allocator, out);
+        // SETcc opcode byte lives at offset 19+1+1 = 21 (after CMP's 3 bytes + REX).
+        // Layout: [prologue 4][2× movimm 12][cmp 3] = 19, then SETcc REX(40) at 19,
+        // 0x0F at 20, opcode at 21.
+        try testing.expectEqual(case.cc, out.bytes[21]);
+    }
 }
 
 test "compile: i32.add with stack underflow → AllocationMissing" {

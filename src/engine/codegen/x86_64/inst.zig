@@ -181,6 +181,62 @@ pub fn encXorRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// EFLAGS condition code per AMD64 Vol.3 §3.1.4 (J<cc> /
+/// SET<cc> / CMOV<cc> share the same 4-bit cc field). The
+/// numeric value is the cc encoding (e.g. SETE = 0x0F 0x94 →
+/// 0x90 + 4).
+pub const Cond = enum(u4) {
+    o = 0x0, no = 0x1, b = 0x2, ae = 0x3,
+    e = 0x4, ne = 0x5, be = 0x6, a = 0x7,
+    s = 0x8, ns = 0x9, p = 0xA, np = 0xB,
+    l = 0xC, ge = 0xD, le = 0xE, g = 0xF,
+};
+
+/// `CMP r/m, r` (opcode 0x39) — sets EFLAGS based on `dst -
+/// src` (no result stored). Same operand-role + REX layout as
+/// ADD/SUB.
+pub fn encCmpRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, src, dst)) |rex| enc.push(rex);
+    enc.push(0x39);
+    enc.push(encodeModrm(0b11, src.low3(), dst.low3()));
+    return enc;
+}
+
+/// `SETcc r/m8` (2-byte opcode 0x0F 0x90+cc) — write 0 or 1 to
+/// the low byte of `dst` based on the EFLAGS condition. ModR/M:
+/// mod=11, reg=0 (always for SETcc), rm = dst.low3.
+///
+/// **REX is always emitted.** For R8..R15 the REX.B bit is
+/// needed; for RBX/RBP/RSI/RDI any REX (including 0x40) is
+/// required to access the low-byte form (BL/BPL/SIL/DIL) rather
+/// than the high-byte aliases (BH/CH/DH/AH) which clash in
+/// 64-bit mode.
+pub fn encSetccR(cc: Cond, dst: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(false, 0, 0, dst.extBit()));
+    enc.push(0x0F);
+    enc.push(0x90 | @as(u8, @intFromEnum(cc)));
+    enc.push(encodeModrm(0b11, 0, dst.low3()));
+    return enc;
+}
+
+/// `MOVZX r32, r/m8` (2-byte opcode 0x0F 0xB6 /r) — zero-extend
+/// the low byte of `src` into the 32-bit form of `dst` (which
+/// implicitly zero-extends to 64 bits). dst occupies ModR/M.reg,
+/// src occupies r/m (same role inversion as IMUL).
+///
+/// **REX always emitted** for the same low-byte addressability
+/// reason as SETcc.
+pub fn encMovzxR32R8(dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(false, dst.extBit(), 0, src.extBit()));
+    enc.push(0x0F);
+    enc.push(0xB6);
+    enc.push(encodeModrm(0b11, dst.low3(), src.low3()));
+    return enc;
+}
+
 /// `IMUL r, r/m` (2-byte opcode 0x0F 0xAF /r) — `dst *= src`,
 /// signed/unsigned identical for the low N bits (Wasm i32.mul
 /// doesn't distinguish signedness).
@@ -402,4 +458,39 @@ test "encImulRR: imul ebx, r10d (d) → 41 0f af da (REX.B for src)" {
 test "encImulRR: imul r9d, ecx (d) → 44 0f af c9 (REX.R for dst)" {
     const enc = encImulRR(.d, .r9, .rcx);
     try testing.expectEqualSlices(u8, &.{ 0x44, 0x0F, 0xAF, 0xC9 }, enc.slice());
+}
+
+test "encCmpRR: cmp ebx, ecx (d) → 39 cb" {
+    const enc = encCmpRR(.d, .rbx, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x39, 0xCB }, enc.slice());
+}
+
+test "encCmpRR: cmp r10d, r11d (d) → 45 39 da (REX.R + REX.B)" {
+    const enc = encCmpRR(.d, .r10, .r11);
+    try testing.expectEqualSlices(u8, &.{ 0x45, 0x39, 0xDA }, enc.slice());
+}
+
+test "encSetccR: sete bl → 40 0f 94 c3 (bare REX for low-byte access)" {
+    const enc = encSetccR(.e, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0x40, 0x0F, 0x94, 0xC3 }, enc.slice());
+}
+
+test "encSetccR: setl r10b → 41 0f 9c c2 (REX.B)" {
+    const enc = encSetccR(.l, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0x0F, 0x9C, 0xC2 }, enc.slice());
+}
+
+test "encSetccR: setb cl (unsigned-less) → 40 0f 92 c1" {
+    const enc = encSetccR(.b, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x40, 0x0F, 0x92, 0xC1 }, enc.slice());
+}
+
+test "encMovzxR32R8: movzx ebx, bl → 40 0f b6 db" {
+    const enc = encMovzxR32R8(.rbx, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0x40, 0x0F, 0xB6, 0xDB }, enc.slice());
+}
+
+test "encMovzxR32R8: movzx r10d, r10b → 45 0f b6 d2 (REX.R + REX.B)" {
+    const enc = encMovzxR32R8(.r10, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0x45, 0x0F, 0xB6, 0xD2 }, enc.slice());
 }
