@@ -94,5 +94,9 @@ imports (A3).
 - `bash scripts/zone_check.sh --gate` — exit 1 if violation count
   exceeds the in-script BASELINE (currently 0).
 
-Tests are exempt: everything after the first `test "…"` line in a
-file is skipped (test code may legitimately cross zones).
+Tests are exempt: everything after the first `test "…"` line OR
+the first `const testing = std.testing` declaration in a file is
+skipped (test code may legitimately cross zones; per Zig idiom the
+testing alias + per-test sibling/parent imports are usually
+declared in the test-helper section above the first `test "…"`
+block, so the earlier marker captures that region too).

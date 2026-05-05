@@ -54,7 +54,7 @@ for file in $files; do
     [ "$src_zone" = "x" ] && continue
     src_arch=$(arch_of "$file")
 
-    awk '/^test "/{exit} {print NR ":" $0}' "$file" \
+    awk '/^test "/ || /^const testing = std\.testing/{exit} {print NR ":" $0}' "$file" \
         | { grep -E '@import\("[^"]+\.zig"\)' || true; } \
         | while IFS=: read -r lineno content; do
             import_path=$(echo "$content" | sed -nE 's/.*@import\("([^"]+)"\).*/\1/p')

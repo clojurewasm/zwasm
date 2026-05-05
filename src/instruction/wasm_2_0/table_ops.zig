@@ -214,7 +214,7 @@ fn elemDrop(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const 
 // ============================================================
 
 const testing = std.testing;
-const dispatch_loop = @import("../dispatch.zig");
+const dispatch_loop = @import("../../interp/dispatch.zig");
 const Value = runtime.Value;
 const TableInstance = runtime.TableInstance;
 

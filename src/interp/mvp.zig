@@ -43,10 +43,10 @@ const std = @import("std");
 const dispatch = @import("../ir/dispatch_table.zig");
 const zir = @import("../ir/zir.zig");
 const runtime = @import("../runtime/runtime.zig");
-const memory_ops = @import("memory_ops.zig");
-const mvp_int = @import("mvp_int.zig");
-const mvp_float = @import("mvp_float.zig");
-const mvp_conversions = @import("mvp_conversions.zig");
+const memory_ops = @import("../instruction/wasm_1_0/memory.zig");
+const mvp_int = @import("../instruction/wasm_1_0/numeric_int.zig");
+const mvp_float = @import("../instruction/wasm_1_0/numeric_float.zig");
+const mvp_conversions = @import("../instruction/wasm_1_0/numeric_conversion.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
