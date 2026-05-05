@@ -124,6 +124,37 @@ zwasm v1.
   quoting need extra care; use `bash -lc '...'` over inline
   heredocs.
 
+## Microsoft Defender exclusions (build-perf)
+
+`MsMpEng.exe` (Defender real-time scan) was observed dominating
+CPU during `zig build` on windowsmini, scanning `.zig-cache` /
+`zig-out` after every compile. Investing in exclusions
+substantially reduces wall-clock time for `test-all` and is also
+suspected to reduce the D-028 test-runner-IPC-timeout flake rate.
+
+**Setup procedure** (one-time, from any SSH session — admin
+elevation surprisingly *not* required on this windowsmini, so
+the standard `shota` SSH user can install these):
+
+```bash
+ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\Documents\MyProducts\zwasm_from_scratch\.zig-cache'"'"'"'
+ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\Documents\MyProducts\zwasm_from_scratch\zig-out'"'"'"'
+ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\AppData\Local\zig'"'"'"'
+ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\AppData\Local\zwasm-tools'"'"'"'
+ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionProcess '"'"'zig.exe'"'"'"'
+```
+
+**Verify** (any time):
+
+```bash
+ssh windowsmini 'powershell -NoProfile -Command "Get-MpPreference | Select-Object -Property ExclusionPath, ExclusionProcess | Format-List"'
+```
+
+If a fresh windowsmini host is provisioned (or the OS is
+reimaged), re-run the setup block above before measuring D-028
+recurrence — the absence of Defender exclusions will inflate the
+flake-rate baseline.
+
 ## When to update this file
 
 - After bumping `windowsmini` tool versions, sync the pin list.
