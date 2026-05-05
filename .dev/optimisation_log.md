@@ -28,13 +28,54 @@
 にする。3 cycle 経っても `Investigating` のままなら audit_
 scaffolding §F が拾う。
 
+## Day-1 採用済み (v2 の foundation 設計選択)
+
+ROADMAP §2 (P/A 原則) と Phase 0-7 の ADR で確定し、v1 との
+構造的差別化として**最初から組み込み済み**の最適化。これらは
+Phase 8 以降の最適化候補ではなく、候補が**前提とする** baseline。
+
+| ID    | 領域                | 採用内容                                                                          | v1 との差                                  | Refs                                                  |
+|-------|---------------------|-----------------------------------------------------------------------------------|--------------------------------------------|-------------------------------------------------------|
+| F-001 | IR shape            | ZIR + day-1 `?Liveness` slot in `ZirFunc`                                          | v1 は post-hoc (W54 regression の温床)     | ROADMAP §4.2 / §P13; ADR-0014                         |
+| F-002 | JIT pipeline        | Single-pass JIT (parse→ZIR lower→regalloc→emit を 1 走査で)                         | v1 は 4-pass                                | ROADMAP §P6                                           |
+| F-003 | Interp dispatch     | Threaded-code (tail-call) ループディスパッチ                                       | v1 は switch-based                          | `src/interp/`; §9.6 close                              |
+| F-004 | JIT register strat  | Reserved invariant GPRs (ARM64 X19-X28 / x86_64 R15) でランタイムポインタ常駐    | v1 は per-op reload from `*Runtime`        | ADR-0017 (ARM64) / ADR-0026 (x86_64)                  |
+| F-005 | Feature gate        | Dispatch table 強制 (主 parser/validator/interp/emit が feature を `@import` しない) | v1 はコード分散 + `if (feature_x)` 散在    | A12 forbidden list; `src/ir/dispatch_table.zig`        |
+| F-006 | Trap stub strategy  | Function あたり単一 trap stub + `bounds_fixups` で memory/sig/trunc-trap を集約 | v1 は trap-per-op スタブ                    | `emit.zig:bounds_fixups`; ADR-0028 で per-reason 拡張   |
+| F-007 | Memory model        | Instance arena allocator (bulk-free at instance close)                             | v1 は個別 alloc/free                        | ADR-0014 §6.K.3                                        |
+| F-008 | ABI invariants      | Comptime ABI layout guards (`jit_abi.zig` の `@compileError` for offset/alignment) | v1 は runtime layout drift で発覚          | `src/engine/codegen/shared/jit_abi.zig`                |
+| F-009 | Encoder design      | 同 op-family を `kind: SseScalarKind` + `opcode` で parameterized helper に集約 | n/a (新規)                                  | `inst.zig:encSseScalarBinary` 等                       |
+| F-010 | Value representation | `extern union { i32, i64, f32, f64, v128, funcref, externref }` (型 tag 別途)    | v1 同等 (NaN-box 不採用は意図的; 下表参照) | `src/runtime/value.zig`; ADR-0014                     |
+| F-011 | Slot model          | GPR/FP 別プール + scratch reservation (ARM64 X16/X17, x86_64 RAX out-of-pool)     | n/a (新規)                                  | `src/engine/codegen/{arm64,x86_64}/abi.zig`            |
+| F-012 | Edge-case fixtures  | `test/edge_cases/p<N>/<concept>/<case>/` に boundary を即時固定                  | n/a (新規)                                  | ADR-0020; `.claude/rules/edge_case_testing.md`         |
+
+## Day-1 棄却済み (意図的に v2 では採らなかった)
+
+| ID    | 棄却対象                                               | 理由 / 代替                                                                | Refs                                                          |
+|-------|--------------------------------------------------------|----------------------------------------------------------------------------|---------------------------------------------------------------|
+| R-001 | NaN-boxed `Value` (ClojureWasm 等が採用)               | (a) 64-bit に詰める必要なし (host メモリ潤沢); (b) 型情報は ZIR で comptime 既知; (c) debug 困難 — `extern union` が clarity 勝ち | F-010; ADR-0014                                               |
+| R-002 | v1 の post-hoc address-mode folding (D116)             | v1 で abandoned-then-reverted。Phase 8 で bench-driven 再評価する (O-001)。day-1 ON は採らない | v1 D116 post-mortem; O-001                                    |
+| R-003 | Pervasive feature `if`-branching (`if cfg.simd_enabled`) | A12 forbidden — dispatch table 強制                                         | ROADMAP §A12; F-005                                           |
+| R-004 | `std.Thread.Mutex` / `pub var` vtable / `std.io.AnyWriter` | §14 forbidden — `std.atomic.*` + 明示 VTable struct を使う                  | §14 forbidden list; `.claude/rules/zig_tips.md`               |
+| R-005 | Per-trap-reason 個別 stub                              | 単一 stub + Diagnostic M3 (ADR-0028) で reason 識別 — code size 小さい   | F-006; ADR-0028                                               |
+| R-006 | v1 の D117 dual-entry self-call workaround             | v2 は `RegClass.inst_ptr_special` を Phase 7 から day-1 で確保し回避       | `src/engine/codegen/shared/reg_class.zig`; v1 D117 post-mortem |
+| R-007 | Implicit error set sprawl (`anyerror!T` 多用)          | `Error` enum を per-zone で明示。型システムで W54-class contract drift 防止 | `.claude/rules/zig_tips.md` "inferred error sets"; ADR-0014    |
+| R-008 | `usingnamespace` (Zig 0.16 で削除済)                   | 明示 re-export 強制 — 暗黙的依存を排除                                      | `.claude/rules/zig_tips.md`                                   |
+
+## 命名
+
+- `F-NNN` (Foundation) — Day-1 採用。実装は完了済 / 設計に組込済。
+- `R-NNN` (Rejected pre-emptively) — Day-1 棄却。再考トリガが明確な
+  ものは候補テーブル (`O-NNN`) に `Investigating` で再登録される
+  (例: R-002 ↔ O-001)。
+- `O-NNN` — Phase 8+ の候補。下表参照。
+
 ## 候補テーブル
 
 | ID    | Phase  | 候補                                                                                    | コスト見積          | 予想効果             | 判定           | Refs                              |
 |-------|--------|-----------------------------------------------------------------------------------------|---------------------|----------------------|----------------|-----------------------------------|
-| O-001 | 8 / 15 | Address-mode folding (LEA → store/load の immediate disp 統合; v1 D116 で abandoned)    | 2-3 day             | 5-10% mem-heavy bench | `Investigating` | v1 D116 post-mortem; bench `c_btree` |
-| O-002 | 8      | x86_64 regalloc port (slot reuse + parallel-move; D-029 解消)                            | 1 week              | 3-5% (hot loops)      | `Deferred`     | D-029; `7.7-regalloc` 未着手     |
-| O-003 | 8      | Threaded-code interp dispatch (computed goto / tail-call) — 既に Phase 6 で WAMR 同等  | already in `interp/` | baseline                 | `Adopted`      | §9.6 close                       |
+| O-001 | 8 / 15 | Address-mode folding (LEA → store/load の immediate disp 統合; v1 D116 で abandoned)    | 2-3 day             | 5-10% mem-heavy bench | `Investigating` | v1 D116 post-mortem; R-002; bench `c_btree` |
+| O-002 | 8      | x86_64 regalloc port (slot reuse + parallel-move; D-029 解消)                            | 1 week              | 3-5% (hot loops)      | `Deferred`     | D-029; `7.7-regalloc` 未着手; F-011  |
 | O-004 | 8 / 15 | Inline cache for cross-module `call` (D-026 解消後)                                     | 3-4 day             | 10-20% if call-heavy  | `Deferred`     | D-026; trigger=cross-module bench landing |
 | O-005 | 11+    | AOT compilation pipeline (cranelift backend or own emitter? — ADR要)                     | 2-3 weeks           | 30-50% startup-after-warm | `Deferred`     | ROADMAP §11; trigger=Phase 10 close |
 | O-006 | 15     | Liveness-aware regalloc (W54 mirror; v2 day-1 ZIR substrate で前提済み)                  | 1 week              | 5-10% (regalloc 依存) | `Deferred`     | ADR-0014 §6.K.5; trigger=O-002 後  |
