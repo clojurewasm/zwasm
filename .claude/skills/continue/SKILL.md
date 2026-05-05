@@ -188,6 +188,54 @@ For each `[ ]` task in §9.<N>, run **Steps 0 → 7** in order. **Step
 0 defaults to subagent**; Step 5 may delegate when output is large;
 the rest run in main.
 
+### Chunk granularity — when to bundle vs split
+
+Default: **bundle same-shape ops into one chunk**. The 7.7-fp
+chain showed an over-split anti-pattern (5 separate chunks for
+trunc-sat / trunc-trap variants when many shared identical
+helpers). A single 200–400 LOC commit covering an op family is
+more efficient than 3-5 commits each adding one variant — testing
+overhead per chunk dominates the implementation time.
+
+**Bundle into one chunk when ALL hold:**
+
+- Same encoder family (e.g. all SSE2 scalar binary, all CVTSI2SS
+  variants, all i32 ALU).
+- Same handler shape (only `op` field differs; switch arms
+  inside the handler).
+- Total source diff ≤ 400 LOC, total test diff ≤ 250 LOC.
+- Boundary semantics across variants are coordinated (one ADR /
+  one rationale comment covers the family).
+
+**Split when ANY hold:**
+
+- Implementation crosses an instruction class (GPR vs XMM
+  pipeline, ALU vs memory, scalar vs SIMD).
+- One variant requires a structurally different branch shape
+  (e.g. trunc-sat-u64's 2^63 split vs trunc-sat-u32's direct
+  .q-form).
+- ADR-grade design choice for one variant only (e.g. chunk
+  introduces a new scratch-register reservation or new ABI
+  contract).
+- Mid-cycle ratchet would push the diff > 600 LOC including
+  tests.
+
+**Concrete examples (looking back at §9.7 / 7.7):**
+
+| Group                                | Should have been | Was             |
+|--------------------------------------|------------------|-----------------|
+| 7.7-alu (i32 add/sub/mul/and/or/xor) | 1 chunk          | 1 chunk ✓       |
+| 7.7-cmp + 7.7-eqz                    | 1 chunk          | 2 chunks (over) |
+| 7.7-bitcount (clz/ctz/popcnt)        | 1 chunk          | 1 chunk ✓       |
+| trunc-sat-u32 + trunc-sat-u64        | 1 chunk          | 2 chunks (over) |
+| trunc-trap-signed + trunc-sat-signed | 2 chunks         | 2 chunks ✓ (semantics differ) |
+| fp-convert-simple + fp-convert-unsigned | 1 chunk       | 2 chunks (over) |
+
+When in doubt, **bundle**: the chunk-table row in handover.md
+is a status marker, not a unit of work. One commit covering
+"f32/f64 convert + reinterpret + promote/demote (10 ops)" is
+more readable in `git log` than five 2-op commits.
+
 ### Step 0 — Survey (subagent: Explore, default mode "medium")
 
 Skip only if the task is *clearly* a continuation of a prior task
@@ -326,6 +374,11 @@ criterion specifies. The defaults are:
 - Phase 0 / 0.5 onward and Phase 1+ — `zig build test-all` (or the
   narrower `zig build test` plus phase-relevant `test-spec` /
   `test-e2e` / etc. as they land).
+
+**Default: optimistic-push pipeline** (see `LOOP.md` §"Parallel
+test gate"). Mac lint+test → push → 3-host parallel `test-all`.
+Saves ~90s per cycle. Skip when the diff is load-bearing infra,
+the prior chunk flaked windowsmini, or you are mid-incident.
 
 Run on all available hosts in a single message with parallel Bash
 tool calls:

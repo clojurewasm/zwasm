@@ -1,12 +1,89 @@
 # continue — loop mechanics
 
-> Sibling of `SKILL.md`. Holds the two policy sections that
-> are read once per session (push policy + self-perpetuation
-> wake-up loop) so `SKILL.md` itself stays focused on the per-
-> task TDD steps.
+> Sibling of `SKILL.md`. Holds the policy sections that are read
+> once per session (push policy, self-perpetuation, parallel
+> test gate) so `SKILL.md` itself stays focused on the per-task
+> TDD steps.
 >
-> If you are reading `SKILL.md` and it references "Push policy"
-> or "Self-perpetuation", the canonical text lives here.
+> If you are reading `SKILL.md` and it references "Push policy",
+> "Self-perpetuation", or "Parallel test gate", the canonical
+> text lives here.
+
+## Parallel test gate — optimistic-push pipeline
+
+The default Step 5 sequence (Mac → OrbStack → push → windowsmini)
+runs ~210s per cycle. With **optimistic push** — pushing as soon
+as Mac is green, then kicking OrbStack and windowsmini in
+parallel — the cycle drops to ~max(60, 90, 120) ≈ 120s. About
+90s saved per chunk; over a full FP-surface chain that is ~15
+minutes.
+
+**When to use** this pipeline:
+
+- Default ON for all chunks where the change is mechanical
+  (encoder additions, dispatch arms, byte-level handler edits).
+- Skip in favour of strict serial when:
+  - The diff touches load-bearing infra (build.zig, runner glue,
+    zone deps, ROADMAP).
+  - The previous chunk's windowsmini gate flaked (D-028) — re-
+    establish a clean serial baseline before going parallel
+    again.
+  - You are mid-incident (debugging a regression) — confidence
+    is too low to ship optimistically.
+
+**Procedure** for Step 5 + Step 6 + Step 7 fused:
+
+```bash
+# 1. Mac local: lint + unit tests (cheap, fast-fail).
+zig build test
+zig build lint -- --max-warnings 0
+
+# 2. Source commit (Step 6).
+git add <source-files>
+git commit -m "<conventional commit>"
+
+# 3. Push immediately (so windowsmini can fetch the new ref).
+git push origin zwasm-from-scratch
+
+# 4. Kick three hosts in parallel; capture logs.
+zig build test-all > /tmp/mac.log 2>&1 &                      # Mac aarch64
+orb run -m my-ubuntu-amd64 bash -c \
+  'cd /Users/shota.508/Documents/MyProducts/zwasm_from_scratch && zig build test-all' \
+  > /tmp/orb.log 2>&1 &                                       # Linux x86_64
+bash scripts/run_remote_windows.sh test-all \
+  > /tmp/win.log 2>&1 &                                       # Windows x86_64
+
+# 5. Wait for all three and inspect tails.
+wait
+tail -3 /tmp/mac.log /tmp/orb.log /tmp/win.log
+```
+
+Run all three Bash invocations in **a single tool message** with
+`run_in_background: true` (so the harness doesn't block on each
+sequentially). Use `Monitor` or `BashOutput` to poll, or send a
+follow-up message to drain stdout when notified.
+
+**Recovery on optimistic-push failure**:
+
+- Mac green + remote (orbstack/windowsmini) red → land a fix-up
+  commit on top (`fix(p<N>): <one-line> — fixes <prev-sha>` or
+  similar) and re-run the parallel gate. **Do not amend** the
+  pushed commit — `git push --force` is forbidden (§14).
+- If the failing host's stdout shows the D-028 transient (zig
+  test runner IPC timeout), retry once before fix-up.
+- After fix-up lands, optionally squash the chain to a single
+  meaningful commit on the next chunk's pre-push (use
+  `git rebase -i` locally, then push) — but only when the
+  branch is yours and the squash is mechanical. Skip when in
+  doubt.
+
+**Step 7 (handover update + push) integrates** with this
+pipeline by batching: instead of two pushes (source-commit
+then handover-commit), make the source commit + push, run the
+parallel gate, *then* land handover update + ROADMAP `[x]` flip
+in a follow-up commit + push (still autonomous per "Push
+policy"). Keeps the gate's reference state fresh on
+windowsmini's clone.
 
 ## Push policy — autonomous, no approval
 
