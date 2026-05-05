@@ -22,17 +22,15 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5d sub-b IN-PROGRESS
 
-emit.zig 9-module split chunk 5 landed `0d576ad` (op_convert.zig:
-wrap/extend/convert/sat_trunc/reinterpret/demote/promote — 9
-handlers, 24 op-arms, ~150 LOC)。emit.zig 3356 → 3217 LOC。
-trapping trunc 8 op-arms は bounds_check.zig 抽出と一緒に後続
-chunk へ deferred。3-host gate green。
+emit.zig 9-module split chunk 6 landed `79d3104` (op_memory.zig:
+unified emitMemOp covering 25 i32/i64/f32/f64 load/store arms,
+~125 LOC)。emit.zig 3217 → 3124 LOC。3-host gate green。
 
-**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 6 は op_memory.zig
-(load/store, addr 計算 + bounds-fixup append、~600 LOC、最大塊)。
+**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 7 は op_control.zig
+(block/loop/br/br_if/br_table/if/else/end + D-027 merge ~700 LOC)。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 0d576ad。
+**Branch**: `zwasm-from-scratch`、最新は 79d3104。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -66,8 +64,8 @@ fixed).
 | 3 | op_alu_int.zig (i32+i64 ALU/cmp/bit-ops, 16 handlers) | ~290 | DONE `639cb43` |
 | 4 | op_alu_float.zig (f32/f64 arith/cmp/copysign/min/max/round) | ~175 | DONE `b796555` |
 | 5 | op_convert.zig (wrap/extend/convert/sat_trunc/reinterpret/demote/promote) | ~150 | DONE `0d576ad` |
-| 6 | op_memory.zig (load/store + bounds-fixup append) | ~600 | **NEXT** |
-| 7 | op_control.zig (incl. D-027 merge) | ~700 | pending |
+| 6 | op_memory.zig (unified emitMemOp, 25 load/store arms) | ~125 | DONE `79d3104` |
+| 7 | op_control.zig (block/loop/br/br_if/br_table/if/else/end incl. D-027 merge) | ~700 | **NEXT** |
 | 8 | op_call.zig | ~400 | pending |
 | 9 | bounds_check.zig + trapping trunc handlers (8 op-arms) | ~250 | pending |
 
@@ -81,13 +79,15 @@ fixed).
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
 - **D-026** env-stub host-func wiring — cross-module dispatch。
-- emit.zig 3217 LOC は 7.5d sub-b で discharge 中 (chunks 6-9
+- emit.zig 3124 LOC は 7.5d sub-b で discharge 中 (chunks 7-9
   remaining)。
 - api/instance.zig soft-cap (>1000 LOC) — binding code はそのまま、
   hard-cap (2000) は Step A2 で discharge 済み。
 
 ## Recently closed (per `git log --oneline -45`)
 
+- 7.5d sub-b chunk 6: op_memory.zig extracted (unified emitMemOp,
+  25 load/store arms) (79d3104)。
 - 7.5d sub-b chunk 5: op_convert.zig extracted (wrap/extend/convert/
   sat_trunc/reinterpret/demote/promote — 9 handlers, 24 op-arms)
   (0d576ad)。
