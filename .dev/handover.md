@@ -22,22 +22,17 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-直近: 自律ループ前に 4 件の構造課題を一括解消。
-- ADR-0026 (x86_64 runtime invariant 戦略: R15 のみ予約 + 他は
-  reload-from-runtime-ptr) + abi.zig 改修 (R15 を pool 外、comptime
-  disjoint check 強化、pool 8 → 6 regs)
-- ADR-0021 Revision history: sub-split 経緯 + 12-module 着地を記録
-- ADR-0017 Revision history: x86_64 mirror 想定の clarify (ADR-0026 へ)
-- D-028 (windowsmini test runner IPC timeout) + D-029 (x86_64
-  parallel-move) 立ち上げ
-3-host gate green。最新 commit は debt+ADR commit (この turn 末)。
+§9.7 / 7.7-control-skel landed (`75f88e6` Label/Fixup + 4
+handlers block/loop/br/emitEndIntra + JMP/Jcc rel32 + patchRel32;
+forward fixup at end / backward direct disp at br site; 7
+byte-level inst tests + 3 emit tests)。3-host green。
 
-**Active task**: §9.7 / 7.7-globals — global.get/.set。今後 memory
-ops 着手時には ADR-0026 prologue (PUSH R15 + MOV R15, RDI) 導入が
-必要。
+**Active task**: §9.7 / 7.7-control-if — if/else (TEST+Jcc skip
++ if_skip_byte trail) + br_if (CMP+Jcc placeholder via existing
+fixup machinery)。次に br_table、その後 globals/memory/call/fp。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、構造課題解消後の HEAD 参照。
+**Branch**: `zwasm-from-scratch`、最新は 75f88e6。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -74,10 +69,12 @@ fixed).
 | 7.7-shift | i32 shifts 5 ops (CL constraint) | DONE `211a51f` |
 | 7.7-bitcount | i32 clz/ctz/popcnt (LZCNT/TZCNT/POPCNT) | DONE `c62a3d7` |
 | 7.7-locals | frame SUB/ADD RSP + local.get/.set/.tee (15 cap) | DONE `59ed705` |
-| 7.7-globals | global.get/.set | **NEXT** |
+| 7.7-control-skel | block/loop/br + emitEndIntra + JMP/Jcc rel32 + patchRel32 | DONE `75f88e6` |
+| 7.7-control-if | if/else (TEST+Jcc skip + if_skip_byte) + br_if | **NEXT** |
+| 7.7-control-table | br_table (chain of CMP+Jcc + tail JMP) | pending |
+| 7.7-globals | global.get/.set (needs JitRuntime extension) | pending |
 | 7.7-wrap | i32.wrap_i64 / i64.extend_i32_s/u | pending |
-| 7.7-control | block/loop/br/br_if/br_table/if/else/end | pending |
-| 7.7-mem | i32.load/store (+ bounds_check) | pending |
+| 7.7-mem | i32.load/store (+ bounds_check; ADR-0026 prologue) | pending |
 | 7.7-call | call/call_indirect | pending |
 | 7.7-fp | f32/f64 surface | pending |
 | 7.7-mem | i32 load/store + reserved_invariant_gprs design | pending (forces invariant decision) |
@@ -102,6 +99,12 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-control-skel: x86_64 Label/Fixup machinery + 4
+  handlers (block/loop/br + emitEndIntra) + JMP/Jcc rel32 +
+  patchRel32; forward fixup at end / backward direct disp at br;
+  10 new tests (75f88e6)。
+- 構造課題 4 件解消: ADR-0026 (x86_64 invariant 戦略) + abi pool
+  6 regs に縮小 + ADR-0017/0021 amend + D-028/029 (bb40408)。
 - §9.7 / 7.7-locals: x86_64 frame extension + local handlers
   (.get/.set/.tee) + 4 inst encoders, 10 new tests, 15-locals
   cap (i8 disp); function with 1 local + set/get + return now
