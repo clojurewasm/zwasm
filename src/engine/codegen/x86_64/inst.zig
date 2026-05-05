@@ -409,6 +409,12 @@ pub fn encStoreR16MemBaseIdx(src: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
 /// used by i32.store8. **Always emits REX** so r8-r15 + the
 /// SPL/BPL/SIL/DIL low-byte forms encode correctly (without REX,
 /// reg=4..7 means AH/CH/DH/BH).
+///
+/// TODO(perf, optimisation-phase): when src ∈ {RAX, RCX, RDX, RBX}
+/// (low-byte AL/CL/DL/BL accessible without REX), the prefix can
+/// be omitted for a 1-byte saving per insn. Deferred until the
+/// benchmark loop surfaces store8-dominant fixtures; until then
+/// the unconditional REX keeps the encoder simple and uniform.
 pub fn encStoreR8MemBaseIdx(src: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
     var enc: EncodedInsn = .{};
     enc.push(encodeRex(false, src.extBit(), idx.extBit(), base.extBit())); // force REX
