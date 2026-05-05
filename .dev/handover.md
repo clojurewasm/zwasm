@@ -22,18 +22,17 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5d sub-b IN-PROGRESS
 
-emit.zig 9-module split が進行中。直近 commit `b663bf4`
-(ctx.zig + gpr.zig + op_const.zig extract)。emit.zig 4009 →
-3862 LOC。3-host gate green (Mac test/test-all/lint/zone +
-OrbStack Ubuntu test-all + windowsmini test-all)。
+emit.zig 9-module split chunk 3 landed `639cb43` (op_alu_int.zig:
+i32+i64 binary/cmp/shift/rotl/rotr/clz/ctz/eqz/popcnt — 16
+handlers, ~310 LOC)。emit.zig 3862 → 3539 LOC。3-host gate green。
 
-**Active task**: §9.7 / 7.5d sub-b 続行。EmitCtx の最初の
-consumer が op_const.zig として landed。次は op_alu.zig
-(~1500 LOC、最大塊) — int / float に分けるか単一かは extract
-時に判断。
+**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 4 は
+op_alu_float.zig (f32/f64 add/sub/mul/div/abs/neg/sqrt/round系/
+copysign/min/max/cmp ~700 LOC)。chunk 5 は op_convert.zig
+(wrap/extend/convert/trunc/reinterpret ~250 LOC)。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は b663bf4。
+**Branch**: `zwasm-from-scratch`、最新は 639cb43。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -64,11 +63,17 @@ fixed).
 | 2 | ctx.zig (EmitCtx + Error + CallFixup) | ~95 | DONE `b663bf4` |
 | 2 | gpr.zig (writeU32 + resolveGpr/Fp + spill helpers) | ~115 | DONE `b663bf4` |
 | 2 | op_const.zig (i32.const + i64.const + emitConst*) | ~95 | DONE `b663bf4` |
-| 3 | op_alu.zig (or op_alu_int / op_alu_float split) | ~1500 | **NEXT** |
-| 4 | op_memory.zig | ~600 | pending |
-| 5 | op_control.zig (incl. D-027 merge) | ~700 | pending |
-| 6 | op_call.zig | ~400 | pending |
-| 7 | bounds_check.zig | ~150 | pending |
+| 3 | op_alu_int.zig (i32+i64 ALU/cmp/bit-ops, 16 handlers) | ~310 | DONE `639cb43` |
+| 4 | op_alu_float.zig (f32/f64 arith/cmp/round/min/max/copysign) | ~700 | **NEXT** |
+| 5 | op_convert.zig (wrap/extend/convert/trunc/reinterpret) | ~250 | pending |
+| 6 | op_memory.zig | ~600 | pending |
+| 7 | op_control.zig (incl. D-027 merge) | ~700 | pending |
+| 8 | op_call.zig | ~400 | pending |
+| 9 | bounds_check.zig | ~150 | pending |
+
+> Chunk count grew from 7 → 9 because ops_alu was sub-split into
+> int/float/convert to honour the per-module 400-LOC cap. ADR-0021
+> Revision history row to be added when op_alu_float lands.
 
 各 sub-step は 3-host gate green で commit + push。
 
@@ -76,13 +81,14 @@ fixed).
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
 - **D-026** env-stub host-func wiring — cross-module dispatch。
-- emit.zig 3862 LOC は 7.5d sub-b で discharge 中 (chunks 3-7
+- emit.zig 3539 LOC は 7.5d sub-b で discharge 中 (chunks 4-9
   remaining)。
 - api/instance.zig soft-cap (>1000 LOC) — binding code はそのまま、
   hard-cap (2000) は Step A2 で discharge 済み。
 
 ## Recently closed (per `git log --oneline -45`)
 
+- 7.5d sub-b chunk 3: op_alu_int.zig extracted (639cb43)。
 - 7.5d sub-b chunk 2: ctx.zig + gpr.zig + op_const.zig extracted
   (b663bf4)。
 - 7.5d sub-b chunk 1: label.zig extracted (beafdb8)。
