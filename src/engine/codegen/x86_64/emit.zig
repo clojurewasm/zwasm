@@ -294,6 +294,8 @@ pub fn compile(
             => try emitFpTruncSatSigned(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"i32.trunc_sat_f32_u", .@"i32.trunc_sat_f64_u",
             => try emitFpTruncSatU32(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i64.trunc_sat_f32_u", .@"i64.trunc_sat_f64_u",
+            => try emitFpTruncSatU64(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
@@ -712,6 +714,151 @@ fn emitFpConst(
         },
         else => unreachable,
     }
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm 2.0 saturating unsigned truncate to i64 (`i64.trunc_sat_
+/// f32/f64_u`). i64 doesn't fit in positive signed i64 above
+/// 2^63, so a 2^63 split path is needed:
+///
+///   UCOMI src, src ; JP zero_path           ; NaN
+///   XORPS xmm7, xmm7
+///   UCOMI src, xmm7 ; JBE zero_path         ; src ≤ 0
+///   ; ≥ 2^64 → UINT64_MAX
+///   MOVABS rax, threshold_max ; MOVQ xmm7, rax
+///   UCOMI src, xmm7 ; JAE max_path
+///   ; Decide < 2^63 or ≥ 2^63
+///   MOVABS rax, threshold_split ; MOVQ xmm7, rax  (xmm7 = 2^63)
+///   UCOMI src, xmm7 ; JAE high_path
+///   ; src < 2^63: direct convert
+///   CVTTSS2SI .q dst, src ; JMP done
+///   high_path:
+///     MOVAPS xmm6, src
+///     SUBSS xmm6, xmm7              ; xmm6 = src - 2^63
+///     CVTTSS2SI .q dst, xmm6        ; converts (now in [0, 2^63))
+///     MOVABS rcx, 0x8000000000000000
+///     OR dst, rcx                    ; restore high bit
+///   JMP done
+///   zero_path: XOR dst, dst (.q) ; JMP done
+///   max_path:  MOVABS dst, UINT64_MAX
+///   done:
+///
+/// Thresholds: 2^63 = 0x5F000000 (f32) / 0x43E0000000000000 (f64);
+/// 2^64 = 0x5F800000 (f32) / 0x43F0000000000000 (f64). Both
+/// exactly representable.
+///
+/// XMM6 + XMM7 used as FP scratches (XMM7 reserved per abi.zig;
+/// XMM6 is an arg slot but not in regalloc pool — safe mid-op
+/// since this op makes no calls). RAX/RCX are GPR scratches.
+fn emitFpTruncSatU64(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const src_x = abi.fpSlotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    const dst = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    const is_f64_src = op == .@"i64.trunc_sat_f64_u";
+    const scalar_kind: inst.SseScalarKind = if (is_f64_src) .f64 else .f32;
+    const packed_kind: inst.SsePackedKind = if (is_f64_src) .f64 else .f32;
+
+    // Helpers to materialise an FP threshold in xmm7.
+    const Materialiser = struct {
+        fn write(allo: Allocator, b: *std.ArrayList(u8), is_f64: bool, bits: u64) Error!void {
+            if (is_f64) {
+                try b.appendSlice(allo, inst.encMovImm64Q(.rax, bits).slice());
+                try b.appendSlice(allo, inst.encMovqXmmFromR64(.xmm7, .rax).slice());
+            } else {
+                try b.appendSlice(allo, inst.encMovImm32W(.rax, @truncate(bits)).slice());
+                try b.appendSlice(allo, inst.encMovdXmmFromR32(.xmm7, .rax).slice());
+            }
+        }
+    };
+    const threshold_max: u64 = if (is_f64_src) 0x43F0000000000000 else 0x5F800000;
+    const threshold_split: u64 = if (is_f64_src) 0x43E0000000000000 else 0x5F000000;
+
+    // 1. NaN check.
+    if (is_f64_src) {
+        try buf.appendSlice(allocator, inst.encUcomisd(src_x, src_x).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encUcomiss(src_x, src_x).slice());
+    }
+    const jp_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.p, 0).slice());
+
+    // 2. ≤ 0 → zero path.
+    try buf.appendSlice(allocator, inst.encSsePackedBinary(packed_kind, 0x57, .xmm7, .xmm7).slice());
+    if (is_f64_src) {
+        try buf.appendSlice(allocator, inst.encUcomisd(src_x, .xmm7).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encUcomiss(src_x, .xmm7).slice());
+    }
+    const jbe_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.be, 0).slice());
+
+    // 3. ≥ 2^64 → max path.
+    try Materialiser.write(allocator, buf, is_f64_src, threshold_max);
+    if (is_f64_src) {
+        try buf.appendSlice(allocator, inst.encUcomisd(src_x, .xmm7).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encUcomiss(src_x, .xmm7).slice());
+    }
+    const jae_max_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
+
+    // 4. ≥ 2^63 → high path; xmm7 ends up holding 2^63.
+    try Materialiser.write(allocator, buf, is_f64_src, threshold_split);
+    if (is_f64_src) {
+        try buf.appendSlice(allocator, inst.encUcomisd(src_x, .xmm7).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encUcomiss(src_x, .xmm7).slice());
+    }
+    const jae_high_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
+
+    // 5. src < 2^63: direct CVTTSS2SI .q.
+    try buf.appendSlice(allocator, inst.encCvttScalar2Int(scalar_kind, true, dst, src_x).slice());
+    const jmp_direct_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+
+    // 6. high path: subtract 2^63 (in xmm7) from src, convert, restore high bit.
+    const high_byte: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, jae_high_byte, 6, @as(i32, @intCast(high_byte)) - @as(i32, @intCast(jae_high_byte)) - 6);
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm6, src_x).slice());
+    try buf.appendSlice(allocator, inst.encSseScalarBinary(scalar_kind, 0x5C, .xmm6, .xmm7).slice()); // SUBSS/SD
+    try buf.appendSlice(allocator, inst.encCvttScalar2Int(scalar_kind, true, dst, .xmm6).slice());
+    try buf.appendSlice(allocator, inst.encMovImm64Q(.rcx, 0x8000000000000000).slice());
+    try buf.appendSlice(allocator, inst.encOrRR(.q, dst, .rcx).slice());
+    const jmp_high_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+
+    // 7. zero path; patch JP, JBE.
+    const zero_byte: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, jp_byte, 6, @as(i32, @intCast(zero_byte)) - @as(i32, @intCast(jp_byte)) - 6);
+    inst.patchRel32(buf.items, jbe_byte, 6, @as(i32, @intCast(zero_byte)) - @as(i32, @intCast(jbe_byte)) - 6);
+    try buf.appendSlice(allocator, inst.encXorRR(.q, dst, dst).slice());
+    const jmp_zero_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+
+    // 8. max path; patch JAE-max.
+    const max_byte: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, jae_max_byte, 6, @as(i32, @intCast(max_byte)) - @as(i32, @intCast(jae_max_byte)) - 6);
+    try buf.appendSlice(allocator, inst.encMovImm64Q(dst, 0xFFFFFFFFFFFFFFFF).slice());
+
+    // 9. done; patch the 3 JMPs.
+    const done_byte: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, jmp_direct_byte, 5, @as(i32, @intCast(done_byte)) - @as(i32, @intCast(jmp_direct_byte)) - 5);
+    inst.patchRel32(buf.items, jmp_high_byte, 5, @as(i32, @intCast(done_byte)) - @as(i32, @intCast(jmp_high_byte)) - 5);
+    inst.patchRel32(buf.items, jmp_zero_byte, 5, @as(i32, @intCast(done_byte)) - @as(i32, @intCast(jmp_zero_byte)) - 5);
+
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -3537,6 +3684,41 @@ test "compile: f32.reinterpret_i32 — MOVD XMM8, R10D (GPR→XMM bit-cast)" {
     // After i32.const at [4..10] (6 bytes for R10): MOVD XMM8, R10D at [10..15].
     const expected = inst.encMovdXmmFromR32(.xmm8, .r10);
     try testing.expectEqualSlices(u8, expected.slice(), out.bytes[10 .. 10 + expected.len]);
+}
+
+test "compile: i64.trunc_sat_f32_u — 2^63 split path with SUBSS + sign-bit OR" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.trunc_sat_f32_u" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Verify a few key encoder outputs are present (full byte
+    // sequence is too long to assert exhaustively).
+    // Find threshold MOV (0x5F800000 for 2^64 f32) and the SUBSS
+    // op in the high path.
+    const threshold_max = inst.encMovImm32W(.rax, 0x5F800000);
+    const threshold_split = inst.encMovImm32W(.rax, 0x5F000000);
+    // Also verify SUBSS XMM6, XMM7 in the high path.
+    const subss = inst.encSseScalarBinary(.f32, 0x5C, .xmm6, .xmm7);
+    // OR R10, RCX (full 64-bit) for the sign-bit restore.
+    const or_q = inst.encOrRR(.q, .r10, .rcx);
+    // MOVABS R10, UINT64_MAX in the max path.
+    const max_mov = inst.encMovImm64Q(.r10, 0xFFFFFFFFFFFFFFFF);
+    const bytes = out.bytes;
+    try testing.expect(std.mem.find(u8, bytes, threshold_max.slice()) != null);
+    try testing.expect(std.mem.find(u8, bytes, threshold_split.slice()) != null);
+    try testing.expect(std.mem.find(u8, bytes, subss.slice()) != null);
+    try testing.expect(std.mem.find(u8, bytes, or_q.slice()) != null);
+    try testing.expect(std.mem.find(u8, bytes, max_mov.slice()) != null);
 }
 
 test "compile: i32.trunc_sat_f32_u — UCOMI/JP + clamp paths + CVTTSS2SI .q form" {
