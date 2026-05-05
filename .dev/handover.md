@@ -23,23 +23,24 @@
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
 直近 commit:
-- `78d5b06` §9.7 / 7.7-fp-trunc-trap-unsigned — x86_64 Wasm 1.0
-  trapping unsigned f→i (4 ops; NaN/≤-1/≥2^N → bounds_fixups;
-  i32_u .q-trick + i64_u 2^63 split); 2 tests; 3-host green
-  (D-028 transient retry)。fp-trunc-trap 全 8 ops 完了
-- `eff1c75` §9.7 / 7.7-fp-trunc-trap-signed — trapping signed
-  f→i (4 ops)
-- `7983dd3` §9.7 / 7.7-fp-trunc-sat-u64 — saturating unsigned
-  f→i64 (2 ops)
+- `3255c29` §9.7 / 7.7-fp-mem — x86_64 f32/f64 load/store (4 ops
+  via emitMemOp 拡張 + encMovssMovsdMemBaseIdx); 6 tests; 3-host
+  green
+- `401551e` docs(p7) — windowsmini Defender 除外設定手順 persist
+- `78d5b06` §9.7 / 7.7-fp-trunc-trap-unsigned (4 ops)
 
-**Active task**: **NEXT** = 7.7-fp-mem (f32/f64.load + f32/f64.
-store — 既存 emitMemOp に 4 op 追加; ADR-0026 prologue は既存)。
-続いて fp-end-fix (D-032) → §9.7 / 7.8 spec gate。
+**Active task**: User-introduced pause (作業効率化検討)。Loop は
+明示介入により stop。再開後の **NEXT** = 7.7-fp-end-fix (D-032
+discharge) → §9.7 / 7.8 spec gate。チャンク粒度・テスト並列化・
+Phase 8 前の負債清算 / 最適化リスト整備は介入会話で議論中。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は `78d5b06`。
+**Branch**: `zwasm-from-scratch`、最新は `3255c29`。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
+
+Phase 8に移行する前に、Phase 7までで完全動作、AOT、負債の全解消、Wasm 3.0, WASI, SIMDまで見据えた時にきれいな作りになる設計になっているか(ゴチャつかないか)
+そもそもv1時代は多くのポイントで「interpreterで早い」というのがあったので、コスパが良い最適化をJITというより様々な角度からリストアップして、「最適化取り組みリスト」を最初に用意し、「採用/棄却」ログをつけた方が良いと思う。
 
 | Phase | Status | Notes |
 |---|---|---|
@@ -96,9 +97,8 @@ fixed).
 | 7.7-fp-trunc-sat-u64 | Wasm 2.0 saturating unsigned f→i64 (2 ops) | DONE `7983dd3` |
 | 7.7-fp-trunc-trap-signed | Wasm 1.0 trapping signed f→i (4 ops) | DONE `eff1c75` |
 | 7.7-fp-trunc-trap-unsigned | Wasm 1.0 trapping unsigned f→i (4 ops) | DONE `78d5b06` |
-| 7.7-fp-mem | f32/f64 load/store (4 ops) | **NEXT** |
-| 7.7-fp-mem | f32/f64 load/store | pending |
-| 7.7-fp-end-fix | FP-aware function-end (D-032 discharge) | pending |
+| 7.7-fp-mem | f32/f64 load/store (4 ops) | DONE `3255c29` |
+| 7.7-fp-end-fix | FP-aware function-end (D-032 discharge) | **NEXT** |
 | deferred-Win64 | Win64 ABI table + Cc enum | pending |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
@@ -119,6 +119,12 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-fp-mem: x86_64 f32/f64 load/store (4 ops; emitMemOp
+  に is_fp 分岐 + encMovssMovsdMemBaseIdx 新規; bounds-check
+  prologue は既存共有); 6 tests (3255c29)。
+- docs(p7): windowsmini Defender 除外設定 (.zig-cache / zig-out
+  / Local zig / zwasm-tools / zig.exe process) を ssh 経由で投入
+  + setup 手順を `.dev/windows_ssh_setup.md` に追加 (401551e)。
 - §9.7 / 7.7-fp-trunc-trap-unsigned: x86_64 Wasm 1.0 trapping
   unsigned f→i (4 ops; NaN/≤-1/≥2^N → bounds_fixups; in-range
   via .q-trick (i32_u) or 2^63 split + SUBSS + sign-bit OR
