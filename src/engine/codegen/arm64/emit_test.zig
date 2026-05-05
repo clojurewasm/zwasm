@@ -1965,6 +1965,50 @@ test "compile: ADR-0018 sub-1c — i32.const into spilled vreg, full round-trip 
     try testing.expect(saw_ldr_at_end);
 }
 
+test "compile: global.get 0 (i32) — emits LDR W from [X23 + 0]" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"global.get", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    const body0 = prologue.body_start_offset(false);
+    // ADR-0027 prescan adds 1 extra prologue word (LDR X23 ← globals_base)
+    // so the first body insn shifts by +4 bytes.
+    const expected_ldr = inst.encLdrImmW(9, 23, 0); // LDR W9, [X23, #0]
+    try testing.expectEqual(expected_ldr, std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
+}
+
+test "compile: (i32.const 99) global.set 1 (i32) — emits STR W to [X23 + 8]" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"global.set", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    const body0 = prologue.body_start_offset(false);
+    // [body0 + 0]: extra LDR X23 prologue word (prescan added)
+    // [body0 + 4]: MOVZ W9, #99
+    // [body0 + 8]: STR W9, [X23, #8]
+    const expected_str = inst.encStrImmW(9, 23, 8);
+    try testing.expectEqual(expected_str, std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
+}
+
 test "compile: ADR-0018 — slot 9 = last reg (X23), slot 10 = first spill" {
     const slots_9 = [_]u8{9};
     const alloc_reg: regalloc.Allocation = .{

@@ -101,6 +101,8 @@ test "entry: i32.load offset=0 reads memory[0..4] through X28 vm_base" {
         .table_size = 0,
         .typeidx_base = undefined,
         .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
     };
     const result = try callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 0xEFBEADDE), result);
@@ -146,9 +148,63 @@ test "entry: ADR-0018 sub-1c — spilled i32.const returns 42 via STR/LDR round-
         .table_size = 0,
         .typeidx_base = undefined,
         .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
     };
     const result = try callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 42), result);
+}
+
+test "entry: ADR-0027 — global.set 0 then global.get 0 (i32) round-trips through JitRuntime.globals_base" {
+    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
+        return error.SkipZigTest;
+    }
+
+    const Value = @import("../../../runtime/value.zig").Value;
+    // (i32.const 7) (global.set 0) (global.get 0) end
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var fn0 = ZirFunc.init(0, sig, &.{});
+    defer fn0.deinit(testing.allocator);
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"global.set", .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"global.get", .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"end" });
+    fn0.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 }, // const → set
+        .{ .def_pc = 2, .last_use_pc = 3 }, // get → end
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const sigs = [_]zir.FuncType{sig};
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{});
+    defer emit.deinit(testing.allocator, out0);
+    const bodies = [_]linker.FuncBody{
+        .{ .bytes = out0.bytes, .call_fixups = out0.call_fixups },
+    };
+    var module = try linker.link(testing.allocator, &bodies);
+    defer module.deinit(testing.allocator);
+
+    var memory: [0]u8 = .{};
+    // Pre-populate globals[0] with a sentinel so we can prove the
+    // global.set actually overwrites it (rather than the function
+    // happening to return the initial value).
+    var globals = [_]Value{ Value.fromI32(0xDEAD), Value.fromI32(0xBEEF) };
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = &globals,
+        .globals_count = globals.len,
+    };
+    const result = try callI32NoArgs(module, 0, &rt);
+    try testing.expectEqual(@as(u32, 7), result);
+    // global slot 0 was actually overwritten by `global.set 0 (=7)`.
+    try testing.expectEqual(@as(i32, 7), globals[0].i32);
+    // global slot 1 untouched.
+    try testing.expectEqual(@as(i32, 0xBEEF), globals[1].i32);
 }
 
 test "entry: pure constant function returns 42 (sanity — no memory access)" {
@@ -185,6 +241,8 @@ test "entry: pure constant function returns 42 (sanity — no memory access)" {
         .table_size = 0,
         .typeidx_base = undefined,
         .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
     };
     const result = try callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 42), result);

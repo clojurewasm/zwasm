@@ -297,3 +297,15 @@ spill them because the body never modified them; AAPCS64
   "per-arch parity". Future arch ports (RISC-V, etc.) read
   ADR-0017 + ADR-0026 together to understand the pool-pressure
   vs reload-cost trade and pick a strategy. SHA: `<backfill>`
+
+- 2026-05-06 — **JitRuntime layout extended per ADR-0027**:
+  added `globals_base: [*]Value` (offset 48) + `globals_count:
+  u32` (offset 56) + `_pad2: u32` (offset 60). `head_size`
+  grows 48 → 64 bytes (one cache line). New offsets:
+  `globals_base_off = 48`, `globals_count_off = 56`. Existing
+  prologue offsets for vm_base / mem_limit / funcptr_base /
+  table_size / typeidx_base / trap_flag remain unchanged
+  (per-Context "Layout extends only at the tail"). Construction
+  sites updated in `src/engine/runner.zig`,
+  `src/engine/codegen/shared/{entry,compile}.zig`. SHA:
+  `<backfill>`

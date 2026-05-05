@@ -219,3 +219,10 @@ addressing imm12 displacement stays small for hot paths).
 ## Revision history
 
 - 2026-05-04 — Proposed. SHA: `<backfill at acceptance>`
+- 2026-05-06 — **ARM64 reserved set extended per ADR-0027**:
+  added X23 = `globals_base_save_gpr` to `reserved_invariant_
+  gprs` (now 7 regs: X19, X23..X28). `allocatable_callee_
+  saved_gprs` reduced 4 → 3 (X20..X22). Total `allocatable_
+  gprs` pool: 9 → 8 regs (5 caller-saved scratch + 3 callee-
+  saved). Spill territory begins at slot 8 (was 9). Comptime
+  disjointness guards still hold. SHA: `<backfill>`

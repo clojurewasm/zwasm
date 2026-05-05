@@ -337,6 +337,46 @@ pub fn encMovR64FromMemDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
     return enc;
 }
 
+/// `MOV r32, [base + disp32]` (opcode 0x8B without REX.W, mod=10).
+/// 32-bit load with disp32; zero-extends to 64-bit dst. Used by
+/// `global.get` (i32) to read `[globals_base + idx*8]` for the
+/// low 4 bytes of the 8-byte Value slot.
+pub fn encMovR32FromMemDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (dst.extBit() == 1 or base.extBit() == 1) {
+        enc.push(encodeRex(false, dst.extBit(), 0, base.extBit()));
+    }
+    enc.push(0x8B);
+    enc.push(encodeModrm(0b10, dst.low3(), base.low3()));
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
+/// `MOV [base + disp32], r32` (opcode 0x89 without REX.W, mod=10).
+/// 32-bit store with disp32. Used by `global.set` (i32) to write
+/// `[globals_base + idx*8]` for the low 4 bytes of the 8-byte
+/// Value slot. The upper 4 bytes are left untouched (acceptable
+/// for i32-typed globals because the slot is zero-initialised at
+/// module load).
+pub fn encStoreR32MemDisp32(src: Gpr, base: Gpr, disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (src.extBit() == 1 or base.extBit() == 1) {
+        enc.push(encodeRex(false, src.extBit(), 0, base.extBit()));
+    }
+    enc.push(0x89);
+    enc.push(encodeModrm(0b10, src.low3(), base.low3()));
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
 /// `CMP r64, [base + disp32]` (opcode 0x3B with REX.W, mod=10).
 /// Used by memory bounds check to compare eff_addr against
 /// `[R15 + mem_limit_off]`.
@@ -941,6 +981,26 @@ test "encMovR64FromMemDisp32: mov rax, [r15+0] → 49 8b 87 00 00 00 00" {
 test "encMovR64FromMemDisp32: mov rdx, [r15+8] → 49 8b 97 08 00 00 00" {
     const enc = encMovR64FromMemDisp32(.rdx, .r15, 8);
     try testing.expectEqualSlices(u8, &.{ 0x49, 0x8B, 0x97, 0x08, 0, 0, 0 }, enc.slice());
+}
+
+test "encMovR32FromMemDisp32: mov ebx, [rax+8] → 8b 98 08 00 00 00 (no REX)" {
+    const enc = encMovR32FromMemDisp32(.rbx, .rax, 8);
+    try testing.expectEqualSlices(u8, &.{ 0x8B, 0x98, 0x08, 0, 0, 0 }, enc.slice());
+}
+
+test "encMovR32FromMemDisp32: mov r10d, [rax+16] → 44 8b 90 10 00 00 00 (REX.R)" {
+    const enc = encMovR32FromMemDisp32(.r10, .rax, 16);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x8B, 0x90, 0x10, 0, 0, 0 }, enc.slice());
+}
+
+test "encStoreR32MemDisp32: mov [rax+8], ebx → 89 98 08 00 00 00 (no REX)" {
+    const enc = encStoreR32MemDisp32(.rbx, .rax, 8);
+    try testing.expectEqualSlices(u8, &.{ 0x89, 0x98, 0x08, 0, 0, 0 }, enc.slice());
+}
+
+test "encStoreR32MemDisp32: mov [rax+16], r10d → 44 89 90 10 00 00 00 (REX.R)" {
+    const enc = encStoreR32MemDisp32(.r10, .rax, 16);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x90, 0x10, 0, 0, 0 }, enc.slice());
 }
 
 test "encCmpR64MemDisp32: cmp rdx, [r15+8] → 49 3b 97 08 00 00 00" {

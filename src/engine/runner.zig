@@ -170,6 +170,8 @@ pub fn runI32Export(
         .table_size = 0,
         .typeidx_base = undefined,
         .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
     };
     return entry.callI32NoArgs(compiled.module, func_idx, &rt);
 }

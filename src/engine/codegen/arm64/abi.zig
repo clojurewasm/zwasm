@@ -100,7 +100,7 @@ pub const callee_saved_gprs = [_]Xn{ 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
 /// `allocatable_gprs` is defined as the complement, so a future
 /// reorganisation that adds or removes a reserved reg
 /// automatically propagates.
-pub const reserved_invariant_gprs = [_]Xn{ 19, 24, 25, 26, 27, 28 };
+pub const reserved_invariant_gprs = [_]Xn{ 19, 23, 24, 25, 26, 27, 28 };
 
 /// Mnemonic alias for the X19 = runtime_ptr_save reservation
 /// (per ADR-0017 sub-2d-ii). The prologue's `MOV X19, X0`
@@ -108,12 +108,22 @@ pub const reserved_invariant_gprs = [_]Xn{ 19, 24, 25, 26, 27, 28 };
 /// X19` before BL/BLR.
 pub const runtime_ptr_save_gpr: Xn = 19;
 
+/// Mnemonic alias for the X23 = globals_base_save reservation
+/// (per ADR-0027). Functions touching `global.get` / `global.set`
+/// pre-load `[X19 + globals_base_off]` into X23 at function
+/// prologue (after the existing 5-invariant load), then the
+/// global op handlers emit `LDR Rd, [X23, Ridx, LSL #3]` etc.
+/// Functions without globals skip the X23 prologue load
+/// (prescan-driven) so existing zero-globals tests stay
+/// unchanged.
+pub const globals_base_save_gpr: Xn = 23;
+
 /// Allocatable callee-saved GPRs = callee_saved_gprs minus the
-/// reserved subset. Four regs (X20..X23). Kept as its own
-/// constant so `allocatable_gprs` reads cleanly and
-/// `audit_scaffolding` can spot-check the reservation invariant
-/// (ADR-0018 §I).
-pub const allocatable_callee_saved_gprs = [_]Xn{ 20, 21, 22, 23 };
+/// reserved subset. Three regs (X20..X22) post-ADR-0027 (was
+/// X20..X23). Kept as its own constant so `allocatable_gprs`
+/// reads cleanly and `audit_scaffolding` can spot-check the
+/// reservation invariant (ADR-0018 §I + ADR-0027).
+pub const allocatable_callee_saved_gprs = [_]Xn{ 20, 21, 22 };
 
 pub const frame_pointer: Xn = 29;
 pub const link_register: Xn = 30;
@@ -221,14 +231,18 @@ test "callee_saved_gprs covers x19..x28" {
     try testing.expectEqual(@as(Xn, 28), callee_saved_gprs[9]);
 }
 
-test "allocatable_gprs covers allocatable-caller-scratch + allocatable-callee-saved (9 regs post-ADR-0017 sub-2d-ii)" {
-    try testing.expectEqual(@as(usize, 9), allocatable_gprs.len);
+test "allocatable_gprs covers allocatable-caller-scratch + allocatable-callee-saved (8 regs post-ADR-0027)" {
+    try testing.expectEqual(@as(usize, 8), allocatable_gprs.len);
 }
 
-test "reserved_invariant_gprs is exactly X19, X24..X28 (6 regs after sub-2d-ii)" {
-    try testing.expectEqual(@as(usize, 6), reserved_invariant_gprs.len);
-    const expected = [_]Xn{ 19, 24, 25, 26, 27, 28 };
+test "reserved_invariant_gprs is exactly X19, X23..X28 (7 regs after ADR-0027)" {
+    try testing.expectEqual(@as(usize, 7), reserved_invariant_gprs.len);
+    const expected = [_]Xn{ 19, 23, 24, 25, 26, 27, 28 };
     for (reserved_invariant_gprs, expected) |a, e| try testing.expectEqual(e, a);
+}
+
+test "globals_base_save_gpr alias resolves to X23" {
+    try testing.expectEqual(@as(Xn, 23), globals_base_save_gpr);
 }
 
 test "runtime_ptr_save_gpr alias resolves to X19" {
@@ -260,12 +274,12 @@ test "slotToReg: slot 5 maps to x20 (first allocatable callee-saved; X19 now res
     try testing.expectEqual(@as(Xn, 20), slotToReg(5).?);
 }
 
-test "slotToReg: slot 8 maps to x23 (last allocatable callee-saved before reserved invariants)" {
-    try testing.expectEqual(@as(Xn, 23), slotToReg(8).?);
+test "slotToReg: slot 7 maps to x22 (last allocatable callee-saved post-ADR-0027; X23 reserved for globals_base_save)" {
+    try testing.expectEqual(@as(Xn, 22), slotToReg(7).?);
 }
 
-test "slotToReg: slot 9 returns null (pool exhausted; spill territory)" {
-    try testing.expect(slotToReg(9) == null);
+test "slotToReg: slot 8 returns null (pool exhausted post-ADR-0027; spill territory)" {
+    try testing.expect(slotToReg(8) == null);
 }
 
 test "slotToReg: out-of-pool slot returns null (cue to spill)" {

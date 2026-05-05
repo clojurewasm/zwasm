@@ -55,6 +55,7 @@ const op_convert = @import("op_convert.zig");
 const op_memory = @import("op_memory.zig");
 const op_control = @import("op_control.zig");
 const op_call = @import("op_call.zig");
+const op_globals = @import("op_globals.zig");
 const bounds_check = @import("bounds_check.zig");
 
 const Label = label_mod.Label;
@@ -156,6 +157,22 @@ pub fn compile(
     try gpr.writeU32(allocator, &buf, inst.encLdrImm(26, 0, jit_abi.funcptr_base_off));
     try gpr.writeU32(allocator, &buf, inst.encLdrImmW(25, 0, jit_abi.table_size_off));
     try gpr.writeU32(allocator, &buf, inst.encLdrImm(24, 0, jit_abi.typeidx_base_off));
+    // ADR-0027 prescan: load X23 ← globals_base only when this
+    // function actually consults a global. Functions without
+    // global ops keep the pre-ADR-0027 prologue shape (zero
+    // churn for existing tests).
+    const uses_globals = blk: {
+        for (func.instrs.items) |ins| {
+            switch (ins.op) {
+                .@"global.get", .@"global.set" => break :blk true,
+                else => {},
+            }
+        }
+        break :blk false;
+    };
+    if (uses_globals) {
+        try gpr.writeU32(allocator, &buf, inst.encLdrImm(abi.globals_base_save_gpr, 0, jit_abi.globals_base_off));
+    }
     // ADR-0017 sub-2d-ii: save runtime ptr to X19 so multi-call
     // functions can restore X0 before each BL/BLR. X19 is callee-
     // saved per AAPCS64 — preserved across calls without explicit
@@ -396,6 +413,8 @@ pub fn compile(
             .@"br" => try op_control.emitBr(&ctx, &ins),
             .@"call_indirect" => try op_call.emitCallIndirect(&ctx, &ins),
             .@"call" => try op_call.emitCall(&ctx, &ins),
+            .@"global.get" => try op_globals.emitI32GlobalGet(&ctx, &ins),
+            .@"global.set" => try op_globals.emitI32GlobalSet(&ctx, &ins),
             .@"memory.size" => {
                 // Wasm memory.size returns current size in 64-KiB pages.
                 // X27 carries the byte limit; pages = bytes >> 16.

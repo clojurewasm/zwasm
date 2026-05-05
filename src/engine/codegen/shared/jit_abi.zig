@@ -22,6 +22,7 @@
 //! in Zone 3 (cli/, c_api/).
 
 const std = @import("std");
+const Value = @import("../../../runtime/value.zig").Value;
 
 /// Pointer-and-counter bundle the JIT body relies on. Layout
 /// extends only at the tail (Phase 8+: trap_buf, host-call
@@ -62,6 +63,21 @@ pub const JitRuntime = extern struct {
     /// optional trap-site PC for source-location surfacing.
     trap_flag: u32,
     _pad1: u32 = 0,
+    /// Globals array base pointer (ADR-0027). Each entry is one
+    /// `runtime.value.Value` = 8 bytes. JIT body's `global.get`
+    /// emits `LDR Rd, [X23, Ridx, LSL #3]` (ARM64) or
+    /// `MOV R_dst, [R_scratch + idx*8]` (x86_64) where the
+    /// `[*]const Value` `globals_base` is reloaded from
+    /// `[R15 + globals_base_off]` (x86_64) or pre-loaded into
+    /// X23 at function prologue (ARM64) per ADR-0026's invariant
+    /// strategy.
+    globals_base: [*]Value,
+    /// Globals array length. Reserved for future bounds-checked
+    /// global access (gc proposal Phase 11+ runtime-typed
+    /// globals); not consulted in Wasm 1.0 spec where global
+    /// indices are statically validated.
+    globals_count: u32,
+    _pad2: u32 = 0,
 };
 
 // ============================================================
@@ -82,6 +98,8 @@ pub const funcptr_base_off: u12 = @offsetOf(JitRuntime, "funcptr_base");
 pub const table_size_off: u12 = @offsetOf(JitRuntime, "table_size");
 pub const typeidx_base_off: u12 = @offsetOf(JitRuntime, "typeidx_base");
 pub const trap_flag_off: u12 = @offsetOf(JitRuntime, "trap_flag");
+pub const globals_base_off: u12 = @offsetOf(JitRuntime, "globals_base");
+pub const globals_count_off: u12 = @offsetOf(JitRuntime, "globals_count");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -109,6 +127,11 @@ comptime {
     if (typeidx_base_off > 32760) @compileError("typeidx_base_off exceeds X-form imm12 budget");
     if (table_size_off > 16380) @compileError("table_size_off exceeds W-form imm12 budget");
     if (trap_flag_off > 16380) @compileError("trap_flag_off exceeds W-form imm12 budget");
+    // ADR-0027: globals_base + globals_count alignment + budget.
+    if ((globals_base_off & 7) != 0) @compileError("globals_base_off not 8-aligned");
+    if ((globals_count_off & 3) != 0) @compileError("globals_count_off not 4-aligned");
+    if (globals_base_off > 32760) @compileError("globals_base_off exceeds X-form imm12 budget");
+    if (globals_count_off > 16380) @compileError("globals_count_off exceeds W-form imm12 budget");
 }
 
 // ============================================================
@@ -126,14 +149,15 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 40), trap_flag_off);
 }
 
-test "JitRuntime: total size = 48 bytes (6 head fields + 2 pads)" {
-    try testing.expectEqual(@as(u32, 48), head_size);
+test "JitRuntime: total size = 64 bytes (post-ADR-0027 globals extension)" {
+    try testing.expectEqual(@as(u32, 64), head_size);
 }
 
 test "JitRuntime: round-trip construction + field reads" {
     var memory: [16]u8 = .{ 0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     const funcptrs = [_]u64{0xCAFE0000};
     const typeidxs = [_]u32{7};
+    var globals = [_]Value{ Value.fromI32(11), Value.fromI32(22) };
     const rt: JitRuntime = .{
         .vm_base = &memory,
         .mem_limit = memory.len,
@@ -141,6 +165,8 @@ test "JitRuntime: round-trip construction + field reads" {
         .table_size = 1,
         .typeidx_base = &typeidxs,
         .trap_flag = 0,
+        .globals_base = &globals,
+        .globals_count = globals.len,
     };
     try testing.expectEqual(@as(u64, 16), rt.mem_limit);
     try testing.expectEqual(@as(u32, 1), rt.table_size);
@@ -148,4 +174,7 @@ test "JitRuntime: round-trip construction + field reads" {
     try testing.expectEqual(@as(u64, 0xCAFE0000), rt.funcptr_base[0]);
     try testing.expectEqual(@as(u32, 7), rt.typeidx_base[0]);
     try testing.expectEqual(@as(u32, 0), rt.trap_flag);
+    try testing.expectEqual(@as(i32, 11), rt.globals_base[0].i32);
+    try testing.expectEqual(@as(i32, 22), rt.globals_base[1].i32);
+    try testing.expectEqual(@as(u32, 2), rt.globals_count);
 }

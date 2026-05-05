@@ -267,3 +267,4 @@ becomes possible).
 | Date | SHA | Note |
 |---|---|---|
 | 2026-05-05 | `<backfill>` | Initial accepted version (#5 of 7-issue cleanup batch) |
+| 2026-05-06 | `<backfill>` | Implementation landed (i32 globals only): JitRuntime extended (48→64 byte) with `globals_base` + `globals_count`. ARM64 X23 reserved as `globals_base_save_gpr` (allocatable_callee_saved 4→3, total reserved 6→7). x86_64 reload-from-runtime-ptr at `[R15 + globals_base_off=48]`. Per-global stride confirmed = `@sizeOf(Value) = 8` (not 16; revised down from initial Decision text). i64/f32/f64 globals deferred to next chunk. |

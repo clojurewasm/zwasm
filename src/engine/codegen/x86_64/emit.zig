@@ -157,6 +157,7 @@ pub fn compile(
                 .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
                 .@"i32.load16_s", .@"i32.load16_u",
                 .@"i32.store", .@"i32.store8", .@"i32.store16",
+                .@"global.get", .@"global.set",
                 => break :blk true,
                 else => {},
             }
@@ -261,6 +262,8 @@ pub fn compile(
             .@"i32.load16_s", .@"i32.load16_u",
             .@"i32.store", .@"i32.store8", .@"i32.store16",
             => try emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.op, ins.payload, func.func_idx),
+            .@"global.get" => try emitI32GlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
+            .@"global.set" => try emitI32GlobalSet(allocator, &buf, alloc, &pushed_vregs, ins.payload),
             .@"block" => try emitBlock(allocator, &labels),
             .@"loop" => try emitLoop(allocator, &buf, &labels),
             .@"br" => try emitBr(allocator, &buf, &labels, ins.payload),
@@ -785,6 +788,54 @@ fn emitMemOp(
         try buf.appendSlice(allocator, enc.slice());
         try pushed_vregs.append(allocator, result_v);
     }
+}
+
+/// `global.get N` (i32) — load `[globals_base + N*8]` low 32 bits
+/// into a fresh dst vreg. Per ADR-0027 + ADR-0026 reload pattern:
+///
+///   MOV RAX, [R15 + globals_base_off]  ; reload globals_base ptr
+///   MOV R<dst>, [RAX + N*8]            ; load i32 (low 4 bytes of slot)
+///
+/// idx range: u32 from ZirInstr.payload; byte_offset = idx * 8
+/// must fit i32 (≈ 268M globals max), well beyond Wasm spec.
+fn emitI32GlobalGet(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    idx: u32,
+) Error!void {
+    if (idx > 0x0FFF_FFFF) return Error.SlotOverflow; // sane Wasm-module ceiling
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+    const byte_off: i32 = @intCast(idx * 8);
+
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
+    try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(dst_r, .rax, byte_off).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// `global.set N` (i32) — pop a vreg, store its low 32 bits to
+/// `[globals_base + N*8]`. Upper 4 bytes of the slot left
+/// untouched (i32-typed globals; slot zero-init at module load).
+fn emitI32GlobalSet(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    idx: u32,
+) Error!void {
+    if (idx > 0x0FFF_FFFF) return Error.SlotOverflow;
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    const byte_off: i32 = @intCast(idx * 8);
+
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
+    try buf.appendSlice(allocator, inst.encStoreR32MemDisp32(src_r, .rax, byte_off).slice());
 }
 
 /// Emit a single `JMP target_for_depth` for one br_table case
@@ -1597,6 +1648,82 @@ test "compile: i32.store with stack underflow → AllocationMissing" {
     const slots = [_]u8{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}));
+}
+
+test "compile: global.get 0 — emits ADR-0027 reload-from-runtime-ptr (i32)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"global.get", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0}; // R10D
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Body should contain the 2-instruction global.get sequence:
+    //   MOV RAX, [R15 + globals_base_off=48] →  49 8B 87 30 00 00 00
+    //   MOV R10D, [RAX + 0]                  →  44 8B 90 00 00 00 00
+    const expected = [_]u8{
+        0x49, 0x8B, 0x87, 0x30, 0x00, 0x00, 0x00, // MOV RAX, [R15 + 48]
+        0x44, 0x8B, 0x90, 0x00, 0x00, 0x00, 0x00, // MOV R10D, [RAX + 0]
+    };
+    var found = false;
+    var i: usize = 0;
+    while (i + expected.len <= out.bytes.len) : (i += 1) {
+        if (std.mem.eql(u8, out.bytes[i..][0..expected.len], &expected)) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: (i32.const 42) global.set 1 — emits ADR-0027 reload + store (i32)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"global.set", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Body should contain the global.set sequence:
+    //   MOV RAX, [R15 + 48]                  →  49 8B 87 30 00 00 00
+    //   MOV [RAX + 8], R10D  (idx=1, byte_off=8) →  44 89 90 08 00 00 00
+    const expected = [_]u8{
+        0x49, 0x8B, 0x87, 0x30, 0x00, 0x00, 0x00,
+        0x44, 0x89, 0x90, 0x08, 0x00, 0x00, 0x00,
+    };
+    var found = false;
+    var i: usize = 0;
+    while (i + expected.len <= out.bytes.len) : (i += 1) {
+        if (std.mem.eql(u8, out.bytes[i..][0..expected.len], &expected)) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: global.set with stack underflow → AllocationMissing" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"global.set", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &.{} };
+    const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, empty, &.{}, &.{}));
 }
 
 test "compile: br with depth out of range → UnsupportedOp" {

@@ -252,3 +252,4 @@ over hot-path code-density wins.
 | Date       | Commit       | Summary                                                                                  |
 |------------|--------------|------------------------------------------------------------------------------------------|
 | 2026-05-05 | `<backfill>` | Initial Decision; reload-from-runtime-ptr + R15-only reservation. Filed before memory-op chunk so the design is structural, not emergent. |
+| 2026-05-06 | `<backfill>` | First non-memory consumer landed: ADR-0027 globals access. `global.get` / `global.set` (i32) emit `MOV RAX, [R15 + globals_base_off=48]; MOV r/m32, [RAX + idx*8]` — exactly the reload-from-runtime-ptr pattern this ADR predicted. Validates that the abstraction generalises beyond memory ops. R15 single-reservation invariant unchanged. |

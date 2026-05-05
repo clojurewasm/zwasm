@@ -22,8 +22,13 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-7-issue cleanup batch landed (`618ac14` ADR-0027 + ADR-0028)。
-構造課題 7 件を 4 commit で discharge:
+**7-issue cleanup batch FULLY closed (実装まで完了)** — 直近 6 commit:
+- `<this commit>` #5 ADR-0027 implementation (i32 globals 両 backend)
+- `5013ce5` #7 ADR-0028 M3-a-1 implementation (trace ringbuffer infra
+  + bounds-write integration; M3-a-2 trap stub write は別 chunk)
+- `618ac14` #5 ADR-0027 + #7 ADR-0028 設計 ADR 起草
+
+旧 4 commit (#1/#2/#3/#4/#6 設計 + bounds-check 実装):
 - `c58af89` #6 forced REX TODO + #2 D-029 ARM64 grep verified
   + #3 D-030 ADR-0023 mirror gap row added
 - `afa3808` #4 D-028 windowsmini ×10 + WebSearch follow-up
@@ -32,14 +37,14 @@
 - `618ac14` #5 ADR-0027 (JitRuntime globals_base 拡張設計確定)
   + #7 ADR-0028 (Diagnostic M3 ringbuffer 前倒し設計確定)
 
-**Active task**: §9.7 / 7.7-globals 実装 (ADR-0027 で設計確定済み:
-JitRuntime に globals_base + globals_count 追加, ARM64 X23 予約)
-または M3-a 実装 (ADR-0028 で設計確定済み: bounds + trap カテゴリ
-の ringbuffer)。実装順は判断待ち (M3-a → 7.7-globals の方が trap
-diagnosis 整備の意義が大きいかもしれない)。
+**Active task**: 残り 7.7 chunks — 7.7-wrap (i32.wrap_i64 +
+i64.extend) / 7.7-call (call/call_indirect) / 7.7-fp (f32/f64
+surface)。完了後に §9.7 / 7.8 spec gate へ。M3-a-2 (trap stub
+からの ringbuffer write) と globals i64/FP は post-7.7 chunk
+として queue。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 618ac14。
+**Branch**: `zwasm-from-scratch`、最新は `<HEAD post-7.7-globals>`。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -81,8 +86,8 @@ fixed).
 | 7.7-control-table | br_table (linear CMP+JNE-skip+JMP chain + tail) | DONE `46a6d9f` |
 | 7.7-mem-load | i32.load + ADR-0026 prologue + bounds-check trap stub | DONE `c0711fb` |
 | 7.7-mem-store | i32.store + 狭幅 load/store + emitMemOp 統合 refactor | DONE `7d37a5b` |
-| 7.7-globals | global.get/.set (needs JitRuntime globals_base extension) | **NEXT** (or 7.7-wrap) |
-| 7.7-wrap | i32.wrap_i64 / i64.extend_i32_s/u | pending |
+| 7.7-globals | global.get/.set (i32 only; i64/FP は別 chunk) | DONE `<this commit>` |
+| 7.7-wrap | i32.wrap_i64 / i64.extend_i32_s/u | **NEXT** |
 | 7.7-call | call/call_indirect | pending |
 | 7.7-fp | f32/f64 surface | pending |
 | deferred-Win64 | Win64 ABI table + Cc enum | pending |
