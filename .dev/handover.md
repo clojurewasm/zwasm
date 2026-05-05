@@ -22,17 +22,15 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-§9.7 / 7.7-control-skel landed (`75f88e6` Label/Fixup + 4
-handlers block/loop/br/emitEndIntra + JMP/Jcc rel32 + patchRel32;
-forward fixup at end / backward direct disp at br site; 7
-byte-level inst tests + 3 emit tests)。3-host green。
+§9.7 / 7.7-control-if landed (`c0ba23d` Label に if_skip_byte +
+merge_top_vreg 追加、3 handlers (if/else/br_if) + emitEndIntra
+拡張で D-027 mirror MOV、3 emit tests)。3-host green。
 
-**Active task**: §9.7 / 7.7-control-if — if/else (TEST+Jcc skip
-+ if_skip_byte trail) + br_if (CMP+Jcc placeholder via existing
-fixup machinery)。次に br_table、その後 globals/memory/call/fp。
+**Active task**: §9.7 / 7.7-control-table — br_table (linear
+CMP+JE chain + tail JMP)。これで control flow surface 完備。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 75f88e6。
+**Branch**: `zwasm-from-scratch`、最新は c0ba23d。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -70,8 +68,8 @@ fixed).
 | 7.7-bitcount | i32 clz/ctz/popcnt (LZCNT/TZCNT/POPCNT) | DONE `c62a3d7` |
 | 7.7-locals | frame SUB/ADD RSP + local.get/.set/.tee (15 cap) | DONE `59ed705` |
 | 7.7-control-skel | block/loop/br + emitEndIntra + JMP/Jcc rel32 + patchRel32 | DONE `75f88e6` |
-| 7.7-control-if | if/else (TEST+Jcc skip + if_skip_byte) + br_if | **NEXT** |
-| 7.7-control-table | br_table (chain of CMP+Jcc + tail JMP) | pending |
+| 7.7-control-if | if/else (+if_skip_byte +merge_top_vreg D-027) + br_if | DONE `c0ba23d` |
+| 7.7-control-table | br_table (linear CMP+JE chain + tail JMP) | **NEXT** |
 | 7.7-globals | global.get/.set (needs JitRuntime extension) | pending |
 | 7.7-wrap | i32.wrap_i64 / i64.extend_i32_s/u | pending |
 | 7.7-mem | i32.load/store (+ bounds_check; ADR-0026 prologue) | pending |
@@ -99,6 +97,9 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-control-if: x86_64 if/else + br_if + Label
+  if_skip_byte/merge_top_vreg (D-027 mirror); 3 emit tests
+  (c0ba23d)。
 - §9.7 / 7.7-control-skel: x86_64 Label/Fixup machinery + 4
   handlers (block/loop/br + emitEndIntra) + JMP/Jcc rel32 +
   patchRel32; forward fixup at end / backward direct disp at br;
