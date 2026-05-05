@@ -22,15 +22,17 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5d sub-b IN-PROGRESS
 
-emit.zig 9-module split chunk 6 landed `79d3104` (op_memory.zig:
-unified emitMemOp covering 25 i32/i64/f32/f64 load/store arms,
-~125 LOC)。emit.zig 3217 → 3124 LOC。3-host gate green。
+emit.zig 9-module split chunk 7 landed `a6c7dcf` (op_control.zig:
+block/loop/br/br_if/br_table/if/else/emitEndIntra + D-027 merge —
+8 handlers, ~265 LOC; function-level `end` epilogue+trap-stub
+stays inline pending chunk 9)。emit.zig 3124 → 2914 LOC。3-host
+gate green。
 
-**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 7 は op_control.zig
-(block/loop/br/br_if/br_table/if/else/end + D-027 merge ~700 LOC)。
+**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 8 は op_call.zig
+(call/call_indirect + marshalCallArgs + captureCallResult ~400 LOC)。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 79d3104。
+**Branch**: `zwasm-from-scratch`、最新は a6c7dcf。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -65,9 +67,9 @@ fixed).
 | 4 | op_alu_float.zig (f32/f64 arith/cmp/copysign/min/max/round) | ~175 | DONE `b796555` |
 | 5 | op_convert.zig (wrap/extend/convert/sat_trunc/reinterpret/demote/promote) | ~150 | DONE `0d576ad` |
 | 6 | op_memory.zig (unified emitMemOp, 25 load/store arms) | ~125 | DONE `79d3104` |
-| 7 | op_control.zig (block/loop/br/br_if/br_table/if/else/end incl. D-027 merge) | ~700 | **NEXT** |
-| 8 | op_call.zig | ~400 | pending |
-| 9 | bounds_check.zig + trapping trunc handlers (8 op-arms) | ~250 | pending |
+| 7 | op_control.zig (block/loop/br/br_if/br_table/if/else/emitEndIntra + D-027 merge) | ~265 | DONE `a6c7dcf` |
+| 8 | op_call.zig (call/call_indirect + marshalCallArgs + captureCallResult) | ~400 | **NEXT** |
+| 9 | bounds_check.zig + trapping trunc handlers + function-level `end` trap stub (8 op-arms + epilogue split) | ~250 | pending |
 
 > Chunk count grew from 7 → 9 because ops_alu was sub-split into
 > int/float/convert to honour the per-module 400-LOC cap. ADR-0021
@@ -79,13 +81,16 @@ fixed).
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
 - **D-026** env-stub host-func wiring — cross-module dispatch。
-- emit.zig 3124 LOC は 7.5d sub-b で discharge 中 (chunks 7-9
+- emit.zig 2914 LOC は 7.5d sub-b で discharge 中 (chunks 8-9
   remaining)。
 - api/instance.zig soft-cap (>1000 LOC) — binding code はそのまま、
   hard-cap (2000) は Step A2 で discharge 済み。
 
 ## Recently closed (per `git log --oneline -45`)
 
+- 7.5d sub-b chunk 7: op_control.zig extracted (8 control-flow
+  handlers incl. D-027 merge; function-level end stays inline)
+  (a6c7dcf)。
 - 7.5d sub-b chunk 6: op_memory.zig extracted (unified emitMemOp,
   25 load/store arms) (79d3104)。
 - 7.5d sub-b chunk 5: op_convert.zig extracted (wrap/extend/convert/
