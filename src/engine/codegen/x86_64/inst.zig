@@ -203,6 +203,18 @@ pub fn encCmpRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `TEST r/m, r` (opcode 0x85) — sets EFLAGS based on bitwise
+/// AND of `dst` and `src` (no result stored). Same operand-role
+/// + REX layout as CMP. Used by Wasm `eqz` as `TEST x, x` →
+/// ZF=1 iff x==0.
+pub fn encTestRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, src, dst)) |rex| enc.push(rex);
+    enc.push(0x85);
+    enc.push(encodeModrm(0b11, src.low3(), dst.low3()));
+    return enc;
+}
+
 /// `SETcc r/m8` (2-byte opcode 0x0F 0x90+cc) — write 0 or 1 to
 /// the low byte of `dst` based on the EFLAGS condition. ModR/M:
 /// mod=11, reg=0 (always for SETcc), rm = dst.low3.
@@ -468,6 +480,21 @@ test "encCmpRR: cmp ebx, ecx (d) → 39 cb" {
 test "encCmpRR: cmp r10d, r11d (d) → 45 39 da (REX.R + REX.B)" {
     const enc = encCmpRR(.d, .r10, .r11);
     try testing.expectEqualSlices(u8, &.{ 0x45, 0x39, 0xDA }, enc.slice());
+}
+
+test "encTestRR: test ebx, ebx (d) → 85 db" {
+    const enc = encTestRR(.d, .rbx, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0x85, 0xDB }, enc.slice());
+}
+
+test "encTestRR: test r10d, r10d (d) → 45 85 d2 (REX.R + REX.B)" {
+    const enc = encTestRR(.d, .r10, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0x45, 0x85, 0xD2 }, enc.slice());
+}
+
+test "encTestRR: test rax, rax (q) → 48 85 c0 (canonical zero check)" {
+    const enc = encTestRR(.q, .rax, .rax);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x85, 0xC0 }, enc.slice());
 }
 
 test "encSetccR: sete bl → 40 0f 94 c3 (bare REX for low-byte access)" {

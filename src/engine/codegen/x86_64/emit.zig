@@ -141,6 +141,7 @@ pub fn compile(
             .@"i32.lt_s", .@"i32.lt_u", .@"i32.gt_s", .@"i32.gt_u",
             .@"i32.le_s", .@"i32.le_u", .@"i32.ge_s", .@"i32.ge_u",
             => try emitI32Compare(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i32.eqz" => try emitI32Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"end" => {
                 // Function-level end (skeleton: no label stack
                 // yet, so every `end` is the function-level form).
@@ -261,6 +262,32 @@ fn emitI32Compare(
 
     try buf.appendSlice(allocator, inst.encCmpRR(.d, lhs_r, rhs_r).slice());
     try buf.appendSlice(allocator, inst.encSetccR(cc, dst_r).slice());
+    try buf.appendSlice(allocator, inst.encMovzxR32R8(dst_r, dst_r).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// `i32.eqz` handler — unary "is the operand zero?". Emits
+/// TEST src, src ; SETE dst_low8 ; MOVZX dst, dst_low8. Same
+/// 3-instr shape as compare; operand reuse means no separate
+/// rhs vreg.
+fn emitI32Eqz(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    try buf.appendSlice(allocator, inst.encTestRR(.d, src_r, src_r).slice());
+    try buf.appendSlice(allocator, inst.encSetccR(.e, dst_r).slice());
     try buf.appendSlice(allocator, inst.encMovzxR32R8(dst_r, dst_r).slice());
 
     try pushed_vregs.append(allocator, result_v);
@@ -521,6 +548,58 @@ test "compile: i32.lt_s vs i32.lt_u — different cc codes" {
         // 0x0F at 20, opcode at 21.
         try testing.expectEqual(case.cc, out.bytes[21]);
     }
+}
+
+test "compile: (i32.const 0) i32.eqz end — TEST+SETE+MOVZX" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.eqz" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 1 }; // R10D, R11D
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected stream:
+    //   55 48 89 E5                     prologue
+    //   41 BA 00 00 00 00               MOV R10D, #0
+    //   45 85 D2                        TEST R10D, R10D
+    //   41 0F 94 C3                     SETE R11B   (REX.B for r11)
+    //   45 0F B6 DB                     MOVZX R11D, R11B
+    //   44 89 D8                        MOV EAX, R11D
+    //   5D C3                           POP RBP ; RET
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x41, 0xBA, 0x00, 0x00, 0x00, 0x00,
+        0x45, 0x85, 0xD2,
+        0x41, 0x0F, 0x94, 0xC3,
+        0x45, 0x0F, 0xB6, 0xDB,
+        0x44, 0x89, 0xD8,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: i32.eqz with stack underflow → AllocationMissing" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.eqz" }); // no operand on stack
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}));
 }
 
 test "compile: i32.add with stack underflow → AllocationMissing" {
