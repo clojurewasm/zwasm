@@ -127,6 +127,22 @@ fn stackEffect(op: ZirOp) ?StackEffect {
         => .{ .pops = 2, .pushes = 1 },
         // 3 → 1 select
         .@"select", .@"select_typed" => .{ .pops = 3, .pushes = 1 },
+        // memory loads (1 → 1; pop addr, push value)
+        .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
+        .@"i32.load16_s", .@"i32.load16_u",
+        .@"i64.load", .@"i64.load8_s", .@"i64.load8_u",
+        .@"i64.load16_s", .@"i64.load16_u",
+        .@"i64.load32_s", .@"i64.load32_u",
+        .@"f32.load", .@"f64.load",
+        => .{ .pops = 1, .pushes = 1 },
+        // memory stores (2 → 0; pop addr + value)
+        .@"i32.store", .@"i32.store8", .@"i32.store16",
+        .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
+        .@"f32.store", .@"f64.store",
+        => .{ .pops = 2, .pushes = 0 },
+        // memory.size (0 → 1) / memory.grow (1 → 1)
+        .@"memory.size" => .{ .pops = 0, .pushes = 1 },
+        .@"memory.grow" => .{ .pops = 1, .pushes = 1 },
         else => null,
     };
 }

@@ -144,6 +144,12 @@ pub fn compile(
     // that don't touch memory or make calls keep the simpler 1-PUSH
     // prologue, preserving backward-compat with the existing skel
     // / ALU / control tests.
+    // **Same-class grep target**: i64 / f32 / f64 memory ops will
+    // be added to BOTH this prescan AND emitMemOp's `access_size`
+    // switch + dispatch arm in `body switch` simultaneously. Forgetting
+    // either one leads to "uses_runtime_ptr=false but R15 referenced"
+    // class bugs (silent invalid instruction stream). See D-030 for
+    // the planned discharge timing (post-7.7 op surface completion).
     const uses_runtime_ptr = blk: {
         for (func.instrs.items) |ins| {
             switch (ins.op) {
@@ -675,21 +681,27 @@ fn emitBr(
 /// shape: shared eff-addr / bounds-check prologue, per-op final
 /// LDR/STR encoding.
 ///
-/// Per-op shape (load):
+/// Per-op shape (load, spec-strict bounds: ea + size > mem_limit traps):
 ///   MOV RAX, [R15 + vm_base_off]
-///   MOV EDX, idx_r            ; zero-extend idx → 64-bit RDX
-///   ADD RDX, offset           ; (skipped if offset == 0)
-///   CMP RDX, [R15 + mem_limit_off]
-///   JAE trap_stub             ; bounds_fixups append
+///   MOV EDX, idx_r              ; zero-extend idx → 64-bit RDX (= ea base)
+///   ADD RDX, offset             ; (skipped if offset == 0)
+///   LEA RCX, [RDX + access_size]; RCX = ea + size, RDX 無修正 (load addressing 用)
+///   CMP RCX, [R15 + mem_limit_off]
+///   JA  trap_stub               ; unsigned > ; bounds_fixups append
 ///   MOV[ZX|SX] dst, ... [RAX + RDX]
 ///
 /// Per-op shape (store): same prologue, final form is
-///   MOV [RAX + RDX], src      ; (32-bit, 16-bit, or 8-bit)
+///   MOV [RAX + RDX], src        ; (32-bit, 16-bit, or 8-bit)
 ///
-/// Spec note (mirrored from arm64): bounds check uses eff_addr
-/// >= mem_limit unsigned, doesn't account for access size. Same
-/// pre-split behaviour as arm64; spec-strict bounds is the paired
-/// cross-arch follow-up.
+/// Per Wasm 1.0 spec (memory.{load,store} 系): trap iff
+/// `eff_addr + access_size > mem_limit` where access_size ∈
+/// {1, 2, 4, 8}. u64 演算で overflow 不可 (max ≈ 2^33+7).
+///
+/// RAX/RCX/RDX は regalloc pool 外 (allocatable_caller_saved_
+/// scratch_gprs = R10+R11 のみ; RAX/RCX/RDX は scratch 用に reserved)。
+/// shifts は RCX を CL として使うが、shift handler と memory handler
+/// は同一 op 内で交差しないため、RCX を bounds-check scratch として
+/// 使うのは安全。
 fn emitMemOp(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -717,16 +729,29 @@ fn emitMemOp(
     }
     const idx_r = abi.slotToReg(alloc.slots[idx_v]) orelse return Error.SlotOverflow;
 
-    // Shared eff-addr + bounds-check prologue (5 steps).
+    // Per-op access size in bytes (Wasm spec memory.{load,store} 系)。
+    // exhaustive switch (`require_exhaustive_enum_switch` lint gate);
+    // dispatcher が memory op 以外を渡すことはないので else は unreachable。
+    const access_size: i8 = switch (op) {
+        .@"i32.load8_s", .@"i32.load8_u", .@"i32.store8" => 1,
+        .@"i32.load16_s", .@"i32.load16_u", .@"i32.store16" => 2,
+        .@"i32.load", .@"i32.store" => 4,
+        else => unreachable,
+    };
+
+    // Shared eff-addr + spec-strict bounds-check prologue.
+    // ea = idx_r (zero-extended u32) + offset; trap iff ea + size > mem_limit。
+    // u64 演算で overflow 不可: max(ea + size) = 2^33 + 7 << 2^64。
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.vm_base_off).slice());
     try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, idx_r).slice());
     if (offset != 0) {
         if (offset > 0x7FFFFFFF) return Error.SlotOverflow; // imm32 range
         try buf.appendSlice(allocator, inst.encAddR64Imm32(.rdx, @intCast(offset)).slice());
     }
-    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rdx, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+    try buf.appendSlice(allocator, inst.encLeaR64BaseDisp8(.rcx, .rdx, access_size).slice());
+    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rcx, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
     const fixup_at: u32 = @intCast(buf.items.len);
-    try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
+    try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice()); // unsigned >
     try bounds_fixups.append(allocator, fixup_at);
 
     // Per-op final encoding.
@@ -1380,48 +1405,35 @@ test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bound
     //                            and RM=RDX low3=2. So the byte is the same. OK ModR/M = D2.
     //                    Total: 44 89 D2 (3 bytes).
     //   44 89 D2                    MOV EDX, R10D                     [26..29]
-    //   49 3B 97 08 00 00 00        CMP RDX, [R15 + 8]                [29..36]
-    //   0F 83 ?? ?? ?? ??           JAE trap_stub (placeholder)       [36..42]
-    //   8B 1C 10                    MOV EBX, [RAX + RDX]              [42..45]
-    //                  ↑ encMovR32FromBaseIdx(.r11, .rax, .rdx)
-    //                    R11.extBit=1 → REX.R=1; RAX.extBit=0; RDX.extBit=0.
-    //                    REX = 0x44 (R=1).
-    //                    ModR/M: mod=00, reg=R11.low3=3, rm=4 (SIB) → 0x1C
-    //                    SIB: scale=00, idx=RDX.low3=2, base=RAX.low3=0 → 0x10
-    //                    Total: 44 8B 1C 10 (4 bytes).
-    //   44 8B 1C 10                 MOV R11D, [RAX + RDX]             [42..46]
-    //   44 89 D8                    MOV EAX, R11D (return marshalling)[46..49]
-    //                  ↑ src=R11 (REX.R=1), dst=RAX (REX.B=0). Wait no, rax is dst:
-    //                    encMovRR(.d, .rax, .r11) → src=r11, dst=rax.
-    //                    REX.R = src.extBit = 1, REX.B = dst.extBit = 0 → REX = 0x44.
-    //                    ModR/M: mod=11, reg=r11.low3=3, rm=rax.low3=0 → 11 011 000 = 0xD8.
-    //                    Total: 44 89 D8.
+    //   48 8D 4A 04                 LEA RCX, [RDX + 4] (ea + size=4)  [29..33]
+    //   49 3B 8F 08 00 00 00        CMP RCX, [R15 + 8]                [33..40]
+    //   0F 87 ?? ?? ?? ??           JA trap_stub (placeholder)        [40..46]
+    //   44 8B 1C 10                 MOV R11D, [RAX + RDX]             [46..50]
+    //   44 89 D8                    MOV EAX, R11D (return marshalling)[50..53]
     // Epilogue:
-    //   48 83 C4 08                 ADD RSP, 8                        [49..53]
-    //   41 5F                       POP R15                           [53..55]
-    //   5D                          POP RBP                           [55]
-    //   C3                          RET                               [56]
+    //   48 83 C4 08                 ADD RSP, 8                        [53..57]
+    //   41 5F                       POP R15                           [57..59]
+    //   5D                          POP RBP                           [59]
+    //   C3                          RET                               [60]
     // Trap stub:
-    //   41 C7 87 28 00 00 00 01 00 00 00   MOV [R15+40], 1            [57..68]
-    //   31 C0                              XOR EAX, EAX               [68..70]
-    //                  ↑ encXorRR(.d, .rax, .rax): src=rax, dst=rax. No REX (no extension; W=0).
-    //                    Opcode 0x31. ModR/M: 11 000 000 = 0xC0. Total: 31 C0.
-    //   48 83 C4 08                        ADD RSP, 8                 [70..74]
-    //   41 5F                              POP R15                    [74..76]
-    //   5D                                 POP RBP                    [76]
-    //   C3                                 RET                        [77]
+    //   41 C7 87 28 00 00 00 01 00 00 00   MOV [R15+40], 1            [61..72]
+    //   31 C0                              XOR EAX, EAX               [72..74]
+    //   48 83 C4 08                        ADD RSP, 8                 [74..78]
+    //   41 5F                              POP R15                    [78..80]
+    //   5D                                 POP RBP                    [80]
+    //   C3                                 RET                        [81]
     //
-    // JAE patch: trap_byte = 57. fixup_byte = 36, insn_size = 6.
-    //   disp = 57 - 36 - 6 = 15 = 0x0F. Little-endian: 0F 00 00 00.
+    // JA patch: trap_byte = 61. fixup_byte = 40, insn_size = 6.
+    //   disp = 61 - 40 - 6 = 15 = 0x0F.
     //
-    // Total length: 78 bytes.
-    try testing.expectEqual(@as(usize, 78), out.bytes.len);
+    // Total length: 82 bytes (spec-strict bounds adds 4-byte LEA before CMP).
+    try testing.expectEqual(@as(usize, 82), out.bytes.len);
     // Spot-check the prologue (verifies ADR-0026 structure):
     try testing.expectEqualSlices(u8, &.{ 0x55, 0x41, 0x57, 0x48, 0x89, 0xE5, 0x49, 0x89, 0xFF, 0x48, 0x83, 0xEC, 0x08 }, out.bytes[0..13]);
-    // Spot-check the JAE placeholder is patched (disp != 0):
-    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x83, 0x0F, 0x00, 0x00, 0x00 }, out.bytes[36..42]);
-    // Spot-check trap stub starts at 57 with the trap_flag store:
-    try testing.expectEqualSlices(u8, &.{ 0x41, 0xC7, 0x87, 0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 }, out.bytes[57..68]);
+    // Spot-check the JA placeholder is patched (disp = 15 = 0x0F): JA = 0x0F 0x87 at byte 40.
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x87, 0x0F, 0x00, 0x00, 0x00 }, out.bytes[40..46]);
+    // Spot-check trap stub starts at 61 with the trap_flag store:
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0xC7, 0x87, 0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 }, out.bytes[61..72]);
 }
 
 test "compile: i32.load with stack underflow → AllocationMissing" {
@@ -1456,22 +1468,23 @@ test "compile: (i32.const 0)(i32.const 99) i32.store offset=0 — store path" {
     defer deinit(testing.allocator, out);
 
     // Prologue: 13 bytes (PUSH RBP / PUSH R15 / MOV RBP,RSP / MOV R15,RDI / SUB RSP,8)
-    // Body:
+    // Body (spec-strict bounds: LEA RCX,[RDX+4] before CMP/JA):
     //   41 BA 00 00 00 00              MOV R10D, 0   (idx)            6 bytes
     //   41 BB 63 00 00 00              MOV R11D, 99  (value)          6
     //   49 8B 87 00 00 00 00           MOV RAX, [R15 + 0]             7
     //   44 89 D2                       MOV EDX, R10D                  3
-    //   49 3B 97 08 00 00 00           CMP RDX, [R15 + 8]             7
-    //   0F 83 ?? ?? ?? ??              JAE trap_stub (placeholder)    6
+    //   48 8D 4A 04                    LEA RCX, [RDX + 4]             4
+    //   49 3B 8F 08 00 00 00           CMP RCX, [R15 + 8]             7
+    //   0F 87 ?? ?? ?? ??              JA trap_stub (placeholder)     6
     //   44 89 1C 10                    MOV [RAX + RDX], R11D          4
     //   (no return marshalling — sig.results.len == 0)
     // Epilogue: ADD RSP,8 / POP R15 / POP RBP / RET                  8
     // Trap stub: 21 bytes
-    try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x1C, 0x10 }, out.bytes[13 + 6 + 6 + 7 + 3 + 7 + 6 ..][0..4]);
-    // Verify the JAE was patched (disp != 0)
-    const jae_at = 13 + 6 + 6 + 7 + 3 + 7;
-    try testing.expect(out.bytes[jae_at] == 0x0F and out.bytes[jae_at + 1] == 0x83);
-    const disp = std.mem.readInt(i32, out.bytes[jae_at + 2 ..][0..4], .little);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x1C, 0x10 }, out.bytes[13 + 6 + 6 + 7 + 3 + 4 + 7 + 6 ..][0..4]);
+    // Verify the JA was patched (disp != 0); JA = 0x0F 0x87
+    const ja_at = 13 + 6 + 6 + 7 + 3 + 4 + 7;
+    try testing.expect(out.bytes[ja_at] == 0x0F and out.bytes[ja_at + 1] == 0x87);
+    const disp = std.mem.readInt(i32, out.bytes[ja_at + 2 ..][0..4], .little);
     try testing.expect(disp > 0); // forward to trap stub
 }
 

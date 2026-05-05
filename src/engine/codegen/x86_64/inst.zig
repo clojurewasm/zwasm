@@ -492,6 +492,25 @@ pub fn encMovsxR32_16MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `LEA r64, [base + disp8]` (opcode 0x8D /r with REX.W,
+/// ModR/M mod=01, disp8). Used by spec-strict bounds check to
+/// compute `ea + access_size` into a separate scratch reg without
+/// mutating `base`. disp8 covers access_size ∈ {1..8}.
+///
+/// **Caller constraint**: `base` must NOT be RSP (low3=0b100). With
+/// mod=01 + rm=0b100 the AMD64 ISA mandates a SIB byte; this encoder
+/// emits no SIB and would produce a malformed instruction. RBP is
+/// safe (mod=01 always carries disp8). Current call sites pass
+/// `.rdx` only.
+pub fn encLeaR64BaseDisp8(dst: Gpr, base: Gpr, disp: i8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), 0, base.extBit()));
+    enc.push(0x8D);
+    enc.push(encodeModrm(0b01, dst.low3(), base.low3()));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
 /// `ADD r/m64, imm32` (opcode 0x81 /0 with REX.W). 4-byte
 /// little-endian immediate. Used to fold the Wasm static offset
 /// into the effective address before bounds check.
@@ -982,6 +1001,16 @@ test "encMovzxR32_16MemBaseIdx: movzx ebx, word [rax+rdx] → 0f b7 1c 10" {
 test "encMovsxR32_16MemBaseIdx: movsx ebx, word [rax+rdx] → 0f bf 1c 10" {
     const enc = encMovsxR32_16MemBaseIdx(.rbx, .rax, .rdx);
     try testing.expectEqualSlices(u8, &.{ 0x0F, 0xBF, 0x1C, 0x10 }, enc.slice());
+}
+
+test "encLeaR64BaseDisp8: lea rcx, [rdx+4] → 48 8d 4a 04" {
+    const enc = encLeaR64BaseDisp8(.rcx, .rdx, 4);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x8D, 0x4A, 0x04 }, enc.slice());
+}
+
+test "encLeaR64BaseDisp8: lea rcx, [r15+8] → 49 8d 4f 08 (REX.B)" {
+    const enc = encLeaR64BaseDisp8(.rcx, .r15, 8);
+    try testing.expectEqualSlices(u8, &.{ 0x49, 0x8D, 0x4F, 0x08 }, enc.slice());
 }
 
 test "encAddR64Imm32: add rdx, 4 → 48 81 c2 04 00 00 00" {

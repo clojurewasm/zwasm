@@ -12,13 +12,22 @@
 //!   X27 = mem_limit (size in bytes)
 //! ADR-0017 prologue arranges these from `*X0 = JitRuntime`.
 //!
-//! Per-op shape:
+//! Per-op shape (spec-strict bounds: ea + size > mem_limit traps):
 //!
-//!   ORR W16, WZR, W_addr   ; zero-extend addr into IP0
+//!   ORR W16, WZR, W_addr   ; zero-extend addr into IP0 (eff_addr scratch)
 //!   ADD X16, X16, #offset  ; (skipped if offset == 0)
-//!   CMP X16, X27           ; vs mem_limit
-//!   B.HS trap_stub         ; placeholder + bounds_fixups append
+//!   ADD X17, X16, #size    ; eff_addr + access_size into IP1 (size scratch)
+//!   CMP X17, X27           ; vs mem_limit
+//!   B.HI trap_stub         ; placeholder + bounds_fixups append
 //!   LDR/STR <op-specific>, [X28, X16]
+//!
+//! IP1 (X17) は本 emitMemOp 内でのみ scratch として使う。
+//! op_call.zig の call_indirect も X17 を使うが、両者は同一
+//! op handler 内で交差しない (emitMemOp 終了 → push_vreg 後に
+//! 別 op として call_indirect が始まる) ので衝突しない。
+//! abi.zig の spill_stage_gprs は X16/X17 を call_indirect が
+//! mid-op で占有することを記述しているが、op handler 境界では
+//! どちらの handler も自由に scratch 利用可。
 //!
 //! The B.HS fixup is appended to `ctx.bounds_fixups`; emit.zig's
 //! function-final `end` patches all of them to the trap stub
@@ -51,8 +60,34 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         else => false,
     };
     const ip0: inst.Xn = 16;
+    const ip1: inst.Xn = 17;
     const offset_imm = ins.payload;
     if (offset_imm > 0xFFF) return Error.SlotOverflow;
+    // Per-op access size in bytes (Wasm spec memory.{load,store} 系)。
+    // exhaustive switch (`require_exhaustive_enum_switch` lint gate)
+    // のため else => unreachable で「memory op 以外が来たら型システム
+    // 違反」として落とす。
+    const access_size: u12 = switch (ins.op) {
+        .@"i32.load8_s", .@"i32.load8_u",
+        .@"i32.store8",
+        .@"i64.load8_s", .@"i64.load8_u",
+        .@"i64.store8",
+        => 1,
+        .@"i32.load16_s", .@"i32.load16_u",
+        .@"i32.store16",
+        .@"i64.load16_s", .@"i64.load16_u",
+        .@"i64.store16",
+        => 2,
+        .@"i32.load", .@"i32.store",
+        .@"i64.load32_s", .@"i64.load32_u",
+        .@"i64.store32",
+        .@"f32.load", .@"f32.store",
+        => 4,
+        .@"i64.load", .@"i64.store",
+        .@"f64.load", .@"f64.store",
+        => 8,
+        else => unreachable,
+    };
 
     // Pop the address + (for stores) value vreg(s).
     var addr_vreg: u32 = 0;
@@ -67,14 +102,17 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     }
     const w_addr = try gpr.resolveGpr(ctx.alloc, addr_vreg);
 
-    // Effective-address + bounds prologue.
+    // Effective-address + spec-strict bounds prologue.
+    // ea = idx (zero-extended u32) + offset; trap iff ea + size > mem_limit.
+    // u64 演算で overflow 不可: max(ea + size) = 2^33 + 7 << 2^64。
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(ip0, 31, w_addr));
     if (offset_imm != 0) {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip0, ip0, @intCast(offset_imm)));
     }
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(ip0, 27));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip1, ip0, access_size));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(ip1, 27));
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0)); // unsigned >
     try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
 
     // Final LDR/STR. Allocate result vreg first for loads.

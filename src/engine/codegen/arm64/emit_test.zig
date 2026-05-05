@@ -965,21 +965,21 @@ test "compile: i32.load — emits zero-extend + bounds-check + LDR W reg-offset 
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
-    // After MOVZ-W9 (body+0..4), load sequence at body+4:
-    //  ORR W16, WZR, W9 / ADD X16,X16,#4 / CMP X16,X27 / B.HS trap / LDR W9,[X28,X16].
+    // After MOVZ-W9 (body+0..4), spec-strict load sequence at body+4:
+    //  ORR W16, WZR, W9 / ADD X16,X16,#4 / ADD X17,X16,#4 / CMP X17,X27
+    //  / B.HI trap / LDR W9,[X28,X16].
     try testing.expectEqual(@as(u32, inst.encOrrRegW(16, 31, 9)),  std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4],  .little));
     try testing.expectEqual(@as(u32, inst.encAddImm12(16, 16, 4)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4],  .little));
-    try testing.expectEqual(@as(u32, inst.encCmpRegX(16, 27)),     std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encLdrWReg(9, 28, 16)),  std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
-    // Trap stub: MOVZ W17,#1 (body+36) etc.
-    try testing.expectEqual(@as(u32, inst.encMovzImm16(17, 1)),    std.mem.readInt(u32, out.bytes[body0 + 36 ..][0..4], .little));
-    // B.HS placeholder is patched to point at the trap stub start.
-    const bhs_patched = std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little);
-    // The exact disp depends on byte layout; verify the cond field
-    // is .hs (low 4 bits == 0x2) and the placeholder is now a
-    // valid B.cond instruction.
-    try testing.expectEqual(@as(u32, 0x2), bhs_patched & 0xF);
-    try testing.expectEqual(@as(u32, 0x54000000), bhs_patched & 0xFF000010);
+    try testing.expectEqual(@as(u32, inst.encAddImm12(17, 16, 4)), std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(17, 27)),     std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrWReg(9, 28, 16)),  std.mem.readInt(u32, out.bytes[body0 + 24 ..][0..4], .little));
+    // Trap stub: MOVZ W17,#1 (body+40) — sequence is +4 longer than pre-spec-strict (one extra ADD).
+    try testing.expectEqual(@as(u32, inst.encMovzImm16(17, 1)),    std.mem.readInt(u32, out.bytes[body0 + 40 ..][0..4], .little));
+    // B.HI placeholder is patched to point at the trap stub start.
+    const bhi_patched = std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little);
+    // Verify the cond field is .hi (low 4 bits == 0x8) and the placeholder is a valid B.cond.
+    try testing.expectEqual(@as(u32, 0x8), bhi_patched & 0xF);
+    try testing.expectEqual(@as(u32, 0x54000000), bhi_patched & 0xFF000010);
 }
 
 test "compile: memory ops dispatch correctly per variant" {
@@ -1010,9 +1010,9 @@ test "compile: memory ops dispatch correctly per variant" {
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
         const body0 = prologue.body_start_offset(false);
-        // After MOVZ W9 + ORR W16 + (no ADD: offset=0) + CMP + B.HS,
-        // the LDR sits at body+16.
-        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
+        // After MOVZ W9 + ORR W16 + (no ADD: offset=0) + ADD X17,X16,#size
+        // + CMP X17 + B.HI, the LDR sits at body+20 (spec-strict bounds).
+        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
     }
 }
 
@@ -1038,7 +1038,8 @@ test "compile: f32.load + f64.load dispatch to S/D-form LDR" {
         const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
         defer deinit(testing.allocator, out);
         const body0 = prologue.body_start_offset(false);
-        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
+        // Spec-strict bounds adds ADD X17,X16,#size before CMP/B.HI → +4 byte offset.
+        try testing.expectEqual(c.want_load_word, std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
     }
 }
 
@@ -1107,10 +1108,11 @@ test "compile: i32.store — emits bounds-check + STR W reg-offset" {
     // [28]  STR W10, [X28, X16]
     // [32]  LDP / RET / trap stub ...
     const body0 = prologue.body_start_offset(false);
-    // After MOVZ #8 + MOVZ #42 (body+0..8): ORR / CMP / B.HS / STR.
+    // After MOVZ #8 + MOVZ #42 (body+0..8): ORR / ADD X17,X16,#4 / CMP X17 / B.HI / STR.
     try testing.expectEqual(@as(u32, inst.encOrrRegW(16, 31, 9)),  std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4],  .little));
-    try testing.expectEqual(@as(u32, inst.encCmpRegX(16, 27)),     std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encStrWReg(10, 28, 16)), std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encAddImm12(17, 16, 4)), std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(17, 27)),     std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encStrWReg(10, 28, 16)), std.mem.readInt(u32, out.bytes[body0 + 24 ..][0..4], .little));
 }
 
 test "compile: br_table — emits CMP+B.NE+B chain + default B" {
