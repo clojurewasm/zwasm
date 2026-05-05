@@ -263,6 +263,8 @@ pub fn compile(
             => try emitConvertWidth(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"call" => try emitCall(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &call_fixups, func_sigs, ins.payload),
             .@"call_indirect" => try emitCallIndirect(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, module_types, ins.payload),
+            .@"f32.const", .@"f64.const",
+            => try emitFpConst(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op, ins.payload, ins.extra),
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
@@ -640,6 +642,48 @@ fn emitCall(
     });
 
     try captureCallResult(allocator, buf, alloc, pushed_vregs, next_vreg, callee_sig);
+}
+
+/// FP-const handler — `f32.const` and `f64.const`. Materialises
+/// the IEEE-754 bit pattern in RAX (caller-saved scratch, not in
+/// pool), then MOVD/MOVQ into the result XMM slot. ZirInstr
+/// packs the f64 bit pattern across (payload=low32, extra=high32);
+/// f32 uses payload only.
+///
+/// **End-handler limitation**: the function-level `end` currently
+/// emits MOV EAX,r32(src) for every result type, which truncates
+/// FP results. Byte-level emit tests still pass (the const-handler
+/// region is correct); execution-level fixtures gate on a
+/// follow-up "FP-aware end handler" chunk. See `.dev/debt.md`
+/// for the structural barrier.
+fn emitFpConst(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+    payload: u32,
+    extra: u32,
+) Error!void {
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const xmm_dst = abi.fpSlotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    switch (op) {
+        .@"f32.const" => {
+            try buf.appendSlice(allocator, inst.encMovImm32W(.rax, payload).slice());
+            try buf.appendSlice(allocator, inst.encMovdXmmFromR32(xmm_dst, .rax).slice());
+        },
+        .@"f64.const" => {
+            const value: u64 = (@as(u64, extra) << 32) | @as(u64, payload);
+            try buf.appendSlice(allocator, inst.encMovImm64Q(.rax, value).slice());
+            try buf.appendSlice(allocator, inst.encMovqXmmFromR64(xmm_dst, .rax).slice());
+        },
+        else => unreachable,
+    }
+    try pushed_vregs.append(allocator, result_v);
 }
 
 /// Indirect call: `call_indirect type_idx`. Pops the index,
@@ -2532,6 +2576,60 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[65 .. 65 + expected_funcptr_load.len]);
     const expected_call = inst.encCallReg(.rax);
     try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[72 .. 72 + expected_call.len]);
+}
+
+test "compile: f32.const — MOV EAX,bits + MOVD XMM8,EAX" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.f32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // 1.0f bit pattern = 0x3F800000.
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0}; // FP slot 0 → XMM8
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Prologue (uses_runtime_ptr=false; no calls/memory) = 4 bytes.
+    //   PUSH RBP        55              (1)
+    //   MOV RBP, RSP    48 89 e5        (3) → 4
+    // Body:
+    //   MOV EAX, bits   b8 + 4 imm      (5) → 9
+    //   MOVD XMM8,EAX   66 44 0f 6e c0  (5) → 14
+    const expected_imm = inst.encMovImm32W(.rax, 0x3F800000);
+    try testing.expectEqualSlices(u8, expected_imm.slice(), out.bytes[4 .. 4 + expected_imm.len]);
+    const expected_movd = inst.encMovdXmmFromR32(.xmm8, .rax);
+    try testing.expectEqualSlices(u8, expected_movd.slice(), out.bytes[9 .. 9 + expected_movd.len]);
+}
+
+test "compile: f64.const — MOVABS RAX,bits + MOVQ XMM8,RAX" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.f64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // 1.0 bit pattern = 0x3FF0000000000000. Split into payload + extra.
+    const bits: u64 = 0x3FF0000000000000;
+    try f.instrs.append(testing.allocator, .{
+        .op = .@"f64.const",
+        .payload = @truncate(bits),
+        .extra = @truncate(bits >> 32),
+    });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Body layout (post-prologue at 4):
+    //   MOVABS RAX,bits 48 b8 + 8 imm   (10) → 14
+    //   MOVQ XMM8,RAX   66 4c 0f 6e c0  (5)  → 19
+    const expected_imm = inst.encMovImm64Q(.rax, bits);
+    try testing.expectEqualSlices(u8, expected_imm.slice(), out.bytes[4 .. 4 + expected_imm.len]);
+    const expected_movq = inst.encMovqXmmFromR64(.xmm8, .rax);
+    try testing.expectEqualSlices(u8, expected_movq.slice(), out.bytes[14 .. 14 + expected_movq.len]);
 }
 
 test "compile: call_indirect — out-of-range type_idx → AllocationMissing" {

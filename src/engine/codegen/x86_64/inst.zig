@@ -846,6 +846,51 @@ pub fn encPopR(reg: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `MOV r64, imm64` (REX.W + 0xB8+rd iq) — `MOVABS`-form
+/// 64-bit immediate load. 10 bytes total. Used by FP const
+/// handlers to materialise a 64-bit bit pattern in a GPR for
+/// MOVQ → XMM transfer.
+pub fn encMovImm64Q(dst: Gpr, imm: u64) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, 0, 0, dst.extBit()));
+    enc.push(0xB8 | @as(u8, dst.low3()));
+    var i: u6 = 0;
+    while (i < 8) : (i += 1) {
+        enc.push(@truncate(imm >> (i * 8)));
+    }
+    return enc;
+}
+
+/// `MOVD xmm, r/m32` (0x66 prefix + 0x0F 0x6E /r) — copy a
+/// 32-bit GPR's low half into an XMM (zero-extends the high
+/// 96 bits). xmm in ModR/M.reg, gpr in r/m. Used by f32.const
+/// to plant the IEEE-754 bit pattern in an XMM slot.
+pub fn encMovdXmmFromR32(xmm_dst: Xmm, gpr_src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    if (xmm_dst.extBit() != 0 or gpr_src.extBit() != 0) {
+        enc.push(encodeRex(false, xmm_dst.extBit(), 0, gpr_src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(0x6E);
+    enc.push(encodeModrm(0b11, xmm_dst.low3(), gpr_src.low3()));
+    return enc;
+}
+
+/// `MOVQ xmm, r/m64` (0x66 prefix + REX.W + 0x0F 0x6E /r) —
+/// 64-bit MOVD-equivalent. REX.W is mandatory. Used by
+/// f64.const after the bit pattern is materialised in a GPR
+/// via MOVABS.
+pub fn encMovqXmmFromR64(xmm_dst: Xmm, gpr_src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    enc.push(encodeRex(true, xmm_dst.extBit(), 0, gpr_src.extBit()));
+    enc.push(0x0F);
+    enc.push(0x6E);
+    enc.push(encodeModrm(0b11, xmm_dst.low3(), gpr_src.low3()));
+    return enc;
+}
+
 /// `MOV r32, imm32` (opcode 0xB8+rd ib32) — load a 32-bit
 /// immediate into a GPR. The 32-bit form zero-extends to 64
 /// bits (Wasm i32 semantics map to this). REX.B for R8..R15.
@@ -1381,4 +1426,38 @@ test "encMovR64FromBaseIdxLsl3: mov rax, [rax + r10*8] → 4a 8b 04 d0 (REX.W + 
 test "encMovR64FromBaseIdxLsl3: mov rcx, [rdx + rbx*8] → 48 8b 0c da (REX.W only)" {
     const enc = encMovR64FromBaseIdxLsl3(.rcx, .rdx, .rbx);
     try testing.expectEqualSlices(u8, &.{ 0x48, 0x8B, 0x0C, 0xDA }, enc.slice());
+}
+
+test "encMovImm64Q: movabs rax, 0xDEADBEEFCAFEBABE → 48 b8 + LE 8-byte imm" {
+    const enc = encMovImm64Q(.rax, 0xDEADBEEFCAFEBABE);
+    try testing.expectEqualSlices(u8, &.{
+        0x48, 0xB8, 0xBE, 0xBA, 0xFE, 0xCA, 0xEF, 0xBE, 0xAD, 0xDE,
+    }, enc.slice());
+}
+
+test "encMovImm64Q: movabs r10, 0 → 49 ba + 8 zeros (REX.W + REX.B)" {
+    const enc = encMovImm64Q(.r10, 0);
+    try testing.expectEqualSlices(u8, &.{
+        0x49, 0xBA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    }, enc.slice());
+}
+
+test "encMovdXmmFromR32: movd xmm0, eax → 66 0f 6e c0 (no REX)" {
+    const enc = encMovdXmmFromR32(.xmm0, .rax);
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x6E, 0xC0 }, enc.slice());
+}
+
+test "encMovdXmmFromR32: movd xmm8, eax → 66 44 0f 6e c0 (REX.R)" {
+    const enc = encMovdXmmFromR32(.xmm8, .rax);
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x44, 0x0F, 0x6E, 0xC0 }, enc.slice());
+}
+
+test "encMovqXmmFromR64: movq xmm0, rax → 66 48 0f 6e c0 (REX.W only)" {
+    const enc = encMovqXmmFromR64(.xmm0, .rax);
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x48, 0x0F, 0x6E, 0xC0 }, enc.slice());
+}
+
+test "encMovqXmmFromR64: movq xmm8, rax → 66 4c 0f 6e c0 (REX.W + REX.R)" {
+    const enc = encMovqXmmFromR64(.xmm8, .rax);
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x4C, 0x0F, 0x6E, 0xC0 }, enc.slice());
 }
