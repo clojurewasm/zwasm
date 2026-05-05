@@ -278,6 +278,8 @@ pub fn compile(
             => try emitFpUnary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"f32.copysign", .@"f64.copysign",
             => try emitFpCopysign(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"f32.min", .@"f32.max", .@"f64.min", .@"f64.max",
+            => try emitFpMinMax(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
@@ -696,6 +698,114 @@ fn emitFpConst(
         },
         else => unreachable,
     }
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// FP min/max handler — `f32.min/max` / `f64.min/max`. Wasm
+/// spec demands NaN propagation (any NaN input → result is NaN)
+/// and ±0 disambiguation (min returns -0 if either input is -0;
+/// max returns +0 if either is +0). x86 MINSS/MAXSS doesn't
+/// satisfy either: it returns the second operand on NaN AND on
+/// equal-magnitude-different-sign-zero inputs. So we branch:
+///
+///   UCOMISS lhs, rhs
+///   JP  nan_path     ; PF=1 → NaN unordered
+///   JE  eq_path      ; ZF=1 → equal (handle ±0)
+///   common: MOVAPS dst,lhs ; MIN/MAX dst,rhs ; JMP end
+///   eq_path: MOVAPS dst,lhs ; ORPS/ANDPS dst,rhs ; JMP end
+///     (min uses ORPS — sign(-0) | sign(+0) = sign(-0) → -0;
+///      max uses ANDPS — sign(-0) & sign(+0) = sign(+0) → +0)
+///   nan_path: MOVAPS dst,lhs ; ADDSS dst,rhs (NaN propagates)
+///   end:
+///
+/// All branches use rel32 placeholders patched at end-of-emit
+/// to keep the layout independent of REX-byte length variance.
+fn emitFpMinMax(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const lhs_x = abi.fpSlotToReg(alloc.slots[lhs_v]) orelse return Error.SlotOverflow;
+    const rhs_x = abi.fpSlotToReg(alloc.slots[rhs_v]) orelse return Error.SlotOverflow;
+    const dst = abi.fpSlotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+    if (dst == rhs_x and dst != lhs_x) return Error.UnsupportedOp;
+
+    const is_f64 = switch (op) {
+        .@"f64.min", .@"f64.max" => true,
+        else => false,
+    };
+    const is_max = switch (op) {
+        .@"f32.max", .@"f64.max" => true,
+        else => false,
+    };
+    const scalar_kind: inst.SseScalarKind = if (is_f64) .f64 else .f32;
+    const packed_kind: inst.SsePackedKind = if (is_f64) .f64 else .f32;
+
+    // 1. UCOMI lhs, rhs.
+    if (is_f64) {
+        try buf.appendSlice(allocator, inst.encUcomisd(lhs_x, rhs_x).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encUcomiss(lhs_x, rhs_x).slice());
+    }
+
+    // 2. JP rel32 (nan_path) placeholder.
+    const jp_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.p, 0).slice());
+
+    // 3. JE rel32 (eq_path) placeholder.
+    const je_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+
+    // 4. Common path: MOVAPS dst,lhs ; MIN/MAX dst,rhs.
+    if (dst != lhs_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, lhs_x).slice());
+    }
+    const minmax_opcode: u8 = if (is_max) 0x5F else 0x5D;
+    try buf.appendSlice(allocator, inst.encSseScalarBinary(scalar_kind, minmax_opcode, dst, rhs_x).slice());
+
+    // 5. JMP rel32 (end) placeholder.
+    const jmp_common_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+
+    // 6. eq_path start; patch JE.
+    const eq_byte: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, je_byte, 6, @as(i32, @intCast(eq_byte)) - @as(i32, @intCast(je_byte)) - 6);
+
+    // 7. eq path: MOVAPS dst,lhs ; ORPS/ANDPS dst,rhs.
+    if (dst != lhs_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, lhs_x).slice());
+    }
+    const eq_opcode: u8 = if (is_max) 0x54 else 0x56; // ANDPS=54 (max), ORPS=56 (min)
+    try buf.appendSlice(allocator, inst.encSsePackedBinary(packed_kind, eq_opcode, dst, rhs_x).slice());
+
+    // 8. JMP rel32 (end) placeholder.
+    const jmp_eq_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+
+    // 9. nan_path start; patch JP.
+    const nan_byte: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, jp_byte, 6, @as(i32, @intCast(nan_byte)) - @as(i32, @intCast(jp_byte)) - 6);
+
+    // 10. nan path: MOVAPS dst,lhs ; ADDSS dst,rhs (NaN propagates).
+    if (dst != lhs_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, lhs_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encSseScalarBinary(scalar_kind, 0x58, dst, rhs_x).slice());
+
+    // 11. end; patch both common-JMP and eq-JMP.
+    const end_byte: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, jmp_common_byte, 5, @as(i32, @intCast(end_byte)) - @as(i32, @intCast(jmp_common_byte)) - 5);
+    inst.patchRel32(buf.items, jmp_eq_byte, 5, @as(i32, @intCast(end_byte)) - @as(i32, @intCast(jmp_eq_byte)) - 5);
+
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -2977,6 +3087,91 @@ test "compile: f64.mul — MOVAPS XMM10,XMM8 + MULSD XMM10,XMM9" {
     try testing.expectEqualSlices(u8, expected_movaps.slice(), out.bytes[34 .. 34 + expected_movaps.len]);
     const expected_mulsd = inst.encSseScalarBinary(.f64, 0x59, .xmm10, .xmm9);
     try testing.expectEqualSlices(u8, expected_mulsd.slice(), out.bytes[38 .. 38 + expected_mulsd.len]);
+}
+
+test "compile: f32.min — branch-based emit (UCOMISS + JP/JE + 3 paths)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.f32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40400000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.min" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Body offsets after 2× f32.const (10+10=20 bytes) at 4..24:
+    //   [24..28] UCOMISS XMM8, XMM9     (4 bytes)
+    //   [28..34] JP rel32 (placeholder) (6 bytes)
+    //   [34..40] JE rel32 (placeholder) (6 bytes)
+    //   [40..44] MOVAPS XMM10, XMM8     (4 bytes)
+    //   [44..49] MINSS XMM10, XMM9      (5 bytes; F3 + REX + 0F + 5D + ModRM)
+    //   [49..54] JMP rel32              (5 bytes)
+    //   [54..58] MOVAPS XMM10, XMM8     (eq path)
+    //   [58..62] ORPS XMM10, XMM9       (4 bytes)
+    //   [62..67] JMP rel32              (5 bytes)
+    //   [67..71] MOVAPS XMM10, XMM8     (nan path)
+    //   [71..76] ADDSS XMM10, XMM9      (5 bytes)
+    const expected_ucomi = inst.encUcomiss(.xmm8, .xmm9);
+    try testing.expectEqualSlices(u8, expected_ucomi.slice(), out.bytes[24 .. 24 + expected_ucomi.len]);
+    // JP / JE rel32 disps are patched; assert opcode bytes only.
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[28]);
+    try testing.expectEqual(@as(u8, 0x8A), out.bytes[29]); // Jcc.p = A
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[34]);
+    try testing.expectEqual(@as(u8, 0x84), out.bytes[35]); // Jcc.e = 4
+    const expected_minss = inst.encSseScalarBinary(.f32, 0x5D, .xmm10, .xmm9);
+    try testing.expectEqualSlices(u8, expected_minss.slice(), out.bytes[44 .. 44 + expected_minss.len]);
+    const expected_orps = inst.encSsePackedBinary(.f32, 0x56, .xmm10, .xmm9);
+    try testing.expectEqualSlices(u8, expected_orps.slice(), out.bytes[58 .. 58 + expected_orps.len]);
+    const expected_addss = inst.encSseScalarBinary(.f32, 0x58, .xmm10, .xmm9);
+    try testing.expectEqualSlices(u8, expected_addss.slice(), out.bytes[71 .. 71 + expected_addss.len]);
+
+    // Verify JP rel32 disp is patched correctly to point at nan_path (byte 67).
+    const jp_disp = std.mem.readInt(i32, out.bytes[30..34], .little);
+    try testing.expectEqual(@as(i32, 67 - 28 - 6), jp_disp);
+    // Verify JE rel32 disp points at eq_path (byte 54).
+    const je_disp = std.mem.readInt(i32, out.bytes[36..40], .little);
+    try testing.expectEqual(@as(i32, 54 - 34 - 6), je_disp);
+}
+
+test "compile: f64.max — eq path uses ANDPD, common uses MAXSD" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.f64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x3FF00000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40000000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.max" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // After 2× f64.const (15+15=30 bytes) at body 4..34:
+    //   [34..39] UCOMISD XMM8, XMM9   (5 bytes: 66 prefix + REX)
+    //   [39..45] JP rel32             (6 bytes)
+    //   [45..51] JE rel32             (6 bytes)
+    //   [51..55] MOVAPS XMM10, XMM8   (4 bytes; common path)
+    //   [55..60] MAXSD XMM10, XMM9    (5 bytes; F2 + REX + 0F + 5F + ModRM)
+    //   [60..65] JMP rel32 (common)
+    //   [65..69] MOVAPS XMM10, XMM8   (eq path)
+    //   [69..74] ANDPD XMM10, XMM9    (5 bytes; 66 + REX + 0F + 54 + ModRM)
+    const expected_ucomi = inst.encUcomisd(.xmm8, .xmm9);
+    try testing.expectEqualSlices(u8, expected_ucomi.slice(), out.bytes[34 .. 34 + expected_ucomi.len]);
+    const expected_maxsd = inst.encSseScalarBinary(.f64, 0x5F, .xmm10, .xmm9);
+    try testing.expectEqualSlices(u8, expected_maxsd.slice(), out.bytes[55 .. 55 + expected_maxsd.len]);
+    const expected_andpd = inst.encSsePackedBinary(.f64, 0x54, .xmm10, .xmm9);
+    try testing.expectEqualSlices(u8, expected_andpd.slice(), out.bytes[69 .. 69 + expected_andpd.len]);
 }
 
 test "compile: f32.copysign — bit-twiddle via RAX/RDX/RCX scratches" {
