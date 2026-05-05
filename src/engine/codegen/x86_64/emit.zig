@@ -147,7 +147,10 @@ pub fn compile(
     const uses_runtime_ptr = blk: {
         for (func.instrs.items) |ins| {
             switch (ins.op) {
-                .@"i32.load" => break :blk true,
+                .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
+                .@"i32.load16_s", .@"i32.load16_u",
+                .@"i32.store", .@"i32.store8", .@"i32.store16",
+                => break :blk true,
                 else => {},
             }
         }
@@ -247,7 +250,10 @@ pub fn compile(
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
-            .@"i32.load" => try emitI32Load(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.payload),
+            .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
+            .@"i32.load16_s", .@"i32.load16_u",
+            .@"i32.store", .@"i32.store8", .@"i32.store16",
+            => try emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.op, ins.payload),
             .@"block" => try emitBlock(allocator, &labels),
             .@"loop" => try emitLoop(allocator, &buf, &labels),
             .@"br" => try emitBr(allocator, &buf, &labels, ins.payload),
@@ -664,62 +670,91 @@ fn emitBr(
     }
 }
 
-/// `i32.load offset=N` — pop idx (i32), allocate result (i32),
-/// emit the ADR-0026 reload-from-runtime-ptr sequence + bounds
-/// check + actual load.
+/// Unified handler for x86_64 i32 memory ops (loads + stores
+/// + narrowed forms). Mirrors arm64/op_memory.zig:emitMemOp's
+/// shape: shared eff-addr / bounds-check prologue, per-op final
+/// LDR/STR encoding.
 ///
-/// Sequence (using RAX for vm_base scratch, RDX for eff_addr
-/// scratch — both caller-saved + excluded from regalloc pool):
-///
-///   MOV RAX, [R15 + vm_base_off]      ; reload vm_base
-///   MOV EDX, idx                       ; zero-extend idx → RDX
-///   ADD RDX, offset                    ; eff_addr (skip if 0)
+/// Per-op shape (load):
+///   MOV RAX, [R15 + vm_base_off]
+///   MOV EDX, idx_r            ; zero-extend idx → 64-bit RDX
+///   ADD RDX, offset           ; (skipped if offset == 0)
 ///   CMP RDX, [R15 + mem_limit_off]
-///   JAE trap_stub                      ; bounds-check fixup
-///   MOV dst, [RAX + RDX]               ; the actual i32 load
+///   JAE trap_stub             ; bounds_fixups append
+///   MOV[ZX|SX] dst, ... [RAX + RDX]
 ///
-/// **Spec note** (mirrored from arm64): bounds check compares
-/// eff_addr against mem_limit using >= unsigned, which doesn't
-/// account for access size (4 bytes for i32.load). Mirror of
-/// arm64 emit.zig pre-split behaviour; spec-strict bounds
-/// (eff_addr + size <= mem_limit) lands as a follow-up paired
-/// with the same ARM64 fix.
-fn emitI32Load(
+/// Per-op shape (store): same prologue, final form is
+///   MOV [RAX + RDX], src      ; (32-bit, 16-bit, or 8-bit)
+///
+/// Spec note (mirrored from arm64): bounds check uses eff_addr
+/// >= mem_limit unsigned, doesn't account for access size. Same
+/// pre-split behaviour as arm64; spec-strict bounds is the paired
+/// cross-arch follow-up.
+fn emitMemOp(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
     bounds_fixups: *std.ArrayList(u32),
+    op: zir.ZirOp,
     offset: u32,
 ) Error!void {
-    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-    const idx_v = pushed_vregs.pop().?;
-    const result_v = next_vreg.*;
-    next_vreg.* += 1;
-    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
-    const idx_r = abi.slotToReg(alloc.slots[idx_v]) orelse return Error.SlotOverflow;
-    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+    const is_store = switch (op) {
+        .@"i32.store", .@"i32.store8", .@"i32.store16" => true,
+        else => false,
+    };
 
-    // 1. MOV RAX, [R15 + vm_base_off]
+    var idx_v: u32 = 0;
+    var val_v: u32 = 0;
+    if (is_store) {
+        if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+        val_v = pushed_vregs.pop().?;
+        idx_v = pushed_vregs.pop().?;
+    } else {
+        if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+        idx_v = pushed_vregs.pop().?;
+    }
+    const idx_r = abi.slotToReg(alloc.slots[idx_v]) orelse return Error.SlotOverflow;
+
+    // Shared eff-addr + bounds-check prologue (5 steps).
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.vm_base_off).slice());
-    // 2. MOV EDX, idx_r — zero-extends to 64-bit RDX
     try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, idx_r).slice());
-    // 3. ADD RDX, offset (skip if 0)
     if (offset != 0) {
         if (offset > 0x7FFFFFFF) return Error.SlotOverflow; // imm32 range
         try buf.appendSlice(allocator, inst.encAddR64Imm32(.rdx, @intCast(offset)).slice());
     }
-    // 4. CMP RDX, [R15 + mem_limit_off]
     try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rdx, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
-    // 5. JAE trap_stub (bounds-check fixup)
     const fixup_at: u32 = @intCast(buf.items.len);
     try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
     try bounds_fixups.append(allocator, fixup_at);
-    // 6. MOV dst, [RAX + RDX] — the actual load
-    try buf.appendSlice(allocator, inst.encMovR32FromBaseIdx(dst_r, .rax, .rdx).slice());
 
-    try pushed_vregs.append(allocator, result_v);
+    // Per-op final encoding.
+    if (is_store) {
+        const src_r = abi.slotToReg(alloc.slots[val_v]) orelse return Error.SlotOverflow;
+        const enc = switch (op) {
+            .@"i32.store"   => inst.encStoreR32MemBaseIdx(src_r, .rax, .rdx),
+            .@"i32.store8"  => inst.encStoreR8MemBaseIdx(src_r, .rax, .rdx),
+            .@"i32.store16" => inst.encStoreR16MemBaseIdx(src_r, .rax, .rdx),
+            else => unreachable,
+        };
+        try buf.appendSlice(allocator, enc.slice());
+    } else {
+        const result_v = next_vreg.*;
+        next_vreg.* += 1;
+        if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+        const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+        const enc = switch (op) {
+            .@"i32.load"     => inst.encMovR32FromBaseIdx(dst_r, .rax, .rdx),
+            .@"i32.load8_s"  => inst.encMovsxR32_8MemBaseIdx(dst_r, .rax, .rdx),
+            .@"i32.load8_u"  => inst.encMovzxR32_8MemBaseIdx(dst_r, .rax, .rdx),
+            .@"i32.load16_s" => inst.encMovsxR32_16MemBaseIdx(dst_r, .rax, .rdx),
+            .@"i32.load16_u" => inst.encMovzxR32_16MemBaseIdx(dst_r, .rax, .rdx),
+            else => unreachable,
+        };
+        try buf.appendSlice(allocator, enc.slice());
+        try pushed_vregs.append(allocator, result_v);
+    }
 }
 
 /// Emit a single `JMP target_for_depth` for one br_table case
@@ -1394,6 +1429,149 @@ test "compile: i32.load with stack underflow → AllocationMissing" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.load", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}));
+}
+
+test "compile: (i32.const 0)(i32.const 99) i32.store offset=0 — store path" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });   // idx
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99 });  // value
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.store" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 }, // idx (R10D)
+        .{ .def_pc = 1, .last_use_pc = 2 }, // value (R11D)
+    } };
+    const slots = [_]u8{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Prologue: 13 bytes (PUSH RBP / PUSH R15 / MOV RBP,RSP / MOV R15,RDI / SUB RSP,8)
+    // Body:
+    //   41 BA 00 00 00 00              MOV R10D, 0   (idx)            6 bytes
+    //   41 BB 63 00 00 00              MOV R11D, 99  (value)          6
+    //   49 8B 87 00 00 00 00           MOV RAX, [R15 + 0]             7
+    //   44 89 D2                       MOV EDX, R10D                  3
+    //   49 3B 97 08 00 00 00           CMP RDX, [R15 + 8]             7
+    //   0F 83 ?? ?? ?? ??              JAE trap_stub (placeholder)    6
+    //   44 89 1C 10                    MOV [RAX + RDX], R11D          4
+    //   (no return marshalling — sig.results.len == 0)
+    // Epilogue: ADD RSP,8 / POP R15 / POP RBP / RET                  8
+    // Trap stub: 21 bytes
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x1C, 0x10 }, out.bytes[13 + 6 + 6 + 7 + 3 + 7 + 6 ..][0..4]);
+    // Verify the JAE was patched (disp != 0)
+    const jae_at = 13 + 6 + 6 + 7 + 3 + 7;
+    try testing.expect(out.bytes[jae_at] == 0x0F and out.bytes[jae_at + 1] == 0x83);
+    const disp = std.mem.readInt(i32, out.bytes[jae_at + 2 ..][0..4], .little);
+    try testing.expect(disp > 0); // forward to trap stub
+}
+
+test "compile: (i32.const 0) i32.load8_u → MOVZX r8" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.load8_u" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Find MOVZX r32, byte ptr [RAX + RDX]: REX.R + 0F B6 1C 10
+    // dst is R11D → REX = 0x44, then 0F B6 1C 10
+    const expected = [_]u8{ 0x44, 0x0F, 0xB6, 0x1C, 0x10 };
+    // The load is the last body insn before return marshalling (MOV EAX, R11D).
+    // Search; not asserting the exact offset to avoid coupling to prologue width.
+    var found = false;
+    var i: usize = 0;
+    while (i + expected.len <= out.bytes.len) : (i += 1) {
+        if (std.mem.eql(u8, out.bytes[i..][0..expected.len], &expected)) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: (i32.const 0) i32.load16_s → MOVSX r16" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.load16_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // MOVSX r32, word ptr [RAX + RDX] for R11D: REX.R + 0F BF 1C 10
+    const expected = [_]u8{ 0x44, 0x0F, 0xBF, 0x1C, 0x10 };
+    var found = false;
+    var i: usize = 0;
+    while (i + expected.len <= out.bytes.len) : (i += 1) {
+        if (std.mem.eql(u8, out.bytes[i..][0..expected.len], &expected)) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: (i32.const 0)(i32.const 7) i32.store8 → MOV r8 store" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.store8" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // MOV [RAX + RDX], R11B (8-bit): forced REX (REX.R for R11) → 44 88 1C 10
+    const expected = [_]u8{ 0x44, 0x88, 0x1C, 0x10 };
+    var found = false;
+    var i: usize = 0;
+    while (i + expected.len <= out.bytes.len) : (i += 1) {
+        if (std.mem.eql(u8, out.bytes[i..][0..expected.len], &expected)) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "compile: i32.store with stack underflow → AllocationMissing" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.store" }); // needs 2 vregs, has 1
     try f.instrs.append(testing.allocator, .{ .op = .@"end" });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },

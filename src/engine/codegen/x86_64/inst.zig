@@ -371,6 +371,121 @@ pub fn encMovR32FromBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `MOV [base + idx], r32` (opcode 0x89 with SIB, scale=1).
+/// 32-bit store; ModR/M.reg = source register. Mirror of
+/// `encMovR32FromBaseIdx` for the store direction (i32.store).
+pub fn encStoreR32MemBaseIdx(src: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    const r = src.extBit();
+    const x = idx.extBit();
+    const b = base.extBit();
+    if (r != 0 or x != 0 or b != 0) {
+        enc.push(encodeRex(false, r, x, b));
+    }
+    enc.push(0x89);
+    enc.push(encodeModrm(0b00, src.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOV [base + idx], r16` (operand-size prefix 0x66 + opcode
+/// 0x89 with SIB). 16-bit store; used by i32.store16.
+pub fn encStoreR16MemBaseIdx(src: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66); // operand-size override
+    const r = src.extBit();
+    const x = idx.extBit();
+    const b = base.extBit();
+    if (r != 0 or x != 0 or b != 0) {
+        enc.push(encodeRex(false, r, x, b));
+    }
+    enc.push(0x89);
+    enc.push(encodeModrm(0b00, src.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOV [base + idx], r8` (opcode 0x88 with SIB). 8-bit store;
+/// used by i32.store8. **Always emits REX** so r8-r15 + the
+/// SPL/BPL/SIL/DIL low-byte forms encode correctly (without REX,
+/// reg=4..7 means AH/CH/DH/BH).
+pub fn encStoreR8MemBaseIdx(src: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(false, src.extBit(), idx.extBit(), base.extBit())); // force REX
+    enc.push(0x88);
+    enc.push(encodeModrm(0b00, src.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOVZX r32, byte ptr [base + idx]` (opcode 0x0F 0xB6 with
+/// SIB). 8→32 zero-extend load; used by i32.load8_u.
+pub fn encMovzxR32_8MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    const r = dst.extBit();
+    const x = idx.extBit();
+    const b = base.extBit();
+    if (r != 0 or x != 0 or b != 0) {
+        enc.push(encodeRex(false, r, x, b));
+    }
+    enc.push(0x0F);
+    enc.push(0xB6);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOVSX r32, byte ptr [base + idx]` (opcode 0x0F 0xBE with
+/// SIB). 8→32 sign-extend load; used by i32.load8_s.
+pub fn encMovsxR32_8MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    const r = dst.extBit();
+    const x = idx.extBit();
+    const b = base.extBit();
+    if (r != 0 or x != 0 or b != 0) {
+        enc.push(encodeRex(false, r, x, b));
+    }
+    enc.push(0x0F);
+    enc.push(0xBE);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOVZX r32, word ptr [base + idx]` (opcode 0x0F 0xB7 with
+/// SIB). 16→32 zero-extend load; used by i32.load16_u.
+pub fn encMovzxR32_16MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    const r = dst.extBit();
+    const x = idx.extBit();
+    const b = base.extBit();
+    if (r != 0 or x != 0 or b != 0) {
+        enc.push(encodeRex(false, r, x, b));
+    }
+    enc.push(0x0F);
+    enc.push(0xB7);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOVSX r32, word ptr [base + idx]` (opcode 0x0F 0xBF with
+/// SIB). 16→32 sign-extend load; used by i32.load16_s.
+pub fn encMovsxR32_16MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    const r = dst.extBit();
+    const x = idx.extBit();
+    const b = base.extBit();
+    if (r != 0 or x != 0 or b != 0) {
+        enc.push(encodeRex(false, r, x, b));
+    }
+    enc.push(0x0F);
+    enc.push(0xBF);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
 /// `ADD r/m64, imm32` (opcode 0x81 /0 with REX.W). 4-byte
 /// little-endian immediate. Used to fold the Wasm static offset
 /// into the effective address before bounds check.
@@ -816,6 +931,51 @@ test "encMovR32FromBaseIdx: mov ebx, [rax + rdx] → 8b 1c 10" {
 test "encMovR32FromBaseIdx: mov r10d, [r15 + rax] → 45 8b 14 07 (REX.R+REX.B)" {
     const enc = encMovR32FromBaseIdx(.r10, .r15, .rax);
     try testing.expectEqualSlices(u8, &.{ 0x45, 0x8B, 0x14, 0x07 }, enc.slice());
+}
+
+test "encStoreR32MemBaseIdx: mov [rax+rdx], ebx → 89 1c 10" {
+    const enc = encStoreR32MemBaseIdx(.rbx, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x89, 0x1C, 0x10 }, enc.slice());
+}
+
+test "encStoreR32MemBaseIdx: mov [r15+rax], r10d → 45 89 14 07 (REX.R+REX.B)" {
+    const enc = encStoreR32MemBaseIdx(.r10, .r15, .rax);
+    try testing.expectEqualSlices(u8, &.{ 0x45, 0x89, 0x14, 0x07 }, enc.slice());
+}
+
+test "encStoreR16MemBaseIdx: mov [rax+rdx], bx → 66 89 1c 10" {
+    const enc = encStoreR16MemBaseIdx(.rbx, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x89, 0x1C, 0x10 }, enc.slice());
+}
+
+test "encStoreR8MemBaseIdx: mov [rax+rdx], bl → 40 88 1c 10 (forced REX)" {
+    const enc = encStoreR8MemBaseIdx(.rbx, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x40, 0x88, 0x1C, 0x10 }, enc.slice());
+}
+
+test "encStoreR8MemBaseIdx: mov [rax+rdx], r10b → 44 88 14 10 (REX.R)" {
+    const enc = encStoreR8MemBaseIdx(.r10, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x88, 0x14, 0x10 }, enc.slice());
+}
+
+test "encMovzxR32_8MemBaseIdx: movzx ebx, byte [rax+rdx] → 0f b6 1c 10" {
+    const enc = encMovzxR32_8MemBaseIdx(.rbx, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0xB6, 0x1C, 0x10 }, enc.slice());
+}
+
+test "encMovsxR32_8MemBaseIdx: movsx r10d, byte [rax+rdx] → 44 0f be 14 10 (REX.R)" {
+    const enc = encMovsxR32_8MemBaseIdx(.r10, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x0F, 0xBE, 0x14, 0x10 }, enc.slice());
+}
+
+test "encMovzxR32_16MemBaseIdx: movzx ebx, word [rax+rdx] → 0f b7 1c 10" {
+    const enc = encMovzxR32_16MemBaseIdx(.rbx, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0xB7, 0x1C, 0x10 }, enc.slice());
+}
+
+test "encMovsxR32_16MemBaseIdx: movsx ebx, word [rax+rdx] → 0f bf 1c 10" {
+    const enc = encMovsxR32_16MemBaseIdx(.rbx, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0xBF, 0x1C, 0x10 }, enc.slice());
 }
 
 test "encAddR64Imm32: add rdx, 4 → 48 81 c2 04 00 00 00" {
