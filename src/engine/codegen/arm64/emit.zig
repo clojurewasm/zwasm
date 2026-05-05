@@ -53,6 +53,7 @@ const op_const = @import("op_const.zig");
 const op_alu_int = @import("op_alu_int.zig");
 const op_alu_float = @import("op_alu_float.zig");
 const op_convert = @import("op_convert.zig");
+const op_memory = @import("op_memory.zig");
 
 const Label = label_mod.Label;
 const LabelKind = label_mod.LabelKind;
@@ -602,101 +603,7 @@ pub fn compile(
             .@"i32.store", .@"i32.store8", .@"i32.store16",
             .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
             .@"f32.store", .@"f64.store",
-            => {
-                // Effective-address + bounds-check prologue (sub-f1
-                // pattern), then per-op LDR/STR. All memory ops
-                // share:
-                //   ORR W16, WZR, W_addr   ; zero-extend addr
-                //   ADD X16, X16, #offset  ; (skip if 0)
-                //   CMP X16, X27            ; vs mem_limit
-                //   B.HS trap_stub         ; placeholder + fixup
-                // The final LDR/STR encoding differs per op.
-                const is_store = switch (ins.op) {
-                    .@"i32.store", .@"i32.store8", .@"i32.store16",
-                    .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
-                    .@"f32.store", .@"f64.store",
-                    => true,
-                    else => false,
-                };
-                const is_fp_value = switch (ins.op) {
-                    .@"f32.load", .@"f64.load", .@"f32.store", .@"f64.store" => true,
-                    else => false,
-                };
-                const ip0: inst.Xn = 16;
-                const offset_imm = ins.payload;
-                if (offset_imm > 0xFFF) return Error.SlotOverflow;
-
-                // Pop the address + (for stores) value vreg(s).
-                var addr_vreg: u32 = 0;
-                var val_vreg: u32 = 0;
-                if (is_store) {
-                    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
-                    val_vreg = pushed_vregs.pop().?;
-                    addr_vreg = pushed_vregs.pop().?;
-                } else {
-                    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                    addr_vreg = pushed_vregs.pop().?;
-                }
-                const w_addr = try gpr.resolveGpr(alloc, addr_vreg);
-
-                // Effective-address + bounds prologue.
-                try gpr.writeU32(allocator, &buf, inst.encOrrRegW(ip0, 31, w_addr));
-                if (offset_imm != 0) {
-                    try gpr.writeU32(allocator, &buf, inst.encAddImm12(ip0, ip0, @intCast(offset_imm)));
-                }
-                try gpr.writeU32(allocator, &buf, inst.encCmpRegX(ip0, 27));
-                const fixup_at: u32 = @intCast(buf.items.len);
-                try gpr.writeU32(allocator, &buf, inst.encBCond(.hs, 0));
-                try bounds_fixups.append(allocator, fixup_at);
-
-                // Final LDR/STR. Allocate result vreg first for loads.
-                if (is_store) {
-                    const wv: inst.Xn = if (is_fp_value)
-                        try gpr.resolveFp(alloc, val_vreg)
-                    else
-                        try gpr.resolveGpr(alloc, val_vreg);
-                    const word: u32 = switch (ins.op) {
-                        .@"i32.store"   => inst.encStrWReg(wv, 28, ip0),
-                        .@"i32.store8"  => inst.encStrbWReg(wv, 28, ip0),
-                        .@"i32.store16" => inst.encStrhWReg(wv, 28, ip0),
-                        .@"i64.store"   => inst.encStrXReg(wv, 28, ip0),
-                        .@"i64.store8"  => inst.encStrbWReg(wv, 28, ip0),
-                        .@"i64.store16" => inst.encStrhWReg(wv, 28, ip0),
-                        .@"i64.store32" => inst.encStrWReg(wv, 28, ip0),
-                        .@"f32.store"   => inst.encStrSReg(wv, 28, ip0),
-                        .@"f64.store"   => inst.encStrDReg(wv, 28, ip0),
-                        else => unreachable,
-                    };
-                    try gpr.writeU32(allocator, &buf, word);
-                } else {
-                    const result = next_vreg;
-                    next_vreg += 1;
-                    if (result >= alloc.slots.len) return Error.SlotOverflow;
-                    const wd: inst.Xn = if (is_fp_value)
-                        try gpr.resolveFp(alloc, result)
-                    else
-                        try gpr.resolveGpr(alloc, result);
-                    const word: u32 = switch (ins.op) {
-                        .@"i32.load"     => inst.encLdrWReg(wd, 28, ip0),
-                        .@"i32.load8_s"  => inst.encLdrsbWReg(wd, 28, ip0),
-                        .@"i32.load8_u"  => inst.encLdrbWReg(wd, 28, ip0),
-                        .@"i32.load16_s" => inst.encLdrshWReg(wd, 28, ip0),
-                        .@"i32.load16_u" => inst.encLdrhWReg(wd, 28, ip0),
-                        .@"i64.load"     => inst.encLdrXReg(wd, 28, ip0),
-                        .@"i64.load8_s"  => inst.encLdrsbXReg(wd, 28, ip0),
-                        .@"i64.load8_u"  => inst.encLdrbWReg(wd, 28, ip0),
-                        .@"i64.load16_s" => inst.encLdrshXReg(wd, 28, ip0),
-                        .@"i64.load16_u" => inst.encLdrhWReg(wd, 28, ip0),
-                        .@"i64.load32_s" => inst.encLdrswXReg(wd, 28, ip0),
-                        .@"i64.load32_u" => inst.encLdrWReg(wd, 28, ip0),
-                        .@"f32.load"     => inst.encLdrSReg(wd, 28, ip0),
-                        .@"f64.load"     => inst.encLdrDReg(wd, 28, ip0),
-                        else => unreachable,
-                    };
-                    try gpr.writeU32(allocator, &buf, word);
-                    try pushed_vregs.append(allocator, result);
-                }
-            },
+            => try op_memory.emitMemOp(&ctx, &ins),
             .@"br_table" => {
                 // Pop index. Then linear CMP+B.NE+B chain for
                 // each in-range target, plus an unconditional B
