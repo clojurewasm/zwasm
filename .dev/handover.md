@@ -22,16 +22,19 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5d sub-b IN-PROGRESS
 
-emit.zig 9-module split chunk 8 landed `a945126` (op_call.zig:
-emitCall + emitCallIndirect + marshalCallArgs + captureCallResult,
-~225 LOC)。emit.zig 2914 → 2710 LOC。3-host gate green。
+emit.zig 9-module split chunk 9 landed `84180a5` (bounds_check.zig:
+emitTrappingTruncF32/F64 + emitTrunc{32,64}BoundsCheck — 4
+functions, 8 op-arms, ~175 LOC)。orchestrator (production code)
+は 599 LOC で 1000-LOC 目標達成。emit.zig 残 1947 LOC は inline
+test suite — chunk 10 で `emit_test.zig` 分離して 7.5d sub-b 完
+全クローズ予定。3-host gate green。
 
-**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 9 (最終) は
-bounds_check.zig (emitTrunc{32,64}BoundsCheck) + 8 trapping-trunc
-op-arms 抽出 + function-level end の trap-stub 部分の整理 ~250 LOC。
+**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 10 は `emit_test.
+zig` (~1947 LOC mechanical move) — file_size_check ハードキャップ
+解消で 7.5d sub-b 正式クローズ。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は a945126。
+**Branch**: `zwasm-from-scratch`、最新は 84180a5。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -68,7 +71,8 @@ fixed).
 | 6 | op_memory.zig (unified emitMemOp, 25 load/store arms) | ~125 | DONE `79d3104` |
 | 7 | op_control.zig (block/loop/br/br_if/br_table/if/else/emitEndIntra + D-027 merge) | ~265 | DONE `a6c7dcf` |
 | 8 | op_call.zig (call/call_indirect + marshalCallArgs + captureCallResult) | ~225 | DONE `a945126` |
-| 9 | bounds_check.zig + 8 trapping-trunc handlers + function-level `end` trap-stub split | ~250 | **NEXT** (closes 7.5d sub-b) |
+| 9 | bounds_check.zig (trapping trunc f32/f64, 8 op-arms) | ~175 | DONE `84180a5` |
+| 10 | `emit_test.zig` extraction (mechanical move of inline tests) | ~1947 | **NEXT** (closes 7.5d sub-b for real) |
 
 > Chunk count grew from 7 → 9 because ops_alu was sub-split into
 > int/float/convert to honour the per-module 400-LOC cap. ADR-0021
@@ -80,12 +84,15 @@ fixed).
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
 - **D-026** env-stub host-func wiring — cross-module dispatch。
-- emit.zig 2710 LOC は 7.5d sub-b で discharge 中 (chunk 9 最終)。
+- emit.zig 2546 LOC: production 599 LOC は 1000-LOC 目標内。残
+  1947 LOC inline tests を chunk 10 で分離予定。
 - api/instance.zig soft-cap (>1000 LOC) — binding code はそのまま、
   hard-cap (2000) は Step A2 で discharge 済み。
 
 ## Recently closed (per `git log --oneline -45`)
 
+- 7.5d sub-b chunk 9: bounds_check.zig extracted (trapping trunc
+  f32/f64 + bounds-check helpers, 8 op-arms) (84180a5)。
 - 7.5d sub-b chunk 8: op_call.zig extracted (call/call_indirect
   + marshalCallArgs + captureCallResult, ~225 LOC) (a945126)。
 - 7.5d sub-b chunk 7: op_control.zig extracted (8 control-flow
