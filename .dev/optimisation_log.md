@@ -51,16 +51,30 @@ Phase 8 以降の最適化候補ではなく、候補が**前提とする** base
 
 ## Day-1 棄却済み (意図的に v2 では採らなかった)
 
-| ID    | 棄却対象                                               | 理由 / 代替                                                                | Refs                                                          |
-|-------|--------------------------------------------------------|----------------------------------------------------------------------------|---------------------------------------------------------------|
-| R-001 | NaN-boxed `Value` (ClojureWasm 等が採用)               | (a) 64-bit に詰める必要なし (host メモリ潤沢); (b) 型情報は ZIR で comptime 既知; (c) debug 困難 — `extern union` が clarity 勝ち | F-010; ADR-0014                                               |
-| R-002 | v1 の post-hoc address-mode folding (D116)             | v1 で abandoned-then-reverted。Phase 8 で bench-driven 再評価する (O-001)。day-1 ON は採らない | v1 D116 post-mortem; O-001                                    |
-| R-003 | Pervasive feature `if`-branching (`if cfg.simd_enabled`) | A12 forbidden — dispatch table 強制                                         | ROADMAP §A12; F-005                                           |
-| R-004 | `std.Thread.Mutex` / `pub var` vtable / `std.io.AnyWriter` | §14 forbidden — `std.atomic.*` + 明示 VTable struct を使う                  | §14 forbidden list; `.claude/rules/zig_tips.md`               |
-| R-005 | Per-trap-reason 個別 stub                              | 単一 stub + Diagnostic M3 (ADR-0028) で reason 識別 — code size 小さい   | F-006; ADR-0028                                               |
-| R-006 | v1 の D117 dual-entry self-call workaround             | v2 は `RegClass.inst_ptr_special` を Phase 7 から day-1 で確保し回避       | `src/engine/codegen/shared/reg_class.zig`; v1 D117 post-mortem |
-| R-007 | Implicit error set sprawl (`anyerror!T` 多用)          | `Error` enum を per-zone で明示。型システムで W54-class contract drift 防止 | `.claude/rules/zig_tips.md` "inferred error sets"; ADR-0014    |
-| R-008 | `usingnamespace` (Zig 0.16 で削除済)                   | 明示 re-export 強制 — 暗黙的依存を排除                                      | `.claude/rules/zig_tips.md`                                   |
+> **棄却は永久ではなく条件付き**。各 row は (a) v2 の前提下で
+> なぜ採らないかの理由 + (b) その前提が崩れたら再評価する具体的
+> トリガを併記する。`Deferred` と同じ規律: 漠然とした「将来」
+> 不可、testable な条件のみ。トリガ未記入の row は audit_
+> scaffolding §F が拾う。
+
+| ID    | 棄却対象                                               | 棄却理由 (load-bearing one)                                                | Re-evaluation trigger (これが起きたら再考)                                       | Refs                                                          |
+|-------|--------------------------------------------------------|----------------------------------------------------------------------------|----------------------------------------------------------------------------------|---------------------------------------------------------------|
+| R-001 | NaN-boxed `Value` (ClojureWasm 等が採用)               | Wasm の型は validate で静的に既知 → 実行時 tag 不要 → `extern union` で十分 (NaN-box が解く問題が v2 に存在しない)。 | (1) Wasm 3.0 GC で operand-stack が runtime type-erased になる proposal が phase 4 到達; OR (2) bench で operand-stack 帯域が hot かつ SIMD 不要 workload で `sizeOf(Value)=16` が profiling 上 ≥ 5% の overhead として可視化。SIMD 有効時は NaN-box でも 16 byte なので改善しない点に注意。 | F-010; ADR-0014; spec proposal phase tracking      |
+| R-002 | v1 の post-hoc address-mode folding (D116)             | v1 で abandoned-then-reverted した経緯 — day-1 ON は採らない。               | Phase 8 で bench-driven 再評価 (O-001 として登録済)。`bench/results/history.yaml` に `c_btree` / mem-heavy fixture が出揃ってから判断。 | v1 D116 post-mortem; O-001                                    |
+| R-003 | Pervasive feature `if`-branching (`if cfg.simd_enabled`) | A12 forbidden list — feature dispatch を `dispatch_table.zig` に集約 (W54-class contract drift 防止)。 | A12 forbidden list 自体が ROADMAP §18.2 で deviation ADR を経て撤回されたとき。事実上 永久。 | ROADMAP §A12; F-005                                           |
+| R-004 | `std.Thread.Mutex` / `pub var` vtable / `std.io.AnyWriter` | §14 forbidden list — Zig 0.16 でも `std.Thread.Mutex` 等は削除済 (stdlib API も同じ判断)。 | (1) Zig stdlib が `std.Thread.Mutex` 系を復活させ、`std.atomic` ベースから戻した場合; OR (2) Phase 14 (concurrency) で thread API 統合の必要が出て、明示 VTable struct より暗黙 vtable が必須になった場合。 | §14 forbidden list; `.claude/rules/zig_tips.md`               |
+| R-005 | Per-trap-reason 個別 stub                              | 単一 stub + Diagnostic M3 (ADR-0028) で reason 識別 — code size 小さい。   | bench で trap path が hot かつ M3 ringbuffer write の overhead が trap-per-stub-fast-path より顕著に重い場合。M3-a-2 (D-022) landing 後に再計測。 | F-006; ADR-0028; D-022                                        |
+| R-006 | v1 の D117 dual-entry self-call workaround             | v2 は `RegClass.inst_ptr_special` を Phase 7 から day-1 確保し構造的に回避済。 | `inst_ptr_special` 設計が崩れる Wasm 仕様変化 (e.g. tail-call proposal で self-recursive call の ABI が変わる) があれば再考。 | `src/engine/codegen/shared/reg_class.zig`; v1 D117 post-mortem; spec tail-call proposal |
+| R-007 | Implicit error set sprawl (`anyerror!T` 多用)          | `Error` enum を per-zone で明示 → W54-class contract drift を型で防止。 | Zig stdlib が inferred error set 推奨に方針転換 (現在 explicit enum 推奨)、または cross-zone で `anyerror` 必須の API が landing したとき。 | `.claude/rules/zig_tips.md` "inferred error sets"; ADR-0014    |
+| R-008 | `usingnamespace` (Zig 0.16 で削除済)                   | Zig stdlib 自体が削除した — 不採用は **言語仕様の追従**。                  | Zig が `usingnamespace` を別形で復活させた場合。事実上 永久。 | `.claude/rules/zig_tips.md`                                   |
+
+**読み方の例 — R-001 (NaN-box)**:
+- "今日棄却" の理由は (b) 型が静的に既知。それ単独で十分。
+- Trigger (1) Wasm 3.0 GC は spec phase 3 (現在) なので、phase 4 到達まで自動 OFF。phase 4 に上がったら再考する義務が発生。
+- Trigger (2) は `bench/results/` の運用 (Phase 8 から bench-driven が標準) にぶら下がる。datapoint が揃わないと再考できない。
+- どちらも未到達 → 当面 `Rejected` のまま。ただし audit_scaffolding が phase 4 到達 / bench landing を検知したら row のステータスを `Investigating` に flip させる予約。
+
+**棄却理由の更新規律**: 採用しないと決めた時の議論を後追いで誤魔化さない。理由が 3 つ並んでいたら **load-bearing 1 つに絞る** (他は補強材として "Refs" に逃がす)。R-001 の旧版で 3 つ羅列していたのは反省 — clarity が薄れる。
 
 ## 命名
 
