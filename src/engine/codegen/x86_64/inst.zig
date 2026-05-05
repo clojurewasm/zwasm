@@ -321,6 +321,92 @@ pub fn encJccRel8(cc: Cond, disp: i8) EncodedInsn {
     return enc;
 }
 
+/// `MOV r64, [base + disp32]` (opcode 0x8B with REX.W, mod=10).
+/// Used to reload JitRuntime invariants from `[R15 + offset]`
+/// per ADR-0026.
+pub fn encMovR64FromMemDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), 0, base.extBit()));
+    enc.push(0x8B);
+    enc.push(encodeModrm(0b10, dst.low3(), base.low3()));
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
+/// `CMP r64, [base + disp32]` (opcode 0x3B with REX.W, mod=10).
+/// Used by memory bounds check to compare eff_addr against
+/// `[R15 + mem_limit_off]`.
+pub fn encCmpR64MemDisp32(reg: Gpr, base: Gpr, disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, reg.extBit(), 0, base.extBit()));
+    enc.push(0x3B);
+    enc.push(encodeModrm(0b10, reg.low3(), base.low3()));
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
+/// `MOV r32, [base + idx]` (opcode 0x8B with SIB, scale=1).
+/// Used by memory loads to read the actual word from
+/// `[vm_base + eff_addr]`. mod=00 + rm=4 signals SIB-byte
+/// addressing (no disp).
+pub fn encMovR32FromBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    const r = dst.extBit();
+    const x = idx.extBit();
+    const b = base.extBit();
+    if (r != 0 or x != 0 or b != 0) {
+        enc.push(encodeRex(false, r, x, b));
+    }
+    enc.push(0x8B);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `ADD r/m64, imm32` (opcode 0x81 /0 with REX.W). 4-byte
+/// little-endian immediate. Used to fold the Wasm static offset
+/// into the effective address before bounds check.
+pub fn encAddR64Imm32(dst: Gpr, imm: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, 0, 0, dst.extBit()));
+    enc.push(0x81);
+    enc.push(encodeModrm(0b11, 0, dst.low3())); // /0 = ADD
+    const u: u32 = @bitCast(imm);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
+/// `MOV DWORD PTR [base + disp32], imm32` (opcode 0xC7 /0).
+/// Used by trap stub to set `JitRuntime.trap_flag = 1` per
+/// ADR-0017 sub-7.5b-ii equivalent.
+pub fn encStoreImm32MemDisp32(base: Gpr, disp: i32, imm: u32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (base.extBit() == 1) enc.push(encodeRex(false, 0, 0, 1));
+    enc.push(0xC7);
+    enc.push(encodeModrm(0b10, 0, base.low3())); // /0 in reg field
+    const ud: u32 = @bitCast(disp);
+    enc.push(@truncate(ud));
+    enc.push(@truncate(ud >> 8));
+    enc.push(@truncate(ud >> 16));
+    enc.push(@truncate(ud >> 24));
+    enc.push(@truncate(imm));
+    enc.push(@truncate(imm >> 8));
+    enc.push(@truncate(imm >> 16));
+    enc.push(@truncate(imm >> 24));
+    return enc;
+}
+
 /// `JMP rel32` (opcode 0xE9) — unconditional near jump with
 /// 32-bit signed displacement. Disp is relative to the byte
 /// AFTER the 5-byte instruction. Use `encJmpRel32(0)` as a
@@ -705,6 +791,41 @@ test "encJccRel8: jne +5 → 75 05 (cc=ne=5; the canonical br_table skip)" {
 test "encJccRel8: je -10 → 74 f6" {
     const enc = encJccRel8(.e, -10);
     try testing.expectEqualSlices(u8, &.{ 0x74, 0xF6 }, enc.slice());
+}
+
+test "encMovR64FromMemDisp32: mov rax, [r15+0] → 49 8b 87 00 00 00 00" {
+    const enc = encMovR64FromMemDisp32(.rax, .r15, 0);
+    try testing.expectEqualSlices(u8, &.{ 0x49, 0x8B, 0x87, 0, 0, 0, 0 }, enc.slice());
+}
+
+test "encMovR64FromMemDisp32: mov rdx, [r15+8] → 49 8b 97 08 00 00 00" {
+    const enc = encMovR64FromMemDisp32(.rdx, .r15, 8);
+    try testing.expectEqualSlices(u8, &.{ 0x49, 0x8B, 0x97, 0x08, 0, 0, 0 }, enc.slice());
+}
+
+test "encCmpR64MemDisp32: cmp rdx, [r15+8] → 49 3b 97 08 00 00 00" {
+    const enc = encCmpR64MemDisp32(.rdx, .r15, 8);
+    try testing.expectEqualSlices(u8, &.{ 0x49, 0x3B, 0x97, 0x08, 0, 0, 0 }, enc.slice());
+}
+
+test "encMovR32FromBaseIdx: mov ebx, [rax + rdx] → 8b 1c 10" {
+    const enc = encMovR32FromBaseIdx(.rbx, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x8B, 0x1C, 0x10 }, enc.slice());
+}
+
+test "encMovR32FromBaseIdx: mov r10d, [r15 + rax] → 45 8b 14 07 (REX.R+REX.B)" {
+    const enc = encMovR32FromBaseIdx(.r10, .r15, .rax);
+    try testing.expectEqualSlices(u8, &.{ 0x45, 0x8B, 0x14, 0x07 }, enc.slice());
+}
+
+test "encAddR64Imm32: add rdx, 4 → 48 81 c2 04 00 00 00" {
+    const enc = encAddR64Imm32(.rdx, 4);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x81, 0xC2, 0x04, 0, 0, 0 }, enc.slice());
+}
+
+test "encStoreImm32MemDisp32: mov [r15+40], 1 → 41 c7 87 28 00 00 00 01 00 00 00" {
+    const enc = encStoreImm32MemDisp32(.r15, 40, 1);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0xC7, 0x87, 0x28, 0, 0, 0, 0x01, 0, 0, 0 }, enc.slice());
 }
 
 test "encAndRR: and ebx, ecx (d) → 21 cb" {

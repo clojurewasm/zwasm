@@ -45,6 +45,7 @@ const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
+const jit_abi = @import("../shared/jit_abi.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
@@ -134,32 +135,57 @@ pub fn compile(
         return Error.AllocationMissing;
     }
     if (func.sig.params.len > 0) return Error.UnsupportedOp;
-    // Skeleton scope: ≤ 15 locals (i8-disp range covers offsets
-    // -8 .. -120). 16+ locals require disp32 + imm32 SUB/ADD,
-    // out of scope here (will land alongside the regalloc /
-    // spill port).
     const num_locals: u32 = @intCast(func.locals.len);
     if (num_locals > 15) return Error.UnsupportedOp;
-    const frame_bytes_unaligned: u32 = num_locals * 8;
-    const frame_bytes: u32 = (frame_bytes_unaligned + 15) & ~@as(u32, 15);
+
+    // Prescan: does this function need the runtime-ptr save?
+    // Per ADR-0026, memory ops (and future calls / call_indirect)
+    // require RDI captured into R15 at function entry. Functions
+    // that don't touch memory or make calls keep the simpler 1-PUSH
+    // prologue, preserving backward-compat with the existing skel
+    // / ALU / control tests.
+    const uses_runtime_ptr = blk: {
+        for (func.instrs.items) |ins| {
+            switch (ins.op) {
+                .@"i32.load" => break :blk true,
+                else => {},
+            }
+        }
+        break :blk false;
+    };
+
+    // Frame-bytes formula depends on prologue shape (SysV §3.2.2
+    // 16-byte stack alignment; CALL pushes ret addr → entry RSP
+    // ≡ 8 mod 16; PUSH RBP → 0 mod 16; PUSH R15 → 8 mod 16):
+    //   - 1-PUSH:  frame ≡ 0 mod 16  (current shape; rounds up locals_bytes to 16)
+    //   - 2-PUSH:  frame ≡ 8 mod 16  (per ADR-0026 prologue)
+    const locals_bytes: u32 = num_locals * 8;
+    const frame_bytes: u32 = if (uses_runtime_ptr)
+        ((locals_bytes + 7) & ~@as(u32, 15)) + 8
+    else
+        (locals_bytes + 15) & ~@as(u32, 15);
 
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(allocator);
 
-    // ============================================================
-    // Prologue: PUSH RBP ; MOV RBP, RSP ; SUB RSP, #frame
-    //
-    // After PUSH RBP + MOV RBP, RSP: RBP holds the on-entry RSP
-    // (post-PUSH). SUB RSP, frame_bytes drops the stack to make
-    // room for locals; each i32 local occupies an 8-byte slot
-    // for stable 8-byte alignment + disp8 addressing.
+    // Prologue:
+    //   PUSH RBP
+    //   PUSH R15           (only if uses_runtime_ptr; saves callee-saved R15)
+    //   MOV RBP, RSP       (frame pointer captured AFTER any extra push)
+    //   MOV R15, RDI       (only if uses_runtime_ptr; capture runtime_ptr arg)
+    //   SUB RSP, frame_bytes
     //
     // Local layout (Wasm ZirFunc.locals): local K at
-    // [RBP - 8*(K+1)]. Frame size rounds up to 16 bytes per
-    // SysV §3.2.2 (RSP must stay 16-byte aligned at any call).
-    // ============================================================
+    //   [RBP - 8*(K+1)]               when !uses_runtime_ptr
+    //   [RBP - 8 - 8*(K+1)]           when  uses_runtime_ptr (R15 occupies [RBP-8])
     try buf.appendSlice(allocator, inst.encPushR(.rbp).slice());
+    if (uses_runtime_ptr) {
+        try buf.appendSlice(allocator, inst.encPushR(.r15).slice());
+    }
     try buf.appendSlice(allocator, inst.encMovRR(.q, .rbp, .rsp).slice());
+    if (uses_runtime_ptr) {
+        try buf.appendSlice(allocator, inst.encMovRR(.q, .r15, .rdi).slice());
+    }
     if (frame_bytes > 0) {
         try buf.appendSlice(allocator, inst.encSubRSpImm8(@intCast(frame_bytes)).slice());
     }
@@ -186,6 +212,14 @@ pub fn compile(
         labels.deinit(allocator);
     }
 
+    // Bounds-check trap fixups: each memory op emits a
+    // JAE rel32 placeholder that branches to the trap stub
+    // emitted at function-final `end`. Each Fixup records the
+    // Jcc instruction's byte_offset; the function-level end
+    // patches them all to the trap stub address.
+    var bounds_fixups: std.ArrayList(u32) = .empty;
+    defer bounds_fixups.deinit(allocator);
+
     for (func.instrs.items) |ins| {
         switch (ins.op) {
             .@"i32.const" => {
@@ -210,9 +244,10 @@ pub fn compile(
             => try emitI32Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"i32.clz", .@"i32.ctz", .@"i32.popcnt",
             => try emitI32Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
-            .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, ins.payload),
-            .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, ins.payload),
-            .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, ins.payload),
+            .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
+            .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
+            .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
+            .@"i32.load" => try emitI32Load(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.payload),
             .@"block" => try emitBlock(allocator, &labels),
             .@"loop" => try emitLoop(allocator, &buf, &labels),
             .@"br" => try emitBr(allocator, &buf, &labels, ins.payload),
@@ -242,12 +277,41 @@ pub fn compile(
                         try buf.appendSlice(allocator, inst.encMovRR(.d, abi.return_gpr, src).slice());
                     }
                 }
-                // Epilogue: ADD RSP, #frame ; POP RBP ; RET.
+                // Epilogue: ADD RSP, frame ; POP R15? ; POP RBP ; RET.
                 if (frame_bytes > 0) {
                     try buf.appendSlice(allocator, inst.encAddRSpImm8(@intCast(frame_bytes)).slice());
                 }
+                if (uses_runtime_ptr) {
+                    try buf.appendSlice(allocator, inst.encPopR(.r15).slice());
+                }
                 try buf.appendSlice(allocator, inst.encPopR(.rbp).slice());
                 try buf.appendSlice(allocator, inst.encRet().slice());
+
+                // Trap stub: emitted after the regular RET when
+                // the function had any bounds-check fixups. Sets
+                // JitRuntime.trap_flag = 1, clears EAX (return
+                // value cleared so traps don't masquerade as
+                // valid returns), runs the same epilogue, RETs.
+                // Each pending bounds_fixup gets its disp32
+                // patched to the trap stub address.
+                if (bounds_fixups.items.len > 0) {
+                    const trap_byte: u32 = @intCast(buf.items.len);
+                    try buf.appendSlice(allocator, inst.encStoreImm32MemDisp32(abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off, 1).slice());
+                    try buf.appendSlice(allocator, inst.encXorRR(.d, .rax, .rax).slice()); // XOR EAX, EAX (return = 0)
+                    if (frame_bytes > 0) {
+                        try buf.appendSlice(allocator, inst.encAddRSpImm8(@intCast(frame_bytes)).slice());
+                    }
+                    if (uses_runtime_ptr) {
+                        try buf.appendSlice(allocator, inst.encPopR(.r15).slice());
+                    }
+                    try buf.appendSlice(allocator, inst.encPopR(.rbp).slice());
+                    try buf.appendSlice(allocator, inst.encRet().slice());
+                    for (bounds_fixups.items) |fx_byte| {
+                        const disp: i32 = @as(i32, @intCast(trap_byte)) -
+                            @as(i32, @intCast(fx_byte)) - 6;
+                        inst.patchRel32(buf.items, fx_byte, 6, disp);
+                    }
+                }
                 break;
             },
             else => return Error.UnsupportedOp,
@@ -481,18 +545,23 @@ fn emitI32Bitcount(
 }
 
 /// Compute the i8 displacement for local index `idx`. Layout:
-/// local 0 at [RBP - 8], local K at [RBP - 8*(K+1)]. Surfaces
-/// `UnsupportedOp` for indices the i8 disp cannot reach (idx >=
-/// 16 → -136, out of i8 range).
-fn localDisp(idx: u32, num_locals: u32) Error!i8 {
+///   local 0 at [RBP - 8],  local K at [RBP - 8*(K+1)]
+///       when !uses_runtime_ptr (1-PUSH prologue).
+///   local 0 at [RBP - 16], local K at [RBP - 8 - 8*(K+1)]
+///       when  uses_runtime_ptr (R15 occupies [RBP-8]).
+/// Surfaces `UnsupportedOp` for indices the i8 disp cannot
+/// reach (15 locals max either way; coincidentally same cap).
+fn localDisp(idx: u32, num_locals: u32, uses_runtime_ptr: bool) Error!i8 {
     if (idx >= num_locals) return Error.UnsupportedOp;
     if (idx >= 16) return Error.UnsupportedOp;
-    const off: i32 = -@as(i32, @intCast((idx + 1) * 8));
+    const base_off: i32 = if (uses_runtime_ptr) -8 else 0;
+    const off: i32 = base_off - @as(i32, @intCast((idx + 1) * 8));
+    if (off < -128) return Error.UnsupportedOp;
     return @intCast(off);
 }
 
 /// `local.get K` — push a fresh vreg holding the value loaded
-/// from [RBP - 8*(K+1)].
+/// from [RBP + localDisp(K)].
 fn emitLocalGet(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -500,9 +569,10 @@ fn emitLocalGet(
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
     num_locals: u32,
+    uses_runtime_ptr: bool,
     idx: u32,
 ) Error!void {
-    const disp = try localDisp(idx, num_locals);
+    const disp = try localDisp(idx, num_locals, uses_runtime_ptr);
     const vreg = next_vreg.*;
     next_vreg.* += 1;
     if (vreg >= alloc.slots.len) return Error.SlotOverflow;
@@ -512,16 +582,17 @@ fn emitLocalGet(
 }
 
 /// `local.set K` — pop the top vreg and store its low 32 bits
-/// into [RBP - 8*(K+1)].
+/// into [RBP + localDisp(K)].
 fn emitLocalSet(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     num_locals: u32,
+    uses_runtime_ptr: bool,
     idx: u32,
 ) Error!void {
-    const disp = try localDisp(idx, num_locals);
+    const disp = try localDisp(idx, num_locals, uses_runtime_ptr);
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
     const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
@@ -529,16 +600,17 @@ fn emitLocalSet(
 }
 
 /// `local.tee K` — store the top vreg's low 32 bits into
-/// [RBP - 8*(K+1)] WITHOUT popping.
+/// [RBP + localDisp(K)] WITHOUT popping.
 fn emitLocalTee(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     num_locals: u32,
+    uses_runtime_ptr: bool,
     idx: u32,
 ) Error!void {
-    const disp = try localDisp(idx, num_locals);
+    const disp = try localDisp(idx, num_locals, uses_runtime_ptr);
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.items[pushed_vregs.items.len - 1];
     const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
@@ -590,6 +662,64 @@ fn emitBr(
         try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
         try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
     }
+}
+
+/// `i32.load offset=N` — pop idx (i32), allocate result (i32),
+/// emit the ADR-0026 reload-from-runtime-ptr sequence + bounds
+/// check + actual load.
+///
+/// Sequence (using RAX for vm_base scratch, RDX for eff_addr
+/// scratch — both caller-saved + excluded from regalloc pool):
+///
+///   MOV RAX, [R15 + vm_base_off]      ; reload vm_base
+///   MOV EDX, idx                       ; zero-extend idx → RDX
+///   ADD RDX, offset                    ; eff_addr (skip if 0)
+///   CMP RDX, [R15 + mem_limit_off]
+///   JAE trap_stub                      ; bounds-check fixup
+///   MOV dst, [RAX + RDX]               ; the actual i32 load
+///
+/// **Spec note** (mirrored from arm64): bounds check compares
+/// eff_addr against mem_limit using >= unsigned, which doesn't
+/// account for access size (4 bytes for i32.load). Mirror of
+/// arm64 emit.zig pre-split behaviour; spec-strict bounds
+/// (eff_addr + size <= mem_limit) lands as a follow-up paired
+/// with the same ARM64 fix.
+fn emitI32Load(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    bounds_fixups: *std.ArrayList(u32),
+    offset: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const idx_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const idx_r = abi.slotToReg(alloc.slots[idx_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    // 1. MOV RAX, [R15 + vm_base_off]
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.vm_base_off).slice());
+    // 2. MOV EDX, idx_r — zero-extends to 64-bit RDX
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, idx_r).slice());
+    // 3. ADD RDX, offset (skip if 0)
+    if (offset != 0) {
+        if (offset > 0x7FFFFFFF) return Error.SlotOverflow; // imm32 range
+        try buf.appendSlice(allocator, inst.encAddR64Imm32(.rdx, @intCast(offset)).slice());
+    }
+    // 4. CMP RDX, [R15 + mem_limit_off]
+    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rdx, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+    // 5. JAE trap_stub (bounds-check fixup)
+    const fixup_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
+    try bounds_fixups.append(allocator, fixup_at);
+    // 6. MOV dst, [RAX + RDX] — the actual load
+    try buf.appendSlice(allocator, inst.encMovR32FromBaseIdx(dst_r, .rax, .rdx).slice());
+
+    try pushed_vregs.append(allocator, result_v);
 }
 
 /// Emit a single `JMP target_for_depth` for one br_table case
@@ -1178,6 +1308,99 @@ test "compile: br_table count > 127 → UnsupportedOp (i8 cap)" {
     const slots = [_]u8{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, alloc, &.{}, &.{}));
+}
+
+test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bounds check + load" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.load", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 }, // const → idx
+        .{ .def_pc = 1, .last_use_pc = 2 }, // load result
+    } };
+    const slots = [_]u8{ 0, 1 }; // R10D, R11D
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // ADR-0026 prologue (uses_runtime_ptr=true):
+    //   55                          PUSH RBP                          [0]
+    //   41 57                       PUSH R15                          [1..3]
+    //   48 89 E5                    MOV RBP, RSP                      [3..6]
+    //   49 89 FF                    MOV R15, RDI                      [6..9]
+    //   48 83 EC 08                 SUB RSP, 8 (locals=0 → frame=8)   [9..13]
+    // Body:
+    //   41 BA 00 00 00 00           MOV R10D, #0   (idx vreg 0)       [13..19]
+    //   49 8B 87 00 00 00 00        MOV RAX, [R15 + 0] (vm_base)      [19..26]
+    //   89 D2                       MOV EDX, R10D (zero-extend idx)   [26..28]
+    //                  ↑ encMovRR(.d, .rdx, .r10): src=r10 → REX.R=1, dst=rdx → REX.B=0
+    //                    Actually wait, encMovRR: first arg is dst, second is src.
+    //                    encMovRR(.d, .rdx, .r10) → src=r10 (REX.R=1), dst=rdx (REX.B=0).
+    //                    REX.R=1 needed for src=R10 → REX = 0x44.
+    //                    ModR/M: mod=11, reg=src.low3=2 (r10), rm=dst.low3=2 (rdx)
+    //                          → 11 010 010 = 0xD2. Hmm, but that's REG=R10 → ECX_low3=2,
+    //                            and RM=RDX low3=2. So the byte is the same. OK ModR/M = D2.
+    //                    Total: 44 89 D2 (3 bytes).
+    //   44 89 D2                    MOV EDX, R10D                     [26..29]
+    //   49 3B 97 08 00 00 00        CMP RDX, [R15 + 8]                [29..36]
+    //   0F 83 ?? ?? ?? ??           JAE trap_stub (placeholder)       [36..42]
+    //   8B 1C 10                    MOV EBX, [RAX + RDX]              [42..45]
+    //                  ↑ encMovR32FromBaseIdx(.r11, .rax, .rdx)
+    //                    R11.extBit=1 → REX.R=1; RAX.extBit=0; RDX.extBit=0.
+    //                    REX = 0x44 (R=1).
+    //                    ModR/M: mod=00, reg=R11.low3=3, rm=4 (SIB) → 0x1C
+    //                    SIB: scale=00, idx=RDX.low3=2, base=RAX.low3=0 → 0x10
+    //                    Total: 44 8B 1C 10 (4 bytes).
+    //   44 8B 1C 10                 MOV R11D, [RAX + RDX]             [42..46]
+    //   44 89 D8                    MOV EAX, R11D (return marshalling)[46..49]
+    //                  ↑ src=R11 (REX.R=1), dst=RAX (REX.B=0). Wait no, rax is dst:
+    //                    encMovRR(.d, .rax, .r11) → src=r11, dst=rax.
+    //                    REX.R = src.extBit = 1, REX.B = dst.extBit = 0 → REX = 0x44.
+    //                    ModR/M: mod=11, reg=r11.low3=3, rm=rax.low3=0 → 11 011 000 = 0xD8.
+    //                    Total: 44 89 D8.
+    // Epilogue:
+    //   48 83 C4 08                 ADD RSP, 8                        [49..53]
+    //   41 5F                       POP R15                           [53..55]
+    //   5D                          POP RBP                           [55]
+    //   C3                          RET                               [56]
+    // Trap stub:
+    //   41 C7 87 28 00 00 00 01 00 00 00   MOV [R15+40], 1            [57..68]
+    //   31 C0                              XOR EAX, EAX               [68..70]
+    //                  ↑ encXorRR(.d, .rax, .rax): src=rax, dst=rax. No REX (no extension; W=0).
+    //                    Opcode 0x31. ModR/M: 11 000 000 = 0xC0. Total: 31 C0.
+    //   48 83 C4 08                        ADD RSP, 8                 [70..74]
+    //   41 5F                              POP R15                    [74..76]
+    //   5D                                 POP RBP                    [76]
+    //   C3                                 RET                        [77]
+    //
+    // JAE patch: trap_byte = 57. fixup_byte = 36, insn_size = 6.
+    //   disp = 57 - 36 - 6 = 15 = 0x0F. Little-endian: 0F 00 00 00.
+    //
+    // Total length: 78 bytes.
+    try testing.expectEqual(@as(usize, 78), out.bytes.len);
+    // Spot-check the prologue (verifies ADR-0026 structure):
+    try testing.expectEqualSlices(u8, &.{ 0x55, 0x41, 0x57, 0x48, 0x89, 0xE5, 0x49, 0x89, 0xFF, 0x48, 0x83, 0xEC, 0x08 }, out.bytes[0..13]);
+    // Spot-check the JAE placeholder is patched (disp != 0):
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x83, 0x0F, 0x00, 0x00, 0x00 }, out.bytes[36..42]);
+    // Spot-check trap stub starts at 57 with the trap_flag store:
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0xC7, 0x87, 0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 }, out.bytes[57..68]);
+}
+
+test "compile: i32.load with stack underflow → AllocationMissing" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.load", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}));
 }
 
 test "compile: br with depth out of range → UnsupportedOp" {
