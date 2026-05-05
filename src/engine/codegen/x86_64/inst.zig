@@ -930,6 +930,29 @@ pub fn encAndRImm8(size: Width, dst: Gpr, imm: i8) EncodedInsn {
     return enc;
 }
 
+/// `CVTTSS2SI r/m32 or r/m64, xmm/m32-or-64` family — scalar
+/// truncating float→signed-int conversion.
+///   F3 [REX?] 0F 2C /r (CVTTSS2SI; src f32 via prefix)
+///   F2 [REX?] 0F 2C /r (CVTTSD2SI; src f64 via prefix)
+/// `dst_is_64` toggles REX.W for the i64 destination variant.
+/// dst is in ModR/M.reg (gpr), src is in r/m (xmm).
+///
+/// **Saturation behaviour**: returns INT_MIN of the destination
+/// width (0x80000000 for r32, 0x8000000000000000 for r64) when
+/// the source is NaN OR out of range. Used as the sentinel by
+/// emitFpTruncSatSigned to drive the spec-correct saturation.
+pub fn encCvttScalar2Int(scalar_kind: SseScalarKind, dst_is_64: bool, gpr_dst: Gpr, xmm_src: Xmm) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(@intFromEnum(scalar_kind));
+    if (dst_is_64 or gpr_dst.extBit() != 0 or xmm_src.extBit() != 0) {
+        enc.push(encodeRex(dst_is_64, gpr_dst.extBit(), 0, xmm_src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(0x2C);
+    enc.push(encodeModrm(0b11, gpr_dst.low3(), xmm_src.low3()));
+    return enc;
+}
+
 /// `CVTSI2SS xmm, r/m32` / `CVTSI2SD xmm, r/m64` family —
 /// signed integer to scalar float conversion.
 ///   F3 [REX?] 0F 2A /r (CVTSI2SS, src f32-aware via prefix)
@@ -1796,4 +1819,24 @@ test "encAndRImm8: and rax, 1 → 48 83 e0 01" {
 test "encAndRImm8: and rcx, 1 → 48 83 e1 01" {
     const enc = encAndRImm8(.q, .rcx, 1);
     try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xE1, 0x01 }, enc.slice());
+}
+
+test "encCvttScalar2Int: cvttss2si eax, xmm0 → f3 0f 2c c0 (no REX)" {
+    const enc = encCvttScalar2Int(.f32, false, .rax, .xmm0);
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x0F, 0x2C, 0xC0 }, enc.slice());
+}
+
+test "encCvttScalar2Int: cvttss2si r10, xmm8 → f3 4d 0f 2c d0 (REX.W+R+B; ModRM.reg=r10)" {
+    const enc = encCvttScalar2Int(.f32, true, .r10, .xmm8);
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x4D, 0x0F, 0x2C, 0xD0 }, enc.slice());
+}
+
+test "encCvttScalar2Int: cvttsd2si rax, xmm0 → f2 48 0f 2c c0 (REX.W only)" {
+    const enc = encCvttScalar2Int(.f64, true, .rax, .xmm0);
+    try testing.expectEqualSlices(u8, &.{ 0xF2, 0x48, 0x0F, 0x2C, 0xC0 }, enc.slice());
+}
+
+test "encCvttScalar2Int: cvttsd2si eax, xmm8 → f2 41 0f 2c c0 (REX.B only)" {
+    const enc = encCvttScalar2Int(.f64, false, .rax, .xmm8);
+    try testing.expectEqualSlices(u8, &.{ 0xF2, 0x41, 0x0F, 0x2C, 0xC0 }, enc.slice());
 }

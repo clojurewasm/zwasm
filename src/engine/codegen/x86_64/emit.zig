@@ -289,6 +289,9 @@ pub fn compile(
             => try emitFpConvertSimple(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"f32.convert_i64_u", .@"f64.convert_i64_u",
             => try emitFpConvertI64Unsigned(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i32.trunc_sat_f32_s", .@"i32.trunc_sat_f64_s",
+            .@"i64.trunc_sat_f32_s", .@"i64.trunc_sat_f64_s",
+            => try emitFpTruncSatSigned(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
@@ -707,6 +710,116 @@ fn emitFpConst(
         },
         else => unreachable,
     }
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm 2.0 saturating signed truncate (`i32/i64.trunc_sat_f32/f64_s`).
+/// CVTTSS2SI / CVTTSD2SI returns INT_MIN of dst width on NaN OR
+/// out-of-range — that sentinel is the trigger for spec-correct
+/// saturation:
+///
+///   CVTTSS2SI dst, src
+///   CMP dst, INT_MIN_sentinel
+///   JNE done                          ; in-range — dst is correct
+///   ; sentinel: NaN OR overflow
+///   UCOMI src, src ; JP nan_path      ; PF=1 ⇒ NaN
+///   XORPS xmm7, xmm7                  ; scratch = 0.0
+///   UCOMI src, xmm7
+///   JBE done                          ; src ≤ 0 ⇒ INT_MIN already in dst
+///   MOV dst, INT_MAX                  ; positive overflow
+///   JMP done
+///   nan_path: XOR dst, dst (zero)
+///   done:
+///
+/// XMM7 reserved as SIMD scratch (per abi.zig). RCX scratch for
+/// i64 sentinel materialisation (not in pool).
+fn emitFpTruncSatSigned(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const src_x = abi.fpSlotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    const dst = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    const is_f64_src = switch (op) {
+        .@"i32.trunc_sat_f64_s", .@"i64.trunc_sat_f64_s" => true,
+        else => false,
+    };
+    const is_i64_dst = switch (op) {
+        .@"i64.trunc_sat_f32_s", .@"i64.trunc_sat_f64_s" => true,
+        else => false,
+    };
+    const scalar_kind: inst.SseScalarKind = if (is_f64_src) .f64 else .f32;
+    const packed_kind: inst.SsePackedKind = if (is_f64_src) .f64 else .f32;
+
+    // 1. CVTTSS/SD2SI dst, src.
+    try buf.appendSlice(allocator, inst.encCvttScalar2Int(scalar_kind, is_i64_dst, dst, src_x).slice());
+
+    // 2. Compare dst with INT_MIN sentinel.
+    if (is_i64_dst) {
+        try buf.appendSlice(allocator, inst.encMovImm64Q(.rcx, 0x8000000000000000).slice());
+        try buf.appendSlice(allocator, inst.encCmpRR(.q, dst, .rcx).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encCmpRImm32(dst, 0x80000000).slice());
+    }
+
+    // 3. JNE done (placeholder).
+    const jne_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
+
+    // 4. NaN check: UCOMI src, src.
+    if (is_f64_src) {
+        try buf.appendSlice(allocator, inst.encUcomisd(src_x, src_x).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encUcomiss(src_x, src_x).slice());
+    }
+
+    // 5. JP nan_path (placeholder).
+    const jp_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.p, 0).slice());
+
+    // 6. Zero scratch XMM7 (XORPS/PD), then UCOMI src vs scratch.
+    try buf.appendSlice(allocator, inst.encSsePackedBinary(packed_kind, 0x57, .xmm7, .xmm7).slice());
+    if (is_f64_src) {
+        try buf.appendSlice(allocator, inst.encUcomisd(src_x, .xmm7).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encUcomiss(src_x, .xmm7).slice());
+    }
+
+    // 7. JBE done (placeholder; src ≤ 0 ⇒ INT_MIN already in dst).
+    const jbe_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.be, 0).slice());
+
+    // 8. MOV dst, INT_MAX (positive overflow).
+    if (is_i64_dst) {
+        try buf.appendSlice(allocator, inst.encMovImm64Q(dst, 0x7FFFFFFFFFFFFFFF).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encMovImm32W(dst, 0x7FFFFFFF).slice());
+    }
+
+    // 9. JMP done (placeholder).
+    const jmp_done_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+
+    // 10. nan_path; patch JP.
+    const nan_byte: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, jp_byte, 6, @as(i32, @intCast(nan_byte)) - @as(i32, @intCast(jp_byte)) - 6);
+    try buf.appendSlice(allocator, inst.encXorRR(if (is_i64_dst) .q else .d, dst, dst).slice());
+
+    // 11. done; patch JNE / JBE / JMP-done.
+    const done_byte: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, jne_byte, 6, @as(i32, @intCast(done_byte)) - @as(i32, @intCast(jne_byte)) - 6);
+    inst.patchRel32(buf.items, jbe_byte, 6, @as(i32, @intCast(done_byte)) - @as(i32, @intCast(jbe_byte)) - 6);
+    inst.patchRel32(buf.items, jmp_done_byte, 5, @as(i32, @intCast(done_byte)) - @as(i32, @intCast(jmp_done_byte)) - 5);
+
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -3307,6 +3420,70 @@ test "compile: f32.reinterpret_i32 — MOVD XMM8, R10D (GPR→XMM bit-cast)" {
     // After i32.const at [4..10] (6 bytes for R10): MOVD XMM8, R10D at [10..15].
     const expected = inst.encMovdXmmFromR32(.xmm8, .r10);
     try testing.expectEqualSlices(u8, expected.slice(), out.bytes[10 .. 10 + expected.len]);
+}
+
+test "compile: i32.trunc_sat_f32_s — CVTTSS2SI + CMP INT_MIN + branch saturation" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40400000 }); // 3.0f
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_sat_f32_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    // FP slot 0 → XMM8; result GPR slot 0 → R10.
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // After f32.const at [4..14]:
+    //   [14..19] CVTTSS2SI R10D, XMM8     (5 bytes; F3 + REX + 0F + 2C + ModRM)
+    //   [19..26] CMP R10D, 0x80000000    (7 bytes; REX.B + 81 + ModRM + imm32)
+    //   [26..32] JNE rel32 (placeholder) (6 bytes)
+    //   [32..36] UCOMISS XMM8, XMM8       (4 bytes)
+    //   [36..42] JP rel32 nan_path        (6 bytes)
+    //   [42..46] XORPS XMM7, XMM7         (4 bytes; no prefix, no REX since xmm7<xmm8)
+    //   [46..50] UCOMISS XMM8, XMM7       (4 bytes; REX for xmm8 only)
+    const expected_cvt = inst.encCvttScalar2Int(.f32, false, .r10, .xmm8);
+    try testing.expectEqualSlices(u8, expected_cvt.slice(), out.bytes[14 .. 14 + expected_cvt.len]);
+    const expected_cmp = inst.encCmpRImm32(.r10, 0x80000000);
+    try testing.expectEqualSlices(u8, expected_cmp.slice(), out.bytes[19 .. 19 + expected_cmp.len]);
+    // JNE / JP / JBE rel32 opcode bytes (disps patched at end-of-emit).
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[26]);
+    try testing.expectEqual(@as(u8, 0x85), out.bytes[27]); // Jcc.ne = 5
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[36]);
+    try testing.expectEqual(@as(u8, 0x8A), out.bytes[37]); // Jcc.p = A
+    const expected_xorps = inst.encSsePackedBinary(.f32, 0x57, .xmm7, .xmm7);
+    try testing.expectEqualSlices(u8, expected_xorps.slice(), out.bytes[42 .. 42 + expected_xorps.len]);
+}
+
+test "compile: i64.trunc_sat_f64_s — CVTTSD2SI .q + i64 sentinel via MOVABS+CMP r/r" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40080000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.trunc_sat_f64_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // After f64.const at [4..19]:
+    //   [19..24]  CVTTSD2SI R10, XMM8 (5 bytes; F2 + REX.W+R+B + 0F + 2C + ModRM 0xD0)
+    //   [24..34]  MOVABS RCX, INT_MIN_i64 (10 bytes)
+    //   [34..37]  CMP R10, RCX (3 bytes; REX.W+R + 39 + ModRM)
+    const expected_cvt = inst.encCvttScalar2Int(.f64, true, .r10, .xmm8);
+    try testing.expectEqualSlices(u8, expected_cvt.slice(), out.bytes[19 .. 19 + expected_cvt.len]);
+    const expected_min = inst.encMovImm64Q(.rcx, 0x8000000000000000);
+    try testing.expectEqualSlices(u8, expected_min.slice(), out.bytes[24 .. 24 + expected_min.len]);
+    const expected_cmp = inst.encCmpRR(.q, .r10, .rcx);
+    try testing.expectEqualSlices(u8, expected_cmp.slice(), out.bytes[34 .. 34 + expected_cmp.len]);
 }
 
 test "compile: f32.convert_i32_u — CVTSI2SS XMM8, R10 (REX.W on i32 src for zero-extend trick)" {
