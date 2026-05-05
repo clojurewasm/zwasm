@@ -217,6 +217,7 @@ pub fn compile(
             .@"loop" => try emitLoop(allocator, &buf, &labels),
             .@"br" => try emitBr(allocator, &buf, &labels, ins.payload),
             .@"br_if" => try emitBrIf(allocator, &buf, alloc, &pushed_vregs, &labels, ins.payload),
+            .@"br_table" => try emitBrTable(allocator, &buf, func, alloc, &pushed_vregs, &labels, ins.payload, ins.extra),
             .@"if" => try emitIf(allocator, &buf, alloc, &pushed_vregs, &labels),
             .@"else" => try emitElse(allocator, &buf, &pushed_vregs, &labels),
             .@"end" => {
@@ -589,6 +590,72 @@ fn emitBr(
         try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
         try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
     }
+}
+
+/// Emit a single `JMP target_for_depth` for one br_table case
+/// (or the trailing default). Backward (loop) → concrete disp;
+/// forward (block / if family) → placeholder + Fixup append.
+/// Shared between the per-case loop and the default tail.
+fn emitBrTableJmp(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    labels: *std.ArrayList(Label),
+    depth: u32,
+) Error!void {
+    if (depth >= labels.items.len) return Error.UnsupportedOp;
+    const tgt_idx = labels.items.len - 1 - depth;
+    const tgt = &labels.items[tgt_idx];
+    const at: u32 = @intCast(buf.items.len);
+    if (tgt.kind == .loop) {
+        const disp: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+            @as(i32, @intCast(at)) - 5;
+        try buf.appendSlice(allocator, inst.encJmpRel32(disp).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+        try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
+    }
+}
+
+/// `br_table` — pop index; emit a CMP+JNE-skip+JMP chain for
+/// each in-range case, then an unconditional JMP to the default.
+///
+/// ZirInstr encoding (mvp.zig:brTableOp):
+///   payload = count   (number of in-range targets)
+///   extra   = start   (offset into func.branch_targets)
+/// branch_targets[start..start+count] = case depths
+/// branch_targets[start+count]        = default depth
+///
+/// Per-case sequence (10-11 bytes):
+///   CMP idx, i        (3-4 bytes; REX.B if idx ∈ R8..R15)
+///   JNE +5            (2 bytes; skip the JMP if idx != i)
+///   JMP target        (5 bytes; placeholder/concrete per kind)
+///
+/// **Cap**: count ≤ 127 (CMP r/m32, imm8 sign-extended). Larger
+/// requires the imm32 form; surfaces as UnsupportedOp.
+fn emitBrTable(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    func: *const ZirFunc,
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    labels: *std.ArrayList(Label),
+    count: u32,
+    start: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    if (count > 127) return Error.UnsupportedOp;
+    const idx_v = pushed_vregs.pop().?;
+    const idx_r = abi.slotToReg(alloc.slots[idx_v]) orelse return Error.SlotOverflow;
+    const targets = func.branch_targets.items;
+    if (start + count >= targets.len) return Error.UnsupportedOp;
+
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        try buf.appendSlice(allocator, inst.encCmpRImm8(.d, idx_r, @intCast(i)).slice());
+        try buf.appendSlice(allocator, inst.encJccRel8(.ne, 5).slice());
+        try emitBrTableJmp(allocator, buf, labels, targets[start + i]);
+    }
+    try emitBrTableJmp(allocator, buf, labels, targets[start + count]);
 }
 
 /// `br_if N` — pop cond, branch to label at depth N if cond is
@@ -1048,6 +1115,69 @@ test "compile: (loop (i32.const 0) (br_if 0) end) end — Jcc backward concrete 
         0xC3,
     };
     try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: br_table — single case + default both → block end" {
+    // (block (i32.const 0) (br_table 1 0 0) end) end
+    // count=1, case 0 → block (depth 0), default → block (depth 0).
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.branch_targets.append(testing.allocator, 0); // case 0 depth
+    try f.branch_targets.append(testing.allocator, 0); // default depth
+    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br_table", .payload = 1, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected stream:
+    //   55 48 89 E5                    prologue              [0..4]
+    //   41 BA 00 00 00 00              MOV R10D, #0          [4..10]
+    //   41 83 FA 00                    CMP R10D, 0           [10..14]
+    //   75 05                          JNE +5 (skip JMP)     [14..16]
+    //   E9 05 00 00 00                 JMP case-0 → block end (forward fixup; patched to disp=5) [16..21]
+    //   E9 00 00 00 00                 JMP default → block end (forward fixup; patched to disp=0) [21..26]
+    //   5D C3                          POP RBP ; RET         [26..28]
+    // Block end target = 26. case JMP at 16 → disp=26-16-5=5. default JMP at 21 → disp=26-21-5=0.
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x41, 0xBA, 0x00, 0x00, 0x00, 0x00,
+        0x41, 0x83, 0xFA, 0x00,
+        0x75, 0x05,
+        0xE9, 0x05, 0x00, 0x00, 0x00,
+        0xE9, 0x00, 0x00, 0x00, 0x00,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: br_table count > 127 → UnsupportedOp (i8 cap)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    var i: u32 = 0;
+    while (i < 129) : (i += 1) try f.branch_targets.append(testing.allocator, 0);
+    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br_table", .payload = 128, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, alloc, &.{}, &.{}));
 }
 
 test "compile: br with depth out of range → UnsupportedOp" {

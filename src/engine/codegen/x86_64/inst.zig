@@ -297,6 +297,30 @@ inline fn encF3_0F_R32R(opcode: u8, dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `CMP r/m32, imm8` (opcode 0x83 /7) — sign-extended 8-bit
+/// compare. Used by br_table case-checks. imm8 covers Wasm
+/// case indices 0..127; larger requires the 0x81 /7 imm32
+/// form (currently surfaces as UnsupportedOp at the
+/// emit-handler level rather than here).
+pub fn encCmpRImm8(size: Width, dst: Gpr, imm: i8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, .rax, dst)) |rex| enc.push(rex);
+    enc.push(0x83);
+    enc.push(encodeModrm(0b11, 7, dst.low3())); // /7 = CMP
+    enc.push(@bitCast(imm));
+    return enc;
+}
+
+/// `Jcc rel8` (opcode 0x70+cc) — short conditional jump with
+/// 8-bit signed displacement (-128..127). 2 bytes total.
+/// Used by br_table to skip a single 5-byte JMP rel32 (disp = +5).
+pub fn encJccRel8(cc: Cond, disp: i8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x70 | @as(u8, @intFromEnum(cc)));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
 /// `JMP rel32` (opcode 0xE9) — unconditional near jump with
 /// 32-bit signed displacement. Disp is relative to the byte
 /// AFTER the 5-byte instruction. Use `encJmpRel32(0)` as a
@@ -661,6 +685,26 @@ test "patchRel32: rewrite Jcc placeholder disp" {
     var buf = [_]u8{ 0x0F, 0x84, 0, 0, 0, 0 };
     patchRel32(&buf, 0, 6, -100);
     try testing.expectEqualSlices(u8, &.{ 0x0F, 0x84, 0x9C, 0xFF, 0xFF, 0xFF }, &buf);
+}
+
+test "encCmpRImm8: cmp ebx, 5 → 83 fb 05" {
+    const enc = encCmpRImm8(.d, .rbx, 5);
+    try testing.expectEqualSlices(u8, &.{ 0x83, 0xFB, 0x05 }, enc.slice());
+}
+
+test "encCmpRImm8: cmp r10d, 0 → 41 83 fa 00 (REX.B)" {
+    const enc = encCmpRImm8(.d, .r10, 0);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0x83, 0xFA, 0x00 }, enc.slice());
+}
+
+test "encJccRel8: jne +5 → 75 05 (cc=ne=5; the canonical br_table skip)" {
+    const enc = encJccRel8(.ne, 5);
+    try testing.expectEqualSlices(u8, &.{ 0x75, 0x05 }, enc.slice());
+}
+
+test "encJccRel8: je -10 → 74 f6" {
+    const enc = encJccRel8(.e, -10);
+    try testing.expectEqualSlices(u8, &.{ 0x74, 0xF6 }, enc.slice());
 }
 
 test "encAndRR: and ebx, ecx (d) → 21 cb" {
