@@ -1697,7 +1697,44 @@ ClojureWasm.
 
 ---
 
-## 10. CLI / FFI design
+## 10. Consumer surface design
+
+zwasm v2 has three independent consumer surfaces. They share
+internal core types (Runtime / Trap / Value) but each has its
+own ergonomic shape and stability boundary.
+
+### 10.A Zig library surface (per ADR-0025)
+
+Zig hosts that import zwasm as a Zig package see the surface
+defined by `src/zwasm.zig` per ADR-0025. The 3-line happy path:
+
+```zig
+const zwasm = @import("zwasm");
+var rt = try zwasm.Runtime.init(alloc, .{});
+defer rt.deinit();
+var module = try zwasm.Module.parse(&rt, wasm_bytes);
+defer module.deinit();
+var instance = try module.instantiate(.{});
+defer instance.deinit();
+try instance.invoke("fib", &args, &results);
+```
+
+**Stable surface** (per ADR-0025 D-7): `Runtime`, `Module`,
+`Instance`, `Trap`, `Value`, `WasiConfig`, `ImportEntry`,
+`TypedFunc(P, R)`, `ParseError`, `InstantiateError`. Other
+re-exports under `zwasm.parse / .ir / .engine / ...` exist for
+the build system + test runners and are **not** stability-
+committed. Breaking changes to the stable surface are allowed
+v0.1.0 → v0.2.0; SemVer compatibility starts at v1.0.
+
+ClojureWasm v1 (the only known external Zig consumer per
+CLAUDE.md context) is migrated to the new surface as Phase C
+of ADR-0025's implementation chain (after Phase D's
+`docs/migration_v1_to_v2.md` Zig section ships).
+
+### 10.B CLI surface
+
+(continues below — original §10 content)
 
 ### 10.1 Subcommands
 
