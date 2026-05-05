@@ -209,7 +209,7 @@ These do not change between phases. Changing one requires an ADR.
 ### 4.1 Four-zone layered (absolute dependency direction)
 
 ```
-Zone 3: src/cli/ + src/main.zig          -- CLI entry, subcommand
+Zone 3: src/cli/                          -- CLI entry (cli/main.zig per ADR-0024) + subcommand
         src/api/                          -- C ABI export layer (wasm.h / wasi.h / zwasm.h impl)
                                           ↓ may import anything below
 
@@ -718,7 +718,8 @@ src/api/zwasm.zig         # implements zwasm.h (was c_api/zwasm_ext.zig)
 src/api/vec.zig           # wasm_*_vec_t lifecycle helpers
 src/api/trap_surface.zig  # Trap → wasm_trap_t marshal
 src/api/cross_module.zig  # cross-module funcref dispatch
-src/api/lib_export.zig    # dylib symbol export surface (was c_api_lib.zig)
+src/zwasm.zig             # library root + zone re-export hub (per ADR-0024;
+                          # subsumes the former api/lib_export.zig role).
 ```
 
 Mass-generation of vec-type lifecycle functions via `comptime`:
@@ -918,8 +919,8 @@ zwasm_from_scratch/
 │   ├── wasi.h                  # WASI extension (Phase 4+)
 │   └── zwasm.h                 # zwasm extensions (allocator inj Phase 4+; fuel/cancel Phase 7+)
 │
-├── src/                        # Per ADR-0023; see that ADR for full per-file annotations.
-│   ├── main.zig                # CLI entry (Juicy Main)
+├── src/                        # Per ADR-0023 + ADR-0024; see those ADRs for full per-file annotations.
+│   ├── zwasm.zig               # Library root + zone re-export hub + self-import surface (per ADR-0024 D-1/D-2)
 │   ├── parse/                  # WASM Binary Format → structured Module
 │   │   ├── parser.zig
 │   │   ├── sections.zig
@@ -984,9 +985,9 @@ zwasm_from_scratch/
 │   │   ├── zwasm.zig
 │   │   ├── vec.zig
 │   │   ├── trap_surface.zig
-│   │   ├── cross_module.zig
-│   │   └── lib_export.zig      # dylib symbols (was c_api_lib.zig)
-│   ├── cli/                    # subcommands
+│   │   └── cross_module.zig
+│   ├── cli/                    # CLI exe entry + subcommands
+│   │   ├── main.zig            # Juicy Main (CLI exe entry; per ADR-0024 D-4)
 │   │   ├── run.zig
 │   │   ├── compile.zig         # Phase 12
 │   │   ├── validate.zig

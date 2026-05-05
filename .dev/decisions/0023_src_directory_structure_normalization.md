@@ -326,10 +326,10 @@ src/
 │   ├── zwasm.zig               zwasm.h ext: allocator inj / fuel / timeout / cancel / fast invoke
 │   ├── vec.zig                 wasm_*_vec_t lifecycle helpers
 │   ├── trap_surface.zig        Trap → wasm_trap_t marshal
-│   ├── cross_module.zig        cross-module funcref dispatch
-│   └── lib_export.zig          dylib symbol export surface (was c_api_lib.zig)
+│   └── cross_module.zig        cross-module funcref dispatch
 │
-├── cli/                        CLI subcommands
+├── cli/                        CLI subcommands + Juicy Main (CLI exe entry)
+│   ├── main.zig                CLI exe entry; receives std.process.Init (per ADR-0024 D-4)
 │   ├── run.zig                 zwasm run <wasm-file>
 │   ├── compile.zig             zwasm compile (Phase 12)
 │   ├── validate.zig            zwasm validate
@@ -353,7 +353,7 @@ src/
 │   ├── dbg.zig                 dev-only logger (current name retained; intent is "debug print only")
 │   └── leb128.zig              encoding helper (used by parse + codegen/aot; neutral position)
 │
-└── main.zig                    CLI entry (Juicy Main: receives std.process.Init)
+└── zwasm.zig                   library root + zone re-export hub + self-import surface (per ADR-0024 D-1/D-2). Used as `core.root_source_file` for libzwasm.a (and future shared/wasm libs); CLI exe imports it via `addImport("zwasm", core)`.
 ```
 
 `feature/<X>/register.zig` exposes `pub fn register(*DispatchTable)`.
@@ -470,7 +470,10 @@ the count of commits.
     `c_api/wasm_c_api.zig` → `api/wasm.zig`; the binding-layer
     residue from `c_api/instance.zig` (after step 5) goes to
     `api/wasm.zig` or `api/instance_binding.zig`; `c_api_lib.zig`
-    → `api/lib_export.zig`.
+    deleted (its comptime force-include role is subsumed by
+    the new `src/zwasm.zig` library root per ADR-0024 D-2; the
+    rename mentioned in the original §7 item 11 text is
+    superseded).
 12. Reorganise `cli/`: `cli/diag_print.zig` is retained;
     `compile.zig`, `wat.zig`, `wasm.zig` slots are created with
     placeholder bodies for Phase 11 / 12.
@@ -651,6 +654,7 @@ consumer materialises.
 
 ## Revision history
 
-| Date       | Commit       | Why-class | Summary                                      |
-|------------|--------------|-----------|----------------------------------------------|
-| 2026-05-04 | `<backfill>` | initial   | Adopted; consolidated Q1-Q10 design dialogue. |
+| Date       | Commit       | Why-class | Summary                                                                                                                                                                                                                                                                                                                          |
+|------------|--------------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 2026-05-04 | `<backfill>` | initial   | Adopted; consolidated Q1-Q10 design dialogue.                                                                                                                                                                                                                                                                                    |
+| 2026-05-05 | `<backfill>` | gap       | Amended by ADR-0024 (post-implementation): the §3 reference-table row for `api/lib_export.zig` is removed, `main.zig` moves to `src/cli/main.zig`, and a new `src/zwasm.zig` library root is added. ADR-0024 explains why the original ADR's directory shape couldn't serve as a Zig 0.16 lib `Module.root_source_file` directly. |

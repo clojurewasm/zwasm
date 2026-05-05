@@ -1,4 +1,14 @@
-//! `zwasm` CLI entry point.
+//! `zwasm` CLI exe entry.
+//!
+//! Per ADR-0024 D-4: lives at `src/cli/main.zig` (not at the
+//! top-level `src/main.zig`) so that the static-library root
+//! `src/zwasm.zig` does not pull in `pub fn main` — that would
+//! duplicate-define `_main` against C-host examples linking
+//! against `libzwasm.a`.
+//!
+//! The `core` module (rooted at `src/zwasm.zig`) is injected via
+//! build.zig as a named import (`addImport("zwasm", core)`); the
+//! library symbols are reached as `zwasm.<zone>.<symbol>`.
 //!
 //! Subcommands:
 //!   (none)              Print version + build options.
@@ -11,24 +21,11 @@
 
 const std = @import("std");
 const build_options = @import("build_options");
+const zwasm = @import("zwasm");
 
-pub const version = "0.0.0-pre";
-
-// Public re-exports so build-time consumers (test/spec/runner.zig,
-// integration tests) can import the frontend without poking at
-// individual files.
-pub const parser = @import("parse/parser.zig");
-pub const validator = @import("validate/validator.zig");
-pub const lowerer = @import("ir/lower.zig");
-pub const sections = @import("parse/sections.zig");
-pub const zir = @import("ir/zir.zig");
-pub const runtime = @import("runtime/runtime.zig");
-pub const cli_run = @import("cli/run.zig");
-pub const c_api = @import("api/wasm.zig");
-pub const diagnostic = @import("diagnostic/diagnostic.zig");
-pub const diag_print = @import("cli/diag_print.zig");
-pub const runner = @import("engine/runner.zig");
-pub const entry = @import("engine/codegen/shared/entry.zig");
+const cli_run = zwasm.cli.run;
+const diag_print = zwasm.cli.diag_print;
+const diagnostic = zwasm.diagnostic;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -90,7 +87,7 @@ pub fn main(init: std.process.Init) !void {
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
-    try stdout.print("zwasm v{s}\n", .{version});
+    try stdout.print("zwasm v{s}\n", .{zwasm.version});
     try stdout.print(
         "  wasm-level: {s}, wasi-level: {s}, engine: {s}\n",
         .{
@@ -111,64 +108,11 @@ fn printlnErr(io: std.Io, msg: []const u8) !void {
 }
 
 test "version is non-empty" {
-    try std.testing.expect(version.len > 0);
+    try std.testing.expect(zwasm.version.len > 0);
 }
 
 test "build options are wired" {
-    // Smoke check that build_options reaches main.zig.
     _ = build_options.wasm_level;
     _ = build_options.wasi_level;
     _ = build_options.engine_mode;
-}
-
-test {
-    _ = @import("support/leb128.zig");
-    _ = @import("support/dbg.zig");
-    _ = @import("diagnostic/diagnostic.zig");
-    _ = @import("cli/diag_print.zig");
-    _ = @import("ir/zir.zig");
-    _ = @import("ir/dispatch_table.zig");
-    _ = @import("engine/codegen/shared/reg_class.zig");
-    _ = @import("engine/codegen/shared/regalloc.zig");
-    _ = @import("engine/codegen/arm64/inst.zig");
-    _ = @import("engine/codegen/arm64/abi.zig");
-    _ = @import("engine/codegen/arm64/emit.zig");
-    _ = @import("platform/jit_mem.zig");
-    _ = @import("engine/codegen/shared/linker.zig");
-    _ = @import("engine/codegen/shared/entry.zig");
-    _ = @import("engine/codegen/shared/jit_abi.zig");
-    _ = @import("engine/codegen/shared/compile.zig");
-    _ = @import("engine/runner.zig");
-    _ = @import("ir/analysis/loop_info.zig");
-    _ = @import("ir/analysis/liveness.zig");
-    _ = @import("ir/verifier.zig");
-    _ = @import("ir/analysis/const_prop.zig");
-    _ = @import("parse/parser.zig");
-    _ = @import("validate/validator.zig");
-    _ = @import("validate/validator_tests.zig");
-    _ = @import("ir/lower.zig");
-    _ = @import("ir/lower_tests.zig");
-    _ = @import("parse/ctx.zig");
-    _ = @import("feature/mvp/mod.zig");
-    _ = @import("parse/sections.zig");
-    _ = @import("runtime/runtime.zig");
-    _ = @import("runtime/value.zig");
-    _ = @import("runtime/trap.zig");
-    _ = @import("runtime/frame.zig");
-    _ = @import("interp/dispatch.zig");
-    _ = @import("interp/mvp.zig");
-    _ = @import("instruction/wasm_1_0/memory.zig");
-    _ = @import("interp/trap_audit.zig");
-    _ = @import("instruction/wasm_2_0/sign_extension.zig");
-    _ = @import("instruction/wasm_2_0/nontrap_conversion.zig");
-    _ = @import("instruction/wasm_2_0/bulk_memory.zig");
-    _ = @import("instruction/wasm_2_0/reference_types.zig");
-    _ = @import("instruction/wasm_2_0/table_ops.zig");
-    _ = @import("api/wasm.zig");
-    _ = @import("wasi/preview1.zig");
-    _ = @import("wasi/host.zig");
-    _ = @import("wasi/proc.zig");
-    _ = @import("wasi/fd.zig");
-    _ = @import("wasi/clocks.zig");
-    _ = @import("cli/run.zig");
 }

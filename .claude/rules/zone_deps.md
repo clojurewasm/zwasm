@@ -12,7 +12,7 @@ layering contract in ROADMAP §4.1 / §A1.
 ## Zone architecture (post-ADR-0023)
 
 ```
-Zone 3: src/cli/, src/main.zig         -- CLI entry, argparse, subcommand
+Zone 3: src/cli/                       -- CLI entry (cli/main.zig per ADR-0024) + argparse, subcommand
         src/api/                        -- C ABI export layer (wasm.h / wasi.h / zwasm.h)
                                         ↓ may import anything below
 

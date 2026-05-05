@@ -34,7 +34,7 @@
 const std = @import("std");
 
 const zwasm = @import("zwasm");
-const cli_run = zwasm.cli_run;
+const cli_run = zwasm.cli.run;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

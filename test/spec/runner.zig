@@ -14,10 +14,10 @@
 const std = @import("std");
 
 const zwasm = @import("zwasm");
-const parser = zwasm.parser;
+const parser = zwasm.parse.parser;
 const runtime = zwasm.runtime;
-const sections = zwasm.sections;
-const validator = zwasm.validator;
+const sections = zwasm.parse.sections;
+const validator = zwasm.validate.validator;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -127,7 +127,7 @@ fn runOne(gpa: std.mem.Allocator, module: *runtime.Module) !void {
         };
     }
     const total_funcs = imp_func_count + defined_func_indices.len;
-    const func_types = try gpa.alloc(zwasm.zir.FuncType, total_funcs);
+    const func_types = try gpa.alloc(zwasm.ir.zir.FuncType, total_funcs);
     defer gpa.free(func_types);
     {
         var cursor: usize = 0;
@@ -195,7 +195,7 @@ fn runOne(gpa: std.mem.Allocator, module: *runtime.Module) !void {
     };
     const def_table_count: usize = if (tables_owned) |t| t.items.len else 0;
     const total_tables = imp_table_count + def_table_count;
-    const table_entries = try gpa.alloc(zwasm.zir.TableEntry, total_tables);
+    const table_entries = try gpa.alloc(zwasm.ir.zir.TableEntry, total_tables);
     defer gpa.free(table_entries);
     {
         // Imported table descriptions are recorded as kind-only (§A10);

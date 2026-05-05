@@ -53,8 +53,8 @@
 const std = @import("std");
 
 const zwasm = @import("zwasm");
-const cli_run = zwasm.cli_run;
-const parser = zwasm.parser;
+const cli_run = zwasm.cli.run;
+const parser = zwasm.parse.parser;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

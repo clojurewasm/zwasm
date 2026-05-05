@@ -154,7 +154,7 @@ These hold the canonical procedures; CLAUDE.md only points to them.
 ## Layout
 
 ```
-src/         Zig source (parse / validate / ir / runtime / instruction / feature / engine / interp / wasi / api / cli / diagnostic / support / platform); shape per ADR-0023
+src/         Zig source (zwasm.zig library root; parse / validate / ir / runtime / instruction / feature / engine / interp / wasi / api / cli / diagnostic / support / platform); shape per ADR-0023 + ADR-0024 (module graph)
 include/     Public C headers (wasm.h / wasi.h / zwasm.h)
 build.zig    Build script (Zig 0.16 idiom, with -Dwasm / -Dwasi / -Dengine flags)
 flake.nix    Nix dev shell pinned to Zig 0.16.0 + hyperfine + yq + wabt

@@ -16,7 +16,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const zwasm = @import("zwasm");
-const run_wasm = zwasm.run_wasm;
+const run_wasm = zwasm.engine.runner;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

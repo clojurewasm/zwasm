@@ -28,7 +28,15 @@ zone_of() {
         src/support/*|src/platform/*)                                                       echo 0 ;;
         src/ir/*|src/runtime/*|src/parse/*|src/validate/*|src/feature/*|src/diagnostic/*|src/instruction/*) echo 1 ;;
         src/interp/*|src/wasi/*|src/engine/*)                                               echo 2 ;;
-        src/api/*|src/cli/*|src/main.zig)                                                    echo 3 ;;
+        src/api/*|src/cli/*)                                                                 echo 3 ;;
+        # `src/zwasm.zig` is the library surface (per ADR-0024 D-2):
+        # it re-exports every zone so `libzwasm.a` and the
+        # `@import("zwasm")` self-import expose the unified
+        # surface. Classified as `lib` (special) — never reports
+        # upward-import violations. Other classifications still
+        # apply to imports *of* zwasm.zig from leaf code (treated
+        # as Zone 1 by upward-import callers).
+        src/zwasm.zig)                                                                       echo lib ;;
         *)                                                   echo "x" ;;
     esac
 }
@@ -70,6 +78,22 @@ for file in $files; do
             tgt_zone=$(zone_of "$rel")
             [ "$tgt_zone" = "x" ] && continue
             tgt_arch=$(arch_of "$rel")
+
+            # The library surface (`src/zwasm.zig`, classified
+            # as `lib`) re-exports every zone by design — the
+            # self-import named `zwasm` plus libzwasm.a's
+            # comptime force-include flow both go through here
+            # (per ADR-0024 D-2). Skip upward-import checks for
+            # this single file. Imports OF zwasm.zig from leaf
+            # code stay subject to the regular rules: leaf zones
+            # never report a violation when targeting `lib` (it
+            # sits at the top of the lattice).
+            if [ "$src_zone" = "lib" ]; then
+                continue
+            fi
+            if [ "$tgt_zone" = "lib" ]; then
+                continue
+            fi
 
             if [ "$src_zone" -lt "$tgt_zone" ]; then
                 echo "$file:$lineno: zone $src_zone imports zone $tgt_zone ($import_path)" \

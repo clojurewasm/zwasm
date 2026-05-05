@@ -27,7 +27,7 @@
 const std = @import("std");
 
 const zwasm = @import("zwasm");
-const parser = zwasm.parser;
+const parser = zwasm.parse.parser;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

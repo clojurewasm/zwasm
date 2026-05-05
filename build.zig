@@ -53,8 +53,20 @@ pub fn build(b: *std.Build) void {
     options.addOption(WasiLevel, "wasi_level", wasi_level);
     options.addOption(EngineMode, "engine_mode", engine_mode);
 
-    const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+    // ============================================================
+    // `core` module — the shared library Module per ADR-0024 D-1.
+    // Rooted at `src/zwasm.zig` so transitive `@import("../X")`
+    // chains stay inside `src/` (the subtree restriction Zig 0.16
+    // enforces). Used as `.root_module` by:
+    //   - libzwasm.a (static lib)
+    //   - test runners (spec / wast / realworld / wasi / etc.)
+    //   - the CLI exe's root_module imports it by name (Bun-style
+    //     self-import + Ghostty-style multi-artifact reuse)
+    // ADR-0024 D-2 carves out `src/zwasm.zig` as the single
+    // re-export hub and test loader.
+    // ============================================================
+    const core = b.createModule(.{
+        .root_source_file = b.path("src/zwasm.zig"),
         .target = target,
         .optimize = optimize,
         .strip = strip_opt,
@@ -64,14 +76,32 @@ pub fn build(b: *std.Build) void {
         // adjacent runtime (wasm-c-api consumers are C hosts).
         .link_libc = true,
     });
-    exe_mod.addOptions("build_options", options);
-    applySanitize(exe_mod, sanitize_c, sanitize_thread);
-
+    core.addOptions("build_options", options);
     // §9.3 / 3.1: `include/` carries the vendored C API headers
     // (wasm.h pinned via ADR-0004). Adding the path here lets
-    // src/c_api/* modules `@cImport(@cInclude("wasm.h"))` once
-    // the binding work lands in §9.3 / 3.2 onward.
+    // src/api/* modules `@cImport(@cInclude("wasm.h"))` resolve.
+    core.addIncludePath(b.path("include"));
+    applySanitize(core, sanitize_c, sanitize_thread);
+    // ADR-0024 D-3: self-import. Every leaf in `src/` can write
+    // `@import("zwasm").<zone>.<symbol>` to reach the central
+    // re-export hub regardless of nesting depth.
+    core.addImport("zwasm", core);
+
+    // CLI exe — separate thin module rooted at `src/cli/main.zig`
+    // (per ADR-0024 D-4) so `pub fn main` lives in the CLI zone
+    // and doesn't collide with C hosts' `int main` when they link
+    // against libzwasm.a.
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/cli/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .strip = strip_opt,
+        .link_libc = true,
+    });
+    exe_mod.addOptions("build_options", options);
     exe_mod.addIncludePath(b.path("include"));
+    applySanitize(exe_mod, sanitize_c, sanitize_thread);
+    exe_mod.addImport("zwasm", core);
 
     const exe = b.addExecutable(.{
         .name = "zwasm",
@@ -95,21 +125,28 @@ pub fn build(b: *std.Build) void {
     // address ... leaked` and fails the run. So `zig build test`
     // IS the leak-check gate per §9.2 / 2.5 — no separate
     // `--leak-check` step is needed.
-    const exe_tests = b.addTest(.{ .root_module = exe_mod });
-    const run_exe_tests = b.addRunArtifact(exe_tests);
+    // Unit tests run against the `core` module directly — that's
+    // where the test loader lives (per ADR-0024 D-2). The CLI
+    // exe's tests come along too via the inline `test "..."`
+    // blocks in `src/cli/main.zig`.
+    const core_tests = b.addTest(.{ .root_module = core });
+    const run_core_tests = b.addRunArtifact(core_tests);
+    const cli_tests = b.addTest(.{ .root_module = exe_mod });
+    const run_cli_tests = b.addRunArtifact(cli_tests);
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&run_core_tests.step);
+    test_step.dependOn(&run_cli_tests.step);
 
     // `zig build test-spec` — drive the frontend over the vendored
     // Wasm spec corpus (Phase 1 / §9.1 / 1.8: parser smoke; 1.9
     // upgrades to full decode + validate + lower).
-    const zwasm_lib_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    zwasm_lib_mod.addOptions("build_options", options);
-    applySanitize(zwasm_lib_mod, sanitize_c, sanitize_thread);
+    //
+    // Per ADR-0024 D-1, every test runner reuses the same `core`
+    // module via `addImport("zwasm", core)`. The `zwasm_lib_mod`
+    // alias below points at `core` so existing test-runner wiring
+    // (`spec_runner_mod.addImport("zwasm", zwasm_lib_mod)`) works
+    // without having to thread `core` through every callsite.
+    const zwasm_lib_mod = core;
     const spec_runner_mod = b.createModule(.{
         .root_source_file = b.path("test/spec/runner.zig"),
         .target = target,
@@ -310,25 +347,15 @@ pub fn build(b: *std.Build) void {
     test_wasi_p1_step.dependOn(&run_wasi_p1.step);
 
     // `zig build test-c-api` — Phase 3 / §9.3 / 3.9. Builds
-    // `libzwasm.a` from `src/c_api/lib.zig`, compiles
+    // `libzwasm.a` from the shared `core` module (rooted at
+    // `src/zwasm.zig` per ADR-0024 D-1), compiles
     // `examples/c_host/hello.c` against `include/wasm.h`, links
     // the two, and runs the resulting executable. The C host
-    // exits 0 on success (printed result == 42), non-zero on any
-    // teardown / dispatch failure — `addRunArtifact` propagates
-    // that to the `test-c-api` step.
-    const c_api_lib_mod = b.createModule(.{
-        .root_source_file = b.path("src/c_api_lib.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-    c_api_lib_mod.addOptions("build_options", options);
-    c_api_lib_mod.addIncludePath(b.path("include"));
-    applySanitize(c_api_lib_mod, sanitize_c, sanitize_thread);
+    // exits 0 on success (printed result == 42).
     const c_api_lib = b.addLibrary(.{
         .name = "zwasm",
         .linkage = .static,
-        .root_module = c_api_lib_mod,
+        .root_module = core,
     });
 
     const c_host_mod = b.createModule(.{
@@ -359,7 +386,8 @@ pub fn build(b: *std.Build) void {
     // c_api / fuzz steps as they land. Each layer registers itself
     // here so the user's invocation surface stays stable.
     const test_all_step = b.step("test-all", "Run all enabled test layers");
-    test_all_step.dependOn(&run_exe_tests.step);
+    test_all_step.dependOn(&run_core_tests.step);
+    test_all_step.dependOn(&run_cli_tests.step);
     test_all_step.dependOn(&run_spec_smoke.step);
     test_all_step.dependOn(&run_spec_mvp.step);
     test_all_step.dependOn(&run_realworld.step);

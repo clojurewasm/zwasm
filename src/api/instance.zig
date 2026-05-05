@@ -24,7 +24,6 @@
 
 const std = @import("std");
 
-const dbg = @import("../support/dbg.zig");
 const runtime = @import("../runtime/runtime.zig");
 const runtime_instance = @import("../runtime/instance/instance.zig");
 const runtime_instance_import = @import("../runtime/instance/import.zig");
@@ -40,15 +39,11 @@ const ext_sat_trunc = @import("../instruction/wasm_2_0/nontrap_conversion.zig");
 const ext_bulk_memory = @import("../instruction/wasm_2_0/bulk_memory.zig");
 const ext_ref_types = @import("../instruction/wasm_2_0/reference_types.zig");
 const ext_table_ops = @import("../instruction/wasm_2_0/table_ops.zig");
-const lowerer = @import("../ir/lower.zig");
 const parser = @import("../parse/parser.zig");
 const cross_module = @import("cross_module.zig");
 const sections = @import("../parse/sections.zig");
-const validator = @import("../validate/validator.zig");
 const zir = @import("../ir/zir.zig");
 const dispatch_table_mod = @import("../ir/dispatch_table.zig");
-const loop_info_mod = @import("../ir/analysis/loop_info.zig");
-const verifier_mod = @import("../ir/verifier.zig");
 
 const ByteVec = vec.ByteVec;
 const ValVec = vec.ValVec;

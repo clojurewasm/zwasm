@@ -54,10 +54,10 @@
 const std = @import("std");
 const zwasm = @import("zwasm");
 
-const wasm_c_api = zwasm.c_api;
-const parser = zwasm.parser;
+const wasm_c_api = zwasm.api.wasm;
+const parser = zwasm.parse.parser;
 const runtime = zwasm.runtime;
-const sections = zwasm.sections;
+const sections = zwasm.parse.sections;
 
 /// Per-corpus state. Holds the active module pipeline + a name map
 /// for `register`. One `RunnerContext` per `manifest.txt`; arena-
@@ -411,8 +411,8 @@ fn handleValidMalformedInvalid(
 }
 
 fn validateAllFunctions(a: std.mem.Allocator, module: *runtime.Module) !bool {
-    const validator = zwasm.validator;
-    const zir = zwasm.zir;
+    const validator = zwasm.validate.validator;
+    const zir = zwasm.ir.zir;
 
     const type_section = module.find(.@"type");
     const import_section = module.find(.import);
