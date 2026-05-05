@@ -20,21 +20,18 @@
 8. `.dev/debt.md` — discharge `Status: now` rows.
 9. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
 
-## Current state — Phase 7 / §9.7 / 7.6 NEXT (7.5d CLOSED)
+## Current state — Phase 7 / §9.7 / 7.6 IN-PROGRESS
 
-§9.7 / 7.5d 完全クローズ (`828a609` chunk 10 emit_test.zig 分離)。
-emit.zig 580 LOC (≤ 1000 orchestrator ✓; ≤ 2000 hard ✓)、全 11
-ARM64 子モジュール ≤ 400 LOC。file_size_check --gate pass。
-3-host green。ADR-0021 sub-deliverable b 完全 discharge。
+§9.7 / 7.6 chunk a landed `739de07` (x86_64/reg_class.zig: Gpr +
+Xmm + Width — 16 GPR / 16 XMM enums with low3()/extBit() splits
+for ModR/M + REX encoding, ~120 LOC)。3-host green。
 
-**Active task**: §9.7 / 7.6 — `src/engine/codegen/x86_64/{reg_class,
-inst, abi}.zig` (x86_64 instruction encoder + System V (Linux) +
-Win64 (Windows) calling conventions + reserved_invariant_gprs per
-ADR-0018 mapping)。ADR-0019 で Phase 7 内に backend equality を
-operationalise する設計。
+**Active task**: §9.7 / 7.6 chunk b — x86_64/inst.zig (encoder)。
+Step 0 survey 必須: 設計領域は AMD64 instruction format (REX /
+ModR/M / SIB / immediate) + winch / cranelift x86_64 idiom。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 828a609。
+**Branch**: `zwasm-from-scratch`、最新は 739de07。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -57,22 +54,18 @@ prerequisite acknowledged, allocator back-ref pattern
 documented, ImportBinding prereq stated, Phase C/D ordering
 fixed).
 
-## §9.7 / 7.6 NEXT (x86_64 reg_class + abi)
+## §9.7 / 7.6 chunk progress
 
-7.5d sub-b 完全クローズ済み (10 chunks: label/ctx/gpr/op_const/
-op_alu_int/op_alu_float/op_convert/op_memory/op_control/op_call/
-bounds_check/emit_test、SHA chain は `git log --grep="7.5d sub-b"`)。
+| # | Chunk | Status |
+|---|---|---|
+| a | reg_class.zig (Gpr + Xmm + Width) | DONE `739de07` |
+| b | inst.zig (encoder; needs Step 0 survey) | **NEXT** |
+| c | abi.zig (System V + Win64 calling conventions + reserved_invariant_gprs) | pending |
 
-次は ADR-0019 で Phase 7 内に operationalise した x86_64 backend:
-- 7.6: x86_64 reg_class.zig + inst.zig + abi.zig (encoder + SysV/Win64)
-- 7.7: x86_64 emit.zig (ZIR → x86_64 emit pass)
-- 7.8: spec test fail=skip=0 via x86_64 JIT (Linux + Windows hosts)
-- 7.9/7.10: realworld 40+ via ARM64/x86_64 JIT
-- 7.11: 3-way differential (interp == jit_arm64 == jit_x86) — 🔒 gate
-
-ADR-0021 Revision history row: ops_alu sub-split (int/float/convert)
-+ chunk-10 emit_test.zig extraction はまだ追記してない (post-7.6
-land 時 batch update)。
+ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
++ Windows hosts), 7.9/7.10 realworld, 7.11 3-way differential 🔒.
+ADR-0021 Revision history row (sub-split + emit_test extraction)
+deferred to phase boundary batch update.
 
 各 sub-step は 3-host gate green で commit + push。
 
@@ -87,10 +80,10 @@ land 時 batch update)。
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.6 chunk a: x86_64/reg_class.zig (Gpr + Xmm + Width
+  enums, 16+16 variants, ~120 LOC) (739de07)。
 - §9.7 / 7.5d 完全クローズ (sub-b chunks 1-10 landed; ROADMAP
-  flipped [x]); ADR-0021 sub-b discharged。最終 commit `828a609`
-  (chunk 10 emit_test.zig 1947 LOC mechanical extraction, 残
-  emit.zig orchestrator 580 LOC)。
+  flipped [x]); ADR-0021 sub-b discharged (48b9745)。
 - 7.5d sub-b chunk 7: op_control.zig extracted (8 control-flow
   handlers incl. D-027 merge; function-level end stays inline)
   (a6c7dcf)。
