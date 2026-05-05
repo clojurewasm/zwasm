@@ -22,17 +22,17 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5d sub-b IN-PROGRESS
 
-emit.zig 9-module split chunk 3 landed `639cb43` (op_alu_int.zig:
-i32+i64 binary/cmp/shift/rotl/rotr/clz/ctz/eqz/popcnt — 16
-handlers, ~310 LOC)。emit.zig 3862 → 3539 LOC。3-host gate green。
+emit.zig 9-module split chunk 4 landed `b796555` (op_alu_float.zig:
+f32/f64 binary/unary/copysign/min-max/cmp — 5 handlers, 13 op-arms,
+~175 LOC; popBinary/popUnary promoted to EmitCtx methods)。
+emit.zig 3539 → 3356 LOC。3-host gate green。
 
-**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 4 は
-op_alu_float.zig (f32/f64 add/sub/mul/div/abs/neg/sqrt/round系/
-copysign/min/max/cmp ~700 LOC)。chunk 5 は op_convert.zig
-(wrap/extend/convert/trunc/reinterpret ~250 LOC)。
+**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 5 は
+op_convert.zig (wrap/extend/convert/trunc/reinterpret/demote/promote
+~280 LOC)。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 639cb43。
+**Branch**: `zwasm-from-scratch`、最新は b796555。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -63,9 +63,9 @@ fixed).
 | 2 | ctx.zig (EmitCtx + Error + CallFixup) | ~95 | DONE `b663bf4` |
 | 2 | gpr.zig (writeU32 + resolveGpr/Fp + spill helpers) | ~115 | DONE `b663bf4` |
 | 2 | op_const.zig (i32.const + i64.const + emitConst*) | ~95 | DONE `b663bf4` |
-| 3 | op_alu_int.zig (i32+i64 ALU/cmp/bit-ops, 16 handlers) | ~310 | DONE `639cb43` |
-| 4 | op_alu_float.zig (f32/f64 arith/cmp/round/min/max/copysign) | ~700 | **NEXT** |
-| 5 | op_convert.zig (wrap/extend/convert/trunc/reinterpret) | ~250 | pending |
+| 3 | op_alu_int.zig (i32+i64 ALU/cmp/bit-ops, 16 handlers) | ~290 | DONE `639cb43` |
+| 4 | op_alu_float.zig (f32/f64 arith/cmp/copysign/min/max/round) | ~175 | DONE `b796555` |
+| 5 | op_convert.zig (wrap/extend/convert/trunc/reinterpret/demote/promote) | ~280 | **NEXT** |
 | 6 | op_memory.zig | ~600 | pending |
 | 7 | op_control.zig (incl. D-027 merge) | ~700 | pending |
 | 8 | op_call.zig | ~400 | pending |
@@ -81,13 +81,15 @@ fixed).
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
 - **D-026** env-stub host-func wiring — cross-module dispatch。
-- emit.zig 3539 LOC は 7.5d sub-b で discharge 中 (chunks 4-9
+- emit.zig 3356 LOC は 7.5d sub-b で discharge 中 (chunks 5-9
   remaining)。
 - api/instance.zig soft-cap (>1000 LOC) — binding code はそのまま、
   hard-cap (2000) は Step A2 で discharge 済み。
 
 ## Recently closed (per `git log --oneline -45`)
 
+- 7.5d sub-b chunk 4: op_alu_float.zig extracted; popBinary/popUnary
+  promoted to EmitCtx methods (b796555)。
 - 7.5d sub-b chunk 3: op_alu_int.zig extracted (639cb43)。
 - 7.5d sub-b chunk 2: ctx.zig + gpr.zig + op_const.zig extracted
   (b663bf4)。
