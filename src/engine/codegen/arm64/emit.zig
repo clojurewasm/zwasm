@@ -47,6 +47,9 @@ const prologue = @import("prologue.zig");
 const label_mod = @import("label.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
+const ctx_mod = @import("ctx.zig");
+const gpr = @import("gpr.zig");
+const op_const = @import("op_const.zig");
 
 const Label = label_mod.Label;
 const LabelKind = label_mod.LabelKind;
@@ -58,25 +61,15 @@ const ZirFunc = zir.ZirFunc;
 const ZirInstr = zir.ZirInstr;
 const ZirOp = zir.ZirOp;
 const Xn = inst.Xn;
+const EmitCtx = ctx_mod.EmitCtx;
 
-pub const Error = error{
-    AllocationMissing,
-    UnsupportedOp,
-    SlotOverflow,
-    OutOfMemory,
-};
+/// Re-export from `ctx.zig`. The error set lives there so
+/// op-handler modules can import it without reaching back to
+/// emit.zig.
+pub const Error = ctx_mod.Error;
 
-pub const CallFixup = struct {
-    /// Byte offset within the emitted bytes where a `BL`
-    /// placeholder lives. The caller (post-emit linker / runtime
-    /// harness) computes the target address relative to the
-    /// patch site and rewrites the imm26 field.
-    byte_offset: u32,
-    /// Wasm function index the call targets. The caller resolves
-    /// this against its function-body layout to produce the
-    /// concrete disp.
-    target_func_idx: u32,
-};
+/// Re-export from `ctx.zig`. See `ctx.CallFixup`.
+pub const CallFixup = ctx_mod.CallFixup;
 
 pub const EmitOutput = struct {
     /// Encoded function body bytes (little-endian u32 stream).
@@ -144,27 +137,27 @@ pub fn compile(
     const spill_base_off: u32 = locals_bytes;
     const frame_bytes_unaligned: u32 = locals_bytes + spill_bytes;
     const frame_bytes: u32 = (frame_bytes_unaligned + 15) & ~@as(u32, 15);
-    try writeU32(allocator, &buf, encStpFpLrPreIdx());
-    try writeU32(allocator, &buf, encMovSpToFp());
+    try gpr.writeU32(allocator, &buf, encStpFpLrPreIdx());
+    try gpr.writeU32(allocator, &buf, encMovSpToFp());
     // ADR-0017 prologue: 5 LDRs from X0 = `*const JitRuntime`
     // into the reserved invariant regs. Per ROADMAP §2 P3 (cold-
     // start over peak throughput), 5 cycles uncached overhead is
     // acceptable for Phase 7 baseline; Phase 15 optimisation may
     // elide loads when the function provably doesn't use the
     // corresponding invariant.
-    try writeU32(allocator, &buf, inst.encLdrImm(28, 0, jit_abi.vm_base_off));
-    try writeU32(allocator, &buf, inst.encLdrImm(27, 0, jit_abi.mem_limit_off));
-    try writeU32(allocator, &buf, inst.encLdrImm(26, 0, jit_abi.funcptr_base_off));
-    try writeU32(allocator, &buf, inst.encLdrImmW(25, 0, jit_abi.table_size_off));
-    try writeU32(allocator, &buf, inst.encLdrImm(24, 0, jit_abi.typeidx_base_off));
+    try gpr.writeU32(allocator, &buf, inst.encLdrImm(28, 0, jit_abi.vm_base_off));
+    try gpr.writeU32(allocator, &buf, inst.encLdrImm(27, 0, jit_abi.mem_limit_off));
+    try gpr.writeU32(allocator, &buf, inst.encLdrImm(26, 0, jit_abi.funcptr_base_off));
+    try gpr.writeU32(allocator, &buf, inst.encLdrImmW(25, 0, jit_abi.table_size_off));
+    try gpr.writeU32(allocator, &buf, inst.encLdrImm(24, 0, jit_abi.typeidx_base_off));
     // ADR-0017 sub-2d-ii: save runtime ptr to X19 so multi-call
     // functions can restore X0 before each BL/BLR. X19 is callee-
     // saved per AAPCS64 — preserved across calls without explicit
     // save/restore.
-    try writeU32(allocator, &buf, inst.encOrrReg(abi.runtime_ptr_save_gpr, 31, 0));
+    try gpr.writeU32(allocator, &buf, inst.encOrrReg(abi.runtime_ptr_save_gpr, 31, 0));
     if (frame_bytes > 0) {
         if (frame_bytes >= (@as(u32, 1) << 12)) return Error.SlotOverflow;
-        try writeU32(allocator, &buf, inst.encSubImm12(31, 31, @intCast(frame_bytes)));
+        try gpr.writeU32(allocator, &buf, inst.encSubImm12(31, 31, @intCast(frame_bytes)));
     }
 
     // ============================================================
@@ -233,41 +226,31 @@ pub fn compile(
     var call_fixups: std.ArrayList(CallFixup) = .empty;
     errdefer call_fixups.deinit(allocator);
 
+    // Bundle compile()'s mutable state behind a pointer-based
+    // EmitCtx so extracted op-handler modules (op_const, op_alu,
+    // …) observe the same backing storage as the still-inlined
+    // handlers. Op groups migrate one at a time; both views
+    // coexist.
+    var ctx: EmitCtx = .{
+        .allocator = allocator,
+        .buf = &buf,
+        .func = func,
+        .alloc = alloc,
+        .func_sigs = func_sigs,
+        .module_types = module_types,
+        .pushed_vregs = &pushed_vregs,
+        .next_vreg = &next_vreg,
+        .labels = &labels,
+        .bounds_fixups = &bounds_fixups,
+        .call_fixups = &call_fixups,
+        .spill_base_off = spill_base_off,
+    };
+
     for (func.instrs.items, 0..) |ins, pc| {
         _ = pc;
         switch (ins.op) {
-            .@"i32.const" => {
-                // The const's destination vreg is the next-to-be-pushed
-                // vreg id. Slot it; if spilled, materialise into a
-                // stage reg + STR to the spill frame (sub-1c).
-                const vreg = next_vreg;
-                next_vreg += 1;
-                if (vreg >= alloc.slots.len) return Error.SlotOverflow;
-                const xd = try gprDefSpilled(alloc, vreg, 0);
-                try emitConstU32(allocator, &buf, xd, ins.payload);
-                try gprStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
-                try pushed_vregs.append(allocator, vreg);
-            },
-            .@"i64.const" => {
-                // ZirInstr packs u64 across (payload, extra):
-                //   low_32 = payload, high_32 = extra.
-                // Emit MOVZ (low 16) + MOVK lanes for any non-zero
-                // upper lane. MOVZ zeros, MOVK keeps lower lanes.
-                const vreg = next_vreg;
-                next_vreg += 1;
-                if (vreg >= alloc.slots.len) return Error.SlotOverflow;
-                const xd = try resolveGpr(alloc, vreg);
-                const value: u64 = (@as(u64, ins.extra) << 32) | @as(u64, ins.payload);
-                const lane0: u16 = @truncate(value & 0xFFFF);
-                const lane1: u16 = @truncate((value >> 16) & 0xFFFF);
-                const lane2: u16 = @truncate((value >> 32) & 0xFFFF);
-                const lane3: u16 = @truncate((value >> 48) & 0xFFFF);
-                try writeU32(allocator, &buf, inst.encMovzImm16(xd, lane0));
-                if (lane1 != 0) try writeU32(allocator, &buf, inst.encMovkImm16(xd, lane1, 1));
-                if (lane2 != 0) try writeU32(allocator, &buf, inst.encMovkImm16(xd, lane2, 2));
-                if (lane3 != 0) try writeU32(allocator, &buf, inst.encMovkImm16(xd, lane3, 3));
-                try pushed_vregs.append(allocator, vreg);
-            },
+            .@"i32.const" => try op_const.emitI32Const(&ctx, &ins),
+            .@"i64.const" => try op_const.emitI64Const(&ctx, &ins),
             .@"i64.add",
             .@"i64.sub",
             .@"i64.mul",
@@ -285,9 +268,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try resolveGpr(alloc, lhs);
-                const xm = try resolveGpr(alloc, rhs);
-                const xd = try resolveGpr(alloc, result);
+                const xn = try gpr.resolveGpr(alloc, lhs);
+                const xm = try gpr.resolveGpr(alloc, rhs);
+                const xd = try gpr.resolveGpr(alloc, result);
                 const word: u32 = switch (ins.op) {
                     .@"i64.add" => inst.encAddReg(xd, xn, xm),
                     .@"i64.sub" => inst.encSubReg(xd, xn, xm),
@@ -297,7 +280,7 @@ pub fn compile(
                     .@"i64.xor" => inst.encEorReg(xd, xn, xm),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             .@"i64.eq",
@@ -320,9 +303,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try resolveGpr(alloc, lhs);
-                const xm = try resolveGpr(alloc, rhs);
-                const wd = try resolveGpr(alloc, result);
+                const xn = try gpr.resolveGpr(alloc, lhs);
+                const xm = try gpr.resolveGpr(alloc, rhs);
+                const wd = try gpr.resolveGpr(alloc, result);
                 const cond: inst.Cond = switch (ins.op) {
                     .@"i64.eq"   => .eq,
                     .@"i64.ne"   => .ne,
@@ -336,8 +319,8 @@ pub fn compile(
                     .@"i64.ge_u" => .hs,
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, inst.encCmpRegX(xn, xm));
-                try writeU32(allocator, &buf, inst.encCsetW(wd, cond));
+                try gpr.writeU32(allocator, &buf, inst.encCmpRegX(xn, xm));
+                try gpr.writeU32(allocator, &buf, inst.encCsetW(wd, cond));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i64.eqz" => {
@@ -346,10 +329,10 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try resolveGpr(alloc, lhs);
-                const wd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encCmpImmX(xn, 0));
-                try writeU32(allocator, &buf, inst.encCsetW(wd, .eq));
+                const xn = try gpr.resolveGpr(alloc, lhs);
+                const wd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encCmpImmX(xn, 0));
+                try gpr.writeU32(allocator, &buf, inst.encCsetW(wd, .eq));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i64.shl",
@@ -364,9 +347,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try resolveGpr(alloc, lhs);
-                const xm = try resolveGpr(alloc, rhs);
-                const xd = try resolveGpr(alloc, result);
+                const xn = try gpr.resolveGpr(alloc, lhs);
+                const xm = try gpr.resolveGpr(alloc, rhs);
+                const xd = try gpr.resolveGpr(alloc, result);
                 const word: u32 = switch (ins.op) {
                     .@"i64.shl"   => inst.encLslvRegX(xd, xn, xm),
                     .@"i64.shr_s" => inst.encAsrvRegX(xd, xn, xm),
@@ -374,7 +357,7 @@ pub fn compile(
                     .@"i64.rotr"  => inst.encRorvRegX(xd, xn, xm),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             .@"i64.rotl" => {
@@ -390,13 +373,13 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try resolveGpr(alloc, lhs);
-                const xm = try resolveGpr(alloc, rhs);
-                const xd = try resolveGpr(alloc, result);
+                const xn = try gpr.resolveGpr(alloc, lhs);
+                const xm = try gpr.resolveGpr(alloc, rhs);
+                const xd = try gpr.resolveGpr(alloc, result);
                 const ip0: inst.Xn = 16;
-                try writeU32(allocator, &buf, inst.encMovzImm16(ip0, 64));
-                try writeU32(allocator, &buf, inst.encSubReg(ip0, ip0, xm));
-                try writeU32(allocator, &buf, inst.encRorvRegX(xd, xn, ip0));
+                try gpr.writeU32(allocator, &buf, inst.encMovzImm16(ip0, 64));
+                try gpr.writeU32(allocator, &buf, inst.encSubReg(ip0, ip0, xm));
+                try gpr.writeU32(allocator, &buf, inst.encRorvRegX(xd, xn, ip0));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i64.clz" => {
@@ -405,9 +388,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try resolveGpr(alloc, lhs);
-                const xd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encClzX(xd, xn));
+                const xn = try gpr.resolveGpr(alloc, lhs);
+                const xd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encClzX(xd, xn));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i64.ctz" => {
@@ -416,10 +399,10 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try resolveGpr(alloc, lhs);
-                const xd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encRbitX(xd, xn));
-                try writeU32(allocator, &buf, inst.encClzX(xd, xd));
+                const xn = try gpr.resolveGpr(alloc, lhs);
+                const xd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encRbitX(xd, xn));
+                try gpr.writeU32(allocator, &buf, inst.encClzX(xd, xd));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.wrap_i64", .@"i64.extend_i32_u" => {
@@ -432,9 +415,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const wd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encOrrRegW(wd, 31, wn));
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const wd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encOrrRegW(wd, 31, wn));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i64.extend_i32_s" => {
@@ -444,9 +427,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const xd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encSxtw(xd, wn));
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const xd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encSxtw(xd, wn));
                 try pushed_vregs.append(allocator, result);
             },
             // sub-h2: int → float convert. Source is GPR slot
@@ -465,8 +448,8 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const src = try resolveGpr(alloc, lhs);
-                const vd = try resolveFp(alloc, result);
+                const src = try gpr.resolveGpr(alloc, lhs);
+                const vd = try gpr.resolveFp(alloc, result);
                 const word: u32 = switch (ins.op) {
                     .@"f32.convert_i32_s" => inst.encScvtfSFromW(vd, src),
                     .@"f32.convert_i32_u" => inst.encUcvtfSFromW(vd, src),
@@ -478,7 +461,7 @@ pub fn compile(
                     .@"f64.convert_i64_u" => inst.encUcvtfDFromX(vd, src),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             // sub-h3a: Wasm 1.0 trapping trunc, f32 source.
@@ -499,8 +482,8 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const dest = try resolveGpr(alloc, result);
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const dest = try gpr.resolveGpr(alloc, result);
 
                 const Bounds = struct { lo: u32, hi: u32, lo_cmp: inst.Cond };
                 const b: Bounds = switch (ins.op) {
@@ -518,7 +501,7 @@ pub fn compile(
                     .@"i64.trunc_f32_u" => inst.encFcvtzuXFromS(dest, vn),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             // sub-h3b: Wasm 1.0 trapping trunc, f64 source.
@@ -538,8 +521,8 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const dest = try resolveGpr(alloc, result);
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const dest = try gpr.resolveGpr(alloc, result);
 
                 const Bounds = struct { lo: u64, hi: u64, lo_cmp: inst.Cond };
                 const b: Bounds = switch (ins.op) {
@@ -557,7 +540,7 @@ pub fn compile(
                     .@"i64.trunc_f64_u" => inst.encFcvtzuXFromD(dest, vn),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             // sub-h5: Wasm 2.0 sat_trunc — float→int with saturation.
@@ -578,8 +561,8 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const dest = try resolveGpr(alloc, result);
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const dest = try gpr.resolveGpr(alloc, result);
                 const word: u32 = switch (ins.op) {
                     .@"i32.trunc_sat_f32_s" => inst.encFcvtzsWFromS(dest, vn),
                     .@"i32.trunc_sat_f32_u" => inst.encFcvtzuWFromS(dest, vn),
@@ -591,7 +574,7 @@ pub fn compile(
                     .@"i64.trunc_sat_f64_u" => inst.encFcvtzuXFromD(dest, vn),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             // sub-h4: reinterpret (bit-cast). All 4 ops compile to
@@ -604,9 +587,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const wd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encFmovWFromS(wd, vn));
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const wd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encFmovWFromS(wd, vn));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i64.reinterpret_f64" => {
@@ -615,9 +598,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const xd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encFmovXFromD(xd, vn));
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const xd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encFmovXFromD(xd, vn));
                 try pushed_vregs.append(allocator, result);
             },
             .@"f32.reinterpret_i32" => {
@@ -626,9 +609,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const vd = try resolveFp(alloc, result);
-                try writeU32(allocator, &buf, inst.encFmovStoFromW(vd, wn));
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const vd = try gpr.resolveFp(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encFmovStoFromW(vd, wn));
                 try pushed_vregs.append(allocator, result);
             },
             .@"f64.reinterpret_i64" => {
@@ -637,9 +620,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try resolveGpr(alloc, lhs);
-                const vd = try resolveFp(alloc, result);
-                try writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, xn));
+                const xn = try gpr.resolveGpr(alloc, lhs);
+                const vd = try gpr.resolveFp(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, xn));
                 try pushed_vregs.append(allocator, result);
             },
             // sub-h2: float demote/promote. Both src and dest are
@@ -650,14 +633,14 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const vd = try resolveFp(alloc, result);
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const vd = try gpr.resolveFp(alloc, result);
                 const word: u32 = switch (ins.op) {
                     .@"f32.demote_f64" => inst.encFcvtSFromD(vd, vn),
                     .@"f64.promote_f32" => inst.encFcvtDFromS(vd, vn),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             .@"f32.const" => {
@@ -671,10 +654,10 @@ pub fn compile(
                 const vreg = next_vreg;
                 next_vreg += 1;
                 if (vreg >= alloc.slots.len) return Error.SlotOverflow;
-                const vd = try resolveFp(alloc, vreg);
-                const w_scratch = try resolveGpr(alloc, vreg);
-                try emitConstU32(allocator, &buf, w_scratch, ins.payload);
-                try writeU32(allocator, &buf, inst.encFmovStoFromW(vd, w_scratch));
+                const vd = try gpr.resolveFp(alloc, vreg);
+                const w_scratch = try gpr.resolveGpr(alloc, vreg);
+                try op_const.emitConstU32(allocator, &buf, w_scratch, ins.payload);
+                try gpr.writeU32(allocator, &buf, inst.encFmovStoFromW(vd, w_scratch));
                 try pushed_vregs.append(allocator, vreg);
             },
             .@"f64.const" => {
@@ -682,18 +665,18 @@ pub fn compile(
                 const vreg = next_vreg;
                 next_vreg += 1;
                 if (vreg >= alloc.slots.len) return Error.SlotOverflow;
-                const vd = try resolveFp(alloc, vreg);
-                const x_scratch = try resolveGpr(alloc, vreg);
+                const vd = try gpr.resolveFp(alloc, vreg);
+                const x_scratch = try gpr.resolveGpr(alloc, vreg);
                 const value: u64 = (@as(u64, ins.extra) << 32) | @as(u64, ins.payload);
                 const lane0: u16 = @truncate(value & 0xFFFF);
                 const lane1: u16 = @truncate((value >> 16) & 0xFFFF);
                 const lane2: u16 = @truncate((value >> 32) & 0xFFFF);
                 const lane3: u16 = @truncate((value >> 48) & 0xFFFF);
-                try writeU32(allocator, &buf, inst.encMovzImm16(x_scratch, lane0));
-                if (lane1 != 0) try writeU32(allocator, &buf, inst.encMovkImm16(x_scratch, lane1, 1));
-                if (lane2 != 0) try writeU32(allocator, &buf, inst.encMovkImm16(x_scratch, lane2, 2));
-                if (lane3 != 0) try writeU32(allocator, &buf, inst.encMovkImm16(x_scratch, lane3, 3));
-                try writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, x_scratch));
+                try gpr.writeU32(allocator, &buf, inst.encMovzImm16(x_scratch, lane0));
+                if (lane1 != 0) try gpr.writeU32(allocator, &buf, inst.encMovkImm16(x_scratch, lane1, 1));
+                if (lane2 != 0) try gpr.writeU32(allocator, &buf, inst.encMovkImm16(x_scratch, lane2, 2));
+                if (lane3 != 0) try gpr.writeU32(allocator, &buf, inst.encMovkImm16(x_scratch, lane3, 3));
+                try gpr.writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, x_scratch));
                 try pushed_vregs.append(allocator, vreg);
             },
             .@"f32.add",
@@ -711,9 +694,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const vm = try resolveFp(alloc, rhs);
-                const vd = try resolveFp(alloc, result);
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const vm = try gpr.resolveFp(alloc, rhs);
+                const vd = try gpr.resolveFp(alloc, result);
                 const word: u32 = switch (ins.op) {
                     .@"f32.add" => inst.encFAddS(vd, vn, vm),
                     .@"f32.sub" => inst.encFSubS(vd, vn, vm),
@@ -725,7 +708,7 @@ pub fn compile(
                     .@"f64.div" => inst.encFDivD(vd, vn, vm),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             .@"f32.abs",
@@ -748,8 +731,8 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const vd = try resolveFp(alloc, result);
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const vd = try gpr.resolveFp(alloc, result);
                 const word: u32 = switch (ins.op) {
                     .@"f32.abs"     => inst.encFAbsS(vd, vn),
                     .@"f32.neg"     => inst.encFNegS(vd, vn),
@@ -767,7 +750,7 @@ pub fn compile(
                     .@"f64.nearest" => inst.encFRintND(vd, vn),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             .@"f32.copysign",
@@ -795,32 +778,32 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn_x = try resolveFp(alloc, lhs_x);
-                const vm_y = try resolveFp(alloc, rhs_y);
-                const vd = try resolveFp(alloc, result);
-                const w_a = try resolveGpr(alloc, result);
+                const vn_x = try gpr.resolveFp(alloc, lhs_x);
+                const vm_y = try gpr.resolveFp(alloc, rhs_y);
+                const vd = try gpr.resolveFp(alloc, result);
+                const w_a = try gpr.resolveGpr(alloc, result);
                 const ip0: inst.Xn = 16;
                 const ip1: inst.Xn = 17;
                 const is_d = ins.op == .@"f64.copysign";
                 // Build sign-bit mask in IP0 (lower 32 for f32 in W,
                 // top lane for f64 in X):
-                try writeU32(allocator, &buf, inst.encMovzImm16(ip0, 0));
+                try gpr.writeU32(allocator, &buf, inst.encMovzImm16(ip0, 0));
                 const mask_lsl_hw: u2 = if (is_d) 3 else 1;
-                try writeU32(allocator, &buf, inst.encMovkImm16(ip0, 0x8000, mask_lsl_hw));
+                try gpr.writeU32(allocator, &buf, inst.encMovkImm16(ip0, 0x8000, mask_lsl_hw));
                 if (is_d) {
-                    try writeU32(allocator, &buf, inst.encFmovXFromD(w_a, vn_x));
-                    try writeU32(allocator, &buf, inst.encBicRegX(w_a, w_a, ip0));
-                    try writeU32(allocator, &buf, inst.encFmovXFromD(ip1, vm_y));
-                    try writeU32(allocator, &buf, inst.encAndReg(ip1, ip1, ip0));
-                    try writeU32(allocator, &buf, inst.encOrrReg(w_a, w_a, ip1));
-                    try writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, w_a));
+                    try gpr.writeU32(allocator, &buf, inst.encFmovXFromD(w_a, vn_x));
+                    try gpr.writeU32(allocator, &buf, inst.encBicRegX(w_a, w_a, ip0));
+                    try gpr.writeU32(allocator, &buf, inst.encFmovXFromD(ip1, vm_y));
+                    try gpr.writeU32(allocator, &buf, inst.encAndReg(ip1, ip1, ip0));
+                    try gpr.writeU32(allocator, &buf, inst.encOrrReg(w_a, w_a, ip1));
+                    try gpr.writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, w_a));
                 } else {
-                    try writeU32(allocator, &buf, inst.encFmovWFromS(w_a, vn_x));
-                    try writeU32(allocator, &buf, inst.encBicRegW(w_a, w_a, ip0));
-                    try writeU32(allocator, &buf, inst.encFmovWFromS(ip1, vm_y));
-                    try writeU32(allocator, &buf, inst.encAndRegW(ip1, ip1, ip0));
-                    try writeU32(allocator, &buf, inst.encOrrRegW(w_a, w_a, ip1));
-                    try writeU32(allocator, &buf, inst.encFmovStoFromW(vd, w_a));
+                    try gpr.writeU32(allocator, &buf, inst.encFmovWFromS(w_a, vn_x));
+                    try gpr.writeU32(allocator, &buf, inst.encBicRegW(w_a, w_a, ip0));
+                    try gpr.writeU32(allocator, &buf, inst.encFmovWFromS(ip1, vm_y));
+                    try gpr.writeU32(allocator, &buf, inst.encAndRegW(ip1, ip1, ip0));
+                    try gpr.writeU32(allocator, &buf, inst.encOrrRegW(w_a, w_a, ip1));
+                    try gpr.writeU32(allocator, &buf, inst.encFmovStoFromW(vd, w_a));
                 }
                 try pushed_vregs.append(allocator, result);
             },
@@ -835,9 +818,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const vm = try resolveFp(alloc, rhs);
-                const vd = try resolveFp(alloc, result);
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const vm = try gpr.resolveFp(alloc, rhs);
+                const vd = try gpr.resolveFp(alloc, result);
                 const word: u32 = switch (ins.op) {
                     .@"f32.min" => inst.encFMinS(vd, vn, vm),
                     .@"f32.max" => inst.encFMaxS(vd, vn, vm),
@@ -845,7 +828,7 @@ pub fn compile(
                     .@"f64.max" => inst.encFMaxD(vd, vn, vm),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             .@"f32.eq",
@@ -875,9 +858,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try resolveFp(alloc, lhs);
-                const vm = try resolveFp(alloc, rhs);
-                const wd = try resolveGpr(alloc, result);
+                const vn = try gpr.resolveFp(alloc, lhs);
+                const vm = try gpr.resolveFp(alloc, rhs);
+                const wd = try gpr.resolveGpr(alloc, result);
                 const is_d = switch (ins.op) {
                     .@"f64.eq", .@"f64.ne", .@"f64.lt", .@"f64.gt", .@"f64.le", .@"f64.ge" => true,
                     else => false,
@@ -891,8 +874,8 @@ pub fn compile(
                     .@"f32.ge", .@"f64.ge" => .ge,
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, if (is_d) inst.encFCmpD(vn, vm) else inst.encFCmpS(vn, vm));
-                try writeU32(allocator, &buf, inst.encCsetW(wd, cond));
+                try gpr.writeU32(allocator, &buf, if (is_d) inst.encFCmpD(vn, vm) else inst.encFCmpS(vn, vm));
+                try gpr.writeU32(allocator, &buf, inst.encCsetW(wd, cond));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i64.popcnt" => {
@@ -907,13 +890,13 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try resolveGpr(alloc, lhs);
-                const wd = try resolveGpr(alloc, result);
+                const xn = try gpr.resolveGpr(alloc, lhs);
+                const wd = try gpr.resolveGpr(alloc, result);
                 const v_scratch: inst.Vn = 31;
-                try writeU32(allocator, &buf, inst.encFmovDtoFromX(v_scratch, xn));
-                try writeU32(allocator, &buf, inst.encCntV8B(v_scratch, v_scratch));
-                try writeU32(allocator, &buf, inst.encAddvB8B(v_scratch, v_scratch));
-                try writeU32(allocator, &buf, inst.encUmovWFromVB0(wd, v_scratch));
+                try gpr.writeU32(allocator, &buf, inst.encFmovDtoFromX(v_scratch, xn));
+                try gpr.writeU32(allocator, &buf, inst.encCntV8B(v_scratch, v_scratch));
+                try gpr.writeU32(allocator, &buf, inst.encAddvB8B(v_scratch, v_scratch));
+                try gpr.writeU32(allocator, &buf, inst.encUmovWFromVB0(wd, v_scratch));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.add",
@@ -935,9 +918,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const wm = try resolveGpr(alloc, rhs);
-                const wd = try resolveGpr(alloc, result);
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const wm = try gpr.resolveGpr(alloc, rhs);
+                const wd = try gpr.resolveGpr(alloc, result);
                 const word: u32 = switch (ins.op) {
                     .@"i32.add"   => inst.encAddRegW(wd, wn, wm),
                     .@"i32.sub"   => inst.encSubRegW(wd, wn, wm),
@@ -950,7 +933,7 @@ pub fn compile(
                     .@"i32.shr_u" => inst.encLsrvRegW(wd, wn, wm),
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, word);
+                try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.rotr" => {
@@ -961,10 +944,10 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const wm = try resolveGpr(alloc, rhs);
-                const wd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encRorvRegW(wd, wn, wm));
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const wm = try gpr.resolveGpr(alloc, rhs);
+                const wd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encRorvRegW(wd, wn, wm));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.rotl" => {
@@ -980,13 +963,13 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const wm = try resolveGpr(alloc, rhs);
-                const wd = try resolveGpr(alloc, result);
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const wm = try gpr.resolveGpr(alloc, rhs);
+                const wd = try gpr.resolveGpr(alloc, result);
                 const ip0: Xn = 16;
-                try writeU32(allocator, &buf, inst.encMovzImm16(ip0, 32));
-                try writeU32(allocator, &buf, inst.encSubRegW(ip0, ip0, wm));
-                try writeU32(allocator, &buf, inst.encRorvRegW(wd, wn, ip0));
+                try gpr.writeU32(allocator, &buf, inst.encMovzImm16(ip0, 32));
+                try gpr.writeU32(allocator, &buf, inst.encSubRegW(ip0, ip0, wm));
+                try gpr.writeU32(allocator, &buf, inst.encRorvRegW(wd, wn, ip0));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.eq",
@@ -1008,9 +991,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const wm = try resolveGpr(alloc, rhs);
-                const wd = try resolveGpr(alloc, result);
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const wm = try gpr.resolveGpr(alloc, rhs);
+                const wd = try gpr.resolveGpr(alloc, result);
                 const cond: inst.Cond = switch (ins.op) {
                     .@"i32.eq"   => .eq,
                     .@"i32.ne"   => .ne,
@@ -1024,8 +1007,8 @@ pub fn compile(
                     .@"i32.ge_u" => .hs,
                     else => unreachable,
                 };
-                try writeU32(allocator, &buf, inst.encCmpRegW(wn, wm));
-                try writeU32(allocator, &buf, inst.encCsetW(wd, cond));
+                try gpr.writeU32(allocator, &buf, inst.encCmpRegW(wn, wm));
+                try gpr.writeU32(allocator, &buf, inst.encCsetW(wd, cond));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.eqz" => {
@@ -1035,10 +1018,10 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const wd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encCmpImmW(wn, 0));
-                try writeU32(allocator, &buf, inst.encCsetW(wd, .eq));
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const wd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encCmpImmW(wn, 0));
+                try gpr.writeU32(allocator, &buf, inst.encCsetW(wd, .eq));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.clz" => {
@@ -1048,9 +1031,9 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const wd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encClzW(wd, wn));
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const wd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encClzW(wd, wn));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.ctz" => {
@@ -1062,10 +1045,10 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const wd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encRbitW(wd, wn));
-                try writeU32(allocator, &buf, inst.encClzW(wd, wd));
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const wd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encRbitW(wd, wn));
+                try gpr.writeU32(allocator, &buf, inst.encClzW(wd, wd));
                 try pushed_vregs.append(allocator, result);
             },
             .@"local.get" => {
@@ -1077,8 +1060,8 @@ pub fn compile(
                 const vreg = next_vreg;
                 next_vreg += 1;
                 if (vreg >= alloc.slots.len) return Error.SlotOverflow;
-                const wd = try resolveGpr(alloc, vreg);
-                try writeU32(allocator, &buf, inst.encLdrImmW(wd, 31, offset));
+                const wd = try gpr.resolveGpr(alloc, vreg);
+                try gpr.writeU32(allocator, &buf, inst.encLdrImmW(wd, 31, offset));
                 try pushed_vregs.append(allocator, vreg);
             },
             .@"local.set" => {
@@ -1088,8 +1071,8 @@ pub fn compile(
                 if (local_idx >= num_locals) return Error.UnsupportedOp;
                 const offset: u14 = @intCast(local_idx * 8);
                 const src = pushed_vregs.pop().?;
-                const ws = try resolveGpr(alloc, src);
-                try writeU32(allocator, &buf, inst.encStrImmW(ws, 31, offset));
+                const ws = try gpr.resolveGpr(alloc, src);
+                try gpr.writeU32(allocator, &buf, inst.encStrImmW(ws, 31, offset));
             },
             .@"local.tee" => {
                 // Write top vreg to [SP, #(local_idx * 8)] WITHOUT
@@ -1099,8 +1082,8 @@ pub fn compile(
                 if (local_idx >= num_locals) return Error.UnsupportedOp;
                 const offset: u14 = @intCast(local_idx * 8);
                 const src = pushed_vregs.items[pushed_vregs.items.len - 1];
-                const ws = try resolveGpr(alloc, src);
-                try writeU32(allocator, &buf, inst.encStrImmW(ws, 31, offset));
+                const ws = try gpr.resolveGpr(alloc, src);
+                try gpr.writeU32(allocator, &buf, inst.encStrImmW(ws, 31, offset));
             },
             .@"i32.popcnt" => {
                 // ARM has no GPR-side popcount; the canonical idiom
@@ -1114,13 +1097,13 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try resolveGpr(alloc, lhs);
-                const wd = try resolveGpr(alloc, result);
+                const wn = try gpr.resolveGpr(alloc, lhs);
+                const wd = try gpr.resolveGpr(alloc, result);
                 const v_scratch: inst.Vn = 31;
-                try writeU32(allocator, &buf, inst.encFmovStoFromW(v_scratch, wn));
-                try writeU32(allocator, &buf, inst.encCntV8B(v_scratch, v_scratch));
-                try writeU32(allocator, &buf, inst.encAddvB8B(v_scratch, v_scratch));
-                try writeU32(allocator, &buf, inst.encUmovWFromVB0(wd, v_scratch));
+                try gpr.writeU32(allocator, &buf, inst.encFmovStoFromW(v_scratch, wn));
+                try gpr.writeU32(allocator, &buf, inst.encCntV8B(v_scratch, v_scratch));
+                try gpr.writeU32(allocator, &buf, inst.encAddvB8B(v_scratch, v_scratch));
+                try gpr.writeU32(allocator, &buf, inst.encUmovWFromVB0(wd, v_scratch));
                 try pushed_vregs.append(allocator, result);
             },
             .@"block" => {
@@ -1147,10 +1130,10 @@ pub fn compile(
                     // Backward branch — target is known.
                     const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
                         @as(i32, @intCast(fixup_at));
-                    try writeU32(allocator, &buf, inst.encB(@divExact(disp_words, 4)));
+                    try gpr.writeU32(allocator, &buf, inst.encB(@divExact(disp_words, 4)));
                 } else {
                     // Forward branch — record fixup, emit placeholder.
-                    try writeU32(allocator, &buf, inst.encB(0));
+                    try gpr.writeU32(allocator, &buf, inst.encB(0));
                     try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
                 }
             },
@@ -1169,14 +1152,14 @@ pub fn compile(
                 // function tail (shared with memory bounds — single
                 // trap reason today; Diagnostic M3 / D-022 splits
                 // them later).
-                const w_idx = try resolveGpr(alloc, idx_vreg);
-                try writeU32(allocator, &buf, inst.encOrrRegW(17, 31, w_idx));
+                const w_idx = try gpr.resolveGpr(alloc, idx_vreg);
+                try gpr.writeU32(allocator, &buf, inst.encOrrRegW(17, 31, w_idx));
 
                 // Bounds: CMP W17, W25 ; B.HS trap.
-                try writeU32(allocator, &buf, inst.encCmpRegW(17, 25));
+                try gpr.writeU32(allocator, &buf, inst.encCmpRegW(17, 25));
                 {
                     const fixup_at: u32 = @intCast(buf.items.len);
-                    try writeU32(allocator, &buf, inst.encBCond(.hs, 0));
+                    try gpr.writeU32(allocator, &buf, inst.encBCond(.hs, 0));
                     try bounds_fixups.append(allocator, fixup_at);
                 }
 
@@ -1187,19 +1170,19 @@ pub fn compile(
                 // which the lowerer / module-level driver may
                 // surface as an explicit bound to the user.
                 if (ins.payload >= 4096) return Error.UnsupportedOp;
-                try writeU32(allocator, &buf, inst.encLdrWRegLsl2(16, 24, 17));
-                try writeU32(allocator, &buf, inst.encCmpImmW(16, @intCast(ins.payload)));
+                try gpr.writeU32(allocator, &buf, inst.encLdrWRegLsl2(16, 24, 17));
+                try gpr.writeU32(allocator, &buf, inst.encCmpImmW(16, @intCast(ins.payload)));
                 {
                     const fixup_at: u32 = @intCast(buf.items.len);
-                    try writeU32(allocator, &buf, inst.encBCond(.ne, 0));
+                    try gpr.writeU32(allocator, &buf, inst.encBCond(.ne, 0));
                     try bounds_fixups.append(allocator, fixup_at);
                 }
 
                 // Funcptr load + BLR. Restore X0 = runtime_ptr
                 // (ADR-0017 sub-2d-ii) before transferring control.
-                try writeU32(allocator, &buf, inst.encLdrXRegLsl3(17, 26, 17));
-                try writeU32(allocator, &buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
-                try writeU32(allocator, &buf, inst.encBLR(17));
+                try gpr.writeU32(allocator, &buf, inst.encLdrXRegLsl3(17, 26, 17));
+                try gpr.writeU32(allocator, &buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
+                try gpr.writeU32(allocator, &buf, inst.encBLR(17));
 
                 try captureCallResult(allocator, &buf, callee_sig, alloc, &pushed_vregs, &next_vreg);
             },
@@ -1212,13 +1195,13 @@ pub fn compile(
                 // ADR-0017 sub-2d-ii: restore runtime_ptr in X0
                 // (X0 is caller-saved per AAPCS64, may have been
                 // clobbered by an earlier call in this function).
-                try writeU32(allocator, &buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
+                try gpr.writeU32(allocator, &buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
 
                 // BL placeholder; the post-emit linker patches via
                 // EmitOutput.call_fixups once function-body offsets
                 // are known.
                 const fixup_at: u32 = @intCast(buf.items.len);
-                try writeU32(allocator, &buf, inst.encBL(0));
+                try gpr.writeU32(allocator, &buf, inst.encBL(0));
                 try call_fixups.append(allocator, .{
                     .byte_offset = fixup_at,
                     .target_func_idx = ins.payload,
@@ -1234,8 +1217,8 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encLsrImmW(wd, 27, 16));
+                const wd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encLsrImmW(wd, 27, 16));
                 try pushed_vregs.append(allocator, result);
             },
             .@"memory.grow" => {
@@ -1251,8 +1234,8 @@ pub fn compile(
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wd = try resolveGpr(alloc, result);
-                try writeU32(allocator, &buf, inst.encMovnImmW(wd, 0));
+                const wd = try gpr.resolveGpr(alloc, result);
+                try gpr.writeU32(allocator, &buf, inst.encMovnImmW(wd, 0));
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
@@ -1299,24 +1282,24 @@ pub fn compile(
                     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                     addr_vreg = pushed_vregs.pop().?;
                 }
-                const w_addr = try resolveGpr(alloc, addr_vreg);
+                const w_addr = try gpr.resolveGpr(alloc, addr_vreg);
 
                 // Effective-address + bounds prologue.
-                try writeU32(allocator, &buf, inst.encOrrRegW(ip0, 31, w_addr));
+                try gpr.writeU32(allocator, &buf, inst.encOrrRegW(ip0, 31, w_addr));
                 if (offset_imm != 0) {
-                    try writeU32(allocator, &buf, inst.encAddImm12(ip0, ip0, @intCast(offset_imm)));
+                    try gpr.writeU32(allocator, &buf, inst.encAddImm12(ip0, ip0, @intCast(offset_imm)));
                 }
-                try writeU32(allocator, &buf, inst.encCmpRegX(ip0, 27));
+                try gpr.writeU32(allocator, &buf, inst.encCmpRegX(ip0, 27));
                 const fixup_at: u32 = @intCast(buf.items.len);
-                try writeU32(allocator, &buf, inst.encBCond(.hs, 0));
+                try gpr.writeU32(allocator, &buf, inst.encBCond(.hs, 0));
                 try bounds_fixups.append(allocator, fixup_at);
 
                 // Final LDR/STR. Allocate result vreg first for loads.
                 if (is_store) {
                     const wv: inst.Xn = if (is_fp_value)
-                        try resolveFp(alloc, val_vreg)
+                        try gpr.resolveFp(alloc, val_vreg)
                     else
-                        try resolveGpr(alloc, val_vreg);
+                        try gpr.resolveGpr(alloc, val_vreg);
                     const word: u32 = switch (ins.op) {
                         .@"i32.store"   => inst.encStrWReg(wv, 28, ip0),
                         .@"i32.store8"  => inst.encStrbWReg(wv, 28, ip0),
@@ -1329,15 +1312,15 @@ pub fn compile(
                         .@"f64.store"   => inst.encStrDReg(wv, 28, ip0),
                         else => unreachable,
                     };
-                    try writeU32(allocator, &buf, word);
+                    try gpr.writeU32(allocator, &buf, word);
                 } else {
                     const result = next_vreg;
                     next_vreg += 1;
                     if (result >= alloc.slots.len) return Error.SlotOverflow;
                     const wd: inst.Xn = if (is_fp_value)
-                        try resolveFp(alloc, result)
+                        try gpr.resolveFp(alloc, result)
                     else
-                        try resolveGpr(alloc, result);
+                        try gpr.resolveGpr(alloc, result);
                     const word: u32 = switch (ins.op) {
                         .@"i32.load"     => inst.encLdrWReg(wd, 28, ip0),
                         .@"i32.load8_s"  => inst.encLdrsbWReg(wd, 28, ip0),
@@ -1355,7 +1338,7 @@ pub fn compile(
                         .@"f64.load"     => inst.encLdrDReg(wd, 28, ip0),
                         else => unreachable,
                     };
-                    try writeU32(allocator, &buf, word);
+                    try gpr.writeU32(allocator, &buf, word);
                     try pushed_vregs.append(allocator, result);
                 }
             },
@@ -1371,7 +1354,7 @@ pub fn compile(
                 // branch_targets[start+count]        = default depth
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 const idx_vreg = pushed_vregs.pop().?;
-                const wn = try resolveGpr(alloc, idx_vreg);
+                const wn = try gpr.resolveGpr(alloc, idx_vreg);
                 const count = ins.payload;
                 const start = ins.extra;
                 if (count >= (@as(u32, 1) << 12)) return Error.SlotOverflow;
@@ -1410,8 +1393,8 @@ pub fn compile(
 
                 var i: u32 = 0;
                 while (i < count) : (i += 1) {
-                    try writeU32(allocator, &buf, inst.encCmpImmW(wn, @intCast(i)));
-                    try writeU32(allocator, &buf, inst.encBCond(.ne, 2));
+                    try gpr.writeU32(allocator, &buf, inst.encCmpImmW(wn, @intCast(i)));
+                    try gpr.writeU32(allocator, &buf, inst.encBCond(.ne, 2));
                     try emitBranchToDepth(allocator, &buf, labels.items, targets[start + i]);
                 }
                 try emitBranchToDepth(allocator, &buf, labels.items, targets[start + count]);
@@ -1423,9 +1406,9 @@ pub fn compile(
                 // the else-body start) or at `end` (to end-of-if).
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 const cond = pushed_vregs.pop().?;
-                const wn = try resolveGpr(alloc, cond);
+                const wn = try gpr.resolveGpr(alloc, cond);
                 const skip_byte: u32 = @intCast(buf.items.len);
-                try writeU32(allocator, &buf, inst.encCbzW(wn, 0));
+                try gpr.writeU32(allocator, &buf, inst.encCbzW(wn, 0));
                 try labels.append(allocator, .{
                     .kind = .if_then,
                     .target_byte_offset = 0,
@@ -1456,7 +1439,7 @@ pub fn compile(
                     labels.items[lbl_idx].merge_top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
                 }
                 const b_byte: u32 = @intCast(buf.items.len);
-                try writeU32(allocator, &buf, inst.encB(0));
+                try gpr.writeU32(allocator, &buf, inst.encB(0));
                 const else_start: u32 = @intCast(buf.items.len);
                 const lbl = &labels.items[lbl_idx];
                 const skip_byte = lbl.if_skip_byte.?;
@@ -1473,7 +1456,7 @@ pub fn compile(
             .@"br_if" => {
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 const cond = pushed_vregs.pop().?;
-                const wn = try resolveGpr(alloc, cond);
+                const wn = try gpr.resolveGpr(alloc, cond);
                 if (ins.payload >= labels.items.len) return Error.UnsupportedOp;
                 const tgt_idx = labels.items.len - 1 - ins.payload;
                 const tgt = &labels.items[tgt_idx];
@@ -1482,9 +1465,9 @@ pub fn compile(
                     // Backward conditional branch.
                     const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
                         @as(i32, @intCast(fixup_at));
-                    try writeU32(allocator, &buf, inst.encCbnzW(wn, @divExact(disp_words, 4)));
+                    try gpr.writeU32(allocator, &buf, inst.encCbnzW(wn, @divExact(disp_words, 4)));
                 } else {
-                    try writeU32(allocator, &buf, inst.encCbnzW(wn, 0));
+                    try gpr.writeU32(allocator, &buf, inst.encCbnzW(wn, 0));
                     try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .cbnz_w });
                 }
             },
@@ -1518,10 +1501,10 @@ pub fn compile(
                         if (pushed_vregs.items[pushed_vregs.items.len - 1] != merge_vreg) {
                             return Error.UnsupportedOp;
                         }
-                        const merge_reg = try resolveGpr(alloc, merge_vreg);
-                        const else_reg = try resolveGpr(alloc, else_result);
+                        const merge_reg = try gpr.resolveGpr(alloc, merge_vreg);
+                        const else_reg = try gpr.resolveGpr(alloc, else_result);
                         if (merge_reg != else_reg) {
-                            try writeU32(allocator, &buf, inst.encOrrRegW(merge_reg, 31, else_reg));
+                            try gpr.writeU32(allocator, &buf, inst.encOrrRegW(merge_reg, 31, else_reg));
                         }
                     }
 
@@ -1568,7 +1551,7 @@ pub fn compile(
                         .i32, .i64, .v128, .funcref, .externref => false,
                     };
                     if (is_fp) {
-                        const src_vn = try resolveFp(alloc, top_vreg);
+                        const src_vn = try gpr.resolveFp(alloc, top_vreg);
                         if (src_vn != 0) {
                             // FMOV S0, Sn or FMOV D0, Dn — encoded
                             // via the FP-FP move (FMOV reg-reg).
@@ -1576,24 +1559,24 @@ pub fn compile(
                             // type = 00 single → 0x1E204000
                             // type = 01 double → 0x1E604000
                             const base: u32 = if (result_kind == .f64) 0x1E604000 else 0x1E204000;
-                            try writeU32(allocator, &buf, base | (@as(u32, src_vn) << 5));
+                            try gpr.writeU32(allocator, &buf, base | (@as(u32, src_vn) << 5));
                         }
                     } else {
                         // GPR result: spill-aware load (sub-1c). For
                         // an in-reg vreg, returns the home reg; for
                         // a spilled vreg, emits LDR X14, [SP, #off]
                         // and returns X14. Then MOV X0, Xsrc.
-                        const src_xn = try gprLoadSpilled(allocator, &buf, alloc, spill_base_off, top_vreg, 0);
+                        const src_xn = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, top_vreg, 0);
                         if (src_xn != 0) {
-                            try writeU32(allocator, &buf, encOrrZrIntoX0(src_xn));
+                            try gpr.writeU32(allocator, &buf, encOrrZrIntoX0(src_xn));
                         }
                     }
                 }
                 if (frame_bytes > 0) {
-                    try writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
+                    try gpr.writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
                 }
-                try writeU32(allocator, &buf, encLdpFpLrPostIdx());
-                try writeU32(allocator, &buf, inst.encRet(abi.link_register));
+                try gpr.writeU32(allocator, &buf, encLdpFpLrPostIdx());
+                try gpr.writeU32(allocator, &buf, inst.encRet(abi.link_register));
 
                 // Trap stub: emitted after the regular RET when the
                 // function had any bounds-check / sig-mismatch /
@@ -1610,14 +1593,14 @@ pub fn compile(
                 // "returned 0").
                 if (bounds_fixups.items.len > 0) {
                     const trap_byte: u32 = @intCast(buf.items.len);
-                    try writeU32(allocator, &buf, inst.encMovzImm16(17, 1));
-                    try writeU32(allocator, &buf, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off));
-                    try writeU32(allocator, &buf, inst.encMovzImm16(0, 0));
+                    try gpr.writeU32(allocator, &buf, inst.encMovzImm16(17, 1));
+                    try gpr.writeU32(allocator, &buf, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off));
+                    try gpr.writeU32(allocator, &buf, inst.encMovzImm16(0, 0));
                     if (frame_bytes > 0) {
-                        try writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
+                        try gpr.writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
                     }
-                    try writeU32(allocator, &buf, encLdpFpLrPostIdx());
-                    try writeU32(allocator, &buf, inst.encRet(abi.link_register));
+                    try gpr.writeU32(allocator, &buf, encLdpFpLrPostIdx());
+                    try gpr.writeU32(allocator, &buf, inst.encRet(abi.link_register));
                     for (bounds_fixups.items) |fx_byte| {
                         const disp_words: i32 = @as(i32, @intCast(trap_byte)) -
                             @as(i32, @intCast(fx_byte));
@@ -1638,108 +1621,6 @@ pub fn compile(
         .bytes = try buf.toOwnedSlice(allocator),
         .n_slots = alloc.n_slots,
         .call_fixups = try call_fixups.toOwnedSlice(allocator),
-    };
-}
-
-fn writeU32(allocator: Allocator, buf: *std.ArrayList(u8), word: u32) !void {
-    var bytes: [4]u8 = undefined;
-    std.mem.writeInt(u32, &bytes, word, .little);
-    try buf.appendSlice(allocator, &bytes);
-}
-
-/// Resolve a vreg's home register (GPR class). Returns the
-/// allocated reg or `Error.UnsupportedOp` for spilled vregs.
-///
-/// **Sub-1b shape** (today): handlers that haven't been migrated
-/// to spill-aware emission still use `resolveGpr` and decline
-/// (UnsupportedOp) when a spill is needed. **Sub-1c migration**
-/// (this cycle, in-progress): per-handler conversion to use
-/// `gprLoadSpilled` / `gprStoreSpilled` for actual STR/LDR
-/// staging. The `i32.const` handler is the first migrated
-/// example; further migrations land per follow-up cycles as
-/// realworld fixtures surface needs.
-fn resolveGpr(alloc: regalloc.Allocation, vreg: usize) Error!inst.Xn {
-    return switch (alloc.slot(vreg)) {
-        .reg => |id| abi.slotToReg(id) orelse Error.SlotOverflow,
-        .spill => Error.UnsupportedOp,
-    };
-}
-
-/// Resolve a vreg's home for **op operand load**. If the vreg
-/// is in a register, returns that reg directly. If spilled,
-/// emits `LDR X_stage, [SP, #(spill_base_off + spill_off)]`
-/// staging through `abi.spill_stage_gprs[stage_idx]` and
-/// returns the stage reg.
-///
-/// `stage_idx` selects which stage reg (0=X14, 1=X15). Use 0
-/// for the first/only operand, 1 for the second operand of a
-/// binary op (so two spilled operands don't collide).
-fn gprLoadSpilled(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    spill_base_off: u32,
-    vreg: usize,
-    stage_idx: u8,
-) Error!inst.Xn {
-    return switch (alloc.slot(vreg)) {
-        .reg => |id| abi.slotToReg(id) orelse Error.SlotOverflow,
-        .spill => |off| blk: {
-            const stage = abi.spill_stage_gprs[stage_idx];
-            const abs_off = spill_base_off + off;
-            // X-form imm12 scales by 8; max byte offset is 8*4095 = 32760.
-            if (abs_off > 32760 or (abs_off & 7) != 0) return Error.SlotOverflow;
-            try writeU32(allocator, buf, inst.encLdrImm(stage, 31, @intCast(abs_off)));
-            break :blk stage;
-        },
-    };
-}
-
-/// Resolve a vreg's home for **op result def**. If the vreg
-/// is in a register, returns that reg directly. If spilled,
-/// returns the stage reg (caller encodes the op writing into
-/// it; then calls `gprStoreSpilled` to flush to the spill
-/// slot).
-fn gprDefSpilled(
-    alloc: regalloc.Allocation,
-    vreg: usize,
-    stage_idx: u8,
-) Error!inst.Xn {
-    return switch (alloc.slot(vreg)) {
-        .reg => |id| abi.slotToReg(id) orelse Error.SlotOverflow,
-        .spill => abi.spill_stage_gprs[stage_idx],
-    };
-}
-
-/// Pair of `gprDefSpilled`. After encoding the op (which wrote
-/// the result into the stage reg), emits `STR X_stage, [SP,
-/// #(spill_base_off + spill_off)]`. No-op for vregs in
-/// registers (the result is already in its home).
-fn gprStoreSpilled(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    spill_base_off: u32,
-    vreg: usize,
-    stage_idx: u8,
-) Error!void {
-    switch (alloc.slot(vreg)) {
-        .reg => {},
-        .spill => |off| {
-            const stage = abi.spill_stage_gprs[stage_idx];
-            const abs_off = spill_base_off + off;
-            if (abs_off > 32760 or (abs_off & 7) != 0) return Error.SlotOverflow;
-            try writeU32(allocator, buf, inst.encStrImm(stage, 31, @intCast(abs_off)));
-        },
-    }
-}
-
-/// FP-class counterpart of `resolveGpr`. Same Step-1c follow-up
-/// applies for spill staging through V-class scratch.
-fn resolveFp(alloc: regalloc.Allocation, vreg: usize) Error!inst.Vn {
-    return switch (alloc.slot(vreg)) {
-        .reg => |id| abi.fpSlotToReg(id) orelse Error.SlotOverflow,
-        .spill => Error.UnsupportedOp,
     };
 }
 
@@ -1772,28 +1653,28 @@ fn emitTrunc32BoundsCheck(
     bounds_fixups: *std.ArrayList(u32),
 ) !void {
     // NaN check: FCMP src, src ; B.VS trap.
-    try writeU32(allocator, buf, inst.encFCmpS(src_v, src_v));
+    try gpr.writeU32(allocator, buf, inst.encFCmpS(src_v, src_v));
     {
         const fixup_at: u32 = @intCast(buf.items.len);
-        try writeU32(allocator, buf, inst.encBCond(.vs, 0));
+        try gpr.writeU32(allocator, buf, inst.encBCond(.vs, 0));
         try bounds_fixups.append(allocator, fixup_at);
     }
     // Lower bound: materialise into S31 via W16, then FCMP + trap.
-    try emitConstU32(allocator, buf, 16, lower_bits);
-    try writeU32(allocator, buf, inst.encFmovStoFromW(31, 16));
-    try writeU32(allocator, buf, inst.encFCmpS(src_v, 31));
+    try op_const.emitConstU32(allocator, buf, 16, lower_bits);
+    try gpr.writeU32(allocator, buf, inst.encFmovStoFromW(31, 16));
+    try gpr.writeU32(allocator, buf, inst.encFCmpS(src_v, 31));
     {
         const fixup_at: u32 = @intCast(buf.items.len);
-        try writeU32(allocator, buf, inst.encBCond(lower_cmp, 0));
+        try gpr.writeU32(allocator, buf, inst.encBCond(lower_cmp, 0));
         try bounds_fixups.append(allocator, fixup_at);
     }
     // Upper bound: materialise + FCMP + B.GE trap.
-    try emitConstU32(allocator, buf, 16, upper_bits);
-    try writeU32(allocator, buf, inst.encFmovStoFromW(31, 16));
-    try writeU32(allocator, buf, inst.encFCmpS(src_v, 31));
+    try op_const.emitConstU32(allocator, buf, 16, upper_bits);
+    try gpr.writeU32(allocator, buf, inst.encFmovStoFromW(31, 16));
+    try gpr.writeU32(allocator, buf, inst.encFCmpS(src_v, 31));
     {
         const fixup_at: u32 = @intCast(buf.items.len);
-        try writeU32(allocator, buf, inst.encBCond(.ge, 0));
+        try gpr.writeU32(allocator, buf, inst.encBCond(.ge, 0));
         try bounds_fixups.append(allocator, fixup_at);
     }
 }
@@ -1811,26 +1692,26 @@ fn emitTrunc64BoundsCheck(
     lower_cmp: inst.Cond,
     bounds_fixups: *std.ArrayList(u32),
 ) !void {
-    try writeU32(allocator, buf, inst.encFCmpD(src_v, src_v));
+    try gpr.writeU32(allocator, buf, inst.encFCmpD(src_v, src_v));
     {
         const fixup_at: u32 = @intCast(buf.items.len);
-        try writeU32(allocator, buf, inst.encBCond(.vs, 0));
+        try gpr.writeU32(allocator, buf, inst.encBCond(.vs, 0));
         try bounds_fixups.append(allocator, fixup_at);
     }
-    try emitConstU64(allocator, buf, 16, lower_bits);
-    try writeU32(allocator, buf, inst.encFmovDtoFromX(31, 16));
-    try writeU32(allocator, buf, inst.encFCmpD(src_v, 31));
+    try op_const.emitConstU64(allocator, buf, 16, lower_bits);
+    try gpr.writeU32(allocator, buf, inst.encFmovDtoFromX(31, 16));
+    try gpr.writeU32(allocator, buf, inst.encFCmpD(src_v, 31));
     {
         const fixup_at: u32 = @intCast(buf.items.len);
-        try writeU32(allocator, buf, inst.encBCond(lower_cmp, 0));
+        try gpr.writeU32(allocator, buf, inst.encBCond(lower_cmp, 0));
         try bounds_fixups.append(allocator, fixup_at);
     }
-    try emitConstU64(allocator, buf, 16, upper_bits);
-    try writeU32(allocator, buf, inst.encFmovDtoFromX(31, 16));
-    try writeU32(allocator, buf, inst.encFCmpD(src_v, 31));
+    try op_const.emitConstU64(allocator, buf, 16, upper_bits);
+    try gpr.writeU32(allocator, buf, inst.encFmovDtoFromX(31, 16));
+    try gpr.writeU32(allocator, buf, inst.encFCmpD(src_v, 31));
     {
         const fixup_at: u32 = @intCast(buf.items.len);
-        try writeU32(allocator, buf, inst.encBCond(.ge, 0));
+        try gpr.writeU32(allocator, buf, inst.encBCond(.ge, 0));
         try bounds_fixups.append(allocator, fixup_at);
     }
 }
@@ -1890,33 +1771,33 @@ fn marshalCallArgs(
         switch (callee_sig.params[k]) {
             .i32 => {
                 if (gpr_arg_slot >= 8) return Error.UnsupportedOp;
-                const ws = try resolveGpr(alloc, src_vreg);
+                const ws = try gpr.resolveGpr(alloc, src_vreg);
                 if (ws != gpr_arg_slot) {
-                    try writeU32(allocator, buf, inst.encOrrRegW(gpr_arg_slot, 31, ws));
+                    try gpr.writeU32(allocator, buf, inst.encOrrRegW(gpr_arg_slot, 31, ws));
                 }
                 gpr_arg_slot += 1;
             },
             .i64 => {
                 if (gpr_arg_slot >= 8) return Error.UnsupportedOp;
-                const xs = try resolveGpr(alloc, src_vreg);
+                const xs = try gpr.resolveGpr(alloc, src_vreg);
                 if (xs != gpr_arg_slot) {
-                    try writeU32(allocator, buf, inst.encOrrReg(gpr_arg_slot, 31, xs));
+                    try gpr.writeU32(allocator, buf, inst.encOrrReg(gpr_arg_slot, 31, xs));
                 }
                 gpr_arg_slot += 1;
             },
             .f32 => {
                 if (fp_arg_slot >= 8) return Error.UnsupportedOp;
-                const vs = try resolveFp(alloc, src_vreg);
+                const vs = try gpr.resolveFp(alloc, src_vreg);
                 if (vs != fp_arg_slot) {
-                    try writeU32(allocator, buf, inst.encFmovSReg(fp_arg_slot, vs));
+                    try gpr.writeU32(allocator, buf, inst.encFmovSReg(fp_arg_slot, vs));
                 }
                 fp_arg_slot += 1;
             },
             .f64 => {
                 if (fp_arg_slot >= 8) return Error.UnsupportedOp;
-                const vs = try resolveFp(alloc, src_vreg);
+                const vs = try gpr.resolveFp(alloc, src_vreg);
                 if (vs != fp_arg_slot) {
-                    try writeU32(allocator, buf, inst.encFmovDReg(fp_arg_slot, vs));
+                    try gpr.writeU32(allocator, buf, inst.encFmovDReg(fp_arg_slot, vs));
                 }
                 fp_arg_slot += 1;
             },
@@ -1951,51 +1832,23 @@ fn captureCallResult(
     switch (callee_sig.results[0]) {
         .i32 => {
             const wd = abi.slotToReg(slot_id) orelse return Error.SlotOverflow;
-            if (wd != 0) try writeU32(allocator, buf, inst.encOrrRegW(wd, 31, 0));
+            if (wd != 0) try gpr.writeU32(allocator, buf, inst.encOrrRegW(wd, 31, 0));
         },
         .i64 => {
             const xd = abi.slotToReg(slot_id) orelse return Error.SlotOverflow;
-            if (xd != 0) try writeU32(allocator, buf, inst.encOrrReg(xd, 31, 0));
+            if (xd != 0) try gpr.writeU32(allocator, buf, inst.encOrrReg(xd, 31, 0));
         },
         .f32 => {
             const vd = abi.fpSlotToReg(slot_id) orelse return Error.SlotOverflow;
-            if (vd != 0) try writeU32(allocator, buf, inst.encFmovSReg(vd, 0));
+            if (vd != 0) try gpr.writeU32(allocator, buf, inst.encFmovSReg(vd, 0));
         },
         .f64 => {
             const vd = abi.fpSlotToReg(slot_id) orelse return Error.SlotOverflow;
-            if (vd != 0) try writeU32(allocator, buf, inst.encFmovDReg(vd, 0));
+            if (vd != 0) try gpr.writeU32(allocator, buf, inst.encFmovDReg(vd, 0));
         },
         .v128, .funcref, .externref => return Error.UnsupportedOp,
     }
     try pushed_vregs.append(allocator, result);
-}
-
-/// Emit a 32-bit constant into Xd via MOVZ + MOVK pairs.
-/// Strategy: MOVZ Xd, #(lo16); if hi16 != 0, MOVK Xd, #hi16, lsl #16.
-/// (For a full 64-bit constant — Phase 9+ — extend to 4 lanes.)
-fn emitConstU32(allocator: Allocator, buf: *std.ArrayList(u8), xd: Xn, value: u32) !void {
-    const lo16: u16 = @truncate(value & 0xFFFF);
-    const hi16: u16 = @truncate(value >> 16);
-    try writeU32(allocator, buf, inst.encMovzImm16(xd, lo16));
-    if (hi16 != 0) {
-        try writeU32(allocator, buf, inst.encMovkImm16(xd, hi16, 1));
-    }
-}
-
-/// Emit a 64-bit constant into Xd via MOVZ (hw=0) + up to 3
-/// MOVKs at hw=1,2,3. Halfwords that are zero are skipped after
-/// the initial MOVZ. Used by sub-h3b's f64 trapping-trunc
-/// bounds (8-byte hex constants like 0xC3E0000000000000 for
-/// -2^63), staged through X16 then FMOV D31, X16.
-fn emitConstU64(allocator: Allocator, buf: *std.ArrayList(u8), xd: Xn, value: u64) !void {
-    const hw0: u16 = @truncate(value & 0xFFFF);
-    const hw1: u16 = @truncate((value >> 16) & 0xFFFF);
-    const hw2: u16 = @truncate((value >> 32) & 0xFFFF);
-    const hw3: u16 = @truncate((value >> 48) & 0xFFFF);
-    try writeU32(allocator, buf, inst.encMovzImm16(xd, hw0));
-    if (hw1 != 0) try writeU32(allocator, buf, inst.encMovkImm16(xd, hw1, 1));
-    if (hw2 != 0) try writeU32(allocator, buf, inst.encMovkImm16(xd, hw2, 2));
-    if (hw3 != 0) try writeU32(allocator, buf, inst.encMovkImm16(xd, hw3, 3));
 }
 
 // ============================================================
