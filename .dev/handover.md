@@ -1,73 +1,93 @@
 # Session handover
 
 > Read this at session start. **Replace** (not append) the `Current state`
-> block + the `Active task` table at session end. Keep the whole file
-> ≤ 100 lines — anything older than the active task lives in `git log`.
+> block + the `Active task` table at session end. Keep ≤ 100 lines.
 
 ## Next files to read on a cold start (in order)
 
 1. `.dev/handover.md` (this file).
 2. `.dev/decisions/0021_phase7_emit_split_gate.md` — emit.zig
-   9-module split (sub-deliverable b) is now the active task.
-3. `.dev/decisions/0019_x86_64_in_phase7.md` — x86_64 lands after
-   7.5d sub-b closes (HARD GATE per ADR-0021).
-4. `.dev/decisions/0017_jit_runtime_abi.md` / 0018 / 0020 / 0023.
+   9-module split is now mid-flight.
+3. `.dev/lessons/2026-05-04-emit-monolith-cost.md` — proposed
+   split structure.
+4. `.dev/decisions/0017_jit_runtime_abi.md` / 0018 / 0019 / 0023.
 5. `.dev/debt.md` — discharge `Status: now` rows.
-6. `.dev/lessons/INDEX.md` — keyword-grep for active task domain
-   (`emit-monolith-cost` lesson is directly relevant).
+6. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
 
-## Current state — Phase 7 / §9.7 / 7.5d sub-b NEXT
+## Current state — Phase 7 / §9.7 / 7.5d sub-b IN-PROGRESS
 
-ADR-0023 §7 全 18 項目 **完全達成** (commit `3111fb0`)。§9.7 / 7.5e
-は `[x]` flip 済み。`api/instance.zig` 1797 → 1403 LOC で §A2
-hard-cap discharge、emit.zig 119 byte-offset sites 全て
-`prologue.body_start_offset()` 経由化。
+ADR-0023 §7 全 18 項目 完全達成、§9.7 / 7.5e DONE。Active task は
+**§9.7 / 7.5d sub-b** — `engine/codegen/arm64/emit.zig` (4009 LOC)
+を ≤ 9 modules に split。
 
-**Active task**: §9.7 / 7.5d sub-b — `engine/codegen/arm64/emit.zig`
-(4008 LOC) を ≤ 9 modules に split (orchestrator ≤ 1000 LOC、
-各 module ≤ 400 LOC)。lesson `2026-05-04-emit-monolith-cost.md`
-の提案 split: op_const / op_alu / op_memory / op_control /
-op_call / bounds_check / inst (existing) / abi (existing) /
-prologue (existing) / label (新規)。`src/engine/codegen/arm64/`
-直下に各 op_*.zig ファイルを作成、emit.zig を orchestrator に
-shrink。
-
-**Hard gate**: 7.5d sub-b 完了まで 7.6 (x86_64) は開かない
-(ADR-0021)。
+1 サブステップ完了 (label.zig extraction、commit `beafdb8`)。
+残る 7-8 サブステップは op handler の context-struct 設計が必要。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は `3111fb0`。
-
-## Recently closed (per `git log --oneline -30`)
-
-- ADR-0023 §7 items 1-18 完全達成 (28 commits in this autonomous run)。
-- §9.7 / 7.5e DONE — directory structure normalisation 完成。
-- §A2 hard-cap discharged (api/instance.zig 2127 → 1403)。
-- §A2 violation on emit.zig 4008 LOC は 7.5d sub-b で discharge 予定。
+**Branch**: `zwasm-from-scratch`、最新は `beafdb8`。
 
 ## §9.7 / 7.5d sub-b implementation plan
 
-ADR-0021 + lesson `emit-monolith-cost` per:
+### 完了
+- label.zig: `Label` / `LabelKind` / `Fixup` / `FixupKind` extract
+  (commit beafdb8、emit.zig -14 LOC)。
 
-1. **新規ファイル**: `engine/codegen/arm64/{op_const, op_alu,
-   op_memory, op_control, op_call, bounds_check, label}.zig`。
-2. **emit.zig** を orchestrator (ZirOp → handler dispatch) に
-   shrink。各 op_*.zig は同 zone (Zone 2) の sibling。
-3. 新 module 間の path 関係:
-   - `emit.zig` → 各 `op_*.zig` を sibling import
-   - `op_*.zig` → `inst.zig` / `abi.zig` / `regalloc.zig`
-     (`../shared/regalloc.zig`) / `prologue.zig` / `label.zig`
-     を sibling もしくは `../shared/X.zig`
-4. 各 commit ごとに 3-host gate。big-bang 厳禁。op category
-   ごと(e.g. op_const のみ抽出)で commit + verify。
-5. 完了後、7.5d sub-b `[x]` flip → 7.6 (x86_64 reg_class +
-   inst + abi) 解禁。
+### 次の階段(順序固定 — 依存方向に沿って積み上げ):
+
+1. **EmitCtx struct** を emit.zig の compile() 内 local state を
+   束ねる context として定義。fields:
+   - `allocator: Allocator`
+   - `buf: *std.ArrayList(u8)`
+   - `f: *const ZirFunc`
+   - `alloc: regalloc.Allocation`
+   - `labels: *std.ArrayList(Label)`
+   - `pushed_vregs: *std.ArrayList(u32)`
+   - `func_sigs: []const FuncType`
+   - `module_types: []const FuncType`
+   - その他 (call_fixups, trap_fixups, etc.)
+
+   compile() の inner-fn を method 化して `fn (ctx: *EmitCtx,
+   instr: ZirInstr) Error!void` 形に整形。
+
+2. **op_const.zig**: `i32.const`, `i64.const`, `f32.const`,
+   `f64.const`, `ref.null` 系 handlers (~200 LOC)。
+
+3. **op_alu.zig**: `i32/i64.{add, sub, mul, div_*, rem_*, and,
+   or, xor, shl, shr_*, rotr, rotl}` + `i32/i64.{eq, ne, lt_*,
+   gt_*, le_*, ge_*, eqz, clz, ctz, popcnt}` + `f32/f64.{add,
+   sub, mul, div, abs, neg, sqrt, ceil, floor, trunc, nearest,
+   min, max, copysign, eq, ne, lt, gt, le, ge}` (~1500 LOC).
+   分割案: `op_alu_int.zig` + `op_alu_float.zig`。
+
+4. **op_memory.zig**: `i32/i64/f32/f64.load*`, `i32/i64.store*`,
+   `memory.size`, `memory.grow` (~600 LOC)。
+
+5. **op_control.zig**: `block`, `loop`, `if`, `else`, `end`,
+   `br`, `br_if`, `br_table`, `return`, `unreachable`, `nop`,
+   `select` (D-027 merge logic 含む) (~700 LOC)。
+
+6. **op_call.zig**: `call`, `call_indirect`, `local.{get,set,tee}`,
+   `global.{get,set}`, `drop` (~400 LOC)。
+
+7. **bounds_check.zig**: `emitTrunc32BoundsCheck`,
+   `emitTrunc64BoundsCheck`, memory bounds (~150 LOC)。
+
+8. **conversion**: `i32.wrap_i64`, `i64.extend_i32_*`,
+   `*.{convert, demote, promote, trunc, trunc_sat,
+   reinterpret}_*` — op_alu に同居 or 別 file。
+
+各 sub-step は **3-host gate green** で commit + push。big-bang 厳禁。
 
 ## Open structural debt
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
 - **D-026** env-stub host-func wiring — cross-module dispatch。
-- emit.zig 4008 LOC は 7.5d sub-b で discharge。
-- api/instance.zig soft-cap (>1000 LOC) — wasm_*_new/delete などの
-  binding code はそのまま、§A2 soft-cap warning は受容(item 5
-  完了で hard-cap は通過)。
+- emit.zig 4009 LOC は 7.5d sub-b で discharge 中。
+- api/instance.zig soft-cap (>1000 LOC) — binding code はそのまま、
+  §A2 soft-cap warn は受容(item 5 完了で hard-cap は通過)。
+
+## Recently closed (per `git log --oneline -35`)
+
+- ADR-0023 §7 18 items DONE (29 commits in this autonomous run)。
+- §9.7 / 7.5e flipped `[x]`。
+- 7.5d sub-b started: label.zig extracted。
