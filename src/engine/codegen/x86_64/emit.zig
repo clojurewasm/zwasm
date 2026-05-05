@@ -130,7 +130,6 @@ pub fn compile(
     func_sigs: []const zir.FuncType,
     module_types: []const zir.FuncType,
 ) Error!EmitOutput {
-    _ = func_sigs;
     _ = module_types;
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
@@ -158,6 +157,7 @@ pub fn compile(
                 .@"i32.load16_s", .@"i32.load16_u",
                 .@"i32.store", .@"i32.store8", .@"i32.store16",
                 .@"global.get", .@"global.set",
+                .@"call",
                 => break :blk true,
                 else => {},
             }
@@ -231,6 +231,10 @@ pub fn compile(
     var bounds_fixups: std.ArrayList(u32) = .empty;
     defer bounds_fixups.deinit(allocator);
 
+    // Direct-call placeholders awaiting linker patch.
+    var call_fixups: std.ArrayList(CallFixup) = .empty;
+    errdefer call_fixups.deinit(allocator);
+
     for (func.instrs.items) |ins| {
         switch (ins.op) {
             .@"i32.const" => {
@@ -257,6 +261,7 @@ pub fn compile(
             => try emitI32Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"i32.wrap_i64", .@"i64.extend_i32_u", .@"i64.extend_i32_s",
             => try emitConvertWidth(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"call" => try emitCall(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &call_fixups, func_sigs, ins.payload),
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
@@ -339,7 +344,7 @@ pub fn compile(
     return .{
         .bytes = try buf.toOwnedSlice(allocator),
         .n_slots = alloc.n_slots,
-        .call_fixups = &.{},
+        .call_fixups = try call_fixups.toOwnedSlice(allocator),
     };
 }
 
@@ -592,6 +597,133 @@ fn emitConvertWidth(
     try buf.appendSlice(allocator, enc.slice());
 
     try pushed_vregs.append(allocator, result_v);
+}
+
+/// Direct call: `call N`. Mirrors arm64/op_call.zig's emitCall
+/// — marshals args into SysV arg regs, restores RDI from R15
+/// (caller-saved RDI may have been clobbered earlier), emits
+/// CALL placeholder + records CallFixup for the post-emit
+/// linker, captures return into the next vreg.
+///
+/// **Scope**: i32 args + i32 / void return only. f32/f64/i64
+/// args + return surface as UnsupportedOp (lifted alongside
+/// 7.7-fp / globals i64 chunks).
+fn emitCall(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    call_fixups: *std.ArrayList(CallFixup),
+    func_sigs: []const zir.FuncType,
+    callee_idx: u32,
+) Error!void {
+    if (callee_idx >= func_sigs.len) return Error.AllocationMissing;
+    const callee_sig = func_sigs[callee_idx];
+
+    try marshalCallArgs(allocator, buf, alloc, pushed_vregs, callee_sig);
+
+    // Restore RDI = runtime_ptr from R15 before transferring
+    // control. The callee's prologue captures RDI into its own
+    // R15 (per ADR-0026). RDI is caller-saved in SysV §3.2.1
+    // and may have been clobbered by an earlier call.
+    try buf.appendSlice(allocator, inst.encMovRR(.q, .rdi, abi.runtime_ptr_save_gpr).slice());
+
+    // CALL placeholder; linker patches via call_fixups once
+    // function-body offsets are known.
+    const fixup_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encCallRel32(0).slice());
+    try call_fixups.append(allocator, .{
+        .byte_offset = fixup_at,
+        .target_func_idx = callee_idx,
+    });
+
+    try captureCallResult(allocator, buf, alloc, pushed_vregs, next_vreg, callee_sig);
+}
+
+/// Marshal call arguments per SysV x86_64 §3.2.3: pop N arg
+/// vregs in REVERSE (top-of-stack = rightmost arg), then emit
+/// MOV from each arg's home register into RSI, RDX, RCX, R8,
+/// R9 (skipping RDI = runtime_ptr per ADR-0026).
+///
+/// **No source-clobber risk by construction**: the regalloc
+/// pool (R10, R11 + RBX, R12-R14) is disjoint from the SysV
+/// arg regs (RDI..R9), so naive sequential MOV per arg is
+/// correct without parallel-move analysis. Mirrors arm64's
+/// constraint (op_call.zig § marshalCallArgs).
+///
+/// **Scope**: ≤ 5 i32 user-visible args (RSI..R9 — RDI is
+/// reserved for runtime_ptr). f32/f64/i64 args surface as
+/// UnsupportedOp.
+fn marshalCallArgs(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    callee_sig: zir.FuncType,
+) Error!void {
+    const n_args: u32 = @intCast(callee_sig.params.len);
+    if (n_args == 0) return;
+    if (pushed_vregs.items.len < n_args) return Error.AllocationMissing;
+
+    var arg_vregs: [5]u32 = undefined;
+    if (n_args > arg_vregs.len) return Error.UnsupportedOp;
+    var i: u32 = n_args;
+    while (i > 0) {
+        i -= 1;
+        arg_vregs[i] = pushed_vregs.pop().?;
+    }
+
+    // SysV arg slot 0 is RDI (runtime_ptr) — skip; user args
+    // start at slot 1 (RSI). arg_gprs[1..6] = RSI, RDX, RCX, R8, R9.
+    var gpr_arg_slot: usize = 1;
+    var k: u32 = 0;
+    while (k < n_args) : (k += 1) {
+        const src_vreg = arg_vregs[k];
+        switch (callee_sig.params[k]) {
+            .i32 => {
+                if (gpr_arg_slot >= abi.arg_gprs.len) return Error.UnsupportedOp;
+                const dst = abi.arg_gprs[gpr_arg_slot];
+                const src = abi.slotToReg(alloc.slots[src_vreg]) orelse return Error.SlotOverflow;
+                if (src != dst) {
+                    try buf.appendSlice(allocator, inst.encMovRR(.d, dst, src).slice());
+                }
+                gpr_arg_slot += 1;
+            },
+            .i64, .f32, .f64, .v128, .funcref, .externref => return Error.UnsupportedOp,
+        }
+    }
+}
+
+/// Capture a call's return value into the next vreg per SysV
+/// §3.2.1: i32 → EAX. Single-result MVP only — multi-value
+/// returns (Wasm 2.0) land at sub-g3 follow-up. Void callees
+/// push nothing.
+fn captureCallResult(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    callee_sig: zir.FuncType,
+) Error!void {
+    if (callee_sig.results.len == 0) return;
+    if (callee_sig.results.len > 1) return Error.UnsupportedOp;
+
+    const result = next_vreg.*;
+    next_vreg.* += 1;
+    if (result >= alloc.slots.len) return Error.AllocationMissing;
+
+    switch (callee_sig.results[0]) {
+        .i32 => {
+            const dst = abi.slotToReg(alloc.slots[result]) orelse return Error.SlotOverflow;
+            if (dst != abi.return_gpr) {
+                try buf.appendSlice(allocator, inst.encMovRR(.d, dst, abi.return_gpr).slice());
+            }
+        },
+        .i64, .f32, .f64, .v128, .funcref, .externref => return Error.UnsupportedOp,
+    }
+    try pushed_vregs.append(allocator, result);
 }
 
 /// Compute the i8 displacement for local index `idx`. Layout:
@@ -2188,6 +2320,108 @@ test "compile: i64.extend_i32_s emits MOVSXD r64_dst, r32_src" {
     // Layout: 4 prologue + 6 imm32 = 10. Then MOVSXD R10, R10D = 3 bytes.
     const expected = inst.encMovsxdR64R32(.r10, .r10);
     try testing.expectEqualSlices(u8, expected.slice(), out.bytes[10 .. 10 + expected.len]);
+}
+
+test "compile: call N — 0 args, void return — emits MOV RDI,R15 + CALL + fixup" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    const callee_sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    const func_sigs = [_]zir.FuncType{ sig, callee_sig };
+
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
+
+    const slots = [_]u8{};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
+    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Prologue (uses_runtime_ptr=true since `call` triggers prescan):
+    //   PUSH RBP        55              (1 byte)
+    //   PUSH R15        41 57           (2 bytes) → 3
+    //   MOV RBP, RSP    48 89 e5        (3 bytes) → 6
+    //   MOV R15, RDI    49 89 fd        (3 bytes) → 9
+    //   SUB RSP, 8      48 83 ec 08     (4 bytes) → 13   (frame_bytes=8 for N=0 + uses_rtp)
+    // Body starts at byte 13.
+    //   MOV RDI, R15    4c 89 ff        (3 bytes) → 16
+    //   CALL rel32      e8 00 00 00 00  (5 bytes) → 21
+    const expected_mov = inst.encMovRR(.q, .rdi, .r15);
+    try testing.expectEqualSlices(u8, expected_mov.slice(), out.bytes[13 .. 13 + expected_mov.len]);
+    const expected_call = inst.encCallRel32(0);
+    try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[16 .. 16 + expected_call.len]);
+
+    try testing.expectEqual(@as(usize, 1), out.call_fixups.len);
+    try testing.expectEqual(@as(u32, 16), out.call_fixups[0].byte_offset);
+    try testing.expectEqual(@as(u32, 1), out.call_fixups[0].target_func_idx);
+}
+
+test "compile: call N — 0 args, i32 return — captures EAX into result vreg" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    const callee_sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    const func_sigs = [_]zir.FuncType{ sig, callee_sig };
+
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+
+    const slots = [_]u8{0}; // result vreg → R10
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Body layout (post-prologue at 13):
+    //   MOV RDI, R15    4c 89 ff        → 16
+    //   CALL rel32      e8 00 00 00 00  → 21
+    //   MOV R10D, EAX   41 89 c2        → 24   (result capture)
+    const expected_capture = inst.encMovRR(.d, .r10, .rax);
+    try testing.expectEqualSlices(u8, expected_capture.slice(), out.bytes[21 .. 21 + expected_capture.len]);
+}
+
+test "compile: call N — 1 i32 arg — marshals top-of-stack into RSI" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    const callee_sig: zir.FuncType = .{ .params = &.{.i32}, .results = &.{} };
+    const func_sigs = [_]zir.FuncType{ sig, callee_sig };
+
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+
+    const slots = [_]u8{0}; // arg vreg → R10
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Body layout (post-prologue at 13):
+    //   MOV R10D, 42    41 b8 2a 00 00 00   (6 bytes) → 19
+    //   MOV ESI, R10D   44 89 d6            (3 bytes) → 22  (marshal)
+    //   MOV RDI, R15    4c 89 ff            (3 bytes) → 25
+    //   CALL rel32      e8 00 00 00 00      (5 bytes) → 30
+    const expected_marshal = inst.encMovRR(.d, .rsi, .r10);
+    try testing.expectEqualSlices(u8, expected_marshal.slice(), out.bytes[19 .. 19 + expected_marshal.len]);
+}
+
+test "compile: call N — out-of-range callee_idx → AllocationMissing" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    const func_sigs = [_]zir.FuncType{sig}; // only idx 0 exists
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
+    const slots = [_]u8{};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &func_sigs, &.{}));
 }
 
 test "compile: i32.wrap_i64 with stack underflow → AllocationMissing" {

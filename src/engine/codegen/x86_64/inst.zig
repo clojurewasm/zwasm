@@ -283,6 +283,22 @@ pub fn encMovzxR32R8(dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `CALL rel32` (opcode 0xE8) — direct call with 32-bit
+/// signed displacement from the byte AFTER the disp32 (i.e.
+/// the next instruction). Used by `emitCall` as a placeholder
+/// (disp=0); the post-emit linker patches the disp via
+/// `patchRel32` once function offsets are known.
+pub fn encCallRel32(disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0xE8);
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
 /// `MOVSXD r64, r/m32` (REX.W + 0x63 /r) — sign-extend 32-bit
 /// source into 64-bit destination. Used by `i64.extend_i32_s`.
 /// dst occupies ModR/M.reg, src occupies r/m (IMUL-style
@@ -1253,4 +1269,14 @@ test "encMovsxdR64R32: movsxd r10, r10d → 4d 63 d2 (REX.W + REX.R + REX.B)" {
 test "encMovsxdR64R32: movsxd r11, ecx → 4c 63 d9 (REX.W + REX.R)" {
     const enc = encMovsxdR64R32(.r11, .rcx);
     try testing.expectEqualSlices(u8, &.{ 0x4C, 0x63, 0xD9 }, enc.slice());
+}
+
+test "encCallRel32: call rel32 disp=0 → e8 00 00 00 00 (placeholder)" {
+    const enc = encCallRel32(0);
+    try testing.expectEqualSlices(u8, &.{ 0xE8, 0x00, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encCallRel32: call rel32 disp=0x12345678 little-endian" {
+    const enc = encCallRel32(0x12345678);
+    try testing.expectEqualSlices(u8, &.{ 0xE8, 0x78, 0x56, 0x34, 0x12 }, enc.slice());
 }
