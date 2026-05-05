@@ -111,71 +111,16 @@ deferred to phase boundary batch update.
     + liveness.zig memory ops + D-031 runner制約 debt)
   - `afa3808` D-028 windowsmini ロギング (10 連 0 fail + WebSearch 確認)
   - `c58af89` #6 TODO marker + #2 D-029 ARM64 grep + #3 D-030 ADR-0023 mirror gap
-- §9.7 / 7.7-mem-store: x86_64 i32.store + 狭幅 load/store
-  (i32.{load8_s/u, load16_s/u, store8, store16}) + unified
-  emitMemOp ハンドラへ refactor (emitI32Load 統合); 7 inst
-  encoders (encStoreR{32,16,8}MemBaseIdx + encMov{zx,sx}R32_
-  {8,16}MemBaseIdx); 9 byte-level + 5 emit tests; 8 mem-op
-  surface 完備 (7d37a5b)。
-- §9.7 / 7.7-mem-load: x86_64 i32.load + ADR-0026 prologue
-  (PUSH RBP+R15, MOV R15,RDI) + bounds-check trap stub; 5 new
-  inst encoders; usesRuntimePtr prescan で既存 prologue 維持
-  (zero churn); 78-byte 完成バイト列 1 + underflow 1 emit tests;
-  3-host green (c0711fb)。
-- §9.7 / 7.7-control-table: x86_64 br_table 線形 chain (CMP+JNE-
-  skip+JMP per case + tail JMP); 6 new tests; 127-cap; **control-
-  flow surface 完備** (46a6d9f)。
-- §9.7 / 7.7-control-if: x86_64 if/else + br_if + Label
-  if_skip_byte/merge_top_vreg (D-027 mirror); 3 emit tests
-  (c0ba23d)。
-- §9.7 / 7.7-control-skel: x86_64 Label/Fixup machinery + 4
-  handlers (block/loop/br + emitEndIntra) + JMP/Jcc rel32 +
-  patchRel32; forward fixup at end / backward direct disp at br;
-  10 new tests (75f88e6)。
-- 構造課題 4 件解消: ADR-0026 (x86_64 invariant 戦略) + abi pool
-  6 regs に縮小 + ADR-0017/0021 amend + D-028/029 (bb40408)。
-- §9.7 / 7.7-locals: x86_64 frame extension + local handlers
-  (.get/.set/.tee) + 4 inst encoders, 10 new tests, 15-locals
-  cap (i8 disp); function with 1 local + set/get + return now
-  produces a complete 31-byte body (59ed705)。
-- §9.7 / 7.7-bitcount: x86_64 i32 clz/ctz/popcnt via
-  LZCNT/TZCNT/POPCNT (1:1 spec match), 7 new tests (c62a3d7)。
-- §9.7 / 7.7-shift: x86_64 i32 shifts 5 ops via emitI32Shift
-  MOV-to-CL + 0xD3 family + ShiftKind enum, 8 new tests (211a51f)。
-- §9.7 / 7.7-eqz: x86_64 i32.eqz via emitI32Eqz TEST+SETE+MOVZX
-  + inst.zig TEST encoder, 5 new tests (2c5d681)。
-- §9.7 / 7.7-cmp: x86_64 i32 compare 10 ops via emitI32Compare
-  CMP+SETcc+MOVZX + inst.zig Cond + CMP/SETcc/MOVZX encoders,
-  11 new tests (126ce7e)。
-- §9.7 / 7.7-alu: x86_64 i32 binary ALU 6 ops via emitI32Binary
-  + inst.zig AND/OR/XOR/IMUL encoders, 13 new tests (741a9b4)。
-- §9.7 / 7.7 skeleton: x86_64/emit.zig (compile() → 15-byte
-  "return 42" cycle) + inst.zig PUSH/POP/MOVImm32W extensions,
-  ~340 LOC, 14 new tests (4956b9e)。
-- §9.7 / 7.6 chunk c: x86_64/abi.zig SysV ABI tables + slotToReg
-  + 16 tests, ~290 LOC; reserved_invariant_gprs / Win64 deferred
-  to 7.7 (344d393)。
-- §9.7 / 7.6 chunk b: x86_64/inst.zig foundation (EncodedInsn +
-  3 inline prefix/modrm/sib helpers + 5 canonical ops + 13
-  byte-level tests, ~250 LOC) (3c78b63)。
-- §9.7 / 7.6 chunk a: x86_64/reg_class.zig (Gpr + Xmm + Width
-  enums, 16+16 variants, ~120 LOC) (739de07)。
-- §9.7 / 7.5d 完全クローズ (sub-b chunks 1-10 landed; ROADMAP
-  flipped [x]); ADR-0021 sub-b discharged (48b9745)。
-- 7.5d sub-b chunk 7: op_control.zig extracted (8 control-flow
-  handlers incl. D-027 merge; function-level end stays inline)
-  (a6c7dcf)。
-- 7.5d sub-b chunk 6: op_memory.zig extracted (unified emitMemOp,
-  25 load/store arms) (79d3104)。
-- 7.5d sub-b chunk 5: op_convert.zig extracted (wrap/extend/convert/
-  sat_trunc/reinterpret/demote/promote — 9 handlers, 24 op-arms)
-  (0d576ad)。
-- 7.5d sub-b chunk 4: op_alu_float.zig extracted; popBinary/popUnary
-  promoted to EmitCtx methods (b796555)。
-- 7.5d sub-b chunk 3: op_alu_int.zig extracted (639cb43)。
-- 7.5d sub-b chunk 2: ctx.zig + gpr.zig + op_const.zig extracted
-  (b663bf4)。
-- 7.5d sub-b chunk 1: label.zig extracted (beafdb8)。
+- §9.7 / 7.7-mem-store: x86_64 i32.store + 狭幅 load/store + emitMemOp
+  refactor (7d37a5b)。
+- §9.7 / 7.7-mem-load: x86_64 i32.load + ADR-0026 prologue + bounds-check
+  trap stub (c0711fb)。
+- §9.7 / 7.7-control-{skel,if,table}: block/loop/br/if/else/br_if/br_table
+  on x86_64 (75f88e6 / c0ba23d / 46a6d9f)。
+- §9.7 / 7.7-locals/bitcount/shift/eqz/cmp/alu/skeleton: x86_64 i32 op
+  surface 完備 (4956b9e..59ed705)。
+- §9.7 / 7.6 a/b/c: x86_64 reg_class + inst foundation + abi
+  (739de07 / 3c78b63 / 344d393)。
+- §9.7 / 7.5d 完全クローズ (sub-b chunks 1-10) (48b9745)。
 - ADR-0023 §7 18 items + ADR-0024 + ADR-0025 (Phase A) DONE。
-- §9.7 / 7.5e [x] flipped。
-- ROADMAP §10 expanded with consumer-surface section per ADR-0025.
+- 詳細は `git log --grep='§9.<N> / N.M'` で取得可能。
