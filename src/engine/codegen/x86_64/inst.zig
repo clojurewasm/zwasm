@@ -283,6 +283,42 @@ pub fn encMovzxR32R8(dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// Common shape for the `F3 0F <opcode> /r` family used by
+/// LZCNT / TZCNT / POPCNT. dst occupies ModR/M.reg and src is
+/// in r/m (IMUL-style operand inversion). The mandatory 0xF3
+/// prefix precedes any REX byte per AMD64 Vol.3 §1.2.6.
+inline fn encF3_0F_R32R(opcode: u8, dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0xF3);
+    if (rexForRR(.d, dst, src)) |rex| enc.push(rex);
+    enc.push(0x0F);
+    enc.push(opcode);
+    enc.push(encodeModrm(0b11, dst.low3(), src.low3()));
+    return enc;
+}
+
+/// `LZCNT r32, r/m32` (F3 0F BD /r, BMI1) — count leading
+/// zeros. Returns 32 if the input is 0; matches Wasm i32.clz
+/// semantics exactly. Distinct from BSR (older op with
+/// undefined behaviour at 0).
+pub fn encLzcntR32(dst: Gpr, src: Gpr) EncodedInsn {
+    return encF3_0F_R32R(0xBD, dst, src);
+}
+
+/// `TZCNT r32, r/m32` (F3 0F BC /r, BMI1) — count trailing
+/// zeros. Returns 32 if the input is 0; matches Wasm i32.ctz.
+/// Distinct from BSF (older op with undefined behaviour at 0).
+pub fn encTzcntR32(dst: Gpr, src: Gpr) EncodedInsn {
+    return encF3_0F_R32R(0xBC, dst, src);
+}
+
+/// `POPCNT r32, r/m32` (F3 0F B8 /r, POPCNT extension) —
+/// population count (number of 1 bits). Matches Wasm i32.popcnt
+/// directly.
+pub fn encPopcntR32(dst: Gpr, src: Gpr) EncodedInsn {
+    return encF3_0F_R32R(0xB8, dst, src);
+}
+
 /// `IMUL r, r/m` (2-byte opcode 0x0F 0xAF /r) — `dst *= src`,
 /// signed/unsigned identical for the low N bits (Wasm i32.mul
 /// doesn't distinguish signedness).
@@ -559,6 +595,31 @@ test "encShiftRCl: ror ebx, cl (.d, .ror) → d3 cb (kind=1)" {
 test "encShiftRCl: shl rbx, cl (.q) → 48 d3 e3 (REX.W)" {
     const enc = encShiftRCl(.q, .shl, .rbx);
     try testing.expectEqualSlices(u8, &.{ 0x48, 0xD3, 0xE3 }, enc.slice());
+}
+
+test "encLzcntR32: lzcnt ebx, ecx → f3 0f bd d9" {
+    const enc = encLzcntR32(.rbx, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x0F, 0xBD, 0xD9 }, enc.slice());
+}
+
+test "encLzcntR32: lzcnt r10d, r11d → f3 45 0f bd d3 (REX after F3)" {
+    const enc = encLzcntR32(.r10, .r11);
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x45, 0x0F, 0xBD, 0xD3 }, enc.slice());
+}
+
+test "encTzcntR32: tzcnt ebx, ecx → f3 0f bc d9" {
+    const enc = encTzcntR32(.rbx, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x0F, 0xBC, 0xD9 }, enc.slice());
+}
+
+test "encPopcntR32: popcnt ebx, ecx → f3 0f b8 d9" {
+    const enc = encPopcntR32(.rbx, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x0F, 0xB8, 0xD9 }, enc.slice());
+}
+
+test "encPopcntR32: popcnt r10d, r10d → f3 45 0f b8 d2" {
+    const enc = encPopcntR32(.r10, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x45, 0x0F, 0xB8, 0xD2 }, enc.slice());
 }
 
 test "encSetccR: sete bl → 40 0f 94 c3 (bare REX for low-byte access)" {

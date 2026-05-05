@@ -145,6 +145,8 @@ pub fn compile(
             .@"i32.shl", .@"i32.shr_s", .@"i32.shr_u",
             .@"i32.rotl", .@"i32.rotr",
             => try emitI32Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i32.clz", .@"i32.ctz", .@"i32.popcnt",
+            => try emitI32Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"end" => {
                 // Function-level end (skeleton: no label stack
                 // yet, so every `end` is the function-level form).
@@ -354,6 +356,42 @@ fn emitI32Shift(
         else => unreachable,
     };
     try buf.appendSlice(allocator, inst.encShiftRCl(.d, kind, dst_r).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// i32 bit-count handler (clz / ctz / popcnt — 3 ops). Direct
+/// 1:1 mapping to LZCNT / TZCNT / POPCNT (BMI1 + POPCNT
+/// extensions). All three:
+/// - Take src in r/m and write dst in reg (operand-role
+///   inversion vs the ADD/SUB/CMP family).
+/// - Return 32 for input 0 (LZCNT/TZCNT) which matches Wasm
+///   spec — the older BSR/BSF would leave dst undefined at 0
+///   and would need a fixup; LZCNT/TZCNT exist exactly to
+///   provide defined-at-zero semantics.
+fn emitI32Bitcount(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    const enc = switch (op) {
+        .@"i32.clz"    => inst.encLzcntR32(dst_r, src_r),
+        .@"i32.ctz"    => inst.encTzcntR32(dst_r, src_r),
+        .@"i32.popcnt" => inst.encPopcntR32(dst_r, src_r),
+        else => unreachable,
+    };
+    try buf.appendSlice(allocator, enc.slice());
 
     try pushed_vregs.append(allocator, result_v);
 }
@@ -719,6 +757,68 @@ test "compile: i32.shr_s vs i32.shr_u — kind byte differs (sar D3 fb vs shr D3
         // Layout: 4 prologue + 6+6 imm32 + 3 mov-cl + 3 mov-dst = 22, then D3 at 22, ModR/M at 23.
         try testing.expectEqual(@as(u8, 0xD3), out.bytes[22]);
         try testing.expectEqual(case.modrm, out.bytes[23]);
+    }
+}
+
+test "compile: (i32.const 8) i32.clz end — LZCNT" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 8 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.clz" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 1 }; // R10D, R11D
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected stream:
+    //   55 48 89 E5                    prologue
+    //   41 BA 08 00 00 00              MOV R10D, #8
+    //   F3 45 0F BD DA                 LZCNT R11D, R10D (dst=R11 reg, src=R10 r/m)
+    //   44 89 D8                       MOV EAX, R11D
+    //   5D C3                          POP RBP ; RET
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x41, 0xBA, 0x08, 0x00, 0x00, 0x00,
+        0xF3, 0x45, 0x0F, 0xBD, 0xDA,
+        0x44, 0x89, 0xD8,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: i32.clz vs i32.ctz vs i32.popcnt — opcode byte differs" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    inline for (.{
+        .{ .op = .@"i32.clz",    .opcode = @as(u8, 0xBD) },
+        .{ .op = .@"i32.ctz",    .opcode = @as(u8, 0xBC) },
+        .{ .op = .@"i32.popcnt", .opcode = @as(u8, 0xB8) },
+    }) |case| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+        try f.instrs.append(testing.allocator, .{ .op = case.op });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 1 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+        } };
+        const slots = [_]u8{ 0, 1 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+        defer deinit(testing.allocator, out);
+        // Layout: 4 prologue + 6 imm32 = 10. Then F3 at 10, REX at 11,
+        // 0x0F at 12, opcode at 13.
+        try testing.expectEqual(@as(u8, 0xF3), out.bytes[10]);
+        try testing.expectEqual(@as(u8, 0x0F), out.bytes[12]);
+        try testing.expectEqual(case.opcode, out.bytes[13]);
     }
 }
 
