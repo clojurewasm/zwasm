@@ -80,23 +80,23 @@
           ''
         else null;
 
-        # wasm-tools 1.246.1 (per-architecture URLs and hashes; mirrors versions.lock).
+        # wasm-tools 1.248.0 (per-architecture URLs and hashes; mirrors versions.lock).
         wasmToolsArchInfo = {
           "aarch64-darwin" = {
-            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.246.1/wasm-tools-1.246.1-aarch64-macos.tar.gz";
-            sha256 = "1i4vs5kmas0vahgd48yjjcg5h7qppq74jbchnfd7d6qzzylff0g8";
+            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.248.0/wasm-tools-1.248.0-aarch64-macos.tar.gz";
+            sha256 = "1qca0yf2g6r7plkdhxl6k7wkv4dksy0wn73aq3w9icd0zqn8cq8i";
           };
           "x86_64-darwin" = {
-            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.246.1/wasm-tools-1.246.1-x86_64-macos.tar.gz";
-            sha256 = "1nidj7vx4h7aw2a2x4p645kmilmhb2lry4pk7464z5n8hcqk1774";
+            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.248.0/wasm-tools-1.248.0-x86_64-macos.tar.gz";
+            sha256 = "175fwsg2zwn11zy9r5rjmkn10crwqz22iqdfn870agaj1hx3ifdh";
           };
           "x86_64-linux" = {
-            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.246.1/wasm-tools-1.246.1-x86_64-linux.tar.gz";
-            sha256 = "1k20522vvvz704v3ndj9bdnh3p530g893df97yvq3ms4v1kdcq1x";
+            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.248.0/wasm-tools-1.248.0-x86_64-linux.tar.gz";
+            sha256 = "001ffxxl8nnhbp42ry5c9grb1f004qlxf700n3ibyp94wpbn25a3";
           };
           "aarch64-linux" = {
-            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.246.1/wasm-tools-1.246.1-aarch64-linux.tar.gz";
-            sha256 = "1rqiy1kv81iskad1906488sq20fx16xjbbg6yhf3wb9jsc9hrlqv";
+            url = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.248.0/wasm-tools-1.248.0-aarch64-linux.tar.gz";
+            sha256 = "0l391n4qjnr8prrf1linl3ba1xsl4hj8paf2d4170sv0kg0nia92";
           };
         }.${system} or (throw "Unsupported system for wasm-tools: ${system}");
 
@@ -105,7 +105,7 @@
           sha256 = wasmToolsArchInfo.sha256;
         };
 
-        wasmToolsBin = pkgs.runCommand "wasm-tools-1.246.1-wrapper" {} ''
+        wasmToolsBin = pkgs.runCommand "wasm-tools-1.248.0-wrapper" {} ''
           mkdir -p $out/bin
           ln -s ${wasmToolsSrc}/wasm-tools $out/bin/wasm-tools
         '';

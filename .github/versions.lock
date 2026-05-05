@@ -27,7 +27,7 @@
 # Mirrors flake.nix zigArchInfo.
 ZIG_VERSION=0.16.0
 # cargo install in ci.yml.
-WASM_TOOLS_VERSION=1.246.1
+WASM_TOOLS_VERSION=1.248.0
 # Release zip download in ci.yml; install-tools.ps1 release zip on Windows.
 WASMTIME_VERSION=42.0.1
 # Mirrors flake.nix wasiSdkArchInfo (Linux/macOS/Windows tarballs).
