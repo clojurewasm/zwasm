@@ -353,6 +353,55 @@ pub fn encNop() EncodedInsn {
     return enc;
 }
 
+/// `SUB RSP, imm8` (sign-extended) — opcode 0x83 /5 with REX.W.
+/// 4-byte encoding. Caller responsibility to pass `imm` in
+/// i8 range; larger frame extensions need the 6-byte imm32 form
+/// (out of scope for the §9.7 / 7.7 skeleton — capped at 15
+/// locals = 120-byte frame).
+pub fn encSubRSpImm8(imm: i8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, 0, 0, 0));
+    enc.push(0x83);
+    enc.push(encodeModrm(0b11, 5, 4)); // /5 = SUB, rm=4 (RSP)
+    enc.push(@bitCast(imm));
+    return enc;
+}
+
+/// `ADD RSP, imm8` (sign-extended) — opcode 0x83 /0 with REX.W.
+pub fn encAddRSpImm8(imm: i8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, 0, 0, 0));
+    enc.push(0x83);
+    enc.push(encodeModrm(0b11, 0, 4)); // /0 = ADD
+    enc.push(@bitCast(imm));
+    return enc;
+}
+
+/// `MOV [RBP + disp8], r32` — store the low 32 bits of `src`
+/// to a stack slot at `RBP + disp`. Opcode 0x89 with mod=01
+/// (disp8) + rm=5 (RBP base). REX.R for src extension only
+/// (no W since 32-bit; no B since base is RBP, low reg).
+pub fn encStoreR32MemRBP(disp: i8, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (src.extBit() == 1) enc.push(encodeRex(false, 1, 0, 0));
+    enc.push(0x89);
+    enc.push(encodeModrm(0b01, src.low3(), 0b101));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
+/// `MOV r32, [RBP + disp8]` — load the 32-bit value at
+/// `RBP + disp` into `dst` (zero-extends to 64 bits per the
+/// W-form). Opcode 0x8B with mod=01 + rm=5.
+pub fn encLoadR32MemRBP(dst: Gpr, disp: i8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (dst.extBit() == 1) enc.push(encodeRex(false, 1, 0, 0));
+    enc.push(0x8B);
+    enc.push(encodeModrm(0b01, dst.low3(), 0b101));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
 /// `PUSH r64` (opcode 0x50+rd) — push a 64-bit GPR onto the
 /// stack. REX.B (0x41) is needed for R8..R15. Width is implicit
 /// 64-bit; no operand-size override exists for PUSH r64.
@@ -500,6 +549,36 @@ test "encMovImm32W: mov r10d, #42 → 41 ba 2a 00 00 00 (REX.B)" {
 test "encMovImm32W: little-endian imm32 (0xDEADBEEF)" {
     const enc = encMovImm32W(.rax, 0xDEADBEEF);
     try testing.expectEqualSlices(u8, &.{ 0xB8, 0xEF, 0xBE, 0xAD, 0xDE }, enc.slice());
+}
+
+test "encSubRSpImm8: sub rsp, 16 → 48 83 ec 10" {
+    const enc = encSubRSpImm8(16);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xEC, 0x10 }, enc.slice());
+}
+
+test "encAddRSpImm8: add rsp, 16 → 48 83 c4 10" {
+    const enc = encAddRSpImm8(16);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xC4, 0x10 }, enc.slice());
+}
+
+test "encStoreR32MemRBP: mov [rbp-8], r10d → 44 89 55 f8 (REX.R)" {
+    const enc = encStoreR32MemRBP(-8, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x55, 0xF8 }, enc.slice());
+}
+
+test "encStoreR32MemRBP: mov [rbp-8], ebx → 89 5d f8 (no REX)" {
+    const enc = encStoreR32MemRBP(-8, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0x89, 0x5D, 0xF8 }, enc.slice());
+}
+
+test "encLoadR32MemRBP: mov r10d, [rbp-8] → 44 8b 55 f8" {
+    const enc = encLoadR32MemRBP(.r10, -8);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x8B, 0x55, 0xF8 }, enc.slice());
+}
+
+test "encLoadR32MemRBP: mov ebx, [rbp-16] → 8b 5d f0" {
+    const enc = encLoadR32MemRBP(.rbx, -16);
+    try testing.expectEqualSlices(u8, &.{ 0x8B, 0x5D, 0xF0 }, enc.slice());
 }
 
 test "encAndRR: and ebx, ecx (d) → 21 cb" {

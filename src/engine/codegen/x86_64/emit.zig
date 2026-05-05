@@ -96,20 +96,35 @@ pub fn compile(
         return Error.AllocationMissing;
     }
     if (func.sig.params.len > 0) return Error.UnsupportedOp;
-    if (func.locals.len > 0) return Error.UnsupportedOp;
+    // Skeleton scope: ≤ 15 locals (i8-disp range covers offsets
+    // -8 .. -120). 16+ locals require disp32 + imm32 SUB/ADD,
+    // out of scope here (will land alongside the regalloc /
+    // spill port).
+    const num_locals: u32 = @intCast(func.locals.len);
+    if (num_locals > 15) return Error.UnsupportedOp;
+    const frame_bytes_unaligned: u32 = num_locals * 8;
+    const frame_bytes: u32 = (frame_bytes_unaligned + 15) & ~@as(u32, 15);
 
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(allocator);
 
     // ============================================================
-    // Prologue: PUSH RBP ; MOV RBP, RSP
+    // Prologue: PUSH RBP ; MOV RBP, RSP ; SUB RSP, #frame
     //
-    // No SUB RSP, #frame yet — skeleton has no locals or spills.
-    // Frame extension lands alongside the first locals / spill
-    // consumer.
+    // After PUSH RBP + MOV RBP, RSP: RBP holds the on-entry RSP
+    // (post-PUSH). SUB RSP, frame_bytes drops the stack to make
+    // room for locals; each i32 local occupies an 8-byte slot
+    // for stable 8-byte alignment + disp8 addressing.
+    //
+    // Local layout (Wasm ZirFunc.locals): local K at
+    // [RBP - 8*(K+1)]. Frame size rounds up to 16 bytes per
+    // SysV §3.2.2 (RSP must stay 16-byte aligned at any call).
     // ============================================================
     try buf.appendSlice(allocator, inst.encPushR(.rbp).slice());
     try buf.appendSlice(allocator, inst.encMovRR(.q, .rbp, .rsp).slice());
+    if (frame_bytes > 0) {
+        try buf.appendSlice(allocator, inst.encSubRSpImm8(@intCast(frame_bytes)).slice());
+    }
 
     // ============================================================
     // Body: walk instrs, dispatch per op.
@@ -147,6 +162,9 @@ pub fn compile(
             => try emitI32Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"i32.clz", .@"i32.ctz", .@"i32.popcnt",
             => try emitI32Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, ins.payload),
+            .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, ins.payload),
+            .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, ins.payload),
             .@"end" => {
                 // Function-level end (skeleton: no label stack
                 // yet, so every `end` is the function-level form).
@@ -161,7 +179,10 @@ pub fn compile(
                         try buf.appendSlice(allocator, inst.encMovRR(.d, abi.return_gpr, src).slice());
                     }
                 }
-                // Epilogue: POP RBP ; RET.
+                // Epilogue: ADD RSP, #frame ; POP RBP ; RET.
+                if (frame_bytes > 0) {
+                    try buf.appendSlice(allocator, inst.encAddRSpImm8(@intCast(frame_bytes)).slice());
+                }
                 try buf.appendSlice(allocator, inst.encPopR(.rbp).slice());
                 try buf.appendSlice(allocator, inst.encRet().slice());
                 break;
@@ -396,6 +417,71 @@ fn emitI32Bitcount(
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Compute the i8 displacement for local index `idx`. Layout:
+/// local 0 at [RBP - 8], local K at [RBP - 8*(K+1)]. Surfaces
+/// `UnsupportedOp` for indices the i8 disp cannot reach (idx >=
+/// 16 → -136, out of i8 range).
+fn localDisp(idx: u32, num_locals: u32) Error!i8 {
+    if (idx >= num_locals) return Error.UnsupportedOp;
+    if (idx >= 16) return Error.UnsupportedOp;
+    const off: i32 = -@as(i32, @intCast((idx + 1) * 8));
+    return @intCast(off);
+}
+
+/// `local.get K` — push a fresh vreg holding the value loaded
+/// from [RBP - 8*(K+1)].
+fn emitLocalGet(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    num_locals: u32,
+    idx: u32,
+) Error!void {
+    const disp = try localDisp(idx, num_locals);
+    const vreg = next_vreg.*;
+    next_vreg.* += 1;
+    if (vreg >= alloc.slots.len) return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+    try buf.appendSlice(allocator, inst.encLoadR32MemRBP(dst_r, disp).slice());
+    try pushed_vregs.append(allocator, vreg);
+}
+
+/// `local.set K` — pop the top vreg and store its low 32 bits
+/// into [RBP - 8*(K+1)].
+fn emitLocalSet(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    num_locals: u32,
+    idx: u32,
+) Error!void {
+    const disp = try localDisp(idx, num_locals);
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    try buf.appendSlice(allocator, inst.encStoreR32MemRBP(disp, src_r).slice());
+}
+
+/// `local.tee K` — store the top vreg's low 32 bits into
+/// [RBP - 8*(K+1)] WITHOUT popping.
+fn emitLocalTee(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    num_locals: u32,
+    idx: u32,
+) Error!void {
+    const disp = try localDisp(idx, num_locals);
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.items[pushed_vregs.items.len - 1];
+    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    try buf.appendSlice(allocator, inst.encStoreR32MemRBP(disp, src_r).slice());
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -482,9 +568,76 @@ test "compile: void function with `end` only emits prologue + epilogue" {
     try testing.expectEqualSlices(u8, &.{ 0x55, 0x48, 0x89, 0xE5, 0x5D, 0xC3 }, out.bytes);
 }
 
-test "compile: function with locals → UnsupportedOp (skeleton scope)" {
-    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+test "compile: function with 1 local + (i32.const 42) (local.set 0) (local.get 0) end" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
     var f = ZirFunc.init(0, sig, &[_]zir.ValType{.i32});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.set", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 }, // const
+        .{ .def_pc = 2, .last_use_pc = 3 }, // local.get result
+    } };
+    const slots = [_]u8{ 0, 1 }; // R10D, R11D
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected stream:
+    //   55 48 89 E5                    PUSH RBP ; MOV RBP, RSP
+    //   48 83 EC 10                    SUB RSP, 16            (1 local → 16 aligned)
+    //   41 BA 2A 00 00 00              MOV R10D, #42          (const)
+    //   44 89 55 F8                    MOV [RBP-8], R10D      (local.set 0)
+    //   44 8B 5D F8                    MOV R11D, [RBP-8]      (local.get 0)
+    //   44 89 D8                       MOV EAX, R11D
+    //   48 83 C4 10                    ADD RSP, 16
+    //   5D                             POP RBP
+    //   C3                             RET
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x48, 0x83, 0xEC, 0x10,
+        0x41, 0xBA, 0x2A, 0x00, 0x00, 0x00,
+        0x44, 0x89, 0x55, 0xF8,
+        0x44, 0x8B, 0x5D, 0xF8,
+        0x44, 0x89, 0xD8,
+        0x48, 0x83, 0xC4, 0x10,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: local.tee preserves stack — uses top vreg without popping" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &[_]zir.ValType{.i32});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.tee", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{0}; // R10D
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // local.tee writes [RBP-8] but doesn't pop, so the top vreg
+    // (R10D) is still on the stack for the `end` to marshal into EAX.
+    // Expected: prologue+SUB(8) + MOV R10D #7 + MOV [RBP-8] R10D
+    // + MOV EAX R10D + ADD RSP + POP RBP + RET.
+    // Spot-check: STORE [RBP-8] R10D = 44 89 55 F8 at offset 14..18,
+    // followed by MOV EAX, R10D = 44 89 D0 at 18..21.
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x55, 0xF8 }, out.bytes[14..18]);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0xD0 }, out.bytes[18..21]);
+}
+
+test "compile: function with > 15 locals → UnsupportedOp (i8 disp range)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    const sixteen_locals = [_]zir.ValType{.i32} ** 16;
+    var f = ZirFunc.init(0, sig, &sixteen_locals);
     defer f.deinit(testing.allocator);
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
