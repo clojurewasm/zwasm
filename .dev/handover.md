@@ -22,16 +22,19 @@
 
 ## Current state — Phase 7 / §9.7 / 7.6 IN-PROGRESS
 
-§9.7 / 7.6 chunk a landed `739de07` (x86_64/reg_class.zig: Gpr +
-Xmm + Width — 16 GPR / 16 XMM enums with low3()/extBit() splits
-for ModR/M + REX encoding, ~120 LOC)。3-host green。
+§9.7 / 7.6 chunk b landed `3c78b63` (x86_64/inst.zig foundation:
+EncodedInsn + 3 inline encodeRex/encodeModrm/encodeSib helpers +
+5 canonical ops mov/add/sub-RR + ret/nop, 13 byte-level tests,
+~250 LOC)。Step 0 survey: cranelift-x64-asm + winch + wasmer 3
+divergences adopted (unified Width dispatch, REX inline at
+encode-time, single-file prefix logic)。3-host green。
 
-**Active task**: §9.7 / 7.6 chunk b — x86_64/inst.zig (encoder)。
-Step 0 survey 必須: 設計領域は AMD64 instruction format (REX /
-ModR/M / SIB / immediate) + winch / cranelift x86_64 idiom。
+**Active task**: §9.7 / 7.6 chunk c — x86_64/abi.zig (System V
+x86_64 + Win64 calling conventions + reserved_invariant_gprs per
+ADR-0018 mapping)。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 739de07。
+**Branch**: `zwasm-from-scratch`、最新は 3c78b63。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -59,8 +62,9 @@ fixed).
 | # | Chunk | Status |
 |---|---|---|
 | a | reg_class.zig (Gpr + Xmm + Width) | DONE `739de07` |
-| b | inst.zig (encoder; needs Step 0 survey) | **NEXT** |
-| c | abi.zig (System V + Win64 calling conventions + reserved_invariant_gprs) | pending |
+| b | inst.zig foundation (REX/ModR/M/SIB + 5 ops) | DONE `3c78b63` |
+| c | abi.zig (System V + Win64 calling conventions + reserved_invariant_gprs) | **NEXT** |
+| follow-up | inst.zig op coverage (mem ops + immediates + branches + XMM) | pending (drives 7.7) |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
 + Windows hosts), 7.9/7.10 realworld, 7.11 3-way differential 🔒.
@@ -80,6 +84,9 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.6 chunk b: x86_64/inst.zig foundation (EncodedInsn +
+  3 inline prefix/modrm/sib helpers + 5 canonical ops + 13
+  byte-level tests, ~250 LOC) (3c78b63)。
 - §9.7 / 7.6 chunk a: x86_64/reg_class.zig (Gpr + Xmm + Width
   enums, 16+16 variants, ~120 LOC) (739de07)。
 - §9.7 / 7.5d 完全クローズ (sub-b chunks 1-10 landed; ROADMAP
