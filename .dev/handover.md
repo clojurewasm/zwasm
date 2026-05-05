@@ -22,16 +22,16 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-§9.7 / 7.7-cmp landed (`126ce7e` x86_64 i32 compare 10 ops via
-emitI32Compare CMP+SETcc+MOVZX; inst.zig +Cond enum + CMP/SETcc/
-MOVZX encoders, 8 byte-level inst tests + 3 emit tests)。3-host
-green。x86_64 dir 1448 LOC total (4 files)。
+§9.7 / 7.7-eqz landed (`2c5d681` x86_64 i32.eqz via emitI32Eqz
+TEST+SETE+MOVZX; inst.zig +TEST encoder, 3 byte-level inst tests
++ 2 emit tests)。3-host green。
 
-**Active task**: §9.7 / 7.7-eqz — i32.eqz (TEST + SETZ +
-MOVZX、unary)。これも cmp パターンの special case。
+**Active task**: §9.7 / 7.7-shift — i32 shifts (shl/shr_s/shr_u/
+rotl/rotr, 5 ops)。x86_64 では shift count を CL (RCX low byte)
+にロード必要 — 設計上の constraint あり。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 126ce7e。
+**Branch**: `zwasm-from-scratch`、最新は 2c5d681。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -64,9 +64,10 @@ fixed).
 | 7.7-skel | emit.zig skeleton (prologue + i32.const + end) + inst PUSH/POP/MOVImm32W | DONE `4956b9e` |
 | 7.7-alu | i32 ALU op handlers (add/sub/mul/and/or/xor) | DONE `741a9b4` |
 | 7.7-cmp | i32 compare 10 ops (eq..ge_u) via CMP+SETcc+MOVZX | DONE `126ce7e` |
-| 7.7-eqz | i32.eqz (TEST+SETZ+MOVZX, unary) | **NEXT** |
-| 7.7-shift | i32 shifts (shl/shr_s/shr_u/rotl/rotr) | pending |
+| 7.7-eqz | i32.eqz (TEST+SETE+MOVZX, unary) | DONE `2c5d681` |
+| 7.7-shift | i32 shifts (shl/shr_s/shr_u/rotl/rotr) — CL constraint | **NEXT** |
 | 7.7-bitcount | i32 clz/ctz/popcnt | pending |
+| 7.7-extras | i32.wrap/extend/locals/globals — fills out i32 surface | pending |
 | 7.7-mem | i32 load/store + reserved_invariant_gprs design | pending (forces invariant decision) |
 | 7.7-call | call / call_indirect | pending |
 | deferred-Win64 | Win64 ABI table + Cc enum | pending |
@@ -89,6 +90,8 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-eqz: x86_64 i32.eqz via emitI32Eqz TEST+SETE+MOVZX
+  + inst.zig TEST encoder, 5 new tests (2c5d681)。
 - §9.7 / 7.7-cmp: x86_64 i32 compare 10 ops via emitI32Compare
   CMP+SETcc+MOVZX + inst.zig Cond + CMP/SETcc/MOVZX encoders,
   11 new tests (126ce7e)。
