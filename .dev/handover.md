@@ -22,21 +22,21 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-§9.7 / 7.7-mem-load landed (`c0711fb` x86_64 i32.load: ADR-0026
-prologue (PUSH RBP+R15 / MOV RBP,RSP / MOV R15,RDI) + bounds-
-check trap stub (MOV [R15+trap_flag_off],1 / XOR EAX,EAX / RET)
-+ 5 inst encoders (encMovR64FromMemDisp32 / encCmpR64MemDisp32 /
-encMovR32FromBaseIdx / encAddR64Imm32 / encStoreImm32MemDisp32);
-prescan で uses_runtime_ptr=false の path は既存 prologue 維持
-→ 全 emit テスト無傷; 7 byte-level + 2 emit tests; 3-host green。
+§9.7 / 7.7-mem-store landed (`7d37a5b` x86_64 i32.store + 狭幅
+load/store、unified `emitMemOp` ハンドラ、7 inst encoders +
+5 emit tests; emitI32Load を emitMemOp に統合 refactor、既存
+78-byte i32.load テストはそのまま green; 8 mem-op surface 完備
+(i32.{load, load8_s/u, load16_s/u, store, store8, store16}))。
+3-host green。
 
-**Active task**: §9.7 / 7.7-mem-store — i32.store + 狭幅
-load/store (i32.load8_s/u, i32.load16_s/u, i32.store8/16)。
-emitI32Load 実装と同じ ADR-0026 prologue を経由しつつ、store の
-src 値書き出し + 狭幅符号拡張 (MOVSX 系) を追加する。
+**Active task**: §9.7 / 7.7-globals — global.get/.set。
+JitRuntime extension (globals_base) を追加するか Instance
+直接アクセスか設計判断あり (これは設計判断 chunk なので、ADR
+or lesson 化が必要)。代替: 7.7-wrap (i32.wrap_i64 /
+i64.extend_i32_s/u) — 軽量で 7.7 の i64 path を開く。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は c0711fb。
+**Branch**: `zwasm-from-scratch`、最新は 7d37a5b。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -77,8 +77,8 @@ fixed).
 | 7.7-control-if | if/else (+if_skip_byte +merge_top_vreg D-027) + br_if | DONE `c0ba23d` |
 | 7.7-control-table | br_table (linear CMP+JNE-skip+JMP chain + tail) | DONE `46a6d9f` |
 | 7.7-mem-load | i32.load + ADR-0026 prologue + bounds-check trap stub | DONE `c0711fb` |
-| 7.7-mem-store | i32.store + 狭幅 load/store (load8_s/u, load16_s/u, store8/16) | **NEXT** |
-| 7.7-globals | global.get/.set (needs JitRuntime globals_base extension) | pending |
+| 7.7-mem-store | i32.store + 狭幅 load/store + emitMemOp 統合 refactor | DONE `7d37a5b` |
+| 7.7-globals | global.get/.set (needs JitRuntime globals_base extension) | **NEXT** (or 7.7-wrap) |
 | 7.7-wrap | i32.wrap_i64 / i64.extend_i32_s/u | pending |
 | 7.7-call | call/call_indirect | pending |
 | 7.7-fp | f32/f64 surface | pending |
@@ -102,6 +102,12 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-mem-store: x86_64 i32.store + 狭幅 load/store
+  (i32.{load8_s/u, load16_s/u, store8, store16}) + unified
+  emitMemOp ハンドラへ refactor (emitI32Load 統合); 7 inst
+  encoders (encStoreR{32,16,8}MemBaseIdx + encMov{zx,sx}R32_
+  {8,16}MemBaseIdx); 9 byte-level + 5 emit tests; 8 mem-op
+  surface 完備 (7d37a5b)。
 - §9.7 / 7.7-mem-load: x86_64 i32.load + ADR-0026 prologue
   (PUSH RBP+R15, MOV R15,RDI) + bounds-check trap stub; 5 new
   inst encoders; usesRuntimePtr prescan で既存 prologue 維持
