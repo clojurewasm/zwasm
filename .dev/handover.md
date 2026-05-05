@@ -23,19 +23,19 @@
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
 直近 commit:
+- `6af5239` §9.7 / 7.7-fp-copysign — x86_64 f32/f64 copysign
+  (GPR bit-twiddle via RAX/RDX/RCX scratches; encMovdR32FromXmm
+  + encMovqR64FromXmm; 6 new tests; 3-host green)
 - `d51c1b8` §9.7 / 7.7-fp-unary — x86_64 14 unary FP ops
-  (sqrt + ceil/floor/trunc/nearest via ROUNDSS/SD + abs/neg via
-  XMM7 mask + AND/XOR; 9 new tests; 3-host green)
 - `bc4348d` §9.7 / 7.7-fp-compare — x86_64 f32/f64 6 compares
-- `895ac3e` §9.7 / 7.7-fp-binary — x86_64 f32/f64 add/sub/mul/div
 
-**Active task**: **NEXT** = 7.7-fp-minmax-copysign (f32/f64 min/
-max with NaN propagation + copysign via bitwise sign-transfer)。
+**Active task**: **NEXT** = 7.7-fp-minmax (f32/f64 min/max,
+branch-based emit for Wasm-spec NaN propagation + ±0 handling)。
 続いて fp-convert / fp-mem / fp-end-fix (D-032) → §9.7 / 7.8
 spec gate。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は `d51c1b8`。
+**Branch**: `zwasm-from-scratch`、最新は `6af5239`。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -85,7 +85,8 @@ fixed).
 | 7.7-fp-binary | f32/f64 add/sub/mul/div (ADDSS/ADDSD …) | DONE `895ac3e` |
 | 7.7-fp-compare | f32/f64 eq/ne/lt/gt/le/ge (UCOMISS/UCOMISD) | DONE `bc4348d` |
 | 7.7-fp-unary | f32/f64 abs/neg/sqrt/ceil/floor/trunc/nearest | DONE `d51c1b8` |
-| 7.7-fp-minmax-copysign | f32/f64 min/max/copysign | **NEXT** |
+| 7.7-fp-copysign | f32/f64 copysign (GPR bit-twiddle) | DONE `6af5239` |
+| 7.7-fp-minmax | f32/f64 min/max (branch-based NaN/±0 spec) | **NEXT** |
 | 7.7-fp-convert | f↔int + f32↔f64 + reinterpret | pending |
 | 7.7-fp-mem | f32/f64 load/store | pending |
 | 7.7-fp-end-fix | FP-aware function-end (D-032 discharge) | pending |
@@ -109,11 +110,12 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
-- §9.7 / 7.7-fp-unary: x86_64 14 unary FP ops — sqrt
-  (SQRTSS/SD), ceil/floor/trunc/nearest (ROUNDSS/SD with
-  mode imm), abs/neg (RAX→XMM7 mask + ANDPS/PD or XORPS/PD);
-  XMM7 reserved as SIMD scratch (pool starts XMM8); 9 tests
-  (d51c1b8)。
+- §9.7 / 7.7-fp-copysign: x86_64 f32/f64 copysign via GPR
+  bit-twiddle (XMM→RAX/RDX, mask via RCX, AND/OR, RAX→XMM);
+  encMovdR32FromXmm + encMovqR64FromXmm; min/max split off
+  to its own chunk; 6 tests (6af5239)。
+- §9.7 / 7.7-fp-unary: x86_64 14 unary FP ops — sqrt + round
+  + abs/neg (mask materialisation); 9 tests (d51c1b8)。
 - §9.7 / 7.7-fp-compare: x86_64 f32/f64 eq/ne/lt/gt/le/ge via
   UCOMISS/UCOMISD + SETcc; NaN-unordered handling; 7 tests
   (bc4348d)。
