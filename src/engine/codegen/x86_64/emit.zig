@@ -155,6 +155,8 @@ pub fn compile(
                 .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
                 .@"i32.load16_s", .@"i32.load16_u",
                 .@"i32.store", .@"i32.store8", .@"i32.store16",
+                .@"f32.load", .@"f64.load",
+                .@"f32.store", .@"f64.store",
                 .@"global.get", .@"global.set",
                 .@"call",
                 .@"call_indirect",
@@ -308,6 +310,8 @@ pub fn compile(
             .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
             .@"i32.load16_s", .@"i32.load16_u",
             .@"i32.store", .@"i32.store8", .@"i32.store16",
+            .@"f32.load", .@"f64.load",
+            .@"f32.store", .@"f64.store",
             => try emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.op, ins.payload, func.func_idx),
             .@"global.get" => try emitI32GlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             .@"global.set" => try emitI32GlobalSet(allocator, &buf, alloc, &pushed_vregs, ins.payload),
@@ -2177,7 +2181,13 @@ fn emitMemOp(
     func_idx: u32,
 ) Error!void {
     const is_store = switch (op) {
-        .@"i32.store", .@"i32.store8", .@"i32.store16" => true,
+        .@"i32.store", .@"i32.store8", .@"i32.store16",
+        .@"f32.store", .@"f64.store",
+        => true,
+        else => false,
+    };
+    const is_fp = switch (op) {
+        .@"f32.load", .@"f64.load", .@"f32.store", .@"f64.store" => true,
         else => false,
     };
 
@@ -2199,7 +2209,8 @@ fn emitMemOp(
     const access_size: i8 = switch (op) {
         .@"i32.load8_s", .@"i32.load8_u", .@"i32.store8" => 1,
         .@"i32.load16_s", .@"i32.load16_u", .@"i32.store16" => 2,
-        .@"i32.load", .@"i32.store" => 4,
+        .@"i32.load", .@"i32.store", .@"f32.load", .@"f32.store" => 4,
+        .@"f64.load", .@"f64.store" => 8,
         else => unreachable,
     };
 
@@ -2223,28 +2234,40 @@ fn emitMemOp(
 
     // Per-op final encoding.
     if (is_store) {
-        const src_r = abi.slotToReg(alloc.slots[val_v]) orelse return Error.SlotOverflow;
-        const enc = switch (op) {
-            .@"i32.store"   => inst.encStoreR32MemBaseIdx(src_r, .rax, .rdx),
-            .@"i32.store8"  => inst.encStoreR8MemBaseIdx(src_r, .rax, .rdx),
-            .@"i32.store16" => inst.encStoreR16MemBaseIdx(src_r, .rax, .rdx),
-            else => unreachable,
-        };
-        try buf.appendSlice(allocator, enc.slice());
+        if (is_fp) {
+            const src_x = abi.fpSlotToReg(alloc.slots[val_v]) orelse return Error.SlotOverflow;
+            const kind: inst.SseScalarKind = if (op == .@"f64.store") .f64 else .f32;
+            try buf.appendSlice(allocator, inst.encMovssMovsdMemBaseIdx(kind, true, src_x, .rax, .rdx).slice());
+        } else {
+            const src_r = abi.slotToReg(alloc.slots[val_v]) orelse return Error.SlotOverflow;
+            const enc = switch (op) {
+                .@"i32.store"   => inst.encStoreR32MemBaseIdx(src_r, .rax, .rdx),
+                .@"i32.store8"  => inst.encStoreR8MemBaseIdx(src_r, .rax, .rdx),
+                .@"i32.store16" => inst.encStoreR16MemBaseIdx(src_r, .rax, .rdx),
+                else => unreachable,
+            };
+            try buf.appendSlice(allocator, enc.slice());
+        }
     } else {
         const result_v = next_vreg.*;
         next_vreg.* += 1;
         if (result_v >= alloc.slots.len) return Error.SlotOverflow;
-        const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
-        const enc = switch (op) {
-            .@"i32.load"     => inst.encMovR32FromBaseIdx(dst_r, .rax, .rdx),
-            .@"i32.load8_s"  => inst.encMovsxR32_8MemBaseIdx(dst_r, .rax, .rdx),
-            .@"i32.load8_u"  => inst.encMovzxR32_8MemBaseIdx(dst_r, .rax, .rdx),
-            .@"i32.load16_s" => inst.encMovsxR32_16MemBaseIdx(dst_r, .rax, .rdx),
-            .@"i32.load16_u" => inst.encMovzxR32_16MemBaseIdx(dst_r, .rax, .rdx),
-            else => unreachable,
-        };
-        try buf.appendSlice(allocator, enc.slice());
+        if (is_fp) {
+            const dst_x = abi.fpSlotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+            const kind: inst.SseScalarKind = if (op == .@"f64.load") .f64 else .f32;
+            try buf.appendSlice(allocator, inst.encMovssMovsdMemBaseIdx(kind, false, dst_x, .rax, .rdx).slice());
+        } else {
+            const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+            const enc = switch (op) {
+                .@"i32.load"     => inst.encMovR32FromBaseIdx(dst_r, .rax, .rdx),
+                .@"i32.load8_s"  => inst.encMovsxR32_8MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i32.load8_u"  => inst.encMovzxR32_8MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i32.load16_s" => inst.encMovsxR32_16MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i32.load16_u" => inst.encMovzxR32_16MemBaseIdx(dst_r, .rax, .rdx),
+                else => unreachable,
+            };
+            try buf.appendSlice(allocator, enc.slice());
+        }
         try pushed_vregs.append(allocator, result_v);
     }
 }
@@ -3925,6 +3948,58 @@ test "compile: f32.reinterpret_i32 — MOVD XMM8, R10D (GPR→XMM bit-cast)" {
     // After i32.const at [4..10] (6 bytes for R10): MOVD XMM8, R10D at [10..15].
     const expected = inst.encMovdXmmFromR32(.xmm8, .r10);
     try testing.expectEqualSlices(u8, expected.slice(), out.bytes[10 .. 10 + expected.len]);
+}
+
+test "compile: f32.load — emit MOVSS xmm_dst, [rax + rdx] after eff-addr/bounds-check" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.f32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f32.load", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    // GPR slot 0 (idx) → R10; FP slot 0 (result) → XMM8.
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Verify the f32.load handler emits MOVSS XMM8, [RAX + RDX]
+    // somewhere in the byte stream after the bounds prologue.
+    const expected = inst.encMovssMovsdMemBaseIdx(.f32, false, .xmm8, .rax, .rdx);
+    try testing.expect(std.mem.find(u8, out.bytes, expected.slice()) != null);
+}
+
+test "compile: f64.store — emit MOVSD [rax+rdx], xmm_src + bounds prologue with size=8" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // i32.const 0 (idx) ; f64.const 1.0 (val) ; f64.store 0 ; end
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x3FF00000 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.store", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    // GPR slot 0 (idx) → R10; FP slot 1 (val) → XMM9.
+    const slots = [_]u8{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Verify the f64.store emits MOVSD [RAX+RDX], XMM9.
+    const expected = inst.encMovssMovsdMemBaseIdx(.f64, true, .xmm9, .rax, .rdx);
+    try testing.expect(std.mem.find(u8, out.bytes, expected.slice()) != null);
+    // Verify the LEA bounds-check uses access_size=8 (the disp8
+    // immediate in encLeaR64BaseDisp8 is the access_size byte).
+    // Search for an LEA that has 8 as its disp byte; rough check
+    // by looking for the LEA opcode + ModRM + disp8=0x08 sequence.
+    // (The encoder is encLeaR64BaseDisp8(.rcx, .rdx, 8).)
+    const expected_lea = inst.encLeaR64BaseDisp8(.rcx, .rdx, 8);
+    try testing.expect(std.mem.find(u8, out.bytes, expected_lea.slice()) != null);
 }
 
 test "compile: i32.trunc_f32_u — Wasm 1.0 trapping unsigned via .q-trick" {

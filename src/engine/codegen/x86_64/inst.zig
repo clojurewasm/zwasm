@@ -930,6 +930,25 @@ pub fn encAndRImm8(size: Width, dst: Gpr, imm: i8) EncodedInsn {
     return enc;
 }
 
+/// `MOVSS / MOVSD xmm,[base+idx]` and the store direction —
+/// scalar single/double FP load/store with SIB scale=1 (no
+/// displacement). `is_store` toggles opcode 0x10 (load) / 0x11
+/// (store). `scalar_kind` selects the F3 (f32) / F2 (f64) prefix.
+/// xmm goes into ModR/M.reg, base into SIB.base, idx into
+/// SIB.index.
+pub fn encMovssMovsdMemBaseIdx(scalar_kind: SseScalarKind, is_store: bool, xmm: Xmm, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(@intFromEnum(scalar_kind));
+    if (xmm.extBit() != 0 or base.extBit() != 0 or idx.extBit() != 0) {
+        enc.push(encodeRex(false, xmm.extBit(), idx.extBit(), base.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(if (is_store) @as(u8, 0x11) else 0x10);
+    enc.push(encodeModrm(0b00, xmm.low3(), 0b100)); // mod=00, rm=4 → SIB
+    enc.push(encodeSib(0b00, idx.low3(), base.low3())); // scale=1
+    return enc;
+}
+
 /// `CVTTSS2SI r/m32 or r/m64, xmm/m32-or-64` family — scalar
 /// truncating float→signed-int conversion.
 ///   F3 [REX?] 0F 2C /r (CVTTSS2SI; src f32 via prefix)
@@ -1839,4 +1858,24 @@ test "encCvttScalar2Int: cvttsd2si rax, xmm0 → f2 48 0f 2c c0 (REX.W only)" {
 test "encCvttScalar2Int: cvttsd2si eax, xmm8 → f2 41 0f 2c c0 (REX.B only)" {
     const enc = encCvttScalar2Int(.f64, false, .rax, .xmm8);
     try testing.expectEqualSlices(u8, &.{ 0xF2, 0x41, 0x0F, 0x2C, 0xC0 }, enc.slice());
+}
+
+test "encMovssMovsdMemBaseIdx: movss xmm0, [rax+rdx] → f3 0f 10 04 10 (no REX)" {
+    const enc = encMovssMovsdMemBaseIdx(.f32, false, .xmm0, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x0F, 0x10, 0x04, 0x10 }, enc.slice());
+}
+
+test "encMovssMovsdMemBaseIdx: movsd xmm8, [rax+rdx] → f2 44 0f 10 04 10 (REX.R)" {
+    const enc = encMovssMovsdMemBaseIdx(.f64, false, .xmm8, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0xF2, 0x44, 0x0F, 0x10, 0x04, 0x10 }, enc.slice());
+}
+
+test "encMovssMovsdMemBaseIdx: movss [rax+rdx], xmm8 → f3 44 0f 11 04 10 (store, REX.R)" {
+    const enc = encMovssMovsdMemBaseIdx(.f32, true, .xmm8, .rax, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x44, 0x0F, 0x11, 0x04, 0x10 }, enc.slice());
+}
+
+test "encMovssMovsdMemBaseIdx: movsd [r10+r11], xmm0 → f2 43 0f 11 04 1a (store, REX.B+X)" {
+    const enc = encMovssMovsdMemBaseIdx(.f64, true, .xmm0, .r10, .r11);
+    try testing.expectEqualSlices(u8, &.{ 0xF2, 0x43, 0x0F, 0x11, 0x04, 0x1A }, enc.slice());
 }
