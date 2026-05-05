@@ -22,18 +22,17 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-§9.7 / 7.7-bitcount landed (`c62a3d7` x86_64 i32 clz/ctz/popcnt
-via emitI32Bitcount + LZCNT/TZCNT/POPCNT encoders; 1:1 mapping
-to Wasm spec, no fixup needed; 5 byte-level inst tests + 2 emit
-tests)。3-host green。i32 ALU surface ほぼ完備 (binary + cmp +
-shift + bitcount + eqz)。
+§9.7 / 7.7-locals landed (`59ed705` frame extension SUB/ADD RSP
++ 3 local handlers .get/.set/.tee + 4 inst encoders Sub/Add RSP
+imm8 + RBP-relative store/load; 7 byte-level inst tests + 3
+emit tests; 15-locals cap via i8 disp)。3-host green。
 
-**Active task**: §9.7 / 7.7-extras — i32.wrap_i64 / i64.extend
-(cross-width) + locals (.get/.set/.tee) + globals。i32 surface
-の残り。
+**Active task**: §9.7 / 7.7-globals — global.get/.set。
+mod=00/01 + RIP-relative or absolute addressing 設計判断あり
+(globals は Module 内固定アドレス vs Runtime ptr 経由)。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は c62a3d7。
+**Branch**: `zwasm-from-scratch`、最新は 59ed705。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -69,8 +68,13 @@ fixed).
 | 7.7-eqz | i32.eqz (TEST+SETE+MOVZX, unary) | DONE `2c5d681` |
 | 7.7-shift | i32 shifts 5 ops (CL constraint) | DONE `211a51f` |
 | 7.7-bitcount | i32 clz/ctz/popcnt (LZCNT/TZCNT/POPCNT) | DONE `c62a3d7` |
-| 7.7-extras | locals (.get/.set/.tee) + globals + wrap/extend | **NEXT** |
+| 7.7-locals | frame SUB/ADD RSP + local.get/.set/.tee (15 cap) | DONE `59ed705` |
+| 7.7-globals | global.get/.set | **NEXT** |
+| 7.7-wrap | i32.wrap_i64 / i64.extend_i32_s/u | pending |
 | 7.7-control | block/loop/br/br_if/br_table/if/else/end | pending |
+| 7.7-mem | i32.load/store (+ bounds_check) | pending |
+| 7.7-call | call/call_indirect | pending |
+| 7.7-fp | f32/f64 surface | pending |
 | 7.7-mem | i32 load/store + reserved_invariant_gprs design | pending (forces invariant decision) |
 | 7.7-call | call / call_indirect | pending |
 | deferred-Win64 | Win64 ABI table + Cc enum | pending |
@@ -93,6 +97,10 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-locals: x86_64 frame extension + local handlers
+  (.get/.set/.tee) + 4 inst encoders, 10 new tests, 15-locals
+  cap (i8 disp); function with 1 local + set/get + return now
+  produces a complete 31-byte body (59ed705)。
 - §9.7 / 7.7-bitcount: x86_64 i32 clz/ctz/popcnt via
   LZCNT/TZCNT/POPCNT (1:1 spec match), 7 new tests (c62a3d7)。
 - §9.7 / 7.7-shift: x86_64 i32 shifts 5 ops via emitI32Shift
