@@ -22,18 +22,17 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-§9.7 / 7.7 skeleton landed (`4956b9e` x86_64/emit.zig: prologue +
-i32.const + end → 15-byte "return 42" sequence; inst.zig +3
-encoders PUSH/POP/MOVImm32W; 7 emit tests + 7 inst tests)。x86_64
-backend dir 1002 LOC total (4 files)。3-host green。
+§9.7 / 7.7-alu landed (`741a9b4` x86_64 i32 binary ALU 6 ops via
+emitI32Binary handler; inst.zig +AND/OR/XOR/IMUL encoders, 9 byte-
+level inst tests + 4 emit tests)。x86_64 dir 1236 LOC total。
+3-host green (windowsmini 1 retry — test-runner IPC タイムアウト
+が transient で再発 2 回目、現状は実害なし)。
 
-**Active task**: §9.7 / 7.7 op coverage extension — i32 ALU
-(add/sub/mul/and/or/xor) handlers + the inst.zig encoders they
-need。reserved_invariant_gprs design は memory ops 着手時に強制
-される — 当面 ALU で cycle を回す。
+**Active task**: §9.7 / 7.7-cmp — i32 compare (eq/ne/lt/gt/le/ge,
+6 ops)。x86_64 では CMP + SETcc → MOVZX で 32-bit 0/1 にする。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 4956b9e。
+**Branch**: `zwasm-from-scratch`、最新は 741a9b4。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -64,8 +63,8 @@ fixed).
 | 7.6-b | inst.zig foundation (REX/ModR/M/SIB + 5 ops) | DONE `3c78b63` |
 | 7.6-c | abi.zig SysV (arg/return/callee-saved + slotToReg) | DONE `344d393` |
 | 7.7-skel | emit.zig skeleton (prologue + i32.const + end) + inst PUSH/POP/MOVImm32W | DONE `4956b9e` |
-| 7.7-alu | i32 ALU op handlers (add/sub/mul/and/or/xor) | **NEXT** |
-| 7.7-cmp | i32 compare (eq/ne/lt/gt/le/ge) | pending |
+| 7.7-alu | i32 ALU op handlers (add/sub/mul/and/or/xor) | DONE `741a9b4` |
+| 7.7-cmp | i32 compare (eq/ne/lt/gt/le/ge) via CMP+SETcc+MOVZX | **NEXT** |
 | 7.7-mem | i32 load/store + reserved_invariant_gprs design | pending (forces invariant decision) |
 | 7.7-call | call / call_indirect | pending |
 | deferred-Win64 | Win64 ABI table + Cc enum | pending |
@@ -88,6 +87,8 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-alu: x86_64 i32 binary ALU 6 ops via emitI32Binary
+  + inst.zig AND/OR/XOR/IMUL encoders, 13 new tests (741a9b4)。
 - §9.7 / 7.7 skeleton: x86_64/emit.zig (compile() → 15-byte
   "return 42" cycle) + inst.zig PUSH/POP/MOVImm32W extensions,
   ~340 LOC, 14 new tests (4956b9e)。
