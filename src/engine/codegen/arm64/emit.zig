@@ -55,6 +55,7 @@ const op_alu_float = @import("op_alu_float.zig");
 const op_convert = @import("op_convert.zig");
 const op_memory = @import("op_memory.zig");
 const op_control = @import("op_control.zig");
+const op_call = @import("op_call.zig");
 
 const Label = label_mod.Label;
 const LabelKind = label_mod.LabelKind;
@@ -466,78 +467,8 @@ pub fn compile(
             .@"block" => try op_control.emitBlock(&ctx, &ins),
             .@"loop" => try op_control.emitLoop(&ctx, &ins),
             .@"br" => try op_control.emitBr(&ctx, &ins),
-            .@"call_indirect" => {
-                // Type-idx → callee FuncType (sub-g3a).
-                if (ins.payload >= module_types.len) return Error.AllocationMissing;
-                const callee_sig: zir.FuncType = module_types[ins.payload];
-
-                // Stack at entry: [args..., idx]. Pop idx first.
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const idx_vreg = pushed_vregs.pop().?;
-
-                try marshalCallArgs(allocator, &buf, callee_sig, alloc, &pushed_vregs);
-
-                // Sub-g3c: bounds + sig check using the trap-stub at
-                // function tail (shared with memory bounds — single
-                // trap reason today; Diagnostic M3 / D-022 splits
-                // them later).
-                const w_idx = try gpr.resolveGpr(alloc, idx_vreg);
-                try gpr.writeU32(allocator, &buf, inst.encOrrRegW(17, 31, w_idx));
-
-                // Bounds: CMP W17, W25 ; B.HS trap.
-                try gpr.writeU32(allocator, &buf, inst.encCmpRegW(17, 25));
-                {
-                    const fixup_at: u32 = @intCast(buf.items.len);
-                    try gpr.writeU32(allocator, &buf, inst.encBCond(.hs, 0));
-                    try bounds_fixups.append(allocator, fixup_at);
-                }
-
-                // Sig: LDR W16, [X24, X17, LSL #2] ; CMP W16, #expected ; B.NE trap.
-                // Skeleton restricts expected typeidx to imm12 range
-                // (4096 distinct types is well above any realistic
-                // module's needs); larger typeidx → UnsupportedOp,
-                // which the lowerer / module-level driver may
-                // surface as an explicit bound to the user.
-                if (ins.payload >= 4096) return Error.UnsupportedOp;
-                try gpr.writeU32(allocator, &buf, inst.encLdrWRegLsl2(16, 24, 17));
-                try gpr.writeU32(allocator, &buf, inst.encCmpImmW(16, @intCast(ins.payload)));
-                {
-                    const fixup_at: u32 = @intCast(buf.items.len);
-                    try gpr.writeU32(allocator, &buf, inst.encBCond(.ne, 0));
-                    try bounds_fixups.append(allocator, fixup_at);
-                }
-
-                // Funcptr load + BLR. Restore X0 = runtime_ptr
-                // (ADR-0017 sub-2d-ii) before transferring control.
-                try gpr.writeU32(allocator, &buf, inst.encLdrXRegLsl3(17, 26, 17));
-                try gpr.writeU32(allocator, &buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
-                try gpr.writeU32(allocator, &buf, inst.encBLR(17));
-
-                try captureCallResult(allocator, &buf, callee_sig, alloc, &pushed_vregs, &next_vreg);
-            },
-            .@"call" => {
-                if (ins.payload >= func_sigs.len) return Error.AllocationMissing;
-                const callee_sig: zir.FuncType = func_sigs[ins.payload];
-
-                try marshalCallArgs(allocator, &buf, callee_sig, alloc, &pushed_vregs);
-
-                // ADR-0017 sub-2d-ii: restore runtime_ptr in X0
-                // (X0 is caller-saved per AAPCS64, may have been
-                // clobbered by an earlier call in this function).
-                try gpr.writeU32(allocator, &buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
-
-                // BL placeholder; the post-emit linker patches via
-                // EmitOutput.call_fixups once function-body offsets
-                // are known.
-                const fixup_at: u32 = @intCast(buf.items.len);
-                try gpr.writeU32(allocator, &buf, inst.encBL(0));
-                try call_fixups.append(allocator, .{
-                    .byte_offset = fixup_at,
-                    .target_func_idx = ins.payload,
-                });
-
-                try captureCallResult(allocator, &buf, callee_sig, alloc, &pushed_vregs, &next_vreg);
-            },
+            .@"call_indirect" => try op_call.emitCallIndirect(&ctx, &ins),
+            .@"call" => try op_call.emitCall(&ctx, &ins),
             .@"memory.size" => {
                 // Wasm memory.size returns current size in 64-KiB pages.
                 // X27 carries the byte limit; pages = bytes >> 16.
@@ -766,141 +697,6 @@ fn emitTrunc64BoundsCheck(
         try gpr.writeU32(allocator, buf, inst.encBCond(.ge, 0));
         try bounds_fixups.append(allocator, fixup_at);
     }
-}
-
-/// Marshal call arguments per AAPCS64: pop N arg vregs from
-/// `pushed_vregs` (in REVERSE — top of stack is the rightmost arg),
-/// then emit MOV/FMOV from each arg's home register into W0..W7
-/// (i32/i64) or S0..S7 / D0..D7 (f32/f64).
-///
-/// **No source-clobber risk by construction**: vregs are allocated
-/// out of `[X9..X15, X19..X28]` (GPR pool) and `[V16..V30]` (FP
-/// pool), neither of which overlaps with the AAPCS64 arg-passing
-/// registers `[X0..X7]` / `[V0..V7]`. So a naive sequential MOV
-/// per arg is correct without parallel-move analysis.
-///
-/// **Sub-g3b scope**: ≤ 8 GPR + ≤ 8 FP args. Stack-arg lowering
-/// (more than 8 args of a class) is post-MVP — surfaces as
-/// `UnsupportedOp`.
-fn marshalCallArgs(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    callee_sig: zir.FuncType,
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-) !void {
-    const n_args: u32 = @intCast(callee_sig.params.len);
-    if (n_args == 0) return;
-    if (pushed_vregs.items.len < n_args) return Error.AllocationMissing;
-
-    // Pop in reverse stack order: top of stack is arg N-1, deepest
-    // is arg 0. Stash them so we can iterate forward (arg 0 first).
-    var arg_vregs: [8]u32 = undefined; // limit to 8 args per class; UnsupportedOp below if exceeded
-    if (n_args > arg_vregs.len) return Error.UnsupportedOp;
-    var i: u32 = n_args;
-    while (i > 0) {
-        i -= 1;
-        arg_vregs[i] = pushed_vregs.pop().?;
-    }
-
-    // Per ADR-0017: X0 carries `*const JitRuntime`; Wasm GPR
-    // args occupy X1..X7 (one fewer than vanilla AAPCS64).
-    // FP args still occupy V0..V7 — V regs are unaffected by
-    // the X0 reservation.
-    //
-    // **sub-2d-i scope**: arg-shift only. The body's prologue
-    // sets X0 = runtime_ptr at function entry; body code never
-    // writes X0..X7; marshalling targets X1..X7. So at the BL,
-    // X0 inherits from the function entry (= runtime_ptr) for
-    // a LEAF call. Multi-call functions need X0 save/restore
-    // around calls (sub-2d-ii) — until that lands, multi-call
-    // bodies will pass junk to the second+ callee.
-    var gpr_arg_slot: inst.Xn = 1;
-    var fp_arg_slot: inst.Vn = 0;
-    var k: u32 = 0;
-    while (k < n_args) : (k += 1) {
-        const src_vreg = arg_vregs[k];
-        switch (callee_sig.params[k]) {
-            .i32 => {
-                if (gpr_arg_slot >= 8) return Error.UnsupportedOp;
-                const ws = try gpr.resolveGpr(alloc, src_vreg);
-                if (ws != gpr_arg_slot) {
-                    try gpr.writeU32(allocator, buf, inst.encOrrRegW(gpr_arg_slot, 31, ws));
-                }
-                gpr_arg_slot += 1;
-            },
-            .i64 => {
-                if (gpr_arg_slot >= 8) return Error.UnsupportedOp;
-                const xs = try gpr.resolveGpr(alloc, src_vreg);
-                if (xs != gpr_arg_slot) {
-                    try gpr.writeU32(allocator, buf, inst.encOrrReg(gpr_arg_slot, 31, xs));
-                }
-                gpr_arg_slot += 1;
-            },
-            .f32 => {
-                if (fp_arg_slot >= 8) return Error.UnsupportedOp;
-                const vs = try gpr.resolveFp(alloc, src_vreg);
-                if (vs != fp_arg_slot) {
-                    try gpr.writeU32(allocator, buf, inst.encFmovSReg(fp_arg_slot, vs));
-                }
-                fp_arg_slot += 1;
-            },
-            .f64 => {
-                if (fp_arg_slot >= 8) return Error.UnsupportedOp;
-                const vs = try gpr.resolveFp(alloc, src_vreg);
-                if (vs != fp_arg_slot) {
-                    try gpr.writeU32(allocator, buf, inst.encFmovDReg(fp_arg_slot, vs));
-                }
-                fp_arg_slot += 1;
-            },
-            .v128, .funcref, .externref => return Error.UnsupportedOp,
-        }
-    }
-}
-
-/// Capture a call's return value into the next vreg, dispatching
-/// on the callee's result type. Per AAPCS64: i32→W0, i64→X0,
-/// f32→S0, f64→D0. Single-result MVP only — multi-value returns
-/// (Wasm 2.0) land at sub-g3 follow-up. Void callees push nothing.
-///
-/// Used by both `call` and `call_indirect` once their respective
-/// signature lookups (sub-g3a) name the callee's FuncType.
-fn captureCallResult(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    callee_sig: zir.FuncType,
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    next_vreg: *u32,
-) !void {
-    if (callee_sig.results.len == 0) return;
-    if (callee_sig.results.len > 1) return Error.UnsupportedOp;
-
-    const result = next_vreg.*;
-    next_vreg.* += 1;
-    if (result >= alloc.slots.len) return Error.AllocationMissing;
-    const slot_id = alloc.slots[result];
-
-    switch (callee_sig.results[0]) {
-        .i32 => {
-            const wd = abi.slotToReg(slot_id) orelse return Error.SlotOverflow;
-            if (wd != 0) try gpr.writeU32(allocator, buf, inst.encOrrRegW(wd, 31, 0));
-        },
-        .i64 => {
-            const xd = abi.slotToReg(slot_id) orelse return Error.SlotOverflow;
-            if (xd != 0) try gpr.writeU32(allocator, buf, inst.encOrrReg(xd, 31, 0));
-        },
-        .f32 => {
-            const vd = abi.fpSlotToReg(slot_id) orelse return Error.SlotOverflow;
-            if (vd != 0) try gpr.writeU32(allocator, buf, inst.encFmovSReg(vd, 0));
-        },
-        .f64 => {
-            const vd = abi.fpSlotToReg(slot_id) orelse return Error.SlotOverflow;
-            if (vd != 0) try gpr.writeU32(allocator, buf, inst.encFmovDReg(vd, 0));
-        },
-        .v128, .funcref, .externref => return Error.UnsupportedOp,
-    }
-    try pushed_vregs.append(allocator, result);
 }
 
 // ============================================================
