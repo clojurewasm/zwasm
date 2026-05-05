@@ -54,6 +54,7 @@ const op_alu_int = @import("op_alu_int.zig");
 const op_alu_float = @import("op_alu_float.zig");
 const op_convert = @import("op_convert.zig");
 const op_memory = @import("op_memory.zig");
+const op_control = @import("op_control.zig");
 
 const Label = label_mod.Label;
 const LabelKind = label_mod.LabelKind;
@@ -462,37 +463,9 @@ pub fn compile(
                 try gpr.writeU32(allocator, &buf, inst.encStrImmW(ws, 31, offset));
             },
             .@"i32.popcnt" => try op_alu_int.emitI32Popcnt(&ctx, &ins),
-            .@"block" => {
-                try labels.append(allocator, .{
-                    .kind = .block,
-                    .target_byte_offset = 0, // unknown until matching `end`
-                    .pending = .empty,
-                });
-            },
-            .@"loop" => {
-                try labels.append(allocator, .{
-                    .kind = .loop,
-                    .target_byte_offset = @intCast(buf.items.len),
-                    .pending = .empty,
-                });
-            },
-            .@"br" => {
-                // Resolve label at depth = ins.payload (0 = innermost).
-                if (ins.payload >= labels.items.len) return Error.UnsupportedOp;
-                const tgt_idx = labels.items.len - 1 - ins.payload;
-                const tgt = &labels.items[tgt_idx];
-                const fixup_at: u32 = @intCast(buf.items.len);
-                if (tgt.kind == .loop) {
-                    // Backward branch — target is known.
-                    const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
-                        @as(i32, @intCast(fixup_at));
-                    try gpr.writeU32(allocator, &buf, inst.encB(@divExact(disp_words, 4)));
-                } else {
-                    // Forward branch — record fixup, emit placeholder.
-                    try gpr.writeU32(allocator, &buf, inst.encB(0));
-                    try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
-                }
-            },
+            .@"block" => try op_control.emitBlock(&ctx, &ins),
+            .@"loop" => try op_control.emitLoop(&ctx, &ins),
+            .@"br" => try op_control.emitBr(&ctx, &ins),
             .@"call_indirect" => {
                 // Type-idx → callee FuncType (sub-g3a).
                 if (ins.payload >= module_types.len) return Error.AllocationMissing;
@@ -604,135 +577,10 @@ pub fn compile(
             .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
             .@"f32.store", .@"f64.store",
             => try op_memory.emitMemOp(&ctx, &ins),
-            .@"br_table" => {
-                // Pop index. Then linear CMP+B.NE+B chain for
-                // each in-range target, plus an unconditional B
-                // to the default at the end.
-                //
-                // Per ZirInstr encoding (mvp.zig:brTableOp):
-                //   payload = count  (number of in-range targets)
-                //   extra   = start  (offset into branch_targets array)
-                // branch_targets[start..start+count] = case depths
-                // branch_targets[start+count]        = default depth
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const idx_vreg = pushed_vregs.pop().?;
-                const wn = try gpr.resolveGpr(alloc, idx_vreg);
-                const count = ins.payload;
-                const start = ins.extra;
-                if (count >= (@as(u32, 1) << 12)) return Error.SlotOverflow;
-                const targets = func.branch_targets.items;
-                if (start + count >= targets.len) return Error.UnsupportedOp;
-
-                // Helper emits a `B target_for_depth` (direct backward
-                // to loop, or forward placeholder + fixup to block-
-                // family label).
-                const emitBranchToDepth = struct {
-                    fn run(
-                        a: Allocator,
-                        b: *std.ArrayList(u8),
-                        labs: []Label,
-                        depth: u32,
-                    ) !void {
-                        if (depth >= labs.len) return Error.UnsupportedOp;
-                        const tgt_idx = labs.len - 1 - depth;
-                        const tgt = &labs[tgt_idx];
-                        const fixup_at: u32 = @intCast(b.items.len);
-                        if (tgt.kind == .loop) {
-                            const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
-                                @as(i32, @intCast(fixup_at));
-                            const word = inst.encB(@divExact(disp_words, 4));
-                            var bytes: [4]u8 = undefined;
-                            std.mem.writeInt(u32, &bytes, word, .little);
-                            try b.appendSlice(a, &bytes);
-                        } else {
-                            var bytes: [4]u8 = undefined;
-                            std.mem.writeInt(u32, &bytes, inst.encB(0), .little);
-                            try b.appendSlice(a, &bytes);
-                            try tgt.pending.append(a, .{ .byte_offset = fixup_at, .kind = .b_uncond });
-                        }
-                    }
-                }.run;
-
-                var i: u32 = 0;
-                while (i < count) : (i += 1) {
-                    try gpr.writeU32(allocator, &buf, inst.encCmpImmW(wn, @intCast(i)));
-                    try gpr.writeU32(allocator, &buf, inst.encBCond(.ne, 2));
-                    try emitBranchToDepth(allocator, &buf, labels.items, targets[start + i]);
-                }
-                try emitBranchToDepth(allocator, &buf, labels.items, targets[start + count]);
-            },
-            .@"if" => {
-                // Pop cond vreg. Emit `CBZ Wn, 0` placeholder
-                // that skips the then-body when cond=0. The skip
-                // target is patched at the matching `else` (to
-                // the else-body start) or at `end` (to end-of-if).
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const cond = pushed_vregs.pop().?;
-                const wn = try gpr.resolveGpr(alloc, cond);
-                const skip_byte: u32 = @intCast(buf.items.len);
-                try gpr.writeU32(allocator, &buf, inst.encCbzW(wn, 0));
-                try labels.append(allocator, .{
-                    .kind = .if_then,
-                    .target_byte_offset = 0,
-                    .pending = .empty,
-                    .if_skip_byte = skip_byte,
-                });
-            },
-            .@"else" => {
-                // Emit `B 0` placeholder that jumps from the end
-                // of the then-body to the end of the if/else
-                // (patched at matching `end`). Then patch the
-                // if's CBZ to point to current byte (= start of
-                // else-body, right after this B). Transition the
-                // label to .else_open.
-                //
-                // D-027 fix (sub-7.5c-vi): if the then arm pushed
-                // a result vreg, capture it as the merge target.
-                // The MOV that copies the else arm's result into
-                // this vreg's register lands at `end` of the
-                // if-frame.
-                if (labels.items.len == 0 or
-                    labels.items[labels.items.len - 1].kind != .if_then)
-                {
-                    return Error.UnsupportedOp;
-                }
-                const lbl_idx = labels.items.len - 1;
-                if (pushed_vregs.items.len > 0) {
-                    labels.items[lbl_idx].merge_top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
-                }
-                const b_byte: u32 = @intCast(buf.items.len);
-                try gpr.writeU32(allocator, &buf, inst.encB(0));
-                const else_start: u32 = @intCast(buf.items.len);
-                const lbl = &labels.items[lbl_idx];
-                const skip_byte = lbl.if_skip_byte.?;
-                const skip_disp: i32 = @as(i32, @intCast(else_start)) -
-                    @as(i32, @intCast(skip_byte));
-                const orig_cbz = std.mem.readInt(u32, buf.items[skip_byte..][0..4], .little);
-                const cbz_rt: inst.Xn = @intCast(orig_cbz & 0x1F);
-                const new_cbz = inst.encCbzW(cbz_rt, @divExact(skip_disp, 4));
-                std.mem.writeInt(u32, buf.items[skip_byte..][0..4], new_cbz, .little);
-                lbl.if_skip_byte = null;
-                lbl.kind = .else_open;
-                try lbl.pending.append(allocator, .{ .byte_offset = b_byte, .kind = .b_uncond });
-            },
-            .@"br_if" => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const cond = pushed_vregs.pop().?;
-                const wn = try gpr.resolveGpr(alloc, cond);
-                if (ins.payload >= labels.items.len) return Error.UnsupportedOp;
-                const tgt_idx = labels.items.len - 1 - ins.payload;
-                const tgt = &labels.items[tgt_idx];
-                const fixup_at: u32 = @intCast(buf.items.len);
-                if (tgt.kind == .loop) {
-                    // Backward conditional branch.
-                    const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
-                        @as(i32, @intCast(fixup_at));
-                    try gpr.writeU32(allocator, &buf, inst.encCbnzW(wn, @divExact(disp_words, 4)));
-                } else {
-                    try gpr.writeU32(allocator, &buf, inst.encCbnzW(wn, 0));
-                    try tgt.pending.append(allocator, .{ .byte_offset = fixup_at, .kind = .cbnz_w });
-                }
-            },
+            .@"br_table" => try op_control.emitBrTable(&ctx, &ins),
+            .@"if" => try op_control.emitIf(&ctx, &ins),
+            .@"else" => try op_control.emitElse(&ctx, &ins),
+            .@"br_if" => try op_control.emitBrIf(&ctx, &ins),
             .@"end" => {
                 // Two distinct forms:
                 // (A) Intra-function `end`: pops a label off the stack
@@ -743,65 +591,7 @@ pub fn compile(
                 // Disambiguation: if `labels` is non-empty, we're in
                 // form (A). Otherwise form (B).
                 if (labels.items.len > 0) {
-                    var lbl = labels.pop().?;
-                    defer lbl.pending.deinit(allocator);
-
-                    // D-027 fix (sub-7.5c-vi): if this is an
-                    // `else_open` label with a captured merge
-                    // target, the else arm's result is on top
-                    // of pushed_vregs; emit MOV merge_reg ←
-                    // else_result_reg BEFORE the join label so
-                    // both arms converge. Then drop the else
-                    // arm's result vreg (its value now lives in
-                    // the merge target's reg).
-                    if (lbl.kind == .else_open and lbl.merge_top_vreg != null) {
-                        if (pushed_vregs.items.len < 2) return Error.UnsupportedOp;
-                        const else_result = pushed_vregs.pop().?;
-                        const merge_vreg = lbl.merge_top_vreg.?;
-                        // Sanity: top-of-stack-after-pop should
-                        // be the captured merge target.
-                        if (pushed_vregs.items[pushed_vregs.items.len - 1] != merge_vreg) {
-                            return Error.UnsupportedOp;
-                        }
-                        const merge_reg = try gpr.resolveGpr(alloc, merge_vreg);
-                        const else_reg = try gpr.resolveGpr(alloc, else_result);
-                        if (merge_reg != else_reg) {
-                            try gpr.writeU32(allocator, &buf, inst.encOrrRegW(merge_reg, 31, else_reg));
-                        }
-                    }
-
-                    const target_byte: u32 = @intCast(buf.items.len);
-                    // Patch the if-then's skip-CBZ if it's still
-                    // pending (no `else` was encountered).
-                    if (lbl.if_skip_byte) |skip_byte| {
-                        const disp: i32 = @as(i32, @intCast(target_byte)) -
-                            @as(i32, @intCast(skip_byte));
-                        const orig = std.mem.readInt(u32, buf.items[skip_byte..][0..4], .little);
-                        const rt: inst.Xn = @intCast(orig & 0x1F);
-                        const new_cbz = inst.encCbzW(rt, @divExact(disp, 4));
-                        std.mem.writeInt(u32, buf.items[skip_byte..][0..4], new_cbz, .little);
-                    }
-                    // Patch all forward br fixups that targeted
-                    // this label (block, if_then with br inside,
-                    // else_open including the else-end B).
-                    if (lbl.kind == .block or lbl.kind == .if_then or lbl.kind == .else_open) {
-                        for (lbl.pending.items) |fx| {
-                            const disp_words: i32 = @as(i32, @intCast(target_byte)) -
-                                @as(i32, @intCast(fx.byte_offset));
-                            const new_word: u32 = switch (fx.kind) {
-                                .b_uncond => inst.encB(@divExact(disp_words, 4)),
-                                .cbnz_w => blk: {
-                                    const orig = std.mem.readInt(u32, buf.items[fx.byte_offset..][0..4], .little);
-                                    const rt: inst.Xn = @intCast(orig & 0x1F);
-                                    break :blk inst.encCbnzW(rt, @divExact(disp_words, 4));
-                                },
-                            };
-                            std.mem.writeInt(u32, buf.items[fx.byte_offset..][0..4], new_word, .little);
-                        }
-                    }
-                    // Loop: nothing to patch (backward branches already
-                    // had concrete offsets). Both block/loop ends are
-                    // still followed by the next instruction.
+                    try op_control.emitEndIntra(&ctx, &ins);
                     continue;
                 }
                 // Function-level end (labels stack is empty).
