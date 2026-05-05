@@ -255,6 +255,8 @@ pub fn compile(
             => try emitI32Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"i32.clz", .@"i32.ctz", .@"i32.popcnt",
             => try emitI32Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i32.wrap_i64", .@"i64.extend_i32_u", .@"i64.extend_i32_s",
+            => try emitConvertWidth(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
@@ -553,6 +555,38 @@ fn emitI32Bitcount(
         .@"i32.clz"    => inst.encLzcntR32(dst_r, src_r),
         .@"i32.ctz"    => inst.encTzcntR32(dst_r, src_r),
         .@"i32.popcnt" => inst.encPopcntR32(dst_r, src_r),
+        else => unreachable,
+    };
+    try buf.appendSlice(allocator, enc.slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// i32 ↔ i64 width-cross handler — `i32.wrap_i64` and
+/// `i64.extend_i32_u` both lower to `MOV r32_dst, r32_src`
+/// (the 32-bit write zero-extends the upper half of the
+/// destination's 64-bit slot, matching Wasm's value-class
+/// representation). `i64.extend_i32_s` lowers to MOVSXD.
+/// Mirrors arm64/op_convert.zig's emitWrap32 / emitExtendI32S.
+fn emitConvertWidth(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    const enc = switch (op) {
+        .@"i32.wrap_i64", .@"i64.extend_i32_u" => inst.encMovRR(.d, dst_r, src_r),
+        .@"i64.extend_i32_s" => inst.encMovsxdR64R32(dst_r, src_r),
         else => unreachable,
     };
     try buf.appendSlice(allocator, enc.slice());
@@ -2083,6 +2117,84 @@ test "compile: i32.eqz with stack underflow → AllocationMissing" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.eqz" }); // no operand on stack
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}));
+}
+
+test "compile: i32.wrap_i64 emits MOV r32_dst, r32_src (self-MOV zero-extends)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // x86_64 doesn't yet have i64.const; use i32.const as the i64-typed
+    // source stand-in (emit pass doesn't validate types).
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xCAFE });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.wrap_i64" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    // Both vregs in slot 0 → R10. wrap-op materialises as self-MOV
+    // (still issued: the 32-bit write zeroes the upper half).
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Layout: 4 prologue + 6 imm32 = 10. Then MOV R10D, R10D = 3 bytes.
+    const expected = inst.encMovRR(.d, .r10, .r10);
+    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[10 .. 10 + expected.len]);
+}
+
+test "compile: i64.extend_i32_u emits MOV r32_dst, r32_src" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.extend_i32_u" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    const expected = inst.encMovRR(.d, .r10, .r10);
+    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[10 .. 10 + expected.len]);
+}
+
+test "compile: i64.extend_i32_s emits MOVSXD r64_dst, r32_src" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // Sign-bit set source — extend_i32_s should produce a negative i64.
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xFFFFFFFF });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.extend_i32_s" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Layout: 4 prologue + 6 imm32 = 10. Then MOVSXD R10, R10D = 3 bytes.
+    const expected = inst.encMovsxdR64R32(.r10, .r10);
+    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[10 .. 10 + expected.len]);
+}
+
+test "compile: i32.wrap_i64 with stack underflow → AllocationMissing" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.wrap_i64" });
     try f.instrs.append(testing.allocator, .{ .op = .@"end" });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },

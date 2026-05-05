@@ -283,6 +283,18 @@ pub fn encMovzxR32R8(dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `MOVSXD r64, r/m32` (REX.W + 0x63 /r) — sign-extend 32-bit
+/// source into 64-bit destination. Used by `i64.extend_i32_s`.
+/// dst occupies ModR/M.reg, src occupies r/m (IMUL-style
+/// operand inversion). REX.W is mandatory.
+pub fn encMovsxdR64R32(dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), 0, src.extBit()));
+    enc.push(0x63);
+    enc.push(encodeModrm(0b11, dst.low3(), src.low3()));
+    return enc;
+}
+
 /// Common shape for the `F3 0F <opcode> /r` family used by
 /// LZCNT / TZCNT / POPCNT. dst occupies ModR/M.reg and src is
 /// in r/m (IMUL-style operand inversion). The mandatory 0xF3
@@ -1226,4 +1238,19 @@ test "encMovzxR32R8: movzx ebx, bl → 40 0f b6 db" {
 test "encMovzxR32R8: movzx r10d, r10b → 45 0f b6 d2 (REX.R + REX.B)" {
     const enc = encMovzxR32R8(.r10, .r10);
     try testing.expectEqualSlices(u8, &.{ 0x45, 0x0F, 0xB6, 0xD2 }, enc.slice());
+}
+
+test "encMovsxdR64R32: movsxd rax, ecx → 48 63 c1" {
+    const enc = encMovsxdR64R32(.rax, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x63, 0xC1 }, enc.slice());
+}
+
+test "encMovsxdR64R32: movsxd r10, r10d → 4d 63 d2 (REX.W + REX.R + REX.B)" {
+    const enc = encMovsxdR64R32(.r10, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0x4D, 0x63, 0xD2 }, enc.slice());
+}
+
+test "encMovsxdR64R32: movsxd r11, ecx → 4c 63 d9 (REX.W + REX.R)" {
+    const enc = encMovsxdR64R32(.r11, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x4C, 0x63, 0xD9 }, enc.slice());
 }
