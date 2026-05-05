@@ -22,24 +22,18 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5d sub-b IN-PROGRESS
 
-ADR-0023 §7 18 items + ADR-0024 module graph + ADR-0025 Zig
-library surface (Phase A: design only) すべて DONE。全 gate
-green:
-- Mac aarch64: `zig build test / test-all / test-c-api / lint
-  --max-warnings 0 / zone_check.sh --gate / run_bench.sh
-  --quick` 全 pass
-- OrbStack Ubuntu x86_64: `zig build test-all` green
-- windowsmini SSH: `zig build test-all` green
-- 747/747 unit tests + 39/55 realworld diff matched + spec /
-  wasi / c-api 全 pass
+emit.zig 9-module split が進行中。直近 commit `b663bf4`
+(ctx.zig + gpr.zig + op_const.zig extract)。emit.zig 4009 →
+3862 LOC。3-host gate green (Mac test/test-all/lint/zone +
+OrbStack Ubuntu test-all + windowsmini test-all)。
 
-**Active task**: §9.7 / 7.5d sub-b — `engine/codegen/arm64/
-emit.zig` (4009 LOC) を ≤ 9 modules に split。1 サブステップ
-完了 (label.zig extraction、commit `beafdb8`)。残る op-handler
-分割は EmitCtx struct 設計が必要。
+**Active task**: §9.7 / 7.5d sub-b 続行。EmitCtx の最初の
+consumer が op_const.zig として landed。次は op_alu.zig
+(~1500 LOC、最大塊) — int / float に分けるか単一かは extract
+時に判断。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は ADR-0025 ランディング後。
+**Branch**: `zwasm-from-scratch`、最新は b663bf4。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -62,19 +56,19 @@ prerequisite acknowledged, allocator back-ref pattern
 documented, ImportBinding prereq stated, Phase C/D ordering
 fixed).
 
-## §9.7 / 7.5d sub-b implementation plan (next session)
+## §9.7 / 7.5d sub-b implementation plan (chunk progress)
 
-実装順 (依存方向):
-1. **EmitCtx struct** を emit.zig 内 local state を束ねる context
-   として定義(allocator / buf / f / alloc / labels /
-   pushed_vregs / func_sigs / module_types / call_fixups /
-   trap_fixups)
-2. **op_const.zig** (~200 LOC)
-3. **op_alu.zig** or split into op_alu_int / op_alu_float (~1500 LOC)
-4. **op_memory.zig** (~600 LOC)
-5. **op_control.zig** including D-027 merge (~700 LOC)
-6. **op_call.zig** (~400 LOC)
-7. **bounds_check.zig** (~150 LOC)
+| # | Chunk | LOC | Status |
+|---|---|---|---|
+| 1 | label.zig | ~65 | DONE `beafdb8` |
+| 2 | ctx.zig (EmitCtx + Error + CallFixup) | ~95 | DONE `b663bf4` |
+| 2 | gpr.zig (writeU32 + resolveGpr/Fp + spill helpers) | ~115 | DONE `b663bf4` |
+| 2 | op_const.zig (i32.const + i64.const + emitConst*) | ~95 | DONE `b663bf4` |
+| 3 | op_alu.zig (or op_alu_int / op_alu_float split) | ~1500 | **NEXT** |
+| 4 | op_memory.zig | ~600 | pending |
+| 5 | op_control.zig (incl. D-027 merge) | ~700 | pending |
+| 6 | op_call.zig | ~400 | pending |
+| 7 | bounds_check.zig | ~150 | pending |
 
 各 sub-step は 3-host gate green で commit + push。
 
@@ -82,14 +76,16 @@ fixed).
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
 - **D-026** env-stub host-func wiring — cross-module dispatch。
-- emit.zig 4009 LOC は 7.5d sub-b で discharge 中。
+- emit.zig 3862 LOC は 7.5d sub-b で discharge 中 (chunks 3-7
+  remaining)。
 - api/instance.zig soft-cap (>1000 LOC) — binding code はそのまま、
   hard-cap (2000) は Step A2 で discharge 済み。
 
 ## Recently closed (per `git log --oneline -45`)
 
+- 7.5d sub-b chunk 2: ctx.zig + gpr.zig + op_const.zig extracted
+  (b663bf4)。
+- 7.5d sub-b chunk 1: label.zig extracted (beafdb8)。
 - ADR-0023 §7 18 items + ADR-0024 + ADR-0025 (Phase A) DONE。
 - §9.7 / 7.5e [x] flipped。
-- 7.5d sub-b: label.zig extracted (commit beafdb8)。
-- All gates green (Mac test/test-all/lint/zone/bench + Linux + Windows)。
 - ROADMAP §10 expanded with consumer-surface section per ADR-0025.
