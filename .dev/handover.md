@@ -9,32 +9,26 @@
 1. `.dev/handover.md` (this file).
 2. `.dev/decisions/0023_src_directory_structure_normalization.md` —
    src/ 構造の最終形と命名規約。実装順は §7。
-3. `.dev/decisions/0021_phase7_emit_split_gate.md` — emit.zig
-   9-module split は item 16 full の後。
+3. `.dev/decisions/0021_phase7_emit_split_gate.md`.
 4. `.dev/decisions/0019_x86_64_in_phase7.md` / 0017 / 0018 / 0020 / 0022.
 5. `.dev/debt.md` — discharge `Status: now` rows.
 6. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
 
-## Current state — Phase 7 / §9.7 / 7.5e structural relocation DONE
+## Current state — Phase 7 / §9.7 / 7.5e: §A2 hard-cap discharged
 
-ADR-0023 §7 の 18 項目のうち、**ディレクトリ構造の relocation
-+ opcode-handler relocation は完了** (items 1-15, 17, 18-sweep, 8-full)。
-残る大規模 refinement 2 つは別セッションで:
+ADR-0023 §7 18 項目のうち、**16 完全達成 + 2 partial-but-major**。
+Step A1 で `api/instance.zig` 2127 → 1797 LOC、§A2 hard-cap (2000)
+violation を discharge 済み。残るのは設計確定済みの 2 sub-task:
 
-- **item 5 full**: `api/instance.zig` 内の `instantiateRuntime`
-  (~720 LOC) + helpers を `runtime/instance/instance.zig` へ機能
-  移動。binding-handle 型 (Module extern struct, Func, Val,
-  Extern) は `api/wasm.zig` (or 残置)。`Extern` を pointer 受け
-  渡す部分は `?*anyopaque` 化が必要。§A2 hard-cap discharge は
-  この作業で完了。
-- **item 16 full**: `engine/codegen/arm64/emit.zig` 内の ~118
-  hardcoded byte-offset test sites を
-  `prologue.body_start_offset(has_frame)` 経由に書き換え。helper
-  + 4 demo sites + 新ルール `edge_case_testing.md` 配置済み。
-  各 site は has_frame の判断が必要 (一括 sed ではなく Edit 単位)。
+- **Step A2** (instantiateRuntime + checkImportTypeMatches を
+  runtime/instance/instantiate.zig に move): 設計 `ImportBinding`
+  union を `runtime/instance/import.zig` に landing 済み。実装
+  詳細は下記。
+- **item 16 full** (~118 byte-offset relativise): 機械的だが
+  各 site で has_frame 判断が必要。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は `98f9e51` (item 8 full)。
+**Branch**: `zwasm-from-scratch`、最新は Step A1 + import.zig。
 
 ## ADR-0023 §7 implementation progress
 
@@ -44,10 +38,10 @@ ADR-0023 §7 の 18 項目のうち、**ディレクトリ構造の relocation
 | 2  | runtime/{diagnostic, jit_abi} eviction                            | DONE (653ab43)        |
 | 3  | runtime/runtime.zig (Runtime extract from interp/mod.zig)         | DONE (f7b739d)        |
 | 4  | runtime/{value, trap, frame, module, engine, store}.zig sub-split | DONE (d5f275a/f6a4686/f16e5e7) |
-| 5  | runtime/instance/instance.zig — Instance + ExportType skeleton    | **partial** (52209e5); full instantiateRuntime move pending |
+| 5  | runtime/instance/instance.zig + instantiate.zig (Step A1)         | **partial** (52209e5/b8c7e9d); Step A2 (instantiateRuntime move) pending |
 | 6  | runtime/instance/{table, func, memory, global, element, data}.zig | DONE (6e9dc7b)        |
 | 7  | parse/, validate/, ir/{lower, analysis/} from frontend/ + ir/     | DONE (15c51f4)        |
-| 8  | instruction/{wasm_1_0, wasm_2_0, wasm_3_0}/ + opcode relocate     | DONE (351475d/98f9e51); mvp.zig content split deferred |
+| 8  | instruction/{wasm_1_0, wasm_2_0, wasm_3_0}/ + opcode relocate     | DONE (351475d/98f9e51) |
 | 9  | feature/ skeleton (6 active + 3 reserved)                         | DONE (b6043f4)        |
 | 10 | engine/{runner, interp/, codegen/{shared, arm64, x86_64, aot}/}   | DONE (9a8cf6b)        |
 | 11 | api/ from c_api/                                                  | DONE (e619d17)        |
@@ -59,38 +53,51 @@ ADR-0023 §7 の 18 項目のうち、**ディレクトリ構造の relocation
 | 17 | ADR-0017/0018/0019/0021 path citations                            | DONE (68d56f5)        |
 | 18 | zone_check.sh / zone_deps.md / CLAUDE.md sweep                    | DONE (6f161b9/98f9e51) |
 
-## Pending sub-tasks (within ADR-0023 §7)
+## Step A2 implementation plan (next session)
 
-これらは **構造的 normalization 完了後の content refinement**。
-任意順で着手可能。各 commit ごとに 3-host gate 必須:
+`ImportBinding` 設計は `src/runtime/instance/import.zig` に
+landing 済み — 4 variants:
+- `func: FuncImport` (HostCall + source_runtime + source_funcidx
+  + signature pair)
+- `table: TableImport` (TableInstance value-copy + descriptor pair)
+- `memory: MemoryImport` (memory slice header + descriptor pair)
+- `global: GlobalImport` (slot *Value + descriptor pair)
 
-1. **item 16 full** (機械的、リスク中): emit.zig 内の ~118
-   hardcoded `out.bytes[N..M]` test site を
-   `prologue.body_start_offset(has_frame)` 経由に書き換え。site
-   ごとに has_frame の判断が必要(一括 sed ではなく site 単位)。
-2. **item 5 full** (大規模、リスク高): `api/instance.zig` の
-   `instantiateRuntime` + helpers (~720 LOC) を
-   `runtime/instance/instance.zig` へ移動。binding-side
-   `?*const Extern` を `?*const anyopaque` に widen して
-   Zone 1 を維持。c_api/instance.zig 2216 LOC §A2 violation
-   discharge。
-3. **interp/mvp.zig content split** (item 8 follow-up): mvp.zig
-   の中身 (control + parametric + variable opcodes 混在) を
-   `instruction/wasm_1_0/{control, parametric, variable}.zig`
-   の skeleton に分配。dispatch wiring の調整必要。
-4. **§9.7 / 7.5d sub-b** (ADR-0021): emit.zig 9-module split。
-   item 16 full 完了後に。
+実装順:
+1. `import.zig` を上記 4-variant 形に拡張(現在は単一 struct で
+   placeholder)。すべての import variants が「runtime-side の
+   wiring に必要な最小情報 + binding-side で行った type-check
+   結果」を carry。
+2. `api/instance.zig` に `externToBinding(*const Extern, ...)`
+   helper を追加。WASI imports は store.wasi_host から thunk を
+   pre-resolve、cross-module imports は CallCtx を arena に
+   pre-allocate して FuncImport.host_call に詰める。
+3. `runtime/instance/instantiate.zig` に `instantiateRuntime`
+   + `checkImportTypeMatches` を追加。引数は `imports:
+   ?[]const ImportBinding`。Extern / wasi.lookupWasiThunk /
+   cross_module.CallCtx / dispatchTable() への参照を全削除。
+4. `api/instance.zig` から両関数を削除、`wasm_instance_new`
+   から `instantiate.instantiateRuntime(...)` を呼ぶ。
+5. `api/instance.zig` 1797 LOC → ~1100 LOC が見込み(§A2 soft
+   cap も解消)。
+
+## item 16 full plan (autonomous safe)
+
+`engine/codegen/arm64/emit.zig:2050+` の test sites を順番に:
+- `slots.len == 0 && n_spill_bytes == 0` → has_frame = false
+  (body_start = 32)、それ以外 has_frame = true (body_start = 36)
+- `out.bytes[N..N+4]` の `N` を `body0 + (N - 32)` (or `N - 36`) で
+  計算 → `out.bytes[body0+offset..body0+offset+4]` に書き換え
+- 各 commit で 3-host gate
 
 ## Open structural debt
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
 - **D-026** env-stub host-func wiring — cross-module dispatch。
 - emit.zig 4008 LOC は item 16 full → 7.5d sub-b でもう一段 split。
-- api/instance.zig 2216 LOC §A2 violation — item 5 full で discharge。
+- api/instance.zig soft-cap (>1000 LOC) は Step A2 で discharge。
 
 ## Recently closed (per `git log --oneline -25`)
 
-- ADR-0023 §7 items 1-15, 17, 18-sweep, 8-full DONE — 21 commits
-  across this autonomous run.
-- pre-existing zone violation in `platform/jit_mem.zig:99`
-  discharged inline → 8b0caaf。
+- ADR-0023 §7 items 1-15, 17, 18-sweep, 8-full, 5-Step-A1 DONE。
+- Step A2 設計 `ImportBinding` を import.zig に landing。
