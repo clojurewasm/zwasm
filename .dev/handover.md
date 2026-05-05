@@ -23,20 +23,19 @@
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
 直近 commit:
+- `2248e03` §9.7 / 7.7-call-indirect — x86_64 emitCallIndirect
+  (bounds + sig + funcptr load + CALL RAX); 4 new encoders + 10
+  new tests; 3-host green
 - `d071173` §9.7 / 7.7-call-direct — x86_64 direct `call N`
-  (emitCall + marshalCallArgs + captureCallResult; encCallRel32;
-  6 new tests; 3-host green)
 - `12cd04c` §9.7 / 7.7-wrap — x86_64 i32.wrap_i64 + i64.extend
-- `f55ddb9` #5 ADR-0027 implementation (i32 globals 両 backend)
 
-**Active task**: 7.7 chunk を call-direct / call-indirect に分割
-(scope 縮小)。**NEXT**: 7.7-call-indirect (bounds + sig 検査 +
-funcptr load + BLR≡CALL via reg)。続いて 7.7-fp (f32/f64
-surface) → §9.7 / 7.8 spec gate。M3-a-2 と globals i64/FP は
+**Active task**: **NEXT** = 7.7-fp (f32/f64 surface, scope TBD —
+likely const + binary + compare + convert)。続いて §9.7 / 7.8
+spec gate (Linux + Windows hosts)。M3-a-2 と globals i64/FP は
 post-7.7 chunk として queue。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は `d071173`。
+**Branch**: `zwasm-from-scratch`、最新は `2248e03`。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -81,8 +80,8 @@ fixed).
 | 7.7-globals | global.get/.set (i32 only; i64/FP は別 chunk) | DONE `f55ddb9` |
 | 7.7-wrap | i32.wrap_i64 / i64.extend_i32_s/u | DONE `12cd04c` |
 | 7.7-call-direct | direct `call N` (i32 args + i32/void return) | DONE `d071173` |
-| 7.7-call-indirect | `call_indirect type_idx` (bounds + sig + funcptr) | **NEXT** |
-| 7.7-fp | f32/f64 surface | pending |
+| 7.7-call-indirect | `call_indirect type_idx` (bounds + sig + funcptr) | DONE `2248e03` |
+| 7.7-fp | f32/f64 surface | **NEXT** |
 | deferred-Win64 | Win64 ABI table + Cc enum | pending |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
@@ -103,11 +102,15 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-call-indirect: x86_64 emitCallIndirect (bounds via
+  [R15+table_size_off]+CMP+JAE; sig via typeidx_base+CMP-imm32+JNE;
+  funcptr load via [R15+funcptr_base_off]+LSL3+CALL RAX); RAX as
+  scratch (not in pool, no spill_stage_gprs needed); 4 new
+  encoders (encCallReg / encCmpRImm32 / encMovR{32,64}FromBaseIdx
+  Lsl{2,3}); 8 inst byte + 2 emit compile tests (2248e03)。
 - §9.7 / 7.7-call-direct: x86_64 direct `call N` (emitCall +
-  marshalCallArgs + captureCallResult; encCallRel32 + CallFixup
-  wired through compile()); 2 inst byte + 4 emit compile tests;
-  i32 args + i32/void return (f32/f64/i64 → UnsupportedOp,
-  deferred 7.7-fp / globals i64) (d071173)。
+  marshalCallArgs + captureCallResult; i32 args + i32/void return;
+  encCallRel32 + CallFixup wired through compile()) (d071173)。
 - §9.7 / 7.7-wrap: x86_64 i32.wrap_i64 + i64.extend_i32_s/u
   (encMovsxdR64R32 + emitConvertWidth, mirrors arm64); 3 inst
   byte + 4 emit compile tests; edge-case fixture deferred
