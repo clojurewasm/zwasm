@@ -20,21 +20,22 @@
 8. `.dev/debt.md` — discharge `Status: now` rows.
 9. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
 
-## Current state — Phase 7 / §9.7 / 7.6 IN-PROGRESS
+## Current state — Phase 7 / §9.7 / 7.6 foundation DONE; 7.7 NEXT
 
-§9.7 / 7.6 chunk b landed `3c78b63` (x86_64/inst.zig foundation:
-EncodedInsn + 3 inline encodeRex/encodeModrm/encodeSib helpers +
-5 canonical ops mov/add/sub-RR + ret/nop, 13 byte-level tests,
-~250 LOC)。Step 0 survey: cranelift-x64-asm + winch + wasmer 3
-divergences adopted (unified Width dispatch, REX inline at
-encode-time, single-file prefix logic)。3-host green。
+§9.7 / 7.6 chunks a/b/c landed (`344d393` x86_64/abi.zig SysV ABI
+tables + slotToReg + 16 tests, ~290 LOC)。foundation 揃った: 3
+files / ~660 LOC total。3-host green。row 7.6 [ ] のままで保留 —
+reserved_invariant_gprs (vm_base/mem_limit/etc.) + Win64 ABI +
+inst.zig op coverage が defer 中。これらは 7.7 emit prologue 設計
+が consumer。
 
-**Active task**: §9.7 / 7.6 chunk c — x86_64/abi.zig (System V
-x86_64 + Win64 calling conventions + reserved_invariant_gprs per
-ADR-0018 mapping)。
+**Active task**: §9.7 / 7.7 emit skeleton — x86_64/emit.zig の
+最初の cut (prologue + epilogue + i32.const + end + ret 経由の
+"return 42" tests)。これが reserved_invariant_gprs design を
+強制し 7.6 row close 条件にもつながる。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 3c78b63。
+**Branch**: `zwasm-from-scratch`、最新は 344d393。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -57,14 +58,20 @@ prerequisite acknowledged, allocator back-ref pattern
 documented, ImportBinding prereq stated, Phase C/D ordering
 fixed).
 
-## §9.7 / 7.6 chunk progress
+## §9.7 / 7.6 chunk progress + deferrals
 
 | # | Chunk | Status |
 |---|---|---|
 | a | reg_class.zig (Gpr + Xmm + Width) | DONE `739de07` |
 | b | inst.zig foundation (REX/ModR/M/SIB + 5 ops) | DONE `3c78b63` |
-| c | abi.zig (System V + Win64 calling conventions + reserved_invariant_gprs) | **NEXT** |
-| follow-up | inst.zig op coverage (mem ops + immediates + branches + XMM) | pending (drives 7.7) |
+| c | abi.zig SysV (arg/return/callee-saved + slotToReg) | DONE `344d393` |
+| deferred-d | inst.zig op coverage (mem + imm + branches + XMM) | needs 7.7 design |
+| deferred-e | reserved_invariant_gprs design (load-once vs reload) | needs 7.7 prologue |
+| deferred-f | Win64 ABI table + Cc enum | needs 7.7 emit consumer |
+
+3 deferrals all converge on §9.7 / 7.7 emit.zig design — chunk
+c2 / d / e / f sequenced after the emit skeleton lands. row 7.6
+stays [ ] until then.
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
 + Windows hosts), 7.9/7.10 realworld, 7.11 3-way differential 🔒.
@@ -84,6 +91,9 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.6 chunk c: x86_64/abi.zig SysV ABI tables + slotToReg
+  + 16 tests, ~290 LOC; reserved_invariant_gprs / Win64 deferred
+  to 7.7 (344d393)。
 - §9.7 / 7.6 chunk b: x86_64/inst.zig foundation (EncodedInsn +
   3 inline prefix/modrm/sib helpers + 5 canonical ops + 13
   byte-level tests, ~250 LOC) (3c78b63)。
