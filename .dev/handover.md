@@ -23,18 +23,19 @@
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
 直近 commit:
-- `bc4348d` §9.7 / 7.7-fp-compare — x86_64 f32/f64 eq/ne/lt/gt/le/ge
-  (UCOMISS/UCOMISD + SETcc with NaN-unordered handling; 7 new
-  tests; 3-host green)
+- `d51c1b8` §9.7 / 7.7-fp-unary — x86_64 14 unary FP ops
+  (sqrt + ceil/floor/trunc/nearest via ROUNDSS/SD + abs/neg via
+  XMM7 mask + AND/XOR; 9 new tests; 3-host green)
+- `bc4348d` §9.7 / 7.7-fp-compare — x86_64 f32/f64 6 compares
 - `895ac3e` §9.7 / 7.7-fp-binary — x86_64 f32/f64 add/sub/mul/div
-- `f062800` §9.7 / 7.7-fp-const — x86_64 f32.const / f64.const
 
-**Active task**: **NEXT** = 7.7-fp-unary (abs/neg/sqrt + ceil/
-floor/trunc/nearest)。続いて fp-minmax-copysign / fp-convert /
-fp-mem / fp-end-fix (D-032) → §9.7 / 7.8 spec gate。
+**Active task**: **NEXT** = 7.7-fp-minmax-copysign (f32/f64 min/
+max with NaN propagation + copysign via bitwise sign-transfer)。
+続いて fp-convert / fp-mem / fp-end-fix (D-032) → §9.7 / 7.8
+spec gate。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は `bc4348d`。
+**Branch**: `zwasm-from-scratch`、最新は `d51c1b8`。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -83,8 +84,8 @@ fixed).
 | 7.7-fp-const | f32.const / f64.const (XMM via GPR scratch) | DONE `f062800` |
 | 7.7-fp-binary | f32/f64 add/sub/mul/div (ADDSS/ADDSD …) | DONE `895ac3e` |
 | 7.7-fp-compare | f32/f64 eq/ne/lt/gt/le/ge (UCOMISS/UCOMISD) | DONE `bc4348d` |
-| 7.7-fp-unary | f32/f64 abs/neg/sqrt/ceil/floor/trunc/nearest | **NEXT** |
-| 7.7-fp-minmax-copysign | f32/f64 min/max/copysign | pending |
+| 7.7-fp-unary | f32/f64 abs/neg/sqrt/ceil/floor/trunc/nearest | DONE `d51c1b8` |
+| 7.7-fp-minmax-copysign | f32/f64 min/max/copysign | **NEXT** |
 | 7.7-fp-convert | f↔int + f32↔f64 + reinterpret | pending |
 | 7.7-fp-mem | f32/f64 load/store | pending |
 | 7.7-fp-end-fix | FP-aware function-end (D-032 discharge) | pending |
@@ -108,10 +109,13 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-fp-unary: x86_64 14 unary FP ops — sqrt
+  (SQRTSS/SD), ceil/floor/trunc/nearest (ROUNDSS/SD with
+  mode imm), abs/neg (RAX→XMM7 mask + ANDPS/PD or XORPS/PD);
+  XMM7 reserved as SIMD scratch (pool starts XMM8); 9 tests
+  (d51c1b8)。
 - §9.7 / 7.7-fp-compare: x86_64 f32/f64 eq/ne/lt/gt/le/ge via
-  UCOMISS/UCOMISD + SETcc; lt/le swap operands so SETA/SETAE
-  expresses the comparison (NaN ⇒ CF=1 → 0); eq pairs SETNP+
-  SETE with AND-combine, ne pairs SETP+SETNE with OR; 7 tests
+  UCOMISS/UCOMISD + SETcc; NaN-unordered handling; 7 tests
   (bc4348d)。
 - §9.7 / 7.7-fp-binary: x86_64 f32/f64 add/sub/mul/div (SSE2
   scalar; encMovapsXmmXmm + encSseScalarBinary); 9 tests
