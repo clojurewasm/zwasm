@@ -44,8 +44,14 @@ const zir = @import("../../../ir/zir.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const prologue = @import("prologue.zig");
+const label_mod = @import("label.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
+
+const Label = label_mod.Label;
+const LabelKind = label_mod.LabelKind;
+const Fixup = label_mod.Fixup;
+const FixupKind = label_mod.FixupKind;
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
@@ -190,26 +196,6 @@ pub fn compile(
     // This lives in emit.zig (not as a separate type) because the
     // patching machinery is tightly coupled to the buf layout.
     // ============================================================
-    const LabelKind = enum { block, loop, if_then, else_open };
-    const FixupKind = enum { b_uncond, cbnz_w };
-    const Fixup = struct { byte_offset: u32, kind: FixupKind };
-    const Label = struct {
-        kind: LabelKind,
-        target_byte_offset: u32,
-        pending: std.ArrayList(Fixup),
-        /// When `.if_then`, byte offset of the CBZ that skips
-        /// the then-body. Patched at `else` (to else-body start)
-        /// or at `end` (to end of if). Cleared when transitioning
-        /// to `.else_open`.
-        if_skip_byte: ?u32 = null,
-        /// D-027 fix (sub-7.5c-vi): for `if (result T)` blocks,
-        /// the then arm's result vreg is captured at `else`;
-        /// the else arm's result is MOVed into this vreg's
-        /// register at the if-frame's `end` so both paths
-        /// converge on the same physical reg. Null for blocks
-        /// without arity OR when no `else` was emitted.
-        merge_top_vreg: ?u32 = null,
-    };
     var labels: std.ArrayList(Label) = .empty;
     defer {
         for (labels.items) |*l| l.pending.deinit(allocator);
