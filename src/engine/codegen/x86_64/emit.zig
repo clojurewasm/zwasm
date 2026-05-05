@@ -67,10 +67,10 @@ pub const CallFixup = struct {
     target_func_idx: u32,
 };
 
-/// Why a Label was pushed on the control stack. block / loop
-/// for the §9.7 / 7.7-control-skel scope; if_then / else_open
-/// land with the if/else handler chunk.
-const LabelKind = enum { block, loop };
+/// Why a Label was pushed on the control stack. block / loop /
+/// if_then / else_open mirror arm64's LabelKind for parity at
+/// the §9.7 / 7.11 three-way differential.
+const LabelKind = enum { block, loop, if_then, else_open };
 
 /// Forward-jump fixup awaiting target resolution. `byte_offset`
 /// is the position of the JMP/Jcc instruction's first byte;
@@ -81,15 +81,28 @@ const Fixup = struct {
     insn_size: u8,
 };
 
-/// One frame on the per-function control stack. For .block,
-/// `target_byte_offset` is unknown until the matching `end`;
-/// pending fixups patch at that point. For .loop,
-/// `target_byte_offset` is captured at push time (the loop
-/// entry); backward branches resolve immediately.
+/// One frame on the per-function control stack.
+///   target_byte_offset — for `.loop`, the byte offset of the
+///       loop entry. For `.block` / `.if_then` / `.else_open`,
+///       undefined until `end`.
+///   pending — branch fixups awaiting target resolution.
+///   if_skip_byte — when `.if_then`, the byte offset of the
+///       JE that skips the then-body. Patched at `else` (to
+///       else-body start) or at `end` (to end of if). Cleared
+///       when transitioning to `.else_open`.
+///   merge_top_vreg — D-027 fix mirror (per ADR-0014 §6.K.5):
+///       for `(if (result T))` blocks, the then arm's result
+///       vreg is captured at `else`; the else arm's result is
+///       MOVed into this vreg's register at the if-frame's
+///       `end` so both paths converge on the same physical reg.
+///       Null for blocks without arity OR when no `else` was
+///       emitted.
 const Label = struct {
     kind: LabelKind,
     target_byte_offset: u32,
     pending: std.ArrayList(Fixup),
+    if_skip_byte: ?u32 = null,
+    merge_top_vreg: ?u32 = null,
 };
 
 pub const EmitOutput = struct {
@@ -203,6 +216,9 @@ pub fn compile(
             .@"block" => try emitBlock(allocator, &labels),
             .@"loop" => try emitLoop(allocator, &buf, &labels),
             .@"br" => try emitBr(allocator, &buf, &labels, ins.payload),
+            .@"br_if" => try emitBrIf(allocator, &buf, alloc, &pushed_vregs, &labels, ins.payload),
+            .@"if" => try emitIf(allocator, &buf, alloc, &pushed_vregs, &labels),
+            .@"else" => try emitElse(allocator, &buf, &pushed_vregs, &labels),
             .@"end" => {
                 // Two distinct forms (mirrors arm64/emit.zig):
                 // (A) Intra-function `end`: pops a label, patches
@@ -211,7 +227,7 @@ pub fn compile(
                 //     epilogue, returns. Disambiguation: empty
                 //     label stack → form (B).
                 if (labels.items.len > 0) {
-                    try emitEndIntra(allocator, &buf, &labels);
+                    try emitEndIntra(allocator, &buf, &pushed_vregs, alloc, &labels);
                     continue;
                 }
                 if (pushed_vregs.items.len > 0 and func.sig.results.len > 0) {
@@ -575,23 +591,143 @@ fn emitBr(
     }
 }
 
+/// `br_if N` — pop cond, branch to label at depth N if cond is
+/// non-zero. Emit TEST cond, cond ; Jcc(NE) target. Backward
+/// (loop) target → concrete disp; forward (block / if) target
+/// → placeholder + Fixup append.
+fn emitBrIf(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    labels: *std.ArrayList(Label),
+    depth: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const cond_v = pushed_vregs.pop().?;
+    const cond_r = abi.slotToReg(alloc.slots[cond_v]) orelse return Error.SlotOverflow;
+    if (depth >= labels.items.len) return Error.UnsupportedOp;
+    try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
+    const tgt_idx = labels.items.len - 1 - depth;
+    const tgt = &labels.items[tgt_idx];
+    const at: u32 = @intCast(buf.items.len);
+    if (tgt.kind == .loop) {
+        const disp: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+            @as(i32, @intCast(at)) - 6;
+        try buf.appendSlice(allocator, inst.encJccRel32(.ne, disp).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
+        try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 6 });
+    }
+}
+
+/// `if` — pop cond, emit TEST cond, cond ; JE skip_placeholder.
+/// Push label.if_then with the JE byte offset recorded; the
+/// matching `else` patches it to else-body start, or the
+/// matching `end` patches it to end-of-if (no-else case).
+fn emitIf(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    labels: *std.ArrayList(Label),
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const cond_v = pushed_vregs.pop().?;
+    const cond_r = abi.slotToReg(alloc.slots[cond_v]) orelse return Error.SlotOverflow;
+    try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
+    const skip_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice()); // JE = skip if cond==0
+    try labels.append(allocator, .{
+        .kind = .if_then,
+        .target_byte_offset = 0,
+        .pending = .empty,
+        .if_skip_byte = skip_at,
+    });
+}
+
+/// `else` — emit JMP placeholder (jump from end-of-then to
+/// end-of-if), patch the if's JE to current byte (= start of
+/// else-body), transition label to .else_open. Captures the
+/// then arm's top vreg as the merge target per the D-027
+/// equivalent (ADR-0014 §6.K.5).
+fn emitElse(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    pushed_vregs: *std.ArrayList(u32),
+    labels: *std.ArrayList(Label),
+) Error!void {
+    if (labels.items.len == 0 or
+        labels.items[labels.items.len - 1].kind != .if_then)
+    {
+        return Error.UnsupportedOp;
+    }
+    const lbl_idx = labels.items.len - 1;
+    if (pushed_vregs.items.len > 0) {
+        labels.items[lbl_idx].merge_top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
+    }
+    const jmp_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+    const else_start: u32 = @intCast(buf.items.len);
+    const lbl = &labels.items[lbl_idx];
+    const skip_at = lbl.if_skip_byte.?;
+    const skip_disp: i32 = @as(i32, @intCast(else_start)) -
+        @as(i32, @intCast(skip_at)) - 6;
+    inst.patchRel32(buf.items, skip_at, 6, skip_disp);
+    lbl.if_skip_byte = null;
+    lbl.kind = .else_open;
+    try lbl.pending.append(allocator, .{ .byte_offset = jmp_at, .insn_size = 5 });
+}
+
 /// Intra-function `end` — pops a label and patches its forward
-/// fixups (block) / no-op for loop (backward branches already
-/// resolved). Caller (compile()) gates on `labels.len > 0`;
+/// fixups + the if-skip-Jcc (if still pending) + emits the
+/// merge MOV when an else_open frame had a captured merge
+/// target. Caller (compile()) gates on `labels.len > 0`;
 /// the function-level `end` shape stays inline.
 fn emitEndIntra(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
+    pushed_vregs: *std.ArrayList(u32),
+    alloc: regalloc.Allocation,
     labels: *std.ArrayList(Label),
 ) Error!void {
     var lbl = labels.pop().?;
     defer lbl.pending.deinit(allocator);
-    if (lbl.kind != .block) return; // loop has no pending fixups
+
+    // D-027 mirror: if this is an .else_open label with a
+    // captured merge target, MOV merge_reg ← else_result_reg
+    // BEFORE the join label so both arms converge on the same
+    // physical register. Then drop the else arm's result vreg.
+    if (lbl.kind == .else_open and lbl.merge_top_vreg != null) {
+        if (pushed_vregs.items.len < 2) return Error.UnsupportedOp;
+        const else_result = pushed_vregs.pop().?;
+        const merge_vreg = lbl.merge_top_vreg.?;
+        if (pushed_vregs.items[pushed_vregs.items.len - 1] != merge_vreg) {
+            return Error.UnsupportedOp;
+        }
+        const merge_reg = abi.slotToReg(alloc.slots[merge_vreg]) orelse return Error.SlotOverflow;
+        const else_reg = abi.slotToReg(alloc.slots[else_result]) orelse return Error.SlotOverflow;
+        if (merge_reg != else_reg) {
+            try buf.appendSlice(allocator, inst.encMovRR(.d, merge_reg, else_reg).slice());
+        }
+    }
+
     const target: u32 = @intCast(buf.items.len);
-    for (lbl.pending.items) |fx| {
+    // Patch the if-then's skip-Jcc if it's still pending (no
+    // `else` was encountered).
+    if (lbl.if_skip_byte) |skip_at| {
         const disp: i32 = @as(i32, @intCast(target)) -
-            @as(i32, @intCast(fx.byte_offset)) - @as(i32, fx.insn_size);
-        inst.patchRel32(buf.items, fx.byte_offset, fx.insn_size, disp);
+            @as(i32, @intCast(skip_at)) - 6;
+        inst.patchRel32(buf.items, skip_at, 6, disp);
+    }
+    // Patch all forward fixups (block / if_then / else_open).
+    // Loop has no pending fixups.
+    if (lbl.kind != .loop) {
+        for (lbl.pending.items) |fx| {
+            const disp: i32 = @as(i32, @intCast(target)) -
+                @as(i32, @intCast(fx.byte_offset)) - @as(i32, fx.insn_size);
+            inst.patchRel32(buf.items, fx.byte_offset, fx.insn_size, disp);
+        }
     }
 }
 
@@ -801,6 +937,113 @@ test "compile: (loop (br 0) end) end — backward br with concrete disp" {
         0x55,
         0x48, 0x89, 0xE5,
         0xE9, 0xFB, 0xFF, 0xFF, 0xFF,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: (i32.const 1) (if) (i32.const 7) (end) end — single-arm if; JE patched" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"if" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected layout (no SUB RSP, no return marshalling):
+    //   55 48 89 E5                    prologue              [0..4]
+    //   41 BA 01 00 00 00              MOV R10D, #1          [4..10]
+    //   45 85 D2                       TEST R10D, R10D       [10..13]
+    //   0F 84 06 00 00 00              JE +6 (skip then-body) [13..19]
+    //   41 BB 07 00 00 00              MOV R11D, #7          [19..25]
+    //   5D                             POP RBP               [25]
+    //   C3                             RET                   [26]
+    // JE disp = 25 - 19 = 6 (skip from after JE to past then-body's
+    // i32.const 7). Then-body is 6 bytes (MOV R11D #7).
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x41, 0xBA, 0x01, 0x00, 0x00, 0x00,
+        0x45, 0x85, 0xD2,
+        0x0F, 0x84, 0x06, 0x00, 0x00, 0x00,
+        0x41, 0xBB, 0x07, 0x00, 0x00, 0x00,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: (block (i32.const 0) (br_if 0) end) end — Jcc forward fixup" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br_if", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected:
+    //   55 48 89 E5                    prologue              [0..4]
+    //   41 BA 00 00 00 00              MOV R10D, #0          [4..10]
+    //   45 85 D2                       TEST R10D, R10D       [10..13]
+    //   0F 85 00 00 00 00              JNE +0 (block-end)    [13..19] disp = 19-19 = 0
+    //   5D C3                          POP RBP ; RET         [19..21]
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x41, 0xBA, 0x00, 0x00, 0x00, 0x00,
+        0x45, 0x85, 0xD2,
+        0x0F, 0x85, 0x00, 0x00, 0x00, 0x00,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: (loop (i32.const 0) (br_if 0) end) end — Jcc backward concrete disp" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"loop" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br_if", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // loop entry at offset 4 (post-prologue). br_if Jcc at offset
+    // 13; disp = 4 - 13 - 6 = -15 = 0xFFFFFFF1.
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x41, 0xBA, 0x00, 0x00, 0x00, 0x00,
+        0x45, 0x85, 0xD2,
+        0x0F, 0x85, 0xF1, 0xFF, 0xFF, 0xFF,
         0x5D,
         0xC3,
     };
