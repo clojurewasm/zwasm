@@ -203,6 +203,40 @@ pub fn encCmpRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// Shift / rotate variants for the 0xD3 r/m, CL family. The
+/// numeric value matches the ModR/M.reg field. AMD64 Vol.3
+/// Table 4.5: `D3 /4` SHL, `/5` SHR, `/7` SAR, `/0` ROL, `/1`
+/// ROR. Wasm doesn't use the carry-rotate (RCL/RCR = /2 //3) or
+/// the SAL alias (= SHL = /6).
+pub const ShiftKind = enum(u3) {
+    rol = 0,
+    ror = 1,
+    shl = 4,
+    shr = 5,
+    sar = 7,
+};
+
+/// `<shift> r/m, CL` (opcode 0xD3 + ModR/M.reg = kind) —
+/// shift / rotate the destination by the count in CL. Width
+/// `.d` shifts the low 32 bits (zero-extends to 64); `.q`
+/// shifts all 64 bits. Caller is responsible for moving the
+/// shift count into ECX/RCX before this instruction.
+///
+/// **Caller invariant**: dst should not be RCX (the count
+/// register). The emit-side handler checks this and surfaces
+/// `UnsupportedOp` rather than emitting a self-clobbering
+/// sequence.
+pub fn encShiftRCl(size: Width, kind: ShiftKind, dst: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    // REX.R is unused (kind sits in ModR/M.reg, all kinds < 8).
+    // Pass .rax as a no-op for the reg-position arg of rexForRR
+    // so REX.R = 0 and only REX.W + REX.B contribute.
+    if (rexForRR(size, .rax, dst)) |rex| enc.push(rex);
+    enc.push(0xD3);
+    enc.push(encodeModrm(0b11, @intFromEnum(kind), dst.low3()));
+    return enc;
+}
+
 /// `TEST r/m, r` (opcode 0x85) — sets EFLAGS based on bitwise
 /// AND of `dst` and `src` (no result stored). Same operand-role
 /// + REX layout as CMP. Used by Wasm `eqz` as `TEST x, x` →
@@ -495,6 +529,36 @@ test "encTestRR: test r10d, r10d (d) → 45 85 d2 (REX.R + REX.B)" {
 test "encTestRR: test rax, rax (q) → 48 85 c0 (canonical zero check)" {
     const enc = encTestRR(.q, .rax, .rax);
     try testing.expectEqualSlices(u8, &.{ 0x48, 0x85, 0xC0 }, enc.slice());
+}
+
+test "encShiftRCl: shl ebx, cl (.d, .shl) → d3 e3" {
+    const enc = encShiftRCl(.d, .shl, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0xD3, 0xE3 }, enc.slice());
+}
+
+test "encShiftRCl: shr r10d, cl (.d, .shr) → 41 d3 ea (REX.B)" {
+    const enc = encShiftRCl(.d, .shr, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0xD3, 0xEA }, enc.slice());
+}
+
+test "encShiftRCl: sar ebx, cl (.d, .sar) → d3 fb (kind=7)" {
+    const enc = encShiftRCl(.d, .sar, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0xD3, 0xFB }, enc.slice());
+}
+
+test "encShiftRCl: rol ebx, cl (.d, .rol) → d3 c3 (kind=0)" {
+    const enc = encShiftRCl(.d, .rol, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0xD3, 0xC3 }, enc.slice());
+}
+
+test "encShiftRCl: ror ebx, cl (.d, .ror) → d3 cb (kind=1)" {
+    const enc = encShiftRCl(.d, .ror, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0xD3, 0xCB }, enc.slice());
+}
+
+test "encShiftRCl: shl rbx, cl (.q) → 48 d3 e3 (REX.W)" {
+    const enc = encShiftRCl(.q, .shl, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0xD3, 0xE3 }, enc.slice());
 }
 
 test "encSetccR: sete bl → 40 0f 94 c3 (bare REX for low-byte access)" {

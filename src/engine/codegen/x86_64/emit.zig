@@ -142,6 +142,9 @@ pub fn compile(
             .@"i32.le_s", .@"i32.le_u", .@"i32.ge_s", .@"i32.ge_u",
             => try emitI32Compare(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"i32.eqz" => try emitI32Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32.shl", .@"i32.shr_s", .@"i32.shr_u",
+            .@"i32.rotl", .@"i32.rotr",
+            => try emitI32Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"end" => {
                 // Function-level end (skeleton: no label stack
                 // yet, so every `end` is the function-level form).
@@ -289,6 +292,68 @@ fn emitI32Eqz(
     try buf.appendSlice(allocator, inst.encTestRR(.d, src_r, src_r).slice());
     try buf.appendSlice(allocator, inst.encSetccR(.e, dst_r).slice());
     try buf.appendSlice(allocator, inst.encMovzxR32R8(dst_r, dst_r).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// i32 shift / rotate handler (shl / shr_s / shr_u / rotl / rotr,
+/// 5 ops). x86_64 SHL/SHR/SAR/ROL/ROR with variable count
+/// require the count in CL (RCX low byte). Emit:
+///
+///   MOV ECX, rhs       ; (skip if rhs already in RCX — never
+///                        the case since RCX is excluded from
+///                        the regalloc pool per abi.zig)
+///   MOV dst, lhs       ; (skip if dst == lhs)
+///   <op> dst, CL       ; D3 / kind
+///
+/// Wasm shift count is implicit-modulo-(width); x86_64 SHL/SHR
+/// also mask the count by (width - 1), so the semantics line up
+/// without an extra AND.
+///
+/// Constraints (caller cannot violate without UnsupportedOp):
+/// - dst != RCX: RCX is the count register; would self-clobber.
+///   In practice this never fires because abi.allocatable_gprs
+///   excludes RCX.
+/// - dst != rhs (when dst != lhs): the MOV dst, lhs would clobber
+///   rhs before the shift reads CL. Guard mirrors emitI32Binary.
+fn emitI32Shift(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const lhs_r = abi.slotToReg(alloc.slots[lhs_v]) orelse return Error.SlotOverflow;
+    const rhs_r = abi.slotToReg(alloc.slots[rhs_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+    if (dst_r == .rcx) return Error.UnsupportedOp;
+    if (dst_r == rhs_r and dst_r != lhs_r) return Error.UnsupportedOp;
+
+    // 1. Move shift count into ECX (CL is the low byte).
+    if (rhs_r != .rcx) {
+        try buf.appendSlice(allocator, inst.encMovRR(.d, .rcx, rhs_r).slice());
+    }
+    // 2. Materialise lhs into dst (skip if already same reg).
+    if (dst_r != lhs_r) {
+        try buf.appendSlice(allocator, inst.encMovRR(.d, dst_r, lhs_r).slice());
+    }
+    // 3. Shift / rotate.
+    const kind: inst.ShiftKind = switch (op) {
+        .@"i32.shl"   => .shl,
+        .@"i32.shr_s" => .sar,
+        .@"i32.shr_u" => .shr,
+        .@"i32.rotl"  => .rol,
+        .@"i32.rotr"  => .ror,
+        else => unreachable,
+    };
+    try buf.appendSlice(allocator, inst.encShiftRCl(.d, kind, dst_r).slice());
 
     try pushed_vregs.append(allocator, result_v);
 }
@@ -586,6 +651,75 @@ test "compile: (i32.const 0) i32.eqz end — TEST+SETE+MOVZX" {
         0xC3,
     };
     try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: (i32.const 1) (i32.const 4) i32.shl end — MOV CL + MOV dst + SHL CL" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 4 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.shl" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 2 }; // R10D, R11D, EBX
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected stream:
+    //   55 48 89 E5                     prologue
+    //   41 BA 01 00 00 00               MOV R10D, #1     (vreg 0 = lhs)
+    //   41 BB 04 00 00 00               MOV R11D, #4     (vreg 1 = rhs)
+    //   44 89 D9                        MOV ECX, R11D    (rhs → CL count)
+    //   44 89 D3                        MOV EBX, R10D    (lhs → dst)
+    //   D3 E3                           SHL EBX, CL
+    //   89 D8                           MOV EAX, EBX
+    //   5D C3                           POP RBP ; RET
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x41, 0xBA, 0x01, 0x00, 0x00, 0x00,
+        0x41, 0xBB, 0x04, 0x00, 0x00, 0x00,
+        0x44, 0x89, 0xD9,
+        0x44, 0x89, 0xD3,
+        0xD3, 0xE3,
+        0x89, 0xD8,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: i32.shr_s vs i32.shr_u — kind byte differs (sar D3 fb vs shr D3 eb)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    inline for (.{
+        .{ .op = .@"i32.shr_s", .modrm = @as(u8, 0xFB) },
+        .{ .op = .@"i32.shr_u", .modrm = @as(u8, 0xEB) },
+    }) |case| {
+        var f = ZirFunc.init(0, sig, &.{});
+        defer f.deinit(testing.allocator);
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 100 });
+        try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 2 });
+        try f.instrs.append(testing.allocator, .{ .op = case.op });
+        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        f.liveness = .{ .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 2 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+            .{ .def_pc = 2, .last_use_pc = 3 },
+        } };
+        const slots = [_]u8{ 0, 1, 2 };
+        const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+        defer deinit(testing.allocator, out);
+        // Layout: 4 prologue + 6+6 imm32 + 3 mov-cl + 3 mov-dst = 22, then D3 at 22, ModR/M at 23.
+        try testing.expectEqual(@as(u8, 0xD3), out.bytes[22]);
+        try testing.expectEqual(case.modrm, out.bytes[23]);
+    }
 }
 
 test "compile: i32.eqz with stack underflow → AllocationMissing" {
