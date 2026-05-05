@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Zone dependency checker for zwasm v2.
 #
-# Enforces the layering rules in .claude/rules/zone_deps.md:
-#   Zone 0 (util/, platform/) must NOT import from any higher zone.
-#   Zone 1 (ir/, runtime/, frontend/, feature/) must NOT import from Zone 2+.
-#   Zone 2 (interp/, jit/, jit_arm64/, jit_x86/, wasi/) must NOT import from Zone 3.
-#   Cross-arch jit_arm64/ <-> jit_x86/ imports are forbidden in any direction (A3).
+# Enforces the layering rules in .claude/rules/zone_deps.md (post-ADR-0023):
+#   Zone 0 (support/, platform/) must NOT import from any higher zone.
+#   Zone 1 (ir/, runtime/, parse/, validate/, feature/, diagnostic/) must NOT import from Zone 2+.
+#   Zone 2 (interp/, engine/, wasi/) must NOT import from Zone 3.
+#   Cross-arch engine/codegen/arm64/ <-> engine/codegen/x86_64/ imports are forbidden (A3).
 #
 # Modes:
 #   bash scripts/zone_check.sh           informational; always exits 0
@@ -25,10 +25,10 @@ cd "$(dirname "$0")/.."
 zone_of() {
     local path="$1"
     case "$path" in
-        src/util/*|src/support/*|src/platform/*)             echo 0 ;;
-        src/ir/*|src/runtime/*|src/parse/*|src/validate/*|src/feature/*|src/diagnostic/*) echo 1 ;;
-        src/interp/*|src/jit/*|src/jit_arm64/*|src/jit_x86/*|src/wasi/*|src/engine/*) echo 2 ;;
-        src/c_api/*|src/cli/*|src/main.zig)                  echo 3 ;;
+        src/support/*|src/platform/*)                                                       echo 0 ;;
+        src/ir/*|src/runtime/*|src/parse/*|src/validate/*|src/feature/*|src/diagnostic/*|src/instruction/*) echo 1 ;;
+        src/interp/*|src/wasi/*|src/engine/*)                                               echo 2 ;;
+        src/api/*|src/cli/*|src/main.zig)                                                    echo 3 ;;
         *)                                                   echo "x" ;;
     esac
 }
@@ -37,9 +37,9 @@ zone_of() {
 arch_of() {
     local path="$1"
     case "$path" in
-        src/jit_arm64/*) echo "arm64" ;;
-        src/jit_x86/*)   echo "x86" ;;
-        *)               echo "" ;;
+        src/engine/codegen/arm64/*)  echo "arm64" ;;
+        src/engine/codegen/x86_64/*) echo "x86" ;;
+        *)                           echo "" ;;
     esac
 }
 

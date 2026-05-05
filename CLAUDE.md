@@ -154,7 +154,7 @@ These hold the canonical procedures; CLAUDE.md only points to them.
 ## Layout
 
 ```
-src/         Zig source (frontend / ir / runtime / feature / interp / jit / wasi / c_api / cli / app / util / platform)
+src/         Zig source (parse / validate / ir / runtime / instruction / feature / engine / interp / wasi / api / cli / diagnostic / support / platform); shape per ADR-0023
 include/     Public C headers (wasm.h / wasi.h / zwasm.h)
 build.zig    Build script (Zig 0.16 idiom, with -Dwasm / -Dwasi / -Dengine flags)
 flake.nix    Nix dev shell pinned to Zig 0.16.0 + hyperfine + yq + wabt
@@ -168,17 +168,22 @@ private/     gitignored agent scratch
 
 ### Key file shape (load-bearing — stable across phases)
 
-- **Frontend** (`src/frontend/`): `parser.zig` → `sections.zig`
-  decoders (type / function / code / import / global / table /
-  data / element) → `validator.zig` (full Wasm 1.0 + 2.0 ops,
-  single-result blocks, traps, table indirection) →
-  `lowerer.zig` (ZIR emit). All zone-clean.
+- **Parse** (`src/parse/`): `parser.zig` (module header + section
+  iterator) → `sections.zig` decoders (type / function / code /
+  import / global / table / data / element) → `ctx.zig`
+  (ParseContext). All zone-clean.
+- **Validate** (`src/validate/`): `validator.zig` (full Wasm 1.0
+  + 2.0 ops, single-result blocks, traps, table indirection).
 - **IR** (`src/ir/`): `zir.zig` (ZirOp catalogue + FuncType +
-  TableEntry + ZirInstr) + `dispatch_table.zig` (per-op slots).
-- **Interp** (`src/interp/`): `mod.zig` (Runtime + Value + Trap +
-  frames + tables / datas / elems / module_types) + `dispatch.zig`
-  (run loop) + `mvp.zig` + `memory_ops.zig` + `trap_audit.zig` +
-  `ext_2_0/{sign_ext, sat_trunc, bulk_memory, ref_types, table_ops}.zig`.
+  TableEntry + ZirInstr) + `dispatch_table.zig` (per-op slots) +
+  `lower.zig` (wasm-op → ZIR) + `verifier.zig` + `analysis/`
+  (loop_info / liveness / const_prop).
+- **Runtime** (`src/runtime/`): `runtime.zig` (Runtime central
+  handle) + `value.zig` + `trap.zig` + `frame.zig` + `module.zig`
+  + `engine.zig` + `store.zig` + `instance/{instance, table,
+  memory, global, func, element, data}.zig`.
+- **Engine** (`src/engine/`): `runner.zig` (public entry) +
+  `codegen/{shared, arm64, x86_64, aot}/`.
 - **Test surface** (`test/`): `spec/runner.zig` (wasm-1.0 curated),
   `spec/wast_runner.zig` (wasm-2.0 manifest-driven),
   `realworld/runner.zig` (toolchain wasms parse smoke),

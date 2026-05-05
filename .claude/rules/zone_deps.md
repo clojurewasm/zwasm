@@ -9,27 +9,29 @@ paths:
 Auto-loaded when editing Zig source. Authoritative version of the
 layering contract in ROADMAP §4.1 / §A1.
 
-## Zone architecture
+## Zone architecture (post-ADR-0023)
 
 ```
 Zone 3: src/cli/, src/main.zig         -- CLI entry, argparse, subcommand
-        src/c_api/                      -- C ABI export layer (wasm.h / wasi.h / zwasm.h)
+        src/api/                        -- C ABI export layer (wasm.h / wasi.h / zwasm.h)
                                         ↓ may import anything below
 
 Zone 2: src/interp/                     -- Threaded-code interpreter
-        src/jit/                        -- Shared JIT (regalloc, reg_class, prologue, emit_common, aot)
-        src/jit_arm64/                  -- ARM64-specific emit
-        src/jit_x86/                    -- x86-specific emit
+        src/engine/                     -- runner + codegen/{shared, arm64, x86_64, aot} + interp/
         src/wasi/                       -- WASI 0.1 implementation
                                         ↓ may import Zone 0+1
 
-Zone 1: src/ir/                         -- ZIR + verifier + analysis
-        src/runtime/                    -- Module / Instance / Store / Memory / Trap / Float / Value / GC
-        src/frontend/                   -- Parser / Validator / Lowerer (wasm body → ZIR)
-        src/feature/                    -- Per-spec-feature modules (registered into dispatch tables)
+Zone 1: src/ir/                         -- ZIR + verifier + lower + analysis/
+        src/runtime/                    -- Runtime + Module / Engine / Store / Value / Trap / Frame
+                                           + instance/{instance, table, memory, global, func, element, data}
+        src/parse/                      -- Parser / sections / ctx (wasm bytes → Module)
+        src/validate/                   -- Validator (static type-stack + control-stack)
+        src/instruction/                -- per-spec-version opcode handlers (registered into dispatch tables)
+        src/feature/                    -- Per-VM-capability subsystems (SIMD, GC, EH, …)
+        src/diagnostic/                 -- Cross-cutting Ousterhout deep module
                                         ↓ may import Zone 0 only
 
-Zone 0: src/util/                       -- LEB128, duration, hash, sort
+Zone 0: src/support/                    -- LEB128, dbg
         src/platform/                   -- Linux / Darwin / Windows / POSIX abstractions
                                         ↑ imports nothing above
 ```
@@ -37,17 +39,19 @@ Zone 0: src/util/                       -- LEB128, duration, hash, sort
 ## NEVER: upward imports
 
 ```
-util/ + platform/  must NOT import from ir/, runtime/, frontend/, feature/, interp/, jit*/, wasi/, c_api/, cli/
-ir/ + runtime/ + frontend/ + feature/  must NOT import from interp/, jit*/, wasi/, c_api/, cli/
-interp/ + jit*/ + wasi/  must NOT import from c_api/, cli/
+support/ + platform/  must NOT import from ir/, runtime/, parse/, validate/, instruction/, feature/, diagnostic/, interp/, engine/, wasi/, api/, cli/
+Zone 1 (ir/, runtime/, parse/, validate/, instruction/, feature/, diagnostic/)
+                       must NOT import from interp/, engine/, wasi/, api/, cli/
+interp/ + engine/ + wasi/  must NOT import from api/, cli/
 ```
 
 ## Inter-zone-2 isolation
 
-`jit_arm64/` and `jit_x86/` must NOT import from each other (A3).
-Both share via `jit/` only. This keeps the per-arch backend
-independent and discoverable; cross-arch dependency would defeat
-the W54-class bug detection design.
+`engine/codegen/arm64/` and `engine/codegen/x86_64/` must NOT
+import from each other (A3). Both share via `engine/codegen/shared/`
+only. This keeps the per-arch backend independent and discoverable;
+cross-arch dependency would defeat the W54-class bug detection
+design.
 
 ## Feature module direction
 
@@ -69,10 +73,10 @@ pub const VTable = struct {
     compile: *const fn(*Instance, FuncIdx) anyerror!void,
 };
 
-// Layer 2 (interp/ or jit/) installs at startup
+// Layer 2 (interp/ or engine/codegen/) installs at startup
 runtime.vtable = .{
     .exec = interp.exec,
-    .compile = jit.compile,
+    .compile = engine_codegen.compile,
 };
 ```
 
