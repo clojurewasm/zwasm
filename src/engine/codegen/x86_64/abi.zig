@@ -26,25 +26,22 @@
 //!   R11                  intra-procedure scratch (PLT, etc.)
 //!
 //! Phase 7.6 chunk-c scope: declarative ABI tables + the
-//! `slotToReg` / `fpSlotToReg` mappers. Three load-bearing
-//! consumers are intentionally deferred:
+//! `slotToReg` / `fpSlotToReg` mappers + the **single-
+//! reservation invariant model per ADR-0026** (R15 holds the
+//! saved runtime ptr; other JitRuntime invariants reload from
+//! [R15 + offset] at point of use).
 //!
-//!   - **`reserved_invariant_gprs`** (mirrors arm64's X28/X27/
-//!     X26/X25/X24/X19 reservation pattern). x86_64 has only 6
-//!     callee-saved GPRs in the SysV-∩-Win64 intersection; if
-//!     all six were reserved, the regalloc pool would collapse
-//!     to 2 caller-saved scratch regs (R10, R11). The reservation
-//!     model needs a per-arch design decision — likely "reload
-//!     invariants from runtime_ptr at point of use" rather than
-//!     arm64's "load once into callee-saved at prologue", trading
-//!     per-use latency for pool size. That decision belongs with
-//!     emit.zig prologue design (§9.7 / 7.7) not the ABI table.
+//! Two load-bearing consumers remain intentionally deferred:
+//!
 //!   - **`spill_stage_gprs`** (mirrors arm64's X14/X15). Awaits
 //!     the spill-aware emit port that mirrors arm64's sub-1c.
 //!   - **Win64 ABI**: distinct arg regs (RCX/RDX/R8/R9), 32-byte
 //!     shadow space, RSI/RDI callee-saved. The `Cc` enum + per-
 //!     target binding lands in chunk c2 once emit.zig has a
-//!     concrete consumer for the choice.
+//!     concrete consumer for the choice. Note: the R15
+//!     reservation chosen here is Cc-agnostic (callee-saved in
+//!     both SysV and Win64) so the Win64 port doesn't reopen
+//!     this decision.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`) — must NOT import
 //! `src/engine/codegen/arm64/` per ROADMAP §A3.
@@ -103,34 +100,64 @@ pub const frame_pointer: Gpr = .rbp;
 /// because they carry args at call sites.
 pub const allocatable_caller_saved_scratch_gprs = [_]Gpr{ .r10, .r11 };
 
+/// Reserved for runtime-ptr save per ADR-0026. Mirrors the
+/// role of arm64's `runtime_ptr_save_gpr` (X19, ADR-0017
+/// sub-2d-ii): the function prologue captures the inbound RDI
+/// (`*const JitRuntime`) into R15, and every memory op /
+/// call_indirect / host call reloads other JitRuntime
+/// invariants from `[R15 + offset]` at point of use.
+///
+/// R15 is callee-saved in BOTH System V x86_64 and Win64, so
+/// the reservation is Cc-agnostic. Caller-saved RDI carries
+/// the runtime ptr at function entry per ADR-0017 / SysV
+/// §3.2.3; the prologue's `MOV R15, RDI` snapshots it before
+/// any call site can clobber RDI.
+pub const runtime_ptr_save_gpr: Gpr = .r15;
+
+/// Reserved-from-the-pool set per ADR-0026. Single-reservation
+/// model: only R15 (= `runtime_ptr_save`). Other JitRuntime
+/// invariants (vm_base / mem_limit / funcptr_base / table_size
+/// / typeidx_base) reload from `[R15 + offset]` at point of use
+/// rather than holding callee-saved slots — the arm64 mirror
+/// model (6 reserved regs) is unworkable on x86_64 because
+/// only 6 callee-saved GPRs exist total and `frame_pointer`
+/// (RBP) takes one. See ADR-0026 §"Decision".
+pub const reserved_invariant_gprs = [_]Gpr{runtime_ptr_save_gpr};
+
+/// Allocatable callee-saved GPRs = `callee_saved_gprs` minus
+/// `frame_pointer` (RBP) minus `reserved_invariant_gprs` (R15).
+/// Four regs (RBX, R12, R13, R14). Kept as its own constant
+/// so `allocatable_gprs` reads cleanly and `audit_scaffolding`
+/// can spot-check the reservation invariant (mirrors arm64
+/// `allocatable_callee_saved_gprs`).
+pub const allocatable_callee_saved_gprs = [_]Gpr{ .rbx, .r12, .r13, .r14 };
+
 /// Pool of GPRs the regalloc may freely use, in priority order:
-/// caller-saved scratch first (cheapest, no prologue cost), then
-/// the full callee-saved set.
+/// caller-saved scratch first (cheapest, no prologue save),
+/// then allocatable callee-saved (forces save/restore but
+/// invariant-safe).
 ///
 /// **Excluded from the pool by construction**:
 ///   - RDI, RSI, RDX, RCX, R8, R9 (arg marshalling — caller
 ///     must own these around call sites)
 ///   - RAX (return slot)
 ///   - RSP (stack pointer)
+///   - RBP (frame pointer per the prologue convention; ADR-0026
+///     §"Frame-pointer policy")
+///   - R15 (`reserved_invariant_gprs` per ADR-0026)
 ///
-/// **NOT yet excluded** (compared to arm64's `reserved_invariant_
-/// gprs`): the JitRuntime invariants (vm_base / mem_limit /
-/// funcptr_base / table_size / typeidx_base / runtime_ptr_save).
-/// On arm64 those reserve 6 of the 10 callee-saved X-registers.
-/// On x86_64 only 6 callee-saved GPRs exist total — applying the
-/// same reservation depth would collapse the pool. The decision
-/// (reload-from-runtime-ptr vs arm64-style load-once-to-callee-
-/// saved) is deferred to §9.7 / 7.7 emit prologue design; the
-/// pool below is the upper bound the post-decision pool will
-/// shrink from.
-///
-/// Pool size: 8 (R10, R11 + RBX, RBP, R12..R15). For comparison
-/// arm64's pool is 9 (X9..X13 + X20..X23) post-ADR-0017 sub-2d-ii.
-pub const allocatable_gprs = allocatable_caller_saved_scratch_gprs ++ callee_saved_gprs;
+/// Pool size: 6 (R10, R11 + RBX, R12, R13, R14). For
+/// comparison arm64's pool is 9 (X9..X13 + X20..X23) post-
+/// ADR-0017 sub-2d-ii — x86_64 has fewer GPRs to start with
+/// (16 vs 31), so the asymmetry is structural and accepted
+/// per P3 (cold-start) / ADR-0026.
+pub const allocatable_gprs = allocatable_caller_saved_scratch_gprs ++ allocatable_callee_saved_gprs;
 
-// Compile-time invariant: allocatable_gprs is disjoint from the
-// arg / return slots — the arm64-style W54-class structural fix
-// against pool/role overlap.
+// Compile-time invariant: allocatable_gprs is pairwise disjoint
+// with arg_gprs / return_gpr / stack_pointer / frame_pointer /
+// reserved_invariant_gprs — the arm64-style W54-class structural
+// fix against pool/role overlap (per ADR-0018; same shape as
+// arm64/abi.zig comptime block).
 comptime {
     for (allocatable_gprs) |a| {
         for (arg_gprs) |arg| {
@@ -138,6 +165,10 @@ comptime {
         }
         if (a == return_gpr) @compileError("regalloc pool overlaps return_gpr — SysV §3.2.1 invariant violated");
         if (a == stack_pointer) @compileError("regalloc pool overlaps stack_pointer");
+        if (a == frame_pointer) @compileError("regalloc pool overlaps frame_pointer — ADR-0026 prologue convention violated");
+        for (reserved_invariant_gprs) |r| {
+            if (a == r) @compileError("regalloc pool overlaps reserved_invariant_gprs — ADR-0026 invariant violated");
+        }
     }
 }
 
@@ -224,35 +255,44 @@ test "return_gpr is RAX, return_xmm is XMM0" {
     try testing.expectEqual(Xmm.xmm0, return_xmm);
 }
 
-test "allocatable_gprs is 8 regs (R10, R11, RBX, RBP, R12..R15)" {
-    try testing.expectEqual(@as(usize, 8), allocatable_gprs.len);
+test "allocatable_gprs is 6 regs (R10, R11 + RBX, R12..R14) post-ADR-0026" {
+    try testing.expectEqual(@as(usize, 6), allocatable_gprs.len);
     try testing.expectEqual(Gpr.r10, allocatable_gprs[0]);
     try testing.expectEqual(Gpr.r11, allocatable_gprs[1]);
     try testing.expectEqual(Gpr.rbx, allocatable_gprs[2]);
+    try testing.expectEqual(Gpr.r14, allocatable_gprs[5]);
 }
 
-test "allocatable_gprs is disjoint from arg/return at runtime" {
+test "allocatable_gprs is disjoint from arg/return/SP/FP/reserved at runtime" {
     for (allocatable_gprs) |a| {
         for (arg_gprs) |arg| try testing.expect(a != arg);
         try testing.expect(a != return_gpr);
         try testing.expect(a != stack_pointer);
+        try testing.expect(a != frame_pointer);
+        for (reserved_invariant_gprs) |r| try testing.expect(a != r);
     }
+}
+
+test "runtime_ptr_save_gpr is R15 (ADR-0026 reservation)" {
+    try testing.expectEqual(Gpr.r15, runtime_ptr_save_gpr);
+    try testing.expectEqual(@as(usize, 1), reserved_invariant_gprs.len);
+    try testing.expectEqual(Gpr.r15, reserved_invariant_gprs[0]);
 }
 
 test "slotToReg: slot 0 → R10 (first allocatable caller-saved scratch)" {
     try testing.expectEqual(Gpr.r10, slotToReg(0).?);
 }
 
-test "slotToReg: slot 2 → RBX (first callee-saved after the 2 caller-scratch)" {
+test "slotToReg: slot 2 → RBX (first allocatable callee-saved; RBP=FP, R15=reserved)" {
     try testing.expectEqual(Gpr.rbx, slotToReg(2).?);
 }
 
-test "slotToReg: slot 7 → R15 (last in the 8-slot pool)" {
-    try testing.expectEqual(Gpr.r15, slotToReg(7).?);
+test "slotToReg: slot 5 → R14 (last in the 6-slot pool)" {
+    try testing.expectEqual(Gpr.r14, slotToReg(5).?);
 }
 
-test "slotToReg: slot 8 returns null (pool exhausted; spill territory)" {
-    try testing.expect(slotToReg(8) == null);
+test "slotToReg: slot 6 returns null (pool exhausted; spill territory)" {
+    try testing.expect(slotToReg(6) == null);
 }
 
 test "fpSlotToReg: slot 0 → XMM8 (first allocatable XMM after arg regs)" {

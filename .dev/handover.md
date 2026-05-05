@@ -22,17 +22,22 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-§9.7 / 7.7-locals landed (`59ed705` frame extension SUB/ADD RSP
-+ 3 local handlers .get/.set/.tee + 4 inst encoders Sub/Add RSP
-imm8 + RBP-relative store/load; 7 byte-level inst tests + 3
-emit tests; 15-locals cap via i8 disp)。3-host green。
+直近: 自律ループ前に 4 件の構造課題を一括解消。
+- ADR-0026 (x86_64 runtime invariant 戦略: R15 のみ予約 + 他は
+  reload-from-runtime-ptr) + abi.zig 改修 (R15 を pool 外、comptime
+  disjoint check 強化、pool 8 → 6 regs)
+- ADR-0021 Revision history: sub-split 経緯 + 12-module 着地を記録
+- ADR-0017 Revision history: x86_64 mirror 想定の clarify (ADR-0026 へ)
+- D-028 (windowsmini test runner IPC timeout) + D-029 (x86_64
+  parallel-move) 立ち上げ
+3-host gate green。最新 commit は debt+ADR commit (この turn 末)。
 
-**Active task**: §9.7 / 7.7-globals — global.get/.set。
-mod=00/01 + RIP-relative or absolute addressing 設計判断あり
-(globals は Module 内固定アドレス vs Runtime ptr 経由)。
+**Active task**: §9.7 / 7.7-globals — global.get/.set。今後 memory
+ops 着手時には ADR-0026 prologue (PUSH R15 + MOV R15, RDI) 導入が
+必要。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 59ed705。
+**Branch**: `zwasm-from-scratch`、構造課題解消後の HEAD 参照。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 

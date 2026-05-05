@@ -270,3 +270,30 @@ spill them because the body never modified them; AAPCS64
   invariant pattern of the rest of ADR-0017 + ADR-0018).
   
   Sub-2d-ii implementation cycle. SHA: `<backfill at acceptance>`
+
+- 2026-05-05 — **Refinement (per `adr-revision-history-misuse`
+  categorisation)**: the §"Per-arch parity by construction"
+  paragraph (line ~184) read "x86_64 (ADR-0019) uses the same
+  `JitRuntime` shape with arch-specific reg assignments (RDI =
+  runtime ptr, etc.)", which implied the **load-once mirror
+  reservation pattern** (X28..X24 + X19) would carry over to
+  x86_64 with renamed registers. In practice that mirror is
+  unworkable — x86_64 has only 6 callee-saved GPRs (vs ARM64's
+  10), and reserving 5 for invariants while keeping RBP as the
+  frame pointer collapses the regalloc pool to ~2 regs.
+
+  **What changed**: x86_64's invariant strategy is now governed
+  by **ADR-0026** (single-reservation, reload-from-runtime-ptr
+  model). R15 alone holds the saved runtime ptr (mirror of
+  X19); other invariants reload from `[R15 + offset]` at point
+  of use. The shared contract from ADR-0017 (JitRuntime struct
+  layout + offset constants + `*X0` / `*RDI` calling convention)
+  is unchanged; only the **per-arch invariant residence
+  strategy** diverges.
+
+  This is a **refinement** rather than a gap — ADR-0017's
+  shared contract still holds; ADR-0026 extends it with a
+  per-arch reservation strategy that ADR-0017 conflated under
+  "per-arch parity". Future arch ports (RISC-V, etc.) read
+  ADR-0017 + ADR-0026 together to understand the pool-pressure
+  vs reload-cost trade and pick a strategy. SHA: `<backfill>`
