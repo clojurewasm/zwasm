@@ -171,6 +171,41 @@ pub fn encNop() EncodedInsn {
     return enc;
 }
 
+/// `PUSH r64` (opcode 0x50+rd) — push a 64-bit GPR onto the
+/// stack. REX.B (0x41) is needed for R8..R15. Width is implicit
+/// 64-bit; no operand-size override exists for PUSH r64.
+pub fn encPushR(reg: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (reg.extBit() == 1) enc.push(encodeRex(false, 0, 0, 1));
+    enc.push(0x50 | @as(u8, reg.low3()));
+    return enc;
+}
+
+/// `POP r64` (opcode 0x58+rd) — pop a 64-bit GPR from the stack.
+/// Same REX.B treatment as PUSH r64.
+pub fn encPopR(reg: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (reg.extBit() == 1) enc.push(encodeRex(false, 0, 0, 1));
+    enc.push(0x58 | @as(u8, reg.low3()));
+    return enc;
+}
+
+/// `MOV r32, imm32` (opcode 0xB8+rd ib32) — load a 32-bit
+/// immediate into a GPR. The 32-bit form zero-extends to 64
+/// bits (Wasm i32 semantics map to this). REX.B for R8..R15.
+///
+/// `imm` is emitted little-endian per AMD64 Vol.3 §1.2.2.
+pub fn encMovImm32W(dst: Gpr, imm: u32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (dst.extBit() == 1) enc.push(encodeRex(false, 0, 0, 1));
+    enc.push(0xB8 | @as(u8, dst.low3()));
+    enc.push(@truncate(imm));
+    enc.push(@truncate(imm >> 8));
+    enc.push(@truncate(imm >> 16));
+    enc.push(@truncate(imm >> 24));
+    return enc;
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -248,4 +283,39 @@ test "encNop: single 0x90" {
 
 test "EncodedInsn: max len bound" {
     try testing.expectEqual(@as(u8, 15), max_insn_bytes);
+}
+
+test "encPushR: push rbp → 55" {
+    const enc = encPushR(.rbp);
+    try testing.expectEqualSlices(u8, &.{0x55}, enc.slice());
+}
+
+test "encPushR: push r12 → 41 54 (REX.B)" {
+    const enc = encPushR(.r12);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0x54 }, enc.slice());
+}
+
+test "encPopR: pop rbp → 5d" {
+    const enc = encPopR(.rbp);
+    try testing.expectEqualSlices(u8, &.{0x5D}, enc.slice());
+}
+
+test "encPopR: pop r12 → 41 5c (REX.B)" {
+    const enc = encPopR(.r12);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0x5C }, enc.slice());
+}
+
+test "encMovImm32W: mov eax, #42 → b8 2a 00 00 00" {
+    const enc = encMovImm32W(.rax, 42);
+    try testing.expectEqualSlices(u8, &.{ 0xB8, 0x2A, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encMovImm32W: mov r10d, #42 → 41 ba 2a 00 00 00 (REX.B)" {
+    const enc = encMovImm32W(.r10, 42);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0xBA, 0x2A, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encMovImm32W: little-endian imm32 (0xDEADBEEF)" {
+    const enc = encMovImm32W(.rax, 0xDEADBEEF);
+    try testing.expectEqualSlices(u8, &.{ 0xB8, 0xEF, 0xBE, 0xAD, 0xDE }, enc.slice());
 }

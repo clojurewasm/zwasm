@@ -190,6 +190,7 @@ test {
     _ = @import("engine/codegen/x86_64/reg_class.zig");
     _ = @import("engine/codegen/x86_64/inst.zig");
     _ = @import("engine/codegen/x86_64/abi.zig");
+    _ = @import("engine/codegen/x86_64/emit.zig");
     _ = @import("platform/jit_mem.zig");
     _ = @import("engine/codegen/shared/linker.zig");
     _ = @import("engine/codegen/shared/entry.zig");
