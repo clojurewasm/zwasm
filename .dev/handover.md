@@ -14,21 +14,20 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-直近 commit (HEAD = `0fea402`):
+直近 commit (HEAD = `57cf94c`):
 
+- `57cf94c` §9.7 / 7.7-fp-end-fix (D-032 discharge: i64/FP-aware end handler; 4 byte-level tests)
+- `68513ea` workflow audit fixes (gate detection robustness + handover trim)
 - `0fea402` workflow: SKILL.md hard-gate Detection rule (2 checkpoints) + handover gate awareness
 - `08dc2ef` 🔒 Phase 7→8 transition gate registered (§9.7 / 7.13 + `phase8_transition_gate.md`)
 - `b42eaea` workflow efficiency overhaul (parallel test gate + chunk granularity + opt-log seed)
-- `93fbbd2` / `a3b0157` / `837d067` opt-log F-NNN seed → R-NNN trigger column → English translation
 - `d638cc7` chore(p7) §9.7 / 7.7-fp-mem [x] flip
 - `3255c29` §9.7 / 7.7-fp-mem (4 ops; 6 tests; 3-host green)
-- `401551e` windowsmini Defender exclusion setup procedure persisted
 
-**Active task**: User-introduced pause 完了 (作業効率化 + Phase 8
-gate + optimisation_log 整備済)。再開後の **NEXT** =
-`7.7-fp-end-fix` (D-032 discharge — `MOV EAX, src` を i64/FP
-result でも正しく返すよう end handler を分岐)。続いて 7.8 spec
-gate (Linux + Windows hosts) → 7.9/7.10 realworld → 7.11 🔒
+**Active task**: 7.7-fp-end-fix 完了。**NEXT** = `deferred-Win64`
+(7.6 で deferred とした Win64 ABI table + Cc enum を追加して
+windowsmini で x86_64 JIT が回るようにする)。その後 7.8 spec gate
+(Linux + Windows hosts) → 7.9/7.10 realworld → 7.11 🔒
 three-way differential → 7.12 audit → **🔒 7.13 hard gate** →
 7.14 open §9.8。
 
@@ -49,17 +48,16 @@ three-way differential → 7.12 audit → **🔒 7.13 hard gate** →
 
 ## §9.7 / 7.7 chunk progress
 
-完了済 27 chunk: skel / alu / cmp / eqz / shift / bitcount / locals /
+完了済 28 chunk: skel / alu / cmp / eqz / shift / bitcount / locals /
 control-{skel,if,table} / mem-{load,store} / globals / wrap /
 call-{direct,indirect} / fp-{const,binary,compare,unary,copysign,
 minmax,convert-{simple,unsigned},trunc-sat-{signed,u32,u64},
-trunc-trap-{signed,unsigned},mem}。SHA は `git log
+trunc-trap-{signed,unsigned},mem,end-fix}。SHA は `git log
 --grep='§9.7 / 7.7-'` で取得可能。
 
 | # | Chunk | Status |
 |---|---|---|
-| 7.7-fp-end-fix | FP-aware function-end (D-032 discharge) | **NEXT** |
-| deferred-Win64 | Win64 ABI table + Cc enum | pending |
+| deferred-Win64 | Win64 ABI table + Cc enum | **NEXT** |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
 + Windows hosts), 7.9/7.10 realworld, 7.11 3-way differential
@@ -80,12 +78,15 @@ zone placement / "constant overhead" / WASI prereq 等)。
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後再評価。
 - **D-026** env-stub host-func wiring (cross-module dispatch)。
-- **D-032** FP-aware function-end — 次タスク `7.7-fp-end-fix` で discharge 予定。
+- **D-029** x86_64 emitI32Binary `dst==rhs` reject — regalloc port 後に discharge。
+- **D-030** x86_64 emit.zig / inst.zig op_*.zig 抽出 — 7.7 全 chunk landing 後。
+- **D-031** runner runI32Export FP/i64 拡張 — JitRuntime memory init 後に at_limit 境界 fixture を再追加。
 - emit.zig / inst.zig / emit_test.zig / api/instance.zig は soft-cap 圏内、hard-cap discharge 済。
 - 詳細・staleness check は `.dev/debt.md`。
 
 ## Recently closed (full history via `git log --oneline`)
 
+- §9.7 / 7.7-fp-end-fix (57cf94c): D-032 discharge — function-level end が `func.sig.results[0]` で分岐 (i32→.d / i64→.q / f32+f64→MOVAPS XMM0 / v128→UnsupportedOp); 4 byte-level tests。
 - §9.7 / 7.7-fp-mem (3255c29): emitMemOp に is_fp 分岐 + encMovssMovsdMemBaseIdx; 6 tests。
 - §9.7 / 7.7-fp-trunc-trap-{signed,unsigned} (eff1c75 / 78d5b06): Wasm 1.0 trapping f→i 8 ops。
 - §9.7 / 7.7-fp-trunc-sat-{signed,u32,u64} (20a2c0e / 18314cf / 7983dd3): Wasm 2.0 saturating 8 ops。
