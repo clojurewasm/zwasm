@@ -23,20 +23,20 @@
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
 直近 commit:
+- `2e60605` §9.7 / 7.7-fp-convert-simple — x86_64 promote/demote
+  + reinterpret (4 ops) + signed convert i→f (4 ops); 1 new
+  encoder; 8 tests; 3-host green
 - `1205ae0` §9.7 / 7.7-fp-minmax — x86_64 f32/f64 min/max
-  (branch-based UCOMI + JP/JE/3 paths; ORPS for min ±0,
-  ANDPS for max ±0, ADDSS for NaN propagation; 2 new tests;
-  3-host green)
 - `6af5239` §9.7 / 7.7-fp-copysign — x86_64 f32/f64 copysign
-- `d51c1b8` §9.7 / 7.7-fp-unary — x86_64 14 unary FP ops
 
-**Active task**: **NEXT** = 7.7-fp-convert (f↔int conversions:
-trunc_sat / convert_i*_s/u + f32↔f64 promote/demote +
-reinterpret)。続いて fp-mem (load/store) / fp-end-fix (D-032)
-→ §9.7 / 7.8 spec gate。
+**Active task**: 7.7-fp-convert は op-class で chunk 分割中。
+**NEXT** = 7.7-fp-convert-unsigned (f.convert_iN_u — zero-
+extend + range adjustment for i64 unsigned)。続いて fp-trunc-sat
+(Wasm 2.0) → fp-trunc-trap (Wasm 1.0) → fp-mem → fp-end-fix
+(D-032) → §9.7 / 7.8 spec gate。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は `1205ae0`。
+**Branch**: `zwasm-from-scratch`、最新は `2e60605`。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -88,7 +88,10 @@ fixed).
 | 7.7-fp-unary | f32/f64 abs/neg/sqrt/ceil/floor/trunc/nearest | DONE `d51c1b8` |
 | 7.7-fp-copysign | f32/f64 copysign (GPR bit-twiddle) | DONE `6af5239` |
 | 7.7-fp-minmax | f32/f64 min/max (branch-based NaN/±0 spec) | DONE `1205ae0` |
-| 7.7-fp-convert | f↔int + f32↔f64 + reinterpret | **NEXT** |
+| 7.7-fp-convert-simple | promote/demote + reinterpret + signed i→f | DONE `2e60605` |
+| 7.7-fp-convert-unsigned | f.convert_iN_u (zero-extend / range adj) | **NEXT** |
+| 7.7-fp-trunc-sat | Wasm 2.0 saturating f→i (8 ops) | pending |
+| 7.7-fp-trunc-trap | Wasm 1.0 trapping f→i (8 ops) | pending |
 | 7.7-fp-mem | f32/f64 load/store | pending |
 | 7.7-fp-end-fix | FP-aware function-end (D-032 discharge) | pending |
 | deferred-Win64 | Win64 ABI table + Cc enum | pending |
@@ -111,10 +114,13 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-fp-convert-simple: x86_64 promote/demote
+  (CVTSS2SD/SD2SS) + reinterpret (4 ops, MOVD/Q both directions)
+  + signed convert i→f (4 ops, CVTSI2SS/SD); encCvtsi2Scalar new;
+  unsigned convert / trunc deferred; 8 tests (2e60605)。
 - §9.7 / 7.7-fp-minmax: x86_64 f32/f64 min/max via branch-based
-  emit (UCOMI + JP→ADDSS NaN path / JE→ORPS-ANDPS ±0 path /
-  fallthrough→MINSS-MAXSS); rel32 placeholders patched at
-  end-of-emit; 2 tests (1205ae0)。
+  emit (UCOMI + JP→ADDSS / JE→ORPS-ANDPS / fall→MINSS-MAXSS);
+  2 tests (1205ae0)。
 - §9.7 / 7.7-fp-copysign: x86_64 f32/f64 copysign via GPR
   bit-twiddle; encMovdR32FromXmm + encMovqR64FromXmm; 6 tests
   (6af5239)。
