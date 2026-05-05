@@ -20,21 +20,21 @@
 8. `.dev/debt.md` — discharge `Status: now` rows.
 9. `.dev/lessons/INDEX.md` — keyword-grep for active task domain.
 
-## Current state — Phase 7 / §9.7 / 7.5d sub-b IN-PROGRESS
+## Current state — Phase 7 / §9.7 / 7.6 NEXT (7.5d CLOSED)
 
-emit.zig 9-module split chunk 9 landed `84180a5` (bounds_check.zig:
-emitTrappingTruncF32/F64 + emitTrunc{32,64}BoundsCheck — 4
-functions, 8 op-arms, ~175 LOC)。orchestrator (production code)
-は 599 LOC で 1000-LOC 目標達成。emit.zig 残 1947 LOC は inline
-test suite — chunk 10 で `emit_test.zig` 分離して 7.5d sub-b 完
-全クローズ予定。3-host gate green。
+§9.7 / 7.5d 完全クローズ (`828a609` chunk 10 emit_test.zig 分離)。
+emit.zig 580 LOC (≤ 1000 orchestrator ✓; ≤ 2000 hard ✓)、全 11
+ARM64 子モジュール ≤ 400 LOC。file_size_check --gate pass。
+3-host green。ADR-0021 sub-deliverable b 完全 discharge。
 
-**Active task**: §9.7 / 7.5d sub-b 続行。次 chunk 10 は `emit_test.
-zig` (~1947 LOC mechanical move) — file_size_check ハードキャップ
-解消で 7.5d sub-b 正式クローズ。
+**Active task**: §9.7 / 7.6 — `src/engine/codegen/x86_64/{reg_class,
+inst, abi}.zig` (x86_64 instruction encoder + System V (Linux) +
+Win64 (Windows) calling conventions + reserved_invariant_gprs per
+ADR-0018 mapping)。ADR-0019 で Phase 7 内に backend equality を
+operationalise する設計。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は 84180a5。
+**Branch**: `zwasm-from-scratch`、最新は 828a609。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -57,26 +57,22 @@ prerequisite acknowledged, allocator back-ref pattern
 documented, ImportBinding prereq stated, Phase C/D ordering
 fixed).
 
-## §9.7 / 7.5d sub-b implementation plan (chunk progress)
+## §9.7 / 7.6 NEXT (x86_64 reg_class + abi)
 
-| # | Chunk | LOC | Status |
-|---|---|---|---|
-| 1 | label.zig | ~65 | DONE `beafdb8` |
-| 2 | ctx.zig (EmitCtx + Error + CallFixup) | ~95 | DONE `b663bf4` |
-| 2 | gpr.zig (writeU32 + resolveGpr/Fp + spill helpers) | ~115 | DONE `b663bf4` |
-| 2 | op_const.zig (i32.const + i64.const + emitConst*) | ~95 | DONE `b663bf4` |
-| 3 | op_alu_int.zig (i32+i64 ALU/cmp/bit-ops, 16 handlers) | ~290 | DONE `639cb43` |
-| 4 | op_alu_float.zig (f32/f64 arith/cmp/copysign/min/max/round) | ~175 | DONE `b796555` |
-| 5 | op_convert.zig (wrap/extend/convert/sat_trunc/reinterpret/demote/promote) | ~150 | DONE `0d576ad` |
-| 6 | op_memory.zig (unified emitMemOp, 25 load/store arms) | ~125 | DONE `79d3104` |
-| 7 | op_control.zig (block/loop/br/br_if/br_table/if/else/emitEndIntra + D-027 merge) | ~265 | DONE `a6c7dcf` |
-| 8 | op_call.zig (call/call_indirect + marshalCallArgs + captureCallResult) | ~225 | DONE `a945126` |
-| 9 | bounds_check.zig (trapping trunc f32/f64, 8 op-arms) | ~175 | DONE `84180a5` |
-| 10 | `emit_test.zig` extraction (mechanical move of inline tests) | ~1947 | **NEXT** (closes 7.5d sub-b for real) |
+7.5d sub-b 完全クローズ済み (10 chunks: label/ctx/gpr/op_const/
+op_alu_int/op_alu_float/op_convert/op_memory/op_control/op_call/
+bounds_check/emit_test、SHA chain は `git log --grep="7.5d sub-b"`)。
 
-> Chunk count grew from 7 → 9 because ops_alu was sub-split into
-> int/float/convert to honour the per-module 400-LOC cap. ADR-0021
-> Revision history row to be added when op_alu_float lands.
+次は ADR-0019 で Phase 7 内に operationalise した x86_64 backend:
+- 7.6: x86_64 reg_class.zig + inst.zig + abi.zig (encoder + SysV/Win64)
+- 7.7: x86_64 emit.zig (ZIR → x86_64 emit pass)
+- 7.8: spec test fail=skip=0 via x86_64 JIT (Linux + Windows hosts)
+- 7.9/7.10: realworld 40+ via ARM64/x86_64 JIT
+- 7.11: 3-way differential (interp == jit_arm64 == jit_x86) — 🔒 gate
+
+ADR-0021 Revision history row: ops_alu sub-split (int/float/convert)
++ chunk-10 emit_test.zig extraction はまだ追記してない (post-7.6
+land 時 batch update)。
 
 各 sub-step は 3-host gate green で commit + push。
 
@@ -84,17 +80,17 @@ fixed).
 
 - **D-022** Diagnostic M3 / trace ringbuffer — Phase 7 close 後に再評価。
 - **D-026** env-stub host-func wiring — cross-module dispatch。
-- emit.zig 2546 LOC: production 599 LOC は 1000-LOC 目標内。残
-  1947 LOC inline tests を chunk 10 で分離予定。
+- emit.zig 580 LOC: 7.5d sub-b 完全クローズ。inst.zig 1193 LOC
+  soft-cap、emit_test.zig 1986 LOC soft-cap (test bulk; hard-cap内)。
 - api/instance.zig soft-cap (>1000 LOC) — binding code はそのまま、
   hard-cap (2000) は Step A2 で discharge 済み。
 
 ## Recently closed (per `git log --oneline -45`)
 
-- 7.5d sub-b chunk 9: bounds_check.zig extracted (trapping trunc
-  f32/f64 + bounds-check helpers, 8 op-arms) (84180a5)。
-- 7.5d sub-b chunk 8: op_call.zig extracted (call/call_indirect
-  + marshalCallArgs + captureCallResult, ~225 LOC) (a945126)。
+- §9.7 / 7.5d 完全クローズ (sub-b chunks 1-10 landed; ROADMAP
+  flipped [x]); ADR-0021 sub-b discharged。最終 commit `828a609`
+  (chunk 10 emit_test.zig 1947 LOC mechanical extraction, 残
+  emit.zig orchestrator 580 LOC)。
 - 7.5d sub-b chunk 7: op_control.zig extracted (8 control-flow
   handlers incl. D-027 merge; function-level end stays inline)
   (a6c7dcf)。
