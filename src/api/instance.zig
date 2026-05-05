@@ -27,6 +27,7 @@ const std = @import("std");
 const dbg = @import("../support/dbg.zig");
 const runtime = @import("../runtime/runtime.zig");
 const runtime_instance = @import("../runtime/instance/instance.zig");
+const runtime_instance_import = @import("../runtime/instance/import.zig");
 const instantiate = @import("../runtime/instance/instantiate.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi = @import("wasi.zig");
@@ -361,200 +362,66 @@ pub export fn wasm_module_delete(m: ?*Module) callconv(.c) void {
 // Instance constructors / destructors (§9.3 / 3.5 + 3.6)
 // ============================================================
 
-/// Decode the Module's stored bytes into Runtime state. Allocates
-/// a per-instance arena (held on `inst.arena`) into which all
-/// derived state lives — types, lowered `ZirFunc`s, and the
-/// `[]*const ZirFunc` table that `Runtime.funcs` borrows. On any
-/// failure the partial state parks on the store's zombie list
-/// (`parkAsZombie`); the arena is freed at `wasm_store_delete`.
-///
-/// 3.6 chunk a scope: types + functions + code section. Memory /
-/// data / element / table sections land alongside `wasm_func_call`
-/// in chunk b once the smallest dispatch path needs them.
-fn instantiateRuntime(
-    parent_alloc: std.mem.Allocator,
+/// Look up the source instance's exported entity descriptor by
+/// `(kind, name)` against `inst.{exports_storage, export_types}`.
+fn lookupSourceExportType(
+    inst: *const Instance,
+    kind: sections.ExportDesc,
+    name: []const u8,
+) !runtime.ExportType {
+    if (inst.exports_storage.len != inst.export_types.len)
+        return error.ImportTypeMismatch;
+    for (inst.exports_storage, inst.export_types) |exp, et| {
+        if (exp.kind == kind and std.mem.eql(u8, exp.name, name)) return et;
+    }
+    return error.ImportTypeMismatch;
+}
+
+/// Pre-resolve all imports declared in `bytes` into Zone-1
+/// native `ImportBinding`s. Returns null when the module has no
+/// imports. Allocates the binding slice + cross-module CallCtx
+/// records on `arena_alloc` (the per-instance arena).
+fn buildBindings(
+    arena_alloc: std.mem.Allocator,
     bytes: []const u8,
-    inst: *Instance,
-    rt: *runtime.Runtime,
-    imports: ?[*]const ?*const Extern,
-) !void {
-    const arena = try parent_alloc.create(std.heap.ArenaAllocator);
-    arena.* = std.heap.ArenaAllocator.init(parent_alloc);
-    inst.arena = arena;
-    const a = arena.allocator();
+    imports_array: ?[*]const ?*const Extern,
+    store: *Store,
+) !?[]const runtime_instance_import.ImportBinding {
+    var module = try parser.parse(arena_alloc, bytes);
+    defer module.deinit(arena_alloc);
+    const imp_section = module.find(.import) orelse return null;
+    var imports_decoded = try sections.decodeImports(arena_alloc, imp_section.body);
+    defer imports_decoded.deinit();
+    if (imports_decoded.items.len == 0) return null;
 
-    // §9.6 / 6.K.2 (ADR-0014 §2.2): rebind the Runtime's allocator
-    // to the per-instance arena so every subsequent allocation
-    // (memory, globals, tables.refs, elems, func_entities, dropped
-    // flags, host_calls) and every `table.grow` realloc unifies on
-    // a single arena. Wire the Instance back-ref so 6.K.3 can
-    // recover the source instance from a FuncEntity's runtime.
-    rt.alloc = a;
-    rt.instance = inst;
-
-    var module = try parser.parse(a, bytes);
-    defer module.deinit(a);
-
-    // §9.4 / 4.7 + §9.6 / 6.E iter 7: import section. WASI imports
-    // (module = "wasi_snapshot_preview1") wire to the Store's
-    // configured WASI host. All other imports must be resolved by
-    // a host-supplied `imports[]` array — the runner builds this
-    // by looking up registered modules' exports. An import without
-    // a corresponding extern (or with the wrong kind) fails
-    // instantiation.
-    var imports_decoded: ?sections.Imports = null;
-    defer if (imports_decoded) |*im| im.deinit();
-    if (module.find(.import)) |import_section| {
-        imports_decoded = try sections.decodeImports(a, import_section.body);
-        for (imports_decoded.?.items, 0..) |it, idx| {
-            if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
-                if (it.kind == .func) {
-                    if (wasi.lookupWasiThunk(it.name) == null) return error.UnsupportedWasiImport;
-                }
-                continue;
-            }
-            // Cross-module import: caller must have supplied an
-            // extern at the same index.
-            const extern_ptr = if (imports) |arr| arr[idx] else null;
-            const ext = extern_ptr orelse return error.UnknownImportModule;
-            const want_kind: ExternKind = switch (it.kind) {
-                .func => .func,
-                .table => .table,
-                .memory => .memory,
-                .global => .global,
-            };
-            if (ext.kind != want_kind) return error.ImportKindMismatch;
-            // Per Wasm 2.0 §3.4.10: import-vs-export type matching.
-            // Discharges debt D-006 (the gap exposed by the
-            // auto-register spike — 9 linking-errors fixtures
-            // previously passed for the wrong reason because
-            // manifest-discovery rejected before this check ever
-            // fired). Importer's type table needed for func-sig
-            // resolution; decode it lazily on first need.
-            try checkImportTypeMatches(a, module, it, ext);
-            // Iter 7 scope: only memory imports wire end-to-end.
-            // Table / global / func imports remain unsupported
-            // because their dispatch needs source-instance
-            // Per ADR-0014 §2.1 / 6.K.3: every import kind (memory
-            // / table / global / func) is wired below. Memory at
-            // ~line 720 (slice-header alias). Table at ~line 790
-            // (TableInstance value-copy — refs slice is shared).
-            // Global at ~line 850 (per-slot pointer alias via
-            // `Runtime.globals: []*Value`). Func via cross-module
-            // call thunk at ~line 730 (host_calls slot routes the
-            // call through the source instance's runtime).
+    const bindings = try arena_alloc.alloc(runtime_instance_import.ImportBinding, imports_decoded.items.len);
+    for (imports_decoded.items, 0..) |it, idx| {
+        if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
+            if (it.kind != .func) return error.UnsupportedWasiImport;
+            const thunk = wasi.lookupWasiThunk(it.name) orelse return error.UnsupportedWasiImport;
+            const wasi_host_ptr = store.wasi_host orelse return error.WasiNotConfigured;
+            bindings[idx] = .{ .func = .{
+                .host_call = .{ .fn_ptr = thunk, .ctx = wasi_host_ptr },
+                .source = .wasi,
+            } };
+            continue;
         }
-    }
-
-    var imp_func_count: u32 = 0;
-    var imp_table_count: u32 = 0;
-    var imp_memory_count: u32 = 0;
-    var imp_global_count: u32 = 0;
-    if (imports_decoded) |im| for (im.items) |it| switch (it.kind) {
-        .func => imp_func_count += 1,
-        .table => imp_table_count += 1,
-        .memory => imp_memory_count += 1,
-        .global => imp_global_count += 1,
-    };
-
-    if (imp_func_count > 0) {
-        // Per ADR-0014 §2.1 / 6.K.3: imported functions split into
-        // two routing strategies — WASI imports go through the
-        // store's WASI host (existing path); non-WASI imports go
-        // through a cross-module call thunk that switches the
-        // operand stack into the source instance's runtime.
-        var has_wasi_import = false;
-        if (imports_decoded) |im| for (im.items) |it| {
-            if (it.kind != .func) continue;
-            if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
-                has_wasi_import = true;
-            }
+        const ext_ptr = if (imports_array) |arr| arr[idx] else null;
+        const ext = ext_ptr orelse return error.UnknownImportModule;
+        const want_kind: ExternKind = switch (it.kind) {
+            .func => .func,
+            .table => .table,
+            .memory => .memory,
+            .global => .global,
         };
-        if (has_wasi_import) {
-            const store = inst.store orelse return error.WasiNotConfigured;
-            if (store.wasi_host == null) return error.WasiNotConfigured;
-        }
-    }
+        if (ext.kind != want_kind) return error.ImportKindMismatch;
+        const source_inst = ext.instance orelse return error.UnknownImportModule;
+        const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
 
-    // Type / function / code sections may be absent for modules
-    // that only re-export imports (e.g. an emscripten "env" stub
-    // that exports memory + globals + functions for the next
-    // module to import). Handle their absence by leaving the
-    // function table empty rather than short-circuiting before
-    // memory + table + element + export wiring.
-    const code_section_opt = module.find(.code);
-    const func_section = module.find(.function);
-    const type_section_opt = module.find(.@"type");
-
-    const types = if (type_section_opt) |s|
-        try sections.decodeTypes(a, s.body)
-    else
-        sections.Types{ .arena = std.heap.ArenaAllocator.init(a), .items = &.{} };
-
-    // Defined-function lowering. If there's no code section,
-    // `funcs` stays empty — valid for import-only modules.
-    var funcs: []zir.ZirFunc = &.{};
-    if (code_section_opt) |code_section| {
-        const def_idx = if (func_section) |s|
-            try sections.decodeFunctions(a, s.body)
-        else
-            try a.alloc(u32, 0);
-
-        const codes = try sections.decodeCodes(a, code_section.body);
-        if (codes.items.len != def_idx.len) return error.InvalidModule;
-
-        funcs = try a.alloc(zir.ZirFunc, codes.items.len);
-        for (codes.items, def_idx, 0..) |code, type_idx, i| {
-            if (type_idx >= types.items.len) return error.InvalidTypeIndex;
-            funcs[i] = zir.ZirFunc.init(@intCast(imp_func_count + i), types.items[type_idx], code.locals);
-            try lowerer.lowerFunctionBody(a, code.body, &funcs[i], types.items);
-            // §9.6 / 6.6: populate loop_info so the verifier has
-            // something analysis-derived to check, then run the
-            // §9.5 / 5.5 invariant pass. Both slices live on the
-            // per-instance arena alongside the lowered ZirFunc.
-            funcs[i].loop_info = try loop_info_mod.compute(a, &funcs[i]);
-            verifier_mod.verify(&funcs[i]) catch return error.InvalidModule;
-        }
-    }
-    inst.funcs_storage = funcs;
-
-    // Build the funcidx-space func-pointer table: `imp_func_count`
-    // placeholder entries first (the host_calls table short-
-    // circuits these in `callOp`; the placeholder ZirFunc traps
-    // if dispatch ever reaches it), then the defined ZirFuncs.
-    const total_funcs = imp_func_count + funcs.len;
-    const func_ptrs = try a.alloc(*const zir.ZirFunc, total_funcs);
-    if (imp_func_count > 0) {
-        const placeholder = try a.create(zir.ZirFunc);
-        placeholder.* = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &.{} }, &.{});
-        try placeholder.instrs.append(a, .{ .op = .@"unreachable", .payload = 0, .extra = 0 });
-        for (0..imp_func_count) |i| func_ptrs[i] = placeholder;
-    }
-    for (funcs, 0..) |*f, i| func_ptrs[imp_func_count + i] = f;
-    inst.func_ptrs_storage = func_ptrs;
-
-    // host_calls — wire each imported func to either a WASI thunk
-    // (`wasi_snapshot_preview1` imports) or a cross-module call
-    // thunk (other imports per ADR-0014 §2.1 / 6.K.3). The cross-
-    // module thunk pops args off the importer's operand stack,
-    // pushes onto the source instance's runtime, runs the source's
-    // dispatch on its own runtime context, then copies results
-    // back.
-    if (imp_func_count > 0) {
-        const host_calls = try a.alloc(?runtime.HostCall, total_funcs);
-        @memset(host_calls, null);
-        var imp_idx: u32 = 0;
-        for (imports_decoded.?.items, 0..) |it, idx| {
-            if (it.kind != .func) continue;
-            if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
-                const wasi_host_ptr: *anyopaque = @ptrCast(inst.store.?.wasi_host.?);
-                const thunk = wasi.lookupWasiThunk(it.name).?;
-                host_calls[imp_idx] = .{ .fn_ptr = thunk, .ctx = wasi_host_ptr };
-            } else {
-                const ext = (imports orelse return error.UnknownImportModule)[idx] orelse
-                    return error.UnknownImportModule;
-                const source_inst = ext.instance orelse return error.UnknownImportModule;
-                const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
+        switch (it.kind) {
+            .func => {
+                const fh = ext.func orelse return error.UnknownImportModule;
+                _ = fh;
                 const source_funcidx = blk: {
                     for (source_inst.exports_storage) |exp| {
                         if (exp.kind == .func and std.mem.eql(u8, exp.name, it.name))
@@ -562,365 +429,71 @@ fn instantiateRuntime(
                     }
                     return error.UnknownImportModule;
                 };
-                const ctx_ptr = try a.create(cross_module.CallCtx);
+                const src_et = try lookupSourceExportType(source_inst, .func, it.name);
+                const source_sig = switch (src_et) {
+                    .func => |sft| sft,
+                    else => return error.ImportTypeMismatch,
+                };
+                const ctx_ptr = try arena_alloc.create(cross_module.CallCtx);
                 ctx_ptr.* = .{
                     .source_rt = source_rt,
                     .source_funcidx = source_funcidx,
                     .dispatch_table = dispatchTable(),
                 };
-                host_calls[imp_idx] = .{
-                    .fn_ptr = cross_module.thunk,
-                    .ctx = @ptrCast(ctx_ptr),
+                bindings[idx] = .{ .func = .{
+                    .host_call = .{
+                        .fn_ptr = cross_module.thunk,
+                        .ctx = @ptrCast(ctx_ptr),
+                    },
+                    .source = .{ .cross_module = .{
+                        .source_runtime = source_rt,
+                        .source_funcidx = source_funcidx,
+                        .source_signature = source_sig,
+                    } },
+                } };
+            },
+            .table => {
+                if (ext.table_idx >= source_rt.tables.len) return error.UnknownImportModule;
+                const src_et = try lookupSourceExportType(source_inst, .table, it.name);
+                const desc = switch (src_et) {
+                    .table => |t| t,
+                    else => return error.ImportTypeMismatch,
                 };
-            }
-            imp_idx += 1;
-        }
-        rt.host_calls = host_calls;
-    }
-
-    rt.funcs = func_ptrs;
-    rt.module_types = types.items;
-
-    // §9.6 / 6.K.1 (ADR-0014 §2.1): per-instance FuncEntity array
-    // parallel to func_ptrs. Defined funcs point at this Runtime;
-    // imported funcs (per 6.K.3) point at the source instance's
-    // runtime so call_indirect through a foreign-funcref cell
-    // routes to the source's body via FuncEntity.runtime.
-    if (total_funcs > 0) {
-        const entities = try a.alloc(runtime.FuncEntity, total_funcs);
-        for (0..total_funcs) |i| entities[i] = .{
-            .runtime = rt,
-            .func_idx = @intCast(i),
-        };
-        if (imp_func_count > 0 and imports_decoded != null) {
-            var imp_idx: u32 = 0;
-            for (imports_decoded.?.items, 0..) |it, idx| {
-                if (it.kind != .func) continue;
-                if (std.mem.eql(u8, it.module, "wasi_snapshot_preview1")) {
-                    // WASI funcref isn't a realistic case (WASI
-                    // is called by funcidx, not by ref); leave
-                    // the local-placeholder pointer in place.
-                    imp_idx += 1;
-                    continue;
-                }
-                const ext = (imports orelse return error.UnknownImportModule)[idx] orelse
-                    return error.UnknownImportModule;
-                const source_inst = ext.instance orelse return error.UnknownImportModule;
-                const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
-                const source_funcidx = blk: {
-                    for (source_inst.exports_storage) |exp| {
-                        if (exp.kind == .func and std.mem.eql(u8, exp.name, it.name))
-                            break :blk exp.idx;
-                    }
-                    return error.UnknownImportModule;
+                bindings[idx] = .{ .table = .{
+                    .instance = source_rt.tables[ext.table_idx],
+                    .source_elem_type = desc.elem_type,
+                    .source_min = desc.min,
+                    .source_max = desc.max,
+                } };
+            },
+            .memory => {
+                const src_et = try lookupSourceExportType(source_inst, .memory, it.name);
+                const desc = switch (src_et) {
+                    .memory => |m| m,
+                    else => return error.ImportTypeMismatch,
                 };
-                entities[imp_idx] = .{
-                    .runtime = source_rt,
-                    .func_idx = source_funcidx,
-                };
-                imp_idx += 1;
-            }
-        }
-        rt.func_entities = entities;
-    }
-
-    // §9.4 / 4.10 chunk b + §9.6 / 6.E iter 7: memory + data
-    // section wiring. If the module imports a memory, alias the
-    // source instance's slice (no allocation, no copy — both
-    // modules see/mutate the same bytes). Otherwise allocate
-    // locally based on the memory section's initial pages.
-    if (imp_memory_count > 1) return error.MultiMemoryUnsupported;
-    if (imp_memory_count == 1) {
-        if (imports_decoded) |im| for (im.items, 0..) |it, idx| {
-            if (it.kind != .memory) continue;
-            const ext = imports.?[idx] orelse return error.UnknownImportModule;
-            const source_inst = ext.instance orelse return error.UnknownImportModule;
-            const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
-            // Per ADR-0014 §2.2 / 6.K.2: arena `free` is a no-op,
-            // so the importer can hold the slice header without a
-            // borrowed flag. The source's arena owns the bytes
-            // and reclaims them at source-instance teardown.
-            rt.memory = source_rt.memory;
-            break;
-        };
-    } else if (module.find(.memory)) |memory_section| {
-        var memories = try sections.decodeMemory(a, memory_section.body);
-        defer memories.deinit();
-        if (memories.items.len > 1) return error.MultiMemoryUnsupported;
-        if (memories.items.len == 1) {
-            const pages = memories.items[0].min;
-            const bytes_total: usize = @as(usize, pages) * 65536;
-            const mem = try a.alloc(u8, bytes_total);
-            @memset(mem, 0);
-            rt.memory = mem; // arena-owned; reclaimed at instance teardown
-            dbg.print("c_api.alloc", "memory rt={x} ptr={x} len={d}", .{
-                @intFromPtr(rt), @intFromPtr(mem.ptr), mem.len,
-            });
-        }
-    }
-
-    if (module.find(.data)) |data_section| {
-        var datas = try sections.decodeData(a, data_section.body);
-        defer datas.deinit();
-        for (datas.items) |seg| {
-            if (seg.kind != .active) continue; // passive = §9.4 / 4.10c+
-            if (seg.memidx != 0) return error.MultiMemoryUnsupported;
-            const offset = try instantiate.evalConstI32Expr(seg.offset_expr);
-            const dst_end = @as(usize, @intCast(offset)) + seg.bytes.len;
-            if (dst_end > rt.memory.len) return error.DataSegmentOutOfRange;
-            @memcpy(rt.memory[@intCast(offset) .. dst_end], seg.bytes);
-        }
-    }
-
-    // §9.6 / 6.E iter 5 + iter 7: tables. Allocate one
-    // `TableInstance` per total-table-space slot. Imported slots
-    // alias the source instance's `refs` slice (so `table.copy`
-    // / `table.set` / `table.grow` mutate the shared cells).
-    // Defined slots get freshly allocated refs from `parent_alloc`
-    // so realloc against `rt.alloc` is well-formed.
-    {
-        var tables_owned: ?sections.Tables = if (module.find(.table)) |s|
-            try sections.decodeTables(a, s.body)
-        else
-            null;
-        defer if (tables_owned) |*t| t.deinit();
-        const def_table_count: u32 = if (tables_owned) |t| @intCast(t.items.len) else 0;
-        const total_table_count: u32 = imp_table_count + def_table_count;
-        if (total_table_count > 0) {
-            const tbl_storage = try a.alloc(runtime.TableInstance, total_table_count);
-            // Imported tables first.
-            if (imp_table_count > 0) {
-                var imp_idx: u32 = 0;
-                for (imports_decoded.?.items, 0..) |it, idx| {
-                    if (it.kind != .table) continue;
-                    const ext = imports.?[idx] orelse return error.UnknownImportModule;
-                    const source_inst = ext.instance orelse return error.UnknownImportModule;
-                    const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
-                    if (ext.table_idx >= source_rt.tables.len) return error.UnknownImportModule;
-                    tbl_storage[imp_idx] = source_rt.tables[ext.table_idx];
-                    imp_idx += 1;
-                }
-            }
-            // Then defined tables. Allocated from the per-instance
-            // arena (ADR-0014 §2.2 / 6.K.2) so `table.grow`'s
-            // realloc against `rt.alloc` lands on the same arena.
-            if (tables_owned) |t| for (t.items, 0..) |entry, i| {
-                const refs = try a.alloc(runtime.Value, entry.min);
-                for (refs) |*r| r.* = .{ .ref = runtime.Value.null_ref };
-                tbl_storage[imp_table_count + i] = .{
-                    .refs = refs,
-                    .elem_type = entry.elem_type,
-                    .max = entry.max,
-                };
-            };
-            rt.tables = tbl_storage;
-        }
-    }
-
-    // §9.6 / 6.E iter 5: element segments. Resolve each segment's
-    // funcidxs into a runtime ref slice. Per ADR-0014 §2.1 / 6.K.1,
-    // each entry is `@intFromPtr(&rt.func_entities[fidx])` so
-    // dispatch through the cell carries source-runtime identity.
-    // Active segments additionally write their refs into the
-    // referenced table at the const-expr-evaluated offset, then
-    // count as immediately dropped (per spec); declarative
-    // segments are dropped on instantiation as well.
-    if (module.find(.element)) |elem_section| {
-        var elems = try sections.decodeElement(a, elem_section.body);
-        defer elems.deinit();
-        if (elems.items.len > 0) {
-            const seg_storage = try a.alloc([]const runtime.Value, elems.items.len);
-            const dropped = try a.alloc(bool, elems.items.len);
-            @memset(dropped, false);
-            for (elems.items, 0..) |seg, idx| {
-                const refs = try a.alloc(runtime.Value, seg.funcidxs.len);
-                for (seg.funcidxs, 0..) |fidx, j| {
-                    refs[j] = if (fidx == std.math.maxInt(u32))
-                        .{ .ref = runtime.Value.null_ref }
-                    else if (fidx < rt.func_entities.len)
-                        runtime.Value.fromFuncRef(&rt.func_entities[fidx])
-                    else
-                        return error.InvalidElementFuncIndex;
-                }
-                seg_storage[idx] = refs;
-                if (seg.kind == .active) {
-                    if (seg.tableidx >= rt.tables.len) return error.InvalidTableIndex;
-                    const offset = try instantiate.evalConstI32Expr(seg.offset_expr);
-                    const off_usize: usize = @intCast(offset);
-                    const dst_end = off_usize + refs.len;
-                    if (dst_end > rt.tables[seg.tableidx].refs.len) return error.ElementSegmentOutOfRange;
-                    @memcpy(rt.tables[seg.tableidx].refs[off_usize..dst_end], refs);
-                    dropped[idx] = true;
-                } else if (seg.kind == .declarative) {
-                    dropped[idx] = true;
-                }
-            }
-            rt.elems = seg_storage;
-            rt.elem_dropped = dropped;
-        }
-    }
-
-    // §9.6 / 6.K.3 (ADR-0014 §2.1): wired globals — imported
-    // globals alias source-instance storage via per-slot pointer
-    // (`Runtime.globals: []*Value`); defined globals point at
-    // arena-owned slots in `globals_storage`.
-    {
-        var defined_count: usize = 0;
-        if (module.find(.global)) |global_section| {
-            var globals = try sections.decodeGlobals(a, global_section.body);
-            defer globals.deinit();
-            defined_count = globals.items.len;
-
-            const total = imp_global_count + defined_count;
-            if (total > 0) {
-                const slots = try a.alloc(*runtime.Value, total);
-                const storage = try a.alloc(runtime.Value, defined_count);
-                if (imp_global_count > 0 and imports_decoded != null) {
-                    var imp_idx: u32 = 0;
-                    for (imports_decoded.?.items, 0..) |it, idx| {
-                        if (it.kind != .global) continue;
-                        const ext = (imports orelse return error.UnknownImportModule)[idx] orelse
-                            return error.UnknownImportModule;
-                        const source_inst = ext.instance orelse return error.UnknownImportModule;
-                        const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
-                        if (ext.global_idx >= source_rt.globals.len) return error.UnknownImportModule;
-                        slots[imp_idx] = source_rt.globals[ext.global_idx];
-                        imp_idx += 1;
-                    }
-                }
-                for (globals.items, 0..) |g, i| {
-                    storage[i] = try instantiate.evalConstExprValue(g.init_expr);
-                    slots[imp_global_count + i] = &storage[i];
-                }
-                rt.globals = slots;
-                rt.globals_storage = storage;
-            }
-        } else if (imp_global_count > 0 and imports_decoded != null) {
-            // Module has no defined globals but imports some.
-            const slots = try a.alloc(*runtime.Value, imp_global_count);
-            var imp_idx: u32 = 0;
-            for (imports_decoded.?.items, 0..) |it, idx| {
-                if (it.kind != .global) continue;
-                const ext = (imports orelse return error.UnknownImportModule)[idx] orelse
-                    return error.UnknownImportModule;
-                const source_inst = ext.instance orelse return error.UnknownImportModule;
-                const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
+                bindings[idx] = .{ .memory = .{
+                    .memory = source_rt.memory,
+                    .source_min = desc.min,
+                    .source_max = desc.max,
+                } };
+            },
+            .global => {
                 if (ext.global_idx >= source_rt.globals.len) return error.UnknownImportModule;
-                slots[imp_idx] = source_rt.globals[ext.global_idx];
-                imp_idx += 1;
-            }
-            rt.globals = slots;
+                const src_et = try lookupSourceExportType(source_inst, .global, it.name);
+                const desc = switch (src_et) {
+                    .global => |g| g,
+                    else => return error.ImportTypeMismatch,
+                };
+                bindings[idx] = .{ .global = .{
+                    .slot = source_rt.globals[ext.global_idx],
+                    .source_valtype = desc.valtype,
+                    .source_mutable = desc.mutable,
+                } };
+            },
         }
     }
-
-    if (module.find(.@"export")) |export_section| {
-        const exports = try sections.decodeExports(a, export_section.body);
-        inst.exports_storage = exports.items;
-        // Populate parallel export_types so cross-module imports
-        // can validate type-equality at the c_api boundary.
-        inst.export_types = try instantiate.buildExportTypes(a, module, exports.items, imports_decoded);
-    }
-}
-
-/// Wasm 2.0 §3.4.10 import-matching check. The importer's
-/// `it.payload` carries its expected type; the source's
-/// `ext` reaches the source `Instance.export_types[ext.<idx>]`
-/// for the actual exported type. Matching rules (per spec):
-/// - Func: signatures must be equal (params / results in-order).
-/// - Global: valtype + mutability must be equal.
-/// - Table: elem_type must match; min must satisfy
-///   `source_min >= importer_min`; if importer specifies max,
-///   source must too AND `source_max <= importer_max`.
-/// - Memory: same min/max sub-typing as table (no elem_type).
-fn checkImportTypeMatches(a: std.mem.Allocator, module: runtime.Module, it: sections.Import, ext: *const Extern) !void {
-    const source_inst = ext.instance orelse return error.ImportTypeMismatch;
-    const idx: usize = switch (it.kind) {
-        .func => blk: {
-            const fh = ext.func orelse return error.ImportTypeMismatch;
-            break :blk @intCast(fh.func_idx);
-        },
-        .global => @intCast(ext.global_idx),
-        .table => @intCast(ext.table_idx),
-        .memory => @intCast(ext.memory_idx),
-    };
-    // Find the matching entry in source's export_types via name match.
-    if (source_inst.exports_storage.len != source_inst.export_types.len)
-        return error.ImportTypeMismatch;
-    const src_type: ExportType = blk: {
-        for (source_inst.exports_storage, 0..) |exp, i| {
-            const exp_kind: sections.ImportKind = switch (exp.kind) {
-                .func => .func,
-                .table => .table,
-                .memory => .memory,
-                .global => .global,
-            };
-            if (exp_kind == it.kind and exp.idx == idx) {
-                break :blk source_inst.export_types[i];
-            }
-        }
-        return error.ImportTypeMismatch;
-    };
-    switch (it.kind) {
-        .func => {
-            const want_tidx = it.payload.func_typeidx;
-            // Resolve importer's typeidx via its type section.
-            const type_sec = module.find(.@"type") orelse return error.ImportTypeMismatch;
-            var types = try sections.decodeTypes(a, type_sec.body);
-            defer types.deinit();
-            if (want_tidx >= types.items.len) return error.ImportTypeMismatch;
-            const want_ft = types.items[want_tidx];
-            switch (src_type) {
-                .func => |sft| {
-                    if (sft.params.len != want_ft.params.len) return error.ImportTypeMismatch;
-                    if (sft.results.len != want_ft.results.len) return error.ImportTypeMismatch;
-                    for (sft.params, want_ft.params) |sp, wp| {
-                        if (sp != wp) return error.ImportTypeMismatch;
-                    }
-                    for (sft.results, want_ft.results) |sr, wr| {
-                        if (sr != wr) return error.ImportTypeMismatch;
-                    }
-                },
-                else => return error.ImportTypeMismatch,
-            }
-        },
-        .global => {
-            const want = it.payload.global;
-            switch (src_type) {
-                .global => |sg| {
-                    if (sg.valtype != want.valtype) return error.ImportTypeMismatch;
-                    if (sg.mutable != want.mutable) return error.ImportTypeMismatch;
-                },
-                else => return error.ImportTypeMismatch,
-            }
-        },
-        .table => {
-            const want = it.payload.table;
-            switch (src_type) {
-                .table => |st| {
-                    if (st.elem_type != want.elem_type) return error.ImportTypeMismatch;
-                    if (st.min < want.min) return error.ImportTypeMismatch;
-                    if (want.max) |wm| {
-                        const sm = st.max orelse return error.ImportTypeMismatch;
-                        if (sm > wm) return error.ImportTypeMismatch;
-                    }
-                },
-                else => return error.ImportTypeMismatch,
-            }
-        },
-        .memory => {
-            const want = it.payload.memory;
-            switch (src_type) {
-                .memory => |sm| {
-                    if (sm.min < want.min) return error.ImportTypeMismatch;
-                    if (want.max) |wm| {
-                        const max_s = sm.max orelse return error.ImportTypeMismatch;
-                        if (max_s > wm) return error.ImportTypeMismatch;
-                    }
-                },
-                else => return error.ImportTypeMismatch,
-            }
-        },
-    }
+    return bindings;
 }
 
 /// `wasm_instance_new(store, module, imports, trap_out)` —
@@ -970,7 +543,40 @@ pub export fn wasm_instance_new(
         alloc.destroy(inst);
         return null;
     };
-    instantiateRuntime(alloc, bytes_ptr[0..module.bytes_len], inst, inst_rt, imports_array) catch {
+    const bytes = bytes_ptr[0..module.bytes_len];
+
+    // Per ADR-0023 §7 item 5 (Step A2): set up the per-instance
+    // arena BEFORE binding build (binding allocations live on
+    // the same arena), then rebind the runtime allocator. The
+    // ImportBinding builder pre-resolves WASI thunks + cross-
+    // module CallCtx; the relocated `instantiate.instantiateRuntime`
+    // sees only Zone-1 native types.
+    const arena = alloc.create(std.heap.ArenaAllocator) catch {
+        inst_rt.deinit();
+        alloc.destroy(inst_rt);
+        alloc.destroy(inst);
+        return null;
+    };
+    arena.* = std.heap.ArenaAllocator.init(alloc);
+    inst.arena = arena;
+    inst_rt.alloc = arena.allocator();
+    inst_rt.instance = inst;
+
+    const bindings = buildBindings(arena.allocator(), bytes, imports_array, store) catch {
+        if (inst.arena) |a2| {
+            parkAsZombie(alloc, store, inst_rt, a2) catch {};
+            inst.arena = null;
+        } else {
+            inst_rt.deinit();
+            alloc.destroy(inst_rt);
+        }
+        inst.funcs_storage = &.{};
+        inst.func_ptrs_storage = &.{};
+        alloc.destroy(inst);
+        return null;
+    };
+
+    instantiate.instantiateRuntime(bytes, inst, inst_rt, bindings) catch {
         // Per ADR-0014 §2.1 / 6.K.2 sub-change 4: park the failed
         // instance's runtime + arena on the store's zombie list.
         // Wasm 2.0 partial-init semantics may have committed
@@ -978,12 +584,12 @@ pub export fn wasm_instance_new(
         // pointers into our arena); destroying the arena would
         // turn those into dangling pointers and segfault later
         // call_indirect dispatches.
-        if (inst.arena) |arena| {
+        if (inst.arena) |arena2| {
             // If parkAsZombie itself OOMs the store list, we have
             // no graceful recovery — accept the leak (arena +
             // runtime stay around until process exit) and report
             // the original instantiation failure.
-            parkAsZombie(alloc, store, inst_rt, arena) catch {};
+            parkAsZombie(alloc, store, inst_rt, arena2) catch {};
             inst.arena = null;
         } else {
             // No arena to park (e.g., parser/import-decode failed

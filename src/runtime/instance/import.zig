@@ -5,74 +5,92 @@
 //! Per ADR-0023 §7 item 5 (Step A2): replaces the previous
 //! `?[*]const ?*const api.Extern` instantiation argument so
 //! `runtime/instance/instantiate.zig` is free of Zone-3
-//! binding-handle dependencies. The C-API binding
-//! (`api/instance.zig:wasm_instance_new`) pre-resolves each
-//! import (cross-module Extern OR WASI thunk lookup) into an
-//! `ImportBinding` before calling `instantiate.instantiateRuntime`.
+//! binding-handle dependencies. The C-API binding pre-resolves
+//! every import (cross-module Extern lookup, WASI thunk lookup,
+//! CallCtx allocation, source-signature retrieval) and hands a
+//! `[]const ImportBinding` to `instantiate.instantiateRuntime`.
 //!
-//! Three variants cover today's import sources:
-//!
-//! - `cross_module` — the importer aliases the source runtime's
-//!   storage (memory slice / table refs / global slot pointer /
-//!   FuncEntity). Source identity is held via `*Runtime` so a
-//!   funcref Value pointing at the source's `func_entities[i]`
-//!   round-trips correctly.
-//! - `wasi_host` — pre-resolved WASI `host_calls` slot. Carries
-//!   only the thunk fn pointer; the binding-side captures
-//!   `*wasi.Host` as ctx separately because it lives behind
-//!   `Store.wasi_host: ?*anyopaque` (Zone-1 cannot type the
-//!   Zone-2 `wasi.Host` directly).
-//! - `host_func` — host-supplied non-WASI function import (post-
-//!   v0.1.0 reserved; not produced by the current binding).
+//! Each variant carries:
+//!   - the **wiring data** the runtime needs (HostCall slot value,
+//!     source TableInstance value, source memory slice, source
+//!     global slot pointer),
+//!   - both the **source's actual descriptor** AND the
+//!     **importer's expected descriptor** so the runtime-side
+//!     `checkImportTypeMatches` is a pure data compare with no
+//!     re-decoding of the source binary.
 //!
 //! Zone 1 (`src/runtime/`).
 
 const runtime_mod = @import("../runtime.zig");
-const sections = @import("../../parse/sections.zig");
+const zir = @import("../../ir/zir.zig");
 
 const Runtime = runtime_mod.Runtime;
-const ExportType = runtime_mod.ExportType;
+const Value = runtime_mod.Value;
+const HostCall = runtime_mod.HostCall;
+const TableInstance = runtime_mod.TableInstance;
 
-/// Pre-resolved import resolution. The C-API binding builds one
-/// per `(import ...)` row, in declaration order, and passes the
-/// slice to `instantiate.instantiateRuntime`.
+/// One pre-resolved import. Order in the slice matches the
+/// `(import ...)` declaration order in the importer's binary.
 pub const ImportBinding = union(enum) {
-    cross_module: CrossModule,
-    wasi_host: WasiHost,
-    host_func: HostFunc,
+    func: FuncImport,
+    table: TableImport,
+    memory: MemoryImport,
+    global: GlobalImport,
 };
 
-/// Cross-module import — wires the importer to a source
-/// runtime's per-kind storage. Source instance lifetime is
-/// guaranteed by ADR-0014 §6.K.2 sub-change 4 (zombie list).
-pub const CrossModule = struct {
-    kind: sections.ImportKind,
-    /// Source runtime where the imported entity lives.
-    source_runtime: *Runtime,
-    /// Source's `export_types[]` — used for the import-vs-export
-    /// type-match check (Wasm 2.0 §3.4.10, D-006).
-    source_export_types: []const ExportType,
-    /// Source's `exports_storage[]` — used to resolve the
-    /// import name to the source's funcidx / tableidx /
-    /// memidx / globalidx.
-    source_exports: []const sections.Export,
-    /// The import name (alias of the parser-decoded
-    /// `Import.name`, points into the binary's bytes).
-    name: []const u8,
+/// Function import. The `host_call` slot is pre-built by the
+/// binding (cross-module thunk + CallCtx for non-WASI; WASI
+/// thunk + `*wasi.Host` ctx for WASI). `source` describes how
+/// the FuncEntity slot should be populated:
+///
+/// - `cross_module`: the FuncEntity slot points at the source
+///   runtime's func_idx, so funcref dispatch through this cell
+///   reaches the source body via FuncEntity.runtime. The
+///   `source_signature` is compared against the importer's
+///   declared typeidx during the runtime-side type-match check.
+/// - `wasi`: WASI is called by funcidx, never by ref; the
+///   FuncEntity slot stays with the importer's local placeholder.
+///   No signature compare (the binding-side guarantees the
+///   thunk lookup matched the import name).
+pub const FuncImport = struct {
+    host_call: HostCall,
+    source: union(enum) {
+        cross_module: struct {
+            source_runtime: *Runtime,
+            source_funcidx: u32,
+            source_signature: zir.FuncType,
+        },
+        wasi: void,
+    },
 };
 
-/// WASI host-call import — pre-resolved to the runtime's
-/// `host_calls` slot shape. The binding-side passes the
-/// `*wasi.Host` pointer separately (as ctx) because Zone 1
-/// cannot type `wasi.Host` directly.
-pub const WasiHost = struct {
-    fn_ptr: *const fn (*Runtime, *anyopaque) anyerror!void,
-    ctx: *anyopaque,
+/// Table import. The `instance` field is a value-copy of the
+/// source `TableInstance` (refs slice is aliased — both modules
+/// see/mutate the same cells per ADR-0014 §6.K.3). The trailing
+/// fields carry the source's descriptor for the runtime-side
+/// type-match check; the importer's expected descriptor comes
+/// from its own `(import ... (table ...))` decoding.
+pub const TableImport = struct {
+    instance: TableInstance,
+    source_elem_type: zir.ValType,
+    source_min: u32,
+    source_max: ?u32,
 };
 
-/// Reserved for post-v0.1.0 host function imports outside the
-/// WASI namespace. Not constructed by today's binding.
-pub const HostFunc = struct {
-    fn_ptr: *const fn (*Runtime, *anyopaque) anyerror!void,
-    ctx: *anyopaque,
+/// Memory import. The `memory` slice header aliases the source's
+/// memory bytes (per ADR-0014 §2.2 / §6.K.2 the arena holds
+/// the bytes alive across importer teardown).
+pub const MemoryImport = struct {
+    memory: []u8,
+    source_min: u32,
+    source_max: ?u32,
+};
+
+/// Global import. The `slot` points at the source runtime's
+/// `globals[idx]` cell (per ADR-0014 §6.K.3 the importer's
+/// `Runtime.globals: []*Value` aliases the source slot).
+pub const GlobalImport = struct {
+    slot: *Value,
+    source_valtype: zir.ValType,
+    source_mutable: bool,
 };
