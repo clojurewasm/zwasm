@@ -52,6 +52,7 @@ const gpr = @import("gpr.zig");
 const op_const = @import("op_const.zig");
 const op_alu_int = @import("op_alu_int.zig");
 const op_alu_float = @import("op_alu_float.zig");
+const op_convert = @import("op_convert.zig");
 
 const Label = label_mod.Label;
 const LabelKind = label_mod.LabelKind;
@@ -264,65 +265,14 @@ pub fn compile(
             .@"i64.rotl" => try op_alu_int.emitI64Rotl(&ctx, &ins),
             .@"i64.clz" => try op_alu_int.emitI64Clz(&ctx, &ins),
             .@"i64.ctz" => try op_alu_int.emitI64Ctz(&ctx, &ins),
-            .@"i32.wrap_i64", .@"i64.extend_i32_u" => {
-                // Both lower to MOV Wd, Wn (= ORR Wd, WZR, Wn).
-                // i32.wrap_i64: read the source's lower 32 bits.
-                // i64.extend_i32_u: zero-extend (W-write implicitly
-                // zeros upper 32 bits of the X register).
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try gpr.resolveGpr(alloc, lhs);
-                const wd = try gpr.resolveGpr(alloc, result);
-                try gpr.writeU32(allocator, &buf, inst.encOrrRegW(wd, 31, wn));
-                try pushed_vregs.append(allocator, result);
-            },
-            .@"i64.extend_i32_s" => {
-                // SXTW Xd, Wn — sign-extend 32-bit into 64-bit.
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try gpr.resolveGpr(alloc, lhs);
-                const xd = try gpr.resolveGpr(alloc, result);
-                try gpr.writeU32(allocator, &buf, inst.encSxtw(xd, wn));
-                try pushed_vregs.append(allocator, result);
-            },
-            // sub-h2: int → float convert. Source is GPR slot
-            // (i32→W, i64→X), dest is V slot (f32→S, f64→D).
-            .@"f32.convert_i32_s",
-            .@"f32.convert_i32_u",
-            .@"f32.convert_i64_s",
-            .@"f32.convert_i64_u",
-            .@"f64.convert_i32_s",
-            .@"f64.convert_i32_u",
-            .@"f64.convert_i64_s",
-            .@"f64.convert_i64_u",
-            => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const src = try gpr.resolveGpr(alloc, lhs);
-                const vd = try gpr.resolveFp(alloc, result);
-                const word: u32 = switch (ins.op) {
-                    .@"f32.convert_i32_s" => inst.encScvtfSFromW(vd, src),
-                    .@"f32.convert_i32_u" => inst.encUcvtfSFromW(vd, src),
-                    .@"f32.convert_i64_s" => inst.encScvtfSFromX(vd, src),
-                    .@"f32.convert_i64_u" => inst.encUcvtfSFromX(vd, src),
-                    .@"f64.convert_i32_s" => inst.encScvtfDFromW(vd, src),
-                    .@"f64.convert_i32_u" => inst.encUcvtfDFromW(vd, src),
-                    .@"f64.convert_i64_s" => inst.encScvtfDFromX(vd, src),
-                    .@"f64.convert_i64_u" => inst.encUcvtfDFromX(vd, src),
-                    else => unreachable,
-                };
-                try gpr.writeU32(allocator, &buf, word);
-                try pushed_vregs.append(allocator, result);
-            },
+            .@"i32.wrap_i64", .@"i64.extend_i32_u",
+            => try op_convert.emitWrap32(&ctx, &ins),
+            .@"i64.extend_i32_s" => try op_convert.emitExtendI32S(&ctx, &ins),
+            .@"f32.convert_i32_s", .@"f32.convert_i32_u",
+            .@"f32.convert_i64_s", .@"f32.convert_i64_u",
+            .@"f64.convert_i32_s", .@"f64.convert_i32_u",
+            .@"f64.convert_i64_s", .@"f64.convert_i64_u",
+            => try op_convert.emitConvertIntToFloat(&ctx, &ins),
             // sub-h3a: Wasm 1.0 trapping trunc, f32 source.
             // NaN + range checks (per `emitTrunc32BoundsCheck`),
             // then FCVTZS/U. Bounds tables encode the per-op
@@ -402,106 +352,17 @@ pub fn compile(
                 try gpr.writeU32(allocator, &buf, word);
                 try pushed_vregs.append(allocator, result);
             },
-            // sub-h5: Wasm 2.0 sat_trunc — float→int with saturation.
-            // ARM64 FCVTZS/FCVTZU natively saturate on overflow and
-            // produce 0 for NaN, matching Wasm 2.0 spec exactly.
-            // Source is V-reg (S/D), dest is GPR (W/X).
-            .@"i32.trunc_sat_f32_s",
-            .@"i32.trunc_sat_f32_u",
-            .@"i32.trunc_sat_f64_s",
-            .@"i32.trunc_sat_f64_u",
-            .@"i64.trunc_sat_f32_s",
-            .@"i64.trunc_sat_f32_u",
-            .@"i64.trunc_sat_f64_s",
-            .@"i64.trunc_sat_f64_u",
-            => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const dest = try gpr.resolveGpr(alloc, result);
-                const word: u32 = switch (ins.op) {
-                    .@"i32.trunc_sat_f32_s" => inst.encFcvtzsWFromS(dest, vn),
-                    .@"i32.trunc_sat_f32_u" => inst.encFcvtzuWFromS(dest, vn),
-                    .@"i32.trunc_sat_f64_s" => inst.encFcvtzsWFromD(dest, vn),
-                    .@"i32.trunc_sat_f64_u" => inst.encFcvtzuWFromD(dest, vn),
-                    .@"i64.trunc_sat_f32_s" => inst.encFcvtzsXFromS(dest, vn),
-                    .@"i64.trunc_sat_f32_u" => inst.encFcvtzuXFromS(dest, vn),
-                    .@"i64.trunc_sat_f64_s" => inst.encFcvtzsXFromD(dest, vn),
-                    .@"i64.trunc_sat_f64_u" => inst.encFcvtzuXFromD(dest, vn),
-                    else => unreachable,
-                };
-                try gpr.writeU32(allocator, &buf, word);
-                try pushed_vregs.append(allocator, result);
-            },
-            // sub-h4: reinterpret (bit-cast). All 4 ops compile to
-            // a single FMOV register-class crossing instruction —
-            // the underlying bits don't change, just the type the
-            // regalloc pools track.
-            .@"i32.reinterpret_f32" => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const wd = try gpr.resolveGpr(alloc, result);
-                try gpr.writeU32(allocator, &buf, inst.encFmovWFromS(wd, vn));
-                try pushed_vregs.append(allocator, result);
-            },
-            .@"i64.reinterpret_f64" => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const xd = try gpr.resolveGpr(alloc, result);
-                try gpr.writeU32(allocator, &buf, inst.encFmovXFromD(xd, vn));
-                try pushed_vregs.append(allocator, result);
-            },
-            .@"f32.reinterpret_i32" => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const wn = try gpr.resolveGpr(alloc, lhs);
-                const vd = try gpr.resolveFp(alloc, result);
-                try gpr.writeU32(allocator, &buf, inst.encFmovStoFromW(vd, wn));
-                try pushed_vregs.append(allocator, result);
-            },
-            .@"f64.reinterpret_i64" => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const xn = try gpr.resolveGpr(alloc, lhs);
-                const vd = try gpr.resolveFp(alloc, result);
-                try gpr.writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, xn));
-                try pushed_vregs.append(allocator, result);
-            },
-            // sub-h2: float demote/promote. Both src and dest are
-            // V-register slots (f32 ↔ f64).
-            .@"f32.demote_f64", .@"f64.promote_f32" => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const vd = try gpr.resolveFp(alloc, result);
-                const word: u32 = switch (ins.op) {
-                    .@"f32.demote_f64" => inst.encFcvtSFromD(vd, vn),
-                    .@"f64.promote_f32" => inst.encFcvtDFromS(vd, vn),
-                    else => unreachable,
-                };
-                try gpr.writeU32(allocator, &buf, word);
-                try pushed_vregs.append(allocator, result);
-            },
+            .@"i32.trunc_sat_f32_s", .@"i32.trunc_sat_f32_u",
+            .@"i32.trunc_sat_f64_s", .@"i32.trunc_sat_f64_u",
+            .@"i64.trunc_sat_f32_s", .@"i64.trunc_sat_f32_u",
+            .@"i64.trunc_sat_f64_s", .@"i64.trunc_sat_f64_u",
+            => try op_convert.emitTruncSat(&ctx, &ins),
+            .@"i32.reinterpret_f32" => try op_convert.emitReinterpretI32FromF32(&ctx, &ins),
+            .@"i64.reinterpret_f64" => try op_convert.emitReinterpretI64FromF64(&ctx, &ins),
+            .@"f32.reinterpret_i32" => try op_convert.emitReinterpretF32FromI32(&ctx, &ins),
+            .@"f64.reinterpret_i64" => try op_convert.emitReinterpretF64FromI64(&ctx, &ins),
+            .@"f32.demote_f64", .@"f64.promote_f32",
+            => try op_convert.emitFloatDemotePromote(&ctx, &ins),
             .@"f32.const" => {
                 // Stage the IEEE-754 bits via a GPR const, then
                 // FMOV S, W. The intermediate W-reg is the FP
