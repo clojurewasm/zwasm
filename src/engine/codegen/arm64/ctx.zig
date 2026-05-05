@@ -87,4 +87,29 @@ pub const EmitCtx = struct {
     /// `gprLoadSpilled` / `gprStoreSpilled` to address spill
     /// slots.
     spill_base_off: u32,
+
+    /// Pop two operands + allocate a result vreg. Shared header
+    /// for every binary op-handler. Returns the lhs / rhs / result
+    /// vreg ids or `AllocationMissing` (stack underflow) /
+    /// `SlotOverflow` (allocator out of slots).
+    pub fn popBinary(self: *EmitCtx) Error!struct { lhs: u32, rhs: u32, result: u32 } {
+        if (self.pushed_vregs.items.len < 2) return Error.AllocationMissing;
+        const rhs = self.pushed_vregs.pop().?;
+        const lhs = self.pushed_vregs.pop().?;
+        const result = self.next_vreg.*;
+        self.next_vreg.* += 1;
+        if (result >= self.alloc.slots.len) return Error.SlotOverflow;
+        return .{ .lhs = lhs, .rhs = rhs, .result = result };
+    }
+
+    /// Pop one operand + allocate a result vreg. Shared header
+    /// for every unary op-handler.
+    pub fn popUnary(self: *EmitCtx) Error!struct { src: u32, result: u32 } {
+        if (self.pushed_vregs.items.len < 1) return Error.AllocationMissing;
+        const src = self.pushed_vregs.pop().?;
+        const result = self.next_vreg.*;
+        self.next_vreg.* += 1;
+        if (result >= self.alloc.slots.len) return Error.SlotOverflow;
+        return .{ .src = src, .result = result };
+    }
 };

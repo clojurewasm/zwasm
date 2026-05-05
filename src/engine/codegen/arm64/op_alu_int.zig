@@ -39,29 +39,9 @@ const EmitCtx = ctx_mod.EmitCtx;
 const Error = ctx_mod.Error;
 const Xn = inst.Xn;
 
-/// Pop two operands + allocate a result vreg. Shared header for
-/// every binary handler; returns (lhs_vreg, rhs_vreg, result_vreg)
-/// or AllocationMissing / SlotOverflow.
-fn popBinary(ctx: *EmitCtx) Error!struct { lhs: u32, rhs: u32, result: u32 } {
-    if (ctx.pushed_vregs.items.len < 2) return Error.AllocationMissing;
-    const rhs = ctx.pushed_vregs.pop().?;
-    const lhs = ctx.pushed_vregs.pop().?;
-    const result = ctx.next_vreg.*;
-    ctx.next_vreg.* += 1;
-    if (result >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    return .{ .lhs = lhs, .rhs = rhs, .result = result };
-}
-
-/// Pop one operand + allocate a result vreg. Shared header for
-/// every unary handler.
-fn popUnary(ctx: *EmitCtx) Error!struct { src: u32, result: u32 } {
-    if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
-    const src = ctx.pushed_vregs.pop().?;
-    const result = ctx.next_vreg.*;
-    ctx.next_vreg.* += 1;
-    if (result >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    return .{ .src = src, .result = result };
-}
+// `popBinary` / `popUnary` live as methods on EmitCtx (ctx.zig)
+// so every op-handler module reuses the same operand-pop /
+// result-allocate convention.
 
 // ============================================================
 // i64 ALU
@@ -70,7 +50,7 @@ fn popUnary(ctx: *EmitCtx) Error!struct { src: u32, result: u32 } {
 /// Binary i64 ALU: add / sub / mul / and / or / xor.
 /// Direct X-variant ops (64-bit semantics; no zero-extension fixup).
 pub fn emitI64Binary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
-    const args = try popBinary(ctx);
+    const args = try ctx.popBinary();
     const xn = try gpr.resolveGpr(ctx.alloc, args.lhs);
     const xm = try gpr.resolveGpr(ctx.alloc, args.rhs);
     const xd = try gpr.resolveGpr(ctx.alloc, args.result);
@@ -90,7 +70,7 @@ pub fn emitI64Binary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// i64 compare (eq..ge_u): CMP-X + CSET-W. The result is a W
 /// (32-bit 0/1) per Wasm spec; CMP is 64-bit.
 pub fn emitI64Compare(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
-    const args = try popBinary(ctx);
+    const args = try ctx.popBinary();
     const xn = try gpr.resolveGpr(ctx.alloc, args.lhs);
     const xm = try gpr.resolveGpr(ctx.alloc, args.rhs);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
@@ -114,7 +94,7 @@ pub fn emitI64Compare(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
 /// i64.eqz: CMP-X #0 + CSET-W .eq.
 pub fn emitI64Eqz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popUnary(ctx);
+    const args = try ctx.popUnary();
     const xn = try gpr.resolveGpr(ctx.alloc, args.src);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(xn, 0));
@@ -124,7 +104,7 @@ pub fn emitI64Eqz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 
 /// i64 shifts: shl, shr_s, shr_u, rotr — direct X-variant ops.
 pub fn emitI64Shift(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
-    const args = try popBinary(ctx);
+    const args = try ctx.popBinary();
     const xn = try gpr.resolveGpr(ctx.alloc, args.lhs);
     const xm = try gpr.resolveGpr(ctx.alloc, args.rhs);
     const xd = try gpr.resolveGpr(ctx.alloc, args.result);
@@ -143,7 +123,7 @@ pub fn emitI64Shift(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// ror(val, 64-n). 3-instr sequence with IP0 (X16) as scratch:
 ///   MOVZ X16, #64 ; SUB X16, X16, Xcount ; ROR Xd, Xval, X16
 pub fn emitI64Rotl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popBinary(ctx);
+    const args = try ctx.popBinary();
     const xn = try gpr.resolveGpr(ctx.alloc, args.lhs);
     const xm = try gpr.resolveGpr(ctx.alloc, args.rhs);
     const xd = try gpr.resolveGpr(ctx.alloc, args.result);
@@ -156,7 +136,7 @@ pub fn emitI64Rotl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 
 /// i64.clz: direct CLZ-X.
 pub fn emitI64Clz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popUnary(ctx);
+    const args = try ctx.popUnary();
     const xn = try gpr.resolveGpr(ctx.alloc, args.src);
     const xd = try gpr.resolveGpr(ctx.alloc, args.result);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encClzX(xd, xn));
@@ -165,7 +145,7 @@ pub fn emitI64Clz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 
 /// i64.ctz: RBIT + CLZ (no direct CTZ on ARM).
 pub fn emitI64Ctz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popUnary(ctx);
+    const args = try ctx.popUnary();
     const xn = try gpr.resolveGpr(ctx.alloc, args.src);
     const xd = try gpr.resolveGpr(ctx.alloc, args.result);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encRbitX(xd, xn));
@@ -177,7 +157,7 @@ pub fn emitI64Ctz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// 64 bits into V31; CNT/ADDV/UMOV are the same shape as i32
 /// (operate on lower 8 bytes regardless). Result fits in W.
 pub fn emitI64Popcnt(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popUnary(ctx);
+    const args = try ctx.popUnary();
     const xn = try gpr.resolveGpr(ctx.alloc, args.src);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
     const v_scratch: inst.Vn = 31;
@@ -196,7 +176,7 @@ pub fn emitI64Popcnt(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// shr_s / shr_u — W-variant ops keep upper 32 bits zero
 /// (Wasm i32 wraps mod 2^32).
 pub fn emitI32Binary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
-    const args = try popBinary(ctx);
+    const args = try ctx.popBinary();
     const wn = try gpr.resolveGpr(ctx.alloc, args.lhs);
     const wm = try gpr.resolveGpr(ctx.alloc, args.rhs);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
@@ -218,7 +198,7 @@ pub fn emitI32Binary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
 /// i32.rotr: direct RORV-W.
 pub fn emitI32Rotr(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popBinary(ctx);
+    const args = try ctx.popBinary();
     const wn = try gpr.resolveGpr(ctx.alloc, args.lhs);
     const wm = try gpr.resolveGpr(ctx.alloc, args.rhs);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
@@ -229,7 +209,7 @@ pub fn emitI32Rotr(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// i32.rotl: rotl(val, n) = ror(val, 32-n). 3-instr sequence
 /// using IP0 (W16) as scratch.
 pub fn emitI32Rotl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popBinary(ctx);
+    const args = try ctx.popBinary();
     const wn = try gpr.resolveGpr(ctx.alloc, args.lhs);
     const wm = try gpr.resolveGpr(ctx.alloc, args.rhs);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
@@ -242,7 +222,7 @@ pub fn emitI32Rotl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 
 /// i32 compare (eq..ge_u): CMP-W + CSET-W.
 pub fn emitI32Compare(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
-    const args = try popBinary(ctx);
+    const args = try ctx.popBinary();
     const wn = try gpr.resolveGpr(ctx.alloc, args.lhs);
     const wm = try gpr.resolveGpr(ctx.alloc, args.rhs);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
@@ -266,7 +246,7 @@ pub fn emitI32Compare(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
 /// i32.eqz: CMP-W #0 + CSET-W .eq.
 pub fn emitI32Eqz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popUnary(ctx);
+    const args = try ctx.popUnary();
     const wn = try gpr.resolveGpr(ctx.alloc, args.src);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(wn, 0));
@@ -276,7 +256,7 @@ pub fn emitI32Eqz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 
 /// i32.clz: direct CLZ-W.
 pub fn emitI32Clz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popUnary(ctx);
+    const args = try ctx.popUnary();
     const wn = try gpr.resolveGpr(ctx.alloc, args.src);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encClzW(wd, wn));
@@ -285,7 +265,7 @@ pub fn emitI32Clz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 
 /// i32.ctz: RBIT-W + CLZ-W (no direct CTZ).
 pub fn emitI32Ctz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popUnary(ctx);
+    const args = try ctx.popUnary();
     const wn = try gpr.resolveGpr(ctx.alloc, args.src);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encRbitW(wd, wn));
@@ -296,7 +276,7 @@ pub fn emitI32Ctz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// i32.popcnt: SIMD CNT + ADDV + UMOV via V31 scratch
 /// (ARM has no GPR-side popcount).
 pub fn emitI32Popcnt(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const args = try popUnary(ctx);
+    const args = try ctx.popUnary();
     const wn = try gpr.resolveGpr(ctx.alloc, args.src);
     const wd = try gpr.resolveGpr(ctx.alloc, args.result);
     const v_scratch: inst.Vn = 31;

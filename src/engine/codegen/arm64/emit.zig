@@ -51,6 +51,7 @@ const ctx_mod = @import("ctx.zig");
 const gpr = @import("gpr.zig");
 const op_const = @import("op_const.zig");
 const op_alu_int = @import("op_alu_int.zig");
+const op_alu_float = @import("op_alu_float.zig");
 
 const Label = label_mod.Label;
 const LabelKind = label_mod.LabelKind;
@@ -537,205 +538,21 @@ pub fn compile(
                 try gpr.writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, x_scratch));
                 try pushed_vregs.append(allocator, vreg);
             },
-            .@"f32.add",
-            .@"f32.sub",
-            .@"f32.mul",
-            .@"f32.div",
-            .@"f64.add",
-            .@"f64.sub",
-            .@"f64.mul",
-            .@"f64.div",
-            => {
-                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
-                const rhs = pushed_vregs.pop().?;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const vm = try gpr.resolveFp(alloc, rhs);
-                const vd = try gpr.resolveFp(alloc, result);
-                const word: u32 = switch (ins.op) {
-                    .@"f32.add" => inst.encFAddS(vd, vn, vm),
-                    .@"f32.sub" => inst.encFSubS(vd, vn, vm),
-                    .@"f32.mul" => inst.encFMulS(vd, vn, vm),
-                    .@"f32.div" => inst.encFDivS(vd, vn, vm),
-                    .@"f64.add" => inst.encFAddD(vd, vn, vm),
-                    .@"f64.sub" => inst.encFSubD(vd, vn, vm),
-                    .@"f64.mul" => inst.encFMulD(vd, vn, vm),
-                    .@"f64.div" => inst.encFDivD(vd, vn, vm),
-                    else => unreachable,
-                };
-                try gpr.writeU32(allocator, &buf, word);
-                try pushed_vregs.append(allocator, result);
-            },
-            .@"f32.abs",
-            .@"f32.neg",
-            .@"f32.sqrt",
-            .@"f32.ceil",
-            .@"f32.floor",
-            .@"f32.trunc",
-            .@"f32.nearest",
-            .@"f64.abs",
-            .@"f64.neg",
-            .@"f64.sqrt",
-            .@"f64.ceil",
-            .@"f64.floor",
-            .@"f64.trunc",
-            .@"f64.nearest",
-            => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const vd = try gpr.resolveFp(alloc, result);
-                const word: u32 = switch (ins.op) {
-                    .@"f32.abs"     => inst.encFAbsS(vd, vn),
-                    .@"f32.neg"     => inst.encFNegS(vd, vn),
-                    .@"f32.sqrt"    => inst.encFSqrtS(vd, vn),
-                    .@"f32.ceil"    => inst.encFRintPS(vd, vn),
-                    .@"f32.floor"   => inst.encFRintMS(vd, vn),
-                    .@"f32.trunc"   => inst.encFRintZS(vd, vn),
-                    .@"f32.nearest" => inst.encFRintNS(vd, vn),
-                    .@"f64.abs"     => inst.encFAbsD(vd, vn),
-                    .@"f64.neg"     => inst.encFNegD(vd, vn),
-                    .@"f64.sqrt"    => inst.encFSqrtD(vd, vn),
-                    .@"f64.ceil"    => inst.encFRintPD(vd, vn),
-                    .@"f64.floor"   => inst.encFRintMD(vd, vn),
-                    .@"f64.trunc"   => inst.encFRintZD(vd, vn),
-                    .@"f64.nearest" => inst.encFRintND(vd, vn),
-                    else => unreachable,
-                };
-                try gpr.writeU32(allocator, &buf, word);
-                try pushed_vregs.append(allocator, result);
-            },
-            .@"f32.copysign",
-            .@"f64.copysign",
-            => {
-                // ARM has no single copysign; emit FMOV → bit-mask
-                // detour. Wasm: result = (|x|) | sign(y).
-                //
-                // 8-instr sequence (f32) / 8-instr (f64):
-                //   MOVZ X16, #0
-                //   MOVK X16, #0x8000, lsl #(16 for f32, 48 for f64)
-                //   FMOV W_a, S_x  (or X_a, D_x for f64)
-                //   BIC W_a, W_a, W16   ; magnitude of x
-                //   FMOV W17, S_y  (or X17, D_y)
-                //   AND W17, W17, W16   ; sign of y
-                //   ORR W_a, W_a, W17
-                //   FMOV S_d, W_a  (or D_d, X_a)
-                //
-                // W_a = slot[result]'s GPR mapping (same slot id
-                // as the V-result, but distinct physical reg).
-                // IP0 (X16) = mask scratch; IP1 (X17) = sign scratch.
-                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
-                const rhs_y = pushed_vregs.pop().?; // sign source
-                const lhs_x = pushed_vregs.pop().?; // magnitude source
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn_x = try gpr.resolveFp(alloc, lhs_x);
-                const vm_y = try gpr.resolveFp(alloc, rhs_y);
-                const vd = try gpr.resolveFp(alloc, result);
-                const w_a = try gpr.resolveGpr(alloc, result);
-                const ip0: inst.Xn = 16;
-                const ip1: inst.Xn = 17;
-                const is_d = ins.op == .@"f64.copysign";
-                // Build sign-bit mask in IP0 (lower 32 for f32 in W,
-                // top lane for f64 in X):
-                try gpr.writeU32(allocator, &buf, inst.encMovzImm16(ip0, 0));
-                const mask_lsl_hw: u2 = if (is_d) 3 else 1;
-                try gpr.writeU32(allocator, &buf, inst.encMovkImm16(ip0, 0x8000, mask_lsl_hw));
-                if (is_d) {
-                    try gpr.writeU32(allocator, &buf, inst.encFmovXFromD(w_a, vn_x));
-                    try gpr.writeU32(allocator, &buf, inst.encBicRegX(w_a, w_a, ip0));
-                    try gpr.writeU32(allocator, &buf, inst.encFmovXFromD(ip1, vm_y));
-                    try gpr.writeU32(allocator, &buf, inst.encAndReg(ip1, ip1, ip0));
-                    try gpr.writeU32(allocator, &buf, inst.encOrrReg(w_a, w_a, ip1));
-                    try gpr.writeU32(allocator, &buf, inst.encFmovDtoFromX(vd, w_a));
-                } else {
-                    try gpr.writeU32(allocator, &buf, inst.encFmovWFromS(w_a, vn_x));
-                    try gpr.writeU32(allocator, &buf, inst.encBicRegW(w_a, w_a, ip0));
-                    try gpr.writeU32(allocator, &buf, inst.encFmovWFromS(ip1, vm_y));
-                    try gpr.writeU32(allocator, &buf, inst.encAndRegW(ip1, ip1, ip0));
-                    try gpr.writeU32(allocator, &buf, inst.encOrrRegW(w_a, w_a, ip1));
-                    try gpr.writeU32(allocator, &buf, inst.encFmovStoFromW(vd, w_a));
-                }
-                try pushed_vregs.append(allocator, result);
-            },
-            .@"f32.min",
-            .@"f32.max",
-            .@"f64.min",
-            .@"f64.max",
-            => {
-                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
-                const rhs = pushed_vregs.pop().?;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const vm = try gpr.resolveFp(alloc, rhs);
-                const vd = try gpr.resolveFp(alloc, result);
-                const word: u32 = switch (ins.op) {
-                    .@"f32.min" => inst.encFMinS(vd, vn, vm),
-                    .@"f32.max" => inst.encFMaxS(vd, vn, vm),
-                    .@"f64.min" => inst.encFMinD(vd, vn, vm),
-                    .@"f64.max" => inst.encFMaxD(vd, vn, vm),
-                    else => unreachable,
-                };
-                try gpr.writeU32(allocator, &buf, word);
-                try pushed_vregs.append(allocator, result);
-            },
-            .@"f32.eq",
-            .@"f32.ne",
-            .@"f32.lt",
-            .@"f32.gt",
-            .@"f32.le",
-            .@"f32.ge",
-            .@"f64.eq",
-            .@"f64.ne",
-            .@"f64.lt",
-            .@"f64.gt",
-            .@"f64.le",
-            .@"f64.ge",
-            => {
-                // FCMP S/D → CSET W. Wasm FP cmps are ordered:
-                // NaN inputs always yield false. The ARM Cond
-                // codes used here naturally satisfy that:
-                // - eq/ne: EQ/NE (Z flag; FCMP unordered → Z=0,V=1).
-                // - lt: MI (N=1; FCMP unordered → N=0).
-                // - gt: GT (Z=0 ∧ N=V).
-                // - le: LS (C=0 ∨ Z=1; FCMP unordered → C=1).
-                // - ge: GE (N=V; FCMP unordered → N=0,V=1 → false).
-                if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
-                const rhs = pushed_vregs.pop().?;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const vm = try gpr.resolveFp(alloc, rhs);
-                const wd = try gpr.resolveGpr(alloc, result);
-                const is_d = switch (ins.op) {
-                    .@"f64.eq", .@"f64.ne", .@"f64.lt", .@"f64.gt", .@"f64.le", .@"f64.ge" => true,
-                    else => false,
-                };
-                const cond: inst.Cond = switch (ins.op) {
-                    .@"f32.eq", .@"f64.eq" => .eq,
-                    .@"f32.ne", .@"f64.ne" => .ne,
-                    .@"f32.lt", .@"f64.lt" => .mi,
-                    .@"f32.gt", .@"f64.gt" => .gt,
-                    .@"f32.le", .@"f64.le" => .ls,
-                    .@"f32.ge", .@"f64.ge" => .ge,
-                    else => unreachable,
-                };
-                try gpr.writeU32(allocator, &buf, if (is_d) inst.encFCmpD(vn, vm) else inst.encFCmpS(vn, vm));
-                try gpr.writeU32(allocator, &buf, inst.encCsetW(wd, cond));
-                try pushed_vregs.append(allocator, result);
-            },
+            .@"f32.add", .@"f32.sub", .@"f32.mul", .@"f32.div",
+            .@"f64.add", .@"f64.sub", .@"f64.mul", .@"f64.div",
+            => try op_alu_float.emitFloatBinary(&ctx, &ins),
+            .@"f32.abs", .@"f32.neg", .@"f32.sqrt", .@"f32.ceil",
+            .@"f32.floor", .@"f32.trunc", .@"f32.nearest",
+            .@"f64.abs", .@"f64.neg", .@"f64.sqrt", .@"f64.ceil",
+            .@"f64.floor", .@"f64.trunc", .@"f64.nearest",
+            => try op_alu_float.emitFloatUnary(&ctx, &ins),
+            .@"f32.copysign", .@"f64.copysign",
+            => try op_alu_float.emitFloatCopysign(&ctx, &ins),
+            .@"f32.min", .@"f32.max", .@"f64.min", .@"f64.max",
+            => try op_alu_float.emitFloatMinMax(&ctx, &ins),
+            .@"f32.eq", .@"f32.ne", .@"f32.lt", .@"f32.gt", .@"f32.le", .@"f32.ge",
+            .@"f64.eq", .@"f64.ne", .@"f64.lt", .@"f64.gt", .@"f64.le", .@"f64.ge",
+            => try op_alu_float.emitFloatCompare(&ctx, &ins),
             .@"i64.popcnt" => try op_alu_int.emitI64Popcnt(&ctx, &ins),
             .@"i32.add", .@"i32.sub", .@"i32.mul", .@"i32.and", .@"i32.or", .@"i32.xor",
             .@"i32.shl", .@"i32.shr_s", .@"i32.shr_u",
