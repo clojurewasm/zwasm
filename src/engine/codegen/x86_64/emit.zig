@@ -134,6 +134,9 @@ pub fn compile(
                 try buf.appendSlice(allocator, inst.encMovImm32W(dst, ins.payload).slice());
                 try pushed_vregs.append(allocator, vreg);
             },
+            .@"i32.add", .@"i32.sub", .@"i32.mul",
+            .@"i32.and", .@"i32.or", .@"i32.xor",
+            => try emitI32Binary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"end" => {
                 // Function-level end (skeleton: no label stack
                 // yet, so every `end` is the function-level form).
@@ -162,6 +165,51 @@ pub fn compile(
         .n_slots = alloc.n_slots,
         .call_fixups = &.{},
     };
+}
+
+/// Binary i32 ALU handler (add / sub / mul / and / or / xor).
+/// Pop rhs + lhs, allocate result vreg, emit MOV dst, lhs ;
+/// OP dst, rhs (always-MOV form — the peephole that elides the
+/// MOV when dst == lhs lands when regalloc starts reusing slots
+/// for in-place updates).
+///
+/// **Constraint**: dst must not equal rhs (MOV dst, lhs would
+/// clobber rhs before OP reads it). With fresh-vreg-per-op
+/// allocation this never fires; surfaces as `UnsupportedOp`
+/// when the regalloc port needs to handle slot reuse.
+fn emitI32Binary(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const lhs_r = abi.slotToReg(alloc.slots[lhs_v]) orelse return Error.SlotOverflow;
+    const rhs_r = abi.slotToReg(alloc.slots[rhs_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+    if (dst_r == rhs_r and dst_r != lhs_r) return Error.UnsupportedOp;
+
+    if (dst_r != lhs_r) {
+        try buf.appendSlice(allocator, inst.encMovRR(.d, dst_r, lhs_r).slice());
+    }
+    const enc = switch (op) {
+        .@"i32.add" => inst.encAddRR(.d, dst_r, rhs_r),
+        .@"i32.sub" => inst.encSubRR(.d, dst_r, rhs_r),
+        .@"i32.mul" => inst.encImulRR(.d, dst_r, rhs_r),
+        .@"i32.and" => inst.encAndRR(.d, dst_r, rhs_r),
+        .@"i32.or"  => inst.encOrRR(.d, dst_r, rhs_r),
+        .@"i32.xor" => inst.encXorRR(.d, dst_r, rhs_r),
+        else => unreachable,
+    };
+    try buf.appendSlice(allocator, enc.slice());
+    try pushed_vregs.append(allocator, result_v);
 }
 
 // ============================================================
@@ -266,4 +314,106 @@ test "compile: function with params → UnsupportedOp (skeleton scope)" {
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}));
+}
+
+test "compile: (i32.const 7) (i32.const 5) i32.add end — verifies ADD is emitted" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.add" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 2 }; // R10D, R11D, EBX
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected stream:
+    //   55                       PUSH RBP
+    //   48 89 E5                 MOV RBP, RSP
+    //   41 BA 07 00 00 00        MOV R10D, #7  (vreg 0 → slot 0 → R10)
+    //   41 BB 05 00 00 00        MOV R11D, #5  (vreg 1 → slot 1 → R11)
+    //   44 89 D3                 MOV EBX, R10D (vreg 2 → slot 2 → RBX, lhs lift)
+    //   44 01 DB                 ADD EBX, R11D (rhs add)
+    //   89 D8                    MOV EAX, EBX  (return marshalling)
+    //   5D                       POP RBP
+    //   C3                       RET
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0x41, 0xBA, 0x07, 0x00, 0x00, 0x00,
+        0x41, 0xBB, 0x05, 0x00, 0x00, 0x00,
+        0x44, 0x89, 0xD3,
+        0x44, 0x01, 0xDB,
+        0x89, 0xD8,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: (i32.const 8) (i32.const 3) i32.sub end — SUB opcode 29" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 8 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 3 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.sub" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Spot-check: SUB EBX, R11D = 44 29 DB lives at offset 19..22.
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x29, 0xDB }, out.bytes[19..22]);
+}
+
+test "compile: (i32.const 6) (i32.const 7) i32.mul end — IMUL 0F AF" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 6 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.mul" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u8{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // IMUL r9, r/m9 has flipped REX semantics. dst=EBX (R=0), src=R11D (B=1)
+    // → REX = 0x41. ModR/M: mod=11, reg=011 (ebx), rm=011 (r11) → DB.
+    // So 41 0F AF DB at offset 19..23.
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0x0F, 0xAF, 0xDB }, out.bytes[19..23]);
+}
+
+test "compile: i32.add with stack underflow → AllocationMissing" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.add" }); // missing 2nd operand
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u8{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}));
 }

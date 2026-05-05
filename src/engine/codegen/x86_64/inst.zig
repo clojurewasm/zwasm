@@ -154,6 +154,50 @@ pub fn encSubRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `AND r/m, r` (opcode 0x21) — `dst &= src`.
+pub fn encAndRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, src, dst)) |rex| enc.push(rex);
+    enc.push(0x21);
+    enc.push(encodeModrm(0b11, src.low3(), dst.low3()));
+    return enc;
+}
+
+/// `OR r/m, r` (opcode 0x09) — `dst |= src`.
+pub fn encOrRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, src, dst)) |rex| enc.push(rex);
+    enc.push(0x09);
+    enc.push(encodeModrm(0b11, src.low3(), dst.low3()));
+    return enc;
+}
+
+/// `XOR r/m, r` (opcode 0x31) — `dst ^= src`.
+pub fn encXorRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, src, dst)) |rex| enc.push(rex);
+    enc.push(0x31);
+    enc.push(encodeModrm(0b11, src.low3(), dst.low3()));
+    return enc;
+}
+
+/// `IMUL r, r/m` (2-byte opcode 0x0F 0xAF /r) — `dst *= src`,
+/// signed/unsigned identical for the low N bits (Wasm i32.mul
+/// doesn't distinguish signedness).
+///
+/// **Operand-role inversion vs ADD/SUB/AND/OR/XOR**: IMUL's
+/// 2-operand form puts `dst` in the ModR/M.reg field and `src`
+/// in r/m, opposite to ADD/SUB/etc. So REX.R extends `dst`
+/// (not `src`) and REX.B extends `src` (not `dst`).
+pub fn encImulRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, dst, src)) |rex| enc.push(rex);
+    enc.push(0x0F);
+    enc.push(0xAF);
+    enc.push(encodeModrm(0b11, dst.low3(), src.low3()));
+    return enc;
+}
+
 /// `RET` near (opcode 0xC3) — pop return address from stack and
 /// jump. Single byte; no operands.
 pub fn encRet() EncodedInsn {
@@ -318,4 +362,44 @@ test "encMovImm32W: mov r10d, #42 → 41 ba 2a 00 00 00 (REX.B)" {
 test "encMovImm32W: little-endian imm32 (0xDEADBEEF)" {
     const enc = encMovImm32W(.rax, 0xDEADBEEF);
     try testing.expectEqualSlices(u8, &.{ 0xB8, 0xEF, 0xBE, 0xAD, 0xDE }, enc.slice());
+}
+
+test "encAndRR: and ebx, ecx (d) → 21 cb" {
+    const enc = encAndRR(.d, .rbx, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x21, 0xCB }, enc.slice());
+}
+
+test "encOrRR: or ebx, ecx (d) → 09 cb" {
+    const enc = encOrRR(.d, .rbx, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x09, 0xCB }, enc.slice());
+}
+
+test "encXorRR: xor ebx, ecx (d) → 31 cb" {
+    const enc = encXorRR(.d, .rbx, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x31, 0xCB }, enc.slice());
+}
+
+test "encXorRR: xor rax, rax (q) → 48 31 c0 (canonical zero idiom)" {
+    const enc = encXorRR(.q, .rax, .rax);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x31, 0xC0 }, enc.slice());
+}
+
+test "encImulRR: imul ebx, ecx (d) → 0f af d9" {
+    const enc = encImulRR(.d, .rbx, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0xAF, 0xD9 }, enc.slice());
+}
+
+test "encImulRR: imul rbx, rcx (q) → 48 0f af d9" {
+    const enc = encImulRR(.q, .rbx, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x0F, 0xAF, 0xD9 }, enc.slice());
+}
+
+test "encImulRR: imul ebx, r10d (d) → 41 0f af da (REX.B for src)" {
+    const enc = encImulRR(.d, .rbx, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0x0F, 0xAF, 0xDA }, enc.slice());
+}
+
+test "encImulRR: imul r9d, ecx (d) → 44 0f af c9 (REX.R for dst)" {
+    const enc = encImulRR(.d, .r9, .rcx);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x0F, 0xAF, 0xC9 }, enc.slice());
 }
