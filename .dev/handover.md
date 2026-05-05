@@ -23,18 +23,20 @@
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
 直近 commit:
-- `12cd04c` §9.7 / 7.7-wrap — x86_64 i32.wrap_i64 + i64.extend_i32_s/u
-  (encMovsxdR64R32 + emitConvertWidth, 7 new tests, 3-host green)
+- `d071173` §9.7 / 7.7-call-direct — x86_64 direct `call N`
+  (emitCall + marshalCallArgs + captureCallResult; encCallRel32;
+  6 new tests; 3-host green)
+- `12cd04c` §9.7 / 7.7-wrap — x86_64 i32.wrap_i64 + i64.extend
 - `f55ddb9` #5 ADR-0027 implementation (i32 globals 両 backend)
-- `5013ce5` #7 ADR-0028 M3-a-1 (trace ringbuffer infra)
 
-**Active task**: 残り 7.7 chunks — 7.7-call (call/call_indirect)
-が **NEXT**。完了後 7.7-fp (f32/f64 surface) → §9.7 / 7.8 spec
-gate。M3-a-2 (trap stub からの ringbuffer write) と globals
-i64/FP は post-7.7 chunk として queue。
+**Active task**: 7.7 chunk を call-direct / call-indirect に分割
+(scope 縮小)。**NEXT**: 7.7-call-indirect (bounds + sig 検査 +
+funcptr load + BLR≡CALL via reg)。続いて 7.7-fp (f32/f64
+surface) → §9.7 / 7.8 spec gate。M3-a-2 と globals i64/FP は
+post-7.7 chunk として queue。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は `12cd04c`。
+**Branch**: `zwasm-from-scratch`、最新は `d071173`。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -78,7 +80,8 @@ fixed).
 | 7.7-mem-store | i32.store + 狭幅 load/store + emitMemOp 統合 refactor | DONE `7d37a5b` |
 | 7.7-globals | global.get/.set (i32 only; i64/FP は別 chunk) | DONE `f55ddb9` |
 | 7.7-wrap | i32.wrap_i64 / i64.extend_i32_s/u | DONE `12cd04c` |
-| 7.7-call | call/call_indirect | **NEXT** |
+| 7.7-call-direct | direct `call N` (i32 args + i32/void return) | DONE `d071173` |
+| 7.7-call-indirect | `call_indirect type_idx` (bounds + sig + funcptr) | **NEXT** |
 | 7.7-fp | f32/f64 surface | pending |
 | deferred-Win64 | Win64 ABI table + Cc enum | pending |
 
@@ -100,11 +103,15 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
+- §9.7 / 7.7-call-direct: x86_64 direct `call N` (emitCall +
+  marshalCallArgs + captureCallResult; encCallRel32 + CallFixup
+  wired through compile()); 2 inst byte + 4 emit compile tests;
+  i32 args + i32/void return (f32/f64/i64 → UnsupportedOp,
+  deferred 7.7-fp / globals i64) (d071173)。
 - §9.7 / 7.7-wrap: x86_64 i32.wrap_i64 + i64.extend_i32_s/u
-  (encMovsxdR64R32 + emitConvertWidth, mirrors arm64
-  op_convert.zig); 3 inst byte tests + 4 emit compile tests;
-  edge-case fixture deferred (private/notes/p7-edge-case-
-  rationale.md, gated on D-031 i64-runner gap) (12cd04c)。
+  (encMovsxdR64R32 + emitConvertWidth, mirrors arm64); 3 inst
+  byte + 4 emit compile tests; edge-case fixture deferred
+  (private/notes/p7-edge-case-rationale.md) (12cd04c)。
 - 7-issue cleanup batch (2026-05-05, 4 commits):
   - `618ac14` ADR-0027 (#5 globals 設計) + ADR-0028 (#7 M3 trace 前倒し)
   - `fe42735` #1 spec-strict bounds (両 backend ea+size>limit + 2 trap fixtures
