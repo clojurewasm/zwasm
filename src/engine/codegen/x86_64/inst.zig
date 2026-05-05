@@ -297,6 +297,51 @@ inline fn encF3_0F_R32R(opcode: u8, dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `JMP rel32` (opcode 0xE9) — unconditional near jump with
+/// 32-bit signed displacement. Disp is relative to the byte
+/// AFTER the 5-byte instruction. Use `encJmpRel32(0)` as a
+/// placeholder for forward jumps that patch later via
+/// `patchRel32` once the target is known.
+pub fn encJmpRel32(disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0xE9);
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
+/// `Jcc rel32` — conditional near jump (2-byte opcode 0x0F
+/// 0x80+cc + 32-bit disp). 6 bytes total. Disp is relative to
+/// the byte AFTER the instruction.
+pub fn encJccRel32(cc: Cond, disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x0F);
+    enc.push(0x80 | @as(u8, @intFromEnum(cc)));
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
+/// In-place patch the disp32 field of a JMP/Jcc rel32 placeholder.
+/// `at` is the byte offset of the instruction's first byte
+/// (0xE9 for JMP or 0x0F for Jcc). `disp` is computed by the
+/// caller as `target - (at + insn_size)` where insn_size is 5
+/// (JMP) or 6 (Jcc). Writes 4 bytes little-endian.
+pub fn patchRel32(buf: []u8, at: usize, insn_size: u8, disp: i32) void {
+    const off = at + insn_size - 4;
+    const u: u32 = @bitCast(disp);
+    buf[off + 0] = @truncate(u);
+    buf[off + 1] = @truncate(u >> 8);
+    buf[off + 2] = @truncate(u >> 16);
+    buf[off + 3] = @truncate(u >> 24);
+}
+
 /// `LZCNT r32, r/m32` (F3 0F BD /r, BMI1) — count leading
 /// zeros. Returns 32 if the input is 0; matches Wasm i32.clz
 /// semantics exactly. Distinct from BSR (older op with
@@ -579,6 +624,43 @@ test "encLoadR32MemRBP: mov r10d, [rbp-8] → 44 8b 55 f8" {
 test "encLoadR32MemRBP: mov ebx, [rbp-16] → 8b 5d f0" {
     const enc = encLoadR32MemRBP(.rbx, -16);
     try testing.expectEqualSlices(u8, &.{ 0x8B, 0x5D, 0xF0 }, enc.slice());
+}
+
+test "encJmpRel32: jmp +0 → e9 00 00 00 00 (placeholder shape)" {
+    const enc = encJmpRel32(0);
+    try testing.expectEqualSlices(u8, &.{ 0xE9, 0x00, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encJmpRel32: jmp +5 → e9 05 00 00 00" {
+    const enc = encJmpRel32(5);
+    try testing.expectEqualSlices(u8, &.{ 0xE9, 0x05, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encJmpRel32: jmp -7 → e9 f9 ff ff ff (sign-extended disp)" {
+    const enc = encJmpRel32(-7);
+    try testing.expectEqualSlices(u8, &.{ 0xE9, 0xF9, 0xFF, 0xFF, 0xFF }, enc.slice());
+}
+
+test "encJccRel32: jne +0 → 0f 85 00 00 00 00 (cc=ne=5)" {
+    const enc = encJccRel32(.ne, 0);
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x85, 0x00, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encJccRel32: je +10 → 0f 84 0a 00 00 00 (cc=e=4)" {
+    const enc = encJccRel32(.e, 10);
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x84, 0x0A, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "patchRel32: rewrite JMP placeholder disp" {
+    var buf = [_]u8{ 0xE9, 0, 0, 0, 0 };
+    patchRel32(&buf, 0, 5, 42);
+    try testing.expectEqualSlices(u8, &.{ 0xE9, 0x2A, 0x00, 0x00, 0x00 }, &buf);
+}
+
+test "patchRel32: rewrite Jcc placeholder disp" {
+    var buf = [_]u8{ 0x0F, 0x84, 0, 0, 0, 0 };
+    patchRel32(&buf, 0, 6, -100);
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x84, 0x9C, 0xFF, 0xFF, 0xFF }, &buf);
 }
 
 test "encAndRR: and ebx, ecx (d) → 21 cb" {

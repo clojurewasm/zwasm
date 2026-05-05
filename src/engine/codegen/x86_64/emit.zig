@@ -67,6 +67,31 @@ pub const CallFixup = struct {
     target_func_idx: u32,
 };
 
+/// Why a Label was pushed on the control stack. block / loop
+/// for the §9.7 / 7.7-control-skel scope; if_then / else_open
+/// land with the if/else handler chunk.
+const LabelKind = enum { block, loop };
+
+/// Forward-jump fixup awaiting target resolution. `byte_offset`
+/// is the position of the JMP/Jcc instruction's first byte;
+/// `insn_size` is 5 (JMP rel32) or 6 (Jcc rel32). `emitEndIntra`
+/// patches the disp32 field via `inst.patchRel32`.
+const Fixup = struct {
+    byte_offset: u32,
+    insn_size: u8,
+};
+
+/// One frame on the per-function control stack. For .block,
+/// `target_byte_offset` is unknown until the matching `end`;
+/// pending fixups patch at that point. For .loop,
+/// `target_byte_offset` is captured at push time (the loop
+/// entry); backward branches resolve immediately.
+const Label = struct {
+    kind: LabelKind,
+    target_byte_offset: u32,
+    pending: std.ArrayList(Fixup),
+};
+
 pub const EmitOutput = struct {
     bytes: []u8,
     n_slots: u8,
@@ -138,6 +163,16 @@ pub fn compile(
     defer pushed_vregs.deinit(allocator);
     var next_vreg: u32 = 0;
 
+    // Control-stack: Wasm structured-control labels (block /
+    // loop). Forward fixups (br to block) land in `pending`;
+    // backward jumps (br to loop) resolve immediately at the
+    // `br` site since the target was captured on push.
+    var labels: std.ArrayList(Label) = .empty;
+    defer {
+        for (labels.items) |*l| l.pending.deinit(allocator);
+        labels.deinit(allocator);
+    }
+
     for (func.instrs.items) |ins| {
         switch (ins.op) {
             .@"i32.const" => {
@@ -165,9 +200,20 @@ pub fn compile(
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, ins.payload),
+            .@"block" => try emitBlock(allocator, &labels),
+            .@"loop" => try emitLoop(allocator, &buf, &labels),
+            .@"br" => try emitBr(allocator, &buf, &labels, ins.payload),
             .@"end" => {
-                // Function-level end (skeleton: no label stack
-                // yet, so every `end` is the function-level form).
+                // Two distinct forms (mirrors arm64/emit.zig):
+                // (A) Intra-function `end`: pops a label, patches
+                //     forward fixups (block) / no-op for loop.
+                // (B) Function-level `end`: marshals result, runs
+                //     epilogue, returns. Disambiguation: empty
+                //     label stack → form (B).
+                if (labels.items.len > 0) {
+                    try emitEndIntra(allocator, &buf, &labels);
+                    continue;
+                }
                 if (pushed_vregs.items.len > 0 and func.sig.results.len > 0) {
                     const top = pushed_vregs.items[pushed_vregs.items.len - 1];
                     if (top >= alloc.slots.len) return Error.SlotOverflow;
@@ -482,6 +528,73 @@ fn emitLocalTee(
     try buf.appendSlice(allocator, inst.encStoreR32MemRBP(disp, src_r).slice());
 }
 
+/// `block` — push a forward-resolving label frame. No code
+/// emitted; the matching `end` patches all `pending` fixups.
+fn emitBlock(allocator: Allocator, labels: *std.ArrayList(Label)) Error!void {
+    try labels.append(allocator, .{
+        .kind = .block,
+        .target_byte_offset = 0,
+        .pending = .empty,
+    });
+}
+
+/// `loop` — push a backward-resolving label frame. Captures
+/// the current buf offset as the loop entry; subsequent `br`
+/// to this label resolves to a backward JMP with concrete disp.
+fn emitLoop(allocator: Allocator, buf: *std.ArrayList(u8), labels: *std.ArrayList(Label)) Error!void {
+    try labels.append(allocator, .{
+        .kind = .loop,
+        .target_byte_offset = @intCast(buf.items.len),
+        .pending = .empty,
+    });
+}
+
+/// `br N` — unconditional branch to label at depth N (0 =
+/// innermost). Loop targets resolve immediately to a concrete
+/// disp; block targets emit a placeholder JMP rel32 and append
+/// a `Fixup` for the matching `end` to patch.
+fn emitBr(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    labels: *std.ArrayList(Label),
+    depth: u32,
+) Error!void {
+    if (depth >= labels.items.len) return Error.UnsupportedOp;
+    const tgt_idx = labels.items.len - 1 - depth;
+    const tgt = &labels.items[tgt_idx];
+    const at: u32 = @intCast(buf.items.len);
+    if (tgt.kind == .loop) {
+        // Backward branch: target known. disp = target - (at + 5).
+        const disp: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+            @as(i32, @intCast(at)) - 5;
+        try buf.appendSlice(allocator, inst.encJmpRel32(disp).slice());
+    } else {
+        // Forward branch: emit placeholder; queue fixup.
+        try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+        try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
+    }
+}
+
+/// Intra-function `end` — pops a label and patches its forward
+/// fixups (block) / no-op for loop (backward branches already
+/// resolved). Caller (compile()) gates on `labels.len > 0`;
+/// the function-level `end` shape stays inline.
+fn emitEndIntra(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    labels: *std.ArrayList(Label),
+) Error!void {
+    var lbl = labels.pop().?;
+    defer lbl.pending.deinit(allocator);
+    if (lbl.kind != .block) return; // loop has no pending fixups
+    const target: u32 = @intCast(buf.items.len);
+    for (lbl.pending.items) |fx| {
+        const disp: i32 = @as(i32, @intCast(target)) -
+            @as(i32, @intCast(fx.byte_offset)) - @as(i32, fx.insn_size);
+        inst.patchRel32(buf.items, fx.byte_offset, fx.insn_size, disp);
+    }
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -632,6 +745,77 @@ test "compile: local.tee preserves stack — uses top vreg without popping" {
     // followed by MOV EAX, R10D = 44 89 D0 at 18..21.
     try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x55, 0xF8 }, out.bytes[14..18]);
     try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0xD0 }, out.bytes[18..21]);
+}
+
+test "compile: (block (br 0) end) end — forward br with end-patch" {
+    // Empty block with br to its own end. Then function-end.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" }); // intra: closes block
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" }); // function-level
+    f.liveness = .{ .ranges = &.{} };
+    const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
+    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Expected stream:
+    //   55 48 89 E5                    prologue (no SUB RSP — no locals)
+    //   E9 00 00 00 00                 JMP rel32, patched to disp=0 (target = next byte)
+    //   5D                             POP RBP (function-level end)
+    //   C3                             RET
+    // The JMP's disp is 0 because the patch site is at offset 4
+    // (after prologue) + insn_size 5 → next instruction at offset 9,
+    // which IS the block's end target. Disp = 9 - 9 = 0.
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0xE9, 0x00, 0x00, 0x00, 0x00,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: (loop (br 0) end) end — backward br with concrete disp" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"loop" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" }); // intra: closes loop (no patch)
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &.{} };
+    const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
+    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // loop captures byte_offset = 4 (post-prologue). br at offset 4
+    // emits JMP with disp = 4 - 4 - 5 = -5. So bytes:
+    //   55 48 89 E5                    prologue
+    //   E9 FB FF FF FF                 JMP -5 (back to loop entry — infinite loop)
+    //   5D C3                          POP RBP ; RET (unreachable but emitted)
+    const expected = [_]u8{
+        0x55,
+        0x48, 0x89, 0xE5,
+        0xE9, 0xFB, 0xFF, 0xFF, 0xFF,
+        0x5D,
+        0xC3,
+    };
+    try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+test "compile: br with depth out of range → UnsupportedOp" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0 }); // no enclosing block/loop
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &.{} };
+    const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
+    try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}));
 }
 
 test "compile: function with > 15 locals → UnsupportedOp (i8 disp range)" {
