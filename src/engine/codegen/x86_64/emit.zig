@@ -130,7 +130,6 @@ pub fn compile(
     func_sigs: []const zir.FuncType,
     module_types: []const zir.FuncType,
 ) Error!EmitOutput {
-    _ = module_types;
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
     }
@@ -158,6 +157,7 @@ pub fn compile(
                 .@"i32.store", .@"i32.store8", .@"i32.store16",
                 .@"global.get", .@"global.set",
                 .@"call",
+                .@"call_indirect",
                 => break :blk true,
                 else => {},
             }
@@ -262,6 +262,7 @@ pub fn compile(
             .@"i32.wrap_i64", .@"i64.extend_i32_u", .@"i64.extend_i32_s",
             => try emitConvertWidth(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"call" => try emitCall(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &call_fixups, func_sigs, ins.payload),
+            .@"call_indirect" => try emitCallIndirect(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, module_types, ins.payload),
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
@@ -637,6 +638,80 @@ fn emitCall(
         .byte_offset = fixup_at,
         .target_func_idx = callee_idx,
     });
+
+    try captureCallResult(allocator, buf, alloc, pushed_vregs, next_vreg, callee_sig);
+}
+
+/// Indirect call: `call_indirect type_idx`. Pops the index,
+/// marshals args, runs bounds + sig checks (both branch to the
+/// shared trap stub via bounds_fixups), loads the funcptr from
+/// `funcptr_base[idx]`, restores RDI = runtime_ptr, and CALLs
+/// through RAX.
+///
+/// **Scratch register strategy**: RAX is used as scratch
+/// throughout. RAX is NOT in the regalloc pool (`abi.zig`
+/// excludes it as `return_gpr`), so it cannot collide with any
+/// live vreg. This avoids needing a `spill_stage_gprs`
+/// reservation (the arm64 X16/X17 mirror) for x86_64 — RAX is
+/// dead from prologue through every instruction up to the CALL
+/// itself, then comes alive holding the return value.
+///
+/// **JitRuntime invariant access** per ADR-0026: each of
+/// `table_size`, `typeidx_base`, `funcptr_base` reloads from
+/// `[R15 + offset]` at point of use rather than holding
+/// callee-saved slots. The cost (3 extra MOVs vs ARM64's
+/// 3 reserved-reg reads) is accepted per ADR-0026 §"Decision".
+fn emitCallIndirect(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    bounds_fixups: *std.ArrayList(u32),
+    module_types: []const zir.FuncType,
+    type_idx: u32,
+) Error!void {
+    if (type_idx >= module_types.len) return Error.AllocationMissing;
+    const callee_sig = module_types[type_idx];
+
+    // Stack at entry: [args..., idx]. Pop idx first.
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const idx_vreg = pushed_vregs.pop().?;
+    const idx_r = abi.slotToReg(alloc.slots[idx_vreg]) orelse return Error.SlotOverflow;
+
+    try marshalCallArgs(allocator, buf, alloc, pushed_vregs, callee_sig);
+
+    // Bounds: MOV EAX, [R15 + table_size_off] ; CMP idx_r, EAX ; JAE trap.
+    try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
+    try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
+        try bounds_fixups.append(allocator, fixup_at);
+    }
+
+    // Sig: MOV RAX, [R15 + typeidx_base_off] (load u32* table)
+    //      MOV EAX, [RAX + idx_r * 4]        (load expected typeidx)
+    //      CMP EAX, type_idx (imm32) ; JNE trap.
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.typeidx_base_off).slice());
+    try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+    try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, type_idx).slice());
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
+        try bounds_fixups.append(allocator, fixup_at);
+    }
+
+    // Funcptr: MOV RAX, [R15 + funcptr_base_off] ; MOV RAX, [RAX + idx_r*8].
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
+    try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
+
+    // Restore RDI = runtime_ptr (callee's prologue reads RDI as
+    // its inbound JitRuntime ptr per ADR-0026 / SysV §3.2.3).
+    try buf.appendSlice(allocator, inst.encMovRR(.q, .rdi, abi.runtime_ptr_save_gpr).slice());
+
+    // CALL RAX (indirect).
+    try buf.appendSlice(allocator, inst.encCallReg(.rax).slice());
 
     try captureCallResult(allocator, buf, alloc, pushed_vregs, next_vreg, callee_sig);
 }
@@ -2409,6 +2484,69 @@ test "compile: call N — 1 i32 arg — marshals top-of-stack into RSI" {
     //   CALL rel32      e8 00 00 00 00      (5 bytes) → 30
     const expected_marshal = inst.encMovRR(.d, .rsi, .r10);
     try testing.expectEqualSlices(u8, expected_marshal.slice(), out.bytes[19 .. 19 + expected_marshal.len]);
+}
+
+test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    const callee_sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    const module_types = [_]zir.FuncType{callee_sig};
+
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"call_indirect", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+
+    const slots = [_]u8{0}; // idx vreg → R10
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &module_types);
+    defer deinit(testing.allocator, out);
+
+    // Body starts at byte 13 (uses_runtime_ptr=true prologue).
+    //   [13..19]  MOV R10D, 5             (i32.const, 6 bytes)
+    //   [19..26]  MOV EAX, [R15 + 24]     (load table_size)
+    //   [26..29]  CMP R10D, EAX           (bounds compare)
+    //   [29..35]  JAE rel32 placeholder   (bounds fixup)
+    //   [35..42]  MOV RAX, [R15 + 32]     (load typeidx_base)
+    //   [42..46]  MOV EAX, [RAX + R10*4]  (load expected typeidx)
+    //   [46..52]  CMP EAX, 0              (sig compare to type_idx=0)
+    //   [52..58]  JNE rel32 placeholder   (sig fixup)
+    //   [58..65]  MOV RAX, [R15 + 16]     (load funcptr_base)
+    //   [65..69]  MOV RAX, [RAX + R10*8]  (load funcptr)
+    //   [69..72]  MOV RDI, R15            (restore runtime_ptr)
+    //   [72..74]  CALL RAX                (indirect)
+    const expected_table_size_load = inst.encMovR32FromMemDisp32(.rax, .r15, 24);
+    try testing.expectEqualSlices(u8, expected_table_size_load.slice(), out.bytes[19 .. 19 + expected_table_size_load.len]);
+    // JAE/JNE rel32 disp32 is patched at function-tail to point at the
+    // trap stub; assert only the opcode bytes (0F 83 / 0F 85).
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[29]);
+    try testing.expectEqual(@as(u8, 0x83), out.bytes[30]);
+    const expected_typeidx_load = inst.encMovR32FromBaseIdxLsl2(.rax, .rax, .r10);
+    try testing.expectEqualSlices(u8, expected_typeidx_load.slice(), out.bytes[42 .. 42 + expected_typeidx_load.len]);
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[52]);
+    try testing.expectEqual(@as(u8, 0x85), out.bytes[53]);
+    const expected_funcptr_load = inst.encMovR64FromBaseIdxLsl3(.rax, .rax, .r10);
+    try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[65 .. 65 + expected_funcptr_load.len]);
+    const expected_call = inst.encCallReg(.rax);
+    try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[72 .. 72 + expected_call.len]);
+}
+
+test "compile: call_indirect — out-of-range type_idx → AllocationMissing" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"call_indirect", .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}));
 }
 
 test "compile: call N — out-of-range callee_idx → AllocationMissing" {

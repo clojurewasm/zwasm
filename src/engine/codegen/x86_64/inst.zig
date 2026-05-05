@@ -299,6 +299,68 @@ pub fn encCallRel32(disp: i32) EncodedInsn {
     return enc;
 }
 
+/// `CALL r/m64` (opcode 0xFF /2) — indirect call through a
+/// 64-bit register. CALL is implicitly 64-bit on x86_64; REX.W
+/// is NOT required. REX.B is set if `target` is R8..R15. Used
+/// by `emitCallIndirect` after the funcptr is loaded into a
+/// scratch register.
+pub fn encCallReg(target: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (target.extBit() != 0) {
+        enc.push(encodeRex(false, 0, 0, target.extBit()));
+    }
+    enc.push(0xFF);
+    enc.push(encodeModrm(0b11, 2, target.low3())); // /2 = CALL
+    return enc;
+}
+
+/// `CMP r/m32, imm32` (opcode 0x81 /7) — sign-extended 32-bit
+/// compare. Used by `emitCallIndirect`'s sig check vs the
+/// call-site's expected typeidx (a u32 module-type index).
+pub fn encCmpRImm32(dst: Gpr, imm: u32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(.d, .rax, dst)) |rex| enc.push(rex);
+    enc.push(0x81);
+    enc.push(encodeModrm(0b11, 7, dst.low3())); // /7 = CMP
+    enc.push(@truncate(imm));
+    enc.push(@truncate(imm >> 8));
+    enc.push(@truncate(imm >> 16));
+    enc.push(@truncate(imm >> 24));
+    return enc;
+}
+
+/// `MOV r32, [base + idx*4]` (opcode 0x8B with SIB scale=2 →
+/// ×4). 32-bit load with 4-scaled index; used by
+/// `emitCallIndirect` to read `typeidx_base[idx]` (each entry
+/// is a u32). mod=00 + rm=4 signals SIB-byte addressing
+/// (no displacement).
+pub fn encMovR32FromBaseIdxLsl2(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    const r = dst.extBit();
+    const x = idx.extBit();
+    const b = base.extBit();
+    if (r != 0 or x != 0 or b != 0) {
+        enc.push(encodeRex(false, r, x, b));
+    }
+    enc.push(0x8B);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b10, idx.low3(), base.low3())); // scale = ×4
+    return enc;
+}
+
+/// `MOV r64, [base + idx*8]` (REX.W + opcode 0x8B with SIB
+/// scale=3 → ×8). 64-bit load with 8-scaled index; used by
+/// `emitCallIndirect` to read `funcptr_base[idx]` (each entry
+/// is a u64 native funcptr).
+pub fn encMovR64FromBaseIdxLsl3(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), idx.extBit(), base.extBit()));
+    enc.push(0x8B);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b11, idx.low3(), base.low3())); // scale = ×8
+    return enc;
+}
+
 /// `MOVSXD r64, r/m32` (REX.W + 0x63 /r) — sign-extend 32-bit
 /// source into 64-bit destination. Used by `i64.extend_i32_s`.
 /// dst occupies ModR/M.reg, src occupies r/m (IMUL-style
@@ -1279,4 +1341,44 @@ test "encCallRel32: call rel32 disp=0 → e8 00 00 00 00 (placeholder)" {
 test "encCallRel32: call rel32 disp=0x12345678 little-endian" {
     const enc = encCallRel32(0x12345678);
     try testing.expectEqualSlices(u8, &.{ 0xE8, 0x78, 0x56, 0x34, 0x12 }, enc.slice());
+}
+
+test "encCallReg: call rax → ff d0 (no REX)" {
+    const enc = encCallReg(.rax);
+    try testing.expectEqualSlices(u8, &.{ 0xFF, 0xD0 }, enc.slice());
+}
+
+test "encCallReg: call r10 → 41 ff d2 (REX.B)" {
+    const enc = encCallReg(.r10);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0xFF, 0xD2 }, enc.slice());
+}
+
+test "encCmpRImm32: cmp eax, 0 → 81 f8 00 00 00 00 (no REX)" {
+    const enc = encCmpRImm32(.rax, 0);
+    try testing.expectEqualSlices(u8, &.{ 0x81, 0xF8, 0x00, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encCmpRImm32: cmp r10d, 0xCAFE → 41 81 fa fe ca 00 00 (REX.B + LE imm32)" {
+    const enc = encCmpRImm32(.r10, 0xCAFE);
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0x81, 0xFA, 0xFE, 0xCA, 0x00, 0x00 }, enc.slice());
+}
+
+test "encMovR32FromBaseIdxLsl2: mov eax, [rax + r10*4] → 42 8b 04 90 (REX.X)" {
+    const enc = encMovR32FromBaseIdxLsl2(.rax, .rax, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0x42, 0x8B, 0x04, 0x90 }, enc.slice());
+}
+
+test "encMovR32FromBaseIdxLsl2: mov ebx, [rcx + rdx*4] → 8b 1c 91 (no REX)" {
+    const enc = encMovR32FromBaseIdxLsl2(.rbx, .rcx, .rdx);
+    try testing.expectEqualSlices(u8, &.{ 0x8B, 0x1C, 0x91 }, enc.slice());
+}
+
+test "encMovR64FromBaseIdxLsl3: mov rax, [rax + r10*8] → 4a 8b 04 d0 (REX.W + REX.X)" {
+    const enc = encMovR64FromBaseIdxLsl3(.rax, .rax, .r10);
+    try testing.expectEqualSlices(u8, &.{ 0x4A, 0x8B, 0x04, 0xD0 }, enc.slice());
+}
+
+test "encMovR64FromBaseIdxLsl3: mov rcx, [rdx + rbx*8] → 48 8b 0c da (REX.W only)" {
+    const enc = encMovR64FromBaseIdxLsl3(.rcx, .rdx, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x8B, 0x0C, 0xDA }, enc.slice());
 }
