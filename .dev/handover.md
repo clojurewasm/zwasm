@@ -23,19 +23,20 @@
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
 直近 commit:
+- `f062800` §9.7 / 7.7-fp-const — x86_64 f32.const / f64.const
+  (encMovImm64Q + encMovd/qXmmFromR{32,64}; 8 new tests; 3-host
+  green)。FP-aware end handler の gap を D-032 として queue。
 - `2248e03` §9.7 / 7.7-call-indirect — x86_64 emitCallIndirect
-  (bounds + sig + funcptr load + CALL RAX); 4 new encoders + 10
-  new tests; 3-host green
 - `d071173` §9.7 / 7.7-call-direct — x86_64 direct `call N`
-- `12cd04c` §9.7 / 7.7-wrap — x86_64 i32.wrap_i64 + i64.extend
 
-**Active task**: **NEXT** = 7.7-fp (f32/f64 surface, scope TBD —
-likely const + binary + compare + convert)。続いて §9.7 / 7.8
-spec gate (Linux + Windows hosts)。M3-a-2 と globals i64/FP は
-post-7.7 chunk として queue。
+**Active task**: 7.7-fp は op-class で chunk 分割中。**NEXT** =
+7.7-fp-binary (f32/f64 add/sub/mul/div, ADDSS/ADDSD…)。続いて
+fp-compare / fp-unary / fp-minmax-copysign / fp-convert / fp-mem。
+すべて landing 後 7.7-fp-end-fix (D-032 discharge) → §9.7 / 7.8
+spec gate。
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
-**Branch**: `zwasm-from-scratch`、最新は `2248e03`。
+**Branch**: `zwasm-from-scratch`、最新は `f062800`。
 
 ## ADR-0025 implementation chain (Phase A done; B-D pending)
 
@@ -81,7 +82,14 @@ fixed).
 | 7.7-wrap | i32.wrap_i64 / i64.extend_i32_s/u | DONE `12cd04c` |
 | 7.7-call-direct | direct `call N` (i32 args + i32/void return) | DONE `d071173` |
 | 7.7-call-indirect | `call_indirect type_idx` (bounds + sig + funcptr) | DONE `2248e03` |
-| 7.7-fp | f32/f64 surface | **NEXT** |
+| 7.7-fp-const | f32.const / f64.const (XMM via GPR scratch) | DONE `f062800` |
+| 7.7-fp-binary | f32/f64 add/sub/mul/div (ADDSS/ADDSD …) | **NEXT** |
+| 7.7-fp-compare | f32/f64 eq/ne/lt/gt/le/ge (UCOMISS/UCOMISD) | pending |
+| 7.7-fp-unary | f32/f64 abs/neg/sqrt/ceil/floor/trunc/nearest | pending |
+| 7.7-fp-minmax-copysign | f32/f64 min/max/copysign | pending |
+| 7.7-fp-convert | f↔int + f32↔f64 + reinterpret | pending |
+| 7.7-fp-mem | f32/f64 load/store | pending |
+| 7.7-fp-end-fix | FP-aware function-end (D-032 discharge) | pending |
 | deferred-Win64 | Win64 ABI table + Cc enum | pending |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
@@ -102,12 +110,13 @@ deferred to phase boundary batch update.
 
 ## Recently closed (per `git log --oneline -45`)
 
-- §9.7 / 7.7-call-indirect: x86_64 emitCallIndirect (bounds via
-  [R15+table_size_off]+CMP+JAE; sig via typeidx_base+CMP-imm32+JNE;
-  funcptr load via [R15+funcptr_base_off]+LSL3+CALL RAX); RAX as
-  scratch (not in pool, no spill_stage_gprs needed); 4 new
-  encoders (encCallReg / encCmpRImm32 / encMovR{32,64}FromBaseIdx
-  Lsl{2,3}); 8 inst byte + 2 emit compile tests (2248e03)。
+- §9.7 / 7.7-fp-const: x86_64 f32.const + f64.const (MOV/MOVABS
+  via RAX scratch + MOVD/MOVQ XMM,GPR); 3 new encoders
+  (encMovImm64Q / encMovd・qXmmFromR{32,64}); 8 tests; D-032
+  (FP-aware end handler) recorded for later discharge (f062800)。
+- §9.7 / 7.7-call-indirect: x86_64 emitCallIndirect (bounds +
+  sig + funcptr via [R15+offset] reload, RAX as scratch); 4 new
+  encoders + 10 tests (2248e03)。
 - §9.7 / 7.7-call-direct: x86_64 direct `call N` (emitCall +
   marshalCallArgs + captureCallResult; i32 args + i32/void return;
   encCallRel32 + CallFixup wired through compile()) (d071173)。
