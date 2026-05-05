@@ -56,6 +56,7 @@ const op_convert = @import("op_convert.zig");
 const op_memory = @import("op_memory.zig");
 const op_control = @import("op_control.zig");
 const op_call = @import("op_call.zig");
+const bounds_check = @import("bounds_check.zig");
 
 const Label = label_mod.Label;
 const LabelKind = label_mod.LabelKind;
@@ -276,85 +277,12 @@ pub fn compile(
             .@"f64.convert_i32_s", .@"f64.convert_i32_u",
             .@"f64.convert_i64_s", .@"f64.convert_i64_u",
             => try op_convert.emitConvertIntToFloat(&ctx, &ins),
-            // sub-h3a: Wasm 1.0 trapping trunc, f32 source.
-            // NaN + range checks (per `emitTrunc32BoundsCheck`),
-            // then FCVTZS/U. Bounds tables encode the per-op
-            // boundary (representable f32 hex) and lower-cmp
-            // strictness — for u32/u64 destination, lower=-1.0f
-            // with .le; for s32, lower is just below INT_MIN with
-            // .le; for s64 same shape with the i64 boundary. f64
-            // source (sub-h3b) lands next cycle with f64 bounds.
-            .@"i32.trunc_f32_s",
-            .@"i32.trunc_f32_u",
-            .@"i64.trunc_f32_s",
-            .@"i64.trunc_f32_u",
-            => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const dest = try gpr.resolveGpr(alloc, result);
-
-                const Bounds = struct { lo: u32, hi: u32, lo_cmp: inst.Cond };
-                const b: Bounds = switch (ins.op) {
-                    .@"i32.trunc_f32_s" => .{ .lo = 0xCF000001, .hi = 0x4F000000, .lo_cmp = .le }, // -2147483904f, 2^31
-                    .@"i32.trunc_f32_u" => .{ .lo = 0xBF800000, .hi = 0x4F800000, .lo_cmp = .le }, // -1.0f, 2^32
-                    .@"i64.trunc_f32_s" => .{ .lo = 0xDF000001, .hi = 0x5F000000, .lo_cmp = .le }, // -9223373136366403584f, 2^63
-                    .@"i64.trunc_f32_u" => .{ .lo = 0xBF800000, .hi = 0x5F800000, .lo_cmp = .le }, // -1.0f, 2^64
-                    else => unreachable,
-                };
-                try emitTrunc32BoundsCheck(allocator, &buf, vn, b.lo, b.hi, b.lo_cmp, &bounds_fixups);
-                const word: u32 = switch (ins.op) {
-                    .@"i32.trunc_f32_s" => inst.encFcvtzsWFromS(dest, vn),
-                    .@"i32.trunc_f32_u" => inst.encFcvtzuWFromS(dest, vn),
-                    .@"i64.trunc_f32_s" => inst.encFcvtzsXFromS(dest, vn),
-                    .@"i64.trunc_f32_u" => inst.encFcvtzuXFromS(dest, vn),
-                    else => unreachable,
-                };
-                try gpr.writeU32(allocator, &buf, word);
-                try pushed_vregs.append(allocator, result);
-            },
-            // sub-h3b: Wasm 1.0 trapping trunc, f64 source.
-            // Mirror of h3a but with f64 bounds (8-byte constants
-            // staged via emitConstU64 through X16) and FCMP/FCVTZ
-            // D-form. The bounds use exact f64 representations
-            // (i32 boundary INT_MIN-1 IS representable in f64;
-            // i64 boundary -2^63 IS representable so uses .lt
-            // strict instead of .le).
-            .@"i32.trunc_f64_s",
-            .@"i32.trunc_f64_u",
-            .@"i64.trunc_f64_s",
-            .@"i64.trunc_f64_u",
-            => {
-                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                const lhs = pushed_vregs.pop().?;
-                const result = next_vreg;
-                next_vreg += 1;
-                if (result >= alloc.slots.len) return Error.SlotOverflow;
-                const vn = try gpr.resolveFp(alloc, lhs);
-                const dest = try gpr.resolveGpr(alloc, result);
-
-                const Bounds = struct { lo: u64, hi: u64, lo_cmp: inst.Cond };
-                const b: Bounds = switch (ins.op) {
-                    .@"i32.trunc_f64_s" => .{ .lo = 0xC1E0000000200000, .hi = 0x41E0000000000000, .lo_cmp = .le }, // -(2^31+1), 2^31
-                    .@"i32.trunc_f64_u" => .{ .lo = 0xBFF0000000000000, .hi = 0x41F0000000000000, .lo_cmp = .le }, // -1.0, 2^32
-                    .@"i64.trunc_f64_s" => .{ .lo = 0xC3E0000000000000, .hi = 0x43E0000000000000, .lo_cmp = .lt }, // -2^63 (.lt strict), 2^63
-                    .@"i64.trunc_f64_u" => .{ .lo = 0xBFF0000000000000, .hi = 0x43F0000000000000, .lo_cmp = .le }, // -1.0, 2^64
-                    else => unreachable,
-                };
-                try emitTrunc64BoundsCheck(allocator, &buf, vn, b.lo, b.hi, b.lo_cmp, &bounds_fixups);
-                const word: u32 = switch (ins.op) {
-                    .@"i32.trunc_f64_s" => inst.encFcvtzsWFromD(dest, vn),
-                    .@"i32.trunc_f64_u" => inst.encFcvtzuWFromD(dest, vn),
-                    .@"i64.trunc_f64_s" => inst.encFcvtzsXFromD(dest, vn),
-                    .@"i64.trunc_f64_u" => inst.encFcvtzuXFromD(dest, vn),
-                    else => unreachable,
-                };
-                try gpr.writeU32(allocator, &buf, word);
-                try pushed_vregs.append(allocator, result);
-            },
+            .@"i32.trunc_f32_s", .@"i32.trunc_f32_u",
+            .@"i64.trunc_f32_s", .@"i64.trunc_f32_u",
+            => try bounds_check.emitTrappingTruncF32(&ctx, &ins),
+            .@"i32.trunc_f64_s", .@"i32.trunc_f64_u",
+            .@"i64.trunc_f64_s", .@"i64.trunc_f64_u",
+            => try bounds_check.emitTrappingTruncF64(&ctx, &ins),
             .@"i32.trunc_sat_f32_s", .@"i32.trunc_sat_f32_u",
             .@"i32.trunc_sat_f64_s", .@"i32.trunc_sat_f64_u",
             .@"i64.trunc_sat_f32_s", .@"i64.trunc_sat_f32_u",
@@ -605,98 +533,6 @@ pub fn compile(
         .n_slots = alloc.n_slots,
         .call_fixups = try call_fixups.toOwnedSlice(allocator),
     };
-}
-
-/// Emit the NaN + lower-bound + upper-bound trap sequence for
-/// a Wasm 1.0 trapping float→int conversion (sub-h3a, f32 src).
-///
-/// Sequence (per op): 9 instrs + 3 trap branches.
-///   FCMP src, src              ; NaN sets V flag
-///   B.VS trap_stub             ; trap on NaN
-///   MOVZ W16 + MOVK W16        ; materialize lower-bound bits
-///   FMOV S31, W16              ; into V31 (popcnt scratch — not
-///                                live across this conversion)
-///   FCMP src, S31              ; src vs lower
-///   B.<lower_cmp> trap_stub    ; trap below lower
-///   MOVZ W16 + MOVK W16        ; materialize upper-bound bits
-///   FMOV S31, W16
-///   FCMP src, S31              ; src vs upper
-///   B.GE trap_stub             ; trap at-or-above upper
-///
-/// All three trap branches append to `bounds_fixups`, which is
-/// patched at the function-tail trap stub (shared with memory
-/// bounds + call_indirect; single trap reason today).
-fn emitTrunc32BoundsCheck(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    src_v: inst.Vn,
-    lower_bits: u32,
-    upper_bits: u32,
-    lower_cmp: inst.Cond,
-    bounds_fixups: *std.ArrayList(u32),
-) !void {
-    // NaN check: FCMP src, src ; B.VS trap.
-    try gpr.writeU32(allocator, buf, inst.encFCmpS(src_v, src_v));
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try gpr.writeU32(allocator, buf, inst.encBCond(.vs, 0));
-        try bounds_fixups.append(allocator, fixup_at);
-    }
-    // Lower bound: materialise into S31 via W16, then FCMP + trap.
-    try op_const.emitConstU32(allocator, buf, 16, lower_bits);
-    try gpr.writeU32(allocator, buf, inst.encFmovStoFromW(31, 16));
-    try gpr.writeU32(allocator, buf, inst.encFCmpS(src_v, 31));
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try gpr.writeU32(allocator, buf, inst.encBCond(lower_cmp, 0));
-        try bounds_fixups.append(allocator, fixup_at);
-    }
-    // Upper bound: materialise + FCMP + B.GE trap.
-    try op_const.emitConstU32(allocator, buf, 16, upper_bits);
-    try gpr.writeU32(allocator, buf, inst.encFmovStoFromW(31, 16));
-    try gpr.writeU32(allocator, buf, inst.encFCmpS(src_v, 31));
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try gpr.writeU32(allocator, buf, inst.encBCond(.ge, 0));
-        try bounds_fixups.append(allocator, fixup_at);
-    }
-}
-
-/// f64 counterpart of `emitTrunc32BoundsCheck` — same shape but
-/// uses `emitConstU64` (MOVZ + up to 3 MOVKs) staged through X16
-/// then FMOV D31, X16 + FCMP D-form. Used by sub-h3b's f64-source
-/// trapping trunc.
-fn emitTrunc64BoundsCheck(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    src_v: inst.Vn,
-    lower_bits: u64,
-    upper_bits: u64,
-    lower_cmp: inst.Cond,
-    bounds_fixups: *std.ArrayList(u32),
-) !void {
-    try gpr.writeU32(allocator, buf, inst.encFCmpD(src_v, src_v));
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try gpr.writeU32(allocator, buf, inst.encBCond(.vs, 0));
-        try bounds_fixups.append(allocator, fixup_at);
-    }
-    try op_const.emitConstU64(allocator, buf, 16, lower_bits);
-    try gpr.writeU32(allocator, buf, inst.encFmovDtoFromX(31, 16));
-    try gpr.writeU32(allocator, buf, inst.encFCmpD(src_v, 31));
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try gpr.writeU32(allocator, buf, inst.encBCond(lower_cmp, 0));
-        try bounds_fixups.append(allocator, fixup_at);
-    }
-    try op_const.emitConstU64(allocator, buf, 16, upper_bits);
-    try gpr.writeU32(allocator, buf, inst.encFmovDtoFromX(31, 16));
-    try gpr.writeU32(allocator, buf, inst.encFCmpD(src_v, 31));
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try gpr.writeU32(allocator, buf, inst.encBCond(.ge, 0));
-        try bounds_fixups.append(allocator, fixup_at);
-    }
 }
 
 // ============================================================
