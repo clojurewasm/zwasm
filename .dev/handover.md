@@ -14,26 +14,24 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `a6cd9f3`):
+直近 commit (HEAD = `ff7df89`):
 
-- `a6cd9f3` §9.7 / 7.5-spec-assertion-driver-e (corpus expand: unreachable.wast +63; 80/0/1)
+- `ff7df89` §9.7 / 7.5-spec-assertion-driver-f (D-033 discharged; local.get/set/tee width-aware; 81/0/0)
+- `a6cd9f3` §9.7 / 7.5-spec-assertion-driver-e (unreachable.wast +63; 80/0/1)
 - `b8ebe8e` §9.7 / 7.5-spec-assertion-driver-d (assert_trap; 17/0/1)
 - `c347bcd` §9.7 / 7.5-spec-assertion-driver-c (callI64* + handcrafted_i64; 14/0/1)
-- `5cbf28a` §9.7 / 7.5-spec-assertion-driver-b (10/0/0)
 
-**Active task**: spec-assertion-driver-e landed。regen script に
-`assert_trap` 出力 + i64 result/arg 受容を追加; curated NAMES に
-`unreachable` を追加 (63 traps 全 PASS)。`nop.wast` は試行 →
-`memory.grow` / `call_indirect` で no-memory/no-table JitRuntime
-を segfault させたため revert。richer-runtime 化は別 chunk。
-spec_assert_runner: 80/0/1。
+**Active task**: spec-assertion-driver-f landed。**D-033 discharge**:
+ARM64 emit の local.get/set/tee が declared type で i32→W/i64→X
+を分岐 (`localValType` helper)。SKIP'd `id i64:-1 -> i64:-1` を
+restore — spec_assert_runner: **81/0/0**。Pivot した — chunk-f は
+richer-runtime path 予定だったが D-033 の方が leverage 高。
 
-**NEXT** = `7.5-spec-assertion-driver-f` (richer-runtime path:
-JitRuntime に default memory + table を populate して
-`call_indirect` / `memory.grow` を含む corpus を取り込めるように
-する; nop.wast / br.wast / switch.wast 等が候補)。subsequent: -g
-(残 D-033/D-034 discharge or skip 整備), -h (broader
-wasm-1.0 set)。
+**NEXT** = `7.5-spec-assertion-driver-g` (richer JitRuntime: default
+memory page + table の populate で nop.wast / br.wast 等の
+memory.grow / call_indirect を含む corpus を取り込み)。
+subsequent: -h (FP local — f32/f64 local.get の V-reg encoders),
+-i (broader curated set)。SlotOverflow / D-034 は依然 hold。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -84,7 +82,9 @@ wasm-1.0 set)。
 | 7.5-spec-assertion-driver-c | i64 result (callI64*); handcrafted_i64; D-033 surface | DONE (c347bcd) |
 | 7.5-spec-assertion-driver-d | assert_trap directive + handcrafted_trap (17/0/1) | DONE (b8ebe8e) |
 | 7.5-spec-assertion-driver-e | regen に assert_trap + i64 受容; unreachable.wast 取込 (80/0/1) | DONE (a6cd9f3) |
-| 7.5-spec-assertion-driver-f | richer JitRuntime (default mem + table) で call_indirect / memory.grow 系を取り込み | **NEXT** |
+| 7.5-spec-assertion-driver-f | D-033 discharge (local.get/set/tee width-aware); 81/0/0 | DONE (ff7df89) |
+| 7.5-spec-assertion-driver-g | richer JitRuntime (default mem + table) で call_indirect / memory.grow 系を取り込み | **NEXT** |
+| 7.5-spec-assertion-driver-h | FP locals (f32/f64) の V-reg encoders + local.get/set/tee 拡張 | pending |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
