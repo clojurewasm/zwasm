@@ -14,25 +14,27 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `bfd9b70`):
+直近 commit (HEAD = `4f3cd36`):
 
+- `4f3cd36` §9.7 / 7.5-spec-assertion-driver-o (regalloc/abi pool mismatch fix; lesson + diag)
 - `bfd9b70` §9.7 / 7.5-spec-assertion-driver-n (D-034 memory+convert; ~40 ops)
 - `cdfac4a` §9.7 / 7.5-spec-assertion-driver-m (D-034 i64 family; 25 ops)
 - `a69ac4e` §9.7 / 7.5-spec-assertion-driver-l (D-034 i32 unary/cmp/bitcount/rot; 16 ops)
-- `ca80c4a` §9.7 / 7.5-spec-assertion-driver-k (D-034 emitI32Binary; 9 ops)
 
-**Active task**: spec-assertion-driver-n landed。op_memory.zig の
-`emitMemOp` (addr/value/result の 3 resolveGpr 経路) と
-op_convert.zig の Wrap32/ExtendI32S/ConvertIntToFloat/TruncSat/
-Reinterpret 4 variants を spill-aware に。FP-spill machinery は
-別 D entry。-k〜-n 通算 90 ops 程度の D-034 chain progress。
-1027 tests / 95/0/0 / 10/2 据え置き。
+**Active task**: spec-assertion-driver-o landed。
+**Root cause for SlotOverflow** identified: ADR-0027 が
+`allocatable_gprs.len` を 9→8 に下げたが、`max_reg_slots` default
+は 9 のまま (cross-module sync miss)。`slotToReg(8) → null` で
+SlotOverflow 発火。Fix: `max_reg_slots = 8`。spec-jit-compile
+2 fails が `SlotOverflow` → `UnsupportedOp` に shift (resolveGpr
+が正しく spill 認識して、未 migrate handler が reject)。
+diagnostic + lesson 追加。
 
-**NEXT** = `7.5-spec-assertion-driver-o` (D-034 chain 最終
-piece + regalloc/liveness count desync 根本調査 — 真の
-SlotOverflow @ func[9] params=5 を解消する; spec-jit-compile
-2/12 fail を狙う最後の段)。subsequent: D-034 close (debt entry
-remove), -p (op_alu_float.zig FP ops, op_call.zig)。
+**NEXT** = `7.5-spec-assertion-driver-p` (D-034 chain 残り — FP /
+call / select / float-ALU handler を spill-aware 化。op_alu_float
+.zig + op_call.zig + emit.zig の select arm を refactor して
+未 migrate UnsupportedOp を解消; spec-jit-compile 12/12 PASS が
+ターゲット)。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -92,8 +94,8 @@ remove), -p (op_alu_float.zig FP ops, op_call.zig)。
 | 7.5-spec-assertion-driver-l | D-034 i32 unary/cmp/bitcount/rot (16 ops) | DONE (a69ac4e) |
 | 7.5-spec-assertion-driver-m | D-034 i64 family (25 ops) | DONE (cdfac4a) |
 | 7.5-spec-assertion-driver-n | D-034 memory / convert handlers (~40 ops) | DONE (bfd9b70) |
-| 7.5-spec-assertion-driver-o | regalloc/liveness count desync 調査 (true SlotOverflow root) | **NEXT** |
-| 7.5-spec-assertion-driver-p | D-034 残り (op_alu_float / op_call) + chain close | pending |
+| 7.5-spec-assertion-driver-o | regalloc/abi pool mismatch root cause + fix | DONE (4f3cd36) |
+| 7.5-spec-assertion-driver-p | D-034 残り (op_alu_float / op_call / select) + chain close | **NEXT** |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
