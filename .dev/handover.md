@@ -14,26 +14,26 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `75668e1`):
+直近 commit (HEAD = `668c092`):
 
-- `75668e1` §9.7 / 7.5-diag-spill (gpr.zig spill-reject diag; 7/12)
-- `4440622` §9.7 / 7.5-select-op (CSEL Wd; nop.0 clears; 6→7)
+- `668c092` §9.7 / 7.5-br-to-function (`br N` / `br_if N` accept depth==labels.len)
+- `75668e1` §9.7 / 7.5-diag-spill
+- `4440622` §9.7 / 7.5-select-op (6→7)
 - `962a24c` §9.7 / 7.5-diag-op
 - `764f212` §9.7 / 7.5-emit-deadcode
 - `8874bbb` §9.7 / 7.5-return-op (5→6)
-- `67eb894` §9.7 / 7.5-block-result-deadcode
 
-**Active task**: diag-spill landed (7/12 stays; spill path は
-今回の fails の原因ではないと判明 — 別の UnsupportedOp 経路)。
+**Active task**: br-to-function landed (7/12 stays; unwind.0 が
+func[1] → func[5] に shift = `br_table 0` at function-depth)。
 **残 5/12**:
 - local_get/set.0 — SlotOverflow @ func[9] params=5 (regalloc pool)
-- unreachable.0 / unwind.0 / labels.0 — UnsupportedOp at deeper funcs
-  (`arm64/emit:` 出ず → `op_call.zig` arg-marshal limits や
-  `local_idx >= total_locals` 等の inner reject 候補)
+- unwind.0 func[5] — br_table to function-depth
+- unreachable.0 func[29] / labels.0 func[15] — deeper UnsupportedOp
 
-**NEXT** = `7.5-investigate-unwind` (一番 shallow な unwind.0
-func[1] = 0 params, 0 results を per-op で trace; どの handler
-が UnsupportedOp を返すかを inline byte test で repro)。
+**NEXT** = `7.5-br-table-to-function` (op_control.emitBranchToDepth
+に depth==labs.len 時の return 処理を追加。emitBrTable の per-case
+ループから function-depth case を marshal+B-fixup で解決。emitCtx を
+emitBranchToDepth に渡すリファクタが必要)。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -72,7 +72,9 @@ func[1] = 0 params, 0 results を per-op で trace; どの handler
 | 7.5-diag-op | unsupported op tag + param reject reason を stderr に出力 | DONE (962a24c) |
 | 7.5-select-op | wasm `select` + `select_typed` (CMP + CSEL Wd) | DONE (4440622; 6→7) |
 | 7.5-diag-spill | gpr.zig の spill reject path に diag (将来用 infra) | DONE (75668e1) |
-| 7.5-investigate-unwind | unwind.0 func[1] の UnsupportedOp 起点を per-op で trace | **NEXT** |
+| 7.5-investigate-unwind | unwind.0 func[1] の UnsupportedOp 起点を per-op で trace | DONE (br-to-function fix で解決) |
+| 7.5-br-to-function | `br N` / `br_if N` で depth==labels.len を return として扱う | DONE (668c092) |
+| 7.5-br-table-to-function | `br_table` の per-case で function-depth case を return として扱う | **NEXT** |
 | 7.5-spill-enable | regalloc pool 枯渇時に spill を enable (SlotOverflow 解消) | pending |
 | 7.5-local-type-aware | local.get/set/tee の width を declared type 別に (D-033 discharge) | pending |
 | 7.5-spec-assertion-driver | wast2json で spec corpus を `.wasm` + assertion manifest 化 → JIT 経由で execute → pass/fail counts | pending |
@@ -105,6 +107,7 @@ zone placement / "constant overhead" / WASI prereq 等)。
 
 ## Recently closed (full history via `git log --oneline`)
 
+- §9.7 / 7.5-br-to-function (668c092): emitBr / emitBrIf が `payload == labels.items.len` の場合 (Wasm spec §3.3.5 の implicit function-level block) を return として処理。EmitCtx に `return_fixups: *List(u32)` を追加して既存の return-op 機構を共有。emitBrIf は CBZ skip + marshal + B epilogue + skip-target patch の 4-instruction shape。`>=` の reject を `>` に絞る。spec-jit-compile pass count 据え置き 7/12 だが unwind.0 が func[1] → func[5] (br_table at function-depth) に shift。
 - §9.7 / 7.5-diag-spill (75668e1): arm64/gpr.zig の `resolveGpr` / `resolveFp` の `.spill` arm に stderr diag を追加。今回の残 fails では trigger されない (= spill path 由来ではない) と判明。次の chunk は inner reject path を直接 trace する方が速い。
 - §9.7 / 7.5-select-op (4440622): arm64/emit に `select` + `select_typed` を追加。inst.zig に encCselW + encCselX。CMP + CSEL Wd で 32-bit i32 select を実装 (i64 + FP 変種は debt 化保留)。spec-jit-compile 6→7 (nop.0 clears)。
 - §9.7 / 7.5-diag-op (962a24c): arm64/emit.zig に 3 つの stderr 診断を追加 (catch-all switch arm の op tag、prologue の > 7 params reject、prologue の non-int param-type reject)。spec-jit-compile-runner の出力で残り fails 4 件 (nop.0 / labels.0 / unreachable.0 / unwind.0) が `select` op 未実装で詰まっていることを確認。
