@@ -29,23 +29,23 @@ assert_return i64-dec-sep1 () -> i64:1000000
 assert_return i64-dec-sep2 () -> i64:1000
 assert_return i64-hex-sep1 () -> i64:3078696982321561
 assert_return i64-hex-sep2 () -> i64:109071
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
-skip directive-assert_malformed
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text
+skip directive-assert_malformed-text

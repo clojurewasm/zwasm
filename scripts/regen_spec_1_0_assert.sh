@@ -134,6 +134,17 @@ for c in d['commands']:
         # phrasing differs from upstream), so we drop it for now —
         # any rejection counts as PASS.
         lines.append(f'assert_invalid {c["filename"]}')
+    elif t == 'assert_malformed':
+        # 7.5-close-b: parser-level rejection (truly malformed
+        # bytes, not just type-incorrect modules). Same runner
+        # shape as assert_invalid; the rejection-or-accept signal
+        # is what counts. wast2json may emit `module_type ==
+        # 'text'` for .wast that doesn't decompile to .wasm —
+        # those have no `filename` and we have to skip.
+        if c.get('module_type') != 'binary' or 'filename' not in c:
+            lines.append(f'skip directive-assert_malformed-text')
+            continue
+        lines.append(f'assert_malformed {c["filename"]}')
     else:
         lines.append(f'skip directive-{t}')
 with open(dst, 'w') as f:
@@ -145,7 +156,7 @@ PY
   # malformed .wasm fixtures that the runner reads + validates).
   while read -r line; do
     set -- $line
-    if [ "$1" = "module" ] || [ "$1" = "assert_invalid" ]; then
+    if [ "$1" = "module" ] || [ "$1" = "assert_invalid" ] || [ "$1" = "assert_malformed" ]; then
       cp "$TMP/$2" "$out_dir/"
     fi
   done < "$out_dir/manifest.txt"

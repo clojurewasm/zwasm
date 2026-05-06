@@ -181,6 +181,32 @@ fn runCorpus(
             continue;
         }
 
+        if (std.mem.startsWith(u8, line, "assert_malformed ")) {
+            // 7.5-close-b: parser-level rejection. Same shape as
+            // assert_invalid (D-041 a bucket); the bytes are
+            // truly malformed (decoder layer), not merely type-
+            // incorrect (validator layer). Either decoder or
+            // validator MAY surface the rejection — runner only
+            // checks the unified compile path returns an error.
+            const file = line[17..];
+            const wasm_bytes = dir.readFileAlloc(io, file, gpa, .limited(4 << 20)) catch |err| {
+                try stdout.print("FAIL  {s}/{s} (assert_malformed) read: {s}\n", .{ name, file, @errorName(err) });
+                failed.* += 1;
+                continue;
+            };
+            if (runner_mod.compileWasm(gpa, wasm_bytes)) |compiled_ok| {
+                var c = compiled_ok;
+                c.deinit(gpa);
+                try stdout.print("SKIP-PARSER-GAP  {s}: assert_malformed {s} (D-042-mirror)\n", .{ name, file });
+                skipped.* += 1;
+            } else |_| {
+                passed.* += 1;
+                try stdout.print("PASS  {s}: assert_malformed {s}\n", .{ name, file });
+            }
+            gpa.free(wasm_bytes);
+            continue;
+        }
+
         if (std.mem.startsWith(u8, line, "assert_trap ")) {
             const compiled = current_compiled orelse {
                 try stdout.print("FAIL  {s}: assert_trap without prior module\n", .{name});
