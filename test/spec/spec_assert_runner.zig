@@ -143,6 +143,27 @@ fn runCorpus(
             continue;
         }
 
+        if (std.mem.startsWith(u8, line, "assert_trap ")) {
+            const compiled = current_compiled orelse {
+                try stdout.print("FAIL  {s}: assert_trap without prior module\n", .{name});
+                failed.* += 1;
+                continue;
+            };
+            const wasm = current_wasm.?;
+            const ok = runAssertTrap(gpa, wasm, &compiled, line[12..], stdout, name) catch |err| {
+                try stdout.print("FAIL  {s}: {s} (error {s})\n", .{ name, line, @errorName(err) });
+                failed.* += 1;
+                continue;
+            };
+            if (ok) {
+                passed.* += 1;
+                try stdout.print("PASS  {s}: {s}\n", .{ name, line });
+            } else {
+                failed.* += 1;
+            }
+            continue;
+        }
+
         try stdout.print("FAIL  {s}: unknown directive '{s}'\n", .{ name, line });
         failed.* += 1;
     }
@@ -272,6 +293,97 @@ fn runAssertReturn(
 
     if (got != expected) {
         try stdout.print("FAIL  {s}: {s}({s}) → got {d}, expected {d}\n", .{ name, fn_name, args_s, got, expected });
+        return false;
+    }
+    return true;
+}
+
+/// `assert_trap <fn> <args>` (reason discrimination is D-022 work).
+/// Invokes the function and checks that `Error.Trap` is observed.
+fn runAssertTrap(
+    gpa: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    compiled: *const runner_mod.CompiledWasm,
+    rest: []const u8,
+    stdout: *std.Io.Writer,
+    name: []const u8,
+) !bool {
+    const sp1 = std.mem.findScalar(u8, rest, ' ') orelse return error.BadDirective;
+    const fn_name = rest[0..sp1];
+    const args_s = rest[sp1 + 1 ..];
+
+    const func_idx = runner_mod.findExportFunc(gpa, wasm_bytes, fn_name) catch |err| {
+        try stdout.print("FAIL  {s}: findExport({s}): {s}\n", .{ name, fn_name, @errorName(err) });
+        return false;
+    };
+
+    var memory: [0]u8 = .{};
+    var rt: entry.JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+    };
+
+    var args: [2]ArgValue = undefined;
+    var n_args: usize = 0;
+    if (!std.mem.eql(u8, args_s, "()")) {
+        var arg_it = std.mem.tokenizeScalar(u8, args_s, ' ');
+        while (arg_it.next()) |tok| {
+            if (n_args >= 2) {
+                try stdout.print("FAIL  {s}: > 2 args unsupported in assert_trap ({s})\n", .{ name, args_s });
+                return false;
+            }
+            if (std.mem.startsWith(u8, tok, "i32:")) {
+                args[n_args] = .{ .kind = .i32, .val = try parseI32Token(tok[4..]) };
+            } else if (std.mem.startsWith(u8, tok, "i64:")) {
+                args[n_args] = .{ .kind = .i64, .val = try parseI64Token(tok[4..]) };
+            } else {
+                try stdout.print("FAIL  {s}: unsupported arg type ({s})\n", .{ name, tok });
+                return false;
+            }
+            n_args += 1;
+        }
+    }
+
+    // Dispatch — same shape table as runAssertReturn but we discard
+    // the i32/i64 distinction on the result side (any Error.Trap is
+    // a pass for assert_trap; reason discrimination = D-022 / M3).
+    const got_trap: bool = blk: {
+        if (n_args == 0) {
+            _ = entry.callI32NoArgs(compiled.module, func_idx, &rt) catch |err| switch (err) {
+                error.Trap => break :blk true,
+            };
+            break :blk false;
+        }
+        if (n_args == 1 and args[0].kind == .i32) {
+            _ = entry.callI32_i32(compiled.module, func_idx, &rt, @intCast(args[0].val)) catch |err| switch (err) {
+                error.Trap => break :blk true,
+            };
+            break :blk false;
+        }
+        if (n_args == 1 and args[0].kind == .i64) {
+            _ = entry.callI64_i64(compiled.module, func_idx, &rt, args[0].val) catch |err| switch (err) {
+                error.Trap => break :blk true,
+            };
+            break :blk false;
+        }
+        if (n_args == 2 and args[0].kind == .i32 and args[1].kind == .i32) {
+            _ = entry.callI32_i32i32(compiled.module, func_idx, &rt, @intCast(args[0].val), @intCast(args[1].val)) catch |err| switch (err) {
+                error.Trap => break :blk true,
+            };
+            break :blk false;
+        }
+        try stdout.print("FAIL  {s}: assert_trap unsupported (n_args={d}) for {s}({s})\n", .{ name, n_args, fn_name, args_s });
+        return false;
+    };
+
+    if (!got_trap) {
+        try stdout.print("FAIL  {s}: assert_trap {s}({s}) → did NOT trap\n", .{ name, fn_name, args_s });
         return false;
     }
     return true;

@@ -1,0 +1,4 @@
+module m.wasm
+assert_trap always_traps ()
+assert_return trap_on_neg i32:5 -> i32:5
+assert_trap trap_on_neg i32:-1
