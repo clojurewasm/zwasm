@@ -20,6 +20,7 @@ const Allocator = std.mem.Allocator;
 const parser = @import("../parse/parser.zig");
 const sections = @import("../parse/sections.zig");
 const zir = @import("../ir/zir.zig");
+const validator_mod = @import("../validate/validator.zig");
 const FuncType = zir.FuncType;
 const compile_func = @import("codegen/shared/compile.zig");
 const linker = @import("codegen/shared/linker.zig");
@@ -33,7 +34,7 @@ pub const Error = error{
     ExportNotFound,
     ExportIsNotFunction,
     UnsupportedEntrySignature,
-} || compile_func.Error || parser.Error || sections.Error || linker.Error || entry.Error;
+} || compile_func.Error || parser.Error || sections.Error || linker.Error || entry.Error || validator_mod.Error;
 
 /// Compile every defined function in `wasm_bytes` and link into
 /// a single JitModule. Caller owns the module — pair with
@@ -107,6 +108,34 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         func_sigs[i] = types.items[type_idx];
     }
 
+    // 7.5-close-d042-prep: decode globals / tables / data /
+    // elements so we can build the validator's per-function
+    // type-checking context. Sections are OPTIONAL; absent
+    // sections yield empty slices / 0 counts.
+    var globals_buf: ?sections.Globals = null;
+    defer if (globals_buf) |*g| g.deinit();
+    var tables_buf: ?sections.Tables = null;
+    defer if (tables_buf) |*t| t.deinit();
+    var datas_buf: ?sections.Datas = null;
+    defer if (datas_buf) |*d| d.deinit();
+    var elems_buf: ?sections.Elements = null;
+    defer if (elems_buf) |*e| e.deinit();
+
+    if (module.find(.global)) |s| globals_buf = try sections.decodeGlobals(allocator, s.body);
+    if (module.find(.table)) |s| tables_buf = try sections.decodeTables(allocator, s.body);
+    if (module.find(.data)) |s| datas_buf = try sections.decodeData(allocator, s.body);
+    if (module.find(.element)) |s| elems_buf = try sections.decodeElement(allocator, s.body);
+
+    const validator_globals = try a.alloc(validator_mod.GlobalEntry, if (globals_buf) |g| g.items.len else 0);
+    if (globals_buf) |g| {
+        for (g.items, 0..) |gd, gi| {
+            validator_globals[gi] = .{ .valtype = gd.valtype, .mutable = gd.mutable };
+        }
+    }
+    const validator_tables: []const zir.TableEntry = if (tables_buf) |t| t.items else &.{};
+    const validator_data_count: u32 = if (datas_buf) |d| @intCast(d.items.len) else 0;
+    const validator_elem_count: u32 = if (elems_buf) |e| @intCast(e.items.len) else 0;
+
     // Compile each defined function. On failure, log the
     // offending func_idx to stderr — the spec-jit-compile runner
     // captures this via `2>&1 > /tmp/<host>.log` so root-cause
@@ -117,6 +146,31 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     var compiled: usize = 0;
     errdefer for (results[0..compiled]) |*r| compile_func.deinitFuncResult(allocator, r);
     for (codes.items, 0..) |code, i| {
+        // 7.5-close-d042-impl: validate before compile. Surfaces
+        // type-mismatch / unknown-local / unknown-global etc. as
+        // ValidationFailed instead of silent miscompile or arbitrary
+        // lower-side errors. The full validator-context split is
+        // documented in `.dev/lessons/2026-05-07-validator-dead-
+        // code-in-runtime.md`.
+        validator_mod.validateFunction(
+            func_sigs[i],
+            code.locals,
+            code.body,
+            func_sigs,
+            validator_globals,
+            types.items,
+            validator_data_count,
+            validator_tables,
+            validator_elem_count,
+        ) catch |err| {
+            std.debug.print("compileWasm: func[{d}] params={d} results={d} → validate {s}\n", .{
+                i,
+                func_sigs[i].params.len,
+                func_sigs[i].results.len,
+                @errorName(err),
+            });
+            return err;
+        };
         results[i] = compile_func.compileOne(
             allocator,
             @intCast(i),
