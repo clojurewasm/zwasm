@@ -367,6 +367,21 @@ pub fn encStrDImm(vt: Vn, rn: Xn, byte_offset: u15) u32 {
     return 0xFD000000 | (imm12 << 10) | (@as(u32, rn) << 5) | @as(u32, vt);
 }
 
+/// `LDR Sn, [Xn|SP, #pimm]` — 32-bit FP load (zero-extending into low 32).
+/// Mirror of `encStrSImm` with bit23 set (load).
+pub fn encLdrSImm(vt: Vn, rn: Xn, byte_offset: u14) u32 {
+    std.debug.assert(byte_offset % 4 == 0);
+    const imm12: u32 = @as(u32, byte_offset) >> 2;
+    return 0xBD400000 | (imm12 << 10) | (@as(u32, rn) << 5) | @as(u32, vt);
+}
+
+/// `LDR Dn, [Xn|SP, #pimm]` — 64-bit FP load (low 64 of V).
+pub fn encLdrDImm(vt: Vn, rn: Xn, byte_offset: u15) u32 {
+    std.debug.assert(byte_offset % 8 == 0);
+    const imm12: u32 = @as(u32, byte_offset) >> 3;
+    return 0xFD400000 | (imm12 << 10) | (@as(u32, rn) << 5) | @as(u32, vt);
+}
+
 /// `CSEL Wd, Wn, Wm, cond` — 32-bit conditional select.
 /// `Wd = if (cond holds) Wn else Wm`. Encoding: `0 0 0 1 1 0 1 0
 /// 1 0 0 [Rm:5] [cond:4] 0 0 [Rn:5] [Rd:5]` = `0x1A800000 |

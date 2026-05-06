@@ -519,7 +519,15 @@ pub fn compile(
                 switch (ty) {
                     .i32 => try gpr.writeU32(allocator, &buf, inst.encLdrImmW(rd, 31, offset_w)),
                     .i64 => try gpr.writeU32(allocator, &buf, inst.encLdrImm(rd, 31, offset_x)),
-                    .f32, .f64, .v128, .funcref, .externref => {
+                    .f32 => {
+                        const vd = try gpr.resolveFp(alloc, vreg);
+                        try gpr.writeU32(allocator, &buf, inst.encLdrSImm(vd, 31, offset_w));
+                    },
+                    .f64 => {
+                        const vd = try gpr.resolveFp(alloc, vreg);
+                        try gpr.writeU32(allocator, &buf, inst.encLdrDImm(vd, 31, offset_x));
+                    },
+                    .v128, .funcref, .externref => {
                         std.debug.print("arm64/emit: local.get type `{s}` unsupported (idx={d})\n", .{ @tagName(ty), local_idx });
                         return Error.UnsupportedOp;
                     },
@@ -536,11 +544,24 @@ pub fn compile(
                 const offset_w: u14 = @intCast(local_idx * 8);
                 const offset_x: u15 = @intCast(local_idx * 8);
                 const src = pushed_vregs.pop().?;
-                const rs = try gpr.resolveGpr(alloc, src);
                 switch (ty) {
-                    .i32 => try gpr.writeU32(allocator, &buf, inst.encStrImmW(rs, 31, offset_w)),
-                    .i64 => try gpr.writeU32(allocator, &buf, inst.encStrImm(rs, 31, offset_x)),
-                    .f32, .f64, .v128, .funcref, .externref => {
+                    .i32 => {
+                        const rs = try gpr.resolveGpr(alloc, src);
+                        try gpr.writeU32(allocator, &buf, inst.encStrImmW(rs, 31, offset_w));
+                    },
+                    .i64 => {
+                        const rs = try gpr.resolveGpr(alloc, src);
+                        try gpr.writeU32(allocator, &buf, inst.encStrImm(rs, 31, offset_x));
+                    },
+                    .f32 => {
+                        const vs = try gpr.resolveFp(alloc, src);
+                        try gpr.writeU32(allocator, &buf, inst.encStrSImm(vs, 31, offset_w));
+                    },
+                    .f64 => {
+                        const vs = try gpr.resolveFp(alloc, src);
+                        try gpr.writeU32(allocator, &buf, inst.encStrDImm(vs, 31, offset_x));
+                    },
+                    .v128, .funcref, .externref => {
                         std.debug.print("arm64/emit: local.set type `{s}` unsupported (idx={d})\n", .{ @tagName(ty), local_idx });
                         return Error.UnsupportedOp;
                     },
@@ -556,11 +577,24 @@ pub fn compile(
                 const offset_w: u14 = @intCast(local_idx * 8);
                 const offset_x: u15 = @intCast(local_idx * 8);
                 const src = pushed_vregs.items[pushed_vregs.items.len - 1];
-                const rs = try gpr.resolveGpr(alloc, src);
                 switch (ty) {
-                    .i32 => try gpr.writeU32(allocator, &buf, inst.encStrImmW(rs, 31, offset_w)),
-                    .i64 => try gpr.writeU32(allocator, &buf, inst.encStrImm(rs, 31, offset_x)),
-                    .f32, .f64, .v128, .funcref, .externref => {
+                    .i32 => {
+                        const rs = try gpr.resolveGpr(alloc, src);
+                        try gpr.writeU32(allocator, &buf, inst.encStrImmW(rs, 31, offset_w));
+                    },
+                    .i64 => {
+                        const rs = try gpr.resolveGpr(alloc, src);
+                        try gpr.writeU32(allocator, &buf, inst.encStrImm(rs, 31, offset_x));
+                    },
+                    .f32 => {
+                        const vs = try gpr.resolveFp(alloc, src);
+                        try gpr.writeU32(allocator, &buf, inst.encStrSImm(vs, 31, offset_w));
+                    },
+                    .f64 => {
+                        const vs = try gpr.resolveFp(alloc, src);
+                        try gpr.writeU32(allocator, &buf, inst.encStrDImm(vs, 31, offset_x));
+                    },
+                    .v128, .funcref, .externref => {
                         std.debug.print("arm64/emit: local.tee type `{s}` unsupported (idx={d})\n", .{ @tagName(ty), local_idx });
                         return Error.UnsupportedOp;
                     },

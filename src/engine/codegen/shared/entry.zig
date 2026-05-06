@@ -416,6 +416,53 @@ test "entry: callI32_i32 — 1 i32 param echoed through W1 → SP slot 0 → res
     try testing.expectEqual(@as(u32, 42), try callI32_i32(module, 0, &rt, 42));
 }
 
+test "entry: f32 local round-trip — local.get 0 of f32 param via V0" {
+    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
+        return error.SkipZigTest;
+    }
+    // (param f32) (result f32) — body: local.get 0; end
+    // The prologue STR S0, [SP, #0] (multi-arg-entry FP path);
+    // local.get 0 must LDR S<vd>, [SP, #0] (D-NNN FP-local fix);
+    // end MOVs into V0 / S0 for return.
+    const sig: zir.FuncType = .{ .params = &.{.f32}, .results = &.{.f32} };
+    var fn0 = ZirFunc.init(0, sig, &.{});
+    defer fn0.deinit(testing.allocator);
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"end" });
+    fn0.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const sigs = [_]zir.FuncType{sig};
+
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{});
+    defer emit.deinit(testing.allocator, out0);
+
+    const bodies = [_]linker.FuncBody{
+        .{ .bytes = out0.bytes, .call_fixups = out0.call_fixups },
+    };
+    var module = try linker.link(testing.allocator, &bodies);
+    defer module.deinit(testing.allocator);
+
+    var memory: [0]u8 = .{};
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+    };
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: f32) callconv(.c) f32;
+    const f = module.entry(0, Fn);
+    try testing.expectEqual(@as(f32, 3.5), f(&rt, 3.5));
+    try testing.expectEqual(@as(f32, -1.25), f(&rt, -1.25));
+}
+
 test "entry: callI64NoArgs — i64.const 0xDEADBEEFCAFE returns full 64-bit" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
         return error.SkipZigTest;
