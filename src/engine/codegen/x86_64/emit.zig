@@ -54,6 +54,7 @@ const op_convert = @import("op_convert.zig");
 const op_memory = @import("op_memory.zig");
 const op_control = @import("op_control.zig");
 const op_call = @import("op_call.zig");
+const op_globals = @import("op_globals.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
@@ -273,8 +274,8 @@ pub fn compile(
             .@"f32.load", .@"f64.load",
             .@"f32.store", .@"f64.store",
             => try op_memory.emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.op, ins.payload, func.func_idx),
-            .@"global.get" => try emitI32GlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
-            .@"global.set" => try emitI32GlobalSet(allocator, &buf, alloc, &pushed_vregs, ins.payload),
+            .@"global.get" => try op_globals.emitI32GlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
+            .@"global.set" => try op_globals.emitI32GlobalSet(allocator, &buf, alloc, &pushed_vregs, ins.payload),
             .@"block" => try op_control.emitBlock(allocator, &labels),
             .@"loop" => try op_control.emitLoop(allocator, &buf, &labels),
             .@"br" => try op_control.emitBr(allocator, &buf, &labels, ins.payload),
@@ -452,54 +453,6 @@ fn emitLocalTee(
     const src_v = pushed_vregs.items[pushed_vregs.items.len - 1];
     const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
     try buf.appendSlice(allocator, inst.encStoreR32MemRBP(disp, src_r).slice());
-}
-
-/// `global.get N` (i32) — load `[globals_base + N*8]` low 32 bits
-/// into a fresh dst vreg. Per ADR-0027 + ADR-0026 reload pattern:
-///
-///   MOV RAX, [R15 + globals_base_off]  ; reload globals_base ptr
-///   MOV R<dst>, [RAX + N*8]            ; load i32 (low 4 bytes of slot)
-///
-/// idx range: u32 from ZirInstr.payload; byte_offset = idx * 8
-/// must fit i32 (≈ 268M globals max), well beyond Wasm spec.
-fn emitI32GlobalGet(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    next_vreg: *u32,
-    idx: u32,
-) Error!void {
-    if (idx > 0x0FFF_FFFF) return Error.SlotOverflow; // sane Wasm-module ceiling
-    const result_v = next_vreg.*;
-    next_vreg.* += 1;
-    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
-    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
-    const byte_off: i32 = @intCast(idx * 8);
-
-    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
-    try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(dst_r, .rax, byte_off).slice());
-    try pushed_vregs.append(allocator, result_v);
-}
-
-/// `global.set N` (i32) — pop a vreg, store its low 32 bits to
-/// `[globals_base + N*8]`. Upper 4 bytes of the slot left
-/// untouched (i32-typed globals; slot zero-init at module load).
-fn emitI32GlobalSet(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    idx: u32,
-) Error!void {
-    if (idx > 0x0FFF_FFFF) return Error.SlotOverflow;
-    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-    const src_v = pushed_vregs.pop().?;
-    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
-    const byte_off: i32 = @intCast(idx * 8);
-
-    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
-    try buf.appendSlice(allocator, inst.encStoreR32MemDisp32(src_r, .rax, byte_off).slice());
 }
 
 // ============================================================
