@@ -79,6 +79,9 @@ pub const EmitCtx = struct {
     /// Memory-bounds-trap fixups awaiting trap-stub emission at
     /// function-final `end`.
     bounds_fixups: *std.ArrayList(u32),
+    /// `return` / `br <function-depth>` placeholders; patched at
+    /// function-final `end` to share the regular epilogue path.
+    return_fixups: *std.ArrayList(u32),
     /// `BL` fixups exposed via `EmitOutput` for the post-emit
     /// linker.
     call_fixups: *std.ArrayList(CallFixup),

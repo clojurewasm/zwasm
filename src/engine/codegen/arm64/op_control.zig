@@ -68,9 +68,51 @@ pub fn emitLoop(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// `br N` — unconditional branch to label at depth N (0 =
 /// innermost). Backward (loop) targets resolve to a concrete
 /// disp now; forward targets emit a placeholder + append a
-/// Fixup for the matching end to patch.
+/// Fixup for the matching end to patch. When `N` equals the
+/// number of explicit labels, the branch targets the implicit
+/// function-level block (= `return`); marshal the function's
+/// result and append to `return_fixups` so the final `end`
+/// patches it to the regular epilogue.
 pub fn emitBr(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
-    if (ins.payload >= ctx.labels.items.len) return Error.UnsupportedOp;
+    if (ins.payload == ctx.labels.items.len) {
+        // br <function-depth>: equivalent to `return`.
+        // Marshal the top-of-stack value as the function's
+        // result (if the signature has one) and emit a B-fixup
+        // pointing at the function epilogue.
+        if (ctx.pushed_vregs.items.len > 0 and ctx.func.sig.results.len > 0) {
+            const top_vreg = ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1];
+            const result_kind = ctx.func.sig.results[0];
+            switch (result_kind) {
+                .f32, .f64 => {
+                    const src_vn = try gpr.resolveFp(ctx.alloc, top_vreg);
+                    if (src_vn != 0) {
+                        const base: u32 = if (result_kind == .f64) 0x1E604000 else 0x1E204000;
+                        try gpr.writeU32(ctx.allocator, ctx.buf, base | (@as(u32, src_vn) << 5));
+                    }
+                },
+                .i32, .i64, .v128, .funcref, .externref => {
+                    const src_xn = try gpr.gprLoadSpilled(
+                        ctx.allocator,
+                        ctx.buf,
+                        ctx.alloc,
+                        ctx.spill_base_off,
+                        top_vreg,
+                        0,
+                    );
+                    if (src_xn != 0) {
+                        // ORR Xd, XZR, Xs — alias for MOV X0, Xs.
+                        const orr_word: u32 = 0xAA0003E0 | (@as(u32, src_xn) << 16);
+                        try gpr.writeU32(ctx.allocator, ctx.buf, orr_word);
+                    }
+                },
+            }
+        }
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
+        try ctx.return_fixups.append(ctx.allocator, fixup_at);
+        return;
+    }
+    if (ins.payload > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - ins.payload;
     const tgt = &ctx.labels.items[tgt_idx];
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -85,11 +127,56 @@ pub fn emitBr(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 }
 
 /// `br_if N` — pop cond; branch to label at depth N if non-zero.
+/// When N equals the number of explicit labels, the conditional
+/// branch targets the implicit function-level block (= conditional
+/// `return`); CBZ skip + marshal + B epilogue placeholder.
 pub fn emitBrIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const cond = ctx.pushed_vregs.pop().?;
     const wn = try gpr.resolveGpr(ctx.alloc, cond);
-    if (ins.payload >= ctx.labels.items.len) return Error.UnsupportedOp;
+    if (ins.payload == ctx.labels.items.len) {
+        // Conditional return: CBZ cond, skip ; marshal ; B
+        // epilogue ; skip:
+        const cbz_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(wn, 0));
+        if (ctx.pushed_vregs.items.len > 0 and ctx.func.sig.results.len > 0) {
+            const top_vreg = ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1];
+            const result_kind = ctx.func.sig.results[0];
+            switch (result_kind) {
+                .f32, .f64 => {
+                    const src_vn = try gpr.resolveFp(ctx.alloc, top_vreg);
+                    if (src_vn != 0) {
+                        const base: u32 = if (result_kind == .f64) 0x1E604000 else 0x1E204000;
+                        try gpr.writeU32(ctx.allocator, ctx.buf, base | (@as(u32, src_vn) << 5));
+                    }
+                },
+                .i32, .i64, .v128, .funcref, .externref => {
+                    const src_xn = try gpr.gprLoadSpilled(
+                        ctx.allocator,
+                        ctx.buf,
+                        ctx.alloc,
+                        ctx.spill_base_off,
+                        top_vreg,
+                        0,
+                    );
+                    if (src_xn != 0) {
+                        const orr_word: u32 = 0xAA0003E0 | (@as(u32, src_xn) << 16);
+                        try gpr.writeU32(ctx.allocator, ctx.buf, orr_word);
+                    }
+                },
+            }
+        }
+        const b_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
+        try ctx.return_fixups.append(ctx.allocator, b_at);
+        // Patch the CBZ to skip past the B (i.e. land at the
+        // current buf end — the next instruction).
+        const skip_byte: u32 = @intCast(ctx.buf.items.len);
+        const cbz_disp_words: i19 = @intCast(@divExact(@as(i32, @intCast(skip_byte)) - @as(i32, @intCast(cbz_at)), 4));
+        std.mem.writeInt(u32, ctx.buf.items[cbz_at..][0..4], inst.encCbzW(wn, cbz_disp_words), .little);
+        return;
+    }
+    if (ins.payload > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - ins.payload;
     const tgt = &ctx.labels.items[tgt_idx];
     const fixup_at: u32 = @intCast(ctx.buf.items.len);

@@ -347,6 +347,7 @@ pub fn compile(
         .next_vreg = &next_vreg,
         .labels = &labels,
         .bounds_fixups = &bounds_fixups,
+        .return_fixups = &return_fixups,
         .call_fixups = &call_fixups,
         .spill_base_off = spill_base_off,
     };
