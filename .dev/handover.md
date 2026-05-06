@@ -14,26 +14,26 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `8874bbb`):
+直近 commit (HEAD = `764f212`):
 
-- `8874bbb` §9.7 / 7.5-return-op (ARM64 `return`; epilogue 共有 B-fixup; 5→6)
+- `764f212` §9.7 / 7.5-emit-deadcode (`dead_code` flag in emit; 6/12 stays)
+- `8874bbb` §9.7 / 7.5-return-op (epilogue 共有 B-fixup; 5→6)
 - `67eb894` §9.7 / 7.5-block-result-deadcode (liveness tolerant)
-- `3253a68` §9.7 / 7.5-fp-params (V0..V7 STR S/D)
+- `3253a68` §9.7 / 7.5-fp-params (V0..V7)
 - `953eedf` §9.7 / 7.5-i64-params (D-033 filed)
 - `d286cbc` §9.7 / 7.5-nop
-- `7745172` §9.7 / 7.5-jit-compile-diag
 
-**Active task**: return-op landed (6/12; switch.0 clears)。
-**Diagnostic 後の残 fails (6/12)**:
+**Active task**: emit-deadcode landed (6/12 stays; unreachable.0
+が AllocationMissing → UnsupportedOp at deeper func; dead-code 経路は
+通った)。**残 fails (6/12)**:
 - local_get/set.0 — SlotOverflow @ func[9] params=5 (regalloc pool)
-- unreachable.0 func[20] — AllocationMissing (emit-side dead-code
-  pop が候補; liveness 側だけ fix 済)
-- nop.0 / unwind.0 / labels.0 — deeper UnsupportedOp
+- unreachable.0 — UnsupportedOp at func[29] (deeper op gap)
+- nop.0 / unwind.0 / labels.0 — UnsupportedOp at func[1/9/15]
 
-**NEXT** = `7.5-emit-deadcode` (emit.zig の `pushed_vregs.pop` を
-liveness と同じく tolerant 化; AllocationMissing at unreachable.0
-の解消候補)。並行で SlotOverflow → 7.5-spill-enable または regalloc
-pool 拡張、UnsupportedOp は per-func 詳細調査に進む。
+**NEXT** = `7.5-diag-op` (diagnostic を拡張して `compileWasm` が
+失敗時に最終 emitted-op を log。現状は func_idx + sig しか出ず
+どの op が UnsupportedOp を起こしたか不明; 次の chunk 設計が
+速くなる infra investment)。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -68,8 +68,9 @@ pool 拡張、UnsupportedOp は per-func 詳細調査に進む。
 | 7.5-fp-params | f32/f64 params (V0..V7 → STR S/D scalar マーシャル) | DONE (3253a68; 5/12) |
 | 7.5-block-result-deadcode | liveness の pop site を tolerant 化 (dead-code zone で no-op) | DONE (67eb894; OSU 解消) |
 | 7.5-return-op | wasm `return` op (mid-function early exit; B-fixup → epilogue) | DONE (8874bbb; 6/12) |
-| 7.5-emit-deadcode | emit.zig の `pushed_vregs.pop` を tolerant 化 (liveness 修正の emit mirror) | **NEXT** |
-| 7.5-spill-enable | regalloc pool 枯渇時に spill を enable (5+ params で SlotOverflow 解消) | pending |
+| 7.5-emit-deadcode | `dead_code` flag in emit; skip ops in poly-stack zone; reset on end/else | DONE (764f212; 6/12) |
+| 7.5-diag-op | compileWasm 失敗時の last-emitted-op を log で出す診断強化 | **NEXT** |
+| 7.5-spill-enable | regalloc pool 枯渇時に spill を enable (SlotOverflow 解消) | pending |
 | 7.5-local-type-aware | local.get/set/tee の width を declared type 別に (D-033 discharge) | pending |
 | 7.5-spec-assertion-driver | wast2json で spec corpus を `.wasm` + assertion manifest 化 → JIT 経由で execute → pass/fail counts | pending |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
@@ -101,6 +102,7 @@ zone placement / "constant overhead" / WASI prereq 等)。
 
 ## Recently closed (full history via `git log --oneline`)
 
+- §9.7 / 7.5-emit-deadcode (764f212): arm64/emit.zig の main op-loop に `dead_code: bool` flag。br/return/unreachable で set; end/else で reset; その他の op は dead 中スキップ。Wasm spec §3.3 polymorphic-stack を validator から信頼。unreachable.0 の AllocationMissing が UnsupportedOp at func[29] に shift (より deep な functions が compile を通った)。Limitation: end/else で常に reset するため deeply-nested dead 領域では under-track の可能性 (conservative; 余分な byte だが unreachable なので無害)。
 - §9.7 / 7.5-return-op (8874bbb): ARM64 emit に `return` op を追加。result marshal は end-handler の logic を inline 複製、その後 unconditional B placeholder を `return_fixups` に append。end-handler は frame teardown の byte offset (`epilogue_byte`) を capture し、return_fixups を全部 patch。trap stub は別 mechanism で従来通り。spec-jit-compile 5→6 (switch.0 clears via `return`)。
 - §9.7 / 7.5-block-result-deadcode (67eb894): `ir/analysis/liveness.zig` の pop site (if cond / br_if cond / call args / generic op pops) を「sim_len > 0 のとき pop、empty なら no-op」に変更。Wasm spec §3.3 polymorphic-stack の dead-code 領域で validator が既に shape を保証しているため、liveness は dead pop を tolerant にしてよい。push 側の max-stack overflow check は実 buffer 制約のため error のまま維持。labels.0 / unreachable.0 の OperandStackUnderflow が解消し別 gap (UnsupportedOp / AllocationMissing) に shift。
 - §9.7 / 7.5-fp-params (3253a68): arm64/emit.zig:134 の reject を f32/f64 にも開放; prologue を type-aware AAPCS64 multi-class marshalling に拡張 (independent int_arg_idx / fp_arg_idx counters)。inst.zig に `encStrSImm` / `encStrDImm` を追加。Mixed-sig (i32 f32 i64 f64) byte-level test を 1 つ追加。spec-jit-compile pass count 据え置き 5/12 だが local_get/set.0 が UnsupportedOp → SlotOverflow に shift (regalloc pool 5-param 枯渇; 別 chunk で対応)。
