@@ -14,10 +14,10 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `aec4e3c`):
+直近 commit (HEAD = `981d879`):
 
+- `981d879` feat(p7): §9.7 / 7.5-d030-d — x86_64 op_convert.zig (FP↔i / FP↔FP; 4208→3456 LOC)
 - `aec4e3c` feat(p7): §9.7 / 7.5-d030-c — x86_64 op_alu_float.zig (FP scalar; 4625→4208 LOC)
-- `13c81f3` chore(p7): retarget §9.7 / 7.5 chunks at 7.5-d030-c
 - `874b10b` feat(p7): §9.7 / 7.5-d030-b — x86_64 op_alu_int.zig (i32 ALU; 4925→4625 LOC)
 - `cd3ced5` feat(p7): §9.7 / 7.5-d030-a — x86_64 emit refactor foundation (types.zig + label.zig)
 - `601c7da` feat(p7): §9.7 / 7.5-d035-a — Wasm 2.0 multi-value block validation + lower
@@ -33,13 +33,11 @@ D-030 / D-038 が now。
 
 **NEXT(優先順)**:
 
-1. **D-030 chunk-d030-d: x86_64 op_convert.zig** — FP↔i / FP↔FP
-   conversions (emitFpConvertSimple / emitFpConvertI64Unsigned
-   / emitFpTruncSatU32/U64/Signed / emitFpTruncTrapSigned /
-   emitFpTruncTrapUnsigned + materialiseFpThreshold helper)。
-   ~700 LOC; trap path family bundle。
-2. **D-030 chunk-d030-e..i** — op_memory / op_control / op_call
-   / op_const / op_local 順次。
+1. **D-030 chunk-d030-e: x86_64 op_memory.zig** — emitMemOp
+   (i32/f32/f64 load/store ファミリ + bounds_fixup + RIP-relative
+   addressing)。emit.zig 3456 LOC からの次の大物抽出 (~250 LOC)。
+2. **D-030 chunk-d030-f..i** — op_control / op_call / op_const
+   / op_local / globals 順次。
 3. **D-035-b emit-side multi-result merge** — `Label.merge_top_vreg`
    を `?[]u32` 化、`emitEndIntra` で N MOV を emit。
 4. **D-038 emitEndIntra spill-staging** — BASELINE 2 → 0。
@@ -122,8 +120,9 @@ multi-value 修正後に再評価(関連する semantic 解釈が変わる可能
 | 7.5-d030-a | x86_64 emit refactor — types.zig + label.zig foundation | DONE (cd3ced5) |
 | 7.5-d030-b | x86_64 op_alu_int.zig (i32 ALU 6 fns; -300 LOC) | DONE (874b10b) |
 | 7.5-d030-c | x86_64 op_alu_float.zig (FP scalar 8 fns; -417 LOC) | DONE (aec4e3c) |
-| 7.5-d030-d | x86_64 op_convert.zig (FP↔i / FP↔FP convert; ~700 LOC) | **NEXT** |
-| 7.5-d030-e..i | x86_64 op_memory / op_control / op_call / op_const / op_local | pending |
+| 7.5-d030-d | x86_64 op_convert.zig (FP↔i / FP↔FP 7 fns; -752 LOC) | DONE (981d879) |
+| 7.5-d030-e | x86_64 op_memory.zig (emitMemOp + bounds_fixup) | **NEXT** |
+| 7.5-d030-f..i | x86_64 op_control / op_call / op_const / op_local / globals | pending |
 | 7.5-d035-b | multi-value blocks — emit-side merge_top_vreg → []u32 | pending |
 | 7.5-d038 | emitEndIntra spill-staging residual (chunk-d037-a leftover; BASELINE 2→0) | pending |
 | 7.5-spec-assertion-driver-v | (deferred) local_tee semantic miscompile / runner i64→i32 — re-evaluate post D-035 | deferred |
