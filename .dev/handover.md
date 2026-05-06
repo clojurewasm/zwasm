@@ -134,8 +134,9 @@ multi-value 修正後に再評価(関連する semantic 解釈が変わる可能
 | 7.5-d038 | emitEndIntra spill-staging refactor (BASELINE 2→0; D-038 closed) | DONE (d1b8523) |
 | 7.5-d035-c | emit-side multi-result MOV chain (D-035 closed; cap=8) + regression fix | DONE (13701e6 + a4b1510) |
 | 7.5-d040 | test-spec-assert → test-all (Mac aarch64 guard; D-040 closed) | DONE (3308a3c) |
-| 7.5-d041 | 94 skip 分類 → D-041 (4 buckets: 49 invalid / 20 malformed / 17 fp-result / 8 fp-arg) | **NEXT (file-only)** |
-| 7.5-close-c | FP non-int-result runner extension (+ multi-result fixture) | pending |
+| 7.5-d041 | 94 skip 分類 → D-041 (4 buckets: 49 invalid / 20 malformed / 17 fp-result / 8 fp-arg) | DONE (a6776e0; file-only) |
+| 7.5-close-c1 | void-result helpers (callVoidNoArgs / callVoid_i32 / callVoid_i32i32 / callVoid_i64); regen `len(results) == 0` 受け入れ; ~15 of local_set non-int-result skips を解除 | **NEXT** |
+| 7.5-close-c2 | true FP-result helpers (callI32_f32 / callF32_i32 / 等の missing combos) — D-041 c bucket 残り 2/17 + multi-result if/else fixture | pending |
 | 7.5-close-d | FP non-int-arg runner extension | pending |
 | 7.5-close-a | assert_invalid runner directive | pending |
 | 7.5-close-b | assert_malformed runner directive | pending |
