@@ -14,27 +14,27 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `4f3cd36`):
+直近 commit (HEAD = `7a8dcb6`):
 
-- `4f3cd36` §9.7 / 7.5-spec-assertion-driver-o (regalloc/abi pool mismatch fix; lesson + diag)
+- `7a8dcb6` §9.7 / 7.5-spec-assertion-driver-p (D-034 chain: globals/control/select/call/local.get + partial FP)
+- `4f3cd36` §9.7 / 7.5-spec-assertion-driver-o (regalloc/abi pool mismatch fix)
 - `bfd9b70` §9.7 / 7.5-spec-assertion-driver-n (D-034 memory+convert; ~40 ops)
 - `cdfac4a` §9.7 / 7.5-spec-assertion-driver-m (D-034 i64 family; 25 ops)
-- `a69ac4e` §9.7 / 7.5-spec-assertion-driver-l (D-034 i32 unary/cmp/bitcount/rot; 16 ops)
 
-**Active task**: spec-assertion-driver-o landed。
-**Root cause for SlotOverflow** identified: ADR-0027 が
-`allocatable_gprs.len` を 9→8 に下げたが、`max_reg_slots` default
-は 9 のまま (cross-module sync miss)。`slotToReg(8) → null` で
-SlotOverflow 発火。Fix: `max_reg_slots = 8`。spec-jit-compile
-2 fails が `SlotOverflow` → `UnsupportedOp` に shift (resolveGpr
-が正しく spill 認識して、未 migrate handler が reject)。
-diagnostic + lesson 追加。
+**Active task**: spec-assertion-driver-p landed。op_globals /
+emit.select / op_call (call_indirect idx + i32/i64 args) /
+op_alu_float (Copysign + Compare GPR scratch path) / op_control
+(BrIf / BrTable / If cond) / emit.local.get i32/i64 を spill-aware
+化。失敗モードが `resolveGpr rejected` → `resolveFp rejected`
+に shift — vreg ≥ max_reg_slots が `.spill` になって FP-spill
+machinery がない箇所で reject。これ以上は class-aware regalloc
++ V-class spill stage の構造的 piece が必要。
 
-**NEXT** = `7.5-spec-assertion-driver-p` (D-034 chain 残り — FP /
-call / select / float-ALU handler を spill-aware 化。op_alu_float
-.zig + op_call.zig + emit.zig の select arm を refactor して
-未 migrate UnsupportedOp を解消; spec-jit-compile 12/12 PASS が
-ターゲット)。
+**NEXT** = `7.5-spec-assertion-driver-q` (FP-spill machinery 設計
+着手 — V-class scratch register reservation + encLdrSImm/encStrSImm
+spill paths、もしくは class-aware regalloc で GPR/FP 別の slot
+pool を持つ。spec-jit-compile 12/12 PASS が究極ターゲット;
+chunk-q は構造的 ADR が必要なら ADR 化)。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -95,7 +95,8 @@ call / select / float-ALU handler を spill-aware 化。op_alu_float
 | 7.5-spec-assertion-driver-m | D-034 i64 family (25 ops) | DONE (cdfac4a) |
 | 7.5-spec-assertion-driver-n | D-034 memory / convert handlers (~40 ops) | DONE (bfd9b70) |
 | 7.5-spec-assertion-driver-o | regalloc/abi pool mismatch root cause + fix | DONE (4f3cd36) |
-| 7.5-spec-assertion-driver-p | D-034 残り (op_alu_float / op_call / select) + chain close | **NEXT** |
+| 7.5-spec-assertion-driver-p | D-034 chain (globals/control/select/call/local.get + partial FP) | DONE (7a8dcb6) |
+| 7.5-spec-assertion-driver-q | FP-spill machinery (V-class scratch + encLdrSImm/encStrSImm spill paths) — ADR 候補 | **NEXT** |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
