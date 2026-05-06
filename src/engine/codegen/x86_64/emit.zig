@@ -47,76 +47,26 @@ const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
 const trace = @import("../../../diagnostic/trace.zig");
+const types = @import("types.zig");
+const label_mod = @import("label.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
 
-/// Errors raised by the x86_64 emit pass. Mirrors arm64's set
-/// so the §9.7 / 7.11 differential can match shapes; new
-/// per-arch errors get added here as their consumers land.
-pub const Error = error{
-    AllocationMissing,
-    UnsupportedOp,
-    SlotOverflow,
-    OutOfMemory,
-};
+// Re-exports from `types.zig` (D-030 chunk-a) — external callers
+// (`src/zwasm.zig`, `src/diagnostic/trace.zig`, the linker) and
+// the inner emit-pass code keep referencing these via the original
+// `x86_64/emit.zig` paths.
+pub const Error = types.Error;
+pub const CallFixup = types.CallFixup;
+pub const EmitOutput = types.EmitOutput;
+pub const deinit = types.deinit;
 
-/// Pending `CALL rel32` site requiring linker patch. Shape
-/// mirrors arm64's CallFixup so the post-emit linker can reuse
-/// the same fixup-record contract.
-pub const CallFixup = struct {
-    byte_offset: u32,
-    target_func_idx: u32,
-};
-
-/// Why a Label was pushed on the control stack. block / loop /
-/// if_then / else_open mirror arm64's LabelKind for parity at
-/// the §9.7 / 7.11 three-way differential.
-const LabelKind = enum { block, loop, if_then, else_open };
-
-/// Forward-jump fixup awaiting target resolution. `byte_offset`
-/// is the position of the JMP/Jcc instruction's first byte;
-/// `insn_size` is 5 (JMP rel32) or 6 (Jcc rel32). `emitEndIntra`
-/// patches the disp32 field via `inst.patchRel32`.
-const Fixup = struct {
-    byte_offset: u32,
-    insn_size: u8,
-};
-
-/// One frame on the per-function control stack.
-///   target_byte_offset — for `.loop`, the byte offset of the
-///       loop entry. For `.block` / `.if_then` / `.else_open`,
-///       undefined until `end`.
-///   pending — branch fixups awaiting target resolution.
-///   if_skip_byte — when `.if_then`, the byte offset of the
-///       JE that skips the then-body. Patched at `else` (to
-///       else-body start) or at `end` (to end of if). Cleared
-///       when transitioning to `.else_open`.
-///   merge_top_vreg — D-027 fix mirror (per ADR-0014 §6.K.5):
-///       for `(if (result T))` blocks, the then arm's result
-///       vreg is captured at `else`; the else arm's result is
-///       MOVed into this vreg's register at the if-frame's
-///       `end` so both paths converge on the same physical reg.
-///       Null for blocks without arity OR when no `else` was
-///       emitted.
-const Label = struct {
-    kind: LabelKind,
-    target_byte_offset: u32,
-    pending: std.ArrayList(Fixup),
-    if_skip_byte: ?u32 = null,
-    merge_top_vreg: ?u32 = null,
-};
-
-pub const EmitOutput = struct {
-    bytes: []u8,
-    n_slots: u8,
-    call_fixups: []CallFixup,
-};
-
-pub fn deinit(allocator: Allocator, out: EmitOutput) void {
-    if (out.bytes.len != 0) allocator.free(out.bytes);
-    if (out.call_fixups.len != 0) allocator.free(out.call_fixups);
-}
+// Internal types from `label.zig` (D-030 chunk-a). Aliased so the
+// dispatch loop body keeps reading like the pre-split code.
+const LabelKind = label_mod.LabelKind;
+const Fixup = label_mod.Fixup;
+const Label = label_mod.Label;
 
 /// Emit x86_64 machine code for `func`. Requires `alloc.slots`
 /// to be populated (call `regalloc.compute` first; pass the
