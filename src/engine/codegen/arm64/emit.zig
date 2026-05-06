@@ -307,6 +307,16 @@ pub fn compile(
     var bounds_fixups: std.ArrayList(u32) = .empty;
     defer bounds_fixups.deinit(allocator);
 
+    // Return fixup list (§9.7 / 7.5-return-op): each `return` op
+    // emits its result marshal inline and an unconditional B
+    // placeholder; the byte_offset of the placeholder lives here.
+    // At function-final `end`, after the marshal but before the
+    // frame teardown, all return_fixups are patched to point at
+    // the start of the teardown sequence (so `return` shares the
+    // single epilogue path).
+    var return_fixups: std.ArrayList(u32) = .empty;
+    defer return_fixups.deinit(allocator);
+
     // Call fixup list — exposed via EmitOutput for the post-emit
     // linker / runtime to patch with concrete func-body offsets.
     // Sub-g1 skeleton: only `call` is supported; call_indirect
@@ -500,6 +510,38 @@ pub fn compile(
                 try gpr.writeU32(allocator, &buf, inst.encB(0));
                 try bounds_fixups.append(allocator, fixup_at);
             },
+            .@"return" => {
+                // Wasm spec §4.4.7: pop the function's results and
+                // exit. We replicate the function-level `end`'s
+                // result-marshal logic inline (move top vreg into
+                // W0/X0/S0/D0 per result_kind), then emit an
+                // unconditional B placeholder pointing at the
+                // function epilogue. All `return` placeholders are
+                // patched in one pass at the end-handler so they
+                // share the single epilogue + RET sequence.
+                if (pushed_vregs.items.len > 0 and func.sig.results.len > 0) {
+                    const top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
+                    const result_kind = func.sig.results[0];
+                    switch (result_kind) {
+                        .f32, .f64 => {
+                            const src_vn = try gpr.resolveFp(alloc, top_vreg);
+                            if (src_vn != 0) {
+                                const base: u32 = if (result_kind == .f64) 0x1E604000 else 0x1E204000;
+                                try gpr.writeU32(allocator, &buf, base | (@as(u32, src_vn) << 5));
+                            }
+                        },
+                        .i32, .i64, .v128, .funcref, .externref => {
+                            const src_xn = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, top_vreg, 0);
+                            if (src_xn != 0) {
+                                try gpr.writeU32(allocator, &buf, encOrrZrIntoX0(src_xn));
+                            }
+                        },
+                    }
+                }
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try gpr.writeU32(allocator, &buf, inst.encB(0));
+                try return_fixups.append(allocator, fixup_at);
+            },
             .@"block" => try op_control.emitBlock(&ctx, &ins),
             .@"loop" => try op_control.emitLoop(&ctx, &ins),
             .@"br" => try op_control.emitBr(&ctx, &ins),
@@ -593,11 +635,23 @@ pub fn compile(
                         }
                     }
                 }
+                // Capture the byte offset of the frame teardown.
+                // `return` ops emitted earlier B-fixup placeholders
+                // here (their result marshal already ran inline);
+                // patch them to share this single epilogue path.
+                const epilogue_byte: u32 = @intCast(buf.items.len);
                 if (frame_bytes > 0) {
                     try gpr.writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
                 }
                 try gpr.writeU32(allocator, &buf, encLdpFpLrPostIdx());
                 try gpr.writeU32(allocator, &buf, inst.encRet(abi.link_register));
+                for (return_fixups.items) |fx_byte| {
+                    const disp_words: i32 = @divExact(
+                        @as(i32, @intCast(epilogue_byte)) - @as(i32, @intCast(fx_byte)),
+                        4,
+                    );
+                    std.mem.writeInt(u32, buf.items[fx_byte..][0..4], inst.encB(disp_words), .little);
+                }
 
                 // Trap stub: emitted after the regular RET when the
                 // function had any bounds-check / sig-mismatch /
