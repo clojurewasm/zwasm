@@ -120,8 +120,8 @@ fn emitTrunc64BoundsCheck(
 /// shape with the i64 boundary.
 pub fn emitTrappingTruncF32(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const args = try ctx.popUnary();
-    const vn = try gpr.resolveFp(ctx.alloc, args.src);
-    const dest = try gpr.resolveGpr(ctx.alloc, args.result);
+    const vn = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
+    const dest = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
 
     const Bounds = struct { lo: u32, hi: u32, lo_cmp: inst.Cond };
     const b: Bounds = switch (ins.op) {
@@ -140,6 +140,7 @@ pub fn emitTrappingTruncF32(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         else => unreachable,
     };
     try gpr.writeU32(ctx.allocator, ctx.buf, word);
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
@@ -151,8 +152,8 @@ pub fn emitTrappingTruncF32(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// strict instead of .le).
 pub fn emitTrappingTruncF64(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const args = try ctx.popUnary();
-    const vn = try gpr.resolveFp(ctx.alloc, args.src);
-    const dest = try gpr.resolveGpr(ctx.alloc, args.result);
+    const vn = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
+    const dest = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
 
     const Bounds = struct { lo: u64, hi: u64, lo_cmp: inst.Cond };
     const b: Bounds = switch (ins.op) {
@@ -171,5 +172,6 @@ pub fn emitTrappingTruncF64(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         else => unreachable,
     };
     try gpr.writeU32(ctx.allocator, ctx.buf, word);
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }

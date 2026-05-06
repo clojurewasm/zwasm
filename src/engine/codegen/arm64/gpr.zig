@@ -14,6 +14,10 @@
 //! - `gprStoreSpilled` — pair of `gprDefSpilled`; flushes stage
 //!   reg to spill slot.
 //! - `resolveFp` — V-class counterpart of `resolveGpr`.
+//! - `fpLoadSpilled` / `fpDefSpilled` / `fpStoreSpilled` — V-class
+//!   spill-staging trio (D-037 — mirrors the GPR three; uses
+//!   `abi.fp_spill_stage_vregs` (V29/V30) and the D-form (8-byte)
+//!   spill encoders for class-uniform 8-byte spill stride).
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`).
 
@@ -124,22 +128,162 @@ pub fn gprStoreSpilled(
 
 /// FP-class counterpart of `resolveGpr`. Consults the class-aware
 /// `Allocation.slot(vreg, .fpr)` API (D-036): the FP boundary
-/// `max_reg_slots_fp` (default 15, matching
+/// `max_reg_slots_fp` (default 13 post-D-037, matching
 /// `abi.allocatable_v_regs.len`) decides reg-vs-spill, distinct
-/// from the GPR boundary. Slot ids 0..14 resolve to V16..V30 via
-/// `fpSlotToReg`; ids ≥ 15 surface as `.spill` and reject here
-/// until D-037 (FP-spill machinery) lands. Replaces the chunk-q
-/// shim that read `alloc.slots[]` directly to bypass the GPR
-/// threshold (band-aid eliminated).
+/// from the GPR boundary. Slot ids 0..12 resolve to V16..V28 via
+/// `fpSlotToReg`; ids ≥ 13 surface as `.spill` and reject here
+/// (handlers that have not yet been migrated to FP-spill-aware
+/// emission via `fpLoadSpilled` / `fpDefSpilled` /
+/// `fpStoreSpilled`). The chunk-q `alloc.slots[]` band-aid
+/// remains eliminated.
 pub fn resolveFp(alloc: regalloc.Allocation, vreg: usize) Error!inst.Vn {
     return switch (alloc.slot(vreg, .fpr)) {
         .reg => |id| abi.fpSlotToReg(id) orelse Error.SlotOverflow,
         .spill => |off| blk: {
             std.debug.print(
-                "arm64/gpr: resolveFp rejected spilled vreg={d} spill_off={d} (FP-spill machinery is D-037)\n",
+                "arm64/gpr: resolveFp rejected spilled vreg={d} spill_off={d} (handler not FP-spill-aware)\n",
                 .{ vreg, off },
             );
             break :blk Error.UnsupportedOp;
         },
     };
+}
+
+/// V-class counterpart of `gprLoadSpilled`. If the FP vreg is in
+/// a V-register, returns that reg directly. If spilled, emits
+/// `LDR D_stage, [SP, #(spill_base_off + spill_off)]` staging
+/// through `abi.fp_spill_stage_vregs[stage_idx]` (V29/V30) and
+/// returns the stage reg.
+///
+/// `stage_idx` selects which stage reg (0=V29, 1=V30). Use 0 for
+/// the first/only operand, 1 for the second operand of a binary
+/// FP op. The D-form (8-byte) is used uniformly so the spill
+/// frame stride matches GPR (8-byte) — a spilled f32 vreg writes
+/// 64 bits with the upper 32 bits unspecified, but the load reads
+/// the same 64 bits and FP ops on S-form ignore the upper 32, so
+/// observable behaviour matches the spec.
+pub fn fpLoadSpilled(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    spill_base_off: u32,
+    vreg: usize,
+    stage_idx: u8,
+) Error!inst.Vn {
+    return switch (alloc.slot(vreg, .fpr)) {
+        .reg => |id| abi.fpSlotToReg(id) orelse Error.SlotOverflow,
+        .spill => |off| blk: {
+            const stage = abi.fp_spill_stage_vregs[stage_idx];
+            const abs_off = spill_base_off + off;
+            // D-form imm12 scales by 8; max byte offset is 8*4095 = 32760.
+            if (abs_off > 32760 or (abs_off & 7) != 0) return Error.SlotOverflow;
+            try writeU32(allocator, buf, inst.encLdrDImm(stage, 31, @intCast(abs_off)));
+            break :blk stage;
+        },
+    };
+}
+
+/// V-class counterpart of `gprDefSpilled`. If the FP vreg is in a
+/// V-register, returns that reg directly. If spilled, returns the
+/// stage reg (caller encodes the op writing into it; then calls
+/// `fpStoreSpilled` to flush to the spill slot).
+pub fn fpDefSpilled(
+    alloc: regalloc.Allocation,
+    vreg: usize,
+    stage_idx: u8,
+) Error!inst.Vn {
+    return switch (alloc.slot(vreg, .fpr)) {
+        .reg => |id| abi.fpSlotToReg(id) orelse Error.SlotOverflow,
+        .spill => abi.fp_spill_stage_vregs[stage_idx],
+    };
+}
+
+/// Pair of `fpDefSpilled`. After encoding the op (which wrote the
+/// result into the stage V-reg), emits `STR D_stage, [SP,
+/// #(spill_base_off + spill_off)]`. No-op for vregs in V-registers
+/// (the result is already in its home).
+pub fn fpStoreSpilled(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    spill_base_off: u32,
+    vreg: usize,
+    stage_idx: u8,
+) Error!void {
+    switch (alloc.slot(vreg, .fpr)) {
+        .reg => {},
+        .spill => |off| {
+            const stage = abi.fp_spill_stage_vregs[stage_idx];
+            const abs_off = spill_base_off + off;
+            if (abs_off > 32760 or (abs_off & 7) != 0) return Error.SlotOverflow;
+            try writeU32(allocator, buf, inst.encStrDImm(stage, 31, @intCast(abs_off)));
+        },
+    }
+}
+
+// ============================================================
+// Tests — D-037 FP-spill helpers (chunk-d037-a)
+// ============================================================
+
+const testing = std.testing;
+
+test "fpLoadSpilled: vreg in V-reg returns it directly without emitting bytes" {
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    const v = try fpLoadSpilled(testing.allocator, &buf, alloc, 0, 0, 0);
+    try testing.expectEqual(@as(inst.Vn, 16), v); // V16 = first allocatable
+    try testing.expectEqual(@as(usize, 0), buf.items.len);
+}
+
+test "fpLoadSpilled: spilled vreg emits LDR D and returns stage reg V29 (stage_idx=0)" {
+    const slots = [_]u8{13}; // just past the new max_reg_slots_fp boundary
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 14 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    // spill_off = (13-8)*8 = 40; abs_off = spill_base_off (16) + 40 = 56
+    const v = try fpLoadSpilled(testing.allocator, &buf, alloc, 16, 0, 0);
+    try testing.expectEqual(@as(inst.Vn, 29), v);
+    try testing.expectEqual(@as(usize, 4), buf.items.len);
+    const word = std.mem.readInt(u32, buf.items[0..4], .little);
+    try testing.expectEqual(inst.encLdrDImm(29, 31, 56), word);
+}
+
+test "fpLoadSpilled: stage_idx=1 yields V30" {
+    const slots = [_]u8{13};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 14 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    const v = try fpLoadSpilled(testing.allocator, &buf, alloc, 0, 0, 1);
+    try testing.expectEqual(@as(inst.Vn, 30), v);
+}
+
+test "fpStoreSpilled: spilled vreg emits STR D from stage reg" {
+    const slots = [_]u8{14};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 15 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    // spill_off = (14-8)*8 = 48; abs_off = 0 + 48 = 48
+    try fpStoreSpilled(testing.allocator, &buf, alloc, 0, 0, 0);
+    try testing.expectEqual(@as(usize, 4), buf.items.len);
+    const word = std.mem.readInt(u32, buf.items[0..4], .little);
+    try testing.expectEqual(inst.encStrDImm(29, 31, 48), word);
+}
+
+test "fpStoreSpilled: in-V-reg vreg emits no bytes (no-op)" {
+    const slots = [_]u8{5};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 6 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try fpStoreSpilled(testing.allocator, &buf, alloc, 0, 0, 0);
+    try testing.expectEqual(@as(usize, 0), buf.items.len);
+}
+
+test "fpDefSpilled: in-V-reg vreg returns the V-reg; spilled returns stage" {
+    const slots = [_]u8{ 3, 13 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 14 };
+    try testing.expectEqual(@as(inst.Vn, 19), try fpDefSpilled(alloc, 0, 0)); // V16+3
+    try testing.expectEqual(@as(inst.Vn, 29), try fpDefSpilled(alloc, 1, 0));
+    try testing.expectEqual(@as(inst.Vn, 30), try fpDefSpilled(alloc, 1, 1));
 }

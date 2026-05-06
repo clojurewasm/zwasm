@@ -31,22 +31,19 @@
 
 set -euo pipefail
 
-# 17 = today's surface. Breakdown:
-#   - 12 FP-side `resolveFp` calls in op_alu_float / op_convert /
-#     bounds_check that await FP-class spill-staging machinery
-#     (V-class scratch reservation + encLdrSImm/encStrSImm spill
-#     paths). Phase 8 prerequisite.
-#   - 3 GPR-side calls in op_control.emitEndIntra (merge MOV at
+# 2 = post-D-037 surface. Breakdown:
+#   - 2 GPR-side calls in op_control.emitEndIntra (merge MOV at
 #     if-else join — uses two operand vregs via short-lived
-#     resolveGpr; spill staging would require 3 stage regs).
-#   - 2 GPR-side in bounds_check trapping trunc ops (FP src + GPR
-#     dst; lifts when FP-spill lands).
-#   - 1 in op_const.emitI64Const (cosmetic — 64-bit immediate
-#     materialiser; can be migrated trivially; intentionally
-#     left as a "first easy chunk" target).
-# Baseline ratchets DOWN as those land; the gate forbids new
-# bare resolveGpr/Fp introductions.
-BASELINE=17
+#     resolveGpr; spill staging would require 3 stage regs in
+#     a structurally tighter shape than today's gpr helpers
+#     accept). Defer to a follow-up: either factor a 3-stage
+#     `gpr*Spilled3` variant, or restructure emitEndIntra to
+#     stage through ip0/ip1 then commit to the merge target.
+# D-037 chunk-d037-a closed the 12 FP-side + 2 mixed +
+# 1 op_const calls (15 of 17). Baseline ratchets DOWN as the
+# remaining 2 land; the gate forbids new bare resolveGpr/Fp
+# introductions.
+BASELINE=2
 MODE="${1:-info}"
 
 cd "$(dirname "$0")/.."
@@ -90,7 +87,7 @@ for f in $files; do
             prev_was_exempt = 0
             next
         }
-        /gprLoadSpilled|gprDefSpilled|gprStoreSpilled/ {
+        /gprLoadSpilled|gprDefSpilled|gprStoreSpilled|fpLoadSpilled|fpDefSpilled|fpStoreSpilled/ {
             has_spill = 1
             prev_was_exempt = 0
             next

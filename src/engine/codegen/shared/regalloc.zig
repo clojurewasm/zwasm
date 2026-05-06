@@ -98,13 +98,18 @@ pub const Allocation = struct {
     max_reg_slots_gpr: u8 = 8,
     /// FP-class boundary: slot ids `< max_reg_slots_fp` resolve to
     /// `Slot.reg` for class `.fpr`; ids `>= max_reg_slots_fp`
-    /// resolve to `Slot.spill`. Default = 15 (ARM64
-    /// `allocatable_v_regs.len`: V16..V30; V31 reserved for
-    /// popcnt's V-register pipeline). Per ADR-0026 amendment
+    /// resolve to `Slot.spill`. Default = 13 (ARM64
+    /// `allocatable_v_regs.len` post-D-037: V16..V28; V29/V30 are
+    /// reserved as FP spill stages, V31 reserved for popcnt's
+    /// V-register pipeline). Per ADR-0018 amendment
     /// "class-aware boundaries" (D-036): this field replaces the
     /// chunk-q `resolveFp` shim that read `slots[]` directly to
-    /// bypass the GPR threshold.
-    max_reg_slots_fp: u8 = 15,
+    /// bypass the GPR threshold. The default tracks the per-arch
+    /// `allocatable_v_regs.len` manually — `slotToReg` /
+    /// `fpSlotToReg` remain authoritative for null-return spill
+    /// detection, so a default-default mismatch surfaces as a test
+    /// failure rather than silent miscompile.
+    max_reg_slots_fp: u8 = 13,
 
     /// Resolve a vreg's home for the given register class: physical
     /// register slot or spill offset. The class selects which
@@ -393,38 +398,38 @@ test "Allocation.spillBytes: 8-byte stride past pool size" {
 // ========================================================
 
 test "Allocation.slot: same id resolves to .reg for .fpr but .spill for .gpr (class-aware boundaries)" {
-    const slots = [_]u8{ 0, 7, 8, 14 };
-    const alloc: Allocation = .{ .slots = &slots, .n_slots = 15 };
+    const slots = [_]u8{ 0, 7, 8, 12 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 13 };
     // class .gpr — boundary at 8 (default max_reg_slots_gpr)
     try testing.expectEqual(Slot{ .reg = 0 }, alloc.slot(0, .gpr));
     try testing.expectEqual(Slot{ .reg = 7 }, alloc.slot(1, .gpr));
     try testing.expectEqual(Slot{ .spill = 0 }, alloc.slot(2, .gpr));
-    try testing.expectEqual(Slot{ .spill = 48 }, alloc.slot(3, .gpr)); // (14 - 8) * 8
-    // class .fpr — boundary at 15 (default max_reg_slots_fp); same ids stay in regs
+    try testing.expectEqual(Slot{ .spill = 32 }, alloc.slot(3, .gpr)); // (12 - 8) * 8
+    // class .fpr — boundary at 13 (default max_reg_slots_fp); same ids stay in regs
     try testing.expectEqual(Slot{ .reg = 0 }, alloc.slot(0, .fpr));
     try testing.expectEqual(Slot{ .reg = 7 }, alloc.slot(1, .fpr));
     try testing.expectEqual(Slot{ .reg = 8 }, alloc.slot(2, .fpr));
-    try testing.expectEqual(Slot{ .reg = 14 }, alloc.slot(3, .fpr));
+    try testing.expectEqual(Slot{ .reg = 12 }, alloc.slot(3, .fpr));
 }
 
 test "Allocation.slot: id >= max_reg_slots_fp resolves to .spill for .fpr" {
-    const slots = [_]u8{ 14, 15, 16 };
-    const alloc: Allocation = .{ .slots = &slots, .n_slots = 17 };
-    try testing.expectEqual(Slot{ .reg = 14 }, alloc.slot(0, .fpr));
-    // FP spill: id >= 15 → .spill, offset uses GPR boundary as origin
+    const slots = [_]u8{ 12, 13, 14 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 15 };
+    try testing.expectEqual(Slot{ .reg = 12 }, alloc.slot(0, .fpr));
+    // FP spill: id >= 13 → .spill, offset uses GPR boundary as origin
     // so the shared spill frame is class-agnostic.
-    try testing.expectEqual(Slot{ .spill = (15 - 8) * 8 }, alloc.slot(1, .fpr));
-    try testing.expectEqual(Slot{ .spill = (16 - 8) * 8 }, alloc.slot(2, .fpr));
+    try testing.expectEqual(Slot{ .spill = (13 - 8) * 8 }, alloc.slot(1, .fpr));
+    try testing.expectEqual(Slot{ .spill = (14 - 8) * 8 }, alloc.slot(2, .fpr));
 }
 
 test "Allocation.slot: spill offset is class-agnostic (shared frame origin = max_reg_slots_gpr)" {
     // A function with mixed GPR/FP vregs sharing a spill frame:
-    // GPR vreg at slot 8 → spill 0; FP vreg at slot 16 → spill 64.
-    // Even though FP doesn't *actually* spill at slot 8..14
+    // GPR vreg at slot 8 → spill 0; FP vreg at slot 14 → spill 48.
+    // Even though FP doesn't *actually* spill at slot 8..12
     // (those are V-regs), the offset formula stays consistent so
     // the prologue can size the frame from spillBytes() alone.
-    const slots = [_]u8{ 8, 16 };
-    const alloc: Allocation = .{ .slots = &slots, .n_slots = 17 };
+    const slots = [_]u8{ 8, 14 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 15 };
     try testing.expectEqual(Slot{ .spill = 0 }, alloc.slot(0, .gpr));
-    try testing.expectEqual(Slot{ .spill = (16 - 8) * 8 }, alloc.slot(1, .fpr));
+    try testing.expectEqual(Slot{ .spill = (14 - 8) * 8 }, alloc.slot(1, .fpr));
 }

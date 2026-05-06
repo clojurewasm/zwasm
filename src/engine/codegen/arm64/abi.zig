@@ -174,24 +174,34 @@ pub fn slotToReg(slot_id: u8) ?Xn {
 }
 
 /// Float / SIMD V-register pool (caller-saved scratch range,
-/// V16..V30 → 15 slots). V31 is reserved for popcnt's V-register
+/// V16..V28 → 13 slots after D-037's V29/V30 carve-out for FP
+/// spill staging). V31 is reserved for popcnt's V-register
 /// pipeline. V0..V7 are arg/return; V8..V15 callee-saved (skipped
 /// to avoid prologue cost). `fpSlotToReg` is the float-class
 /// counterpart of `slotToReg` — the §9.7 / 7.3 sub-d3 f32/f64
 /// handlers use it.
 ///
-/// **Mixing caveat**: a vreg's slot id is per-class. Within a
-/// single function's live ranges, a slot id used by a GPR vreg
-/// and a slot id used by a V-vreg map to *different* physical
-/// registers (X9 vs V16 for slot 0). This is correct semantically
-/// because the regalloc only ensures non-overlapping VREG ids,
-/// not non-overlapping physical regs. Phase-7 follow-up will add
-/// per-class slot pools so the regalloc is fully class-aware;
-/// today the int + float pools coexist by physical-register
-/// disjointness.
+/// **Mixing caveat**: a vreg's slot id is per-class via
+/// `Allocation.slot(vreg, class)` (per D-036 class-aware split).
+/// Within a single function's live ranges, a slot id used by a
+/// GPR vreg and a slot id used by a V-vreg map to *different*
+/// physical registers (X9 vs V16 for slot 0). The regalloc itself
+/// stays class-blind; class-aware allocation is a Phase 8
+/// follow-up (D-036 §"option (b)").
 pub const allocatable_v_regs = [_]Xn{
-    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
 };
+
+/// Reserved for FP-class spill load/store staging (per D-037 — the
+/// FP-class mirror of `spill_stage_gprs`). The emit pass uses
+/// these as scratches when materialising a spilled V-vreg's value
+/// before an op, or writing a result back to its spill slot. Two
+/// stage regs support binary FP ops where both operands are
+/// spilled. V31 stays reserved for popcnt's V-register pipeline
+/// (per arm64/op_bitcount.zig).
+///
+/// Excluded from `allocatable_v_regs` by construction.
+pub const fp_spill_stage_vregs = [_]Xn{ 29, 30 };
 
 pub fn fpSlotToReg(slot_id: u8) ?Xn {
     if (slot_id >= allocatable_v_regs.len) return null;
@@ -313,10 +323,22 @@ test "fpSlotToReg: slot 0 → V16 (first caller-saved scratch V)" {
     try testing.expectEqual(@as(Xn, 16), fpSlotToReg(0).?);
 }
 
-test "fpSlotToReg: slot 14 → V30 (last in the 15-slot pool)" {
-    try testing.expectEqual(@as(Xn, 30), fpSlotToReg(14).?);
+test "fpSlotToReg: slot 12 → V28 (last in the 13-slot pool post-D-037; V29/V30 reserved as FP spill stages)" {
+    try testing.expectEqual(@as(Xn, 28), fpSlotToReg(12).?);
 }
 
-test "fpSlotToReg: slot 15 returns null (V31 reserved for popcnt scratch)" {
-    try testing.expect(fpSlotToReg(15) == null);
+test "fpSlotToReg: slot 13 returns null (V29 reserved as FP spill stage)" {
+    try testing.expect(fpSlotToReg(13) == null);
+}
+
+test "allocatable_v_regs is pairwise disjoint with fp_spill_stage_vregs" {
+    for (allocatable_v_regs) |a| {
+        for (fp_spill_stage_vregs) |s| try testing.expect(a != s);
+    }
+}
+
+test "fp_spill_stage_vregs is exactly V29, V30 (2 regs for binary FP-op spill staging, mirroring spill_stage_gprs)" {
+    try testing.expectEqual(@as(usize, 2), fp_spill_stage_vregs.len);
+    try testing.expectEqual(@as(Xn, 29), fp_spill_stage_vregs[0]);
+    try testing.expectEqual(@as(Xn, 30), fp_spill_stage_vregs[1]);
 }

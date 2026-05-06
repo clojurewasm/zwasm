@@ -145,13 +145,14 @@ pub fn emitReinterpretF64FromI64(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// inf / sign per IEEE-754.
 pub fn emitFloatDemotePromote(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const args = try ctx.popUnary();
-    const vn = try gpr.resolveFp(ctx.alloc, args.src);
-    const vd = try gpr.resolveFp(ctx.alloc, args.result);
+    const vn = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
+    const vd = try gpr.fpDefSpilled(ctx.alloc, args.result, 0);
     const word: u32 = switch (ins.op) {
         .@"f32.demote_f64"  => inst.encFcvtSFromD(vd, vn),
         .@"f64.promote_f32" => inst.encFcvtDFromS(vd, vn),
         else => unreachable,
     };
     try gpr.writeU32(ctx.allocator, ctx.buf, word);
+    try gpr.fpStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }

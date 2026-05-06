@@ -36,9 +36,9 @@ const Xn = inst.Xn;
 /// f32 / f64 binary ALU: add, sub, mul, div.
 pub fn emitFloatBinary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const args = try ctx.popBinary();
-    const vn = try gpr.resolveFp(ctx.alloc, args.lhs);
-    const vm = try gpr.resolveFp(ctx.alloc, args.rhs);
-    const vd = try gpr.resolveFp(ctx.alloc, args.result);
+    const vn = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.lhs, 0);
+    const vm = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.rhs, 1);
+    const vd = try gpr.fpDefSpilled(ctx.alloc, args.result, 0);
     const word: u32 = switch (ins.op) {
         .@"f32.add" => inst.encFAddS(vd, vn, vm),
         .@"f32.sub" => inst.encFSubS(vd, vn, vm),
@@ -51,6 +51,7 @@ pub fn emitFloatBinary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         else => unreachable,
     };
     try gpr.writeU32(ctx.allocator, ctx.buf, word);
+    try gpr.fpStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
@@ -59,8 +60,8 @@ pub fn emitFloatBinary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// nearest-even).
 pub fn emitFloatUnary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const args = try ctx.popUnary();
-    const vn = try gpr.resolveFp(ctx.alloc, args.src);
-    const vd = try gpr.resolveFp(ctx.alloc, args.result);
+    const vn = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
+    const vd = try gpr.fpDefSpilled(ctx.alloc, args.result, 0);
     const word: u32 = switch (ins.op) {
         .@"f32.abs"     => inst.encFAbsS(vd, vn),
         .@"f32.neg"     => inst.encFNegS(vd, vn),
@@ -79,6 +80,7 @@ pub fn emitFloatUnary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         else => unreachable,
     };
     try gpr.writeU32(ctx.allocator, ctx.buf, word);
+    try gpr.fpStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
@@ -133,9 +135,9 @@ pub fn emitFloatCopysign(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// f32 / f64 min, max — direct FMIN / FMAX per width.
 pub fn emitFloatMinMax(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const args = try ctx.popBinary();
-    const vn = try gpr.resolveFp(ctx.alloc, args.lhs);
-    const vm = try gpr.resolveFp(ctx.alloc, args.rhs);
-    const vd = try gpr.resolveFp(ctx.alloc, args.result);
+    const vn = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.lhs, 0);
+    const vm = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.rhs, 1);
+    const vd = try gpr.fpDefSpilled(ctx.alloc, args.result, 0);
     const word: u32 = switch (ins.op) {
         .@"f32.min" => inst.encFMinS(vd, vn, vm),
         .@"f32.max" => inst.encFMaxS(vd, vn, vm),
@@ -144,6 +146,7 @@ pub fn emitFloatMinMax(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         else => unreachable,
     };
     try gpr.writeU32(ctx.allocator, ctx.buf, word);
+    try gpr.fpStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
