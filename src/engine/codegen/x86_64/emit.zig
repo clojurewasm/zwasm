@@ -708,6 +708,13 @@ fn emitCall(
     // clobbered by an earlier call.
     try buf.appendSlice(allocator, inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.runtime_ptr_save_gpr).slice());
 
+    // Win64 ABI: caller reserves 32 bytes of shadow space below
+    // the call site for the callee to optionally spill its 4
+    // register args. SysV has no shadow space. The reservation
+    // is per-call (simpler than prologue-batched) and stays
+    // 16-byte-aligned with the post-CALL push of return addr.
+    try emitShadowAlloc(allocator, buf);
+
     // CALL placeholder; linker patches via call_fixups once
     // function-body offsets are known.
     const fixup_at: u32 = @intCast(buf.items.len);
@@ -717,7 +724,22 @@ fn emitCall(
         .target_func_idx = callee_idx,
     });
 
+    try emitShadowFree(allocator, buf);
+
     try captureCallResult(allocator, buf, alloc, pushed_vregs, next_vreg, callee_sig);
+}
+
+/// Reserve Win64 shadow space below the upcoming CALL. SysV
+/// no-op (shadow_space_bytes = 0). Per ADR-0026 / Microsoft x64.
+fn emitShadowAlloc(allocator: Allocator, buf: *std.ArrayList(u8)) Error!void {
+    if (abi.current.shadow_space_bytes == 0) return;
+    try buf.appendSlice(allocator, inst.encSubRSpImm8(@intCast(abi.current.shadow_space_bytes)).slice());
+}
+
+/// Free Win64 shadow space after CALL returns. SysV no-op.
+fn emitShadowFree(allocator: Allocator, buf: *std.ArrayList(u8)) Error!void {
+    if (abi.current.shadow_space_bytes == 0) return;
+    try buf.appendSlice(allocator, inst.encAddRSpImm8(@intCast(abi.current.shadow_space_bytes)).slice());
 }
 
 /// FP-const handler — `f32.const` and `f64.const`. Materialises
@@ -1956,12 +1978,18 @@ fn emitCallIndirect(
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
     try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
 
-    // Restore RDI = runtime_ptr (callee's prologue reads RDI as
-    // its inbound JitRuntime ptr per ADR-0026 / SysV §3.2.3).
-    try buf.appendSlice(allocator, inst.encMovRR(.q, .rdi, abi.runtime_ptr_save_gpr).slice());
+    // Restore <entry_arg0> = runtime_ptr (callee's prologue reads
+    // it as its inbound JitRuntime ptr per ADR-0026: RDI on SysV,
+    // RCX on Win64).
+    try buf.appendSlice(allocator, inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.runtime_ptr_save_gpr).slice());
+
+    // Win64 shadow space (32 bytes; SysV no-op).
+    try emitShadowAlloc(allocator, buf);
 
     // CALL RAX (indirect).
     try buf.appendSlice(allocator, inst.encCallReg(.rax).slice());
+
+    try emitShadowFree(allocator, buf);
 
     try captureCallResult(allocator, buf, alloc, pushed_vregs, next_vreg, callee_sig);
 }
@@ -3714,11 +3742,24 @@ test "compile: call N — 0 args, void return — emits MOV RDI,R15 + CALL + fix
     // byte differs); the call-fixup byte offset stays at 16.
     const expected_mov = inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.current.runtime_ptr_save_gpr);
     try testing.expectEqualSlices(u8, expected_mov.slice(), out.bytes[13 .. 13 + expected_mov.len]);
+    // Win64 shadow space: SUB RSP, 32 must precede the CALL.
+    // SysV: no SUB; the byte at offset 16 is the CALL opcode E8.
+    if (abi.current.shadow_space_bytes > 0) {
+        const expected_sub = inst.encSubRSpImm8(@intCast(abi.current.shadow_space_bytes));
+        try testing.expectEqualSlices(u8, expected_sub.slice(), out.bytes[16 .. 16 + expected_sub.len]);
+        // ADD RSP, 32 follows the CALL (5 bytes after SUB).
+        const post_call = 16 + expected_sub.len + 5;
+        const expected_add = inst.encAddRSpImm8(@intCast(abi.current.shadow_space_bytes));
+        try testing.expectEqualSlices(u8, expected_add.slice(), out.bytes[post_call .. post_call + expected_add.len]);
+    }
+    // Cc-pivot: CALL byte offset shifts by `shadow_space_bytes`
+    // when the SUB RSP, 32 precedes it. SysV: 16; Win64: 20.
+    const call_off: u32 = 16 + @as(u32, abi.current.shadow_space_bytes);
     const expected_call = inst.encCallRel32(0);
-    try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[16 .. 16 + expected_call.len]);
+    try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[call_off .. call_off + expected_call.len]);
 
     try testing.expectEqual(@as(usize, 1), out.call_fixups.len);
-    try testing.expectEqual(@as(u32, 16), out.call_fixups[0].byte_offset);
+    try testing.expectEqual(call_off, out.call_fixups[0].byte_offset);
     try testing.expectEqual(@as(u32, 1), out.call_fixups[0].target_func_idx);
 }
 
@@ -3740,12 +3781,13 @@ test "compile: call N — 0 args, i32 return — captures EAX into result vreg" 
     const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{});
     defer deinit(testing.allocator, out);
 
-    // Body layout (post-prologue at 13):
-    //   MOV RDI, R15    4c 89 ff        → 16
-    //   CALL rel32      e8 00 00 00 00  → 21
-    //   MOV R10D, EAX   41 89 c2        → 24   (result capture)
+    // Body layout (post-prologue at 13). Capture-result offset
+    // shifts by 2× shadow encoding (SUB before + ADD after the
+    // 5-byte CALL). SysV: 21; Win64: 29.
+    const shadow_enc_len: u32 = if (abi.current.shadow_space_bytes > 0) 4 else 0;
+    const capture_off: u32 = 13 + 3 + shadow_enc_len + 5 + shadow_enc_len;
     const expected_capture = inst.encMovRR(.d, .r10, .rax);
-    try testing.expectEqualSlices(u8, expected_capture.slice(), out.bytes[21 .. 21 + expected_capture.len]);
+    try testing.expectEqualSlices(u8, expected_capture.slice(), out.bytes[capture_off .. capture_off + expected_capture.len]);
 }
 
 test "compile: call N — 1 i32 arg — marshals top-of-stack into arg_gprs[1] (RSI on SysV, RDX on Win64)" {
@@ -3821,8 +3863,12 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     try testing.expectEqual(@as(u8, 0x85), out.bytes[53]);
     const expected_funcptr_load = inst.encMovR64FromBaseIdxLsl3(.rax, .rax, .r10);
     try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[65 .. 65 + expected_funcptr_load.len]);
+    // Cc-pivot: CALL RAX shifts by `shadow_space_bytes` encoding
+    // length (Win64 inserts SUB RSP, 32 before the indirect CALL).
+    const shadow_enc_len: u32 = if (abi.current.shadow_space_bytes > 0) 4 else 0;
+    const call_off: u32 = 72 + shadow_enc_len;
     const expected_call = inst.encCallReg(.rax);
-    try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[72 .. 72 + expected_call.len]);
+    try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[call_off .. call_off + expected_call.len]);
 }
 
 test "compile: f32.const — MOV EAX,bits + MOVD XMM8,EAX" {
