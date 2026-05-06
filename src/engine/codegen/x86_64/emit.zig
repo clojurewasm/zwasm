@@ -276,6 +276,61 @@ pub fn compile(
             => try op_memory.emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.op, ins.payload, func.func_idx),
             .@"global.get" => try op_globals.emitI32GlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             .@"global.set" => try op_globals.emitI32GlobalSet(allocator, &buf, alloc, &pushed_vregs, ins.payload),
+            .@"nop" => {
+                // Wasm spec §4.4.6.2 (nop) — do nothing. No machine
+                // bytes; no stack change. Mirrors arm64/emit.zig.
+            },
+            .@"drop" => {
+                // Wasm spec §4.4.4 (drop) — pop top operand without
+                // storage. No machine bytes; only the operand-stack
+                // tracker advances. Mirrors arm64/emit.zig.
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                _ = pushed_vregs.pop().?;
+            },
+            .@"return" => {
+                // Wasm spec §4.4.7 (return) — pop the function's
+                // result(s) and exit. We inline the same marshal +
+                // epilogue + RET sequence as the function-level
+                // `end` form below; multiple physical RETs are
+                // harmless on x86_64 (no jump table needed, unlike
+                // ARM64 where return_fixups consolidate to a single
+                // epilogue). Subsequent ops in the same body may
+                // emit dead bytes that are unreachable at runtime.
+                if (pushed_vregs.items.len > 0 and func.sig.results.len > 0) {
+                    const top = pushed_vregs.items[pushed_vregs.items.len - 1];
+                    if (top >= alloc.slots.len) return Error.SlotOverflow;
+                    const slot_id = alloc.slots[top];
+                    switch (func.sig.results[0]) {
+                        .i32, .funcref, .externref => {
+                            const src = abi.slotToReg(slot_id) orelse return Error.SlotOverflow;
+                            if (src != abi.return_gpr) {
+                                try buf.appendSlice(allocator, inst.encMovRR(.d, abi.return_gpr, src).slice());
+                            }
+                        },
+                        .i64 => {
+                            const src = abi.slotToReg(slot_id) orelse return Error.SlotOverflow;
+                            if (src != abi.return_gpr) {
+                                try buf.appendSlice(allocator, inst.encMovRR(.q, abi.return_gpr, src).slice());
+                            }
+                        },
+                        .f32, .f64 => {
+                            const src_x = abi.fpSlotToReg(slot_id) orelse return Error.SlotOverflow;
+                            if (src_x != abi.return_xmm) {
+                                try buf.appendSlice(allocator, inst.encMovapsXmmXmm(abi.return_xmm, src_x).slice());
+                            }
+                        },
+                        .v128 => return Error.UnsupportedOp,
+                    }
+                }
+                if (frame_bytes > 0) {
+                    try buf.appendSlice(allocator, inst.encAddRSpImm8(@intCast(frame_bytes)).slice());
+                }
+                if (uses_runtime_ptr) {
+                    try buf.appendSlice(allocator, inst.encPopR(.r15).slice());
+                }
+                try buf.appendSlice(allocator, inst.encPopR(.rbp).slice());
+                try buf.appendSlice(allocator, inst.encRet().slice());
+            },
             .@"block" => try op_control.emitBlock(allocator, &labels),
             .@"loop" => try op_control.emitLoop(allocator, &buf, &labels),
             .@"br" => try op_control.emitBr(allocator, &buf, &labels, ins.payload),
@@ -2774,6 +2829,81 @@ test "compile: i64-result end emits MOV RAX, src (.q full width avoids truncatio
     const expected_movrr = inst.encMovRR(.q, .rax, .r10);
     try testing.expectEqualSlices(u8, expected_movrr.slice(), out.bytes[13 .. 13 + expected_movrr.len]);
     try testing.expectEqual(@as(usize, 18), out.bytes.len);
+}
+
+test "compile: nop emits no body bytes (between prologue and epilogue)" {
+    // Wasm spec §4.4.6.2 — nop has zero machine effect.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"nop" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
+    const slots = [_]u8{};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Layout (uses_runtime_ptr = false, frame_bytes = 0):
+    //   [0..4] prologue: PUSH RBP ; MOV RBP, RSP
+    //   [4..6] epilogue: POP RBP ; RET
+    try testing.expectEqual(@as(usize, 6), out.bytes.len);
+}
+
+test "compile: drop pops vreg without machine bytes (i32.const, drop, end)" {
+    // Wasm spec §4.4.4 — drop consumes top operand without storage.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"drop" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Layout:
+    //   [0..4]   prologue
+    //   [4..10]  i32.const: MOV R10D, 7 (6 bytes — REX.B + B8+rd + 4-byte imm)
+    //   no drop bytes
+    //   [10..12] epilogue: POP RBP ; RET (no marshal because results.len==0)
+    try testing.expectEqual(@as(usize, 12), out.bytes.len);
+}
+
+test "compile: return mid-function (i32.const, return, end) emits MOV EAX + epilogue, then a second epilogue" {
+    // Wasm spec §4.4.7 — return marshals + exits. The trailing
+    // function-level `end` emits a second (dead) epilogue. Both
+    // epilogues are equivalent (no fixup mechanism on x86_64).
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xDEADBEEF });
+    try f.instrs.append(testing.allocator, .{ .op = .@"return" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Layout:
+    //   [0..4]   prologue: PUSH RBP ; MOV RBP, RSP (4 bytes)
+    //   [4..10]  i32.const: MOV R10D, imm (6 bytes)
+    //   [10..13] return marshal: MOV EAX, R10D (3 bytes — .d MovRR)
+    //   [13..15] return epilogue: POP RBP ; RET (2 bytes)
+    //   end (function-level):
+    //     pushed_vregs.len > 0 still — emit second marshal MOV EAX, R10D
+    //     [15..18] (3 bytes)
+    //     [18..20] second epilogue: POP RBP ; RET (2 bytes)
+    const expected_marshal = inst.encMovRR(.d, abi.return_gpr, .r10);
+    try testing.expectEqualSlices(u8, expected_marshal.slice(), out.bytes[10 .. 10 + expected_marshal.len]);
+    // First RET at byte 14
+    try testing.expectEqual(@as(u8, 0xC3), out.bytes[14]);
+    // Total length: 4 + 6 + 3 + 2 + 3 + 2 = 20 bytes
+    try testing.expectEqual(@as(usize, 20), out.bytes.len);
 }
 
 test "compile: v128-result end → UnsupportedOp (v128 marshalling deferred)" {
