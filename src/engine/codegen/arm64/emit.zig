@@ -144,11 +144,17 @@ pub fn compile(
     // - Total integer + FP params capped at 7 to avoid stack-arg
     //   marshalling (which would require frame-relative loads of
     //   8th+ args).
-    if (func.sig.params.len > 7) return Error.UnsupportedOp;
+    if (func.sig.params.len > 7) {
+        std.debug.print("arm64/emit: > 7 params unsupported (func_idx={d}, n={d})\n", .{ func.func_idx, func.sig.params.len });
+        return Error.UnsupportedOp;
+    }
     for (func.sig.params) |p| {
         switch (p) {
             .i32, .i64, .f32, .f64 => {},
-            .v128, .funcref, .externref => return Error.UnsupportedOp,
+            .v128, .funcref, .externref => {
+                std.debug.print("arm64/emit: param type `{s}` unsupported (func_idx={d})\n", .{ @tagName(p), func.func_idx });
+                return Error.UnsupportedOp;
+            },
         }
     }
     const num_params: u32 = @intCast(func.sig.params.len);
@@ -720,7 +726,20 @@ pub fn compile(
                 }
                 break;
             },
-            else => return Error.UnsupportedOp,
+            else => {
+                // §9.7 / 7.5-diag-op: surface the unhandled op
+                // tag to stderr so the spec-jit-compile-runner's
+                // /tmp/<host>.log captures which Wasm op the
+                // emit pass doesn't know yet. Without this, every
+                // missing-op fixture reports the opaque
+                // `UnsupportedOp` and triaging requires hand
+                // bisecting the body.
+                std.debug.print(
+                    "arm64/emit: unsupported op `{s}` (func_idx={d})\n",
+                    .{ @tagName(ins.op), func.func_idx },
+                );
+                return Error.UnsupportedOp;
+            },
         }
     }
 
