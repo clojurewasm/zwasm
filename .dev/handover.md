@@ -14,10 +14,11 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `601c7da`):
+直近 commit (HEAD = `cd3ced5`):
 
+- `cd3ced5` feat(p7): §9.7 / 7.5-d030-a — x86_64 emit refactor foundation (types.zig + label.zig)
+- `0a526a9` chore(p7): retarget §9.7 / 7.5 chunks at 7.5-d030
 - `601c7da` feat(p7): §9.7 / 7.5-d035-a — Wasm 2.0 multi-value block validation + lower
-- `cade18f` chore(p7): close D-037 — handover/debt — file D-038 — retarget at D-035
 - `2daaded` feat(p7): §9.7 / 7.5-d037-a — FP-spill machinery (BASELINE 17→2)
 - `f1c3ce3` feat(p7): §9.7 / 7.5-d036 — class-aware regalloc Allocation
 
@@ -32,16 +33,17 @@ D-030 / D-038 が now。
 
 **NEXT(優先順)**:
 
-1. **D-030 x86_64 emit refactor** (now; 7.7 [x] で barrier dissolved)
-   — Phase 7.8 (x86_64 spec gate) の prereq。ARM64 ADR-0021 sub-b
-   10-chunk 抽出を x86_64 で踏襲 (label / ctx / gpr / op_const /
-   op_alu_int / op_alu_float / op_convert / op_memory / op_control /
-   emit_test)。新規 ADR は不要 (ADR-0023 が load-bearing)。
-2. **D-035-b emit-side multi-result merge** (chunk-d035-a の partial
+1. **D-030 chunk-d030-b: x86_64 ctx.zig** — `EmitCtx` 構造体 +
+   `popBinary` / `popUnary` 等の helper を抽出。ARM64 ctx.zig の
+   shape をミラー。emit.zig の compile() body は positional args の
+   ままで OK; subsequent chunks (op_const 等) で ctx を消費する。
+2. **D-030 chunk-d030-c: x86_64 gpr.zig** — `resolveGpr` + spill
+   helpers (まだ x86_64 にない infra)。
+3. **D-035-b emit-side multi-result merge** (chunk-d035-a の partial
    discharge を完成) — `Label.merge_top_vreg` を `?[]u32` 化、
    `emitEndIntra` で N MOV を emit。block.wast の multi-RESULT
    fixture を spec_assert 追加。
-3. **D-038 emitEndIntra spill-staging** — 3-stage shape 追加 or
+4. **D-038 emitEndIntra spill-staging** — 3-stage shape 追加 or
    restructure。spill_aware_check BASELINE 2 → 0。
 
 これらの後で 7.8 → 7.9/7.10 → 7.11 🔒 → 7.12 → 7.13 🔒 の順。
@@ -119,7 +121,10 @@ multi-value 修正後に再評価(関連する semantic 解釈が変わる可能
 | 7.5-d036 | class-aware regalloc (Track A root; chunk-q shim → structural) | DONE (f1c3ce3) |
 | 7.5-d037-a | FP-spill machinery (Track A leaf; BASELINE 17→2; 15/17 sites) | DONE (2daaded) |
 | 7.5-d035-a | Wasm 2.0 multi-value blocks — validator + lower side | DONE (601c7da) |
-| 7.5-d030 | x86_64 emit refactor (now; barrier dissolved by 7.7 [x]) | **NEXT** |
+| 7.5-d030-a | x86_64 emit refactor — types.zig + label.zig foundation | DONE (cd3ced5) |
+| 7.5-d030-b | x86_64 ctx.zig (EmitCtx + popBinary/popUnary helpers) | **NEXT** |
+| 7.5-d030-c | x86_64 gpr.zig (resolveGpr + spill helpers) | pending |
+| 7.5-d030-d..k | x86_64 op_*.zig handler families (8 chunks) | pending |
 | 7.5-d035-b | multi-value blocks — emit-side merge_top_vreg → []u32 | pending |
 | 7.5-d038 | emitEndIntra spill-staging residual (chunk-d037-a leftover; BASELINE 2→0) | pending |
 | 7.5-spec-assertion-driver-v | (deferred) local_tee semantic miscompile / runner i64→i32 — re-evaluate post D-035 | deferred |
