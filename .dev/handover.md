@@ -14,27 +14,24 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `962a24c`):
+直近 commit (HEAD = `4440622`):
 
-- `962a24c` §9.7 / 7.5-diag-op (unsupported op tag + param reject reason; 6/12)
-- `764f212` §9.7 / 7.5-emit-deadcode (dead_code flag in emit; 6/12)
+- `4440622` §9.7 / 7.5-select-op (CSEL Wd; nop.0 clears; 6→7)
+- `962a24c` §9.7 / 7.5-diag-op (unsupported-op tag stderr)
+- `764f212` §9.7 / 7.5-emit-deadcode (dead_code flag)
 - `8874bbb` §9.7 / 7.5-return-op (5→6)
 - `67eb894` §9.7 / 7.5-block-result-deadcode (liveness tolerant)
 - `3253a68` §9.7 / 7.5-fp-params (V0..V7)
-- `953eedf` §9.7 / 7.5-i64-params (D-033 filed)
 
-**Active task**: diag-op landed; diagnostic から判明した残 6/12
-の主要原因:
-- nop.0 / labels.0 / unreachable.0 / unwind.0 — `select` op 未実装
-  (これらは validator-cleared "if cond then a else b" pattern を
-  使う). ARM64 emit catch-all で UnsupportedOp。
-- local_get/set.0 — regalloc pool SlotOverflow at func[9] params=5
-  (spill enable で unblock)。
+**Active task**: select-op landed (7/12; nop.0 clears)。残 5/12:
+- local_get/set.0 — SlotOverflow @ func[9] params=5
+- unreachable.0 / unwind.0 / labels.0 — UnsupportedOp at func[29/1/15]
+  (arm64/emit catch-all は出ず → op_*.zig handler 内 (gpr.resolveGpr
+  の spill reject など) が候補)
 
-**NEXT** = `7.5-select-op` (wasm `select` op を arm64 emit に追加。
-3 vregs を pop (a, b, cond), cond が non-zero なら a を、zero なら
-b を push。ARM64 では CMP + CSEL で実装。これで 4 fixture (nop.0,
-labels.0, unreachable.0, unwind.0) が deeper unblock 見込み)。
+**NEXT** = `7.5-diag-spill` (gpr.zig の spill-reject path に
+stderr diag を追加して具体的な vreg + op を surface; 残 fails の
+真の原因 (regalloc pool exhaustion vs 別の op 未実装) を可視化)。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -71,7 +68,8 @@ labels.0, unreachable.0, unwind.0) が deeper unblock 見込み)。
 | 7.5-return-op | wasm `return` op (mid-function early exit; B-fixup → epilogue) | DONE (8874bbb; 6/12) |
 | 7.5-emit-deadcode | `dead_code` flag in emit; skip ops in poly-stack zone; reset on end/else | DONE (764f212; 6/12) |
 | 7.5-diag-op | unsupported op tag + param reject reason を stderr に出力 | DONE (962a24c) |
-| 7.5-select-op | wasm `select` op (4 fixture を unblock 見込み) | **NEXT** |
+| 7.5-select-op | wasm `select` + `select_typed` (CMP + CSEL Wd) | DONE (4440622; 6→7) |
+| 7.5-diag-spill | gpr.zig の spill reject path に diag 追加 (残 UnsupportedOp 起点 surface) | **NEXT** |
 | 7.5-spill-enable | regalloc pool 枯渇時に spill を enable (SlotOverflow 解消) | pending |
 | 7.5-local-type-aware | local.get/set/tee の width を declared type 別に (D-033 discharge) | pending |
 | 7.5-spec-assertion-driver | wast2json で spec corpus を `.wasm` + assertion manifest 化 → JIT 経由で execute → pass/fail counts | pending |
@@ -104,6 +102,7 @@ zone placement / "constant overhead" / WASI prereq 等)。
 
 ## Recently closed (full history via `git log --oneline`)
 
+- §9.7 / 7.5-select-op (4440622): arm64/emit に `select` + `select_typed` を追加。inst.zig に encCselW + encCselX。CMP + CSEL Wd で 32-bit i32 select を実装 (i64 + FP 変種は debt 化保留)。spec-jit-compile 6→7 (nop.0 clears)。
 - §9.7 / 7.5-diag-op (962a24c): arm64/emit.zig に 3 つの stderr 診断を追加 (catch-all switch arm の op tag、prologue の > 7 params reject、prologue の non-int param-type reject)。spec-jit-compile-runner の出力で残り fails 4 件 (nop.0 / labels.0 / unreachable.0 / unwind.0) が `select` op 未実装で詰まっていることを確認。
 - §9.7 / 7.5-emit-deadcode (764f212): arm64/emit.zig の main op-loop に `dead_code: bool` flag。br/return/unreachable で set; end/else で reset; その他の op は dead 中スキップ。Wasm spec §3.3 polymorphic-stack を validator から信頼。unreachable.0 の AllocationMissing が UnsupportedOp at func[29] に shift (より deep な functions が compile を通った)。Limitation: end/else で常に reset するため deeply-nested dead 領域では under-track の可能性 (conservative; 余分な byte だが unreachable なので無害)。
 - §9.7 / 7.5-return-op (8874bbb): ARM64 emit に `return` op を追加。result marshal は end-handler の logic を inline 複製、その後 unconditional B placeholder を `return_fixups` に append。end-handler は frame teardown の byte offset (`epilogue_byte`) を capture し、return_fixups を全部 patch。trap stub は別 mechanism で従来通り。spec-jit-compile 5→6 (switch.0 clears via `return`)。
