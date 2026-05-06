@@ -31,16 +31,21 @@ D-030 / D-035 / D-036 / D-037 / D-038 / D-040 closed。
 **Active priority — Phase 7→8 transition gate prep** (per
 `phase8_transition_gate.md` §3a deferred-work DAG):
 
-**NEXT(優先順)**:
+**NEXT(優先順)** (D-041 の per-bucket chunks 順):
 
-1. **§9.7 / 7.5 close**: 残 94 skips の per-fixture 分類 +
-   structural 解決策の debt 化。multi-result if/else fixture
-   を spec_assert に追加して d035-c の回帰検出を入れる。
-2. **§9.7 / 7.8 spec gate (Linux + Windows)** — x86_64 spec
-   testsuite の pass=fail=skip=0 確立 (D-030 split landing 済;
-   x86_64 backend は機能網羅が揃っている)。
-3. **§9.7 / 7.9 + 7.10 realworld** — ARM64 + x86_64 で 40+
-   realworld サンプル走らせ。
+1. **7.5-close-c: FP non-int-result (17 skips)** — runner に
+   missing FP entry-helpers (callF32_i32 / callF64_i32i32 等)
+   per-fixture 追加。multi-result if/else fixture (D-035 から
+   deferred) もここで投入。
+2. **7.5-close-d: FP non-int-arg (8 skips)** — (c) と
+   ペアの runner 拡張、入力側。
+3. **7.5-close-a: assert_invalid (49 skips)** — runner に
+   `assert_invalid` directive 追加; validate-only path で
+   expected error と照合。
+4. **7.5-close-b: assert_malformed (20 skips)** — parser
+   layer 版、shape は (a) と同形。
+5. これら 4 chunk landing 後 §9.7 / 7.5 → [x]、続いて 7.8
+   (x86_64 spec gate Linux + Windows)。
 
 これらの後で 7.8 → 7.9/7.10 → 7.11 🔒 → 7.12 → 7.13 🔒 の順。
 
@@ -129,7 +134,12 @@ multi-value 修正後に再評価(関連する semantic 解釈が変わる可能
 | 7.5-d038 | emitEndIntra spill-staging refactor (BASELINE 2→0; D-038 closed) | DONE (d1b8523) |
 | 7.5-d035-c | emit-side multi-result MOV chain (D-035 closed; cap=8) + regression fix | DONE (13701e6 + a4b1510) |
 | 7.5-d040 | test-spec-assert → test-all (Mac aarch64 guard; D-040 closed) | DONE (3308a3c) |
-| 7.5-close | 94 skips 分類 + multi-result fixture; §9.7 / 7.5 row → [x] | **NEXT** |
+| 7.5-d041 | 94 skip 分類 → D-041 (4 buckets: 49 invalid / 20 malformed / 17 fp-result / 8 fp-arg) | **NEXT (file-only)** |
+| 7.5-close-c | FP non-int-result runner extension (+ multi-result fixture) | pending |
+| 7.5-close-d | FP non-int-arg runner extension | pending |
+| 7.5-close-a | assert_invalid runner directive | pending |
+| 7.5-close-b | assert_malformed runner directive | pending |
+| 7.5-close | §9.7 / 7.5 row → [x] (after a-d landing) | pending |
 | 7.5-d035-b | multi-value blocks — emit-side merge_top_vreg → []u32 | pending |
 | 7.5-d038 | emitEndIntra spill-staging residual (chunk-d037-a leftover; BASELINE 2→0) | pending |
 | 7.5-spec-assertion-driver-v | (deferred) local_tee semantic miscompile / runner i64→i32 — re-evaluate post D-035 | deferred |
