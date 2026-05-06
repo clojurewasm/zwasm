@@ -14,25 +14,24 @@
 
 ## Current state — Phase 7 / §9.7 / 7.7 IN-PROGRESS
 
-直近 commit (HEAD = `219d461`):
+直近 commit (HEAD = `cfa5d04`):
 
-- `219d461` §9.7 / 7.7-deferred-Win64 (Cc enum + sysv/win64 namespaces; entry_arg0 / shadow_space; 11 tests)
-- `3e4cd78` chore(p7): retarget §9.7 / 7.7 chunks at deferred-Win64; close D-032
-- `57cf94c` §9.7 / 7.7-fp-end-fix (D-032 discharge: i64/FP-aware end handler; 4 byte-level tests)
-- `68513ea` workflow audit fixes (gate detection robustness + handover trim)
-- `0fea402` workflow: SKILL.md hard-gate Detection rule (2 checkpoints) + handover gate awareness
-- `08dc2ef` 🔒 Phase 7→8 transition gate registered (§9.7 / 7.13 + `phase8_transition_gate.md`)
-- `b42eaea` workflow efficiency overhaul (parallel test gate + chunk granularity + opt-log seed)
+- `cfa5d04` fix-up: 1-arg call test を Cc-aware 化 (windowsmini fail 修正)
+- `68675d4` §9.7 / 7.7-cc-pivot-emit (current_cc / current alias; entry_arg0 + arg_gprs を per-Cc 化)
+- `0b7711f` chore(p7): retarget §9.7 / 7.7 chunks at 7.7-cc-pivot-emit
+- `219d461` §9.7 / 7.7-deferred-Win64 (Cc enum + sysv/win64 namespaces; 11 tests)
+- `3e4cd78` chore(p7): retarget at deferred-Win64; close D-032
+- `57cf94c` §9.7 / 7.7-fp-end-fix (D-032 discharge: i64/FP-aware end handler)
+- `68513ea` workflow audit fixes (gate detection + handover trim)
 
-**Active task**: deferred-Win64 完了 (declarative tables only;
-emit-side Cc-pivot wiring が次)。**NEXT** = `7.7-cc-pivot-emit`
-(emit.zig が builtin.target に応じて `abi.sysv` / `abi.win64`
-を選択する compile-time switch; `entry_arg0` / `arg_gprs` /
-`callee_saved_gprs` を per-Cc 化。byte-tests は SysV 固定値を
-保ったまま、emit 出力が Win64 ターゲットで Win64 reg を出すよう
-にする)。その後 7.7 を `[x]` flip → 7.8 spec gate (Linux + Windows
-hosts via x86_64 JIT) → 7.9/7.10 realworld → 7.11 🔒 three-way
-differential → 7.12 audit → **🔒 7.13 hard gate** → 7.14 open §9.8。
+**Active task**: cc-pivot-emit 完了 (entry_arg0 + arg_gprs)。
+**NEXT** = `7.7-cc-pivot-shadow-space` (Win64 ABI が要求する
+32-byte shadow space を CALL 周辺に SUB RSP, 32 / ADD RSP, 32
+で確保。SysV では no-op。emit のフレーム計算 + spillベース
+オフセットが shadow space に当たらないことを確認)。その後
+7.7 を `[x]` flip → 7.8 spec gate (Linux + Windows hosts via
+x86_64 JIT) → 7.9/7.10 realworld → 7.11 🔒 three-way differential
+→ 7.12 audit → **🔒 7.13 hard gate** → 7.14 open §9.8。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -51,16 +50,16 @@ differential → 7.12 audit → **🔒 7.13 hard gate** → 7.14 open §9.8。
 
 ## §9.7 / 7.7 chunk progress
 
-完了済 29 chunk: skel / alu / cmp / eqz / shift / bitcount / locals /
+完了済 30 chunk: skel / alu / cmp / eqz / shift / bitcount / locals /
 control-{skel,if,table} / mem-{load,store} / globals / wrap /
 call-{direct,indirect} / fp-{const,binary,compare,unary,copysign,
 minmax,convert-{simple,unsigned},trunc-sat-{signed,u32,u64},
-trunc-trap-{signed,unsigned},mem,end-fix} / deferred-Win64。
-SHA は `git log --grep='§9.7 / 7.7-'` で取得可能。
+trunc-trap-{signed,unsigned},mem,end-fix} / deferred-Win64 /
+cc-pivot-emit。SHA は `git log --grep='§9.7 / 7.7-'` で取得可能。
 
 | # | Chunk | Status |
 |---|---|---|
-| 7.7-cc-pivot-emit | emit.zig per-Cc pool selection (compile-time switch on builtin.target.os.tag) | **NEXT** |
+| 7.7-cc-pivot-shadow-space | Win64 32-byte shadow space around CALL (SysV no-op) | **NEXT** |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
 + Windows hosts), 7.9/7.10 realworld, 7.11 3-way differential
@@ -89,6 +88,7 @@ zone placement / "constant overhead" / WASI prereq 等)。
 
 ## Recently closed (full history via `git log --oneline`)
 
+- §9.7 / 7.7-cc-pivot-emit (68675d4 + cfa5d04): `current_cc` + `current` alias を abi.zig に追加 (compile-time switch on `builtin.target.os.tag`); emit.zig が prologue / call-site で `abi.current.entry_arg0_gpr` + `abi.current.arg_gprs` を読む; win64.allocatable_gprs は slots 0..5 を SysV と同一順序にして cross-Cc test stability を確保; 3 abi tests + 1 emit test fix-up。
 - §9.7 / 7.7-deferred-Win64 (219d461): Cc enum {sysv, win64} + per-Cc namespace (arg_gprs / callee_saved / shadow_space / entry_arg0); top-level aliases stay SysV; emit-side Cc-pivot は次の sub-chunk; 11 tests。
 - §9.7 / 7.7-fp-end-fix (57cf94c): D-032 discharge — function-level end が `func.sig.results[0]` で分岐 (i32→.d / i64→.q / f32+f64→MOVAPS XMM0 / v128→UnsupportedOp); 4 byte-level tests。
 - §9.7 / 7.7-fp-mem (3255c29): emitMemOp に is_fp 分岐 + encMovssMovsdMemBaseIdx; 6 tests。
