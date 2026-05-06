@@ -101,7 +101,10 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
         addr_vreg = ctx.pushed_vregs.pop().?;
     }
-    const w_addr = try gpr.resolveGpr(ctx.alloc, addr_vreg);
+    // D-034: addr_vreg via spill-staging (stage 0). After the
+    // OR-into-ip0 below the address is captured in ip0, so stage 0
+    // is free to reuse for store value or load result.
+    const w_addr = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, addr_vreg, 0);
 
     // Effective-address + spec-strict bounds prologue.
     // ea = idx (zero-extended u32) + offset; trap iff ea + size > mem_limit.
@@ -124,7 +127,7 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         const wv: inst.Xn = if (is_fp_value)
             try gpr.resolveFp(ctx.alloc, val_vreg)
         else
-            try gpr.resolveGpr(ctx.alloc, val_vreg);
+            try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_vreg, 1);
         const word: u32 = switch (ins.op) {
             .@"i32.store"   => inst.encStrWReg(wv, 28, ip0),
             .@"i32.store8"  => inst.encStrbWReg(wv, 28, ip0),
@@ -145,7 +148,7 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         const wd: inst.Xn = if (is_fp_value)
             try gpr.resolveFp(ctx.alloc, result)
         else
-            try gpr.resolveGpr(ctx.alloc, result);
+            try gpr.gprDefSpilled(ctx.alloc, result, 0);
         const word: u32 = switch (ins.op) {
             .@"i32.load"     => inst.encLdrWReg(wd, 28, ip0),
             .@"i32.load8_s"  => inst.encLdrsbWReg(wd, 28, ip0),
@@ -164,6 +167,9 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
             else => unreachable,
         };
         try gpr.writeU32(ctx.allocator, ctx.buf, word);
+        if (!is_fp_value) {
+            try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result, 0);
+        }
         try ctx.pushed_vregs.append(ctx.allocator, result);
     }
 }
