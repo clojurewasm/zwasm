@@ -33,6 +33,7 @@
 | 2026-05-04 | adr-revision-history-misuse           | ADR amend, Revision history, README convention, gap vs refinement | ADR Revision history rows have read like "minor refinement" when they were actually "we missed this at design time". Proposes sharper categorisation: gap / refinement / expansion. |
 | 2026-05-04 | adr-batch-dependency-order            | ADR batch, dependency DAG, Phase 7 reshape, lineage             | 4-ADR batch (0017-0020) had implicit dependency order; should have added Dependencies sections or a meta-DAG ADR for 3+ ADR batches. |
 | 2026-05-06 | regalloc-pool-size-mismatch           | regalloc, max_reg_slots, abi.allocatable_gprs, ADR-0027, SlotOverflow | regalloc default `max_reg_slots = 9` was not updated when ADR-0027 reduced `allocatable_gprs.len` 9 → 8. Result: func[9] of local_get.0 hit `SlotOverflow` (slotToReg returned null for slot 8). Cross-module config-sync rule needed. |
+| 2026-05-06 | spec-citation-gap                     | Wasm spec citation, per-handler doc, late-surface bugs, D-033, prologue zero-init | Two basic Wasm spec requirements (D-033 i64 width-aware local.get/set/tee, prologue local zero-init §4.5.3.1) reached production without unit-test coverage because handler authoring described **what** the code does, not **what the spec demands**. Codified as `.claude/rules/spec_citation.md` — every spec-semantic handler now requires a `Wasm spec §X.Y` line in its docstring. |
 
 ## Promotion to ADR — when to escalate
 

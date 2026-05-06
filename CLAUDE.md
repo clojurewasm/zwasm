@@ -269,7 +269,16 @@ All of:
 4. `zig build lint -- --max-warnings 0` — zlinter `no_deprecated`
    gate per ADR-0009 (Mac-host only; not added to test-all to
    keep the OrbStack / windowsmini runners network-free)
-5. As phases add layers, `zig build test-all` runs them too
+5. `bash scripts/spill_aware_check.sh --gate` — D-034 spill-aware
+   handler convention regression check. BASELINE ratchets DOWN
+   as FP-spill machinery + remaining GPR sites land; new bare
+   `gpr.resolveGpr` / `gpr.resolveFp` introductions in op-handler
+   files are forbidden unless paired with a `// SPILL-EXEMPT:
+   <reason>` comment on the previous line. Convention is in
+   [`.claude/rules/spec_citation.md`](.claude/rules/spec_citation.md)
+   sibling material; the canonical staging helpers live in
+   `src/engine/codegen/arm64/gpr.zig`.
+6. As phases add layers, `zig build test-all` runs them too
 
 OrbStack Ubuntu x86_64 + `windowsmini` SSH must also pass before
 push. Run them **concurrently in the background, single-message,

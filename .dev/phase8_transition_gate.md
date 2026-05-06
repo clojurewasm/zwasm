@@ -92,6 +92,73 @@ horizon.
 - [ ] File-size soft caps: no Phase 7 file at > 2× soft-cap
       LOC (= unchecked monolith risk before Phase 8 opens).
 
+#### 3a. Phase 7 → 8 deferred-work dependency DAG
+
+Phase 7 closing leaves a stack of "Phase 8 follow-up" deferred
+pieces whose **inter-dependency is implicit** across debt rows
+and ADR References. Surface that dependency before §9.8 opens
+so we can sequence Phase 8 work without false-start re-deletions.
+
+Discovered during §9.7 / 7.5-spec-assertion-driver-{o,p,q}:
+
+```
+    ┌─────────────────────────────┐
+    │ Class-aware regalloc        │ ← root of the DAG
+    │ (per-class max_reg_slots,   │
+    │  not the GPR-sized cap)     │
+    └────────┬────────────────────┘
+             │
+             ├──► FP-class spill staging (V-class scratch +
+             │    encLdrSImm/encStrSImm spill paths)
+             │     │
+             │     └──► op_alu_float / op_convert / bounds_check
+             │          (17 sites today flagged by
+             │           `scripts/spill_aware_check.sh`)
+             │
+             ├──► Wasm 2.0 multi-value blocks (D-035)
+             │     │
+             │     ├──► parser typeidx-blocktype path
+             │     ├──► validator multi-result resolve
+             │     └──► op_control.emitBlock multi-value merge
+             │
+             └──► x86_64 emit refactor (D-030: 9-module split,
+                  + D-029 parallel-move) reuses ARM64's
+                  spill-staging shape but only after
+                  class-aware regalloc lands; otherwise the
+                  same `max_reg_slots` mismatch trap fires
+                  on x86_64 with 4-vs-8 register-pool sizing
+                  (cross-module sync rule, per
+                  `.dev/lessons/2026-05-06-regalloc-pool-size-mismatch.md`).
+```
+
+**Sequencing constraint**: each successor needs its predecessor
+landed first; otherwise the same lessons re-pay. Specifically:
+
+- [ ] `class-aware-regalloc` chunk landed (separate
+      `max_reg_slots_gpr` / `max_reg_slots_fp`, OR per-call
+      class parameter to `regalloc.compute`). Verifies the
+      `chunk-q resolveFp shim` is replaced by a structural
+      design, not a band-aid.
+- [ ] `fp-spill-machinery` chunk landed (V-class scratch
+      reservation + load/store S/D imm-form spill paths +
+      `fpLoadSpilled` / `fpDefSpilled` / `fpStoreSpilled`
+      helpers parallel to GPR equivalents). Verifies
+      `spill_aware_check.sh` BASELINE drops to ≤ 5 (only
+      the GPR-side leftovers in op_control / op_const).
+- [ ] D-035 (Wasm 2.0 multi-value) landed. Verifies
+      spec_assert corpus expansion to `block.wast` /
+      `br_*.wast` / `call.wast` is no longer blocked.
+- [ ] D-030 + D-029 (x86_64 split + parallel-move) landed
+      OR explicitly deferred to Phase 8 with the deferral
+      rationale recorded in this gate's "Strategic review"
+      section.
+
+The **why**: v1's W54 post-mortem proved that "we'll fix it
+later" deferrals compound silently when the dependency
+direction isn't published. Every deferred piece in this DAG
+has at least one predecessor it cannot bypass — landing them
+out of order means re-doing earlier work.
+
 ### 4. Optimisation log triage
 
 - [ ] `.dev/optimisation_log.md` has `bench/results/history.yaml`
