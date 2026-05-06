@@ -446,6 +446,11 @@ pub fn compile(
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 _ = pushed_vregs.pop().?;
             },
+            .@"nop" => {
+                // Wasm spec §4.4.6.2: do nothing. No machine
+                // bytes; no stack change. Validator already
+                // accepts it; emit just skips.
+            },
             .@"unreachable" => {
                 // Wasm spec §4.4.6.1: trap unconditionally. Emit
                 // an unconditional `B 0` placeholder; record the
