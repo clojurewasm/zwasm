@@ -14,27 +14,26 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `7a8dcb6`):
+直近 commit (HEAD = `d6bc382`):
 
-- `7a8dcb6` §9.7 / 7.5-spec-assertion-driver-p (D-034 chain: globals/control/select/call/local.get + partial FP)
+- `d6bc382` §9.7 / 7.5-spec-assertion-driver-q (FP pool widening; **spec-jit-compile 12/12 PASS**; D-034 closed)
+- `7a8dcb6` §9.7 / 7.5-spec-assertion-driver-p (D-034 chain extends)
 - `4f3cd36` §9.7 / 7.5-spec-assertion-driver-o (regalloc/abi pool mismatch fix)
 - `bfd9b70` §9.7 / 7.5-spec-assertion-driver-n (D-034 memory+convert; ~40 ops)
-- `cdfac4a` §9.7 / 7.5-spec-assertion-driver-m (D-034 i64 family; 25 ops)
 
-**Active task**: spec-assertion-driver-p landed。op_globals /
-emit.select / op_call (call_indirect idx + i32/i64 args) /
-op_alu_float (Copysign + Compare GPR scratch path) / op_control
-(BrIf / BrTable / If cond) / emit.local.get i32/i64 を spill-aware
-化。失敗モードが `resolveGpr rejected` → `resolveFp rejected`
-に shift — vreg ≥ max_reg_slots が `.spill` になって FP-spill
-machinery がない箇所で reject。これ以上は class-aware regalloc
-+ V-class spill stage の構造的 piece が必要。
+**Active task**: spec-assertion-driver-q landed。`resolveFp` を
+`fpSlotToReg` 経由で直接読むように shim — FP pool が 15 entries
+あるので id 0..14 を reg として扱う (id ≥ 15 のみ spill)。
+"mixing caveat" は abi.zig が既に documented (slot ids per-class)。
+**spec-jit-compile-runner: 12/0** — long-standing 2 fails 解消。
+**D-034 closed** (debt entry remove)。tests 1027/1032 / 95/0/0
+据え置き。
 
-**NEXT** = `7.5-spec-assertion-driver-q` (FP-spill machinery 設計
-着手 — V-class scratch register reservation + encLdrSImm/encStrSImm
-spill paths、もしくは class-aware regalloc で GPR/FP 別の slot
-pool を持つ。spec-jit-compile 12/12 PASS が究極ターゲット;
-chunk-q は構造的 ADR が必要なら ADR 化)。
+**NEXT** = `7.5-spec-assertion-driver-r` (spec-jit-compile 12/12 を
+spec-assert pipeline 経由で execute・assert に拡張; 真の "spec
+test pass=fail=skip=0" 達成への chain。あるいは別軸: §9.7 / 7.6
+以降の row close 着手)。chunk-q が大きな milestone — §9.7 / 7.5
+の中核問題は解消した。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -96,7 +95,8 @@ chunk-q は構造的 ADR が必要なら ADR 化)。
 | 7.5-spec-assertion-driver-n | D-034 memory / convert handlers (~40 ops) | DONE (bfd9b70) |
 | 7.5-spec-assertion-driver-o | regalloc/abi pool mismatch root cause + fix | DONE (4f3cd36) |
 | 7.5-spec-assertion-driver-p | D-034 chain (globals/control/select/call/local.get + partial FP) | DONE (7a8dcb6) |
-| 7.5-spec-assertion-driver-q | FP-spill machinery (V-class scratch + encLdrSImm/encStrSImm spill paths) — ADR 候補 | **NEXT** |
+| 7.5-spec-assertion-driver-q | FP pool widening (resolveFp shim); spec-jit-compile 12/12; D-034 closed | DONE (d6bc382) |
+| 7.5-spec-assertion-driver-r | execute-side coverage (12/12 compile を spec_assert で全 fixture run) または §9.7 / 7.6+ への pivot | **NEXT** |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
