@@ -203,10 +203,11 @@ pub fn emitI32Binary(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// i32.rotr: direct RORV-W.
 pub fn emitI32Rotr(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const args = try ctx.popBinary();
-    const wn = try gpr.resolveGpr(ctx.alloc, args.lhs);
-    const wm = try gpr.resolveGpr(ctx.alloc, args.rhs);
-    const wd = try gpr.resolveGpr(ctx.alloc, args.result);
+    const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.lhs, 0);
+    const wm = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.rhs, 1);
+    const wd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encRorvRegW(wd, wn, wm));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
@@ -214,22 +215,23 @@ pub fn emitI32Rotr(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// using IP0 (W16) as scratch.
 pub fn emitI32Rotl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const args = try ctx.popBinary();
-    const wn = try gpr.resolveGpr(ctx.alloc, args.lhs);
-    const wm = try gpr.resolveGpr(ctx.alloc, args.rhs);
-    const wd = try gpr.resolveGpr(ctx.alloc, args.result);
+    const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.lhs, 0);
+    const wm = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.rhs, 1);
+    const wd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
     const ip0: Xn = 16;
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(ip0, 32));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubRegW(ip0, ip0, wm));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encRorvRegW(wd, wn, ip0));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
 /// i32 compare (eq..ge_u): CMP-W + CSET-W.
 pub fn emitI32Compare(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const args = try ctx.popBinary();
-    const wn = try gpr.resolveGpr(ctx.alloc, args.lhs);
-    const wm = try gpr.resolveGpr(ctx.alloc, args.rhs);
-    const wd = try gpr.resolveGpr(ctx.alloc, args.result);
+    const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.lhs, 0);
+    const wm = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.rhs, 1);
+    const wd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
     const cond: inst.Cond = switch (ins.op) {
         .@"i32.eq"   => .eq,
         .@"i32.ne"   => .ne,
@@ -245,35 +247,39 @@ pub fn emitI32Compare(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     };
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(wn, wm));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCsetW(wd, cond));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
 /// i32.eqz: CMP-W #0 + CSET-W .eq.
 pub fn emitI32Eqz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const args = try ctx.popUnary();
-    const wn = try gpr.resolveGpr(ctx.alloc, args.src);
-    const wd = try gpr.resolveGpr(ctx.alloc, args.result);
+    const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
+    const wd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(wn, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCsetW(wd, .eq));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
 /// i32.clz: direct CLZ-W.
 pub fn emitI32Clz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const args = try ctx.popUnary();
-    const wn = try gpr.resolveGpr(ctx.alloc, args.src);
-    const wd = try gpr.resolveGpr(ctx.alloc, args.result);
+    const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
+    const wd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encClzW(wd, wn));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
 /// i32.ctz: RBIT-W + CLZ-W (no direct CTZ).
 pub fn emitI32Ctz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const args = try ctx.popUnary();
-    const wn = try gpr.resolveGpr(ctx.alloc, args.src);
-    const wd = try gpr.resolveGpr(ctx.alloc, args.result);
+    const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
+    const wd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encRbitW(wd, wn));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encClzW(wd, wd));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
 
@@ -281,12 +287,13 @@ pub fn emitI32Ctz(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// (ARM has no GPR-side popcount).
 pub fn emitI32Popcnt(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const args = try ctx.popUnary();
-    const wn = try gpr.resolveGpr(ctx.alloc, args.src);
-    const wd = try gpr.resolveGpr(ctx.alloc, args.result);
+    const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
+    const wd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
     const v_scratch: inst.Vn = 31;
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encFmovStoFromW(v_scratch, wn));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCntV8B(v_scratch, v_scratch));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddvB8B(v_scratch, v_scratch));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encUmovWFromVB0(wd, v_scratch));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
 }
