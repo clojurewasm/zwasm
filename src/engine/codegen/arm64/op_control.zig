@@ -298,6 +298,7 @@ pub fn emitElse(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     if (ctx.labels.items.len == 0 or
         ctx.labels.items[ctx.labels.items.len - 1].kind != .if_then)
     {
+        std.debug.print("arm64/op_control: emitElse without matching if_then frame (labels.len={d}, func_idx={d})\n", .{ ctx.labels.items.len, ctx.func.func_idx });
         return Error.UnsupportedOp;
     }
     const lbl_idx = ctx.labels.items.len - 1;
@@ -336,10 +337,14 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     // the else arm's result vreg (its value now lives in the
     // merge target's reg).
     if (lbl.kind == .else_open and lbl.merge_top_vreg != null) {
-        if (ctx.pushed_vregs.items.len < 2) return Error.UnsupportedOp;
+        if (ctx.pushed_vregs.items.len < 2) {
+            std.debug.print("arm64/op_control: emitEndIntra (else_open merge) needs >=2 pushed_vregs, got {d} (func_idx={d})\n", .{ ctx.pushed_vregs.items.len, ctx.func.func_idx });
+            return Error.UnsupportedOp;
+        }
         const else_result = ctx.pushed_vregs.pop().?;
         const merge_vreg = lbl.merge_top_vreg.?;
         if (ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1] != merge_vreg) {
+            std.debug.print("arm64/op_control: emitEndIntra merge mismatch — top vreg={d}, merge={d} (func_idx={d})\n", .{ ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1], merge_vreg, ctx.func.func_idx });
             return Error.UnsupportedOp;
         }
         const merge_reg = try gpr.resolveGpr(ctx.alloc, merge_vreg);
