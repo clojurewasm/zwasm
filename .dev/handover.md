@@ -14,25 +14,26 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `b8ebe8e`):
+直近 commit (HEAD = `a6cd9f3`):
 
+- `a6cd9f3` §9.7 / 7.5-spec-assertion-driver-e (corpus expand: unreachable.wast +63; 80/0/1)
 - `b8ebe8e` §9.7 / 7.5-spec-assertion-driver-d (assert_trap; 17/0/1)
 - `c347bcd` §9.7 / 7.5-spec-assertion-driver-c (callI64* + handcrafted_i64; 14/0/1)
 - `5cbf28a` §9.7 / 7.5-spec-assertion-driver-b (10/0/0)
-- `503b5ee` §9.7 / 7.5-spec-assertion-driver-a (forward 4/4)
 
-**Active task**: spec-assertion-driver-d landed。runner に
-`assert_trap` directive を追加 — `Error.Trap` を PASS とみなす
-boolean check (reason discrimination は D-022 / Diagnostic M3
-の仕事として保留)。`handcrafted_trap` fixture: `always_traps`
-(raw unreachable) + `trap_on_neg` (i32 if<0)。
-spec_assert_runner: 17/0/1。
+**Active task**: spec-assertion-driver-e landed。regen script に
+`assert_trap` 出力 + i64 result/arg 受容を追加; curated NAMES に
+`unreachable` を追加 (63 traps 全 PASS)。`nop.wast` は試行 →
+`memory.grow` / `call_indirect` で no-memory/no-table JitRuntime
+を segfault させたため revert。richer-runtime 化は別 chunk。
+spec_assert_runner: 80/0/1。
 
-**NEXT** = `7.5-spec-assertion-driver-e` (curated wasm-1.0 corpus
-拡大 → const.wast / unreachable.wast / nop.wast 等 0-arg
-fixture を regen で取り込み; 残った D-033 / D-034 を avoid する
-ように小さい curated 集合から始める)。SlotOverflow / D-034 +
-D-033 は依然 discharge ペンディング。
+**NEXT** = `7.5-spec-assertion-driver-f` (richer-runtime path:
+JitRuntime に default memory + table を populate して
+`call_indirect` / `memory.grow` を含む corpus を取り込めるように
+する; nop.wast / br.wast / switch.wast 等が候補)。subsequent: -g
+(残 D-033/D-034 discharge or skip 整備), -h (broader
+wasm-1.0 set)。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -82,7 +83,8 @@ D-033 は依然 discharge ペンディング。
 | 7.5-spec-assertion-driver-b | 2-arg i32 (callI32_i32i32) + handcrafted_2arg fixture (10/0/0) | DONE (5cbf28a) |
 | 7.5-spec-assertion-driver-c | i64 result (callI64*); handcrafted_i64; D-033 surface | DONE (c347bcd) |
 | 7.5-spec-assertion-driver-d | assert_trap directive + handcrafted_trap (17/0/1) | DONE (b8ebe8e) |
-| 7.5-spec-assertion-driver-e | curated wasm-1.0 corpus 拡大 (const/unreachable/nop の 0-arg fixture を regen で取り込み) | **NEXT** |
+| 7.5-spec-assertion-driver-e | regen に assert_trap + i64 受容; unreachable.wast 取込 (80/0/1) | DONE (a6cd9f3) |
+| 7.5-spec-assertion-driver-f | richer JitRuntime (default mem + table) で call_indirect / memory.grow 系を取り込み | **NEXT** |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
