@@ -1,0 +1,5 @@
+module forward.0.wasm
+assert_return even i32:13 -> i32:0
+assert_return even i32:20 -> i32:1
+assert_return odd i32:13 -> i32:1
+assert_return odd i32:20 -> i32:0

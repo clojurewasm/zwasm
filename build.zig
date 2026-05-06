@@ -225,6 +225,27 @@ pub fn build(b: *std.Build) void {
     const test_jit_compile_step = b.step("test-spec-jit-compile", "JIT-compile spec corpus (Mac aarch64 only; §9.7 / 7.5)");
     test_jit_compile_step.dependOn(&run_jit_compile.step);
 
+    // `zig build test-spec-assert` — §9.7 / 7.5-spec-assertion-driver-a.
+    // Walks corpus produced by `scripts/regen_spec_1_0_assert.sh`,
+    // JIT-compiles each `module` and runs each `assert_return`
+    // through the typed entry helpers (callI32NoArgs / callI32_i32),
+    // reporting pass / fail / skipped counts. Mac aarch64 only.
+    const spec_assert_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/spec/spec_assert_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    spec_assert_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(spec_assert_runner_mod, sanitize_c, sanitize_thread);
+    const spec_assert_runner_exe = b.addExecutable(.{
+        .name = "zwasm-spec-assert",
+        .root_module = spec_assert_runner_mod,
+    });
+    const run_spec_assert = b.addRunArtifact(spec_assert_runner_exe);
+    run_spec_assert.addArg(b.pathFromRoot("test/spec/wasm-1.0-assert"));
+    const test_spec_assert_step = b.step("test-spec-assert", "Run JIT spec assertion runner (Mac aarch64 only; §9.7 / 7.5)");
+    test_spec_assert_step.dependOn(&run_spec_assert.step);
+
     // `zig build test-spec-wasm-2.0` — wast-directive runner
     // (Phase 2 / §9.2 / 2.7). Reads each subdir's manifest.txt
     // and processes module / assert_invalid / assert_malformed

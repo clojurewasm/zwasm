@@ -53,6 +53,25 @@ pub fn callI32NoArgs(
     return result;
 }
 
+/// Call a single-i32-argument JIT function returning i32.
+/// Per AAPCS64 / SysV the ABI puts `rt` in X0 / RDI and `a0` in
+/// X1 / RSI; the JIT body's prologue snapshots X1 (W1) into the
+/// param-0 local slot. Used by §9.7 / 7.5 spec-assertion-driver
+/// to invoke `assert_return` actions whose action.args is one i32.
+pub fn callI32_i32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u32,
+) Error!u32 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: u32) callconv(.c) u32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -246,4 +265,44 @@ test "entry: pure constant function returns 42 (sanity — no memory access)" {
     };
     const result = try callI32NoArgs(module, 0, &rt);
     try testing.expectEqual(@as(u32, 42), result);
+}
+
+test "entry: callI32_i32 — 1 i32 param echoed through W1 → SP slot 0 → result" {
+    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
+        return error.SkipZigTest;
+    }
+    const sig: zir.FuncType = .{ .params = &.{.i32}, .results = &.{.i32} };
+    var fn0 = ZirFunc.init(0, sig, &.{});
+    defer fn0.deinit(testing.allocator);
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"end" });
+    fn0.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const sigs = [_]zir.FuncType{sig};
+
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{});
+    defer emit.deinit(testing.allocator, out0);
+
+    const bodies = [_]linker.FuncBody{
+        .{ .bytes = out0.bytes, .call_fixups = out0.call_fixups },
+    };
+    var module = try linker.link(testing.allocator, &bodies);
+    defer module.deinit(testing.allocator);
+
+    var memory: [0]u8 = .{};
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+    };
+    try testing.expectEqual(@as(u32, 0xCAFEBABE), try callI32_i32(module, 0, &rt, 0xCAFEBABE));
+    try testing.expectEqual(@as(u32, 42), try callI32_i32(module, 0, &rt, 42));
 }
