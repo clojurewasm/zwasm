@@ -52,6 +52,7 @@ const op_alu_int = @import("op_alu_int.zig");
 const op_alu_float = @import("op_alu_float.zig");
 const op_convert = @import("op_convert.zig");
 const op_memory = @import("op_memory.zig");
+const op_control = @import("op_control.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
@@ -273,13 +274,13 @@ pub fn compile(
             => try op_memory.emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.op, ins.payload, func.func_idx),
             .@"global.get" => try emitI32GlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             .@"global.set" => try emitI32GlobalSet(allocator, &buf, alloc, &pushed_vregs, ins.payload),
-            .@"block" => try emitBlock(allocator, &labels),
-            .@"loop" => try emitLoop(allocator, &buf, &labels),
-            .@"br" => try emitBr(allocator, &buf, &labels, ins.payload),
-            .@"br_if" => try emitBrIf(allocator, &buf, alloc, &pushed_vregs, &labels, ins.payload),
-            .@"br_table" => try emitBrTable(allocator, &buf, func, alloc, &pushed_vregs, &labels, ins.payload, ins.extra),
-            .@"if" => try emitIf(allocator, &buf, alloc, &pushed_vregs, &labels),
-            .@"else" => try emitElse(allocator, &buf, &pushed_vregs, &labels),
+            .@"block" => try op_control.emitBlock(allocator, &labels),
+            .@"loop" => try op_control.emitLoop(allocator, &buf, &labels),
+            .@"br" => try op_control.emitBr(allocator, &buf, &labels, ins.payload),
+            .@"br_if" => try op_control.emitBrIf(allocator, &buf, alloc, &pushed_vregs, &labels, ins.payload),
+            .@"br_table" => try op_control.emitBrTable(allocator, &buf, func, alloc, &pushed_vregs, &labels, ins.payload, ins.extra),
+            .@"if" => try op_control.emitIf(allocator, &buf, alloc, &pushed_vregs, &labels),
+            .@"else" => try op_control.emitElse(allocator, &buf, &pushed_vregs, &labels),
             .@"end" => {
                 // Two distinct forms (mirrors arm64/emit.zig):
                 // (A) Intra-function `end`: pops a label, patches
@@ -288,7 +289,7 @@ pub fn compile(
                 //     epilogue, returns. Disambiguation: empty
                 //     label stack → form (B).
                 if (labels.items.len > 0) {
-                    try emitEndIntra(allocator, &buf, &pushed_vregs, alloc, &labels);
+                    try op_control.emitEndIntra(allocator, &buf, &pushed_vregs, alloc, &labels);
                     continue;
                 }
                 if (pushed_vregs.items.len > 0 and func.sig.results.len > 0) {
@@ -684,53 +685,6 @@ fn emitLocalTee(
     try buf.appendSlice(allocator, inst.encStoreR32MemRBP(disp, src_r).slice());
 }
 
-/// `block` — push a forward-resolving label frame. No code
-/// emitted; the matching `end` patches all `pending` fixups.
-fn emitBlock(allocator: Allocator, labels: *std.ArrayList(Label)) Error!void {
-    try labels.append(allocator, .{
-        .kind = .block,
-        .target_byte_offset = 0,
-        .pending = .empty,
-    });
-}
-
-/// `loop` — push a backward-resolving label frame. Captures
-/// the current buf offset as the loop entry; subsequent `br`
-/// to this label resolves to a backward JMP with concrete disp.
-fn emitLoop(allocator: Allocator, buf: *std.ArrayList(u8), labels: *std.ArrayList(Label)) Error!void {
-    try labels.append(allocator, .{
-        .kind = .loop,
-        .target_byte_offset = @intCast(buf.items.len),
-        .pending = .empty,
-    });
-}
-
-/// `br N` — unconditional branch to label at depth N (0 =
-/// innermost). Loop targets resolve immediately to a concrete
-/// disp; block targets emit a placeholder JMP rel32 and append
-/// a `Fixup` for the matching `end` to patch.
-fn emitBr(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    labels: *std.ArrayList(Label),
-    depth: u32,
-) Error!void {
-    if (depth >= labels.items.len) return Error.UnsupportedOp;
-    const tgt_idx = labels.items.len - 1 - depth;
-    const tgt = &labels.items[tgt_idx];
-    const at: u32 = @intCast(buf.items.len);
-    if (tgt.kind == .loop) {
-        // Backward branch: target known. disp = target - (at + 5).
-        const disp: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
-            @as(i32, @intCast(at)) - 5;
-        try buf.appendSlice(allocator, inst.encJmpRel32(disp).slice());
-    } else {
-        // Forward branch: emit placeholder; queue fixup.
-        try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
-        try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
-    }
-}
-
 /// `global.get N` (i32) — load `[globals_base + N*8]` low 32 bits
 /// into a fresh dst vreg. Per ADR-0027 + ADR-0026 reload pattern:
 ///
@@ -777,212 +731,6 @@ fn emitI32GlobalSet(
 
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
     try buf.appendSlice(allocator, inst.encStoreR32MemDisp32(src_r, .rax, byte_off).slice());
-}
-
-/// Emit a single `JMP target_for_depth` for one br_table case
-/// (or the trailing default). Backward (loop) → concrete disp;
-/// forward (block / if family) → placeholder + Fixup append.
-/// Shared between the per-case loop and the default tail.
-fn emitBrTableJmp(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    labels: *std.ArrayList(Label),
-    depth: u32,
-) Error!void {
-    if (depth >= labels.items.len) return Error.UnsupportedOp;
-    const tgt_idx = labels.items.len - 1 - depth;
-    const tgt = &labels.items[tgt_idx];
-    const at: u32 = @intCast(buf.items.len);
-    if (tgt.kind == .loop) {
-        const disp: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
-            @as(i32, @intCast(at)) - 5;
-        try buf.appendSlice(allocator, inst.encJmpRel32(disp).slice());
-    } else {
-        try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
-        try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
-    }
-}
-
-/// `br_table` — pop index; emit a CMP+JNE-skip+JMP chain for
-/// each in-range case, then an unconditional JMP to the default.
-///
-/// ZirInstr encoding (mvp.zig:brTableOp):
-///   payload = count   (number of in-range targets)
-///   extra   = start   (offset into func.branch_targets)
-/// branch_targets[start..start+count] = case depths
-/// branch_targets[start+count]        = default depth
-///
-/// Per-case sequence (10-11 bytes):
-///   CMP idx, i        (3-4 bytes; REX.B if idx ∈ R8..R15)
-///   JNE +5            (2 bytes; skip the JMP if idx != i)
-///   JMP target        (5 bytes; placeholder/concrete per kind)
-///
-/// **Cap**: count ≤ 127 (CMP r/m32, imm8 sign-extended). Larger
-/// requires the imm32 form; surfaces as UnsupportedOp.
-fn emitBrTable(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    func: *const ZirFunc,
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    labels: *std.ArrayList(Label),
-    count: u32,
-    start: u32,
-) Error!void {
-    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-    if (count > 127) return Error.UnsupportedOp;
-    const idx_v = pushed_vregs.pop().?;
-    const idx_r = abi.slotToReg(alloc.slots[idx_v]) orelse return Error.SlotOverflow;
-    const targets = func.branch_targets.items;
-    if (start + count >= targets.len) return Error.UnsupportedOp;
-
-    var i: u32 = 0;
-    while (i < count) : (i += 1) {
-        try buf.appendSlice(allocator, inst.encCmpRImm8(.d, idx_r, @intCast(i)).slice());
-        try buf.appendSlice(allocator, inst.encJccRel8(.ne, 5).slice());
-        try emitBrTableJmp(allocator, buf, labels, targets[start + i]);
-    }
-    try emitBrTableJmp(allocator, buf, labels, targets[start + count]);
-}
-
-/// `br_if N` — pop cond, branch to label at depth N if cond is
-/// non-zero. Emit TEST cond, cond ; Jcc(NE) target. Backward
-/// (loop) target → concrete disp; forward (block / if) target
-/// → placeholder + Fixup append.
-fn emitBrIf(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    labels: *std.ArrayList(Label),
-    depth: u32,
-) Error!void {
-    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-    const cond_v = pushed_vregs.pop().?;
-    const cond_r = abi.slotToReg(alloc.slots[cond_v]) orelse return Error.SlotOverflow;
-    if (depth >= labels.items.len) return Error.UnsupportedOp;
-    try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
-    const tgt_idx = labels.items.len - 1 - depth;
-    const tgt = &labels.items[tgt_idx];
-    const at: u32 = @intCast(buf.items.len);
-    if (tgt.kind == .loop) {
-        const disp: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
-            @as(i32, @intCast(at)) - 6;
-        try buf.appendSlice(allocator, inst.encJccRel32(.ne, disp).slice());
-    } else {
-        try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
-        try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 6 });
-    }
-}
-
-/// `if` — pop cond, emit TEST cond, cond ; JE skip_placeholder.
-/// Push label.if_then with the JE byte offset recorded; the
-/// matching `else` patches it to else-body start, or the
-/// matching `end` patches it to end-of-if (no-else case).
-fn emitIf(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    labels: *std.ArrayList(Label),
-) Error!void {
-    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-    const cond_v = pushed_vregs.pop().?;
-    const cond_r = abi.slotToReg(alloc.slots[cond_v]) orelse return Error.SlotOverflow;
-    try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
-    const skip_at: u32 = @intCast(buf.items.len);
-    try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice()); // JE = skip if cond==0
-    try labels.append(allocator, .{
-        .kind = .if_then,
-        .target_byte_offset = 0,
-        .pending = .empty,
-        .if_skip_byte = skip_at,
-    });
-}
-
-/// `else` — emit JMP placeholder (jump from end-of-then to
-/// end-of-if), patch the if's JE to current byte (= start of
-/// else-body), transition label to .else_open. Captures the
-/// then arm's top vreg as the merge target per the D-027
-/// equivalent (ADR-0014 §6.K.5).
-fn emitElse(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    pushed_vregs: *std.ArrayList(u32),
-    labels: *std.ArrayList(Label),
-) Error!void {
-    if (labels.items.len == 0 or
-        labels.items[labels.items.len - 1].kind != .if_then)
-    {
-        return Error.UnsupportedOp;
-    }
-    const lbl_idx = labels.items.len - 1;
-    if (pushed_vregs.items.len > 0) {
-        labels.items[lbl_idx].merge_top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
-    }
-    const jmp_at: u32 = @intCast(buf.items.len);
-    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
-    const else_start: u32 = @intCast(buf.items.len);
-    const lbl = &labels.items[lbl_idx];
-    const skip_at = lbl.if_skip_byte.?;
-    const skip_disp: i32 = @as(i32, @intCast(else_start)) -
-        @as(i32, @intCast(skip_at)) - 6;
-    inst.patchRel32(buf.items, skip_at, 6, skip_disp);
-    lbl.if_skip_byte = null;
-    lbl.kind = .else_open;
-    try lbl.pending.append(allocator, .{ .byte_offset = jmp_at, .insn_size = 5 });
-}
-
-/// Intra-function `end` — pops a label and patches its forward
-/// fixups + the if-skip-Jcc (if still pending) + emits the
-/// merge MOV when an else_open frame had a captured merge
-/// target. Caller (compile()) gates on `labels.len > 0`;
-/// the function-level `end` shape stays inline.
-fn emitEndIntra(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    pushed_vregs: *std.ArrayList(u32),
-    alloc: regalloc.Allocation,
-    labels: *std.ArrayList(Label),
-) Error!void {
-    var lbl = labels.pop().?;
-    defer lbl.pending.deinit(allocator);
-
-    // D-027 mirror: if this is an .else_open label with a
-    // captured merge target, MOV merge_reg ← else_result_reg
-    // BEFORE the join label so both arms converge on the same
-    // physical register. Then drop the else arm's result vreg.
-    if (lbl.kind == .else_open and lbl.merge_top_vreg != null) {
-        if (pushed_vregs.items.len < 2) return Error.UnsupportedOp;
-        const else_result = pushed_vregs.pop().?;
-        const merge_vreg = lbl.merge_top_vreg.?;
-        if (pushed_vregs.items[pushed_vregs.items.len - 1] != merge_vreg) {
-            return Error.UnsupportedOp;
-        }
-        const merge_reg = abi.slotToReg(alloc.slots[merge_vreg]) orelse return Error.SlotOverflow;
-        const else_reg = abi.slotToReg(alloc.slots[else_result]) orelse return Error.SlotOverflow;
-        if (merge_reg != else_reg) {
-            try buf.appendSlice(allocator, inst.encMovRR(.d, merge_reg, else_reg).slice());
-        }
-    }
-
-    const target: u32 = @intCast(buf.items.len);
-    // Patch the if-then's skip-Jcc if it's still pending (no
-    // `else` was encountered).
-    if (lbl.if_skip_byte) |skip_at| {
-        const disp: i32 = @as(i32, @intCast(target)) -
-            @as(i32, @intCast(skip_at)) - 6;
-        inst.patchRel32(buf.items, skip_at, 6, disp);
-    }
-    // Patch all forward fixups (block / if_then / else_open).
-    // Loop has no pending fixups.
-    if (lbl.kind != .loop) {
-        for (lbl.pending.items) |fx| {
-            const disp: i32 = @as(i32, @intCast(target)) -
-                @as(i32, @intCast(fx.byte_offset)) - @as(i32, fx.insn_size);
-            inst.patchRel32(buf.items, fx.byte_offset, fx.insn_size, disp);
-        }
-    }
 }
 
 // ============================================================
