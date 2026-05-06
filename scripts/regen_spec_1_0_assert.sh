@@ -42,6 +42,8 @@ NAMES=(
   forward
   unreachable
   local_get
+  local_set
+  int_literals
 )
 
 mkdir -p "$DEST"
@@ -55,7 +57,17 @@ for n in "${NAMES[@]}"; do
   TMP=$(mktemp -d)
   trap "rm -rf '$TMP'" EXIT
 
-  ( cd "$TMP" && wast2json "$src" -o "$n.json" >/dev/null 2>&1 )
+  if ! ( cd "$TMP" && wast2json \
+      --enable-function-references \
+      --enable-tail-call \
+      --enable-extended-const \
+      --enable-multi-memory \
+      "$src" -o "$n.json" >/dev/null 2>&1 ); then
+    echo "[regen_spec_1_0_assert] skip $n (wast2json rejected)" >&2
+    rm -rf "$TMP"
+    trap - EXIT
+    continue
+  fi
 
   out_dir="$DEST/$n"
   rm -rf "$out_dir"

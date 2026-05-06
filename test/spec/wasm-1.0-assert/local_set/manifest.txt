@@ -1,0 +1,53 @@
+module local_set.0.wasm
+skip non-int-result type-local-i32
+skip non-int-result type-local-i64
+skip non-int-result type-local-f32
+skip non-int-result type-local-f64
+skip non-int-result type-param-i32
+skip non-int-result type-param-i64
+skip non-int-arg type-param-f32
+skip non-int-arg type-param-f64
+skip non-int-result as-block-value
+skip non-int-result as-loop-value
+skip non-int-result as-br-value
+skip non-int-result as-br_if-value
+skip non-int-result as-br_if-value-cond
+skip non-int-result as-br_table-value
+skip non-int-result as-return-value
+skip non-int-result as-if-then
+skip non-int-result as-if-else
+skip non-int-arg type-mixed
+skip non-int-arg write
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
+skip directive-assert_invalid
