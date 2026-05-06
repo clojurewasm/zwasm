@@ -345,8 +345,25 @@ pub fn compile(
         .spill_base_off = spill_base_off,
     };
 
+    // §9.7 / 7.5-emit-deadcode: track polymorphic-stack dead
+    // regions per Wasm spec §3.3. After br / return /
+    // unreachable, subsequent ops up to the next structural
+    // marker (end / else) are dead — never executed at runtime
+    // because the unconditional branch jumps over them. Skipping
+    // them in emit avoids spurious AllocationMissing on pops
+    // that the validator already deemed polymorphic-OK.
+    var dead_code: bool = false;
     for (func.instrs.items, 0..) |ins, pc| {
         _ = pc;
+        // Structural markers exit the dead region. `end` and
+        // `else` always run their handlers — `end` to pop the
+        // label stack / emit function epilogue; `else` to switch
+        // to the else-arm of an if. Both are needed for emit's
+        // own bookkeeping to stay aligned with the block nesting.
+        if (ins.op == .@"end" or ins.op == .@"else") {
+            dead_code = false;
+        }
+        if (dead_code) continue;
         switch (ins.op) {
             .@"i32.const" => try op_const.emitI32Const(&ctx, &ins),
             .@"i64.const" => try op_const.emitI64Const(&ctx, &ins),
@@ -509,6 +526,7 @@ pub fn compile(
                 const fixup_at: u32 = @intCast(buf.items.len);
                 try gpr.writeU32(allocator, &buf, inst.encB(0));
                 try bounds_fixups.append(allocator, fixup_at);
+                dead_code = true;
             },
             .@"return" => {
                 // Wasm spec §4.4.7: pop the function's results and
@@ -541,10 +559,14 @@ pub fn compile(
                 const fixup_at: u32 = @intCast(buf.items.len);
                 try gpr.writeU32(allocator, &buf, inst.encB(0));
                 try return_fixups.append(allocator, fixup_at);
+                dead_code = true;
             },
             .@"block" => try op_control.emitBlock(&ctx, &ins),
             .@"loop" => try op_control.emitLoop(&ctx, &ins),
-            .@"br" => try op_control.emitBr(&ctx, &ins),
+            .@"br" => {
+                try op_control.emitBr(&ctx, &ins);
+                dead_code = true;
+            },
             .@"call_indirect" => try op_call.emitCallIndirect(&ctx, &ins),
             .@"call" => try op_call.emitCall(&ctx, &ins),
             .@"global.get" => try op_globals.emitI32GlobalGet(&ctx, &ins),
