@@ -309,13 +309,20 @@ pub fn emitElse(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
     const else_start: u32 = @intCast(ctx.buf.items.len);
     const lbl = &ctx.labels.items[lbl_idx];
-    const skip_byte = lbl.if_skip_byte.?;
-    const skip_disp: i32 = @as(i32, @intCast(else_start)) -
-        @as(i32, @intCast(skip_byte));
-    const orig_cbz = std.mem.readInt(u32, ctx.buf.items[skip_byte..][0..4], .little);
-    const cbz_rt: inst.Xn = @intCast(orig_cbz & 0x1F);
-    const new_cbz = inst.encCbzW(cbz_rt, @divExact(skip_disp, 4));
-    std.mem.writeInt(u32, ctx.buf.items[skip_byte..][0..4], new_cbz, .little);
+    // Patch the matching `if`'s CBZ skip — but only if the
+    // if_then frame had one. Dead-code-pushed placeholder
+    // frames (§9.7 / 7.5-deadcode-labels-bookkeeping) carry
+    // `if_skip_byte = null` to mark "no CBZ to patch"; in
+    // that case the if itself never emitted bytes, so the
+    // skip-patch step is a no-op.
+    if (lbl.if_skip_byte) |skip_byte| {
+        const skip_disp: i32 = @as(i32, @intCast(else_start)) -
+            @as(i32, @intCast(skip_byte));
+        const orig_cbz = std.mem.readInt(u32, ctx.buf.items[skip_byte..][0..4], .little);
+        const cbz_rt: inst.Xn = @intCast(orig_cbz & 0x1F);
+        const new_cbz = inst.encCbzW(cbz_rt, @divExact(skip_disp, 4));
+        std.mem.writeInt(u32, ctx.buf.items[skip_byte..][0..4], new_cbz, .little);
+    }
     lbl.if_skip_byte = null;
     lbl.kind = .else_open;
     try lbl.pending.append(ctx.allocator, .{ .byte_offset = b_byte, .kind = .b_uncond });
@@ -337,23 +344,34 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     // the else arm's result vreg (its value now lives in the
     // merge target's reg).
     if (lbl.kind == .else_open and lbl.merge_top_vreg != null) {
-        if (ctx.pushed_vregs.items.len < 2) {
+        const merge_vreg = lbl.merge_top_vreg.?;
+        // §9.7 / 7.5-deadcode-labels-bookkeeping: the else arm
+        // may have terminated via dead code (br / return /
+        // unreachable) without pushing its own result vreg. In
+        // that case the merge target is already on top of stack
+        // (from the then arm); no MOV merge_reg ← else_reg is
+        // needed.
+        if (ctx.pushed_vregs.items.len == 1 and
+            ctx.pushed_vregs.items[0] == merge_vreg)
+        {
+            // Dead else arm — merge target is already in place.
+            // Skip the MOV; patch B fixups below as normal.
+        } else if (ctx.pushed_vregs.items.len < 2) {
             std.debug.print("arm64/op_control: emitEndIntra (else_open merge) needs >=2 pushed_vregs, got {d} (func_idx={d})\n", .{ ctx.pushed_vregs.items.len, ctx.func.func_idx });
             return Error.UnsupportedOp;
-        }
-        const else_result = ctx.pushed_vregs.pop().?;
-        const merge_vreg = lbl.merge_top_vreg.?;
-        if (ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1] != merge_vreg) {
-            std.debug.print("arm64/op_control: emitEndIntra merge mismatch — top vreg={d}, merge={d} (func_idx={d})\n", .{ ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1], merge_vreg, ctx.func.func_idx });
-            return Error.UnsupportedOp;
-        }
-        const merge_reg = try gpr.resolveGpr(ctx.alloc, merge_vreg);
-        const else_reg = try gpr.resolveGpr(ctx.alloc, else_result);
-        if (merge_reg != else_reg) {
-            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_reg, 31, else_reg));
+        } else {
+            const else_result = ctx.pushed_vregs.pop().?;
+            if (ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1] != merge_vreg) {
+                std.debug.print("arm64/op_control: emitEndIntra merge mismatch — top vreg={d}, merge={d} (func_idx={d})\n", .{ ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1], merge_vreg, ctx.func.func_idx });
+                return Error.UnsupportedOp;
+            }
+            const merge_reg_v = try gpr.resolveGpr(ctx.alloc, merge_vreg);
+            const else_reg_v = try gpr.resolveGpr(ctx.alloc, else_result);
+            if (merge_reg_v != else_reg_v) {
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_reg_v, 31, else_reg_v));
+            }
         }
     }
-
     const target_byte: u32 = @intCast(ctx.buf.items.len);
     // Patch the if-then's skip-CBZ if it's still pending (no
     // `else` was encountered).

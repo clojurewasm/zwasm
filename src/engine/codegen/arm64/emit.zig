@@ -370,7 +370,37 @@ pub fn compile(
         if (ins.op == .@"end" or ins.op == .@"else") {
             dead_code = false;
         }
-        if (dead_code) continue;
+        if (dead_code) {
+            // Maintain labels-stack consistency for structural
+            // ops in dead regions (§9.7 / 7.5-deadcode-labels-
+            // bookkeeping). Without these placeholder pushes,
+            // subsequent `end` / `else` cannot find their
+            // matching frame and surface as
+            // `emitEndIntra`/`emitElse without if_then`.
+            // Placeholders carry no real CBZ / branch fixup
+            // (if_skip_byte = null marks the "no CBZ to patch"
+            // case so emitElse skips the patch step).
+            switch (ins.op) {
+                .@"block" => try labels.append(allocator, .{
+                    .kind = .block,
+                    .target_byte_offset = 0,
+                    .pending = .empty,
+                }),
+                .@"loop" => try labels.append(allocator, .{
+                    .kind = .loop,
+                    .target_byte_offset = @intCast(buf.items.len),
+                    .pending = .empty,
+                }),
+                .@"if" => try labels.append(allocator, .{
+                    .kind = .if_then,
+                    .target_byte_offset = 0,
+                    .pending = .empty,
+                    .if_skip_byte = null,
+                }),
+                else => {},
+            }
+            continue;
+        }
         switch (ins.op) {
             .@"i32.const" => try op_const.emitI32Const(&ctx, &ins),
             .@"i64.const" => try op_const.emitI64Const(&ctx, &ins),
