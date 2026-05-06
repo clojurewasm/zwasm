@@ -194,6 +194,7 @@ test {
     _ = @import("engine/codegen/x86_64/types.zig");
     _ = @import("engine/codegen/x86_64/label.zig");
     _ = @import("engine/codegen/x86_64/op_alu_int.zig");
+    _ = @import("engine/codegen/x86_64/op_alu_float.zig");
     _ = @import("engine/codegen/x86_64/emit.zig");
     _ = @import("platform/jit_mem.zig");
     _ = @import("engine/codegen/shared/linker.zig");
