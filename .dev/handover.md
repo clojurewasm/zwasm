@@ -14,23 +14,24 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `a69ac4e`):
+直近 commit (HEAD = `cdfac4a`):
 
-- `a69ac4e` §9.7 / 7.5-spec-assertion-driver-l (D-034: i32 unary/cmp/bitcount/rot; 16 ops)
-- `ca80c4a` §9.7 / 7.5-spec-assertion-driver-k (D-034: emitI32Binary; 9 ops)
+- `cdfac4a` §9.7 / 7.5-spec-assertion-driver-m (D-034 i64 family; 25 ops)
+- `a69ac4e` §9.7 / 7.5-spec-assertion-driver-l (D-034 i32 unary/cmp/bitcount/rot; 16 ops)
+- `ca80c4a` §9.7 / 7.5-spec-assertion-driver-k (D-034 emitI32Binary; 9 ops)
 - `5f19285` §9.7 / 7.5-spec-assertion-driver-j (globals; 95/0/0)
-- `4e86b45` §9.7 / 7.5-spec-assertion-driver-i (scratch memory; 91/0/0)
 
-**Active task**: spec-assertion-driver-l landed。i32 ALU
-全範囲が spill-aware に: emitI32Compare (10 ops) + Eqz + Clz +
-Ctz + Popcnt + Rotr + Rotl (合計 16 ops, -k と合わせて 25 ops)。
-1027 tests / spec_assert 95/0/0 / spec-jit-compile 10/2 据え置き。
+**Active task**: spec-assertion-driver-m landed。i64 ALU
+全範囲が spill-aware に: emitI64Binary (6) + Compare (10) + Eqz
++ Shift (4) + Rotl + Clz + Ctz + Popcnt = 25 ops。-k+l+m で
+合計 50 ops の D-034 chain progress。1027 tests / 95/0/0 /
+spec-jit-compile 10/2 据え置き。
 
-**NEXT** = `7.5-spec-assertion-driver-m` (D-034 chain 続き — i64
-family: emitI64Binary / Compare / Eqz / Shift / Rotr / Rotl /
-Clz / Ctz / Popcnt を spill-aware 化。同 stage 規約)。
-subsequent: -n (memory / convert / call), -o (regalloc/
-liveness count desync 根本調査)。
+**NEXT** = `7.5-spec-assertion-driver-n` (memory / convert / call
+handlers — op_memory.zig (load/store の resolveGpr 経路) +
+op_convert.zig (i32↔i64 拡張/縮小, FP convert) を spill-aware に)。
+subsequent: -o (regalloc/liveness count desync 根本調査; 真の
+SlotOverflow 解消)。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -88,7 +89,8 @@ liveness count desync 根本調査)。
 | 7.5-spec-assertion-driver-j | globals support + per-fixture state reset (95/0/0) | DONE (5f19285) |
 | 7.5-spec-assertion-driver-k | D-034: emitI32Binary spill-aware (9 ops) | DONE (ca80c4a) |
 | 7.5-spec-assertion-driver-l | D-034 i32 unary/cmp/bitcount/rot (16 ops) | DONE (a69ac4e) |
-| 7.5-spec-assertion-driver-m | D-034 i64 family handlers | **NEXT** |
+| 7.5-spec-assertion-driver-m | D-034 i64 family (25 ops) | DONE (cdfac4a) |
+| 7.5-spec-assertion-driver-n | D-034 memory / convert handlers | **NEXT** |
 | 7.5-spec-assertion-driver-n | D-034 memory / convert / call handlers | pending |
 | 7.5-spec-assertion-driver-o | regalloc/liveness count desync 調査 (true SlotOverflow root) | pending |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
