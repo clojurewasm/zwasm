@@ -25,15 +25,18 @@
 **Active task**: deadcode-labels-bookkeeping landed (10/12;
 unreachable.0 / labels.0 clear via placeholder labels in
 dead regions + tolerant emitElse + tolerant emitEndIntra)。
-**残 2/12**:
-- local_get/set.0 — SlotOverflow @ func[9] params=5 (regalloc pool)
+**残 2/12** = SlotOverflow @ func[9] params=5 (regalloc pool 9-GPR
++ 5-param 予約 + body 多並走 → overflow)。これは spill-aware
+op handlers refactor を要する構造的問題なので **D-034** として
+blocked-by 化済み (next.spec-assertion-driver で実行 path 整備
+する間に並行検討)。
 
-**NEXT** = `7.5-spill-enable-or-pool` (SlotOverflow が真の
-spill-needed か pool-extension で済むかを diagnostic 経由で
-判定。現状 9 GPR pool (X9..X13 + X20..X23) + 5 params = 5 vreg
-予約 → body ops が 5+ 同時 vreg を要求すると overflow。spill-
-aware emit 書き直しは大規模 → 別 chunk; pool 微調整 (e.g.
-arg-reg を post-prologue に転用) で済むなら quick win)。
+**NEXT** = `7.5-spec-assertion-driver` (compile-success の 10/12
+を実際に JIT で execute + assertion 比較。`wast2json` で spec
+corpus を `.wasm` + `.json` 化、JIT 経由で実行、`assert_return`
+等を pass/fail count に変換)。これにより §9.7 / 7.5 row が
+求める「pass=fail=skip=0」に向けた本来の gate が立つ。
+SlotOverflow は D-034 として並行 hold。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -77,9 +80,9 @@ arg-reg を post-prologue に転用) で済むなら quick win)。
 | 7.5-br-table-to-function | `br_table` の per-case で function-depth case を return として扱う | DONE (7aa7475; 7→8) |
 | 7.5-investigate-labels | op_control diag で真因 surface (else without if_then; merge stack short) | DONE (4b275ed) |
 | 7.5-deadcode-labels-bookkeeping | dead_code 中の placeholder labels + tolerant emitElse / emitEndIntra | DONE (6fa1c6d; 8→10) |
-| 7.5-spill-enable-or-pool | SlotOverflow @ func[9] params=5 の spill vs pool-extension 判定 | **NEXT** |
+| 7.5-spill-enable-or-pool | SlotOverflow @ func[9] params=5 の spill vs pool-extension 判定 | DEFERRED (D-034; spill-aware op handlers refactor が必要) |
 | 7.5-local-type-aware | local.get/set/tee の width を declared type 別に (D-033 discharge) | pending |
-| 7.5-spec-assertion-driver | wast2json で spec corpus を `.wasm` + assertion manifest 化 → JIT 経由で execute → pass/fail counts | pending |
+| 7.5-spec-assertion-driver | wast2json で spec corpus を `.wasm` + assertion manifest 化 → JIT 経由で execute → pass/fail counts | **NEXT** |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
 
 ADR-0019 phase plan post-7.6: 7.7 emit.zig, 7.8 spec gate (Linux
