@@ -437,6 +437,27 @@ pub fn compile(
                 try gpr.writeU32(allocator, &buf, inst.encStrImmW(ws, 31, offset));
             },
             .@"i32.popcnt" => try op_alu_int.emitI32Popcnt(&ctx, &ins),
+            .@"drop" => {
+                // Discard the top operand. Wasm spec §4.4.4: the
+                // value is consumed without storage. No machine
+                // bytes emitted; we simply remove the vreg from
+                // the operand-stack tracker so subsequent ops see
+                // the next vreg as top-of-stack.
+                if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+                _ = pushed_vregs.pop().?;
+            },
+            .@"unreachable" => {
+                // Wasm spec §4.4.6.1: trap unconditionally. Emit
+                // an unconditional `B 0` placeholder; record the
+                // byte_offset so the function-end trap-stub patch
+                // pass redirects it to the trap stub. Unlike the
+                // bounds-check Bcond placeholders, this one
+                // carries the unconditional-B opcode (bits 31..26
+                // = 000101); the patcher distinguishes by opcode.
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try gpr.writeU32(allocator, &buf, inst.encB(0));
+                try bounds_fixups.append(allocator, fixup_at);
+            },
             .@"block" => try op_control.emitBlock(&ctx, &ins),
             .@"loop" => try op_control.emitLoop(&ctx, &ins),
             .@"br" => try op_control.emitBr(&ctx, &ins),
@@ -560,12 +581,22 @@ pub fn compile(
                     try gpr.writeU32(allocator, &buf, encLdpFpLrPostIdx());
                     try gpr.writeU32(allocator, &buf, inst.encRet(abi.link_register));
                     for (bounds_fixups.items) |fx_byte| {
-                        const disp_words: i32 = @as(i32, @intCast(trap_byte)) -
-                            @as(i32, @intCast(fx_byte));
+                        const disp_words: i32 = @divExact(
+                            @as(i32, @intCast(trap_byte)) - @as(i32, @intCast(fx_byte)),
+                            4,
+                        );
                         const orig = std.mem.readInt(u32, buf.items[fx_byte..][0..4], .little);
-                        // Recover cond from lower 4 bits of B.cond placeholder.
-                        const cond: inst.Cond = @enumFromInt(@as(u4, @intCast(orig & 0xF)));
-                        const new_word = inst.encBCond(cond, @divExact(disp_words, 4));
+                        // Distinguish the placeholder shape by opcode:
+                        //   bits 31..26 == 0b000101 → unconditional B
+                        //                  (`unreachable` op, no condition).
+                        //   bits 31..24 == 0x54     → B.cond (bounds /
+                        //                  sig-mismatch / trap variants).
+                        const new_word: u32 = if ((orig >> 26) == 0b000101)
+                            inst.encB(disp_words)
+                        else blk: {
+                            const cond: inst.Cond = @enumFromInt(@as(u4, @intCast(orig & 0xF)));
+                            break :blk inst.encBCond(cond, disp_words);
+                        };
                         std.mem.writeInt(u32, buf.items[fx_byte..][0..4], new_word, .little);
                     }
                 }
