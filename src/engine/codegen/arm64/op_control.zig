@@ -46,6 +46,12 @@ const Error = ctx_mod.Error;
 const Label = label_mod.Label;
 const Allocator = std.mem.Allocator;
 
+/// Mirror of `Label.merge_top_vregs.len` — comptime-knowable cap
+/// on Wasm 2.0 multi-value if/else result arity. Wasm spec
+/// imposes no tight limit but production guests typically use
+/// ≤ 4. 8 is generous and keeps the Label struct compact.
+const merge_top_vregs_cap: u8 = 8;
+
 /// `block` — push a forward-resolving label frame.
 pub fn emitBlock(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try ctx.labels.append(ctx.allocator, .{
@@ -277,17 +283,17 @@ pub fn emitBrTable(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// recorded. The skip resolves at matching `else` (to else-body
 /// start) or `end` (to end-of-if).
 ///
-/// **Multi-result gate** (D-035 chunk-d035-b): `ins.extra` carries
-/// the blocktype result arity per `lower.zig:openBlock` (Wasm 2.0
-/// multi-value). The merge MOV path in emitElse / emitEndIntra
-/// only handles a single merge target today; arity > 1 surfaces
-/// as `UnsupportedOp` so multi-result if/else fails loudly instead
-/// of silently miscompiling. The full N-MOV merge is queued as
-/// d035-c.
+/// **Multi-result support** (D-035 chunk-d035-c): `ins.extra`
+/// carries the blocktype result arity per `lower.zig:openBlock`
+/// (Wasm 2.0 multi-value). The merge MOV path in emitElse /
+/// emitEndIntra captures N then-arm result vregs at `else` and
+/// emits N MOVs at the matching `end` to converge both arms.
+/// Cap = `Label.merge_top_vregs.len`; larger surfaces as
+/// `UnsupportedOp`.
 pub fn emitIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const arity: u8 = std.math.cast(u8, ins.extra) orelse return Error.UnsupportedOp;
-    if (arity > 1) return Error.UnsupportedOp;
+    if (arity > merge_top_vregs_cap) return Error.UnsupportedOp;
     const cond = ctx.pushed_vregs.pop().?;
     const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, cond, 0);
     const skip_byte: u32 = @intCast(ctx.buf.items.len);
@@ -304,7 +310,8 @@ pub fn emitIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// `else` — emit B-uncond placeholder (jumps from end-of-then
 /// to end-of-if), patch the if's CBZ to current byte (= start
 /// of else-body), transition label to .else_open. Captures the
-/// then arm's top vreg as the merge target per D-027 fix.
+/// then arm's top N result vregs as merge targets (D-027 fix
+/// extended to Wasm 2.0 multi-value per D-035 chunk-d035-c).
 pub fn emitElse(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     if (ctx.labels.items.len == 0 or
         ctx.labels.items[ctx.labels.items.len - 1].kind != .if_then)
@@ -313,8 +320,13 @@ pub fn emitElse(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
         return Error.UnsupportedOp;
     }
     const lbl_idx = ctx.labels.items.len - 1;
-    if (ctx.pushed_vregs.items.len > 0) {
-        ctx.labels.items[lbl_idx].merge_top_vreg = ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1];
+    const arity: u32 = ctx.labels.items[lbl_idx].result_arity;
+    if (arity > 0 and ctx.pushed_vregs.items.len >= arity) {
+        const base = ctx.pushed_vregs.items.len - arity;
+        var i: u32 = 0;
+        while (i < arity) : (i += 1) {
+            ctx.labels.items[lbl_idx].merge_top_vregs[i] = ctx.pushed_vregs.items[base + i];
+        }
     }
     const b_byte: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
@@ -348,46 +360,66 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     var lbl = ctx.labels.pop().?;
     defer lbl.pending.deinit(ctx.allocator);
 
-    // D-027 fix (sub-7.5c-vi): if this is an else_open label
-    // with a captured merge target, the else arm's result is on
-    // top of pushed_vregs; emit MOV merge_reg ← else_result_reg
-    // BEFORE the join label so both arms converge. Then drop
-    // the else arm's result vreg (its value now lives in the
-    // merge target's reg).
-    if (lbl.kind == .else_open and lbl.merge_top_vreg != null) {
-        const merge_vreg = lbl.merge_top_vreg.?;
-        // §9.7 / 7.5-deadcode-labels-bookkeeping: the else arm
-        // may have terminated via dead code (br / return /
-        // unreachable) without pushing its own result vreg. In
-        // that case the merge target is already on top of stack
-        // (from the then arm); no MOV merge_reg ← else_reg is
-        // needed.
-        if (ctx.pushed_vregs.items.len == 1 and
-            ctx.pushed_vregs.items[0] == merge_vreg)
-        {
-            // Dead else arm — merge target is already in place.
-            // Skip the MOV; patch B fixups below as normal.
-        } else if (ctx.pushed_vregs.items.len < 2) {
-            std.debug.print("arm64/op_control: emitEndIntra (else_open merge) needs >=2 pushed_vregs, got {d} (func_idx={d})\n", .{ ctx.pushed_vregs.items.len, ctx.func.func_idx });
+    // D-027 fix (sub-7.5c-vi) extended to Wasm 2.0 multi-value
+    // (D-035 chunk-d035-c): when an else_open frame carries a
+    // captured merge buffer (`result_arity > 0`), emit one MOV
+    // per result slot before the join label so both arms
+    // converge on the same physical regs. Stack at entry is
+    // either:
+    //   live  : [..., merge_0, ..., merge_{N-1}, else_0, ..., else_{N-1}]
+    //   dead  : [..., merge_0, ..., merge_{N-1}]
+    //           (else arm broke out via br / return / unreachable)
+    if (lbl.kind == .else_open and lbl.result_arity > 0) {
+        const arity: u32 = lbl.result_arity;
+        const dead_else = blk: {
+            if (ctx.pushed_vregs.items.len < arity) break :blk false;
+            const base = ctx.pushed_vregs.items.len - arity;
+            var i: u32 = 0;
+            while (i < arity) : (i += 1) {
+                if (ctx.pushed_vregs.items[base + i] != lbl.merge_top_vregs[i]) {
+                    break :blk false;
+                }
+            }
+            break :blk true;
+        };
+        if (dead_else) {
+            // Merge targets already on top of stack from the
+            // then arm. Skip MOVs; B fixups patched below.
+        } else if (ctx.pushed_vregs.items.len < 2 * arity) {
+            std.debug.print("arm64/op_control: emitEndIntra (else_open merge) needs >={d} pushed_vregs, got {d} (func_idx={d})\n", .{ 2 * arity, ctx.pushed_vregs.items.len, ctx.func.func_idx });
             return Error.UnsupportedOp;
         } else {
-            const else_result = ctx.pushed_vregs.pop().?;
-            if (ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1] != merge_vreg) {
-                std.debug.print("arm64/op_control: emitEndIntra merge mismatch — top vreg={d}, merge={d} (func_idx={d})\n", .{ ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1], merge_vreg, ctx.func.func_idx });
-                return Error.UnsupportedOp;
+            // Verify the slot below the else-results is the
+            // captured merge buffer. Mismatch surfaces as
+            // UnsupportedOp (matches single-result behaviour).
+            const merge_base = ctx.pushed_vregs.items.len - 2 * arity;
+            var v: u32 = 0;
+            while (v < arity) : (v += 1) {
+                if (ctx.pushed_vregs.items[merge_base + v] != lbl.merge_top_vregs[v]) {
+                    std.debug.print("arm64/op_control: emitEndIntra merge mismatch at slot {d} — top vreg={d}, merge={d} (func_idx={d})\n", .{ v, ctx.pushed_vregs.items[merge_base + v], lbl.merge_top_vregs[v], ctx.func.func_idx });
+                    return Error.UnsupportedOp;
+                }
             }
             // D-038 discharge: spill-aware merge MOV. Convention:
             //   stage 0 = merge dest (def-then-store)
             //   stage 1 = else-arm operand load
             // For the unspilled common case both calls return home
-            // regs and gprStoreSpilled is a no-op (the slot
-            // discriminator goes through `.reg` arm).
-            const else_reg_v = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, else_result, 1);
-            const merge_reg_v = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, 0);
-            if (merge_reg_v != else_reg_v) {
-                try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_reg_v, 31, else_reg_v));
+            // regs and gprStoreSpilled is a no-op. Pop in reverse
+            // (top = else_{N-1}); MOVs are independent so order
+            // doesn't matter for correctness, but reverse-pop
+            // matches the natural top-of-stack consumption.
+            var i: u32 = arity;
+            while (i > 0) {
+                i -= 1;
+                const else_result = ctx.pushed_vregs.pop().?;
+                const merge_vreg = lbl.merge_top_vregs[i];
+                const else_reg_v = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, else_result, 1);
+                const merge_reg_v = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, 0);
+                if (merge_reg_v != else_reg_v) {
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_reg_v, 31, else_reg_v));
+                }
+                try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
             }
-            try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
         }
     }
     const target_byte: u32 = @intCast(ctx.buf.items.len);

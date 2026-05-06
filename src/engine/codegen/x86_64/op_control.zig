@@ -36,6 +36,11 @@ const Error = types.Error;
 const Label = label_mod.Label;
 const ZirFunc = zir.ZirFunc;
 
+/// Mirror of `Label.merge_top_vregs.len` — comptime-knowable cap
+/// on Wasm 2.0 multi-value if/else result arity. Mirrors
+/// `arm64/op_control.zig:merge_top_vregs_cap`.
+const merge_top_vregs_cap: u8 = 8;
+
 /// Wasm spec §3.4.4 (block) — push a forward-resolving label
 /// frame. No code emitted; the matching `end` patches all
 /// `pending` fixups.
@@ -187,14 +192,14 @@ pub fn emitBrIf(
 /// recorded; the matching `else` patches it to else-body start,
 /// or the matching `end` patches it to end-of-if (no-else case).
 ///
-/// **Multi-result gate** (D-035 chunk-d035-b): `arity` is the
+/// **Multi-result support** (D-035 chunk-d035-c): `arity` is the
 /// blocktype's result count (= `ZirInstr.extra` per
 /// `lower.zig:openBlock`; Wasm 2.0 multi-value). The merge MOV
-/// path in emitElse / emitEndIntra only handles a single merge
-/// target today; arity > 1 surfaces as `UnsupportedOp` so
-/// multi-result if/else fails loudly instead of silently
-/// miscompiling. The full N-MOV merge is queued as d035-c.
-/// Mirrors `arm64/op_control.zig:emitIf`.
+/// path in emitElse / emitEndIntra captures N then-arm result
+/// vregs at `else` and emits N MOVs at the matching `end` to
+/// converge both arms. Cap = `Label.merge_top_vregs.len`; larger
+/// surfaces as `UnsupportedOp`. Mirrors
+/// `arm64/op_control.zig:emitIf`.
 pub fn emitIf(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -205,7 +210,7 @@ pub fn emitIf(
 ) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const arity: u8 = std.math.cast(u8, arity_extra) orelse return Error.UnsupportedOp;
-    if (arity > 1) return Error.UnsupportedOp;
+    if (arity > merge_top_vregs_cap) return Error.UnsupportedOp;
     const cond_v = pushed_vregs.pop().?;
     const cond_r = abi.slotToReg(alloc.slots[cond_v]) orelse return Error.SlotOverflow;
     try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
@@ -223,8 +228,9 @@ pub fn emitIf(
 /// Wasm spec §3.4.4 (else) — emit JMP placeholder (jump from
 /// end-of-then to end-of-if), patch the if's JE to current byte
 /// (= start of else-body), transition label to .else_open.
-/// Captures the then arm's top vreg as the merge target per the
-/// D-027 equivalent (ADR-0014 §6.K.5).
+/// Captures the then arm's top N result vregs as merge targets
+/// (D-027 equivalent extended to Wasm 2.0 multi-value per
+/// D-035 chunk-d035-c; mirrors `arm64/op_control.zig:emitElse`).
 pub fn emitElse(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -237,8 +243,13 @@ pub fn emitElse(
         return Error.UnsupportedOp;
     }
     const lbl_idx = labels.items.len - 1;
-    if (pushed_vregs.items.len > 0) {
-        labels.items[lbl_idx].merge_top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
+    const arity: u32 = labels.items[lbl_idx].result_arity;
+    if (arity > 0 and pushed_vregs.items.len >= arity) {
+        const base = pushed_vregs.items.len - arity;
+        var i: u32 = 0;
+        while (i < arity) : (i += 1) {
+            labels.items[lbl_idx].merge_top_vregs[i] = pushed_vregs.items[base + i];
+        }
     }
     const jmp_at: u32 = @intCast(buf.items.len);
     try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
@@ -269,21 +280,49 @@ pub fn emitEndIntra(
     var lbl = labels.pop().?;
     defer lbl.pending.deinit(allocator);
 
-    // D-027 mirror: if this is an .else_open label with a
-    // captured merge target, MOV merge_reg ← else_result_reg
-    // BEFORE the join label so both arms converge on the same
-    // physical register. Then drop the else arm's result vreg.
-    if (lbl.kind == .else_open and lbl.merge_top_vreg != null) {
-        if (pushed_vregs.items.len < 2) return Error.UnsupportedOp;
-        const else_result = pushed_vregs.pop().?;
-        const merge_vreg = lbl.merge_top_vreg.?;
-        if (pushed_vregs.items[pushed_vregs.items.len - 1] != merge_vreg) {
+    // D-027 mirror extended to Wasm 2.0 multi-value (D-035
+    // chunk-d035-c): when an else_open frame carries a captured
+    // merge buffer (`result_arity > 0`), emit one MOV per result
+    // slot. Stack at entry is either:
+    //   live  : [..., merge_0..N-1, else_0..N-1]
+    //   dead  : [..., merge_0..N-1] (else broke out via br/return/unreachable)
+    if (lbl.kind == .else_open and lbl.result_arity > 0) {
+        const arity: u32 = lbl.result_arity;
+        const dead_else = blk: {
+            if (pushed_vregs.items.len < arity) break :blk false;
+            const base = pushed_vregs.items.len - arity;
+            var i: u32 = 0;
+            while (i < arity) : (i += 1) {
+                if (pushed_vregs.items[base + i] != lbl.merge_top_vregs[i]) break :blk false;
+            }
+            break :blk true;
+        };
+        if (dead_else) {
+            // Merge targets already on top of stack. Skip MOVs.
+        } else if (pushed_vregs.items.len < 2 * arity) {
             return Error.UnsupportedOp;
-        }
-        const merge_reg = abi.slotToReg(alloc.slots[merge_vreg]) orelse return Error.SlotOverflow;
-        const else_reg = abi.slotToReg(alloc.slots[else_result]) orelse return Error.SlotOverflow;
-        if (merge_reg != else_reg) {
-            try buf.appendSlice(allocator, inst.encMovRR(.d, merge_reg, else_reg).slice());
+        } else {
+            const merge_base = pushed_vregs.items.len - 2 * arity;
+            var v: u32 = 0;
+            while (v < arity) : (v += 1) {
+                if (pushed_vregs.items[merge_base + v] != lbl.merge_top_vregs[v]) {
+                    return Error.UnsupportedOp;
+                }
+            }
+            // Pop in reverse (top = else_{N-1}); per-slot MOV
+            // is independent because vregs are unique under
+            // fresh-vreg-per-op regalloc.
+            var i: u32 = arity;
+            while (i > 0) {
+                i -= 1;
+                const else_result = pushed_vregs.pop().?;
+                const merge_vreg = lbl.merge_top_vregs[i];
+                const merge_reg = abi.slotToReg(alloc.slots[merge_vreg]) orelse return Error.SlotOverflow;
+                const else_reg = abi.slotToReg(alloc.slots[else_result]) orelse return Error.SlotOverflow;
+                if (merge_reg != else_reg) {
+                    try buf.appendSlice(allocator, inst.encMovRR(.d, merge_reg, else_reg).slice());
+                }
+            }
         }
     }
 

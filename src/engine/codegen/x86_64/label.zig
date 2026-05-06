@@ -38,25 +38,23 @@ pub const Fixup = struct {
 ///       JE that skips the then-body. Patched at `else` (to
 ///       else-body start) or at `end` (to end of if). Cleared
 ///       when transitioning to `.else_open`.
-///   merge_top_vreg — D-027 fix mirror (per ADR-0014 §6.K.5):
-///       for `(if (result T))` blocks, the then arm's result
-///       vreg is captured at `else`; the else arm's result is
-///       MOVed into this vreg's register at the if-frame's
-///       `end` so both paths converge on the same physical reg.
-///       Null for blocks without arity OR when no `else` was
-///       emitted.
+///   merge_top_vregs — D-027 fix mirror extended to Wasm 2.0
+///       multi-value (D-035 chunk-d035-c): for `(if (result
+///       T1 .. TN))` blocks, the then arm's top N result vregs
+///       are captured at `else`; the else arm's N results are
+///       MOVed into the corresponding merge slots at the
+///       if-frame's `end` so both paths converge on the same
+///       physical regs. Indices `[0..result_arity)` are valid.
+///       Mirrors arm64/label.zig.
 ///   result_arity — Wasm 2.0 multi-value blocktype's result
 ///       count, captured from `ZirInstr.extra` at the matching
-///       block / loop / if push. emitIf rejects `arity > 1`
-///       with UnsupportedOp because the merge MOV path only
-///       handles a single merge target today (D-035 chunk-d035-b
-///       foundation; full N-MOV emit is the d035-c follow-up).
-///       Mirrors arm64/label.zig.
+///       block / loop / if push. Cap = `merge_top_vregs.len`;
+///       larger arities surface as `UnsupportedOp` at emitIf.
 pub const Label = struct {
     kind: LabelKind,
     target_byte_offset: u32,
     pending: std.ArrayList(Fixup),
     if_skip_byte: ?u32 = null,
-    merge_top_vreg: ?u32 = null,
+    merge_top_vregs: [8]u32 = undefined,
     result_arity: u8 = 0,
 };
