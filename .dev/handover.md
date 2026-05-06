@@ -14,26 +14,23 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `ca80c4a`):
+直近 commit (HEAD = `a69ac4e`):
 
-- `ca80c4a` §9.7 / 7.5-spec-assertion-driver-k (D-034: emitI32Binary spill-aware)
-- `5f19285` §9.7 / 7.5-spec-assertion-driver-j (globals + per-fixture state; 95/0/0)
+- `a69ac4e` §9.7 / 7.5-spec-assertion-driver-l (D-034: i32 unary/cmp/bitcount/rot; 16 ops)
+- `ca80c4a` §9.7 / 7.5-spec-assertion-driver-k (D-034: emitI32Binary; 9 ops)
+- `5f19285` §9.7 / 7.5-spec-assertion-driver-j (globals; 95/0/0)
 - `4e86b45` §9.7 / 7.5-spec-assertion-driver-i (scratch memory; 91/0/0)
-- `e581282` §9.7 / 7.5-spec-assertion-driver-h (runner FP entries; 87/0/0)
 
-**Active task**: spec-assertion-driver-k landed。`emitI32Binary`
-が gprLoadSpilled/gprDefSpilled/gprStoreSpilled (stage 0/1) に
-切り替わり、9 ops (add/sub/mul/and/or/xor/shl/shr_s/shr_u) が
-spill-tolerant。spec-jit-compile-runner は 10/2 据え置き — 残
-2 fails (local_get/set.0 func[9]) は popBinary の SlotOverflow
-で、これは regalloc/liveness-count desync が真因。別 chunk へ。
+**Active task**: spec-assertion-driver-l landed。i32 ALU
+全範囲が spill-aware に: emitI32Compare (10 ops) + Eqz + Clz +
+Ctz + Popcnt + Rotr + Rotl (合計 16 ops, -k と合わせて 25 ops)。
+1027 tests / spec_assert 95/0/0 / spec-jit-compile 10/2 据え置き。
 
-**NEXT** = `7.5-spec-assertion-driver-l` (D-034 chain 続き →
-`emitI32Compare` / `emitI32Eqz` / `emitI32Clz` / `emitI32Ctz` /
-`emitI32Popcnt` / `emitI32Rotr` / `emitI32Rotl` を spill-aware
-に refactor。stage_idx 規約は emitI32Binary を踏襲)。
-subsequent: -m (i64 family), -n (memory / convert), -o (regalloc/
-liveness count desync の根本調査)。
+**NEXT** = `7.5-spec-assertion-driver-m` (D-034 chain 続き — i64
+family: emitI64Binary / Compare / Eqz / Shift / Rotr / Rotl /
+Clz / Ctz / Popcnt を spill-aware 化。同 stage 規約)。
+subsequent: -n (memory / convert / call), -o (regalloc/
+liveness count desync 根本調査)。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -90,8 +87,8 @@ liveness count desync の根本調査)。
 | 7.5-spec-assertion-driver-i | 64KB scratch memory + handcrafted_mem; memory.size/load/store; 91/0/0 | DONE (4e86b45) |
 | 7.5-spec-assertion-driver-j | globals support + per-fixture state reset (95/0/0) | DONE (5f19285) |
 | 7.5-spec-assertion-driver-k | D-034: emitI32Binary spill-aware (9 ops) | DONE (ca80c4a) |
-| 7.5-spec-assertion-driver-l | D-034 chain 続き (i32 Compare/Eqz/Clz/Ctz/Popcnt/Rotr/Rotl) | **NEXT** |
-| 7.5-spec-assertion-driver-m | D-034 i64 family handlers | pending |
+| 7.5-spec-assertion-driver-l | D-034 i32 unary/cmp/bitcount/rot (16 ops) | DONE (a69ac4e) |
+| 7.5-spec-assertion-driver-m | D-034 i64 family handlers | **NEXT** |
 | 7.5-spec-assertion-driver-n | D-034 memory / convert / call handlers | pending |
 | 7.5-spec-assertion-driver-o | regalloc/liveness count desync 調査 (true SlotOverflow root) | pending |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
