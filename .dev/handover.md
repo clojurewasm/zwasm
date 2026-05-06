@@ -14,24 +14,29 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `7aa7475`):
+直近 commit (HEAD = `4b275ed`):
 
-- `7aa7475` §9.7 / 7.5-br-table-to-function (br_table 関数-depth case; 7→8 unwind.0 clears)
-- `668c092` §9.7 / 7.5-br-to-function (br/br_if depth==labels.len)
+- `4b275ed` §9.7 / 7.5-investigate-labels (op_control diag; 残 fails の真因 surface)
+- `7aa7475` §9.7 / 7.5-br-table-to-function (7→8)
+- `668c092` §9.7 / 7.5-br-to-function
 - `75668e1` §9.7 / 7.5-diag-spill
 - `4440622` §9.7 / 7.5-select-op (6→7)
 - `962a24c` §9.7 / 7.5-diag-op
-- `764f212` §9.7 / 7.5-emit-deadcode
 
-**Active task**: br-table-to-function landed (8/12; unwind.0 clears)。
-**残 4/12**:
-- local_get/set.0 — SlotOverflow @ func[9] params=5 (regalloc pool)
-- unreachable.0 func[29] — UnsupportedOp (deeper)
-- labels.0 func[15] — UnsupportedOp (deeper)
+**Active task**: investigate-labels landed (8/12 stays; diag で
+真因判明)。**残 4/12 の root causes**:
+- local_get/set.0 — SlotOverflow @ regalloc pool (5 params + body)
+- unreachable.0 func[29] — `emitElse without matching if_then frame`
+  (dead-code が outer if_then を pop してしまった疑い)
+- labels.0 func[15] — `emitEndIntra (else_open merge) needs >=2
+  pushed_vregs, got 1` (then arm の `br N` で dead-code skip すると
+  merge 用の vreg が push されない)
 
-**NEXT** = `7.5-investigate-labels` (labels.0 func[15] の中身を
-wasm2wat で確認。`block (result T)` + `loop (result T)` + `if`
-+ `br N` 系の組合せ; どの op が UnsupportedOp を起こすか trace)。
+**NEXT** = `7.5-deadcode-labels-bookkeeping` (dead_code フラグの
+扱いを精緻化: `block` / `loop` / `if` / `else` / `end` は dead 中も
+labels-stack を維持する必要がある。現在の "skip while dead_code"
+が labels-stack 整合性を破っている疑い。fix 後 labels.0 +
+unreachable.0 の両方が解消見込み)。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -73,7 +78,8 @@ wasm2wat で確認。`block (result T)` + `loop (result T)` + `if`
 | 7.5-investigate-unwind | unwind.0 func[1] の UnsupportedOp 起点を per-op で trace | DONE (br-to-function fix で解決) |
 | 7.5-br-to-function | `br N` / `br_if N` で depth==labels.len を return として扱う | DONE (668c092) |
 | 7.5-br-table-to-function | `br_table` の per-case で function-depth case を return として扱う | DONE (7aa7475; 7→8) |
-| 7.5-investigate-labels | labels.0 func[15] の UnsupportedOp 起点を trace | **NEXT** |
+| 7.5-investigate-labels | op_control diag で真因 surface (else without if_then; merge stack short) | DONE (4b275ed) |
+| 7.5-deadcode-labels-bookkeeping | dead_code skip が labels-stack 整合性を破る問題 (block/loop/if/else を dead 中も処理) | **NEXT** |
 | 7.5-spill-enable | regalloc pool 枯渇時に spill を enable (SlotOverflow 解消) | pending |
 | 7.5-local-type-aware | local.get/set/tee の width を declared type 別に (D-033 discharge) | pending |
 | 7.5-spec-assertion-driver | wast2json で spec corpus を `.wasm` + assertion manifest 化 → JIT 経由で execute → pass/fail counts | pending |
@@ -106,6 +112,7 @@ zone placement / "constant overhead" / WASI prereq 等)。
 
 ## Recently closed (full history via `git log --oneline`)
 
+- §9.7 / 7.5-investigate-labels (4b275ed): op_control.zig の `emitElse` と `emitEndIntra` (merge stack underflow + merge-vreg mismatch) の reject に stderr diag を追加。spec-jit-compile が surface する真因: labels.0 func[15] の merge stack short (then arm の br + dead-code skip で merge vreg push 不発), unreachable.0 func[29] の "emitElse without matching if_then" (outer if_then が dead-code propagation で pop)。両方とも 7.5-emit-deadcode の labels-stack 整合性問題が起源。
 - §9.7 / 7.5-br-table-to-function (7aa7475): `op_control.emitBranchToDepth` を `*EmitCtx` ベースに refactor + `depth == labels.len` を return として処理 (br/br_if と同形)。各 br_table case で独立に marshal + B-fixup を emit (run-time に発火するのは 1 case のみなので duplicate marshal でも correct)。spec-jit-compile 7→8 (unwind.0 clears via func[5..7] の `br_table 0`)。
 - §9.7 / 7.5-br-to-function (668c092): emitBr / emitBrIf が `payload == labels.items.len` の場合 (Wasm spec §3.3.5 の implicit function-level block) を return として処理。EmitCtx に `return_fixups: *List(u32)` を追加して既存の return-op 機構を共有。emitBrIf は CBZ skip + marshal + B epilogue + skip-target patch の 4-instruction shape。`>=` の reject を `>` に絞る。spec-jit-compile pass count 据え置き 7/12 だが unwind.0 が func[1] → func[5] (br_table at function-depth) に shift。
 - §9.7 / 7.5-diag-spill (75668e1): arm64/gpr.zig の `resolveGpr` / `resolveFp` の `.spill` arm に stderr diag を追加。今回の残 fails では trigger されない (= spill path 由来ではない) と判明。次の chunk は inner reject path を直接 trace する方が速い。
