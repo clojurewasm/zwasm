@@ -14,13 +14,13 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `cd3ced5`):
+直近 commit (HEAD = `874b10b`):
 
+- `874b10b` feat(p7): §9.7 / 7.5-d030-b — x86_64 op_alu_int.zig (i32 ALU; 4925→4625 LOC)
+- `20242f7` chore(p7): retarget §9.7 / 7.5 chunks at 7.5-d030-b
 - `cd3ced5` feat(p7): §9.7 / 7.5-d030-a — x86_64 emit refactor foundation (types.zig + label.zig)
-- `0a526a9` chore(p7): retarget §9.7 / 7.5 chunks at 7.5-d030
 - `601c7da` feat(p7): §9.7 / 7.5-d035-a — Wasm 2.0 multi-value block validation + lower
 - `2daaded` feat(p7): §9.7 / 7.5-d037-a — FP-spill machinery (BASELINE 17→2)
-- `f1c3ce3` feat(p7): §9.7 / 7.5-d036 — class-aware regalloc Allocation
 
 **Phase status**: §9.7 / 7.5 IN-PROGRESS。spec-jit-compile 12/12,
 spec_assert 138/0/94。Phase 7 残 row = 7.5 / 7.8 / 7.9 / 7.10 /
@@ -33,18 +33,19 @@ D-030 / D-038 が now。
 
 **NEXT(優先順)**:
 
-1. **D-030 chunk-d030-b: x86_64 ctx.zig** — `EmitCtx` 構造体 +
-   `popBinary` / `popUnary` 等の helper を抽出。ARM64 ctx.zig の
-   shape をミラー。emit.zig の compile() body は positional args の
-   ままで OK; subsequent chunks (op_const 等) で ctx を消費する。
-2. **D-030 chunk-d030-c: x86_64 gpr.zig** — `resolveGpr` + spill
-   helpers (まだ x86_64 にない infra)。
-3. **D-035-b emit-side multi-result merge** (chunk-d035-a の partial
-   discharge を完成) — `Label.merge_top_vreg` を `?[]u32` 化、
-   `emitEndIntra` で N MOV を emit。block.wast の multi-RESULT
-   fixture を spec_assert 追加。
-4. **D-038 emitEndIntra spill-staging** — 3-stage shape 追加 or
-   restructure。spill_aware_check BASELINE 2 → 0。
+1. **D-030 chunk-d030-c: x86_64 op_alu_float.zig** — FP family
+   (~1100 LOC: emitFpBinary / emitFpUnary / emitFpCompare /
+   emitFpCopysign / emitFpMinMax / emitFpConst + helpers
+   emitFpRound / emitFpAbsNeg)。最大の単一塊。`SSE2 scalar`
+   族で同じ encoder shape のため bundle 1 chunk OK (granularity
+   rule)。
+2. **D-030 chunk-d030-d: x86_64 op_convert.zig** — FP↔i / FP↔FP
+   conversions (emitFpConvertSimple / emitFpConvertI64Unsigned
+   / emitFpTruncSatU32/U64/Signed / emitFpTruncTrapSigned /
+   emitFpTruncTrapUnsigned + materialiseFpThreshold)。
+3. **D-035-b emit-side multi-result merge** — `Label.merge_top_vreg`
+   を `?[]u32` 化、`emitEndIntra` で N MOV を emit。
+4. **D-038 emitEndIntra spill-staging** — BASELINE 2 → 0。
 
 これらの後で 7.8 → 7.9/7.10 → 7.11 🔒 → 7.12 → 7.13 🔒 の順。
 
@@ -122,9 +123,10 @@ multi-value 修正後に再評価(関連する semantic 解釈が変わる可能
 | 7.5-d037-a | FP-spill machinery (Track A leaf; BASELINE 17→2; 15/17 sites) | DONE (2daaded) |
 | 7.5-d035-a | Wasm 2.0 multi-value blocks — validator + lower side | DONE (601c7da) |
 | 7.5-d030-a | x86_64 emit refactor — types.zig + label.zig foundation | DONE (cd3ced5) |
-| 7.5-d030-b | x86_64 ctx.zig (EmitCtx + popBinary/popUnary helpers) | **NEXT** |
-| 7.5-d030-c | x86_64 gpr.zig (resolveGpr + spill helpers) | pending |
-| 7.5-d030-d..k | x86_64 op_*.zig handler families (8 chunks) | pending |
+| 7.5-d030-b | x86_64 op_alu_int.zig (i32 ALU 6 fns; -300 LOC) | DONE (874b10b) |
+| 7.5-d030-c | x86_64 op_alu_float.zig (FP family ~1100 LOC) | **NEXT** |
+| 7.5-d030-d | x86_64 op_convert.zig (FP↔i / FP↔FP convert) | pending |
+| 7.5-d030-e..i | x86_64 op_memory / op_control / op_call / op_const / op_local | pending |
 | 7.5-d035-b | multi-value blocks — emit-side merge_top_vreg → []u32 | pending |
 | 7.5-d038 | emitEndIntra spill-staging residual (chunk-d037-a leftover; BASELINE 2→0) | pending |
 | 7.5-spec-assertion-driver-v | (deferred) local_tee semantic miscompile / runner i64→i32 — re-evaluate post D-035 | deferred |
