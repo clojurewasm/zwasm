@@ -38,7 +38,7 @@ pub fn writeU32(allocator: Allocator, buf: *std.ArrayList(u8), word: u32) !void 
 /// allocated reg or `Error.UnsupportedOp` for spilled vregs
 /// (handlers that haven't been migrated to spill-aware emission).
 pub fn resolveGpr(alloc: regalloc.Allocation, vreg: usize) Error!inst.Xn {
-    return switch (alloc.slot(vreg)) {
+    return switch (alloc.slot(vreg, .gpr)) {
         .reg => |id| abi.slotToReg(id) orelse Error.SlotOverflow,
         .spill => blk: {
             // §9.7 / 7.5-diag-spill: surface which vreg / spill
@@ -70,7 +70,7 @@ pub fn gprLoadSpilled(
     vreg: usize,
     stage_idx: u8,
 ) Error!inst.Xn {
-    return switch (alloc.slot(vreg)) {
+    return switch (alloc.slot(vreg, .gpr)) {
         .reg => |id| abi.slotToReg(id) orelse Error.SlotOverflow,
         .spill => |off| blk: {
             const stage = abi.spill_stage_gprs[stage_idx];
@@ -93,7 +93,7 @@ pub fn gprDefSpilled(
     vreg: usize,
     stage_idx: u8,
 ) Error!inst.Xn {
-    return switch (alloc.slot(vreg)) {
+    return switch (alloc.slot(vreg, .gpr)) {
         .reg => |id| abi.slotToReg(id) orelse Error.SlotOverflow,
         .spill => abi.spill_stage_gprs[stage_idx],
     };
@@ -111,7 +111,7 @@ pub fn gprStoreSpilled(
     vreg: usize,
     stage_idx: u8,
 ) Error!void {
-    switch (alloc.slot(vreg)) {
+    switch (alloc.slot(vreg, .gpr)) {
         .reg => {},
         .spill => |off| {
             const stage = abi.spill_stage_gprs[stage_idx];
@@ -122,19 +122,24 @@ pub fn gprStoreSpilled(
     }
 }
 
-/// FP-class counterpart of `resolveGpr`. The FP pool
-/// (`abi.allocatable_v_regs`, 15 entries) is larger than the GPR
-/// pool (8 entries), so we reinterpret the slot id directly via
-/// `fpSlotToReg` rather than going through `alloc.slot()` (which
-/// uses the GPR-sized `max_reg_slots = 8` cap). Result: slot ids
-/// 0..14 are FP regs (V16..V30); only id ≥ 15 is genuine spill.
-/// FP-spill staging is a follow-up; today id ≥ 15 still rejects.
+/// FP-class counterpart of `resolveGpr`. Consults the class-aware
+/// `Allocation.slot(vreg, .fpr)` API (D-036): the FP boundary
+/// `max_reg_slots_fp` (default 15, matching
+/// `abi.allocatable_v_regs.len`) decides reg-vs-spill, distinct
+/// from the GPR boundary. Slot ids 0..14 resolve to V16..V30 via
+/// `fpSlotToReg`; ids ≥ 15 surface as `.spill` and reject here
+/// until D-037 (FP-spill machinery) lands. Replaces the chunk-q
+/// shim that read `alloc.slots[]` directly to bypass the GPR
+/// threshold (band-aid eliminated).
 pub fn resolveFp(alloc: regalloc.Allocation, vreg: usize) Error!inst.Vn {
-    const id = alloc.slots[vreg];
-    if (abi.fpSlotToReg(id)) |v| return v;
-    std.debug.print(
-        "arm64/gpr: resolveFp rejected spilled vreg={d} slot_id={d} (FP pool exhausted)\n",
-        .{ vreg, id },
-    );
-    return Error.UnsupportedOp;
+    return switch (alloc.slot(vreg, .fpr)) {
+        .reg => |id| abi.fpSlotToReg(id) orelse Error.SlotOverflow,
+        .spill => |off| blk: {
+            std.debug.print(
+                "arm64/gpr: resolveFp rejected spilled vreg={d} spill_off={d} (FP-spill machinery is D-037)\n",
+                .{ vreg, off },
+            );
+            break :blk Error.UnsupportedOp;
+        },
+    };
 }

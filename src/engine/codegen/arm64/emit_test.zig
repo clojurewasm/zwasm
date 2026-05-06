@@ -2083,7 +2083,7 @@ test "compile: ADR-0018 sub-1c — i32.const into spilled vreg, full round-trip 
     const alloc: regalloc.Allocation = .{
         .slots = &slots,
         .n_slots = 11,
-        .max_reg_slots = 10,
+        .max_reg_slots_gpr = 10,
     };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
@@ -2159,17 +2159,17 @@ test "compile: ADR-0018 — slot 9 = last reg (X23), slot 10 = first spill" {
     const alloc_reg: regalloc.Allocation = .{
         .slots = &slots_9,
         .n_slots = 10,
-        .max_reg_slots = 10,
+        .max_reg_slots_gpr = 10,
     };
-    try testing.expectEqual(regalloc.Slot{ .reg = 9 }, alloc_reg.slot(0));
+    try testing.expectEqual(regalloc.Slot{ .reg = 9 }, alloc_reg.slot(0, .gpr));
 
     const slots_10 = [_]u8{10};
     const alloc_spill: regalloc.Allocation = .{
         .slots = &slots_10,
         .n_slots = 11,
-        .max_reg_slots = 10,
+        .max_reg_slots_gpr = 10,
     };
-    try testing.expectEqual(regalloc.Slot{ .spill = 0 }, alloc_spill.slot(0));
+    try testing.expectEqual(regalloc.Slot{ .spill = 0 }, alloc_spill.slot(0, .gpr));
 }
 
 comptime {

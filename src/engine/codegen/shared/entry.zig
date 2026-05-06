@@ -269,7 +269,7 @@ test "entry: ADR-0018 sub-1c — spilled i32.const returns 42 via STR/LDR round-
     const alloc: regalloc.Allocation = .{
         .slots = &slots,
         .n_slots = 11,
-        .max_reg_slots = 10,
+        .max_reg_slots_gpr = 10,
     };
     const sigs = [_]zir.FuncType{sig};
     const out = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{});

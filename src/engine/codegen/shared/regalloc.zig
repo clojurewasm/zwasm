@@ -38,6 +38,7 @@ const reg_class = @import("reg_class.zig");
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
 const LiveRange = zir.LiveRange;
+const RegClass = zir.RegClass;
 
 pub const Error = error{
     LivenessMissing,
@@ -71,36 +72,79 @@ pub const Allocation = struct {
     /// `slots[v]` is the dense physical slot id assigned to
     /// vreg `v`. Length matches `func.liveness.?.ranges.len`.
     /// Slot ids are 0..n_slots-1 (no holes).
+    ///
+    /// **Class interpretation is up to the caller.** The
+    /// allocator is class-blind — a single contiguous slot id
+    /// space spans every vreg. Per-class boundaries (this struct's
+    /// `max_reg_slots_gpr` / `max_reg_slots_fp`) decide whether a
+    /// given id resolves to a register or to a spill slot, and
+    /// the per-arch `slotToReg` / `fpSlotToReg` decide which
+    /// physical register. A future class-aware allocator (Phase 8
+    /// follow-up — D-036 §"option (b)") may reuse slot ids
+    /// across disjoint classes; today the worst-case spill frame
+    /// covers any slot id ≥ `max_reg_slots_gpr`.
     slots: []const u8,
     /// Distinct slots used. `max(slots) + 1`, or 0 for the
     /// empty-function case. Drives stack-frame sizing in the
     /// per-arch emit pass.
     n_slots: u8,
-    /// Per-arch pool size: slot ids `< max_reg_slots` resolve to
-    /// `Slot.reg`; ids `>= max_reg_slots` resolve to
-    /// `Slot.spill` (per ADR-0018).
-    ///
-    /// Default = 9 (ARM64 GPR allocatable pool post-ADR-0017
-    /// sub-2d-ii: caller-scratch X9..X13 (5) + callee-saved
-    /// X20..X23 (4) = 9 regs; X14/X15 reserved as spill stages,
-    /// X19 reserved as runtime_ptr save, X24..X28 reserved as
-    /// runtime invariants). Per-class regalloc is a Phase 8
-    /// follow-up; today FP-class vregs use the same threshold,
-    /// which under-utilises the V-register pool but is correct.
-    max_reg_slots: u8 = 8,
+    /// GPR-class boundary: slot ids `< max_reg_slots_gpr` resolve
+    /// to `Slot.reg` for class `.gpr`; ids `>= max_reg_slots_gpr`
+    /// resolve to `Slot.spill` (per ADR-0018). Default = 8 (ARM64
+    /// `allocatable_gprs.len` post-ADR-0027: caller-scratch
+    /// X9..X13 (5) + allocatable callee-saved X20..X22 (3) = 8;
+    /// X14/X15 reserved as spill stages, X19 / X23..X28 reserved
+    /// as runtime invariants).
+    max_reg_slots_gpr: u8 = 8,
+    /// FP-class boundary: slot ids `< max_reg_slots_fp` resolve to
+    /// `Slot.reg` for class `.fpr`; ids `>= max_reg_slots_fp`
+    /// resolve to `Slot.spill`. Default = 15 (ARM64
+    /// `allocatable_v_regs.len`: V16..V30; V31 reserved for
+    /// popcnt's V-register pipeline). Per ADR-0026 amendment
+    /// "class-aware boundaries" (D-036): this field replaces the
+    /// chunk-q `resolveFp` shim that read `slots[]` directly to
+    /// bypass the GPR threshold.
+    max_reg_slots_fp: u8 = 15,
 
-    /// Resolve a vreg's home: register slot or spill offset.
-    pub fn slot(self: Allocation, vreg: usize) Slot {
+    /// Resolve a vreg's home for the given register class: physical
+    /// register slot or spill offset. The class selects which
+    /// boundary applies — a slot id ≥ `max_reg_slots_gpr` is spill
+    /// for `.gpr` but may still be a V-register for `.fpr` (id ≤
+    /// `max_reg_slots_fp - 1`).
+    ///
+    /// Spill offsets always use the GPR boundary as origin so the
+    /// shared spill frame is class-agnostic; spillBytes() returns
+    /// `(n_slots - max_reg_slots_gpr) * 8` (worst case — all slots
+    /// past the GPR boundary count, even if some are FP regs that
+    /// don't actually spill). Tighter accounting lands when the
+    /// allocator becomes class-aware (D-036 §"option (b)").
+    ///
+    /// Special-cache classes (inst_ptr_special / vm_ptr_special /
+    /// simd_base_special) and `simd` are not yet handled by the
+    /// regalloc — caller passes `.gpr` or `.fpr`. The non-
+    /// exhaustive `_` arm of `RegClass` triggers the spec-citation
+    /// rule's `else` ban only when these classes start being
+    /// allocated; today asserting the supported set is
+    /// sufficient.
+    pub fn slot(self: Allocation, vreg: usize, class: RegClass) Slot {
         const id = self.slots[vreg];
-        if (id < self.max_reg_slots) return .{ .reg = id };
-        return .{ .spill = (@as(u32, id) - self.max_reg_slots) * 8 };
+        const threshold: u8 = switch (class) {
+            .gpr => self.max_reg_slots_gpr,
+            .fpr => self.max_reg_slots_fp,
+            .simd, .inst_ptr_special, .vm_ptr_special, .simd_base_special => self.max_reg_slots_gpr,
+            _ => self.max_reg_slots_gpr,
+        };
+        if (id < threshold) return .{ .reg = id };
+        return .{ .spill = (@as(u32, id) - self.max_reg_slots_gpr) * 8 };
     }
 
     /// Total spill-frame bytes required by this allocation.
     /// Adds to the function's stack frame in the prologue.
+    /// Uses the GPR boundary as the conservative origin — see
+    /// `slot()`'s doc for the per-class accounting subtlety.
     pub fn spillBytes(self: Allocation) u32 {
-        if (self.n_slots <= self.max_reg_slots) return 0;
-        return (@as(u32, self.n_slots) - self.max_reg_slots) * 8;
+        if (self.n_slots <= self.max_reg_slots_gpr) return 0;
+        return (@as(u32, self.n_slots) - self.max_reg_slots_gpr) * 8;
     }
 };
 
@@ -315,31 +359,72 @@ test "verify: rejects overlapping ranges sharing a slot" {
 // ADR-0018: Slot resolution + spill-frame sizing
 // ========================================================
 
-test "Allocation.slot: id < max_reg_slots resolves to .reg" {
+test "Allocation.slot: id < max_reg_slots_gpr resolves to .reg for class .gpr" {
     const slots = [_]u8{ 0, 5, 9 };
-    const alloc: Allocation = .{ .slots = &slots, .n_slots = 10, .max_reg_slots = 10 };
-    try testing.expectEqual(Slot{ .reg = 0 }, alloc.slot(0));
-    try testing.expectEqual(Slot{ .reg = 5 }, alloc.slot(1));
-    try testing.expectEqual(Slot{ .reg = 9 }, alloc.slot(2));
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 10, .max_reg_slots_gpr = 10 };
+    try testing.expectEqual(Slot{ .reg = 0 }, alloc.slot(0, .gpr));
+    try testing.expectEqual(Slot{ .reg = 5 }, alloc.slot(1, .gpr));
+    try testing.expectEqual(Slot{ .reg = 9 }, alloc.slot(2, .gpr));
 }
 
-test "Allocation.slot: id >= max_reg_slots resolves to .spill at 8-aligned offset" {
+test "Allocation.slot: id >= max_reg_slots_gpr resolves to .spill at 8-aligned offset" {
     const slots = [_]u8{ 9, 10, 11, 12 };
-    const alloc: Allocation = .{ .slots = &slots, .n_slots = 13, .max_reg_slots = 10 };
-    try testing.expectEqual(Slot{ .reg = 9 }, alloc.slot(0));
-    try testing.expectEqual(Slot{ .spill = 0 }, alloc.slot(1));
-    try testing.expectEqual(Slot{ .spill = 8 }, alloc.slot(2));
-    try testing.expectEqual(Slot{ .spill = 16 }, alloc.slot(3));
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 13, .max_reg_slots_gpr = 10 };
+    try testing.expectEqual(Slot{ .reg = 9 }, alloc.slot(0, .gpr));
+    try testing.expectEqual(Slot{ .spill = 0 }, alloc.slot(1, .gpr));
+    try testing.expectEqual(Slot{ .spill = 8 }, alloc.slot(2, .gpr));
+    try testing.expectEqual(Slot{ .spill = 16 }, alloc.slot(3, .gpr));
 }
 
 test "Allocation.spillBytes: 0 when n_slots fits in pool" {
     const slots = [_]u8{ 0, 1 };
-    const alloc: Allocation = .{ .slots = &slots, .n_slots = 2, .max_reg_slots = 10 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 2, .max_reg_slots_gpr = 10 };
     try testing.expectEqual(@as(u32, 0), alloc.spillBytes());
 }
 
 test "Allocation.spillBytes: 8-byte stride past pool size" {
     const slots = [_]u8{ 9, 10, 11, 12 };
-    const alloc: Allocation = .{ .slots = &slots, .n_slots = 13, .max_reg_slots = 10 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 13, .max_reg_slots_gpr = 10 };
     try testing.expectEqual(@as(u32, 24), alloc.spillBytes()); // (13-10)*8
+}
+
+// ========================================================
+// D-036: Class-aware slot resolution (chunk-d036)
+// ========================================================
+
+test "Allocation.slot: same id resolves to .reg for .fpr but .spill for .gpr (class-aware boundaries)" {
+    const slots = [_]u8{ 0, 7, 8, 14 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 15 };
+    // class .gpr — boundary at 8 (default max_reg_slots_gpr)
+    try testing.expectEqual(Slot{ .reg = 0 }, alloc.slot(0, .gpr));
+    try testing.expectEqual(Slot{ .reg = 7 }, alloc.slot(1, .gpr));
+    try testing.expectEqual(Slot{ .spill = 0 }, alloc.slot(2, .gpr));
+    try testing.expectEqual(Slot{ .spill = 48 }, alloc.slot(3, .gpr)); // (14 - 8) * 8
+    // class .fpr — boundary at 15 (default max_reg_slots_fp); same ids stay in regs
+    try testing.expectEqual(Slot{ .reg = 0 }, alloc.slot(0, .fpr));
+    try testing.expectEqual(Slot{ .reg = 7 }, alloc.slot(1, .fpr));
+    try testing.expectEqual(Slot{ .reg = 8 }, alloc.slot(2, .fpr));
+    try testing.expectEqual(Slot{ .reg = 14 }, alloc.slot(3, .fpr));
+}
+
+test "Allocation.slot: id >= max_reg_slots_fp resolves to .spill for .fpr" {
+    const slots = [_]u8{ 14, 15, 16 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 17 };
+    try testing.expectEqual(Slot{ .reg = 14 }, alloc.slot(0, .fpr));
+    // FP spill: id >= 15 → .spill, offset uses GPR boundary as origin
+    // so the shared spill frame is class-agnostic.
+    try testing.expectEqual(Slot{ .spill = (15 - 8) * 8 }, alloc.slot(1, .fpr));
+    try testing.expectEqual(Slot{ .spill = (16 - 8) * 8 }, alloc.slot(2, .fpr));
+}
+
+test "Allocation.slot: spill offset is class-agnostic (shared frame origin = max_reg_slots_gpr)" {
+    // A function with mixed GPR/FP vregs sharing a spill frame:
+    // GPR vreg at slot 8 → spill 0; FP vreg at slot 16 → spill 64.
+    // Even though FP doesn't *actually* spill at slot 8..14
+    // (those are V-regs), the offset formula stays consistent so
+    // the prologue can size the frame from spillBytes() alone.
+    const slots = [_]u8{ 8, 16 };
+    const alloc: Allocation = .{ .slots = &slots, .n_slots = 17 };
+    try testing.expectEqual(Slot{ .spill = 0 }, alloc.slot(0, .gpr));
+    try testing.expectEqual(Slot{ .spill = (16 - 8) * 8 }, alloc.slot(1, .fpr));
 }
