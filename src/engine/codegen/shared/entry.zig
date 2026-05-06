@@ -167,6 +167,65 @@ pub fn callVoid_f32(
     if (rt.trap_flag != 0) return Error.Trap;
 }
 
+/// 5-arg helpers for the `(i64 f32 f64 i32 i32)` family that
+/// covers the upstream `local_get`/`local_set` mixed-type
+/// fixtures (`type-mixed`, `read`, `write`). Per AAPCS64 / SysV
+/// the FP args go in V0/V1 (S0/D1) and the int args go in
+/// X0..X4 / RDI..R8 in declaration order; the `callconv(.c)`
+/// function pointer matches that ABI by construction.
+pub fn callVoid_i64f32f64i32i32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u64,
+    a1: f32,
+    a2: f64,
+    a3: u32,
+    a4: u32,
+) Error!void {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: u64, a1: f32, a2: f64, a3: u32, a4: u32) callconv(.c) void;
+    const f = module.entry(func_idx, Fn);
+    f(rt, a0, a1, a2, a3, a4);
+    if (rt.trap_flag != 0) return Error.Trap;
+}
+
+pub fn callI64_i64f32f64i32i32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u64,
+    a1: f32,
+    a2: f64,
+    a3: u32,
+    a4: u32,
+) Error!u64 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: u64, a1: f32, a2: f64, a3: u32, a4: u32) callconv(.c) u64;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1, a2, a3, a4);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+pub fn callF64_i64f32f64i32i32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u64,
+    a1: f32,
+    a2: f64,
+    a3: u32,
+    a4: u32,
+) Error!f64 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: u64, a1: f32, a2: f64, a3: u32, a4: u32) callconv(.c) f64;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1, a2, a3, a4);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
 /// Call a single-f64-argument void-returning JIT function.
 pub fn callVoid_f64(
     module: linker.JitModule,

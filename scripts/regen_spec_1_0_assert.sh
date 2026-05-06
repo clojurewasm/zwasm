@@ -107,8 +107,11 @@ for c in d['commands']:
         if len(results) > 1 or any(r['type'] not in ('i32', 'i64', 'f32', 'f64') for r in results):
             lines.append(f'skip non-int-result {a["field"]}')
             continue
-        if len(args) > 2:
-            lines.append(f'skip more-than-2-args {a["field"]}')
+        # 7.5-close-mta: lift cap to 5; runner has callXX_<5-args>
+        # helpers for the curated `(i64 f32 f64 i32 i32)` family
+        # (local_get/set type-mixed/read/write fixtures).
+        if len(args) > 5:
+            lines.append(f'skip more-than-5-args {a["field"]}')
             continue
         args_s = ' '.join(fmt(x) for x in args) if args else '()'
         results_s = ' '.join(fmt(x) for x in results) if results else '()'

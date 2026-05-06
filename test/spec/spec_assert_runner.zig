@@ -312,13 +312,13 @@ fn runAssertReturn(
     };
 
     // Parse arg tokens.
-    var args: [2]ArgValue = undefined;
+    var args: [5]ArgValue = undefined;
     var n_args: usize = 0;
     if (!std.mem.eql(u8, args_s, "()")) {
         var arg_it = std.mem.tokenizeScalar(u8, args_s, ' ');
         while (arg_it.next()) |tok| {
-            if (n_args >= 2) {
-                try stdout.print("FAIL  {s}: > 2 args unsupported ({s})\n", .{ name, args_s });
+            if (n_args >= args.len) {
+                try stdout.print("FAIL  {s}: > {d} args unsupported ({s})\n", .{ name, args.len, args_s });
                 return false;
             }
             if (std.mem.startsWith(u8, tok, "i32:")) {
@@ -379,6 +379,15 @@ fn runAssertReturn(
         }
         if (n_args == 2 and args[0].kind == .i32 and args[1].kind == .i32) {
             entry.callVoid_i32i32(compiled.module, func_idx, &rt, @intCast(args[0].val), @intCast(args[1].val)) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+            return true;
+        }
+        if (n_args == 5 and args[0].kind == .i64 and args[1].kind == .f32 and args[2].kind == .f64 and args[3].kind == .i32 and args[4].kind == .i32) {
+            const a1: f32 = @bitCast(@as(u32, @intCast(args[1].val)));
+            const a2: f64 = @bitCast(args[2].val);
+            entry.callVoid_i64f32f64i32i32(compiled.module, func_idx, &rt, args[0].val, a1, a2, @intCast(args[3].val), @intCast(args[4].val)) catch |err| {
                 try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
                 return false;
             };
@@ -462,6 +471,23 @@ fn runAssertReturn(
         if (n_args == 1 and args[0].kind == .f64 and result_kind == .f64) {
             const a0_d: f64 = @bitCast(args[0].val);
             const r = entry.callF64_f64(compiled.module, func_idx, &rt, a0_d) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+            break :blk @as(u64, @bitCast(r));
+        }
+        if (n_args == 5 and args[0].kind == .i64 and args[1].kind == .f32 and args[2].kind == .f64 and args[3].kind == .i32 and args[4].kind == .i32 and result_kind == .i64) {
+            const a1: f32 = @bitCast(@as(u32, @intCast(args[1].val)));
+            const a2: f64 = @bitCast(args[2].val);
+            break :blk entry.callI64_i64f32f64i32i32(compiled.module, func_idx, &rt, args[0].val, a1, a2, @intCast(args[3].val), @intCast(args[4].val)) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+        }
+        if (n_args == 5 and args[0].kind == .i64 and args[1].kind == .f32 and args[2].kind == .f64 and args[3].kind == .i32 and args[4].kind == .i32 and result_kind == .f64) {
+            const a1: f32 = @bitCast(@as(u32, @intCast(args[1].val)));
+            const a2: f64 = @bitCast(args[2].val);
+            const r = entry.callF64_i64f32f64i32i32(compiled.module, func_idx, &rt, args[0].val, a1, a2, @intCast(args[3].val), @intCast(args[4].val)) catch |err| {
                 try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
                 return false;
             };
