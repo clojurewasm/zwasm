@@ -14,22 +14,24 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `e0af079`):
+直近 commit (HEAD = `461cc1a`):
 
-- `e0af079` §9.7 / 7.5-multi-arg-entry (ARM64 X1..X7 i32 params; 2/12 → 3/12)
-- `818e5a8` §9.7 / 7.5-empty-module-fix (0-function modules accept; 1/12 → 2/12)
-- `217c214` §9.7 / 7.5-spec-jit-compile-runner (corpus walker; 1/12 pass)
+- `461cc1a` §9.7 / 7.5-drop-unreachable (drop + unreachable + B-fixup patcher; 3/12 → 5/12)
+- `e0af079` §9.7 / 7.5-multi-arg-entry (ARM64 X1..X7 i32 params; 2→3)
+- `818e5a8` §9.7 / 7.5-empty-module-fix (0-function modules accept; 1→2)
+- `217c214` §9.7 / 7.5-spec-jit-compile-runner (corpus walker)
 - `3e33ead` chore(p7): audit catch-up — flip §9.7 / 7.3 / 7.4 / 7.6 [x]
 - `884d7d8` chore(p7): mark §9.7 / 7.7 [x]
-- `cd81b8e` docs(workflow): parallel-bg + file-logged gate rule
 
-**Active task**: multi-arg-entry (i32 only) landed (3/12 pass)。
-残り 9 fails は heterogeneous: UnsupportedOp と
-OperandStackUnderflow が混在。**NEXT** =
-`7.5-investigate-fails` (各 fixture を個別に展開して原因を分類
-— i64 const / param / f32+f64 const、br_table edge、unreachable op
-など)。原因が判明した時点で per-cause sub-chunk に分割。並行で
-x86_64 multi-arg mirror は 7.8 始動時に実施。
+**Active task**: drop + unreachable landed (5/12 pass)。残り 7
+fails の原因 (調査済): unreachable.0 + local_get/set.0 = i64/f32/f64
+return-type を ARM64 end-handler が未対応; switch.0 = `return` op 未実装;
+labels.0 = OperandStackUnderflow (block-result + br interaction); nop.0 =
+mixed-type params (i64+f32+f64 mixed); unwind.0 = stack-discard at br
+with multi-type values。**NEXT** = `7.5-arm64-end-fp-i64` (ARM64
+end-handler を `func.sig.results[0]` で分岐: i32→W0, i64→X0,
+f32→S0, f64→D0; `7.7-fp-end-fix` の x86_64 mirror)。これで
+unreachable.0 / local_get.0 / local_set.0 の 3 件 unblock 見込み。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -55,7 +57,11 @@ x86_64 multi-arg mirror は 7.8 始動時に実施。
 | 7.5-jit-compile-runner | corpus walker; `zig build test-spec-jit-compile`; 1/12 pass | DONE (217c214) |
 | 7.5-empty-module-fix | `compileWasm` + `linker.link` が 0-function modules を accept | DONE (818e5a8; 2/12) |
 | 7.5-multi-arg-entry | ARM64 X1..X7 i32 params (≤ 7 i32 のみ; i64/f/* + 8th+ stack-arg は defer) | DONE (e0af079; 3/12) |
-| 7.5-investigate-fails | 残り 9 fails を per-fixture で原因分類 → per-cause sub-chunk 化 | **NEXT** |
+| 7.5-investigate-fails | 残り 9 fails を per-fixture で原因分類 (drop / unreachable / return / FP-i64 result / mixed-type params など) | DONE (root-causes 調査完了) |
+| 7.5-drop-unreachable | drop + unreachable + B-fixup patcher 拡張 | DONE (461cc1a; 5/12) |
+| 7.5-arm64-end-fp-i64 | ARM64 end-handler を result kind で分岐 (i32→W0 / i64→X0 / f32→S0 / f64→D0) — 7.7-fp-end-fix mirror | **NEXT** |
+| 7.5-return-op | wasm `return` op (mid-function early exit; jump to function epilogue + result marshal) | pending |
+| 7.5-mixed-type-params | param signature が i64/f32/f64 を含む場合の prologue marshalling (X1..X7 を type-aware に) | pending |
 | 7.5-spec-assertion-driver | wast2json で spec corpus を `.wasm` + assertion manifest 化 → JIT 経由で execute → pass/fail counts | pending |
 | 7.5-trap-reason-channel | trap_flag を `enum TrapReason` に拡張 (assert_trap reason discrimination) | pending (ADR-0028 / Diagnostic M3) |
 
@@ -86,6 +92,7 @@ zone placement / "constant overhead" / WASI prereq 等)。
 
 ## Recently closed (full history via `git log --oneline`)
 
+- §9.7 / 7.5-drop-unreachable (461cc1a): ARM64 emit に `drop` (vreg pop only; no machine bytes) + `unreachable` (`encB(0)` placeholder + bounds_fixups append) を追加; 末尾の trap-stub patcher が opcode bits 31..26 で B vs B.cond を判別して再 encode。jit-compile-runner 3→5 (block, const)。残 unreachable.0 / local_get.0 / local_set.0 / switch.0 / labels.0 / unwind.0 / nop.0 (7) は FP/i64 return + return op + mixed-type params が原因。
 - §9.7 / 7.5-multi-arg-entry (e0af079): ARM64 emit.zig:134 の params reject を lift。AAPCS64 X1..X7 の最大 7 i32 params を prologue で `STR W{i+1}, [SP, #(i*8)]` 経由で local slot に snapshot。`local.get/.set/.tee` が `total_locals = num_params + num_locals` を bound にする。i64 / f32 / f64 / refs / 8 個目以降は今 deferred → UnsupportedOp。spec-jit-compile-runner 2/12 → 3/12 (forward.0.wasm clears)。x86_64 mirror は 7.8 開始時。
 - §9.7 / 7.5-empty-module-fix (818e5a8): `compileWasm` が `function` section absent のとき空 CompiledWasm を返す + `linker.link` が 0-body case で empty JitModule を返す。inline test (8-byte header → 0 sigs / 0 results) 追加。jit-compile-runner: 1→2 passed (empty.wasm clears)。残り 10 fails はすべて multi-arg UnsupportedOp。
 - §9.7 / 7.5-spec-jit-compile-runner (217c214): `test/spec/jit_compile_runner.zig` + `zig build test-spec-jit-compile` build step。`test/spec/{smoke,wasm-1.0}/` 12 fixtures を `engine.runner.compileWasm` でぶん回す。1/12 pass; 11/12 fail のうち 10/11 は arm64/emit.zig:134 の params-len reject、1/11 は empty.wasm の MissingTypeSection。test-all 未追加 (Mac aarch64 only)。
