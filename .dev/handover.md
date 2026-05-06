@@ -14,16 +14,17 @@
 
 ## Current state — Phase 7 / §9.7 / 7.5 IN-PROGRESS
 
-直近 commit (HEAD = `6505018`):
+直近 commit (HEAD = `f103209`):
 
+- `f103209` feat(p7): §9.7 / 7.5-close-a — assert_invalid directive (159→181; D-042/D-043 filed)
 - `6505018` feat(p7): §9.7 / 7.5-close-c2 — true FP-result regen relax (155→159 / 77→73)
 - `72250c1` feat(p7): §9.7 / 7.5-close-d — FP-arg dispatch (153→155 / 79→77)
 - `91d4186` feat(p7): §9.7 / 7.5-close-c1 — void-result helpers (138→153 / 94→79)
 - `3308a3c` chore(p7,debt): close D-040 — wire test-spec-assert into test-all (Mac guard)
-- `a4b1510` fix(p7): §9.7 / 7.5-d035-c emit-side regression — Label.merge_captured tri-state
 
 **Phase status**: §9.7 / 7.5 IN-PROGRESS。spec-jit-compile 12/12,
-spec_assert 159/0/73 (test-all on Mac; +21 累計 c1+d+c2)。Phase 7 残 row =
+spec_assert 181/0/51 (test-all on Mac; +43 累計; 27 SKIP-VALIDATOR-GAP
+D-042 待ち)。Phase 7 残 row =
 7.5 / 7.8 / 7.9 / 7.10 / 7.11 🔒 / 7.12 / 7.13 🔒。
 D-030 / D-035 / D-036 / D-037 / D-038 / D-040 closed。
 次は §9.7 / 7.5 close (94 skips 分類) → 7.8 (x86_64 spec gate)。
@@ -140,8 +141,8 @@ multi-value 修正後に再評価(関連する semantic 解釈が変わる可能
 | 7.5-close-c1 | void-result helpers + regen len(results)==0 + runner void dispatch; +15 PASS | DONE (91d4186) |
 | 7.5-close-d  | FP-arg dispatch (callVoid_f32/f64 + regen allow FP args); +2 PASS | DONE (72250c1) |
 | 7.5-close-c2 | true FP-result regen relax (+4 PASS; runner dispatch already had callF32_f32/F64) | DONE (6505018) |
-| 7.5-close-a  | assert_invalid runner directive (49 skips, biggest bucket) | **NEXT** |
-| 7.5-close-b  | assert_malformed runner directive (20 skips) | pending |
+| 7.5-close-a  | assert_invalid directive (+22 PASS; 27 SKIP-VALIDATOR-GAP → D-042; leak → D-043) | DONE (f103209) |
+| 7.5-close-b  | assert_malformed runner directive (20 skips; parser-error mirror of -a) | **NEXT** |
 | 7.5-close-c3 | multi-result if/else fixture (D-035 deferred regression coverage) | pending |
 | 7.5-close-d | FP non-int-arg runner extension | pending |
 | 7.5-close-a | assert_invalid runner directive | pending |
