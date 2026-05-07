@@ -16,23 +16,23 @@
 
 直近 commit (HEAD = `<this>`):
 
-- `<this>` feat(p7): §9.7 / 7.8-x86-unreachable — JMP rel32 + unreach_fixups (D-045 chunk 2/8)
-- `56b563b` feat(p7): §9.7 / 7.8-x86-ctrl-stack — x86_64 nop / drop / return (D-045 chunk 1/8)
+- `<this>` feat(p7): §9.7 / 7.8-x86-i64-const — MOVABS r64, imm64 (D-045 chunk 3/9)
+- `98907dd` feat(p7): §9.7 / 7.8-x86-unreachable — JMP rel32 + unreach_fixups (D-045 chunk 2/9)
+- `56b563b` feat(p7): §9.7 / 7.8-x86-ctrl-stack — x86_64 nop / drop / return (D-045 chunk 1/9)
 - `6496d90` fix(p7): §9.7 / 7.8 — revert spec_assert x86_64 wiring; file D-045 (174 FAILs)
-- `aa8af01` feat(p7): §9.7 / 7.8 — port linker.zig to comptime arch dispatch (D-044 closed)
 
 **Phase status**: §9.7 / 7.5 → **[x]** 完了 (Mac aarch64 spec_assert
 212/0/20)。Phase 7 残 row = 7.8 / 7.9 / 7.10 / 7.11 🔒 / 7.12 /
-7.13 🔒。**§9.7 / 7.8** = x86_64 spec gate — D-045 が active (8
-chunk plan; chunks 1-2/8 完了)。
+7.13 🔒。**§9.7 / 7.8** = x86_64 spec gate — D-045 が active (9
+chunk plan; chunks 1-3/9 完了)。
 
 **Active priority — §9.7 / 7.8 D-045 chunk chain (x86_64 backend gap closure)**:
 
 1. ☑ **7.8-x86-ctrl-stack** — nop + drop + return
 2. ☑ **7.8-x86-unreachable** — JMP rel32 placeholder + unreach_fixups
-3. **7.8-x86-select** — select / select_typed (CMOV encoder; spill-aware shape)
-4. **7.8-x86-i64-const** — i64.const handler (encMovR64Imm64)
-5. **7.8-x86-i64-alu** — i64 add/sub/mul/and/or/xor/shifts/cmp/eqz/clz/ctz/popcnt/rotl/rotr (~22 ops)
+3. ☑ **7.8-x86-i64-const** — MOVABS r64, imm64
+4. **7.8-x86-i64-alu** — i64 add/sub/mul/and/or/xor/shifts/cmp/eqz/clz/ctz/popcnt/rotl/rotr (~22 ops)
+5. **7.8-x86-select** — select / select_typed (CMOV encoder; spill-aware shape)
 6. **7.8-x86-i64-mem** — i64.load{,8_s,8_u,16_s,16_u,32_s,32_u} + i64.store{,8,16,32} (8 ops)
 7. **7.8-x86-mem-grow-size** — memory.size + memory.grow
 8. **7.8-x86-params** — lift `params.len > 0` reject (mirror arm64 7.5-multi-arg-entry)
@@ -56,10 +56,10 @@ chunk plan; chunks 1-2/8 完了)。
 | 7.8-arch-compile | comptime arch dispatch in `compile.zig` (arm64 / x86_64) | DONE (0925134) |
 | 7.8-arch-linker | linker.zig comptime arch dispatch + per-arch CALL-patch (D-044 closed) | DONE (aa8af01) |
 | 7.8-x86-ctrl-stack | x86_64 nop + drop + return (3 ops; no new encoders) | DONE (56b563b) |
-| 7.8-x86-unreachable | JMP rel32 placeholder + unreach_fixups (-5 disp) | DONE (`<this>`) |
-| 7.8-x86-select | select / select_typed (CMOV encoder; spill-aware) | **NEXT** |
-| 7.8-x86-i64-const | i64.const handler (encMovR64Imm64 encoder) | pending |
-| 7.8-x86-i64-alu | i64 ALU + cmp + bitcount + shifts + rot (~22 ops) | pending |
+| 7.8-x86-unreachable | JMP rel32 placeholder + unreach_fixups (-5 disp) | DONE (98907dd) |
+| 7.8-x86-i64-const | i64.const handler (MOVABS r64, imm64) | DONE (`<this>`) |
+| 7.8-x86-i64-alu | i64 ALU + cmp + bitcount + shifts + rot (~22 ops) | **NEXT** |
+| 7.8-x86-select | select / select_typed (CMOV encoder; spill-aware) | pending |
 | 7.8-x86-i64-mem | i64 load/store family (8 ops) | pending |
 | 7.8-x86-mem-grow-size | memory.size + memory.grow | pending |
 | 7.8-x86-params | lift `params.len > 0` reject; SysV/Win64 param marshalling | pending |
@@ -83,7 +83,13 @@ Phase D (migration doc) は post-7.8 着手予定。詳細は
 
 ## Recently closed (full history via `git log --oneline`)
 
-- §9.7 / 7.8-x86-unreachable (`<this>`): x86_64 emit に
+- §9.7 / 7.8-x86-i64-const (`<this>`): x86_64 emit に `i64.const`
+  arm を追加。MOVABS r64, imm64 (10 byte) で 64-bit literal を
+  直接 dst レジスタに load。ARM64 の 4×16-bit MOVZ/MOVK 連鎖と
+  異なり single instruction。Inline test: `i64.const
+  0x0CABBA6E0BA66A6E` で 19 byte の関数 body を検証。Mac unit
+  1045/1050、test-all spec_assert 212/0/20。
+- §9.7 / 7.8-x86-unreachable (98907dd): x86_64 emit に
   `unreachable` op 追加。JMP rel32 (5 byte) placeholder を emit
   + 新規 `unreach_fixups: ArrayList(u32)` に byte_offset を記
   録。end-handler の trap-stub block で bounds_fixups (Jcc 6

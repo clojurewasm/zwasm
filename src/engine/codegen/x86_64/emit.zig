@@ -217,6 +217,22 @@ pub fn compile(
                 try buf.appendSlice(allocator, inst.encMovImm32W(dst, ins.payload).slice());
                 try pushed_vregs.append(allocator, vreg);
             },
+            .@"i64.const" => {
+                // Wasm spec §4.4.1.1 (i64.const) — push a 64-bit
+                // immediate. Encoded as MOVABS r64, imm64
+                // (REX.W + 0xB8+rd + 8-byte imm = 10 bytes).
+                // Mirrors arm64 emitI64Const which uses 4×16-bit
+                // MOVZ/MOVK chunks; x86_64's MOVABS-form is a
+                // single instruction, simpler to emit.
+                const vreg = next_vreg;
+                next_vreg += 1;
+                if (vreg >= alloc.slots.len) return Error.SlotOverflow;
+                const slot_id = alloc.slots[vreg];
+                const dst = abi.slotToReg(slot_id) orelse return Error.SlotOverflow;
+                const value: u64 = (@as(u64, ins.extra) << 32) | @as(u64, ins.payload);
+                try buf.appendSlice(allocator, inst.encMovImm64Q(dst, value).slice());
+                try pushed_vregs.append(allocator, vreg);
+            },
             .@"i32.add", .@"i32.sub", .@"i32.mul",
             .@"i32.and", .@"i32.or", .@"i32.xor",
             => try op_alu_int.emitI32Binary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
@@ -2932,6 +2948,37 @@ test "compile: return mid-function (i32.const, return, end) emits MOV EAX + epil
     try testing.expectEqual(@as(u8, 0xC3), out.bytes[14]);
     // Total length: 4 + 6 + 3 + 2 + 3 + 2 = 20 bytes
     try testing.expectEqual(@as(usize, 20), out.bytes.len);
+}
+
+test "compile: i64.const emits MOVABS r64, imm64 (10 bytes)" {
+    // Wasm spec §4.4.1.1 (i64.const). Verifies the full 64-bit
+    // immediate path: high word from ins.extra, low word from
+    // ins.payload, recombined and emitted as a single MOVABS.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    const value: u64 = 0x0CABBA6E0BA66A6E; // arbitrary 64-bit literal
+    try f.instrs.append(testing.allocator, .{
+        .op = .@"i64.const",
+        .payload = @truncate(value),
+        .extra = @truncate(value >> 32),
+    });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0}; // GPR slot 0 → R10
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // Layout (uses_runtime_ptr = false, frame_bytes = 0):
+    //   [0..4]   prologue: PUSH RBP ; MOV RBP, RSP
+    //   [4..14]  i64.const: MOVABS R10, imm64 (10 bytes)
+    //   [14..17] end i64 marshal: MOV RAX, R10 (.q, 3 bytes)
+    //   [17..19] epilogue: POP RBP ; RET
+    const expected_movabs = inst.encMovImm64Q(.r10, value);
+    try testing.expectEqualSlices(u8, expected_movabs.slice(), out.bytes[4 .. 4 + expected_movabs.len]);
+    try testing.expectEqual(@as(usize, 19), out.bytes.len);
 }
 
 test "compile: unreachable emits JMP rel32 + trap stub patches disp to trap_byte" {
