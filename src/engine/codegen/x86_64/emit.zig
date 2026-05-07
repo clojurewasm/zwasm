@@ -75,6 +75,19 @@ const LabelKind = label_mod.LabelKind;
 const Fixup = label_mod.Fixup;
 const Label = label_mod.Label;
 
+/// Centralised diagnostic helper for `Error.UnsupportedOp` rejects
+/// in this orchestrator. Every silent `return Error.UnsupportedOp`
+/// path goes through this so the spec_assert / test runner outputs
+/// surface **which** structural reason fired (not just the bare
+/// error name). Mirror of the per-arch reject pattern; ARM64 has
+/// equivalent prints scattered inline. Centralising avoids the
+/// "reject in 12 places, print in 0" gap that blocked the chunk
+/// 14b probe.
+fn rejectUnsupported(reason: []const u8, func_idx: u32) Error {
+    std.debug.print("x86_64/emit: UnsupportedOp[{s}] (func_idx={d})\n", .{ reason, func_idx });
+    return Error.UnsupportedOp;
+}
+
 /// Emit x86_64 machine code for `func`. Requires `alloc.slots`
 /// to be populated (call `regalloc.compute` first; pass the
 /// `Allocation` here). `func_sigs` and `module_types` are
@@ -115,7 +128,7 @@ pub fn compile(
     // slot lives at -8 - 8*total_locals which must stay >= -128 →
     // total_locals <= 15. Without uses_runtime_ptr the cap is
     // total_locals <= 16.
-    if (total_locals > 15) return Error.UnsupportedOp;
+    if (total_locals > 15) return rejectUnsupported("total_locals>15", func.func_idx);
 
     // Prescan: does this function need the runtime-ptr save?
     // Per ADR-0026, memory ops (and future calls / call_indirect)
@@ -227,33 +240,33 @@ pub fn compile(
         var fp_arg_idx: usize = 0;
         while (p_idx < num_params) : (p_idx += 1) {
             const off_i32: i32 = @as(i32, base_off_for_locals) - @as(i32, @intCast((p_idx + 1) * 8));
-            if (off_i32 < -128) return Error.UnsupportedOp;
+            if (off_i32 < -128) return rejectUnsupported("param-marshal-disp<-128", func.func_idx);
             const off: i8 = @intCast(off_i32);
             switch (func.sig.params[p_idx]) {
                 .i32 => {
                     if (int_arg_idx >= abi.current.arg_gprs.len) {
-                        return Error.UnsupportedOp;
+                        return rejectUnsupported("i32-param-arg-overflow", func.func_idx);
                     }
                     try buf.appendSlice(allocator, inst.encStoreR32MemRBP(off, abi.current.arg_gprs[int_arg_idx]).slice());
                     int_arg_idx += 1;
                 },
                 .i64 => {
                     if (int_arg_idx >= abi.current.arg_gprs.len) {
-                        return Error.UnsupportedOp;
+                        return rejectUnsupported("i64-param-arg-overflow", func.func_idx);
                     }
                     try buf.appendSlice(allocator, inst.encStoreR64MemRBP(off, abi.current.arg_gprs[int_arg_idx]).slice());
                     int_arg_idx += 1;
                 },
                 .f32 => {
                     if (fp_arg_idx >= abi.current.arg_xmms.len) {
-                        return Error.UnsupportedOp;
+                        return rejectUnsupported("f32-param-xmm-overflow", func.func_idx);
                     }
                     try buf.appendSlice(allocator, inst.encStoreXmmF32MemRBP(off, abi.current.arg_xmms[fp_arg_idx]).slice());
                     fp_arg_idx += 1;
                 },
                 .f64 => {
                     if (fp_arg_idx >= abi.current.arg_xmms.len) {
-                        return Error.UnsupportedOp;
+                        return rejectUnsupported("f64-param-xmm-overflow", func.func_idx);
                     }
                     try buf.appendSlice(allocator, inst.encStoreXmmF64MemRBP(off, abi.current.arg_xmms[fp_arg_idx]).slice());
                     fp_arg_idx += 1;
@@ -577,7 +590,7 @@ pub fn compile(
                                 try buf.appendSlice(allocator, inst.encMovapsXmmXmm(abi.return_xmm, src_x).slice());
                             }
                         },
-                        .v128 => return Error.UnsupportedOp,
+                        .v128 => return rejectUnsupported("return-v128", func.func_idx),
                     }
                 }
                 if (frame_bytes > 0) {
@@ -644,7 +657,7 @@ pub fn compile(
                                 try buf.appendSlice(allocator, inst.encMovapsXmmXmm(abi.return_xmm, src_x).slice());
                             }
                         },
-                        .v128 => return Error.UnsupportedOp,
+                        .v128 => return rejectUnsupported("func-end-return-v128", func.func_idx),
                     }
                 }
                 // Epilogue: ADD RSP, frame ; POP R15? ; POP RBP ; RET.
@@ -691,7 +704,10 @@ pub fn compile(
                 }
                 break;
             },
-            else => return Error.UnsupportedOp,
+            else => {
+                std.debug.print("x86_64/emit: UnsupportedOp[body-op-{s}] (func_idx={d})\n", .{ @tagName(ins.op), func.func_idx });
+                return Error.UnsupportedOp;
+            },
         }
     }
 
@@ -718,11 +734,20 @@ fn localValType(func: *const ZirFunc, num_params: u32, local_idx: u32) zir.ValTy
 }
 
 fn localDisp(idx: u32, total_locals: u32, uses_runtime_ptr: bool) Error!i8 {
-    if (idx >= total_locals) return Error.UnsupportedOp;
-    if (idx >= 16) return Error.UnsupportedOp;
+    if (idx >= total_locals) {
+        std.debug.print("x86_64/emit: UnsupportedOp[localDisp-idx>=total_locals] (idx={d}, total={d})\n", .{ idx, total_locals });
+        return Error.UnsupportedOp;
+    }
+    if (idx >= 16) {
+        std.debug.print("x86_64/emit: UnsupportedOp[localDisp-idx>=16] (idx={d})\n", .{idx});
+        return Error.UnsupportedOp;
+    }
     const base_off: i32 = if (uses_runtime_ptr) -8 else 0;
     const off: i32 = base_off - @as(i32, @intCast((idx + 1) * 8));
-    if (off < -128) return Error.UnsupportedOp;
+    if (off < -128) {
+        std.debug.print("x86_64/emit: UnsupportedOp[localDisp-off<-128] (idx={d}, off={d})\n", .{ idx, off });
+        return Error.UnsupportedOp;
+    }
     return @intCast(off);
 }
 
@@ -766,7 +791,10 @@ fn emitLocalGet(
             try buf.appendSlice(allocator, inst.encLoadXmmF64MemRBP(dst_x, disp).slice());
             try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
         },
-        .v128, .funcref, .externref => return Error.UnsupportedOp,
+        .v128, .funcref, .externref => |t| {
+            std.debug.print("x86_64/emit: UnsupportedOp[localGet-type-{s}] (idx={d})\n", .{ @tagName(t), idx });
+            return Error.UnsupportedOp;
+        },
     }
     try pushed_vregs.append(allocator, vreg);
 }
@@ -805,7 +833,10 @@ fn emitLocalSet(
             const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, inst.encStoreXmmF64MemRBP(disp, src_x).slice());
         },
-        .v128, .funcref, .externref => return Error.UnsupportedOp,
+        .v128, .funcref, .externref => |t| {
+            std.debug.print("x86_64/emit: UnsupportedOp[localSet-type-{s}] (idx={d})\n", .{ @tagName(t), idx });
+            return Error.UnsupportedOp;
+        },
     }
 }
 
@@ -843,7 +874,10 @@ fn emitLocalTee(
             const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, inst.encStoreXmmF64MemRBP(disp, src_x).slice());
         },
-        .v128, .funcref, .externref => return Error.UnsupportedOp,
+        .v128, .funcref, .externref => |t| {
+            std.debug.print("x86_64/emit: UnsupportedOp[localTee-type-{s}] (idx={d})\n", .{ @tagName(t), idx });
+            return Error.UnsupportedOp;
+        },
     }
 }
 
