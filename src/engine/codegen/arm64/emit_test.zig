@@ -1000,6 +1000,50 @@ test "compile: i32.load — emits zero-extend + bounds-check + LDR W reg-offset 
     try testing.expectEqual(@as(u32, 0x54000000), bhi_patched & 0xFF000010);
 }
 
+// §9.7 / 7.9-d-14: 32-bit offset lowering. emcc/clang -O2 array
+// indexing with large constant offsets exceeds the d-6 24-bit cap.
+// For offsets > 0xFFFFFF, lower via MOVZ X17, low / MOVK X17, mid /
+// ADD X16, X16, X17 (offset stays under 2^32 per the Wasm spec, so
+// only lanes 0+1 are needed).
+
+test "compile: i32.load offset=0x10000000 — MOVZ/MOVK X17 + ADD reg" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.load", .payload = 0x10000000 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{
+        .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 1 },
+            .{ .def_pc = 1, .last_use_pc = 2 },
+        },
+    };
+    const slots = [_]u16{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    defer deinit(testing.allocator, out);
+    // 0x10000000 split: low_16 = 0x0000, high_16 = 0x1000.
+    // Sequence after ORR W16,WZR,W9: MOVZ X17,#0 / MOVK X17,#0x1000 lsl#16
+    // / ADD X16,X16,X17. Then ADD X17,X16,#4 / CMP X17,X27 / B.HI / LDR.
+    const movz_x17 = inst.encMovzImm16(17, 0x0000);
+    const movk_x17_hi = inst.encMovkImm16(17, 0x1000, 1);
+    const add_x16_x17 = inst.encAddReg(16, 16, 17);
+    var found_movz: bool = false;
+    var found_movk: bool = false;
+    var found_add: bool = false;
+    var i: usize = 0;
+    while (i + 4 <= out.bytes.len) : (i += 4) {
+        const w = std.mem.readInt(u32, out.bytes[i..][0..4], .little);
+        if (w == movz_x17) found_movz = true;
+        if (w == movk_x17_hi) found_movk = true;
+        if (w == add_x16_x17) found_add = true;
+    }
+    try testing.expect(found_movz);
+    try testing.expect(found_movk);
+    try testing.expect(found_add);
+}
+
 test "compile: memory ops dispatch correctly per variant" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
     const cases = [_]struct { op: zir.ZirOp, want_load_word: u32 }{

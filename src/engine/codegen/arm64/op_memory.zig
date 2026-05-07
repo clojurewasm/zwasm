@@ -71,14 +71,16 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const ip0: inst.Xn = 16;
     const ip1: inst.Xn = 17;
     const offset_imm = ins.payload;
-    // Accept offsets up to 0xFFFFFF (16 MiB-1) via the two-step
-    // ADD imm12<<12 + ADD imm12 sequence (chunk d-6). Larger
-    // offsets surface as SlotOverflow until the corresponding
-    // MOVZ/MOVK chain lowering lands.
-    if (offset_imm > 0xFFFFFF) {
-        std.debug.print("arm64/op_memory: SlotOverflow func[{d}] op={s} offset_imm={d}>0xFFFFFF\n", .{ ctx.func.func_idx, @tagName(ins.op), offset_imm });
-        return Error.SlotOverflow;
-    }
+    // §9.7 / 7.9-d-14: full 32-bit offset support. Wasm offsets are
+    // u32 (max 0xFFFFFFFF). We dispatch by magnitude:
+    //   - offset == 0:                no immediate add.
+    //   - 0 < offset ≤ 0xFFFFFF:      ADD imm12 (lsl 12)? + ADD imm12
+    //                                  (the d-6 24-bit fast path).
+    //   - offset > 0xFFFFFF:           MOVZ X17 lane0 + MOVK X17 lane1
+    //                                  + ADD X16, X16, X17 (this chunk).
+    // The MOVZ/MOVK pair stages the offset into ip1=X17 since ip1 is
+    // not yet live (the bounds-check `ADD X17, X16, #access_size`
+    // emits AFTER the offset add, reusing X17 cleanly).
     // Per-op access size in bytes (Wasm spec memory.{load,store} 系)。
     // exhaustive switch (`require_exhaustive_enum_switch` lint gate)
     // のため else => unreachable で「memory op 以外が来たら型システム
@@ -135,13 +137,26 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     // u64 演算で overflow 不可: max(ea + size) = 2^33 + 7 << 2^64。
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(ip0, 31, w_addr));
     if (offset_imm != 0) {
-        const off_high: u12 = @intCast((offset_imm >> 12) & 0xFFF);
-        const off_low: u12 = @intCast(offset_imm & 0xFFF);
-        if (off_high != 0) {
-            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12Lsl12(ip0, ip0, off_high));
-        }
-        if (off_low != 0) {
-            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip0, ip0, off_low));
+        if (offset_imm <= 0xFFFFFF) {
+            const off_high: u12 = @intCast((offset_imm >> 12) & 0xFFF);
+            const off_low: u12 = @intCast(offset_imm & 0xFFF);
+            if (off_high != 0) {
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12Lsl12(ip0, ip0, off_high));
+            }
+            if (off_low != 0) {
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip0, ip0, off_low));
+            }
+        } else {
+            // offset > 0xFFFFFF: stage into X17 via MOVZ + MOVK then
+            // ADD X16, X16, X17. Wasm offset is u32 so lanes 2/3 are
+            // always zero; emit only lanes 0 and 1.
+            const lane0: u16 = @truncate(offset_imm & 0xFFFF);
+            const lane1: u16 = @truncate((offset_imm >> 16) & 0xFFFF);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(ip1, lane0));
+            if (lane1 != 0) {
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(ip1, lane1, 1));
+            }
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(ip0, ip0, ip1));
         }
     }
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip1, ip0, access_size));
