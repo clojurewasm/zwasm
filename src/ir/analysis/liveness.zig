@@ -323,7 +323,10 @@ pub fn compute(
 
         if (isControlFlow(instr.op)) return Error.UnsupportedControlFlow;
 
-        const eff = stackEffect(instr.op) orelse return Error.UnsupportedOp;
+        const eff = stackEffect(instr.op) orelse {
+            std.debug.print("liveness: UnsupportedOp[stackEffect-missing] op={s} func_idx={d}\n", .{ @tagName(instr.op), func.func_idx });
+            return Error.UnsupportedOp;
+        };
 
         // Pop side first — record last_use for each vreg
         // consumed. Best-effort: in dead code (validator-cleared,
