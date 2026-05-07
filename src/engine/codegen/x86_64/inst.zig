@@ -627,6 +627,97 @@ pub fn encMovsxR32_16MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
     return enc;
 }
 
+// ============================================================
+// 64-bit mem load/store (i64.load / i64.store family — D-045
+// chunk 5/9 / §9.7 / 7.8). Same SIB shape as the R32 variants
+// above; differ only in REX.W (always set) and the sign/zero-
+// extending opcodes for sub-word loads.
+// ============================================================
+
+/// `MOV r64, qword ptr [base + idx]` (REX.W + 0x8B with SIB).
+/// 8-byte load; used by i64.load.
+pub fn encMovR64FromBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), idx.extBit(), base.extBit()));
+    enc.push(0x8B);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOV qword ptr [base + idx], r64` (REX.W + 0x89 with SIB).
+/// 8-byte store; used by i64.store.
+pub fn encStoreR64MemBaseIdx(src: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, src.extBit(), idx.extBit(), base.extBit()));
+    enc.push(0x89);
+    enc.push(encodeModrm(0b00, src.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOVZX r64, byte ptr [base + idx]` (REX.W + 0x0F 0xB6 with
+/// SIB). Zero-extends a byte to 64 bits; used by i64.load8_u.
+pub fn encMovzxR64_8MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), idx.extBit(), base.extBit()));
+    enc.push(0x0F);
+    enc.push(0xB6);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOVSX r64, byte ptr [base + idx]` (REX.W + 0x0F 0xBE with
+/// SIB). Sign-extends a byte to 64 bits; used by i64.load8_s.
+pub fn encMovsxR64_8MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), idx.extBit(), base.extBit()));
+    enc.push(0x0F);
+    enc.push(0xBE);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOVZX r64, word ptr [base + idx]` (REX.W + 0x0F 0xB7 with
+/// SIB). Zero-extends a word to 64 bits; used by i64.load16_u.
+pub fn encMovzxR64_16MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), idx.extBit(), base.extBit()));
+    enc.push(0x0F);
+    enc.push(0xB7);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOVSX r64, word ptr [base + idx]` (REX.W + 0x0F 0xBF with
+/// SIB). Sign-extends a word to 64 bits; used by i64.load16_s.
+pub fn encMovsxR64_16MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), idx.extBit(), base.extBit()));
+    enc.push(0x0F);
+    enc.push(0xBF);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
+/// `MOVSXD r64, dword ptr [base + idx]` (REX.W + 0x63 with SIB).
+/// Sign-extends a dword to 64 bits; used by i64.load32_s.
+/// Counterpart of `encMovsxdR64R32` for memory-source operands.
+/// (i64.load32_u uses the existing `encMovR32FromBaseIdx` because
+/// MOV to r32 on x86_64 zero-extends to r64 implicitly.)
+pub fn encMovsxdR64_32MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), idx.extBit(), base.extBit()));
+    enc.push(0x63);
+    enc.push(encodeModrm(0b00, dst.low3(), 0b100));
+    enc.push(encodeSib(0b00, idx.low3(), base.low3()));
+    return enc;
+}
+
 /// `LEA r64, [base + disp8]` (opcode 0x8D /r with REX.W,
 /// ModR/M mod=01, disp8). Used by spec-strict bounds check to
 /// compute `ea + access_size` into a separate scratch reg without

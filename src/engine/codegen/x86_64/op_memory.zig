@@ -76,6 +76,7 @@ pub fn emitMemOp(
 ) Error!void {
     const is_store = switch (op) {
         .@"i32.store", .@"i32.store8", .@"i32.store16",
+        .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
         .@"f32.store", .@"f64.store",
         => true,
         else => false,
@@ -101,10 +102,16 @@ pub fn emitMemOp(
     // exhaustive switch (`require_exhaustive_enum_switch` lint gate);
     // dispatcher が memory op 以外を渡すことはないので else は unreachable。
     const access_size: i8 = switch (op) {
-        .@"i32.load8_s", .@"i32.load8_u", .@"i32.store8" => 1,
-        .@"i32.load16_s", .@"i32.load16_u", .@"i32.store16" => 2,
-        .@"i32.load", .@"i32.store", .@"f32.load", .@"f32.store" => 4,
-        .@"f64.load", .@"f64.store" => 8,
+        .@"i32.load8_s", .@"i32.load8_u", .@"i32.store8",
+        .@"i64.load8_s", .@"i64.load8_u", .@"i64.store8",
+        => 1,
+        .@"i32.load16_s", .@"i32.load16_u", .@"i32.store16",
+        .@"i64.load16_s", .@"i64.load16_u", .@"i64.store16",
+        => 2,
+        .@"i32.load", .@"i32.store", .@"f32.load", .@"f32.store",
+        .@"i64.load32_s", .@"i64.load32_u", .@"i64.store32",
+        => 4,
+        .@"i64.load", .@"i64.store", .@"f64.load", .@"f64.store" => 8,
         else => unreachable,
     };
 
@@ -135,9 +142,16 @@ pub fn emitMemOp(
         } else {
             const src_r = abi.slotToReg(alloc.slots[val_v]) orelse return Error.SlotOverflow;
             const enc = switch (op) {
-                .@"i32.store"   => inst.encStoreR32MemBaseIdx(src_r, .rax, .rdx),
-                .@"i32.store8"  => inst.encStoreR8MemBaseIdx(src_r, .rax, .rdx),
-                .@"i32.store16" => inst.encStoreR16MemBaseIdx(src_r, .rax, .rdx),
+                .@"i32.store"    => inst.encStoreR32MemBaseIdx(src_r, .rax, .rdx),
+                .@"i32.store8"   => inst.encStoreR8MemBaseIdx(src_r, .rax, .rdx),
+                .@"i32.store16"  => inst.encStoreR16MemBaseIdx(src_r, .rax, .rdx),
+                .@"i64.store"    => inst.encStoreR64MemBaseIdx(src_r, .rax, .rdx),
+                // i64.store{8,16,32}: low N bits of the GPR; same
+                // encoders as i32.store{8,16} + a 32-bit-store form
+                // for the .32 variant.
+                .@"i64.store8"   => inst.encStoreR8MemBaseIdx(src_r, .rax, .rdx),
+                .@"i64.store16" => inst.encStoreR16MemBaseIdx(src_r, .rax, .rdx),
+                .@"i64.store32"  => inst.encStoreR32MemBaseIdx(src_r, .rax, .rdx),
                 else => unreachable,
             };
             try buf.appendSlice(allocator, enc.slice());
@@ -158,6 +172,16 @@ pub fn emitMemOp(
                 .@"i32.load8_u"  => inst.encMovzxR32_8MemBaseIdx(dst_r, .rax, .rdx),
                 .@"i32.load16_s" => inst.encMovsxR32_16MemBaseIdx(dst_r, .rax, .rdx),
                 .@"i32.load16_u" => inst.encMovzxR32_16MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load"     => inst.encMovR64FromBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load8_s"  => inst.encMovsxR64_8MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load8_u"  => inst.encMovzxR64_8MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load16_s" => inst.encMovsxR64_16MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load16_u" => inst.encMovzxR64_16MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load32_s" => inst.encMovsxdR64_32MemBaseIdx(dst_r, .rax, .rdx),
+                // i64.load32_u: MOV r32 zero-extends to r64 by AMD64
+                // architectural rule (Intel SDM Vol 1 §3.4.1.1), so
+                // the i32 encoder gives the right semantics for free.
+                .@"i64.load32_u" => inst.encMovR32FromBaseIdx(dst_r, .rax, .rdx),
                 else => unreachable,
             };
             try buf.appendSlice(allocator, enc.slice());
