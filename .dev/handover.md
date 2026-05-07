@@ -16,28 +16,28 @@
 
 直近 commit (HEAD = `<this>`):
 
-- `<this>` feat(p7): §9.7 / 7.8-x86-params-i32 — lift params=0 reject; i32-only marshal (D-045 chunk 6/9)
-- `bfedfdf` feat(p7): §9.7 / 7.8-x86-i64-mem — i64 load/store family 8 ops (D-045 chunk 5/9)
-- `1e83c41` feat(p7): §9.7 / 7.8-x86-i64-alu — i64 ALU/cmp/shift/bitcount 22 ops (D-045 chunk 4/9)
-- `e46aa7d` feat(p7): §9.7 / 7.8-x86-i64-const — MOVABS r64, imm64 (D-045 chunk 3/9)
+- `<this>` feat(p7): §9.7 / 7.8-x86-params-i64fp — i64/FP params + type-aware local.{get,set,tee} (D-045 chunk 7/10)
+- `7f9e9fe` feat(p7): §9.7 / 7.8-x86-params-i32 — lift params=0; i32-only marshal (D-045 chunk 6/10)
+- `bfedfdf` feat(p7): §9.7 / 7.8-x86-i64-mem — i64 load/store family 8 ops (D-045 chunk 5/10)
+- `1e83c41` feat(p7): §9.7 / 7.8-x86-i64-alu — i64 ALU/cmp/shift/bitcount 22 ops (D-045 chunk 4/10)
 
 **Phase status**: §9.7 / 7.5 → **[x]** 完了 (Mac aarch64 spec_assert
 212/0/20)。Phase 7 残 row = 7.8 / 7.9 / 7.10 / 7.11 🔒 / 7.12 /
-7.13 🔒。**§9.7 / 7.8** = x86_64 spec gate — D-045 が active (9
-chunk plan; chunks 1-6/9 完了; params lift reordered to 6)。
+7.13 🔒。**§9.7 / 7.8** = x86_64 spec gate — D-045 が active (10
+chunk plan; chunks 1-7/10 完了)。
 
 **Active priority — §9.7 / 7.8 D-045 chunk chain (x86_64 backend gap closure)**:
 
 1. ☑ **7.8-x86-ctrl-stack** — nop + drop + return
-2. ☑ **7.8-x86-unreachable** — JMP rel32 placeholder + unreach_fixups
+2. ☑ **7.8-x86-unreachable** — JMP rel32 + unreach_fixups
 3. ☑ **7.8-x86-i64-const** — MOVABS r64, imm64
 4. ☑ **7.8-x86-i64-alu** — i64 ALU + cmp + bitcount + shift + rot (22 ops)
 5. ☑ **7.8-x86-i64-mem** — i64 load/store family (8 ops)
-6. ☑ **7.8-x86-params-i32** — lift `params.len > 0` reject; i32-only marshal
-7. **7.8-x86-params-i64fp** — i64 / f32 / f64 params + type-aware local.get/set/tee (D-033 x86 equivalent)
-8. **7.8-x86-select** — select / select_typed (CMOV encoder; spill-aware shape)
-9. **7.8-x86-mem-grow-size** — memory.size + memory.grow
-10. **7.8-x86-spec-gate** — re-enable spec_assert in build.zig for x86_64; pass=fail=skip-impl=0
+6. ☑ **7.8-x86-params-i32** — lift params=0 reject; i32-only marshal
+7. ☑ **7.8-x86-params-i64fp** — i64 / f32 / f64 params + type-aware local.get/set/tee
+8. **7.8-x86-select** — select / select_typed (CMOV encoder; spill-aware)
+9. **7.8-x86-mem-grow-size** — memory.size + memory.grow (host call)
+10. **7.8-x86-spec-gate** — re-enable spec_assert in build.zig; pass=fail=skip-impl=0
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -61,9 +61,9 @@ chunk plan; chunks 1-6/9 完了; params lift reordered to 6)。
 | 7.8-x86-i64-const | i64.const handler (MOVABS r64, imm64) | DONE (e46aa7d) |
 | 7.8-x86-i64-alu | i64 ALU + cmp + bitcount + shifts + rot (22 ops) | DONE (1e83c41) |
 | 7.8-x86-i64-mem | i64 load/store family (8 ops) | DONE (bfedfdf) |
-| 7.8-x86-params-i32 | lift params=0 reject; i32-only marshal | DONE (`<this>`) |
-| 7.8-x86-params-i64fp | i64 / f32 / f64 params + type-aware local.{get,set,tee} | **NEXT** |
-| 7.8-x86-select | select / select_typed (CMOV encoder; spill-aware) | pending |
+| 7.8-x86-params-i32 | lift params=0 reject; i32-only marshal | DONE (7f9e9fe) |
+| 7.8-x86-params-i64fp | i64 / f32 / f64 params + type-aware local.{get,set,tee} | DONE (`<this>`) |
+| 7.8-x86-select | select / select_typed (CMOV encoder; spill-aware) | **NEXT** |
 | 7.8-x86-i64-mem | i64 load/store family (8 ops) | pending |
 | 7.8-x86-mem-grow-size | memory.size + memory.grow | pending |
 | 7.8-x86-params | lift `params.len > 0` reject; SysV/Win64 param marshalling | pending |
@@ -87,7 +87,17 @@ Phase D (migration doc) は post-7.8 着手予定。詳細は
 
 ## Recently closed (full history via `git log --oneline`)
 
-- §9.7 / 7.8-x86-params-i32 (`<this>`): x86_64 emit prologue が
+- §9.7 / 7.8-x86-params-i64fp (`<this>`): x86_64 emit prologue +
+  local.{get,set,tee} を i64/f32/f64 まで拡張。inst.zig に 6 個の
+  RBP-disp8 mem encoder 追加 (encStoreR64MemRBP / encLoadR64MemRBP
+  / encStore/LoadXmmF{32,64}MemRBP)。emit.zig prologue の param
+  marshal が int_arg_idx + fp_arg_idx 別カウンタを持ち、type 別
+  に store (i32→R32, i64→R64, f32→MOVSS, f64→MOVSD)。
+  emitLocalGet/Set/Tee は localValType helper (params + locals
+  cohabit) で declared type を取得し type-aware load/store。
+  v128/funcref/externref params は UnsupportedOp。Mac test-all
+  28/28、1048/1053 (5 skip)、spec_assert 212/0/20 unchanged。
+- §9.7 / 7.8-x86-params-i32 (7f9e9fe): x86_64 emit prologue が
   i32 params をサポート。`params.len > 0` reject を解除し、SysV
   RSI..R9 / Win64 RDX..R9 から MOV [RBP+disp8], R32 で local-slot
   へ marshal (mirror of arm64 7.5-multi-arg-entry)。total_locals

@@ -101,8 +101,8 @@ pub fn compile(
     const num_params: u32 = @intCast(func.sig.params.len);
     for (func.sig.params) |p| {
         switch (p) {
-            .i32 => {},
-            .i64, .f32, .f64, .v128, .funcref, .externref => {
+            .i32, .i64, .f32, .f64 => {},
+            .v128, .funcref, .externref => {
                 std.debug.print("x86_64/emit: param type `{s}` unsupported (func_idx={d})\n", .{ @tagName(p), func.func_idx });
                 return Error.UnsupportedOp;
             },
@@ -203,25 +203,42 @@ pub fn compile(
     {
         var p_idx: u32 = 0;
         var int_arg_idx: usize = 1; // skip runtime_ptr_gpr (= arg_gprs[0])
+        var fp_arg_idx: usize = 0;
         while (p_idx < num_params) : (p_idx += 1) {
-            if (int_arg_idx >= abi.current.arg_gprs.len) {
-                std.debug.print("x86_64/emit: > {d} int params unsupported (func_idx={d})\n", .{
-                    abi.current.arg_gprs.len - 1,
-                    func.func_idx,
-                });
-                return Error.UnsupportedOp;
-            }
-            const src_reg = abi.current.arg_gprs[int_arg_idx];
             const off_i32: i32 = @as(i32, base_off_for_locals) - @as(i32, @intCast((p_idx + 1) * 8));
             if (off_i32 < -128) return Error.UnsupportedOp;
             const off: i8 = @intCast(off_i32);
-            // i32-only path (validated above): MOV [RBP+disp8], r32.
-            // The 32-bit store leaves the upper 32 of the local-slot
-            // garbage, but `local.get` always reads via R32 (matching
-            // localDisp's narrow load), so the high bits are masked
-            // off downstream.
-            try buf.appendSlice(allocator, inst.encStoreR32MemRBP(off, src_reg).slice());
-            int_arg_idx += 1;
+            switch (func.sig.params[p_idx]) {
+                .i32 => {
+                    if (int_arg_idx >= abi.current.arg_gprs.len) {
+                        return Error.UnsupportedOp;
+                    }
+                    try buf.appendSlice(allocator, inst.encStoreR32MemRBP(off, abi.current.arg_gprs[int_arg_idx]).slice());
+                    int_arg_idx += 1;
+                },
+                .i64 => {
+                    if (int_arg_idx >= abi.current.arg_gprs.len) {
+                        return Error.UnsupportedOp;
+                    }
+                    try buf.appendSlice(allocator, inst.encStoreR64MemRBP(off, abi.current.arg_gprs[int_arg_idx]).slice());
+                    int_arg_idx += 1;
+                },
+                .f32 => {
+                    if (fp_arg_idx >= abi.current.arg_xmms.len) {
+                        return Error.UnsupportedOp;
+                    }
+                    try buf.appendSlice(allocator, inst.encStoreXmmF32MemRBP(off, abi.current.arg_xmms[fp_arg_idx]).slice());
+                    fp_arg_idx += 1;
+                },
+                .f64 => {
+                    if (fp_arg_idx >= abi.current.arg_xmms.len) {
+                        return Error.UnsupportedOp;
+                    }
+                    try buf.appendSlice(allocator, inst.encStoreXmmF64MemRBP(off, abi.current.arg_xmms[fp_arg_idx]).slice());
+                    fp_arg_idx += 1;
+                },
+                .v128, .funcref, .externref => unreachable, // filtered above
+            }
         }
     }
 
@@ -363,9 +380,9 @@ pub fn compile(
             .@"i32.trunc_f32_u", .@"i32.trunc_f64_u",
             .@"i64.trunc_f32_u", .@"i64.trunc_f64_u",
             => try op_convert.emitFpTruncTrapUnsigned(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.op),
-            .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, total_locals, uses_runtime_ptr, ins.payload),
-            .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, total_locals, uses_runtime_ptr, ins.payload),
-            .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, total_locals, uses_runtime_ptr, ins.payload),
+            .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, func, num_params, total_locals, uses_runtime_ptr, ins.payload),
+            .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, func, num_params, total_locals, uses_runtime_ptr, ins.payload),
+            .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, func, num_params, total_locals, uses_runtime_ptr, ins.payload),
             .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
             .@"i32.load16_s", .@"i32.load16_u",
             .@"i32.store", .@"i32.store8", .@"i32.store16",
@@ -566,6 +583,14 @@ pub fn compile(
 ///       when  uses_runtime_ptr (R15 occupies [RBP-8]).
 /// Surfaces `UnsupportedOp` for indices the i8 disp cannot
 /// reach (15 locals max either way; coincidentally same cap).
+/// Returns the declared Wasm type of local index `idx`. Params
+/// occupy idx 0..num_params-1; declared locals follow. Mirror
+/// of arm64/emit.zig:localValType.
+fn localValType(func: *const ZirFunc, num_params: u32, local_idx: u32) zir.ValType {
+    if (local_idx < num_params) return func.sig.params[local_idx];
+    return func.locals[local_idx - num_params];
+}
+
 fn localDisp(idx: u32, total_locals: u32, uses_runtime_ptr: bool) Error!i8 {
     if (idx >= total_locals) return Error.UnsupportedOp;
     if (idx >= 16) return Error.UnsupportedOp;
@@ -583,6 +608,8 @@ fn emitLocalGet(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
+    func: *const ZirFunc,
+    num_params: u32,
     total_locals: u32,
     uses_runtime_ptr: bool,
     idx: u32,
@@ -591,8 +618,25 @@ fn emitLocalGet(
     const vreg = next_vreg.*;
     next_vreg.* += 1;
     if (vreg >= alloc.slots.len) return Error.SlotOverflow;
-    const dst_r = abi.slotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
-    try buf.appendSlice(allocator, inst.encLoadR32MemRBP(dst_r, disp).slice());
+    switch (localValType(func, num_params, idx)) {
+        .i32 => {
+            const dst_r = abi.slotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encLoadR32MemRBP(dst_r, disp).slice());
+        },
+        .i64 => {
+            const dst_r = abi.slotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encLoadR64MemRBP(dst_r, disp).slice());
+        },
+        .f32 => {
+            const dst_x = abi.fpSlotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encLoadXmmF32MemRBP(dst_x, disp).slice());
+        },
+        .f64 => {
+            const dst_x = abi.fpSlotToReg(alloc.slots[vreg]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encLoadXmmF64MemRBP(dst_x, disp).slice());
+        },
+        .v128, .funcref, .externref => return Error.UnsupportedOp,
+    }
     try pushed_vregs.append(allocator, vreg);
 }
 
@@ -603,6 +647,8 @@ fn emitLocalSet(
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
+    func: *const ZirFunc,
+    num_params: u32,
     total_locals: u32,
     uses_runtime_ptr: bool,
     idx: u32,
@@ -610,8 +656,25 @@ fn emitLocalSet(
     const disp = try localDisp(idx, total_locals, uses_runtime_ptr);
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
-    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
-    try buf.appendSlice(allocator, inst.encStoreR32MemRBP(disp, src_r).slice());
+    switch (localValType(func, num_params, idx)) {
+        .i32 => {
+            const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encStoreR32MemRBP(disp, src_r).slice());
+        },
+        .i64 => {
+            const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encStoreR64MemRBP(disp, src_r).slice());
+        },
+        .f32 => {
+            const src_x = abi.fpSlotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encStoreXmmF32MemRBP(disp, src_x).slice());
+        },
+        .f64 => {
+            const src_x = abi.fpSlotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encStoreXmmF64MemRBP(disp, src_x).slice());
+        },
+        .v128, .funcref, .externref => return Error.UnsupportedOp,
+    }
 }
 
 /// `local.tee K` — store the top vreg's low 32 bits into
@@ -621,6 +684,8 @@ fn emitLocalTee(
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
+    func: *const ZirFunc,
+    num_params: u32,
     total_locals: u32,
     uses_runtime_ptr: bool,
     idx: u32,
@@ -628,8 +693,25 @@ fn emitLocalTee(
     const disp = try localDisp(idx, total_locals, uses_runtime_ptr);
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.items[pushed_vregs.items.len - 1];
-    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
-    try buf.appendSlice(allocator, inst.encStoreR32MemRBP(disp, src_r).slice());
+    switch (localValType(func, num_params, idx)) {
+        .i32 => {
+            const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encStoreR32MemRBP(disp, src_r).slice());
+        },
+        .i64 => {
+            const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encStoreR64MemRBP(disp, src_r).slice());
+        },
+        .f32 => {
+            const src_x = abi.fpSlotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encStoreXmmF32MemRBP(disp, src_x).slice());
+        },
+        .f64 => {
+            const src_x = abi.fpSlotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encStoreXmmF64MemRBP(disp, src_x).slice());
+        },
+        .v128, .funcref, .externref => return Error.UnsupportedOp,
+    }
 }
 
 // ============================================================
@@ -1351,11 +1433,10 @@ test "compile: function with > 15 locals → UnsupportedOp (i8 disp range)" {
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}));
 }
 
-test "compile: function with i64 param → UnsupportedOp (chunk-6 i32-only scope)" {
-    // Chunk 6 lifts i32 params; i64/f32/f64 still surface
-    // UnsupportedOp until the type-aware local + FP-marshal
-    // chunks land. This test guards the boundary.
-    const sig: zir.FuncType = .{ .params = &[_]zir.ValType{.i64}, .results = &.{} };
+test "compile: function with v128 param → UnsupportedOp (v128 not yet supported)" {
+    // Chunks 6+7 added i32/i64/f32/f64 params. v128/funcref/
+    // externref remain unsupported until SIMD / refs phases.
+    const sig: zir.FuncType = .{ .params = &[_]zir.ValType{.v128}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     f.liveness = .{ .ranges = &.{} };

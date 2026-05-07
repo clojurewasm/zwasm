@@ -941,6 +941,77 @@ pub fn encLoadR32MemRBP(dst: Gpr, disp: i8) EncodedInsn {
     return enc;
 }
 
+/// `MOV [RBP + disp8], r64` — REX.W form of `encStoreR32MemRBP`
+/// for i64 locals / params (chunk 7 / D-045). Opcode 0x89 with
+/// REX.W set.
+pub fn encStoreR64MemRBP(disp: i8, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, src.extBit(), 0, 0));
+    enc.push(0x89);
+    enc.push(encodeModrm(0b01, src.low3(), 0b101));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
+/// `MOV r64, [RBP + disp8]` — REX.W form of `encLoadR32MemRBP`.
+pub fn encLoadR64MemRBP(dst: Gpr, disp: i8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), 0, 0));
+    enc.push(0x8B);
+    enc.push(encodeModrm(0b01, dst.low3(), 0b101));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
+/// `MOVSS [RBP + disp8], xmm` (F3 0F 11 /r) — store 32-bit FP
+/// scalar to a stack slot. f32 local-store path (chunk 7).
+pub fn encStoreXmmF32MemRBP(disp: i8, src: Xmm) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0xF3);
+    if (src.extBit() == 1) enc.push(encodeRex(false, 1, 0, 0));
+    enc.push(0x0F);
+    enc.push(0x11);
+    enc.push(encodeModrm(0b01, src.low3(), 0b101));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
+/// `MOVSS xmm, [RBP + disp8]` (F3 0F 10 /r).
+pub fn encLoadXmmF32MemRBP(dst: Xmm, disp: i8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0xF3);
+    if (dst.extBit() == 1) enc.push(encodeRex(false, 1, 0, 0));
+    enc.push(0x0F);
+    enc.push(0x10);
+    enc.push(encodeModrm(0b01, dst.low3(), 0b101));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
+/// `MOVSD [RBP + disp8], xmm` (F2 0F 11 /r) — 64-bit FP store.
+pub fn encStoreXmmF64MemRBP(disp: i8, src: Xmm) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0xF2);
+    if (src.extBit() == 1) enc.push(encodeRex(false, 1, 0, 0));
+    enc.push(0x0F);
+    enc.push(0x11);
+    enc.push(encodeModrm(0b01, src.low3(), 0b101));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
+/// `MOVSD xmm, [RBP + disp8]` (F2 0F 10 /r).
+pub fn encLoadXmmF64MemRBP(dst: Xmm, disp: i8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0xF2);
+    if (dst.extBit() == 1) enc.push(encodeRex(false, 1, 0, 0));
+    enc.push(0x0F);
+    enc.push(0x10);
+    enc.push(encodeModrm(0b01, dst.low3(), 0b101));
+    enc.push(@bitCast(disp));
+    return enc;
+}
+
 /// `PUSH r64` (opcode 0x50+rd) — push a 64-bit GPR onto the
 /// stack. REX.B (0x41) is needed for R8..R15. Width is implicit
 /// 64-bit; no operand-size override exists for PUSH r64.
