@@ -24,6 +24,7 @@ const sections = @import("../parse/sections.zig");
 const zir = @import("../ir/zir.zig");
 const validator_mod = @import("../validate/validator.zig");
 const jit_dispatch = @import("../wasi/jit_dispatch.zig");
+const leb128 = @import("../support/leb128.zig");
 const FuncType = zir.FuncType;
 const compile_func = @import("codegen/shared/compile.zig");
 const linker = @import("codegen/shared/linker.zig");
@@ -346,24 +347,64 @@ pub fn runI32Export(
     defer allocator.free(dispatch);
     for (dispatch) |*slot| slot.* = @intFromPtr(&hostDispatchTrap);
 
-    // Re-decode imports section for the (module, name) → handler
-    // pattern match. Arena-backed so freeing is one shot.
-    if (compiled.num_imports > 0) {
-        var temp_arena = std.heap.ArenaAllocator.init(allocator);
-        defer temp_arena.deinit();
-        const ta = temp_arena.allocator();
-        var module = try parser.parse(ta, wasm_bytes);
-        if (module.find(.import)) |s| {
+    // Memory + data init (chunk 7.9-d-3, closes D-031). When the
+    // module declares a memory section, allocate
+    // `memories[0].min * 65536` bytes and copy each active data
+    // segment to its computed offset. Combined with d-2's WASI
+    // dispatch this lets fixtures that touch linear memory run
+    // end-to-end — fd_write iov walks, args/environ writes, etc.
+    var memory_slice: []u8 = &.{};
+    defer if (memory_slice.len > 0) allocator.free(memory_slice);
+
+    var temp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = try parser.parse(ta, wasm_bytes);
+
+    if (module.find(.import)) |s| {
+        if (compiled.num_imports > 0) {
             var imports_buf = try sections.decodeImports(ta, s.body);
             defer imports_buf.deinit();
             jit_dispatch.populateDispatch(dispatch, imports_buf.items);
         }
     }
 
-    var memory: [0]u8 = .{};
+    if (module.find(.memory)) |s| {
+        var memories = try sections.decodeMemory(ta, s.body);
+        defer memories.deinit();
+        if (memories.items.len > 0) {
+            const page_size: u64 = 65536;
+            const min_pages: u64 = memories.items[0].min;
+            const total_bytes: u64 = min_pages * page_size;
+            // Cap at 256 MiB to avoid runaway tests; realworld
+            // fixtures with larger declared memory surface as
+            // UnsupportedEntrySignature for the d-3 runner.
+            if (total_bytes > 256 * 1024 * 1024) {
+                return Error.UnsupportedEntrySignature;
+            }
+            memory_slice = try allocator.alloc(u8, @intCast(total_bytes));
+            @memset(memory_slice, 0);
+        }
+    }
+
+    if (module.find(.data)) |s| {
+        var datas = try sections.decodeData(ta, s.body);
+        defer datas.deinit();
+        for (datas.items) |seg| {
+            if (seg.kind != .active) continue;
+            const off = evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
+            if (off < 0) return Error.UnsupportedEntrySignature;
+            const off_u: u64 = @intCast(off);
+            if (off_u + seg.bytes.len > memory_slice.len) {
+                return Error.UnsupportedEntrySignature;
+            }
+            @memcpy(memory_slice[@intCast(off_u)..][0..seg.bytes.len], seg.bytes);
+        }
+    }
+
     var rt: entry.JitRuntime = .{
-        .vm_base = &memory,
-        .mem_limit = 0,
+        .vm_base = if (memory_slice.len > 0) memory_slice.ptr else @ptrFromInt(@as(usize, 0x1000)),
+        .mem_limit = memory_slice.len,
         .funcptr_base = undefined,
         .table_size = 0,
         .typeidx_base = undefined,
@@ -374,6 +415,20 @@ pub fn runI32Export(
         .host_dispatch_count = compiled.num_imports,
     };
     return entry.callI32NoArgs(compiled.module, func_idx, &rt);
+}
+
+/// Evaluate a Wasm const-expression that resolves to an i32.
+/// Active data-segment offsets reach this path; v0.1.0's only
+/// supported shape is `i32.const N; end` (3+ bytes: opcode 0x41,
+/// sleb128 N, opcode 0x0B). Mirrors the shape in
+/// `runtime/instance/instantiate.zig:evalConstI32Expr` but stays
+/// JIT-runner-local to avoid pulling instance/ into engine/.
+fn evalConstI32Expr(expr: []const u8) !i32 {
+    if (expr.len < 2 or expr[0] != 0x41) return error.UnsupportedConstExpr;
+    var pos: usize = 1;
+    const v = try leb128.readSleb128(i32, expr, &pos);
+    if (pos >= expr.len or expr[pos] != 0x0B) return error.UnsupportedConstExpr;
+    return v;
 }
 
 /// Default host-import trap trampoline (chunk 7.9-d). C-ABI

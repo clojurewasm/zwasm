@@ -192,6 +192,27 @@ pub fn environ_get(rt: *JitRuntime, envv_ptrs: i32, envv_buf: i32) callconv(.c) 
     return @intFromEnum(Errno.success);
 }
 
+/// `wasi_snapshot_preview1.proc_exit(rval) -> noreturn` — Wasm
+/// program-termination request. The spec semantics are
+/// "noreturn from the program" but a direct `std.process.exit`
+/// in a JIT-host context would terminate the test runner too,
+/// so we surface it as a trap instead. Sets `trap_flag = 1` and
+/// returns; the JIT body's subsequent ops execute (control did
+/// not actually exit), but the entry shim's post-return check
+/// (`if (rt.trap_flag != 0) return Error.Trap`) routes the
+/// caller to the Trap path. Wasm programs typically call
+/// proc_exit as the last op, so post-trap-flag work is
+/// unreachable in practice.
+///
+/// d-3 MVP: discards the exit code (no JitRuntime tail-extension
+/// for `proc_exit_code` yet — that lands when run_runner_jit
+/// needs to surface program exit codes for differential
+/// comparison with wasmtime).
+pub fn proc_exit(rt: *JitRuntime, rval: i32) callconv(.c) void {
+    _ = rval;
+    rt.trap_flag = 1;
+}
+
 /// Match an import (`module`, `name`) tuple against the known
 /// WASI snapshot-preview1 manifest and return a function pointer
 /// suitable for planting into `JitRuntime.host_dispatch_base[i]`.
@@ -212,6 +233,7 @@ pub fn lookup(module_name: []const u8, field_name: []const u8) ?usize {
         .{ .name = "args_get", .ptr = @intFromPtr(&args_get) },
         .{ .name = "environ_sizes_get", .ptr = @intFromPtr(&environ_sizes_get) },
         .{ .name = "environ_get", .ptr = @intFromPtr(&environ_get) },
+        .{ .name = "proc_exit", .ptr = @intFromPtr(&proc_exit) },
     };
     for (table) |p| {
         if (std.mem.eql(u8, p.name, field_name)) return p.ptr;
@@ -243,6 +265,10 @@ const testing = std.testing;
 test "lookup: fd_write resolves" {
     try testing.expect(lookup("wasi_snapshot_preview1", "fd_write") != null);
     try testing.expect(lookup("wasi_unstable", "fd_write") != null);
+}
+
+test "lookup: proc_exit resolves" {
+    try testing.expect(lookup("wasi_snapshot_preview1", "proc_exit") != null);
 }
 
 test "lookup: unknown module returns null" {
