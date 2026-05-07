@@ -12,49 +12,28 @@
 5. `.dev/lessons/INDEX.md` — keyword-grep for the active task domain.
 6. `.dev/optimisation_log.md` — F-NNN / R-NNN / O-NNN ledger.
 
-## Current state — Phase 7 / §9.7 / 7.8 IN-PROGRESS
+## Current state — Phase 7 / §9.7 / 7.9 NEXT
 
 直近 commit (HEAD = `<this>`):
 
-- `<this>` chore(p7): mark §9.7 / 7.8-x86-deadcode-labels close (+56 PASS x86_64)
-- `ea3ef20` fix(p7): §9.7 / 7.8-x86-deadcode-labels guard if_skip_byte unwrap
-- `fb64e3e` fix(p7): §9.7 / 7.8-x86-deadcode-labels — placeholder labels in dead region (chunk 14b)
-- `977d67a` diag(p7): centralised UnsupportedOp helper in x86_64/types.zig + op_* migration
+- `<this>` chore(p7): mark §9.7 / 7.8 [x] close; retarget at 7.9
+- `9a48b3a` feat(p7): §9.7 / 7.8 [x] — x86_64 JIT spec gate met on all 3 hosts
+- `d7236d0` feat(p7): §9.7 / 7.8-x86-win64-stack-args (chunk 14e)
+- `95a64bb` fix(p7): §9.7 / 7.8-x86-win64-fp-params (chunk 14d)
 
-**Phase status**: §9.7 / 7.5 → **[x]** 完了。Phase 7 残 row = 7.8 /
-7.9 / 7.10 / 7.11 🔒 / 7.12 / 7.13 🔒。**§9.7 / 7.8** = x86_64 spec
-gate — D-045 active。chunks 1-13b 完了。3-host baseline post-chunk-13b:
+**Phase status**: §9.7 / 7.5 + 7.8 → **[x]**。Phase 7 残 row = 7.9 /
+7.10 / 7.11 🔒 / 7.12 / 7.13 🔒。**§9.7 / 7.9** = 40+ realworld
+samples via ARM64 JIT — same fixtures as §9.6 / 6.1; trap
+categorisation reuses run_runner buckets。
 
-- Mac aarch64       : **212 / 0 / 20**     (gate green — `test-all` wired)
-- OrbStack Linux    : **175 / 37 / 20**    (was 147/66 → +28 via deadcode-labels 14b)
-- windowsmini Win   : **167 / 45 / 20**    (was 139/74 → +28 via deadcode-labels 14b)
+3-host spec_assert at §9.7 / 7.8 close (D-045 fully discharged):
 
-Cumulative **+128 PASS** since chunk 12 close (Linux 109→175、Win
-49→167)。chunk 14b 根本原因: dead_code 内 if/block/loop で
-placeholder label を push しなかった arm64 mirror gap +
-emitElse の if_skip_byte unwrap が null で panic。次 chunk 14c
-で残 ~40 fails per host (handcrafted_trap "did NOT trap" 等)。
-test-all 配線は Mac aarch64 のみ維持。
+- Mac aarch64       : **212 / 0 / 20**     (test-all wired)
+- OrbStack Linux    : **212 / 0 / 20**     (was 49/174 → +163 PASS cumulative)
+- windowsmini Win   : **212 / 0 / 20**     (was 49/174 → +163 PASS cumulative)
 
-**Active priority — §9.7 / 7.8 D-045 chunk chain**:
-
-1. ☑ 7.8-x86-ctrl-stack — nop + drop + return
-2. ☑ 7.8-x86-unreachable — JMP rel32 + unreach_fixups
-3. ☑ 7.8-x86-i64-const — MOVABS r64, imm64
-4. ☑ 7.8-x86-i64-alu — i64 ALU + cmp + bitcount + shift + rot (22 ops)
-5. ☑ 7.8-x86-i64-mem — i64 load/store family (8 ops)
-6. ☑ 7.8-x86-params-i32 — lift params=0 reject; i32-only marshal
-7. ☑ 7.8-x86-params-i64fp — i64 / f32 / f64 params + type-aware locals
-8. ☑ 7.8-x86-select — select / select_typed (CMOV)
-9. ☑ 7.8-x86-mem-grow-size — memory.size + memory.grow + dead_code
-10. ☑ 7.8-jit-mem-linux — Linux x86_64 mmap-RWX (+60 PASS)
-11. ☑ 7.8-x86-spec-gate — three-host baseline measurement + comment refresh
-12. ☑ **7.8-x86-jit-mem-windows** — Windows NtAllocateVirtualMemory RWX (Win +56 PASS)
-13. ☑ **7.8-x86-spill-aware-regalloc** — landed across 13a foundation (`e811441`) + 13b migration (`aaa2268`)。Pool shrink R10/R11 → spill_stage_gprs、XMM14/15 → fp_spill_stage_xmms。110 site migration、prologue spill-area allocation、~50 fixture update。+62 PASS across Linux + Windows。
-14. **7.8-x86-misc-cleanup** — split:
-    - ☑ **14a zero-init-locals** (`bb8ccb5`): Wasm spec §4.5.3.1 — XOR EAX, EAX + MOV [RBP+disp], RAX per local beyond params。+10 PASS。
-    - ☑ **14b deadcode-labels** (`fb64e3e` + `ea3ef20` + helper `977d67a` + `731c070` + `11f10f3`): dead_code 内 if/block/loop で placeholder label を push、emitElse の if_skip_byte unwrap を null-guard。中央化 `types.rejectUnsupported` helper で全 silent UnsupportedOp path に文脈識別子付き diag 追加 (root-cause 特定が future-proof)。**+56 PASS** (Linux +28、Win +28)。
-    - **14c misc-cleanup** (NEXT) — 残 ~40 fails per host: handcrafted_trap "did NOT trap" (op_alu_int D-029 stage collision); RBX callee-save prologue; その他 individual cases。`types.rejectUnsupported` の reason strings で root-cause を特定して個別修正。
+**+163 PASS** each on Linux + Windows across D-045 chunks 1-14e.
+test-spec-assert は now wired into test-all on **all 3 hosts**.
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -80,69 +59,31 @@ Phase D (migration doc) は post-7.8 着手予定。詳細は
 - **D-026** env-stub host-func wiring (cross-module dispatch)。
 - **D-029** x86_64 emitI32Binary `dst==rhs` reject — regalloc port 後に discharge。
 - **D-031** runner runI32Export FP/i64 拡張 — JitRuntime memory init 後に at_limit 境界 fixture を再追加。
-- **D-045** §9.7 / 7.8 close blocker — x86_64 backend gap (chunks 1-13b closed; chunk 14 misc-cleanup 残)。
+- **D-045** §9.7 / 7.8 close blocker — **discharged** (chunks 1-14e); next resume's Step 0.5 deletes the row。
 - 詳細・staleness check は `.dev/debt.md`。
 
 ## Recently closed (full history via `git log --oneline`)
 
-- §9.7 / 7.8-x86-spill-aware-regalloc chunk 13b migration (`aaa2268`):
-  abi.zig pool shrink (R10/R11 → spill_stage_gprs; XMM14/15 →
-  fp_spill_stage_xmms; SysV pool 6→4、Win64 8→6、XMM 8→6)。emit.zig
-  + op_*.zig 110 site migration: `abi.slotToReg(alloc.slots[v])` →
-  `gpr.gprLoadSpilled / gprDefSpilled / gprStoreSpilled` (and xmm*
-  counterparts)。`spill_base_off: u32` を全 handler signature に
-  thread。prologue extend frame for spill area (`spill_base_off =
-  locals_bytes + (uses_runtime_ptr ? 8 : 0) + 8`)。shared/compile.zig
-  で x86_64 host 専用に `max_reg_slots_gpr = 4 / max_reg_slots_fp = 6`
-  を override。~50 stale byte-sequence emit test fixture を更新
-  (slot 0: R10 → RBX、REX.B prefix 削除で 1-2 byte 短縮)。
-  3-host gate green: Mac 212/0/20 unchanged + 1061/1066 unit pass、
-  Linux 109/106/20 → 141/72/20 (+32 PASS)、Win 105/110/20 → 135/78/20
-  (+30 PASS)。Total **+62 PASS** x86_64。残 ~75 fail/host: chunk 14
-  misc-cleanup (UnsupportedOp + handcrafted_trap "did NOT trap")。
-- §9.7 / 7.8-spill-aware-regalloc chunk 13a foundation (`e811441`):
-  abi.zig に `spill_stage_gprs = [.r10, .r11]` と `fp_spill_stage_
-  xmms = [.xmm14, .xmm15]` 定数を追加。x86_64/gpr.zig (NEW、
-  arm64/gpr.zig mirror) で `resolveGpr` / `resolveXmm` (bare
-  resolution) + `gprLoadSpilled` / `gprDefSpilled` / `gprStore
-  Spilled` + `xmmLoadSpilled` 等の spill-staging trio を提供。
-  RBP-disp8 frame addressing (16-slot frame まで)。12 unit test。
-  R10/R11 + XMM14/XMM15 は allocatable に残ったまま (chunk 13b で
-  除去予定; dual-listing は意図的に inert — caller がまだいない)。
-  3-host gate green (Mac 212/0/20、OrbStack + Windows test-all
-  unchanged from chunk-12 baseline、additive only)。
-- §9.7 / 7.8-x86-jit-mem-windows (`2748971` + `6db570c`): Windows
-  x86_64 RWX 配線。`std.os.windows.ntdll.NtAllocateVirtualMemory`
-  + `NtFreeVirtualMemory` (zig 0.16 stable は wrapper-with-error-
-  union 形を未公開のため低レベル extern 直接呼び)。typed packed
-  struct (MEM.ALLOCATE { COMMIT, RESERVE } / MEM.FREE { RELEASE }
-  / PAGE { EXECUTE_READWRITE }) でリクエスト。setExecutable /
-  setWritable は Linux と同じく no-op (RWX page; x86_64 I/D
-  coherent)。Windows spec_assert 49/174/20 → 105/110/20 (+56
-  PASS, -64 FAIL)。Linux ↔ Win 4 PASS gap まで詰めた。3-host
-  test-all green。`2748971` の初版が 0.16 master の wrapper を
-  使ってしまい windowsmini で compile error → `6db570c` で
-  ntdll 直接呼びに修正。
-- §9.7 / 7.8-x86-spec-gate (f5e5f5b): three-host spec_assert
-  baseline triangulation。Mac 212/0/20 / OrbStack 109/106/20 /
-  Win 49/174/20。build.zig コメント更新、test-all 配線は Mac
-  aarch64 限定維持。
-- §9.7 / 7.8-jit-mem-linux (f4eccdc): Linux x86_64 mmap-RWX
-  wiring (chunk 10)。OrbStack spec_assert 49/174/20 → 109/106/20
-  (+60 PASS)。
-- §9.7 / 7.8-x86-mem-grow-size (d138326): memory.size (SHR) +
-  memory.grow (-1 skel) + dead_code tracking。
-- §9.7 / 7.8-x86-select (af40c41): select / select_typed via
-  CMOV (.q form)。
-- §9.7 / 7.8-x86-params-i64fp (39142bd): i64 / f32 / f64 params
-  + type-aware local.{get,set,tee}。
-- §9.7 / 7.8-x86-params-i32 (7f9e9fe): i32-only param marshal
-  (SysV / Win64)。
-- §9.7 / 7.8-x86-i64-mem (bfedfdf): i64 load/store family (8 ops)。
-- §9.7 / 7.8-x86-i64-alu (1e83c41): i64 ALU/cmp/bitcount/shift/rot
-  (22 ops)。
-- §9.7 / 7.8-x86-i64-const (e46aa7d): MOVABS r64, imm64。
-- §9.7 / 7.8-x86-unreachable (98907dd): JMP rel32 + unreach_fixups。
-- §9.7 / 7.8-x86-ctrl-stack (56b563b): nop + drop + return。
-- §9.7 / 7.5 → [x] (5746f2b): validator wired into compileWasm;
-  spec_assert 212/0/20 (= 0 skip-impl + 20 skip-adr)。
+- §9.7 / 7.8 [x] (`9a48b3a`): x86_64 JIT spec gate exit met on
+  all 3 hosts (Mac/Linux/Win 212/0/20)。test-spec-assert を
+  test-all 全 host 配線。D-045 closed across chunks 1-14e
+  (+163 PASS each on Linux + Win)。
+- §9.7 / 7.8-win64-stack-args (`d7236d0`): Win64 ABI args 4+
+  on stack at [RBP+16+8*slot]; fixed 5-arg case regression。
+- §9.7 / 7.8-win64-fp-params (`95a64bb`): Cc-aware FP arg slot
+  tracking; Win64 shares int/FP slots, SysV independent。
+- §9.7 / 7.8-unreachable-trap-flag (`50a6f47`): unreachable op を
+  uses_runtime_ptr prescan に追加; trap stub の R15 参照が
+  正しく初期化される (closes 25 "did NOT trap" fails)。
+- §9.7 / 7.8-deadcode-labels (`fb64e3e` + `ea3ef20`): dead_code
+  内 if/block/loop で placeholder label push、emitElse の
+  if_skip_byte null-guard。中央化 `types.rejectUnsupported`
+  helper で diag 整備。+56 PASS。
+- §9.7 / 7.8-zero-init-locals (`bb8ccb5`): Wasm spec §4.5.3.1
+  zero-init in prologue。+10 PASS。
+- §9.7 / 7.8-spill-aware-regalloc (13a `e811441` + 13b
+  `aaa2268`): R10/R11 + XMM14/15 を spill stage に reserve、
+  110 op handler を gpr.gpr*Spilled / xmm*Spilled 経由に
+  migrate。+62 PASS。
+- §9.7 / 7.8-jit-mem-windows (`2748971` + `6db570c`):
+  NtAllocateVirtualMemory による Windows RWX。+56 PASS。
