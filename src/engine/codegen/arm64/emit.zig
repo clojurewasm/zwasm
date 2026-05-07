@@ -97,6 +97,46 @@ pub fn deinit(allocator: Allocator, out: EmitOutput) void {
     if (out.call_fixups.len != 0) allocator.free(out.call_fixups);
 }
 
+/// §9.7 / 7.9-d-11: pre-scan the function body for the worst-case
+/// outgoing-args region size (caller-side stack-arg lowering per
+/// AAPCS64 §6.4.2). For each `call N` / `call_indirect type_idx`
+/// instruction, count the args that overflow the X1..X7 (int) and
+/// V0..V7 (fp) register pools and sum the per-slot 8-byte
+/// allocations; track the max across all calls. This region sits
+/// at the bottom of the caller's frame (`[SP, #0]` upward), so
+/// callee can read overflows at `[X29, #16 + 8*K]`.
+fn computeOutgoingMaxBytes(
+    func: *const ZirFunc,
+    func_sigs: []const zir.FuncType,
+    module_types: []const zir.FuncType,
+) u32 {
+    var max_bytes: u32 = 0;
+    for (func.instrs.items) |ins| {
+        const sig: ?zir.FuncType = switch (ins.op) {
+            .call => if (ins.payload < func_sigs.len) func_sigs[ins.payload] else null,
+            .call_indirect => if (ins.payload < module_types.len) module_types[ins.payload] else null,
+            else => null,
+        };
+        const callee_sig = sig orelse continue;
+        var n_int: u32 = 0;
+        var n_fp: u32 = 0;
+        for (callee_sig.params) |p| {
+            switch (p) {
+                .i32, .i64 => n_int += 1,
+                .f32, .f64 => n_fp += 1,
+                .v128, .funcref, .externref => {},
+            }
+        }
+        // X0 = `*JitRuntime` per ADR-0017, so user int args use
+        // X1..X7 (7 slots). FP args use V0..V7 (8 slots).
+        const n_int_overflow: u32 = if (n_int > 7) n_int - 7 else 0;
+        const n_fp_overflow: u32 = if (n_fp > 8) n_fp - 8 else 0;
+        const bytes = (n_int_overflow + n_fp_overflow) * 8;
+        if (bytes > max_bytes) max_bytes = bytes;
+    }
+    return max_bytes;
+}
+
 /// Emit ARM64 machine code for `func`. Requires `alloc.slots`
 /// to be populated (call `regalloc.compute` first; pass the
 /// `Allocation` here).
@@ -176,8 +216,17 @@ pub fn compile(
     // spill slot 0 lives; `gprLoadSpilled`/`gprStoreSpilled`
     // consume it via byte_offset = spill_base_off + slot.spill.
     const spill_bytes: u32 = alloc.spillBytes();
-    const spill_base_off: u32 = locals_bytes;
-    const frame_bytes_unaligned: u32 = locals_bytes + spill_bytes;
+    // §9.7 / 7.9-d-11: outgoing args (caller-side stack args)
+    // occupy the BOTTOM of the frame so the callee reads them at
+    // `[X29, #16 + 8*K]` (per AAPCS64 §6.4.2 stage C.13/C.14).
+    // Locals + spills shift upward by `local_base_off`.
+    //   [SP + 0 .. outgoing_max-1]                     outgoing args
+    //   [SP + outgoing_max .. +locals_bytes-1]         locals
+    //   [SP + outgoing_max + locals_bytes .. +spill]   spills
+    const outgoing_max_bytes: u32 = computeOutgoingMaxBytes(func, func_sigs, module_types);
+    const local_base_off: u32 = outgoing_max_bytes;
+    const spill_base_off: u32 = local_base_off + locals_bytes;
+    const frame_bytes_unaligned: u32 = outgoing_max_bytes + locals_bytes + spill_bytes;
     const frame_bytes: u32 = (frame_bytes_unaligned + 15) & ~@as(u32, 15);
     try gpr.writeU32(allocator, &buf, encStpFpLrPreIdx());
     try gpr.writeU32(allocator, &buf, encMovSpToFp());
@@ -237,14 +286,21 @@ pub fn compile(
     // snapshotted to X19 above), X1 = param 0, etc.
     var p_idx: u32 = 0;
     var int_arg_idx: u5 = 1; // X0 = runtime ptr; user int args from X1
-    var fp_arg_idx: u5 = 0;  // V0..V7 for FP args
+    var fp_arg_idx: u5 = 0; // V0..V7 for FP args
     // §9.7 / 7.9-d-7: per-call NSAA index (Arm IHI 0055 §6.4.2
     // stage C.13/C.14). Each overflowed arg consumes one 8-byte
     // slot at [X29, #(16 + 8*stack_arg_idx)]; +16 skips the
     // saved FP/LR pair pushed by the prologue's pre-index STP.
     var stack_arg_idx: u14 = 0;
     while (p_idx < num_params) : (p_idx += 1) {
-        const param_off_w: u14 = @intCast(p_idx * 8);
+        // §9.7 / 7.9-d-11: param slot lives at `[SP, #(local_base_off
+        // + p_idx*8)]` — the local region sits above the outgoing-
+        // args region. Width-checked per encoding (W-form u14,
+        // X/D-form u15).
+        const param_off_u: u32 = local_base_off + p_idx * 8;
+        if (param_off_u > 16380) return Error.UnsupportedOp;
+        const param_off_w: u14 = @intCast(param_off_u);
+        const param_off_x: u15 = @intCast(param_off_u);
         switch (func.sig.params[p_idx]) {
             .i32 => {
                 if (int_arg_idx > 7) {
@@ -268,10 +324,10 @@ pub fn compile(
                     if (stack_off_u > 32760) return Error.UnsupportedOp;
                     const stack_off: u15 = @intCast(stack_off_u);
                     try gpr.writeU32(allocator, &buf, inst.encLdrImm(16, 29, stack_off));
-                    try gpr.writeU32(allocator, &buf, inst.encStrImm(16, 31, @intCast(p_idx * 8)));
+                    try gpr.writeU32(allocator, &buf, inst.encStrImm(16, 31, param_off_x));
                     stack_arg_idx += 1;
                 } else {
-                    try gpr.writeU32(allocator, &buf, inst.encStrImm(int_arg_idx, 31, @intCast(p_idx * 8)));
+                    try gpr.writeU32(allocator, &buf, inst.encStrImm(int_arg_idx, 31, param_off_x));
                     int_arg_idx += 1;
                 }
             },
@@ -298,10 +354,10 @@ pub fn compile(
                     if (stack_off_u > 32760) return Error.UnsupportedOp;
                     const stack_off: u15 = @intCast(stack_off_u);
                     try gpr.writeU32(allocator, &buf, inst.encLdrDImm(16, 29, stack_off));
-                    try gpr.writeU32(allocator, &buf, inst.encStrDImm(16, 31, @intCast(p_idx * 8)));
+                    try gpr.writeU32(allocator, &buf, inst.encStrDImm(16, 31, param_off_x));
                     stack_arg_idx += 1;
                 } else {
-                    try gpr.writeU32(allocator, &buf, inst.encStrDImm(fp_arg_idx, 31, @intCast(p_idx * 8)));
+                    try gpr.writeU32(allocator, &buf, inst.encStrDImm(fp_arg_idx, 31, param_off_x));
                     fp_arg_idx += 1;
                 }
             },
@@ -318,7 +374,9 @@ pub fn compile(
     // LDR S forms.
     var loc_idx: u32 = num_params;
     while (loc_idx < total_locals) : (loc_idx += 1) {
-        const loc_off: u15 = @intCast(loc_idx * 8);
+        const loc_off_u: u32 = local_base_off + loc_idx * 8;
+        if (loc_off_u > 32760) return Error.UnsupportedOp;
+        const loc_off: u15 = @intCast(loc_off_u);
         try gpr.writeU32(allocator, &buf, inst.encStrImm(31, 31, loc_off));
     }
 
@@ -416,6 +474,7 @@ pub fn compile(
         .bounds_fixups = &bounds_fixups,
         .return_fixups = &return_fixups,
         .call_fixups = &call_fixups,
+        .local_base_off = local_base_off,
         .spill_base_off = spill_base_off,
         .num_imports = num_imports,
     };
@@ -435,7 +494,7 @@ pub fn compile(
         // label stack / emit function epilogue; `else` to switch
         // to the else-arm of an if. Both are needed for emit's
         // own bookkeeping to stay aligned with the block nesting.
-        if (ins.op == .@"end" or ins.op == .@"else") {
+        if (ins.op == .end or ins.op == .@"else") {
             dead_code = false;
         }
         if (dead_code) {
@@ -449,12 +508,12 @@ pub fn compile(
             // (if_skip_byte = null marks the "no CBZ to patch"
             // case so emitElse skips the patch step).
             switch (ins.op) {
-                .@"block" => try labels.append(allocator, .{
+                .block => try labels.append(allocator, .{
                     .kind = .block,
                     .target_byte_offset = 0,
                     .pending = .empty,
                 }),
-                .@"loop" => try labels.append(allocator, .{
+                .loop => try labels.append(allocator, .{
                     .kind = .loop,
                     .target_byte_offset = @intCast(buf.items.len),
                     .pending = .empty,
@@ -472,41 +531,71 @@ pub fn compile(
         switch (ins.op) {
             .@"i32.const" => try op_const.emitI32Const(&ctx, &ins),
             .@"i64.const" => try op_const.emitI64Const(&ctx, &ins),
-            .@"i64.add", .@"i64.sub", .@"i64.mul", .@"i64.and", .@"i64.or", .@"i64.xor",
+            .@"i64.add",
+            .@"i64.sub",
+            .@"i64.mul",
+            .@"i64.and",
+            .@"i64.or",
+            .@"i64.xor",
             => try op_alu_int.emitI64Binary(&ctx, &ins),
-            .@"i64.eq", .@"i64.ne", .@"i64.lt_s", .@"i64.lt_u", .@"i64.gt_s", .@"i64.gt_u",
-            .@"i64.le_s", .@"i64.le_u", .@"i64.ge_s", .@"i64.ge_u",
+            .@"i64.eq",
+            .@"i64.ne",
+            .@"i64.lt_s",
+            .@"i64.lt_u",
+            .@"i64.gt_s",
+            .@"i64.gt_u",
+            .@"i64.le_s",
+            .@"i64.le_u",
+            .@"i64.ge_s",
+            .@"i64.ge_u",
             => try op_alu_int.emitI64Compare(&ctx, &ins),
             .@"i64.eqz" => try op_alu_int.emitI64Eqz(&ctx, &ins),
-            .@"i64.shl", .@"i64.shr_s", .@"i64.shr_u", .@"i64.rotr",
+            .@"i64.shl",
+            .@"i64.shr_s",
+            .@"i64.shr_u",
+            .@"i64.rotr",
             => try op_alu_int.emitI64Shift(&ctx, &ins),
             .@"i64.rotl" => try op_alu_int.emitI64Rotl(&ctx, &ins),
             .@"i64.clz" => try op_alu_int.emitI64Clz(&ctx, &ins),
             .@"i64.ctz" => try op_alu_int.emitI64Ctz(&ctx, &ins),
-            .@"i32.wrap_i64", .@"i64.extend_i32_u",
+            .@"i32.wrap_i64",
+            .@"i64.extend_i32_u",
             => try op_convert.emitWrap32(&ctx, &ins),
             .@"i64.extend_i32_s" => try op_convert.emitExtendI32S(&ctx, &ins),
-            .@"f32.convert_i32_s", .@"f32.convert_i32_u",
-            .@"f32.convert_i64_s", .@"f32.convert_i64_u",
-            .@"f64.convert_i32_s", .@"f64.convert_i32_u",
-            .@"f64.convert_i64_s", .@"f64.convert_i64_u",
+            .@"f32.convert_i32_s",
+            .@"f32.convert_i32_u",
+            .@"f32.convert_i64_s",
+            .@"f32.convert_i64_u",
+            .@"f64.convert_i32_s",
+            .@"f64.convert_i32_u",
+            .@"f64.convert_i64_s",
+            .@"f64.convert_i64_u",
             => try op_convert.emitConvertIntToFloat(&ctx, &ins),
-            .@"i32.trunc_f32_s", .@"i32.trunc_f32_u",
-            .@"i64.trunc_f32_s", .@"i64.trunc_f32_u",
+            .@"i32.trunc_f32_s",
+            .@"i32.trunc_f32_u",
+            .@"i64.trunc_f32_s",
+            .@"i64.trunc_f32_u",
             => try bounds_check.emitTrappingTruncF32(&ctx, &ins),
-            .@"i32.trunc_f64_s", .@"i32.trunc_f64_u",
-            .@"i64.trunc_f64_s", .@"i64.trunc_f64_u",
+            .@"i32.trunc_f64_s",
+            .@"i32.trunc_f64_u",
+            .@"i64.trunc_f64_s",
+            .@"i64.trunc_f64_u",
             => try bounds_check.emitTrappingTruncF64(&ctx, &ins),
-            .@"i32.trunc_sat_f32_s", .@"i32.trunc_sat_f32_u",
-            .@"i32.trunc_sat_f64_s", .@"i32.trunc_sat_f64_u",
-            .@"i64.trunc_sat_f32_s", .@"i64.trunc_sat_f32_u",
-            .@"i64.trunc_sat_f64_s", .@"i64.trunc_sat_f64_u",
+            .@"i32.trunc_sat_f32_s",
+            .@"i32.trunc_sat_f32_u",
+            .@"i32.trunc_sat_f64_s",
+            .@"i32.trunc_sat_f64_u",
+            .@"i64.trunc_sat_f32_s",
+            .@"i64.trunc_sat_f32_u",
+            .@"i64.trunc_sat_f64_s",
+            .@"i64.trunc_sat_f64_u",
             => try op_convert.emitTruncSat(&ctx, &ins),
             .@"i32.reinterpret_f32" => try op_convert.emitReinterpretI32FromF32(&ctx, &ins),
             .@"i64.reinterpret_f64" => try op_convert.emitReinterpretI64FromF64(&ctx, &ins),
             .@"f32.reinterpret_i32" => try op_convert.emitReinterpretF32FromI32(&ctx, &ins),
             .@"f64.reinterpret_i64" => try op_convert.emitReinterpretF64FromI64(&ctx, &ins),
-            .@"f32.demote_f64", .@"f64.promote_f32",
+            .@"f32.demote_f64",
+            .@"f64.promote_f32",
             => try op_convert.emitFloatDemotePromote(&ctx, &ins),
             .@"f32.const" => {
                 // Stage the IEEE-754 bits via a GPR const, then
@@ -553,29 +642,74 @@ pub fn compile(
                 try gpr.fpStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
                 try pushed_vregs.append(allocator, vreg);
             },
-            .@"f32.add", .@"f32.sub", .@"f32.mul", .@"f32.div",
-            .@"f64.add", .@"f64.sub", .@"f64.mul", .@"f64.div",
+            .@"f32.add",
+            .@"f32.sub",
+            .@"f32.mul",
+            .@"f32.div",
+            .@"f64.add",
+            .@"f64.sub",
+            .@"f64.mul",
+            .@"f64.div",
             => try op_alu_float.emitFloatBinary(&ctx, &ins),
-            .@"f32.abs", .@"f32.neg", .@"f32.sqrt", .@"f32.ceil",
-            .@"f32.floor", .@"f32.trunc", .@"f32.nearest",
-            .@"f64.abs", .@"f64.neg", .@"f64.sqrt", .@"f64.ceil",
-            .@"f64.floor", .@"f64.trunc", .@"f64.nearest",
+            .@"f32.abs",
+            .@"f32.neg",
+            .@"f32.sqrt",
+            .@"f32.ceil",
+            .@"f32.floor",
+            .@"f32.trunc",
+            .@"f32.nearest",
+            .@"f64.abs",
+            .@"f64.neg",
+            .@"f64.sqrt",
+            .@"f64.ceil",
+            .@"f64.floor",
+            .@"f64.trunc",
+            .@"f64.nearest",
             => try op_alu_float.emitFloatUnary(&ctx, &ins),
-            .@"f32.copysign", .@"f64.copysign",
+            .@"f32.copysign",
+            .@"f64.copysign",
             => try op_alu_float.emitFloatCopysign(&ctx, &ins),
-            .@"f32.min", .@"f32.max", .@"f64.min", .@"f64.max",
+            .@"f32.min",
+            .@"f32.max",
+            .@"f64.min",
+            .@"f64.max",
             => try op_alu_float.emitFloatMinMax(&ctx, &ins),
-            .@"f32.eq", .@"f32.ne", .@"f32.lt", .@"f32.gt", .@"f32.le", .@"f32.ge",
-            .@"f64.eq", .@"f64.ne", .@"f64.lt", .@"f64.gt", .@"f64.le", .@"f64.ge",
+            .@"f32.eq",
+            .@"f32.ne",
+            .@"f32.lt",
+            .@"f32.gt",
+            .@"f32.le",
+            .@"f32.ge",
+            .@"f64.eq",
+            .@"f64.ne",
+            .@"f64.lt",
+            .@"f64.gt",
+            .@"f64.le",
+            .@"f64.ge",
             => try op_alu_float.emitFloatCompare(&ctx, &ins),
             .@"i64.popcnt" => try op_alu_int.emitI64Popcnt(&ctx, &ins),
-            .@"i32.add", .@"i32.sub", .@"i32.mul", .@"i32.and", .@"i32.or", .@"i32.xor",
-            .@"i32.shl", .@"i32.shr_s", .@"i32.shr_u",
+            .@"i32.add",
+            .@"i32.sub",
+            .@"i32.mul",
+            .@"i32.and",
+            .@"i32.or",
+            .@"i32.xor",
+            .@"i32.shl",
+            .@"i32.shr_s",
+            .@"i32.shr_u",
             => try op_alu_int.emitI32Binary(&ctx, &ins),
             .@"i32.rotr" => try op_alu_int.emitI32Rotr(&ctx, &ins),
             .@"i32.rotl" => try op_alu_int.emitI32Rotl(&ctx, &ins),
-            .@"i32.eq", .@"i32.ne", .@"i32.lt_s", .@"i32.lt_u", .@"i32.gt_s", .@"i32.gt_u",
-            .@"i32.le_s", .@"i32.le_u", .@"i32.ge_s", .@"i32.ge_u",
+            .@"i32.eq",
+            .@"i32.ne",
+            .@"i32.lt_s",
+            .@"i32.lt_u",
+            .@"i32.gt_s",
+            .@"i32.gt_u",
+            .@"i32.le_s",
+            .@"i32.le_u",
+            .@"i32.ge_s",
+            .@"i32.ge_u",
             => try op_alu_int.emitI32Compare(&ctx, &ins),
             .@"i32.eqz" => try op_alu_int.emitI32Eqz(&ctx, &ins),
             .@"i32.clz" => try op_alu_int.emitI32Clz(&ctx, &ins),
@@ -587,9 +721,15 @@ pub fn compile(
             .@"i64.extend16_s" => try op_alu_int.emitI64Extend16S(&ctx, &ins),
             .@"i64.extend32_s" => try op_alu_int.emitI64Extend32S(&ctx, &ins),
             // §9.7 / 7.9 chunk c: integer divide / remainder.
-            .@"i32.div_s", .@"i32.div_u", .@"i32.rem_s", .@"i32.rem_u",
+            .@"i32.div_s",
+            .@"i32.div_u",
+            .@"i32.rem_s",
+            .@"i32.rem_u",
             => try op_alu_int.emitI32DivRem(&ctx, &ins),
-            .@"i64.div_s", .@"i64.div_u", .@"i64.rem_s", .@"i64.rem_u",
+            .@"i64.div_s",
+            .@"i64.div_u",
+            .@"i64.rem_s",
+            .@"i64.rem_u",
             => try op_alu_int.emitI64DivRem(&ctx, &ins),
             .@"local.get" => {
                 // Push a fresh vreg holding the value loaded from
@@ -598,8 +738,12 @@ pub fn compile(
                 const local_idx = ins.payload;
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
-                const offset_w: u14 = @intCast(local_idx * 8);
-                const offset_x: u15 = @intCast(local_idx * 8);
+                // §9.7 / 7.9-d-11: local slot at `[SP, #(local_base_off
+                // + local_idx*8)]` (above the outgoing-args region).
+                const offset_u: u32 = local_base_off + local_idx * 8;
+                if (offset_u > 16380) return Error.UnsupportedOp;
+                const offset_w: u14 = @intCast(offset_u);
+                const offset_x: u15 = @intCast(offset_u);
                 const vreg = next_vreg;
                 next_vreg += 1;
                 if (vreg >= alloc.slots.len) {
@@ -641,8 +785,10 @@ pub fn compile(
                 const local_idx = ins.payload;
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
-                const offset_w: u14 = @intCast(local_idx * 8);
-                const offset_x: u15 = @intCast(local_idx * 8);
+                const offset_u: u32 = local_base_off + local_idx * 8;
+                if (offset_u > 16380) return Error.UnsupportedOp;
+                const offset_w: u14 = @intCast(offset_u);
+                const offset_x: u15 = @intCast(offset_u);
                 const src = pushed_vregs.pop().?;
                 switch (ty) {
                     .i32 => {
@@ -674,8 +820,10 @@ pub fn compile(
                 const local_idx = ins.payload;
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
-                const offset_w: u14 = @intCast(local_idx * 8);
-                const offset_x: u15 = @intCast(local_idx * 8);
+                const offset_u: u32 = local_base_off + local_idx * 8;
+                if (offset_u > 16380) return Error.UnsupportedOp;
+                const offset_w: u14 = @intCast(offset_u);
+                const offset_x: u15 = @intCast(offset_u);
                 const src = pushed_vregs.items[pushed_vregs.items.len - 1];
                 switch (ty) {
                     .i32 => {
@@ -701,7 +849,7 @@ pub fn compile(
                 }
             },
             .@"i32.popcnt" => try op_alu_int.emitI32Popcnt(&ctx, &ins),
-            .@"select", .@"select_typed" => {
+            .select, .select_typed => {
                 // Wasm spec §4.4.4: pop c, val2, val1 (top of
                 // stack is c). Push val1 if c != 0, else val2.
                 // ARM64 lowering: CMP c_w, #0 ; CSEL d_w,
@@ -734,7 +882,7 @@ pub fn compile(
                 try gpr.gprStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, result_v, 0);
                 try pushed_vregs.append(allocator, result_v);
             },
-            .@"drop" => {
+            .drop => {
                 // Discard the top operand. Wasm spec §4.4.4: the
                 // value is consumed without storage. No machine
                 // bytes emitted; we simply remove the vreg from
@@ -743,7 +891,7 @@ pub fn compile(
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 _ = pushed_vregs.pop().?;
             },
-            .@"nop" => {
+            .nop => {
                 // Wasm spec §4.4.6.2: do nothing. No machine
                 // bytes; no stack change. Validator already
                 // accepts it; emit just skips.
@@ -794,14 +942,14 @@ pub fn compile(
                 try return_fixups.append(allocator, fixup_at);
                 dead_code = true;
             },
-            .@"block" => try op_control.emitBlock(&ctx, &ins),
-            .@"loop" => try op_control.emitLoop(&ctx, &ins),
-            .@"br" => {
+            .block => try op_control.emitBlock(&ctx, &ins),
+            .loop => try op_control.emitLoop(&ctx, &ins),
+            .br => {
                 try op_control.emitBr(&ctx, &ins);
                 dead_code = true;
             },
-            .@"call_indirect" => try op_call.emitCallIndirect(&ctx, &ins),
-            .@"call" => try op_call.emitCall(&ctx, &ins),
+            .call_indirect => try op_call.emitCallIndirect(&ctx, &ins),
+            .call => try op_call.emitCall(&ctx, &ins),
             .@"global.get" => try op_globals.emitI32GlobalGet(&ctx, &ins),
             .@"global.set" => try op_globals.emitI32GlobalSet(&ctx, &ins),
             .@"memory.size" => {
@@ -835,23 +983,37 @@ pub fn compile(
                 try gpr.gprStoreSpilled(allocator, &buf, alloc, spill_base_off, result, 0);
                 try pushed_vregs.append(allocator, result);
             },
-            .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
-            .@"i32.load16_s", .@"i32.load16_u",
-            .@"i64.load", .@"i64.load8_s", .@"i64.load8_u",
-            .@"i64.load16_s", .@"i64.load16_u",
-            .@"i64.load32_s", .@"i64.load32_u",
-            .@"f32.load", .@"f64.load",
-            .@"i32.store", .@"i32.store8", .@"i32.store16",
-            .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
-            .@"f32.store", .@"f64.store",
+            .@"i32.load",
+            .@"i32.load8_s",
+            .@"i32.load8_u",
+            .@"i32.load16_s",
+            .@"i32.load16_u",
+            .@"i64.load",
+            .@"i64.load8_s",
+            .@"i64.load8_u",
+            .@"i64.load16_s",
+            .@"i64.load16_u",
+            .@"i64.load32_s",
+            .@"i64.load32_u",
+            .@"f32.load",
+            .@"f64.load",
+            .@"i32.store",
+            .@"i32.store8",
+            .@"i32.store16",
+            .@"i64.store",
+            .@"i64.store8",
+            .@"i64.store16",
+            .@"i64.store32",
+            .@"f32.store",
+            .@"f64.store",
             => try op_memory.emitMemOp(&ctx, &ins),
             .@"memory.fill" => try op_memory.emitMemoryFill(&ctx),
             .@"memory.copy" => try op_memory.emitMemoryCopy(&ctx),
-            .@"br_table" => try op_control.emitBrTable(&ctx, &ins),
+            .br_table => try op_control.emitBrTable(&ctx, &ins),
             .@"if" => try op_control.emitIf(&ctx, &ins),
             .@"else" => try op_control.emitElse(&ctx, &ins),
-            .@"br_if" => try op_control.emitBrIf(&ctx, &ins),
-            .@"end" => {
+            .br_if => try op_control.emitBrIf(&ctx, &ins),
+            .end => {
                 // Two distinct forms:
                 // (A) Intra-function `end`: pops a label off the stack
                 //     and patches forward fixups (block) / no-op for loop.

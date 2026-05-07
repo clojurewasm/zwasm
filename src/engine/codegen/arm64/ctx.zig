@@ -85,10 +85,18 @@ pub const EmitCtx = struct {
     /// `BL` fixups exposed via `EmitOutput` for the post-emit
     /// linker.
     call_fixups: *std.ArrayList(CallFixup),
+    /// Absolute SP-relative byte offset of local slot 0.
+    /// §9.7 / 7.9-d-11: equals `outgoing_max_bytes`, the bottom-of-
+    /// frame region pre-allocated for caller-side stack args. Zero
+    /// for functions that make no calls or whose every callee fits
+    /// args in X1..X7 + V0..V7. Locals at `[SP, #(local_base_off +
+    /// p_idx*8)]`.
+    local_base_off: u32,
     /// Absolute SP-relative byte offset of spill slot 0.
-    /// Computed in the prologue (locals_bytes); read by
-    /// `gprLoadSpilled` / `gprStoreSpilled` to address spill
-    /// slots.
+    /// §9.7 / 7.9-d-11: equals `local_base_off + locals_bytes`;
+    /// the spill region sits above locals which sits above the
+    /// outgoing-args region. Read by `gprLoadSpilled` /
+    /// `gprStoreSpilled` to address spill slots.
     spill_base_off: u32,
     /// Leading wasm-space function indices that name imports
     /// (chunk 7.9-b foundation). `op_call.emitCall` checks

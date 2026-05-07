@@ -22,13 +22,15 @@
 //!     BLR X17.
 //!   - Capture return value.
 //!
-//! marshalCallArgs / captureCallResult enforce ≤ 7 GPR + ≤ 8 FP
-//! args in registers. §9.7 / 7.9-d-7 lifts the prior `arg_vregs[8]`
-//! hard cap: per AAPCS64 §6.4.2 (Arm IHI 0055), arguments that
-//! overflow X1..X7 / V0..V7 land on the stack at SP-relative
-//! offsets `[SP, #(8*K)]` for K = 0..n_stack_args-1, where the
-//! caller emits a SUB SP, SP, #stack_bytes before the BL/BLR
-//! and an ADD SP, SP, #stack_bytes after. v128 / funcref /
+//! marshalCallArgs / captureCallResult: ≤ 7 GPR + ≤ 8 FP args in
+//! registers (X1..X7 + V0..V7); overflow args spill to the
+//! caller's pre-allocated outgoing-args region per AAPCS64 §6.4.2.
+//! §9.7 / 7.9-d-11 introduced this region at the BOTTOM of the
+//! caller's frame: locals + spills shift up by `local_base_off`
+//! so `[SP, #(K*8)]` for K = 0..n_stack_args-1 is reserved for
+//! outgoing args and the callee reads them at `[X29, #(16+8*K)]`.
+//! No SP movement around BL/BLR is needed — the region stays
+//! allocated for the function's lifetime. v128 / funcref /
 //! externref param / result types surface as UnsupportedOp.
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`).
@@ -165,29 +167,35 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try captureCallResult(ctx, callee_sig);
 }
 
-/// Marshal call arguments per AAPCS64: pop N arg vregs in
-/// REVERSE (top of stack is the rightmost arg), then emit
-/// MOV/FMOV from each arg's home register into X1..X7 (per
-/// ADR-0017 the GPR pool starts at X1 — X0 is the runtime_ptr
-/// reservation) or V0..V7.
+/// Wasm spec §3.4.7 (call N) — marshal call arguments per AAPCS64
+/// §6.4.2. Pop N arg vregs in REVERSE stack order (top = arg N-1)
+/// then emit MOV/FMOV from each arg's home register into X1..X7
+/// (per ADR-0017 X0 reserved for runtime_ptr) or V0..V7. Args that
+/// overflow the int (X1..X7, 7 slots) or fp (V0..V7, 8 slots) pools
+/// land in the caller's pre-allocated outgoing-args region at
+/// `[SP, #(K*8)]` for K = NSAA index — see §9.7 / 7.9-d-11. The
+/// callee reads them at `[X29, #(16 + 8*K)]`.
 ///
-/// **No source-clobber risk by construction**: vregs are
-/// allocated out of `[X9..X15, X19..X28]` (GPR pool) and
-/// `[V16..V30]` (FP pool), neither of which overlaps the
-/// arg-passing registers. So a naive sequential MOV per arg is
-/// correct without parallel-move analysis.
-///
-/// Sub-g3b scope: ≤ 8 GPR + ≤ 8 FP args. Stack-arg lowering
-/// is post-MVP (`UnsupportedOp`).
+/// **No source-clobber risk by construction**: vregs are allocated
+/// out of `[X9..X15, X19..X28]` (GPR pool) and `[V16..V30]` (FP
+/// pool), neither of which overlaps the arg-passing registers. So
+/// a naive sequential MOV per arg is correct without parallel-move
+/// analysis. For overflow args, `gprLoadSpilled(stage 0)` /
+/// `fpLoadSpilled(stage 0)` lands the value in a staging register
+/// that the immediately-following STR consumes before the next
+/// arg's stage-0 load reuses it.
 fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
     const n_args: u32 = @intCast(callee_sig.params.len);
     if (n_args == 0) return;
     if (ctx.pushed_vregs.items.len < n_args) return Error.AllocationMissing;
 
     // Pop in reverse stack order: top = arg N-1, deepest = arg 0.
-    var arg_vregs: [8]u32 = undefined;
-    if (n_args > arg_vregs.len) {
-        std.debug.print("arm64/op_call: marshal n_args={d} > 8 (caller-side stack-arg lowering NYI)\n", .{n_args});
+    // Cap chosen as a generous comptime constant; realistic Wasm
+    // signatures stay well under 64.
+    const max_args: u32 = 64;
+    var arg_vregs: [max_args]u32 = undefined;
+    if (n_args > max_args) {
+        std.debug.print("arm64/op_call: marshal n_args={d} > {d}\n", .{ n_args, max_args });
         return Error.UnsupportedOp;
     }
     var i: u32 = n_args;
@@ -198,41 +206,69 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
 
     var gpr_arg_slot: inst.Xn = 1;
     var fp_arg_slot: inst.Vn = 0;
+    // §9.7 / 7.9-d-11: NSAA index for caller-side stack-arg
+    // lowering. Each overflow consumes one 8-byte slot at
+    // `[SP, #(stack_arg_idx*8)]` in the outgoing-args region.
+    var stack_arg_idx: u32 = 0;
     var k: u32 = 0;
     while (k < n_args) : (k += 1) {
         const src_vreg = arg_vregs[k];
         switch (callee_sig.params[k]) {
             .i32 => {
-                if (gpr_arg_slot >= 8) { std.debug.print("arm64/op_call: gpr_arg_slot >= 8 (n_args={d})\n", .{n_args}); return Error.UnsupportedOp; }
                 const ws = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
-                if (ws != gpr_arg_slot) {
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(gpr_arg_slot, 31, ws));
+                if (gpr_arg_slot >= 8) {
+                    const off_u: u32 = stack_arg_idx * 8;
+                    if (off_u > 16380) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(ws, 31, @intCast(off_u)));
+                    stack_arg_idx += 1;
+                } else {
+                    if (ws != gpr_arg_slot) {
+                        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(gpr_arg_slot, 31, ws));
+                    }
+                    gpr_arg_slot += 1;
                 }
-                gpr_arg_slot += 1;
             },
             .i64 => {
-                if (gpr_arg_slot >= 8) { std.debug.print("arm64/op_call: gpr_arg_slot >= 8 (n_args={d})\n", .{n_args}); return Error.UnsupportedOp; }
                 const xs = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
-                if (xs != gpr_arg_slot) {
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(gpr_arg_slot, 31, xs));
+                if (gpr_arg_slot >= 8) {
+                    const off_u: u32 = stack_arg_idx * 8;
+                    if (off_u > 32760) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(xs, 31, @intCast(off_u)));
+                    stack_arg_idx += 1;
+                } else {
+                    if (xs != gpr_arg_slot) {
+                        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(gpr_arg_slot, 31, xs));
+                    }
+                    gpr_arg_slot += 1;
                 }
-                gpr_arg_slot += 1;
             },
             .f32 => {
-                if (fp_arg_slot >= 8) { std.debug.print("arm64/op_call: fp_arg_slot >= 8 (n_args={d})\n", .{n_args}); return Error.UnsupportedOp; }
                 const vs = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
-                if (vs != fp_arg_slot) {
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encFmovSReg(fp_arg_slot, vs));
+                if (fp_arg_slot >= 8) {
+                    const off_u: u32 = stack_arg_idx * 8;
+                    if (off_u > 16380) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrSImm(vs, 31, @intCast(off_u)));
+                    stack_arg_idx += 1;
+                } else {
+                    if (vs != fp_arg_slot) {
+                        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encFmovSReg(fp_arg_slot, vs));
+                    }
+                    fp_arg_slot += 1;
                 }
-                fp_arg_slot += 1;
             },
             .f64 => {
-                if (fp_arg_slot >= 8) { std.debug.print("arm64/op_call: fp_arg_slot >= 8 (n_args={d})\n", .{n_args}); return Error.UnsupportedOp; }
                 const vs = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
-                if (vs != fp_arg_slot) {
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encFmovDReg(fp_arg_slot, vs));
+                if (fp_arg_slot >= 8) {
+                    const off_u: u32 = stack_arg_idx * 8;
+                    if (off_u > 32760) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrDImm(vs, 31, @intCast(off_u)));
+                    stack_arg_idx += 1;
+                } else {
+                    if (vs != fp_arg_slot) {
+                        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encFmovDReg(fp_arg_slot, vs));
+                    }
+                    fp_arg_slot += 1;
                 }
-                fp_arg_slot += 1;
             },
             .v128, .funcref, .externref => |t| {
                 std.debug.print("arm64/op_call: marshal {s} param unsupported\n", .{@tagName(t)});
