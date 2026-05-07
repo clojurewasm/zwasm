@@ -158,6 +158,13 @@ pub fn compile(
                 .@"memory.size", .@"memory.grow",
                 .@"call",
                 .@"call_indirect",
+                // `unreachable` emits a JMP to the trap stub which
+                // stores `1` to `[R15 + trap_flag_off]`. Without
+                // R15 initialised, the store hits a garbage address
+                // and the entry shim sees `trap_flag = 0` (no trap)
+                // — exactly the "did NOT trap" pattern surfacing on
+                // unreachable.wast / handcrafted_trap fixtures.
+                .@"unreachable",
                 => break :blk true,
                 else => {},
             }
@@ -3480,16 +3487,18 @@ test "compile: unreachable emits JMP rel32 + trap stub patches disp to trap_byte
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
     defer deinit(testing.allocator, out);
-    // JMP rel32 starts at byte 4 (just after PUSH RBP + MOV RBP,RSP = 4 bytes prologue).
-    try testing.expectEqual(@as(u8, 0xE9), out.bytes[4]);
-    // Read patched disp32 and verify it points at trap_byte (= start
-    // of trap stub, just after end-handler RET).
-    const disp = std.mem.readInt(i32, out.bytes[5..9], .little);
-    const jmp_at: i32 = 4;
+    // Prologue post-`unreachable`-prescan addition:
+    //   PUSH RBP (1) + PUSH R15 (2) + MOV RBP RSP (3)
+    //   + MOV R15 RDI (3) + SUB RSP, 8 (4) = 13 bytes
+    // JMP rel32 (5 bytes) starts at offset 13.
+    try testing.expectEqual(@as(u8, 0xE9), out.bytes[13]);
+    const disp = std.mem.readInt(i32, out.bytes[14..18], .little);
+    const jmp_at: i32 = 13;
     const target_abs: i32 = jmp_at + 5 + disp;
-    // trap_byte should be the byte right after the end-handler RET.
-    // end-handler is at [9..11] (POP RBP, RET) so trap stub starts at 11.
-    try testing.expectEqual(@as(i32, 11), target_abs);
+    // After JMP: end-handler emits ADD RSP, 8 (4) + POP R15 (2)
+    // + POP RBP (1) + RET (1) = 8 bytes → trap stub starts at
+    // 13 + 5 + 8 = 26.
+    try testing.expectEqual(@as(i32, 26), target_abs);
 }
 
 test "compile: v128-result end → UnsupportedOp (v128 marshalling deferred)" {
