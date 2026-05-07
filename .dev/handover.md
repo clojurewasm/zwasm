@@ -50,7 +50,10 @@ test-all 配線は Mac aarch64 のみ維持。
 13. ☑ **7.8-x86-spill-aware-regalloc** — landed across 13a foundation (`e811441`) + 13b migration (`aaa2268`)。Pool shrink R10/R11 → spill_stage_gprs、XMM14/15 → fp_spill_stage_xmms。110 site migration、prologue spill-area allocation、~50 fixture update。+62 PASS across Linux + Windows。
 14. **7.8-x86-misc-cleanup** — split:
     - ☑ **14a zero-init-locals** (`bb8ccb5`): Wasm spec §4.5.3.1 — XOR EAX, EAX + MOV [RBP+disp], RAX per local beyond params。+10 PASS (Linux +6、Win +4)。
-    - **14b unreachable.0 + FP globals** (NEXT — needs deeper investigation): unreachable.wast 内 `(global $a (mut f32))` を使う `as-global.set-value` 等が含まれる; x86_64 `op_globals.zig` は i32 globals only。dead_code tracking はあるが、unreachable.wast の dead-code パターンと相互作用。エラー出力 (probe) が orb run で suppressed されたため特定難航 → 直接 binary 起動 + 単一 fixture 実行で原因特定すべき。Possibly +30 cascade fails close 見込み。
+    - **14b unreachable.0 + FP globals** (NEXT — **stuck on probe tooling**): 未特定 path で UnsupportedOp。Probe attempts:
+      - emit.zig 内 `else => return Error.UnsupportedOp` への `std.debug.print` 追加 → OrbStack spec_assert_runner で **stderr が suppressed** (`strings binary` で文字列確認済みだが実行時に出ず)。runner.zig の `compileWasm:` print は出るので path 自体は到達している。原因不明。
+      - run-repro infrastructure で Mac 単独 probe → zig 0.16 IO API friction (`std.Io.Threaded.init` 引数違い、`@embedFile` package path 制限)。
+      - 候補: x86_64 unit test 内で `@embedFile` の代わりに `comptime { _ = include_bytes }`、もしくは zwasm.zig surface 拡張 + std.fs (deprecated) 利用。Possibly +30 cascade fails close。
     - 14c handcrafted_trap "did NOT trap" (2 fails) + func[29] UnsupportedOp。
     - 14d D-029 dst==rhs (now reachable with stage collisions); RBX callee-save in prologue。
 
