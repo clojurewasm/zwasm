@@ -404,6 +404,21 @@ pub fn encStrhWReg(rt: Xn, rn: Xn, rm: Xn) u32 {
     return 0x78206800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
 }
 
+/// `STRB Wt, [Xn, #imm12]` — 8-bit store at unsigned imm12 byte
+/// offset. Encoding: `0011 1001 00 [imm12:12] [Rn:5] [Rt:5]`
+/// = `0x39000000` | … . imm12 is unscaled (byte units).
+/// Used by memory.fill / memory.copy inline byte-loops.
+pub fn encStrbImm(rt: Xn, rn: Xn, imm12: u12) u32 {
+    return 0x39000000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
+/// `LDRB Wt, [Xn, #imm12]` — 8-bit load (zero-extended) at
+/// unsigned imm12 byte offset. Encoding:
+/// `0011 1001 01 [imm12:12] [Rn:5] [Rt:5]` = `0x39400000` | … .
+pub fn encLdrbImm(rt: Xn, rn: Xn, imm12: u12) u32 {
+    return 0x39400000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
 /// `LDR St, [Xn, Xm]` — 32-bit FP load (lower 32 of V-register).
 pub fn encLdrSReg(vt: Vn, rn: Xn, rm: Xn) u32 {
     return 0xBC606800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, vt);

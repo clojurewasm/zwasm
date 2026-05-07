@@ -157,6 +157,7 @@ pub fn compile(
                 .@"f32.store", .@"f64.store",
                 .@"global.get", .@"global.set",
                 .@"memory.size", .@"memory.grow",
+                .@"memory.copy", .@"memory.fill",
                 .@"call",
                 .@"call_indirect",
                 // `unreachable` emits a JMP to the trap stub which
@@ -542,6 +543,8 @@ pub fn compile(
             .@"f32.load", .@"f64.load",
             .@"f32.store", .@"f64.store",
             => try op_memory.emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.op, ins.payload, func.func_idx),
+            .@"memory.fill" => try op_memory.emitMemoryFill(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx),
+            .@"memory.copy" => try op_memory.emitMemoryCopy(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx),
             .@"global.get" => try op_globals.emitI32GlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
             .@"global.set" => try op_globals.emitI32GlobalSet(allocator, &buf, alloc, &pushed_vregs, spill_base_off, ins.payload),
             .@"memory.size" => {

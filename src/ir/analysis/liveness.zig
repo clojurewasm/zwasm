@@ -149,6 +149,9 @@ fn stackEffect(op: ZirOp) ?StackEffect {
         // memory.size (0 → 1) / memory.grow (1 → 1)
         .@"memory.size" => .{ .pops = 0, .pushes = 1 },
         .@"memory.grow" => .{ .pops = 1, .pushes = 1 },
+        // Wasm spec §4.4.7 (bulk memory) — pop dst, src/val, n.
+        // No result is pushed.
+        .@"memory.copy", .@"memory.fill" => .{ .pops = 3, .pushes = 0 },
         else => null,
     };
 }

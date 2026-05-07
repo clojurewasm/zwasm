@@ -193,3 +193,291 @@ pub fn emitMemOp(
         try pushed_vregs.append(allocator, result_v);
     }
 }
+
+// ============================================================
+// Bulk-memory ops (Wasm 2.0 §4.4.7 — memory.fill / memory.copy)
+//
+// Stack effect: pops three i32 (n: top, val|src: middle, dst: bottom).
+// No result pushed. Trap on out-of-bounds.
+//
+// Inline byte loop. Performance is Phase 8 work; correctness first.
+//
+// Register convention:
+//   R15 = runtime_ptr_save (callee-saved). vm_base / mem_limit are
+//     reloaded from `[R15 + offset]` at point of use.
+//   R10/R11 = spill_stage_gprs (private to gprLoadSpilled; clobberable
+//     between two such calls because each call only stages one value
+//     and we capture into a private holder before the next load).
+//   RAX = vm_base scratch. RCX = dst pointer / counter scratch.
+//   RDX = src pointer (memory.copy) / val (memory.fill).
+//
+// The bounds-check trap stub (mem_limit overflow) is reached via a
+// JA Jcc patched via `bounds_fixups` exactly like emitMemOp.
+// ============================================================
+
+/// Wasm spec §4.4.7 (memory.fill) — pop n / val / dst (top→bottom);
+/// set `n` bytes at `[dst, dst+n)` to `val & 0xFF`. Trap if
+/// `dst+n > mem_size`.
+///
+/// x86_64 lowering (Intel SDM Vol 2):
+///   ; capture: RDX = val (32-bit), RCX = dst (zero-ext u32 → u64),
+///   ;          R10 = n (zero-ext, used as counter — repurposing the
+///   ;          spill-stage reg AFTER all spill-loads complete).
+///   ;
+///   ; bounds check: ea = dst + n;
+///   ;   MOV RAX, dst              ; RAX = dst (zero-ext)
+///   ;   ADD RAX, n
+///   ;   CMP RAX, [R15 + mem_limit_off]
+///   ;   JA  trap_stub             ; bounds_fixups append
+///   ;
+///   ; pointer setup:
+///   ;   MOV RAX, [R15 + vm_base_off]
+///   ;   ADD RCX, RAX              ; RCX = vm_base + dst
+///   ;
+///   ; loop:
+///   ;   TEST R10, R10
+///   ;   JZ   .end
+///   ;   .loop:
+///   ;     MOV  byte ptr [RCX], DL
+///   ;     ADD  RCX, 1
+///   ;     SUB  R10, 1                     (encoded as ADD imm32 -1)
+///   ;     JNZ  .loop
+///   ; .end:
+pub fn emitMemoryFill(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    bounds_fixups: *std.ArrayList(u32),
+    spill_base_off: u32,
+    func_idx: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
+    const n_v = pushed_vregs.pop().?;
+    const val_v = pushed_vregs.pop().?;
+    const dst_v = pushed_vregs.pop().?;
+
+    // Step A: load each operand and capture into private holders.
+    //   dst → RCX (32-bit MOV zero-extends to RCX),
+    //   val → RDX (low byte goes to DL),
+    //   n   → R10 (overwriting stage 0 since all spill-loads done
+    //         after this point).
+    const dst_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, dst_v, 0);
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rcx, dst_r).slice());
+    const val_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, val_v, 0);
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, val_r).slice());
+    const n_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, n_v, 0);
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .r10, n_r).slice());
+
+    // Step B: bounds check — RAX = dst + n; cmp RAX, mem_limit.
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rax, .rcx).slice()); // zero-extends u32
+    try buf.appendSlice(allocator, inst.encAddRR(.q, .rax, .r10).slice());
+    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+    const fixup_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
+    try bounds_fixups.append(allocator, fixup_at);
+    trace.writeBounds(func_idx, fixup_at);
+
+    // Step C: convert dst to absolute pointer.
+    //   MOV RAX, [R15 + vm_base_off]
+    //   ADD RCX, RAX
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.vm_base_off).slice());
+    try buf.appendSlice(allocator, inst.encAddRR(.q, .rcx, .rax).slice());
+
+    // Step D: skip if n == 0.
+    //   TEST R10, R10  ; sets ZF if n == 0
+    //   JZ   .end      ; placeholder, patched after loop
+    try buf.appendSlice(allocator, inst.encTestRR(.q, .r10, .r10).slice());
+    const skip_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice()); // JE = JZ
+
+    // Step E: loop body.
+    //   .loop:
+    //     MOV [RCX], DL                    (encStoreR8MemBaseIdx with idx=ZERO not avail; use disp=0 form)
+    //     ADD RCX, 1
+    //     ADD R10, -1                      (= SUB R10, 1)
+    //     JNZ .loop
+    //
+    // For the byte-store at `[RCX]` (no index reg), we synthesise it
+    // via the existing base+idx encoder by passing idx=RAX with
+    // RAX zeroed beforehand. Cleaner: use the encoder whose only
+    // form takes [base+idx]. We previously zero-extended dst via
+    // `MOV RAX, [R15+vm_base_off]` + `ADD RCX, RAX`; RAX now holds
+    // vm_base which is non-zero. So instead, use base=RCX, idx=ZeroIdxReg.
+    // We don't have a "no-idx" byte-store helper; the cheapest fix is
+    // to zero a register (e.g. RAX) here and use it as the SIB index.
+    //
+    // Alternative: introduce a new encoder for `MOV [base+disp8], r8`.
+    // For now, zero RAX once before the loop and reuse in every
+    // iteration:
+    //   XOR EAX, EAX        ; RAX = 0 (zero-extends)
+    try buf.appendSlice(allocator, inst.encXorRR(.d, .rax, .rax).slice());
+
+    const loop_start: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encStoreR8MemBaseIdx(.rdx, .rcx, .rax).slice()); // [RCX + 0] = DL
+    try buf.appendSlice(allocator, inst.encAddR64Imm32(.rcx, 1).slice());
+    try buf.appendSlice(allocator, inst.encAddR64Imm32(.r10, -1).slice()); // SUB R10, 1 via ADD -1; sets ZF
+    {
+        const after_jnz: i32 = @as(i32, @intCast(buf.items.len)) + 6; // JNZ rel32 = 6 bytes
+        const disp: i32 = @as(i32, @intCast(loop_start)) - after_jnz;
+        try buf.appendSlice(allocator, inst.encJccRel32(.ne, disp).slice());
+    }
+
+    // Step F: patch the skip target.
+    const end_byte: u32 = @intCast(buf.items.len);
+    const skip_disp: i32 = @as(i32, @intCast(end_byte)) - (@as(i32, @intCast(skip_at)) + 6);
+    const skip_word: [6]u8 = inst.encJccRel32(.e, skip_disp).slice()[0..6].*;
+    @memcpy(buf.items[skip_at..][0..6], &skip_word);
+}
+
+/// Wasm spec §4.4.7 (memory.copy) — pop n / src / dst (top→bottom);
+/// copy `n` bytes [src,src+n) → [dst,dst+n). memmove-style overlap
+/// handling (backward when dst > src). Trap if either dst+n or
+/// src+n > mem_size.
+///
+/// x86_64 lowering: same operand-capture discipline as memory.fill,
+/// then a forward / backward branch on `dst <= src`.
+///
+/// Register layout after capture:
+///   RCX = dst (zero-ext, then absolute pointer = vm_base + dst)
+///   RDX = src (zero-ext, then absolute pointer)
+///   R10 = n (counter)
+///
+/// Bounds check uses RAX as scratch; vm_base is loaded once (kept in
+/// RAX) for both `ADD RCX, RAX` and `ADD RDX, RAX` after the bounds
+/// pass.  Byte-load/store via `MOVZX` + `MOV [..]` through scratch.
+pub fn emitMemoryCopy(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    bounds_fixups: *std.ArrayList(u32),
+    spill_base_off: u32,
+    func_idx: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
+    const n_v = pushed_vregs.pop().?;
+    const src_v = pushed_vregs.pop().?;
+    const dst_v = pushed_vregs.pop().?;
+
+    // Step A: capture operands into RCX, RDX, R10.
+    const dst_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, dst_v, 0);
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rcx, dst_r).slice());
+    const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, src_r).slice());
+    const n_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, n_v, 0);
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .r10, n_r).slice());
+
+    // Step B1: bounds check dst + n.
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rax, .rcx).slice());
+    try buf.appendSlice(allocator, inst.encAddRR(.q, .rax, .r10).slice());
+    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
+        try bounds_fixups.append(allocator, fixup_at);
+        trace.writeBounds(func_idx, fixup_at);
+    }
+
+    // Step B2: bounds check src + n.
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rax, .rdx).slice());
+    try buf.appendSlice(allocator, inst.encAddRR(.q, .rax, .r10).slice());
+    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+    {
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
+        try bounds_fixups.append(allocator, fixup_at);
+        trace.writeBounds(func_idx, fixup_at);
+    }
+
+    // Step C: convert dst / src to absolute pointers.
+    //   MOV RAX, [R15 + vm_base_off]
+    //   ADD RCX, RAX ; ADD RDX, RAX
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.vm_base_off).slice());
+    try buf.appendSlice(allocator, inst.encAddRR(.q, .rcx, .rax).slice());
+    try buf.appendSlice(allocator, inst.encAddRR(.q, .rdx, .rax).slice());
+
+    // Step D: skip if n == 0.
+    try buf.appendSlice(allocator, inst.encTestRR(.q, .r10, .r10).slice());
+    const skip_zero_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+
+    // Step E: direction switch — CMP RCX, RDX; JBE forward.
+    //   JBE = unsigned ≤. dst <= src → forward copy is safe.
+    try buf.appendSlice(allocator, inst.encCmpRR(.q, .rcx, .rdx).slice());
+    const fwd_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.be, 0).slice());
+
+    // ---- Backward path. ----
+    //   ADD RCX, R10           ; dst_p += n
+    //   ADD RDX, R10           ; src_p += n
+    try buf.appendSlice(allocator, inst.encAddRR(.q, .rcx, .r10).slice());
+    try buf.appendSlice(allocator, inst.encAddRR(.q, .rdx, .r10).slice());
+    // Need a zero scratch for byte-base-idx encoders. Reuse RAX
+    // (currently holds vm_base which is no longer needed).
+    try buf.appendSlice(allocator, inst.encXorRR(.d, .rax, .rax).slice());
+    // .bwd_loop:
+    //   ADD RCX, -1
+    //   ADD RDX, -1
+    //   MOVZX R11d, byte [RDX + RAX]  ; R11 is spill_stage, but at
+    //                                  ; this point safe (no further
+    //                                  ; spill-loads in this op).
+    //   MOV [RCX + RAX], R11B          ; (low byte of R11)
+    //   ADD R10, -1
+    //   JNZ .bwd_loop
+    const bwd_loop_start: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encAddR64Imm32(.rcx, -1).slice());
+    try buf.appendSlice(allocator, inst.encAddR64Imm32(.rdx, -1).slice());
+    try buf.appendSlice(allocator, inst.encMovzxR32_8MemBaseIdx(.r11, .rdx, .rax).slice());
+    try buf.appendSlice(allocator, inst.encStoreR8MemBaseIdx(.r11, .rcx, .rax).slice());
+    try buf.appendSlice(allocator, inst.encAddR64Imm32(.r10, -1).slice());
+    {
+        const after_jnz: i32 = @as(i32, @intCast(buf.items.len)) + 6;
+        const disp: i32 = @as(i32, @intCast(bwd_loop_start)) - after_jnz;
+        try buf.appendSlice(allocator, inst.encJccRel32(.ne, disp).slice());
+    }
+    // JMP .end (placeholder, patched after fwd loop).
+    const bwd_end_jmp_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+
+    // ---- Forward path. ----
+    // Patch the JBE.
+    const fwd_byte: u32 = @intCast(buf.items.len);
+    {
+        const disp: i32 = @as(i32, @intCast(fwd_byte)) - (@as(i32, @intCast(fwd_at)) + 6);
+        const word: [6]u8 = inst.encJccRel32(.be, disp).slice()[0..6].*;
+        @memcpy(buf.items[fwd_at..][0..6], &word);
+    }
+    try buf.appendSlice(allocator, inst.encXorRR(.d, .rax, .rax).slice());
+    // .fwd_loop:
+    //   MOVZX R11d, byte [RDX + RAX]
+    //   MOV   byte [RCX + RAX], R11B
+    //   ADD   RCX, 1
+    //   ADD   RDX, 1
+    //   ADD   R10, -1
+    //   JNZ   .fwd_loop
+    const fwd_loop_start: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encMovzxR32_8MemBaseIdx(.r11, .rdx, .rax).slice());
+    try buf.appendSlice(allocator, inst.encStoreR8MemBaseIdx(.r11, .rcx, .rax).slice());
+    try buf.appendSlice(allocator, inst.encAddR64Imm32(.rcx, 1).slice());
+    try buf.appendSlice(allocator, inst.encAddR64Imm32(.rdx, 1).slice());
+    try buf.appendSlice(allocator, inst.encAddR64Imm32(.r10, -1).slice());
+    {
+        const after_jnz: i32 = @as(i32, @intCast(buf.items.len)) + 6;
+        const disp: i32 = @as(i32, @intCast(fwd_loop_start)) - after_jnz;
+        try buf.appendSlice(allocator, inst.encJccRel32(.ne, disp).slice());
+    }
+
+    // .end: patch n==0 skip and bwd→end JMP.
+    const end_byte: u32 = @intCast(buf.items.len);
+    {
+        const disp: i32 = @as(i32, @intCast(end_byte)) - (@as(i32, @intCast(skip_zero_at)) + 6);
+        const word: [6]u8 = inst.encJccRel32(.e, disp).slice()[0..6].*;
+        @memcpy(buf.items[skip_zero_at..][0..6], &word);
+    }
+    {
+        const disp: i32 = @as(i32, @intCast(end_byte)) - (@as(i32, @intCast(bwd_end_jmp_at)) + 5);
+        const word: [5]u8 = inst.encJmpRel32(disp).slice()[0..5].*;
+        @memcpy(buf.items[bwd_end_jmp_at..][0..5], &word);
+    }
+}

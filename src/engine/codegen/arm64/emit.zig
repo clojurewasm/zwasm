@@ -777,6 +777,8 @@ pub fn compile(
             .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
             .@"f32.store", .@"f64.store",
             => try op_memory.emitMemOp(&ctx, &ins),
+            .@"memory.fill" => try op_memory.emitMemoryFill(&ctx),
+            .@"memory.copy" => try op_memory.emitMemoryCopy(&ctx),
             .@"br_table" => try op_control.emitBrTable(&ctx, &ins),
             .@"if" => try op_control.emitIf(&ctx, &ins),
             .@"else" => try op_control.emitElse(&ctx, &ins),
