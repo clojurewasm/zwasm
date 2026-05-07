@@ -14,37 +14,39 @@
 
 ## Current state — Phase 7 / §9.7 / 7.10 IN-PROGRESS
 
-直近 commit (HEAD = `6bab26e`):
+直近 commit (HEAD = `43e8336`):
 
+- `43e8336` feat(p7): §9.7 / 7.10 chunk k — x86_64 gpr.zig spill-region disp32 widening (D-048 close)
+- `6b4bd2b` chore(p7): mark §9.7 / 7.10 chunk j close
 - `6bab26e` feat(p7): §9.7 / 7.10 chunk j — x86_64 SysV callee param-arg-overflow READ
 - `9cfd3aa` chore(p7): mark §9.7 / 7.10 chunk i close
-- `6ff23a0` feat(p7): §9.7 / 7.10 chunk i — x86_64 op_memory u32 offset
-- `053de68` chore(p7): mark §9.7 / 7.10 chunk h close
 
 **Phase status**: §9.7 / 7.5 + 7.8 + **7.9 [x]**。Phase 7 残 row = 7.10 /
 7.11 🔒 / 7.12 / 7.13 🔒。
 
-**§9.7 / 7.10 progress** (Linux x86_64 realworld_run_jit 0/55 still):
-- chunks a..j closed: D-029 ALU/FP parallel-move、op_call 全
-  valtype、caller+callee stack-args、localDisp + RBP/RSP disp32、
-  br/br_if function-depth、op_memory u32 offset。
-- post-j Linux JIT categorisation: SlotOverflow が dominant
-  (regalloc pool exhaustion = D-029 / D-048 territory)。
-  UnsupportedOp 残: br_table count > 127 (op_control:147)、
-  br_table function-depth (op_control:78)。
-- 7.10 exit criterion (40+/55 run): まだ blocked。spill-disp32
-  widening (D-048) が SlotOverflow 群を多くカバー可能性。
+**§9.7 / 7.10 progress** (Linux x86_64 realworld_run_jit
+**45/55 compile-pass** post-k, **0/55 run-pass** still):
+- chunks a..k closed: D-029 ALU/FP、op_call 全 valtype、caller+
+  callee stack-args、localDisp + RBP/RSP/spill disp32、br/br_if
+  function-depth、op_memory u32 offset。D-048 (spill disp32)
+  が大ジャンプ — compile-pass 0 → 45/55 (well past 40+ threshold)。
+- post-k JIT compile remainder: 7 compile-op + 3 compile-val
+  (= 10/55 still failing pre-runtime)。
+- **run-stage SEGV blocker** (NEW): `ZWASM_JIT_RUN=1` で全 fixture
+  segfault at 0x0 + recursive panic。compile 成功 → execution 失敗。
+  原因候補: trap stub setup, host import wiring, WASI host,
+  entry shim runtime data structure。debug 必要。
 
 **§9.7 / 7.10 chain plan** (NEXT 群):
-- **7.10-k (NEXT)**: D-048 discharge — `gpr.zig:rbpDispNegI8`
-  i8→i32 widening。spill region の 16 slot cap を撤廃。7.10-g
-  と同じ shape (disp32 form encoder + auto-helper)。barrier
-  dissolved per D-048's "or fixture surfacing > 16 spill slots
-  before then" 条件 (post-j で複数 SlotOverflow surfaced)。
-- 7.10-br_table-fdepth (deferred): emitBrTable で depth ==
-  labels.len のケース。return-trampoline pattern が必要。
-- 7.10-regalloc-port (deferred to Phase 8): D-029 解消は Phase
-  8 regalloc port が前提。残りの SlotOverflow は Phase 8 work。
+- **7.10-l (NEXT)**: JIT run-stage segfault investigation。
+  smallest-first: 1 fixture (e.g. `c_simple_add` if available) を
+  isolated で動かして MAP/JIT entry を debug。Possible causes:
+  - JitRuntime initialization gap (vm_base / mem_limit not set)
+  - Host import dispatch unwired (D-026)
+  - trap stub address calculation error
+  - prologue clobber of caller-saved regs the entry shim assumed
+- 7.10-br_table-fdepth (deferred): return-trampoline pattern。
+- 7.10-regalloc-port (deferred to Phase 8): D-029。
 
 **Pre-existing infra observation (out-of-scope)**:
 `.githooks/pre_commit` (snake_case) は Git の `pre-commit`
@@ -88,10 +90,8 @@ Phase D (migration doc) は post-7.8 着手予定。詳細は
 
 ## Recently closed (canonical history via `git log --oneline --grep="§9.7"`)
 
-- §9.7 / 7.10 chunks a..j closed (commits `a8777ac` `4fb4fcb`
+- §9.7 / 7.10 chunks a..k closed (commits `a8777ac` `4fb4fcb`
   `68dd2dc` `da5db53` `6c523fa` `f47db77` `093906f` `6ff23a0`
-  `6bab26e`)。x86_64 JIT で D-029 ALU/FP、op_call 全 valtype、
-  caller+callee stack-args、localDisp+disp32、br/br_if function-
-  depth、op_memory u32 offset を完備。realworld_run_jit 0/55
-  のまま (SlotOverflow 残; 7.10-k = D-048 spill-disp32 で改善見込)。
+  `6bab26e` `43e8336`)。compile-pass 0 → 45/55 (D-048 spill-
+  disp32 が大寄与)。run-stage segfault が次の壁。
 - §9.7 / 7.9 [x] — arm64 realworld JIT 52/55 compile-pass。
