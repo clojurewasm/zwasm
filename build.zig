@@ -365,6 +365,30 @@ pub fn build(b: *std.Build) void {
     const test_realworld_run_step = b.step("test-realworld-run", "Run each realworld fixture end-to-end via cli_run.runWasm");
     test_realworld_run_step.dependOn(&run_realworld_run.step);
 
+    // `zig build test-realworld-run-jit` — §9.7 / 7.9 chunk a
+    // baseline. Walks the same corpus and drives each fixture
+    // through `engine.runner.compileWasm` (the JIT pipeline).
+    // Reports compile-side coverage: COMPILE-PASS / COMPILE-IMPORTS
+    // / COMPILE-OP / COMPILE-VAL / FAIL-OTHER. Chunks 7.9-b/c/d
+    // turn COMPILE-PASS into RUN-PASS by adding host-import
+    // dispatch + JitRuntime memory init + WASI stub handlers.
+    const realworld_run_jit_mod = b.createModule(.{
+        .root_source_file = b.path("test/realworld/run_runner_jit.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    realworld_run_jit_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(realworld_run_jit_mod, sanitize_c, sanitize_thread);
+    const realworld_run_jit_exe = b.addExecutable(.{
+        .name = "zwasm-realworld-run-jit-runner",
+        .root_module = realworld_run_jit_mod,
+    });
+    const run_realworld_run_jit = b.addRunArtifact(realworld_run_jit_exe);
+    run_realworld_run_jit.addArg(b.pathFromRoot("test/realworld/wasm"));
+    const test_realworld_run_jit_step = b.step("test-realworld-run-jit", "JIT-compile each realworld fixture (§9.7 / 7.9 baseline)");
+    test_realworld_run_jit_step.dependOn(&run_realworld_run_jit.step);
+
     // `zig build test-realworld-diff` — Phase 6 / §9.6 / 6.F.
     // Spawns `wasmtime run <fixture>` per fixture, captures
     // stdout, compares byte-for-byte against
