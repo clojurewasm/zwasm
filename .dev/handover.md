@@ -16,47 +16,53 @@
 
 直近 commit (HEAD = `<this>`):
 
-- `<this>` chore(p7): §9.7 / 7.9 chunk d-3 close (proc_exit + memory init; D-031)
+- `<this>` chore(p7): §9.7 / 7.9 chunk d-4 close (runVoidExport + run-stage harness)
+- `76787d5` feat(p7): §9.7 / 7.9 chunk d-4 — runVoidExport + run-stage harness (opt-in)
 - `71f3896` feat(p7): §9.7 / 7.9 chunk d-3 — proc_exit dispatch + memory + data init (D-031)
 - `6800bb7` feat(p7): §9.7 / 7.9 chunk d-2 — WASI dispatch handlers + first run-stage host call
-- `95d5ec8` feat(p7): §9.7 / 7.9 chunk d-1 — host-import dispatch infrastructure
 
 **Phase status**: §9.7 / 7.5 + 7.8 → **[x]**。Phase 7 残 row = 7.9 /
 7.10 / 7.11 🔒 / 7.12 / 7.13 🔒。
 
-**§9.7 / 7.9 progress**: chunks a..d-3 closed across 11 commits。
+**§9.7 / 7.9 progress**: chunks a..d-4 closed across 13 commits。
 3-host gate green: spec_assert 212/0/20 + realworld 55/0 + wast
-1158+72/0 + edge_cases 34/0 (3 new WASI: fd_write_badf, proc_exit_zero,
-fd_write_hello) + wasi-jit-dispatch unit tests +1 (proc_exit lookup)。
+1158+72/0 + edge_cases 34/0 + unit 1091 across Mac / OrbStack /
+windowsmini。
 
-**Chunk 7.9-d-3 完了** (`71f3896`): D-031 closed via runI32Export
-memory init + proc_exit dispatch:
-- `runner.zig.runI32Export` decodes memory + data sections,
-  allocates `min_pages * 65536` bytes (256 MiB cap), evaluates
-  active data segments via local `evalConstI32Expr`, copies bytes
-  to memory; passes populated slice to JitRuntime.
-- `jit_dispatch.proc_exit(rt, rval)` sets trap_flag = 1; rval
-  discarded (proc_exit_code field is d-4).
-- End-to-end fixtures: `proc_exit_zero` (trap), `fd_write_hello`
-  (memory init + iovec walk + nwritten store + i32:0 success).
+**Chunk 7.9-d-4 完了** (`76787d5`): run_runner_jit harness invokes
+entries (opt-in) with shared setup helper:
+- `runner.zig` factored into `setupRuntime()` returning
+  `RuntimeOwned` (rt + memory + dispatch + globals + funcptrs +
+  typeidxs allocations). Globals/tables get placeholder zero-
+  filled arrays sized to declared count (4096 cap) — fixes the
+  `globals_base = undefined` segfault on global.get.
+- `runVoidExport` mirrors runI32Export for `() -> ()` exports
+  (the WASI `_start` shape).
+- `run_runner_jit.zig` after compile-pass calls `runVoidExport`
+  on `_start` and categorises RUN-PASS / RUN-TRAP / RUN-NO-ENTRY /
+  RUN-UNSUPPORTED-SIG / RUN-OTHER。
+- **Gated by `ZWASM_JIT_RUN=1` env var** — default OFF because
+  fixtures with unbound loops would hang the runner (no per-
+  fixture timeout in this MVP). test-all stays responsive;
+  measurement opt-in.
 
-**Chunk 7.9-d-4 plan** (NEXT): real I/O + run_runner_jit harness:
-- Thread `io: std.Io` through JitRuntime tail-extension OR pass
-  via threadlocal `WasiContext` set by run_runner_jit before
-  invoking entry. fd_write routes to actual stdout / stderr;
-  clock_time_get uses real wall-clock; random_get uses
-  std.posix.getrandom.
-- Add `proc_exit_code: u32` JitRuntime tail field; proc_exit
-  handler writes exit code; entry shim's post-return check
-  surfaces ProcExit-vs-Trap distinction (new error variant or
-  out-param to caller).
-- `test/realworld/run_runner_jit.zig` invokes the entry via
-  entry.callVoidNoArgs after compileWasm; reports run-pass count
-  alongside compile-pass. The categorisation buckets become
-  RUN-PASS / RUN-TRAP / RUN-PROCEXIT(code) / COMPILE-OP / etc.
+**Chunk 7.9-d-5 plan** (NEXT): per-fixture timeout + real I/O。
+- Subprocess fork + `std.posix.alarm` deadline (or whatever
+  zig 0.16 exposes — `posix.setitimer` ITIMER_VIRTUAL or a
+  `RUSAGE_SELF` poll loop). Without per-fixture isolation the
+  run-stage gate stays opt-in.
+- Thread `init.io: std.Io` through JitRuntime tail-extension
+  for fd_write actual stdout / stderr routing; replace the
+  d-2 byte-counting stub.
+- Add `proc_exit_code: u32` JitRuntime tail field; the entry
+  shim distinguishes ProcExit vs Trap vs successful Return.
 - 目標: §9.7 / 7.9 exit criterion = 40+ realworld run-pass via
-  ARM64 JIT。今 mac compile-pass 5/55 — d-4 で memory-init が
-  active な fixture 群が run-stage に到達する見込み。
+  ARM64 JIT。
+
+**Chunk 7.9-d-6 plan** (after d-5): differential vs interp run-
+runner output (the §9.7 / 7.11 hard-gate predecessor); prep
+for §9.7 / 7.10 (x86_64 JIT realworld) which is a near-mirror
+of 7.9 with the x86_64 backend.
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
