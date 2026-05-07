@@ -146,20 +146,37 @@ pub fn compile(
     const uses_runtime_ptr = blk: {
         for (func.instrs.items) |ins| {
             switch (ins.op) {
-                .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
-                .@"i32.load16_s", .@"i32.load16_u",
-                .@"i32.store", .@"i32.store8", .@"i32.store16",
-                .@"i64.load", .@"i64.load8_s", .@"i64.load8_u",
-                .@"i64.load16_s", .@"i64.load16_u",
-                .@"i64.load32_s", .@"i64.load32_u",
-                .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
-                .@"f32.load", .@"f64.load",
-                .@"f32.store", .@"f64.store",
-                .@"global.get", .@"global.set",
-                .@"memory.size", .@"memory.grow",
-                .@"memory.copy", .@"memory.fill",
-                .@"call",
-                .@"call_indirect",
+                .@"i32.load",
+                .@"i32.load8_s",
+                .@"i32.load8_u",
+                .@"i32.load16_s",
+                .@"i32.load16_u",
+                .@"i32.store",
+                .@"i32.store8",
+                .@"i32.store16",
+                .@"i64.load",
+                .@"i64.load8_s",
+                .@"i64.load8_u",
+                .@"i64.load16_s",
+                .@"i64.load16_u",
+                .@"i64.load32_s",
+                .@"i64.load32_u",
+                .@"i64.store",
+                .@"i64.store8",
+                .@"i64.store16",
+                .@"i64.store32",
+                .@"f32.load",
+                .@"f64.load",
+                .@"f32.store",
+                .@"f64.store",
+                .@"global.get",
+                .@"global.set",
+                .@"memory.size",
+                .@"memory.grow",
+                .@"memory.copy",
+                .@"memory.fill",
+                .call,
+                .call_indirect,
                 // `unreachable` emits a JMP to the trap stub which
                 // stores `1` to `[R15 + trap_flag_off]`. Without
                 // R15 initialised, the store hits a garbage address
@@ -395,7 +412,7 @@ pub fn compile(
         // `end` / `else` always exit the dead region — emit's own
         // bookkeeping (label-stack pop / arm switch) must run.
         // Mirror of arm64/emit.zig:381-414.
-        if (ins.op == .@"end" or ins.op == .@"else") {
+        if (ins.op == .end or ins.op == .@"else") {
             dead_code = false;
         }
         if (dead_code) {
@@ -406,12 +423,12 @@ pub fn compile(
             // (where `(unreachable)` is the if-cond) surfaces
             // `emitElse without if_then` once the inner else fires.
             switch (ins.op) {
-                .@"block" => try labels.append(allocator, .{
+                .block => try labels.append(allocator, .{
                     .kind = .block,
                     .target_byte_offset = 0,
                     .pending = .empty,
                 }),
-                .@"loop" => try labels.append(allocator, .{
+                .loop => try labels.append(allocator, .{
                     .kind = .loop,
                     .target_byte_offset = @intCast(buf.items.len),
                     .pending = .empty,
@@ -452,96 +469,199 @@ pub fn compile(
                 try gpr.gprStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
                 try pushed_vregs.append(allocator, vreg);
             },
-            .@"i32.add", .@"i32.sub", .@"i32.mul",
-            .@"i32.and", .@"i32.or", .@"i32.xor",
+            .@"i32.add",
+            .@"i32.sub",
+            .@"i32.mul",
+            .@"i32.and",
+            .@"i32.or",
+            .@"i32.xor",
             => try op_alu_int.emitI32Binary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i32.eq", .@"i32.ne",
-            .@"i32.lt_s", .@"i32.lt_u", .@"i32.gt_s", .@"i32.gt_u",
-            .@"i32.le_s", .@"i32.le_u", .@"i32.ge_s", .@"i32.ge_u",
+            .@"i32.eq",
+            .@"i32.ne",
+            .@"i32.lt_s",
+            .@"i32.lt_u",
+            .@"i32.gt_s",
+            .@"i32.gt_u",
+            .@"i32.le_s",
+            .@"i32.le_u",
+            .@"i32.ge_s",
+            .@"i32.ge_u",
             => try op_alu_int.emitI32Compare(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
             .@"i32.eqz" => try op_alu_int.emitI32Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32.shl", .@"i32.shr_s", .@"i32.shr_u",
-            .@"i32.rotl", .@"i32.rotr",
+            .@"i32.shl",
+            .@"i32.shr_s",
+            .@"i32.shr_u",
+            .@"i32.rotl",
+            .@"i32.rotr",
             => try op_alu_int.emitI32Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i32.clz", .@"i32.ctz", .@"i32.popcnt",
+            .@"i32.clz",
+            .@"i32.ctz",
+            .@"i32.popcnt",
             => try op_alu_int.emitI32Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i64.add", .@"i64.sub", .@"i64.mul",
-            .@"i64.and", .@"i64.or", .@"i64.xor",
+            .@"i64.add",
+            .@"i64.sub",
+            .@"i64.mul",
+            .@"i64.and",
+            .@"i64.or",
+            .@"i64.xor",
             => try op_alu_int.emitI64Binary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i64.eq", .@"i64.ne",
-            .@"i64.lt_s", .@"i64.lt_u", .@"i64.gt_s", .@"i64.gt_u",
-            .@"i64.le_s", .@"i64.le_u", .@"i64.ge_s", .@"i64.ge_u",
+            .@"i64.eq",
+            .@"i64.ne",
+            .@"i64.lt_s",
+            .@"i64.lt_u",
+            .@"i64.gt_s",
+            .@"i64.gt_u",
+            .@"i64.le_s",
+            .@"i64.le_u",
+            .@"i64.ge_s",
+            .@"i64.ge_u",
             => try op_alu_int.emitI64Compare(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
             .@"i64.eqz" => try op_alu_int.emitI64Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64.shl", .@"i64.shr_s", .@"i64.shr_u",
-            .@"i64.rotl", .@"i64.rotr",
+            .@"i64.shl",
+            .@"i64.shr_s",
+            .@"i64.shr_u",
+            .@"i64.rotl",
+            .@"i64.rotr",
             => try op_alu_int.emitI64Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i64.clz", .@"i64.ctz", .@"i64.popcnt",
+            .@"i64.clz",
+            .@"i64.ctz",
+            .@"i64.popcnt",
             => try op_alu_int.emitI64Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i32.wrap_i64", .@"i64.extend_i32_u", .@"i64.extend_i32_s",
+            .@"i32.wrap_i64",
+            .@"i64.extend_i32_u",
+            .@"i64.extend_i32_s",
             => try op_alu_int.emitConvertWidth(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
             // §9.7 / 7.9 chunk c: Wasm 2.0 sign-extension ops.
-            .@"i32.extend8_s", .@"i32.extend16_s",
-            .@"i64.extend8_s", .@"i64.extend16_s", .@"i64.extend32_s",
+            .@"i32.extend8_s",
+            .@"i32.extend16_s",
+            .@"i64.extend8_s",
+            .@"i64.extend16_s",
+            .@"i64.extend32_s",
             => try op_alu_int.emitSignExtend(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
             // §9.7 / 7.9 chunk c: integer divide / remainder.
-            .@"i32.div_s", .@"i32.div_u", .@"i32.rem_s", .@"i32.rem_u",
+            .@"i32.div_s",
+            .@"i32.div_u",
+            .@"i32.rem_s",
+            .@"i32.rem_u",
             => try op_alu_int.emitI32DivRem(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.op),
-            .@"i64.div_s", .@"i64.div_u", .@"i64.rem_s", .@"i64.rem_u",
+            .@"i64.div_s",
+            .@"i64.div_u",
+            .@"i64.rem_s",
+            .@"i64.rem_u",
             => try op_alu_int.emitI64DivRem(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.op),
-            .@"call" => try op_call.emitCall(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &call_fixups, spill_base_off, func_sigs, num_imports, ins.payload),
-            .@"call_indirect" => try op_call.emitCallIndirect(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, module_types, ins.payload),
-            .@"f32.const", .@"f64.const",
+            .call => try op_call.emitCall(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &call_fixups, spill_base_off, func_sigs, num_imports, ins.payload),
+            .call_indirect => try op_call.emitCallIndirect(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, module_types, ins.payload),
+            .@"f32.const",
+            .@"f64.const",
             => try op_alu_float.emitFpConst(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op, ins.payload, ins.extra),
-            .@"f32.add", .@"f32.sub", .@"f32.mul", .@"f32.div",
-            .@"f64.add", .@"f64.sub", .@"f64.mul", .@"f64.div",
+            .@"f32.add",
+            .@"f32.sub",
+            .@"f32.mul",
+            .@"f32.div",
+            .@"f64.add",
+            .@"f64.sub",
+            .@"f64.mul",
+            .@"f64.div",
             => try op_alu_float.emitFpBinary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"f32.eq", .@"f32.ne", .@"f32.lt", .@"f32.gt", .@"f32.le", .@"f32.ge",
-            .@"f64.eq", .@"f64.ne", .@"f64.lt", .@"f64.gt", .@"f64.le", .@"f64.ge",
+            .@"f32.eq",
+            .@"f32.ne",
+            .@"f32.lt",
+            .@"f32.gt",
+            .@"f32.le",
+            .@"f32.ge",
+            .@"f64.eq",
+            .@"f64.ne",
+            .@"f64.lt",
+            .@"f64.gt",
+            .@"f64.le",
+            .@"f64.ge",
             => try op_alu_float.emitFpCompare(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"f32.abs", .@"f32.neg", .@"f32.sqrt",
-            .@"f32.ceil", .@"f32.floor", .@"f32.trunc", .@"f32.nearest",
-            .@"f64.abs", .@"f64.neg", .@"f64.sqrt",
-            .@"f64.ceil", .@"f64.floor", .@"f64.trunc", .@"f64.nearest",
+            .@"f32.abs",
+            .@"f32.neg",
+            .@"f32.sqrt",
+            .@"f32.ceil",
+            .@"f32.floor",
+            .@"f32.trunc",
+            .@"f32.nearest",
+            .@"f64.abs",
+            .@"f64.neg",
+            .@"f64.sqrt",
+            .@"f64.ceil",
+            .@"f64.floor",
+            .@"f64.trunc",
+            .@"f64.nearest",
             => try op_alu_float.emitFpUnary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"f32.copysign", .@"f64.copysign",
+            .@"f32.copysign",
+            .@"f64.copysign",
             => try op_alu_float.emitFpCopysign(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"f32.min", .@"f32.max", .@"f64.min", .@"f64.max",
+            .@"f32.min",
+            .@"f32.max",
+            .@"f64.min",
+            .@"f64.max",
             => try op_alu_float.emitFpMinMax(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"f64.promote_f32", .@"f32.demote_f64",
-            .@"i32.reinterpret_f32", .@"i64.reinterpret_f64",
-            .@"f32.reinterpret_i32", .@"f64.reinterpret_i64",
-            .@"f32.convert_i32_s", .@"f32.convert_i64_s",
-            .@"f64.convert_i32_s", .@"f64.convert_i64_s",
-            .@"f32.convert_i32_u", .@"f64.convert_i32_u",
+            .@"f64.promote_f32",
+            .@"f32.demote_f64",
+            .@"i32.reinterpret_f32",
+            .@"i64.reinterpret_f64",
+            .@"f32.reinterpret_i32",
+            .@"f64.reinterpret_i64",
+            .@"f32.convert_i32_s",
+            .@"f32.convert_i64_s",
+            .@"f64.convert_i32_s",
+            .@"f64.convert_i64_s",
+            .@"f32.convert_i32_u",
+            .@"f64.convert_i32_u",
             => try op_convert.emitFpConvertSimple(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"f32.convert_i64_u", .@"f64.convert_i64_u",
+            .@"f32.convert_i64_u",
+            .@"f64.convert_i64_u",
             => try op_convert.emitFpConvertI64Unsigned(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i32.trunc_sat_f32_s", .@"i32.trunc_sat_f64_s",
-            .@"i64.trunc_sat_f32_s", .@"i64.trunc_sat_f64_s",
+            .@"i32.trunc_sat_f32_s",
+            .@"i32.trunc_sat_f64_s",
+            .@"i64.trunc_sat_f32_s",
+            .@"i64.trunc_sat_f64_s",
             => try op_convert.emitFpTruncSatSigned(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i32.trunc_sat_f32_u", .@"i32.trunc_sat_f64_u",
+            .@"i32.trunc_sat_f32_u",
+            .@"i32.trunc_sat_f64_u",
             => try op_convert.emitFpTruncSatU32(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i64.trunc_sat_f32_u", .@"i64.trunc_sat_f64_u",
+            .@"i64.trunc_sat_f32_u",
+            .@"i64.trunc_sat_f64_u",
             => try op_convert.emitFpTruncSatU64(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
-            .@"i32.trunc_f32_s", .@"i32.trunc_f64_s",
-            .@"i64.trunc_f32_s", .@"i64.trunc_f64_s",
+            .@"i32.trunc_f32_s",
+            .@"i32.trunc_f64_s",
+            .@"i64.trunc_f32_s",
+            .@"i64.trunc_f64_s",
             => try op_convert.emitFpTruncTrapSigned(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.op),
-            .@"i32.trunc_f32_u", .@"i32.trunc_f64_u",
-            .@"i64.trunc_f32_u", .@"i64.trunc_f64_u",
+            .@"i32.trunc_f32_u",
+            .@"i32.trunc_f64_u",
+            .@"i64.trunc_f32_u",
+            .@"i64.trunc_f64_u",
             => try op_convert.emitFpTruncTrapUnsigned(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.op),
             .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, func, num_params, total_locals, uses_runtime_ptr, ins.payload),
             .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, spill_base_off, func, num_params, total_locals, uses_runtime_ptr, ins.payload),
             .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, spill_base_off, func, num_params, total_locals, uses_runtime_ptr, ins.payload),
-            .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
-            .@"i32.load16_s", .@"i32.load16_u",
-            .@"i32.store", .@"i32.store8", .@"i32.store16",
-            .@"i64.load", .@"i64.load8_s", .@"i64.load8_u",
-            .@"i64.load16_s", .@"i64.load16_u",
-            .@"i64.load32_s", .@"i64.load32_u",
-            .@"i64.store", .@"i64.store8", .@"i64.store16", .@"i64.store32",
-            .@"f32.load", .@"f64.load",
-            .@"f32.store", .@"f64.store",
+            .@"i32.load",
+            .@"i32.load8_s",
+            .@"i32.load8_u",
+            .@"i32.load16_s",
+            .@"i32.load16_u",
+            .@"i32.store",
+            .@"i32.store8",
+            .@"i32.store16",
+            .@"i64.load",
+            .@"i64.load8_s",
+            .@"i64.load8_u",
+            .@"i64.load16_s",
+            .@"i64.load16_u",
+            .@"i64.load32_s",
+            .@"i64.load32_u",
+            .@"i64.store",
+            .@"i64.store8",
+            .@"i64.store16",
+            .@"i64.store32",
+            .@"f32.load",
+            .@"f64.load",
+            .@"f32.store",
+            .@"f64.store",
             => try op_memory.emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.op, ins.payload, func.func_idx),
             .@"memory.fill" => try op_memory.emitMemoryFill(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx),
             .@"memory.copy" => try op_memory.emitMemoryCopy(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx),
@@ -583,7 +703,7 @@ pub fn compile(
                 try gpr.gprStoreSpilled(allocator, &buf, alloc, spill_base_off, result_v, 0);
                 try pushed_vregs.append(allocator, result_v);
             },
-            .@"select", .@"select_typed" => {
+            .select, .select_typed => {
                 // Wasm spec §4.4.4 (select / select_typed) — pop
                 // c (i32), val2, val1; push val1 if c != 0 else
                 // val2. x86_64 lowering (i32 only at this chunk;
@@ -637,11 +757,11 @@ pub fn compile(
                 try unreach_fixups.append(allocator, fixup_at);
                 dead_code = true;
             },
-            .@"nop" => {
+            .nop => {
                 // Wasm spec §4.4.6.2 (nop) — do nothing. No machine
                 // bytes; no stack change. Mirrors arm64/emit.zig.
             },
-            .@"drop" => {
+            .drop => {
                 // Wasm spec §4.4.4 (drop) — pop top operand without
                 // storage. No machine bytes; only the operand-stack
                 // tracker advances. Mirrors arm64/emit.zig.
@@ -692,14 +812,14 @@ pub fn compile(
                 try buf.appendSlice(allocator, inst.encRet().slice());
                 dead_code = true;
             },
-            .@"block" => try op_control.emitBlock(allocator, &labels),
-            .@"loop" => try op_control.emitLoop(allocator, &buf, &labels),
-            .@"br" => try op_control.emitBr(allocator, &buf, &labels, ins.payload),
-            .@"br_if" => try op_control.emitBrIf(allocator, &buf, alloc, &pushed_vregs, &labels, spill_base_off, ins.payload),
-            .@"br_table" => try op_control.emitBrTable(allocator, &buf, func, alloc, &pushed_vregs, &labels, spill_base_off, ins.payload, ins.extra),
+            .block => try op_control.emitBlock(allocator, &labels),
+            .loop => try op_control.emitLoop(allocator, &buf, &labels),
+            .br => try op_control.emitBr(allocator, &buf, &labels, ins.payload),
+            .br_if => try op_control.emitBrIf(allocator, &buf, alloc, &pushed_vregs, &labels, spill_base_off, ins.payload),
+            .br_table => try op_control.emitBrTable(allocator, &buf, func, alloc, &pushed_vregs, &labels, spill_base_off, ins.payload, ins.extra),
             .@"if" => try op_control.emitIf(allocator, &buf, alloc, &pushed_vregs, &labels, spill_base_off, ins.extra),
             .@"else" => try op_control.emitElse(allocator, &buf, &pushed_vregs, &labels),
-            .@"end" => {
+            .end => {
                 // Two distinct forms (mirrors arm64/emit.zig):
                 // (A) Intra-function `end`: pops a label, patches
                 //     forward fixups (block) / no-op for loop.
@@ -1001,7 +1121,7 @@ test "compile: (i32.const 42) end → 13 bytes" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{.{ .def_pc = 0, .last_use_pc = 1 }} };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
@@ -1018,9 +1138,16 @@ test "compile: (i32.const 42) end → 13 bytes" {
     // Total: 1 + 3 + 5 + 2 + 1 + 1 = 13 bytes.
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x2A, 0x00, 0x00, 0x00,
-        0x89, 0xD8,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x2A,
+        0x00,
+        0x00,
+        0x00,
+        0x89,
+        0xD8,
         0x5D,
         0xC3,
     };
@@ -1032,7 +1159,7 @@ test "compile: (i32.const 0xDEADBEEF) end — little-endian imm32" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xDEADBEEF });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{.{ .def_pc = 0, .last_use_pc = 1 }} };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
@@ -1048,7 +1175,7 @@ test "compile: void function with `end` only emits prologue + epilogue" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
@@ -1064,11 +1191,13 @@ test "compile: function with 1 local + (i32.const 42) (local.set 0) (local.get 0
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
     try f.instrs.append(testing.allocator, .{ .op = .@"local.set", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
-    f.liveness = .{ .ranges = &[_]zir.LiveRange{
-        .{ .def_pc = 0, .last_use_pc = 1 }, // const
-        .{ .def_pc = 2, .last_use_pc = 3 }, // local.get result
-    } };
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{
+        .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 1 }, // const
+            .{ .def_pc = 2, .last_use_pc = 3 }, // local.get result
+        },
+    };
     const slots = [_]u16{ 0, 1 }; // R10D, R11D
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
@@ -1091,15 +1220,38 @@ test "compile: function with 1 local + (i32.const 42) (local.set 0) (local.get 0
     //   C3                             RET
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0x48, 0x83, 0xEC, 0x10,
-        0x31, 0xC0,
-        0x48, 0x89, 0x45, 0xF8,
-        0xBB, 0x2A, 0x00, 0x00, 0x00,
-        0x89, 0x5D, 0xF8,
-        0x44, 0x8B, 0x65, 0xF8,
-        0x44, 0x89, 0xE0,
-        0x48, 0x83, 0xC4, 0x10,
+        0x48,
+        0x89,
+        0xE5,
+        0x48,
+        0x83,
+        0xEC,
+        0x10,
+        0x31,
+        0xC0,
+        0x48,
+        0x89,
+        0x45,
+        0xF8,
+        0xBB,
+        0x2A,
+        0x00,
+        0x00,
+        0x00,
+        0x89,
+        0x5D,
+        0xF8,
+        0x44,
+        0x8B,
+        0x65,
+        0xF8,
+        0x44,
+        0x89,
+        0xE0,
+        0x48,
+        0x83,
+        0xC4,
+        0x10,
         0x5D,
         0xC3,
     };
@@ -1112,7 +1264,7 @@ test "compile: local.tee preserves stack — uses top vreg without popping" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
     try f.instrs.append(testing.allocator, .{ .op = .@"local.tee", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
     } };
@@ -1136,10 +1288,10 @@ test "compile: (block (br 0) end) end — forward br with end-patch" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" }); // intra: closes block
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" }); // function-level
+    try f.instrs.append(testing.allocator, .{ .op = .block });
+    try f.instrs.append(testing.allocator, .{ .op = .br, .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end }); // intra: closes block
+    try f.instrs.append(testing.allocator, .{ .op = .end }); // function-level
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
@@ -1155,8 +1307,14 @@ test "compile: (block (br 0) end) end — forward br with end-patch" {
     // which IS the block's end target. Disp = 9 - 9 = 0.
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xE9, 0x00, 0x00, 0x00, 0x00,
+        0x48,
+        0x89,
+        0xE5,
+        0xE9,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x5D,
         0xC3,
     };
@@ -1167,10 +1325,10 @@ test "compile: (loop (br 0) end) end — backward br with concrete disp" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"loop" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" }); // intra: closes loop (no patch)
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .loop });
+    try f.instrs.append(testing.allocator, .{ .op = .br, .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end }); // intra: closes loop (no patch)
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
@@ -1183,8 +1341,14 @@ test "compile: (loop (br 0) end) end — backward br with concrete disp" {
     //   5D C3                          POP RBP ; RET (unreachable but emitted)
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xE9, 0xFB, 0xFF, 0xFF, 0xFF,
+        0x48,
+        0x89,
+        0xE5,
+        0xE9,
+        0xFB,
+        0xFF,
+        0xFF,
+        0xFF,
         0x5D,
         0xC3,
     };
@@ -1198,8 +1362,8 @@ test "compile: (i32.const 1) (if) (i32.const 7) (end) end — single-arm if; JE 
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
     try f.instrs.append(testing.allocator, .{ .op = .@"if" });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 2, .last_use_pc = 3 },
@@ -1221,11 +1385,28 @@ test "compile: (i32.const 1) (if) (i32.const 7) (end) end — single-arm if; JE 
     // i32.const 7). Then-body is 6 bytes (MOV R12D #7).
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x01, 0x00, 0x00, 0x00,
-        0x85, 0xDB,
-        0x0F, 0x84, 0x06, 0x00, 0x00, 0x00,
-        0x41, 0xBC, 0x07, 0x00, 0x00, 0x00,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x85,
+        0xDB,
+        0x0F,
+        0x84,
+        0x06,
+        0x00,
+        0x00,
+        0x00,
+        0x41,
+        0xBC,
+        0x07,
+        0x00,
+        0x00,
+        0x00,
         0x5D,
         0xC3,
     };
@@ -1236,11 +1417,11 @@ test "compile: (block (i32.const 0) (br_if 0) end) end — Jcc forward fixup" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .block });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"br_if", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .br_if, .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 1, .last_use_pc = 2 },
     } };
@@ -1257,10 +1438,22 @@ test "compile: (block (i32.const 0) (br_if 0) end) end — Jcc forward fixup" {
     //   5D C3                          POP RBP ; RET         [17..19]
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x00, 0x00, 0x00, 0x00,
-        0x85, 0xDB,
-        0x0F, 0x85, 0x00, 0x00, 0x00, 0x00,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x85,
+        0xDB,
+        0x0F,
+        0x85,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x5D,
         0xC3,
     };
@@ -1271,11 +1464,11 @@ test "compile: (loop (i32.const 0) (br_if 0) end) end — Jcc backward concrete 
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"loop" });
+    try f.instrs.append(testing.allocator, .{ .op = .loop });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"br_if", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .br_if, .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 1, .last_use_pc = 2 },
     } };
@@ -1288,10 +1481,22 @@ test "compile: (loop (i32.const 0) (br_if 0) end) end — Jcc backward concrete 
     // br_if Jcc at offset 11; disp = 4 - 11 - 6 = -13 = 0xFFFFFFF3.
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x00, 0x00, 0x00, 0x00,
-        0x85, 0xDB,
-        0x0F, 0x85, 0xF3, 0xFF, 0xFF, 0xFF,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x85,
+        0xDB,
+        0x0F,
+        0x85,
+        0xF3,
+        0xFF,
+        0xFF,
+        0xFF,
         0x5D,
         0xC3,
     };
@@ -1306,11 +1511,11 @@ test "compile: br_table — single case + default both → block end" {
     defer f.deinit(testing.allocator);
     try f.branch_targets.append(testing.allocator, 0); // case 0 depth
     try f.branch_targets.append(testing.allocator, 0); // default depth
-    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .block });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"br_table", .payload = 1, .extra = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .br_table, .payload = 1, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 1, .last_use_pc = 2 },
     } };
@@ -1330,12 +1535,29 @@ test "compile: br_table — single case + default both → block end" {
     // Block end target = 24. case JMP at 14 → disp=24-14-5=5. default JMP at 19 → disp=24-19-5=0.
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x00, 0x00, 0x00, 0x00,
-        0x83, 0xFB, 0x00,
-        0x75, 0x05,
-        0xE9, 0x05, 0x00, 0x00, 0x00,
-        0xE9, 0x00, 0x00, 0x00, 0x00,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x83,
+        0xFB,
+        0x00,
+        0x75,
+        0x05,
+        0xE9,
+        0x05,
+        0x00,
+        0x00,
+        0x00,
+        0xE9,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x5D,
         0xC3,
     };
@@ -1348,11 +1570,11 @@ test "compile: br_table count > 127 → UnsupportedOp (i8 cap)" {
     defer f.deinit(testing.allocator);
     var i: u32 = 0;
     while (i < 129) : (i += 1) try f.branch_targets.append(testing.allocator, 0);
-    try f.instrs.append(testing.allocator, .{ .op = .@"block" });
+    try f.instrs.append(testing.allocator, .{ .op = .block });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"br_table", .payload = 128, .extra = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .br_table, .payload = 128, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 1, .last_use_pc = 2 },
     } };
@@ -1367,11 +1589,13 @@ test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bound
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.load", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
-    f.liveness = .{ .ranges = &[_]zir.LiveRange{
-        .{ .def_pc = 0, .last_use_pc = 1 }, // const → idx
-        .{ .def_pc = 1, .last_use_pc = 2 }, // load result
-    } };
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{
+        .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 1 }, // const → idx
+            .{ .def_pc = 1, .last_use_pc = 2 }, // load result
+        },
+    };
     const slots = [_]u16{ 0, 1 }; // R10D, R11D
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
@@ -1421,11 +1645,16 @@ test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bound
     const exp_sub_rsp_8 = inst.encSubRSpImm8(8);
     var exp_prologue: [13]u8 = undefined;
     var off: usize = 0;
-    @memcpy(exp_prologue[off .. off + exp_push_rbp.len], exp_push_rbp.slice()); off += exp_push_rbp.len;
-    @memcpy(exp_prologue[off .. off + exp_push_r15.len], exp_push_r15.slice()); off += exp_push_r15.len;
-    @memcpy(exp_prologue[off .. off + exp_mov_rbp_rsp.len], exp_mov_rbp_rsp.slice()); off += exp_mov_rbp_rsp.len;
-    @memcpy(exp_prologue[off .. off + exp_mov_r15_arg0.len], exp_mov_r15_arg0.slice()); off += exp_mov_r15_arg0.len;
-    @memcpy(exp_prologue[off .. off + exp_sub_rsp_8.len], exp_sub_rsp_8.slice()); off += exp_sub_rsp_8.len;
+    @memcpy(exp_prologue[off .. off + exp_push_rbp.len], exp_push_rbp.slice());
+    off += exp_push_rbp.len;
+    @memcpy(exp_prologue[off .. off + exp_push_r15.len], exp_push_r15.slice());
+    off += exp_push_r15.len;
+    @memcpy(exp_prologue[off .. off + exp_mov_rbp_rsp.len], exp_mov_rbp_rsp.slice());
+    off += exp_mov_rbp_rsp.len;
+    @memcpy(exp_prologue[off .. off + exp_mov_r15_arg0.len], exp_mov_r15_arg0.slice());
+    off += exp_mov_r15_arg0.len;
+    @memcpy(exp_prologue[off .. off + exp_sub_rsp_8.len], exp_sub_rsp_8.slice());
+    off += exp_sub_rsp_8.len;
     try testing.expectEqual(@as(usize, 13), off);
     try testing.expectEqualSlices(u8, &exp_prologue, out.bytes[0..13]);
     // Spot-check the JA placeholder is patched (disp = 15 = 0x0F): JA = 0x0F 0x87 at byte 38.
@@ -1439,7 +1668,7 @@ test "compile: i32.load with stack underflow → AllocationMissing" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.load", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -1452,14 +1681,16 @@ test "compile: (i32.const 0)(i32.const 99) i32.store offset=0 — store path" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });   // idx
-    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99 });  // value
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 }); // idx
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99 }); // value
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.store" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
-    f.liveness = .{ .ranges = &[_]zir.LiveRange{
-        .{ .def_pc = 0, .last_use_pc = 2 }, // idx (R10D)
-        .{ .def_pc = 1, .last_use_pc = 2 }, // value (R11D)
-    } };
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{
+        .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 2 }, // idx (R10D)
+            .{ .def_pc = 1, .last_use_pc = 2 }, // value (R11D)
+        },
+    };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
@@ -1492,7 +1723,7 @@ test "compile: (i32.const 0) i32.load8_u → MOVZX r8" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.load8_u" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1524,7 +1755,7 @@ test "compile: (i32.const 0) i32.load16_s → MOVSX r16" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.load16_s" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1555,7 +1786,7 @@ test "compile: (i32.const 0)(i32.const 7) i32.store8 → MOV r8 store" {
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.store8" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1585,7 +1816,7 @@ test "compile: i32.store with stack underflow → AllocationMissing" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.store" }); // needs 2 vregs, has 1
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -1599,7 +1830,7 @@ test "compile: global.get 0 — emits ADR-0027 reload-from-runtime-ptr (i32)" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"global.get", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -1633,7 +1864,7 @@ test "compile: (i32.const 42) global.set 1 — emits ADR-0027 reload + store (i3
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
     try f.instrs.append(testing.allocator, .{ .op = .@"global.set", .payload = 1 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -1666,7 +1897,7 @@ test "compile: global.set with stack underflow → AllocationMissing" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"global.set", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, empty, &.{}, &.{}, 0));
@@ -1676,8 +1907,8 @@ test "compile: br with depth out of range → UnsupportedOp" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"br", .payload = 0 }); // no enclosing block/loop
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .br, .payload = 0 }); // no enclosing block/loop
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0));
@@ -1711,7 +1942,7 @@ test "compile: i32 param + local.get + end — params marshal MOV [rbp-8], esi" 
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -1745,7 +1976,7 @@ test "compile: (i32.const 7) (i32.const 5) i32.add end — verifies ADD is emitt
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.add" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1768,16 +1999,75 @@ test "compile: (i32.const 7) (i32.const 5) i32.add end — verifies ADD is emitt
     //   C3                       RET
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x07, 0x00, 0x00, 0x00,
-        0x41, 0xBC, 0x05, 0x00, 0x00, 0x00,
-        0x41, 0x89, 0xDD,
-        0x45, 0x01, 0xE5,
-        0x44, 0x89, 0xE8,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x07,
+        0x00,
+        0x00,
+        0x00,
+        0x41,
+        0xBC,
+        0x05,
+        0x00,
+        0x00,
+        0x00,
+        0x41,
+        0x89,
+        0xDD,
+        0x45,
+        0x01,
+        0xE5,
+        0x44,
+        0x89,
+        0xE8,
         0x5D,
         0xC3,
     };
     try testing.expectEqualSlices(u8, &expected, out.bytes);
+}
+
+// §9.7 / 7.10-b: parallel-move for ALU when dst==rhs (D-029).
+// With realworld regalloc, result and rhs can share a slot when
+// rhs dies at this op and result is born here. The naive
+// `MOV dst, lhs ; OP dst, rhs` clobbers rhs before the OP reads
+// it — the prior reject path (commit `e0212ec` diag) returned
+// UnsupportedOp. Fix: commute commutative ops; use a scratch for
+// non-commutative sub.
+
+test "compile: i32.add when dst==rhs slot — commute path emits ADD dst, lhs (no MOV)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.add" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    // Force result and rhs into the SAME slot (slot 1 = R12).
+    // dst_r == rhs_r → without commute, MOV dst,lhs clobbers rhs;
+    // with commute, emit ADD dst, lhs (1 instr) directly.
+    const slots = [_]u16{ 0, 1, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    defer deinit(testing.allocator, out);
+    // Look for ADD R12D, EBX (commuted: dst==R12, lhs==EBX). Encoding:
+    //   41 01 DC                 ADD R12D, EBX
+    const expected = [_]u8{ 0x41, 0x01, 0xDC };
+    var found: bool = false;
+    var i: usize = 0;
+    while (i + expected.len <= out.bytes.len) : (i += 1) {
+        if (std.mem.eql(u8, out.bytes[i..][0..expected.len], &expected)) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
 }
 
 test "compile: (i32.const 8) (i32.const 3) i32.sub end — SUB opcode 29" {
@@ -1787,7 +2077,7 @@ test "compile: (i32.const 8) (i32.const 3) i32.sub end — SUB opcode 29" {
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 8 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 3 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.sub" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1809,7 +2099,7 @@ test "compile: (i32.const 6) (i32.const 7) i32.mul end — IMUL 0F AF" {
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 6 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.mul" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1833,7 +2123,7 @@ test "compile: (i32.const 7) (i32.const 5) i32.eq end — CMP+SETE+MOVZX" {
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.eq" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1855,13 +2145,34 @@ test "compile: (i32.const 7) (i32.const 5) i32.eq end — CMP+SETE+MOVZX" {
     //   5D C3                           POP RBP ; RET
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x07, 0x00, 0x00, 0x00,
-        0x41, 0xBC, 0x05, 0x00, 0x00, 0x00,
-        0x44, 0x39, 0xE3,
-        0x41, 0x0F, 0x94, 0xC5,
-        0x45, 0x0F, 0xB6, 0xED,
-        0x44, 0x89, 0xE8,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x07,
+        0x00,
+        0x00,
+        0x00,
+        0x41,
+        0xBC,
+        0x05,
+        0x00,
+        0x00,
+        0x00,
+        0x44,
+        0x39,
+        0xE3,
+        0x41,
+        0x0F,
+        0x94,
+        0xC5,
+        0x45,
+        0x0F,
+        0xB6,
+        0xED,
+        0x44,
+        0x89,
+        0xE8,
         0x5D,
         0xC3,
     };
@@ -1876,7 +2187,7 @@ test "compile: i32.lt_s vs i32.lt_u — different cc codes" {
         try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
         try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 2 });
         try f.instrs.append(testing.allocator, .{ .op = case.op });
-        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        try f.instrs.append(testing.allocator, .{ .op = .end });
         f.liveness = .{ .ranges = &[_]zir.LiveRange{
             .{ .def_pc = 0, .last_use_pc = 2 },
             .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1899,7 +2210,7 @@ test "compile: (i32.const 0) i32.eqz end — TEST+SETE+MOVZX" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.eqz" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1919,12 +2230,27 @@ test "compile: (i32.const 0) i32.eqz end — TEST+SETE+MOVZX" {
     //   5D C3                           POP RBP ; RET
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x00, 0x00, 0x00, 0x00,
-        0x85, 0xDB,
-        0x41, 0x0F, 0x94, 0xC4,
-        0x45, 0x0F, 0xB6, 0xE4,
-        0x44, 0x89, 0xE0,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x85,
+        0xDB,
+        0x41,
+        0x0F,
+        0x94,
+        0xC4,
+        0x45,
+        0x0F,
+        0xB6,
+        0xE4,
+        0x44,
+        0x89,
+        0xE0,
         0x5D,
         0xC3,
     };
@@ -1938,7 +2264,7 @@ test "compile: (i32.const 1) (i32.const 4) i32.shl end — MOV CL + MOV dst + SH
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 4 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.shl" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -1960,13 +2286,32 @@ test "compile: (i32.const 1) (i32.const 4) i32.shl end — MOV CL + MOV dst + SH
     //   5D C3                           POP RBP ; RET
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x01, 0x00, 0x00, 0x00,
-        0x41, 0xBC, 0x04, 0x00, 0x00, 0x00,
-        0x44, 0x89, 0xE1,
-        0x41, 0x89, 0xDD,
-        0x41, 0xD3, 0xE5,
-        0x44, 0x89, 0xE8,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x41,
+        0xBC,
+        0x04,
+        0x00,
+        0x00,
+        0x00,
+        0x44,
+        0x89,
+        0xE1,
+        0x41,
+        0x89,
+        0xDD,
+        0x41,
+        0xD3,
+        0xE5,
+        0x44,
+        0x89,
+        0xE8,
         0x5D,
         0xC3,
     };
@@ -1984,7 +2329,7 @@ test "compile: i32.shr_s vs i32.shr_u — kind byte differs (sar 41 D3 fd vs shr
         try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 100 });
         try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 2 });
         try f.instrs.append(testing.allocator, .{ .op = case.op });
-        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        try f.instrs.append(testing.allocator, .{ .op = .end });
         f.liveness = .{ .ranges = &[_]zir.LiveRange{
             .{ .def_pc = 0, .last_use_pc = 2 },
             .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2008,7 +2353,7 @@ test "compile: (i32.const 8) i32.clz end — LZCNT" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 8 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.clz" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2026,10 +2371,22 @@ test "compile: (i32.const 8) i32.clz end — LZCNT" {
     //   5D C3                          POP RBP ; RET
     const expected = [_]u8{
         0x55,
-        0x48, 0x89, 0xE5,
-        0xBB, 0x08, 0x00, 0x00, 0x00,
-        0xF3, 0x44, 0x0F, 0xBD, 0xE3,
-        0x44, 0x89, 0xE0,
+        0x48,
+        0x89,
+        0xE5,
+        0xBB,
+        0x08,
+        0x00,
+        0x00,
+        0x00,
+        0xF3,
+        0x44,
+        0x0F,
+        0xBD,
+        0xE3,
+        0x44,
+        0x89,
+        0xE0,
         0x5D,
         0xC3,
     };
@@ -2039,15 +2396,15 @@ test "compile: (i32.const 8) i32.clz end — LZCNT" {
 test "compile: i32.clz vs i32.ctz vs i32.popcnt — opcode byte differs" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
     inline for (.{
-        .{ .op = .@"i32.clz",    .opcode = @as(u8, 0xBD) },
-        .{ .op = .@"i32.ctz",    .opcode = @as(u8, 0xBC) },
+        .{ .op = .@"i32.clz", .opcode = @as(u8, 0xBD) },
+        .{ .op = .@"i32.ctz", .opcode = @as(u8, 0xBC) },
         .{ .op = .@"i32.popcnt", .opcode = @as(u8, 0xB8) },
     }) |case| {
         var f = ZirFunc.init(0, sig, &.{});
         defer f.deinit(testing.allocator);
         try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
         try f.instrs.append(testing.allocator, .{ .op = case.op });
-        try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+        try f.instrs.append(testing.allocator, .{ .op = .end });
         f.liveness = .{ .ranges = &[_]zir.LiveRange{
             .{ .def_pc = 0, .last_use_pc = 1 },
             .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2070,7 +2427,7 @@ test "compile: i32.eqz with stack underflow → AllocationMissing" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.eqz" }); // no operand on stack
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -2087,7 +2444,7 @@ test "compile: i32.wrap_i64 emits MOV r32_dst, r32_src (self-MOV zero-extends)" 
     // source stand-in (emit pass doesn't validate types).
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xCAFE });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.wrap_i64" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2110,7 +2467,7 @@ test "compile: i64.extend_i32_u emits MOV r32_dst, r32_src" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.extend_i32_u" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2132,7 +2489,7 @@ test "compile: i64.extend_i32_s emits MOVSXD r64_dst, r32_src" {
     // Sign-bit set source — extend_i32_s should produce a negative i64.
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xFFFFFFFF });
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.extend_i32_s" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2154,8 +2511,8 @@ test "compile: call N — 0 args, void return — emits MOV RDI,R15 + CALL + fix
 
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 1 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .call, .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
 
     const slots = [_]u16{};
@@ -2206,8 +2563,8 @@ test "compile: call N — 0 args, i32 return — captures EAX into result vreg" 
 
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 1 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .call, .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -2234,8 +2591,8 @@ test "compile: call N — 1 i32 arg — marshals top-of-stack into arg_gprs[1] (
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 1 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .call, .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -2263,8 +2620,8 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"call_indirect", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .call_indirect, .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -2315,7 +2672,7 @@ test "compile: f32.const — MOV EAX,bits + MOVD XMM8,EAX" {
     defer f.deinit(testing.allocator);
     // 1.0f bit pattern = 0x3F800000.
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -2346,7 +2703,7 @@ test "compile: f64.const — MOVABS RAX,bits + MOVQ XMM8,RAX" {
         .payload = @truncate(bits),
         .extra = @truncate(bits >> 32),
     });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -2370,7 +2727,7 @@ test "compile: f32.add — MOVAPS XMM10,XMM8 + ADDSS XMM10,XMM9" {
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.add" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2401,7 +2758,7 @@ test "compile: f64.mul — MOVAPS XMM10,XMM8 + MULSD XMM10,XMM9" {
     // 2.0 = 0x4000000000000000 split low/high.
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40000000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.mul" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2428,7 +2785,7 @@ test "compile: f64.promote_f32 — CVTSS2SD XMM9, XMM8" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.promote_f32" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2448,7 +2805,7 @@ test "compile: i32.reinterpret_f32 — MOVD R10D, XMM8 (XMM→GPR bit-cast)" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0xDEADBEEF });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.reinterpret_f32" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2469,7 +2826,7 @@ test "compile: f32.reinterpret_i32 — MOVD XMM8, R10D (GPR→XMM bit-cast)" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0x3F800000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.reinterpret_i32" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2490,7 +2847,7 @@ test "compile: f32.load — emit MOVSS xmm_dst, [rax + rdx] after eff-addr/bound
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.load", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2514,7 +2871,7 @@ test "compile: f64.store — emit MOVSD [rax+rdx], xmm_src + bounds prologue wit
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x3FF00000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.store", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2542,7 +2899,7 @@ test "compile: i32.trunc_f32_u — Wasm 1.0 trapping unsigned via .q-trick" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40400000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_f32_u" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2566,7 +2923,7 @@ test "compile: i64.trunc_f64_u — Wasm 1.0 trapping with 2^63 split path" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40080000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.trunc_f64_u" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2593,7 +2950,7 @@ test "compile: i32.trunc_f32_s — Wasm 1.0 trapping; NaN/upper/lower → bounds
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40400000 }); // 3.0f
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_f32_s" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2620,7 +2977,7 @@ test "compile: i64.trunc_sat_f32_u — 2^63 split path with SUBSS + sign-bit OR"
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.trunc_sat_f32_u" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2656,7 +3013,7 @@ test "compile: i32.trunc_sat_f32_u — UCOMI/JP + clamp paths + CVTTSS2SI .q for
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40400000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_sat_f32_u" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2699,7 +3056,7 @@ test "compile: i32.trunc_sat_f32_s — CVTTSS2SI + CMP INT_MIN + branch saturati
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40400000 }); // 3.0f
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.trunc_sat_f32_s" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2734,7 +3091,7 @@ test "compile: i64.trunc_sat_f64_s — CVTTSD2SI .q + i64 sentinel via MOVABS+CM
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40080000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.trunc_sat_f64_s" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2761,7 +3118,7 @@ test "compile: f32.convert_i32_u — CVTSI2SS XMM8, R10 (REX.W on i32 src for ze
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xFFFFFFFF }); // u32 max
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.convert_i32_u" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2783,7 +3140,7 @@ test "compile: f32.convert_i64_u — branch-based slow-path emit" {
     // i32.const placeholder for i64 source (synthetic; emit doesn't validate types).
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.convert_i64_u" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2829,7 +3186,7 @@ test "compile: f32.convert_i32_s — CVTSI2SS XMM8, R10D" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.convert_i32_s" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2851,7 +3208,7 @@ test "compile: f32.min — branch-based emit (UCOMISS + JP/JE + 3 paths)" {
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40400000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.min" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2902,7 +3259,7 @@ test "compile: f64.max — eq path uses ANDPD, common uses MAXSD" {
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x3FF00000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40000000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.max" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2936,7 +3293,7 @@ test "compile: f32.copysign — bit-twiddle via RAX/RDX/RCX scratches" {
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40400000 }); // 3.0
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0xBF800000 }); // -1.0
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.copysign" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -2972,7 +3329,7 @@ test "compile: f64.copysign — same shape with .q widths and MOVABS masks" {
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40080000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0xBFF00000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.copysign" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3007,7 +3364,7 @@ test "compile: f32.sqrt — SQRTSS XMM9, XMM8" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40800000 }); // 4.0f
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.sqrt" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3027,7 +3384,7 @@ test "compile: f64.ceil — ROUNDSD XMM9, XMM8, mode=2" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x3FF80000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.ceil" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3047,7 +3404,7 @@ test "compile: f32.abs — mask materialisation + MOVAPS + ANDPS" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0xBF800000 }); // -1.0f
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.abs" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3073,7 +3430,7 @@ test "compile: f64.neg — XORPD with sign-bit mask" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x3FF00000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.neg" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3100,7 +3457,7 @@ test "compile: f32.lt — UCOMISS swapped + SETA + MOVZX" {
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x40000000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.lt" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3132,7 +3489,7 @@ test "compile: f32.eq — UCOMISS + SETNP/SETE + AND combine" {
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.eq" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3164,7 +3521,7 @@ test "compile: f64.gt — UCOMISD + SETA + MOVZX" {
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x40000000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0x3FF00000 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f64.gt" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3186,7 +3543,7 @@ test "compile: f32.add stack underflow → AllocationMissing" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.add" }); // missing rhs
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3201,8 +3558,8 @@ test "compile: call_indirect — out-of-range type_idx → AllocationMissing" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"call_indirect", .payload = 5 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .call_indirect, .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -3216,8 +3573,8 @@ test "compile: call N — out-of-range callee_idx → AllocationMissing" {
     const func_sigs = [_]zir.FuncType{sig}; // only idx 0 exists
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"call", .payload = 5 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .call, .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
     const slots = [_]u16{};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
@@ -3229,7 +3586,7 @@ test "compile: i32.wrap_i64 with stack underflow → AllocationMissing" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.wrap_i64" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -3244,7 +3601,7 @@ test "compile: i32.add with stack underflow → AllocationMissing" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.add" }); // missing 2nd operand
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3276,7 +3633,7 @@ test "compile: f32.const → end emits MOVAPS XMM0, XMM8 (FP-aware return marsha
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0x3F800000 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -3304,7 +3661,7 @@ test "compile: f64.const → end emits MOVAPS XMM0, XMM8 (same MOVAPS works for 
         .payload = @truncate(bits),
         .extra = @truncate(bits >> 32),
     });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -3328,7 +3685,7 @@ test "compile: i64-result end emits MOV RAX, src (.q full width avoids truncatio
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0x12345678 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.extend_i32_u" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3354,8 +3711,8 @@ test "compile: nop emits no body bytes (between prologue and epilogue)" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"nop" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
     const slots = [_]u16{};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
@@ -3373,8 +3730,8 @@ test "compile: drop pops vreg without machine bytes (i32.const, drop, end)" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"drop" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .drop });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -3399,7 +3756,7 @@ test "compile: return mid-function (i32.const, return, end) emits MOV EAX + epil
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0xDEADBEEF });
     try f.instrs.append(testing.allocator, .{ .op = .@"return" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -3436,7 +3793,7 @@ test "compile: i64.add emits ADD .q (REX.W) — 64-bit width preserved" {
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 1, .extra = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 2, .extra = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.add" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 2 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3467,7 +3824,7 @@ test "compile: i64.clz emits LZCNT .q (REX.W; F3 prefix) — 64-bit count" {
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 1, .extra = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"i64.clz" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
         .{ .def_pc = 1, .last_use_pc = 2 },
@@ -3496,7 +3853,7 @@ test "compile: i64.const emits MOVABS r64, imm64 (10 bytes)" {
         .payload = @truncate(value),
         .extra = @truncate(value >> 32),
     });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };
@@ -3535,7 +3892,7 @@ test "compile: unreachable emits JMP rel32 + trap stub patches disp to trap_byte
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"unreachable" });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
     const slots = [_]u16{};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
@@ -3565,7 +3922,7 @@ test "compile: v128-result end → UnsupportedOp (v128 marshalling deferred)" {
     // end handler refuses unknown-width returns rather than
     // silently emitting truncating MOV EAX bytes.
     try f.instrs.append(testing.allocator, .{ .op = .@"f32.const", .payload = 0 });
-    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &[_]zir.LiveRange{
         .{ .def_pc = 0, .last_use_pc = 1 },
     } };

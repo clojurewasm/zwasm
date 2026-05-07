@@ -71,21 +71,64 @@ pub fn emitI32Binary(
     const lhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, lhs_v, 0);
     const rhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, rhs_v, 1);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
-    if (dst_r == rhs_r and dst_r != lhs_r) return types.rejectUnsupported("src/engine/codegen/x86_64/op_alu_int.zig:74", 0);
 
-    if (dst_r != lhs_r) {
-        try buf.appendSlice(allocator, inst.encMovRR(.d, dst_r, lhs_r).slice());
-    }
-    const enc = switch (op) {
-        .@"i32.add" => inst.encAddRR(.d, dst_r, rhs_r),
-        .@"i32.sub" => inst.encSubRR(.d, dst_r, rhs_r),
-        .@"i32.mul" => inst.encImulRR(.d, dst_r, rhs_r),
-        .@"i32.and" => inst.encAndRR(.d, dst_r, rhs_r),
-        .@"i32.or"  => inst.encOrRR(.d, dst_r, rhs_r),
-        .@"i32.xor" => inst.encXorRR(.d, dst_r, rhs_r),
+    // §9.7 / 7.10-b: parallel-move for the dst==rhs case (D-029).
+    // The naive `MOV dst, lhs ; OP dst, rhs` would clobber rhs
+    // before the OP reads it. Strategies per op:
+    // - Commutative (add/mul/and/or/xor): emit `OP dst, lhs`
+    //   directly (= `dst = rhs OP lhs` = `dst = lhs OP rhs` since
+    //   the op commutes).
+    // - Non-commutative (sub): stage through R10 (spill_stage_gprs[0],
+    //   already free at this point — its prior contents (lhs if
+    //   spilled) are no longer needed after the load above).
+    //   `MOV R10, lhs ; SUB R10, rhs ; MOV dst, R10`. R10 ≠ dst_r
+    //   because dst_r is either a pool reg or R10; if dst_r == R10
+    //   then dst is spilled, and the staging through R10 is still
+    //   correct since we flush via gprStoreSpilled afterward.
+    const commutative = switch (op) {
+        .@"i32.add", .@"i32.mul", .@"i32.and", .@"i32.or", .@"i32.xor" => true,
+        .@"i32.sub" => false,
         else => unreachable,
     };
-    try buf.appendSlice(allocator, enc.slice());
+    if (dst_r == rhs_r and dst_r != lhs_r) {
+        if (commutative) {
+            // OP dst, lhs  (commute: dst already holds rhs).
+            const enc = switch (op) {
+                .@"i32.add" => inst.encAddRR(.d, dst_r, lhs_r),
+                .@"i32.mul" => inst.encImulRR(.d, dst_r, lhs_r),
+                .@"i32.and" => inst.encAndRR(.d, dst_r, lhs_r),
+                .@"i32.or" => inst.encOrRR(.d, dst_r, lhs_r),
+                .@"i32.xor" => inst.encXorRR(.d, dst_r, lhs_r),
+                else => unreachable,
+            };
+            try buf.appendSlice(allocator, enc.slice());
+        } else {
+            // i32.sub: scratch via R10. dst_r could be R10 itself
+            // (when result vreg is spilled); the sequence still
+            // computes lhs - rhs into dst_r correctly because the
+            // final MOV dst, R10 is a no-op when dst_r == R10.
+            const scratch = abi.spill_stage_gprs[0];
+            try buf.appendSlice(allocator, inst.encMovRR(.d, scratch, lhs_r).slice());
+            try buf.appendSlice(allocator, inst.encSubRR(.d, scratch, rhs_r).slice());
+            if (dst_r != scratch) {
+                try buf.appendSlice(allocator, inst.encMovRR(.d, dst_r, scratch).slice());
+            }
+        }
+    } else {
+        if (dst_r != lhs_r) {
+            try buf.appendSlice(allocator, inst.encMovRR(.d, dst_r, lhs_r).slice());
+        }
+        const enc = switch (op) {
+            .@"i32.add" => inst.encAddRR(.d, dst_r, rhs_r),
+            .@"i32.sub" => inst.encSubRR(.d, dst_r, rhs_r),
+            .@"i32.mul" => inst.encImulRR(.d, dst_r, rhs_r),
+            .@"i32.and" => inst.encAndRR(.d, dst_r, rhs_r),
+            .@"i32.or" => inst.encOrRR(.d, dst_r, rhs_r),
+            .@"i32.xor" => inst.encXorRR(.d, dst_r, rhs_r),
+            else => unreachable,
+        };
+        try buf.appendSlice(allocator, enc.slice());
+    }
     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
     try pushed_vregs.append(allocator, result_v);
 }
@@ -120,8 +163,8 @@ pub fn emitI32Compare(
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
 
     const cc: inst.Cond = switch (op) {
-        .@"i32.eq"   => .e,
-        .@"i32.ne"   => .ne,
+        .@"i32.eq" => .e,
+        .@"i32.ne" => .ne,
         .@"i32.lt_s" => .l,
         .@"i32.lt_u" => .b,
         .@"i32.gt_s" => .g,
@@ -208,9 +251,15 @@ pub fn emitI32Shift(
     const rhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, rhs_v, 1);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
     if (dst_r == .rcx) return types.rejectUnsupported("src/engine/codegen/x86_64/op_alu_int.zig:210", 0);
-    if (dst_r == rhs_r and dst_r != lhs_r) return types.rejectUnsupported("src/engine/codegen/x86_64/op_alu_int.zig:211", 0);
+    // §9.7 / 7.10-b: dst==rhs case is naturally safe here because
+    // step 1 below copies rhs to RCX BEFORE step 2 overwrites dst
+    // with lhs. So dst's old value (= rhs's value) is preserved
+    // in RCX/CL by the time the shift fires. Earlier rejects
+    // were defensive duplicates of the binary-ALU pattern that
+    // doesn't apply to shifts.
 
-    // 1. Move shift count into ECX (CL is the low byte).
+    // 1. Move shift count into ECX (CL is the low byte). This
+    //    happens BEFORE step 2 so the dst==rhs sequence works.
     if (rhs_r != .rcx) {
         try buf.appendSlice(allocator, inst.encMovRR(.d, .rcx, rhs_r).slice());
     }
@@ -220,11 +269,11 @@ pub fn emitI32Shift(
     }
     // 3. Shift / rotate.
     const kind: inst.ShiftKind = switch (op) {
-        .@"i32.shl"   => .shl,
+        .@"i32.shl" => .shl,
         .@"i32.shr_s" => .sar,
         .@"i32.shr_u" => .shr,
-        .@"i32.rotl"  => .rol,
-        .@"i32.rotr"  => .ror,
+        .@"i32.rotl" => .rol,
+        .@"i32.rotr" => .ror,
         else => unreachable,
     };
     try buf.appendSlice(allocator, inst.encShiftRCl(.d, kind, dst_r).slice());
@@ -260,8 +309,8 @@ pub fn emitI32Bitcount(
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
 
     const enc = switch (op) {
-        .@"i32.clz"    => inst.encLzcntR32(dst_r, src_r),
-        .@"i32.ctz"    => inst.encTzcntR32(dst_r, src_r),
+        .@"i32.clz" => inst.encLzcntR32(dst_r, src_r),
+        .@"i32.ctz" => inst.encTzcntR32(dst_r, src_r),
         .@"i32.popcnt" => inst.encPopcntR32(dst_r, src_r),
         else => unreachable,
     };
@@ -293,21 +342,49 @@ pub fn emitI64Binary(
     const lhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, lhs_v, 0);
     const rhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, rhs_v, 1);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
-    if (dst_r == rhs_r and dst_r != lhs_r) return types.rejectUnsupported("src/engine/codegen/x86_64/op_alu_int.zig:296", 0);
 
-    if (dst_r != lhs_r) {
-        try buf.appendSlice(allocator, inst.encMovRR(.q, dst_r, lhs_r).slice());
-    }
-    const enc = switch (op) {
-        .@"i64.add" => inst.encAddRR(.q, dst_r, rhs_r),
-        .@"i64.sub" => inst.encSubRR(.q, dst_r, rhs_r),
-        .@"i64.mul" => inst.encImulRR(.q, dst_r, rhs_r),
-        .@"i64.and" => inst.encAndRR(.q, dst_r, rhs_r),
-        .@"i64.or"  => inst.encOrRR(.q, dst_r, rhs_r),
-        .@"i64.xor" => inst.encXorRR(.q, dst_r, rhs_r),
+    // §9.7 / 7.10-b: mirrors emitI32Binary — commute commutative
+    // ops, scratch through R10 for sub. See emitI32Binary for the
+    // detailed rationale.
+    const commutative = switch (op) {
+        .@"i64.add", .@"i64.mul", .@"i64.and", .@"i64.or", .@"i64.xor" => true,
+        .@"i64.sub" => false,
         else => unreachable,
     };
-    try buf.appendSlice(allocator, enc.slice());
+    if (dst_r == rhs_r and dst_r != lhs_r) {
+        if (commutative) {
+            const enc = switch (op) {
+                .@"i64.add" => inst.encAddRR(.q, dst_r, lhs_r),
+                .@"i64.mul" => inst.encImulRR(.q, dst_r, lhs_r),
+                .@"i64.and" => inst.encAndRR(.q, dst_r, lhs_r),
+                .@"i64.or" => inst.encOrRR(.q, dst_r, lhs_r),
+                .@"i64.xor" => inst.encXorRR(.q, dst_r, lhs_r),
+                else => unreachable,
+            };
+            try buf.appendSlice(allocator, enc.slice());
+        } else {
+            const scratch = abi.spill_stage_gprs[0];
+            try buf.appendSlice(allocator, inst.encMovRR(.q, scratch, lhs_r).slice());
+            try buf.appendSlice(allocator, inst.encSubRR(.q, scratch, rhs_r).slice());
+            if (dst_r != scratch) {
+                try buf.appendSlice(allocator, inst.encMovRR(.q, dst_r, scratch).slice());
+            }
+        }
+    } else {
+        if (dst_r != lhs_r) {
+            try buf.appendSlice(allocator, inst.encMovRR(.q, dst_r, lhs_r).slice());
+        }
+        const enc = switch (op) {
+            .@"i64.add" => inst.encAddRR(.q, dst_r, rhs_r),
+            .@"i64.sub" => inst.encSubRR(.q, dst_r, rhs_r),
+            .@"i64.mul" => inst.encImulRR(.q, dst_r, rhs_r),
+            .@"i64.and" => inst.encAndRR(.q, dst_r, rhs_r),
+            .@"i64.or" => inst.encOrRR(.q, dst_r, rhs_r),
+            .@"i64.xor" => inst.encXorRR(.q, dst_r, rhs_r),
+            else => unreachable,
+        };
+        try buf.appendSlice(allocator, enc.slice());
+    }
     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
     try pushed_vregs.append(allocator, result_v);
 }
@@ -336,8 +413,8 @@ pub fn emitI64Compare(
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
 
     const cc: inst.Cond = switch (op) {
-        .@"i64.eq"   => .e,
-        .@"i64.ne"   => .ne,
+        .@"i64.eq" => .e,
+        .@"i64.ne" => .ne,
         .@"i64.lt_s" => .l,
         .@"i64.lt_u" => .b,
         .@"i64.gt_s" => .g,
@@ -406,7 +483,8 @@ pub fn emitI64Shift(
     const rhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, rhs_v, 1);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
     if (dst_r == .rcx) return types.rejectUnsupported("src/engine/codegen/x86_64/op_alu_int.zig:408", 0);
-    if (dst_r == rhs_r and dst_r != lhs_r) return types.rejectUnsupported("src/engine/codegen/x86_64/op_alu_int.zig:409", 0);
+    // §9.7 / 7.10-b: dst==rhs case naturally safe — see emitI32Shift
+    // for the rationale. RCX move precedes dst overwrite.
 
     if (rhs_r != .rcx) {
         try buf.appendSlice(allocator, inst.encMovRR(.d, .rcx, rhs_r).slice());
@@ -415,11 +493,11 @@ pub fn emitI64Shift(
         try buf.appendSlice(allocator, inst.encMovRR(.q, dst_r, lhs_r).slice());
     }
     const kind: inst.ShiftKind = switch (op) {
-        .@"i64.shl"   => .shl,
+        .@"i64.shl" => .shl,
         .@"i64.shr_s" => .sar,
         .@"i64.shr_u" => .shr,
-        .@"i64.rotl"  => .rol,
-        .@"i64.rotr"  => .ror,
+        .@"i64.rotl" => .rol,
+        .@"i64.rotr" => .ror,
         else => unreachable,
     };
     try buf.appendSlice(allocator, inst.encShiftRCl(.q, kind, dst_r).slice());
@@ -449,8 +527,8 @@ pub fn emitI64Bitcount(
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
 
     const enc = switch (op) {
-        .@"i64.clz"    => inst.encLzcntR64(dst_r, src_r),
-        .@"i64.ctz"    => inst.encTzcntR64(dst_r, src_r),
+        .@"i64.clz" => inst.encLzcntR64(dst_r, src_r),
+        .@"i64.ctz" => inst.encTzcntR64(dst_r, src_r),
         .@"i64.popcnt" => inst.encPopcntR64(dst_r, src_r),
         else => unreachable,
     };
@@ -485,9 +563,9 @@ pub fn emitSignExtend(
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
 
     const enc = switch (op) {
-        .@"i32.extend8_s"  => inst.encMovsxR32R8(dst_r, src_r),
+        .@"i32.extend8_s" => inst.encMovsxR32R8(dst_r, src_r),
         .@"i32.extend16_s" => inst.encMovsxR32R16(dst_r, src_r),
-        .@"i64.extend8_s"  => inst.encMovsxR64R8(dst_r, src_r),
+        .@"i64.extend8_s" => inst.encMovsxR64R8(dst_r, src_r),
         .@"i64.extend16_s" => inst.encMovsxR64R16(dst_r, src_r),
         .@"i64.extend32_s" => inst.encMovsxdR64R32(dst_r, src_r),
         else => unreachable,
