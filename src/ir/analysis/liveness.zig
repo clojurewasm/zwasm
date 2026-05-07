@@ -284,10 +284,16 @@ pub fn compute(
         if (instr.op == .@"call" or instr.op == .@"call_indirect") {
             const callee_sig: zir.FuncType = blk: {
                 if (instr.op == .@"call") {
-                    if (instr.payload >= func_sigs.len) return Error.UnsupportedOp;
+                    if (instr.payload >= func_sigs.len) {
+                        std.debug.print("liveness: UnsupportedOp[call-payload-OOB] payload={d} func_sigs.len={d} func_idx={d}\n", .{ instr.payload, func_sigs.len, func.func_idx });
+                        return Error.UnsupportedOp;
+                    }
                     break :blk func_sigs[instr.payload];
                 } else {
-                    if (instr.payload >= module_types.len) return Error.UnsupportedOp;
+                    if (instr.payload >= module_types.len) {
+                        std.debug.print("liveness: UnsupportedOp[call_indirect-payload-OOB] payload={d} types.len={d} func_idx={d}\n", .{ instr.payload, module_types.len, func.func_idx });
+                        return Error.UnsupportedOp;
+                    }
                     break :blk module_types[instr.payload];
                 }
             };
