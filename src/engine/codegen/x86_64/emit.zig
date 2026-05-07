@@ -336,6 +336,11 @@ pub fn compile(
         // into the local frame slot.
         var int_arg_idx: usize = 1;
         var fp_arg_idx: usize = if (abi.current_cc == .win64) 1 else 0;
+        // §9.7 / 7.10-j: per-overflow NSAA index for SysV. Mirror of
+        // the caller-side counter in op_call.marshalCallArgs (chunk
+        // 7.10-f). Both classes share the NSAA stream in declaration
+        // order — increment per overflowed arg regardless of class.
+        var nsaa_idx: u32 = 0;
         while (p_idx < num_params) : (p_idx += 1) {
             // §9.7 / 7.10-g: i32 disp throughout — auto-helpers
             // pick disp8 / disp32 form per offset range.
@@ -374,35 +379,49 @@ pub fn compile(
                 fp_arg_idx += 1;
                 continue;
             }
+            // SysV per-overflow stack-arg read (§9.7 / 7.10-j;
+            // mirror of op_call.marshalCallArgs's NSAA write path).
+            // `[RBP + 16 + r15_save_off + 8 * nsaa_idx]` matches the
+            // caller's `[RSP + 8 * nsaa_idx]` write after RET addr +
+            // saved RBP (+ saved R15) push. Win64 already handled
+            // above; this branch is structurally SysV-only.
+            const sysv_int_overflow = (ptype == .i32 or ptype == .i64) and int_arg_idx >= abi.current.arg_gprs.len;
+            const sysv_fp_overflow = (ptype == .f32 or ptype == .f64) and fp_arg_idx >= abi.current.arg_xmms.len;
+            if (sysv_int_overflow or sysv_fp_overflow) {
+                const r15_save_off: i32 = if (uses_runtime_ptr) 8 else 0;
+                const stack_disp: i32 = 16 + r15_save_off + @as(i32, @intCast(nsaa_idx * 8));
+                switch (ptype) {
+                    .i32 => {
+                        try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, .rbp, stack_disp).slice());
+                        try buf.appendSlice(allocator, rbpStoreR32(off, .rax).slice());
+                    },
+                    .i64, .f32, .f64 => {
+                        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, stack_disp).slice());
+                        try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice());
+                    },
+                    else => unreachable,
+                }
+                nsaa_idx += 1;
+                if (sysv_int_overflow) int_arg_idx += 1 else fp_arg_idx += 1;
+                continue;
+            }
             switch (ptype) {
                 .i32 => {
-                    if (int_arg_idx >= abi.current.arg_gprs.len) {
-                        return rejectUnsupported("i32-param-arg-overflow", func.func_idx);
-                    }
                     try buf.appendSlice(allocator, rbpStoreR32(off, abi.current.arg_gprs[int_arg_idx]).slice());
                     int_arg_idx += 1;
                     if (abi.current_cc == .win64) fp_arg_idx += 1;
                 },
                 .i64 => {
-                    if (int_arg_idx >= abi.current.arg_gprs.len) {
-                        return rejectUnsupported("i64-param-arg-overflow", func.func_idx);
-                    }
                     try buf.appendSlice(allocator, rbpStoreR64(off, abi.current.arg_gprs[int_arg_idx]).slice());
                     int_arg_idx += 1;
                     if (abi.current_cc == .win64) fp_arg_idx += 1;
                 },
                 .f32 => {
-                    if (fp_arg_idx >= abi.current.arg_xmms.len) {
-                        return rejectUnsupported("f32-param-xmm-overflow", func.func_idx);
-                    }
                     try buf.appendSlice(allocator, rbpStoreXmmF32(off, abi.current.arg_xmms[fp_arg_idx]).slice());
                     fp_arg_idx += 1;
                     if (abi.current_cc == .win64) int_arg_idx += 1;
                 },
                 .f64 => {
-                    if (fp_arg_idx >= abi.current.arg_xmms.len) {
-                        return rejectUnsupported("f64-param-xmm-overflow", func.func_idx);
-                    }
                     try buf.appendSlice(allocator, rbpStoreXmmF64(off, abi.current.arg_xmms[fp_arg_idx]).slice());
                     fp_arg_idx += 1;
                     if (abi.current_cc == .win64) int_arg_idx += 1;
@@ -4048,6 +4067,45 @@ test "compile: unreachable emits JMP rel32 + trap stub patches disp to trap_byte
     // + POP RBP (1) + RET (1) = 8 bytes → trap stub starts at
     // 13 + 5 + 8 = 26.
     try testing.expectEqual(@as(i32, 26), target_abs);
+}
+
+test "compile: SysV callee with 6 i32 params — 6th param read from caller stack [RBP+16+8*0] (§9.7 / 7.10-j)" {
+    // Mirror of 7.10-f: caller writes overflow args at
+    // `[RSP + 8 * nsaa_idx]` from its stack pointer; callee reads
+    // them at `[RBP + 16 + r15_save_off + 8 * nsaa_idx]` (= caller's
+    // bottom-of-frame after RET addr push + saved RBP + saved R15).
+    //
+    // Pre-7.10-j the SysV side surfaced UnsupportedOp[
+    // i32-param-arg-overflow] at emit.zig:382 since arg_gprs.len = 6
+    // and int_arg_idx starts at 1 (slot 0 = runtime ptr); 6 user
+    // i32 args overflow at the 6th.
+    if (abi.current_cc != .sysv) return error.SkipZigTest;
+    const sig: zir.FuncType = .{ .params = &[_]zir.ValType{ .i32, .i32, .i32, .i32, .i32, .i32 }, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
+
+    const slots = [_]u16{};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    defer deinit(testing.allocator, out);
+
+    // 6 i32 args: slots 1..5 fill arg_gprs[1..5] (RSI..R9). The 6th
+    // arg (param 5) overflows. uses_runtime_ptr=false (no calls /
+    // memory ops in this fn) so r15_save_off = 0; stack_disp = 16.
+    // Look for `MOV EAX, [RBP + 16]` (encMovR32FromMemDisp32) — the
+    // load step of the overflow read.
+    const expected = inst.encMovR32FromMemDisp32(.rax, .rbp, 16);
+    var found: bool = false;
+    var i: usize = 0;
+    while (i + expected.len <= out.bytes.len) : (i += 1) {
+        if (std.mem.eql(u8, out.bytes[i .. i + expected.len], expected.slice())) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
 }
 
 test "compile: i32.load with offset > i32 imm32 range (§9.7 / 7.10-i) lowers via MOVABS+ADD" {
