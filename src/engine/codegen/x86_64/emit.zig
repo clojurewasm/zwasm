@@ -691,10 +691,7 @@ pub fn compile(
                 }
                 break;
             },
-            else => {
-                std.debug.print("x86_64/emit: unsupported op `{s}` (func_idx={d})\n", .{ @tagName(ins.op), func.func_idx });
-                return Error.UnsupportedOp;
-            },
+            else => return Error.UnsupportedOp,
         }
     }
 
