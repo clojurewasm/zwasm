@@ -89,9 +89,32 @@ pub fn compile(
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
     }
-    if (func.sig.params.len > 0) return Error.UnsupportedOp;
+    // §9.7 / 7.8-x86-params: lift the params=0 reject. Mirrors
+    // arm64/emit.zig:134 ("Multi-arg entry"). For now i32-only
+    // params are supported; i64/f32/f64 surface UnsupportedOp
+    // until the type-aware local + FP-marshal chunks land.
+    // SysV reserves RDI for the runtime ptr (ADR-0026), so user
+    // int args start at RSI (max 5). Win64 reserves RCX → user
+    // int args start at RDX (max 3). The total runs through the
+    // arch-specific `abi.current.arg_gprs` array, indexed past
+    // the runtime-ptr save reg.
+    const num_params: u32 = @intCast(func.sig.params.len);
+    for (func.sig.params) |p| {
+        switch (p) {
+            .i32 => {},
+            .i64, .f32, .f64, .v128, .funcref, .externref => {
+                std.debug.print("x86_64/emit: param type `{s}` unsupported (func_idx={d})\n", .{ @tagName(p), func.func_idx });
+                return Error.UnsupportedOp;
+            },
+        }
+    }
     const num_locals: u32 = @intCast(func.locals.len);
-    if (num_locals > 15) return Error.UnsupportedOp;
+    const total_locals: u32 = num_params + num_locals;
+    // localDisp's i8 disp limits: with uses_runtime_ptr the deepest
+    // slot lives at -8 - 8*total_locals which must stay >= -128 →
+    // total_locals <= 15. Without uses_runtime_ptr the cap is
+    // total_locals <= 16.
+    if (total_locals > 15) return Error.UnsupportedOp;
 
     // Prescan: does this function need the runtime-ptr save?
     // Per ADR-0026, memory ops (and future calls / call_indirect)
@@ -132,7 +155,7 @@ pub fn compile(
     // ≡ 8 mod 16; PUSH RBP → 0 mod 16; PUSH R15 → 8 mod 16):
     //   - 1-PUSH:  frame ≡ 0 mod 16  (current shape; rounds up locals_bytes to 16)
     //   - 2-PUSH:  frame ≡ 8 mod 16  (per ADR-0026 prologue)
-    const locals_bytes: u32 = num_locals * 8;
+    const locals_bytes: u32 = total_locals * 8;
     const frame_bytes: u32 = if (uses_runtime_ptr)
         ((locals_bytes + 7) & ~@as(u32, 15)) + 8
     else
@@ -166,6 +189,40 @@ pub fn compile(
     }
     if (frame_bytes > 0) {
         try buf.appendSlice(allocator, inst.encSubRSpImm8(@intCast(frame_bytes)).slice());
+    }
+
+    // §9.7 / 7.8-x86-params: marshal i32 params from arg regs to
+    // local slots. Per ADR-0026 Cc-pivot:
+    //   SysV: arg_gprs = {RDI, RSI, RDX, RCX, R8, R9}; RDI = runtime
+    //         ptr, user int args from RSI (max 5)
+    //   Win64: arg_gprs = {RCX, RDX, R8, R9}; RCX = runtime ptr,
+    //         user int args from RDX (max 3)
+    // The base index into arg_gprs is set so index 0 of the user
+    // params lands on the first non-runtime-ptr arg reg.
+    const base_off_for_locals: i8 = if (uses_runtime_ptr) -8 else 0;
+    {
+        var p_idx: u32 = 0;
+        var int_arg_idx: usize = 1; // skip runtime_ptr_gpr (= arg_gprs[0])
+        while (p_idx < num_params) : (p_idx += 1) {
+            if (int_arg_idx >= abi.current.arg_gprs.len) {
+                std.debug.print("x86_64/emit: > {d} int params unsupported (func_idx={d})\n", .{
+                    abi.current.arg_gprs.len - 1,
+                    func.func_idx,
+                });
+                return Error.UnsupportedOp;
+            }
+            const src_reg = abi.current.arg_gprs[int_arg_idx];
+            const off_i32: i32 = @as(i32, base_off_for_locals) - @as(i32, @intCast((p_idx + 1) * 8));
+            if (off_i32 < -128) return Error.UnsupportedOp;
+            const off: i8 = @intCast(off_i32);
+            // i32-only path (validated above): MOV [RBP+disp8], r32.
+            // The 32-bit store leaves the upper 32 of the local-slot
+            // garbage, but `local.get` always reads via R32 (matching
+            // localDisp's narrow load), so the high bits are masked
+            // off downstream.
+            try buf.appendSlice(allocator, inst.encStoreR32MemRBP(off, src_reg).slice());
+            int_arg_idx += 1;
+        }
     }
 
     // ============================================================
@@ -306,9 +363,9 @@ pub fn compile(
             .@"i32.trunc_f32_u", .@"i32.trunc_f64_u",
             .@"i64.trunc_f32_u", .@"i64.trunc_f64_u",
             => try op_convert.emitFpTruncTrapUnsigned(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, ins.op),
-            .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, num_locals, uses_runtime_ptr, ins.payload),
-            .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
-            .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, num_locals, uses_runtime_ptr, ins.payload),
+            .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, total_locals, uses_runtime_ptr, ins.payload),
+            .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, total_locals, uses_runtime_ptr, ins.payload),
+            .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, total_locals, uses_runtime_ptr, ins.payload),
             .@"i32.load", .@"i32.load8_s", .@"i32.load8_u",
             .@"i32.load16_s", .@"i32.load16_u",
             .@"i32.store", .@"i32.store8", .@"i32.store16",
@@ -509,8 +566,8 @@ pub fn compile(
 ///       when  uses_runtime_ptr (R15 occupies [RBP-8]).
 /// Surfaces `UnsupportedOp` for indices the i8 disp cannot
 /// reach (15 locals max either way; coincidentally same cap).
-fn localDisp(idx: u32, num_locals: u32, uses_runtime_ptr: bool) Error!i8 {
-    if (idx >= num_locals) return Error.UnsupportedOp;
+fn localDisp(idx: u32, total_locals: u32, uses_runtime_ptr: bool) Error!i8 {
+    if (idx >= total_locals) return Error.UnsupportedOp;
     if (idx >= 16) return Error.UnsupportedOp;
     const base_off: i32 = if (uses_runtime_ptr) -8 else 0;
     const off: i32 = base_off - @as(i32, @intCast((idx + 1) * 8));
@@ -526,11 +583,11 @@ fn emitLocalGet(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
-    num_locals: u32,
+    total_locals: u32,
     uses_runtime_ptr: bool,
     idx: u32,
 ) Error!void {
-    const disp = try localDisp(idx, num_locals, uses_runtime_ptr);
+    const disp = try localDisp(idx, total_locals, uses_runtime_ptr);
     const vreg = next_vreg.*;
     next_vreg.* += 1;
     if (vreg >= alloc.slots.len) return Error.SlotOverflow;
@@ -546,11 +603,11 @@ fn emitLocalSet(
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
-    num_locals: u32,
+    total_locals: u32,
     uses_runtime_ptr: bool,
     idx: u32,
 ) Error!void {
-    const disp = try localDisp(idx, num_locals, uses_runtime_ptr);
+    const disp = try localDisp(idx, total_locals, uses_runtime_ptr);
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
     const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
@@ -564,11 +621,11 @@ fn emitLocalTee(
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
-    num_locals: u32,
+    total_locals: u32,
     uses_runtime_ptr: bool,
     idx: u32,
 ) Error!void {
-    const disp = try localDisp(idx, num_locals, uses_runtime_ptr);
+    const disp = try localDisp(idx, total_locals, uses_runtime_ptr);
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.items[pushed_vregs.items.len - 1];
     const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
@@ -1294,13 +1351,50 @@ test "compile: function with > 15 locals → UnsupportedOp (i8 disp range)" {
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}));
 }
 
-test "compile: function with params → UnsupportedOp (skeleton scope)" {
-    const sig: zir.FuncType = .{ .params = &[_]zir.ValType{.i32}, .results = &.{} };
+test "compile: function with i64 param → UnsupportedOp (chunk-6 i32-only scope)" {
+    // Chunk 6 lifts i32 params; i64/f32/f64 still surface
+    // UnsupportedOp until the type-aware local + FP-marshal
+    // chunks land. This test guards the boundary.
+    const sig: zir.FuncType = .{ .params = &[_]zir.ValType{.i64}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}));
+}
+
+test "compile: i32 param + local.get + end — params marshal MOV [rbp-8], esi" {
+    // §9.7 / 7.8-x86-params smoke test. (param i32) → i32 returns
+    // the param value via local.get 0. SysV: arg_gprs[1] = RSI.
+    const sig: zir.FuncType = .{ .params = &[_]zir.ValType{.i32}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u8{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // The marshalled MOV [rbp-8], <argreg> appears between the
+    // SUB RSP and the body's local.get. SysV's user int arg 0 is
+    // RSI; Win64's user int arg 0 is RDX. Either way it goes to
+    // [rbp-8] (no uses_runtime_ptr; first local at offset -8).
+    const expected = inst.encStoreR32MemRBP(-8, abi.current.arg_gprs[1]);
+    // Search the prologue range for the marshal byte sequence.
+    const prologue_end: usize = 12; // PUSH RBP + MOV RBP,RSP + SUB RSP,16
+    var found = false;
+    var i: usize = 0;
+    while (i + expected.len <= prologue_end + expected.len) : (i += 1) {
+        if (i + expected.len > out.bytes.len) break;
+        if (std.mem.eql(u8, expected.slice(), out.bytes[i .. i + expected.len])) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
 }
 
 test "compile: (i32.const 7) (i32.const 5) i32.add end — verifies ADD is emitted" {
