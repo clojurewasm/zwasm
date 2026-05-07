@@ -16,41 +16,51 @@
 
 直近 commit (HEAD = `<this>`):
 
-- `<this>` chore(p7): §9.7 / 7.9 chunk d-9 close (frame_bytes + max_slots widening)
+- `<this>` chore(p7): mark §9.7 / 7.9 chunk d-10 close (caller-side reject diag)
+- `b9a5948` feat(p7): §9.7 / 7.9 chunk d-10 — arm64 op_call caller-side reject diag prints
 - `cc6a0eb` feat(p7): §9.7 / 7.9 chunk d-9 — arm64 frame_bytes + regalloc max_slots widening
 - `03d9875` feat(p7): §9.7 / 7.9 chunk d-8 — D-034 spill-aware migration tail (35 sites)
-- `57e2ef2` feat(p7): §9.7 / 7.9 chunk d-7 — arm64 callee-side AAPCS64 stack-arg lowering
 
 **Phase status**: §9.7 / 7.5 + 7.8 → **[x]**。Phase 7 残 row = 7.9 /
 7.10 / 7.11 🔒 / 7.12 / 7.13 🔒。
 
-**§9.7 / 7.9 progress**: chunks a..d-9 closed across 21 commits。
+**§9.7 / 7.9 progress**: chunks a..d-10 closed across 23 commits。
 realworld JIT compile-pass: 5/55 → 27/55 (chunk d-6 大躍進)。
 3-host gate green。
 
-**Chunk 7.9-d-9 完了** (`cc6a0eb`): arm64 frame_bytes + regalloc
-max_slots widening. `arm64/inst.zig:encSubImm12Lsl12` (新)、
-prologue/epilogue/trap-stub の SUB/ADD SP を 2-instr 化、
-`frame_bytes` 4096 → 16 MiB-1 cap。`shared/regalloc.zig:max_slots`
-1023 → 4095。compile-pass 27/55 不変 — Go fixtures は別の
-barrier (op-level UnsupportedOp) が次の hit point。
+**Chunk 7.9-d-10 完了** (`b9a5948`): arm64 op_call caller-side
+silent-reject 4 sites に permanent diag prints 追加。Mac aarch64
+realworld_run_jit の 25 COMPILE-OP 内訳 (diag 直接実行で計測):
+- 11× `gpr_arg_slot >= 8 (n_args=8)` — X1..X7 1 個 overflow
+- 4× `marshal n_args > 8` (n_args ∈ {11, 12}) — long arg list
+- 10× その他 (op_control / emit-side; 別 chunk で diag 拡張)
 
-**Chunk 7.9-d-10 plan** (NEXT — diagnostic investigation):
-- 失敗 fixture を 1 つずつ手動 compile して特定 UnsupportedOp の
-  発生 op tag を identify (debug-print 一時挿入 → 削除 cycle)。
-- 多くは特定 op (table.copy / table.init / ref.func / try /
-  delegate / atomic.* など Wasm 2.0/3.0 features) の未実装が
-  原因の見込み。各 op の lowering / liveness / emit 追加で
-  漸進 unblock。
+**Chunk 7.9-d-11 plan** (NEXT、最大 leverage): caller-side
+stack-arg marshaling 実装で 15/25 fixtures unblock 見込み。
+2 設計選択肢:
+1. FP-relative spill addressing redesign (`gprLoadSpilled` 全 caller を
+   FP-relative 化; ~50 site refactor)。
+2. Pre-allocated outgoing-args region — frame の bottom に
+   max_stack_args_bytes を予約; locals/spill addressing が
+   `outgoing_max + p_idx*8` 相当に shift。設計簡潔だが
+   localBaseOff 経由化 (~30 sites) が必要。
+推奨: 選択肢 2。spill_base_off の既存パターンと整合的、emit
+時の SP 移動が不要。
 
-**§9.7 / 7.9 exit criterion** (40+ realworld run-pass) は現実的
-には不可能 — 大半の fixture は (a) caller-side stack-arg, (b)
-specific op gaps, (c) per-fixture timeout の総合改善が必要で、
-個別に対応するより Phase 7→8 boundary review (7.13) で
-「7.9 = infra 完備、本番計測は 7.10/7.11/7.12 chain で
-実施」と判断する形が妥当。Compile-pass 27/55 + run-stage
-infra (d-1..d-4) + spill-aware 完備 (d-8) で 7.9 を
-"infra-complete" として close する選択肢を 7.13 で議論。
+**Chunk 7.9-d-12 plan** (後続): op_control + emit.zig の残り
+10 silent-reject に diag prints 追加 (d-10 の続き) → さらなる
+特定 op gap の identify。
+
+**§9.7 / 7.9 exit criterion** (40+ realworld run-pass) は run-
+stage 計測が opt-in (per-fixture timeout NYI) のため compile-
+pass 27/55 + 全 infra 揃った状態で 7.13 boundary review で
+「7.9 = infra 完備」として 7.10/7.11/7.12 chain に進む判断
+が妥当。
+
+**🛑 自律ループ停止 (2026-05-08)**: ユーザー指示によりここで
+キリが良いところまで進めて停止。次セッション resume 時:
+chunk d-11 (caller-side stack-arg, 上記の選択肢 2 推奨) を
+新セッションで主導開始。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
