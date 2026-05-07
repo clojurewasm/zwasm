@@ -243,8 +243,16 @@ pub fn compile(
     const base_off_for_locals: i8 = if (uses_runtime_ptr) -8 else 0;
     {
         var p_idx: u32 = 0;
-        var int_arg_idx: usize = 1; // skip runtime_ptr_gpr (= arg_gprs[0])
-        var fp_arg_idx: usize = 0;
+        // Cc-aware arg-reg index counters. SysV (§3.2.3) tracks
+        // int and FP args independently — `int_arg_idx` starts
+        // at 1 (skip runtime_ptr in RDI = arg_gprs[0]); FP args
+        // use a separate `fp_arg_idx` from XMM0. Win64 (Microsoft
+        // ABI) shares slot positions: arg N occupies either
+        // arg_gprs[N] OR arg_xmms[N], so `fp_arg_idx` must mirror
+        // the int-side slot counter (= p_idx + 1, skipping
+        // runtime_ptr at RCX = arg_gprs[0]).
+        var int_arg_idx: usize = 1;
+        var fp_arg_idx: usize = if (abi.current_cc == .win64) 1 else 0;
         while (p_idx < num_params) : (p_idx += 1) {
             const off_i32: i32 = @as(i32, base_off_for_locals) - @as(i32, @intCast((p_idx + 1) * 8));
             if (off_i32 < -128) return rejectUnsupported("param-marshal-disp<-128", func.func_idx);
@@ -256,6 +264,7 @@ pub fn compile(
                     }
                     try buf.appendSlice(allocator, inst.encStoreR32MemRBP(off, abi.current.arg_gprs[int_arg_idx]).slice());
                     int_arg_idx += 1;
+                    if (abi.current_cc == .win64) fp_arg_idx += 1;
                 },
                 .i64 => {
                     if (int_arg_idx >= abi.current.arg_gprs.len) {
@@ -263,6 +272,7 @@ pub fn compile(
                     }
                     try buf.appendSlice(allocator, inst.encStoreR64MemRBP(off, abi.current.arg_gprs[int_arg_idx]).slice());
                     int_arg_idx += 1;
+                    if (abi.current_cc == .win64) fp_arg_idx += 1;
                 },
                 .f32 => {
                     if (fp_arg_idx >= abi.current.arg_xmms.len) {
@@ -270,6 +280,7 @@ pub fn compile(
                     }
                     try buf.appendSlice(allocator, inst.encStoreXmmF32MemRBP(off, abi.current.arg_xmms[fp_arg_idx]).slice());
                     fp_arg_idx += 1;
+                    if (abi.current_cc == .win64) int_arg_idx += 1;
                 },
                 .f64 => {
                     if (fp_arg_idx >= abi.current.arg_xmms.len) {
@@ -277,6 +288,7 @@ pub fn compile(
                     }
                     try buf.appendSlice(allocator, inst.encStoreXmmF64MemRBP(off, abi.current.arg_xmms[fp_arg_idx]).slice());
                     fp_arg_idx += 1;
+                    if (abi.current_cc == .win64) int_arg_idx += 1;
                 },
                 .v128, .funcref, .externref => unreachable, // filtered above
             }
