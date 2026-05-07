@@ -14,35 +14,36 @@
 
 ## Current state — Phase 7 / §9.7 / 7.10 IN-PROGRESS
 
-直近 commit (HEAD = `6c523fa`):
+直近 commit (HEAD = `f47db77`):
 
+- `f47db77` feat(p7): §9.7 / 7.10 chunk g — x86_64 localDisp i8→i32 widening + RBP/RSP disp32 encoders
+- `7b7f12b` fix(p7): §9.7 / 7.10 chunk f tests — Win64 prologue-batched shadow expectations
+- `ef57f3b` chore(p7): mark §9.7 / 7.10 chunk f close
 - `6c523fa` feat(p7): §9.7 / 7.10 chunk f — x86_64 op_call caller-side stack-args
-- `3423dc7` chore(debt): close D-014 + D-046 (barrier-dissolution sweep)
-- `da5db53` feat(p7): §9.7 / 7.10 chunk e — x86_64 op_call f32/f64 marshal + capture
-- `68dd2dc` feat(p7): §9.7 / 7.10 chunk d — x86_64 op_alu_float parallel-move (D-029 FP mirror)
 
 **Phase status**: §9.7 / 7.5 + 7.8 + **7.9 [x]**。Phase 7 残 row = 7.10 /
 7.11 🔒 / 7.12 / 7.13 🔒。
 
 **§9.7 / 7.10 progress** (Linux x86_64 realworld_run_jit 0/55 still):
-- chunks a..f closed: D-029 ALU 解消、op_call i32/i64/f32/f64
+- chunks a..g closed: D-029 ALU 解消、op_call i32/i64/f32/f64
   marshal + capture 完備、FP D-029 mirror 解消、caller-side
-  stack-args (arm64 d-11 mirror — SysV NSAA + Win64 shadow-aware
-  shared-slot) + outgoing-args 領域 pre-allocation 完備。
+  stack-args (SysV NSAA + Win64 shadow-aware shared-slot)、
+  localDisp i32 widening + disp32 RBP/RSP 系 encoder 完備
+  (`total_locals>15` cap 撤廃)。
 - 各 chunk は dominant bottleneck を 1 つ解消するが、fixture は
   複数 gap を chain しているため compile-pass 数自体は 0/55。
   7.10 exit は bottleneck 枯渇=infra 完備で判断。
 
 **§9.7 / 7.10 chain plan** (NEXT 群):
-- **7.10-g (NEXT)**: total_locals>15 cap 拡張 — `localDisp` を
-  i8→i32 disp に広げる encoding refactor。MOV/STR 系の disp32
-  form encoder を追加し、localBaseOff 経由化と組み合わせる。
-  chunk サイズが 400 LOC を超えるので g1/g2 に分割可能。
-- 7.10-h: op_control:178 / :104 / :78 — `depth == labels.len`
-  (function-return) 経路を追加。x86_64 op_control.zig は
-  positional API; signature 拡張 (func/frame_bytes/uses_runtime_ptr
-  受け取り) または return_fixups 機構導入 (arm64 mirror)。
+- **7.10-h (NEXT)**: op_control:178 / :104 / :78 — `depth ==
+  labels.len` (function-return) 経路を追加。x86_64 op_control.zig
+  は positional API; signature 拡張 (func/frame_bytes/uses_runtime
+  _ptr 受け取り) または return_fixups 機構導入 (arm64 mirror)。
 - 7.10-i: op_memory 32-bit offset (arm64 d-14 mirror)。
+- 7.10-spill-disp32 (deferred): `gpr.zig:rbpDispNegI8` も i8 制限。
+  spill region が 16 slot × 8 byte = 128 byte を超えるところで
+  surfaces。Phase 8 regalloc port で広い再設計が予定されている
+  ため、現状は debt として retain。
 
 **Pre-existing infra observation (out-of-scope)**:
 `.githooks/pre_commit` (snake_case) は Git の `pre-commit`
@@ -86,10 +87,9 @@ Phase D (migration doc) は post-7.8 着手予定。詳細は
 
 ## Recently closed (canonical history via `git log --oneline --grep="§9.7"`)
 
-- §9.7 / 7.10 chunks a..f closed (commits `a8777ac` `4fb4fcb`
-  `68dd2dc` `da5db53` `6c523fa`)。x86_64 JIT で D-029 ALU/FP
-  parallel-move、op_call i32/i64/f32/f64 marshal+capture、
-  caller-side stack-args (SysV NSAA + Win64 shadow-aware shared
-  slot) を完備。realworld_run_jit compile-pass 数は 0/55 のまま
-  (g/h/i chunks 待ち)。
+- §9.7 / 7.10 chunks a..g closed (commits `a8777ac` `4fb4fcb`
+  `68dd2dc` `da5db53` `6c523fa` `f47db77`)。x86_64 JIT で
+  D-029 ALU/FP parallel-move、op_call 全 valtype marshal+capture、
+  caller-side stack-args、localDisp + RBP/RSP disp32 encoder を
+  完備。realworld_run_jit compile-pass 数は 0/55 のまま (h/i 待ち)。
 - §9.7 / 7.9 [x] — arm64 realworld JIT 52/55 compile-pass。
