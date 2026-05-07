@@ -246,6 +246,19 @@ pub fn compile(
             => try op_alu_int.emitI32Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"i32.clz", .@"i32.ctz", .@"i32.popcnt",
             => try op_alu_int.emitI32Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i64.add", .@"i64.sub", .@"i64.mul",
+            .@"i64.and", .@"i64.or", .@"i64.xor",
+            => try op_alu_int.emitI64Binary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i64.eq", .@"i64.ne",
+            .@"i64.lt_s", .@"i64.lt_u", .@"i64.gt_s", .@"i64.gt_u",
+            .@"i64.le_s", .@"i64.le_u", .@"i64.ge_s", .@"i64.ge_u",
+            => try op_alu_int.emitI64Compare(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i64.eqz" => try op_alu_int.emitI64Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64.shl", .@"i64.shr_s", .@"i64.shr_u",
+            .@"i64.rotl", .@"i64.rotr",
+            => try op_alu_int.emitI64Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
+            .@"i64.clz", .@"i64.ctz", .@"i64.popcnt",
+            => try op_alu_int.emitI64Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"i32.wrap_i64", .@"i64.extend_i32_u", .@"i64.extend_i32_s",
             => try op_alu_int.emitConvertWidth(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.op),
             .@"call" => try op_call.emitCall(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &call_fixups, func_sigs, ins.payload),
@@ -2948,6 +2961,68 @@ test "compile: return mid-function (i32.const, return, end) emits MOV EAX + epil
     try testing.expectEqual(@as(u8, 0xC3), out.bytes[14]);
     // Total length: 4 + 6 + 3 + 2 + 3 + 2 = 20 bytes
     try testing.expectEqual(@as(usize, 20), out.bytes.len);
+}
+
+test "compile: i64.add emits ADD .q (REX.W) — 64-bit width preserved" {
+    // Wasm spec §4.4.1.1 (i64.add). Tests the .q-form path:
+    // MOV dst, lhs (.q) + ADD dst, rhs (.q) both carry REX.W.
+    // Without REX.W (= 32-bit) the upper 32 bits of the result
+    // would be truncated, silently mis-computing values that
+    // exceed UINT32_MAX.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 1, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 2, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.add" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    // Slot map: vreg 0 → R10 (slot 0), vreg 1 → R11 (slot 1),
+    // vreg 2 reuses slot 0 → R10 (vreg 0 / 1 both die at PC 2).
+    // Note: allocatable_gprs[2] = RBX which is callee-saved but
+    // the prologue doesn't save it; sticking to slots 0/1 keeps
+    // this test independent of that latent gap.
+    const slots = [_]u8{ 0, 1, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // i64.add lowers to: MOV R10, R10 (skip — same reg) + ADD R10, R11 (.q).
+    // After 4-byte prologue + 2× MOVABS (10 each) = byte 24 the
+    // ADD appears with REX.W set (encoded as 0x4D since R10 + R11
+    // both need REX.B/REX.R extensions).
+    const add_off = 4 + 10 + 10;
+    const expected_add = inst.encAddRR(.q, .r10, .r11);
+    try testing.expectEqualSlices(u8, expected_add.slice(), out.bytes[add_off .. add_off + expected_add.len]);
+    // First byte of ADD must include REX.W (bit 3 of low nibble).
+    try testing.expect((out.bytes[add_off] & 0x08) != 0);
+}
+
+test "compile: i64.clz emits LZCNT .q (REX.W; F3 prefix) — 64-bit count" {
+    // Wasm spec §4.4.1.4 (i64.clz). Result is i64 (count 0..64);
+    // .q form distinguishes from .d form which would max at 32.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 1, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.clz" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"end" });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    // vreg 0 → R10 (slot 0); vreg 1 (result) → R11 (slot 1).
+    const slots = [_]u8{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    // After prologue (4) + MOVABS R10 (10) = byte 14: LZCNT R11, R10 (.q form).
+    const lzcnt_off = 14;
+    const expected_lzcnt = inst.encLzcntR64(.r11, .r10);
+    try testing.expectEqualSlices(u8, expected_lzcnt.slice(), out.bytes[lzcnt_off .. lzcnt_off + expected_lzcnt.len]);
 }
 
 test "compile: i64.const emits MOVABS r64, imm64 (10 bytes)" {

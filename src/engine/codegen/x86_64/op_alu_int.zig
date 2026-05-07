@@ -252,6 +252,185 @@ pub fn emitI32Bitcount(
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.1.1 (i64 add / sub / mul / and / or / xor) —
+/// 64-bit counterpart of `emitI32Binary`. Identical handler shape;
+/// only the encoder Width changes from `.d` to `.q` (REX.W set
+/// → 64-bit operands).
+pub fn emitI64Binary(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const lhs_r = abi.slotToReg(alloc.slots[lhs_v]) orelse return Error.SlotOverflow;
+    const rhs_r = abi.slotToReg(alloc.slots[rhs_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+    if (dst_r == rhs_r and dst_r != lhs_r) return Error.UnsupportedOp;
+
+    if (dst_r != lhs_r) {
+        try buf.appendSlice(allocator, inst.encMovRR(.q, dst_r, lhs_r).slice());
+    }
+    const enc = switch (op) {
+        .@"i64.add" => inst.encAddRR(.q, dst_r, rhs_r),
+        .@"i64.sub" => inst.encSubRR(.q, dst_r, rhs_r),
+        .@"i64.mul" => inst.encImulRR(.q, dst_r, rhs_r),
+        .@"i64.and" => inst.encAndRR(.q, dst_r, rhs_r),
+        .@"i64.or"  => inst.encOrRR(.q, dst_r, rhs_r),
+        .@"i64.xor" => inst.encXorRR(.q, dst_r, rhs_r),
+        else => unreachable,
+    };
+    try buf.appendSlice(allocator, enc.slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.1.2 (i64 eq / ne / lt_{s,u} / gt_{s,u} /
+/// le_{s,u} / ge_{s,u}) — 64-bit comparison; result is i32 0/1.
+/// CMP becomes 64-bit (.q) but SETcc + MOVZX stay 8/32-bit since
+/// the result is i32.
+pub fn emitI64Compare(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const lhs_r = abi.slotToReg(alloc.slots[lhs_v]) orelse return Error.SlotOverflow;
+    const rhs_r = abi.slotToReg(alloc.slots[rhs_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    const cc: inst.Cond = switch (op) {
+        .@"i64.eq"   => .e,
+        .@"i64.ne"   => .ne,
+        .@"i64.lt_s" => .l,
+        .@"i64.lt_u" => .b,
+        .@"i64.gt_s" => .g,
+        .@"i64.gt_u" => .a,
+        .@"i64.le_s" => .le,
+        .@"i64.le_u" => .be,
+        .@"i64.ge_s" => .ge,
+        .@"i64.ge_u" => .ae,
+        else => unreachable,
+    };
+
+    try buf.appendSlice(allocator, inst.encCmpRR(.q, lhs_r, rhs_r).slice());
+    try buf.appendSlice(allocator, inst.encSetccR(cc, dst_r).slice());
+    try buf.appendSlice(allocator, inst.encMovzxR32R8(dst_r, dst_r).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.1.2 (i64.eqz) — TEST is 64-bit (.q); SETcc +
+/// MOVZX stay 8/32-bit (i32 result).
+pub fn emitI64Eqz(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    try buf.appendSlice(allocator, inst.encTestRR(.q, src_r, src_r).slice());
+    try buf.appendSlice(allocator, inst.encSetccR(.e, dst_r).slice());
+    try buf.appendSlice(allocator, inst.encMovzxR32R8(dst_r, dst_r).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.1.3 (i64 shl / shr_s / shr_u / rotl / rotr) —
+/// 64-bit shift family. CL is the count register (shared with
+/// i32 shifts; abi.zig already excludes RCX from the regalloc
+/// pool). The MOV ECX, rhs is 32-bit since only CL is read.
+pub fn emitI64Shift(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const lhs_r = abi.slotToReg(alloc.slots[lhs_v]) orelse return Error.SlotOverflow;
+    const rhs_r = abi.slotToReg(alloc.slots[rhs_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+    if (dst_r == .rcx) return Error.UnsupportedOp;
+    if (dst_r == rhs_r and dst_r != lhs_r) return Error.UnsupportedOp;
+
+    if (rhs_r != .rcx) {
+        try buf.appendSlice(allocator, inst.encMovRR(.d, .rcx, rhs_r).slice());
+    }
+    if (dst_r != lhs_r) {
+        try buf.appendSlice(allocator, inst.encMovRR(.q, dst_r, lhs_r).slice());
+    }
+    const kind: inst.ShiftKind = switch (op) {
+        .@"i64.shl"   => .shl,
+        .@"i64.shr_s" => .sar,
+        .@"i64.shr_u" => .shr,
+        .@"i64.rotl"  => .rol,
+        .@"i64.rotr"  => .ror,
+        else => unreachable,
+    };
+    try buf.appendSlice(allocator, inst.encShiftRCl(.q, kind, dst_r).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.1.4 (i64 clz / ctz / popcnt) — direct mapping
+/// to LZCNT64 / TZCNT64 / POPCNT64 (REX.W variants). Defined-at-
+/// zero semantics match Wasm (returns 64 for input 0).
+pub fn emitI64Bitcount(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    op: zir.ZirOp,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const src_r = abi.slotToReg(alloc.slots[src_v]) orelse return Error.SlotOverflow;
+    const dst_r = abi.slotToReg(alloc.slots[result_v]) orelse return Error.SlotOverflow;
+
+    const enc = switch (op) {
+        .@"i64.clz"    => inst.encLzcntR64(dst_r, src_r),
+        .@"i64.ctz"    => inst.encTzcntR64(dst_r, src_r),
+        .@"i64.popcnt" => inst.encPopcntR64(dst_r, src_r),
+        else => unreachable,
+    };
+    try buf.appendSlice(allocator, enc.slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.1.4 (i32.wrap_i64 / i64.extend_i32_u /
 /// i64.extend_i32_s) — i32 ↔ i64 width-cross. `i32.wrap_i64`
 /// and `i64.extend_i32_u` both lower to `MOV r32_dst, r32_src`

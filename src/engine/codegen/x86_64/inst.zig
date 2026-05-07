@@ -376,15 +376,20 @@ pub fn encMovsxdR64R32(dst: Gpr, src: Gpr) EncodedInsn {
 /// Common shape for the `F3 0F <opcode> /r` family used by
 /// LZCNT / TZCNT / POPCNT. dst occupies ModR/M.reg and src is
 /// in r/m (IMUL-style operand inversion). The mandatory 0xF3
-/// prefix precedes any REX byte per AMD64 Vol.3 §1.2.6.
-inline fn encF3_0F_R32R(opcode: u8, dst: Gpr, src: Gpr) EncodedInsn {
+/// prefix precedes any REX byte per AMD64 Vol.3 §1.2.6. `size`
+/// = `.d` → r/m32; `.q` → r/m64 (REX.W set).
+inline fn encF3_0F_RR(size: Width, opcode: u8, dst: Gpr, src: Gpr) EncodedInsn {
     var enc: EncodedInsn = .{};
     enc.push(0xF3);
-    if (rexForRR(.d, dst, src)) |rex| enc.push(rex);
+    if (rexForRR(size, dst, src)) |rex| enc.push(rex);
     enc.push(0x0F);
     enc.push(opcode);
     enc.push(encodeModrm(0b11, dst.low3(), src.low3()));
     return enc;
+}
+
+inline fn encF3_0F_R32R(opcode: u8, dst: Gpr, src: Gpr) EncodedInsn {
+    return encF3_0F_RR(.d, opcode, dst, src);
 }
 
 /// `CMP r/m32, imm8` (opcode 0x83 /7) — sign-extended 8-bit
@@ -742,6 +747,24 @@ pub fn encTzcntR32(dst: Gpr, src: Gpr) EncodedInsn {
 /// directly.
 pub fn encPopcntR32(dst: Gpr, src: Gpr) EncodedInsn {
     return encF3_0F_R32R(0xB8, dst, src);
+}
+
+/// `LZCNT r64, r/m64` (F3 REX.W 0F BD /r) — 64-bit form for
+/// Wasm i64.clz. Returns 64 for input 0.
+pub fn encLzcntR64(dst: Gpr, src: Gpr) EncodedInsn {
+    return encF3_0F_RR(.q, 0xBD, dst, src);
+}
+
+/// `TZCNT r64, r/m64` (F3 REX.W 0F BC /r) — 64-bit form for
+/// Wasm i64.ctz. Returns 64 for input 0.
+pub fn encTzcntR64(dst: Gpr, src: Gpr) EncodedInsn {
+    return encF3_0F_RR(.q, 0xBC, dst, src);
+}
+
+/// `POPCNT r64, r/m64` (F3 REX.W 0F B8 /r) — 64-bit form for
+/// Wasm i64.popcnt.
+pub fn encPopcntR64(dst: Gpr, src: Gpr) EncodedInsn {
+    return encF3_0F_RR(.q, 0xB8, dst, src);
 }
 
 /// `IMUL r, r/m` (2-byte opcode 0x0F 0xAF /r) — `dst *= src`,
