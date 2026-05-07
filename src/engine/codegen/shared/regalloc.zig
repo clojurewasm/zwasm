@@ -55,10 +55,16 @@ pub const VerifyError = error{
 /// Cap on distinct slots before `compute` returns `SlotOverflow`.
 /// Mirrors the validator's `max_operand_stack` (1024) — bounded
 /// in straight-line code. Slot ids are u16 so the hard cap reaches
-/// 1023, matching the validator's max_operand_stack within one
-/// function. Spilling (§9.7 / 7.3+) means most slots beyond the
-/// per-arch pool resolve to `Slot.spill` rather than a register.
-pub const max_slots: u16 = 1023;
+/// 4095. Originally 1023 (matching the validator's
+/// `max_operand_stack`), bumped in chunk d-9 because long Go
+/// binaries (goroutine state-machine functions, deeply-inlined
+/// allocators) can have more than 1023 simultaneously-live
+/// vregs across their long bodies. The bound is now driven by
+/// the prologue's `frame_bytes` imm12 budget (4095 bytes for
+/// SUB SP imm12; widened multi-instr SUB SP would lift further).
+/// `busy: [max_slots+1]bool` stays under 4 KiB on the stack —
+/// well within the default 8 MiB thread stack.
+pub const max_slots: u16 = 4095;
 
 /// Resolved slot — what physical home a vreg lives in.
 /// `reg`'s u8 indexes the per-arch `allocatable_gprs` /

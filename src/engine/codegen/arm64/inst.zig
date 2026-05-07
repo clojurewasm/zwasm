@@ -80,6 +80,17 @@ pub fn encSubImm12(rd: Xn, rn: Xn, imm12: u12) u32 {
     return 0xD1000000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+/// `SUB Xd, Xn, #imm12, lsl #12` — 64-bit SUB imm with sh=1.
+/// imm12 shifts left by 12, spanning offsets 0..16 MiB-1 in
+/// 4096-byte steps. Used by emit.zig prologue to lower
+/// `frame_bytes` larger than 4095 via the `SUB SP, SP,
+/// #(N>>12), lsl #12; SUB SP, SP, #(N&0xFFF)` sequence.
+/// Encoding: `1 10 10001 1 0 [imm12:12] [Rn:5] [Rd:5]` =
+/// `0xD1400000` | (imm12 << 10) | (Rn << 5) | Rd.
+pub fn encSubImm12Lsl12(rd: Xn, rn: Xn, imm12: u12) u32 {
+    return 0xD1400000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 /// `ADD Xd, Xn, Xm` (no shift). 64-bit ADD shifted-reg, shift=0:
 /// `1 00 01011 00 0 [Rm:5] 000000 [Rn:5] [Rd:5]` = `0x8B000000` | …
 pub fn encAddReg(rd: Xn, rn: Xn, rm: Xn) u32 {
@@ -1029,6 +1040,11 @@ test "encAddImm12 x0, x1, #1 — `add x0, x1, #1` → 0x91000420" {
 test "encAddImm12Lsl12 x16, x16, #1 — `add x16, x16, #1, lsl #12` → 0x91400610" {
     // base 0x91400000; imm=1 (<<10)=0x400; rn=16 (<<5)=0x200; rd=16.
     try testing.expectEqual(@as(u32, 0x91400610), encAddImm12Lsl12(16, 16, 1));
+}
+
+test "encSubImm12Lsl12 sp, sp, #1 — `sub sp, sp, #1, lsl #12` → 0xD14007FF" {
+    // base 0xD1400000 | imm=1 (<<10) = 0x400 | rn=31 (<<5) = 0x3E0 | rd=31 = 0x1F.
+    try testing.expectEqual(@as(u32, 0xD14007FF), encSubImm12Lsl12(31, 31, 1));
 }
 
 test "encSubImm12 x0, x1, #4 — `sub x0, x1, #4` → 0xD1001020" {

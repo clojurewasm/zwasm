@@ -214,8 +214,16 @@ pub fn compile(
     // save/restore.
     try gpr.writeU32(allocator, &buf, inst.encOrrReg(abi.runtime_ptr_save_gpr, 31, 0));
     if (frame_bytes > 0) {
-        if (frame_bytes >= (@as(u32, 1) << 12)) return Error.SlotOverflow;
-        try gpr.writeU32(allocator, &buf, inst.encSubImm12(31, 31, @intCast(frame_bytes)));
+        // Chunk d-9: support frame_bytes up to 16 MiB-1 via the
+        // two-step `SUB SP, SP, #(N>>12), lsl #12; SUB SP, SP,
+        // #(N&0xFFF)` sequence. Larger needs a MOVZ/MOVK chain
+        // (post-MVP). Long Go binaries with deep spill regions
+        // exceed the prior 4096 cap.
+        if (frame_bytes > 0xFFFFFF) return Error.SlotOverflow;
+        const fb_high: u12 = @intCast((frame_bytes >> 12) & 0xFFF);
+        const fb_low: u12 = @intCast(frame_bytes & 0xFFF);
+        if (fb_high != 0) try gpr.writeU32(allocator, &buf, inst.encSubImm12Lsl12(31, 31, fb_high));
+        if (fb_low != 0) try gpr.writeU32(allocator, &buf, inst.encSubImm12(31, 31, fb_low));
     }
 
     // Multi-arg entry: store params from X1..X{num_params} into
@@ -892,7 +900,10 @@ pub fn compile(
                 // patch them to share this single epilogue path.
                 const epilogue_byte: u32 = @intCast(buf.items.len);
                 if (frame_bytes > 0) {
-                    try gpr.writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
+                    const fb_high: u12 = @intCast((frame_bytes >> 12) & 0xFFF);
+                    const fb_low: u12 = @intCast(frame_bytes & 0xFFF);
+                    if (fb_high != 0) try gpr.writeU32(allocator, &buf, inst.encAddImm12Lsl12(31, 31, fb_high));
+                    if (fb_low != 0) try gpr.writeU32(allocator, &buf, inst.encAddImm12(31, 31, fb_low));
                 }
                 try gpr.writeU32(allocator, &buf, encLdpFpLrPostIdx());
                 try gpr.writeU32(allocator, &buf, inst.encRet(abi.link_register));
@@ -923,7 +934,10 @@ pub fn compile(
                     try gpr.writeU32(allocator, &buf, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off));
                     try gpr.writeU32(allocator, &buf, inst.encMovzImm16(0, 0));
                     if (frame_bytes > 0) {
-                        try gpr.writeU32(allocator, &buf, inst.encAddImm12(31, 31, @intCast(frame_bytes)));
+                        const fb_high: u12 = @intCast((frame_bytes >> 12) & 0xFFF);
+                        const fb_low: u12 = @intCast(frame_bytes & 0xFFF);
+                        if (fb_high != 0) try gpr.writeU32(allocator, &buf, inst.encAddImm12Lsl12(31, 31, fb_high));
+                        if (fb_low != 0) try gpr.writeU32(allocator, &buf, inst.encAddImm12(31, 31, fb_low));
                     }
                     try gpr.writeU32(allocator, &buf, encLdpFpLrPostIdx());
                     try gpr.writeU32(allocator, &buf, inst.encRet(abi.link_register));
