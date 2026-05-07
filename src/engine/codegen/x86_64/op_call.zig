@@ -278,7 +278,18 @@ pub fn marshalCallArgs(
                 }
                 gpr_arg_slot += 1;
             },
-            .i64, .f32, .f64, .v128, .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:242", 0),
+            .i64 => {
+                // §9.7 / 7.10-c: i64 arg via .q-form MOV. Same arg_gprs
+                // slot accounting as i32 (SysV / Win64 NSAA per ABI).
+                if (gpr_arg_slot >= abi.current.arg_gprs.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:234", 0);
+                const dst = abi.current.arg_gprs[gpr_arg_slot];
+                const src = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
+                if (src != dst) {
+                    try buf.appendSlice(allocator, inst.encMovRR(.q, dst, src).slice());
+                }
+                gpr_arg_slot += 1;
+            },
+            .f32, .f64, .v128, .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:242", 0),
         }
     }
 }
@@ -311,7 +322,15 @@ pub fn captureCallResult(
             }
             try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
         },
-        .i64, .f32, .f64, .v128, .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:275", 0),
+        .i64 => {
+            // §9.7 / 7.10-c: i64 result via .q-form MOV from RAX.
+            const dst = try gpr.gprDefSpilled(alloc, result, 0);
+            if (dst != abi.return_gpr) {
+                try buf.appendSlice(allocator, inst.encMovRR(.q, dst, abi.return_gpr).slice());
+            }
+            try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
+        },
+        .f32, .f64, .v128, .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:275", 0),
     }
     try pushed_vregs.append(allocator, result);
 }
