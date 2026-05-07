@@ -229,7 +229,10 @@ pub fn build(b: *std.Build) void {
     // Walks corpus produced by `scripts/regen_spec_1_0_assert.sh`,
     // JIT-compiles each `module` and runs each `assert_return`
     // through the typed entry helpers (callI32NoArgs / callI32_i32),
-    // reporting pass / fail / skipped counts. Mac aarch64 only.
+    // reporting pass / fail / skipped counts. Runs on all hosts
+    // (the JIT pipeline is comptime arch-dispatched per `0925134`
+    // + `aa8af01`); test-all wiring is Mac-aarch64-only until
+    // §9.7 / 7.8 row close (see comment near `is_mac_aarch64`).
     const spec_assert_runner_mod = b.createModule(.{
         .root_source_file = b.path("test/spec/spec_assert_runner.zig"),
         .target = target,
@@ -243,7 +246,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_spec_assert = b.addRunArtifact(spec_assert_runner_exe);
     run_spec_assert.addArg(b.pathFromRoot("test/spec/wasm-1.0-assert"));
-    const test_spec_assert_step = b.step("test-spec-assert", "Run JIT spec assertion runner (Mac aarch64 only; §9.7 / 7.5)");
+    const test_spec_assert_step = b.step("test-spec-assert", "Run JIT spec assertion runner (all hosts; test-all wires Mac aarch64 only until §9.7 / 7.8 close)");
     test_spec_assert_step.dependOn(&run_spec_assert.step);
 
     // `zig build test-spec-wasm-2.0` — wast-directive runner
@@ -469,11 +472,21 @@ pub fn build(b: *std.Build) void {
     // §9.7 / 7.5-d040 (D-040 discharge): wire test-spec-assert
     // into test-all on Mac aarch64 only — that's the host where
     // the ARM64 JIT runs and the §9.7 / 7.5 spec gate landed.
-    // x86_64 hosts now technically run JIT-compiled spec_assert
-    // (per `0925134`+`aa8af01` arch dispatch), but the x86_64
-    // backend has 174 spec_assert failures (D-045 — discovered
-    // 2026-05-07 via OrbStack first-run); §9.7 / 7.8 row close
-    // is gated on D-045 discharge.
+    // x86_64 hosts run JIT-compiled spec_assert (per `0925134`
+    // + `aa8af01` arch dispatch). Three-host baseline as of
+    // §9.7 / 7.8-x86-spec-gate (D-045 chunks 1-10 closed):
+    //   Mac aarch64       : 212 passed,   0 failed, 20 skipped
+    //   OrbStack Linux    : 109 passed, 106 failed, 20 skipped
+    //   windowsmini Win   :  49 passed, 174 failed, 20 skipped
+    // The Linux ↔ Windows delta (60 PASS) is exactly chunk 10
+    // (Linux x86_64 mmap-RWX); chunk 11 (Windows VirtualAlloc)
+    // closes that. Remaining 106 fails on Linux are dominated by
+    // SlotOverflow (regalloc pool 6 reg vs 5+ params) — the
+    // x86_64 spill-aware regalloc port (mirror of arm64 D-036
+    // / D-037) is the next axis. test-all keeps the Mac aarch64
+    // guard until §9.7 / 7.8 row close (fail = 0); manual
+    // measurement remains `zig build test-spec-assert` on each
+    // host.
     const is_mac_aarch64 = target.result.os.tag == .macos and
         target.result.cpu.arch == .aarch64;
     if (is_mac_aarch64) {

@@ -16,33 +16,45 @@
 
 直近 commit (HEAD = `<this>`):
 
-- `<this>` feat(p7): §9.7 / 7.8-jit-mem-linux — Linux x86_64 mmap-RWX (D-045 chunk 10; +60 PASS)
+- `<this>` chore(p7): §9.7 / 7.8-x86-spec-gate — three-host spec_assert baseline (Mac 212/0/20, Linux 109/106/20, Win 49/174/20)
+- `5a5a423` docs(p7): correct D-045 residual fail diagnosis (SlotOverflow not StackTypeMismatch)
+- `f4eccdc` feat(p7): §9.7 / 7.8-jit-mem-linux — Linux x86_64 mmap-RWX (D-045 chunk 10; +60 PASS)
 - `d138326` feat(p7): §9.7 / 7.8-x86-mem-grow-size — memory.size + memory.grow + dead_code (D-045 chunk 9)
-- `af40c41` feat(p7): §9.7 / 7.8-x86-select — select / select_typed (CMOV; D-045 chunk 8)
-- `39142bd` feat(p7): §9.7 / 7.8-x86-params-i64fp — i64/FP params + type-aware locals (D-045 chunk 7)
 
 **Phase status**: §9.7 / 7.5 → **[x]** 完了 (Mac aarch64 spec_assert
 212/0/20)。Phase 7 残 row = 7.8 / 7.9 / 7.10 / 7.11 🔒 / 7.12 /
 7.13 🔒。**§9.7 / 7.8** = x86_64 spec gate — D-045 が active。
-chunks 1-10 完了。OrbStack spec_assert: 49/174/20 → 109/106/20
-(+60 PASS, -68 FAIL via jit_mem-Linux unblock)。**残 106 fail の
-主因は SlotOverflow** (regalloc pool 6 reg を 5+ params で枯渇 —
-mirror of arm64 D-036/D-037)。一部に UnsupportedOp +
-handcrafted_trap "did NOT trap" 混在。Windows jit_mem (chunk
-11) 未着手。x86_64 spill-aware regalloc port が次の主軸。
+chunks 1-10 完了 + 7.8-x86-spec-gate (chunk 11 — measurement) 完了。
+3-host baseline triangulated:
 
-**Active priority — §9.7 / 7.8 D-045 chunk chain (x86_64 backend gap closure)**:
+- Mac aarch64       : **212 / 0 / 20**     (gate green — `test-all` wired)
+- OrbStack Linux    : **109 / 106 / 20**   (chunks 1-10 反映済)
+- windowsmini Win   :  **49 / 174 / 20**   (Linux mmap-RWX 効果未到達)
 
-1. ☑ **7.8-x86-ctrl-stack** — nop + drop + return
-2. ☑ **7.8-x86-unreachable** — JMP rel32 + unreach_fixups
-3. ☑ **7.8-x86-i64-const** — MOVABS r64, imm64
-4. ☑ **7.8-x86-i64-alu** — i64 ALU + cmp + bitcount + shift + rot (22 ops)
-5. ☑ **7.8-x86-i64-mem** — i64 load/store family (8 ops)
-6. ☑ **7.8-x86-params-i32** — lift params=0 reject; i32-only marshal
-7. ☑ **7.8-x86-params-i64fp** — i64 / f32 / f64 params + type-aware local.get/set/tee
-8. ☑ **7.8-x86-select** — select / select_typed (CMOV)
-9. ☑ **7.8-x86-mem-grow-size** — memory.size + memory.grow + dead_code tracking
-10. **7.8-x86-spec-gate** — re-enable spec_assert in build.zig; pass=fail=skip-impl=0
+Linux ↔ Windows 60 PASS の差は chunk 10 (Linux mmap-RWX) そのもの。
+**残 106 fail (Linux) の主因 = SlotOverflow** (regalloc pool 6 reg を
+5+ params で枯渇 — mirror of arm64 D-036/D-037)。次の主軸 =
+(a) **Windows jit_mem** (VirtualAlloc; Win 49→~109 を見込む) +
+(b) **x86_64 spill-aware regalloc port** (Linux/Win 共通の 106 fail
+を大量 close)。test-all 配線は Mac aarch64 のみ維持 (§9.7 / 7.8 row
+close = fail==0 達成時に flip)。
+
+**Active priority — §9.7 / 7.8 D-045 chunk chain**:
+
+1. ☑ 7.8-x86-ctrl-stack — nop + drop + return
+2. ☑ 7.8-x86-unreachable — JMP rel32 + unreach_fixups
+3. ☑ 7.8-x86-i64-const — MOVABS r64, imm64
+4. ☑ 7.8-x86-i64-alu — i64 ALU + cmp + bitcount + shift + rot (22 ops)
+5. ☑ 7.8-x86-i64-mem — i64 load/store family (8 ops)
+6. ☑ 7.8-x86-params-i32 — lift params=0 reject; i32-only marshal
+7. ☑ 7.8-x86-params-i64fp — i64 / f32 / f64 params + type-aware locals
+8. ☑ 7.8-x86-select — select / select_typed (CMOV)
+9. ☑ 7.8-x86-mem-grow-size — memory.size + memory.grow + dead_code
+10. ☑ 7.8-jit-mem-linux — Linux x86_64 mmap-RWX (+60 PASS)
+11. ☑ **7.8-x86-spec-gate** — three-host baseline measurement + comment refresh
+12. **7.8-x86-jit-mem-windows** — Windows VirtualAlloc RWX-region (chunk 12; close Win 49→~109) **NEXT**
+13. 7.8-x86-spill-aware-regalloc — mirror arm64 D-036/D-037 (close 106 SlotOverflow)
+14. 7.8-x86-misc-cleanup — residual UnsupportedOp + handcrafted_trap "did NOT trap"
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
@@ -54,27 +66,6 @@ handcrafted_trap "did NOT trap" 混在。Windows jit_mem (chunk
 
 **Phase**: Phase 7 (ARM64 + x86_64 baseline、ADR-0019)。
 **Branch**: `zwasm-from-scratch`。
-
-## §9.7 / 7.8 D-045 chunk progress
-
-| # | Chunk | Status |
-|---|---|---|
-| 7.8-arch-compile | comptime arch dispatch in `compile.zig` (arm64 / x86_64) | DONE (0925134) |
-| 7.8-arch-linker | linker.zig comptime arch dispatch + per-arch CALL-patch (D-044 closed) | DONE (aa8af01) |
-| 7.8-x86-ctrl-stack | x86_64 nop + drop + return (3 ops; no new encoders) | DONE (56b563b) |
-| 7.8-x86-unreachable | JMP rel32 placeholder + unreach_fixups (-5 disp) | DONE (98907dd) |
-| 7.8-x86-i64-const | i64.const handler (MOVABS r64, imm64) | DONE (e46aa7d) |
-| 7.8-x86-i64-alu | i64 ALU + cmp + bitcount + shifts + rot (22 ops) | DONE (1e83c41) |
-| 7.8-x86-i64-mem | i64 load/store family (8 ops) | DONE (bfedfdf) |
-| 7.8-x86-params-i32 | lift params=0 reject; i32-only marshal | DONE (7f9e9fe) |
-| 7.8-x86-params-i64fp | i64 / f32 / f64 params + type-aware local.{get,set,tee} | DONE (39142bd) |
-| 7.8-x86-select | select / select_typed (CMOV encoder) | DONE (af40c41) |
-| 7.8-x86-mem-grow-size | memory.size (SHR) + memory.grow (-1 skel) + dead_code | DONE (`<this>`) |
-| 7.8-x86-spec-gate | re-enable spec_assert wiring; measure pass=fail=skip-impl on Linux + Windows | **NEXT** |
-| 7.8-x86-i64-mem | i64 load/store family (8 ops) | pending |
-| 7.8-x86-mem-grow-size | memory.size + memory.grow | pending |
-| 7.8-x86-params | lift `params.len > 0` reject; SysV/Win64 param marshalling | pending |
-| 7.8-x86-spec-gate | re-enable spec_assert wiring; pass=fail=skip-impl=0 on Linux + Windows | pending |
 
 ## ADR-0025 (Zig host API) implementation chain
 
@@ -89,88 +80,37 @@ Phase D (migration doc) は post-7.8 着手予定。詳細は
 - **D-026** env-stub host-func wiring (cross-module dispatch)。
 - **D-029** x86_64 emitI32Binary `dst==rhs` reject — regalloc port 後に discharge。
 - **D-031** runner runI32Export FP/i64 拡張 — JitRuntime memory init 後に at_limit 境界 fixture を再追加。
-- **D-045** §9.7 / 7.8 close blocker — x86_64 backend gap (9 chunk chain; chunks 1-2 closed)。
+- **D-045** §9.7 / 7.8 close blocker — x86_64 backend gap (chunks 1-11 closed; chunks 12-14 残)。
 - 詳細・staleness check は `.dev/debt.md`。
 
 ## Recently closed (full history via `git log --oneline`)
 
-- §9.7 / 7.8-x86-mem-grow-size (`<this>`): x86_64 emit に
-  `memory.size` (load mem_limit + SHR 16 で page count) と
-  `memory.grow` (skeleton: 常に -1 grow-failed return; mirror of
-  arm64) を追加。同時に dead_code tracking 導入: unreachable /
-  return 後の op を skip、end / else で reset。これにより
-  unreachable.wast の `as-memory.grow-size` (memory.grow が
-  unreachable 内) が compile を通る。uses_runtime_ptr prescan に
-  memory.size/grow を追加 (mem_limit_off 読出に R15 必要)。Mac
-  test-all 28/28、1048/1053、spec_assert 212/0/20 unchanged。
-- §9.7 / 7.8-x86-select (af40c41): x86_64 emit に `select` /
-  `select_typed` op を追加。pop c (i32), val2, val1; TEST c,c +
-  MOV dst,val2 (.q) + CMOVNE dst,val1 (.q) で 3-instruction シー
-  ケンス。inst.zig に encCmovccRR(size, cc, dst, src) (0F 4? /r
-  family) を追加。.q-form 使用は i64 select 需要先行+i32 用にも
-  REX.W 無害。spec の trans-type 対応は val1/val2 が validator で
-  同一型保証なので OK。Mac unit 1048/1053 (5 skip)。
-- §9.7 / 7.8-x86-params-i64fp (39142bd): x86_64 emit prologue +
-  local.{get,set,tee} を i64/f32/f64 まで拡張。inst.zig に 6 個の
-  RBP-disp8 mem encoder 追加 (encStoreR64MemRBP / encLoadR64MemRBP
-  / encStore/LoadXmmF{32,64}MemRBP)。emit.zig prologue の param
-  marshal が int_arg_idx + fp_arg_idx 別カウンタを持ち、type 別
-  に store (i32→R32, i64→R64, f32→MOVSS, f64→MOVSD)。
-  emitLocalGet/Set/Tee は localValType helper (params + locals
-  cohabit) で declared type を取得し type-aware load/store。
-  v128/funcref/externref params は UnsupportedOp。Mac test-all
-  28/28、1048/1053 (5 skip)、spec_assert 212/0/20 unchanged。
-- §9.7 / 7.8-x86-params-i32 (7f9e9fe): x86_64 emit prologue が
-  i32 params をサポート。`params.len > 0` reject を解除し、SysV
-  RSI..R9 / Win64 RDX..R9 から MOV [RBP+disp8], R32 で local-slot
-  へ marshal (mirror of arm64 7.5-multi-arg-entry)。total_locals
-  = num_params + num_locals に拡張、localDisp / emitLocalGet /
-  emitLocalSet / emitLocalTee に伝播。i64 / f32 / f64 params は
-  まだ UnsupportedOp (chunk 7 で対応)。Mac test-all 28/28、
-  1048/1053 pass、spec_assert 212/0/20 unchanged。byte-level
-  inline test (i32 param → MOV [rbp-8], <argreg>)。
-- §9.7 / 7.8-x86-i64-mem (bfedfdf): x86_64 op_memory.zig の
-  emitMemOp に i64 family 8 ops を追加 (i64.load + load{8,16,32}_
-  {s,u} + store + store{8,16,32})。inst.zig に 7 個の R64 mem
-  encoder 追加 (encMovR64FromBaseIdx + encStoreR64MemBaseIdx +
-  encMov{sx,zx}R64_{8,16}MemBaseIdx + encMovsxdR64_32MemBaseIdx)。
-  i64.load32_u は MOV r32 が AMD64 architectural rule で r64 に
-  zero-extend するため既存の encMovR32FromBaseIdx を再利用。
-  store{8,16,32} は GPR の low N bits を書くため既存の
-  encStoreR{8,16,32}MemBaseIdx を再利用。emit.zig の
-  uses_runtime_ptr prescan と body switch dispatch も拡張。Mac
-  test-all 28/28 steps、1047/1052 (5 skip)、spec_assert 212/0/20
-  unchanged。
-- §9.7 / 7.8-x86-i64-alu (1e83c41): x86_64 op_alu_int.zig に i64
-  family 5 handler を追加 (Binary/Compare/Eqz/Shift/Bitcount —
-  計 22 op)。i32 handler の copy + `.d`→`.q` 置換; シグネチャは
-  i32 と同形 (positional)。inst.zig の `encF3_0F_R32R` を Width
-  対応 `encF3_0F_RR` に汎化、`encLzcntR64` / `encTzcntR64` /
-  `encPopcntR64` (REX.W form) を追加。i64 cmp / eqz の result は
-  i32 (Wasm bool) なので SETcc + MOVZX は 8/32-bit のまま; CMP /
-  TEST のみ .q。i64.shl 等は CL count + SHL/SAR/SHR/ROL/ROR の
-  .q form。2 byte-level inline tests (i64.add — REX.W 検証;
-  i64.clz — LZCNT R64 form 検証)。Mac unit 1047/1052 (5 skipped)。
-- §9.7 / 7.8-x86-i64-const (e46aa7d): x86_64 emit に `i64.const`
-  arm を追加。MOVABS r64, imm64 (10 byte) で 64-bit literal を
-  直接 dst レジスタに load。ARM64 の 4×16-bit MOVZ/MOVK 連鎖と
-  異なり single instruction。Inline test: `i64.const
-  0x0CABBA6E0BA66A6E` で 19 byte の関数 body を検証。Mac unit
-  1045/1050、test-all spec_assert 212/0/20。
-- §9.7 / 7.8-x86-unreachable (98907dd): x86_64 emit に
-  `unreachable` op 追加。JMP rel32 (5 byte) placeholder を emit
-  + 新規 `unreach_fixups: ArrayList(u32)` に byte_offset を記
-  録。end-handler の trap-stub block で bounds_fixups (Jcc 6
-  byte; -6 disp) と unreach_fixups (-5 disp) の両方を patch。
-  Inline test: unreachable 単独関数で JMP disp32 が trap_byte=11
-  に landing することを検証。Mac unit 1044/1049、test-all
-  spec_assert 212/0/20。
-- §9.7 / 7.8-x86-ctrl-stack (56b563b): x86_64 emit に nop / drop
-  / return 3 op を追加。ARM64 fixup-to-shared-epilogue と異なり
-  return は marshal + epilogue + RET inline (multi-RET 無害)。
-  3 byte-level inline tests。D-041 同時 discharge。
-- §9.7 / 7.8 D-044 closed (aa8af01): linker.zig comptime arch
-  dispatch (arm64 BL imm26 / x86_64 CALL rel32 per-arch patch
-  loop)。x86_64 host で 49/174/20 露出 → D-045。
+- §9.7 / 7.8-x86-spec-gate (`<this>`): three-host spec_assert
+  baseline triangulation。Mac aarch64 212/0/20 (test-all wired)、
+  OrbStack Linux 109/106/20 (chunks 1-10 反映)、windowsmini Win
+  49/174/20 (Linux mmap 効果未到達)。Linux ↔ Win 60 PASS = chunk
+  10 そのもの。残 106 fail (Linux) の主因 SlotOverflow → 次の
+  axes = Windows jit_mem + x86_64 spill-aware regalloc。
+  build.zig コメントブロックを 3-host 数値で更新、`test-spec-assert`
+  step description も "all hosts; test-all Mac-aarch64-only" に
+  refine。test-all 配線 Mac 限定維持 (fail==0 達成までは gate を
+  赤くしない)。Mac test-all 28/28 + spec_assert 212/0/20 unchanged。
+- §9.7 / 7.8-jit-mem-linux (f4eccdc): Linux x86_64 mmap-RWX
+  wiring (chunk 10)。OrbStack spec_assert 49/174/20 → 109/106/20
+  (+60 PASS)。
+- §9.7 / 7.8-x86-mem-grow-size (d138326): memory.size (SHR) +
+  memory.grow (-1 skel) + dead_code tracking。
+- §9.7 / 7.8-x86-select (af40c41): select / select_typed via
+  CMOV (.q form)。
+- §9.7 / 7.8-x86-params-i64fp (39142bd): i64 / f32 / f64 params
+  + type-aware local.{get,set,tee}。
+- §9.7 / 7.8-x86-params-i32 (7f9e9fe): i32-only param marshal
+  (SysV / Win64)。
+- §9.7 / 7.8-x86-i64-mem (bfedfdf): i64 load/store family (8 ops)。
+- §9.7 / 7.8-x86-i64-alu (1e83c41): i64 ALU/cmp/bitcount/shift/rot
+  (22 ops)。
+- §9.7 / 7.8-x86-i64-const (e46aa7d): MOVABS r64, imm64。
+- §9.7 / 7.8-x86-unreachable (98907dd): JMP rel32 + unreach_fixups。
+- §9.7 / 7.8-x86-ctrl-stack (56b563b): nop + drop + return。
 - §9.7 / 7.5 → [x] (5746f2b): validator wired into compileWasm;
   spec_assert 212/0/20 (= 0 skip-impl + 20 skip-adr)。
