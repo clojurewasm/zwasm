@@ -2597,29 +2597,20 @@ test "compile: call N — 0 args, void return — emits MOV RDI,R15 + CALL + fix
     //   PUSH R15        41 57           (2 bytes) → 3
     //   MOV RBP, RSP    48 89 e5        (3 bytes) → 6
     //   MOV R15, RDI    49 89 fd        (3 bytes) → 9
-    //   SUB RSP, 8      48 83 ec 08     (4 bytes) → 13   (frame_bytes=8 for N=0 + uses_rtp)
-    // Body starts at byte 13.
-    //   MOV RDI, R15    4c 89 ff        (3 bytes) → 16
-    //   CALL rel32      e8 00 00 00 00  (5 bytes) → 21
-    // Cc-pivot: assert MOV <entry_arg0>, R15 (RDI on SysV, RCX
-    // on Win64). encMovRR length is 3 in both cases (only modrm
-    // byte differs); the call-fixup byte offset stays at 16.
+    //   SUB RSP, K      48 83 ec K      (4 bytes) → 13
+    // §9.7 / 7.10-f folds shadow space into the prologue's
+    // outgoing region, so SUB RSP encoding length stays 4 bytes
+    // on both Cc (frame_bytes = 8 on SysV; 40 on Win64 — both
+    // fit in imm8). Body starts at byte 13.
+    //   MOV <arg0>, R15  3 bytes        → 16
+    //   CALL rel32       5 bytes        → 21
+    // No per-call SUB RSP, 32 / ADD RSP, 32 on Win64 anymore —
+    // outgoing_max_bytes>0 makes emitShadowAlloc/Free no-op.
     const expected_mov = inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.current.runtime_ptr_save_gpr);
     try testing.expectEqualSlices(u8, expected_mov.slice(), out.bytes[13 .. 13 + expected_mov.len]);
-    // Win64 shadow space: SUB RSP, 32 (4-byte encoding) must
-    // precede the CALL; ADD RSP, 32 (4-byte encoding) follows.
-    // SysV: no SUB/ADD; the byte at offset 16 is the CALL opcode.
-    const shadow_enc_len: u32 = if (abi.current.shadow_space_bytes > 0) 4 else 0;
-    if (shadow_enc_len > 0) {
-        const expected_sub = inst.encSubRSpImm8(@intCast(abi.current.shadow_space_bytes));
-        try testing.expectEqualSlices(u8, expected_sub.slice(), out.bytes[16 .. 16 + expected_sub.len]);
-        const post_call: u32 = 16 + shadow_enc_len + 5;
-        const expected_add = inst.encAddRSpImm8(@intCast(abi.current.shadow_space_bytes));
-        try testing.expectEqualSlices(u8, expected_add.slice(), out.bytes[post_call .. post_call + expected_add.len]);
-    }
     // CALL byte offset = post-prologue (13) + MOV <arg0>, R15
-    // (3) + shadow encoding length. SysV: 16; Win64: 20.
-    const call_off: u32 = 16 + shadow_enc_len;
+    // (3) = 16 on both Cc.
+    const call_off: u32 = 16;
     const expected_call = inst.encCallRel32(0);
     try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[call_off .. call_off + expected_call.len]);
 
@@ -2646,11 +2637,14 @@ test "compile: call N — 0 args, i32 return — captures EAX into result vreg" 
     const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0);
     defer deinit(testing.allocator, out);
 
-    // Body layout (post-prologue at 13). Capture-result offset
-    // shifts by 2× shadow encoding (SUB before + ADD after the
-    // 5-byte CALL). SysV: 21; Win64: 29.
-    const shadow_enc_len: u32 = if (abi.current.shadow_space_bytes > 0) 4 else 0;
-    const capture_off: u32 = 13 + 3 + shadow_enc_len + 5 + shadow_enc_len;
+    // Body layout (post-prologue at 13). §9.7 / 7.10-f folded
+    // Win64 shadow space into the prologue, so capture-result
+    // offset is the same on both Cc:
+    //   13                   post-prologue
+    //   + 3                  MOV <arg0>, R15 (runtime_ptr restore)
+    //   + 5                  CALL rel32
+    //   = 21
+    const capture_off: u32 = 13 + 3 + 5;
     const expected_capture = inst.encMovRR(.d, .rbx, .rax);
     try testing.expectEqualSlices(u8, expected_capture.slice(), out.bytes[capture_off .. capture_off + expected_capture.len]);
 }
@@ -2730,10 +2724,10 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     try testing.expectEqual(@as(u8, 0x85), out.bytes[50]);
     const expected_funcptr_load = inst.encMovR64FromBaseIdxLsl3(.rax, .rax, .rbx);
     try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[62 .. 62 + expected_funcptr_load.len]);
-    // Cc-pivot: CALL RAX shifts by `shadow_space_bytes` encoding
-    // length (Win64 inserts SUB RSP, 32 before the indirect CALL).
-    const shadow_enc_len: u32 = if (abi.current.shadow_space_bytes > 0) 4 else 0;
-    const call_off: u32 = 69 + shadow_enc_len;
+    // §9.7 / 7.10-f: per-call SUB RSP, 32 on Win64 is gone — the
+    // shadow lives in the prologue's outgoing region. CALL RAX
+    // offset is the same on both Cc.
+    const call_off: u32 = 69;
     const expected_call = inst.encCallReg(.rax);
     try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[call_off .. call_off + expected_call.len]);
 }
