@@ -25,9 +25,11 @@
 212/0/20)。Phase 7 残 row = 7.8 / 7.9 / 7.10 / 7.11 🔒 / 7.12 /
 7.13 🔒。**§9.7 / 7.8** = x86_64 spec gate — D-045 が active。
 chunks 1-10 完了。OrbStack spec_assert: 49/174/20 → 109/106/20
-(+60 PASS, -68 FAIL via jit_mem-Linux unblock)。残 106 fail は
-SlotOverflow (regalloc gap) + 一部 UnsupportedOp + handcrafted_
-trap "did NOT trap" の混合。Windows jit_mem (chunk 11) 未着手。
+(+60 PASS, -68 FAIL via jit_mem-Linux unblock)。**残 106 fail の
+主因は SlotOverflow** (regalloc pool 6 reg を 5+ params で枯渇 —
+mirror of arm64 D-036/D-037)。一部に UnsupportedOp +
+handcrafted_trap "did NOT trap" 混在。Windows jit_mem (chunk
+11) 未着手。x86_64 spill-aware regalloc port が次の主軸。
 
 **Active priority — §9.7 / 7.8 D-045 chunk chain (x86_64 backend gap closure)**:
 
