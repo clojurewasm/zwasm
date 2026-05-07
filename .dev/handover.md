@@ -16,59 +16,39 @@
 
 直近 commit (HEAD = `<this>`):
 
-- `<this>` chore(p7): §9.7 / 7.9 chunk d-6 close (arm64 large mem offset; 5→27 compile-pass)
+- `<this>` chore(p7): §9.7 / 7.9 chunk d-7 close (arm64 callee stack-arg lowering)
+- `57e2ef2` feat(p7): §9.7 / 7.9 chunk d-7 — arm64 callee-side AAPCS64 stack-arg lowering
 - `e7f4a36` feat(p7): §9.7 / 7.9 chunk d-6 — arm64 large memory offset + control stack 1024
 - `e03015a` feat(p7): §9.7 / 7.9 chunk d-5 — widen regalloc slot id u8→u16 (1023 cap)
-- `76787d5` feat(p7): §9.7 / 7.9 chunk d-4 — runVoidExport + run-stage harness (opt-in)
 
 **Phase status**: §9.7 / 7.5 + 7.8 → **[x]**。Phase 7 残 row = 7.9 /
 7.10 / 7.11 🔒 / 7.12 / 7.13 🔒。
 
-**§9.7 / 7.9 progress**: chunks a..d-4 closed across 13 commits。
-3-host gate green: spec_assert 212/0/20 + realworld 55/0 + wast
-1158+72/0 + edge_cases 34/0 + unit 1091 across Mac / OrbStack /
-windowsmini。
+**§9.7 / 7.9 progress**: chunks a..d-7 closed across 17 commits。
+realworld JIT compile-pass: 5/55 → 27/55 (chunk d-6 大躍進)。
+3-host gate green。
 
-**Chunk 7.9-d-4 完了** (`76787d5`): run_runner_jit harness invokes
-entries (opt-in) with shared setup helper:
-- `runner.zig` factored into `setupRuntime()` returning
-  `RuntimeOwned` (rt + memory + dispatch + globals + funcptrs +
-  typeidxs allocations). Globals/tables get placeholder zero-
-  filled arrays sized to declared count (4096 cap) — fixes the
-  `globals_base = undefined` segfault on global.get.
-- `runVoidExport` mirrors runI32Export for `() -> ()` exports
-  (the WASI `_start` shape).
-- `run_runner_jit.zig` after compile-pass calls `runVoidExport`
-  on `_start` and categorises RUN-PASS / RUN-TRAP / RUN-NO-ENTRY /
-  RUN-UNSUPPORTED-SIG / RUN-OTHER。
-- **Gated by `ZWASM_JIT_RUN=1` env var** — default OFF because
-  fixtures with unbound loops would hang the runner (no per-
-  fixture timeout in this MVP). test-all stays responsive;
-  measurement opt-in.
+**Chunk 7.9-d-7 完了** (`57e2ef2`): arm64 callee-side AAPCS64
+stack-arg lowering. Prologue lifts `params.len > 7` cap; overflow
+args (per-class NGRN/NSRN counter) load from `[X29, #(16+8K)]`
+into local slot at `[SP, p_idx*8]`. Caller-side stack-arg
+marshal **NOT** lifted (would need FP-relative spill addressing
+redesign — chunk d-8 scope). Compile-pass count unchanged at
+27/55 — the 18 fixtures hit a different post-prologue barrier
+(bare `gpr.resolveGpr` on spilled vregs, D-034 spill-aware
+migration tail).
 
-**Chunk 7.9-d-6 完了** (`e7f4a36`): arm64 大 offset memory op +
-control stack 256→1024。realworld JIT compile-pass **5/55 → 27/55**
-(+22 fixtures, +440%)。
-- `arm64/op_memory.zig`: offset_imm > 0xFFF を SlotOverflow に
-  せず `ADD ip0, ip0, #(N>>12), lsl #12; ADD ip0, ip0, #(N&0xFFF)`
-  の 2-instr 化 (新 encoder `encAddImm12Lsl12`)。0..16 MiB-1 を
-  カバー。
-- `validator.zig` + `lower.zig` の `max_control_stack` 256→1024
-  (Go binaries の deep block/loop nesting 対応)。
+**Chunk 7.9-d-8 plan** (NEXT、最大 leverage): D-034 spill-aware
+migration tail completion で arm64 `op_alu_float.zig` /
+`op_memory.zig` / `emit.zig` の bare `resolveGpr`/`resolveFp`
+を `gprLoadSpilled`/`fpLoadSpilled` 経由に移行 (~10 sites)。
+これで spilled-vreg fixtures がコンパイル可能 — 18 Rust/TinyGo/
+CPP fixtures が解放される見込み。
 
-**Chunk 7.9-d-7 plan** (NEXT、残り 25 COMPILE-OP gap closure):
-- ARM64 stack-arg lowering (params 8+) — 18 Rust/TinyGo/CPP
-  fixtures が「> 7 params unsupported」で止まっている。AAPCS64
-  仕様 §C.5 に従い param 8+ を `[SP+offset]` から読み込む
-  prologue 拡張 (load + 各 vreg slot 配置)。ADR-0017 sub-g3b
-  scope expansion。
-- 7 Go fixtures の SlotOverflow — 1023 cap を超える
-  simultaneously-live vreg を持つ函数を含む。liveness 解析の
-  改善 (range tightening) または slot-id u32 化が必要。
-
-**Chunk 7.9-d-8 plan**: per-fixture timeout (subprocess + alarm)
-で run-pass 計測 → §9.7 / 7.9 exit criterion (40+ run-pass)
-到達検証。
+**Chunk 7.9-d-9 plan** (後続): caller-side stack-arg marshal
+(SUB SP / ADD SP + FP-relative spill addressing redesign) +
+per-fixture timeout (subprocess + alarm) で run-pass 計測 →
+§9.7 / 7.9 exit criterion (40+ run-pass) 到達検証。
 
 > **🔒 Phase 7 → 8 hard gate** が §9.7 / 7.13 に登録済。
 > Autonomous /continue loop は 7.13 row を発見した時点で
