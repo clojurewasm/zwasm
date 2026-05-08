@@ -13,48 +13,52 @@
 6. `.dev/decisions/0019_x86_64_in_phase7.md` / 0021 / 0023 / 0026 / 0027 / 0028 / 0029 — recent ADRs.
 7. `.dev/phase8_transition_gate.md` — historical reference (gate now closed; 7.13 [x]).
 
-## Current state — Phase 8 / §9.8 / 8.3 (windowsmini bench disposition)
+## Current state — Phase 8 / §9.8 / 8.4 (Hoist pass — JIT optimisation begins)
 
-§9.8 / 8.0+8.1+8.2 [x]. D-051 closed via ADR-0030 (test
-extraction primary; prologue deferred to D-052 per ROADMAP §P14
-trigger). `src/engine/codegen/x86_64/emit.zig` 4305→1247 LOC
-(under §A2 hard cap); ~3050 LOC of inline tests moved to
-family-split siblings `emit_test_int.zig` + `emit_test_float.zig`
-+ tiny `emit_test.zig` aggregator (mirror of arm64 ADR-0021).
-
-Mac local `ZWASM_JIT_RUN=1` realworld_run_jit baseline (8.1
-exit): **52/55 compile-pass → 15/55 RUN-PASS, 37 RUN-TRAP,
-0 RUN-TIMEOUT, 0 fail-other** (was 0/55 at row entry).
+§9.8 / 8.0–8.3 [x]. Phase 8 carry-over rows from Phase 7 all
+closed (D-050 / D-051 / windowsmini-bench-disposition).
+Optimisation pipeline rows 8.4–8.7 (Hoist / Coalescer / Regalloc
+upgrade / AOT skeleton) are the Phase 8 substantive work.
 
 直近 commits (latest at top):
 
-- (this commit) feat(p8): §9.8 / 8.2 — D-051 close via emit_test
-  family split per ADR-0030; mark 8.2 [x]; D-052 records
-  deferred prologue extraction.
+- (this commit) feat(p8): §9.8 / 8.3 — windowsmini bench subset
+  path (`--windows-subset` flag + 5-fixture fast set);
+  SSH-from-Linux CI rejected; mark 8.3 [x].
+- `89dee4d` feat(p8): §9.8 / 8.2 — D-051 close via emit_test
+  family split per ADR-0030.
 - `85d75b7` feat(p8): §9.8 / 8.1-b — per-fixture fork+SIGALRM
   timeout; close D-050; mark 8.1 [x].
-- `4fd8b61` feat(p8): §9.8 / 8.1-a — add WASI fd_read JIT thunk
-  + close 8 pre-existing lint warnings.
 
-**Phase 8 status**: §9.8 / 8.0+8.1+8.2 [x]; 8.3 NEXT. Phase 8
-残 rows = 8.3 (windowsmini bench disposition) + 8.4-8.10
-(optimisation pipeline + AOT skeleton + bench delta + audit +
-open §9.9).
+Mac local realworld_run_jit baseline (8.1 exit, carried as the
+Phase 8 starting point): 52/55 compile-pass → 15/55 RUN-PASS,
+37 RUN-TRAP, 0 RUN-TIMEOUT, 0 fail-other.
 
-## Active task — §9.8 / 8.3: windowsmini bench Phase 8.0 disposition **NEXT**
+**Phase 8 status**: §9.8 / 8.0-8.3 [x]; 8.4 NEXT. Phase 8 残
+rows = 8.4 (Hoist pass) + 8.5 (Coalescer) + 8.6 (Regalloc upgrade)
++ 8.7 (AOT skeleton) + 8.8 (bench delta ≥10%) + 8.9 (boundary
+audit) + 8.10 (open §9.9).
 
-Per Phase 7 close finding (gate doc §5b, Mac:Win ratio 3-12x
-with fib2 33min/fixture): either define a windowsmini-specific
-3-5 hot-fixture subset for periodic local verification, OR wire
-SSH-from-Linux-runner CI integration so windowsmini bench runs
-out-of-band of the inline gate cadence. Decision-driven row;
-likely sub-chunks:
+## Active task — §9.8 / 8.4: Hoist pass (ZIR transformation) **NEXT**
 
-| #     | Description                                              | Status   |
-|-------|----------------------------------------------------------|----------|
-| 8.3-a | Survey windowsmini bench fixture latencies; pick subset OR confirm SSH-from-Linux as the right model. | **NEXT** |
-| 8.3-b | Implement chosen approach; document in ADR if load-bearing. | [ ]      |
-| 8.3-c | Update `.dev/orbstack_setup.md` / `.dev/windows_ssh_setup.md` if procedure changes; close 8.3 [x]. | [ ]      |
+Hoist load/store hoisting out of inner loops, per v1 W43
+reference. Pre-requisite: `ir/analysis/loop_info.zig` (loop
+detection in ZIR) for hoist-site identification.
+
+Three-way differential gate (P12) carried forward from §9.7 /
+7.11 as the correctness oracle. Hoist must not change observable
+behaviour vs interp.
+
+This is ADR-grade if it changes the IR shape or pass-pipeline
+ordering — survey ARM64 cranelift's hoist + v1 W43 first;
+draft ADR if load-bearing.
+
+Open structural debts (current):
+
+- D-007 / D-010 / D-016 / D-018 / D-020 / D-021 / D-022 /
+  D-026 / D-028 / D-052 — all `blocked-by:` with concrete
+  triggers; refresh on every resume per Step 0.5 barrier-
+  dissolution check.
 
 ## Phase 7 close summary (snapshot for cold-start context)
 

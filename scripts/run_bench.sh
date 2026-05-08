@@ -10,6 +10,16 @@
 #   bash scripts/run_bench.sh                     # full (5 runs + 3 warmup)
 #   bash scripts/run_bench.sh --quick             # quick (3 runs + 1 warmup)
 #   bash scripts/run_bench.sh --bench=<name>      # single bench by name
+#   bash scripts/run_bench.sh --windows-subset    # 5-fixture fast subset
+#                                                 # (§9.8 / 8.3) — for use on
+#                                                 # windowsmini SSH host where
+#                                                 # the full inventory takes
+#                                                 # 5+ hours; ~250-400ms/fixture
+#                                                 # × 5 × 3-runs ≈ 6s total.
+#                                                 # Subset: shootout/nestedloop
+#                                                 # + tinygo/{arith,fib,sieve,tak}
+#                                                 # (all <30ms on Linux baseline;
+#                                                 # ~12x slower on Win = under 1s).
 #   bash scripts/run_bench.sh --phase-record \
 #        --reason='<phase-tag>: <gist>'           # ALSO append to history.yaml
 #
@@ -31,16 +41,31 @@ cd "$(dirname "$0")/.."
 
 QUICK=0
 PHASE_RECORD=0
+WINDOWS_SUBSET=0
 BENCH=""
 REASON=""
 for arg in "$@"; do
     case "$arg" in
         --quick) QUICK=1 ;;
         --phase-record) PHASE_RECORD=1 ;;
+        --windows-subset) WINDOWS_SUBSET=1; QUICK=1 ;;
         --bench=*) BENCH="${arg#--bench=}" ;;
         --reason=*) REASON="${arg#--reason=}" ;;
     esac
 done
+
+# §9.8 / 8.3 — Windows subset: 5 fast fixtures (all <30ms on Linux
+# baseline). At Mac:Win ~12x ratio observed in Phase 7 close, this
+# is ~250-400ms/fixture × 3 quick-runs ≈ 6s total. Use on
+# windowsmini SSH host where the full 26-fixture inventory takes
+# 5+ hours and is incompatible with inline gate cadence.
+WINDOWS_SUBSET_NAMES=(
+    "shootout/nestedloop"
+    "tinygo/arith"
+    "tinygo/fib"
+    "tinygo/sieve"
+    "tinygo/tak"
+)
 
 if ! command -v hyperfine >/dev/null 2>&1; then
     echo "[run_bench] hyperfine not on PATH; aborting (the dev shell pins it via flake.nix)." >&2
@@ -127,6 +152,13 @@ date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ran_any=0
 for entry in "${BENCHES[@]}"; do
     name="${entry%%:*}"
+    if [ "$WINDOWS_SUBSET" -eq 1 ]; then
+        in_subset=0
+        for sub in "${WINDOWS_SUBSET_NAMES[@]}"; do
+            if [ "$sub" = "$name" ]; then in_subset=1; break; fi
+        done
+        if [ "$in_subset" -eq 0 ]; then continue; fi
+    fi
     wasm="${entry#*:}"
     if [ -n "$BENCH" ] && [ "$name" != "$BENCH" ]; then
         continue

@@ -155,6 +155,46 @@ reimaged), re-run the setup block above before measuring D-028
 recurrence — the absence of Defender exclusions will inflate the
 flake-rate baseline.
 
+## Bench mode for windowsmini (§9.8 / 8.3)
+
+The full 26-fixture bench inventory takes 5+ hours on
+windowsmini at the observed Mac:Win ~12x ratio (`fib2` alone
+takes ~8m24s/run). This is incompatible with the inline
+`/continue` loop's gate cadence. The `--windows-subset` flag
+on `scripts/run_bench.sh` filters to a 5-fixture fast set
+(`shootout/nestedloop` + `tinygo/{arith,fib,sieve,tak}`, all
+< 30ms on Linux baseline) that runs in ~6s total on
+windowsmini.
+
+Periodic verification on windowsmini:
+
+```bash
+ssh windowsmini 'cd Documents/MyProducts/zwasm_from_scratch && \
+    bash scripts/run_bench.sh --windows-subset --quick'
+```
+
+Or directly on windowsmini in a Git Bash shell:
+
+```bash
+cd Documents/MyProducts/zwasm_from_scratch
+bash scripts/run_bench.sh --windows-subset
+```
+
+Result lands in `bench/results/recent.yaml` (gitignored).
+Append to `bench/results/history.yaml` only at phase boundaries
+via `--phase-record --reason='<phase-tag>: <gist>'` (rare; the
+full 26-fixture baseline remains the canonical record on
+Mac/Linux, this subset is for manual periodic regression
+checks on Windows).
+
+CI integration with windowsmini is **not** wired (the
+`.github/workflows/bench.yml` matrix runs Mac aarch64 + Linux
+x86_64 only). SSH-from-Linux-runner CI was considered for
+§9.8 / 8.3 but rejected — secret management + cross-network
+reliability concerns outweigh the once-per-merge value when
+manual periodic verification covers the regression-detection
+goal.
+
 ## When to update this file
 
 - After bumping `windowsmini` tool versions, sync the pin list.
