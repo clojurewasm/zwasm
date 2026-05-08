@@ -498,7 +498,15 @@ pub fn compile(
     // that the validator already deemed polymorphic-OK.
     var dead_code: bool = false;
     for (func.instrs.items, 0..) |ins, pc| {
-        _ = pc;
+        // §9.8a / 8a.5 — diagnostic surface: on any error return
+        // from the per-op switch below, surface the failing op
+        // tag + pc so the realworld_run_jit cap-removal regression
+        // (D-053 + D-054) can localise to a specific opcode handler
+        // instead of a generic `UnsupportedOp` at the runner.
+        errdefer std.debug.print(
+            "arm64/emit: failing op `{s}` at func[{d}] pc={d}\n",
+            .{ @tagName(ins.op), func.func_idx, pc },
+        );
         // Structural markers exit the dead region. `end` and
         // `else` always run their handlers — `end` to pop the
         // label stack / emit function epilogue; `else` to switch

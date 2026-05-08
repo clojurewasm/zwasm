@@ -14,7 +14,7 @@
 6. `.dev/decisions/0033_pass_trace_extension.md` + `0034_jit_execution_sentinel.md`
    (8a.1 + 8a.2 observability infra; the read-side for 8a.5).
 
-## Current state — Phase 8 / §9.8a / 8a.5-b (bisect to specific UnsupportedOp source)
+## Current state — Phase 8 / §9.8a / 8a.5-c (fix br_table post-hoist UnsupportedOp)
 
 §9.8a / 8a.1-8a.4 closed. The four foundation rows landed
 across this session arc. Now the substantive 8a.5 row begins:
@@ -40,7 +40,27 @@ FAIL only, windowsmini green.
 **§9.8a / 8a.5 NEXT**. Phase 8 残 rows = 8a.5 + 8a.6 +
 8b.1-8b.6.
 
-## Active task — §9.8a / 8a.5-b: bisect UnsupportedOp source under cap-removed IR **NEXT**
+## Active task — §9.8a / 8a.5-c: fix br_table post-hoist UnsupportedOp **NEXT**
+
+8a.5-b finding (full notes: `private/notes/p8-8a5-survey.md`):
+diagnostic `errdefer` added to `arm64/emit.zig` main op-
+dispatch loop. Cap=1000 rerun surfaces:
+
+```
+arm64/emit: failing op `br_table` at func[18] pc=64
+```
+
+The post-hoist regression source is **`br_table` in `arm64/
+op_control.zig`** (one of: line 270 `start+count >= targets.
+len`, lines 295-296 `arity > merge_top_vregs_cap (8)`, line
+320). Hoist's synthetic-local insertions shift the operand-
+stack state; the br_table's per-target arity computation may
+exceed the merge_top_vregs_cap.
+
+8a.5-c plan: read `emitBrTable`, identify exact failing
+constraint, fix or refine cap.
+
+## Active task — historical 8a.5-b chunk-plan retired (was: bisect)
 
 8a.5-a (cap-removed reproducer) findings (full survey in
 `private/notes/p8-8a5-survey.md`):
