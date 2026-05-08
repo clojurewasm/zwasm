@@ -46,7 +46,7 @@ test "compile: empty function (no instrs, empty liveness) emits prologue+epilogu
     const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
     defer deinit(testing.allocator, out);
     // 2 prologue u32s = 8 bytes.
-    try testing.expectEqual(@as(usize, 32), out.bytes.len);
+    try testing.expectEqual(@as(usize, 40), out.bytes.len);
     // Use the centralised opcode constants; ABI-pinned offsets [0..4] / [4..8].
     try prologue.assertPrologueOpcodes(out.bytes);
 }
@@ -65,7 +65,7 @@ test "compile: (i32.const 42) end yields 5-instr body returning 42 in X0" {
 
     // Expected stream: STP / MOV-FP-SP / MOVZ-X9-#42 / MOV-X0-X9 / LDP / RET
     // = 6 u32 words = 24 bytes.
-    try testing.expectEqual(@as(usize, 48), out.bytes.len);
+    try testing.expectEqual(@as(usize, 56), out.bytes.len);
 
     // Word 0: STP prologue (ABI-pinned per AAPCS64; offset fixed).
     try testing.expectEqual(prologue.FpLrSave.stp_word, std.mem.readInt(u32, out.bytes[0..4], .little));
@@ -97,7 +97,7 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
     defer deinit(testing.allocator, out);
 
     // 7 u32s now: STP / MOV-FP-SP / MOVZ / MOVK / MOV-X0 / LDP / RET.
-    try testing.expectEqual(@as(usize, 52), out.bytes.len);
+    try testing.expectEqual(@as(usize, 60), out.bytes.len);
     const body0 = prologue.body_start_offset(false);
     try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 0x5678)), std.mem.readInt(u32, out.bytes[body0..][0..4], .little));
     try testing.expectEqual(@as(u32, inst.encMovkImm16(9, 0x1234, 1)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
@@ -137,7 +137,7 @@ test "compile: 1 local — prologue includes SUB SP,SP,#16; epilogue ADD SP,SP,#
     // Stream: STP / MOV-FP / SUB-SP-#16 / STR XZR [SP,#0] (local zero-init) /
     //         MOVZ W9 #7 / STR W9 [SP,#0] / LDR W9 [SP,#0] / MOV X0 X9 /
     //         ADD-SP-#16 / LDP / RET = 11 u32s = 44 bytes (+ prologue header).
-    try testing.expectEqual(@as(usize, 68), out.bytes.len);
+    try testing.expectEqual(@as(usize, 76), out.bytes.len);
     const body0 = prologue.body_start_offset(true);
     // SUB SP at the last prologue word (body0 - 4).
     try testing.expectEqual(@as(u32, inst.encSubImm12(31, 31, 16)), std.mem.readInt(u32, out.bytes[body0 - 4 ..][0..4], .little));
@@ -200,7 +200,7 @@ test "compile: local.tee writes to local but keeps value pushed" {
     // Stream: STP / MOV-FP / SUB-SP / STR XZR [SP,#0] (local zero-init) /
     //         MOVZ W9 #42 / STR W9 [SP,#0] / MOV X0 X9 / ADD-SP / LDP /
     //         RET = 10 u32s = 40 bytes (+ prologue header).
-    try testing.expectEqual(@as(usize, 64), out.bytes.len);
+    try testing.expectEqual(@as(usize, 72), out.bytes.len);
     const body0 = prologue.body_start_offset(true);
     // STR XZR (zero-init) at body+0.
     try testing.expectEqual(@as(u32, inst.encStrImm(31, 31, 0)), std.mem.readInt(u32, out.bytes[body0..][0..4], .little));
@@ -334,7 +334,7 @@ test "compile: (param i64) — prologue stores X1 to [SP, #0] (STR X width)" {
     // STR X1, [SP, #0] for the i64 param at byte 36 (post-
     // prologue with frame). encStrImm width-X vs encStrImmW.
     const expected_str_x = inst.encStrImm(1, 31, 0);
-    try testing.expectEqual(expected_str_x, std.mem.readInt(u32, out.bytes[36..][0..4], .little));
+    try testing.expectEqual(expected_str_x, std.mem.readInt(u32, out.bytes[44..][0..4], .little));
 }
 
 test "compile: (param f32) — prologue stores S0 to [SP, #0] (STR S width)" {
@@ -352,7 +352,7 @@ test "compile: (param f32) — prologue stores S0 to [SP, #0] (STR S width)" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
     defer deinit(testing.allocator, out);
     const expected = inst.encStrSImm(0, 31, 0);
-    try testing.expectEqual(expected, std.mem.readInt(u32, out.bytes[36..][0..4], .little));
+    try testing.expectEqual(expected, std.mem.readInt(u32, out.bytes[44..][0..4], .little));
 }
 
 test "compile: (param f64) — prologue stores D0 to [SP, #0] (STR D width)" {
@@ -370,7 +370,7 @@ test "compile: (param f64) — prologue stores D0 to [SP, #0] (STR D width)" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
     defer deinit(testing.allocator, out);
     const expected = inst.encStrDImm(0, 31, 0);
-    try testing.expectEqual(expected, std.mem.readInt(u32, out.bytes[36..][0..4], .little));
+    try testing.expectEqual(expected, std.mem.readInt(u32, out.bytes[44..][0..4], .little));
 }
 
 test "compile: mixed (param i32 f32 i64 f64) — independent X/V counters" {
@@ -392,10 +392,10 @@ test "compile: mixed (param i32 f32 i64 f64) — independent X/V counters" {
     //   STR S0, [SP, #8]   (f32 → V fp_arg=0)
     //   STR X2, [SP, #16]  (i64 → X int_arg=2)
     //   STR D1, [SP, #24]  (f64 → V fp_arg=1)
-    try testing.expectEqual(inst.encStrImmW(1, 31, 0), std.mem.readInt(u32, out.bytes[36..][0..4], .little));
-    try testing.expectEqual(inst.encStrSImm(0, 31, 8), std.mem.readInt(u32, out.bytes[40..][0..4], .little));
-    try testing.expectEqual(inst.encStrImm(2, 31, 16), std.mem.readInt(u32, out.bytes[44..][0..4], .little));
-    try testing.expectEqual(inst.encStrDImm(1, 31, 24), std.mem.readInt(u32, out.bytes[48..][0..4], .little));
+    try testing.expectEqual(inst.encStrImmW(1, 31, 0), std.mem.readInt(u32, out.bytes[44..][0..4], .little));
+    try testing.expectEqual(inst.encStrSImm(0, 31, 8), std.mem.readInt(u32, out.bytes[48..][0..4], .little));
+    try testing.expectEqual(inst.encStrImm(2, 31, 16), std.mem.readInt(u32, out.bytes[52..][0..4], .little));
+    try testing.expectEqual(inst.encStrDImm(1, 31, 24), std.mem.readInt(u32, out.bytes[56..][0..4], .little));
 }
 
 test "compile: (param i32) (result i32) local.get 0 — prologue stores W1 to [SP, #0]" {
@@ -416,11 +416,11 @@ test "compile: (param i32) (result i32) local.get 0 — prologue stores W1 to [S
     // multi-arg STR W1, [SP, #0] at byte 36 (4 bytes). Body
     // starts at byte 40.
     const expected_str = inst.encStrImmW(1, 31, 0);
-    try testing.expectEqual(expected_str, std.mem.readInt(u32, out.bytes[36..][0..4], .little));
+    try testing.expectEqual(expected_str, std.mem.readInt(u32, out.bytes[44..][0..4], .little));
     // Body: LDR W into the param's vreg (slot 0 → W9 by AAPCS64
     // allocatable pool ordering).
     const expected_ldr = inst.encLdrImmW(9, 31, 0);
-    try testing.expectEqual(expected_ldr, std.mem.readInt(u32, out.bytes[40..][0..4], .little));
+    try testing.expectEqual(expected_ldr, std.mem.readInt(u32, out.bytes[48..][0..4], .little));
 }
 
 test "compile: (param i32 i32) — prologue stores W1, W2 to [SP, #0], [SP, #8]" {
@@ -438,10 +438,10 @@ test "compile: (param i32 i32) — prologue stores W1, W2 to [SP, #0], [SP, #8]"
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
     defer deinit(testing.allocator, out);
     // STR W1, [SP, #0] at byte 36; STR W2, [SP, #8] at byte 40.
-    try testing.expectEqual(inst.encStrImmW(1, 31, 0), std.mem.readInt(u32, out.bytes[36..][0..4], .little));
-    try testing.expectEqual(inst.encStrImmW(2, 31, 8), std.mem.readInt(u32, out.bytes[40..][0..4], .little));
+    try testing.expectEqual(inst.encStrImmW(1, 31, 0), std.mem.readInt(u32, out.bytes[44..][0..4], .little));
+    try testing.expectEqual(inst.encStrImmW(2, 31, 8), std.mem.readInt(u32, out.bytes[48..][0..4], .little));
     // Body LDR for local.get 1 → reads from [SP, #8].
-    try testing.expectEqual(inst.encLdrImmW(9, 31, 8), std.mem.readInt(u32, out.bytes[44..][0..4], .little));
+    try testing.expectEqual(inst.encLdrImmW(9, 31, 8), std.mem.readInt(u32, out.bytes[52..][0..4], .little));
 }
 
 test "compile: ADR-0018 sub-1c — i32.const into spilled vreg, full round-trip via STR + LDR" {

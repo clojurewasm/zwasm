@@ -213,6 +213,7 @@ pub fn link(allocator: Allocator, func_bodies: []const FuncBody, num_imports: u3
 const builtin = @import("builtin");
 const testing = std.testing;
 const zir = @import("../../../ir/zir.zig");
+const jit_abi = @import("jit_abi.zig");
 const ZirFunc = zir.ZirFunc;
 const regalloc = @import("regalloc.zig");
 
@@ -259,7 +260,26 @@ test "link: 2-function module — fn0 calls fn1, returns 7" {
     var module = try link(testing.allocator, &bodies, 0);
     defer module.deinit(testing.allocator);
 
-    const Fn = *const fn () callconv(.c) u32;
+    // §9.8a / 8a.2: ADR-0034 sentinel store mandates a valid
+    // JitRuntime ptr in X0 (was tolerable garbage pre-sentinel
+    // because the existing prologue LDRs read but never wrote
+    // through X0; the new STR W17, [X19, #flag_off] requires
+    // a real backing store).
+    var memory: [0]u8 = .{};
+    var rt: jit_abi.JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    const Fn = *const fn (rt: *jit_abi.JitRuntime) callconv(.c) u32;
     const f = module.entry(0, Fn);
-    try testing.expectEqual(@as(u32, 7), f());
+    try testing.expectEqual(@as(u32, 7), f(&rt));
+    try testing.expect(rt.jit_executed_flag != 0);
 }

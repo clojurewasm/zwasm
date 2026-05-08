@@ -262,6 +262,16 @@ pub fn compile(
     // saved per AAPCS64 — preserved across calls without explicit
     // save/restore.
     try gpr.writeU32(allocator, &buf, inst.encOrrReg(abi.runtime_ptr_save_gpr, 31, 0));
+    // §9.8a / 8a.2 (ADR-0034) — JIT-execution sentinel: write 1 to
+    // `JitRuntime.jit_executed_flag` so post-call readers can
+    // distinguish "JIT body actually ran" from "compile-passed but
+    // never invoked". MOVZ X17, #1 (W17 = 1) + STR W17, [X19,
+    // #flag_off]. X17 = IP1 (Arm IHI 0055 §6.4 caller-saved scratch);
+    // safe to clobber since the body has not started yet. 8 bytes /
+    // 2 insns; runs unconditionally per ROADMAP §A12 (no build-flag
+    // gate; cost amortised below bench noise).
+    try gpr.writeU32(allocator, &buf, inst.encMovzImm16(17, 1));
+    try gpr.writeU32(allocator, &buf, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.jit_executed_flag_off));
     if (frame_bytes > 0) {
         // Chunk d-9: support frame_bytes up to 16 MiB-1 via the
         // two-step `SUB SP, SP, #(N>>12), lsl #12; SUB SP, SP,

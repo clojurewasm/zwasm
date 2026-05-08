@@ -99,6 +99,16 @@ pub const JitRuntime = extern struct {
     /// rejects out-of-range function indices.
     host_dispatch_count: u32,
     _pad3: u32 = 0,
+    /// §9.8a / 8a.2 (ADR-0034) — JIT-execution sentinel. Every
+    /// JIT-emitted prologue stores `1` here unconditionally
+    /// after the runtime-ptr handoff completes. Caller pre-clears
+    /// to `0` before each guest invocation; post-call read of `0`
+    /// proves the JIT body never executed despite compile success;
+    /// non-zero proves at least one JIT-emitted prologue ran.
+    /// Always-on (no build-flag gate); cost is 8 bytes ARM64 / 7
+    /// bytes x86_64 per function prologue.
+    jit_executed_flag: u32 = 0,
+    _pad4: u32 = 0,
 };
 
 // ============================================================
@@ -123,6 +133,7 @@ pub const globals_base_off: u12 = @offsetOf(JitRuntime, "globals_base");
 pub const globals_count_off: u12 = @offsetOf(JitRuntime, "globals_count");
 pub const host_dispatch_base_off: u12 = @offsetOf(JitRuntime, "host_dispatch_base");
 pub const host_dispatch_count_off: u12 = @offsetOf(JitRuntime, "host_dispatch_count");
+pub const jit_executed_flag_off: u12 = @offsetOf(JitRuntime, "jit_executed_flag");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -160,6 +171,9 @@ comptime {
     if ((host_dispatch_count_off & 3) != 0) @compileError("host_dispatch_count_off not 4-aligned");
     if (host_dispatch_base_off > 32760) @compileError("host_dispatch_base_off exceeds X-form imm12 budget");
     if (host_dispatch_count_off > 16380) @compileError("host_dispatch_count_off exceeds W-form imm12 budget");
+    // ADR-0034: jit_executed_flag is W-form (4 bytes); imm12 scales by 4.
+    if ((jit_executed_flag_off & 3) != 0) @compileError("jit_executed_flag_off not 4-aligned");
+    if (jit_executed_flag_off > 16380) @compileError("jit_executed_flag_off exceeds W-form imm12 budget");
 }
 
 // ============================================================
@@ -177,10 +191,11 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 40), trap_flag_off);
     try testing.expectEqual(@as(u12, 64), host_dispatch_base_off);
     try testing.expectEqual(@as(u12, 72), host_dispatch_count_off);
+    try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 80 bytes (post-chunk-7.9-d host_dispatch tail)" {
-    try testing.expectEqual(@as(u32, 80), head_size);
+test "JitRuntime: total size = 88 bytes (post-§9.8a/8a.2 jit_executed_flag tail)" {
+    try testing.expectEqual(@as(u32, 88), head_size);
 }
 
 test "JitRuntime: round-trip construction + field reads" {

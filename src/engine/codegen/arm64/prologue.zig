@@ -45,8 +45,13 @@ pub const FpLrSave = struct {
 /// `has_frame` = true when the function has any locals OR any
 /// spilled vregs (i.e. `frame_bytes > 0` in emit.zig). Tests
 /// that exercise pure-register code pass `false`.
+///
+/// §9.8a / 8a.2 (ADR-0034) JIT-execution sentinel adds 8 bytes
+/// to every prologue (MOVZ X17, #1 + STR W17, [X19, #flag_off]),
+/// shifting body_start from 32 → 40 (no frame) and 36 → 44
+/// (with frame).
 pub fn body_start_offset(has_frame: bool) u32 {
-    return if (has_frame) 36 else 32;
+    return if (has_frame) 44 else 40;
 }
 
 /// Read a u32 word at `byte_offset` in `bytes` (little-endian).
@@ -71,9 +76,9 @@ pub fn assertPrologueOpcodes(bytes: []const u8) error{ PrologueTooShort, BadStpO
 
 const testing = std.testing;
 
-test "body_start_offset: 32 bytes no frame, 36 bytes with frame" {
-    try testing.expectEqual(@as(u32, 32), body_start_offset(false));
-    try testing.expectEqual(@as(u32, 36), body_start_offset(true));
+test "body_start_offset: 40 bytes no frame, 44 bytes with frame (post-§9.8a/8a.2 sentinel)" {
+    try testing.expectEqual(@as(u32, 40), body_start_offset(false));
+    try testing.expectEqual(@as(u32, 44), body_start_offset(true));
 }
 
 test "wordAt reads u32 little-endian at offset" {
