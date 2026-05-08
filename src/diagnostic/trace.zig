@@ -34,7 +34,7 @@ const build_options = @import("build_options");
 pub const enabled: bool = build_options.trace_ringbuffer;
 
 /// Trace event category. 4-bit encoding (16 slots reserved;
-/// 6 used today, 10 spare for M3-a-2 / M3-b / M3-c).
+/// 7 used today, 9 spare).
 pub const Category = enum(u4) {
     /// Per-memory-op emit (M3-a-1: bounds-check site offset).
     bounds = 0,
@@ -48,15 +48,66 @@ pub const Category = enum(u4) {
     exec = 4,
     /// Per-ZIR-instr (M3-c; high overhead).
     regir = 5,
+    /// Per-pass enter / exit (§9.8a / 8a.1; ADR-0033).
+    pass = 6,
     _,
 };
 
 /// Per-category event tag. 4-bit; layout depends on Category.
 /// `bounds` events use only `.emit_check`; future categories
-/// add their own variants.
+/// add their own variants. Numeric values may collide across
+/// categories (e.g. `bounds.emit_check = 0` and
+/// `pass.pass_enter = 0`); the reader disambiguates via the
+/// `category` field.
 pub const Event = enum(u4) {
     emit_check = 0,
     _,
+};
+
+/// Per-pass event tag (Category.pass). Numeric values overlap
+/// with `Event` by design — callers convert via
+/// `@enumFromInt(@intFromEnum(pe))` when writing the entry's
+/// 4-bit `event` slot. Per ADR-0033.
+pub const PassEvent = enum(u4) {
+    pass_enter = 0,
+    pass_exit = 1,
+    _,
+};
+
+/// Pipeline pass identity (Category.pass). 8-bit catalogue;
+/// 6 known + 250 spare slots for §9.8b coalescer / regalloc-
+/// upgrade / aot follow-ups. Per ADR-0033.
+pub const PassId = enum(u8) {
+    lower = 0,
+    loop_info = 1,
+    hoist = 2,
+    liveness = 3,
+    regalloc = 4,
+    emit = 5,
+    _,
+};
+
+/// Per-pass summary (`Category.pass`, `pass_exit` event).
+/// `applied` / `skipped` carry the cross-pass-shared counters;
+/// `extra` is interpreted per-pass at the call site (documented
+/// per `ADR-0033` table). The full struct is stored in
+/// `ZirFunc.pass_diagnostics` (8a.1-c slot); the ringbuffer
+/// only carries `digest()` packed into `payload_b`.
+pub const PassSummary = struct {
+    applied: u32 = 0,
+    skipped: u32 = 0,
+    extra: u32 = 0,
+
+    /// Pack `applied` (low 16 bits, saturating) +
+    /// `skipped` (high 16 bits, saturating) into the
+    /// ringbuffer's `payload_b: u32` slot. Lossy by design;
+    /// callers wanting exact counts read
+    /// `ZirFunc.pass_diagnostics`. Per ADR-0033.
+    pub fn digest(self: PassSummary) u32 {
+        const lo: u32 = @min(self.applied, std.math.maxInt(u16));
+        const hi: u32 = @min(self.skipped, std.math.maxInt(u16));
+        return (hi << 16) | lo;
+    }
 };
 
 /// 8-byte packed entry (one cache line per 8 entries).
@@ -130,6 +181,45 @@ pub inline fn writeBounds(func_idx: u32, byte_offset_in_func: u32) void {
         .event = .emit_check,
         .payload_a = @truncate(func_idx),
         .payload_b = byte_offset_in_func,
+    });
+}
+
+/// Pack `func_idx` (20 bits, saturating) + low nibble of
+/// `pass` into a `u24` `payload_a` slot. The remaining 4 high
+/// `PassId` bits live only in `ZirFunc.pass_diagnostics`; the
+/// ringbuffer's payload_a is approximate by design (16 PassIds
+/// covers the visible Phase 8 surface; §9.8b extensions encode
+/// in the per-function slot only). Per ADR-0033.
+inline fn packPass(func_idx: u32, pass: PassId) u24 {
+    const fi: u24 = @truncate(@min(func_idx, std.math.maxInt(u20)));
+    const pid_lo4: u24 = @intFromEnum(pass) & 0xF;
+    return (fi << 4) | pid_lo4;
+}
+
+/// §9.8a / 8a.1-b — record a pipeline-pass enter event into
+/// the ringbuffer (Category.pass). Per ADR-0033. Compile-time
+/// no-op when `enabled == false`. Cold-path: pass boundaries
+/// fire at most once per pass per func.
+pub inline fn passEnter(func_idx: u32, pass: PassId) void {
+    if (comptime !enabled) return;
+    writeEntry(.{
+        .category = .pass,
+        .event = @enumFromInt(@intFromEnum(PassEvent.pass_enter)),
+        .payload_a = packPass(func_idx, pass),
+        .payload_b = 0,
+    });
+}
+
+/// §9.8a / 8a.1-b — record a pipeline-pass exit event into
+/// the ringbuffer with the (lossy) per-pass summary digest.
+/// Per ADR-0033. Compile-time no-op when `enabled == false`.
+pub inline fn passExit(func_idx: u32, pass: PassId, summary: PassSummary) void {
+    if (comptime !enabled) return;
+    writeEntry(.{
+        .category = .pass,
+        .event = @enumFromInt(@intFromEnum(PassEvent.pass_exit)),
+        .payload_a = packPass(func_idx, pass),
+        .payload_b = summary.digest(),
     });
 }
 
@@ -244,6 +334,47 @@ test "trace: clear resets writeCount + drain" {
 
 test "trace: TraceEntry is exactly 8 bytes (packed struct contract)" {
     try testing.expectEqual(@as(usize, 8), @sizeOf(TraceEntry));
+}
+
+test "trace: passEnter + passExit captures pair in pipeline order" {
+    if (!enabled) return error.SkipZigTest;
+    clear();
+    passEnter(7, .hoist);
+    passExit(7, .hoist, .{ .applied = 4, .skipped = 12, .extra = 2 });
+    var buf: [4]TraceEntry = undefined;
+    const n = drain(&buf, 4);
+    try testing.expectEqual(@as(usize, 2), n);
+    try testing.expectEqual(Category.pass, buf[0].category);
+    try testing.expectEqual(@as(u4, @intFromEnum(PassEvent.pass_enter)), @intFromEnum(buf[0].event));
+    try testing.expectEqual(@as(u32, 0), buf[0].payload_b);
+    try testing.expectEqual(Category.pass, buf[1].category);
+    try testing.expectEqual(@as(u4, @intFromEnum(PassEvent.pass_exit)), @intFromEnum(buf[1].event));
+    // payload_a packing: (func_idx << 4) | (pass_id & 0xF). For
+    // func_idx=7, pass=.hoist (=2): (7 << 4) | 2 = 0x72.
+    try testing.expectEqual(@as(u24, 0x72), buf[0].payload_a);
+    try testing.expectEqual(@as(u24, 0x72), buf[1].payload_a);
+    // exit payload_b = digest(applied=4, skipped=12) = (12 << 16) | 4
+    try testing.expectEqual(@as(u32, (12 << 16) | 4), buf[1].payload_b);
+}
+
+test "trace: PassSummary.digest saturates applied + skipped at u16 max" {
+    const big: PassSummary = .{ .applied = 70_000, .skipped = 100_000, .extra = 0 };
+    const max16: u32 = std.math.maxInt(u16);
+    try testing.expectEqual((max16 << 16) | max16, big.digest());
+
+    const small: PassSummary = .{ .applied = 3, .skipped = 5, .extra = 99 };
+    try testing.expectEqual(@as(u32, (5 << 16) | 3), small.digest());
+}
+
+test "trace: packPass saturates func_idx at 20 bits" {
+    if (!enabled) return error.SkipZigTest;
+    clear();
+    // 0x10_0001 (= 1 << 20 + 1) saturates to 0xF_FFFF (20-bit max).
+    passEnter(0x10_0001, .emit);
+    var buf: [1]TraceEntry = undefined;
+    _ = drain(&buf, 1);
+    // expected = (0xF_FFFF << 4) | (5 & 0xF) = 0xFFFFF5
+    try testing.expectEqual(@as(u24, 0xFF_FFF5), buf[0].payload_a);
 }
 
 // Integration test: verifies the JIT emit paths (both backends)
