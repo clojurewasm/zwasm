@@ -39,33 +39,32 @@
 
 **§9.7 / 7.10 chain plan** (NEXT 群):
 - **7.10-m (NEXT, AUTONOMOUS)**: D-049 自律調査・解消。chunk
-  l Phase 1 で SEGV を JIT body 内部に narrow 済。`extended_
-  challenge.md` Step 4 の spike + WebFetch + reference-read
-  は autonomous 範囲。具体的戦略 (6 axes、いずれから着手):
-  1. **Spike**: `private/spikes/jit_segv/` に最小 wasm
+  l Phase 1 で SEGV を JIT body 内部に narrow 済。具体的戦略
+  (7 axes、優先度順):
+  1. **lldb batch mode** (Mac 既に nix 経由でインストール済
+     `lldb 21.1.8`): `lldb -b -o run -o "register read" -o
+     "disasm -p -c 20" -o "memory read --size 1 --count 256
+     \$pc" ./...zwasm-realworld-run-jit-runner` で SEGV まで
+     auto-run + 状態 dump。OrbStack (Linux) には gdb/lldb 未
+     インストール — 必要なら `apt install gdb` (chunk-m 内で
+     行う、autonomous OK)。
+  2. **Spike**: `private/spikes/jit_segv/` に最小 wasm
      (hand-crafted bytes, 1 関数 `(func) end` のみ、no imports)
-     の in-process repro を作る → `compileWasm` + `runVoidExport`
-     直接呼んで JIT block bytes を hex-dump。
-  2. **SIGSEGV handler**: `std.posix.sigaction` (Linux/macOS
-     共通 API) で SEGV 捕捉 → `faulting RIP/PC` を print →
-     `block.bytes.ptr` からの offset 計算 → emit-pass 上の
-     どの instruction が fault なのか逆引き。
-  3. **Bisection**: spike 最小 → `i32.const 0; drop; end` →
+     の in-process repro を作る → `compileWasm` +
+     `runVoidExport` 直接呼んで JIT block bytes hex-dump。
+  3. **SIGSEGV handler**: `std.posix.sigaction` で SEGV 捕捉
+     → `faulting RIP/PC` print → `block.bytes.ptr` からの
+     offset 計算 → emit-pass 逆引き。lldb 不要時の代替。
+  4. **Bisection**: spike 最小 → `i32.const 0; drop; end` →
      `i32.add` → `local.get` → ... と instr 1 つずつ足して、
      どの op 追加で SEGV が始まるか二分探索。
-  4. **JIT block protection 確認**: Linux `/proc/self/maps`
-     を read or `os.linux.mprotect` 確認 → JIT block が
-     `r-x` permission (PROT_EXEC) になってるか。
-     macOS は `vmmap` 相当 + `pthread_jit_write_protect_np`
-     確認。
-  5. **JitRuntime 整合性**: `@sizeOf(JitRuntime)` +
-     `@offsetOf` 全フィールドを print → `jit_abi.zig` 定数と
-     byte-by-byte 一致確認 (padding ずれや field 抜けの検出)。
-  6. **WebFetch 裏取り**: zig 0.16 + Mac M1 の MAP_JIT /
-     W^X / `pthread_jit_write_protect_np` 既知 issue、
-     wasmtime `winch/codegen/x64` の prologue/epilogue
-     invariants、cranelift JIT が同様 SEGV をどう debug
-     したかのリリースノート。
+  5. **JIT block protection 確認**: Linux `/proc/self/maps`
+     read; macOS `vmmap` + `pthread_jit_write_protect_np`。
+  6. **JitRuntime 整合性**: `@sizeOf` / `@offsetOf` print →
+     `jit_abi.zig` 定数と byte-by-byte 一致確認。
+  7. **WebFetch 裏取り**: zig 0.16 + Mac M1 MAP_JIT / W^X /
+     `pthread_jit_write_protect_np` 既知 issue、wasmtime
+     `winch/codegen/x64` prologue/epilogue invariants。
   Likely candidates: prologue stack alignment (chunks f-k で
   frame layout 変化)、spill region SUB RSP imm32 化 (chunk-k)
   後の guard page 抵触、trap stub address calc (chunks f-i 後)。
