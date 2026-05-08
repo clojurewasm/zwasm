@@ -205,13 +205,15 @@ pub fn compileOne(
         }
     }
 
-    // §9.8b / 8b.1-c (ADR-0035) — post-regalloc slot-aliasing
-    // coalescer. Side-table metadata pass; no IR or
-    // Allocation mutation. 8b.1-c MVP ships scaffolding only
-    // (zero detected records); detection logic lands
-    // incrementally in 8b.1-d alongside emit-side query
-    // wiring + bench-delta evidence.
-    try coalesce.run(allocator, &func, alloc);
+    // §9.8b / 8b.1 (closed per ADR-0036) — post-regalloc
+    // slot-aliasing coalescer. Side-table metadata pass; no IR
+    // or Allocation mutation. ADR-0035 designs the post-
+    // regalloc slot-aliasing approach; ADR-0036 scopes 8b.1 to
+    // scaffolding-only with detection deferred to Phase 15.
+    // The pass takes `alloc.slots` directly (not the full
+    // `Allocation`) to keep coalesce in Zone 1 per
+    // `.claude/rules/zone_deps.md`.
+    try coalesce.run(allocator, &func, alloc.slots);
     errdefer coalesce.deinitArtifacts(allocator, &func);
 
     trace.passEnter(func_idx, .emit);

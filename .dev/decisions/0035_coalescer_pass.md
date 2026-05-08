@@ -341,3 +341,4 @@ quantify the speedup.
 | Date | SHA | Note |
 |---|---|---|
 | 2026-05-09 | `<backfill>` | Initial accepted version (§9.8b / 8b.1-b design framing) |
+| 2026-05-09 | `<backfill>` | Scope-downgrade per ADR-0036: the "1-2 day" estimate covered the scaffolding only; full operand-stack vreg-numbering simulation + same-slot detection + emit-side query exceeded the chunk budget. ADR-0036 formalises the 8b.1 scope as scaffolding-only, with detection deferred to Phase 15 (post-AOT, post-regalloc-upgrade). The post-regalloc slot-aliasing design framed here remains sound; only the scoping changes. See [`0036_coalescer_scope_downgrade.md`](0036_coalescer_scope_downgrade.md). |

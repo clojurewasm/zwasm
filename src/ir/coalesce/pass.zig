@@ -30,7 +30,6 @@
 const std = @import("std");
 
 const zir = @import("../zir.zig");
-const regalloc = @import("../../engine/codegen/shared/regalloc.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
@@ -38,24 +37,21 @@ const CoalesceRecord = zir.CoalesceRecord;
 
 pub const Error = error{OutOfMemory};
 
-/// Run the coalescer pass. Pre-conditions: `regalloc.compute`
-/// has populated `alloc.slots[]`. Post-condition:
+/// Run the coalescer pass. Pre-conditions: regalloc has assigned
+/// per-vreg slots; the caller passes the resulting `slots[]`
+/// slice directly (Zone 2 → Zone 1 boundary preserved per
+/// `.claude/rules/zone_deps.md`; this pass is Zone 1, the
+/// `regalloc.Allocation` type lives in Zone 2). Post-condition:
 /// `func.coalesced_movs` slot installed (may be empty —
 /// scaffolding scope per `pass.zig` module doc).
-pub fn run(allocator: Allocator, func: *ZirFunc, alloc: regalloc.Allocation) Error!void {
-    _ = alloc; // reserved for 8b.1-d detection logic
+pub fn run(allocator: Allocator, func: *ZirFunc, slots: []const u16) Error!void {
+    _ = slots; // reserved for Phase 15 detection lift per ADR-0036
 
-    // §9.8b / 8b.1-d (in-progress): walk `func.instrs.items`,
-    // identify candidate ZirOps via `isCoalesceCandidate`,
-    // simulate the operand-stack vreg-numbering (def-order
-    // matching liveness's), and check whether the consumed +
-    // pushed vregs at each candidate share a slot in
-    // `alloc.slots[]`. Pre-detection scaffolding (this
-    // commit): walk the instrs and tally candidate-op count
-    // for the in-progress design's smoke test (assert via
-    // unit test that a function with `local.tee` ops
-    // surfaces them as candidates). Records remain empty
-    // until the simulation step lands.
+    // §9.8b / 8b.1 (closed per ADR-0036): scaffolding-only.
+    // Phase 15 layers the operand-stack vreg-numbering
+    // simulation (def-order matching liveness's) + same-slot
+    // check against `slots[]` once 8b.2's allocator reshape
+    // exposes natural same-slot sites.
     _ = isCoalesceCandidate; // keep referenced; unused this commit
 
     var records: std.ArrayList(CoalesceRecord) = .empty;
@@ -117,10 +113,9 @@ test "coalesce.run: scaffolding installs empty records on a tiny ZirFunc" {
     try f.instrs.append(testing.allocator, .{ .op = .end });
 
     const slots = [_]u16{0};
-    const a: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
 
     try testing.expect(f.coalesced_movs == null);
-    try run(testing.allocator, &f, a);
+    try run(testing.allocator, &f, &slots);
     try testing.expect(f.coalesced_movs != null);
     try testing.expectEqual(@as(usize, 0), f.coalesced_movs.?.len);
 }
