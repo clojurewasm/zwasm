@@ -28,6 +28,8 @@ const ZirFunc = zir.ZirFunc;
 const FuncType = zir.FuncType;
 const lowerer = @import("../../../ir/lower.zig");
 const liveness = @import("../../../ir/analysis/liveness.zig");
+const loop_info_mod = @import("../../../ir/analysis/loop_info.zig");
+const hoist = @import("../../../ir/hoist/pass.zig");
 const regalloc = @import("regalloc.zig");
 
 /// 7.5-close-d042 / 7.8 prep: comptime arch dispatch. ARM64 hosts
@@ -41,7 +43,7 @@ const emit = switch (builtin.target.cpu.arch) {
     else => @compileError("unsupported host arch — JIT requires aarch64 or x86_64"),
 };
 
-pub const Error = lowerer.Error || liveness.Error || regalloc.Error || emit.Error || Allocator.Error;
+pub const Error = lowerer.Error || liveness.Error || regalloc.Error || emit.Error || hoist.Error || Allocator.Error;
 
 /// One function's compilation result. `func` retains lowered
 /// ZIR + liveness for downstream consumers (debug dump,
@@ -58,6 +60,8 @@ pub fn deinitFuncResult(allocator: Allocator, r: *FuncResult) void {
     emit.deinit(allocator, r.out);
     regalloc.deinit(allocator, r.alloc_result);
     if (r.func.liveness) |lv| if (lv.ranges.len != 0) allocator.free(lv.ranges);
+    if (r.func.loop_info) |li| loop_info_mod.deinit(allocator, li);
+    hoist.deinitArtifacts(allocator, &r.func);
     r.func.deinit(allocator);
 }
 
@@ -92,17 +96,23 @@ pub fn compileOne(
 
     try lowerer.lowerFunctionBody(allocator, body, &func, module_types);
 
-    // §9.8 / 8.4-d INTEGRATION DEFERRED — the local-set/local-get
-    // rewrite hoist (`src/ir/hoist/pass.zig`) compiles + unit-
-    // tests cleanly but realworld_run_jit regressed 52/55+15 →
-    // 42/55+8 with new UnsupportedOp source unidentified after
-    // the first diagnostic round. D-053 carries the redesign
-    // forward; the module is preserved as code (helpers,
-    // synthetic_locals slot, hoisted_constants struct fields all
-    // staged in zir.zig + 4 emit consumer sites migrated to
-    // `func.totalLocalCount()` / `func.localValType(idx)`
-    // helpers) so a future cycle can wire it once the
-    // UnsupportedOp source is localised.
+    // §9.8 / 8.4-d — ZIR hoist pass with local-set/local-get
+    // rewrite (D-053 redesign per amended ADR-0031). Lifts
+    // loop-invariant `*.const` opcodes via fresh local indices,
+    // decoupling the value's lifetime from operand-stack scope.
+    // Pre-regalloc so the new `local.get` push order integrates
+    // with liveness's vreg numbering naturally. Hoist is bounded
+    // by a per-function MVP cap (`max_hoists_per_func` in
+    // `pass.zig`) — functions with more hoist opportunities
+    // skip transformation; the cap insulates the integration
+    // from a still-unidentified emit-stage UnsupportedOp source
+    // tracked under D-053.
+    const li = try loop_info_mod.compute(allocator, &func);
+    errdefer loop_info_mod.deinit(allocator, li);
+    func.loop_info = li;
+    try hoist.run(allocator, &func);
+    errdefer hoist.deinitArtifacts(allocator, &func);
+
     const lv = try liveness.compute(allocator, &func, func_sigs, module_types);
     func.liveness = lv;
     // ZirFunc.deinit does NOT walk into the (optional) liveness

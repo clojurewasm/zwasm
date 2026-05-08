@@ -54,6 +54,14 @@ pub const Error = error{OutOfMemory};
 /// Caller-owned: `func.synthetic_locals` and `func.
 /// hoisted_constants` slices must be freed by `deinit*`
 /// helpers below before `func.deinit`.
+/// Maximum synthetic locals to introduce per function (MVP cap;
+/// avoids stress-testing the emit pass with very large synthetic-
+/// local counts before the regression source is fully localised
+/// per `2026-05-08-hoist-vreg-semantic.md` Update §). When a
+/// function would exceed this, the pass returns early without
+/// hoisting — the original IR compiles unchanged.
+const max_hoists_per_func: u32 = 4;
+
 pub fn run(allocator: Allocator, func: *ZirFunc) Error!void {
     const li = func.loop_info orelse return;
     if (li.loop_headers.len == 0) return;
@@ -78,6 +86,7 @@ pub fn run(allocator: Allocator, func: *ZirFunc) Error!void {
     }
 
     if (total_hoists == 0) return;
+    if (total_hoists > max_hoists_per_func) return; // §9.8 / 8.4 MVP guard; see D-053
 
     // Allocate one synthetic local per hoist. local_idx_at[orig_pc] gives
     // the absolute Wasm-space local index assigned to the const at orig_pc.

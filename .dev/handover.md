@@ -39,7 +39,22 @@ rows = 8.4 (Hoist pass) + 8.5 (Coalescer) + 8.6 (Regalloc upgrade)
 + 8.7 (AOT skeleton) + 8.8 (bench delta ≥10%) + 8.9 (boundary
 audit) + 8.10 (open §9.9).
 
-## Active task — §9.8 / 8.4-d redesign landed; integration debug deferred
+## Active task — §9.8 / 8.4-d hoist landed (gated); 8.5 NEXT
+
+**8.4-d landed with MVP guard** — hoist pipeline integration
+active in `compile.zig`; `max_hoists_per_func=4` cap insulates
+the integration from a still-unidentified emit-stage
+UnsupportedOp source. Many small functions get hoisted across
+realworld fixtures; baseline maintained at 52/55+15/55. Root-
+cause investigation parked as a continuation of D-053 (cap
+removal, not redesign — the redesign IS landed).
+
+Diagnostic gathered this cycle: error originates in the **emit
+stage** (post-regalloc); arm64/emit.zig main paths instrumented
+and didn't fire → source is in op_call.zig / op_control.zig /
+gpr.zig silent UnsupportedOp returns. D-053 updated.
+
+## §9.8 row design surface (carried forward)
 
 **8.4-d landed** this cycle — local-set/local-get rewrite hoist
 infrastructure committed (zir.zig helpers + synthetic_locals
