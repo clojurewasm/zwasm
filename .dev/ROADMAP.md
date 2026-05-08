@@ -1614,7 +1614,7 @@ via the three-way differential carried forward from Phase 7.11.
 | 8b.1 | **Coalescer pass scaffolding** — vreg coalescing / MOV elimination framework, per ADR-0035 (post-regalloc slot-aliasing) + ADR-0036 (scope downgrade). Original "bench-delta required" exit superseded by ADR-0036: shipping scaffolding-only (pass module + `CoalesceRecord` types + `func.coalesced_movs` slot + `isCoalesceCandidate` predicate + `compile.zig` pipeline placement) suffices for 8b.1 closure; concrete detection (operand-stack vreg-numbering simulation + emit-side query) deferred to Phase 15 once 8b.2's allocator reshape exposes natural same-slot sites. The 8b.4 ≥10% aggregate exit absorbs the missing per-row delta. 8b.1-a (survey) + 8b.1-b (ADR-0035 design) + 8b.1-c (scaffolding) + 8b.1-d-step1 (predicate) all `[x]`; 8b.1-d-step2 + 8b.1-e dissolve into ADR-0036's "scaffolding-only" closure. | [x] (per ADR-0036; closing commit) |
 | 8b.2 | **Regalloc upgrade** — LIFO free-pool refactor of `regalloc.compute` (8b.2-c) + design framing (8b.2-b ADR-0037) + survey (8b.2-a). **Discovery during 8b.2-c**: the prior busy-mask scan already implemented slot reuse on dead vregs (per ADR-0037 Revision 2 + lesson `2026-05-09-greedy-local-already-does-reuse.md`); the free-pool refactor's value is algorithmic cleanup + Phase 15 substrate. Class-aware allocation per D-036 §option-b (originally 8b.2-d) deferred to Phase 15 alongside coalescer detection lift per ADR-0038 (structural overlap with the liveness type-tagging prerequisite). 8b.4 ≥10% aggregate concentrates on 8b.3 AOT. | [x] (per ADR-0038; 8b.2-c at `c7b0ea5`) |
 | 8b.3 | **AOT skeleton** — `zwasm compile foo.wasm -o foo.cwasm` produces a loadable artifact per ADR-0039 (inline-bytes `.cwasm` v0.1 format with arch-tagged 60-byte header + per-func metadata + relocs + types + code sections). `engine/codegen/aot/{format, serialise, produce}.zig` + `cli/compile.zig` land the generator pipeline; Phase 12's loader executes the artifact. Bench-delta (cold-start vs JIT first-invocation) deferred to Phase 12 per ADR-0039 (loader prerequisite); ADR-0040 migrates the §9.8b aggregate target to Phase 12 + Phase 15. | [x] (per ADR-0039; 8b.3-c at `b1720a1`, 8b.3-d at `2460386`) |
-| 8b.4 | **Substrate-coherence audit** (revised by ADR-0040; was "Bench delta ≥10% aggregate"). Verifies that the §9.8b scaffolding (coalesce pass + free-pool allocator + .cwasm format) composes cleanly and is referenced by the Phase 12 (AOT loader) + Phase 15 (coalescer detection + class-aware allocator) ROADMAP plans. The ≥10% aggregate runtime-bench target migrates to Phase 12 (cold-start delta) + Phase 15 (coalescer + class-aware delta) where the work that delivers the wins lives. | [ ]            |
+| 8b.4 | **Substrate-coherence audit** (revised by ADR-0040; was "Bench delta ≥10% aggregate"). Verifies that the §9.8b scaffolding (coalesce pass + free-pool allocator + .cwasm format) composes cleanly and is referenced by the Phase 12 (AOT loader) + Phase 15 (coalescer detection + class-aware allocator) ROADMAP plans. 8b.4-a audit (this commit): ADRs 0036/0037/0038/0039 each cite Phase 12 / Phase 15 lift points 5-12 times in their Consequences §§ — no Revision amendments needed. 8b.4-b ROADMAP prep (this commit): Phase 12 + Phase 15 Exit criteria amended with explicit §9.8b artefact references + concrete bench-delta targets (≥30% cold-start; ≥5% coalescer + ≥3% class-aware = ≥10% combined). The ≥10% aggregate runtime-bench target migrates to Phase 12 (cold-start delta) + Phase 15 (coalescer + class-aware delta) where the work that delivers the wins lives. | [x] (per ADR-0040; this commit) |
 | 8b.5 | Phase-8b boundary `audit_scaffolding` pass. | [ ]            |
 | 8b.6 | Open §9.9 inline + flip phase tracker. | [ ]            |
 
@@ -1668,13 +1668,28 @@ via the three-way differential carried forward from Phase 7.11.
 **Goal**: `zwasm compile` produces `.cwasm`; `zwasm run *.cwasm`
 loads in fewer-than-startup-of-JIT time.
 
+**Substrate inherited from §9.8b/8b.3** (per ADR-0040 migration):
+the generator pipeline + `.cwasm` v0.1 format land in §9.8b
+(ADR-0039); Phase 12 finalises the consumer side. The §9.8b
+artefacts (`src/engine/codegen/aot/{format, serialise,
+produce}.zig` + `src/cli/compile.zig`) are the loader's contract.
+
 **Exit criterion**:
 
 - `.cwasm` format defined: header + serialised regalloc + machine
-  code + relocation table.
+  code + relocation table. **Loader reads against `format.zig`'s
+  60-byte `CwasmHeader` + 12-byte `CwasmFuncMeta` + 9-byte
+  `CwasmReloc` shapes** (ADR-0039 + Revision 2 numeric
+  correction).
 - AOT and JIT outputs are differential-test-equivalent.
 - Cross-compile (`zig build -Dtarget=x86_64-linux`) works; cross-
   produced `.cwasm` runs on the target.
+- **Cold-start bench-delta**: load + first-call time vs JIT
+  first-invocation ≥30% improvement on at least 3 v1-class
+  hyperfine fixtures (target derived from `private/notes/p8-8b3-
+  aot-survey.md`'s 30-50% cold-start estimate; concrete
+  threshold set when §9.12 task table expands). **This is the
+  bench-delta obligation that §9.8b/8b.3 deferred per ADR-0040.**
 
 **🔒 gate**: no.
 
@@ -1717,6 +1732,22 @@ loads in fewer-than-startup-of-JIT time.
 **Goal**: zwasm v2 matches v1's bench performance and runs
 ClojureWasm.
 
+**Substrate inherited from §9.8b/8b.1 + 8b.2** (per ADR-0040
+migration):
+
+- Coalescer scaffolding lands at §9.8b/8b.1 per ADR-0036 (pass
+  module + `CoalesceRecord` types + `func.coalesced_movs` slot
+  + `isCoalesceCandidate` predicate + `compile.zig` pipeline
+  placement). Phase 15 layers concrete **detection logic**
+  (operand-stack vreg-numbering simulation + same-slot-event
+  subscription against the §9.8b/8b.2-c LIFO free-pool).
+- LIFO free-pool allocator at §9.8b/8b.2-c per ADR-0037
+  Revision 2 (busy-mask scan replaced with explicit free-pool;
+  semantic equivalence). Phase 15 extends with **class-aware
+  allocation** per D-036 §option-b + ADR-0038 (liveness type-
+  tagging + dual-pool GPR/FP slots + tighter `spillBytes()`
+  accounting).
+
 **Exit criterion**:
 
 - v1's optimisations (W43 SIMD addr cache, W44 reg class, W45 SIMD
@@ -1724,6 +1755,15 @@ ClojureWasm.
   D116-D135 line items as applicable) are ported as **clean
   additions** onto the v2 substrate (since the slots are already in
   `ZirFunc`). No retrofits.
+- **Coalescer detection bench-delta**: ≥5% on loop-heavy
+  fixtures with the §9.8b/8b.1 scaffolding's detection layer
+  populated (target from `private/notes/p8-8b1-coalescer-
+  survey.md`). **This is the runtime-bench obligation that
+  §9.8b/8b.1 deferred per ADR-0036 + ADR-0040.**
+- **Class-aware allocator bench-delta**: ≥3% on FP-heavy
+  fixtures with the dual-pool allocator landed (per ADR-0038
+  + ADR-0040). Combined coalescer + class-aware aggregate
+  ≥10% on at least 3 v1-class fixtures.
 - Bench shows no unexplained regression vs zwasm v1 main.
 - ClojureWasm CI green when its `zwasm` dependency points to a local
   path of `zwasm_from_scratch/` (via `build.zig.zon` `path = ...`).

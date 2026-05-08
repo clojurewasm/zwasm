@@ -13,49 +13,37 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 8 / §9.8b / 8b.3 [x] + ADR-0040 landed; 8b.4 **NEXT** (substrate audit)
+## Current state — Phase 8 / §9.8b/8b.4 [x] (substrate audit + ROADMAP prep); **8b.5 NEXT**
 
-§9.8b / 8b.3 closed (per ADR-0039); 8b.3-c at `b1720a1`
-(format + serialise) + 8b.3-d at `2460386` (CLI +
-producer). ADR-0040 (`99fcceb1`) revises §9.8b's
-aggregate target — substrate work + measurement migrates
-to Phase 12 + Phase 15. ROADMAP §9.8b row 8b.4 reframed
-from "Bench delta ≥10%" to "Substrate-coherence audit"
-per ADR-0040.
+8b.4 closed: ADRs 0036/0037/0038/0039 audit confirmed
+they each cite Phase 12 / Phase 15 lift points 5-12 times
+in Consequences §§ (no Revision amendments needed).
+Phase 12 + Phase 15 Exit criteria amended with explicit
+§9.8b artefact references + concrete bench-delta targets
+(≥30% cold-start; ≥5% coalescer + ≥3% class-aware = ≥10%
+combined Phase 15 aggregate).
 
 **Phase 8 status**: §9.8/8.0-8.4 [x]; §9.8a complete;
-§9.8b/8b.1 [x] (ADR-0036), 8b.2 [x] (ADR-0038), 8b.3 [x]
-(ADR-0039); **§9.8b/8b.4 NEXT** — substrate-coherence
-audit per ADR-0040. After 8b.4: 8b.5 (boundary
-`audit_scaffolding`) + 8b.6 (open §9.9 inline).
+§9.8b/8b.1 [x], 8b.2 [x], 8b.3 [x], 8b.4 [x]; **8b.5
+NEXT** — Phase-8b boundary `audit_scaffolding` pass.
+After 8b.5: 8b.6 (open §9.9 inline + Phase Status widget
+flip Phase 8 = DONE → Phase 9 = IN-PROGRESS).
 
-3-host gates dispatched at `2460386` (running); ADR-0040
-+ ROADMAP edits land in subsequent commit on top.
+3-host gates green at `2460386` (Mac 1151/0/12; OrbStack
+211/1/20 D-054 baseline; windowsmini retry 212/0/20 +
+all sub-runners after D-028 first-run flake).
 
-## Active task — §9.8b / 8b.4: Substrate-coherence audit **NEXT**
+## Active task — §9.8b / 8b.5: Phase-8b boundary audit_scaffolding **NEXT**
 
-Per ADR-0040 (Status: Accepted, `99fcceb1`), 8b.4 is now
-a **substrate-coherence audit** verifying:
+Per the per-task TDD loop's **Phase boundary** section in
+`continue/SKILL.md`: "Mandatory: invoke `audit_scaffolding`
+(the skill's 'Mandatory' trigger — phase boundary)". 8b.5
+fires the audit, produces `private/audit-2026-05-09.md`,
+and either fixes `block` findings inline or files an ADR.
 
-1. `src/ir/coalesce/pass.zig` + `func.coalesced_movs` slot
-   are referenced by the Phase 15 coalescer plan.
-2. `src/engine/codegen/shared/regalloc.zig` LIFO free-pool
-   is the substrate Phase 15's class-aware allocator
-   extends.
-3. `src/engine/codegen/aot/{format, serialise, produce}.zig`
-   + `src/cli/compile.zig` are referenced by the Phase 12
-   loader plan.
-4. ADR-0036 + ADR-0037 + ADR-0038 + ADR-0039 each cite the
-   Phase 15 / Phase 12 lift point in their `Consequences` §
-   (verify; amend Revision rows if missing).
-
-Suggested chunk plan (8b.4):
-
-| #     | Description                                                                                  | Status   |
-|-------|----------------------------------------------------------------------------------------------|----------|
-| 8b.4-a | Audit ADR-0036/0037/0038/0039 Consequences §§ for Phase 12/15 lift-point citations; amend Revisions if absent | **NEXT** |
-| 8b.4-b | Phase 12 + Phase 15 ROADMAP row prep: stub task tables noting the inherited bench-delta obligations (per ADR-0040 §"Neutral / follow-ups") | [ ] |
-| 8b.4-c | Close 8b.4 [x]; 3-host gate is doc-only so foreground sufficient | [ ] |
+After 8b.5: 8b.6 opens §9.9 inline (SIMD-128) + flips
+Phase Status widget (Phase 8 = DONE; Phase 9 = IN-PROGRESS).
+Then SHA-backfill commit per phase-boundary discipline.
 
 After 8b.4: 8b.5 (boundary audit_scaffolding) + 8b.6 (open
 §9.9 inline + flip Phase Status).
