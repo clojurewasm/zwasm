@@ -9,63 +9,67 @@
 2. `.dev/ROADMAP.md` §9 Phase Status widget + §9.8 task table — Phase 8 active.
 3. `.dev/debt.md` — D-054 + D-055 `blocked-by:` chain; 9 other rows.
 4. `.dev/lessons/INDEX.md` — keyword-grep for the active task domain.
-5. `.dev/decisions/0034_jit_execution_sentinel.md` (8a.2 design + Revision history) +
-   `0033_pass_trace_extension.md` (8a.1 design).
-6. `.dev/decisions/0032_phase8_foundation_first_reorg.md` (Phase 8 sequencing).
+5. `.dev/decisions/0034_jit_execution_sentinel.md` (8a.2 design + Revision history).
+6. `.dev/decisions/0033_pass_trace_extension.md` (8a.1 design).
+7. `.dev/decisions/0028_diagnostic_m3_trace_ringbuffer.md` (M3 ringbuffer parent ADR).
 
-## Current state — Phase 8 / §9.8a / 8a.3 (bench-delta-per-commit)
+## Current state — Phase 8 / §9.8a / 8a.4 (ZWASM_DIAG env var)
 
-§9.8a / 8a.1 + 8a.2 closed. Two-channel diagnostic surface
-landed (compile-pass record + JIT-execution sentinel). 8a.2-c-ii
-(x86_64 sentinel wire-up) deferred via D-055; ARM64 fully
-operational on Mac aarch64.
+§9.8a / 8a.1 + 8a.2 + 8a.3 closed. The three observability /
+infra rails are in place:
+- 8a.1: per-pass diagnostic (ringbuffer + ZirFunc slot)
+- 8a.2: JIT-execution sentinel (ARM64 native; x86_64 deferred D-055)
+- 8a.3: bench-delta-per-commit (scripts/run_bench.sh --diff +
+  scripts/record_bench_delta.sh)
+
+Step 5b's trigger condition `8a.1 + 8a.2 + 8a.3 all [x]` is now
+satisfied — Phase 8b chunks will be bench-delta-gated.
 
 直近 commits (latest at top):
 
-- (this commit) chore(p8): mark §9.8a / 8a.2 [x]; retarget at
-  8a.3 bench-delta-per-commit.
+- (this commit) chore(p8): mark §9.8a / 8a.3 [x]; retarget at
+  8a.4 ZWASM_DIAG env var.
+- `d0a364b` feat(p8): §9.8a / 8a.3 — bench-delta-per-commit infra.
 - `308ca97` feat(p8): §9.8a / 8a.2-d — realworld_run_jit cross-
   process sentinel surface (closes 8a.2 minus D-055).
-- `c5aaa50` feat(p8): §9.8a / 8a.2-c-i — x86_64 sentinel
-  encoder + D-055 deferral.
-- `d6e29ac` feat(p8): §9.8a / 8a.2-b — JitRuntime.jit_executed
-  _flag + ARM64 prologue inject.
+- `c5aaa50` feat(p8): §9.8a / 8a.2-c-i — x86_64 sentinel encoder.
 
-3-host gate at `c346666` (8a.2-d): Mac green; OrbStack 1
-known D-054 FAIL only; windowsmini green (D-028 flake on
-first run, retry green per the documented retry-once
-discipline).
+3-host gate at `d1fdedc`: pending dispatch (this commit's diff
+is pure scripts/, no Zig source change; gate validates baseline
+preservation + script-side smoke).
 
-**Phase 8 status**: §9.8 / 8.0-8.4 [x]; 8a.1 [x]; 8a.2 [x];
-**§9.8a / 8a.3 NEXT**. Phase 8 残 rows = 8a.3-8a.6 (foundation)
-+ 8b.1-8b.6 (optimisation).
+**Phase 8 status**: §9.8 / 8.0-8.4 [x]; 8a.1 [x]; 8a.2 [x]; 8a.3
+[x]; **§9.8a / 8a.4 NEXT**. Phase 8 残 rows = 8a.4-8a.6
+(foundation) + 8b.1-8b.6 (optimisation).
 
-## Active task — §9.8a / 8a.3: bench-delta-per-commit infra **NEXT**
+## Active task — §9.8a / 8a.4: ZWASM_DIAG env var **NEXT**
 
 Per ROADMAP §9.8a row text:
-> `scripts/run_bench.sh --diff <ref>` produces a before/after
-> fixture-by-fixture table (median_ms delta, percent change,
-> regression highlight). `scripts/record_bench_delta.sh` formats
-> it as a markdown block suitable for commit-message inclusion.
-> Used by the new /continue skill bench-discipline trigger
-> (8b tasks); also runnable manually for any ad-hoc verification.
+> Opt-in surfacing of the 8a.1/8a.2/8a.3 outputs without
+> recompile, single binary across release + diagnostic modes.
+> Diagnostic threadlocal infra (per ADR-0016) carries the flag
+> set; affected components (passes, JIT prologue, bench runners)
+> check the bit before emitting.
 
-This unlocks Step 5b of the per-task TDD loop (bench-delta
-sub-step) which currently has all 3 trigger conditions
-half-met: 8a.1 + 8a.2 [x]; 8a.3 [ ] is the gate.
+Wait — re-reading the row: `passes` (8a.1) + `jit_exec` (8a.2)
++ `bench` (8a.3) tokens map to compile-time-gated channels. The
+build flag `-Dtrace-ringbuffer` already gates 8a.1/8a.2; 8a.3
+is host-side bash. The runtime opt-in for the 8a.1 ringbuffer
+drain (currently always-quiet because no surface yet) is the
+8a.4 surface to actually read.
 
 Suggested chunk plan:
 
 | #     | Description                                              | Status   |
 |-------|----------------------------------------------------------|----------|
-| 8a.3-a | Survey existing `scripts/run_bench.sh` shape + bench/results/history.yaml structure | **NEXT** |
-| 8a.3-b | Add `--diff <ref>` mode to run_bench.sh: produces fixture-by-fixture table comparing two SHAs from history.yaml | [ ]      |
-| 8a.3-c | Add `scripts/record_bench_delta.sh`: formats output as markdown for commit-message inclusion | [ ]      |
-| 8a.3-d | Smoke-test on Mac local with HEAD~5..HEAD; assert table renders + regression highlight fires | [ ]      |
-| 8a.3-e | 3-host gate (mostly Mac-only; bench infra is host-local); close 8a.3 [x] | [ ]      |
+| 8a.4-a | Survey: where does ZWASM_DIAG check fit (cli/main? src/diagnostic/?); existing `ZWASM_DEBUG` precedent (dbg.zig) | **NEXT** |
+| 8a.4-b | Add `ZWASM_DIAG` env var parser + threadlocal flag set in `src/diagnostic/`; tokens: `passes`, `jit_exec`, `bench` | [ ]      |
+| 8a.4-c | Wire trace ringbuffer drain on process exit when `ZWASM_DIAG=passes` is set | [ ]      |
+| 8a.4-d | 3-host gate; close 8a.4 [x]                              | [ ]      |
 
-After 8a.3 closes: 8a.4 (`ZWASM_DIAG` env var), 8a.5 (D-053 +
-D-054 cap-removal investigation), 8a.6 (8a boundary audit).
+After 8a.4 closes: 8a.5 (D-053 + D-054 cap-removal investigation),
+8a.6 (8a boundary audit). 8a.5 IS the discharge path for D-054
++ D-055's chained blockers.
 
 Then §9.8b begins: 8b.1 (Coalescer, bench-delta required) →
 8b.2 (Regalloc upgrade) → 8b.3 (AOT skeleton) → 8b.4 (≥10%
@@ -79,11 +83,7 @@ aggregate) → 8b.5 (boundary audit) → 8b.6 (open §9.9).
   loop-broke regression.
 - 9 `blocked-by:` rows — D-007 / D-010 / D-016 / D-018 / D-020
   / D-021 / D-022 / D-026 / D-028 / D-052; barriers all hold
-  this resume. **D-028 flake fired this cycle** (windowsmini
-  IPC-timeout); retry-once discipline confirmed flake (1109/1135
-  + spec_assert 212/0/20 before flake on first run; full green
-  on retry). Sample size 3/30 commits ≈ 10%; D-028's prior
-  baseline was 2/30 ≈ 6%.
+  this resume.
 
 D-053 promoted to ROADMAP row §9.8a / 8a.5 per ADR-0032.
 
