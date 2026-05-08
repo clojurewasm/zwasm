@@ -13,65 +13,53 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 (SIMD-128) / §9.9/9.1 [x]; **§9.9/9.2 NEXT** (ADR design framing)
+## Current state — Phase 9 (SIMD-128) / §9.9/9.2 [x] (ADR-0041); **§9.9/9.3 NEXT**
 
-§9.9/9.1 Step 0 survey complete (`private/notes/p9-9.1-simd-
-survey.md`, 302 lines, gitignored). Headlines:
-- 415 op variants across 59 spec test files; 171 ZirOp pre-
-  declared across 8 categories.
-- Three divergences anchored to project principles: (a) one
-  ZirOp per operation (shape-as-variant); (b) reuse FP-class
-  register pool; (c) spec-fidelity float ops (NEON must
-  explicitly trap on IEEE-754 specials, not silently saturate).
-- SSE4.1 minimum baseline confirmed correct (PMULLD / PINSRB /
-  PBLENDVB are SSE4.1-only).
-- §9.2-9.10 chunk plan: ~4500 LOC total across both backends.
+§9.9/9.2 ADR-0041 landed (`.dev/decisions/0041_simd_128_
+design.md`, Status: Accepted). Design framing:
+- **Shape-as-variant ZirOps**: 171 pre-declared cover ~415 spec
+  ops via shape-suffix encoding (P6 + §A12).
+- **FP-class register pool reuse**: v128 vregs occupy V0-V31 /
+  XMM0-XMM15 alongside scalar f32/f64. Spill-stride
+  disambiguated via separate `ShapeTag` axis (per
+  `single_slot_dual_meaning.md`); conservative per-vreg-pays-
+  its-stride packing (Phase 15 lift via ADR-0038 class-aware).
+- **Feature-register pattern**: `feature/simd_128/register.zig`
+  installs all 171 op handlers into the central dispatch table
+  at startup (per ADR-0023 §4.5).
+- **Spec-fidelity NEON**: explicit IEEE-754 trap-on-specials
+  overriding NEON's silent-saturate default; Wasm spec § cited
+  per handler.
+- **SSE4.1 minimum**: PMULLD / PINSRB-W-D / PBLENDVB required;
+  runtime CPUID check at startup refuses pre-Nehalem hardware.
 
-§9.8 SHA backfill landed at `4af7acd` per LOOP.md phase-
-boundary one-commit bookkeeping discipline.
+**§9.9/9.3 NEXT** — Validator extension: v128 type-stack +
+per-op signatures via dispatch-table install (~150 src + ~80
+tests). Activates the `feature/simd_128/register.zig` slot.
 
-**§9.9/9.2 NEXT** — ADR-NNNN design framing for SIMD-128:
-ZirOp catalogue + register-class extension (FP-class pool
-reuse) + dispatch-table integration via `feature/simd_128/
-register.zig` + spec-fidelity strategy.
+## Active task — §9.9/9.3: SIMD-128 validator extension **NEXT**
 
-## Active task — §9.9/9.2: SIMD-128 ADR design framing **NEXT**
+Per ADR-0041 §"Concrete chunk plan" + §"Decision" / 3:
+v128 type-stack + per-op signatures via dispatch-table
+install. Activates `src/feature/simd_128/register.zig` from
+placeholder to load-bearing.
 
-Per the survey + ROADMAP §9.9 row text: ADR-NNNN frames the
-design choices. Substantial draft (~10 pages per survey
-estimate) covering:
+Smallest red test: validator accepts a wasm module with
+`(func (result v128) (v128.const i32x4 0 0 0 0))` and
+rejects type mismatches (e.g. `(i32.add v128.const)` should
+TypeError). Existing `src/validate/validator.zig` consumes
+type signatures from the dispatch table; SIMD ops register
+their `(params, results)` shapes via the
+`feature/simd_128/register.zig:register()` entry point
+which gets called at startup.
 
-1. **ZirOp catalogue**: shape-as-variant decision (one ZirOp
-   per `<shape>.<op>` combination) per P6 + §A12. Confirms
-   that the existing 171 ZirOp pre-declarations cover the
-   415 spec ops via shape-suffix encoding.
-2. **Register-class extension**: v128 vregs reuse the FP-
-   class register pool (`max_reg_slots_fp = 13` for ARM64
-   V16-V28; XMM0-XMM15 for x86_64). Spill-frame stride
-   diverges (8 bytes scalar / 16 bytes v128) — needs shape
-   tag to disambiguate. **W54-class regression risk**: per
-   `single_slot_dual_meaning.md`, the slot id alone can't
-   carry shape semantics; design must surface shape as a
-   separate axis (RegClass hint) not packed into slot id.
-3. **Feature-register pattern**: SIMD-128 ops register into
-   the central dispatch table at startup via `feature/simd_
-   128/register.zig` (per ADR-0023 §4.5). Validator + parser
-   + interpreter + emit consult the dispatch table only —
-   no `if (simd_enabled)` branching in shared code per A12.
-4. **Spec-fidelity float strategy**: ARM64 NEON's silently-
-   saturating semantics must be overridden to match Wasm's
-   IEEE-754 quirks (trap on special values where spec
-   demands).
-5. **SSE4.1 minimum baseline**: PMULLD + PINSRB/W/D + PBLENDVB
-   require SSE4.1; runtime feature detection refuses startup
-   on older CPUs. Cite Intel SDM line ranges.
+Estimated diff: ~150 src + ~80 tests. Single chunk per
+ADR-0041's chunk-plan row.
 
-Estimated chunk size: ~250-350 LOC ADR (similar to ADR-0035
-+ ADR-0038 shape). After 9.2: 9.3 validator (~150 LOC) →
-9.4 IR ZirOp catalogue + lower paths (~450 LOC) → 9.5-9.8
-ARM64 + x86_64 emit (~3600 LOC across 4 chunks) → 9.9 spec
-test wire-in → 9.10 bench → 9.11 boundary audit → 9.12 open
-§9.10 (Wasm 3.0).
+After 9.3: 9.4 IR (ZirOp activation + lower paths +
+`Allocation.shapeTag()` API) → 9.5/9.6 ARM64 NEON emit →
+9.7/9.8 x86_64 SSE4.1 emit → 9.9 spec test → 9.10 bench →
+9.11 audit → 9.12 open §9.10.
 
 After 8b.4: 8b.5 (boundary audit_scaffolding) + 8b.6 (open
 §9.9 inline + flip Phase Status).
