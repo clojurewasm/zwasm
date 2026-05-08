@@ -14,7 +14,7 @@
 6. `.dev/decisions/0033_pass_trace_extension.md` + `0034_jit_execution_sentinel.md`
    (8a.1 + 8a.2 observability infra; the read-side for 8a.5).
 
-## Current state — Phase 8 / §9.8a / 8a.5 (D-053 + D-054 cap-removal investigation)
+## Current state — Phase 8 / §9.8a / 8a.5-b (bisect to specific UnsupportedOp source)
 
 §9.8a / 8a.1-8a.4 closed. The four foundation rows landed
 across this session arc. Now the substantive 8a.5 row begins:
@@ -40,29 +40,43 @@ FAIL only, windowsmini green.
 **§9.8a / 8a.5 NEXT**. Phase 8 残 rows = 8a.5 + 8a.6 +
 8b.1-8b.6.
 
-## Active task — §9.8a / 8a.5: D-053 + D-054 cap-removal investigation **NEXT**
+## Active task — §9.8a / 8a.5-b: bisect UnsupportedOp source under cap-removed IR **NEXT**
 
-Per ROADMAP row text:
-> Using 8a.1 + 8a.2, identify which silent UnsupportedOp source
-> in arm64 `op_call.zig` / `op_control.zig` / `gpr.zig` fires
-> under post-hoist IR with > 4 synthetic locals. Either fix the
-> affected emit path (preferred) or refine the cap into a
-> precise filter (acceptable). On success: remove
-> `max_hoists_per_func = 4` from `src/ir/hoist/pass.zig`.
-> Verifies via `realworld_run_jit` baseline maintained AND
-> increased hoist application count (per 8a.1 pass-trace
-> counters). Discharges D-053.
+8a.5-a (cap-removed reproducer) findings (full survey in
+`private/notes/p8-8a5-survey.md`):
 
-8a.5 also discharges **D-054** (OrbStack as-loop-broke) once
-the localised regression is fixed AND **D-055** (x86_64
-sentinel) once the same path validates on x86_64.
+- Cap=1000 regression: 52/55 → **42/55 compile-pass** (−10);
+  15/55 → **8/55 RUN-PASS** (−7).
+- Repeated stderr signature: `compileWasm: func[18] params=1
+  results=1 → UnsupportedOp` across ≥5 fixtures (rust_file_io,
+  go_string_builder, go_crypto_sha256, go_hello_wasi,
+  cpp_vector_sort, …) — strongly suggests one shared runtime-
+  stub function (≥5 const ops in a loop) hits a single
+  ZirOp emit handler that fails under post-hoist IR.
+- One outlier: cpp_unique_ptr_test.wasm fails with
+  COMPILE-VAL BadValType (validator-stage) — unrelated to
+  cap; likely a v128/funcref param leak. Not 8a.5 scope.
+
+8a.5-b plan (next chunk):
+1. Pick one fixture (e.g. tinygo_fib.wasm or rust_file_io.wasm).
+2. Wire `trace.drainPassesToStderr()` into the realworld_run_jit
+   runner's exit path so 8a.4's ZWASM_DIAG=passes drain fires
+   from that exe (currently only cli/main.zig drains).
+3. Re-run cap-removed with ZWASM_DIAG=passes,jit_exec; identify
+   which pass produces the IR shape that arm64 emit rejects.
+4. Hand-craft a minimal repro under `private/spikes/8a5_cap_
+   removal/` (≤ 1 day per extended_challenge.md Step 4 spike
+   discipline). Outcome → ADR or fix.
+
+8a.5 still discharges D-054 + D-055 contingent (per chain in
+debt.md).
 
 Suggested chunk plan:
 
 | #     | Description                                              | Status   |
 |-------|----------------------------------------------------------|----------|
-| 8a.5-a | Build with `-Dtrace-ringbuffer=true`; reproduce cap-removed regression locally on Mac aarch64; capture pass-trace + emit-stage logs | **NEXT** |
-| 8a.5-b | Bisect to identifying single fixture + pass+func combo where post-hoist IR triggers UnsupportedOp; small reproducer fixture | [ ]      |
+| 8a.5-a | Build with `-Dtrace-ringbuffer=true`; reproduce cap-removed regression locally; capture pass-trace + emit-stage logs | [x] (this commit; survey at `private/notes/p8-8a5-survey.md`) |
+| 8a.5-b | Wire trace drain into realworld_run_jit runner; bisect to single fixture + ZirOp combo; small spike under `private/spikes/` | **NEXT** |
 | 8a.5-c | Either fix emit path OR refine cap into structurally-correct filter | [ ]      |
 | 8a.5-d | Remove `max_hoists_per_func` cap from `src/ir/hoist/pass.zig`; verify baseline ≥ 15/55 RUN-PASS + hoist count increased | [ ]      |
 | 8a.5-e | 3-host gate; close D-053 + D-054 + D-055 contingent; close 8a.5 [x] | [ ]      |
