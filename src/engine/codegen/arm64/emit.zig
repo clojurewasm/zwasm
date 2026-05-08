@@ -202,7 +202,7 @@ pub fn compile(
         }
     }
     const num_params: u32 = @intCast(func.sig.params.len);
-    const num_locals: u32 = @intCast(func.locals.len);
+    const num_locals: u32 = func.totalLocalCount();
     // Wasm local-index space: 0..num_params-1 = params,
     // num_params..num_params+num_locals-1 = declared locals.
     // Both share the same per-slot 8-byte stack region; frame
@@ -1187,8 +1187,8 @@ fn encStpFpLrPreIdx() u32 {
 /// followed by declared locals; per D-033 fix). Caller has already
 /// validated `local_idx < total_locals`.
 fn localValType(func: *const ZirFunc, num_params: u32, local_idx: u32) zir.ValType {
-    if (local_idx < num_params) return func.sig.params[local_idx];
-    return func.locals[local_idx - num_params];
+    _ = num_params;
+    return func.localValType(local_idx);
 }
 
 /// `LDP X29, X30, [SP], #16` — post-index pop of FP/LR pair.

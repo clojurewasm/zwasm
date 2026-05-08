@@ -180,7 +180,7 @@ pub fn compile(
             },
         }
     }
-    const num_locals: u32 = @intCast(func.locals.len);
+    const num_locals: u32 = func.totalLocalCount();
     const total_locals: u32 = num_params + num_locals;
     // §9.7 / 7.10-g: localDisp now returns i32 + auto-helpers
     // pick disp8 / disp32 form per offset, so total_locals is no
@@ -1032,8 +1032,8 @@ pub fn compile(
 /// occupy idx 0..num_params-1; declared locals follow. Mirror
 /// of arm64/emit.zig:localValType.
 fn localValType(func: *const ZirFunc, num_params: u32, local_idx: u32) zir.ValType {
-    if (local_idx < num_params) return func.sig.params[local_idx];
-    return func.locals[local_idx - num_params];
+    _ = num_params;
+    return func.localValType(local_idx);
 }
 
 /// §9.7 / 7.10-g: localDisp returns i32 (was i8). The i8 form

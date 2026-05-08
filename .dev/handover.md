@@ -39,7 +39,33 @@ rows = 8.4 (Hoist pass) + 8.5 (Coalescer) + 8.6 (Regalloc upgrade)
 + 8.7 (AOT skeleton) + 8.8 (bench delta ≥10%) + 8.9 (boundary
 audit) + 8.10 (open §9.9).
 
-## Active task — §9.8 / 8.4–8.7 all surveyed; design surface non-trivial
+## Active task — §9.8 / 8.4-d redesign landed; integration debug deferred
+
+**8.4-d landed** this cycle — local-set/local-get rewrite hoist
+infrastructure committed (zir.zig helpers + synthetic_locals
+slot + expanded HoistedConst + 4 emit consumer migrations + new
+hoist/pass.zig + 4 unit tests pass). Pipeline integration
+attempted but reverted again (52/55+15 → 42/55+8 RUN-PASS).
+
+Updated barrier per **D-053**: single `UnsupportedOp` source in
+`arm64/emit.zig` fires under post-hoist IR; `arm64/emit:` debug
+print path doesn't trigger so the source is one of 17 silent
+UnsupportedOp returns (lines 200, 301, 308, 324, 337, 354, 378,
+745, 750, 782, 792, 795, 818, 827, 830, 853, 1155).
+
+**Next concrete chunk**: bisect the UnsupportedOp source via a
+small reproducer + size-thresholded hoist guard. Then either fix
+the affected emit path or have hoist skip the pattern. Once
+localised, pipeline integration becomes a 1-line edit in
+`src/engine/codegen/shared/compile.zig`.
+
+This cycle's productive output (besides the deferred
+integration): zir.zig helpers + slot + HoistedConst expansion +
+4 emit consumer migrations + hoist module rewrite + 4 unit
+tests + ADR-0031 revision-history refinement entry + lesson
+update.
+
+## Phase 8 row design surface (carried forward)
 
 Phase 8 substantive rows (8.4 Hoist / 8.5 Coalescer / 8.6
 Regalloc upgrade / 8.7 AOT skeleton) all need careful per-row

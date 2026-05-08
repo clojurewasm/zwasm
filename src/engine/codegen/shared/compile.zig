@@ -92,16 +92,17 @@ pub fn compileOne(
 
     try lowerer.lowerFunctionBody(allocator, body, &func, module_types);
 
-    // §9.8 / 8.4-c REVERTED — ZIR hoist pass integration was
-    // attempted here but reverted: see lesson
-    // `2026-05-08-hoist-vreg-semantic.md`. Naive instr-move is
-    // not semantic-preserving on ZIR because liveness assigns
-    // vreg IDs by operand-stack push order — moving a const
-    // backward in the stream renumbers all downstream vregs.
-    // Correct hoist semantic requires a local-set/local-get
-    // rewrite (insert `*.const K; local.set N` before the loop;
-    // replace original `*.const K` with `local.get N`). Tracked
-    // as D-053; ADR-0031 amended with a revision-history entry.
+    // §9.8 / 8.4-d INTEGRATION DEFERRED — the local-set/local-get
+    // rewrite hoist (`src/ir/hoist/pass.zig`) compiles + unit-
+    // tests cleanly but realworld_run_jit regressed 52/55+15 →
+    // 42/55+8 with new UnsupportedOp source unidentified after
+    // the first diagnostic round. D-053 carries the redesign
+    // forward; the module is preserved as code (helpers,
+    // synthetic_locals slot, hoisted_constants struct fields all
+    // staged in zir.zig + 4 emit consumer sites migrated to
+    // `func.totalLocalCount()` / `func.localValType(idx)`
+    // helpers) so a future cycle can wire it once the
+    // UnsupportedOp source is localised.
     const lv = try liveness.compute(allocator, &func, func_sigs, module_types);
     func.liveness = lv;
     // ZirFunc.deinit does NOT walk into the (optional) liveness

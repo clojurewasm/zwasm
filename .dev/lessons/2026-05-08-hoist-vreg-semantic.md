@@ -79,3 +79,29 @@ update logic IS reusable; what changes is the semantic of what
 gets emitted at the hoist position.
 
 Citing: this commit's SHA (backfilled at next phase boundary).
+
+---
+
+## Update 2026-05-08 (resume cycle 2)
+
+The local-set/local-get rewrite redesign was implemented this
+cycle (zir.zig helpers `totalLocalCount` + `localValType`; 4
+emit consumer sites migrated; `src/ir/hoist/pass.zig` rewritten
+with new semantics + unit tests pass). When wired into
+`compileWasm`, **realworld_run_jit regressed again** — 52/55
+compile + 15/55 RUN-PASS → 42/55 + 8/55 RUN-PASS — with 10
+fixtures hitting `UnsupportedOp` from inside arm64 emit. No
+`arm64/emit:` debug print fires, ruling out the param-marshal /
+locals-zero-init / local.get-bound paths. Source unidentified
+after the first localisation attempt.
+
+**Disposition**: integration reverted again. Helpers + hoist
+module + emit consumer migration **stay** (they're independently
+useful infrastructure; unit tests green). D-053 retains the
+barrier but now describes the gap as "pipeline integration
+debug" rather than "redesign needed". Next cycle picking up
+D-053 starts with: a small fixture that triggers the
+UnsupportedOp under hoist; bisect by guarding hoist with a
+size threshold; check arm64/emit's uncovered UnsupportedOp
+return paths (lines 200, 301, 308, 324, 337, 354, 378, 745,
+750, 782, 792, 795, 818, 827, 830, 853, 1155).

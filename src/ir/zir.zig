@@ -529,16 +529,22 @@ pub const TailCallSite = struct {};
 
 /// Phase 8+: hoisted constant placement record (per ADR-0031).
 /// Populated by `src/ir/hoist/pass.zig` when a `*.const` opcode
-/// inside a loop is moved to the synthetic preheader (immediately
-/// before the loop header). `original_pc` is the const's PC in
-/// the pre-hoist instr stream; `new_pc` is its post-hoist PC.
-/// `op` + `payload` + `extra` mirror the ZirInstr fields so
-/// downstream passes (Phase 15 pooling, bench-delta inspection)
-/// can identify what was hoisted without a second walk over the
-/// instrs array.
+/// inside a loop is rewritten via the local-set/local-get
+/// pattern: `*.const K; local.set N` is inserted before the loop
+/// header; the in-loop `*.const K` becomes `local.get N`.
+/// `original_pc` is the const's PC in the pre-hoist instr stream;
+/// `prologue_const_pc` and `prologue_set_pc` are the post-hoist
+/// PCs of the inserted prologue pair; `in_loop_pc` is the
+/// post-hoist PC of the replacement `local.get`. `local_idx` is
+/// the absolute Wasm-space local index allocated for this hoist
+/// (= original `num_params + locals.len + synthetic_offset`).
+/// `op` + `payload` + `extra` mirror the original ZirInstr fields.
 pub const HoistedConst = struct {
     original_pc: u32,
-    new_pc: u32,
+    prologue_const_pc: u32,
+    prologue_set_pc: u32,
+    in_loop_pc: u32,
+    local_idx: u32,
     op: ZirOp,
     payload: u32,
     extra: u32,
@@ -578,8 +584,15 @@ pub const ZirFunc = struct {
     eh_landing_pads: ?[]LandingPad = null,
     tail_call_sites: ?[]TailCallSite = null,
 
-    // Phase 15+ — optimisation passes.
+    // Phase 8+ — optimisation passes.
     hoisted_constants: ?[]HoistedConst = null,
+    /// Synthetic locals appended by post-lowering passes (notably
+    /// the §9.8 / 8.4 hoist pass per ADR-0031, which reserves new
+    /// local indices to host hoisted-constant cache values).
+    /// Indexed at `local_idx >= func.locals.len`. Caller-owned;
+    /// freed by the pass that allocates it (see
+    /// `src/ir/hoist/pass.zig:deinitSynthetic`).
+    synthetic_locals: ?[]ValType = null,
     bounds_check_elision_map: ?[]ElisionRecord = null,
     coalesced_movs: ?[]CoalesceRecord = null,
 
@@ -598,6 +611,30 @@ pub const ZirFunc = struct {
         self.instrs.deinit(alloc);
         self.blocks.deinit(alloc);
         self.branch_targets.deinit(alloc);
+    }
+
+    /// Total declared-locals count = original `func.locals.len`
+    /// plus any `synthetic_locals` appended by post-lowering
+    /// passes. Use this anywhere `func.locals.len` was the
+    /// authoritative count for stack-frame sizing or local-index
+    /// validation.
+    pub fn totalLocalCount(self: *const ZirFunc) u32 {
+        const base: u32 = @intCast(self.locals.len);
+        const extra: u32 = if (self.synthetic_locals) |s| @intCast(s.len) else 0;
+        return base + extra;
+    }
+
+    /// Look up a local's `ValType` by its absolute Wasm-space
+    /// local index (parameter 0..num_params-1, then declared
+    /// locals num_params..num_params+totalLocalCount-1).
+    /// Caller has already validated the index range.
+    pub fn localValType(self: *const ZirFunc, local_idx: u32) ValType {
+        const num_params: u32 = @intCast(self.sig.params.len);
+        if (local_idx < num_params) return self.sig.params[local_idx];
+        const decl_idx: u32 = local_idx - num_params;
+        const orig_len: u32 = @intCast(self.locals.len);
+        if (decl_idx < orig_len) return self.locals[@intCast(decl_idx)];
+        return self.synthetic_locals.?[@intCast(decl_idx - orig_len)];
     }
 };
 
