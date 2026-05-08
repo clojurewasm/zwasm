@@ -44,6 +44,7 @@ PHASE_RECORD=0
 WINDOWS_SUBSET=0
 BENCH=""
 REASON=""
+DIFF_REF=""
 for arg in "$@"; do
     case "$arg" in
         --quick) QUICK=1 ;;
@@ -51,7 +52,19 @@ for arg in "$@"; do
         --windows-subset) WINDOWS_SUBSET=1; QUICK=1 ;;
         --bench=*) BENCH="${arg#--bench=}" ;;
         --reason=*) REASON="${arg#--reason=}" ;;
+        --diff=*) DIFF_REF="${arg#--diff=}" ;;
+        --diff)  ;;  # next iteration provides ref via positional pickup; see below
     esac
+done
+# §9.8a / 8a.3 — `--diff <ref>` (space-separated form). The
+# `case` loop above only handles `--diff=<ref>`; pick up the
+# space-separated form by walking $@ pairwise.
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = "--diff" ] && [ -z "$DIFF_REF" ]; then
+        DIFF_REF="$arg"
+    fi
+    prev="$arg"
 done
 
 # §9.8 / 8.3 — Windows subset: 5 fast fixtures (all <30ms on Linux
@@ -224,4 +237,32 @@ if [ $PHASE_RECORD -eq 1 ]; then
         awk '/^  benches:/,EOF' "$RECENT" | tail -n +2
     } >> "$HIST"
     echo "[run_bench] appended phase-record entry to $HIST"
+fi
+
+# §9.8a / 8a.3 — `--diff <ref>` mode: produce a markdown delta
+# table comparing recent.yaml against the history.yaml entry at
+# `<ref>`. Output goes to stdout (caller redirects). Per
+# ADR-0032 + LOOP.md Step 5b.
+if [ -n "$DIFF_REF" ]; then
+    HIST=bench/results/history.yaml
+    if [ ! -f "$HIST" ]; then
+        echo "[run_bench] --diff requires $HIST; absent." >&2
+        exit 2
+    fi
+    target_sha=$(git rev-parse --verify "$DIFF_REF^{commit}" 2>/dev/null || true)
+    if [ -z "$target_sha" ]; then
+        echo "[run_bench] --diff: cannot resolve ref '$DIFF_REF' to a commit" >&2
+        exit 2
+    fi
+    # Extract the FIRST history.yaml entry whose `commit:` matches
+    # the resolved SHA (or its prefix). yq's filter selects all
+    # matching entries; we keep position 0.
+    baseline_tmp=$(mktemp)
+    trap 'rm -f "$baseline_tmp"' EXIT
+    yq "[.[] | select(.commit | test(\"^${target_sha:0:12}\"))][0:1]" "$HIST" > "$baseline_tmp"
+    if [ ! -s "$baseline_tmp" ] || [ "$(yq '. | length' "$baseline_tmp")" = "0" ]; then
+        echo "[run_bench] --diff: no history.yaml entry matches commit prefix ${target_sha:0:12}" >&2
+        exit 2
+    fi
+    bash scripts/record_bench_delta.sh "$baseline_tmp" "$RECENT" "vs $DIFF_REF (${target_sha:0:12})"
 fi
