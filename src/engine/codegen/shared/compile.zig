@@ -92,6 +92,16 @@ pub fn compileOne(
 
     try lowerer.lowerFunctionBody(allocator, body, &func, module_types);
 
+    // §9.8 / 8.4-c REVERTED — ZIR hoist pass integration was
+    // attempted here but reverted: see lesson
+    // `2026-05-08-hoist-vreg-semantic.md`. Naive instr-move is
+    // not semantic-preserving on ZIR because liveness assigns
+    // vreg IDs by operand-stack push order — moving a const
+    // backward in the stream renumbers all downstream vregs.
+    // Correct hoist semantic requires a local-set/local-get
+    // rewrite (insert `*.const K; local.set N` before the loop;
+    // replace original `*.const K` with `local.get N`). Tracked
+    // as D-053; ADR-0031 amended with a revision-history entry.
     const lv = try liveness.compute(allocator, &func, func_sigs, module_types);
     func.liveness = lv;
     // ZirFunc.deinit does NOT walk into the (optional) liveness

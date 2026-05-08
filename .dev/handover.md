@@ -39,25 +39,22 @@ rows = 8.4 (Hoist pass) + 8.5 (Coalescer) + 8.6 (Regalloc upgrade)
 + 8.7 (AOT skeleton) + 8.8 (bench delta ≥10%) + 8.9 (boundary
 audit) + 8.10 (open §9.9).
 
-## Active task — §9.8 / 8.4: Hoist pass (ZIR transformation) **IN-PROGRESS**
+## Active task — §9.8 / 8.4: Hoist pass — **PARTIAL; redesign required**
 
-Sub-chunk plan (per `continue` skill chunk-table discipline):
+Sub-chunk progress (this cycle):
 
 | #     | Description                                                                              | Status      |
 |-------|------------------------------------------------------------------------------------------|-------------|
-| 8.4-a | ADR-0031 draft (`zir_hoist_pass.md`) — constant-hoist MVP, pre-regalloc placement, alternatives + lifecycle. | **NEXT**    |
-| 8.4-b | `src/ir/hoist/pass.zig` MVP: hoist `*.const` ops out of `loop` frames; mutate `func.instrs` + `blocks[]` + `branch_targets[]`; populate `func.hoisted_constants`. Unit tests cover splice mechanics + branch-target shift. | [ ]         |
-| 8.4-c | Pipeline integration in `src/engine/codegen/shared/compile.zig` (between lower and liveness); 3-host gate verifies realworld_run_jit ≥ 15/55 RUN-PASS (no regression vs 8.1 baseline). | [ ]         |
-| 8.4-d | Bench delta vs Phase 7 close baseline; record entry to `bench/results/history.yaml` if ≥ tinygo/* fixtures show measurable improvement; close 8.4 [x]. | [ ]         |
+| 8.4-a | ADR-0031 draft (`zir_hoist_pass.md`) — constant-hoist MVP design framing. Committed. | [x]         |
+| 8.4-b | `src/ir/hoist/pass.zig` MVP: instr-move + pc_shift / blocks / branch_targets update; unit tests for splice mechanics. Committed. | [x]         |
+| 8.4-c | Pipeline integration in `src/engine/codegen/shared/compile.zig` — **REVERTED**. realworld_run_jit regressed 52/55+15/55 → 38/55+2/55 due to ZIR vreg renumbering at liveness (operand-stack push-order). Lesson `2026-05-08-hoist-vreg-semantic.md` records root cause; ADR-0031 amended; D-053 tracks the correct local-set/local-get rewrite. | (reverted)  |
+| 8.4-d | Hoist redesign (D-053) — insert `*.const K; local.set N` before loop; rewrite in-loop `*.const K` to `local.get N`. Reuses 8.4-b's pc_shift/blocks/branch_targets infrastructure; what changes is what gets emitted. **NEXT** | **NEXT**    |
+| 8.4-e | Bench delta vs Phase 7 close baseline; close 8.4 [x] only after 8.4-d lands and 3-host gate green. | [ ]         |
 
-Pre-requisite confirmed at survey time: `loop_info.compute()` in
-`src/ir/analysis/loop_info.zig` already implemented (Phase 5
-discharge); `ZirFunc.hoisted_constants: ?[]HoistedConst` slot
-already reserved in `src/ir/zir.zig:568`. Liveness in pipeline
-at `compile.zig:95`.
-
-Three-way differential gate (P12) carried forward from §9.7 /
-7.11. Hoist must not change observable behaviour vs interp.
+8.4 is **not closed** in this resume cycle. The MVP module
+(8.4-b) is preserved as production code but not wired into the
+compile pipeline — it serves as the starting point for D-053's
+redesign. 8.4-d's redesign extends rather than replaces 8.4-b.
 
 Open structural debts (current):
 
