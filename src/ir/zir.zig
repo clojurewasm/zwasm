@@ -527,8 +527,22 @@ pub const LandingPad = struct {};
 /// Phase 10+: tail-call site record.
 pub const TailCallSite = struct {};
 
-/// Phase 15+: hoisted constant placement record.
-pub const HoistedConst = struct {};
+/// Phase 8+: hoisted constant placement record (per ADR-0031).
+/// Populated by `src/ir/hoist/pass.zig` when a `*.const` opcode
+/// inside a loop is moved to the synthetic preheader (immediately
+/// before the loop header). `original_pc` is the const's PC in
+/// the pre-hoist instr stream; `new_pc` is its post-hoist PC.
+/// `op` + `payload` + `extra` mirror the ZirInstr fields so
+/// downstream passes (Phase 15 pooling, bench-delta inspection)
+/// can identify what was hoisted without a second walk over the
+/// instrs array.
+pub const HoistedConst = struct {
+    original_pc: u32,
+    new_pc: u32,
+    op: ZirOp,
+    payload: u32,
+    extra: u32,
+};
 
 /// Phase 15+: bounds-check elision proof.
 pub const ElisionRecord = struct {};
