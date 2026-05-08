@@ -13,28 +13,29 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 8 / §9.8b / 8b.3-c landed; 8b.3-d **NEXT**
+## Current state — Phase 8 / §9.8b / 8b.3 closed (CLI + producer landed); 8b.3-e gate **NEXT**
 
-§9.8b / 8b.3-c lands the AOT generator scaffolding:
-`src/engine/codegen/aot/{format, serialise}.zig` with
-inline-bytes `.cwasm` v0.1 format per ADR-0039. 15 unit
-tests cover header / func-meta / reloc round-trips +
-produceCwasm assembly + reloc rebase + 4-byte alignment
-padding. ADR-0039 amended (Revision 2) with header-size
-correction (60 not 56 bytes; `relocs_size` field placement
-clarification — pure numeric correction, no design change).
+§9.8b / 8b.3-d lands `zwasm compile <input.wasm> -o
+<out.cwasm>` CLI wiring + producer orchestration:
+`src/engine/codegen/aot/produce.zig` (compileWasm output →
+.cwasm bytes) + `src/cli/compile.zig` (subcommand handler)
++ `src/cli/main.zig` (compile branch). The synthetic
+`() -> i32 7` round-trip test exercises the full producer
+path through compileWasm + parseHeader; types section is
+1 FuncType per defined func with `(params_count, results_
+count, val_type bytes)` tight encoding.
 
 **Phase 8 status**: §9.8 / 8.0-8.4 [x]; §9.8a complete;
 §9.8b / 8b.1 [x] (ADR-0036); 8b.2 [x] (ADR-0038);
-8b.3-a/b/c [x]; **§9.8b / 8b.3-d NEXT** — `zwasm compile
-<input.wasm> -o <out.cwasm>` CLI wiring + compile.zig
-producer integration. Bench-delta deferred to Phase 12
-per ADR-0039.
+8b.3-a/b/c/d [x]; **§9.8b / 8b.3-e NEXT** — 3-host gate +
+close 8b.3 [x]. Then **ADR-0040** revises §9.8b ≥10%
+aggregate exit per the deferred-Phase-12 measurement
+trajectory.
 
-**Risk** (per ADR-0039 §"Negative"): three §9.8b rows in
-a row produce 0% per-row delta. 8b.4 ≥10% aggregate is
-**structurally unattainable** with current plan; ADR-0040
-will revise §9.8b's exit criterion after 8b.3-d lands.
+**Risk** (per ADR-0039 §"Negative"): three rows produced
+0% per-row delta. ADR-0040 resolution path after 8b.3-e:
+options include lowering aggregate target, deferring
+measurement to Phase 12, or extending §9.8b with row 8b.7.
 
 ## Active task — §9.8b / 8b.3: AOT skeleton **NEXT**
 
@@ -51,9 +52,9 @@ Suggested chunk plan (8b.3):
 |-------|------------------------------------------------------------------------|----------|
 | 8b.3-a | Step 0 survey across wasmer + WasmEdge + wasmtime/cranelift + WAMR + v1 zwasm | [x] (this commit; survey at `private/notes/p8-8b3-aot-survey.md`) |
 | 8b.3-b | ADR-0039 design framing — inline-bytes `.cwasm` v0.1 format + pipeline reuse | [x] (this commit; ADR-0039 Accepted) |
-| 8b.3-c | Implement `engine/codegen/aot/{format, serialise}.zig`; round-trip parser test (15 unit tests covering header / func meta / reloc / produceCwasm) | [x] (this commit) |
-| 8b.3-d | CLI wiring (`zwasm compile <input.wasm> -o <out.cwasm>`); bench-delta deferred to Phase 12 per ADR-0039 (Phase 12 loader prerequisite); body documents per ADR-0036/0038 precedent | **NEXT** |
-| 8b.3-e | 3-host gate; close 8b.3 [x] | [ ] |
+| 8b.3-c | Implement `engine/codegen/aot/{format, serialise}.zig`; round-trip parser test (15 unit tests covering header / func meta / reloc / produceCwasm) | [x] (`b1720a1`) |
+| 8b.3-d | CLI wiring (`zwasm compile <input.wasm> -o <out.cwasm>`); `aot/produce.zig` orchestrator (CompiledWasm → .cwasm); synthetic `() -> i32 7` round-trip test through compileWasm. Bench-delta deferred to Phase 12 per ADR-0039. | [x] (this commit) |
+| 8b.3-e | 3-host gate; close 8b.3 [x]; file ADR-0040 to revise §9.8b ≥10% aggregate target | **NEXT** |
 
 **§9.8b ≥10% aggregate risk acknowledgement** (per ADR-0039
 §"Negative"): three Phase 8b rows in a row produce 0% per-

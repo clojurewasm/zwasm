@@ -146,6 +146,7 @@ pub const engine = struct {
         pub const aot = struct {
             pub const format = @import("engine/codegen/aot/format.zig");
             pub const serialise = @import("engine/codegen/aot/serialise.zig");
+            pub const produce = @import("engine/codegen/aot/produce.zig");
         };
     };
 };
@@ -169,6 +170,7 @@ pub const api = struct {
 };
 pub const cli = struct {
     pub const run = @import("cli/run.zig");
+    pub const compile = @import("cli/compile.zig");
     pub const diag_print = @import("cli/diag_print.zig");
 };
 
@@ -191,6 +193,8 @@ test {
     _ = @import("ir/coalesce/pass.zig");
     _ = @import("engine/codegen/aot/format.zig");
     _ = @import("engine/codegen/aot/serialise.zig");
+    _ = @import("engine/codegen/aot/produce.zig");
+    _ = @import("cli/compile.zig");
     _ = @import("engine/codegen/shared/reg_class.zig");
     _ = @import("engine/codegen/shared/regalloc.zig");
     _ = @import("engine/codegen/arm64/inst.zig");

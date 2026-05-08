@@ -11,19 +11,23 @@
 //! library symbols are reached as `zwasm.<zone>.<symbol>`.
 //!
 //! Subcommands:
-//!   (none)              Print version + build options.
-//!   run <path.wasm>     Drive a WASI module's `_start` / `main`
-//!                       export; exit with the guest's
-//!                       `proc_exit` code.
+//!   (none)                    Print version + build options.
+//!   run <path.wasm>           Drive a WASI module's `_start` / `main`
+//!                             export; exit with the guest's
+//!                             `proc_exit` code.
+//!   compile <path.wasm>       Produce a `.cwasm` v0.1 artifact (per
+//!     -o <out.cwasm>          ADR-0039). Generator pipeline only —
+//!                             Phase 12's loader executes the artifact.
 //!
-//! ROADMAP §10 envisions `compile / validate / inspect / features
-//! / wat / wasm` subcommands too — those land in later phases.
+//! ROADMAP §10 envisions `validate / inspect / features / wat /
+//! wasm` subcommands too — those land in later phases.
 
 const std = @import("std");
 const build_options = @import("build_options");
 const zwasm = @import("zwasm");
 
 const cli_run = zwasm.cli.run;
+const cli_compile = zwasm.cli.compile;
 const diag_print = zwasm.cli.diag_print;
 const diagnostic = zwasm.diagnostic;
 const dbg = zwasm.support.dbg;
@@ -89,6 +93,15 @@ pub fn main(init: std.process.Init) !void {
                     diag_print.renderFallback(err, source, stderr) catch {};
                 }
                 stderr.flush() catch {};
+                std.process.exit(1);
+            };
+            std.process.exit(code);
+        }
+        if (std.mem.eql(u8, subcmd, "compile")) {
+            const code = cli_compile.run(gpa, io, &arg_it) catch |err| {
+                var buf: [256]u8 = undefined;
+                const msg = std.fmt.bufPrint(&buf, "zwasm compile: {s}", .{@errorName(err)}) catch "zwasm compile: failed";
+                printlnErr(io, msg) catch {};
                 std.process.exit(1);
             };
             std.process.exit(code);
