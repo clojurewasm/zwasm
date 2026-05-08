@@ -94,6 +94,13 @@ pub fn compileOne(
 
     const lv = try liveness.compute(allocator, &func, func_sigs, module_types);
     func.liveness = lv;
+    // ZirFunc.deinit does NOT walk into the (optional) liveness
+    // slot — that slot is owned by the FuncResult, freed via
+    // `deinitFuncResult`. If regalloc / emit errors below, the
+    // FuncResult is never constructed and the errdefer chain
+    // would leak `lv.ranges`. Mirror deinitFuncResult's free
+    // here so the unwind path is symmetric.
+    errdefer if (lv.ranges.len != 0) allocator.free(lv.ranges);
 
     var alloc = try regalloc.compute(allocator, &func);
     errdefer regalloc.deinit(allocator, alloc);
@@ -143,7 +150,7 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     // sections.decodeCodes before this function): `i32.const 7`
     // (0x41 0x07) + `end` (0x0B).
     const body = [_]u8{ 0x41, 0x07, 0x0B };
-    const sig: FuncType = .{ .params = &.{}, .results = &.{ .i32 } };
+    const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
 
     var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0);
     defer deinitFuncResult(testing.allocator, &r);
