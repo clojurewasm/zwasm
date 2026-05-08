@@ -58,6 +58,12 @@ pub const CompiledWasm = struct {
     /// wasm function index (matches `Export.idx`, `call N` payload,
     /// validator's `func_types`).
     func_sigs: []FuncType,
+    /// Wasm-space typeidxs (parallel to `func_sigs`). Needed by
+    /// `setupRuntime` so the per-table-entry typeidx published in
+    /// `JitRuntime.typeidx_base` matches what the JIT-emitted
+    /// call_indirect type-check loads (which compares against the
+    /// call_indirect's static typeidx immediate).
+    func_typeidxs: []u32,
     /// Number of function imports. The first `num_imports` entries
     /// of `func_sigs` correspond to imports (no body compiled);
     /// `func_results` covers only the defined functions and is
@@ -69,6 +75,7 @@ pub const CompiledWasm = struct {
         for (self.func_results) |*r| compile_func.deinitFuncResult(allocator, r);
         allocator.free(self.func_results);
         allocator.free(self.func_sigs);
+        allocator.free(self.func_typeidxs);
         self.module.deinit(allocator);
         self.arena.deinit();
     }
@@ -113,6 +120,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         }
         const empty_module = try linker.link(allocator, &.{}, sig_count);
         const sigs = try allocator.alloc(FuncType, sig_count);
+        const typeidxs = try allocator.alloc(u32, sig_count);
         if (imports_buf) |ib| {
             // Need a type section to resolve func imports' typeidx.
             if (sig_count > 0) {
@@ -125,9 +133,11 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
                     const tidx = imp.payload.func_typeidx;
                     if (tidx >= types.items.len) {
                         allocator.free(sigs);
+                        allocator.free(typeidxs);
                         return Error.MissingTypeSection;
                     }
                     sigs[w] = types.items[tidx];
+                    typeidxs[w] = tidx;
                     w += 1;
                 }
             }
@@ -136,6 +146,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             .module = empty_module,
             .func_results = empty_results,
             .func_sigs = sigs,
+            .func_typeidxs = typeidxs,
             .num_imports = sig_count,
             .arena = arena,
         };
@@ -168,6 +179,8 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     const total_funcs = num_imports + @as(u32, @intCast(defined_func_typeidx.len));
     const func_sigs = try allocator.alloc(FuncType, total_funcs);
     errdefer allocator.free(func_sigs);
+    const func_typeidxs = try allocator.alloc(u32, total_funcs);
+    errdefer allocator.free(func_typeidxs);
     if (imports_buf) |ib| {
         var w: u32 = 0;
         for (ib.items) |imp| {
@@ -175,12 +188,14 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             const tidx = imp.payload.func_typeidx;
             if (tidx >= types.items.len) return Error.MissingTypeSection;
             func_sigs[w] = types.items[tidx];
+            func_typeidxs[w] = tidx;
             w += 1;
         }
     }
     for (defined_func_typeidx, 0..) |type_idx, i| {
         if (type_idx >= types.items.len) return Error.MissingTypeSection;
         func_sigs[num_imports + i] = types.items[type_idx];
+        func_typeidxs[num_imports + i] = type_idx;
     }
 
     // 7.5-close-d042-prep: decode globals / tables / data /
@@ -286,6 +301,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         .module = linked,
         .func_results = results,
         .func_sigs = func_sigs,
+        .func_typeidxs = func_typeidxs,
         .num_imports = num_imports,
         .arena = arena,
     };
@@ -472,7 +488,50 @@ fn setupRuntime(
     @memset(funcptrs_buf, 0);
     const typeidxs_buf = try allocator.alloc(u32, if (table_size == 0) 1 else table_size);
     errdefer allocator.free(typeidxs_buf);
-    @memset(typeidxs_buf, 0);
+    // Sentinel `maxInt(u32)` for "no function in this slot" — the
+    // JIT-emitted call_indirect type-check `cmp w16, #expected`
+    // never matches this, so an unset slot traps cleanly via the
+    // bounds_fixups path instead of through a NULL `blr`.
+    @memset(typeidxs_buf, std.math.maxInt(u32));
+
+    // Wasm spec §4.5.7 (table.init / element-segment instantiation)
+    // — populate the table with funcref entries from the element
+    // section. Without this, `call_indirect` loads a NULL funcptr
+    // and SEGVs at PC=0 (D-049 root cause). Active segments only;
+    // passive / declarative segments live in the runtime element
+    // index space, not the table itself, and reach the runtime via
+    // `table.init` ops which v0.1.0's JIT path doesn't emit yet.
+    if (module.find(.element)) |s| {
+        var elems = try sections.decodeElement(ta, s.body);
+        defer elems.deinit();
+        for (elems.items) |seg| {
+            if (seg.kind != .active) continue;
+            if (seg.tableidx != 0) continue;
+            const off = evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
+            if (off < 0) return Error.UnsupportedEntrySignature;
+            const base: usize = @intCast(off);
+            if (base + seg.funcidxs.len > funcptrs_buf.len) return Error.UnsupportedEntrySignature;
+            for (seg.funcidxs, 0..) |fidx, i| {
+                if (fidx == std.math.maxInt(u32)) {
+                    // ref.null funcref — leave the slot null + sentinel typeidx.
+                    continue;
+                }
+                if (fidx >= compiled.func_sigs.len) return Error.UnsupportedEntrySignature;
+                const f_off = compiled.module.func_offsets[fidx];
+                typeidxs_buf[base + i] = compiled.func_typeidxs[fidx];
+                if (f_off == linker.IMPORT_SENTINEL_OFFSET) {
+                    // Imported function in a table — host-call dispatch
+                    // through `host_dispatch_base` is required to invoke
+                    // it. v0.1.0's JIT call_indirect path doesn't emit
+                    // that trampoline; leave funcptr null so an attempt
+                    // to call it traps via NULL deref instead of running
+                    // arbitrary host code.
+                    continue;
+                }
+                funcptrs_buf[base + i] = @intFromPtr(compiled.module.block.bytes.ptr + f_off);
+            }
+        }
+    }
 
     return .{
         .rt = .{

@@ -104,6 +104,13 @@ pub fn main(init: std.process.Init) !void {
         if (!std.mem.endsWith(u8, entry.name, ".wasm")) continue;
         total += 1;
 
+        // Per-fixture stderr trace gated on the same env var as
+        // the run-stage. Crash-time stdout is buffered and the
+        // recursive-panic path skips the flush, so stderr is the
+        // only way to know which fixture is in flight when a SEGV
+        // hits. Compile-only mode stays quiet to keep the output
+        // table-friendly.
+        if (run_stage_enabled) std.debug.print("[try] {s}\n", .{entry.name});
         const bytes = dir.readFileAlloc(io, entry.name, gpa, .limited(64 << 20)) catch |err| {
             try stdout.print("FAIL-OTHER  {s}: read error {s}\n", .{ entry.name, @errorName(err) });
             fail_other += 1;
@@ -127,22 +134,27 @@ pub fn main(init: std.process.Init) !void {
                 const run_res = engine_runner.runVoidExport(gpa, bytes, "_start");
                 if (run_res) |_| {
                     try stdout.print("RUN-PASS  {s}\n", .{entry.name});
+                    try stdout.flush();
                     run_pass += 1;
                 } else |run_err| switch (run_err) {
                     error.Trap => {
                         try stdout.print("RUN-TRAP  {s}\n", .{entry.name});
+                        try stdout.flush();
                         run_trap += 1;
                     },
                     error.ExportNotFound, error.ExportIsNotFunction => {
                         try stdout.print("RUN-NO-ENTRY  {s}\n", .{entry.name});
+                        try stdout.flush();
                         run_no_entry += 1;
                     },
                     error.UnsupportedEntrySignature => {
                         try stdout.print("RUN-UNSUPPORTED-SIG  {s}\n", .{entry.name});
+                        try stdout.flush();
                         run_unsupported_sig += 1;
                     },
                     else => |e| {
                         try stdout.print("RUN-OTHER  {s}: {s}\n", .{ entry.name, @errorName(e) });
+                        try stdout.flush();
                         fail_other += 1;
                     },
                 }
