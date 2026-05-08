@@ -45,19 +45,50 @@ pub const Error = error{OutOfMemory};
 pub fn run(allocator: Allocator, func: *ZirFunc, alloc: regalloc.Allocation) Error!void {
     _ = alloc; // reserved for 8b.1-d detection logic
 
-    // 8b.1-c MVP: install an empty records slice. The
-    // detection-loop scaffolding belongs here in subsequent
-    // chunks (8b.1-d). Walking `func.instrs.items` and
-    // selecting from the candidate ZirOp catalogue
-    // (`local.tee` post-regalloc, `end` merge sites, call-arg
-    // marshalling sites) is bench-delta-gated work — without
-    // detected records, the bench-delta sub-step (Step 5b per
-    // LOOP.md) reports 0% movement, which is informational
-    // baseline data.
+    // §9.8b / 8b.1-d (in-progress): walk `func.instrs.items`,
+    // identify candidate ZirOps via `isCoalesceCandidate`,
+    // simulate the operand-stack vreg-numbering (def-order
+    // matching liveness's), and check whether the consumed +
+    // pushed vregs at each candidate share a slot in
+    // `alloc.slots[]`. Pre-detection scaffolding (this
+    // commit): walk the instrs and tally candidate-op count
+    // for the in-progress design's smoke test (assert via
+    // unit test that a function with `local.tee` ops
+    // surfaces them as candidates). Records remain empty
+    // until the simulation step lands.
+    _ = isCoalesceCandidate; // keep referenced; unused this commit
+
     var records: std.ArrayList(CoalesceRecord) = .empty;
     errdefer records.deinit(allocator);
 
     func.coalesced_movs = try records.toOwnedSlice(allocator);
+}
+
+/// §9.8b / 8b.1 candidate-op predicate (per ADR-0035 +
+/// 8b.1-d design exploration). Selects ZirOps that EMIT a
+/// MOV-shaped instruction sequence at emit time when the
+/// op's src and dst vregs happen to share a slot
+/// post-regalloc. Conservative MVP catalogue:
+///
+/// - `local.tee`: redundant store-then-keep when input vreg
+///   and output vreg share slot (the per-iteration store is
+///   wasted work).
+/// - `local.get` (post-hoist synthetic local): pairs with a
+///   prologue `local.set` per ADR-0031; coalescer detects
+///   the pair via `func.hoisted_constants` inspection.
+/// - `local.set` (post-hoist prologue): the inverse pair.
+/// - `select`: post-regalloc the cmov often coalesces both
+///   arms onto the same slot.
+///
+/// Catalogue grows incrementally as bench-delta surfaces
+/// wins (per ADR-0035 Consequence "Catalogue maintenance").
+/// Per `single_slot_dual_meaning.md` the candidate set lives
+/// in one place (this function), not split per arch.
+pub fn isCoalesceCandidate(op: zir.ZirOp) bool {
+    return switch (op) {
+        .@"local.tee", .@"local.get", .@"local.set", .@"select" => true,
+        else => false,
+    };
 }
 
 /// Free `func.coalesced_movs`. No-op when slot is null or
@@ -102,6 +133,18 @@ test "coalesce.deinitArtifacts: no-op on null slot" {
     try testing.expect(f.coalesced_movs == null);
     deinitArtifacts(testing.allocator, &f);
     try testing.expect(f.coalesced_movs == null);
+}
+
+test "isCoalesceCandidate: MVP catalogue accepts local.tee/get/set + select" {
+    try testing.expect(isCoalesceCandidate(.@"local.tee"));
+    try testing.expect(isCoalesceCandidate(.@"local.get"));
+    try testing.expect(isCoalesceCandidate(.@"local.set"));
+    try testing.expect(isCoalesceCandidate(.@"select"));
+    try testing.expect(!isCoalesceCandidate(.@"i32.const"));
+    try testing.expect(!isCoalesceCandidate(.end));
+    try testing.expect(!isCoalesceCandidate(.@"i32.add"));
+    try testing.expect(!isCoalesceCandidate(.@"call"));
+    try testing.expect(!isCoalesceCandidate(.@"br_table"));
 }
 
 test "coalesce.deinitArtifacts: frees populated records" {
