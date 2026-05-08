@@ -348,7 +348,7 @@ pub fn compile(
             const ptype = func.sig.params[p_idx];
             switch (ptype) {
                 .v128, .funcref, .externref => unreachable, // filtered above
-                else => {},
+                .i32, .i64, .f32, .f64 => {},
             }
             // Win64 stack-arg fallback for slot >= 4. The shared
             // slot is `int_arg_idx` (== `fp_arg_idx` under Win64).
@@ -373,7 +373,7 @@ pub fn compile(
                         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, stack_disp).slice());
                         try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice());
                     },
-                    else => unreachable,
+                    .v128, .funcref, .externref => unreachable, // filtered above
                 }
                 int_arg_idx += 1;
                 fp_arg_idx += 1;
@@ -399,7 +399,7 @@ pub fn compile(
                         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, stack_disp).slice());
                         try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice());
                     },
-                    else => unreachable,
+                    .v128, .funcref, .externref => unreachable, // filtered above
                 }
                 nsaa_idx += 1;
                 if (sysv_int_overflow) int_arg_idx += 1 else fp_arg_idx += 1;

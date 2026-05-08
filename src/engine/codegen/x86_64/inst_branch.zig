@@ -8,8 +8,6 @@
 //! `src/engine/codegen/arm64/` per ROADMAP §A3 (Zone-2 inter-arch
 //! isolation).
 
-const std = @import("std");
-
 const inst = @import("inst.zig");
 const reg_class = @import("reg_class.zig");
 

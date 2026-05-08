@@ -34,7 +34,6 @@ const std = @import("std");
 const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const inst = @import("inst.zig");
-const abi = @import("abi.zig");
 const gpr = @import("gpr.zig");
 const types = @import("types.zig");
 

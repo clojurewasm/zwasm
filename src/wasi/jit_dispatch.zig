@@ -102,6 +102,53 @@ pub fn fd_write(
     return @intFromEnum(Errno.success);
 }
 
+/// `wasi_snapshot_preview1.fd_read(fd, iovs_ptr, iovs_len,
+/// nread_ptr) -> errno` — scatter-read into an iovec array.
+/// MVP supports fd 0 (stdin) only; other fds return EBADF.
+/// Stdin is not yet plumbed through `JitRuntime`, so the MVP
+/// reports EOF: writes 0 into `*nread` and returns success.
+/// This lets fixtures that probe stdin (e.g. `read 0 bytes`)
+/// reach `proc_exit` cleanly rather than trapping at the WASI
+/// boundary. Real stdin sourcing lands once a `WasiContext`
+/// tail-extension to `JitRuntime` is justified by a fixture
+/// that genuinely needs input bytes.
+pub fn fd_read(
+    rt: *JitRuntime,
+    fd: i32,
+    iovs_ptr: i32,
+    iovs_len: i32,
+    nread_ptr: i32,
+) callconv(.c) i32 {
+    if (fd != 0) return @intFromEnum(Errno.badf);
+    if (iovs_ptr < 0 or iovs_len < 0 or nread_ptr < 0) {
+        return @intFromEnum(Errno.inval);
+    }
+    const iovs_off: u64 = @intCast(iovs_ptr);
+    const iovs_n: u64 = @intCast(iovs_len);
+    if (iovs_off + iovs_n * 8 > rt.mem_limit) {
+        return @intFromEnum(Errno.fault);
+    }
+    const nread_off: u64 = @intCast(nread_ptr);
+    if (nread_off + 4 > rt.mem_limit) return @intFromEnum(Errno.fault);
+
+    // Walk every iovec to validate buffer bounds even though we
+    // write nothing — guests that hand us a malformed iovec must
+    // see EFAULT, not a quiet 0-bytes-read success.
+    var i: u64 = 0;
+    while (i < iovs_n) : (i += 1) {
+        const iov_at: usize = @intCast(iovs_off + i * 8);
+        const buf_off = std.mem.readInt(u32, rt.vm_base[iov_at..][0..4], .little);
+        const buf_len = std.mem.readInt(u32, rt.vm_base[iov_at + 4 ..][0..4], .little);
+        const buf_off_u: u64 = buf_off;
+        const buf_len_u: u64 = buf_len;
+        if (buf_off_u + buf_len_u > rt.mem_limit) return @intFromEnum(Errno.fault);
+    }
+
+    const nw_at: usize = @intCast(nread_off);
+    std.mem.writeInt(u32, rt.vm_base[nw_at..][0..4], 0, .little);
+    return @intFromEnum(Errno.success);
+}
+
 /// `wasi_snapshot_preview1.clock_time_get(clock_id, precision,
 /// time_ptr) -> errno` — write current nanos into `vm_base +
 /// time_ptr`. Supports CLOCK_REALTIME (0) and CLOCK_MONOTONIC
@@ -227,6 +274,7 @@ pub fn lookup(module_name: []const u8, field_name: []const u8) ?usize {
     const Pair = struct { name: []const u8, ptr: usize };
     const table = [_]Pair{
         .{ .name = "fd_write", .ptr = @intFromPtr(&fd_write) },
+        .{ .name = "fd_read", .ptr = @intFromPtr(&fd_read) },
         .{ .name = "clock_time_get", .ptr = @intFromPtr(&clock_time_get) },
         .{ .name = "random_get", .ptr = @intFromPtr(&random_get) },
         .{ .name = "args_sizes_get", .ptr = @intFromPtr(&args_sizes_get) },
@@ -296,6 +344,70 @@ test "fd_write: bad fd returns EBADF" {
     const errno = fd_write(&rt, 99, 0, 0, 0);
     try testing.expectEqual(@as(i32, @intFromEnum(Errno.badf)), errno);
     _ = builtin.os.tag; // touch builtin to silence unused-import warning
+}
+
+test "lookup: fd_read resolves" {
+    try testing.expect(lookup("wasi_snapshot_preview1", "fd_read") != null);
+    try testing.expect(lookup("wasi_unstable", "fd_read") != null);
+}
+
+test "fd_read: bad fd returns EBADF" {
+    var memory: [16]u8 = undefined;
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = memory.len,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    const errno = fd_read(&rt, 99, 0, 0, 0);
+    try testing.expectEqual(@as(i32, @intFromEnum(Errno.badf)), errno);
+}
+
+test "fd_read: fd 0 stdin EOF writes 0 to nread and returns success" {
+    var memory: [32]u8 = .{0xAA} ** 32;
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = memory.len,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    // iovec at offset 0: { buf=16, buf_len=8 }; nread at offset 24.
+    std.mem.writeInt(u32, memory[0..4], 16, .little);
+    std.mem.writeInt(u32, memory[4..8], 8, .little);
+    const errno = fd_read(&rt, 0, 0, 1, 24);
+    try testing.expectEqual(@as(i32, @intFromEnum(Errno.success)), errno);
+    try testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, memory[24..28], .little));
+}
+
+test "fd_read: out-of-bounds iovs_ptr returns EFAULT" {
+    var memory: [16]u8 = undefined;
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = memory.len,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    // iovs_ptr=12 + 1 iovec (8 bytes) overflows 16-byte memory.
+    const errno = fd_read(&rt, 0, 12, 1, 0);
+    try testing.expectEqual(@as(i32, @intFromEnum(Errno.fault)), errno);
 }
 
 test "args_sizes_get: writes 0 + 0 to memory" {

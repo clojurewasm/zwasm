@@ -15,49 +15,51 @@
 
 ## Current state — Phase 8 / §9.8 / 8.1 (D-050 WASI subset for JIT)
 
-Phase 7 closed; Phase 8 open. ROADMAP §9 Phase Status widget shows
-7=DONE, 8=IN-PROGRESS. §9.8 task table expanded inline (8.0-8.10).
+Phase 7 closed; Phase 8 open at HEAD `9da3c99`. ROADMAP §9 Phase
+Status widget shows 7=DONE, 8=IN-PROGRESS. §9.8 task table
+expanded inline (8.0-8.10).
 
-直近 commits (latest at top; will be appended by Phase 7 close commit):
+Discovered at 8.1 entry: D-050 sub-tasks (1) + (2) **partially
+already landed** — `src/wasi/jit_dispatch.zig` has `fd_write` /
+`clock_time_get` / `random_get` / `args_*` / `environ_*` /
+`proc_exit` thunks; `setupRuntime` (`src/engine/runner.zig:422`)
+already calls `populateDispatch`. Missing piece is **`fd_read`**
+(absent from lookup() table) + **per-fixture timeout** (subprocess
+fork + SIGALRM in `test/realworld/run_runner_jit.zig`). Runner
+guards run-stage behind `ZWASM_JIT_RUN=1` env var; default
+test-all path is compile-only.
 
-- (pending C6) chore(p7): mark §9.7 / 7.13 + 7.14 [x]; close
-  Phase 7; expand §9.8 inline + flip Phase Status widget; SHA
-  backfill for §9.7 rows 7.5/7.5d/7.5e/7.7/7.8.
+直近 commits (latest at top):
+
+- `9da3c99` chore(p7): close Phase 7; expand §9.8 inline + flip
+  Phase Status widget.
 - `60a4a67` chore(p7): windowsmini Phase 7 close partial baseline
   + handover/gate-doc updates.
-- `e3e6668` chore(infra p7): hyperfine CI bench workflow (Phase 11
-  deferral lifted).
+- `e3e6668` chore(infra p7): hyperfine CI bench workflow.
 - `8c51fcd` chore(debt p7): close D-009 + D-011 + D-017.
-- `2214762` chore(p7): §9.7 / 7.13 gate-close artefacts (5/5
-  sections ☑).
-- `cde3405` refactor(p7): split x86_64/inst.zig (2530→1104) +
-  arm64/emit_test.zig (2356→28 + 6 siblings); §3 file-size box
-  discharge (modulo D-051).
 
-**Phase 8 status**: §9.8 / 8.0 [x] (this commit's open). Phase
-8 残 rows = 8.1 (D-050 WASI for JIT, NEXT) + 8.2 (D-051 emit.zig
-prologue extraction) + 8.3 (windowsmini bench Phase 8.0
-disposition) + 8.4-8.10 (optimisation pipeline + AOT skeleton +
-bench delta + audit + open §9.9).
+**Phase 8 status**: §9.8 / 8.0 [x]; 8.1 IN-PROGRESS. Phase 8 残
+rows = 8.1 (NEXT) + 8.2 (D-051 emit.zig prologue extraction) +
+8.3 (windowsmini bench disposition) + 8.4-8.10 (optimisation
+pipeline + AOT skeleton + bench delta + audit + open §9.9).
 
-## Active task — §9.8 / 8.1: D-050 WASI subset for JIT path **NEXT**
+## Active task — §9.8 / 8.1: D-050 WASI subset for JIT path **IN-PROGRESS**
 
-Concrete sub-tasks per `.dev/debt.md` D-050 description:
+Sub-chunk plan (granularity per `continue` skill chunk-table
+discipline):
 
-1. Port a minimal WASI subset to JIT-callable shape via
-   `host_dispatch_base[i]` thunks: `proc_exit` / `fd_write` /
-   `fd_read` / `environ_get` / `environ_sizes_get` / `args_get` /
-   `args_sizes_get` / `clock_time_get`.
-2. Wire `setupRuntime` (`src/engine/runner.zig`) to install
-   thunks instead of the trap stub for known WASI exports.
-3. Add per-fixture timeout (subprocess fork + SIGALRM) so
-   `cljw_*` / `tinygo_fib` loops don't hang the runner.
+| #     | Description                                                                                  | Status      |
+|-------|----------------------------------------------------------------------------------------------|-------------|
+| 8.1-a | `fd_read` thunk added to `src/wasi/jit_dispatch.zig` (stdin EOF stub for MVP per p8 survey); `lookup()` table extended; thunk tests added | **NEXT**    |
+| 8.1-b | Per-fixture subprocess fork + SIGALRM timeout in `test/realworld/run_runner_jit.zig`; Windows path = RUN-SKIP-NO-FORK; comptime os.tag guard. | [ ]         |
+| 8.1-c | Re-run `ZWASM_JIT_RUN=1 zig build test-realworld-run-jit` baseline on 3 hosts; record RUN-PASS count vs Phase 7 close (0/55) baseline; close D-050 row in `.dev/debt.md` if ≥10 fixtures flip to RUN-PASS (matches the spirit of D-050 close criterion — "WASI subset is wired"; the ≥40 target is aspirational, real number depends on which fixtures are stdin-only WASI vs compute-heavy). | [ ]         |
 
-Three-way differential gate carried forward as the correctness
-oracle (P12; per Phase 8 narrative + §9.7 / 7.11 lock).
-Discharge target: `realworld_run_jit_runner` 0/55 RUN-PASS
-→ ≥40/55 RUN-PASS for fixtures that complete via WASI exit;
-matches interp side's 44/55.
+Survey lives in `private/notes/p8-8.1-survey.md` (gitignored;
+covers fd_read iovec semantics + Zig 0.16 fork/alarm/waitpid +
+wasmtime/zware divergence notes).
+
+Three-way differential gate (P12) is the correctness oracle for
+8.1-c's RUN-PASS measurement.
 
 ## Phase 7 close summary (snapshot for cold-start context)
 
