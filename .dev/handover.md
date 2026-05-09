@@ -16,26 +16,30 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..ak landed); **9.7-al NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..al landed); **9.7-am NEXT**
 
-9.7-ak: x86_64 i32x4.extadd_pairwise_i16x8_s (1 op, 4-instr
-inline-synth via PCMPEQB+PSRLW imm 15 + MOVAPS + PMADDWD). _u
-variant deferred because PMADDWD treats inputs as signed i16. 2
-new ZirOp entries; only _s wired. Total SIMD ops handled: 179.
+9.7-al: x86_64 ADR-0042 const-pool port + v128.const (mirror of
+9.6-f-ii ARM64 work). New SimdConstFixup struct + post-emit pool
+append/patch loop + MOVUPS-RIP-rel encoder. Total SIMD ops
+handled: 180.
 
-**9.7-al NEXT** — i8x16.popcnt (1 op). Cranelift's idiomatic
-recipe is the SSSE3 PSHUFB-LUT (7 instr + 16-byte LUT const).
-Without ADR-0042 const-pool, options: (a) inline-synth the LUT
-via PCMPEQB+immediate sequences (likely 12+ instr, fragile); (b)
-Hacker's-Delight per-byte shift-and-add (9 instr, but the masks
-0x55/0x33/0x0F per-byte are also const-pool-dep without
-byte-level shifts). Both are ugly inline. Recommendation: defer
-popcnt to 9.7-am with const-pool, OR survey for a third path.
-Survey first.
+**9.7-am NEXT** — i8x16.shuffle (1 op, leverages 9.7-al
+const-pool foundation). Recipe: load shuffle mask from
+const-pool via the new MOVUPS-RIP-rel placeholder, then PSHUFB
+(SSSE3) — but PSHUFB has different semantics from ARM64's TBL
+(no fallthrough zeroing on idx ≥ 16; PSHUFB zeros lanes only
+when bit 7 is set). Cranelift's recipe handles this via
+`PSHUFB(src1, mask) | PSHUFB(src2, mask XOR 0x10)` for the
+2-register shuffle case. Survey to pin the exact recipe; ~6-8
+instr including const-pool load + the synthesis. ZirFunc.
+simd_consts entry for the shuffle mask is populated by lower.
 
-Subsequent: 9.7-am (ADR-0042 const-pool plumbing + popcnt +
-i32x4.extadd_pairwise_i16x8_u + 4 deferred 9.7-ae u-variants +
-i8x16.shuffle + v128.const). Phase 7 close-out pending.
+Subsequent: 9.7-an (i8x16.popcnt with const-pool — 7-instr
+SSSE3 PSHUFB-LUT recipe, 1 const), 9.7-ao (4 deferred 9.7-ae
+u-variants — f64x2.convert_low_i32x4_u + 3 trunc_sat u-
+variants, all using const-pool float magic numbers), 9.7-ap
+(i32x4.extadd_pairwise_i16x8_u + miscellaneous remaining
+const-pool ops). Phase 7 close-out approaching.
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -55,5 +59,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ak landed; 9.7-al NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..al landed; 9.7-am NEXT).
 **Branch**: `zwasm-from-scratch`。
