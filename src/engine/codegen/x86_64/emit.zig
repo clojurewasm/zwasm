@@ -898,6 +898,23 @@ pub fn compile(
             .@"f64x2.gt" => try op_simd.emitF64x2Gt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.le" => try op_simd.emitF64x2Le(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.ge" => try op_simd.emitF64x2Ge(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-p: FP arithmetic add/sub/mul/div + sqrt
+            // for f32x4 + f64x2 (10 ops). ADDPS/SUBPS/MULPS/DIVPS/
+            // SQRTPS (SSE 0F 58/5C/59/5E/51) + PD variants (SSE2 66
+            // prefix). Binary ops reuse 9.7-b's emitV128IntBinop;
+            // sqrt uses new emitV128FpUnop. min/max defer to 9.7-q
+            // (NaN-correction synthesis ~7 instr per cranelift
+            // `lower.isle` F32X4/F64X2 fmin/fmax).
+            .@"f32x4.add" => try op_simd.emitF32x4Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.sub" => try op_simd.emitF32x4Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.mul" => try op_simd.emitF32x4Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.div" => try op_simd.emitF32x4Div(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.sqrt" => try op_simd.emitF32x4Sqrt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.add" => try op_simd.emitF64x2Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.sub" => try op_simd.emitF64x2Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.mul" => try op_simd.emitF64x2Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.div" => try op_simd.emitF64x2Div(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.sqrt" => try op_simd.emitF64x2Sqrt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at

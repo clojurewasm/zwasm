@@ -849,6 +849,83 @@ pub fn encPcmpgtQ(dst: Xmm, src: Xmm) EncodedInsn {
 // NOT gives `a > b` unsigned; `eq(a, max)` gives `a >= b`
 // unsigned (and dual for min/lt/le).
 
+/// SSE single-precision packed FP binop helper. Same shape as
+/// `encSsePackedIntBinop` but **without** the 66 prefix — PS-form
+/// SSE-original instructions encode as `[REX?] 0F <opcode> /r`
+/// while PD/Int forms add the 66 prefix. Used by ADDPS / SUBPS /
+/// MULPS / DIVPS / MINPS / MAXPS / SQRTPS encoders.
+fn encSseFpPsBinop(opcode: u8, dst: Xmm, src: Xmm) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (dst.extBit() != 0 or src.extBit() != 0) {
+        enc.push(encodeRex(false, dst.extBit(), 0, src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(opcode);
+    enc.push(encodeModrm(0b11, dst.low3(), src.low3()));
+    return enc;
+}
+
+/// `ADDPS xmm, xmm` ([REX?] 0F 58 /r) — SSE packed single-precision
+/// add (4 lanes). Wasm `f32x4.add`.
+pub fn encAddps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x58, dst, src);
+}
+
+/// `SUBPS xmm, xmm` ([REX?] 0F 5C /r) — SSE packed single-precision
+/// subtract (4 lanes). Wasm `f32x4.sub`.
+pub fn encSubps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x5C, dst, src);
+}
+
+/// `MULPS xmm, xmm` ([REX?] 0F 59 /r) — SSE packed single-precision
+/// multiply (4 lanes). Wasm `f32x4.mul`.
+pub fn encMulps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x59, dst, src);
+}
+
+/// `DIVPS xmm, xmm` ([REX?] 0F 5E /r) — SSE packed single-precision
+/// divide (4 lanes). Wasm `f32x4.div`.
+pub fn encDivps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x5E, dst, src);
+}
+
+/// `SQRTPS xmm, xmm` ([REX?] 0F 51 /r) — SSE packed single-precision
+/// square-root (4 lanes; unary, dst gets sqrt(src)). Wasm
+/// `f32x4.sqrt`. NaN handling is canonical per IEEE-754: NaN
+/// inputs propagate to NaN output, matching Wasm spec.
+pub fn encSqrtps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x51, dst, src);
+}
+
+/// `ADDPD xmm, xmm` (66 [REX?] 0F 58 /r) — SSE2 packed double-precision
+/// add (2 lanes). Wasm `f64x2.add`. Reuses `encSsePackedIntBinop`
+/// for the 66+0F prefix shape; the int/fp distinction is purely
+/// in the opcode byte.
+pub fn encAddpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x58, dst, src);
+}
+
+/// `SUBPD xmm, xmm` (66 [REX?] 0F 5C /r) — SSE2 f64x2.sub.
+pub fn encSubpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x5C, dst, src);
+}
+
+/// `MULPD xmm, xmm` (66 [REX?] 0F 59 /r) — SSE2 f64x2.mul.
+pub fn encMulpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x59, dst, src);
+}
+
+/// `DIVPD xmm, xmm` (66 [REX?] 0F 5E /r) — SSE2 f64x2.div.
+pub fn encDivpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x5E, dst, src);
+}
+
+/// `SQRTPD xmm, xmm` (66 [REX?] 0F 51 /r) — SSE2 f64x2.sqrt
+/// (unary; dst = sqrt(src)).
+pub fn encSqrtpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x51, dst, src);
+}
+
 /// `CMPPS xmm, xmm, imm8` ([REX?] 0F C2 /r ib) — SSE packed
 /// single-precision compare. Each lane gets all-ones (mask) if the
 /// predicate is true on the lane, else all-zeros. **No 66 prefix**
@@ -1237,6 +1314,28 @@ test "encPcmpgtQ: REX.R+B (xmm8, xmm13)" {
     // 66 45 0F 38 37 C5 — REX = 0x40 | R(1<<2) | B(1) = 0x45;
     // ModR/M = 11 000 101 = 0xC5 (mod=11, reg=0 [xmm8 low3], rm=5 [xmm13 low3]).
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0x38, 0x37, 0xC5 }, encPcmpgtQ(.xmm8, .xmm13).slice());
+}
+
+test "encAddps / encSubps / encMulps / encDivps / encSqrtps opcode bytes (xmm0, xmm1) — SSE no 66 prefix" {
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x58, 0xC1 }, encAddps(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x5C, 0xC1 }, encSubps(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x59, 0xC1 }, encMulps(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x5E, 0xC1 }, encDivps(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x51, 0xC1 }, encSqrtps(.xmm0, .xmm1).slice());
+}
+
+test "encAddpd / encSubpd / encMulpd / encDivpd / encSqrtpd opcode bytes (xmm0, xmm1) — SSE2 with 66 prefix" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x58, 0xC1 }, encAddpd(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x5C, 0xC1 }, encSubpd(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x59, 0xC1 }, encMulpd(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x5E, 0xC1 }, encDivpd(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x51, 0xC1 }, encSqrtpd(.xmm0, .xmm1).slice());
+}
+
+test "encAddps: REX.R+B (xmm10, xmm12)" {
+    // 45 0F 58 D4 — REX = 0x40 | R(1<<2) | B(1) = 0x45;
+    // ModR/M = 11 010 100 = 0xD4 (mod=11, reg=2, rm=4).
+    try testing.expectEqualSlices(u8, &.{ 0x45, 0x0F, 0x58, 0xD4 }, encAddps(.xmm10, .xmm12).slice());
 }
 
 test "encCmpps opcode bytes (xmm0, xmm1, imm=0x01 LT) — SSE no 66 prefix" {

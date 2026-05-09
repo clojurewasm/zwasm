@@ -766,6 +766,89 @@ pub fn emitF64x2Ge(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regallo
     return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmppd, 0x02, true);
 }
 
+/// Wasm spec §4.4.4 (f*x*.{add, sub, mul, div}) — pop two v128,
+/// push v128 with per-lane IEEE-754 binary FP result. Reuses
+/// 9.7-b's `emitV128IntBinop` shape unchanged because the encoder
+/// signature `(dst, src) → EncodedInsn` is identical (the int /
+/// fp distinction is purely in the encoder's opcode byte). NaN
+/// propagation matches Wasm spec since SSE FP-arith instructions
+/// (add/sub/mul/div) are canonical IEEE-754 ops — NaN inputs
+/// produce NaN outputs without correction.
+///
+/// f32x4/f64x2.min and .max are NOT in this chunk because SSE
+/// MINPS/MAXPS use "if unordered, return src2" semantics that
+/// differ from Wasm's IEEE-754-2019 minimum/maximum (NaN-
+/// propagating, signed-zero-aware). Cranelift wraps MINPS/MAXPS
+/// with a 7-instruction NaN/zero correction sequence per
+/// `lower.isle` "F32X4 (fmin _ x y)" — deferred to §9.7-q with
+/// proper synthesis.
+
+pub fn emitF32x4Add(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encAddps);
+}
+
+pub fn emitF32x4Sub(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encSubps);
+}
+
+pub fn emitF32x4Mul(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encMulps);
+}
+
+pub fn emitF32x4Div(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encDivps);
+}
+
+pub fn emitF64x2Add(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encAddpd);
+}
+
+pub fn emitF64x2Sub(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encSubpd);
+}
+
+pub fn emitF64x2Mul(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encMulpd);
+}
+
+pub fn emitF64x2Div(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encDivpd);
+}
+
+/// Wasm spec §4.4.4 (f*x*.sqrt) — pop one v128, push v128 with
+/// per-lane sqrt result. Single-instruction emit (SQRTPS/SQRTPD
+/// xmm_dst, xmm_src) — no MOVAPS preamble needed because SQRT is
+/// pure unary (src is read-only; dst is written). NaN inputs
+/// propagate canonically per IEEE-754.
+fn emitV128FpUnop(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    encoder: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const val_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const val_x = try gpr.resolveXmm(alloc, val_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+
+    try buf.appendSlice(allocator, encoder(dst_x, val_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitF32x4Sqrt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encSqrtps);
+}
+
+pub fn emitF64x2Sqrt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encSqrtpd);
+}
+
 /// Wasm spec §4.4.4 (i*x*.eq variants) — pop two v128, push v128
 /// where each lane is all-ones if the inputs match else all-zero.
 /// Per-shape encoders (PCMPEQB / PCMPEQW / PCMPEQD / PCMPEQQ)
