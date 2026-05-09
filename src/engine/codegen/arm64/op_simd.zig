@@ -847,3 +847,26 @@ pub fn emitI64x2GtS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128
 pub fn emitI64x2GeS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encCmGe2D); }
 pub fn emitI64x2LtS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128BinopSwapped(ctx, inst_neon.encCmGt2D); }
 pub fn emitI64x2LeS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128BinopSwapped(ctx, inst_neon.encCmGe2D); }
+
+// ============================================================
+// §9.6 / 9.6-e — FP per-lane compares
+// ============================================================
+//
+// Wasm spec (SIMD) — `f*x*.{eq,ne,lt,gt,le,ge}` (12 ops total).
+// Reuse 9.6-d's helpers: `emitV128Binop` for direct, `emitV128Ne`
+// for ne synthesis, `emitV128BinopSwapped` for lt/le rewrites.
+// FCMGT was added in 9.6-c-ii; FCMEQ + FCMGE land here.
+
+pub fn emitF32x4Eq(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encFCmEq4S); }
+pub fn emitF32x4Ne(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Ne(ctx, inst_neon.encFCmEq4S); }
+pub fn emitF32x4Gt(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encFCmGt4S); }
+pub fn emitF32x4Ge(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encFCmGe4S); }
+pub fn emitF32x4Lt(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128BinopSwapped(ctx, inst_neon.encFCmGt4S); }
+pub fn emitF32x4Le(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128BinopSwapped(ctx, inst_neon.encFCmGe4S); }
+
+pub fn emitF64x2Eq(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encFCmEq2D); }
+pub fn emitF64x2Ne(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Ne(ctx, inst_neon.encFCmEq2D); }
+pub fn emitF64x2Gt(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encFCmGt2D); }
+pub fn emitF64x2Ge(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encFCmGe2D); }
+pub fn emitF64x2Lt(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128BinopSwapped(ctx, inst_neon.encFCmGt2D); }
+pub fn emitF64x2Le(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128BinopSwapped(ctx, inst_neon.encFCmGe2D); }

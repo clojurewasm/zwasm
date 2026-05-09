@@ -567,6 +567,27 @@ pub fn encFCmGt2D(rd: Vn, rn: Vn, rm: Vn) u32 {
     return 0x6EE0E400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+// FCMEQ + FCMGE complete the FP-compare family (FCMGT above is
+// already used by pmin/pmax synthesis). Same three-same encoding,
+// distinguished by U + bit 23:
+//   FCMEQ:  U=0, bit 23=0, opcode=11100
+//   FCMGE:  U=1, bit 23=0, opcode=11100
+//   FCMGT:  U=1, bit 23=1, opcode=11100 (above)
+// Per Arm IHI 0055 §C7.2.103 / §C7.2.107.
+
+pub fn encFCmEq4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4E20E400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFCmEq2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4E60E400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFCmGe4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x6E20E400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFCmGe2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x6E60E400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 /// `BSL V<d>.16B, V<n>.16B, V<m>.16B` — bitwise select using V<d>
 /// as the mask. Element width is irrelevant since BSL is bitwise.
 pub fn encBsl16B(rd: Vn, rn: Vn, rm: Vn) u32 {
@@ -1216,6 +1237,29 @@ test "encCmGt2D: V0, V1, V2 (i64x2.gt_s)" {
 test "encNotV16B: V0, V1" {
     // 0x6E205800 | (1 << 5) | 0 = 0x6E205820
     try testing.expectEqual(@as(u32, 0x6E205820), encNotV16B(0, 1));
+}
+
+test "encFCmEq4S: V0, V1, V2 (f32x4.eq)" {
+    // 0x4E20E400 | (2 << 16) | (1 << 5) | 0 = 0x4E22E420
+    try testing.expectEqual(@as(u32, 0x4E22E420), encFCmEq4S(0, 1, 2));
+}
+
+test "encFCmGe4S: V0, V1, V2 (f32x4.ge)" {
+    // 0x6E20E400 | ... = 0x6E22E420
+    try testing.expectEqual(@as(u32, 0x6E22E420), encFCmGe4S(0, 1, 2));
+}
+
+test "encFCmGe vs encFCmEq: U bit (bit 29) differs" {
+    try testing.expectEqual(@as(u32, 0x20000000), encFCmGe4S(0, 1, 2) ^ encFCmEq4S(0, 1, 2));
+}
+
+test "encFCmGt vs encFCmGe: bit 23 differs" {
+    try testing.expectEqual(@as(u32, 0x800000), encFCmGt4S(0, 1, 2) ^ encFCmGe4S(0, 1, 2));
+}
+
+test "encFCmEq2D: V31, V31, V31 (max indices)" {
+    // 0x4E60E400 | (31 << 16) | (31 << 5) | 31 = 0x4E7FE7FF
+    try testing.expectEqual(@as(u32, 0x4E7FE7FF), encFCmEq2D(31, 31, 31));
 }
 
 test "Int compare shapes: 4 CMEQ encodings pairwise distinct" {

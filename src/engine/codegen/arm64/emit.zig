@@ -1269,6 +1269,19 @@ pub fn compile(
             .@"i64x2.gt_s" => try op_simd.emitI64x2GtS(&ctx, &ins),
             .@"i64x2.le_s" => try op_simd.emitI64x2LeS(&ctx, &ins),
             .@"i64x2.ge_s" => try op_simd.emitI64x2GeS(&ctx, &ins),
+            // §9.6/9.6-e — FP per-lane compares (FCMEQ/FCMGT/FCMGE).
+            .@"f32x4.eq" => try op_simd.emitF32x4Eq(&ctx, &ins),
+            .@"f32x4.ne" => try op_simd.emitF32x4Ne(&ctx, &ins),
+            .@"f32x4.lt" => try op_simd.emitF32x4Lt(&ctx, &ins),
+            .@"f32x4.gt" => try op_simd.emitF32x4Gt(&ctx, &ins),
+            .@"f32x4.le" => try op_simd.emitF32x4Le(&ctx, &ins),
+            .@"f32x4.ge" => try op_simd.emitF32x4Ge(&ctx, &ins),
+            .@"f64x2.eq" => try op_simd.emitF64x2Eq(&ctx, &ins),
+            .@"f64x2.ne" => try op_simd.emitF64x2Ne(&ctx, &ins),
+            .@"f64x2.lt" => try op_simd.emitF64x2Lt(&ctx, &ins),
+            .@"f64x2.gt" => try op_simd.emitF64x2Gt(&ctx, &ins),
+            .@"f64x2.le" => try op_simd.emitF64x2Le(&ctx, &ins),
+            .@"f64x2.ge" => try op_simd.emitF64x2Ge(&ctx, &ins),
 
             else => {
                 // §9.7 / 7.5-diag-op: surface the unhandled op
