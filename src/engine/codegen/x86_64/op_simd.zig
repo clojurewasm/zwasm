@@ -849,6 +849,193 @@ pub fn emitF64x2Sqrt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regal
     return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encSqrtpd);
 }
 
+/// Wasm spec §4.4.4 (f*x*.{min, max}) — pop two v128, push v128
+/// with per-lane IEEE-754-2019 minimum / maximum (NaN-propagating,
+/// signed-zero-aware). Native SSE MINPS/MAXPS use "if unordered,
+/// return src2" semantics that don't match the spec; cranelift's
+/// recipe (`lower.isle:2783-2939`) wraps MINPS/MAXPS with a NaN
+/// /zero-correction synthesis sequence per
+/// `lessons_vs_adr.md` cross-reference.
+///
+/// fmin (10 instr): MINPS twice (forced ordering) + ORPS to merge
+/// signed-zero distinguishability + CMPPS-UNORD to detect NaN
+/// lanes + ORPS to lift NaN payloads + PSRLD to leave canonical
+/// QNaN bits + ANDNPS to mask off non-canonical NaN payload bits.
+///
+/// fmax (13 instr): MAXPS twice + XORPS to detect divergence +
+/// ORPS to compose NaN exponent + SUBPS to ensure +0 over -0 in
+/// the +0/-0 mismatch case + CMPPS-UNORD self-compare for NaN
+/// detection + PSRLD + ANDNPS for NaN canonicalisation.
+///
+/// F32X4 uses PSRLD shift=10 (1 sign + 8 exponent + 1 QNaN bit
+/// preserved); F64X2 uses PSRLQ shift=13 (1 + 11 + 1).
+///
+/// Two scratch xmms are needed: XMM14 (fp_spill_stage_xmms[0])
+/// and XMM15 (fp_spill_stage_xmms[1]) per abi.zig. Aliasing
+/// invariants match emitV128IntCmpSigned (current x86_64 regalloc
+/// allocates fresh xmm slots for new vregs; D-036 / Phase 15
+/// class-aware allocation will revisit alongside coalescer-driven
+/// aliasing).
+const FpMinMaxEncoders = struct {
+    minmax: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+    or_: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+    xor_: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+    sub: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+    cmp: *const fn (dst: inst.Xmm, src: inst.Xmm, imm8: u8) inst.EncodedInsn,
+    andn: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+    psrl_imm: *const fn (dst: inst.Xmm, count: u8) inst.EncodedInsn,
+    shift_count: u8, // 10 for F32X4, 13 for F64X2
+};
+
+const f32x4_minmax_encs: FpMinMaxEncoders = .{
+    .minmax = undefined, // set per call (encMinps for fmin, encMaxps for fmax)
+    .or_ = inst.encOrps,
+    .xor_ = inst.encXorps,
+    .sub = inst.encSubps,
+    .cmp = inst.encCmpps,
+    .andn = inst.encAndnps,
+    .psrl_imm = inst.encPsrldImm,
+    .shift_count = 10,
+};
+
+const f64x2_minmax_encs: FpMinMaxEncoders = .{
+    .minmax = undefined,
+    .or_ = inst.encOrpd,
+    .xor_ = inst.encXorpd,
+    .sub = inst.encSubpd,
+    .cmp = inst.encCmppd,
+    .andn = inst.encAndnpd,
+    .psrl_imm = inst.encPsrlqImm,
+    .shift_count = 13,
+};
+
+/// fmin recipe (10 instructions). dst ends holding the canonical
+/// fmin result. scratch (XMM14) holds intermediate min2; scratch2
+/// (XMM15) holds intermediate min_or → is_nan_mask → masked.
+fn emitV128FpMin(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    encs: FpMinMaxEncoders,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const rhs_x = try gpr.resolveXmm(alloc, rhs_v);
+    const lhs_x = try gpr.resolveXmm(alloc, lhs_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14
+    const scratch2_x = abi.fp_spill_stage_xmms[1]; // XMM15
+
+    // 1. dst = MOVAPS lhs (skip if dst==lhs)
+    if (dst_x != lhs_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, lhs_x).slice());
+    }
+    // 2. dst = MIN(dst, rhs)            ; dst = min1
+    try buf.appendSlice(allocator, encs.minmax(dst_x, rhs_x).slice());
+    // 3. scratch = MOVAPS rhs
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(scratch_x, rhs_x).slice());
+    // 4. scratch = MIN(scratch, lhs)    ; scratch = min2
+    try buf.appendSlice(allocator, encs.minmax(scratch_x, lhs_x).slice());
+    // 5. dst = OR(dst, scratch)         ; dst = min_or
+    try buf.appendSlice(allocator, encs.or_(dst_x, scratch_x).slice());
+    // 6. scratch2 = MOVAPS dst          ; scratch2 = min_or
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(scratch2_x, dst_x).slice());
+    // 7. dst = CMP(dst, scratch, UNORD=3) ; dst = is_nan_mask
+    try buf.appendSlice(allocator, encs.cmp(dst_x, scratch_x, 0x03).slice());
+    // 8. scratch2 = OR(scratch2, dst)   ; scratch2 = min_or_2
+    try buf.appendSlice(allocator, encs.or_(scratch2_x, dst_x).slice());
+    // 9. dst = PSRL(dst, shift_count)   ; dst = nan_fraction_mask
+    try buf.appendSlice(allocator, encs.psrl_imm(dst_x, encs.shift_count).slice());
+    // 10. dst = ANDN(dst, scratch2)     ; dst = ~nan_fraction_mask & min_or_2 = final
+    try buf.appendSlice(allocator, encs.andn(dst_x, scratch2_x).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// fmax recipe (13 instructions). dst ends holding the canonical
+/// fmax result.
+fn emitV128FpMax(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    encs: FpMinMaxEncoders,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const rhs_x = try gpr.resolveXmm(alloc, rhs_v);
+    const lhs_x = try gpr.resolveXmm(alloc, lhs_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14
+    const scratch2_x = abi.fp_spill_stage_xmms[1]; // XMM15
+
+    // 1. scratch = MOVAPS lhs
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(scratch_x, lhs_x).slice());
+    // 2. scratch = MAX(scratch, rhs)        ; scratch = max1
+    try buf.appendSlice(allocator, encs.minmax(scratch_x, rhs_x).slice());
+    // 3. scratch2 = MOVAPS rhs
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(scratch2_x, rhs_x).slice());
+    // 4. scratch2 = MAX(scratch2, lhs)      ; scratch2 = max2
+    try buf.appendSlice(allocator, encs.minmax(scratch2_x, lhs_x).slice());
+    // 5. dst = MOVAPS scratch              ; dst = max1
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, scratch_x).slice());
+    // 6. dst = XOR(dst, scratch2)          ; dst = max_xor (= max1 ^ max2)
+    try buf.appendSlice(allocator, encs.xor_(dst_x, scratch2_x).slice());
+    // 7. scratch = OR(scratch, dst)        ; scratch = max1 | max_xor = max_blended_nan
+    try buf.appendSlice(allocator, encs.or_(scratch_x, dst_x).slice());
+    // 8. scratch2 = MOVAPS scratch         ; scratch2 = max_blended_nan
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(scratch2_x, scratch_x).slice());
+    // 9. scratch = SUB(scratch, dst)       ; scratch = max_blended_nan - max_xor = max_blended_nan_positive
+    try buf.appendSlice(allocator, encs.sub(scratch_x, dst_x).slice());
+    // 10. scratch2 = CMP(scratch2, scratch2, UNORD=3) ; scratch2 = is_nan_mask
+    try buf.appendSlice(allocator, encs.cmp(scratch2_x, scratch2_x, 0x03).slice());
+    // 11. dst = MOVAPS scratch2            ; dst = is_nan_mask
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, scratch2_x).slice());
+    // 12. dst = PSRL(dst, shift_count)     ; dst = nan_fraction_mask
+    try buf.appendSlice(allocator, encs.psrl_imm(dst_x, encs.shift_count).slice());
+    // 13. dst = ANDN(dst, scratch)         ; dst = ~nan_fraction_mask & max_blended_nan_positive = final
+    try buf.appendSlice(allocator, encs.andn(dst_x, scratch_x).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitF32x4Min(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    var encs = f32x4_minmax_encs;
+    encs.minmax = inst.encMinps;
+    return emitV128FpMin(allocator, buf, alloc, pushed_vregs, next_vreg, encs);
+}
+
+pub fn emitF32x4Max(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    var encs = f32x4_minmax_encs;
+    encs.minmax = inst.encMaxps;
+    return emitV128FpMax(allocator, buf, alloc, pushed_vregs, next_vreg, encs);
+}
+
+pub fn emitF64x2Min(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    var encs = f64x2_minmax_encs;
+    encs.minmax = inst.encMinpd;
+    return emitV128FpMin(allocator, buf, alloc, pushed_vregs, next_vreg, encs);
+}
+
+pub fn emitF64x2Max(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    var encs = f64x2_minmax_encs;
+    encs.minmax = inst.encMaxpd;
+    return emitV128FpMax(allocator, buf, alloc, pushed_vregs, next_vreg, encs);
+}
+
 /// Wasm spec §4.4.4 (i*x*.eq variants) — pop two v128, push v128
 /// where each lane is all-ones if the inputs match else all-zero.
 /// Per-shape encoders (PCMPEQB / PCMPEQW / PCMPEQD / PCMPEQQ)

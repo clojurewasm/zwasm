@@ -915,6 +915,18 @@ pub fn compile(
             .@"f64x2.mul" => try op_simd.emitF64x2Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.div" => try op_simd.emitF64x2Div(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.sqrt" => try op_simd.emitF64x2Sqrt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-q: f32x4 + f64x2 min/max NaN-correction
+            // synthesis (4 ops). MINPS/MAXPS / MINPD/MAXPD wrapped
+            // with cranelift's 10-instr (fmin) / 13-instr (fmax)
+            // recipe per `lower.isle:2783-2939` — produces canonical
+            // IEEE-754-2019 minimum/maximum (NaN-propagating, signed-
+            // zero-aware) where naive MIN/MAX would return src2 on
+            // unordered inputs (off-spec). XMM14 + XMM15 used as
+            // scratch.
+            .@"f32x4.min" => try op_simd.emitF32x4Min(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.max" => try op_simd.emitF32x4Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.min" => try op_simd.emitF64x2Min(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.max" => try op_simd.emitF64x2Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at

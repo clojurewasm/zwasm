@@ -518,35 +518,47 @@ pub fn encPmuludq(dst: Xmm, src: Xmm) EncodedInsn {
 }
 
 /// SSE2 packed shift-by-immediate /X-group helper. The
-/// `66 0F 73 /<group> ib` encoding has ModR/M.reg = group code
-/// (selecting the op within the family) and ModR/M.rm = the XMM
-/// being shifted in-place. Group codes used:
-///   /2 = PSRLQ (logical shift right)
-///   /6 = PSLLQ (logical shift left)
+/// `66 0F <opcode> /<group> ib` encoding has ModR/M.reg = group
+/// code (selecting the op within the family) and ModR/M.rm = the
+/// XMM being shifted in-place. Opcodes encode the lane width:
+///   0x71 = W-form (16-bit lanes)
+///   0x72 = D-form (32-bit lanes)
+///   0x73 = Q-form (64-bit lanes)
+/// Group codes (constant per op):
+///   /2 = PSRLW / PSRLD / PSRLQ (logical shift right)
+///   /4 = PSRAW / PSRAD          (arithmetic shift right; no Q-form)
+///   /6 = PSLLW / PSLLD / PSLLQ  (logical shift left)
 ///
 /// REX.B applies when the destination is XMM8..XMM15 (touches
 /// ModR/M.rm). REX.R is unused (group code lives in reg field
-/// but is a constant, not a register). Encoded bytes:
-///   66 [REX.B?] 0F 73 [11 <group> rm.low3] <imm8>
-fn encSsePackedShiftImmGroup(group: u3, dst: Xmm, count: u8) EncodedInsn {
+/// but is a constant, not a register).
+fn encSsePackedShiftImmGroup(opcode: u8, group: u3, dst: Xmm, count: u8) EncodedInsn {
     var enc: EncodedInsn = .{};
     enc.push(0x66);
     if (dst.extBit() != 0) {
         enc.push(encodeRex(false, 0, 0, dst.extBit()));
     }
     enc.push(0x0F);
-    enc.push(0x73);
+    enc.push(opcode);
     enc.push(encodeModrm(0b11, group, dst.low3()));
     enc.push(count);
     return enc;
 }
 
+/// `PSRLD xmm, imm8` (66 [REX.B?] 0F 72 /2 ib) — SSE2 packed
+/// 32-bit logical shift right by immediate count. Used by f32x4
+/// fmin/fmax NaN-correction synthesis to compute the
+/// `nan_fraction_mask` (cranelift `lower.isle` shift=10).
+pub fn encPsrldImm(dst: Xmm, count: u8) EncodedInsn {
+    return encSsePackedShiftImmGroup(0x72, 2, dst, count);
+}
+
 /// `PSRLQ xmm, imm8` (66 [REX.B?] 0F 73 /2 ib) — SSE2 packed
 /// 64-bit logical shift right by immediate count. Used by
-/// i64x2.mul synthesis to extract the high 32 bits of each
-/// 64-bit lane into the low half (a_hi → low(scratch)).
+/// i64x2.mul synthesis (extract high dword) and f64x2 fmin/fmax
+/// NaN-correction synthesis (shift=13).
 pub fn encPsrlqImm(dst: Xmm, count: u8) EncodedInsn {
-    return encSsePackedShiftImmGroup(2, dst, count);
+    return encSsePackedShiftImmGroup(0x73, 2, dst, count);
 }
 
 /// `PSLLQ xmm, imm8` (66 [REX.B?] 0F 73 /6 ib) — SSE2 packed
@@ -554,7 +566,46 @@ pub fn encPsrlqImm(dst: Xmm, count: u8) EncodedInsn {
 /// i64x2.mul synthesis to position the cross-term sum in the
 /// high 32 bits before adding to the low product.
 pub fn encPsllqImm(dst: Xmm, count: u8) EncodedInsn {
-    return encSsePackedShiftImmGroup(6, dst, count);
+    return encSsePackedShiftImmGroup(0x73, 6, dst, count);
+}
+
+/// `ORPS xmm, xmm` ([REX?] 0F 56 /r) — SSE bitwise OR of packed
+/// single-precision FP values. Bit-identical to integer 128-bit
+/// OR but in the FP unit (saves a domain-crossing penalty on
+/// older microarchitectures). Wasm: f32x4.fmin synthesis.
+pub fn encOrps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x56, dst, src);
+}
+
+/// `ORPD xmm, xmm` (66 [REX?] 0F 56 /r) — SSE2 bitwise OR for f64x2
+/// fmin synthesis.
+pub fn encOrpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x56, dst, src);
+}
+
+/// `XORPS xmm, xmm` ([REX?] 0F 57 /r) — SSE bitwise XOR. Wasm:
+/// f32x4.fmax synthesis (max_xor = max1 XOR max2).
+pub fn encXorps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x57, dst, src);
+}
+
+/// `XORPD xmm, xmm` (66 [REX?] 0F 57 /r) — SSE2 bitwise XOR for
+/// f64x2.fmax synthesis.
+pub fn encXorpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x57, dst, src);
+}
+
+/// `ANDNPS xmm, xmm` ([REX?] 0F 55 /r) — SSE bitwise AND-NOT:
+/// `dst = ~dst & src`. Wasm: f32x4.fmin/fmax synthesis (mask off
+/// non-canonical NaN payload bits).
+pub fn encAndnps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x55, dst, src);
+}
+
+/// `ANDNPD xmm, xmm` (66 [REX?] 0F 55 /r) — SSE2 bitwise AND-NOT
+/// for f64x2 fmin/fmax synthesis.
+pub fn encAndnpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x55, dst, src);
 }
 
 /// `PSHUFD xmm, xmm, imm8` (66 [REX?] 0F 70 /r ib) — SSE2 shuffle
@@ -897,6 +948,34 @@ pub fn encSqrtps(dst: Xmm, src: Xmm) EncodedInsn {
     return encSseFpPsBinop(0x51, dst, src);
 }
 
+/// `MINPS xmm, xmm` ([REX?] 0F 5D /r) — SSE packed single-precision
+/// min. Used by f32x4.fmin synthesis (NOT Wasm `f32x4.min` direct
+/// because SSE MINPS uses "if unordered, return src2" semantics
+/// that differ from Wasm's IEEE-754-2019 minimum). The synthesis
+/// in op_simd.emitV128FpMin wraps MINPS twice with NaN/zero
+/// correction.
+pub fn encMinps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x5D, dst, src);
+}
+
+/// `MAXPS xmm, xmm` ([REX?] 0F 5F /r) — SSE packed single-precision
+/// max. f32x4.fmax synthesis primitive (see encMinps note).
+pub fn encMaxps(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSseFpPsBinop(0x5F, dst, src);
+}
+
+/// `MINPD xmm, xmm` (66 [REX?] 0F 5D /r) — SSE2 packed double-precision
+/// min. f64x2.fmin synthesis primitive.
+pub fn encMinpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x5D, dst, src);
+}
+
+/// `MAXPD xmm, xmm` (66 [REX?] 0F 5F /r) — SSE2 packed double-precision
+/// max. f64x2.fmax synthesis primitive.
+pub fn encMaxpd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x5F, dst, src);
+}
+
 /// `ADDPD xmm, xmm` (66 [REX?] 0F 58 /r) — SSE2 packed double-precision
 /// add (2 lanes). Wasm `f64x2.add`. Reuses `encSsePackedIntBinop`
 /// for the 66+0F prefix shape; the int/fp distinction is purely
@@ -1128,6 +1207,38 @@ test "encPmuludq: SSE2 (xmm0, xmm1) opcode 0xF4 — 4 bytes" {
 
 test "encPmuludq: REX.R+B (xmm8, xmm13) — 5 bytes" {
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0xF4, 0xC5 }, encPmuludq(.xmm8, .xmm13).slice());
+}
+
+test "encPsrldImm: PSRLD xmm0, 10 — group /2, opcode=0x72 (D-form)" {
+    // 66 0F 72 D0 0A — ModR/M = 11 010 000 = 0xD0 (mod=11, reg=2, rm=0).
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x72, 0xD0, 0x0A }, encPsrldImm(.xmm0, 10).slice());
+}
+
+test "encPsrldImm: PSRLD xmm15, 10 — REX.B (xmm15)" {
+    // 66 41 0F 72 D7 0A — REX.B = 0x41; ModR/M = 11 010 111 = 0xD7.
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x41, 0x0F, 0x72, 0xD7, 0x0A }, encPsrldImm(.xmm15, 10).slice());
+}
+
+test "encMinps / encMaxps opcode bytes (xmm0, xmm1) — SSE no 66 prefix" {
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x5D, 0xC1 }, encMinps(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x5F, 0xC1 }, encMaxps(.xmm0, .xmm1).slice());
+}
+
+test "encMinpd / encMaxpd opcode bytes (xmm0, xmm1) — SSE2 with 66 prefix" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x5D, 0xC1 }, encMinpd(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x5F, 0xC1 }, encMaxpd(.xmm0, .xmm1).slice());
+}
+
+test "encOrps / encXorps / encAndnps opcode bytes (xmm0, xmm1) — SSE no 66 prefix" {
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x56, 0xC1 }, encOrps(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x57, 0xC1 }, encXorps(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x55, 0xC1 }, encAndnps(.xmm0, .xmm1).slice());
+}
+
+test "encOrpd / encXorpd / encAndnpd opcode bytes (xmm0, xmm1) — SSE2 with 66 prefix" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x56, 0xC1 }, encOrpd(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x57, 0xC1 }, encXorpd(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x55, 0xC1 }, encAndnpd(.xmm0, .xmm1).slice());
 }
 
 test "encPsrlqImm: PSRLQ xmm0, 32 — group /2, imm8=0x20" {

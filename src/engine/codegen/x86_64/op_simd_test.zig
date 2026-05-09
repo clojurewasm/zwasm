@@ -632,6 +632,140 @@ test "emitF64x2Sqrt: unary path — single SQRTPD dst, src" {
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
+test "emitF32x4Min: 10-instruction NaN-correction synthesis" {
+    var slot_ids = [_]u16{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 3,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0); // lhs
+    try pushed.append(testing.allocator, 1); // rhs
+    var next_vreg: u32 = 2;
+
+    try op_simd.emitF32x4Min(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    const scratch = abi.fp_spill_stage_xmms[0]; // XMM14
+    const scratch2 = abi.fp_spill_stage_xmms[1]; // XMM15
+    // 1. MOVAPS dst, lhs                  (lhs=XMM8, dst=XMM10)
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm10, .xmm8).slice());
+    // 2. MINPS dst, rhs
+    try expected.appendSlice(testing.allocator, inst.encMinps(.xmm10, .xmm9).slice());
+    // 3. MOVAPS scratch, rhs
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(scratch, .xmm9).slice());
+    // 4. MINPS scratch, lhs
+    try expected.appendSlice(testing.allocator, inst.encMinps(scratch, .xmm8).slice());
+    // 5. ORPS dst, scratch
+    try expected.appendSlice(testing.allocator, inst.encOrps(.xmm10, scratch).slice());
+    // 6. MOVAPS scratch2, dst
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(scratch2, .xmm10).slice());
+    // 7. CMPPS dst, scratch, 3
+    try expected.appendSlice(testing.allocator, inst.encCmpps(.xmm10, scratch, 0x03).slice());
+    // 8. ORPS scratch2, dst
+    try expected.appendSlice(testing.allocator, inst.encOrps(scratch2, .xmm10).slice());
+    // 9. PSRLD dst, 10
+    try expected.appendSlice(testing.allocator, inst.encPsrldImm(.xmm10, 10).slice());
+    // 10. ANDNPS dst, scratch2
+    try expected.appendSlice(testing.allocator, inst.encAndnps(.xmm10, scratch2).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitF32x4Max: 13-instruction NaN-correction synthesis" {
+    var slot_ids = [_]u16{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 3,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    try pushed.append(testing.allocator, 1);
+    var next_vreg: u32 = 2;
+
+    try op_simd.emitF32x4Max(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    const scratch = abi.fp_spill_stage_xmms[0];
+    const scratch2 = abi.fp_spill_stage_xmms[1];
+    // 1. MOVAPS scratch, lhs
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(scratch, .xmm8).slice());
+    // 2. MAXPS scratch, rhs
+    try expected.appendSlice(testing.allocator, inst.encMaxps(scratch, .xmm9).slice());
+    // 3. MOVAPS scratch2, rhs
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(scratch2, .xmm9).slice());
+    // 4. MAXPS scratch2, lhs
+    try expected.appendSlice(testing.allocator, inst.encMaxps(scratch2, .xmm8).slice());
+    // 5. MOVAPS dst, scratch
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm10, scratch).slice());
+    // 6. XORPS dst, scratch2
+    try expected.appendSlice(testing.allocator, inst.encXorps(.xmm10, scratch2).slice());
+    // 7. ORPS scratch, dst
+    try expected.appendSlice(testing.allocator, inst.encOrps(scratch, .xmm10).slice());
+    // 8. MOVAPS scratch2, scratch
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(scratch2, scratch).slice());
+    // 9. SUBPS scratch, dst
+    try expected.appendSlice(testing.allocator, inst.encSubps(scratch, .xmm10).slice());
+    // 10. CMPPS scratch2, scratch2, 3
+    try expected.appendSlice(testing.allocator, inst.encCmpps(scratch2, scratch2, 0x03).slice());
+    // 11. MOVAPS dst, scratch2
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm10, scratch2).slice());
+    // 12. PSRLD dst, 10
+    try expected.appendSlice(testing.allocator, inst.encPsrldImm(.xmm10, 10).slice());
+    // 13. ANDNPS dst, scratch
+    try expected.appendSlice(testing.allocator, inst.encAndnps(.xmm10, scratch).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitF64x2Min: PD encoders + PSRLQ shift=13 (10 instr)" {
+    var slot_ids = [_]u16{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 3,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    try pushed.append(testing.allocator, 1);
+    var next_vreg: u32 = 2;
+
+    try op_simd.emitF64x2Min(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    const scratch = abi.fp_spill_stage_xmms[0];
+    const scratch2 = abi.fp_spill_stage_xmms[1];
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm10, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encMinpd(.xmm10, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(scratch, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encMinpd(scratch, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encOrpd(.xmm10, scratch).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(scratch2, .xmm10).slice());
+    try expected.appendSlice(testing.allocator, inst.encCmppd(.xmm10, scratch, 0x03).slice());
+    try expected.appendSlice(testing.allocator, inst.encOrpd(scratch2, .xmm10).slice());
+    try expected.appendSlice(testing.allocator, inst.encPsrlqImm(.xmm10, 13).slice());
+    try expected.appendSlice(testing.allocator, inst.encAndnpd(.xmm10, scratch2).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
 test "emitI64x2GeS: lt + NOT (operand swap then NOT)" {
     var slot_ids = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{
