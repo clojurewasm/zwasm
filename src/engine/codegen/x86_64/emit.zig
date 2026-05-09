@@ -1104,6 +1104,11 @@ pub fn compile(
             // signed; u16 inputs need pre-correction via ADR-0042
             // const-pool sign-flip + post-add fixup).
             .@"i32x4.extadd_pairwise_i16x8_s" => try op_simd.emitI32x4ExtaddPairwiseI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7/9.7-aq — i32x4.extadd_pairwise_i16x8_u via
+            // sign-flip XOR + PMADDWD-with-+1 + bias-correction-add.
+            // 11-instr inline-synth (no const-pool dep) — closes
+            // the extadd_pairwise family.
+            .@"i32x4.extadd_pairwise_i16x8_u" => try op_simd.emitI32x4ExtaddPairwiseI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7/9.7-al — v128.const via ADR-0042 const-pool
             // (mirror of ARM64 §9.6/9.6-f-ii). Lower pass stored
             // const_idx in ins.payload pointing into

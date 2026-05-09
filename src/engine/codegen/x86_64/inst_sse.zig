@@ -563,6 +563,14 @@ pub fn encPslldImm(dst: Xmm, count: u8) EncodedInsn {
     return encSsePackedShiftImmGroup(0x72, 6, dst, count);
 }
 
+/// `PSLLW xmm, imm8` (66 [REX.B?] 0F 71 /6 ib) — SSE2 packed
+/// 16-bit logical shift left by immediate count. Used by §9.7-aq
+/// `i32x4.extadd_pairwise_i16x8_u` sign-flip-mask synthesis:
+/// PCMPEQB ones + PSLLW-imm 15 → 0x8000 per word (high bit set).
+pub fn encPsllwImm(dst: Xmm, count: u8) EncodedInsn {
+    return encSsePackedShiftImmGroup(0x71, 6, dst, count);
+}
+
 /// `PSRLW xmm, imm8` (66 [REX.B?] 0F 71 /2 ib) — SSE2 packed
 /// 16-bit logical shift right by immediate count. Used by
 /// §9.7-v `i8x16.shr_u` synthesis: shift 0xFFFF replicated by
@@ -1730,6 +1738,11 @@ test "encPslldImm: PSLLD xmm0, 31 — group /6, opcode=0x72 (D-form)" {
 test "encRoundps / encRoundpd opcode bytes (xmm0, xmm1, imm=0x0A ceil+suppress)" {
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x3A, 0x08, 0xC1, 0x0A }, encRoundps(.xmm0, .xmm1, 0x0A).slice());
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x3A, 0x09, 0xC1, 0x0A }, encRoundpd(.xmm0, .xmm1, 0x0A).slice());
+}
+
+test "encPsllwImm: PSLLW xmm0, 15 — group /6, opcode=0x71 (W-form)" {
+    // 66 0F 71 F0 0F — ModR/M = 11 110 000 (mod=11, reg=6, rm=0).
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x71, 0xF0, 0x0F }, encPsllwImm(.xmm0, 15).slice());
 }
 
 test "encPsrlwImm: PSRLW xmm0, 8 — group /2, opcode=0x71 (W-form)" {

@@ -451,6 +451,7 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
             .@"i16x8.extadd_pairwise_i8x16_s",
             .@"i16x8.extadd_pairwise_i8x16_u",
             .@"i32x4.extadd_pairwise_i16x8_s",
+            .@"i32x4.extadd_pairwise_i16x8_u",
             .@"i8x16.popcnt",
             .@"i32x4.add",
             .@"i32x4.sub",

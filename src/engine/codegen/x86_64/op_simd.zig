@@ -3499,6 +3499,56 @@ pub fn emitI32x4ExtaddPairwiseI16x8S(allocator: Allocator, buf: *std.ArrayList(u
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.4 (i32x4.extadd_pairwise_i16x8_u) — pairwise-
+/// add adjacent unsigned i16 lanes, widening to i32. PMADDWD
+/// reads operands as signed i16 so we sign-flip src first
+/// (XOR with 0x8000-per-word converts u16 → signed i16 in
+/// [-0x8000, 0x7FFF]), pairwise-multiply with +1, then add a
+/// per-i32-lane correction (0x00010000 = 65536) to undo the
+/// 2*0x8000 = 0x10000 bias introduced by sign-flipping each pair.
+///
+/// 11-instr inline recipe (no const-pool dep):
+/// 1-2: t1 = 0x8000-per-word    (PCMPEQB ones + PSLLW imm 15)
+/// 3-4: dst = src XOR t1         (sign-flip; MOVAPS + PXOR)
+/// 5-6: t1 = 0x0001-per-word    (PCMPEQB ones + PSRLW imm 15)
+/// 7  : PMADDWD dst, t1          (pairwise sum into i32)
+/// 8-10: t1 = 0x00010000-per-dword (PCMPEQB + PSRLD 31 + PSLLD 16)
+/// 11 : PADDD dst, t1            (correction: + 0x10000 per i32)
+pub fn emitI32x4ExtaddPairwiseI16x8U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const t1 = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    // 1-2: t1 = 0x8000-per-word (sign-flip mask).
+    try buf.appendSlice(allocator, inst.encPcmpeqB(t1, t1).slice());
+    try buf.appendSlice(allocator, inst.encPsllwImm(t1, 15).slice());
+    // 3-4: dst = src XOR t1 (u16 → signed i16 via 2's-complement bias).
+    if (dst_x != src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPxor(dst_x, t1).slice());
+    // 5-6: t1 = 0x0001-per-word (+1 mask for PMADDWD).
+    try buf.appendSlice(allocator, inst.encPcmpeqB(t1, t1).slice());
+    try buf.appendSlice(allocator, inst.encPsrlwImm(t1, 15).slice());
+    // 7: PMADDWD dst, t1 → pairs of (i16+i16) sums in i32 lanes.
+    try buf.appendSlice(allocator, inst.encPmaddwd(dst_x, t1).slice());
+    // 8-10: t1 = 0x00010000-per-dword (correction; + 0x10000 per i32 to
+    // undo the 2*0x8000 = 0x10000 bias from sign-flipping each pair).
+    try buf.appendSlice(allocator, inst.encPcmpeqB(t1, t1).slice());
+    try buf.appendSlice(allocator, inst.encPsrldImm(t1, 31).slice());
+    try buf.appendSlice(allocator, inst.encPslldImm(t1, 16).slice());
+    // 11: PADDD dst, t1 → recover the original (u16+u16) sum per i32.
+    try buf.appendSlice(allocator, inst.encPaddD(dst_x, t1).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.4 (i16x8.extadd_pairwise_i8x16_s) — pairwise-
 /// add adjacent signed i8 lanes, widening to i16. Same PMADDUBSW
 /// recipe as the unsigned variant but with operand roles swapped:
