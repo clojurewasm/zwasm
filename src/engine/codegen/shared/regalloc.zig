@@ -244,6 +244,12 @@ pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Allocation {
 
     var slots = try allocator.alloc(u16, live.ranges.len);
     errdefer allocator.free(slots);
+    // §9.9 / 9.5-b-ii (per ADR-0041 §"Decision" / 2): populate
+    // shape_tags before slot allocation so the errdefer-on-failure
+    // path can clean both. populateShapeTags returns null when no
+    // SIMD ops appear (the all-scalar case).
+    const shape_tags = try populateShapeTags(allocator, func, live.ranges.len);
+    errdefer if (shape_tags) |t| allocator.free(t);
     var n_slots: u16 = 0;
 
     var active_buf: [@as(usize, max_slots) + 1]ActiveEntry = undefined;
@@ -287,7 +293,7 @@ pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Allocation {
         active_len += 1;
     }
 
-    return .{ .slots = slots, .n_slots = n_slots };
+    return .{ .slots = slots, .n_slots = n_slots, .shape_tags = shape_tags };
 }
 
 /// Post-condition: every pair of overlapping live ranges holds
@@ -776,4 +782,51 @@ test "populateShapeTags: empty func returns null (no SIMD)" {
     try f.instrs.append(testing.allocator, .{ .op = .end });
     const tags = try populateShapeTags(testing.allocator, &f, 0);
     try testing.expect(tags == null);
+}
+
+// ============================================================
+// §9.9 / 9.5-b-ii — compute() shape_tags integration tests
+// ============================================================
+
+test "compute: empty liveness returns null shape_tags" {
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    f.liveness = .{ .ranges = &.{} };
+    const alloc = try compute(testing.allocator, &f);
+    defer deinit(testing.allocator, alloc);
+    try testing.expect(alloc.shape_tags == null);
+}
+
+test "compute: scalar-only function has null shape_tags" {
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    const ranges = [_]LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    };
+    f.liveness = .{ .ranges = &ranges };
+    const alloc = try compute(testing.allocator, &f);
+    defer deinit(testing.allocator, alloc);
+    try testing.expect(alloc.shape_tags == null);
+}
+
+test "compute: SIMD function gets populated shape_tags" {
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    // Body: i32.const 7 ; i32x4.splat ; end
+    // vreg 0 = scalar (i32.const), vreg 1 = v128 (splat).
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32x4.splat" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    const ranges = [_]LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    };
+    f.liveness = .{ .ranges = &ranges };
+    const alloc = try compute(testing.allocator, &f);
+    defer deinit(testing.allocator, alloc);
+    try testing.expect(alloc.shape_tags != null);
+    try testing.expectEqual(ShapeTag.scalar, alloc.shapeTag(0));
+    try testing.expectEqual(ShapeTag.v128, alloc.shapeTag(1));
 }
