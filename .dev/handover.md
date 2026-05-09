@@ -13,24 +13,21 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.6/9.6-g-ii [x] (saturating narrow × 4); §9.6/9.6-f-ii deferred via D-056; **§9.6/9.6-g-iii NEXT**
+## Current state — Phase 9 / §9.6/9.6-g-iii [x] (i→f convert × 4); §9.6/9.6-f-ii deferred via D-056; **§9.6/9.6-g-iv NEXT**
 
-§9.6/9.6-g-ii adds 8 NEON encoders (SQXTN/SQXTN2/SQXTUN/SQXTUN2
-× 2 sizes) + 4 op_simd handlers via new `emitV128NarrowSaturating`
-helper. Step 0 cranelift survey + direct lower.isle inspection
-confirmed Wasm narrow_*_u → SQXTUN (signed source → unsigned sat,
-not UQXTN). Two-instruction synthesis pattern (low writes lower
-+ zeros upper; high writes upper + preserves lower) → no scratch
-register needed.
+§9.6/9.6-g-iii adds 4 NEON SCVTF/UCVTF .4S/.2D encoders + 4
+op_simd handlers + new `emitV128ConvertLowI32ToF64` helper for
+the f64x2.convert_low_* synthesis (SXTL/UXTL .2D + SCVTF/UCVTF .2D
+in place). Cranelift cross-checks for both .4S and .2D forms
+verified. FPCR RMode=00 default matches Wasm spec round-to-nearest-
+even.
 
 Per LOOP.md chunk granularity, §9.6 sub-row state:
-- 9.6-a/b/c-i/c-ii/d/e/f-i/g-i/g-ii [x]: FP arith / compares /
-  int compares / swizzle / extend / narrow.
+- 9.6-a/b/c-i/c-ii/d/e/f-i/g-i/g-ii/g-iii [x]: FP arith / compares /
+  int compares / swizzle / extend / narrow / i→f convert.
 - 9.6-f-ii deferred (D-056): shuffle + v128.const need const-pool
   ADR; trigger = §9.6 close v1-audit findings.
-- 9.6-g-iii NEXT: FP convert (i→f) — SCVTF/UCVTF for
-  f32x4.convert_i32x4_{s,u} + f64x2.convert_low_i32x4_{s,u}.
-- 9.6-g-iv: promote/demote (FCVTL/FCVTN).
+- 9.6-g-iv NEXT: promote/demote (FCVTL/FCVTN — width-changing FP).
 - 9.6-g-v: trunc_sat with NaN→0 + clamp (most complex; FCVTZS/U
   + special-value handling).
 
@@ -62,22 +59,19 @@ before flipping §9.6 to `[x]`:
   plumbing, ABI quirks) — better to back-fill before x86_64 SIMD
   (§9.7) where the same gaps would compound.
 
-**§9.6/9.6-g-iii NEXT** — i→f FP convert (4 ops):
-- f32x4.convert_i32x4_s  → SCVTF V.4S, V.4S
-- f32x4.convert_i32x4_u  → UCVTF V.4S, V.4S
-- f64x2.convert_low_i32x4_s → SCVTF V.2D, V.2S (uses lower 2
-  i32 lanes; upper 2 ignored)
-- f64x2.convert_low_i32x4_u → UCVTF V.2D, V.2S
+**§9.6/9.6-g-iv NEXT** — FP promote/demote (2 ops):
+- f32x4.demote_f64x2_zero → 2 f64 lanes → 4 f32 lanes (lower 2
+  populated, upper 2 zero). NEON `FCVTN V<rd>.2S, V<rn>.2D` writes
+  lower 64 bits, zeros upper. Single instruction.
+- f64x2.promote_low_f32x4 → lower 2 f32 lanes → 2 f64 lanes.
+  NEON `FCVTL V<rd>.2D, V<rn>.2S` (width-doubling FP convert).
 
-NEON encoders: SCVTF / UCVTF (vector forms). The .4S forms are
-single-instruction; the f64x2.convert_low forms need an
-intermediate step because the source is .2S (lower 2 of .4S)
-not .2D — likely SCVTF V.2D, V.2S from `Advanced SIMD two-reg
-misc`. Per Arm IHI 0055 §C7.2.343 (SCVTF) / §C7.2.371 (UCVTF).
+NEON encoders: FCVTN/FCVTL (advanced SIMD two-reg misc, FP).
+Per Arm IHI 0055 §C7.2.118 (FCVTN) / §C7.2.116 (FCVTL).
 
-Step 0: confirm encoding bases for the 4S and 2D-from-2S forms.
-The 2D-from-2S form may need a single-instruction lowering or a
-sequence (depends on what SCVTF/UCVTF accepts as src/dst pairs).
+Step 0 should verify encoding bases + confirm FCVTN's upper-half
+zeroing (since Wasm `demote_f64x2_zero` requires upper 2 lanes
+to be 0). Estimated ~50 src + ~30 tests.
 
 Estimated ~150 src + ~80 tests; may need a `private/spikes/`
 spike to verify the const-pool / scratch-reg approach before
