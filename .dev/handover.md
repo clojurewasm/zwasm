@@ -13,32 +13,35 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a [x]); **9.7-b NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a + 9.7-b [x]); **9.7-c NEXT**
 
-9.7-a landed at 228286d3: `i32x4.add` via PADDD foundation chunk
-(encPaddD encoder + op_simd.emitI32x4Add handler + emit dispatch +
-zwasm.zig discovery). Shape-tag pipeline reuses
-`shared/regalloc.populateShapeTags` (no x86_64-side wiring per
-ADR-0041 §"Decision" / 2). Spilled v128 vregs surface UnsupportedOp
-until 9.7-c lifts in 16-byte MOVDQU helpers.
+9.7-b landed at 1e798581: bundled packed integer add/sub family
+(8 ops). Refactored 9.7-a's `emitI32x4Add` body into shared
+`emitV128IntBinop(encoder)` helper; 7 new encoders (encPaddB/W/Q
++ encPsubB/W/D/Q) + 7 new handler wrappers + 7 new dispatch
+arms. ARM64 mirror per ROADMAP P7. v128 spill remains
+UnsupportedOp pending 9.7-c MOVDQU helpers.
 
-Mac gates at 228286d3: zone ✓, file_size ✓, spill ✓, lint ✓;
-unit 1339/0/12. OrbStack at known D-054 baseline (211/1/20).
-windowsmini green at prior origin (212/0/20); re-validation
-against pushed 228286d3 follows commit.
+Three-host gate at 1e798581: Mac unit 1344/0/12 + zone/file_size/
+spill/lint ✓; OrbStack at known D-054 baseline (211/1/20
+spec_assert + every other runner green); windowsmini full green
+(212/0/20 spec_assert + every other runner green).
 
-**9.7-b NEXT** — bundled SIMD integer arithmetic family. Bundle
-guidance per LOOP.md: same encoder family + same handler shape
-(only opcode byte differs). Candidate set: i8x16/i16x8/i32x4/i64x2
-add+sub via PADDB/W/D/Q + PSUBB/W/D/Q (8 ops, 1 chunk). Multiplies
-(i16x8.mul = PMULLW; i32x4.mul = PMULLD SSE4.1; i64x2.mul = synth)
-go in 9.7-c (separate chunk because i64x2.mul needs synthesis;
-ADR-grade design).
+**9.7-c NEXT** — SIMD integer multiply family. i16x8.mul (PMULLW
+SSE2) + i32x4.mul (PMULLD SSE4.1, the first SSE4.1-exclusive op
+in this phase) bundle naturally. i64x2.mul has no native form
+(neither SSE2 nor SSE4.1 has packed 64×64→64); synthesis via
+3-mul + 2-shift + 2-add per cranelift idiom — ADR-grade design,
+likely separate sub-chunk. Step 0 survey will scope.
 
-After 9.7-b: 9.7-c (lane access — splat / extract_lane /
-replace_lane via MOVD + PSHUFD + PINSRD/PEXTRD), 9.7-d (compare
-family), 9.7-e (FP arith), 9.7-f (FP compare), 9.7-g (conversion +
-shuffle). Sub-row plan refines as each chunk's Step 0 survey lands.
+Alternative ordering: lane access (splat / extract_lane /
+replace_lane via PSHUFD + PINSRB/W/D + PEXTRB/W/D) could land
+first if needed by an end-to-end integration fixture. Decided
+during 9.7-c's Plan step.
+
+Subsequent chunks: 9.7-d (compare family), 9.7-e (FP arith),
+9.7-f (FP compare), 9.7-g (conversion + shuffle). Sub-row plan
+refines as each chunk's Step 0 survey lands.
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
