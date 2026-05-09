@@ -16,26 +16,27 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..z landed); **9.7-aa NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..aa landed); **9.7-ab NEXT**
 
-9.7-z: x86_64 i*x*.abs (4 ops). 3 new SSSE3 encoders
-(PABSB/W/D) + i64x2.abs 5-instr synthesis via PCMPGTQ +
-PXOR/PSUBQ. Total SIMD ops handled: 139.
+9.7-aa: x86_64 i*x*.neg (4 ops). 3-instr emitV128IntNeg
+helper (PXOR + PSUB_<shape> + MOVAPS); no new encoders.
+Total SIMD ops handled: 143.
 
-**9.7-aa NEXT** — i*x*.neg (4 ops): i8x16/i16x8/i32x4/
-i64x2.neg = `0 - x` per lane. Cranelift uses PSUBB/W/D/Q
-(zero, x). 4 wrappers using a 2-instr emitV128IntNeg helper:
-PXOR scratch,scratch + PSUB_<shape>(scratch, src) → scratch
-holds -src. Then MOVAPS dst, scratch. Or compute directly
-into dst: PXOR dst,dst + PSUB(dst, src). 3 instr per call.
+**9.7-ab NEXT** — FP convert family (4-6 ops):
+f32x4.convert_i32x4_{s,u} + f64x2.convert_low_i32x4_{s,u}
++ f64x2.promote_low_f32x4 + f32x4.demote_f64x2_zero. SSE
+encoders: CVTDQ2PS / CVTDQ2PD (signed direct) + unsigned
+synthesis (cranelift recipe). f64x2.promote_low: CVTPS2PD.
+f32x4.demote: CVTPD2PS. Likely 4-6 new encoders + 4-6
+wrappers. Unsigned-i32→FP synthesis is non-trivial
+(cranelift uses bit-magic with float constants — needs
+const-pool!). Defer u-variants to const-pool chunk if
+ADR-0042 still pending; signed variants doable inline.
 
-Encoders PSUBB/W/D/Q already exist (PSUBB from 9.7-b, PSUBQ
-from 9.7-u; PSUBW/D need check). ~80 src + ~50 test, no ADR.
-
-Subsequent: 9.7-ab+ (FP convert i↔f + f64↔f32 + trunc-sat),
-9.7-ac (i8x16.swizzle PADDUSB-broadcast inline-synth),
-9.7-ad (i8x16.shuffle ADR-0042 const-pool dep), 9.7-ae
-(v128.const finalisation).
+Subsequent: 9.7-ac+ (i32x4.trunc_sat_f*x*_*), 9.7-ad+
+(i8x16.swizzle PADDUSB-broadcast inline-synth), 9.7-ae+
+(i8x16.shuffle const-pool dep), 9.7-af (v128.const +
+const-pool finalisation).
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -55,5 +56,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..z landed; 9.7-aa NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..aa landed; 9.7-ab NEXT).
 **Branch**: `zwasm-from-scratch`。
