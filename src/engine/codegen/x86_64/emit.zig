@@ -798,6 +798,15 @@ pub fn compile(
             // MOVAPS preamble when dst doesn't alias the input vec.
             .@"i32x4.replace_lane" => try op_simd.emitI32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
             .@"i64x2.replace_lane" => try op_simd.emitI64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            // §9.7 / 9.7-g: narrow-int lane access (i8x16 / i16x8).
+            // PEXTRB / PEXTRW + optional MOVSX for signed extract.
+            // PINSRB / PINSRW + MOVAPS preamble for replace.
+            .@"i8x16.extract_lane_s" => try op_simd.emitI8x16ExtractLaneS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i8x16.extract_lane_u" => try op_simd.emitI8x16ExtractLaneU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i16x8.extract_lane_s" => try op_simd.emitI16x8ExtractLaneS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i16x8.extract_lane_u" => try op_simd.emitI16x8ExtractLaneU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i8x16.replace_lane" => try op_simd.emitI8x16ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i16x8.replace_lane" => try op_simd.emitI16x8ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at

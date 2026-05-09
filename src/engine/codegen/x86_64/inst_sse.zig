@@ -643,6 +643,88 @@ pub fn encPinsrQ(xmm_dst: Xmm, gpr_src: Gpr, lane: u1) EncodedInsn {
     return enc;
 }
 
+/// `PEXTRB r/m8, xmm, imm8` (66 [REX?] 0F 3A 14 /r ib) — SSE4.1
+/// extract a byte (8-bit) lane from `xmm_src` (lane 0..15) into
+/// the low 8 bits of `gpr_dst`, **zero-extended to 32 bits**.
+/// Used by `i8x16.extract_lane_u`; `i8x16.extract_lane_s` calls
+/// this then `MOVSX r32, r8` for sign-extension.
+///
+/// Same RMI operand encoding as PEXTRD (ModR/M.reg = source XMM,
+/// ModR/M.r/m = destination GPR).
+pub fn encPextrB(gpr_dst: Gpr, xmm_src: Xmm, lane: u4) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    if (xmm_src.extBit() != 0 or gpr_dst.extBit() != 0) {
+        enc.push(encodeRex(false, xmm_src.extBit(), 0, gpr_dst.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(0x3A);
+    enc.push(0x14);
+    enc.push(encodeModrm(0b11, xmm_src.low3(), gpr_dst.low3()));
+    enc.push(@intCast(lane));
+    return enc;
+}
+
+/// `PEXTRW r32, xmm, imm8` (66 [REX?] 0F C5 /r ib) — SSE2 form
+/// (NOT the SSE4.1 mem-capable 0F 3A 15 form). Extracts a 16-bit
+/// lane (0..7) into the low 16 bits of `gpr_dst`, zero-extended
+/// to 32 bits. Used by `i16x8.extract_lane_u`;
+/// `i16x8.extract_lane_s` follows up with `MOVSX r32, r16`.
+///
+/// Operand encoding: ModR/M.reg = destination GPR (RMI shape;
+/// note this is **opposite** orientation from PEXTRB/D/Q which
+/// place the source XMM in reg). REX.R applies to the GPR;
+/// REX.B applies to the XMM.
+pub fn encPextrW(gpr_dst: Gpr, xmm_src: Xmm, lane: u3) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    if (gpr_dst.extBit() != 0 or xmm_src.extBit() != 0) {
+        enc.push(encodeRex(false, gpr_dst.extBit(), 0, xmm_src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(0xC5);
+    enc.push(encodeModrm(0b11, gpr_dst.low3(), xmm_src.low3()));
+    enc.push(@intCast(lane));
+    return enc;
+}
+
+/// `PINSRB xmm, r/m32, imm8` (66 [REX?] 0F 3A 20 /r ib) — SSE4.1
+/// insert a byte (low 8 bits of `gpr_src`) into lane 0..15 of
+/// `xmm_dst`. Other lanes preserved. Used by `i8x16.replace_lane`.
+/// Same RVMI operand encoding as PINSRD (XMM dst in ModR/M.reg,
+/// GPR src in r/m).
+pub fn encPinsrB(xmm_dst: Xmm, gpr_src: Gpr, lane: u4) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    if (xmm_dst.extBit() != 0 or gpr_src.extBit() != 0) {
+        enc.push(encodeRex(false, xmm_dst.extBit(), 0, gpr_src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(0x3A);
+    enc.push(0x20);
+    enc.push(encodeModrm(0b11, xmm_dst.low3(), gpr_src.low3()));
+    enc.push(@intCast(lane));
+    return enc;
+}
+
+/// `PINSRW xmm, r/m32, imm8` (66 [REX?] 0F C4 /r ib) — SSE2 form
+/// of word-insert (predates SSE4.1's 3A 21 mem-capable form).
+/// Inserts the low 16 bits of `gpr_src` into lane 0..7 of
+/// `xmm_dst`. Used by `i16x8.replace_lane`.
+/// RVMI operand encoding (XMM dst in reg, GPR src in r/m).
+pub fn encPinsrW(xmm_dst: Xmm, gpr_src: Gpr, lane: u3) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    if (xmm_dst.extBit() != 0 or gpr_src.extBit() != 0) {
+        enc.push(encodeRex(false, xmm_dst.extBit(), 0, gpr_src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(0xC4);
+    enc.push(encodeModrm(0b11, xmm_dst.low3(), gpr_src.low3()));
+    enc.push(@intCast(lane));
+    return enc;
+}
+
 const testing = std.testing;
 
 test "encPaddD: low XMMs (xmm0, xmm1) — no REX, 4 bytes" {
@@ -775,4 +857,31 @@ test "encPinsrQ: lane 0 (xmm0, rax, 0) — REX.W mandatory, 7 bytes" {
 test "encPinsrQ: lane 1, REX.W+R+B (xmm8, r9, 1)" {
     // 66 4D 0F 3A 22 C1 01 — REX.W (0x48) | R (0x04) | B (0x01) = 0x4D.
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x4D, 0x0F, 0x3A, 0x22, 0xC1, 0x01 }, encPinsrQ(.xmm8, .r9, 1).slice());
+}
+
+test "encPextrB: lane 5 (rax, xmm0, 5) — RMI shape, opcode 0x14" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x3A, 0x14, 0xC0, 0x05 }, encPextrB(.rax, .xmm0, 5).slice());
+}
+
+test "encPextrW: lane 7 (rax, xmm0, 7) — SSE2 form opcode 0xC5, RMI" {
+    // 66 0F C5 C0 07 — ModR/M.reg = gpr (0), .rm = xmm (0).
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xC5, 0xC0, 0x07 }, encPextrW(.rax, .xmm0, 7).slice());
+}
+
+test "encPextrW: REX.R+B (r9, xmm8, 0) — REX.R for gpr, REX.B for xmm" {
+    // 66 45 0F C5 C8 00 — REX = 0x40 | R (gpr.extBit=1<<2=0x4) |
+    // B (xmm.extBit=1) = 0x45; ModR/M = 11 001 000 = 0xC8.
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0xC5, 0xC8, 0x00 }, encPextrW(.r9, .xmm8, 0).slice());
+}
+
+test "encPinsrB: lane 15 (xmm0, rax, 15) — RVMI shape, opcode 0x20" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x3A, 0x20, 0xC0, 0x0F }, encPinsrB(.xmm0, .rax, 15).slice());
+}
+
+test "encPinsrW: lane 3 (xmm0, rax, 3) — SSE2 form opcode 0xC4" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xC4, 0xC0, 0x03 }, encPinsrW(.xmm0, .rax, 3).slice());
+}
+
+test "encPinsrW: REX.R+B (xmm8, r9, 7)" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0xC4, 0xC1, 0x07 }, encPinsrW(.xmm8, .r9, 7).slice());
 }
