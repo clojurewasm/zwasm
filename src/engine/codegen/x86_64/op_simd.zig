@@ -1569,6 +1569,29 @@ pub fn emitI8x16ShrU(
 /// PSRAW preserves the sign bit invariant, and the resulting
 /// magnitude is bounded by the original i8 range). 11
 /// instructions; uses both XMM14 + XMM15 scratches.
+/// Wasm spec §4.4.4 (i*x*.narrow_*_s / _u) — pop two v128, push
+/// v128 with each pair of input lanes packed/saturated to a
+/// half-width lane. SSE2/SSE4.1 PACK* instructions match the
+/// Wasm spec exactly: signed pack saturates to signed half-
+/// width range; unsigned pack clamps signed input to unsigned
+/// half-width range.
+
+pub fn emitI8x16NarrowI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPacksswb);
+}
+
+pub fn emitI8x16NarrowI16x8U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPackuswb);
+}
+
+pub fn emitI16x8NarrowI32x4S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPackssdw);
+}
+
+pub fn emitI16x8NarrowI32x4U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPackusdw);
+}
+
 /// Wasm spec §4.4.4 (i*x*.extend_low / extend_high) — pop one
 /// v128, push one v128 with each lane sign- or zero-extended to
 /// the wider lane width. SSE4.1 PMOVSX*/PMOVZX* directly handle

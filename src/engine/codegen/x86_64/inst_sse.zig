@@ -1193,12 +1193,31 @@ pub fn encPunpckhbw(dst: Xmm, src: Xmm) EncodedInsn {
 
 /// `PACKSSWB xmm, xmm` (66 [REX?] 0F 63 /r) — SSE2 pack 8 signed
 /// 16-bit lanes from each operand into 16 saturated 8-bit lanes
-/// (low half from dst, high half from src). Used by
-/// `i16x8.bitmask` synthesis: PACKSSWB(src, src) duplicates the
-/// 16-bit high-bit pattern into 16 bytes so PMOVMSKB can extract
-/// it (cranelift `lower.isle:4977-4981`).
+/// (low half from dst, high half from src). Used by `i8x16.
+/// narrow_i16x8_s` (Wasm spec) and `i16x8.bitmask` synthesis.
 pub fn encPacksswb(dst: Xmm, src: Xmm) EncodedInsn {
     return encSsePackedIntBinop(0x63, dst, src);
+}
+
+/// `PACKSSDW xmm, xmm` (66 [REX?] 0F 6B /r) — SSE2 pack 4 signed
+/// 32-bit lanes from each operand into 8 saturated 16-bit lanes.
+/// Wasm `i16x8.narrow_i32x4_s`.
+pub fn encPackssdw(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x6B, dst, src);
+}
+
+/// `PACKUSWB xmm, xmm` (66 [REX?] 0F 67 /r) — SSE2 pack 8 signed
+/// 16-bit lanes (each clamped to unsigned u8 range) into 16
+/// unsigned 8-bit lanes. Wasm `i8x16.narrow_i16x8_u`.
+pub fn encPackuswb(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x67, dst, src);
+}
+
+/// `PACKUSDW xmm, xmm` (66 [REX?] 0F 38 2B /r) — SSE4.1 pack 4
+/// signed 32-bit lanes (each clamped to unsigned u16 range) into
+/// 8 unsigned 16-bit lanes. Wasm `i16x8.narrow_i32x4_u`.
+pub fn encPackusdw(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinopExt(0x38, 0x2B, dst, src);
 }
 
 /// SSE/SSE2 RM-form helper: GPR destination in ModR/M.reg, XMM
@@ -1498,6 +1517,12 @@ test "encMovdXmmFromR32: xmm14, r10 — REX.R + REX.B" {
 
 test "encPacksswb opcode bytes (xmm0, xmm1)" {
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x63, 0xC1 }, encPacksswb(.xmm0, .xmm1).slice());
+}
+
+test "encPackssdw / encPackuswb / encPackusdw opcode bytes (xmm0, xmm1)" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x6B, 0xC1 }, encPackssdw(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x67, 0xC1 }, encPackuswb(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x38, 0x2B, 0xC1 }, encPackusdw(.xmm0, .xmm1).slice());
 }
 
 test "encMovmskps: rax, xmm0 — no 66 prefix, RM (r32 in reg, xmm in r/m)" {

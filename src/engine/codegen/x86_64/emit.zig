@@ -1003,6 +1003,14 @@ pub fn compile(
             .@"i64x2.extend_low_i32x4_u" => try op_simd.emitI64x2ExtendLowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i64x2.extend_high_i32x4_s" => try op_simd.emitI64x2ExtendHighI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i64x2.extend_high_i32x4_u" => try op_simd.emitI64x2ExtendHighI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-y: i*x*.narrow_*_{s,u} (4 ops). PACKSSWB
+            // (SSE2) + PACKUSWB (SSE2) for i8x16; PACKSSDW (SSE2)
+            // + PACKUSDW (SSE4.1) for i16x8. All single-instr via
+            // emitV128IntBinop.
+            .@"i8x16.narrow_i16x8_s" => try op_simd.emitI8x16NarrowI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.narrow_i16x8_u" => try op_simd.emitI8x16NarrowI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.narrow_i32x4_s" => try op_simd.emitI16x8NarrowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.narrow_i32x4_u" => try op_simd.emitI16x8NarrowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at
