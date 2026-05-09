@@ -1016,6 +1016,57 @@ pub fn emitF32x4DemoteF64x2Zero(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try emitV128Unop(ctx, inst_neon.encFCvtn_2S_2D);
 }
 
+// ============================================================
+// §9.6 / 9.6-g-v — trunc_sat (4 ops)
+// ============================================================
+//
+// Wasm spec — `i32x4.trunc_sat_f32x4_{s,u}` (single-instruction
+// FCVTZS/U .4S; NaN→0 + saturation match NEON default per Arm
+// IHI 0055 §C7.2.131-133) + `i32x4.trunc_sat_f64x2_{s,u}_zero`
+// (2-instruction synthesis: FCVTZS/U .2D narrows f64→i64 with
+// sat, then SQXTN/UQXTN .2S narrows i64→i32 with sat; Q=0 form
+// of the narrow instruction zeros upper 64 bits of the result,
+// matching Wasm `_zero` semantic).
+
+pub fn emitI32x4TruncSatF32x4S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFcvtzs4S);
+}
+pub fn emitI32x4TruncSatF32x4U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFcvtzu4S);
+}
+
+/// Helper: emit `i32x4.trunc_sat_f64x2_*_zero` synthesis. Sequence:
+///   1. FCVTZS/U result.2D, src.2D — f64x2 → i64x2 with sat.
+///   2. SQXTN/UQXTN result.2S, result.2D — i64x2 → i32x2 with sat;
+///      Q=0 form clears upper 64 bits of result.
+/// For signed: convert_encoder=encFcvtzs2D, narrow_encoder=encSqxtn2S
+/// For unsigned: convert_encoder=encFcvtzu2D, narrow_encoder=encUqxtn2S
+fn emitV128TruncSatF64Zero(
+    ctx: *EmitCtx,
+    convert_encoder: *const fn (rd: u5, rn: u5) u32,
+    narrow_encoder: *const fn (rd: u5, rn: u5) u32,
+) Error!void {
+    const src_vreg = ctx.pushed_vregs.pop().?;
+    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, convert_encoder(result_v, src_v));
+    try gpr.writeU32(ctx.allocator, ctx.buf, narrow_encoder(result_v, result_v));
+    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+pub fn emitI32x4TruncSatF64x2SZero(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128TruncSatF64Zero(ctx, inst_neon.encFcvtzs2D, inst_neon.encSqxtn2S);
+}
+pub fn emitI32x4TruncSatF64x2UZero(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128TruncSatF64Zero(ctx, inst_neon.encFcvtzu2D, inst_neon.encUqxtn2S);
+}
+
 pub fn emitI8x16Swizzle(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const indices_vreg = ctx.pushed_vregs.pop().?;
     const indices_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, indices_vreg, 1);

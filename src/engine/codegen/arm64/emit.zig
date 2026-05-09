@@ -1310,6 +1310,11 @@ pub fn compile(
             // §9.6/9.6-g-iv — FP promote/demote (FCVTL/FCVTN).
             .@"f64x2.promote_low_f32x4" => try op_simd.emitF64x2PromoteLowF32x4(&ctx, &ins),
             .@"f32x4.demote_f64x2_zero" => try op_simd.emitF32x4DemoteF64x2Zero(&ctx, &ins),
+            // §9.6/9.6-g-v — trunc_sat (FCVTZS/U + SQXTN/UQXTN family).
+            .@"i32x4.trunc_sat_f32x4_s" => try op_simd.emitI32x4TruncSatF32x4S(&ctx, &ins),
+            .@"i32x4.trunc_sat_f32x4_u" => try op_simd.emitI32x4TruncSatF32x4U(&ctx, &ins),
+            .@"i32x4.trunc_sat_f64x2_s_zero" => try op_simd.emitI32x4TruncSatF64x2SZero(&ctx, &ins),
+            .@"i32x4.trunc_sat_f64x2_u_zero" => try op_simd.emitI32x4TruncSatF64x2UZero(&ctx, &ins),
 
             else => {
                 // §9.7 / 7.5-diag-op: surface the unhandled op

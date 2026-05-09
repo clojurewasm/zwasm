@@ -773,6 +773,51 @@ pub fn encFCvtn_2S_2D(rd: Vn, rn: Vn) u32 {
     return 0x0E616800 | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+// ---------------------------------------------------------------------
+// §9.6 / 9.6-g-v — FCVTZS/FCVTZU + SQXTN/UQXTN .2S form
+// ---------------------------------------------------------------------
+// Wasm spec — `i32x4.trunc_sat_f32x4_{s,u}` (single FCVTZS/U .4S
+// instruction; NaN→0 + saturation match NEON default per Arm IHI
+// 0055 §C7.2.131-133) + `i32x4.trunc_sat_f64x2_{s,u}_zero`
+// (2-instruction synthesis: FCVTZS/U .2D narrows f64→i64 with sat,
+// then SQXTN/UQXTN .2S narrows i64→i32 with sat; Q=0 form clears
+// upper 2 lanes, matching Wasm `_zero` semantic).
+//
+// FCVTZS/FCVTZU encoding "Advanced SIMD two-register misc (FP)":
+//   `0 Q U 01110 1 sz 1 0000 1 11011 0 Rn Rd`
+// Q=1, U=0 → FCVTZS; U=1 → FCVTZU. sz=0 → .4S, sz=1 → .2D.
+// Per Arm IHI 0055 §C7.2.131 (FCVTZS) / §C7.2.133 (FCVTZU).
+// Bases cross-checked against wasmtime/cranelift emit_tests.rs:
+// 4985-5025.
+//
+// SQXTN/UQXTN .2S form (i64→i32 saturating narrow): same family
+// as 9.6-g-ii's .8B/.4H forms with size=10 (.2D source → .2S dest).
+
+pub fn encFcvtzs4S(rd: Vn, rn: Vn) u32 {
+    return 0x4EA1B800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFcvtzs2D(rd: Vn, rn: Vn) u32 {
+    return 0x4EE1B800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFcvtzu4S(rd: Vn, rn: Vn) u32 {
+    return 0x6EA1B800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFcvtzu2D(rd: Vn, rn: Vn) u32 {
+    return 0x6EE1B800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `SQXTN V<rd>.2S, V<rn>.2D` — signed sat narrow i64→i32.
+/// Used for f64x2.trunc_sat_*_s_zero synthesis. size=10.
+pub fn encSqxtn2S(rd: Vn, rn: Vn) u32 {
+    return 0x0EA14800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `UQXTN V<rd>.2S, V<rn>.2D` — unsigned sat narrow u64→u32.
+/// Used for f64x2.trunc_sat_*_u_zero synthesis. size=10, U=1.
+pub fn encUqxtn2S(rd: Vn, rn: Vn) u32 {
+    return 0x2EA14800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 /// `BSL V<d>.16B, V<n>.16B, V<m>.16B` — bitwise select using V<d>
 /// as the mask. Element width is irrelevant since BSL is bitwise.
 pub fn encBsl16B(rd: Vn, rn: Vn, rm: Vn) u32 {
@@ -1626,6 +1671,53 @@ test "encFCvtl_2D_2S base: v0.2d, v0.2s" {
 
 test "FCVTL vs FCVTN: opcode bit 12 differs (10111 vs 10110)" {
     try testing.expectEqual(@as(u32, 0x1000), encFCvtl_2D_2S(0, 0) ^ encFCvtn_2S_2D(0, 0));
+}
+
+// ============================================================
+// §9.6 / 9.6-g-v — FCVTZS/FCVTZU + SQXTN/UQXTN .2S
+// ============================================================
+// Cranelift cross-references (wasmtime/cranelift/codegen/src/isa/
+// aarch64/inst/emit_tests.rs:4985-5025):
+//   fcvtzs v4.4s, v22.4s  → 0x4EA1BAC4
+//   fcvtzs v0.2d, v31.2d  → 0x4EE1BBE0
+//   fcvtzu v29.2d, v15.2d → 0x6EE1B9FD
+//   sqxtn  v14.2s, v20.2d → 0x0EA14A8E (already cross-checked
+//                          in 9.6-g-ii via different operand)
+
+test "encFcvtzs4S: v4.4s, v22.4s (cranelift cross-check)" {
+    // 0x4EA1B800 | (22 << 5) | 4 = 0x4EA1BAC4
+    try testing.expectEqual(@as(u32, 0x4EA1BAC4), encFcvtzs4S(4, 22));
+}
+
+test "encFcvtzs2D: v0.2d, v31.2d (cranelift cross-check)" {
+    // 0x4EE1B800 | (31 << 5) | 0 = 0x4EE1BBE0
+    try testing.expectEqual(@as(u32, 0x4EE1BBE0), encFcvtzs2D(0, 31));
+}
+
+test "encFcvtzu2D: v29.2d, v15.2d (cranelift cross-check)" {
+    // 0x6EE1B800 | (15 << 5) | 29 = 0x6EE1B9FD
+    try testing.expectEqual(@as(u32, 0x6EE1B9FD), encFcvtzu2D(29, 15));
+}
+
+test "encFcvtzu4S: base" {
+    try testing.expectEqual(@as(u32, 0x6EA1B800), encFcvtzu4S(0, 0));
+}
+
+test "Fcvtzs vs Fcvtzu: U bit differs" {
+    try testing.expectEqual(@as(u32, 0x20000000), encFcvtzu4S(0, 0) ^ encFcvtzs4S(0, 0));
+}
+
+test "encSqxtn2S: v14.2s, v20.2d (cranelift cross-check)" {
+    // 0x0EA14800 | (20 << 5) | 14 = 0x0EA14A8E
+    try testing.expectEqual(@as(u32, 0x0EA14A8E), encSqxtn2S(14, 20));
+}
+
+test "encUqxtn2S: v0.2s, v0.2d (base)" {
+    try testing.expectEqual(@as(u32, 0x2EA14800), encUqxtn2S(0, 0));
+}
+
+test "Sqxtn2S vs Uqxtn2S: U bit differs" {
+    try testing.expectEqual(@as(u32, 0x20000000), encUqxtn2S(0, 0) ^ encSqxtn2S(0, 0));
 }
 
 test "Int compare shapes: 4 CMEQ encodings pairwise distinct" {
