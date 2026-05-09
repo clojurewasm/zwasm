@@ -13,48 +13,53 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..j [x]); **9.7-k NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..k [x]); **9.7-l NEXT**
 
-9.7-j landed at 28ec5a4d: f64x2 lane access trio. Adds
-encMovsdXmmXmm (F2 0F 10 /r mod=11 — reg-reg form preserves
-upper 64) + encMovlhps (0F 16 /r). Splat + extract reuse
-encPshufd with imm 0x44 (low qword broadcast) / 0xEE (high
-qword to position 0). Replace lane=0 uses MOVSD reg-reg
-(preserves high), lane=1 uses MOVLHPS. Total SIMD ops handled:
-30 — full splat / extract / replace surface for all 6 shapes.
+9.7-k landed at 22d62cfd: int compare eq/ne family (8 ops, all
+4 widths). Adds encPcmpeqB/W/D (SSE2) + encPcmpeqQ (SSE4.1).
+eq handlers reuse 9.7-b's emitV128IntBinop unchanged. ne handler
+applies NOT-via-PXOR-with-all-ones (PCMPEQB scratch, scratch on
+XMM14). Total SIMD ops handled: 38.
 
-Three-host gate at 28ec5a4d: Mac unit 1402/0/12 + gates ✓;
-OrbStack at known D-054 baseline (211/1/20 + 1386/1414);
+Three-host gate at 22d62cfd: Mac unit 1408/0/12 + gates ✓;
+OrbStack at known D-054 baseline (211/1/20 + 1392/1420);
 windowsmini full green (212/0/20 + every runner green).
 
-**9.7-k NEXT** — int compare family. Wasm ops:
-- i8x16/i16x8/i32x4 eq/ne/lt_s/lt_u/gt_s/gt_u/le_s/le_u/ge_s/ge_u
-  = 30 ops. i64x2 eq/ne/lt_s/gt_s/le_s/ge_s = 6 ops (no _u for i64x2
-  per spec). Total 36 int compare ops.
+**9.7-l NEXT** — int compare signed lt/gt/le/ge family. Wasm ops:
+- i8x16/i16x8/i32x4 lt_s/gt_s/le_s/ge_s = 12 ops.
+- i64x2 lt_s/gt_s/le_s/ge_s = 4 ops (no _u for i64x2).
 
-Native SSE2 / SSE4.1 instructions:
-- PCMPEQB / PCMPEQW / PCMPEQD (SSE2): equal compare per lane.
-- PCMPEQQ (SSE4.1): i64x2 equal.
-- PCMPGTB / PCMPGTW / PCMPGTD (SSE2): signed greater-than.
-- PCMPGTQ (SSE4.2 — beyond ADR-0041 baseline!): i64x2 signed gt.
+Native SSE encoders:
+- PCMPGTB/W/D (SSE2): signed greater-than (a > b → all-ones lane).
+- PCMPGTQ (SSE4.2 — **beyond ADR-0041 baseline**!): i64x2.gt_s.
 
-i64x2.gt_s needs synthesis when SSE4.2 is unavailable. Cranelift
-idiom: PCMPGTD + AND/swap tricks; or PSUBQ-based MSB extraction.
+Strategy:
+- gt_s: direct PCMPGT_<shape>(dst, lhs, rhs).
+- lt_s: PCMPGT with operands swapped → MOVAPS dst, rhs; PCMPGT
+  dst, lhs.
+- le_s: NOT(gt_s) — PCMPGT then PXOR with all-ones.
+- ge_s: NOT(lt_s).
 
-Unsigned compares synthesise via signed: a <_u b ⇔ (a ^ MSB) <_s
-(b ^ MSB) for integer types. Or use PMINUB / PMAXUB / PMINUW /
-PMAXUW for some cases. Cranelift prefers PXOR-with-sign-mask +
-PCMPGT.
+i64x2.gt_s blocker: SSE4.2 PCMPGTQ exceeds ADR-0041 §"5. SSE4.1
+minimum baseline". Cranelift's SSE4.1 fallback uses a 5-instr
+synthesis: PCMPGTD + PSHUFD + PSUBQ + AND tricks (or simpler
+emulated via 2× PCMPGTD half-comparisons combined with PCMPEQD).
 
-Likely partition: 9.7-k (eq/ne family — clean PCMPEQ + NOT for
-ne), 9.7-l (signed lt/gt/le/ge), 9.7-m (unsigned lt/gt/le/ge
-synthesis), 9.7-n (i64x2 signed compares with SSE4.2 fallback).
-4 sub-chunks. Step 0 will pin down i64x2.gt_s synthesis +
-unsigned compare strategy + ADR-grade decisions if any.
+Decision needed: relax baseline to SSE4.2 (ADR-0041 amend), OR
+implement i64x2.gt_s synthesis. Survey for 9.7-l should:
+1. Check Steam Hardware Survey / cranelift's MIN_X86_64_FEATURES
+   for SSE4.2's adoption rate (essentially 100% on 2008+ CPUs;
+   Atom Bonnell/Pineview pre-2010 lacks it).
+2. Document the cranelift i64x2.gt_s synthesis recipe.
+3. Pick: amend ADR-0041 to SSE4.2 baseline (1-line decision —
+   cleaner code, narrower hardware support) vs synthesise
+   (preserves baseline, ~5 instr per i64x2 cmp).
 
-Subsequent: 9.7-o+ (FP compare CMPPS/PD), 9.7-p+ (FP arith),
-9.7-q+ (bitwise ops + select), 9.7-r+ (conversion + narrow/extend
-+ shuffle PSHUFB), 9.7-s (v128.const via ADR-0042 const-pool).
+Subsequent chunks: 9.7-m (unsigned compares ult/ugt/ule/uge —
+synth via PXOR-with-sign-mask + PCMPGT_signed; or via PMINU /
+PMAXU + PCMPEQ), 9.7-n+ (FP compare CMPPS/PD), 9.7-o+ (FP arith),
+9.7-p+ (bitwise ops + select), 9.7-q+ (conversion + narrow/extend
++ shuffle PSHUFB), 9.7-r (v128.const via ADR-0042 const-pool).
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
