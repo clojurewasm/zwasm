@@ -16,28 +16,29 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..ah landed); **9.7-ai NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..ai landed); **9.7-aj NEXT**
 
-9.7-ah: x86_64 i32x4.extmul × 4 (i16x8 → i32x4). Same shape as
-9.7-ag with PMOVSXWD/PMOVZXWD + PMULLD substituted; helpers
-reused unchanged. No new encoders. Total SIMD ops handled: 172.
+9.7-ai: x86_64 i64x2.extmul × 4 (i32x4 → i64x2). 3-instr inline
+recipe via PSHUFD imm 0x50/0xFA + PMULDQ (new SSE4.1) / PMULUDQ
+(existing). 1 new encoder + 1 new helper. Closes the extmul
+family across all three shapes (12 ops total). Total SIMD ops
+handled: 176.
 
-**9.7-ai NEXT** — i64x2.extmul_{low,high}_i32x4_{s,u} (4 ops).
-Different multiply semantics from i16x8/i32x4 extmul: PMULDQ
-(SSE4.1) for signed and PMULUDQ (SSE2) for unsigned both take
-unwidened i32 inputs in even-numbered lanes and produce i64
-outputs — so they DON'T need a separate extend step. Recipe per
-cranelift: PSHUFD imm=0x{50/F5} to position lanes (low: even
-positions; high: odd from upper 64 → even positions), then
-PMULDQ/PMULUDQ. 2-3 instr per op. May need a separate
-emitV128I64x2Extmul helper (different from 9.7-ag's
-emitV128IntExtmul). Both encoders already exist (PMULDQ from
-9.7-c-?, PMULUDQ from 9.7-d). 1 new encoder needed if PMULDQ
-absent; check before survey.
+**9.7-aj NEXT** — i*x*.popcnt + i16x8.extadd_pairwise_*
+(~3 ops, partially const-pool dependent). Per p9-9.7-af-survey:
+`i8x16.popcnt` 7-instr SSSE3 PSHUFB-LUT (needs 1 const) or
+9-instr Hacker's-Delight shift-add (no const). Without ADR-0042
+const-pool, **inline-synth via shift-add is the path** — same
+pattern as 9.7-u/v/w shift synthesis. `i16x8.extadd_pairwise_
+i8x16_{s,u}` 1-instr each via PMADDUBSW (SSSE3) but needs a
+±1 const lane mask (`0x0101...` for unsigned, `0x0101...`
+multiplied differently for signed). Inline-synth via PCMPEQB
++ PSRLW imm 7 → 0x0101 broadcast. Bundle these 3 ops.
 
-Subsequent: 9.7-aj (ADR-0042 const-pool + popcnt + 4
-extadd_pairwise + 4 deferred 9.7-ae u-variants + i8x16.shuffle
-+ v128.const). Phase 7 close-out pending.
+Subsequent: 9.7-ak (i32x4.extadd_pairwise_i16x8_{s,u} 2 ops,
+similar pattern with 0x00010001 const synthesis), 9.7-al
+(ADR-0042 const-pool plumbing + 4 deferred 9.7-ae u-variants +
+i8x16.shuffle + v128.const). Phase 7 close-out pending.
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -57,5 +58,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ah landed; 9.7-ai NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ai landed; 9.7-aj NEXT).
 **Branch**: `zwasm-from-scratch`。
