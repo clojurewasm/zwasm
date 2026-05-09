@@ -13,16 +13,19 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.6/9.6-c-i [x] (FP min/max); **§9.6/9.6-c-ii NEXT**
+## Current state — Phase 9 / §9.6/9.6-c-ii [x] (pmin/pmax synthesis); **§9.6/9.6-d NEXT**
 
-§9.6/9.6-c-i adds 4 NEON FMIN/FMAX vector encoders + 4 thin
-emitV128Binop adapters (f32x4/f64x2 min/max). IEEE-754-2008
-NaN-propagating semantics map directly to NEON.
+§9.6/9.6-c-ii adds FCMGT/BSL encoders + 4 op_simd handlers via
+shared `emitPminPmaxSynthesis` helper using V31 as SIMD scratch.
+3-instr sequence per op: FCMGT → BSL → MOV. V31 reservation per
+regalloc.zig:126 (popcnt's V-register pipeline) is reused since
+no allocator-managed vreg lands there.
 
 Per LOOP.md chunk granularity, §9.6 sub-row state:
-- 9.6-a/b/c-i [x]: FP binary + FP unary + FMIN/FMAX.
-- 9.6-c-ii NEXT: pmin/pmax synthesis via FCMGT + BSL.
-- 9.6-d: int compare (CMEQ/CMGT/CMHI/CMGE/CMHS).
+- 9.6-a/b/c-i/c-ii [x]: FP binary + FP unary + min/max + pmin/pmax.
+- 9.6-d NEXT: int compare (CMEQ/CMGT/CMHI/CMGE/CMHS) for
+  i8x16/i16x8/i32x4/i64x2 — 6 Wasm ops × signed/unsigned for
+  GT/LT/GE/LE × 4 shapes = many variants.
 - 9.6-e: FP compare (FCMEQ/FCMGT/FCMGE).
 - 9.6-f: shuffle/swizzle (TBL-based).
 - 9.6-g: conversion (trunc_sat/convert/narrow/extend).
@@ -30,26 +33,21 @@ Per LOOP.md chunk granularity, §9.6 sub-row state:
 Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
 212/0/20, wast 1158/0/0.
 
-**§9.6/9.6-c-ii NEXT** — f32x4/f64x2 pmin/pmax synthesis (4
-ops). Wasm-spec semantics:
-- `pmin(x, y)` ≡ `if y < x then y else x` (returns y on
-  equal-magnitude or NaN — opposite of IEEE min's NaN
-  propagation).
-- `pmax(x, y)` ≡ `if x < y then y else x` (returns y when
-  equal-magnitude).
+**§9.6/9.6-d NEXT** — int per-lane compare ops. Wasm catalogue
+per shape: eq, ne, lt_s, lt_u, gt_s, gt_u, le_s, le_u, ge_s, ge_u
+(10 ops × 4 int shapes = 40 ops, but i64x2 lacks unsigned
+variants in Wasm 1.0). Maps to NEON:
+- eq → CMEQ (vector form)
+- ne → CMEQ + NOT (or CMTST inverted)
+- lt_s/gt_s → CMLT/CMGT (signed)
+- lt_u/gt_u → CMHI/CMHS (unsigned)
+- le_s/ge_s → CMLE/CMGE (signed)
+- le_u/ge_u → swap operands + CMHS/CMHI
 
-Synthesis: FCMGT generates a per-lane mask (all-1s where the
-condition holds, all-0s otherwise); BSL (bitwise select) picks
-between two operand registers based on the mask. Sequence
-(pmin example):
-  FCMGT V<tmp>.4S, V<lhs>.4S, V<rhs>.4S   ; tmp = lhs > rhs
-  BSL   V<tmp>.16B, V<rhs>.16B, V<lhs>.16B ; tmp ? rhs : lhs
-Result is in V<tmp>.
-
-Need new encoders: encFCmGt4S/2D + encBsl16B (note: BSL is
-class-agnostic — operates on 16 bytes regardless of underlying
-shape). Plus need a tmp v128 vreg for the mask. Estimated
-~150 src + ~80 tests.
+Per LOOP.md chunk-granularity bundle: same encoder family (NEON
+"compare" three-same) + same handler shape (emitV128Binop) →
+likely one chunk for ~32 ops if total LOC stays under 400. Step 0
+survey: confirm encoding bases + per-shape size discriminator.
 
 After 8b.4: 8b.5 (boundary audit_scaffolding) + 8b.6 (open
 §9.9 inline + flip Phase Status).
