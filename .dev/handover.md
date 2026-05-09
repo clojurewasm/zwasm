@@ -13,41 +13,36 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.6/9.6-c-ii [x] (pmin/pmax synthesis); **§9.6/9.6-d NEXT**
+## Current state — Phase 9 / §9.6/9.6-d [x] (int compares, 36 ops); **§9.6/9.6-e NEXT**
 
-§9.6/9.6-c-ii adds FCMGT/BSL encoders + 4 op_simd handlers via
-shared `emitPminPmaxSynthesis` helper using V31 as SIMD scratch.
-3-instr sequence per op: FCMGT → BSL → MOV. V31 reservation per
-regalloc.zig:126 (popcnt's V-register pipeline) is reused since
-no allocator-managed vreg lands there.
+§9.6/9.6-d adds 19 NEON int-compare encoders (CMEQ/CMGT/CMGE/
+CMHI/CMHS × 4 shapes + NOT V16B) + 36 op_simd handlers + 2
+shared helpers (`emitV128BinopSwapped` for lt/le → gt/ge swap;
+`emitV128Ne` for CMEQ → NOT synthesis using V31 scratch).
+i64x2 omits unsigned variants per Wasm 2.0 SIMD.
 
 Per LOOP.md chunk granularity, §9.6 sub-row state:
-- 9.6-a/b/c-i/c-ii [x]: FP binary + FP unary + min/max + pmin/pmax.
-- 9.6-d NEXT: int compare (CMEQ/CMGT/CMHI/CMGE/CMHS) for
-  i8x16/i16x8/i32x4/i64x2 — 6 Wasm ops × signed/unsigned for
-  GT/LT/GE/LE × 4 shapes = many variants.
-- 9.6-e: FP compare (FCMEQ/FCMGT/FCMGE).
+- 9.6-a/b/c-i/c-ii/d [x]: FP binary + FP unary + min/max +
+  pmin/pmax + int compares.
+- 9.6-e NEXT: FP compares (FCMEQ/FCMGT/FCMGE) for f32x4/f64x2.
 - 9.6-f: shuffle/swizzle (TBL-based).
 - 9.6-g: conversion (trunc_sat/convert/narrow/extend).
 
 Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
 212/0/20, wast 1158/0/0.
 
-**§9.6/9.6-d NEXT** — int per-lane compare ops. Wasm catalogue
-per shape: eq, ne, lt_s, lt_u, gt_s, gt_u, le_s, le_u, ge_s, ge_u
-(10 ops × 4 int shapes = 40 ops, but i64x2 lacks unsigned
-variants in Wasm 1.0). Maps to NEON:
-- eq → CMEQ (vector form)
-- ne → CMEQ + NOT (or CMTST inverted)
-- lt_s/gt_s → CMLT/CMGT (signed)
-- lt_u/gt_u → CMHI/CMHS (unsigned)
-- le_s/ge_s → CMLE/CMGE (signed)
-- le_u/ge_u → swap operands + CMHS/CMHI
+**§9.6/9.6-e NEXT** — FP per-lane compare ops (f32x4/f64x2 ×
+eq/ne/lt/gt/le/ge = 12 ops). Maps to NEON:
+- eq → FCMEQ
+- ne → FCMEQ + NOT V16B (synthesis, reuse `emitV128Ne` from 9.6-d)
+- gt → FCMGT (already added in 9.6-c-ii for pmin/pmax)
+- ge → FCMGE
+- lt/le → swap operands + FCMGT/FCMGE (reuse
+  `emitV128BinopSwapped`)
 
-Per LOOP.md chunk-granularity bundle: same encoder family (NEON
-"compare" three-same) + same handler shape (emitV128Binop) →
-likely one chunk for ~32 ops if total LOC stays under 400. Step 0
-survey: confirm encoding bases + per-shape size discriminator.
+Encoders to add: encFCmEq4S/2D + encFCmGe4S/2D = 4 new encoders.
+FCMGT already exists from 9.6-c-ii. Estimated ~80 src + ~40 tests
+since most plumbing reuses 9.6-d helpers.
 
 After 8b.4: 8b.5 (boundary audit_scaffolding) + 8b.6 (open
 §9.9 inline + flip Phase Status).
