@@ -649,3 +649,24 @@ pub fn emitF64x2Trunc(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 pub fn emitF64x2Nearest(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try emitV128Unop(ctx, inst_neon.encFRintN2D);
 }
+
+// ============================================================
+// §9.6 / 9.6-c-i — f32x4 / f64x2 min / max (NaN-propagating)
+// ============================================================
+//
+// Wasm spec (SIMD) — IEEE-754-2008 min/max with NaN propagation.
+// NEON FMAX/FMIN match exactly. `pmin`/`pmax` (pseudo-min/max
+// with zero-on-equal-magnitude semantics) defer to 9.6-c-ii.
+
+pub fn emitF32x4Min(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFMin4S);
+}
+pub fn emitF32x4Max(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFMax4S);
+}
+pub fn emitF64x2Min(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFMin2D);
+}
+pub fn emitF64x2Max(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFMax2D);
+}

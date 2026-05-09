@@ -1222,6 +1222,11 @@ pub fn compile(
             .@"f64x2.floor" => try op_simd.emitF64x2Floor(&ctx, &ins),
             .@"f64x2.trunc" => try op_simd.emitF64x2Trunc(&ctx, &ins),
             .@"f64x2.nearest" => try op_simd.emitF64x2Nearest(&ctx, &ins),
+            // §9.6/9.6-c-i — f32x4/f64x2 min/max (NaN-propagating).
+            .@"f32x4.min" => try op_simd.emitF32x4Min(&ctx, &ins),
+            .@"f32x4.max" => try op_simd.emitF32x4Max(&ctx, &ins),
+            .@"f64x2.min" => try op_simd.emitF64x2Min(&ctx, &ins),
+            .@"f64x2.max" => try op_simd.emitF64x2Max(&ctx, &ins),
 
             else => {
                 // §9.7 / 7.5-diag-op: surface the unhandled op

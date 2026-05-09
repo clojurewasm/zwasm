@@ -516,6 +516,32 @@ pub fn encFRintZ2D(rd: Vn, rn: Vn) u32 {
     return 0x4EE19800 | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+// ---------------------------------------------------------------------
+// §9.6 / 9.6-c-i — FMIN / FMAX (vector form, IEEE-754 NaN-propagating)
+// ---------------------------------------------------------------------
+// Wasm spec (SIMD) — `f32x4.{min,max}` and `f64x2.{min,max}`.
+// IEEE-754-2008 min/max: NaN-propagating (any NaN input → NaN result).
+// Maps directly to NEON FMIN/FMAX vector form:
+//   FMAX: `0 Q 0 01110 0 sz 1 Rm 11110 1 Rn Rd` (bit 23 = 0)
+//   FMIN: `0 Q 0 01110 1 sz 1 Rm 11110 1 Rn Rd` (bit 23 = 1)
+// Per Arm IHI 0055 §C7.2.121 (FMAX) / §C7.2.125 (FMIN).
+//
+// `pmin` / `pmax` (pseudo-min/max) defer to 9.6-c-ii — synthesised
+// via FCMGT + BSL since NEON has no direct pseudo-min instruction.
+
+pub fn encFMax4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4E20F400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFMax2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4E60F400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFMin4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4EA0F400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFMin2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4EE0F400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 // =====================================================================
 // Tests
 // =====================================================================
@@ -969,4 +995,27 @@ test "FP unary 7 ops × 2 shapes: all distinct at identical operands" {
     for (v0_v0_words, 0..) |a, i| {
         for (v0_v0_words[i + 1 ..]) |b| try testing.expect(a != b);
     }
+}
+
+// ============================================================
+// §9.6 / 9.6-c-i — FMAX / FMIN (vector, NaN-propagating)
+// ============================================================
+
+test "encFMax4S: V0, V1, V2 (f32x4.max base)" {
+    // 0x4E20F400 | (2 << 16) | (1 << 5) | 0 = 0x4E22F420
+    try testing.expectEqual(@as(u32, 0x4E22F420), encFMax4S(0, 1, 2));
+}
+
+test "encFMax2D: V31, V31, V31 (max indices)" {
+    // 0x4E60F400 | (31 << 16) | (31 << 5) | 31 = 0x4E7FF7FF
+    try testing.expectEqual(@as(u32, 0x4E7FF7FF), encFMax2D(31, 31, 31));
+}
+
+test "encFMin vs encFMax: bit 23 differs" {
+    // FMIN bit 23 = 1, FMAX bit 23 = 0 → XOR = 0x800000.
+    try testing.expectEqual(@as(u32, 0x800000), encFMin4S(0, 1, 2) ^ encFMax4S(0, 1, 2));
+}
+
+test "encFMin2D vs encFMin4S: sz field differs (bit 22)" {
+    try testing.expectEqual(@as(u32, 0x400000), encFMin2D(0, 1, 2) ^ encFMin4S(0, 1, 2));
 }
