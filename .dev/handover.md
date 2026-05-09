@@ -13,53 +13,51 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..k [x]); **9.7-l NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..l [x]); **9.7-m NEXT**
 
-9.7-k landed at 22d62cfd: int compare eq/ne family (8 ops, all
-4 widths). Adds encPcmpeqB/W/D (SSE2) + encPcmpeqQ (SSE4.1).
-eq handlers reuse 9.7-b's emitV128IntBinop unchanged. ne handler
-applies NOT-via-PXOR-with-all-ones (PCMPEQB scratch, scratch on
-XMM14). Total SIMD ops handled: 38.
+9.7-l landed at ea3bcedb: signed lt/gt/le/ge for 8/16/32-bit
+shapes (12 ops). New encoders encPcmpgtB/W/D (SSE2) + new
+parametric helper `emitV128IntCmpSigned(encoder_gt, kind)`
+covering all 4 variants via operand swap (lt/ge) + PXOR-with-
+all-ones NOT (le/ge). Same commit also splits op_simd.zig
+(2064 LOC, broke §A2 hard cap) into op_simd.zig (1156 source)
++ op_simd_test.zig (923 tests) per emit.zig D-030 mirror.
+Total SIMD ops handled: 50.
 
-Three-host gate at 22d62cfd: Mac unit 1408/0/12 + gates ✓;
-OrbStack at known D-054 baseline (211/1/20 + 1392/1420);
+Three-host gate at ea3bcedb: Mac unit 1414/0/12 + gates ✓;
+OrbStack at known D-054 baseline (211/1/20 + 1398/1426);
 windowsmini full green (212/0/20 + every runner green).
 
-**9.7-l NEXT** — int compare signed lt/gt/le/ge family. Wasm ops:
-- i8x16/i16x8/i32x4 lt_s/gt_s/le_s/ge_s = 12 ops.
-- i64x2 lt_s/gt_s/le_s/ge_s = 4 ops (no _u for i64x2).
+**9.7-m NEXT** — i64x2 signed compares + the SSE4.2 vs synthesis
+decision. Two options for i64x2.gt_s (which spec mandates):
+- **(A) Amend ADR-0041 to SSE4.2 baseline.** PCMPGTQ direct
+  (1 instr). Hardware support: ~100% on x86_64 from 2008
+  Nehalem onward; pre-Nehalem Core 2 / Atom Bonnell are the
+  exclusion. Cleaner code; narrower target.
+- **(B) Synthesise PCMPGTQ from SSE4.1 primitives.** Cranelift
+  recipe: ~5 instructions via PCMPGTD on the high+low dword
+  halves + AND/OR combine. Preserves baseline; more code.
 
-Native SSE encoders:
-- PCMPGTB/W/D (SSE2): signed greater-than (a > b → all-ones lane).
-- PCMPGTQ (SSE4.2 — **beyond ADR-0041 baseline**!): i64x2.gt_s.
+Step 0 should: walk cranelift's exact synthesis recipe for
+i64x2.gt_s in `~/Documents/OSS/wasmtime/cranelift/codegen/src/
+isa/x64/...`; verify Steam Hardware Survey / Wasm ecosystem
+SSE4.2 adoption; recommend (A) or (B) with ADR if (A).
 
-Strategy:
-- gt_s: direct PCMPGT_<shape>(dst, lhs, rhs).
-- lt_s: PCMPGT with operands swapped → MOVAPS dst, rhs; PCMPGT
-  dst, lhs.
-- le_s: NOT(gt_s) — PCMPGT then PXOR with all-ones.
-- ge_s: NOT(lt_s).
+Pick depends on philosophy: zwasm v2's stated principles favor
+(A) (P3 cold-start: 1 instr beats 5; ROADMAP §A12: simplicity).
+But ADR-0041 §5 explicitly mandates SSE4.1 — amending requires
+deliberate ADR work. Either is defensible.
 
-i64x2.gt_s blocker: SSE4.2 PCMPGTQ exceeds ADR-0041 §"5. SSE4.1
-minimum baseline". Cranelift's SSE4.1 fallback uses a 5-instr
-synthesis: PCMPGTD + PSHUFD + PSUBQ + AND tricks (or simpler
-emulated via 2× PCMPGTD half-comparisons combined with PCMPEQD).
+Other 9.7-m candidate scope: unsigned compares (ult/ugt/ule/uge,
+12 ops for 8/16/32-bit + 0 for i64x2). Cranelift synth: PXOR
+with sign-mask 0x80...80 to bias both operands, then signed
+PCMPGT. Or PMINU/PMAXU + PCMPEQ for some shapes. Also probably
+~150-200 LOC; could bundle if 9.7-m's i64x2 work stays small.
 
-Decision needed: relax baseline to SSE4.2 (ADR-0041 amend), OR
-implement i64x2.gt_s synthesis. Survey for 9.7-l should:
-1. Check Steam Hardware Survey / cranelift's MIN_X86_64_FEATURES
-   for SSE4.2's adoption rate (essentially 100% on 2008+ CPUs;
-   Atom Bonnell/Pineview pre-2010 lacks it).
-2. Document the cranelift i64x2.gt_s synthesis recipe.
-3. Pick: amend ADR-0041 to SSE4.2 baseline (1-line decision —
-   cleaner code, narrower hardware support) vs synthesise
-   (preserves baseline, ~5 instr per i64x2 cmp).
-
-Subsequent chunks: 9.7-m (unsigned compares ult/ugt/ule/uge —
-synth via PXOR-with-sign-mask + PCMPGT_signed; or via PMINU /
-PMAXU + PCMPEQ), 9.7-n+ (FP compare CMPPS/PD), 9.7-o+ (FP arith),
-9.7-p+ (bitwise ops + select), 9.7-q+ (conversion + narrow/extend
-+ shuffle PSHUFB), 9.7-r (v128.const via ADR-0042 const-pool).
+Subsequent: 9.7-n+ (FP compare CMPPS/PD), 9.7-o+ (FP arith),
+9.7-p+ (bitwise ops + select), 9.7-q+ (conversion +
+narrow/extend + shuffle PSHUFB), 9.7-r (v128.const via ADR-0042
+const-pool).
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
