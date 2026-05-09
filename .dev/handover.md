@@ -16,31 +16,30 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..ao landed); **9.7-ap NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..ap landed); **9.7-aq NEXT**
 
-9.7-ao: x86_64 f64x2.convert_low_i32x4_u (1 op, 5-instr IEEE-754
-mantissa-overlay recipe + 2 consts). Discharges one of 4 deferred
-9.7-ae u-variants. 1 new encoder encUnpcklps. Total SIMD ops
-handled: 184.
+9.7-ap: x86_64 i32x4.trunc_sat_f64x2_u_zero (1 op, 7-instr
+ROUNDPD+ADDPD-magic+SHUFPS-extract recipe + 2 consts; reuses
+9.7-ao's 2^52 magic via extra_consts dedup). 1 new encoder
+encShufps. Total SIMD ops handled: 185.
 
-**9.7-ap NEXT** — `i32x4.trunc_sat_f64x2_u_zero` (1 op). Same
-shape as 9.7-am's signed variant + 9.7-ao's mantissa-trick.
-Per cranelift `lower.isle:5069-5093`: 6-7 instr, 2 const entries
-(can SHARE 9.7-ao's UINT_MASK_HIGH = 2^52 magic via extra_consts
-dedup; needs 1 new const for UINT32_MAX_f64-broadcast). Recipe:
-MAXPD-zero (clamp negatives to 0; Wasm spec says NaN→0 too —
-need separate NaN mask), MINPD-with-UINT_MAX, the mantissa
-overlay trick (UNPCKLPS + SUBPD as in 9.7-ao), or alternative
-ROUNDPD-based path. Survey for the cleanest 6-instr variant.
+**9.7-aq NEXT** — `i32x4.extadd_pairwise_i16x8_u` (1 op, closes
+extadd_pairwise family). Per cranelift `lower.isle:4032-4071`:
+PMADDWD reads operands as signed i16, so for unsigned u16 lanes
+we need sign-flip pre-correction. Recipe: XOR src with 0x8000
+sign-flip mask (= u16 - 0x8000 → signed i16 in [-0x8000, 0x7FFF])
++ PMADDWD with all-1s (+1 per word) → produces (i16+i16) i32
+sums + correction-add (+ 2*0x8000 = 0x10000 per pair = 65536
+per i32) to recover the original u16+u16 sum. 4-5 instr + 2
+consts (sign-flip XOR + correction add). Survey for cleanest
+recipe shape.
 
-Subsequent: 9.7-aq (i32x4.extadd_pairwise_i16x8_u 1 op via
-const-pool sign-flip XOR + PMADDWD + correction add — closes
-the extadd_pairwise family), 9.7-ar (i8x16.shuffle — needs
-derived a-mask/b-mask plumbing extension; ADR-grade decision —
-either change lower contract or fork extra_consts to per-fixup
-derived consts), 9.7-as (i32x4.trunc_sat_f32x4_u — needs 3
-scratch xmms; ADR-grade scratch-budget extension). Phase 7
-close-out approaching: ~3-4 chunks until 7.13 hard gate.
+Subsequent: 9.7-ar (i8x16.shuffle — needs derived a-mask/b-mask
+plumbing extension; ADR-grade decision — either change lower
+contract or fork extra_consts to per-fixup derived consts),
+9.7-as (i32x4.trunc_sat_f32x4_u — needs 3 scratch xmms;
+ADR-grade scratch-budget extension). Phase 7 close-out
+approaching: ~2-3 chunks until 7.13 hard gate.
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -60,5 +59,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ao landed; 9.7-ap NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ap landed; 9.7-aq NEXT).
 **Branch**: `zwasm-from-scratch`。
