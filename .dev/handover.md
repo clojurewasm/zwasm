@@ -16,30 +16,32 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..al landed); **9.7-am NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..am landed); **9.7-an NEXT**
 
-9.7-al: x86_64 ADR-0042 const-pool port + v128.const (mirror of
-9.6-f-ii ARM64 work). New SimdConstFixup struct + post-emit pool
-append/patch loop + MOVUPS-RIP-rel encoder. Total SIMD ops
-handled: 180.
+9.7-am: x86_64 i32x4.trunc_sat_f64x2_s_zero (1 op, 6-instr
+recipe + 1 const). Added per-emit-pass extra_consts machinery
+to const-pool plumbing (shared static consts distinct from
+func.simd_consts per-instance literals). 1 new encoder
+encCvttpd2dq. Total SIMD ops handled: 181.
 
-**9.7-am NEXT** — i8x16.shuffle (1 op, leverages 9.7-al
-const-pool foundation). Recipe: load shuffle mask from
-const-pool via the new MOVUPS-RIP-rel placeholder, then PSHUFB
-(SSSE3) — but PSHUFB has different semantics from ARM64's TBL
-(no fallthrough zeroing on idx ≥ 16; PSHUFB zeros lanes only
-when bit 7 is set). Cranelift's recipe handles this via
-`PSHUFB(src1, mask) | PSHUFB(src2, mask XOR 0x10)` for the
-2-register shuffle case. Survey to pin the exact recipe; ~6-8
-instr including const-pool load + the synthesis. ZirFunc.
-simd_consts entry for the shuffle mask is populated by lower.
+**9.7-an NEXT** — i32x4.trunc_sat_f64x2_u_zero (1 op). Same
+shape as 9.7-am with different magic constants per cranelift
+`lower.isle:5069-5093`: 6-instr recipe + 2 consts (UINT_MAX
+upper clamp + 0x1.0p+52 IEEE-754 mantissa-trick offset).
+Alternative path: ROUNDPD imm + MINPD-with-uint-max + the
+mantissa-trick. Recipe pre-condition: src must be ≥ 0 (lower
+the negatives to 0 first via MAXPD-zero). Bundle with: i8x16.
+popcnt (1 op via SSSE3 PSHUFB-LUT, 1 const) since both use
+the new extra_consts machinery and have similar shape.
+Possibly also bundle f64x2.convert_low_i32x4_u (1 op, 2 consts)
+which uses the same 0x1.0p+52 mantissa magic.
 
-Subsequent: 9.7-an (i8x16.popcnt with const-pool — 7-instr
-SSSE3 PSHUFB-LUT recipe, 1 const), 9.7-ao (4 deferred 9.7-ae
-u-variants — f64x2.convert_low_i32x4_u + 3 trunc_sat u-
-variants, all using const-pool float magic numbers), 9.7-ap
-(i32x4.extadd_pairwise_i16x8_u + miscellaneous remaining
-const-pool ops). Phase 7 close-out approaching.
+Subsequent: 9.7-ao (i8x16.shuffle — needs derived a-mask/b-mask
+plumbing extension), 9.7-ap (i32x4.trunc_sat_f32x4_u — needs
+3 scratch xmms; survey for fork to "load const into vreg-pool
+via spill" or accept ADR-grade scratch budget extension),
+9.7-aq (remaining misc + i32x4.extadd_pairwise_i16x8_u). Phase
+7 close-out approaching.
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -59,5 +61,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..al landed; 9.7-am NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..am landed; 9.7-an NEXT).
 **Branch**: `zwasm-from-scratch`。
