@@ -1167,6 +1167,8 @@ pub fn compile(
             .@"v128.store" => try op_simd.emitV128Store(&ctx, &ins),
             .@"i32x4.splat" => try op_simd.emitI32x4Splat(&ctx, &ins),
             .@"i32x4.add" => try op_simd.emitI32x4Add(&ctx, &ins),
+            .@"i32x4.extract_lane" => try op_simd.emitI32x4ExtractLane(&ctx, &ins),
+            .@"i32x4.replace_lane" => try op_simd.emitI32x4ReplaceLane(&ctx, &ins),
 
             else => {
                 // §9.7 / 7.5-diag-op: surface the unhandled op

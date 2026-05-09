@@ -139,6 +139,40 @@ pub fn encAdd4S(rd: Vn, rn: Vn, rm: Vn) u32 {
 }
 
 // =====================================================================
+// Lane access (extract / replace)
+// =====================================================================
+
+/// `UMOV W<rd>, V<n>.S[lane]` — copy 32-bit lane from V<n>.4S
+/// into W<rd> (zero-extended). Used by `i32x4.extract_lane`.
+/// `lane` ∈ 0..3.
+///
+/// Encoding (SIMD UMOV, S element form, Q=0):
+///   `0 0 0 01110 000 [imm5:5] 0 0111 1 [Rn:5] [Rd:5]`
+///   imm5 = (lane << 3) | 0b00100 (S-element discriminator).
+///   Base = `0x0E003C00`.
+///
+/// Per Arm IHI 0055 §C7.2.371. The S form is the 32-bit lane
+/// view; UMOV (B/H) and SMOV (B/H/S signed-extending) variants
+/// land in 9.6 alongside i8x16 / i16x8 lane handlers.
+pub fn encUmovWFromS(rd: Xn, rn: Vn, lane: u2) u32 {
+    const imm5: u32 = (@as(u32, lane) << 3) | 0b00100;
+    return 0x0E003C00 | (imm5 << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `INS V<d>.S[lane], W<n>` — insert 32-bit GPR W<n> into V<d>.
+/// 4S lane. Used by `i32x4.replace_lane`. `lane` ∈ 0..3.
+///
+/// Encoding (SIMD INS general from GPR, S element form):
+///   `0 1 0 01110 000 [imm5:5] 0 0011 1 [Rn:5] [Rd:5]`
+///   imm5 same as UMOV S form. Base = `0x4E001C00`.
+///
+/// Per Arm IHI 0055 §C7.2.155.
+pub fn encInsSFromW(rd: Vn, rn: Xn, lane: u2) u32 {
+    const imm5: u32 = (@as(u32, lane) << 3) | 0b00100;
+    return 0x4E001C00 | (imm5 << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+// =====================================================================
 // Tests
 // =====================================================================
 
@@ -220,4 +254,41 @@ test "encAdd4S vs encOrrV16B: distinct opcodes (4S add ≠ 16B or)" {
 test "encLdrQImm vs encStrQImm: distinct opcode bits" {
     // Sanity: load and store at same operands differ.
     try testing.expect(encLdrQImm(0, 1, 0) != encStrQImm(0, 1, 0));
+}
+
+// ============================================================
+// §9.9 / 9.5-c-iii — Lane access encoder tests (UMOV / INS)
+// ============================================================
+
+test "encUmovWFromS: lane 0 (W0 ← V0.S[0])" {
+    // imm5 = (0 << 3) | 0b00100 = 4 → 0x040000.
+    // 0x0E003C00 | 0x40000 | 0 = 0x0E043C00
+    try testing.expectEqual(@as(u32, 0x0E043C00), encUmovWFromS(0, 0, 0));
+}
+
+test "encUmovWFromS: lane 3 (W0 ← V0.S[3])" {
+    // imm5 = (3 << 3) | 4 = 0b11100 = 0x1C → 0x1C0000.
+    // 0x0E003C00 | 0x1C0000 = 0x0E1C3C00
+    try testing.expectEqual(@as(u32, 0x0E1C3C00), encUmovWFromS(0, 0, 3));
+}
+
+test "encUmovWFromS: max regs + max lane (W31 ← V31.S[3])" {
+    // 0x0E1C3C00 | (31 << 5) | 31 = 0x0E1C3FFF
+    try testing.expectEqual(@as(u32, 0x0E1C3FFF), encUmovWFromS(31, 31, 3));
+}
+
+test "encInsSFromW: lane 0 (V0.S[0] ← W0)" {
+    // imm5 = 4 → 0x40000. Base 0x4E001C00 | 0x40000 = 0x4E041C00.
+    try testing.expectEqual(@as(u32, 0x4E041C00), encInsSFromW(0, 0, 0));
+}
+
+test "encInsSFromW: lane 2 (V0.S[2] ← W1)" {
+    // imm5 = (2 << 3) | 4 = 0b10100 = 0x14 → 0x140000.
+    // 0x4E001C00 | 0x140000 | (1 << 5) | 0 = 0x4E141C20
+    try testing.expectEqual(@as(u32, 0x4E141C20), encInsSFromW(0, 1, 2));
+}
+
+test "encInsSFromW: max regs + max lane (V31.S[3] ← W31)" {
+    // 0x4E1C1C00 | (31 << 5) | 31 = 0x4E1C1FFF
+    try testing.expectEqual(@as(u32, 0x4E1C1FFF), encInsSFromW(31, 31, 3));
 }

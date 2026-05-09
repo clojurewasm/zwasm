@@ -145,3 +145,53 @@ pub fn emitI32x4Add(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
+
+/// `i32x4.extract_lane`: pop v128 (Vn.4S), push i32 result (Wd).
+/// `UMOV W<wd>, V<vn>.S[lane]` extracts the 32-bit lane (zero-
+/// extended into Wd). Lane immediate is in `ins.payload`
+/// (per `lower.emitLaneByte`'s 1-byte encoding from §9.4).
+pub fn emitI32x4ExtractLane(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    const src_vreg = ctx.pushed_vregs.pop().?;
+    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    // SPILL-EXEMPT: i32 result (GPR); spill-aware path is its own follow-on alongside other GPR sites.
+    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+
+    const lane: u2 = @intCast(ins.payload & 3);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encUmovWFromS(result_w, src_v, lane));
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+/// `i32x4.replace_lane`: pop scalar i32 (Wn), pop v128 (Vd.4S),
+/// push v128 result (Vd' = Vd with lane[ins.payload] replaced).
+/// `INS V<vd>.S[lane], W<wn>`. Note: INS modifies the destination
+/// in place; for our pipeline (where the result is a fresh vreg
+/// distinct from the input v128 vreg), the handler first MOVs
+/// the input v128 into the result V-reg, then INS the lane.
+/// When the input v128 is the same V-reg as the result (slot
+/// reuse), the MOV is a no-op (encMovV16B Vd, Vd is harmless).
+pub fn emitI32x4ReplaceLane(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    const new_lane_vreg = ctx.pushed_vregs.pop().?;
+    // SPILL-EXEMPT: i32 new-lane scalar (GPR); spill-aware path is its own follow-on.
+    const new_lane_w = try gpr.resolveGpr(ctx.alloc, new_lane_vreg);
+
+    const src_vreg = ctx.pushed_vregs.pop().?;
+    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 1);
+
+    // Copy source v128 to result reg (skip if same V-reg).
+    if (src_v != result_v) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(result_v, src_v));
+    }
+    const lane: u2 = @intCast(ins.payload & 3);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encInsSFromW(result_v, new_lane_w, lane));
+    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 1);
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}

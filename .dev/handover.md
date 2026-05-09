@@ -13,43 +13,36 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.9/9.5-c-ii [x] (op_simd spill-aware); **§9.9/9.5-c-iii NEXT**
+## Current state — Phase 9 / §9.9/9.5-c-iii [x] (lane access); **§9.9/9.5-c-iv NEXT**
 
-§9.9/9.5-c-ii refactors op_simd.zig handlers to use the
-9.5-c-i q* helpers — lifts the v128 SPILL-EXEMPT degradation.
-- emitV128Load: result via qDefSpilled + qStoreSpilled.
-- emitV128Store: value via qLoadSpilled.
-- emitI32x4Splat: result via qDefSpilled + qStoreSpilled.
-- emitI32x4Add: lhs/rhs via qLoadSpilled (stage_idx 0/1);
-  result via qDefSpilled (stage_idx 0 — reuses lhs stage
-  since lhs is consumed by the binop) + qStoreSpilled.
-
-Remaining SPILL-EXEMPT markers are i32-addr GPR sites
-pending a separate GPR-spill-aware refactor (orthogonal to
-the v128 work). Caller responsibility: v128 spill slots
-must land at even-pair slot_ids for 16-byte alignment
-(8-byte stride formula → only slots 14/16/18/... yield
-16-byte-aligned offsets); spill-frame layout discipline
-deferred to a later chunk.
+§9.9/9.5-c-iii lands i32x4.extract_lane + i32x4.replace_lane:
+- inst_neon.zig: `encUmovWFromS(rd, rn, lane)` (UMOV W ←
+  V.S[lane], lane ∈ 0..3) + `encInsSFromW(rd, rn, lane)`
+  (INS V.S[lane] ← W). Each with Arm IHI 0055 §C7 citation.
+- op_simd.zig: `emitI32x4ExtractLane` (pop v128 → push i32 via
+  UMOV) + `emitI32x4ReplaceLane` (pop i32 + v128 → push v128
+  via MOV-then-INS, with same-V-reg MOV elision when src ==
+  result_v).
+- emit.zig: 2 dispatch arms.
 
 Per LOOP.md chunk granularity, 9.5 row split:
-- 9.5-a/b/c-i/c-ii [x]: encoder foundation + shape-tag
+- 9.5-a/b/c-i/c-ii/c-iii [x]: encoder foundation + shape-tag
   pipeline + per-op handlers + Q-form spill helpers + op_simd
-  refactor to use them.
-- 9.5-c-iii NEXT: extract/replace_lane handlers + remaining
-  int-arith shapes (i8x16/i16x8/i64x2 add/sub/mul) + integration
-  byte-sequence tests verifying MOVZ + DUP.4S + ADD.4S
-  end-to-end pipeline.
+  spill-aware refactor + lane access ops.
+- 9.5-c-iv NEXT: remaining int-arith op shapes (i8x16/i16x8/
+  i64x2 add/sub/mul NEON encoders + handlers).
 
 Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓, test
-1205/0/12 (preserved).
+1211/0/12 (was 1205; +6 lane encoder tests).
 
-**§9.9/9.5-c-iii NEXT** — extract/replace_lane handlers
-(i32x4.extract_lane via UMOV / replace_lane via INS) +
-remaining int-arith op shapes (i8x16/i16x8/i64x2 add/sub/mul
-NEON encoders + handlers) + integration byte-sequence tests.
+**§9.9/9.5-c-iv NEXT** — i8x16/i16x8/i64x2 add/sub/mul
+encoders (ADD/SUB/MUL Vd.<shape>, Vn.<shape>, Vm.<shape>;
+the size field selects the lane shape) + handlers in
+op_simd.zig + dispatch arms in arm64/emit.zig. Mostly
+mechanical bundling per chunk granularity (same encoder
+family, same handler shape, only `op` field differs).
 
-## Active task — §9.9/9.5-c-iii: extract/replace_lane + int-arith shapes **NEXT**
+## Active task — §9.9/9.5-c-iv: i8x16/i16x8/i64x2 add/sub/mul **NEXT**
 
 Per ADR-0041 + 9.5-a's encoder foundation. Wires the NEON
 encoders into the ZirOp dispatch path in
