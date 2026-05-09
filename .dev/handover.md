@@ -13,41 +13,50 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.6/9.6-g-v [x] (trunc_sat × 4); §9.6/9.6-f-ii deferred (D-056); **v1-audit fire NEXT**
+## Current state — Phase 9 / §9.6/9.6-g-v [x]; v1-audit done; ADR-0042 filed; D-056 unblocked; **§9.6/9.6-f-ii NEXT**
 
-§9.6/9.6-g-v adds 6 encoders (FCVTZS/U .4S/.2D + SQXTN/UQXTN .2S)
-+ 4 handlers via existing helpers + new emitV128TruncSatF64Zero.
-NEON NaN→0 + saturation default match Wasm spec exactly — no
-NaN-mask synthesis needed. Cranelift cross-checks verified all
-encoder bases.
+v1-audit fired 2026-05-09 (3-parallel Explore fan-out, transcripts
+at private/notes/p7-v1-audit.md / p8-v1-audit.md / p9.5-9.6-simd-
+audit.md):
+- **Phase 7 x86_64**: clean. v1 lessons already absorbed
+  (ADR-0026 reserved_invariant_gprs, D-049 sentinel typeidx,
+  gpr.rbpDispNegI32 helper). No fixes needed.
+- **Phase 8 regalloc/hoist**: clean. v2 design addresses every
+  W54-class implicit contract sprawl by construction (liveness
+  const input, no IR mutation, class slots in type system).
+- **§9.5-9.6 SIMD vs cranelift**: 1 ADR-grade decision (const-pool
+  for D-056) → **ADR-0042 filed** (hybrid post-emit fixup
+  approach) — D-056 barrier dissolved, status: now.
 
-§9.6 sub-row state: ALL implementable sub-rows complete:
-- 9.6-a/b/c-i/c-ii/d/e/f-i/g-i/g-ii/g-iii/g-iv/g-v [x]
-- 9.6-f-ii (shuffle + v128.const) deferred via D-056 pending
-  const-pool ADR — last open sub-row of §9.6.
+Future-Phase-15 noted as low-priority refactors (not debt — no
+blocker): consolidate ~115 inst_neon.zig encoders into ~40
+parameterised helpers (~400 LOC reduction); add comptime
+shape_tag walker completeness verifier.
 
-Per the handover queue, the v1-audit fires at §9.6 close (= now).
-The audit may surface a const-pool pattern that informs 9.6-f-ii's
-discharge.
+§9.6 state: 12 sub-rows [x]; 9.6-f-ii now unblocked.
 
-Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
-212/0/20, wast 1158/0/0.
+Mac gates at last source commit: zone ✓, file_size ✓, spill ✓,
+lint ✓; spec 212/0/20, wast 1158/0/0.
 
-**v1-audit NEXT** — broad pre-9.7 audit. Scope per earlier
-queued plan:
-- v1's `src/jit_x86/`, `src/jit_arm64/`, `src/regalloc/`,
-  `src/liveness/`, `src/hoist/`, plus wasmtime/cranelift, zware,
-  wasm3 for SIMD-128 (v1 has none).
-- Compare to v2's full Phase 7 + Phase 8 + §9.5/§9.6 surface.
-- Triage: aggressive cleanup (mechanical → inline; structural →
-  ADR; blocked → debt).
-- Output: `private/notes/p7-9.6-v1-audit.md` (gitignored).
-- Exit signal: `v1-audit done at <SHA>` line in handover.
+**§9.6/9.6-f-ii NEXT** — i8x16.shuffle + v128.const codegen
+bundle per ADR-0042. Implementation chunk per ADR §"chunk plan":
+1. Add `simd_consts: ?[]const [16]u8` to ZirFunc + lifetime
+   discipline.
+2. Update lower.zig cases 12/13 to populate Lowerer.simd_consts +
+   payload-as-index.
+3. Add inst_neon encLdrLiteralQ encoder.
+4. Add op_simd handlers `emitV128Const` + `emitI8x16Shuffle`
+   (latter uses V30/V31 copy-to-pair preamble per audit
+   recommendation).
+5. Add fixup machinery to per-arch emit close (per-function pool
+   flush + LDR-literal imm19 patch).
+6. Wire dispatch + walker.
+7. Discharge D-056 in this chunk's commit body.
 
-Likely fan-out shape: 1 Explore subagent per area (Phase 7
-x86_64 / Phase 8 regalloc-hoist / §9.5-9.6 SIMD vs cranelift), 3
-parallel + consolidation pass. Estimated ~30-60 min of subagent
-work; findings drive subsequent commits before §9.6 close.
+After 9.6-f-ii: §9.6 fully closes (all sub-rows [x]); §9.6
+parent flips [x]; advance to §9.7 (x86_64 SSE4.1 SIMD emit).
+
+v1-audit done at <SHA-PENDING-COMMIT>.
 
 **At §9.6 close (queued)** — fire a broad pre-9.7 v1+OSS audit
 before flipping §9.6 to `[x]`:
