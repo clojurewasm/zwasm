@@ -2930,3 +2930,81 @@ pub fn emitI16x8Q15mulrSatS(allocator: Allocator, buf: *std.ArrayList(u8), alloc
 pub fn emitI32x4DotI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
     return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmaddwd);
 }
+
+/// Wasm spec §4.4.4 (i16x8.extmul_low_i8x16_{s,u}) — extend low 8
+/// i8 lanes of each operand to i16 then multiply pairwise. 3-instr
+/// recipe per cranelift `lower.isle:1197-1285`: PMOVSX/ZX BW on
+/// each operand into XMM14 + dst, then PMULLW.
+fn emitV128IntExtmulLow(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    encoder_extend: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+    encoder_mul: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const lhs_x = try gpr.resolveXmm(alloc, lhs_v);
+    const rhs_x = try gpr.resolveXmm(alloc, rhs_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const tmp = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    try buf.appendSlice(allocator, encoder_extend(tmp, lhs_x).slice());
+    try buf.appendSlice(allocator, encoder_extend(dst_x, rhs_x).slice());
+    try buf.appendSlice(allocator, encoder_mul(dst_x, tmp).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.4 (i16x8.extmul_high_i8x16_{s,u}) — like extmul_low
+/// but operates on the HIGH half of each i8x16. 5-instr recipe:
+/// PSHUFD imm=0xEE on each operand to swap high→low into scratches,
+/// then PMOVSX/ZX BW + PMULLW.
+fn emitV128IntExtmulHigh(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    encoder_extend: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+    encoder_mul: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const lhs_x = try gpr.resolveXmm(alloc, lhs_v);
+    const rhs_x = try gpr.resolveXmm(alloc, rhs_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const t1 = abi.fp_spill_stage_xmms[0]; // XMM14
+    const t2 = abi.fp_spill_stage_xmms[1]; // XMM15
+
+    try buf.appendSlice(allocator, inst.encPshufd(t1, lhs_x, 0xEE).slice());
+    try buf.appendSlice(allocator, inst.encPshufd(t2, rhs_x, 0xEE).slice());
+    try buf.appendSlice(allocator, encoder_extend(t1, t1).slice());
+    try buf.appendSlice(allocator, encoder_extend(dst_x, t2).slice());
+    try buf.appendSlice(allocator, encoder_mul(dst_x, t1).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI16x8ExtmulLowI8x16S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntExtmulLow(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmovsxbw, inst.encPmullW);
+}
+pub fn emitI16x8ExtmulHighI8x16S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntExtmulHigh(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmovsxbw, inst.encPmullW);
+}
+pub fn emitI16x8ExtmulLowI8x16U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntExtmulLow(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmovzxbw, inst.encPmullW);
+}
+pub fn emitI16x8ExtmulHighI8x16U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntExtmulHigh(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmovzxbw, inst.encPmullW);
+}

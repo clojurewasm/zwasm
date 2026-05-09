@@ -1049,6 +1049,15 @@ pub fn compile(
             // accumulation matching the Wasm spec.
             .@"i16x8.q15mulr_sat_s" => try op_simd.emitI16x8Q15mulrSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i32x4.dot_i16x8_s" => try op_simd.emitI32x4DotI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-ag: i16x8.extmul × 4. Cranelift recipe
+            // `lower.isle:1197-1285` — PMOVSX/ZX BW each operand
+            // (extend i8→i16) + PMULLW. High variants prefix
+            // PSHUFD imm=0xEE to swap upper 64 bits down before
+            // extending. No new encoders.
+            .@"i16x8.extmul_low_i8x16_s" => try op_simd.emitI16x8ExtmulLowI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extmul_high_i8x16_s" => try op_simd.emitI16x8ExtmulHighI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extmul_low_i8x16_u" => try op_simd.emitI16x8ExtmulLowI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extmul_high_i8x16_u" => try op_simd.emitI16x8ExtmulHighI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.
