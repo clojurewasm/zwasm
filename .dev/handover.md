@@ -16,32 +16,31 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..an landed); **9.7-ao NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..ao landed); **9.7-ap NEXT**
 
-9.7-an: x86_64 i8x16.popcnt via SSSE3 PSHUFB-LUT (1 op, 11-instr
-recipe + 2 consts via extra_consts). Added reusable helpers
-`lookupOrAppendExtraConst` + `emitConstLoad` for future const-pool
-consumers. Total SIMD ops handled: 182.
+9.7-ao: x86_64 f64x2.convert_low_i32x4_u (1 op, 5-instr IEEE-754
+mantissa-overlay recipe + 2 consts). Discharges one of 4 deferred
+9.7-ae u-variants. 1 new encoder encUnpcklps. Total SIMD ops
+handled: 184.
 
-**9.7-ao NEXT** — bundle of remaining const-pool consumers using
-the new extra_consts machinery and shared helpers:
-- `i32x4.trunc_sat_f64x2_u_zero` (1 op, ~7 instr, 2 consts:
-  UINT_MAX_f64-broadcast + 0x1.0p+52 mantissa-trick)
-- `f64x2.convert_low_i32x4_u` (1 op, ~3 instr, 1-2 consts:
-  shared 0x1.0p+52 mantissa magic + sign-flip if needed)
-- `i32x4.extadd_pairwise_i16x8_u` (1 op, ~4 instr, 2 consts:
-  sign-flip XOR mask + correction add)
+**9.7-ap NEXT** — `i32x4.trunc_sat_f64x2_u_zero` (1 op). Same
+shape as 9.7-am's signed variant + 9.7-ao's mantissa-trick.
+Per cranelift `lower.isle:5069-5093`: 6-7 instr, 2 const entries
+(can SHARE 9.7-ao's UINT_MASK_HIGH = 2^52 magic via extra_consts
+dedup; needs 1 new const for UINT32_MAX_f64-broadcast). Recipe:
+MAXPD-zero (clamp negatives to 0; Wasm spec says NaN→0 too —
+need separate NaN mask), MINPD-with-UINT_MAX, the mantissa
+overlay trick (UNPCKLPS + SUBPD as in 9.7-ao), or alternative
+ROUNDPD-based path. Survey for the cleanest 6-instr variant.
 
-Same handler shape (single-input v128 → v128) and same
-const-pool dispatch infrastructure. Survey to confirm exact
-recipes from cranelift `lower.isle:5069-5093` (trunc_sat_u),
-`lower.isle:3775-3779` (convert_low_u), `lower.isle:4032-4071`
-(extadd_pairwise_u). Bundle 3 ops in one chunk.
-
-Subsequent: 9.7-ap (i8x16.shuffle — needs derived a-mask/b-mask
-plumbing extension; ADR-grade decision), 9.7-aq
-(i32x4.trunc_sat_f32x4_u — needs 3 scratch xmms; ADR-grade
-scratch-budget decision). Phase 7 close-out approaching.
+Subsequent: 9.7-aq (i32x4.extadd_pairwise_i16x8_u 1 op via
+const-pool sign-flip XOR + PMADDWD + correction add — closes
+the extadd_pairwise family), 9.7-ar (i8x16.shuffle — needs
+derived a-mask/b-mask plumbing extension; ADR-grade decision —
+either change lower contract or fork extra_consts to per-fixup
+derived consts), 9.7-as (i32x4.trunc_sat_f32x4_u — needs 3
+scratch xmms; ADR-grade scratch-budget extension). Phase 7
+close-out approaching: ~3-4 chunks until 7.13 hard gate.
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -61,5 +60,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..an landed; 9.7-ao NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ao landed; 9.7-ap NEXT).
 **Branch**: `zwasm-from-scratch`。
