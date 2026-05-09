@@ -168,6 +168,43 @@ the rule above — the tablebookcase is harmless (10 minutes for an
 Explore subagent) compared to a wrong-shape design landing without
 seeing how cranelift / zware handle the same op family.
 
+### Trap: v1 monolith files vs name-suggested split
+
+v1 zwasm uses a **monolith convention** for codegen: `jit.zig`
+(~8.7k LOC) and `x86.zig` (~7.5k LOC) carry scalar AND SIMD AND
+support code together. Topic-named files like `simd_arm64.zig` /
+`simd_x86.zig` may exist as **15-LOC aspirational stubs** marked
+`return false; // No opcodes implemented yet` — placeholders for
+future extraction, NOT signals that the feature is unimplemented.
+
+v2's split discipline (per-op-family files, §A2 hard-cap
+regulated) is the OPPOSITE convention; v2 file names DO reflect
+content. Do not transplant v2's expectation onto v1 reads.
+
+**Survey discipline for v1 reads**:
+
+1. Always grep the whole `~/Documents/MyProducts/zwasm/src/` tree
+   for op references / encoder fn names BEFORE concluding a
+   feature is unimplemented. Topic-named file LOC alone is not
+   sufficient evidence:
+   ```sh
+   grep -rE "(<op-keyword>|enc[A-Z]|emit[A-Z])" ~/Documents/MyProducts/zwasm/src/
+   wc -l ~/Documents/MyProducts/zwasm/src/{jit,x86}.zig
+   ```
+2. 15-LOC topic file with a "placeholder" comment ⇒ assume the
+   monolith holds the impl. Trust 1000+ LOC files to reflect
+   their boundary.
+3. Cross-check `testdata/conformance/` for fixtures and
+   `.dev/decisions.md` for strategy notes — e.g. v1 D122 names
+   the SIMD JIT strategy as "predecoded IR + deferred NEON",
+   which explicitly tells you SIMD impl exists somewhere even
+   if not in the topic-named file.
+
+Worked example: lesson `2026-05-09-v1-monolith-file-survey-miss.md`
+records a concrete misread of v1 SIMD as "zero implementation"
+that was corrected only when the user pushed back. Avoid
+replaying it.
+
 ### Mid-cycle correction
 
 If you discover mid-implementation that you skipped Step 0 when
