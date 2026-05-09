@@ -16,30 +16,35 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..s landed); **9.7-t NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..t landed); **9.7-u NEXT**
 
-9.7-s: x86_64 per-shape all_true + bitmask reductions (8 ops).
-4 new encoders (MOVMSKPS/MOVMSKPD/PMOVMSKB RM-form xmm→gpr;
-PACKSSWB). 4 all_true via 5-instr cranelift recipe (PXOR +
-PCMPEQ_<lane> + PTEST + SETZ + MOVZX); bitmask shapes —
-i8x16 PMOVMSKB direct, i32x4 MOVMSKPS direct, i64x2 MOVMSKPD
-direct, i16x8 PACKSSWB+PMOVMSKB+SHR. Total SIMD ops
-handled: 107.
+9.7-t: x86_64 packed shifts shl/shr_s/shr_u for i16x8 +
+i32x4 + i64x2 (8 ops). 8 new shift-reg encoders + helper
+`emitV128IntShift(encoder, mask_imm)`. AND mask + MOVD
+count→xmm + MOVAPS + <shift>. i8x16 + i64x2.shr_s deferred
+to 9.7-u (synthesis-only). Total SIMD ops handled: 115.
 
-**9.7-t NEXT** — i*x* shifts (shl / shr_s / shr_u for
-i8x16/i16x8/i32x4/i64x2 = 12 ops). SSE2 has packed shift-by-
-GPR/imm: PSLLW/D/Q + PSRLW/D/Q + PSRAW/D (no PSRAQ — SSE
-lacks signed 64-bit shift; needs synthesis per cranelift).
-i8x16 has no native packed byte shift; synthesis via word
-shifts + AND-mask. Likely 6 new encoders (PSLLW/D + PSRLW/D
-+ PSRAW/D variants on register; existing PSRLQ/PSLLQ-imm
-extend for register form) + per-shape helpers. ~250 src +
-~120 test. PSRAQ synthesis adds complexity; may split
-i64x2.shr_s into 9.7-u if recipe is too large.
+**9.7-u NEXT** — synthesis-only shifts (4 ops):
+i8x16.{shl, shr_s, shr_u} + i64x2.shr_s. Cranelift recipes:
 
-Subsequent: 9.7-u+ (conversion + narrow/extend + shuffle
-PSHUFB; abs/neg via const-pool sign mask), 9.7-v (v128.const
-via ADR-0042 const-pool finalisation).
+- i8x16.shl(v, c): PSLLW(v, c) + AND with shift-mask
+  constant (8 byte-positions per c value × 8 c values =
+  needs const-pool table OR runtime mask synthesis via
+  shift+broadcast). cranelift uses const-pool lookup.
+- i8x16.shr_u: PSRLW + AND with mask.
+- i8x16.shr_s: PSRLW + sign-bit duplication via XOR + SUB.
+- i64x2.shr_s: cranelift PSRLQ + sign-bit fixup via
+  PSRAD on doubled-broadcast OR per-lane synthesis using
+  PSRLQ + PXOR + PSUBQ with sign-bit mask.
+
+These recipes need const-pool plumbing (ADR-0042) for the
+mask constants. Likely needs 2-3 new encoders + 4 distinct
+synthesis helpers + const-pool entries. ~300 src + ~120 test.
+ADR optional — synthesis is cranelift-published.
+
+Subsequent: 9.7-v+ (conversion + narrow/extend + shuffle
+PSHUFB), 9.7-w (abs/neg via const-pool sign mask), 9.7-x
+(v128.const finalisation).
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -59,5 +64,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..s landed; 9.7-t NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..t landed; 9.7-u NEXT).
 **Branch**: `zwasm-from-scratch`。
