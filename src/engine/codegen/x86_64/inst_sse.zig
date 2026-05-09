@@ -1047,6 +1047,35 @@ pub fn encCmppd(dst: Xmm, src: Xmm, imm8: u8) EncodedInsn {
     return enc;
 }
 
+/// `PAND xmm, xmm` (66 [REX?] 0F DB /r) — SSE2 bitwise AND on
+/// 128-bit values. Wasm `v128.and`.
+pub fn encPand(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0xDB, dst, src);
+}
+
+/// `POR xmm, xmm` (66 [REX?] 0F EB /r) — SSE2 bitwise OR on
+/// 128-bit values. Wasm `v128.or`.
+pub fn encPor(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0xEB, dst, src);
+}
+
+/// `PANDN xmm, xmm` (66 [REX?] 0F DF /r) — SSE2 bitwise AND-NOT:
+/// `dst = ~dst & src`. Wasm `v128.andnot(a, b) = a & ~b` lowers
+/// via `MOVAPS scratch, b ; PANDN scratch, a ; MOVAPS dst,
+/// scratch` because PANDN's first operand is the NEGATED side.
+pub fn encPandn(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0xDF, dst, src);
+}
+
+/// `PTEST xmm, xmm` (66 [REX?] 0F 38 17 /r) — SSE4.1 bitwise test
+/// without writing the destination. Sets EFLAGS.ZF=1 if all bits
+/// of `dst & src` are zero else ZF=0; sets CF=1 if `~dst & src`
+/// is zero. Used by `v128.any_true`: PTEST xmm, xmm + SETNZ +
+/// MOVZX. Per Intel SDM Vol 2A "PTEST".
+pub fn encPtest(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinopExt(0x38, 0x17, dst, src);
+}
+
 /// `PMAXUB xmm, xmm` (66 [REX?] 0F DE /r) — SSE2 packed unsigned
 /// 8-bit max (16 lanes).
 pub fn encPmaxub(dst: Xmm, src: Xmm) EncodedInsn {
@@ -1217,6 +1246,21 @@ test "encPsrldImm: PSRLD xmm0, 10 — group /2, opcode=0x72 (D-form)" {
 test "encPsrldImm: PSRLD xmm15, 10 — REX.B (xmm15)" {
     // 66 41 0F 72 D7 0A — REX.B = 0x41; ModR/M = 11 010 111 = 0xD7.
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x41, 0x0F, 0x72, 0xD7, 0x0A }, encPsrldImm(.xmm15, 10).slice());
+}
+
+test "encPand / encPor / encPandn opcode bytes (xmm0, xmm1) — SSE2 with 66 prefix" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xDB, 0xC1 }, encPand(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xEB, 0xC1 }, encPor(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xDF, 0xC1 }, encPandn(.xmm0, .xmm1).slice());
+}
+
+test "encPtest opcode bytes (xmm0, xmm1) — SSE4.1 with 66 + 0x38 escape" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x38, 0x17, 0xC1 }, encPtest(.xmm0, .xmm1).slice());
+}
+
+test "encPand: REX.R+B (xmm9, xmm10)" {
+    // 66 45 0F DB CA — REX = 0x45; ModR/M = 11 001 010 = 0xCA.
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0xDB, 0xCA }, encPand(.xmm9, .xmm10).slice());
 }
 
 test "encMinps / encMaxps opcode bytes (xmm0, xmm1) — SSE no 66 prefix" {

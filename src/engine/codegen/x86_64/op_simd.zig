@@ -1036,6 +1036,162 @@ pub fn emitF64x2Max(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regall
     return emitV128FpMax(allocator, buf, alloc, pushed_vregs, next_vreg, encs);
 }
 
+/// Wasm spec §4.4.4 (v128.not) — pop one v128, push v128 with
+/// every bit inverted. SSE has no native NOT instruction;
+/// synthesise via `PCMPEQB scratch, scratch` (= all-ones) +
+/// `PXOR dst, scratch` (= ~src). 3-instruction emit including the
+/// MOVAPS preamble to copy src into dst.
+pub fn emitV128Not(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const ones = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    if (dst_x != src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPcmpeqB(ones, ones).slice());
+    try buf.appendSlice(allocator, inst.encPxor(dst_x, ones).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.4 (v128.and / v128.or / v128.xor) — pop two
+/// v128, push v128 with the corresponding bitwise op applied per
+/// 128-bit value. Reuses 9.7-b's `emitV128IntBinop` shape with the
+/// SSE2 packed-int encoders (PAND / POR / PXOR — int-domain XOR
+/// preferred over XORPS for bit-identical-but-domain-faster
+/// semantics on older microarchitectures).
+
+pub fn emitV128And(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPand);
+}
+
+pub fn emitV128Or(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPor);
+}
+
+pub fn emitV128Xor(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPxor);
+}
+
+/// Wasm spec §4.4.4 (v128.andnot) — `andnot(a, b) = a & ~b`. SSE
+/// `PANDN dst, src` computes `dst = ~dst & src`, so we MOVAPS
+/// rhs (=b) into dst then PANDN dst, lhs (=a) → dst = ~b & a =
+/// a & ~b. 2-instruction emit (or 1 if dst==rhs).
+pub fn emitV128Andnot(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const rhs_x = try gpr.resolveXmm(alloc, rhs_v);
+    const lhs_x = try gpr.resolveXmm(alloc, lhs_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+
+    if (dst_x != rhs_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, rhs_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPandn(dst_x, lhs_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.4 (v128.bitselect) — pop c, b, a (top-of-stack
+/// is c); push `(a & c) | (b & ~c)`. 5-instruction PAND/PANDN/POR
+/// recipe (cranelift uses PBLENDVB on AVX but the PAND chain is
+/// SSE2-baseline-clean and one fewer encoder dependency):
+///
+///   dst = MOVAPS(a)        (skip if dst==a)
+///   dst = PAND(dst, c)     ; dst = a & c
+///   scratch = MOVAPS(c)
+///   scratch = PANDN(scratch, b) ; scratch = ~c & b = b & ~c
+///   dst = POR(dst, scratch) ; dst = (a & c) | (b & ~c)
+///
+/// Wasm spec stack order: bottom→top: a, b, c. Pops in order: c
+/// first (top), then b, then a.
+pub fn emitV128Bitselect(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
+    const c_v = pushed_vregs.pop().?;
+    const b_v = pushed_vregs.pop().?;
+    const a_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const c_x = try gpr.resolveXmm(alloc, c_v);
+    const b_x = try gpr.resolveXmm(alloc, b_v);
+    const a_x = try gpr.resolveXmm(alloc, a_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    if (dst_x != a_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, a_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPand(dst_x, c_x).slice());
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(scratch_x, c_x).slice());
+    try buf.appendSlice(allocator, inst.encPandn(scratch_x, b_x).slice());
+    try buf.appendSlice(allocator, inst.encPor(dst_x, scratch_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.4 (v128.any_true) — pop v128, push i32 (1 if any
+/// bit of the v128 is non-zero else 0). Recipe (cranelift
+/// `lower.isle` `vany_true`):
+///
+///   PTEST xmm, xmm        ; sets EFLAGS.ZF=1 iff all bits zero
+///   SETNE dst.lo8         ; dst[0..8] = (ZF==0) ? 1 : 0
+///   MOVZX dst, dst.lo8    ; zero-extend to i32
+///
+/// PTEST is SSE4.1 (66 0F 38 17 /r). Per ADR-0041 §5 (post-9.7-m
+/// SSE4.2 baseline), SSE4.1 + SSE4.2 are both available.
+pub fn emitV128AnyTrue(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+
+    try buf.appendSlice(allocator, inst.encPtest(src_x, src_x).slice());
+    try buf.appendSlice(allocator, inst.encSetccR(.ne, dst_r).slice());
+    try buf.appendSlice(allocator, inst.encMovzxR32R8(dst_r, dst_r).slice());
+    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.4 (i*x*.eq variants) — pop two v128, push v128
 /// where each lane is all-ones if the inputs match else all-zero.
 /// Per-shape encoders (PCMPEQB / PCMPEQW / PCMPEQD / PCMPEQQ)

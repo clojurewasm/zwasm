@@ -396,6 +396,11 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
             .@"v128.load32_zero",
             .@"v128.load64_zero",
             .@"v128.not",
+            .@"v128.and",
+            .@"v128.or",
+            .@"v128.xor",
+            .@"v128.andnot",
+            .@"v128.bitselect",
             .@"i8x16.splat",
             .@"i16x8.splat",
             .@"i32x4.splat",
@@ -544,6 +549,7 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
             .@"i64x2.extract_lane",
             .@"f32x4.extract_lane",
             .@"f64x2.extract_lane",
+            .@"v128.any_true",
             => true,
             // All other ops: not handled by this MVP. Conservative
             // default — neither produces nor consumes from our

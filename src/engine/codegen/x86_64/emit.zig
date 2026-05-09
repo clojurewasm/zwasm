@@ -927,6 +927,18 @@ pub fn compile(
             .@"f32x4.max" => try op_simd.emitF32x4Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.min" => try op_simd.emitF64x2Min(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.max" => try op_simd.emitF64x2Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-r: v128 bitwise ops + v128.any_true (7 ops).
+            // PAND/POR/PXOR/PANDN (SSE2) for and/or/xor/andnot;
+            // 3-instr synthesis for not (PCMPEQB ones,ones + PXOR);
+            // 5-instr PAND/PANDN/POR chain for bitselect; PTEST +
+            // SETNE + MOVZX for any_true (SSE4.1 PTEST).
+            .@"v128.not" => try op_simd.emitV128Not(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"v128.and" => try op_simd.emitV128And(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"v128.or" => try op_simd.emitV128Or(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"v128.xor" => try op_simd.emitV128Xor(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"v128.andnot" => try op_simd.emitV128Andnot(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"v128.bitselect" => try op_simd.emitV128Bitselect(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"v128.any_true" => try op_simd.emitV128AnyTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at
