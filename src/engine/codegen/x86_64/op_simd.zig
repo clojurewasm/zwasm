@@ -1569,6 +1569,64 @@ pub fn emitI8x16ShrU(
 /// PSRAW preserves the sign bit invariant, and the resulting
 /// magnitude is bounded by the original i8 range). 11
 /// instructions; uses both XMM14 + XMM15 scratches.
+/// Wasm spec §4.4.5 (i8x16.swizzle) — pop idx (v128), pop v
+/// (v128), push v128 with `out[i] = (idx[i] < 16) ? v[idx[i]] :
+/// 0`. SSE PSHUFB has different semantics for ctrl bytes in
+/// 16..127 (it indexes into src instead of zeroing); cranelift's
+/// PADDUSB(0x70) saturating-fixup approach needs a const-pool
+/// constant. This handler synthesises the correction inline
+/// without const-pool by detecting `idx > 15` via PCMPGTB
+/// (signed compare) and OR-ing the high bit into the corrected
+/// ctrl. PSHUFB itself handles idx in 128..255 correctly (high
+/// bit of ctrl = zero output).
+///
+/// 10-instruction emit:
+///   PCMPEQB XMM14, XMM14            ; XMM14 = 0xFF per byte
+///   PSRLW XMM14, 12                  ; XMM14 = 0x000F per word
+///                                    ;   (low byte = 0x0F)
+///   PXOR XMM15, XMM15                ; XMM15 = zero ctrl
+///   PSHUFB XMM14, XMM15              ; XMM14 = 0x0F broadcast
+///   MOVAPS XMM15, idx                 ; preserve idx in scratch
+///   PCMPGTB XMM15, XMM14              ; XMM15 = (idx > 15) ? 0xFF : 0
+///   POR XMM15, idx                    ; XMM15 = idx | mask =
+///                                    ;   corrected ctrl (high bit
+///                                    ;   set for idx>15 → PSHUFB → 0)
+///   MOVAPS dst, v                     ; (skip-elide if dst==v)
+///   PSHUFB dst, XMM15                 ; dst = shuffle(v, corrected_idx)
+pub fn emitI8x16Swizzle(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const idx_v = pushed_vregs.pop().?;
+    const v_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const idx_x = try gpr.resolveXmm(alloc, idx_v);
+    const v_x = try gpr.resolveXmm(alloc, v_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const f_x = abi.fp_spill_stage_xmms[0]; // XMM14: 0x0F broadcast
+    const c_x = abi.fp_spill_stage_xmms[1]; // XMM15: corrected ctrl
+
+    try buf.appendSlice(allocator, inst.encPcmpeqB(f_x, f_x).slice());
+    try buf.appendSlice(allocator, inst.encPsrlwImm(f_x, 12).slice());
+    try buf.appendSlice(allocator, inst.encPxor(c_x, c_x).slice());
+    try buf.appendSlice(allocator, inst.encPshufb(f_x, c_x).slice()); // f_x = 0x0F broadcast
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(c_x, idx_x).slice());
+    try buf.appendSlice(allocator, inst.encPcmpgtB(c_x, f_x).slice());
+    try buf.appendSlice(allocator, inst.encPor(c_x, idx_x).slice());
+    if (dst_x != v_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, v_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPshufb(dst_x, c_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.4 (FP convert family — signed + promote/demote)
 /// — single-instr unaries via emitV128FpUnop:
 ///

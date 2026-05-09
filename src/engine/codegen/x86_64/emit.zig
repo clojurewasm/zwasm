@@ -1035,6 +1035,10 @@ pub fn compile(
             .@"f64x2.convert_low_i32x4_s" => try op_simd.emitF64x2ConvertLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.promote_low_f32x4" => try op_simd.emitF64x2PromoteLowF32x4(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f32x4.demote_f64x2_zero" => try op_simd.emitF32x4DemoteF64x2Zero(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
+            // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
+            // idx>15 + POR-correct + PSHUFB. No const-pool dep.
+            .@"i8x16.swizzle" => try op_simd.emitI8x16Swizzle(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at
