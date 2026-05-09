@@ -826,6 +826,17 @@ pub fn compile(
             .@"f64x2.splat" => try op_simd.emitF64x2Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.extract_lane" => try op_simd.emitF64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             .@"f64x2.replace_lane" => try op_simd.emitF64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
+            // §9.7 / 9.7-k: int compare eq/ne family. PCMPEQ B/W/D
+            // (SSE2) + PCMPEQQ (SSE4.1); ne paths apply NOT via
+            // PXOR with an all-ones mask (PCMPEQB scratch, scratch).
+            .@"i8x16.eq" => try op_simd.emitI8x16Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.eq" => try op_simd.emitI16x8Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.eq" => try op_simd.emitI32x4Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.eq" => try op_simd.emitI64x2Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.ne" => try op_simd.emitI8x16Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.ne" => try op_simd.emitI16x8Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.ne" => try op_simd.emitI32x4Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.ne" => try op_simd.emitI64x2Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at

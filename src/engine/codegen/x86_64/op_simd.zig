@@ -264,6 +264,132 @@ pub fn emitI32x4ExtractLane(
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.4 (i*x*.eq variants) — pop two v128, push v128
+/// where each lane is all-ones if the inputs match else all-zero.
+/// Per-shape encoders (PCMPEQB / PCMPEQW / PCMPEQD / PCMPEQQ)
+/// reuse the shared 9.7-b `emitV128IntBinop` helper unchanged —
+/// equality comparison's structural shape (pop 2, push 1, MOVAPS-
+/// elide when aliased) is identical to int add/sub.
+
+pub fn emitI8x16Eq(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpeqB);
+}
+
+pub fn emitI16x8Eq(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpeqW);
+}
+
+pub fn emitI32x4Eq(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpeqD);
+}
+
+pub fn emitI64x2Eq(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpeqQ);
+}
+
+/// Wasm spec §4.4.4 (i*x*.ne variants) — invert PCMPEQ via XOR
+/// against an all-ones mask. The mask is generated cheaply with
+/// `PCMPEQB scratch, scratch` (any width works; byte chosen as
+/// shortest encoding) on `abi.fp_spill_stage_xmms[0]` (XMM14).
+///
+/// Emit sequence (4 instructions plus optional MOVAPS preamble):
+///   MOVAPS dst, lhs            ; only when dst != lhs
+///   <PCMPEQ_eq> dst, rhs       ; per-shape encoder
+///   PCMPEQB scratch, scratch   ; build all-ones mask
+///   PXOR    dst, scratch       ; flip every bit → ne result
+fn emitV128IntNe(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    encoder_eq: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const rhs_x = try gpr.resolveXmm(alloc, rhs_v);
+    const lhs_x = try gpr.resolveXmm(alloc, lhs_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const ones = abi.fp_spill_stage_xmms[0]; // XMM14 — all-ones scratch
+
+    if (dst_x != lhs_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, lhs_x).slice());
+    }
+    try buf.appendSlice(allocator, encoder_eq(dst_x, rhs_x).slice());
+    try buf.appendSlice(allocator, inst.encPcmpeqB(ones, ones).slice());
+    try buf.appendSlice(allocator, inst.encPxor(dst_x, ones).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI8x16Ne(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntNe(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpeqB);
+}
+
+pub fn emitI16x8Ne(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntNe(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpeqW);
+}
+
+pub fn emitI32x4Ne(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntNe(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpeqD);
+}
+
+pub fn emitI64x2Ne(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntNe(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpeqQ);
+}
+
 /// Wasm spec §4.4.3 (f64x2.splat) — pop scalar f64 (XMM low 64),
 /// push v128 with both 64-bit lanes equal. Single-instruction
 /// `PSHUFD dst, src, 0x44` broadcasts the source's low qword
@@ -957,6 +1083,90 @@ test "emitI8x16Sub: dispatches to encPsubB — opcode 0xF8 reaches the buffer" {
     @memcpy(expected_buf[n..][0..psub.slice().len], psub.slice());
     n += psub.slice().len;
     try testing.expectEqualSlices(u8, expected_buf[0..n], buf.items);
+}
+
+test "emitI32x4Eq: dispatches to encPcmpeqD via shared helper" {
+    var slot_ids = [_]u16{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 3,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    try pushed.append(testing.allocator, 1);
+    var next_vreg: u32 = 2;
+
+    try emitI32x4Eq(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm10, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqD(.xmm10, .xmm9).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitI8x16Ne: PCMPEQB + all-ones-mask + PXOR (4-instr sequence)" {
+    var slot_ids = [_]u16{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 3,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    try pushed.append(testing.allocator, 1);
+    var next_vreg: u32 = 2;
+
+    try emitI8x16Ne(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    const ones = abi.fp_spill_stage_xmms[0];
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm10, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm10, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(ones, ones).slice());
+    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm10, ones).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitI64x2Ne: dispatches to PCMPEQQ (SSE4.1 0x29)" {
+    var slot_ids = [_]u16{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 3,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    try pushed.append(testing.allocator, 1);
+    var next_vreg: u32 = 2;
+
+    try emitI64x2Ne(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    const ones = abi.fp_spill_stage_xmms[0];
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm10, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqQ(.xmm10, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(ones, ones).slice());
+    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm10, ones).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
 test "emitF64x2Splat: PSHUFD dst, src, 0x44 — broadcast low qword" {

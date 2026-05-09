@@ -778,6 +778,36 @@ pub fn encPunpcklqdq(dst: Xmm, src: Xmm) EncodedInsn {
     return encSsePackedIntBinop(0x6C, dst, src);
 }
 
+/// `PCMPEQB xmm, xmm` (66 [REX?] 0F 74 /r) — SSE2 packed 8-bit
+/// equality compare. Each output byte is 0xFF when the
+/// corresponding source/dest bytes match, else 0x00. Wasm
+/// `i8x16.eq`. The self-PCMPEQB idiom (`PCMPEQB x, x`) generates
+/// an all-ones XMM in 4-5 bytes — used for NOT-via-PXOR in the
+/// `ne` path.
+pub fn encPcmpeqB(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x74, dst, src);
+}
+
+/// `PCMPEQW xmm, xmm` (66 [REX?] 0F 75 /r) — SSE2 packed 16-bit
+/// equality compare. 8 lanes. Wasm `i16x8.eq`.
+pub fn encPcmpeqW(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x75, dst, src);
+}
+
+/// `PCMPEQD xmm, xmm` (66 [REX?] 0F 76 /r) — SSE2 packed 32-bit
+/// equality compare. 4 lanes. Wasm `i32x4.eq`.
+pub fn encPcmpeqD(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x76, dst, src);
+}
+
+/// `PCMPEQQ xmm, xmm` (66 [REX?] 0F 38 29 /r) — SSE4.1 packed
+/// 64-bit equality compare. 2 lanes. Wasm `i64x2.eq`. Per
+/// ADR-0041 §"5. SSE4.1 minimum baseline" — i32x4.mul (PMULLD)
+/// and PEXTR* opened the SSE4.1 surface; PCMPEQQ continues it.
+pub fn encPcmpeqQ(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinopExt(0x38, 0x29, dst, src);
+}
+
 /// `MOVSD xmm, xmm` (F2 [REX?] 0F 10 /r — register-register
 /// form with ModR/M.mod=11) — copies the low 64 bits of `src`
 /// into the low 64 bits of `dst`, **preserving** the upper 64
@@ -1052,4 +1082,20 @@ test "encMovlhps: reg-reg (xmm0, xmm1) — 0F 16 /r" {
 
 test "encMovlhps: REX.R+B (xmm8, xmm9)" {
     try testing.expectEqualSlices(u8, &.{ 0x45, 0x0F, 0x16, 0xC1 }, encMovlhps(.xmm8, .xmm9).slice());
+}
+
+test "encPcmpeqB / W / D opcode bytes (xmm0, xmm1)" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x74, 0xC1 }, encPcmpeqB(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x75, 0xC1 }, encPcmpeqW(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x76, 0xC1 }, encPcmpeqD(.xmm0, .xmm1).slice());
+}
+
+test "encPcmpeqQ: SSE4.1 (xmm0, xmm1) — 0x38 escape, opcode 0x29" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x38, 0x29, 0xC1 }, encPcmpeqQ(.xmm0, .xmm1).slice());
+}
+
+test "encPcmpeqB: REX.R+B self-eq idiom for all-ones (xmm14, xmm14)" {
+    // 66 45 0F 74 F6 — REX = 0x40 | R(1<<2) | B(1) = 0x45;
+    // ModR/M = 11 110 110 = 0xF6 (mod=11, reg=6, rm=6).
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0x74, 0xF6 }, encPcmpeqB(.xmm14, .xmm14).slice());
 }

@@ -325,6 +325,10 @@ pub const encPunpcklqdq = inst_sse.encPunpcklqdq;
 pub const encInsertps = inst_sse.encInsertps;
 pub const encMovsdXmmXmm = inst_sse.encMovsdXmmXmm;
 pub const encMovlhps = inst_sse.encMovlhps;
+pub const encPcmpeqB = inst_sse.encPcmpeqB;
+pub const encPcmpeqW = inst_sse.encPcmpeqW;
+pub const encPcmpeqD = inst_sse.encPcmpeqD;
+pub const encPcmpeqQ = inst_sse.encPcmpeqQ;
 
 // ============================================================
 // Tests
