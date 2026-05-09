@@ -16,29 +16,25 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..aj landed); **9.7-ak NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..ak landed); **9.7-al NEXT**
 
-9.7-aj: x86_64 i16x8.extadd_pairwise_i8x16 × 2 via inline 0x01-
-per-byte mask synth + PMADDUBSW. 1 new encoder, 2 new ZirOp
-entries. Total SIMD ops handled: 178.
+9.7-ak: x86_64 i32x4.extadd_pairwise_i16x8_s (1 op, 4-instr
+inline-synth via PCMPEQB+PSRLW imm 15 + MOVAPS + PMADDWD). _u
+variant deferred because PMADDWD treats inputs as signed i16. 2
+new ZirOp entries; only _s wired. Total SIMD ops handled: 179.
 
-**9.7-ak NEXT** — i32x4.extadd_pairwise_i16x8_{s,u} (2 ops).
-Different mask: needs 0x00010001-per-dword (= +1 per i16 lane).
-Recipe per cranelift: PMADDWD (SSE2, already from 9.7-af) takes
-two i16-pair operands and dot-products into i32. With +1-per-i16-
-lane as one operand, this reduces to pairwise i16+i16 → i32
-addition. The 0x0001-per-i16 mask is harder to synth inline — try
-PCMPEQB ones + PSRLW imm 15 → 0x0001 per word ✓. Recipe ~4 instr.
-Both ops use same shape (PMADDWD doesn't have signed/unsigned
-variants — i16 is always signed in PMADDWD); `_u` of Wasm
-extadd_pairwise needs additional zero-extend prep (e.g. PMADDWD
-of (zero-extended u16 lanes) doesn't compose cleanly without
-helper). Survey to confirm; may split _s and _u into separate
-chunks.
+**9.7-al NEXT** — i8x16.popcnt (1 op). Cranelift's idiomatic
+recipe is the SSSE3 PSHUFB-LUT (7 instr + 16-byte LUT const).
+Without ADR-0042 const-pool, options: (a) inline-synth the LUT
+via PCMPEQB+immediate sequences (likely 12+ instr, fragile); (b)
+Hacker's-Delight per-byte shift-and-add (9 instr, but the masks
+0x55/0x33/0x0F per-byte are also const-pool-dep without
+byte-level shifts). Both are ugly inline. Recommendation: defer
+popcnt to 9.7-am with const-pool, OR survey for a third path.
+Survey first.
 
-Subsequent: 9.7-al (i8x16.popcnt — inline-synth via PSHUFB-LUT
-with const-pool, OR Hacker's-Delight shift-add ~9 instr), 9.7-am
-(ADR-0042 const-pool plumbing + 4 deferred 9.7-ae u-variants +
+Subsequent: 9.7-am (ADR-0042 const-pool plumbing + popcnt +
+i32x4.extadd_pairwise_i16x8_u + 4 deferred 9.7-ae u-variants +
 i8x16.shuffle + v128.const). Phase 7 close-out pending.
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
@@ -59,5 +55,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..aj landed; 9.7-ak NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ak landed; 9.7-al NEXT).
 **Branch**: `zwasm-from-scratch`。
