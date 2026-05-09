@@ -16,30 +16,30 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..r landed); **9.7-s NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..s landed); **9.7-t NEXT**
 
-9.7-r: x86_64 v128 bitwise ops + any_true (7 ops). 4 new
-encoders (PAND/POR/PANDN SSE2; PTEST SSE4.1). v128.not 3-
-instr synth; and/or/xor via emitV128IntBinop; andnot custom
-2-instr (PANDN's negated-first-operand semantic); bitselect
-5-instr PAND/PANDN/POR chain per cranelift; any_true PTEST +
-SETNE + MOVZX. regalloc produces_vreg list extended for
-5 v128 + 1 scalar new ops. Total SIMD ops handled: 99.
+9.7-s: x86_64 per-shape all_true + bitmask reductions (8 ops).
+4 new encoders (MOVMSKPS/MOVMSKPD/PMOVMSKB RM-form xmm→gpr;
+PACKSSWB). 4 all_true via 5-instr cranelift recipe (PXOR +
+PCMPEQ_<lane> + PTEST + SETZ + MOVZX); bitmask shapes —
+i8x16 PMOVMSKB direct, i32x4 MOVMSKPS direct, i64x2 MOVMSKPD
+direct, i16x8 PACKSSWB+PMOVMSKB+SHR. Total SIMD ops
+handled: 107.
 
-**9.7-s NEXT** — per-shape all_true + bitmask reductions
-(8 ops): i8x16/i16x8/i32x4/i64x2.{all_true, bitmask}. all_true
-via PCMPEQ_<lane>(xmm, zero) + PMOVMSKB + CMP all-set + SETE
-or via PTEST + AND mask comparison. bitmask via PMOVMSKB
-(i8x16 — direct; PSADBW or PMOVMSK*-equivalent for wider
-lanes). Each shape needs distinct synthesis since the lane-
-mask shapes differ. Likely: 1-2 new encoders (PMOVMSKB SSE2)
-+ shape-specific synthesis helpers + 8 wrappers. ~250 src
-+ ~120 test. No ADR.
+**9.7-t NEXT** — i*x* shifts (shl / shr_s / shr_u for
+i8x16/i16x8/i32x4/i64x2 = 12 ops). SSE2 has packed shift-by-
+GPR/imm: PSLLW/D/Q + PSRLW/D/Q + PSRAW/D (no PSRAQ — SSE
+lacks signed 64-bit shift; needs synthesis per cranelift).
+i8x16 has no native packed byte shift; synthesis via word
+shifts + AND-mask. Likely 6 new encoders (PSLLW/D + PSRLW/D
++ PSRAW/D variants on register; existing PSRLQ/PSLLQ-imm
+extend for register form) + per-shape helpers. ~250 src +
+~120 test. PSRAQ synthesis adds complexity; may split
+i64x2.shr_s into 9.7-u if recipe is too large.
 
-Subsequent: 9.7-t+ (i*x* shifts shl/shr_s/shr_u; abs/neg via
-PXOR sign-mask const-pool), 9.7-u+ (conversion + narrow/
-extend + shuffle PSHUFB), 9.7-v (v128.const via ADR-0042
-const-pool finalisation).
+Subsequent: 9.7-u+ (conversion + narrow/extend + shuffle
+PSHUFB; abs/neg via const-pool sign mask), 9.7-v (v128.const
+via ADR-0042 const-pool finalisation).
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -59,5 +59,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..r landed; 9.7-s NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..s landed; 9.7-t NEXT).
 **Branch**: `zwasm-from-scratch`。
