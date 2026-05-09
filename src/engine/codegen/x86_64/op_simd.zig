@@ -1192,6 +1192,164 @@ pub fn emitV128AnyTrue(
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.4 (i*x*.all_true) — pop v128, push i32 (1 if
+/// every lane is non-zero else 0). 5-instruction recipe per
+/// cranelift `lower.isle:4936-4941` SSE4.1 path:
+///
+///   scratch = PXOR(scratch, scratch)        ; scratch = zero
+///   scratch = PCMPEQ_lane(scratch, src)     ; lanes==0 → 0xFF; non-zero → 0x00
+///   PTEST(scratch, scratch)                  ; ZF=1 iff scratch==0 iff no lane was zero
+///   dst.lo8 = SETZ                            ; (ZF==1) ? 1 : 0 = all_true result
+///   dst = MOVZX(dst, dst.lo8)
+///
+/// `encoder_pcmpeq` selects the lane width: PCMPEQB / W / D / Q.
+fn emitV128AllTrue(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+    encoder_pcmpeq: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+    const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    try buf.appendSlice(allocator, inst.encPxor(scratch_x, scratch_x).slice());
+    try buf.appendSlice(allocator, encoder_pcmpeq(scratch_x, src_x).slice());
+    try buf.appendSlice(allocator, inst.encPtest(scratch_x, scratch_x).slice());
+    try buf.appendSlice(allocator, inst.encSetccR(.e, dst_r).slice());
+    try buf.appendSlice(allocator, inst.encMovzxR32R8(dst_r, dst_r).slice());
+    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI8x16AllTrue(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128AllTrue(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPcmpeqB);
+}
+
+pub fn emitI16x8AllTrue(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128AllTrue(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPcmpeqW);
+}
+
+pub fn emitI32x4AllTrue(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128AllTrue(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPcmpeqD);
+}
+
+pub fn emitI64x2AllTrue(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128AllTrue(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPcmpeqQ);
+}
+
+/// Wasm spec §4.4.4 (i*x*.bitmask) — pop v128, push i32 with the
+/// high bit of each lane packed into the low bits of the result.
+/// Per-shape recipes from cranelift `lower.isle:4962-4981`:
+///   i8x16: PMOVMSKB direct (1 instr; 16-bit mask in low 16 bits).
+///   i32x4: MOVMSKPS direct (1 instr; 4-bit mask).
+///   i64x2: MOVMSKPD direct (1 instr; 2-bit mask).
+///   i16x8: PACKSSWB(src, src) duplicates word high bits into byte
+///          high bits, then PMOVMSKB extracts 16 bits, SHR 8 keeps
+///          one half (8-bit mask).
+
+pub fn emitI8x16Bitmask(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+    try buf.appendSlice(allocator, inst.encPmovmskb(dst_r, src_x).slice());
+    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI16x8Bitmask(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+    const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    // scratch = MOVAPS src ; scratch = PACKSSWB(scratch, src) — packs
+    // 8 words from each operand into 16 saturated bytes; high bit of
+    // each output byte = high bit of source word. Both halves carry
+    // the same pattern when src is duplicated.
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(scratch_x, src_x).slice());
+    try buf.appendSlice(allocator, inst.encPacksswb(scratch_x, src_x).slice());
+    try buf.appendSlice(allocator, inst.encPmovmskb(dst_r, scratch_x).slice());
+    try buf.appendSlice(allocator, inst.encShrRImm8(.d, dst_r, 8).slice());
+    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI32x4Bitmask(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+    try buf.appendSlice(allocator, inst.encMovmskps(dst_r, src_x).slice());
+    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI64x2Bitmask(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+    try buf.appendSlice(allocator, inst.encMovmskpd(dst_r, src_x).slice());
+    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.4 (i*x*.eq variants) — pop two v128, push v128
 /// where each lane is all-ones if the inputs match else all-zero.
 /// Per-shape encoders (PCMPEQB / PCMPEQW / PCMPEQD / PCMPEQQ)

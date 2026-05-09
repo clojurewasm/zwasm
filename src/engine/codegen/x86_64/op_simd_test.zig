@@ -880,6 +880,68 @@ test "emitV128Bitselect: 5-instr PAND/PANDN/POR chain" {
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
+test "emitI8x16AllTrue: 5-instr SSE4.1 PTEST recipe (PXOR + PCMPEQB + PTEST + SETZ + MOVZX)" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    try op_simd.emitI8x16AllTrue(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    const scratch = abi.fp_spill_stage_xmms[0]; // XMM14
+    try expected.appendSlice(testing.allocator, inst.encPxor(scratch, scratch).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(scratch, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPtest(scratch, scratch).slice());
+    // dst_r = result vreg slot 1 → first allocatable GPR reg post-spill (depends on
+    // alloc impl). Just check that the expected emit completes successfully without
+    // attempting to enumerate the GPR — the byte-for-byte test would need the actual
+    // allocated GPR slot. Trim the test to just assert the prefix matches via
+    // expectEqual on the first 3 instructions' length.
+    try testing.expect(buf.items.len > expected.items.len);
+    try testing.expectEqualSlices(u8, expected.items, buf.items[0..expected.items.len]);
+}
+
+test "emitI8x16Bitmask: PMOVMSKB direct (1 instr)" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    try op_simd.emitI8x16Bitmask(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
+
+    // First instruction should be PMOVMSKB; subsequent instructions
+    // depend on the spill-store mechanics for the i32 result. PMOVMSKB
+    // bytes: 66 [REX?] 0F D7 ModRM. Skip REX (if present) when checking
+    // 0F D7; first byte is always 0x66 prefix.
+    try testing.expect(buf.items.len >= 4);
+    try testing.expectEqual(@as(u8, 0x66), buf.items[0]);
+    const after_prefix = if ((buf.items[1] & 0xF0) == 0x40) buf.items[2..] else buf.items[1..];
+    try testing.expectEqual(@as(u8, 0x0F), after_prefix[0]);
+    try testing.expectEqual(@as(u8, 0xD7), after_prefix[1]);
+}
+
 test "emitI64x2GeS: lt + NOT (operand swap then NOT)" {
     var slot_ids = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{

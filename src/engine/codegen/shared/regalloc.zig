@@ -550,6 +550,14 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
             .@"f32x4.extract_lane",
             .@"f64x2.extract_lane",
             .@"v128.any_true",
+            .@"i8x16.all_true",
+            .@"i16x8.all_true",
+            .@"i32x4.all_true",
+            .@"i64x2.all_true",
+            .@"i8x16.bitmask",
+            .@"i16x8.bitmask",
+            .@"i32x4.bitmask",
+            .@"i64x2.bitmask",
             => true,
             // All other ops: not handled by this MVP. Conservative
             // default — neither produces nor consumes from our

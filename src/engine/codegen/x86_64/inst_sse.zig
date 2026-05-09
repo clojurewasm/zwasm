@@ -1047,6 +1047,57 @@ pub fn encCmppd(dst: Xmm, src: Xmm, imm8: u8) EncodedInsn {
     return enc;
 }
 
+/// `PACKSSWB xmm, xmm` (66 [REX?] 0F 63 /r) — SSE2 pack 8 signed
+/// 16-bit lanes from each operand into 16 saturated 8-bit lanes
+/// (low half from dst, high half from src). Used by
+/// `i16x8.bitmask` synthesis: PACKSSWB(src, src) duplicates the
+/// 16-bit high-bit pattern into 16 bytes so PMOVMSKB can extract
+/// it (cranelift `lower.isle:4977-4981`).
+pub fn encPacksswb(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x63, dst, src);
+}
+
+/// SSE/SSE2 RM-form helper: GPR destination in ModR/M.reg, XMM
+/// source in ModR/M.r/m. Used by MOVMSK* / PMOVMSKB which extract
+/// per-lane high bits into a GPR. REX.R extends the GPR (reg
+/// field); REX.B extends the XMM (r/m field) — opposite of the
+/// PEXTR* encoding which puts the XMM in reg.
+fn encSseXmmToGprRM(prefix_66: bool, opcode: u8, gpr_dst: Gpr, xmm_src: Xmm) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (prefix_66) enc.push(0x66);
+    if (gpr_dst.extBit() != 0 or xmm_src.extBit() != 0) {
+        enc.push(encodeRex(false, gpr_dst.extBit(), 0, xmm_src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(opcode);
+    enc.push(encodeModrm(0b11, gpr_dst.low3(), xmm_src.low3()));
+    return enc;
+}
+
+/// `MOVMSKPS r32, xmm` ([REX?] 0F 50 /r) — SSE extract per-lane
+/// high bit of 4 single-precision lanes into the low 4 bits of a
+/// GPR. Wasm `i32x4.bitmask` direct (high bit of each i32 lane).
+pub fn encMovmskps(gpr_dst: Gpr, xmm_src: Xmm) EncodedInsn {
+    return encSseXmmToGprRM(false, 0x50, gpr_dst, xmm_src);
+}
+
+/// `MOVMSKPD r32, xmm` (66 [REX?] 0F 50 /r) — SSE2 extract per-
+/// lane high bit of 2 double-precision lanes into the low 2 bits
+/// of a GPR. Wasm `i64x2.bitmask` direct (high bit of each i64
+/// lane).
+pub fn encMovmskpd(gpr_dst: Gpr, xmm_src: Xmm) EncodedInsn {
+    return encSseXmmToGprRM(true, 0x50, gpr_dst, xmm_src);
+}
+
+/// `PMOVMSKB r32, xmm` (66 [REX?] 0F D7 /r) — SSE2 extract per-
+/// byte high bit of 16 byte lanes into the low 16 bits of a GPR.
+/// Wasm `i8x16.bitmask` direct; also used by `i16x8.bitmask`
+/// synthesis (after PACKSSWB) and the `all_true` family per
+/// cranelift `lower.isle:4946-4949` (Rule 0 SSE2 fallback).
+pub fn encPmovmskb(gpr_dst: Gpr, xmm_src: Xmm) EncodedInsn {
+    return encSseXmmToGprRM(true, 0xD7, gpr_dst, xmm_src);
+}
+
 /// `PAND xmm, xmm` (66 [REX?] 0F DB /r) — SSE2 bitwise AND on
 /// 128-bit values. Wasm `v128.and`.
 pub fn encPand(dst: Xmm, src: Xmm) EncodedInsn {
@@ -1246,6 +1297,30 @@ test "encPsrldImm: PSRLD xmm0, 10 — group /2, opcode=0x72 (D-form)" {
 test "encPsrldImm: PSRLD xmm15, 10 — REX.B (xmm15)" {
     // 66 41 0F 72 D7 0A — REX.B = 0x41; ModR/M = 11 010 111 = 0xD7.
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x41, 0x0F, 0x72, 0xD7, 0x0A }, encPsrldImm(.xmm15, 10).slice());
+}
+
+test "encPacksswb opcode bytes (xmm0, xmm1)" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x63, 0xC1 }, encPacksswb(.xmm0, .xmm1).slice());
+}
+
+test "encMovmskps: rax, xmm0 — no 66 prefix, RM (r32 in reg, xmm in r/m)" {
+    // 0F 50 C0 — ModR/M = 11 000 000 (mod=11, reg=0=rax, rm=0=xmm0).
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x50, 0xC0 }, encMovmskps(.rax, .xmm0).slice());
+}
+
+test "encMovmskpd: rcx, xmm5 — 66 prefix, RM" {
+    // 66 0F 50 CD — ModR/M = 11 001 101 (reg=1=rcx, rm=5=xmm5).
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x50, 0xCD }, encMovmskpd(.rcx, .xmm5).slice());
+}
+
+test "encPmovmskb: rdx, xmm0 — 66 prefix, opcode 0xD7" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xD7, 0xD0 }, encPmovmskb(.rdx, .xmm0).slice());
+}
+
+test "encPmovmskb: r10, xmm14 — REX.R + REX.B" {
+    // 66 45 0F D7 D6 — REX = R(1<<2) | B(1) = 0x45;
+    // ModR/M = 11 010 110 (reg=2=r10.lo3, rm=6=xmm14.lo3).
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0xD7, 0xD6 }, encPmovmskb(.r10, .xmm14).slice());
 }
 
 test "encPand / encPor / encPandn opcode bytes (xmm0, xmm1) — SSE2 with 66 prefix" {

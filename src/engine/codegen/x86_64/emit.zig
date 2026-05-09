@@ -939,6 +939,20 @@ pub fn compile(
             .@"v128.andnot" => try op_simd.emitV128Andnot(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"v128.bitselect" => try op_simd.emitV128Bitselect(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"v128.any_true" => try op_simd.emitV128AnyTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            // §9.7 / 9.7-s: per-shape all_true + bitmask reductions
+            // (8 ops). all_true via SSE4.1 PXOR + PCMPEQ_<lane> +
+            // PTEST + SETZ + MOVZX (5 instr per cranelift
+            // `lower.isle:4936`). bitmask via PMOVMSKB / MOVMSKPS /
+            // MOVMSKPD direct for i8/i32/i64; i16x8 needs PACKSSWB
+            // + PMOVMSKB + SHR 8 (cranelift `lower.isle:4977`).
+            .@"i8x16.all_true" => try op_simd.emitI8x16AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.all_true" => try op_simd.emitI16x8AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.all_true" => try op_simd.emitI32x4AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.all_true" => try op_simd.emitI64x2AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.bitmask" => try op_simd.emitI8x16Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.bitmask" => try op_simd.emitI16x8Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.bitmask" => try op_simd.emitI32x4Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.bitmask" => try op_simd.emitI64x2Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at
