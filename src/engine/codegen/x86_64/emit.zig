@@ -1079,6 +1079,12 @@ pub fn compile(
             // const-pool dep.
             .@"i16x8.extadd_pairwise_i8x16_s" => try op_simd.emitI16x8ExtaddPairwiseI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i16x8.extadd_pairwise_i8x16_u" => try op_simd.emitI16x8ExtaddPairwiseI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-ak: i32x4.extadd_pairwise_i16x8_s.
+            // Inline-synth 0x00010001-per-dword mask + PMADDWD.
+            // The _u variant is deferred (PMADDWD reads i16 as
+            // signed; u16 inputs need pre-correction via ADR-0042
+            // const-pool sign-flip + post-add fixup).
+            .@"i32x4.extadd_pairwise_i16x8_s" => try op_simd.emitI32x4ExtaddPairwiseI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.

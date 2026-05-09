@@ -235,6 +235,7 @@ pub const ZirOp = enum(u16) {
     @"i16x8.extmul_low_i8x16_s", @"i16x8.extmul_high_i8x16_s",
     @"i16x8.extmul_low_i8x16_u", @"i16x8.extmul_high_i8x16_u",
     @"i16x8.extadd_pairwise_i8x16_s", @"i16x8.extadd_pairwise_i8x16_u",
+    @"i32x4.extadd_pairwise_i16x8_s", @"i32x4.extadd_pairwise_i16x8_u",
 
     // i32x4 cmp + arith + bit
     @"i32x4.eq", @"i32x4.ne",

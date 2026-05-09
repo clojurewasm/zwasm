@@ -3100,6 +3100,38 @@ pub fn emitI16x8ExtaddPairwiseI8x16U(allocator: Allocator, buf: *std.ArrayList(u
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.4 (i32x4.extadd_pairwise_i16x8_s) — pairwise-
+/// add adjacent signed i16 lanes, widening to i32. PMADDWD (SSE2)
+/// computes pairwise dot product of i16 lanes; with +1-per-i16
+/// as one operand it reduces to plain pairwise add. Synthesise
+/// the 0x00010001-per-dword (= +1 per word) mask inline via
+/// PCMPEQB ones + PSRLW imm 15 → 0x0001 per word. 4-instr recipe;
+/// no const-pool dep. The _u variant cannot use the same recipe
+/// (PMADDWD reads operands as signed i16, treating high u16 lanes
+/// as negative) — deferred to a later chunk pending ADR-0042.
+pub fn emitI32x4ExtaddPairwiseI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const tmp = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    // 1-2: tmp = 0x0001 per word (= +1 per i16 lane).
+    try buf.appendSlice(allocator, inst.encPcmpeqB(tmp, tmp).slice());
+    try buf.appendSlice(allocator, inst.encPsrlwImm(tmp, 15).slice());
+    // 3-4: dst = src; PMADDWD dst, tmp computes adjacent pairs of
+    // src's i16 lanes summed (multiplied by +1) into i32 lanes.
+    if (dst_x != src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPmaddwd(dst_x, tmp).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.4 (i16x8.extadd_pairwise_i8x16_s) — pairwise-
 /// add adjacent signed i8 lanes, widening to i16. Same PMADDUBSW
 /// recipe as the unsigned variant but with operand roles swapped:
