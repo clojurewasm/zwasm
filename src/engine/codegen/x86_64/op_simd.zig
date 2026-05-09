@@ -3100,6 +3100,95 @@ pub fn emitI16x8ExtaddPairwiseI8x16U(allocator: Allocator, buf: *std.ArrayList(u
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.4 (i32x4.trunc_sat_f64x2_s_zero) — saturating
+/// truncate low 2 f64 lanes → i32, with high 2 lanes of result
+/// zeroed. Recipe per cranelift `lower.isle:4194-4214`:
+///   1. NaN-detect via CMPPD self-EQ_OQ → mask
+///   2. MINPD src, INT32_MAX_f64 → clamp positive OOR
+///   3. ANDPD src, mask → zero NaN
+///   4. CVTTPD2DQ dst, src → trunc; "_zero" suffix is automatic
+///      (CVTTPD2DQ writes 2 i32 to low half, zeros high half).
+/// Negative OOR (-INF / very-negative) becomes 0x80000000 by
+/// CVTTPD2DQ's saturation semantics, matching Wasm INT32_MIN
+/// clamp. The INT32_MAX_f64 const is stored in `extra_consts`
+/// (a per-emit-pass pool extension since it's a shared static
+/// constant rather than a per-instance literal).
+const INT32_MAX_F64_BROADCAST: [16]u8 = blk: {
+    // 2147483647.0 as f64 = 0x41DFFFFFFFC00000.
+    // Per-qword broadcast, little-endian.
+    var bytes: [16]u8 = undefined;
+    const v: u64 = 0x41DFFFFFFFC00000;
+    var i: usize = 0;
+    while (i < 8) : (i += 1) bytes[i] = @intCast((v >> @intCast(i * 8)) & 0xFF);
+    i = 0;
+    while (i < 8) : (i += 1) bytes[8 + i] = bytes[i];
+    break :blk bytes;
+};
+
+pub fn emitI32x4TruncSatF64x2SZero(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    simd_const_fixups: *std.ArrayList(@import("types.zig").SimdConstFixup),
+    extra_consts: *std.ArrayList([16]u8),
+    simd_consts_base: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const tmp_const = abi.fp_spill_stage_xmms[0]; // XMM14
+    const tmp_mask = abi.fp_spill_stage_xmms[1]; // XMM15
+
+    // Look up or append INT32_MAX_F64_BROADCAST in extra_consts.
+    var const_idx: u32 = 0;
+    var found = false;
+    for (extra_consts.items, 0..) |c, i| {
+        if (std.mem.eql(u8, &c, &INT32_MAX_F64_BROADCAST)) {
+            const_idx = simd_consts_base + @as(u32, @intCast(i));
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        const_idx = simd_consts_base + @as(u32, @intCast(extra_consts.items.len));
+        try extra_consts.append(allocator, INT32_MAX_F64_BROADCAST);
+    }
+
+    // 1: load INT32_MAX_F64-broadcast → tmp_const (RIP-relative).
+    const enc = inst.encMovupsXmmRipRelPlaceholder(tmp_const);
+    const start_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, enc.slice());
+    const enc_len: u32 = @intCast(enc.slice().len);
+    try simd_const_fixups.append(allocator, .{
+        .disp32_byte_offset = start_byte + enc_len - 4,
+        .post_insn_byte = start_byte + enc_len,
+        .const_idx = const_idx,
+    });
+
+    // 2: MOVAPS dst, src.
+    if (dst_x != src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
+    }
+    // 3: CMPPD tmp_mask, dst, EQ_OQ → mask of (lane==lane), 0 for NaN.
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(tmp_mask, dst_x).slice());
+    try buf.appendSlice(allocator, inst.encCmppd(tmp_mask, dst_x, 0x00).slice());
+    // 4: MINPD dst, tmp_const → clamp upper to INT32_MAX_f64.
+    try buf.appendSlice(allocator, inst.encMinpd(dst_x, tmp_const).slice());
+    // 5: ANDPD dst, tmp_mask → zero NaN lanes.
+    try buf.appendSlice(allocator, inst.encAndpd(dst_x, tmp_mask).slice());
+    // 6: CVTTPD2DQ dst, dst → truncate; high 2 lanes auto-zeroed.
+    try buf.appendSlice(allocator, inst.encCvttpd2dq(dst_x, dst_x).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.5 (v128.const) — push a 16-byte literal as a
 /// v128 value. Per ADR-0042: the lower pass populates
 /// `func.simd_consts` and stores the array index in

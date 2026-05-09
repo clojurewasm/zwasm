@@ -509,6 +509,16 @@ pub fn compile(
     var simd_const_fixups: std.ArrayList(types.SimdConstFixup) = .empty;
     defer simd_const_fixups.deinit(allocator);
 
+    // §9.7/9.7-am — emit-time-derived const-pool entries (per-op
+    // shared 16-byte constants like INT32_MAX_f64-broadcast for
+    // trunc_sat). These extend `func.simd_consts` (which carries
+    // only per-instance `v128.const` / shuffle-mask literals from
+    // the lower pass). At post-emit pool placement the two lists
+    // are concatenated; const_idx in fixups maps uniformly into
+    // the concat'd pool.
+    var extra_consts: std.ArrayList([16]u8) = .empty;
+    defer extra_consts.deinit(allocator);
+
     // §9.7 / 7.8-x86-mem-grow-size: dead_code tracking. After
     // `unreachable` / `return` mid-function, subsequent ops are
     // unreachable per Wasm spec §3.3 polymorphic-stack rules; the
@@ -1099,6 +1109,13 @@ pub fn compile(
             // const_idx in ins.payload pointing into
             // func.simd_consts.
             .@"v128.const" => try op_simd.emitV128Const(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, ins.payload),
+            // §9.7/9.7-am — i32x4.trunc_sat_f64x2_s_zero. Recipe
+            // needs a shared INT32_MAX_f64-broadcast const; placed
+            // into per-emit-pass extra_consts.
+            .@"i32x4.trunc_sat_f64x2_s_zero" => {
+                const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
+                try op_simd.emitI32x4TruncSatF64x2SZero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base);
+            },
             // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.
@@ -1377,13 +1394,12 @@ pub fn compile(
                 // const-pool 16-byte aligned and patch each
                 // placeholder's disp32 to the RIP-relative offset.
                 if (simd_const_fixups.items.len > 0) {
-                    const consts = func.simd_consts orelse {
-                        std.debug.print("x86_64/emit: simd_const_fixups present but func.simd_consts is null\n", .{});
-                        return Error.AllocationMissing;
-                    };
                     while (buf.items.len % 16 != 0) try buf.append(allocator, 0);
                     const pool_byte: u32 = @intCast(buf.items.len);
-                    for (consts) |c| try buf.appendSlice(allocator, &c);
+                    if (func.simd_consts) |sc| {
+                        for (sc) |c| try buf.appendSlice(allocator, &c);
+                    }
+                    for (extra_consts.items) |c| try buf.appendSlice(allocator, &c);
                     for (simd_const_fixups.items) |fx| {
                         const target_byte: u32 = pool_byte + fx.const_idx * 16;
                         const disp32: i32 = @as(i32, @intCast(target_byte)) -

@@ -1296,6 +1296,15 @@ pub fn encPsradImm(dst: Xmm, count: u8) EncodedInsn {
     return encSsePackedShiftImmGroup(0x72, 4, dst, count);
 }
 
+/// `CVTTPD2DQ xmm, xmm` (66 [REX?] 0F E6 /r) — SSE2 truncating
+/// convert 2 packed f64 → 2 packed i32 in low half of dst (high
+/// half of dst zeroed automatically — matches Wasm `_zero` suffix).
+/// OOR / NaN / +inf → 0x80000000 (INT32_MIN sentinel; downstream
+/// recipe must pre-clamp + NaN-mask to get spec-conformant output).
+pub fn encCvttpd2dq(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0xE6, dst, src);
+}
+
 /// `MOVUPS xmm, [RIP+disp32]` placeholder — SSE PC-relative
 /// 16-byte unaligned load. Encoding: `[REX.R] 0F 10 /r ModR/M`
 /// where ModR/M = mod=00, reg=dst.low3, r/m=101 (RIP-relative
@@ -1751,6 +1760,10 @@ test "encPmaddubsw: SSSE3 (xmm0, xmm1) opcode 0x38 0x04" {
 test "encPmulhrsw / encPmaddwd opcode bytes (xmm0, xmm1)" {
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x38, 0x0B, 0xC1 }, encPmulhrsw(.xmm0, .xmm1).slice());
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xF5, 0xC1 }, encPmaddwd(.xmm0, .xmm1).slice());
+}
+
+test "encCvttpd2dq: SSE2 (xmm0, xmm1) opcode 66 0F E6" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xE6, 0xC1 }, encCvttpd2dq(.xmm0, .xmm1).slice());
 }
 
 test "encMovupsXmmRipRelPlaceholder: XMM0 → 6 bytes (0F 10 05 00 00 00 00)" {
