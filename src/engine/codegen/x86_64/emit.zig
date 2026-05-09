@@ -793,6 +793,11 @@ pub fn compile(
             // scalar via PEXTRD (SSE4.1).
             .@"i32x4.splat" => try op_simd.emitI32x4Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"i32x4.extract_lane" => try op_simd.emitI32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            // §9.7 / 9.7-f: replace_lane for the wide-int v128 shapes.
+            // PINSRD (32-bit) / PINSRQ (64-bit, REX.W mandatory) plus a
+            // MOVAPS preamble when dst doesn't alias the input vec.
+            .@"i32x4.replace_lane" => try op_simd.emitI32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i64x2.replace_lane" => try op_simd.emitI64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at

@@ -599,6 +599,50 @@ pub fn encPextrD(gpr_dst: Gpr, xmm_src: Xmm, lane: u2) EncodedInsn {
     return enc;
 }
 
+/// `PINSRD xmm, r/m32, imm8` (66 [REX?] 0F 3A 22 /r ib) — SSE4.1
+/// insert a 32-bit value from `gpr_src` into lane `lane` of
+/// `xmm_dst`. The other three lanes of `xmm_dst` are preserved
+/// (caller is responsible for `MOVAPS xmm_dst, input_xmm` first
+/// when the result vreg differs from the input v128 vreg).
+///
+/// Per Intel SDM the ModR/M.reg field carries the **destination
+/// XMM** (RVMI shape); ModR/M.r/m carries the source GPR. REX.R
+/// applies to the XMM, REX.B to the GPR — opposite operand
+/// orientation from PEXTRD's RMI shape.
+///
+/// Used by `i32x4.replace_lane` (Wasm spec §4.4.3 lane access).
+pub fn encPinsrD(xmm_dst: Xmm, gpr_src: Gpr, lane: u2) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    if (xmm_dst.extBit() != 0 or gpr_src.extBit() != 0) {
+        enc.push(encodeRex(false, xmm_dst.extBit(), 0, gpr_src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(0x3A);
+    enc.push(0x22);
+    enc.push(encodeModrm(0b11, xmm_dst.low3(), gpr_src.low3()));
+    enc.push(@intCast(lane));
+    return enc;
+}
+
+/// `PINSRQ xmm, r/m64, imm8` (66 REX.W 0F 3A 22 /r ib) — SSE4.1
+/// 64-bit counterpart of PINSRD. REX.W is mandatory (selects
+/// 64-bit operand). Lane is `u1` (only 2 lanes per i64x2 vector).
+/// Used by `i64x2.replace_lane`.
+pub fn encPinsrQ(xmm_dst: Xmm, gpr_src: Gpr, lane: u1) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    // REX.W is mandatory for the 64-bit form, regardless of
+    // whether the operand registers extend.
+    enc.push(encodeRex(true, xmm_dst.extBit(), 0, gpr_src.extBit()));
+    enc.push(0x0F);
+    enc.push(0x3A);
+    enc.push(0x22);
+    enc.push(encodeModrm(0b11, xmm_dst.low3(), gpr_src.low3()));
+    enc.push(@intCast(lane));
+    return enc;
+}
+
 const testing = std.testing;
 
 test "encPaddD: low XMMs (xmm0, xmm1) — no REX, 4 bytes" {
@@ -706,4 +750,29 @@ test "encPextrD: REX.R+B (r9, xmm8, 1) — high gpr + high xmm" {
     // 66 45 0F 3A 16 C1 01 — REX.R for xmm_src (0x44) | REX.B for
     // gpr_dst (0x41) → 0x45; ModR/M = 11 000 001 = 0xC1.
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0x3A, 0x16, 0xC1, 0x01 }, encPextrD(.r9, .xmm8, 1).slice());
+}
+
+test "encPinsrD: lane 0 (xmm0, rax, 0) — 7 bytes no REX" {
+    // 66 0F 3A 22 C0 00 — ModR/M.reg = xmm_dst (0), .rm = gpr_src (0)
+    // → 0xC0. Inverse operand orientation from PEXTRD.
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x3A, 0x22, 0xC0, 0x00 }, encPinsrD(.xmm0, .rax, 0).slice());
+}
+
+test "encPinsrD: lane 3 (xmm0, rax, 3)" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x3A, 0x22, 0xC0, 0x03 }, encPinsrD(.xmm0, .rax, 3).slice());
+}
+
+test "encPinsrD: REX.R+B (xmm8, r9, 2)" {
+    // 66 45 0F 3A 22 C1 02 — REX.R from xmm_dst | REX.B from gpr_src.
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0x3A, 0x22, 0xC1, 0x02 }, encPinsrD(.xmm8, .r9, 2).slice());
+}
+
+test "encPinsrQ: lane 0 (xmm0, rax, 0) — REX.W mandatory, 7 bytes" {
+    // 66 48 0F 3A 22 C0 00 — REX.W=0x48 forces 64-bit operand.
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x48, 0x0F, 0x3A, 0x22, 0xC0, 0x00 }, encPinsrQ(.xmm0, .rax, 0).slice());
+}
+
+test "encPinsrQ: lane 1, REX.W+R+B (xmm8, r9, 1)" {
+    // 66 4D 0F 3A 22 C1 01 — REX.W (0x48) | R (0x04) | B (0x01) = 0x4D.
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x4D, 0x0F, 0x3A, 0x22, 0xC1, 0x01 }, encPinsrQ(.xmm8, .r9, 1).slice());
 }

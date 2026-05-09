@@ -264,6 +264,69 @@ pub fn emitI32x4ExtractLane(
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.3 (i32x4.replace_lane <imm>) — pop scalar i32
+/// `value`, pop v128 `vec`; push a v128 with lane `imm` set to
+/// `value` and the other three lanes preserved from `vec`.
+/// x86_64 lowering: copy `vec` into `dst` via MOVAPS (elided
+/// when dst already aliases vec), then `PINSRD dst, value, lane`.
+fn emitV128IntReplaceLane32Or64(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+    payload: u32,
+    is_64: bool,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const value_v = pushed_vregs.pop().?;
+    const vec_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const value_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, value_v, 0);
+    const vec_x = try gpr.resolveXmm(alloc, vec_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+
+    if (dst_x != vec_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
+    }
+    if (is_64) {
+        const lane: u1 = @intCast(payload & 0b1);
+        try buf.appendSlice(allocator, inst.encPinsrQ(dst_x, value_r, lane).slice());
+    } else {
+        const lane: u2 = @intCast(payload & 0b11);
+        try buf.appendSlice(allocator, inst.encPinsrD(dst_x, value_r, lane).slice());
+    }
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI32x4ReplaceLane(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+    payload: u32,
+) Error!void {
+    return emitV128IntReplaceLane32Or64(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, payload, false);
+}
+
+pub fn emitI64x2ReplaceLane(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+    payload: u32,
+) Error!void {
+    return emitV128IntReplaceLane32Or64(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, payload, true);
+}
+
 /// Wasm spec §4.4.4 (i64x2.mul) — pop two v128, push their
 /// element-wise 64-bit product per lane (2 lanes; modular
 /// wraparound at 2^64). x86_64 has **no native instruction**
@@ -447,6 +510,61 @@ test "emitI8x16Sub: dispatches to encPsubB — opcode 0xF8 reaches the buffer" {
     @memcpy(expected_buf[n..][0..psub.slice().len], psub.slice());
     n += psub.slice().len;
     try testing.expectEqualSlices(u8, expected_buf[0..n], buf.items);
+}
+
+test "emitI32x4ReplaceLane: pop scalar + v128, emit MOVAPS + PINSRD" {
+    // Synthetic regalloc:
+    //   vreg 0 = vec (v128 input)  → XMM slot 0 = XMM8
+    //   vreg 1 = value (i32 scalar) → GPR slot 0 = RBX
+    //   vreg 2 = result (v128)      → XMM slot 1 = XMM9
+    var slot_ids = [_]u16{ 0, 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0); // vec
+    try pushed.append(testing.allocator, 1); // value (top of stack)
+    var next_vreg: u32 = 2;
+
+    // payload = lane 1.
+    try emitI32x4ReplaceLane(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0, 1);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPinsrD(.xmm9, .rbx, 1).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitI64x2ReplaceLane: dst aliases vec — MOVAPS elided, PINSRQ only" {
+    // result vreg shares slot 0 with vec → MOVAPS elided.
+    var slot_ids = [_]u16{ 0, 0, 0 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 1,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0); // vec
+    try pushed.append(testing.allocator, 1); // value
+    var next_vreg: u32 = 2;
+
+    // payload = lane 1 (only 0 or 1 valid for i64x2).
+    try emitI64x2ReplaceLane(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0, 1);
+
+    try testing.expectEqualSlices(u8, inst.encPinsrQ(.xmm8, .rbx, 1).slice(), buf.items);
 }
 
 test "emitI32x4Splat: GPR slot 0 → XMM slot 0 (RBX → XMM8) — MOVD + PSHUFD" {
