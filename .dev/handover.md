@@ -16,29 +16,27 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..ab landed); **9.7-ac NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..ac landed); **9.7-ad NEXT**
 
-9.7-ab: x86_64 FP convert signed + promote/demote (4 ops).
-4 new SSE2 encoders (CVTDQ2PS/CVTPS2PD/CVTPD2PS/CVTDQ2PD).
-Single-instr unaries. Total SIMD ops handled: 147.
+9.7-ac: x86_64 i8x16.swizzle inline-synth (1 op). 10-instr
+recipe via PCMPGTB-detect of idx>15 + POR-merge into ctrl;
+no const-pool dep, no new encoders. Total SIMD ops handled:
+148.
 
-**9.7-ac NEXT** — i8x16.swizzle (1 op). Wasm semantics:
-out[i] = idx[i] < 16 ? v[idx[i]] : 0. SSE PSHUFB control
-byte: ctrl[i] high bit set → 0; else src[ctrl[i] & 0xF].
-For idx in 16..127, PSHUFB would index into src (wrong;
-Wasm wants 0). Cranelift uses PADDUSB(idx, 0x70-broadcast)
-saturating-add to push 16..127 into 128..255 range (high
-bit set). Without const-pool, synthesise the 0x70-broadcast
-inline via PCMPEQB + PSRLW + PSHUFB-broadcast (similar to
-9.7-v shift mask). 1 new encoder (PADDUSB) + ~10-12 instr
-handler. ~150 src + ~50 test. No ADR.
+**9.7-ad NEXT** — FP unop family: f32x4/f64x2 abs / neg
+(4 ops, sign-mask synthesis) + ceil/floor/trunc/nearest
+(8 ops via SSE4.1 ROUNDPS/ROUNDPD imm). Total ~12 ops in
+one chunk if same shape allows. abs = AND-NOT sign-mask;
+neg = XOR sign-mask. Sign-mask synthesis: PCMPEQB ones +
+PSLLD/PSLLQ imm 31/63 → bit 7 of each lane = 1, rest = 0
+(per-lane sign mask). ~150 src + ~80 test, 2 new encoders
+(ROUNDPS, ROUNDPD).
 
-Subsequent: 9.7-ad+ (FP unop family — abs/neg via PXOR
-sign-mask synthesis; ceil/floor/trunc/nearest via ROUNDSS/
-ROUNDPS imm; 9 ops), 9.7-ae+ (FP convert u-variants +
-trunc-sat 6 ops via const-pool when ADR-0042 lands),
-9.7-af+ (i8x16.shuffle const-pool dep), 9.7-ag (v128.const
-+ const-pool finalisation).
+Subsequent: 9.7-ae+ (FP convert u-variants + trunc-sat 6
+ops via const-pool when ADR-0042 lands), 9.7-af+
+(i8x16.shuffle const-pool dep), 9.7-ag+ (v128.const +
+const-pool finalisation), 9.7-ah+ (i*x*.popcnt + i16x8.q15
++ misc remaining ops).
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -58,5 +56,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ab landed; 9.7-ac NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ac landed; 9.7-ad NEXT).
 **Branch**: `zwasm-from-scratch`。
