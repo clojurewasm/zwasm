@@ -1284,6 +1284,19 @@ pub fn compile(
             .@"f64x2.ge" => try op_simd.emitF64x2Ge(&ctx, &ins),
             // §9.6/9.6-f-i — i8x16.swizzle via NEON TBL (1-register form).
             .@"i8x16.swizzle" => try op_simd.emitI8x16Swizzle(&ctx, &ins),
+            // §9.6/9.6-g-i — extend low/high (SXTL/SXTL2/UXTL/UXTL2).
+            .@"i16x8.extend_low_i8x16_s" => try op_simd.emitI16x8ExtendLowI8x16S(&ctx, &ins),
+            .@"i16x8.extend_high_i8x16_s" => try op_simd.emitI16x8ExtendHighI8x16S(&ctx, &ins),
+            .@"i16x8.extend_low_i8x16_u" => try op_simd.emitI16x8ExtendLowI8x16U(&ctx, &ins),
+            .@"i16x8.extend_high_i8x16_u" => try op_simd.emitI16x8ExtendHighI8x16U(&ctx, &ins),
+            .@"i32x4.extend_low_i16x8_s" => try op_simd.emitI32x4ExtendLowI16x8S(&ctx, &ins),
+            .@"i32x4.extend_high_i16x8_s" => try op_simd.emitI32x4ExtendHighI16x8S(&ctx, &ins),
+            .@"i32x4.extend_low_i16x8_u" => try op_simd.emitI32x4ExtendLowI16x8U(&ctx, &ins),
+            .@"i32x4.extend_high_i16x8_u" => try op_simd.emitI32x4ExtendHighI16x8U(&ctx, &ins),
+            .@"i64x2.extend_low_i32x4_s" => try op_simd.emitI64x2ExtendLowI32x4S(&ctx, &ins),
+            .@"i64x2.extend_high_i32x4_s" => try op_simd.emitI64x2ExtendHighI32x4S(&ctx, &ins),
+            .@"i64x2.extend_low_i32x4_u" => try op_simd.emitI64x2ExtendLowI32x4U(&ctx, &ins),
+            .@"i64x2.extend_high_i32x4_u" => try op_simd.emitI64x2ExtendHighI32x4U(&ctx, &ins),
 
             else => {
                 // §9.7 / 7.5-diag-op: surface the unhandled op

@@ -608,6 +608,66 @@ pub fn encTbl1Reg(rd: Vn, rn: Vn, rm: Vn) u32 {
     return 0x4E000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+// ---------------------------------------------------------------------
+// §9.6 / 9.6-g-i — SXTL / SXTL2 / UXTL / UXTL2 (extend low/high)
+// ---------------------------------------------------------------------
+// Wasm spec (SIMD) — `i*x*.extend_{low,high}_i*x*_{s,u}` (12 ops):
+//   i16x8.extend_{low,high}_i8x16_{s,u}    via SXTL/SXTL2/UXTL/UXTL2 .8H
+//   i32x4.extend_{low,high}_i16x8_{s,u}    via .4S forms
+//   i64x2.extend_{low,high}_i32x4_{s,u}    via .2D forms
+//
+// Encoding family: "Advanced SIMD shift by immediate" (shift=0):
+//   `0 Q U 01111 0 immh:4 immb:3 10100 1 Rn Rd`
+// SXTL/UXTL are aliases of SSHLL/USHLL with immb=0; the "2" suffix
+// (high-half form) sets Q=1, while the low-half form has Q=0.
+// U=0 → signed extend (sign-bit copy); U=1 → unsigned (zero-fill).
+// immh selects element-size:
+//   0001 → 8B → 8H  (i16x8 ← i8x16)
+//   0010 → 4H → 4S  (i32x4 ← i16x8)
+//   0100 → 2S → 2D  (i64x2 ← i32x4)
+// Per Arm IHI 0055 §C7.2.350 (SSHLL) / §C7.2.379 (USHLL) /
+// §C7.2.393 (SXTL alias) / §C7.2.394 (UXTL alias).
+// Handler shape is the standard `emitV128Unop` (pop 1 v128, push 1
+// v128 — same as §9.6-b's FP unaries).
+
+pub fn encSxtl8H(rd: Vn, rn: Vn) u32 {
+    return 0x0F08A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encSxtl2_8H(rd: Vn, rn: Vn) u32 {
+    return 0x4F08A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encSxtl4S(rd: Vn, rn: Vn) u32 {
+    return 0x0F10A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encSxtl2_4S(rd: Vn, rn: Vn) u32 {
+    return 0x4F10A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encSxtl2D(rd: Vn, rn: Vn) u32 {
+    return 0x0F20A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encSxtl2_2D(rd: Vn, rn: Vn) u32 {
+    return 0x4F20A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+pub fn encUxtl8H(rd: Vn, rn: Vn) u32 {
+    return 0x2F08A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encUxtl2_8H(rd: Vn, rn: Vn) u32 {
+    return 0x6F08A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encUxtl4S(rd: Vn, rn: Vn) u32 {
+    return 0x2F10A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encUxtl2_4S(rd: Vn, rn: Vn) u32 {
+    return 0x6F10A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encUxtl2D(rd: Vn, rn: Vn) u32 {
+    return 0x2F20A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encUxtl2_2D(rd: Vn, rn: Vn) u32 {
+    return 0x6F20A400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 /// `BSL V<d>.16B, V<n>.16B, V<m>.16B` — bitwise select using V<d>
 /// as the mask. Element width is irrelevant since BSL is bitwise.
 pub fn encBsl16B(rd: Vn, rn: Vn, rm: Vn) u32 {
@@ -1294,6 +1354,62 @@ test "encTbl1Reg: V0, V1, V2 (tbl v0.16b, {v1.16b}, v2.16b)" {
 test "encTbl1Reg: V31, V31, V31 (max indices)" {
     // 0x4E000000 | (31 << 16) | (31 << 5) | 31 = 0x4E1F03FF
     try testing.expectEqual(@as(u32, 0x4E1F03FF), encTbl1Reg(31, 31, 31));
+}
+
+// ============================================================
+// §9.6 / 9.6-g-i — SXTL/UXTL extend-low/high
+// ============================================================
+// Cranelift cross-references (wasmtime/cranelift/codegen/src/isa/
+// aarch64/inst/emit_tests.rs:2826-2890):
+//   sxtl  v4.8h,  v27.8b  → 0x0F08A764
+//   sxtl2 v17.4s, v19.8h  → 0x4F10A671
+//   sxtl  v30.2d, v6.2s   → 0x0F20A4DE
+//   uxtl2 v3.8h,  v29.16b → 0x6F08A7A3
+//   uxtl  v15.4s, v12.4h  → 0x2F10A58F
+//   uxtl2 v28.2d, v2.4s   → 0x6F20A45C
+
+test "encSxtl8H: v4.8h, v27.8b (cranelift cross-check)" {
+    // 0x0F08A400 | (27 << 5) | 4 = 0x0F08A764
+    try testing.expectEqual(@as(u32, 0x0F08A764), encSxtl8H(4, 27));
+}
+
+test "encSxtl2_4S: v17.4s, v19.8h (cranelift cross-check)" {
+    // 0x4F10A400 | (19 << 5) | 17 = 0x4F10A671
+    try testing.expectEqual(@as(u32, 0x4F10A671), encSxtl2_4S(17, 19));
+}
+
+test "encSxtl2D: v30.2d, v6.2s (cranelift cross-check)" {
+    // 0x0F20A400 | (6 << 5) | 30 = 0x0F20A4DE
+    try testing.expectEqual(@as(u32, 0x0F20A4DE), encSxtl2D(30, 6));
+}
+
+test "encUxtl2_8H: v3.8h, v29.16b (cranelift cross-check)" {
+    // 0x6F08A400 | (29 << 5) | 3 = 0x6F08A7A3
+    try testing.expectEqual(@as(u32, 0x6F08A7A3), encUxtl2_8H(3, 29));
+}
+
+test "encUxtl4S: v15.4s, v12.4h (cranelift cross-check)" {
+    // 0x2F10A400 | (12 << 5) | 15 = 0x2F10A58F
+    try testing.expectEqual(@as(u32, 0x2F10A58F), encUxtl4S(15, 12));
+}
+
+test "encUxtl2_2D: v28.2d, v2.4s (cranelift cross-check)" {
+    // 0x6F20A400 | (2 << 5) | 28 = 0x6F20A45C
+    try testing.expectEqual(@as(u32, 0x6F20A45C), encUxtl2_2D(28, 2));
+}
+
+test "Sxtl vs Uxtl: U bit differs (bit 29)" {
+    try testing.expectEqual(@as(u32, 0x20000000), encUxtl8H(0, 0) ^ encSxtl8H(0, 0));
+}
+
+test "Sxtl vs Sxtl2: Q bit differs (bit 30)" {
+    try testing.expectEqual(@as(u32, 0x40000000), encSxtl2_8H(0, 0) ^ encSxtl8H(0, 0));
+}
+
+test "Sxtl shapes pairwise distinct (immh field)" {
+    try testing.expect(encSxtl8H(0, 0) != encSxtl4S(0, 0));
+    try testing.expect(encSxtl4S(0, 0) != encSxtl2D(0, 0));
+    try testing.expect(encSxtl8H(0, 0) != encSxtl2D(0, 0));
 }
 
 test "Int compare shapes: 4 CMEQ encodings pairwise distinct" {

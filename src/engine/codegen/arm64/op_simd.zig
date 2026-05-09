@@ -882,6 +882,30 @@ pub fn emitF64x2Le(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128B
 //   TBL V<result>.16B, { V<operand>.16B }, V<indices>.16B
 // Stack order: operand pushed first, indices pushed second; popped
 // in reverse → indices first, operand second.
+// ============================================================
+// §9.6 / 9.6-g-i — i*x*.extend_{low,high}_i*x*_{s,u} (12 ops)
+// ============================================================
+//
+// Wasm spec — bitwise sign/zero extension to double-width lanes.
+// Single-instruction NEON lowering (SXTL/SXTL2/UXTL/UXTL2 — aliases
+// of SSHLL/USHLL with shift=0). Each handler is a thin
+// `emitV128Unop` adapter with the appropriate per-shape encoder.
+
+pub fn emitI16x8ExtendLowI8x16S(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encSxtl8H); }
+pub fn emitI16x8ExtendHighI8x16S(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encSxtl2_8H); }
+pub fn emitI16x8ExtendLowI8x16U(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encUxtl8H); }
+pub fn emitI16x8ExtendHighI8x16U(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encUxtl2_8H); }
+
+pub fn emitI32x4ExtendLowI16x8S(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encSxtl4S); }
+pub fn emitI32x4ExtendHighI16x8S(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encSxtl2_4S); }
+pub fn emitI32x4ExtendLowI16x8U(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encUxtl4S); }
+pub fn emitI32x4ExtendHighI16x8U(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encUxtl2_4S); }
+
+pub fn emitI64x2ExtendLowI32x4S(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encSxtl2D); }
+pub fn emitI64x2ExtendHighI32x4S(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encSxtl2_2D); }
+pub fn emitI64x2ExtendLowI32x4U(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encUxtl2D); }
+pub fn emitI64x2ExtendHighI32x4U(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Unop(ctx, inst_neon.encUxtl2_2D); }
+
 pub fn emitI8x16Swizzle(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const indices_vreg = ctx.pushed_vregs.pop().?;
     const indices_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, indices_vreg, 1);
