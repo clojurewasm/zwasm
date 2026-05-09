@@ -1544,6 +1544,68 @@ pub fn emitI8x16ShrU(
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.4 (i8x16.shr_s) — pop count (i32), pop vec
+/// (v128), push v128 with each byte signed-shifted right by
+/// `c & 7`. SSE has no native byte arithmetic shift and no
+/// PSRAQ; synthesise per cranelift `lower.isle:846+` by sign-
+/// extending bytes to words, applying PSRAW per half, and
+/// packing back with signed saturation:
+///
+///   AND count_r, 7
+///   PXOR XMM14, XMM14                ; XMM14 = zero
+///   PCMPGTB XMM14, vec                ; XMM14 = sign-mask of src
+///                                     ;   (0xFF where src byte < 0, else 0x00)
+///   MOVAPS XMM15, vec                 ; XMM15 = src (preserve for high-half)
+///   MOVAPS dst, vec                   ; (skip-elide if dst==vec)
+///   PUNPCKLBW dst, XMM14              ; dst = sign-extended low 8 bytes (8 i16)
+///   PUNPCKHBW XMM15, XMM14            ; XMM15 = sign-extended high 8 bytes
+///   MOVD XMM14, count_r               ; XMM14 = count (sign-mask consumed)
+///   PSRAW dst, XMM14                  ; signed shift low half
+///   PSRAW XMM15, XMM14                ; signed shift high half
+///   PACKSSWB dst, XMM15               ; pack 16 i16 → 16 i8 with signed saturation
+///
+/// Saturation is a no-op in this path because each i16 word
+/// holds an in-range sign-extended-then-shifted i8 value (the
+/// PSRAW preserves the sign bit invariant, and the resulting
+/// magnitude is bounded by the original i8 range). 11
+/// instructions; uses both XMM14 + XMM15 scratches.
+pub fn emitI8x16ShrS(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const count_v = pushed_vregs.pop().?;
+    const vec_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const vec_x = try gpr.resolveXmm(alloc, vec_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
+    const sign_x = abi.fp_spill_stage_xmms[0]; // XMM14: sign-mask, then count
+    const high_x = abi.fp_spill_stage_xmms[1]; // XMM15: src copy, then high-half sign-extended
+
+    try buf.appendSlice(allocator, inst.encAndRImm8(.d, count_r, 7).slice());
+    try buf.appendSlice(allocator, inst.encPxor(sign_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encPcmpgtB(sign_x, vec_x).slice());
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(high_x, vec_x).slice());
+    if (dst_x != vec_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPunpcklbw(dst_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encPunpckhbw(high_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encMovdXmmFromR32(sign_x, count_r).slice()); // sign_x repurposed → count
+    try buf.appendSlice(allocator, inst.encPsrawReg(dst_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encPsrawReg(high_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encPacksswb(dst_x, high_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
 pub fn emitI64x2ShrS(
     allocator: Allocator,
     buf: *std.ArrayList(u8),

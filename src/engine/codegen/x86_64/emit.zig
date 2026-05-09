@@ -982,6 +982,11 @@ pub fn compile(
             // PUNPCKLBW + PSRAW + PACKSSWB — structurally different).
             .@"i8x16.shl" => try op_simd.emitI8x16Shl(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"i8x16.shr_u" => try op_simd.emitI8x16ShrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            // §9.7 / 9.7-w: i8x16.shr_s via cranelift sign-extension
+            // synthesis (`lower.isle:846+`). 11-instr: PCMPGTB sign-
+            // mask + PUNPCKL/HBW byte→word extension + PSRAW per
+            // half + PACKSSWB pack.
+            .@"i8x16.shr_s" => try op_simd.emitI8x16ShrS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at

@@ -1126,6 +1126,24 @@ pub fn encPsubq(dst: Xmm, src: Xmm) EncodedInsn {
     return encSsePackedIntBinop(0xFB, dst, src);
 }
 
+/// `PUNPCKLBW xmm, xmm` (66 [REX?] 0F 60 /r) — SSE2 unpack low
+/// 8 bytes from each operand into 8 interleaved word lanes
+/// (dst.byte[2i] = dst.byte[i]; dst.byte[2i+1] = src.byte[i]).
+/// Used by §9.7-w `i8x16.shr_s` synthesis to sign-extend low
+/// 8 bytes of source by interleaving with a sign-mask byte
+/// pattern.
+pub fn encPunpcklbw(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x60, dst, src);
+}
+
+/// `PUNPCKHBW xmm, xmm` (66 [REX?] 0F 68 /r) — SSE2 unpack high
+/// 8 bytes (dst.byte[2i] = dst.byte[8+i]; dst.byte[2i+1] =
+/// src.byte[8+i]). Used by `i8x16.shr_s` synthesis for the
+/// high-half sign extension.
+pub fn encPunpckhbw(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinop(0x68, dst, src);
+}
+
 // `encMovdXmmFromR32` is defined earlier in this file (line ~179)
 // for the lane-0 splat path; reused here by §9.7-t shift handlers
 // to load shift count into the low 32 bits of a scratch xmm.
@@ -1406,6 +1424,11 @@ test "encPsrawReg / encPsradReg opcode bytes (xmm0, xmm1)" {
 
 test "encPsubq opcode bytes (xmm0, xmm1) — SSE2 packed 64-bit subtract" {
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xFB, 0xC1 }, encPsubq(.xmm0, .xmm1).slice());
+}
+
+test "encPunpcklbw / encPunpckhbw opcode bytes (xmm0, xmm1)" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x60, 0xC1 }, encPunpcklbw(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x68, 0xC1 }, encPunpckhbw(.xmm0, .xmm1).slice());
 }
 
 test "encMovdXmmFromR32: xmm0, eax — 66 0F 6E ModRM" {
