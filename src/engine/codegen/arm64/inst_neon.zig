@@ -376,6 +376,62 @@ pub fn encMovVDlaneFromVD0(rd: Vn, dst_lane: u1, rn: Vn) u32 {
     return 0x6E000400 | (imm5 << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+// ---------------------------------------------------------------------
+// §9.6 / 9.6-a — FP three-same arithmetic (FADD / FSUB / FMUL / FDIV)
+// ---------------------------------------------------------------------
+// Wasm spec (SIMD) — `f32x4.add/sub/mul/div` and `f64x2.add/sub/mul/div`.
+// Encoding family: "Floating-point three same"
+//   `0 Q U 01110 op 1 sz 1 Rm opcode 1 Rn Rd`
+// where Q=1 for the 128-bit form, U distinguishes (FMUL/FDIV use U=1),
+// op bit 23 distinguishes FADD (0) vs FSUB (1) within the U=0 family,
+// sz (bit 22) selects S (0) vs D (1) lanes, and opcode bits[15:11]
+// further disambiguate (FADD/FSUB = 11010, FMUL = 11011, FDIV = 11111).
+// Per Arm IHI 0055 §C7.2.97 / §C7.2.146 / §C7.2.131 / §C7.2.115.
+
+/// `FADD V<d>.4S, V<n>.4S, V<m>.4S` — f32x4 lanewise add (IEEE-754
+/// round-to-nearest-even, NaN-propagating per Wasm spec).
+pub fn encFAdd4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4E20D400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FADD V<d>.2D, V<n>.2D, V<m>.2D` — f64x2 lanewise add.
+pub fn encFAdd2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4E60D400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FSUB V<d>.4S, V<n>.4S, V<m>.4S` — f32x4 lanewise sub. Bit 23 = 1
+/// (vs FADD's 0); same opcode bits[15:11] = 11010.
+pub fn encFSub4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4EA0D400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FSUB V<d>.2D, V<n>.2D, V<m>.2D` — f64x2 lanewise sub.
+pub fn encFSub2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4EE0D400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FMUL V<d>.4S, V<n>.4S, V<m>.4S` — f32x4 lanewise mul. U=1,
+/// opcode bits[15:11] = 11011.
+pub fn encFMul4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x6E20DC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FMUL V<d>.2D, V<n>.2D, V<m>.2D` — f64x2 lanewise mul.
+pub fn encFMul2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x6E60DC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FDIV V<d>.4S, V<n>.4S, V<m>.4S` — f32x4 lanewise div. U=1,
+/// opcode bits[15:11] = 11111.
+pub fn encFDiv4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x6E20FC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FDIV V<d>.2D, V<n>.2D, V<m>.2D` — f64x2 lanewise div.
+pub fn encFDiv2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x6E60FC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 // =====================================================================
 // Tests
 // =====================================================================
@@ -714,4 +770,54 @@ test "DUP-scalar vs INS-element: distinct opcode prefixes" {
     const dup_word = encMovScalarSFromVlane(0, 0, 0);
     const ins_word = encMovVSlaneFromVS0(0, 0, 0);
     try testing.expectEqual(@as(u32, 0x30000000), dup_word ^ ins_word);
+}
+
+// ============================================================
+// §9.6 / 9.6-a — FP three-same arithmetic (FADD/FSUB/FMUL/FDIV)
+// ============================================================
+
+test "encFAdd4S: V0, V1, V2 (f32x4.add base)" {
+    // 0x4E20D400 | (2 << 16) | (1 << 5) | 0 = 0x4E22D420
+    try testing.expectEqual(@as(u32, 0x4E22D420), encFAdd4S(0, 1, 2));
+}
+
+test "encFAdd2D: V0, V1, V2 (f64x2.add)" {
+    // 0x4E60D400 | (2 << 16) | (1 << 5) | 0 = 0x4E62D420
+    try testing.expectEqual(@as(u32, 0x4E62D420), encFAdd2D(0, 1, 2));
+}
+
+test "encFSub4S vs encFAdd4S: bit 23 differs (op = add vs sub)" {
+    // 0x4EA0D400 vs 0x4E20D400 → XOR = 0x00800000
+    try testing.expectEqual(@as(u32, 0x00800000), encFSub4S(0, 1, 2) ^ encFAdd4S(0, 1, 2));
+}
+
+test "encFSub2D: V31, V31, V31 (max indices, f64x2.sub)" {
+    // 0x4EE0D400 | (31 << 16) | (31 << 5) | 31 = 0x4EFFD7FF
+    try testing.expectEqual(@as(u32, 0x4EFFD7FF), encFSub2D(31, 31, 31));
+}
+
+test "encFMul4S: V0, V1, V2 (f32x4.mul, U=1, opcode bit 11 set vs FADD/FSUB)" {
+    // 0x6E20DC00 | ... = 0x6E22DC20
+    try testing.expectEqual(@as(u32, 0x6E22DC20), encFMul4S(0, 1, 2));
+}
+
+test "encFMul2D: V0, V1, V2 (f64x2.mul)" {
+    // 0x6E60DC00 | ... = 0x6E62DC20
+    try testing.expectEqual(@as(u32, 0x6E62DC20), encFMul2D(0, 1, 2));
+}
+
+test "encFDiv4S: V0, V1, V2 (f32x4.div, opcode 11111)" {
+    // 0x6E20FC00 | ... = 0x6E22FC20
+    try testing.expectEqual(@as(u32, 0x6E22FC20), encFDiv4S(0, 1, 2));
+}
+
+test "encFDiv2D vs encFMul2D: opcode bit 13 differs" {
+    // FDIV opcode 11111, FMUL 11011 → bit 13 differs → +0x2000.
+    try testing.expectEqual(@as(u32, 0x2000), encFDiv2D(0, 1, 2) ^ encFMul2D(0, 1, 2));
+}
+
+test "FP arith: sz field selects 4S vs 2D (bit 22)" {
+    // .4S has sz=0, .2D has sz=1 → bit 22 differs → +0x00400000.
+    try testing.expectEqual(@as(u32, 0x00400000), encFAdd2D(0, 1, 2) ^ encFAdd4S(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x00400000), encFMul2D(0, 1, 2) ^ encFMul4S(0, 1, 2));
 }

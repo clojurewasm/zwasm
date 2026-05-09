@@ -1198,6 +1198,15 @@ pub fn compile(
             .@"f64x2.replace_lane" => try op_simd.emitF64x2ReplaceLane(&ctx, &ins),
             // §9.9/9.5-c-vii-mul — i64x2.mul multi-instr synthesis.
             .@"i64x2.mul" => try op_simd.emitI64x2Mul(&ctx, &ins),
+            // §9.6/9.6-a — f32x4 / f64x2 binary FP arithmetic.
+            .@"f32x4.add" => try op_simd.emitF32x4Add(&ctx, &ins),
+            .@"f32x4.sub" => try op_simd.emitF32x4Sub(&ctx, &ins),
+            .@"f32x4.mul" => try op_simd.emitF32x4Mul(&ctx, &ins),
+            .@"f32x4.div" => try op_simd.emitF32x4Div(&ctx, &ins),
+            .@"f64x2.add" => try op_simd.emitF64x2Add(&ctx, &ins),
+            .@"f64x2.sub" => try op_simd.emitF64x2Sub(&ctx, &ins),
+            .@"f64x2.mul" => try op_simd.emitF64x2Mul(&ctx, &ins),
+            .@"f64x2.div" => try op_simd.emitF64x2Div(&ctx, &ins),
 
             else => {
                 // §9.7 / 7.5-diag-op: surface the unhandled op

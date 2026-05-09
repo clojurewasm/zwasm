@@ -542,3 +542,42 @@ pub fn emitI64x2Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
+
+// ============================================================
+// §9.6 / 9.6-a — f32x4 / f64x2 binary FP arithmetic
+// ============================================================
+//
+// Wasm spec (SIMD) — `f32x4.add/sub/mul/div`, `f64x2.add/sub/mul/div`.
+// Lowers to NEON FADD/FSUB/FMUL/FDIV with 4S (S = single) or 2D
+// (D = double) arrangement. NEON FP arith follows IEEE-754
+// round-to-nearest-even with NaN-propagation matching Wasm
+// semantics (per ADR-0041 §"4. NEON IEEE-754 spec-fidelity").
+//
+// All 8 handlers share the existing `emitV128Binop` shape — pop
+// 2 v128, push 1 v128 — so they're thin adapters around the
+// per-shape encoder.
+
+pub fn emitF32x4Add(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFAdd4S);
+}
+pub fn emitF32x4Sub(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFSub4S);
+}
+pub fn emitF32x4Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFMul4S);
+}
+pub fn emitF32x4Div(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFDiv4S);
+}
+pub fn emitF64x2Add(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFAdd2D);
+}
+pub fn emitF64x2Sub(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFSub2D);
+}
+pub fn emitF64x2Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFMul2D);
+}
+pub fn emitF64x2Div(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Binop(ctx, inst_neon.encFDiv2D);
+}
