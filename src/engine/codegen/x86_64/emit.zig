@@ -275,7 +275,17 @@ pub fn compile(
     // > 0 the per-call `emitShadowAlloc` / `Free` become no-ops
     // (the shadow is already part of the prologue's SUB RSP).
     const outgoing_max_bytes: u32 = computeOutgoingMaxBytes(func, func_sigs, module_types);
-    const frame_unaligned: u32 = outgoing_max_bytes + locals_bytes + spill_bytes;
+    // §9.7/9.7-as / D-054: include r15_save_bytes so local 0 at
+    // [RBP-16] (when uses_runtime_ptr=true) lives INSIDE the frame.
+    // The prologue does PUSH R15 before MOV RBP,RSP so R15 actually
+    // saves at [RBP+0], NOT [RBP-8] — but localDisp's comment +
+    // formula assume the slot at [RBP-8] is reserved for R15 (it
+    // is, just above the locals). Without this +r15_save_bytes,
+    // SysV (no shadow space) under-allocates and the next CALL's
+    // pushed return address lands on local 0 at [RBP-16]. Win64's
+    // 32-byte shadow_space inflates the frame enough that it hid
+    // this bug until OrbStack runs (= Linux x86_64 SysV).
+    const frame_unaligned: u32 = outgoing_max_bytes + locals_bytes + spill_bytes + r15_save_bytes;
     const frame_bytes: u32 = if (uses_runtime_ptr)
         ((frame_unaligned + 7) & ~@as(u32, 15)) + 8
     else
