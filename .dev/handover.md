@@ -13,36 +13,42 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.6/9.6-d [x] (int compares, 36 ops); **§9.6/9.6-e NEXT**
+## Current state — Phase 9 / §9.6/9.6-e [x] (FP compares, 12 ops); **§9.6/9.6-f NEXT**
 
-§9.6/9.6-d adds 19 NEON int-compare encoders (CMEQ/CMGT/CMGE/
-CMHI/CMHS × 4 shapes + NOT V16B) + 36 op_simd handlers + 2
-shared helpers (`emitV128BinopSwapped` for lt/le → gt/ge swap;
-`emitV128Ne` for CMEQ → NOT synthesis using V31 scratch).
-i64x2 omits unsigned variants per Wasm 2.0 SIMD.
+§9.6/9.6-e adds 4 NEON FP-compare encoders (FCMEQ/FCMGE × 4S/2D)
++ 12 op_simd handlers reusing 9.6-d helpers (`emitV128Binop`,
+`emitV128Ne`, `emitV128BinopSwapped`). FCMGT was already added
+in 9.6-c-ii. Net chunk is essentially encoder additions + thin
+dispatch wiring.
 
 Per LOOP.md chunk granularity, §9.6 sub-row state:
-- 9.6-a/b/c-i/c-ii/d [x]: FP binary + FP unary + min/max +
-  pmin/pmax + int compares.
-- 9.6-e NEXT: FP compares (FCMEQ/FCMGT/FCMGE) for f32x4/f64x2.
-- 9.6-f: shuffle/swizzle (TBL-based).
-- 9.6-g: conversion (trunc_sat/convert/narrow/extend).
+- 9.6-a/b/c-i/c-ii/d/e [x]: FP binary + FP unary + min/max +
+  pmin/pmax + int compares + FP compares.
+- 9.6-f NEXT: shuffle (i8x16.shuffle via TBL) + swizzle
+  (i8x16.swizzle via TBL with the source register holding lane
+  indices).
+- 9.6-g: conversion (trunc_sat / convert / narrow / extend).
 
 Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
 212/0/20, wast 1158/0/0.
 
-**§9.6/9.6-e NEXT** — FP per-lane compare ops (f32x4/f64x2 ×
-eq/ne/lt/gt/le/ge = 12 ops). Maps to NEON:
-- eq → FCMEQ
-- ne → FCMEQ + NOT V16B (synthesis, reuse `emitV128Ne` from 9.6-d)
-- gt → FCMGT (already added in 9.6-c-ii for pmin/pmax)
-- ge → FCMGE
-- lt/le → swap operands + FCMGT/FCMGE (reuse
-  `emitV128BinopSwapped`)
+**§9.6/9.6-f NEXT** — i8x16.shuffle + i8x16.swizzle.
+- `i8x16.shuffle` takes 2 v128 sources + 16-byte immediate (the
+  shuffle indices, each in 0..31). Lowers to NEON `TBL Vd.16B,
+  { Vn.16B, Vn+1.16B }, Vm.16B` (table lookup with 2 source
+  registers — pair must be consecutive). Indices ≥ 32 are
+  Wasm-spec UB, but typically map to 0 in NEON's TBL semantics
+  for indices ≥ table-size. To pass the 16-byte immediate, the
+  index vector must be loaded from constant memory (literal
+  pool) into a v128 vreg first.
+- `i8x16.swizzle` takes 2 v128 sources (operand + index vector).
+  Lowers to NEON `TBL Vd.16B, { Vn.16B }, Vm.16B` (single
+  source).
 
-Encoders to add: encFCmEq4S/2D + encFCmGe4S/2D = 4 new encoders.
-FCMGT already exists from 9.6-c-ii. Estimated ~80 src + ~40 tests
-since most plumbing reuses 9.6-d helpers.
+Both need TBL encoder + handler; shuffle additionally needs
+const-pool plumbing for the 16-byte index immediate. Estimated
+~120 src + ~80 tests; may split into 9.6-f-i (swizzle, simpler)
+and 9.6-f-ii (shuffle, with const-pool).
 
 After 8b.4: 8b.5 (boundary audit_scaffolding) + 8b.6 (open
 §9.9 inline + flip Phase Status).
