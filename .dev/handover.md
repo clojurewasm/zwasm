@@ -16,38 +16,32 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..aq landed); **9.7-ar NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..ar landed); **D-054 SPIKE FOLLOW-UP NEXT**
 
-9.7-aq: x86_64 i32x4.extadd_pairwise_i16x8_u (1 op, 11-instr
-inline-synth via sign-flip XOR + PMADDWD+1 + bias-correction).
-Closes the extadd_pairwise family across all 4 variants. 1 new
-encoder encPsllwImm. No const-pool dep. Total SIMD ops handled:
-186.
+9.7-ar: x86_64 i8x16.shuffle via emit-time derived a-mask/b-mask
++ PSHUFB-pair + POR-merge (1 op, 7-instr recipe). Closes the
+structural blocker from 9.7-al/am. Total SIMD ops handled: 187.
 
-**9.7-ar NEXT** — `i8x16.shuffle` (1 op). Cranelift's recipe
-(`lower.isle:4710+`): PSHUFB(src1, a_mask) | PSHUFB(src2, b_mask)
-where a_mask + b_mask are DERIVED from the original Wasm mask:
-a_mask[i] = mask[i] if mask[i] < 16 else 0x80; b_mask[i] =
-mask[i] - 16 if mask[i] >= 16 else 0x80. Structural challenge:
-ADR-0042's per-instance simd_consts is populated by lower.zig
-with the ORIGINAL mask, but x86_64 needs 2 derived masks.
-Three resolution paths:
-(a) Modify lower.zig to store derived masks for shuffle —
-    changes lower contract used by ARM64.
-(b) Add x86_64 emit-time derivation: handler reads original
-    mask from func.simd_consts[const_idx], derives 2 masks,
-    appends to extra_consts. Cleanest — matches existing
-    extra_consts dedup pattern.
-(c) Per-arch lower hook to emit derived masks at lower-time.
-**Recommend (b)** — minimal change, no cross-arch impact.
-Recipe: ~6 instr (2 MOVUPS-RIP-rel const loads + PSHUFB pair
-+ POR-merge), 2 derived consts per call site (no dedup since
-masks are per-instance).
+**SIDE-FINDING (this cycle)**: spike confirmed D-054 OrbStack
+as-loop-broke FAIL is a HOIST PASS BUG (NOT Rosetta artefact) —
+`ZWASM_NO_HOIST=1` makes OrbStack 212/0/20 green. Likely a
+synthetic-local lifetime / SysV-caller-saved-reg interaction
+around `call $dummy`. Updated D-054 with concrete discharge plan.
 
-Subsequent: 9.7-as (i32x4.trunc_sat_f32x4_u — needs 3 scratch
+**9.7-as NEXT** — D-054 root-cause investigation + fix. The
+hypothesis (synthetic-local clobbered by SysV caller-saved-reg
+spill discipline around calls) is testable via WAT spike +
+lldb -b on OrbStack. Discharge order: (a) WAT replicate of
+the bug shape (loop-with-call-with-br-const) lands as edge-
+case fixture; (b) lldb -b inspects synthetic-local lifetime
+across call boundary; (c) fix in `src/ir/hoist/pass.zig` or
+regalloc spill discipline; (d) D-054 closes; OrbStack gate
+becomes strict (no D-054 carry).
+
+Subsequent: 9.7-at (i32x4.trunc_sat_f32x4_u — needs 3 scratch
 xmms; ADR-grade scratch-budget extension OR fall back to
 spilling tmp to stack). Phase 7 close-out approaching:
-~2 chunks until 7.13 hard gate.
+~1-2 chunks + D-054 fix until 7.13 hard gate.
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
@@ -67,5 +61,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..aq landed; 9.7-ar NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ar landed; D-054 fix or 9.7-as NEXT).
 **Branch**: `zwasm-from-scratch`。
