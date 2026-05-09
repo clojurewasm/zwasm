@@ -581,3 +581,71 @@ pub fn emitF64x2Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 pub fn emitF64x2Div(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try emitV128Binop(ctx, inst_neon.encFDiv2D);
 }
+
+// ============================================================
+// §9.6 / 9.6-b — f32x4 / f64x2 unary FP arithmetic
+// ============================================================
+//
+// Wasm spec (SIMD) — `f32x4.{abs,neg,sqrt,ceil,floor,trunc,nearest}`
+// and the f64x2 counterparts. Lowers to NEON FABS / FNEG / FSQRT /
+// FRINTN / FRINTM / FRINTP / FRINTZ with 4S or 2D shape.
+
+/// Helper: emit a v128 unary op via the given encoder (rd, rn) → u32.
+/// Pop 1 v128 vreg, push 1 v128 result. Mirrors `emitV128Binop` but
+/// with one source operand.
+fn emitV128Unop(ctx: *EmitCtx, encoder: *const fn (rd: u5, rn: u5) u32) Error!void {
+    const src_vreg = ctx.pushed_vregs.pop().?;
+    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, encoder(result_v, src_v));
+    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+pub fn emitF32x4Abs(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFAbs4S);
+}
+pub fn emitF32x4Neg(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFNeg4S);
+}
+pub fn emitF32x4Sqrt(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFSqrt4S);
+}
+pub fn emitF32x4Ceil(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFRintP4S);
+}
+pub fn emitF32x4Floor(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFRintM4S);
+}
+pub fn emitF32x4Trunc(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFRintZ4S);
+}
+pub fn emitF32x4Nearest(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFRintN4S);
+}
+pub fn emitF64x2Abs(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFAbs2D);
+}
+pub fn emitF64x2Neg(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFNeg2D);
+}
+pub fn emitF64x2Sqrt(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFSqrt2D);
+}
+pub fn emitF64x2Ceil(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFRintP2D);
+}
+pub fn emitF64x2Floor(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFRintM2D);
+}
+pub fn emitF64x2Trunc(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFRintZ2D);
+}
+pub fn emitF64x2Nearest(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encFRintN2D);
+}

@@ -1207,6 +1207,21 @@ pub fn compile(
             .@"f64x2.sub" => try op_simd.emitF64x2Sub(&ctx, &ins),
             .@"f64x2.mul" => try op_simd.emitF64x2Mul(&ctx, &ins),
             .@"f64x2.div" => try op_simd.emitF64x2Div(&ctx, &ins),
+            // §9.6/9.6-b — f32x4/f64x2 unary FP arithmetic.
+            .@"f32x4.abs" => try op_simd.emitF32x4Abs(&ctx, &ins),
+            .@"f32x4.neg" => try op_simd.emitF32x4Neg(&ctx, &ins),
+            .@"f32x4.sqrt" => try op_simd.emitF32x4Sqrt(&ctx, &ins),
+            .@"f32x4.ceil" => try op_simd.emitF32x4Ceil(&ctx, &ins),
+            .@"f32x4.floor" => try op_simd.emitF32x4Floor(&ctx, &ins),
+            .@"f32x4.trunc" => try op_simd.emitF32x4Trunc(&ctx, &ins),
+            .@"f32x4.nearest" => try op_simd.emitF32x4Nearest(&ctx, &ins),
+            .@"f64x2.abs" => try op_simd.emitF64x2Abs(&ctx, &ins),
+            .@"f64x2.neg" => try op_simd.emitF64x2Neg(&ctx, &ins),
+            .@"f64x2.sqrt" => try op_simd.emitF64x2Sqrt(&ctx, &ins),
+            .@"f64x2.ceil" => try op_simd.emitF64x2Ceil(&ctx, &ins),
+            .@"f64x2.floor" => try op_simd.emitF64x2Floor(&ctx, &ins),
+            .@"f64x2.trunc" => try op_simd.emitF64x2Trunc(&ctx, &ins),
+            .@"f64x2.nearest" => try op_simd.emitF64x2Nearest(&ctx, &ins),
 
             else => {
                 // §9.7 / 7.5-diag-op: surface the unhandled op

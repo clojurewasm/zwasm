@@ -432,6 +432,90 @@ pub fn encFDiv2D(rd: Vn, rn: Vn, rm: Vn) u32 {
     return 0x6E60FC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+// ---------------------------------------------------------------------
+// §9.6 / 9.6-b — FP two-register-misc unary (FABS / FNEG / FSQRT /
+//                FRINTN / FRINTM / FRINTP / FRINTZ)
+// ---------------------------------------------------------------------
+// Wasm spec (SIMD) — `f32x4.{abs,neg,sqrt,ceil,floor,trunc,nearest}`
+// and the f64x2 counterparts. Mapping:
+//   abs     → FABS    (sign bit cleared)
+//   neg     → FNEG    (sign bit toggled)
+//   sqrt    → FSQRT   (IEEE-754 square root)
+//   ceil    → FRINTP  (round toward +∞)
+//   floor   → FRINTM  (round toward -∞)
+//   trunc   → FRINTZ  (round toward zero)
+//   nearest → FRINTN  (round to nearest, ties-to-even)
+//
+// Encoding family: "Advanced SIMD two-register miscellaneous (FP)"
+//   `0 Q U 01110 a 1 sz 10000 opcode 10 Rn Rd`
+// Q=1 for 128-bit form. U distinguishes (FABS/FRINT*=0, FNEG/FSQRT=1).
+// Bit 23 ("a") + opcode disambiguate the op:
+//   FABS    a=1 U=0 opcode=01111
+//   FNEG    a=1 U=1 opcode=01111
+//   FSQRT   a=1 U=1 opcode=11111
+//   FRINTN  a=0 U=0 opcode=11000
+//   FRINTM  a=0 U=0 opcode=11001
+//   FRINTP  a=1 U=0 opcode=11000
+//   FRINTZ  a=1 U=0 opcode=11001
+// sz (bit 22) selects S (0) vs D (1) lanes. Bits 11:10 = 10.
+// Per Arm IHI 0055 §C7.2.91 / §C7.2.135 / §C7.2.144 /
+// §C7.2.138 / §C7.2.139 / §C7.2.140 / §C7.2.142.
+
+pub fn encFAbs4S(rd: Vn, rn: Vn) u32 {
+    return 0x4EA0F800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFAbs2D(rd: Vn, rn: Vn) u32 {
+    return 0x4EE0F800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFNeg4S(rd: Vn, rn: Vn) u32 {
+    return 0x6EA0F800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFNeg2D(rd: Vn, rn: Vn) u32 {
+    return 0x6EE0F800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFSqrt4S(rd: Vn, rn: Vn) u32 {
+    return 0x6EA1F800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFSqrt2D(rd: Vn, rn: Vn) u32 {
+    return 0x6EE1F800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FRINTN V<d>.<T>, V<n>.<T>` — round to nearest, ties-to-even.
+/// Wasm `f*x*.nearest`. a=0, opcode=11000.
+pub fn encFRintN4S(rd: Vn, rn: Vn) u32 {
+    return 0x4E218800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFRintN2D(rd: Vn, rn: Vn) u32 {
+    return 0x4E618800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FRINTM V<d>.<T>, V<n>.<T>` — round toward -∞. Wasm `f*x*.floor`.
+/// a=0, opcode=11001.
+pub fn encFRintM4S(rd: Vn, rn: Vn) u32 {
+    return 0x4E219800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFRintM2D(rd: Vn, rn: Vn) u32 {
+    return 0x4E619800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FRINTP V<d>.<T>, V<n>.<T>` — round toward +∞. Wasm `f*x*.ceil`.
+/// a=1, opcode=11000.
+pub fn encFRintP4S(rd: Vn, rn: Vn) u32 {
+    return 0x4EA18800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFRintP2D(rd: Vn, rn: Vn) u32 {
+    return 0x4EE18800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FRINTZ V<d>.<T>, V<n>.<T>` — round toward zero. Wasm `f*x*.trunc`.
+/// a=1, opcode=11001.
+pub fn encFRintZ4S(rd: Vn, rn: Vn) u32 {
+    return 0x4EA19800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFRintZ2D(rd: Vn, rn: Vn) u32 {
+    return 0x4EE19800 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 // =====================================================================
 // Tests
 // =====================================================================
@@ -820,4 +904,69 @@ test "FP arith: sz field selects 4S vs 2D (bit 22)" {
     // .4S has sz=0, .2D has sz=1 → bit 22 differs → +0x00400000.
     try testing.expectEqual(@as(u32, 0x00400000), encFAdd2D(0, 1, 2) ^ encFAdd4S(0, 1, 2));
     try testing.expectEqual(@as(u32, 0x00400000), encFMul2D(0, 1, 2) ^ encFMul4S(0, 1, 2));
+}
+
+// ============================================================
+// §9.6 / 9.6-b — FP unary (FABS/FNEG/FSQRT/FRINT*)
+// ============================================================
+
+test "encFAbs4S: V0, V1 (f32x4.abs base)" {
+    // 0x4EA0F800 | (1 << 5) | 0 = 0x4EA0F820
+    try testing.expectEqual(@as(u32, 0x4EA0F820), encFAbs4S(0, 1));
+}
+
+test "encFAbs2D: V31, V31 (f64x2.abs max indices)" {
+    // 0x4EE0F800 | (31 << 5) | 31 = 0x4EE0FBFF
+    try testing.expectEqual(@as(u32, 0x4EE0FBFF), encFAbs2D(31, 31));
+}
+
+test "encFNeg vs encFAbs: U bit (bit 29) differs" {
+    // FNEG U=1, FABS U=0 → XOR = 0x20000000.
+    try testing.expectEqual(@as(u32, 0x20000000), encFNeg4S(0, 1) ^ encFAbs4S(0, 1));
+}
+
+test "encFSqrt vs encFNeg: opcode bit 16 differs (01111 vs 11111)" {
+    // FSQRT opcode = 11111, FNEG opcode = 01111 → bit 16 differs → 0x10000.
+    try testing.expectEqual(@as(u32, 0x10000), encFSqrt4S(0, 1) ^ encFNeg4S(0, 1));
+}
+
+test "encFSqrt2D: V0, V1 (f64x2.sqrt)" {
+    // 0x6EE1F800 | (1 << 5) | 0 = 0x6EE1F820
+    try testing.expectEqual(@as(u32, 0x6EE1F820), encFSqrt2D(0, 1));
+}
+
+test "encFRintN4S: V0, V1 (f32x4.nearest)" {
+    // 0x4E218800 | (1 << 5) | 0 = 0x4E218820
+    try testing.expectEqual(@as(u32, 0x4E218820), encFRintN4S(0, 1));
+}
+
+test "encFRintM vs encFRintN: opcode bit 12 differs (11001 vs 11000)" {
+    // FRINTM opcode = 11001, FRINTN opcode = 11000 → bit 12 differs → 0x1000.
+    try testing.expectEqual(@as(u32, 0x1000), encFRintM4S(0, 1) ^ encFRintN4S(0, 1));
+}
+
+test "encFRintP vs encFRintN: bit 23 ('a') differs (1 vs 0)" {
+    // FRINTP a=1, FRINTN a=0 → bit 23 differs → 0x800000.
+    try testing.expectEqual(@as(u32, 0x800000), encFRintP4S(0, 1) ^ encFRintN4S(0, 1));
+}
+
+test "encFRintZ2D: V0, V1 (f64x2.trunc)" {
+    // 0x4EE19800 | (1 << 5) | 0 = 0x4EE19820
+    try testing.expectEqual(@as(u32, 0x4EE19820), encFRintZ2D(0, 1));
+}
+
+test "FP unary 7 ops × 2 shapes: all distinct at identical operands" {
+    const v0_v0_words = [_]u32{
+        encFAbs4S(0, 0),  encFAbs2D(0, 0),
+        encFNeg4S(0, 0),  encFNeg2D(0, 0),
+        encFSqrt4S(0, 0), encFSqrt2D(0, 0),
+        encFRintN4S(0, 0), encFRintN2D(0, 0),
+        encFRintM4S(0, 0), encFRintM2D(0, 0),
+        encFRintP4S(0, 0), encFRintP2D(0, 0),
+        encFRintZ4S(0, 0), encFRintZ2D(0, 0),
+    };
+    // Pairwise distinct.
+    for (v0_v0_words, 0..) |a, i| {
+        for (v0_v0_words[i + 1 ..]) |b| try testing.expect(a != b);
+    }
 }
