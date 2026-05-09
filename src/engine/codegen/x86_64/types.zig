@@ -43,6 +43,20 @@ pub const CallFixup = struct {
     target_func_idx: u32,
 };
 
+/// Pending `MOVUPS xmm, [RIP+disp32]` site requiring const-pool
+/// patch (per ADR-0042 — x86_64 mirror of ARM64's
+/// `SimdConstFixup`). The post-emit pass appends the per-function
+/// const-pool past the spill region and patches each fixup's
+/// disp32 to the RIP-relative offset of `func.simd_consts[const_idx]`.
+/// `disp32_byte_offset` is the location of the 4-byte disp32 field
+/// within the placeholder instruction (= MOVUPS opcode byte +
+/// REX-aware offset).
+pub const SimdConstFixup = struct {
+    disp32_byte_offset: u32,
+    post_insn_byte: u32,
+    const_idx: u32,
+};
+
 pub const EmitOutput = struct {
     bytes: []u8,
     n_slots: u16,

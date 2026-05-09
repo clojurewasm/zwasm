@@ -1296,6 +1296,42 @@ pub fn encPsradImm(dst: Xmm, count: u8) EncodedInsn {
     return encSsePackedShiftImmGroup(0x72, 4, dst, count);
 }
 
+/// `MOVUPS xmm, [RIP+disp32]` placeholder — SSE PC-relative
+/// 16-byte unaligned load. Encoding: `[REX.R] 0F 10 /r ModR/M`
+/// where ModR/M = mod=00, reg=dst.low3, r/m=101 (RIP-relative
+/// addressing in long mode). The disp32 field is initialised to
+/// 0; the caller computes its byte offset post-append and records
+/// a `SimdConstFixup` for the post-emit fixup pass to patch.
+///
+/// 6 bytes (no REX) for XMM0..XMM7; 7 bytes (REX.R) for
+/// XMM8..XMM15. Use MOVUPS rather than MOVDQA to avoid requiring
+/// 16-byte alignment of the const-pool (the post-emit pass still
+/// pads to 16 bytes for cache-line hygiene, but MOVUPS's
+/// permissiveness gives flexibility for future relocations).
+pub fn encMovupsXmmRipRelPlaceholder(dst: Xmm) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (dst.extBit() != 0) {
+        enc.push(encodeRex(false, dst.extBit(), 0, 0));
+    }
+    enc.push(0x0F);
+    enc.push(0x10);
+    enc.push(0x05 | (@as(u8, dst.low3()) << 3)); // mod=00, r/m=101
+    enc.push(0x00); // disp32[0]
+    enc.push(0x00); // disp32[1]
+    enc.push(0x00); // disp32[2]
+    enc.push(0x00); // disp32[3]
+    return enc;
+}
+
+/// Patch the disp32 field of a previously-emitted MOVUPS-RIP-rel
+/// placeholder. The disp32 byte offset is computed by the caller
+/// at emit time: `buf.len - 4` immediately after appending the
+/// placeholder slice. `disp32` is the signed PC-relative offset
+/// from the post-instruction byte to the target.
+pub fn patchRipRelDisp32(buf: []u8, disp32_byte_offset: u32, disp32: i32) void {
+    std.mem.writeInt(i32, buf[disp32_byte_offset..][0..4], disp32, .little);
+}
+
 // §9.7-z abs primitives — SSSE3 PABSB/W/D compute per-lane
 // absolute value of signed integers. PABSQ doesn't exist in
 // pre-AVX-512 SSE; i64x2.abs synthesises via sign-mask PXOR/PSUBQ
@@ -1715,6 +1751,25 @@ test "encPmaddubsw: SSSE3 (xmm0, xmm1) opcode 0x38 0x04" {
 test "encPmulhrsw / encPmaddwd opcode bytes (xmm0, xmm1)" {
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x38, 0x0B, 0xC1 }, encPmulhrsw(.xmm0, .xmm1).slice());
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xF5, 0xC1 }, encPmaddwd(.xmm0, .xmm1).slice());
+}
+
+test "encMovupsXmmRipRelPlaceholder: XMM0 → 6 bytes (0F 10 05 00 00 00 00)" {
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x10, 0x05, 0x00, 0x00, 0x00, 0x00 }, encMovupsXmmRipRelPlaceholder(.xmm0).slice());
+}
+
+test "encMovupsXmmRipRelPlaceholder: XMM8 → 7 bytes with REX.R (44 0F 10 05 00 00 00 00)" {
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x0F, 0x10, 0x05, 0x00, 0x00, 0x00, 0x00 }, encMovupsXmmRipRelPlaceholder(.xmm8).slice());
+}
+
+test "encMovupsXmmRipRelPlaceholder: XMM3 → ModR/M = 0x1D" {
+    // ModR/M = mod=00 (0b00) | reg=3 (0b011) << 3 | r/m=5 (0b101) = 0x1D
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x10, 0x1D, 0x00, 0x00, 0x00, 0x00 }, encMovupsXmmRipRelPlaceholder(.xmm3).slice());
+}
+
+test "patchRipRelDisp32: writes signed disp32 to buf at offset" {
+    var buf: [8]u8 = .{ 0, 0, 0, 0, 0xAA, 0xBB, 0xCC, 0xDD };
+    patchRipRelDisp32(buf[0..], 4, -16);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0xF0, 0xFF, 0xFF, 0xFF }, &buf);
 }
 
 test "encCvttps2dq: F3 0F 5B /r" {

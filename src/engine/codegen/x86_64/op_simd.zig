@@ -3100,6 +3100,40 @@ pub fn emitI16x8ExtaddPairwiseI8x16U(allocator: Allocator, buf: *std.ArrayList(u
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.5 (v128.const) — push a 16-byte literal as a
+/// v128 value. Per ADR-0042: the lower pass populates
+/// `func.simd_consts` and stores the array index in
+/// `ZirInstr.payload`. This handler emits a `MOVUPS xmm,
+/// [RIP+0]` placeholder and records a SimdConstFixup; the
+/// per-function emit close (emit.zig) appends the const-pool
+/// 16-byte aligned past the trap stub and patches each fixup's
+/// disp32.
+pub fn emitV128Const(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    simd_const_fixups: *std.ArrayList(@import("types.zig").SimdConstFixup),
+    const_idx: u32,
+) Error!void {
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const enc = inst.encMovupsXmmRipRelPlaceholder(dst_x);
+    const start_byte: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, enc.slice());
+    const enc_len: u32 = @intCast(enc.slice().len);
+    try simd_const_fixups.append(allocator, .{
+        .disp32_byte_offset = start_byte + enc_len - 4,
+        .post_insn_byte = start_byte + enc_len,
+        .const_idx = const_idx,
+    });
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.4 (i32x4.extadd_pairwise_i16x8_s) — pairwise-
 /// add adjacent signed i16 lanes, widening to i32. PMADDWD (SSE2)
 /// computes pairwise dot product of i16 lanes; with +1-per-i16

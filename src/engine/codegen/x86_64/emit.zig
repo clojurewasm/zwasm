@@ -500,6 +500,15 @@ pub fn compile(
     var call_fixups: std.ArrayList(CallFixup) = .empty;
     errdefer call_fixups.deinit(allocator);
 
+    // §9.7/9.7-al — SIMD const-pool fixups (per ADR-0042). Each
+    // entry records a MOVUPS-RIP-rel placeholder's disp32 byte
+    // offset and post-instruction byte plus the `func.simd_consts`
+    // index. The post-emit pass appends the per-function const
+    // pool past the trap stub (16-byte aligned) and patches each
+    // disp32 to the PC-relative offset of the target const.
+    var simd_const_fixups: std.ArrayList(types.SimdConstFixup) = .empty;
+    defer simd_const_fixups.deinit(allocator);
+
     // §9.7 / 7.8-x86-mem-grow-size: dead_code tracking. After
     // `unreachable` / `return` mid-function, subsequent ops are
     // unreachable per Wasm spec §3.3 polymorphic-stack rules; the
@@ -1085,6 +1094,11 @@ pub fn compile(
             // signed; u16 inputs need pre-correction via ADR-0042
             // const-pool sign-flip + post-add fixup).
             .@"i32x4.extadd_pairwise_i16x8_s" => try op_simd.emitI32x4ExtaddPairwiseI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7/9.7-al — v128.const via ADR-0042 const-pool
+            // (mirror of ARM64 §9.6/9.6-f-ii). Lower pass stored
+            // const_idx in ins.payload pointing into
+            // func.simd_consts.
+            .@"v128.const" => try op_simd.emitV128Const(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, ins.payload),
             // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.
@@ -1354,6 +1368,27 @@ pub fn compile(
                         const disp: i32 = @as(i32, @intCast(trap_byte)) -
                             @as(i32, @intCast(fx_byte)) - 5;
                         inst.patchRel32(buf.items, fx_byte, 5, disp);
+                    }
+                }
+                // §9.7/9.7-al — SIMD const-pool append + patch
+                // (per ADR-0042). After the trap stub, if any
+                // v128.const / future shuffle ops emitted MOVUPS-
+                // RIP-rel placeholders, append the per-function
+                // const-pool 16-byte aligned and patch each
+                // placeholder's disp32 to the RIP-relative offset.
+                if (simd_const_fixups.items.len > 0) {
+                    const consts = func.simd_consts orelse {
+                        std.debug.print("x86_64/emit: simd_const_fixups present but func.simd_consts is null\n", .{});
+                        return Error.AllocationMissing;
+                    };
+                    while (buf.items.len % 16 != 0) try buf.append(allocator, 0);
+                    const pool_byte: u32 = @intCast(buf.items.len);
+                    for (consts) |c| try buf.appendSlice(allocator, &c);
+                    for (simd_const_fixups.items) |fx| {
+                        const target_byte: u32 = pool_byte + fx.const_idx * 16;
+                        const disp32: i32 = @as(i32, @intCast(target_byte)) -
+                            @as(i32, @intCast(fx.post_insn_byte));
+                        inst.patchRipRelDisp32(buf.items, fx.disp32_byte_offset, disp32);
                     }
                 }
                 break;
