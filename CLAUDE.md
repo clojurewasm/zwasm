@@ -82,9 +82,17 @@ session.
   the reference codebases (zwasm v1, wasmtime, zware, wasm3,
   wasm-c-api, Zig stdlib, regalloc2 when JIT-relevant) and lands a
   200–400 line note in `private/notes/<phase>-<task>-survey.md`.
-  See `.claude/rules/textbook_survey.md` for guardrails (cite ROADMAP
-  principles before adopting an idiom; always note one DIVERGENCE;
-  copy-paste from v1 is forbidden).
+  **The "continuation of prior task" skip exception is narrow** —
+  it applies to refactor / rename / doc-only chunks with zero new
+  encoders, helpers, or design choices. A sub-chunk under the same
+  parent ROADMAP row that introduces ≥ 1 new `encXxx` function is
+  NOT a continuation; do Step 0. See
+  `.claude/rules/textbook_survey.md` "When to skip Step 0" + §9.6
+  worked examples for the load-bearing definition. The cost of an
+  unnecessary survey (~10 min subagent time) is far less than the
+  cost of landing a wrong-shape design that re-derivation alone
+  produced. Cite ROADMAP principles before adopting any idiom and
+  always note one DIVERGENCE; copy-paste from v1 is forbidden.
 - **No copy-paste from v1** — `.claude/rules/no_copy_from_v1.md` is
   load-bearing. Read v1; re-derive in v2.
 - **Test gate is three-host native**: `zig build test` (and

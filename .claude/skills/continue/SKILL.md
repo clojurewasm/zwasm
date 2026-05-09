@@ -286,9 +286,23 @@ more readable in `git log` than five 2-op commits.
 
 ### Step 0 — Survey (subagent: Explore, default mode "medium")
 
-Skip only if the task is *clearly* a continuation of a prior task
-(refactor, rename, doc-only). Otherwise: dispatch one Explore
-subagent to survey the textbooks. **Default brief**:
+**Default: do Step 0.** Skip only when the strict criteria in
+[`.claude/rules/textbook_survey.md`](../../rules/textbook_survey.md)
+"When to skip Step 0" hold — refactor / rename / doc-only **and**
+no new public API **and** no new behaviour observable from outside
+the module. The "continuation of prior task" exception is
+**narrow** — it applies when the diff adds zero new encoders, zero
+new helpers, zero new design choices (see textbook_survey.md
+"Continuation — narrow definition" + the §9.6 examples table).
+
+> **The standing pattern that nearly always trips the skip
+> criterion**: a sub-chunk under the same parent ROADMAP row
+> (e.g. §9.6-c-i after §9.6-c-ii) introducing **at least one
+> new `encXxx` encoder function** is NOT a continuation. Do
+> Step 0.
+
+Otherwise: dispatch one Explore subagent to survey the textbooks.
+**Default brief**:
 
 > Survey how `<concept>` is implemented in:
 > - `~/Documents/MyProducts/zwasm/src/...` (v1, ~65K LOC) — read,

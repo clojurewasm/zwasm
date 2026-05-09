@@ -13,42 +13,45 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.6/9.6-e [x] (FP compares, 12 ops); **§9.6/9.6-f NEXT**
+## Current state — Phase 9 / §9.6/9.6-f-i [x] (i8x16.swizzle via TBL); **§9.6/9.6-f-ii NEXT**
 
-§9.6/9.6-e adds 4 NEON FP-compare encoders (FCMEQ/FCMGE × 4S/2D)
-+ 12 op_simd handlers reusing 9.6-d helpers (`emitV128Binop`,
-`emitV128Ne`, `emitV128BinopSwapped`). FCMGT was already added
-in 9.6-c-ii. Net chunk is essentially encoder additions + thin
-dispatch wiring.
+§9.6/9.6-f-i adds encTbl1Reg encoder + emitI8x16Swizzle handler.
+NEON TBL (1-register form) semantics match Wasm spec exactly:
+out[k] = (idx[k] < 16) ? operand[idx[k]] : 0. Single instruction.
 
 Per LOOP.md chunk granularity, §9.6 sub-row state:
-- 9.6-a/b/c-i/c-ii/d/e [x]: FP binary + FP unary + min/max +
-  pmin/pmax + int compares + FP compares.
-- 9.6-f NEXT: shuffle (i8x16.shuffle via TBL) + swizzle
-  (i8x16.swizzle via TBL with the source register holding lane
-  indices).
+- 9.6-a/b/c-i/c-ii/d/e/f-i [x]: FP arith / compares / int compares
+  / swizzle.
+- 9.6-f-ii NEXT: i8x16.shuffle via TBL 2-register form.
 - 9.6-g: conversion (trunc_sat / convert / narrow / extend).
 
 Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
 212/0/20, wast 1158/0/0.
 
-**§9.6/9.6-f NEXT** — i8x16.shuffle + i8x16.swizzle.
-- `i8x16.shuffle` takes 2 v128 sources + 16-byte immediate (the
-  shuffle indices, each in 0..31). Lowers to NEON `TBL Vd.16B,
-  { Vn.16B, Vn+1.16B }, Vm.16B` (table lookup with 2 source
-  registers — pair must be consecutive). Indices ≥ 32 are
-  Wasm-spec UB, but typically map to 0 in NEON's TBL semantics
-  for indices ≥ table-size. To pass the 16-byte immediate, the
-  index vector must be loaded from constant memory (literal
-  pool) into a v128 vreg first.
-- `i8x16.swizzle` takes 2 v128 sources (operand + index vector).
-  Lowers to NEON `TBL Vd.16B, { Vn.16B }, Vm.16B` (single
-  source).
+**§9.6/9.6-f-ii NEXT** — i8x16.shuffle via NEON TBL 2-register
+form. Two design challenges:
 
-Both need TBL encoder + handler; shuffle additionally needs
-const-pool plumbing for the 16-byte index immediate. Estimated
-~120 src + ~80 tests; may split into 9.6-f-i (swizzle, simpler)
-and 9.6-f-ii (shuffle, with const-pool).
+1. **Consecutive-register constraint**: NEON `TBL Vd.16B, {Vn.16B,
+   V<n+1>.16B}, Vm.16B` requires Rn, Rn+1 to be consecutive. The
+   regalloc doesn't guarantee adjacency, so the handler must copy
+   lhs and rhs to a fixed pair (e.g., V30 and V31; need to verify
+   neither conflicts with other reservations). Use V31 (already
+   SIMD scratch) + introduce V30 as a paired scratch — or use
+   the existing fp_spill_stage_vregs (V29/V30) since this op
+   doesn't spill.
+
+2. **16-byte index immediate**: i8x16.shuffle takes 16 bytes of
+   shuffle indices as a literal in the wasm bytecode (separate
+   from the 2 v128 stack operands). The lower pass currently
+   stores it in `ZirInstr.payload` (only 4 bytes) — need to
+   either extend ZirInstr or thread the immediate via a
+   side-table / const-pool. Investigate lower.zig's current
+   handling of `i8x16.shuffle` (already emits the op per ZirOp
+   catalogue — check what payload encoding is used).
+
+Estimated ~150 src + ~80 tests; may need a `private/spikes/`
+spike to verify the const-pool / scratch-reg approach before
+landing.
 
 After 8b.4: 8b.5 (boundary audit_scaffolding) + 8b.6 (open
 §9.9 inline + flip Phase Status).

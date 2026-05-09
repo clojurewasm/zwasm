@@ -109,18 +109,74 @@ and rationale.
 
 ## When to skip Step 0
 
-Skip only when **any** are true:
+Skip only when **all** of the below are true:
 
-- The task is a refactor / rename / doc-only change.
-- No new public API is introduced AND implementation does not change
-  behaviour observable from outside the module.
-- The task is an environment / scaffolding verification (e.g. Phase 0
-  build-host smokes, hook wiring, CI matrix opening) — there is no
-  "concept" to survey, only an external state to observe or
-  configure.
+- The task is a refactor / rename / doc-only change, **OR** an
+  environment / scaffolding verification (Phase 0 build-host smokes,
+  hook wiring, CI matrix opening — no "concept" to survey).
+- AND no new public API is introduced.
+- AND implementation does not change behaviour observable from
+  outside the module.
 
 If any of the above is false, do Step 0 even if "you already know
 how v1 did it" — the survey output guides the per-task structure.
+
+### "Continuation of prior task" — narrow definition
+
+The `/continue` skill's Step 0 description allows skipping when the
+task is "clearly a continuation of a prior task". This phrase has a
+**narrow** meaning that the loop has historically over-extended.
+Concretely, "continuation" means:
+
+- The same handler shape is reused with **only** a different encoder
+  thunk (e.g. f32x4.add → f32x4.sub: same `emitV128Binop(encoder)`
+  shape, just swap the encoder argument). The encoder itself was
+  already designed in the prior chunk's survey.
+- The diff adds **zero** new encoder functions.
+- The diff adds **zero** new helper functions.
+- No new design choice (scratch-reg reservation, multi-instr
+  synthesis pattern, const-pool plumbing, etc.) is introduced.
+
+If the chunk introduces **any** of:
+
+- A new NEON / SSE / GPR encoder (`encXxx` function),
+- A new shared helper in `op_simd.zig` / `op_alu_*.zig` / etc.,
+- A new scratch-register reservation,
+- A multi-instruction synthesis pattern,
+- A const-pool / data-pool entry,
+- Cross-cutting infrastructure (regalloc walker entry beyond a
+  single `.@"..."` arm — e.g. shape_tags semantics change),
+
+…then Step 0 is **mandatory**, even if the parent ROADMAP row
+already had Step 0 run for an earlier sibling sub-chunk.
+
+**Concrete examples (looking back at §9.6):**
+
+| Sub-chunk | Step 0 status | Reason |
+|---|---|---|
+| 9.6-a (FADD/FSUB/FMUL/FDIV)  | Should have run | New encoder family even though same handler shape as 9.5-c-iv |
+| 9.6-b (FABS/FNEG/FSQRT/FRINT*) | Should have run | New encoder family + new `emitV128Unop` helper |
+| 9.6-c-i (FMIN/FMAX) | Could skip | Same encoder family as 9.6-a (three-same), reuse helper |
+| 9.6-c-ii (pmin/pmax synthesis) | Should have run | New synthesis pattern + V31 scratch-reg first-use |
+| 9.6-d (int compares) | Should have run | New encoder family + 2 new helpers (emitV128BinopSwapped, emitV128Ne) |
+| 9.6-e (FP compares) | Could skip | Reuses 9.6-d helpers, only 4 new encoders in same family |
+| 9.6-f-i (TBL 1-reg) | Should have run | Brand new instruction class (TBL), distinct from CM*/F* encoder families |
+| 9.6-f-ii (TBL 2-reg, shuffle) | Should have run | Consecutive-register constraint + const-pool — multiple ADR-grade decisions |
+
+The "could skip" cases are still strictly "should have run" by
+the rule above — the tablebookcase is harmless (10 minutes for an
+Explore subagent) compared to a wrong-shape design landing without
+seeing how cranelift / zware handle the same op family.
+
+### Mid-cycle correction
+
+If you discover mid-implementation that you skipped Step 0 when
+you shouldn't have, the correction is: dispatch the Explore
+subagent **now**, even if you've already written code. The survey
+informs the **refactor pass** (Step 4) — if it surfaces a better
+design, apply behaviour-preserving simplification per Step 4
+discipline. Worst-case the survey confirms the spec-derived shape
+was correct, and the cost is just the subagent time.
 
 ## Where survey notes live
 
