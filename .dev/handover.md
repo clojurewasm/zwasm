@@ -13,38 +13,35 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..e [x]); **9.7-f NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..f [x]); **9.7-g NEXT**
 
-9.7-e landed at 3ac43dad: lane access foundation. Adds
-`encPshufd` (SSE2 dword shuffle) + `encPextrD` (SSE4.1 dword
-extract — note ModR/M.reg carries source XMM, ModR/M.r/m the
-GPR). Handlers `emitI32x4Splat` (MOVD + PSHUFD broadcast) +
-`emitI32x4ExtractLane` (single PEXTRD). Total SIMD ops handled:
-13. Edge fixtures deferred to §9.9 (edge runner is Mac aarch64-
-only; SIMD spec_assert + wast integration in §9.9 will exercise
-all hosts).
+9.7-f landed at 20751909: i32x4/i64x2 replace_lane via PINSRD
+(SSE4.1 RVMI 3A 22 /r ib) + PINSRQ (REX.W mandatory). New
+parametric handler helper `emitV128IntReplaceLane32Or64(is_64)`
++ 1-line wrappers. MOVAPS-elision when dst aliases vec. Total
+SIMD ops handled: 15.
 
-Three-host gate at 3ac43dad: Mac unit 1364/0/12 + gates ✓;
-OrbStack at known D-054 baseline (211/1/20); windowsmini full
-green (212/0/20 + every runner green).
+Three-host gate at 20751909: Mac unit 1371/0/12 + gates ✓;
+OrbStack at known D-054 baseline (211/1/20 + 1355/1383); windowsmini
+full green (212/0/20 + every runner green).
 
-**9.7-f NEXT** — lane access bundle: rest of the splat family
-(i8x16 / i16x8 / i64x2 / f32x4 / f64x2), other extract_lane
-variants (signed/unsigned narrow: i8x16 / i16x8; i64x2 wide;
-f32x4 / f64x2), and replace_lane (i8/16/32/64/f32/f64). Per
-LOOP.md chunk-bundle: same op family, same handler shape (only
-encoder + lane-width differs). Likely 200-400 LOC.
+**9.7-g NEXT** — narrow-int lane access: i8x16 / i16x8 splat +
+extract_lane (signed/unsigned) + replace_lane. Encoders needed:
+PINSRB (66 [REX?] 0F 3A 20 /r ib) + PINSRW (66 [REX?] 0F C4 /r
+ib — note SSE2 base, different escape from SSE4.1 family) +
+PEXTRB (3A 14) + PEXTRW (0F C5 /r ib for "old" SSE2 form OR 0F
+3A 15 for SSE4.1 mem-capable form). Sign/unsigned variants need
+MOVSX / MOVZX after PEXTRB/W (i8 → i32, i16 → i32). Splat needs
+PSHUFB-lane-mask (i8) or PSHUFD-after-PINSRW (i16).
 
-Encoders to add (Step 0 will scope exactly):
-- splat helpers: PINSRB / PINSRW direct, PSHUFB lane-zero mask
-  (i8x16.splat); PINSRW × N + PSHUFD (i16x8.splat); MOVQ +
-  PUNPCKLQDQ (i64x2.splat); SHUFPS / MOVDDUP (f32/f64 splats).
-- PEXTRB / PEXTRW / PEXTRQ (extract narrow + i64).
-- PINSRB / PINSRW / PINSRD / PINSRQ (replace_lane).
+This is the largest sub-chunk in the lane access family — likely
+~400-500 LOC including encoders + sign-ext logic + tests. Step 0
+will partition: bundle all narrow-int ops in one chunk, OR
+separate splat / extract / replace.
 
-Subsequent: 9.7-g (compare family — PCMPEQ*, PCMPGT*), 9.7-h
-(FP arith — ADDPS / ADDPD / MULPS / DIVPS), 9.7-i (FP compare
-— CMPEQPS / CMPLTPS), 9.7-j (conversion + shuffle PSHUFB +
+Subsequent: 9.7-h (FP lane access — f32x4/f64x2 splat / extract /
+replace), 9.7-i (compare family — PCMPEQ*, PCMPGT*), 9.7-j (FP
+arith), 9.7-k (FP compare), 9.7-l (conversion + shuffle PSHUFB +
 v128.const via ADR-0042 const-pool).
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
