@@ -16,27 +16,28 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..ai landed); **9.7-aj NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..aj landed); **9.7-ak NEXT**
 
-9.7-ai: x86_64 i64x2.extmul × 4 (i32x4 → i64x2). 3-instr inline
-recipe via PSHUFD imm 0x50/0xFA + PMULDQ (new SSE4.1) / PMULUDQ
-(existing). 1 new encoder + 1 new helper. Closes the extmul
-family across all three shapes (12 ops total). Total SIMD ops
-handled: 176.
+9.7-aj: x86_64 i16x8.extadd_pairwise_i8x16 × 2 via inline 0x01-
+per-byte mask synth + PMADDUBSW. 1 new encoder, 2 new ZirOp
+entries. Total SIMD ops handled: 178.
 
-**9.7-aj NEXT** — i*x*.popcnt + i16x8.extadd_pairwise_*
-(~3 ops, partially const-pool dependent). Per p9-9.7-af-survey:
-`i8x16.popcnt` 7-instr SSSE3 PSHUFB-LUT (needs 1 const) or
-9-instr Hacker's-Delight shift-add (no const). Without ADR-0042
-const-pool, **inline-synth via shift-add is the path** — same
-pattern as 9.7-u/v/w shift synthesis. `i16x8.extadd_pairwise_
-i8x16_{s,u}` 1-instr each via PMADDUBSW (SSSE3) but needs a
-±1 const lane mask (`0x0101...` for unsigned, `0x0101...`
-multiplied differently for signed). Inline-synth via PCMPEQB
-+ PSRLW imm 7 → 0x0101 broadcast. Bundle these 3 ops.
+**9.7-ak NEXT** — i32x4.extadd_pairwise_i16x8_{s,u} (2 ops).
+Different mask: needs 0x00010001-per-dword (= +1 per i16 lane).
+Recipe per cranelift: PMADDWD (SSE2, already from 9.7-af) takes
+two i16-pair operands and dot-products into i32. With +1-per-i16-
+lane as one operand, this reduces to pairwise i16+i16 → i32
+addition. The 0x0001-per-i16 mask is harder to synth inline — try
+PCMPEQB ones + PSRLW imm 15 → 0x0001 per word ✓. Recipe ~4 instr.
+Both ops use same shape (PMADDWD doesn't have signed/unsigned
+variants — i16 is always signed in PMADDWD); `_u` of Wasm
+extadd_pairwise needs additional zero-extend prep (e.g. PMADDWD
+of (zero-extended u16 lanes) doesn't compose cleanly without
+helper). Survey to confirm; may split _s and _u into separate
+chunks.
 
-Subsequent: 9.7-ak (i32x4.extadd_pairwise_i16x8_{s,u} 2 ops,
-similar pattern with 0x00010001 const synthesis), 9.7-al
+Subsequent: 9.7-al (i8x16.popcnt — inline-synth via PSHUFB-LUT
+with const-pool, OR Hacker's-Delight shift-add ~9 instr), 9.7-am
 (ADR-0042 const-pool plumbing + 4 deferred 9.7-ae u-variants +
 i8x16.shuffle + v128.const). Phase 7 close-out pending.
 
@@ -58,5 +59,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ai landed; 9.7-aj NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..aj landed; 9.7-ak NEXT).
 **Branch**: `zwasm-from-scratch`。
