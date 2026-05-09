@@ -28,6 +28,19 @@ Per LOOP.md chunk granularity, §9.6 sub-row state:
 Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
 212/0/20, wast 1158/0/0.
 
+**At §9.6 close (queued)** — fire a Phase 7-8 v1-audit Explore
+subagent before flipping §9.6 to `[x]`. Brief: read v1's
+`src/jit_x86/`, `src/jit_arm64/`, `src/regalloc/`, `src/liveness/`,
+`src/hoist/` and compare to v2's corresponding modules. Output:
+`private/notes/p7p8-v1-audit.md` (gitignored, 200-400 lines).
+Per item: ✓ (v2 covered) / ⚠ (different choice — confirm
+intentional) / ✗ (v2 missing — promote to debt or ADR). Goal:
+catch wheel-reinvention details that v1 already worked out
+(scratch conventions, prologue/epilogue shape, trap stub plumbing,
+ABI quirks — anything subtle enough that re-deriving from spec +
+Intel SDM may have missed). User-raised concern, queued for
+execution.
+
 **§9.6/9.6-f-ii NEXT** — i8x16.shuffle via NEON TBL 2-register
 form. Two design challenges:
 
