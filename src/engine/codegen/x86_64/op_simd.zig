@@ -1569,6 +1569,150 @@ pub fn emitI8x16ShrU(
 /// PSRAW preserves the sign bit invariant, and the resulting
 /// magnitude is bounded by the original i8 range). 11
 /// instructions; uses both XMM14 + XMM15 scratches.
+/// Wasm spec §4.4.4 (f*x*.{abs, neg}) — sign-mask synthesis
+/// inline (no const-pool dep). 5-instr abs / 4-instr neg.
+///
+/// abs(x) = x AND ~sign-mask:
+///   PCMPEQB XMM14, XMM14            ; 0xFF per byte
+///   PSLL{D,Q} XMM14, {31,63}        ; sign-mask per dword/qword
+///   MOVAPS dst, src                 ; (skip-elide if alias)
+///   PANDN XMM14, dst                ; XMM14 = ~sign-mask & src = abs
+///   MOVAPS dst, XMM14
+///
+/// neg(x) = x XOR sign-mask:
+///   PCMPEQB XMM14, XMM14
+///   PSLL{D,Q} XMM14, {31,63}
+///   MOVAPS dst, src                 ; (skip-elide)
+///   PXOR dst, XMM14                 ; dst = src XOR sign-mask = -x
+fn emitV128FpAbs(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    psll_imm: *const fn (dst: inst.Xmm, count: u8) inst.EncodedInsn,
+    shift_count: u8,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    try buf.appendSlice(allocator, inst.encPcmpeqB(mask_x, mask_x).slice());
+    try buf.appendSlice(allocator, psll_imm(mask_x, shift_count).slice());
+    if (dst_x != src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPandn(mask_x, dst_x).slice()); // mask = ~mask & dst = abs
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, mask_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+fn emitV128FpNeg(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    psll_imm: *const fn (dst: inst.Xmm, count: u8) inst.EncodedInsn,
+    shift_count: u8,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    try buf.appendSlice(allocator, inst.encPcmpeqB(mask_x, mask_x).slice());
+    try buf.appendSlice(allocator, psll_imm(mask_x, shift_count).slice());
+    if (dst_x != src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPxor(dst_x, mask_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitF32x4Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpAbs(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPslldImm, 31);
+}
+
+pub fn emitF64x2Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpAbs(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsllqImm, 63);
+}
+
+pub fn emitF32x4Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPslldImm, 31);
+}
+
+pub fn emitF64x2Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsllqImm, 63);
+}
+
+/// Wasm spec §4.4.4 (f*x*.{ceil, floor, trunc, nearest}) —
+/// SSE4.1 ROUNDPS/ROUNDPD with imm8 mode bits + suppress
+/// precision exception (bit 3 set). Single-instr unary.
+fn emitV128FpRound(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    encoder: *const fn (dst: inst.Xmm, src: inst.Xmm, imm8: u8) inst.EncodedInsn,
+    mode: u8,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    try buf.appendSlice(allocator, encoder(dst_x, src_x, 0x08 | (mode & 0x03)).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitF32x4Ceil(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundps, 0b10);
+}
+
+pub fn emitF32x4Floor(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundps, 0b01);
+}
+
+pub fn emitF32x4Trunc(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundps, 0b11);
+}
+
+pub fn emitF32x4Nearest(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundps, 0b00);
+}
+
+pub fn emitF64x2Ceil(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundpd, 0b10);
+}
+
+pub fn emitF64x2Floor(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundpd, 0b01);
+}
+
+pub fn emitF64x2Trunc(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundpd, 0b11);
+}
+
+pub fn emitF64x2Nearest(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundpd, 0b00);
+}
+
 /// Wasm spec §4.4.5 (i8x16.swizzle) — pop idx (v128), pop v
 /// (v128), push v128 with `out[i] = (idx[i] < 16) ? v[idx[i]] :
 /// 0`. SSE PSHUFB has different semantics for ctrl bytes in

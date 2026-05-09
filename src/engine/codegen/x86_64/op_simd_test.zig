@@ -1664,3 +1664,201 @@ test "emitI32x4Add: spilled rhs surfaces UnsupportedOp (16-byte spill defers to 
 
     try testing.expectError(Error.UnsupportedOp, op_simd.emitI32x4Add(testing.allocator, &buf, alloc, &pushed, &next_vreg));
 }
+
+// §9.7 / 9.7-ad — FP unop family unit tests.
+
+test "emitF32x4Abs: PCMPEQB + PSLLD-31 + (MOVAPS dst,src) + PANDN + MOVAPS" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    try op_simd.emitF32x4Abs(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    // src = xmm8, dst = xmm9, mask = xmm14.
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm14, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPslldImm(.xmm14, 31).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPandn(.xmm14, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm14).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitF64x2Abs: PCMPEQB + PSLLQ-63 (qword sign-mask) for f64x2" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    try op_simd.emitF64x2Abs(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm14, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPsllqImm(.xmm14, 63).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPandn(.xmm14, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm14).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitF32x4Neg: PCMPEQB + PSLLD-31 + MOVAPS dst,src + PXOR dst, mask (4 instr)" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    try op_simd.emitF32x4Neg(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm14, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPslldImm(.xmm14, 31).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm9, .xmm14).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitF64x2Neg: PCMPEQB + PSLLQ-63 + MOVAPS + PXOR" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    try op_simd.emitF64x2Neg(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm14, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPsllqImm(.xmm14, 63).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm9, .xmm14).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitF32x4Ceil: ROUNDPS dst, src, imm=0x0A (suppress-precision | ceil)" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    try op_simd.emitF32x4Ceil(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    try expected.appendSlice(testing.allocator, inst.encRoundps(.xmm9, .xmm8, 0x0A).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitF32x4Floor / Trunc / Nearest: ROUNDPS imm bits 09 / 0B / 08" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    inline for (.{
+        .{ op_simd.emitF32x4Floor, @as(u8, 0x09) },
+        .{ op_simd.emitF32x4Trunc, @as(u8, 0x0B) },
+        .{ op_simd.emitF32x4Nearest, @as(u8, 0x08) },
+    }) |pair| {
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(testing.allocator);
+        var pushed: std.ArrayList(u32) = .empty;
+        defer pushed.deinit(testing.allocator);
+        try pushed.append(testing.allocator, 0);
+        var next_vreg: u32 = 1;
+
+        try pair[0](testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+        var expected: std.ArrayList(u8) = .empty;
+        defer expected.deinit(testing.allocator);
+        try expected.appendSlice(testing.allocator, inst.encRoundps(.xmm9, .xmm8, pair[1]).slice());
+        try testing.expectEqualSlices(u8, expected.items, buf.items);
+    }
+}
+
+test "emitF64x2 Ceil/Floor/Trunc/Nearest: ROUNDPD imm bits 0A/09/0B/08" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    inline for (.{
+        .{ op_simd.emitF64x2Ceil, @as(u8, 0x0A) },
+        .{ op_simd.emitF64x2Floor, @as(u8, 0x09) },
+        .{ op_simd.emitF64x2Trunc, @as(u8, 0x0B) },
+        .{ op_simd.emitF64x2Nearest, @as(u8, 0x08) },
+    }) |pair| {
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(testing.allocator);
+        var pushed: std.ArrayList(u32) = .empty;
+        defer pushed.deinit(testing.allocator);
+        try pushed.append(testing.allocator, 0);
+        var next_vreg: u32 = 1;
+
+        try pair[0](testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+        var expected: std.ArrayList(u8) = .empty;
+        defer expected.deinit(testing.allocator);
+        try expected.appendSlice(testing.allocator, inst.encRoundpd(.xmm9, .xmm8, pair[1]).slice());
+        try testing.expectEqualSlices(u8, expected.items, buf.items);
+    }
+}

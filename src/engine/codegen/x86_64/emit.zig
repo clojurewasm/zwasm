@@ -1039,6 +1039,23 @@ pub fn compile(
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.
             .@"i8x16.swizzle" => try op_simd.emitI8x16Swizzle(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-ad: FP unop family (12 ops). abs / neg
+            // via inline sign-mask synthesis (PCMPEQB ones +
+            // PSLL{D,Q}-imm 31/63); ceil/floor/trunc/nearest via
+            // SSE4.1 ROUNDPS/ROUNDPD imm with precision-exception
+            // suppression (bit 3 set).
+            .@"f32x4.abs" => try op_simd.emitF32x4Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.abs" => try op_simd.emitF64x2Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.neg" => try op_simd.emitF32x4Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.neg" => try op_simd.emitF64x2Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.ceil" => try op_simd.emitF32x4Ceil(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.floor" => try op_simd.emitF32x4Floor(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.trunc" => try op_simd.emitF32x4Trunc(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.nearest" => try op_simd.emitF32x4Nearest(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.ceil" => try op_simd.emitF64x2Ceil(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.floor" => try op_simd.emitF64x2Floor(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.trunc" => try op_simd.emitF64x2Trunc(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.nearest" => try op_simd.emitF64x2Nearest(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at

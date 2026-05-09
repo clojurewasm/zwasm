@@ -545,6 +545,14 @@ fn encSsePackedShiftImmGroup(opcode: u8, group: u3, dst: Xmm, count: u8) Encoded
     return enc;
 }
 
+/// `PSLLD xmm, imm8` (66 [REX.B?] 0F 72 /6 ib) — SSE2 packed
+/// 32-bit logical shift left by immediate count. Used by §9.7-ad
+/// FP abs/neg sign-mask synthesis: PCMPEQB ones + PSLLD-imm 31
+/// → 0x80000000 per dword.
+pub fn encPslldImm(dst: Xmm, count: u8) EncodedInsn {
+    return encSsePackedShiftImmGroup(0x72, 6, dst, count);
+}
+
 /// `PSRLW xmm, imm8` (66 [REX.B?] 0F 71 /2 ib) — SSE2 packed
 /// 16-bit logical shift right by immediate count. Used by
 /// §9.7-v `i8x16.shr_u` synthesis: shift 0xFFFF replicated by
@@ -1126,6 +1134,46 @@ pub fn encPsubq(dst: Xmm, src: Xmm) EncodedInsn {
     return encSsePackedIntBinop(0xFB, dst, src);
 }
 
+// §9.7-ad FP round primitives — SSE4.1 ROUNDPS/ROUNDPD with imm8
+// rounding mode. imm8 layout: bit[3] = suppress precision exception
+// (always set to 1 for Wasm), bit[2] = use MXCSR rounding (0 to use
+// imm[1:0]), bits[1:0] = mode: 00 nearest-even, 01 floor (toward
+// -inf), 10 ceil (toward +inf), 11 trunc (toward zero).
+
+/// `ROUNDPS xmm, xmm, imm8` (66 [REX?] 0F 3A 08 /r ib) — SSE4.1
+/// round 4 packed f32 lanes per imm8 mode. Used by Wasm
+/// `f32x4.{ceil, floor, trunc, nearest}`.
+pub fn encRoundps(dst: Xmm, src: Xmm, imm8: u8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    if (dst.extBit() != 0 or src.extBit() != 0) {
+        enc.push(encodeRex(false, dst.extBit(), 0, src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(0x3A);
+    enc.push(0x08);
+    enc.push(encodeModrm(0b11, dst.low3(), src.low3()));
+    enc.push(imm8);
+    return enc;
+}
+
+/// `ROUNDPD xmm, xmm, imm8` (66 [REX?] 0F 3A 09 /r ib) — SSE4.1
+/// round 2 packed f64 lanes per imm8 mode. Wasm
+/// `f64x2.{ceil, floor, trunc, nearest}`.
+pub fn encRoundpd(dst: Xmm, src: Xmm, imm8: u8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(0x66);
+    if (dst.extBit() != 0 or src.extBit() != 0) {
+        enc.push(encodeRex(false, dst.extBit(), 0, src.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(0x3A);
+    enc.push(0x09);
+    enc.push(encodeModrm(0b11, dst.low3(), src.low3()));
+    enc.push(imm8);
+    return enc;
+}
+
 // §9.7-ab FP convert primitives — SSE2 packed FP/int
 // conversions. Wasm `f32x4.convert_i32x4_s`, `f64x2.convert_
 // low_i32x4_s`, `f64x2.promote_low_f32x4`, `f32x4.demote_
@@ -1517,6 +1565,16 @@ test "encPmuludq: SSE2 (xmm0, xmm1) opcode 0xF4 — 4 bytes" {
 
 test "encPmuludq: REX.R+B (xmm8, xmm13) — 5 bytes" {
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0xF4, 0xC5 }, encPmuludq(.xmm8, .xmm13).slice());
+}
+
+test "encPslldImm: PSLLD xmm0, 31 — group /6, opcode=0x72 (D-form)" {
+    // 66 0F 72 F0 1F — ModR/M = 11 110 000 (mod=11, reg=6, rm=0).
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x72, 0xF0, 0x1F }, encPslldImm(.xmm0, 31).slice());
+}
+
+test "encRoundps / encRoundpd opcode bytes (xmm0, xmm1, imm=0x0A ceil+suppress)" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x3A, 0x08, 0xC1, 0x0A }, encRoundps(.xmm0, .xmm1, 0x0A).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x3A, 0x09, 0xC1, 0x0A }, encRoundpd(.xmm0, .xmm1, 0x0A).slice());
 }
 
 test "encPsrlwImm: PSRLW xmm0, 8 — group /2, opcode=0x71 (W-form)" {
