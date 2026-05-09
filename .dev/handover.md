@@ -16,25 +16,26 @@
 6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
    adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..ag landed); **9.7-ah NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..ah landed); **9.7-ai NEXT**
 
-9.7-ag: x86_64 i16x8.extmul × 4 (i8x16 → i16x8). PMOVSX/ZX BW
-extend + PMULLW recipe. 2 parametric helpers + 4 wrappers.
-No new encoders — pure composition of existing primitives.
-Total SIMD ops handled: 168.
+9.7-ah: x86_64 i32x4.extmul × 4 (i16x8 → i32x4). Same shape as
+9.7-ag with PMOVSXWD/PMOVZXWD + PMULLD substituted; helpers
+reused unchanged. No new encoders. Total SIMD ops handled: 172.
 
-**9.7-ah NEXT** — i32x4.extmul_{low,high}_i16x8_{s,u} (4 ops).
-Same shape as 9.7-ag: PMOVSXWD / PMOVZXWD extend + PMULLD
-(SSE4.1, already from 9.7-c). High variants prefix PSHUFD
-imm=0xEE. The existing emitV128IntExtmulLow / High helpers
-should generalise — change encoder_extend to PMOVSX/ZX WD
-and encoder_mul to PMULLD. No new encoders. ~80 src + ~80
-test (just 4 wrappers).
+**9.7-ai NEXT** — i64x2.extmul_{low,high}_i32x4_{s,u} (4 ops).
+Different multiply semantics from i16x8/i32x4 extmul: PMULDQ
+(SSE4.1) for signed and PMULUDQ (SSE2) for unsigned both take
+unwidened i32 inputs in even-numbered lanes and produce i64
+outputs — so they DON'T need a separate extend step. Recipe per
+cranelift: PSHUFD imm=0x{50/F5} to position lanes (low: even
+positions; high: odd from upper 64 → even positions), then
+PMULDQ/PMULUDQ. 2-3 instr per op. May need a separate
+emitV128I64x2Extmul helper (different from 9.7-ag's
+emitV128IntExtmul). Both encoders already exist (PMULDQ from
+9.7-c-?, PMULUDQ from 9.7-d). 1 new encoder needed if PMULDQ
+absent; check before survey.
 
-Subsequent: 9.7-ai (i64x2.extmul_{low,high}_i32x4_{s,u} 4 ops:
-PMOVSX/ZX DQ + PMULDQ (SSE4.1) for signed / PMULUDQ for
-unsigned — different multiply semantics so the helper may
-need a fork), 9.7-aj (ADR-0042 const-pool + popcnt + 4
+Subsequent: 9.7-aj (ADR-0042 const-pool + popcnt + 4
 extadd_pairwise + 4 deferred 9.7-ae u-variants + i8x16.shuffle
 + v128.const). Phase 7 close-out pending.
 
@@ -56,5 +57,5 @@ reference) live in git: ADRs 0035-0040, lessons indexed in
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ag landed; 9.7-ah NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ah landed; 9.7-ai NEXT).
 **Branch**: `zwasm-from-scratch`。
