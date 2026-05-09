@@ -13,34 +13,36 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.9/9.5-b-ii [x] (compute integration); **§9.9/9.5-b-iii NEXT**
+## Current state — Phase 9 / §9.9/9.5-b-iii [x] (per-op handlers + dispatch); **§9.9/9.5-c NEXT**
 
-§9.9/9.5-b-ii wires `regalloc.compute()` to call
-`populateShapeTags()` after slot allocation; the resulting
-`Allocation.shape_tags` is queryable via `alloc.shapeTag(vreg)`
-during emit. errdefer chain handles cleanup on slot-alloc
-failure paths. 3 unit tests cover empty-liveness null /
-scalar-only null / SIMD function populated tags.
+§9.9/9.5-b-iii lands `src/engine/codegen/arm64/op_simd.zig`
+with 4 MVP handlers (`emitV128Load` / `emitV128Store` /
+`emitI32x4Splat` / `emitI32x4Add`) wired into the arm64/emit.zig
+ZirOp dispatch switch. Handlers use existing `gpr.resolveGpr` /
+`gpr.resolveFp` for non-spilling cases; spilled v128 vregs (slot
+≥ max_reg_slots_fp = 13) graceful-degrade to UnsupportedOp,
+matching `resolveFp`'s pattern. SPILL-EXEMPT per D-034 — 16-byte
+v128 Q-form spill-aware path defers to 9.5-c.
 
 Per LOOP.md chunk granularity, 9.5 row split:
-- 9.5-a [x]: NEON encoder foundation (`inst_neon.zig`)
+- 9.5-a [x]: NEON encoder foundation
 - 9.5-b-i [x]: shape-tag predicate + populator
-- 9.5-b-ii [x]: compute() integration (this commit)
-- 9.5-b-iii NEXT: per-op emit handlers + ZirOp dispatch
-- 9.5-c: extract/replace_lane + remaining int-arith shapes
+- 9.5-b-ii [x]: compute() integration
+- 9.5-b-iii [x]: per-op handlers + dispatch (this commit)
+- 9.5-c NEXT: extract/replace_lane + remaining int-arith
+  shapes + 16-byte v128 spill helpers
 
-**§9.9/9.5-b-iii NEXT** — per-op emit handlers in
-`src/engine/codegen/arm64/op_simd.zig` (new sibling). Wire
-v128.load/store/i32x4.splat/i32x4.add ZirOps to NEON encoders
-via the existing op-dispatch switch in `arm64/emit.zig`. The
-emit ctx queries `ctx.alloc.shapeTag(vreg)` to select 16-byte
-spill stride and Q/V register view (per ADR-0041 §"Decision" /
-2). Will need a SIMD analog of `gpr.gprDefSpilled` for
-V-register resolution + 16-byte spill — possibly a new
-`fpr_neon.zig` or extension to existing `gpr.zig` (rename
-needed?). ~250-300 src + ~150 tests.
+Mac gates: zone ✓, file_size ✓, spill ✓ (after SPILL-EXEMPT
+markers; D-034 BASELINE=0 preserved), lint ✓ (after `inst`
+unused-import removal), test 1199/0/12.
 
-## Active task — §9.9/9.5-b-iii: ARM64 NEON per-op dispatch **NEXT**
+**§9.9/9.5-c NEXT** — extract/replace_lane handlers + remaining
+int-arith op shapes (i8x16 / i16x8 / i64x2 add/sub/mul) + 16-byte
+v128 spill helpers (Q-form `LDR Q` / `STR Q` analogs of
+`gpr.fpLoadSpilled` / `gpr.fpStoreSpilled` with 16-byte stride).
+Estimated ~400 src + ~200 tests.
+
+## Active task — §9.9/9.5-c: extract/replace_lane + remaining int-arith **NEXT**
 
 Per ADR-0041 + 9.5-a's encoder foundation. Wires the NEON
 encoders into the ZirOp dispatch path in

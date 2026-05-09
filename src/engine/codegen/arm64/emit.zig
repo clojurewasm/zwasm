@@ -56,6 +56,7 @@ const op_memory = @import("op_memory.zig");
 const op_control = @import("op_control.zig");
 const op_call = @import("op_call.zig");
 const op_globals = @import("op_globals.zig");
+const op_simd = @import("op_simd.zig");
 const bounds_check = @import("bounds_check.zig");
 
 const Label = label_mod.Label;
@@ -1158,6 +1159,15 @@ pub fn compile(
                 }
                 break;
             },
+            // §9.9 / 9.5-b-iii — SIMD-128 MVP catalogue per ADR-0041.
+            // Sub-row 9.5-c covers extract/replace_lane + remaining
+            // op shapes; 9.6 covers float arith + compare + shuffle
+            // + conversion.
+            .@"v128.load" => try op_simd.emitV128Load(&ctx, &ins),
+            .@"v128.store" => try op_simd.emitV128Store(&ctx, &ins),
+            .@"i32x4.splat" => try op_simd.emitI32x4Splat(&ctx, &ins),
+            .@"i32x4.add" => try op_simd.emitI32x4Add(&ctx, &ins),
+
             else => {
                 // §9.7 / 7.5-diag-op: surface the unhandled op
                 // tag to stderr so the spec-jit-compile-runner's
