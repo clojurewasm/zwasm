@@ -13,60 +13,52 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.9/9.5-c-vi [x] (int lane access B/H/D); **§9.9/9.5-c-vii NEXT**
+## Current state — Phase 9 / §9.9/9.5-c-vii [x] (f32x4/f64x2 lane access); **§9.9/9.5-c-vii-mul NEXT**
 
-§9.9/9.5-c-vi adds 8 NEON lane-access encoders (UMOV/SMOV W
-from B + INS B from W; UMOV/SMOV W from H + INS H from W;
-UMOV X from D + INS D from X) plus 8 op_simd handlers wired
-through two new shared helpers (`emitV128ExtractLane` /
-`emitV128ReplaceLane`) that take an encoder thunk + lane mask.
-This consolidates the per-shape boilerplate; each ZirOp arm
-reduces to a one-line shape adapter.
+§9.9/9.5-c-vii adds 4 NEON FP lane-access encoders (DUP-scalar
+S/D + INS-element S/D, src lane 0) and 4 op_simd handlers wired
+through new helper pair `emitV128ExtractLaneFp` /
+`emitV128ReplaceLaneFp` (parallel to the int-side helpers; the
+FP scalar resolves stay on SPILL-EXEMPT alongside the GPR ones).
 
-i32x4 lane access already in 9.5-c-iii. f32x4/f64x2 lane
-access + i64x2.mul synthesis defer to 9.5-c-vii (the D-form
-encoders landed here will be reused by that synthesis).
+i64x2.mul defers to 9.5-c-vii-mul because the multi-instr
+synthesis (extract D-lanes via UMOV X / scalar 64-bit MUL /
+insert via INS D from X) introduces a scratch-register
+reservation — ADR-grade design choice that warrants its own
+chunk per LOOP.md granularity.
 
 Per LOOP.md chunk granularity, 9.5 row sub-split:
-- 9.5-a/b/c-i…c-vi [x]: encoder foundation + shape-tag
+- 9.5-a/b/c-i…c-vii [x]: encoder foundation + shape-tag
   pipeline + Q-form spill + op_simd refactor + i32x4 lane
-  access + ADD/SUB + MUL (16B/8H/4S) + int lane access B/H/D.
-- 9.5-c-vii NEXT: i64x2.mul synthesis (extract / scalar-mul /
-  insert sequence) + remaining lane-access shapes for
-  f32x4 / f64x2 (FMOV / DUP / INS S/D variants).
+  access + ADD/SUB + MUL (16B/8H/4S) + int lane access B/H/D
+  + FP lane access S/D.
+- 9.5-c-vii-mul NEXT: i64x2.mul synthesis (extract X.D-lane /
+  scalar MUL / insert X.D-lane sequence) + scratch-reg
+  reservation convention.
 
 Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
 212/0/20, wast 1158/0/0.
 
-**§9.9/9.5-c-vii NEXT** — i64x2.mul multi-instr synthesis +
-extract/replace_lane for f32x4 / f64x2. Synthesis sequence
-for i64x2.mul: extract each i64 lane via the new
-`encUmovXFromD`; scalar MUL via inst.encMulRR; insert via
-the new `encInsDFromX`. f32x4 / f64x2 lane handlers reuse
-`emitV128ExtractLane` / `emitV128ReplaceLane` (introduced
-this chunk) once FMOV/DUP/INS S/D encoders land.
+**§9.9/9.5-c-vii-mul NEXT** — i64x2.mul multi-instr synthesis.
+Per lane k ∈ {0, 1}:
+1. `UMOV X<scratch_a>, V<lhs>.D[k]` — `encUmovXFromD`
+2. `UMOV X<scratch_b>, V<rhs>.D[k]`
+3. `MUL X<scratch_c>, X<scratch_a>, X<scratch_b>` — scalar 64-bit
+   MUL (need to verify presence of `encMulXX` in `inst.zig`; add
+   if missing).
+4. `INS V<result>.D[k], X<scratch_c>` — `encInsDFromX`
 
-## Active task — §9.9/9.5-c-vii: i64x2.mul synthesis + f32x4/f64x2 lane access **NEXT**
+Scratch-reg reservation: candidates X16 / X17 (IP0 / IP1 — AAPCS64
+intra-procedure scratch) or a fixed pair from the regalloc-
+reserved range. Survey `gpr.zig` / `regalloc.zig` for existing
+scratch conventions before introducing a new one (Step 0 task).
 
-Two independent groups, both in `op_simd.zig`:
+## Active task — §9.9/9.5-c-vii-mul: i64x2.mul synthesis **NEXT**
 
-1. **i64x2.mul** (no NEON 2D-MUL exists). Synthesis sequence per
-   lane: `encUmovXFromD` (extract i64) → scalar `encMul` (X-form,
-   reuse from `inst.zig`) → `encInsDFromX` (insert back). Need a
-   dedicated handler since `emitV128Binop` assumes a single
-   3-operand NEON encoder.
-2. **f32x4 / f64x2 extract_lane / replace_lane** (4 ops). Reuse
-   `emitV128ExtractLane` / `emitV128ReplaceLane` introduced this
-   chunk after adding FMOV-S / FMOV-D + INS-element-from-element
-   encoders in `inst_neon.zig` (or DUP-derived alternatives).
-   FP-register destination requires a different `resolve*` /
-   spill path than the GPR-result int-lane handlers; structurally
-   distinct enough to live alongside the helpers as a sibling
-   pair (`emitV128ExtractLaneFp` / `emitV128ReplaceLaneFp`).
-
-After 9.5-c-vii: 9.6 ARM64 NEON emit pt 2 (float arith +
-compare + shuffle + conversion) → 9.7/9.8 x86_64 SSE4.1 emit
-→ 9.9 spec test → 9.10 bench → 9.11 audit → 9.12 open §9.10.
+Single op, multi-instr synthesis. Estimated ~80 src + ~40 tests
+(handler + scratch-reg reservation comment + two-lane unrolled
+codegen test asserting 8 emitted words: 2× UMOV + 2× MUL + 2×
+INS + 2× v128 spill load/store).
 
 After 8b.4: 8b.5 (boundary audit_scaffolding) + 8b.6 (open
 §9.9 inline + flip Phase Status).
