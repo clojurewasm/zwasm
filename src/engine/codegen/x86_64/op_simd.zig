@@ -3008,3 +3008,16 @@ pub fn emitI16x8ExtmulLowI8x16U(allocator: Allocator, buf: *std.ArrayList(u8), a
 pub fn emitI16x8ExtmulHighI8x16U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
     return emitV128IntExtmulHigh(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmovzxbw, inst.encPmullW);
 }
+
+pub fn emitI32x4ExtmulLowI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntExtmulLow(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmovsxwd, inst.encPmullD);
+}
+pub fn emitI32x4ExtmulHighI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntExtmulHigh(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmovsxwd, inst.encPmullD);
+}
+pub fn emitI32x4ExtmulLowI16x8U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntExtmulLow(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmovzxwd, inst.encPmullD);
+}
+pub fn emitI32x4ExtmulHighI16x8U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntExtmulHigh(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPmovzxwd, inst.encPmullD);
+}

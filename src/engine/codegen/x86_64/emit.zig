@@ -1058,6 +1058,13 @@ pub fn compile(
             .@"i16x8.extmul_high_i8x16_s" => try op_simd.emitI16x8ExtmulHighI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i16x8.extmul_low_i8x16_u" => try op_simd.emitI16x8ExtmulLowI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i16x8.extmul_high_i8x16_u" => try op_simd.emitI16x8ExtmulHighI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-ah: i32x4.extmul × 4 (i16x8 → i32x4).
+            // Same recipe as 9.7-ag with PMOVSXWD/PMOVZXWD +
+            // PMULLD substituted; helpers reused unchanged.
+            .@"i32x4.extmul_low_i16x8_s" => try op_simd.emitI32x4ExtmulLowI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extmul_high_i16x8_s" => try op_simd.emitI32x4ExtmulHighI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extmul_low_i16x8_u" => try op_simd.emitI32x4ExtmulLowI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extmul_high_i16x8_u" => try op_simd.emitI32x4ExtmulHighI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.
