@@ -28,18 +28,30 @@ Per LOOP.md chunk granularity, §9.6 sub-row state:
 Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
 212/0/20, wast 1158/0/0.
 
-**At §9.6 close (queued)** — fire a Phase 7-8 v1-audit Explore
-subagent before flipping §9.6 to `[x]`. Brief: read v1's
-`src/jit_x86/`, `src/jit_arm64/`, `src/regalloc/`, `src/liveness/`,
-`src/hoist/` and compare to v2's corresponding modules. Output:
-`private/notes/p7p8-v1-audit.md` (gitignored, 200-400 lines).
-Per item: ✓ (v2 covered) / ⚠ (different choice — confirm
-intentional) / ✗ (v2 missing — promote to debt or ADR). Goal:
-catch wheel-reinvention details that v1 already worked out
-(scratch conventions, prologue/epilogue shape, trap stub plumbing,
-ABI quirks — anything subtle enough that re-deriving from spec +
-Intel SDM may have missed). User-raised concern, queued for
-execution.
+**At §9.6 close (queued)** — fire a broad pre-9.7 v1+OSS audit
+before flipping §9.6 to `[x]`:
+- Scope: v1's `src/jit_x86/`, `src/jit_arm64/`, `src/regalloc/`,
+  `src/liveness/`, `src/hoist/`, plus wasmtime/cranelift, zware,
+  wasm3 for SIMD-128 specifically (v1 has no SIMD). Compare to
+  v2's full Phase 7 + Phase 8 + §9.5/9.6 surface — NOT just 9.6.
+- Triage stance: **aggressive cleanup, not deferral**.
+  - Mechanical & behaviour-preserving → fix inline in the audit's
+    commit (e.g. `chore(p9): apply v1-audit findings batch`).
+  - Structural / ADR-grade choice → file ADR per §18 + reference
+    in handover; queue a follow-up §9.x row if non-trivial.
+  - Blocked by external barrier → debt entry naming the barrier.
+- Output: `private/notes/p7-9.6-v1-audit.md` (gitignored,
+  200-400 lines, each finding tagged ✓/⚠/✗ + action taken).
+- Exit signal: handover gets a `v1-audit done at <SHA>` line so
+  later resumes don't re-fire. Subsequent unrelated commits are
+  not audit findings.
+- Motivation: §9.5/§9.6 ran with under-applied Step 0 discipline
+  (re-derived NEON encodings from spec without consulting
+  cranelift/zware/wasm3); Phase 7 likewise mostly re-derived
+  x86_64 from Intel SDM. v1 worked out non-obvious details
+  (scratch conventions, prologue/epilogue shape, trap stub
+  plumbing, ABI quirks) — better to back-fill before x86_64 SIMD
+  (§9.7) where the same gaps would compound.
 
 **§9.6/9.6-f-ii NEXT** — i8x16.shuffle via NEON TBL 2-register
 form. Two design challenges:
