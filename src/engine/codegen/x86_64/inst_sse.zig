@@ -830,6 +830,18 @@ pub fn encPcmpgtD(dst: Xmm, src: Xmm) EncodedInsn {
     return encSsePackedIntBinop(0x66, dst, src);
 }
 
+/// `PCMPGTQ xmm, xmm` (66 [REX?] 0F 38 37 /r) — SSE4.2 packed
+/// 64-bit signed greater-than. 2 lanes. Wasm `i64x2.gt_s` direct;
+/// `i64x2.lt_s` via operand swap; `i64x2.le_s` / `ge_s` via NOT
+/// (PXOR with all-ones). Per ADR-0041 §"5. SSE4.2 minimum
+/// baseline" (post-9.7-m amend) — chosen over Cranelift's 9-instr
+/// SSE4.1 synthesis (`inst.isle:3179-3191`) because Steam April
+/// 2026 reports 98.18% SSE4.2 adoption and the synthesis costs
+/// ~8× the JIT bytes per call.
+pub fn encPcmpgtQ(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinopExt(0x38, 0x37, dst, src);
+}
+
 /// `MOVSD xmm, xmm` (F2 [REX?] 0F 10 /r — register-register
 /// form with ModR/M.mod=11) — copies the low 64 bits of `src`
 /// into the low 64 bits of `dst`, **preserving** the upper 64
@@ -1130,4 +1142,14 @@ test "encPcmpgtB / W / D opcode bytes (xmm0, xmm1)" {
 
 test "encPcmpgtD: REX.R+B (xmm8, xmm13)" {
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0x66, 0xC5 }, encPcmpgtD(.xmm8, .xmm13).slice());
+}
+
+test "encPcmpgtQ: SSE4.2 (xmm0, xmm1) — 0x38 escape, opcode 0x37" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x38, 0x37, 0xC1 }, encPcmpgtQ(.xmm0, .xmm1).slice());
+}
+
+test "encPcmpgtQ: REX.R+B (xmm8, xmm13)" {
+    // 66 45 0F 38 37 C5 — REX = 0x40 | R(1<<2) | B(1) = 0x45;
+    // ModR/M = 11 000 101 = 0xC5 (mod=11, reg=0 [xmm8 low3], rm=5 [xmm13 low3]).
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x45, 0x0F, 0x38, 0x37, 0xC5 }, encPcmpgtQ(.xmm8, .xmm13).slice());
 }

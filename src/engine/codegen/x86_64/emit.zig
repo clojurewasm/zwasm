@@ -853,6 +853,15 @@ pub fn compile(
             .@"i32x4.lt_s" => try op_simd.emitI32x4LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i32x4.le_s" => try op_simd.emitI32x4LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i32x4.ge_s" => try op_simd.emitI32x4GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-m: i64x2 signed compare lt_s/gt_s/le_s/ge_s
+            // (4 ops). PCMPGTQ (SSE4.2 0F 38 37) threaded through
+            // 9.7-l's emitV128IntCmpSigned helper. Per ADR-0041 §5
+            // amend at 9.7-m — x86_64 baseline raised SSE4.1 →
+            // SSE4.2 (Steam Apr 2026 98.18% adoption).
+            .@"i64x2.gt_s" => try op_simd.emitI64x2GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.lt_s" => try op_simd.emitI64x2LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.le_s" => try op_simd.emitI64x2LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.ge_s" => try op_simd.emitI64x2GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at

@@ -437,6 +437,55 @@ pub fn emitI32x4GeS(
     return emitV128IntCmpSigned(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpgtD, .ge);
 }
 
+/// Wasm spec §4.4.4 (i64x2.gt_s) — pop two v128, push v128 where
+/// each 64-bit lane is all-ones if lhs > rhs (signed) else
+/// all-zero. Threads the SSE4.2 PCMPGTQ encoder through 9.7-l's
+/// shared `emitV128IntCmpSigned` helper (operand swap for lt;
+/// PXOR-with-all-ones for le/ge). Per ADR-0041 §5 (post-9.7-m
+/// SSE4.2 amendment) — synthesis from SSE4.1 primitives rejected.
+pub fn emitI64x2GtS(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntCmpSigned(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpgtQ, .gt);
+}
+
+/// Wasm spec §4.4.4 (i64x2.lt_s) — see emitI64x2GtS docstring.
+pub fn emitI64x2LtS(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntCmpSigned(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpgtQ, .lt);
+}
+
+/// Wasm spec §4.4.4 (i64x2.le_s) — see emitI64x2GtS docstring.
+pub fn emitI64x2LeS(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntCmpSigned(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpgtQ, .le);
+}
+
+/// Wasm spec §4.4.4 (i64x2.ge_s) — see emitI64x2GtS docstring.
+pub fn emitI64x2GeS(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    return emitV128IntCmpSigned(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPcmpgtQ, .ge);
+}
+
 /// Wasm spec §4.4.4 (i*x*.eq variants) — pop two v128, push v128
 /// where each lane is all-ones if the inputs match else all-zero.
 /// Per-shape encoders (PCMPEQB / PCMPEQW / PCMPEQD / PCMPEQQ)

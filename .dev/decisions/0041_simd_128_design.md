@@ -189,25 +189,44 @@ emit; the test suite (`simd.wast`) encodes the canonical
 behaviour. Each handler carries a `Wasm spec §X.Y.Z` citation
 in its docstring per `.claude/rules/spec_citation.md`.
 
-### 5. SSE4.1 minimum baseline
+### 5. SSE4.2 minimum baseline
 
-Required SSE4.1 instructions confirmed:
+Required SSE4.1 + SSE4.2 instructions confirmed:
 
-- **`PMULLD`** — `i32x4.mul` (SSE4.1 only; SSE2's `PMULLW`
+- **`PMULLD`** (SSE4.1) — `i32x4.mul` (SSE2's `PMULLW`
   is i16x8-scoped).
-- **`PINSRB` / `PINSRW` / `PINSRD`** — lane-replace ops on
-  i8x16 / i16x8 / i32x4 (SSE4.1; SSE2 has only i16x8 form).
-- **`PBLENDVB`** — `v128.bitselect` mask blend (SSE4.1).
+- **`PINSRB` / `PINSRW` / `PINSRD`** (SSE4.1) — lane-replace
+  ops on i8x16 / i16x8 / i32x4 (SSE2 has only i16x8 form).
+- **`PBLENDVB`** (SSE4.1) — `v128.bitselect` mask blend.
+- **`PCMPGTQ`** (SSE4.2, opcode `66 0F 38 37 /r`) — i64x2
+  signed compare (`i64x2.gt_s` and the swapped / inverted
+  `lt_s` / `le_s` / `ge_s` variants). The Wasm SIMD spec
+  mandates these four ops; the only SSE4.1 alternative is
+  Cranelift's 9-instruction synthesis (`inst.isle:3179-3191`)
+  using PSHUFD + PCMPGTD + PCMPEQD + PAND + POR which costs
+  ~8× the JIT bytes per call. Steam Hardware Survey (April
+  2026) reports SSE4.2 at 98.18% of surveyed systems; the
+  hardware-introduction floor is Intel Nehalem (2008) /
+  AMD Bulldozer (2011), 15+ years old. Pre-SSE4.2 hardware
+  (Core 2 / Atom Bonnell) is effectively obsolete in the
+  zwasm v0.1.0 target audience. Raising the documented
+  baseline from SSE4.1 to SSE4.2 aligns the policy with
+  the practical runtime constraint (cf. zwasm v1
+  `src/x86.zig:1370` + `:5324-5349` which already assumes
+  SSE4.2 without synthesis fallback).
 
 SSSE3 instructions (`PSHUFB`) are also load-bearing for
 `i8x16.shuffle` but are subsumed by SSE4.1.
 
 Runtime feature detection: `src/feature/simd_128/register.
-zig:register()` checks `cpuid` SSE4.1 bit (CPUID.01H:ECX
-bit 19) at startup; if absent, `register()` returns early
-without installing handlers, and any SIMD op encountered
-later traps with `UnsupportedFeature` rather than
-silently miscompiling.
+zig:register()` checks `cpuid` SSE4.2 bit (CPUID.01H:ECX
+bit 20) at startup — implies SSE4.1 (bit 19). If absent,
+`register()` returns early without installing handlers, and
+any SIMD op encountered later traps with `UnsupportedFeature`
+rather than silently miscompiling. The single CPUID gate
+covers both SSE4.1 and SSE4.2 since SSE4.2 implies SSE4.1
+on every x86 CPU vendor (per Intel SDM Vol 2A §3.2,
+"CPUID").
 
 ### Concrete chunk plan (refining ROADMAP §9.9 rows)
 
@@ -273,6 +292,31 @@ the survey's estimate.
   it predate Wasm itself. ROADMAP §9.9's "SSE4.1 minimum"
   text is the load-bearing claim this ADR confirms.
 
+### Alternative E — Synthesise PCMPGTQ from SSE4.1 primitives
+
+- **Sketch**: keep SSE4.1 as the documented baseline (per the
+  original §5); for `i64x2.{lt_s, gt_s, le_s, ge_s}` emit
+  Cranelift's 9-instruction synthesis from
+  `inst.isle:3179-3191` (load 0x80...80 mask into XMM scratch,
+  PXOR both operands, PCMPGTD on dwords, PSHUFD to splat low /
+  high dword compare results into 64-bit lanes, PCMPEQD on
+  high dwords, PAND + POR to combine). i64x2 unsigned
+  comparison is not in the Wasm SIMD spec, so the synthesis
+  question only fires for the four signed ops.
+- **Why rejected (2026-05-09 amendment)**: the synthesis path
+  costs ~8× the JIT bytes per call (9 instructions + scratch
+  reservation vs 1 instruction PCMPGTQ). Steam Hardware
+  Survey (April 2026) reports SSE4.2 at 98.18% of surveyed
+  systems — the synthesis fallback would run on <2% of
+  target hardware while paying the 8× cost on every i64x2
+  signed compare on the other 98%. ROADMAP §A12 (simplicity
+  over speculative generality) and P3 (cold-start) both
+  favour the 1-instruction native path. zwasm v1
+  (`src/x86.zig:5324-5349`) precedent already assumes SSE4.2
+  without the synthesis fallback; v2 was strictly weaker
+  on this axis when this ADR's original §5 was written.
+  Adopted answer: raise the baseline (chosen Decision §5).
+
 ## Consequences
 
 ### Positive
@@ -300,8 +344,11 @@ the survey's estimate.
   pre-checks for IEEE-754 specials add ~3-5 instructions
   per op vs the silent-saturate fast path. Acceptable for
   spec correctness; Phase 15 may add fast-path detection.
-- **SSE4.1 baseline excludes pre-2009 x86 CPUs**: a
-  documented limitation. Release notes flag this.
+- **SSE4.2 baseline excludes pre-2008 x86 CPUs**: pre-Nehalem
+  Intel and pre-Bulldozer AMD (Core 2, Atom Bonnell). A
+  documented limitation flagged in release notes; the
+  startup CPUID gate refuses to install SIMD handlers on
+  unsupported hardware (rather than silently miscompiling).
 
 ### Neutral / follow-ups
 
@@ -351,3 +398,4 @@ the survey's estimate.
 |---|---|---|
 | 2026-05-09 | `<backfill>` | Initial accepted version (§9.9/9.2 design framing; shape-as-variant ZirOp catalogue + FP-class pool reuse with shape-tag axis + feature-register pattern + NEON spec-fidelity + SSE4.1 minimum) |
 | 2026-05-09 | `<backfill>` | **Discovery during 9.3 implementation**: the current `src/validate/validator.zig` uses **inline static dispatch** (`switch (op)` at line 341) for both the main opcode space and prefix-FC sub-ops (`dispatchPrefixFC` at line 632) — it does **not** consult the central `DispatchTable`. Decision §3 ("Feature-register pattern") was design-aspirational for the validator; only parser / interp / jit_arm64 / jit_x86 slots in the dispatch table are actually consumed today. Reframe 9.3: SIMD-128 prefix-`0xFD` dispatch lands inline in `validator.zig` mirroring the existing `dispatchPrefixFC` pattern; per-shape helper handlers (`opSimdConst` / `opSimdLoad` / `opSimdStore` / `opSimdSplat` / `opSimdExtractLane` / `opSimdReplaceLane` / `opSimdBinop` / `opSimdUnop` / `opSimdRelop` / `opSimdShuffle` / etc.) cover the 415 op variants via shape+sub-op-range matching. Full dispatch-table-driven validator (matching ADR-0023 §4.5's design) remains a Phase 14+ structural refactor; not a Phase 9 deliverable. The feature-register pattern still applies to parser/interp/emit (those DO consume the dispatch table); only validator's path is inline. No amendment to the §9.9/9.2 row text needed — the design intent (no `if (simd_enabled)` branching in shared code) is preserved by virtue of validator already being SIMD-blind today; 0xFD prefix is opt-in by the prefix opcode itself. |
+| 2026-05-09 | `<backfill>` | **§9.7-m gap (this commit)**: §5 baseline raised SSE4.1 → SSE4.2. Driven by `i64x2.{lt_s, gt_s, le_s, ge_s}` whose only SSE4.1-baseline option is Cranelift's 9-instruction synthesis (`inst.isle:3179-3191`) — 8× the JIT bytes versus PCMPGTQ's 1 instruction. Steam Hardware Survey (April 2026) reports SSE4.2 at 98.18% adoption; pre-Nehalem (2008) / pre-Bulldozer (2011) hardware is effectively obsolete in the v0.1.0 target audience. Alternative E ("synthesise from SSE4.1 primitives") added with rationale; previous §5 text "SSE4.1 minimum" rewritten to "SSE4.2 minimum"; CPUID detection moves from bit 19 (SSE4.1) to bit 20 (SSE4.2). Categorisation per `lessons_vs_adr.md` Revision-history convention: **gap** (the original §5 was complete for the rows it considered; the i64x2 signed compare obligation surfaced during 9.7-m and was not on §5's evidence base). |
