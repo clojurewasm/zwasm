@@ -670,3 +670,74 @@ pub fn emitF64x2Min(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 pub fn emitF64x2Max(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try emitV128Binop(ctx, inst_neon.encFMax2D);
 }
+
+// ============================================================
+// §9.6 / 9.6-c-ii — f32x4/f64x2 pmin/pmax synthesis
+// ============================================================
+//
+// Wasm spec (SIMD) — pseudo-min/max with zero-on-equal-magnitude:
+//   pmin(x, y) ≡ if y < x then y else x   (returns y on ties / NaN)
+//   pmax(x, y) ≡ if x < y then y else x   (returns y on ties / NaN)
+//
+// A64 NEON has no direct instruction; synthesis via FCMGT + BSL
+// per Arm IHI 0055. Sequence (3 instructions):
+//   1. FCMGT V31, V<a>, V<b>            ; mask = (a > b)
+//   2. BSL   V31.16B, V<true>.16B, V<false>.16B ; V31 = mask ? true : false
+//   3. MOV   V<result>.16B, V31.16B     ; copy to result V
+//
+// V31 reservation: per `regalloc.zig:126` ("V31 reserved for popcnt's
+// V-register pipeline"); reused here as a SIMD scratch since no live
+// SIMD vreg can land there.
+//
+// pmin operand choice: a=lhs, b=rhs, true=rhs, false=lhs.
+//   mask = (lhs > rhs); true case = rhs, false case = lhs.
+// pmax operand choice: a=rhs, b=lhs, true=rhs, false=lhs.
+//   mask = (rhs > lhs); true case = rhs, false case = lhs.
+
+const simd_scratch_v: u5 = 31; // V31 / reserved scratch per ADR-0041 + regalloc.zig
+
+fn emitPminPmaxSynthesis(
+    ctx: *EmitCtx,
+    cmp_encoder: *const fn (rd: u5, rn: u5, rm: u5) u32,
+    is_pmax: bool,
+) Error!void {
+    const rhs_vreg = ctx.pushed_vregs.pop().?;
+    const rhs_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, rhs_vreg, 1);
+
+    const lhs_vreg = ctx.pushed_vregs.pop().?;
+    const lhs_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, lhs_vreg, 0);
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
+
+    // Step 1: FCMGT V31, V<a>, V<b>. For pmin, a=lhs, b=rhs (mask = lhs > rhs).
+    // For pmax, a=rhs, b=lhs (mask = rhs > lhs).
+    const cmp_a = if (is_pmax) rhs_v else lhs_v;
+    const cmp_b = if (is_pmax) lhs_v else rhs_v;
+    try gpr.writeU32(ctx.allocator, ctx.buf, cmp_encoder(simd_scratch_v, cmp_a, cmp_b));
+
+    // Step 2: BSL V31, V<rhs>.16B, V<lhs>.16B — mask ? rhs : lhs (same
+    // for both pmin and pmax since the mask sense already encodes which).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encBsl16B(simd_scratch_v, rhs_v, lhs_v));
+
+    // Step 3: MOV V<result>.16B, V31.16B (alias of ORR Vd, Vn, Vn).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(result_v, simd_scratch_v));
+
+    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+pub fn emitF32x4Pmin(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitPminPmaxSynthesis(ctx, inst_neon.encFCmGt4S, false);
+}
+pub fn emitF32x4Pmax(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitPminPmaxSynthesis(ctx, inst_neon.encFCmGt4S, true);
+}
+pub fn emitF64x2Pmin(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitPminPmaxSynthesis(ctx, inst_neon.encFCmGt2D, false);
+}
+pub fn emitF64x2Pmax(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitPminPmaxSynthesis(ctx, inst_neon.encFCmGt2D, true);
+}

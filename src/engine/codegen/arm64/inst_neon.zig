@@ -542,6 +542,37 @@ pub fn encFMin2D(rd: Vn, rn: Vn, rm: Vn) u32 {
     return 0x4EE0F400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+// ---------------------------------------------------------------------
+// §9.6 / 9.6-c-ii — FCMGT (vector, register form) + BSL
+// ---------------------------------------------------------------------
+// Used to synthesise Wasm `f*x*.pmin` / `pmax` (zero-on-equal-magnitude
+// pseudo-min/max) since A64 NEON has no direct instruction.
+//
+// FCMGT (vector) §C7.2.105:
+//   `0 Q 1 01110 1 sz 1 Rm 11100 1 Rn Rd` — FP greater-than per lane
+//   producing all-1s lanes where condition holds.
+//
+// BSL (Bitwise Select) §C7.2.39:
+//   `0 Q 1 01110 0 1 1 Rm 0 0011 1 Rn Rd` — V<d> = (V<d> AND V<n>)
+//   OR ((NOT V<d>) AND V<m>). I.e. V<d> is the mask, V<n> is the
+//   "selected when bit 1" lane, V<m> is the "selected when bit 0".
+
+/// `FCMGT V<d>.4S, V<n>.4S, V<m>.4S` — per-lane f32 greater-than.
+pub fn encFCmGt4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x6EA0E400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `FCMGT V<d>.2D, V<n>.2D, V<m>.2D` — per-lane f64 greater-than.
+pub fn encFCmGt2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x6EE0E400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `BSL V<d>.16B, V<n>.16B, V<m>.16B` — bitwise select using V<d>
+/// as the mask. Element width is irrelevant since BSL is bitwise.
+pub fn encBsl16B(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x6E601C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 // =====================================================================
 // Tests
 // =====================================================================
@@ -1018,4 +1049,35 @@ test "encFMin vs encFMax: bit 23 differs" {
 
 test "encFMin2D vs encFMin4S: sz field differs (bit 22)" {
     try testing.expectEqual(@as(u32, 0x400000), encFMin2D(0, 1, 2) ^ encFMin4S(0, 1, 2));
+}
+
+// ============================================================
+// §9.6 / 9.6-c-ii — FCMGT + BSL (pmin/pmax synthesis)
+// ============================================================
+
+test "encFCmGt4S: V0, V1, V2 (f32x4 greater-than)" {
+    // 0x6EA0E400 | (2 << 16) | (1 << 5) | 0 = 0x6EA2E420
+    try testing.expectEqual(@as(u32, 0x6EA2E420), encFCmGt4S(0, 1, 2));
+}
+
+test "encFCmGt2D: V31, V31, V31 (max indices)" {
+    // 0x6EE0E400 | (31 << 16) | (31 << 5) | 31 = 0x6EFFE7FF
+    try testing.expectEqual(@as(u32, 0x6EFFE7FF), encFCmGt2D(31, 31, 31));
+}
+
+test "encFCmGt vs encFMax: U + bit 23 + bit 12 all differ" {
+    // FCMGT: U=1, bit 23 = 1, opcode bits[15:11] = 11100.
+    // FMAX:  U=0, bit 23 = 0, opcode bits[15:11] = 11110.
+    // XOR delta: 0x20000000 (U=29) + 0x00800000 (bit 23) + 0x00001000 (bit 12).
+    try testing.expectEqual(@as(u32, 0x20801000), encFCmGt4S(0, 1, 2) ^ encFMax4S(0, 1, 2));
+}
+
+test "encBsl16B: V0, V1, V2 (bitwise select)" {
+    // 0x6E601C00 | (2 << 16) | (1 << 5) | 0 = 0x6E621C20
+    try testing.expectEqual(@as(u32, 0x6E621C20), encBsl16B(0, 1, 2));
+}
+
+test "encBsl16B: V31, V30, V29 (high indices)" {
+    // 0x6E601C00 | (29 << 16) | (30 << 5) | 31 = 0x6E7D1FDF
+    try testing.expectEqual(@as(u32, 0x6E7D1FDF), encBsl16B(31, 30, 29));
 }

@@ -1227,6 +1227,11 @@ pub fn compile(
             .@"f32x4.max" => try op_simd.emitF32x4Max(&ctx, &ins),
             .@"f64x2.min" => try op_simd.emitF64x2Min(&ctx, &ins),
             .@"f64x2.max" => try op_simd.emitF64x2Max(&ctx, &ins),
+            // §9.6/9.6-c-ii — f32x4/f64x2 pmin/pmax synthesis (FCMGT + BSL).
+            .@"f32x4.pmin" => try op_simd.emitF32x4Pmin(&ctx, &ins),
+            .@"f32x4.pmax" => try op_simd.emitF32x4Pmax(&ctx, &ins),
+            .@"f64x2.pmin" => try op_simd.emitF64x2Pmin(&ctx, &ins),
+            .@"f64x2.pmax" => try op_simd.emitF64x2Pmax(&ctx, &ins),
 
             else => {
                 // §9.7 / 7.5-diag-op: surface the unhandled op
