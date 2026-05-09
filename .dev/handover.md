@@ -13,24 +13,41 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.6/9.6-g-iv [x] (FP promote/demote × 2); §9.6/9.6-f-ii deferred via D-056; **§9.6/9.6-g-v NEXT**
+## Current state — Phase 9 / §9.6/9.6-g-v [x] (trunc_sat × 4); §9.6/9.6-f-ii deferred (D-056); **v1-audit fire NEXT**
 
-§9.6/9.6-g-iv adds encFCvtl_2D_2S + encFCvtn_2S_2D encoders + 2
-thin handlers via emitV128Unop. Cranelift cross-checks verified
-both encodings (FCVTN .2S-.2D base 0x0E616800; FCVTL .2D-.2S base
-0x0E617800). Q=0 form for FCVTN naturally zeros upper 64 bits,
-matching Wasm `_zero` semantic.
+§9.6/9.6-g-v adds 6 encoders (FCVTZS/U .4S/.2D + SQXTN/UQXTN .2S)
++ 4 handlers via existing helpers + new emitV128TruncSatF64Zero.
+NEON NaN→0 + saturation default match Wasm spec exactly — no
+NaN-mask synthesis needed. Cranelift cross-checks verified all
+encoder bases.
 
-Per LOOP.md chunk granularity, §9.6 sub-row state:
-- 9.6-a/b/c-i/c-ii/d/e/f-i/g-i/g-ii/g-iii/g-iv [x]: FP arith /
-  compares / int compares / swizzle / extend / narrow / i→f /
-  promote / demote.
-- 9.6-f-ii deferred (D-056): shuffle + v128.const need const-pool
-  ADR; trigger = §9.6 close v1-audit findings.
-- 9.6-g-v NEXT: trunc_sat (most complex — NaN→0 + clamp).
+§9.6 sub-row state: ALL implementable sub-rows complete:
+- 9.6-a/b/c-i/c-ii/d/e/f-i/g-i/g-ii/g-iii/g-iv/g-v [x]
+- 9.6-f-ii (shuffle + v128.const) deferred via D-056 pending
+  const-pool ADR — last open sub-row of §9.6.
+
+Per the handover queue, the v1-audit fires at §9.6 close (= now).
+The audit may surface a const-pool pattern that informs 9.6-f-ii's
+discharge.
 
 Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
 212/0/20, wast 1158/0/0.
+
+**v1-audit NEXT** — broad pre-9.7 audit. Scope per earlier
+queued plan:
+- v1's `src/jit_x86/`, `src/jit_arm64/`, `src/regalloc/`,
+  `src/liveness/`, `src/hoist/`, plus wasmtime/cranelift, zware,
+  wasm3 for SIMD-128 (v1 has none).
+- Compare to v2's full Phase 7 + Phase 8 + §9.5/§9.6 surface.
+- Triage: aggressive cleanup (mechanical → inline; structural →
+  ADR; blocked → debt).
+- Output: `private/notes/p7-9.6-v1-audit.md` (gitignored).
+- Exit signal: `v1-audit done at <SHA>` line in handover.
+
+Likely fan-out shape: 1 Explore subagent per area (Phase 7
+x86_64 / Phase 8 regalloc-hoist / §9.5-9.6 SIMD vs cranelift), 3
+parallel + consolidation pass. Estimated ~30-60 min of subagent
+work; findings drive subsequent commits before §9.6 close.
 
 **At §9.6 close (queued)** — fire a broad pre-9.7 v1+OSS audit
 before flipping §9.6 to `[x]`:
@@ -57,29 +74,7 @@ before flipping §9.6 to `[x]`:
   plumbing, ABI quirks) — better to back-fill before x86_64 SIMD
   (§9.7) where the same gaps would compound.
 
-**§9.6/9.6-g-v NEXT** — trunc_sat (4 ops, most complex):
-- i32x4.trunc_sat_f32x4_s/u: 4 f32 → 4 i32, NaN→0, saturating
-  clamp. NEON FCVTZS/FCVTZU .4S → mostly correct semantics but
-  NaN handling differs (NEON returns INT_MIN/0 for NaN; Wasm
-  spec requires 0 — needs explicit NaN→0 mask).
-- i32x4.trunc_sat_f64x2_s_zero/u_zero: 2 f64 → 2 i32 (lower 2
-  populated, upper 2 zero). Synthesis: FCVTZS/U .2D + SQXTN .2S
-  (or similar narrow with saturation).
-
-The NaN→0 handling is the load-bearing design choice. NEON
-FCVTZS returns INT_MIN for NaN (per default FPCR), but Wasm
-spec mandates 0. Common approach: pre-compare with FCMEQ
-(self-comparison detects NaN) + BSL to zero NaN lanes.
-Cranelift uses this pattern; survey will confirm.
-
-Step 0 mandatory — multiple ADR-grade considerations: (1) NaN
-masking pattern; (2) trunc_sat_f64x2 → i32x4_zero synthesis;
-(3) saturation behaviour for ±Inf and out-of-range values
-(does NEON's default sat match Wasm's clamp-to-INT_MIN/MAX?
-Yes per IEEE-754 default behaviour, but verify).
-
-Estimated ~150 src + ~80 tests; possibly the largest single
-sub-chunk in §9.6-g.
+**v1-audit details** — see "v1-audit NEXT" block above.
 
 Estimated ~150 src + ~80 tests; may need a `private/spikes/`
 spike to verify the const-pool / scratch-reg approach before
