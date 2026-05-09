@@ -1569,6 +1569,57 @@ pub fn emitI8x16ShrU(
 /// PSRAW preserves the sign bit invariant, and the resulting
 /// magnitude is bounded by the original i8 range). 11
 /// instructions; uses both XMM14 + XMM15 scratches.
+/// Wasm spec §4.4.4 (i*x*.neg) — pop one v128, push v128 with
+/// per-lane signed negation. Computed as `0 - src` via PSUB:
+///
+///   PXOR XMM14, XMM14            ; XMM14 = zero
+///   PSUB_<shape> XMM14, src      ; XMM14 = 0 - src = -src
+///   MOVAPS dst, XMM14            ; dst = -src
+///
+/// 3-instruction emit; aliasing-safe (dst is written only at
+/// the end, after src has been fully consumed). PSUB doesn't
+/// saturate at INT_MIN so the negation wraps modulo lane width
+/// (matches Wasm spec).
+fn emitV128IntNeg(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    encoder_psub: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    try buf.appendSlice(allocator, inst.encPxor(scratch_x, scratch_x).slice());
+    try buf.appendSlice(allocator, encoder_psub(scratch_x, src_x).slice());
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, scratch_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI8x16Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsubB);
+}
+
+pub fn emitI16x8Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsubW);
+}
+
+pub fn emitI32x4Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsubD);
+}
+
+pub fn emitI64x2Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsubq);
+}
+
 /// Wasm spec §4.4.4 (i*x*.abs) — pop one v128, push v128 with
 /// per-lane signed absolute value. SSSE3 PABSB/W/D directly
 /// handle 8/16/32-bit lanes. i64x2.abs has no native SSE

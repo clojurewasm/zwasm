@@ -1020,6 +1020,13 @@ pub fn compile(
             .@"i16x8.abs" => try op_simd.emitI16x8Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i32x4.abs" => try op_simd.emitI32x4Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i64x2.abs" => try op_simd.emitI64x2Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-aa: i*x*.neg (4 ops). 3-instr recipe via
+            // emitV128IntNeg helper: PXOR XMM14,XMM14 + PSUB_<shape>
+            // XMM14, src + MOVAPS dst, XMM14. Aliasing-safe.
+            .@"i8x16.neg" => try op_simd.emitI8x16Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.neg" => try op_simd.emitI16x8Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.neg" => try op_simd.emitI32x4Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.neg" => try op_simd.emitI64x2Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at
