@@ -1126,6 +1126,29 @@ pub fn encPsubq(dst: Xmm, src: Xmm) EncodedInsn {
     return encSsePackedIntBinop(0xFB, dst, src);
 }
 
+// §9.7-z abs primitives — SSSE3 PABSB/W/D compute per-lane
+// absolute value of signed integers. PABSQ doesn't exist in
+// pre-AVX-512 SSE; i64x2.abs synthesises via sign-mask PXOR/PSUBQ
+// per cranelift `lower.isle:vec_int_abs` rule.
+
+/// `PABSB xmm, xmm` (66 [REX?] 0F 38 1C /r) — SSSE3 packed
+/// absolute value of 16 signed bytes. Wasm `i8x16.abs`.
+pub fn encPabsb(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinopExt(0x38, 0x1C, dst, src);
+}
+
+/// `PABSW xmm, xmm` (66 [REX?] 0F 38 1D /r) — SSSE3 packed abs of
+/// 8 signed words. Wasm `i16x8.abs`.
+pub fn encPabsw(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinopExt(0x38, 0x1D, dst, src);
+}
+
+/// `PABSD xmm, xmm` (66 [REX?] 0F 38 1E /r) — SSSE3 packed abs of
+/// 4 signed dwords. Wasm `i32x4.abs`.
+pub fn encPabsd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinopExt(0x38, 0x1E, dst, src);
+}
+
 // §9.7-x extend low/high primitives — SSE4.1 PMOVSX*/PMOVZX*
 // sign/zero-extend the low 8 bytes (or 4 i16, or 2 i32) of src
 // into the corresponding wider lanes of dst. A-form encoding
@@ -1486,6 +1509,12 @@ test "encPsrawReg / encPsradReg opcode bytes (xmm0, xmm1)" {
 
 test "encPsubq opcode bytes (xmm0, xmm1) — SSE2 packed 64-bit subtract" {
     try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0xFB, 0xC1 }, encPsubq(.xmm0, .xmm1).slice());
+}
+
+test "encPabsb / encPabsw / encPabsd opcode bytes (xmm0, xmm1)" {
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x38, 0x1C, 0xC1 }, encPabsb(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x38, 0x1D, 0xC1 }, encPabsw(.xmm0, .xmm1).slice());
+    try testing.expectEqualSlices(u8, &.{ 0x66, 0x0F, 0x38, 0x1E, 0xC1 }, encPabsd(.xmm0, .xmm1).slice());
 }
 
 test "encPmovsxbw / encPmovsxwd / encPmovsxdq opcode bytes (xmm0, xmm1)" {

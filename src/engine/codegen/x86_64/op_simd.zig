@@ -1569,6 +1569,65 @@ pub fn emitI8x16ShrU(
 /// PSRAW preserves the sign bit invariant, and the resulting
 /// magnitude is bounded by the original i8 range). 11
 /// instructions; uses both XMM14 + XMM15 scratches.
+/// Wasm spec §4.4.4 (i*x*.abs) — pop one v128, push v128 with
+/// per-lane signed absolute value. SSSE3 PABSB/W/D directly
+/// handle 8/16/32-bit lanes. i64x2.abs has no native SSE
+/// instruction (PABSQ is AVX-512); synthesise per cranelift
+/// `lower.isle:vec_int_abs` via sign-mask + PXOR/PSUBQ:
+///
+///   sign_mask = (src < 0) ? 0xFF...F : 0     (per qword)
+///   result = (src ^ sign_mask) - sign_mask
+///
+/// For src >= 0: sign_mask = 0; result = src.
+/// For src < 0:  sign_mask = -1; result = ~src - (-1) = -src.
+
+pub fn emitI8x16Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPabsb);
+}
+
+pub fn emitI16x8Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPabsw);
+}
+
+pub fn emitI32x4Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPabsd);
+}
+
+/// i64x2.abs synthesis (no PABSQ in SSE; SSE4.2 PCMPGTQ
+/// available per ADR-0041 baseline post-9.7-m). 5-instr recipe:
+///   PXOR XMM14, XMM14                ; XMM14 = zero
+///   PCMPGTQ XMM14, src                ; XMM14 = sign-mask of src
+///                                     ;   (0xFF...F where src < 0, else 0)
+///   MOVAPS dst, src                   ; (skip-elide if alias)
+///   PXOR dst, XMM14                   ; flip bits where negative
+///   PSUBQ dst, XMM14                  ; subtract sign-mask → abs
+pub fn emitI64x2Abs(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    try buf.appendSlice(allocator, inst.encPxor(mask_x, mask_x).slice());
+    try buf.appendSlice(allocator, inst.encPcmpgtQ(mask_x, src_x).slice());
+    if (dst_x != src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPxor(dst_x, mask_x).slice());
+    try buf.appendSlice(allocator, inst.encPsubq(dst_x, mask_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.4 (i*x*.narrow_*_s / _u) — pop two v128, push
 /// v128 with each pair of input lanes packed/saturated to a
 /// half-width lane. SSE2/SSE4.1 PACK* instructions match the

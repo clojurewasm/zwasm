@@ -1011,6 +1011,15 @@ pub fn compile(
             .@"i8x16.narrow_i16x8_u" => try op_simd.emitI8x16NarrowI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i16x8.narrow_i32x4_s" => try op_simd.emitI16x8NarrowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i16x8.narrow_i32x4_u" => try op_simd.emitI16x8NarrowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-z: i*x*.abs (4 ops). PABSB/W/D (SSSE3
+            // 0F 38 1C/1D/1E) for 8/16/32-bit lanes — single-instr
+            // unary via emitV128FpUnop. i64x2.abs synthesises via
+            // 5-instr sign-mask + PXOR + PSUBQ recipe (no PABSQ
+            // in SSE; SSE4.2 PCMPGTQ available per ADR-0041).
+            .@"i8x16.abs" => try op_simd.emitI8x16Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.abs" => try op_simd.emitI16x8Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.abs" => try op_simd.emitI32x4Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.abs" => try op_simd.emitI64x2Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at
