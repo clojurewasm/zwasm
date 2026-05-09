@@ -13,39 +13,39 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..d [x]); **9.7-e NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..e [x]); **9.7-f NEXT**
 
-9.7-d landed at c15482e9: i64x2.mul synthesis via the canonical
-PMULUDQ + shift/add idiom (11-instruction sequence, scratch
-reuses XMM14/XMM15 fp_spill_stage_xmms — no ABI change). Adds
-`encPmuludq`, `encPsrlqImm`, `encPsllqImm` encoders + new
-`encSsePackedShiftImmGroup` factor for the `66 0F 73 /<group> ib`
-/X-group form. Total SIMD ops handled: 11. Edge fixtures
-deferred to 9.7-e (need v128 producer first).
+9.7-e landed at 3ac43dad: lane access foundation. Adds
+`encPshufd` (SSE2 dword shuffle) + `encPextrD` (SSE4.1 dword
+extract — note ModR/M.reg carries source XMM, ModR/M.r/m the
+GPR). Handlers `emitI32x4Splat` (MOVD + PSHUFD broadcast) +
+`emitI32x4ExtractLane` (single PEXTRD). Total SIMD ops handled:
+13. Edge fixtures deferred to §9.9 (edge runner is Mac aarch64-
+only; SIMD spec_assert + wast integration in §9.9 will exercise
+all hosts).
 
-Three-host gate at c15482e9: Mac unit 1357/0/12 + zone/file_size/
-spill/lint ✓; OrbStack at known D-054 baseline (211/1/20);
-windowsmini full green (212/0/20 spec_assert + every other
-runner green).
+Three-host gate at 3ac43dad: Mac unit 1364/0/12 + gates ✓;
+OrbStack at known D-054 baseline (211/1/20); windowsmini full
+green (212/0/20 + every runner green).
 
-**9.7-e NEXT** — lane access primitives. End-to-end JIT-execution
-fixtures need v128 producers (splat / const) AND consumers
-(extract_lane). Bundle candidates:
-- splat family (i8x16/i16x8/i32x4/i64x2/f32x4/f64x2) via PINSR* +
-  PSHUFD broadcast (or MOVD + PSHUFD for i32x4-style splats).
-- extract_lane / replace_lane (signed + unsigned variants for
-  narrow lanes) via PEXTRB/W/D/Q + PINSRB/W/D/Q.
-- v128.const via the const-pool + post-emit fixup pass already
-  designed for ARM64 in ADR-0042 (mirror the load-relative
-  pattern but with x86_64 RIP-relative LEA + MOVDQU).
+**9.7-f NEXT** — lane access bundle: rest of the splat family
+(i8x16 / i16x8 / i64x2 / f32x4 / f64x2), other extract_lane
+variants (signed/unsigned narrow: i8x16 / i16x8; i64x2 wide;
+f32x4 / f64x2), and replace_lane (i8/16/32/64/f32/f64). Per
+LOOP.md chunk-bundle: same op family, same handler shape (only
+encoder + lane-width differs). Likely 200-400 LOC.
 
-Step 0 survey should partition: which primitives bundle in
-9.7-e (the simpler splat + scalar-lane variants) and which spin
-out into 9.7-f / 9.7-g (v128.const if non-trivial; replace_lane
-if encoder pressure). Once 9.7-e lands, ALL 11 prior SIMD ops
-become end-to-end testable via spec/wast fixtures + edge_cases
-boundary fixtures (cross-lane carry for i64x2.mul, NaN-prop for
-f32x4.add, etc.) can finally land.
+Encoders to add (Step 0 will scope exactly):
+- splat helpers: PINSRB / PINSRW direct, PSHUFB lane-zero mask
+  (i8x16.splat); PINSRW × N + PSHUFD (i16x8.splat); MOVQ +
+  PUNPCKLQDQ (i64x2.splat); SHUFPS / MOVDDUP (f32/f64 splats).
+- PEXTRB / PEXTRW / PEXTRQ (extract narrow + i64).
+- PINSRB / PINSRW / PINSRD / PINSRQ (replace_lane).
+
+Subsequent: 9.7-g (compare family — PCMPEQ*, PCMPGT*), 9.7-h
+(FP arith — ADDPS / ADDPD / MULPS / DIVPS), 9.7-i (FP compare
+— CMPEQPS / CMPLTPS), 9.7-j (conversion + shuffle PSHUFB +
+v128.const via ADR-0042 const-pool).
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
