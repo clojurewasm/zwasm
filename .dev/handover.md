@@ -13,67 +13,60 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.9/9.5-c-v [x] (i16x8/i32x4 mul); **§9.9/9.5-c-vi NEXT**
+## Current state — Phase 9 / §9.9/9.5-c-vi [x] (int lane access B/H/D); **§9.9/9.5-c-vii NEXT**
 
-§9.9/9.5-c-v adds NEON MUL encoders (encMul16B / encMul8H /
-encMul4S; same shape as ADD with bits[15:11] = 10011 vs ADD's
-10000) + emitI16x8Mul / emitI32x4Mul handlers + 2 dispatch
-arms. Wasm SIMD has no i8x16.mul (encMul16B preserved for
-completeness). i64x2.mul defers to 9.5-c-vi since A64 NEON
-has no `MUL Vd.2D` instruction — needs multi-instr synthesis.
+§9.9/9.5-c-vi adds 8 NEON lane-access encoders (UMOV/SMOV W
+from B + INS B from W; UMOV/SMOV W from H + INS H from W;
+UMOV X from D + INS D from X) plus 8 op_simd handlers wired
+through two new shared helpers (`emitV128ExtractLane` /
+`emitV128ReplaceLane`) that take an encoder thunk + lane mask.
+This consolidates the per-shape boilerplate; each ZirOp arm
+reduces to a one-line shape adapter.
 
-Per LOOP.md chunk granularity, 9.5 row split:
-- 9.5-a/b/c-i…c-v [x]: encoder foundation + shape-tag
-  pipeline + Q-form spill + op_simd refactor + lane access +
-  ADD/SUB + MUL (16B/8H/4S).
-- 9.5-c-vi NEXT: i64x2.mul synthesis (extract/scalar-mul/
-  insert sequence) + remaining lane-access shapes (i8x16/
-  i16x8/i64x2/f32x4/f64x2 extract/replace_lane).
+i32x4 lane access already in 9.5-c-iii. f32x4/f64x2 lane
+access + i64x2.mul synthesis defer to 9.5-c-vii (the D-form
+encoders landed here will be reused by that synthesis).
 
-Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓, test
-1224/0/12 (was 1220; +4 MUL encoder tests).
+Per LOOP.md chunk granularity, 9.5 row sub-split:
+- 9.5-a/b/c-i…c-vi [x]: encoder foundation + shape-tag
+  pipeline + Q-form spill + op_simd refactor + i32x4 lane
+  access + ADD/SUB + MUL (16B/8H/4S) + int lane access B/H/D.
+- 9.5-c-vii NEXT: i64x2.mul synthesis (extract / scalar-mul /
+  insert sequence) + remaining lane-access shapes for
+  f32x4 / f64x2 (FMOV / DUP / INS S/D variants).
 
-**§9.9/9.5-c-vi NEXT** — i64x2.mul multi-instr synthesis +
-extract/replace_lane for i8x16 / i16x8 / i64x2 / f32x4 /
-f64x2. The synthesis sequence for i64x2.mul: extract each
-i64 lane via UMOV X<rd>, V<rn>.D[i]; scalar MUL via
-inst.encMulRR; insert via INS V<rd>.D[i], X<rn>. ~120 src +
-~60 tests (estimate; chunk granularity may further split if
-the lane-access shape variants exceed thresholds).
+Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓; spec
+212/0/20, wast 1158/0/0.
 
-## Active task — §9.9/9.5-c-vi: i64x2.mul synthesis + lane access shapes **NEXT**
+**§9.9/9.5-c-vii NEXT** — i64x2.mul multi-instr synthesis +
+extract/replace_lane for f32x4 / f64x2. Synthesis sequence
+for i64x2.mul: extract each i64 lane via the new
+`encUmovXFromD`; scalar MUL via inst.encMulRR; insert via
+the new `encInsDFromX`. f32x4 / f64x2 lane handlers reuse
+`emitV128ExtractLane` / `emitV128ReplaceLane` (introduced
+this chunk) once FMOV/DUP/INS S/D encoders land.
 
-Per ADR-0041 + 9.5-a's encoder foundation. Wires the NEON
-encoders into the ZirOp dispatch path in
-`src/engine/codegen/arm64/emit.zig` (or a new
-`op_simd.zig` sibling if soft-cap pressure on emit.zig).
+## Active task — §9.9/9.5-c-vii: i64x2.mul synthesis + f32x4/f64x2 lane access **NEXT**
 
-MVP handlers (matching 9.4 lower's MVP catalogue):
-- `v128.load` (offset payload from emitMemarg) → encLdrQImm
-- `v128.store` → encStrQImm
-- `i32x4.splat` → encDup4S (reads i32 vreg, emits to v128 vreg)
-- `i32x4.add` → encAdd4S (pop 2 v128, push v128)
+Two independent groups, both in `op_simd.zig`:
 
-Cross-cutting concerns:
-- **`Allocation.shape_tags` population**: `regalloc.compute()`
-  (or a wrapper pre-emit) walks `func.instrs` checking each
-  op's ZirOp for v128 shape (any `v128.*`, `i*x*.*`, `f*x*.*`
-  prefix) and marks the popped/pushed vregs accordingly.
-- **Spill-frame stride**: v128 vregs spill at 16-byte stride
-  (NEON `LDR Q` / `STR Q` alignment). Tighter per-shape
-  packing defers to Phase 15 per ADR-0038; 9.5 MVP enlarges
-  the conservative spill frame.
+1. **i64x2.mul** (no NEON 2D-MUL exists). Synthesis sequence per
+   lane: `encUmovXFromD` (extract i64) → scalar `encMul` (X-form,
+   reuse from `inst.zig`) → `encInsDFromX` (insert back). Need a
+   dedicated handler since `emitV128Binop` assumes a single
+   3-operand NEON encoder.
+2. **f32x4 / f64x2 extract_lane / replace_lane** (4 ops). Reuse
+   `emitV128ExtractLane` / `emitV128ReplaceLane` introduced this
+   chunk after adding FMOV-S / FMOV-D + INS-element-from-element
+   encoders in `inst_neon.zig` (or DUP-derived alternatives).
+   FP-register destination requires a different `resolve*` /
+   spill path than the GPR-result int-lane handlers; structurally
+   distinct enough to live alongside the helpers as a sibling
+   pair (`emitV128ExtractLaneFp` / `emitV128ReplaceLaneFp`).
 
-Smallest red test: arm64/emit.zig accepts a ZirInstr stream
-containing `(i32.const 7) + i32x4.splat` and produces a
-non-empty bytes slice whose disassembly matches `MOVZ W?, #7;
-DUP V?.4S, W?` (bit-pattern verification via inst_neon
-encoder tests for the expected DUP word).
-
-After 9.5-b: 9.5-c (extract/replace_lane + remaining int
-arith shapes) → 9.6 ARM64 NEON emit pt 2 (float + compare +
-shuffle + conversion) → 9.7/9.8 x86_64 SSE4.1 emit → 9.9
-spec test → 9.10 bench → 9.11 audit → 9.12 open §9.10.
+After 9.5-c-vii: 9.6 ARM64 NEON emit pt 2 (float arith +
+compare + shuffle + conversion) → 9.7/9.8 x86_64 SSE4.1 emit
+→ 9.9 spec test → 9.10 bench → 9.11 audit → 9.12 open §9.10.
 
 After 8b.4: 8b.5 (boundary audit_scaffolding) + 8b.6 (open
 §9.9 inline + flip Phase Status).
