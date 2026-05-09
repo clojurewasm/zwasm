@@ -13,36 +13,41 @@
 5. `.dev/decisions/0031_zir_hoist_pass.md` (D-053 root-cause amend per 8a.6).
 6. `.dev/optimisation_log.md` (F/R/O ledger; 8b adoption discipline).
 
-## Current state — Phase 9 / §9.9/9.5-b-iii [x] (per-op handlers + dispatch); **§9.9/9.5-c NEXT**
+## Current state — Phase 9 / §9.9/9.5-c-i [x] (Q-form spill helpers); **§9.9/9.5-c-ii NEXT**
 
-§9.9/9.5-b-iii lands `src/engine/codegen/arm64/op_simd.zig`
-with 4 MVP handlers (`emitV128Load` / `emitV128Store` /
-`emitI32x4Splat` / `emitI32x4Add`) wired into the arm64/emit.zig
-ZirOp dispatch switch. Handlers use existing `gpr.resolveGpr` /
-`gpr.resolveFp` for non-spilling cases; spilled v128 vregs (slot
-≥ max_reg_slots_fp = 13) graceful-degrade to UnsupportedOp,
-matching `resolveFp`'s pattern. SPILL-EXEMPT per D-034 — 16-byte
-v128 Q-form spill-aware path defers to 9.5-c.
+§9.9/9.5-c-i lands `qLoadSpilled` / `qDefSpilled` /
+`qStoreSpilled` in `src/engine/codegen/arm64/gpr.zig` —
+16-byte Q-form analog of the existing 8-byte D-form `fp*Spilled`
+trio. Uses the same V29/V30 spill-stage registers (Q view of
+the V regs the D-form helpers use) and the same
+`Allocation.slot(vreg, .fpr)` API. Helpers reject byte-offsets
+not 16-byte aligned or > 65520 (the imm12 × 16 cap).
 
 Per LOOP.md chunk granularity, 9.5 row split:
 - 9.5-a [x]: NEON encoder foundation
 - 9.5-b-i [x]: shape-tag predicate + populator
 - 9.5-b-ii [x]: compute() integration
-- 9.5-b-iii [x]: per-op handlers + dispatch (this commit)
-- 9.5-c NEXT: extract/replace_lane + remaining int-arith
-  shapes + 16-byte v128 spill helpers
+- 9.5-b-iii [x]: per-op handlers + dispatch
+- 9.5-c-i [x]: Q-form spill helpers (this commit; 6 tests)
+- 9.5-c-ii NEXT: lift SPILL-EXEMPT degradation in op_simd
+  using new q* helpers + extract/replace_lane handlers +
+  remaining int-arith shapes
 
-Mac gates: zone ✓, file_size ✓, spill ✓ (after SPILL-EXEMPT
-markers; D-034 BASELINE=0 preserved), lint ✓ (after `inst`
-unused-import removal), test 1199/0/12.
+Mac gates: zone ✓, file_size ✓, spill ✓, lint ✓, test
+1205/0/12 (was 1199; +6 q* helper tests).
 
-**§9.9/9.5-c NEXT** — extract/replace_lane handlers + remaining
-int-arith op shapes (i8x16 / i16x8 / i64x2 add/sub/mul) + 16-byte
-v128 spill helpers (Q-form `LDR Q` / `STR Q` analogs of
-`gpr.fpLoadSpilled` / `gpr.fpStoreSpilled` with 16-byte stride).
-Estimated ~400 src + ~200 tests.
+**§9.9/9.5-c-ii NEXT** — refactor op_simd.zig handlers to
+call qLoadSpilled / qDefSpilled / qStoreSpilled in place of
+bare resolveFp; this lifts the SPILL-EXEMPT degradation and
+allows v128 ops on functions with > 13 v128 vregs.
+Caller responsibility: lay v128 spill slots at 16-byte
+strides — `Allocation.slot()`'s 8-byte formula returns
+even-pair offsets only when slot_id is even (e.g. slot
+14, 16, 18 → 48, 64, 80; odd slots fail the alignment
+check). 9.5-c-ii's spill-frame layout chunk handles the
+even-pair allocation discipline.
 
-## Active task — §9.9/9.5-c: extract/replace_lane + remaining int-arith **NEXT**
+## Active task — §9.9/9.5-c-ii: lift SPILL-EXEMPT in op_simd + lane access **NEXT**
 
 Per ADR-0041 + 9.5-a's encoder foundation. Wires the NEON
 encoders into the ZirOp dispatch path in

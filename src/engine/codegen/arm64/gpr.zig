@@ -24,6 +24,7 @@
 const std = @import("std");
 
 const inst = @import("inst.zig");
+const inst_neon = @import("inst_neon.zig");
 const abi = @import("abi.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const ctx_mod = @import("ctx.zig");
@@ -255,6 +256,92 @@ pub fn fpStoreSpilled(
     }
 }
 
+/// V-class counterpart of `fpLoadSpilled` for v128 (Q-form, 16-byte
+/// stride per ADR-0041 §"Decision" / 2). Used by SIMD op-handlers
+/// (`op_simd.zig`) when the popped vreg is a spilled v128. If the
+/// vreg is in a V-register, returns that reg directly; if spilled,
+/// emits `LDR Q<stage>, [SP, #(spill_base_off + spill_off)]` staging
+/// through `abi.fp_spill_stage_vregs[stage_idx]` (V29/V30) — the
+/// 128-bit Q-form view of the same V regs the D-form fp helpers
+/// use.
+///
+/// The 16-byte alignment requirement is enforced: `byte_offset` must
+/// be a multiple of 16 and ≤ 65520 (= 4095 × 16, max imm12-encoded
+/// offset for the Q-form). The spill_base_off + spill_off
+/// combination must therefore be 16-byte aligned at the call site —
+/// the caller (op_simd) is responsible for laying out v128 spill
+/// slots at 16-byte strides per ADR-0041 §"Negative" /
+/// "Conservative spill-frame size".
+pub fn qLoadSpilled(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    spill_base_off: u32,
+    vreg: usize,
+    stage_idx: u8,
+) Error!inst.Vn {
+    return switch (alloc.slot(vreg, .fpr)) {
+        .reg => |id| abi.fpSlotToReg(id) orelse blk: {
+            std.debug.print("arm64/gpr: SlotOverflow qLoadSpilled.reg vreg={d} slot_id={d}\n", .{ vreg, id });
+            break :blk Error.SlotOverflow;
+        },
+        .spill => |off| blk: {
+            const stage = abi.fp_spill_stage_vregs[stage_idx];
+            const abs_off = spill_base_off + off;
+            // Q-form imm12 scales by 16; max byte offset is 16*4095 = 65520.
+            if (abs_off > 65520 or (abs_off & 0xF) != 0) {
+                std.debug.print("arm64/gpr: SlotOverflow qLoadSpilled.spill vreg={d} abs_off={d} (must be 16-byte aligned & ≤ 65520)\n", .{ vreg, abs_off });
+                return Error.SlotOverflow;
+            }
+            try writeU32(allocator, buf, inst_neon.encLdrQImm(stage, 31, @intCast(abs_off)));
+            break :blk stage;
+        },
+    };
+}
+
+/// V-class counterpart of `fpDefSpilled` for v128 (Q-form). If the
+/// vreg is in a V-register, returns that reg directly; if spilled,
+/// returns the stage reg (caller encodes the op writing into it,
+/// then calls `qStoreSpilled` to flush).
+pub fn qDefSpilled(
+    alloc: regalloc.Allocation,
+    vreg: usize,
+    stage_idx: u8,
+) Error!inst.Vn {
+    return switch (alloc.slot(vreg, .fpr)) {
+        .reg => |id| abi.fpSlotToReg(id) orelse blk: {
+            std.debug.print("arm64/gpr: SlotOverflow qDefSpilled.reg vreg={d} slot_id={d}\n", .{ vreg, id });
+            break :blk Error.SlotOverflow;
+        },
+        .spill => abi.fp_spill_stage_vregs[stage_idx],
+    };
+}
+
+/// Pair of `qDefSpilled`. After encoding the op (which wrote into
+/// the stage V-reg), emits `STR Q<stage>, [SP, #(spill_base_off +
+/// spill_off)]`. No-op for vregs already in V-registers.
+pub fn qStoreSpilled(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    spill_base_off: u32,
+    vreg: usize,
+    stage_idx: u8,
+) Error!void {
+    switch (alloc.slot(vreg, .fpr)) {
+        .reg => {},
+        .spill => |off| {
+            const stage = abi.fp_spill_stage_vregs[stage_idx];
+            const abs_off = spill_base_off + off;
+            if (abs_off > 65520 or (abs_off & 0xF) != 0) {
+                std.debug.print("arm64/gpr: SlotOverflow qStoreSpilled vreg={d} abs_off={d}\n", .{ vreg, abs_off });
+                return Error.SlotOverflow;
+            }
+            try writeU32(allocator, buf, inst_neon.encStrQImm(stage, 31, @intCast(abs_off)));
+        },
+    }
+}
+
 // ============================================================
 // Tests — D-037 FP-spill helpers (chunk-d037-a)
 // ============================================================
@@ -320,4 +407,75 @@ test "fpDefSpilled: in-V-reg vreg returns the V-reg; spilled returns stage" {
     try testing.expectEqual(@as(inst.Vn, 19), try fpDefSpilled(alloc, 0, 0)); // V16+3
     try testing.expectEqual(@as(inst.Vn, 29), try fpDefSpilled(alloc, 1, 0));
     try testing.expectEqual(@as(inst.Vn, 30), try fpDefSpilled(alloc, 1, 1));
+}
+
+// ============================================================
+// §9.9 / 9.5-c — Q-form (v128, 16-byte) spill helpers tests
+// ============================================================
+
+test "qLoadSpilled: vreg in V-reg returns it directly without emitting bytes" {
+    const slots = [_]u16{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    const v = try qLoadSpilled(testing.allocator, &buf, alloc, 0, 0, 0);
+    try testing.expectEqual(@as(inst.Vn, 16), v); // V16 (FP slot 0)
+    try testing.expectEqual(@as(usize, 0), buf.items.len);
+}
+
+test "qLoadSpilled: spilled vreg emits LDR Q stage from SP-relative offset" {
+    // Allocation.slot's 8-byte spill formula: spill_off =
+    // (slot_id - max_reg_slots_gpr) * 8. For 16-byte alignment, the
+    // caller must lay v128 spill slots at even-pair indices. Slot 14:
+    // spill_off = (14 - 8) * 8 = 48 (16-byte aligned). spill_base_off=0
+    // → abs_off = 48 ✓.
+    const slots = [_]u16{14};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 15 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    const v = try qLoadSpilled(testing.allocator, &buf, alloc, 0, 0, 0);
+    try testing.expectEqual(@as(inst.Vn, 29), v); // stage V29
+    try testing.expectEqual(@as(usize, 4), buf.items.len);
+    const word = std.mem.readInt(u32, buf.items[0..4], .little);
+    // LDR Q29, [SP=31, #48] = encLdrQImm(29, 31, 48)
+    try testing.expectEqual(inst_neon.encLdrQImm(29, 31, 48), word);
+}
+
+test "qLoadSpilled: rejects unaligned offset" {
+    // Slot 13: spill_off = (13 - 8) * 8 = 40 (NOT 16-byte aligned).
+    const slots = [_]u16{13};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 14 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try testing.expectError(Error.SlotOverflow, qLoadSpilled(testing.allocator, &buf, alloc, 0, 0, 0));
+}
+
+test "qDefSpilled: in-V-reg vreg returns the V-reg; spilled returns stage" {
+    const slots = [_]u16{ 5, 13 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 14 };
+    try testing.expectEqual(@as(inst.Vn, 21), try qDefSpilled(alloc, 0, 0)); // V16+5
+    try testing.expectEqual(@as(inst.Vn, 29), try qDefSpilled(alloc, 1, 0));
+    try testing.expectEqual(@as(inst.Vn, 30), try qDefSpilled(alloc, 1, 1));
+}
+
+test "qStoreSpilled: in-V-reg vreg is no-op (no bytes emitted)" {
+    const slots = [_]u16{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try qStoreSpilled(testing.allocator, &buf, alloc, 0, 0, 0);
+    try testing.expectEqual(@as(usize, 0), buf.items.len);
+}
+
+test "qStoreSpilled: spilled vreg emits STR Q stage to SP-relative offset" {
+    // Slot 14 → spill_off = 48 (16-byte aligned). spill_base_off=16
+    // → abs_off = 64 ✓.
+    const slots = [_]u16{14};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 15 };
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try qStoreSpilled(testing.allocator, &buf, alloc, 16, 0, 0);
+    try testing.expectEqual(@as(usize, 4), buf.items.len);
+    const word = std.mem.readInt(u32, buf.items[0..4], .little);
+    try testing.expectEqual(inst_neon.encStrQImm(29, 31, 64), word);
 }
