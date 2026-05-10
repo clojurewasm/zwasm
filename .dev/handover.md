@@ -13,52 +13,47 @@
 5. `.dev/decisions/0041_simd_128_design.md` (SSE4.2 baseline post-9.7-m
    amendment).
 
-## Current state — Phase 9 / §9.9 in-flight; **9.9-e-2 NEXT — x86_64 mirror of 9.9-e-1 (v128 frame layout + param marshal + local.get/set/tee handlers; new MOVUPS RBP-disp encoders required)**
+## Current state — Phase 9 / §9.9 in-flight; **9.9-d-7 NEXT — investigate residual 21 simd_address value-mismatches + 3 simd_align ExportNotFound runner gap**
 
-9.9-e-1 (`95c065c5`): ARM64 v128 frame layout + param marshal +
-local.get/set/tee handlers landed. New `LocalLayout` helper
-(group-by-type strategy C: scalars 8-byte stride low region,
-v128 16-byte stride high region; `local_base_off` rounded to 16
-when v128 locals present). v128 param marshal per AAPCS64 §6.4 +
-overflow per §6.4.2 stage C.4. v128 local.get/set/tee via
-`qDefSpilled` / `qLoadSpilled` + `encLdrQImm` / `encStrQImm`.
-Zero-init via two `STR XZR` per v128 declared local.
+9.9-e-2 (`11a32364`): x86_64 v128 frame layout + param marshal +
+local.get/set/tee handlers + 4 new MOVUPS RBP-disp encoders.
+Mirrors 9.9-e-1 ARM64 shape: `LocalLayout` group-by-type
+strategy C; SysV v128 in XMM0..XMM7 → `MOVUPS [RBP+disp_v128]`;
+Win64 v128 stays UnsupportedOp (passed by hidden pointer per
+Microsoft x64 ABI). v128 stack-arg overflow (fp_arg_idx ≥ 8)
+surfaces UnsupportedOp pending follow-up.
 
-**Mac aarch64 simd_assert_runner totals after 9.9-e-1**:
-226 → **227 PASS** / 36 → 36 FAIL / 296 → 292 SKIP. The 3
-compile UnsupportedOps from 9.9-d-5/-6 (`simd_select.0`,
-`simd_const.387`, `simd_align.90`) all flipped to PASS or
-moved to runner-stage failures (3 simd_align ExportNotFound —
-runner-side gap, not codegen).
+**Mac aarch64 simd_assert_runner totals after 9.9-e-2**:
+227 / 36 / 292 — same as 9.9-e-1 (Mac aarch64 doesn't directly
+exercise x86_64 emit). OrbStack Linux x86_64 has access to v128
+emit but no x86_64-specific spec runner is wired into test-all
+yet (§9.9-g target).
 
-Residual 36 fails:
+Residual 36 fails on Mac aarch64 (same shape as 9.9-e-1):
 - 21 value-mismatch (`got v128`) — defer to 9.9-d-7 audit.
-- 3 simd_align ExportNotFound (runner-side gap; new exposure
-  post-9.9-e-1 — fixtures now compile but runner doesn't map
-  the export name correctly).
+- 3 simd_align ExportNotFound (runner-side gap; fixtures now
+  compile but runner doesn't map the export name correctly).
 - 3 simd_const compile (BadBlockType + BadValType +
   NotImplemented — separate validator/lower gaps).
 - The remaining 9 cluster around assert_invalid / assert_trap
   shapes the runner partially supports.
 
-**Next — 9.9-e-2**: x86_64 mirror per
-`private/notes/p9-9.9-e-survey.md`:
-1. Add `LocalLayout` helper to `x86_64/emit.zig` (mirror of
-   ARM64 shape, but RBP-negative offsets).
-2. Add new MOVUPS RBP-disp encoders to `inst_sse.zig`
-   (`encMovupsXmmMemRBP[Disp32]` — opcode 0x0F 0x10 / 0x11,
-   no prefix, REX.R when xmm ≥ 8). Choose MOVUPS over MOVAPS
-   for the local-slot form (alignment not guaranteed).
-3. v128 param marshal SystemV-only (Win64 v128 by-hidden-
-   pointer punted to debt row).
-4. v128 local.get/set/tee handlers in
-   `emitLocalGet/Set/Tee`.
+**Next — 9.9-d-7**: investigate the 21 simd_address value-
+mismatch FAILs. They all show `got v128:000...0` (zero vector)
+when expected is `16171819...` (data-segment bytes). Either the
+data-segment init isn't running for the runner-injected modules
+OR the JIT prologue routes args through the wrong cell when
+shape is `(i32) → v128`. Spike via `debug_jit_auto` skill
+recipes; outcome could be a runner-side fix (data-segment
+wiring) OR a JIT-side fix (param/result interaction). Also
+investigate the 3 simd_align ExportNotFound — likely runner
+export-name mapping for `align=N` suffixes.
 
 Subsequent §9.9 chunks per ADR-0045:
-- 9.9-d-7: investigate residual 21 value-mismatches +
-  simd_align ExportNotFound runner gap.
 - 9.9-f: scale to FP arith + compares (heavy 9k+ files).
 - 9.9-g: aggregate `test-spec-simd` into `test-all`; flip §9.9 [x].
+- v128 stack-arg overflow (SysV fp_arg_idx ≥ 8 + Win64 v128
+  by-hidden-pointer) — track as a debt row at chunk close.
 
 After §9.9: §9.10 (smoke benches + gap analysis), §9.11
 (audit + SHA backfill), §9.12 (open Phase 10).
@@ -82,6 +77,7 @@ code in `src/ir/coalesce/`, regalloc.zig LIFO free-pool,
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
 §9.7 [x] (x86_64 SSE4.1+SSE4.2; 9.7-a..bb landed),
 §9.8 [x] (scope absorbed per ADR-0044),
-§9.9 in-flight (9.9-a..c + 9.9-d-1..6 + 9.9-e-1 landed; 9.9-e-2
-NEXT — x86_64 v128 frame layout / param / local handlers).
+§9.9 in-flight (9.9-a..c + 9.9-d-1..6 + 9.9-e-1 + 9.9-e-2
+landed; 9.9-d-7 NEXT — residual value-mismatch + ExportNotFound
+investigation).
 **Branch**: `zwasm-from-scratch`。
