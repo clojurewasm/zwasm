@@ -1118,6 +1118,75 @@ test "emitI64x2Ne: dispatches to PCMPEQQ (SSE4.1 0x29)" {
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
+// D-071 part b: emitI8x16Popcnt clobbers src_x at step 5 (`MOVUPS
+// dst_x, [RIP+LUT]`) when regalloc's LIFO slot-reuse aliases
+// `dst_x == src_x` (1-pop op: src_v dies at popcnt's pop, slot
+// reused for result_v). Step 7's re-read `MOVAPS t1, src_x` then
+// loads the LUT bytes back into t1 instead of the original src;
+// the low-nibble path computes LUT[LUT[low_nibble(src)]] (since
+// LUT[i] < 16 for all i) instead of LUT[low_nibble(src)]. Symptom
+// on OrbStack simd_i8x16_arith2: popcnt(0xFF) → 5 (not 8),
+// popcnt(0x80) → 2 (not 1), popcnt(0x01) → 0 (not 1). Fix mirrors
+// D-066: stash src through XMM7 (project SIMD scratch) when
+// `dst_x == src_x`. Test asserts the MOVAPS xmm7, src_x stash is
+// emitted as the FIRST instruction in the alias case.
+test "emitI8x16Popcnt: dst aliases src — stash src to XMM7 before const loads (D-071 part b)" {
+    var slot_ids = [_]u16{ 0, 0 }; // vreg 0 (src) → XMM8, vreg 1 (result) → XMM8 (alias).
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    var fixups: std.ArrayList(types.SimdConstFixup) = .empty;
+    defer fixups.deinit(testing.allocator);
+    var extras: std.ArrayList([16]u8) = .empty;
+    defer extras.deinit(testing.allocator);
+
+    try op_simd.emitI8x16Popcnt(testing.allocator, &buf, alloc, &pushed, &next_vreg, &fixups, &extras, 0);
+
+    const stash = inst.encMovapsXmmXmm(.xmm7, .xmm8).slice();
+    try testing.expect(buf.items.len >= stash.len);
+    try testing.expectEqualSlices(u8, stash, buf.items[0..stash.len]);
+}
+
+test "emitI8x16Popcnt: dst != src — no alias stash emitted (control)" {
+    var slot_ids = [_]u16{ 0, 1 }; // vreg 0 → XMM8, vreg 1 → XMM9.
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    var fixups: std.ArrayList(types.SimdConstFixup) = .empty;
+    defer fixups.deinit(testing.allocator);
+    var extras: std.ArrayList([16]u8) = .empty;
+    defer extras.deinit(testing.allocator);
+
+    try op_simd.emitI8x16Popcnt(testing.allocator, &buf, alloc, &pushed, &next_vreg, &fixups, &extras, 0);
+
+    // First instruction must be MOVUPS xmm15, [RIP+mask] — the
+    // const-load placeholder for the nibble mask, NOT a stash.
+    const placeholder_first_byte = inst.encMovupsXmmRipRelPlaceholder(.xmm15).slice()[0];
+    try testing.expectEqual(placeholder_first_byte, buf.items[0]);
+}
+
 // D-071 part c (actual): IntNe lacked the dst==rhs alias guard that
 // IntCmpSigned / IntCmpUnsigned already carry. When regalloc's LIFO
 // slot-reuse aliases `dst == rhs` (and dst != lhs), the unguarded

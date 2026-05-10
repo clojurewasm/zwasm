@@ -4115,7 +4115,9 @@ fn emitConstLoad(
 /// adds. PSHUFB clobbers its destination so the LUT must be
 /// reloaded between the two halves.
 ///
-/// Recipe (11 instr including 2 const loads, fits 2-scratch budget):
+/// Recipe (11 instr including 2 const loads, fits 2-scratch budget;
+/// + optional 1-instr stash on the `dst==src` alias case):
+/// 0.  MOVAPS XMM7, src                 ; only when dst_x == src_x
 /// 1.  MOVUPS XMM15, [RIP+nibble_mask]
 /// 2-4. compute high_nibbles into XMM14 (MOVAPS+PSRLW+PAND)
 /// 5.  MOVUPS dst, [RIP+LUT]
@@ -4124,6 +4126,18 @@ fn emitConstLoad(
 /// 9.  MOVUPS XMM15, [RIP+LUT]          ; reload (clobbers mask)
 /// 10. PSHUFB XMM15, XMM14              ; popcount(low)
 /// 11. PADDB dst, XMM15
+///
+/// Aliasing safety (D-071 part b; D-066 mirror): regalloc's LIFO
+/// slot-reuse can place `result_v` in the same physical XMM as
+/// `src_v` (1-pop op: src dies at popcnt's pop, slot reused for
+/// result). Step 5's `MOVUPS dst, [RIP+LUT]` overwrites src
+/// before step 7's `MOVAPS t1, src_x` re-reads it; the low-nibble
+/// path then computes `LUT[LUT[low_nibble(src)]]` (since LUT[i] <
+/// 16 for all i) instead of `LUT[low_nibble(src)]`. Symptom on
+/// OrbStack simd_i8x16_arith2: popcnt(0xFF) → 5 vs 8, popcnt(0x80)
+/// → 2 vs 1, popcnt(0x01) → 0 vs 1. Stash src through XMM7
+/// (project SIMD scratch — `abi.zig:200` reserves it mirroring
+/// arm64's V31).
 pub fn emitI8x16Popcnt(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -4148,11 +4162,17 @@ pub fn emitI8x16Popcnt(
     const lut_idx = try lookupOrAppendExtraConst(allocator, extra_consts, simd_consts_base, POPCNT_LUT);
     const mask_idx = try lookupOrAppendExtraConst(allocator, extra_consts, simd_consts_base, NIBBLE_MASK_BROADCAST);
 
+    var src_for_op = src_x;
+    if (dst_x == src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, src_x).slice());
+        src_for_op = .xmm7;
+    }
+
     // 1: t2 = nibble_mask (0x0F per byte).
     try emitConstLoad(allocator, buf, simd_const_fixups, t2, mask_idx);
     // 2-4: t1 = high_nibbles per byte. PSRLW shifts at word level
     // so the mask AND is required.
-    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(t1, src_x).slice());
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(t1, src_for_op).slice());
     try buf.appendSlice(allocator, inst.encPsrlwImm(t1, 4).slice());
     try buf.appendSlice(allocator, inst.encPand(t1, t2).slice());
     // 5-6: dst = LUT, then PSHUFB(dst, t1) → dst = popcount(high).
@@ -4160,7 +4180,7 @@ pub fn emitI8x16Popcnt(
     try buf.appendSlice(allocator, inst.encPshufb(dst_x, t1).slice());
     // 7-8: t1 = low_nibbles per byte. PAND with mask suffices —
     // no shift needed.
-    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(t1, src_x).slice());
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(t1, src_for_op).slice());
     try buf.appendSlice(allocator, inst.encPand(t1, t2).slice());
     // 9-10: t2 = LUT (reload — t2 was the mask, no longer needed),
     // then PSHUFB(t2, t1) → t2 = popcount(low).
