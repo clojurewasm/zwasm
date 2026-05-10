@@ -1039,6 +1039,31 @@ pub fn emitF64x2ReplaceLane(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 }
 
 // ============================================================
+// §9.9 / 9.9-g-10 — int min/max + avgr_u (14 ops)
+// ============================================================
+//
+// Wasm SIMD spec — i*x*.{min_s, min_u, max_s, max_u} for B/H/S
+// shapes (no .2D form on NEON). i*x*.avgr_u for B/H only (Wasm
+// has no i32x4.avgr_u). Each op compiles to a single Advanced
+// SIMD three-same instruction (SMIN / UMIN / SMAX / UMAX /
+// URHADD); all share the existing `emitV128Binop` helper.
+
+pub fn emitI8x16MinS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encSmin16B); }
+pub fn emitI8x16MinU(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encUmin16B); }
+pub fn emitI8x16MaxS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encSmax16B); }
+pub fn emitI8x16MaxU(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encUmax16B); }
+pub fn emitI8x16AvgrU(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encUrhadd16B); }
+pub fn emitI16x8MinS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encSmin8H); }
+pub fn emitI16x8MinU(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encUmin8H); }
+pub fn emitI16x8MaxS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encSmax8H); }
+pub fn emitI16x8MaxU(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encUmax8H); }
+pub fn emitI16x8AvgrU(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encUrhadd8H); }
+pub fn emitI32x4MinS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encSmin4S); }
+pub fn emitI32x4MinU(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encUmin4S); }
+pub fn emitI32x4MaxS(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encSmax4S); }
+pub fn emitI32x4MaxU(ctx: *EmitCtx, _: *const ZirInstr) Error!void { try emitV128Binop(ctx, inst_neon.encUmax4S); }
+
+// ============================================================
 // §9.9 / 9.5-c-vii-mul — i64x2.mul multi-instr synthesis
 // ============================================================
 //

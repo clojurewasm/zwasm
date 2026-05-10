@@ -98,6 +98,19 @@ NAMES=(
   # 203..205). shl wired in 9.9-g-7; shr_s/shr_u in 9.9-g-8 via
   # NEG-then-(U|S)SHL synthesis.
   simd_bit_shift
+  # §9.9 / 9.9-g-10: secondary int arith — min/max/avgr/abs/popcnt
+  # per shape. All ops wired since §9.7-au (int min/max/sat/avgr)
+  # + 9.9-f-7 (abs/neg/popcnt). Cheap PASS gains expected; surfaces
+  # any per-shape dispatch gap.
+  simd_i8x16_arith2
+  simd_i16x8_arith2
+  simd_i32x4_arith2
+  simd_i64x2_arith2
+  # §9.9 / 9.9-g-10: any_true / all_true reductions (wired 9.9-g-3)
+  # + bitmask (D-067 follow-up — multi-instr synthesis SSHR + AND
+  # + ADDV; expected to fail compile until 9.9-g-N's bitmask chunk
+  # lands). Surfaces D-067's exact scope.
+  simd_boolean
 )
 
 mkdir -p "$DEST"

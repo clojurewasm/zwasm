@@ -369,6 +369,31 @@ pub fn encNeg2D(rd: Vn, rn: Vn) u32  { return 0x6EE0B800 | (@as(u32, rn) << 5) |
 pub fn encCnt16B(rd: Vn, rn: Vn) u32 { return 0x4E205800 | (@as(u32, rn) << 5) | @as(u32, rd); }
 
 // =====================================================================
+// Integer min/max + rounding-half-add (avgr_u) — Advanced SIMD three-same,
+// Q=1. opcode 01101 = SMIN/UMIN, 01100 = SMAX/UMAX, 00010 = URHADD.
+// U=0 → signed, U=1 → unsigned. size[23:22]: 00=.16B, 01=.8H, 10=.4S.
+// NEON has no .2D form for these (per Arm IHI 0055 §C7.2.x); Wasm
+// SIMD spec correspondingly omits i64x2 min/max/avgr. URHADD is
+// unsigned-only and exists only for B/H per Wasm spec (no i32x4.avgr_u
+// per the proposal). Constants verified via `clang -arch arm64`.
+// =====================================================================
+
+pub fn encSmin16B(rd: Vn, rn: Vn, rm: Vn) u32 { return 0x4E206C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encSmin8H(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x4E606C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encSmin4S(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x4EA06C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUmin16B(rd: Vn, rn: Vn, rm: Vn) u32 { return 0x6E206C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUmin8H(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6E606C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUmin4S(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6EA06C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encSmax16B(rd: Vn, rn: Vn, rm: Vn) u32 { return 0x4E206400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encSmax8H(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x4E606400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encSmax4S(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x4EA06400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUmax16B(rd: Vn, rn: Vn, rm: Vn) u32 { return 0x6E206400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUmax8H(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6E606400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUmax4S(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6EA06400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUrhadd16B(rd: Vn, rn: Vn, rm: Vn) u32 { return 0x6E201400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUrhadd8H(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6E601400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+
+// =====================================================================
 // Per-element shifts — `USHL Vd.<T>, Vn.<T>, Vm.<T>` (vector form).
 // Positive amount in Vm = shift left; negative = shift right (logical
 // for U, arithmetic for S). Wasm shl uses USHL with positive amount;
@@ -2090,6 +2115,28 @@ test "patchLdrLiteralQImm19: replaces imm19 field" {
     const patched = patchLdrLiteralQImm19(orig, 100);
     // Patched word should equal direct emit with the same imm19 + Rt.
     try testing.expectEqual(encLdrLiteralQ(5, 100), patched);
+}
+
+test "encSmin/Umin/Smax/Umax/Urhadd: clang-verified bases for V0, V1, V2" {
+    // SMIN
+    try testing.expectEqual(@as(u32, 0x4E226C20), encSmin16B(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x4E626C20), encSmin8H(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x4EA26C20), encSmin4S(0, 1, 2));
+    // UMIN
+    try testing.expectEqual(@as(u32, 0x6E226C20), encUmin16B(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x6E626C20), encUmin8H(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x6EA26C20), encUmin4S(0, 1, 2));
+    // SMAX
+    try testing.expectEqual(@as(u32, 0x4E226420), encSmax16B(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x4E626420), encSmax8H(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x4EA26420), encSmax4S(0, 1, 2));
+    // UMAX
+    try testing.expectEqual(@as(u32, 0x6E226420), encUmax16B(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x6E626420), encUmax8H(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x6EA26420), encUmax4S(0, 1, 2));
+    // URHADD (Wasm has only B + H avgr_u; no .4S)
+    try testing.expectEqual(@as(u32, 0x6E221420), encUrhadd16B(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x6E621420), encUrhadd8H(0, 1, 2));
 }
 
 test "Int compare shapes: 4 CMEQ encodings pairwise distinct" {

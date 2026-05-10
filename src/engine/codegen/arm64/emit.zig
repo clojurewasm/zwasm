@@ -1470,6 +1470,24 @@ pub fn compile(
             .@"i16x8.mul" => try op_simd.emitI16x8Mul(&ctx, &ins),
             .@"i32x4.mul" => try op_simd.emitI32x4Mul(&ctx, &ins),
             // (i64x2.mul dispatch lives below alongside the §9.5-c-vii-mul block.)
+            // §9.9 / 9.9-g-10 — int min/max + avgr_u (14 ops). NEON
+            // has no .2D form for these (and Wasm spec correspondingly
+            // has no i64x2 min/max/avgr); i32x4.avgr_u also doesn't
+            // exist in the Wasm proposal.
+            .@"i8x16.min_s" => try op_simd.emitI8x16MinS(&ctx, &ins),
+            .@"i8x16.min_u" => try op_simd.emitI8x16MinU(&ctx, &ins),
+            .@"i8x16.max_s" => try op_simd.emitI8x16MaxS(&ctx, &ins),
+            .@"i8x16.max_u" => try op_simd.emitI8x16MaxU(&ctx, &ins),
+            .@"i8x16.avgr_u" => try op_simd.emitI8x16AvgrU(&ctx, &ins),
+            .@"i16x8.min_s" => try op_simd.emitI16x8MinS(&ctx, &ins),
+            .@"i16x8.min_u" => try op_simd.emitI16x8MinU(&ctx, &ins),
+            .@"i16x8.max_s" => try op_simd.emitI16x8MaxS(&ctx, &ins),
+            .@"i16x8.max_u" => try op_simd.emitI16x8MaxU(&ctx, &ins),
+            .@"i16x8.avgr_u" => try op_simd.emitI16x8AvgrU(&ctx, &ins),
+            .@"i32x4.min_s" => try op_simd.emitI32x4MinS(&ctx, &ins),
+            .@"i32x4.min_u" => try op_simd.emitI32x4MinU(&ctx, &ins),
+            .@"i32x4.max_s" => try op_simd.emitI32x4MaxS(&ctx, &ins),
+            .@"i32x4.max_u" => try op_simd.emitI32x4MaxU(&ctx, &ins),
             // §9.9 / 9.9-g-7 + 9.9-g-8 — int shifts (12 ops).
             .@"i8x16.shl" => try op_simd.emitI8x16Shl(&ctx, &ins),
             .@"i16x8.shl" => try op_simd.emitI16x8Shl(&ctx, &ins),

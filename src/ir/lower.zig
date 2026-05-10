@@ -665,6 +665,30 @@ const Lowerer = struct {
             209 => try self.emit(.@"i64x2.sub", 0, 0),
             213 => try self.emit(.@"i64x2.mul", 0, 0),
 
+            // §9.9 / 9.9-g-10 — int min/max + avgr_u (14 ops, lower-side
+            // wiring). Per Wasm SIMD spec sub-op numbering:
+            //   118..123: i8x16.{min_s, min_u, max_s, max_u, avgr_u}  (122 unused)
+            //   150..155: i16x8.{min_s, min_u, max_s, max_u, avgr_u}  (154 unused)
+            //   182..185: i32x4.{min_s, min_u, max_s, max_u}  (no i32x4.avgr_u)
+            // Validator already routes these through opSimdBinop (94..211
+            // binop fallthrough); ZirOps + per-arch emit handlers landed
+            // alongside this chunk for ARM64. x86_64 dispatch pre-existed
+            // since §9.7-au.
+            118 => try self.emit(.@"i8x16.min_s", 0, 0),
+            119 => try self.emit(.@"i8x16.min_u", 0, 0),
+            120 => try self.emit(.@"i8x16.max_s", 0, 0),
+            121 => try self.emit(.@"i8x16.max_u", 0, 0),
+            123 => try self.emit(.@"i8x16.avgr_u", 0, 0),
+            150 => try self.emit(.@"i16x8.min_s", 0, 0),
+            151 => try self.emit(.@"i16x8.min_u", 0, 0),
+            152 => try self.emit(.@"i16x8.max_s", 0, 0),
+            153 => try self.emit(.@"i16x8.max_u", 0, 0),
+            155 => try self.emit(.@"i16x8.avgr_u", 0, 0),
+            182 => try self.emit(.@"i32x4.min_s", 0, 0),
+            183 => try self.emit(.@"i32x4.min_u", 0, 0),
+            184 => try self.emit(.@"i32x4.max_s", 0, 0),
+            185 => try self.emit(.@"i32x4.max_u", 0, 0),
+
             // §9.9 / 9.9-g-2: SIMD comparison ops. ZirOps + per-arch
             // emit dispatch pre-existed; only the lower-side
             // sub-op→ZirOp wiring was missing. Wasm SIMD spec:
