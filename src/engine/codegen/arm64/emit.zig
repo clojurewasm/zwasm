@@ -1464,6 +1464,12 @@ pub fn compile(
             .@"i16x8.mul" => try op_simd.emitI16x8Mul(&ctx, &ins),
             .@"i32x4.mul" => try op_simd.emitI32x4Mul(&ctx, &ins),
             // (i64x2.mul dispatch lives below alongside the §9.5-c-vii-mul block.)
+            // §9.9 / 9.9-g-3 — v128 reductions (any_true / all_true).
+            .@"v128.any_true" => try op_simd.emitV128AnyTrue(&ctx, &ins),
+            .@"i8x16.all_true" => try op_simd.emitI8x16AllTrue(&ctx, &ins),
+            .@"i16x8.all_true" => try op_simd.emitI16x8AllTrue(&ctx, &ins),
+            .@"i32x4.all_true" => try op_simd.emitI32x4AllTrue(&ctx, &ins),
+            .@"i64x2.all_true" => try op_simd.emitI64x2AllTrue(&ctx, &ins),
             // §9.9/9.9-f-7 — int unops (abs / neg / popcnt).
             .@"i8x16.abs" => try op_simd.emitI8x16Abs(&ctx, &ins),
             .@"i8x16.neg" => try op_simd.emitI8x16Neg(&ctx, &ins),

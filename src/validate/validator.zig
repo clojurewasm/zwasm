@@ -753,15 +753,15 @@ const Validator = struct {
             => try self.opSimdUnop(),
             // Everything else in 94..211 stays binop (cmp / arith /
             // shifts / saturated arith / dot / extmul / etc.).
-            94, 95, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+            94, 95, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
             112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123,
-            130, 131, 132, 133,
+            130, 132, 133,
             138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149,
             150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
-            162, 163, 164, 165,
+            162, 164, 165,
             170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183,
             184, 185, 186, 187, 188, 189, 190, 191,
-            194, 195, 196, 197, 198,
+            194, 196, 197, 198,
             203, 204, 205, 206, 207, 208, 209, 210, 211,
             213, // §9.9 / 9.9-f-8 — i64x2.mul (handler-side multi-instr synthesis on ARM64 since NEON has no MUL.2D).
             => try self.opSimdBinop(),
@@ -770,6 +770,15 @@ const Validator = struct {
             // i64x2.{eq, ne, lt_s, gt_s, le_s, ge_s}; spec only
             // defines signed cmp for the 64-bit lane shape.
             214, 215, 216, 217, 218, 219 => try self.opSimdBinop(),
+
+            // §9.9 / 9.9-g-3 — int all_true reductions (sub-ops 99 /
+            // 131 / 163 / 195). i*x*.all_true pops v128, pushes i32.
+            // bitmask (100/132/164/196) shares the same shape but
+            // stays in the surrounding binop list until 9.9-g-4
+            // wires its emit handlers — moving it here without
+            // emit-side support would just shift the failure error
+            // class without flipping any test.
+            99, 131, 163, 195 => try self.opSimdAllTrueOrAnyTrue(),
 
             // §9.9 / 9.9-f-5 — split FP arith range. Sub-opcodes
             // 224..255 cover f32x4 + f64x2 ops; the 9.4 MVP

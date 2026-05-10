@@ -339,6 +339,19 @@ pub fn encNeg2D(rd: Vn, rn: Vn) u32  { return 0x6EE0B800 | (@as(u32, rn) << 5) |
 pub fn encCnt16B(rd: Vn, rn: Vn) u32 { return 0x4E205800 | (@as(u32, rn) << 5) | @as(u32, rd); }
 
 // =====================================================================
+// Across-lane reductions (UMAXV / UMINV) — Advanced SIMD across-lanes,
+// Q=1, U=1, opcode=01010 (UMAXV) or 11010 (UMINV). size selects lane:
+// 00=.16B, 01=.8H, 10=.4S. NEON has NO 2D form for these — i64x2
+// reductions need GPR-side synthesis. Constants verified via
+// `clang -arch arm64`. Per Arm IHI 0055 §C7.2.387 / §C7.2.394.
+// =====================================================================
+
+pub fn encUmaxv16B(rd: Vn, rn: Vn) u32 { return 0x6E30A800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUminv16B(rd: Vn, rn: Vn) u32 { return 0x6E31A800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUminv8H(rd: Vn, rn: Vn) u32  { return 0x6E71A800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUminv4S(rd: Vn, rn: Vn) u32  { return 0x6EB1A800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+
+// =====================================================================
 // Lane access (extract / replace)
 // =====================================================================
 
@@ -1240,6 +1253,14 @@ test "encAbs/encNeg/encCnt: V0, V1 across shapes" {
     try testing.expectEqual(@as(u32, 0x6EA0B820), encNeg4S(0, 1));
     try testing.expectEqual(@as(u32, 0x6EE0B820), encNeg2D(0, 1));
     try testing.expectEqual(@as(u32, 0x4E205820), encCnt16B(0, 1));
+}
+
+test "encUmaxv/encUminv: V0, V1 across shapes" {
+    // `clang -arch arm64` of `umaxv b0, v1.16b` / `uminv {b,h,s}0, v1.{16b,8h,4s}`.
+    try testing.expectEqual(@as(u32, 0x6E30A820), encUmaxv16B(0, 1));
+    try testing.expectEqual(@as(u32, 0x6E31A820), encUminv16B(0, 1));
+    try testing.expectEqual(@as(u32, 0x6E71A820), encUminv8H(0, 1));
+    try testing.expectEqual(@as(u32, 0x6EB1A820), encUminv4S(0, 1));
 }
 
 test "encAbs vs encNeg: U bit (29) is the only difference" {

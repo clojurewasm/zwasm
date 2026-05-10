@@ -727,6 +727,15 @@ const Lowerer = struct {
             218 => try self.emit(.@"i64x2.le_s", 0, 0),
             219 => try self.emit(.@"i64x2.ge_s", 0, 0),
 
+            // §9.9 / 9.9-g-3 — v128 → i32 reductions (any_true,
+            // all_true). Wasm SIMD spec §4.4 (vector reductions).
+            // bitmask family (100/132/164/196) deferred to 9.9-g-4.
+            83 => try self.emit(.@"v128.any_true", 0, 0),
+            99 => try self.emit(.@"i8x16.all_true", 0, 0),
+            131 => try self.emit(.@"i16x8.all_true", 0, 0),
+            163 => try self.emit(.@"i32x4.all_true", 0, 0),
+            195 => try self.emit(.@"i64x2.all_true", 0, 0),
+
             else => return Error.NotImplemented,
         }
     }

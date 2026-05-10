@@ -1021,6 +1021,106 @@ pub fn emitI64x2Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
+// §9.9 / 9.9-g-3 — v128 reductions (any_true / all_true)
+// ============================================================
+//
+// Wasm SIMD spec — `v128.any_true` returns 1 iff any byte of the
+// input v128 is non-zero; `i*x*.all_true` returns 1 iff every
+// lane of the input v128 is non-zero. Both pop v128, push i32.
+//
+// ARM64 strategy:
+//
+//   any_true: UMAXV B<v>, V<src>.16B (max byte across 16 lanes
+//             — non-zero iff any byte was). Then UMOV W,V.B[0];
+//             CMP W,#0; CSET W,NE.
+//
+//   i8x16/i16x8/i32x4.all_true: UMINV {B,H,S}<v>, V<src>.{16B,8H,
+//             4S} (min lane is non-zero iff every lane was).
+//             Then UMOV → CMP → CSET NE. Same shape; the encoder
+//             differs by lane-width.
+//
+//   i64x2.all_true: NEON has no UMINV.2D form — synthesise via
+//             two D-lane extracts + CMP + CSET + AND. Per Arm
+//             IHI 0055 §C7.2.394 (UMINV is byte/halfword/word
+//             only; doubleword reduction requires GPR detour).
+//
+// Result vreg is GPR-class (i32). The shared helper
+// `emitV128ReduceWithEncoder` handles the common path; i64x2 has
+// its own dedicated handler.
+
+const reduce_scratch_v: u5 = 29; // V29: fp_spill_stage[0]; safe inside this op.
+const reduce_scratch_x_a: u5 = 16; // X16 / IP0
+const reduce_scratch_x_b: u5 = 17; // X17 / IP1
+
+fn emitV128ReduceWithEncoder(
+    ctx: *EmitCtx,
+    encoder: *const fn (rd: u5, rn: u5) u32,
+) Error!void {
+    const src_vreg = ctx.pushed_vregs.pop().?;
+    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    // SPILL-EXEMPT: i32 result; mirrors emitI32x4ExtractLane's pre-spill-aware GPR-result shape.
+    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+
+    // Reduce into V29 (lane 0 holds the max/min byte/half/word).
+    try gpr.writeU32(ctx.allocator, ctx.buf, encoder(reduce_scratch_v, src_v));
+    // Extract lane 0 (B form) into W16 — width 8 / 16 / 32 of the
+    // reduced scalar all zero-extend cleanly into W via UMOV B
+    // since "value != 0" is what we actually compare; the upper
+    // bits are immaterial.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encUmovWFromB(reduce_scratch_x_a, reduce_scratch_v, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(reduce_scratch_x_a, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCsetW(result_w, .ne));
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+pub fn emitV128AnyTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128ReduceWithEncoder(ctx, inst_neon.encUmaxv16B);
+}
+
+pub fn emitI8x16AllTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128ReduceWithEncoder(ctx, inst_neon.encUminv16B);
+}
+
+pub fn emitI16x8AllTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128ReduceWithEncoder(ctx, inst_neon.encUminv8H);
+}
+
+pub fn emitI32x4AllTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128ReduceWithEncoder(ctx, inst_neon.encUminv4S);
+}
+
+/// `i64x2.all_true`: NEON UMINV has no 2D form. Synthesise via
+/// extracting both 64-bit lanes to GPRs, comparing each to 0,
+/// and ANDing the cset results. 6 instructions.
+pub fn emitI64x2AllTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    const src_vreg = ctx.pushed_vregs.pop().?;
+    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    // SPILL-EXEMPT: i32 result mirrors emitV128ReduceWithEncoder.
+    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+
+    // X16 ← src.D[0]; X17 ← src.D[1].
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encUmovXFromD(reduce_scratch_x_a, src_v, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encUmovXFromD(reduce_scratch_x_b, src_v, 1));
+    // CMP X16, #0 ; CSET W16, NE
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(reduce_scratch_x_a, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCsetW(reduce_scratch_x_a, .ne));
+    // CMP X17, #0 ; CSET W17, NE
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(reduce_scratch_x_b, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCsetW(reduce_scratch_x_b, .ne));
+    // AND W<result>, W16, W17
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAndRegW(result_w, reduce_scratch_x_a, reduce_scratch_x_b));
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+// ============================================================
 // §9.6 / 9.6-a — f32x4 / f64x2 binary FP arithmetic
 // ============================================================
 //
