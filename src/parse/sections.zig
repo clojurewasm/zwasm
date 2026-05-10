@@ -781,6 +781,7 @@ fn readValType(body: []const u8, pos: *usize) Error!ValType {
         0x7E => .i64,
         0x7D => .f32,
         0x7C => .f64,
+        0x7B => .v128, // Wasm 2.0 SIMD §5.3.5
         else => Error.BadValType,
     };
 }
@@ -839,10 +840,21 @@ test "decodeTypes: rejects missing 0x60 prefix" {
     try testing.expectError(Error.InvalidFunctype, decodeTypes(testing.allocator, &body));
 }
 
+test "decodeTypes: accepts v128 valtype (Wasm 2.0 SIMD)" {
+    // 0x7B is v128 per Wasm 2.0 SIMD §5.3.5. Type sections that
+    // declare v128 in params or results must decode without error.
+    const body = [_]u8{ 0x01, 0x60, 0x01, 0x7B, 0x01, 0x7B };
+    var t = try decodeTypes(testing.allocator, &body);
+    defer t.deinit();
+    try testing.expectEqual(@as(usize, 1), t.items.len);
+    try testing.expectEqualSlices(ValType, &[_]ValType{.v128}, t.items[0].params);
+    try testing.expectEqualSlices(ValType, &[_]ValType{.v128}, t.items[0].results);
+}
+
 test "decodeTypes: rejects unknown valtype byte" {
-    // 0x7B is v128 (Wasm 2.0 SIMD). For Wasm 1.0 type-section decode
-    // it must be rejected.
-    const body = [_]u8{ 0x01, 0x60, 0x01, 0x7B, 0x00 };
+    // 0x6E is unassigned in the Wasm 2.0 valtype space; must be
+    // rejected.
+    const body = [_]u8{ 0x01, 0x60, 0x01, 0x6E, 0x00 };
     try testing.expectError(Error.BadValType, decodeTypes(testing.allocator, &body));
 }
 

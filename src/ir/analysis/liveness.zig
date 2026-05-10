@@ -152,6 +152,143 @@ fn stackEffect(op: ZirOp) ?StackEffect {
         // Wasm spec §4.4.7 (bulk memory) — pop dst, src/val, n.
         // No result is pushed.
         .@"memory.copy", .@"memory.fill" => .{ .pops = 3, .pushes = 0 },
+        // ============================================================
+        // Wasm 2.0 SIMD (v128) — §9.9 / 9.9-d.
+        // Wasm spec §4.4.6 (vector instructions).
+        // ============================================================
+        // 0 → 1: const.
+        .@"v128.const" => .{ .pops = 0, .pushes = 1 },
+        // 1 → 1: memory loads (pop addr, push v128).
+        .@"v128.load",
+        .@"v128.load8x8_s", .@"v128.load8x8_u",
+        .@"v128.load16x4_s", .@"v128.load16x4_u",
+        .@"v128.load32x2_s", .@"v128.load32x2_u",
+        .@"v128.load8_splat", .@"v128.load16_splat",
+        .@"v128.load32_splat", .@"v128.load64_splat",
+        .@"v128.load32_zero", .@"v128.load64_zero",
+        => .{ .pops = 1, .pushes = 1 },
+        // 2 → 0: stores (pop addr + value).
+        .@"v128.store" => .{ .pops = 2, .pushes = 0 },
+        // 2 → 1: load_lane (pop addr + v128 src, merge byte from
+        // mem into one lane).
+        .@"v128.load8_lane", .@"v128.load16_lane",
+        .@"v128.load32_lane", .@"v128.load64_lane",
+        => .{ .pops = 2, .pushes = 1 },
+        // 2 → 0: store_lane (pop addr + v128 src).
+        .@"v128.store8_lane", .@"v128.store16_lane",
+        .@"v128.store32_lane", .@"v128.store64_lane",
+        => .{ .pops = 2, .pushes = 0 },
+        // 1 → 1: splat from scalar (pop scalar, push v128).
+        .@"i8x16.splat", .@"i16x8.splat", .@"i32x4.splat",
+        .@"i64x2.splat", .@"f32x4.splat", .@"f64x2.splat",
+        // 1 → 1: extract_lane (pop v128, push scalar; imm in
+        // payload).
+        .@"i8x16.extract_lane_s", .@"i8x16.extract_lane_u",
+        .@"i16x8.extract_lane_s", .@"i16x8.extract_lane_u",
+        .@"i32x4.extract_lane", .@"i64x2.extract_lane",
+        .@"f32x4.extract_lane", .@"f64x2.extract_lane",
+        // 1 → 1: bitwise unop / popcnt / abs / neg.
+        .@"v128.not",
+        .@"i8x16.abs", .@"i16x8.abs", .@"i32x4.abs", .@"i64x2.abs",
+        .@"i8x16.neg", .@"i16x8.neg", .@"i32x4.neg", .@"i64x2.neg",
+        .@"i8x16.popcnt",
+        // 1 → 1: FP unop.
+        .@"f32x4.abs", .@"f32x4.neg", .@"f32x4.sqrt",
+        .@"f32x4.ceil", .@"f32x4.floor", .@"f32x4.trunc",
+        .@"f32x4.nearest",
+        .@"f64x2.abs", .@"f64x2.neg", .@"f64x2.sqrt",
+        .@"f64x2.ceil", .@"f64x2.floor", .@"f64x2.trunc",
+        .@"f64x2.nearest",
+        // 1 → 1: extend low/high.
+        .@"i16x8.extend_low_i8x16_s", .@"i16x8.extend_high_i8x16_s",
+        .@"i16x8.extend_low_i8x16_u", .@"i16x8.extend_high_i8x16_u",
+        .@"i32x4.extend_low_i16x8_s", .@"i32x4.extend_high_i16x8_s",
+        .@"i32x4.extend_low_i16x8_u", .@"i32x4.extend_high_i16x8_u",
+        .@"i64x2.extend_low_i32x4_s", .@"i64x2.extend_high_i32x4_s",
+        .@"i64x2.extend_low_i32x4_u", .@"i64x2.extend_high_i32x4_u",
+        // 1 → 1: extadd_pairwise.
+        .@"i16x8.extadd_pairwise_i8x16_s",
+        .@"i16x8.extadd_pairwise_i8x16_u",
+        .@"i32x4.extadd_pairwise_i16x8_s",
+        .@"i32x4.extadd_pairwise_i16x8_u",
+        // 1 → 1: FP convert / promote / demote / trunc_sat.
+        .@"f32x4.convert_i32x4_s", .@"f32x4.convert_i32x4_u",
+        .@"f64x2.convert_low_i32x4_s", .@"f64x2.convert_low_i32x4_u",
+        .@"f64x2.promote_low_f32x4", .@"f32x4.demote_f64x2_zero",
+        .@"i32x4.trunc_sat_f32x4_s", .@"i32x4.trunc_sat_f32x4_u",
+        .@"i32x4.trunc_sat_f64x2_s_zero",
+        .@"i32x4.trunc_sat_f64x2_u_zero",
+        // 1 → 1: bitmask / all_true / any_true (pop v128, push i32).
+        .@"v128.any_true",
+        .@"i8x16.all_true", .@"i16x8.all_true",
+        .@"i32x4.all_true", .@"i64x2.all_true",
+        .@"i8x16.bitmask", .@"i16x8.bitmask",
+        .@"i32x4.bitmask", .@"i64x2.bitmask",
+        => .{ .pops = 1, .pushes = 1 },
+        // 2 → 1: bitwise binop.
+        .@"v128.and", .@"v128.or", .@"v128.xor", .@"v128.andnot",
+        // 2 → 1: integer add/sub/mul.
+        .@"i8x16.add", .@"i8x16.sub",
+        .@"i16x8.add", .@"i16x8.sub", .@"i16x8.mul",
+        .@"i32x4.add", .@"i32x4.sub", .@"i32x4.mul",
+        .@"i64x2.add", .@"i64x2.sub", .@"i64x2.mul",
+        // 2 → 1: saturating arith + avgr.
+        .@"i8x16.add_sat_s", .@"i8x16.add_sat_u",
+        .@"i8x16.sub_sat_s", .@"i8x16.sub_sat_u",
+        .@"i16x8.add_sat_s", .@"i16x8.add_sat_u",
+        .@"i16x8.sub_sat_s", .@"i16x8.sub_sat_u",
+        .@"i8x16.avgr_u", .@"i16x8.avgr_u",
+        // 2 → 1: min/max.
+        .@"i8x16.min_s", .@"i8x16.min_u", .@"i8x16.max_s", .@"i8x16.max_u",
+        .@"i16x8.min_s", .@"i16x8.min_u", .@"i16x8.max_s", .@"i16x8.max_u",
+        .@"i32x4.min_s", .@"i32x4.min_u", .@"i32x4.max_s", .@"i32x4.max_u",
+        // 2 → 1: int compare.
+        .@"i8x16.eq", .@"i8x16.ne",
+        .@"i8x16.lt_s", .@"i8x16.lt_u", .@"i8x16.gt_s", .@"i8x16.gt_u",
+        .@"i8x16.le_s", .@"i8x16.le_u", .@"i8x16.ge_s", .@"i8x16.ge_u",
+        .@"i16x8.eq", .@"i16x8.ne",
+        .@"i16x8.lt_s", .@"i16x8.lt_u", .@"i16x8.gt_s", .@"i16x8.gt_u",
+        .@"i16x8.le_s", .@"i16x8.le_u", .@"i16x8.ge_s", .@"i16x8.ge_u",
+        .@"i32x4.eq", .@"i32x4.ne",
+        .@"i32x4.lt_s", .@"i32x4.lt_u", .@"i32x4.gt_s", .@"i32x4.gt_u",
+        .@"i32x4.le_s", .@"i32x4.le_u", .@"i32x4.ge_s", .@"i32x4.ge_u",
+        .@"i64x2.eq", .@"i64x2.ne",
+        .@"i64x2.lt_s", .@"i64x2.gt_s", .@"i64x2.le_s", .@"i64x2.ge_s",
+        // 2 → 1: FP compare.
+        .@"f32x4.eq", .@"f32x4.ne", .@"f32x4.lt", .@"f32x4.gt",
+        .@"f32x4.le", .@"f32x4.ge",
+        .@"f64x2.eq", .@"f64x2.ne", .@"f64x2.lt", .@"f64x2.gt",
+        .@"f64x2.le", .@"f64x2.ge",
+        // 2 → 1: FP arith.
+        .@"f32x4.add", .@"f32x4.sub", .@"f32x4.mul", .@"f32x4.div",
+        .@"f32x4.min", .@"f32x4.max", .@"f32x4.pmin", .@"f32x4.pmax",
+        .@"f64x2.add", .@"f64x2.sub", .@"f64x2.mul", .@"f64x2.div",
+        .@"f64x2.min", .@"f64x2.max", .@"f64x2.pmin", .@"f64x2.pmax",
+        // 2 → 1: shifts (pop v128 + i32 count).
+        .@"i8x16.shl", .@"i8x16.shr_s", .@"i8x16.shr_u",
+        .@"i16x8.shl", .@"i16x8.shr_s", .@"i16x8.shr_u",
+        .@"i32x4.shl", .@"i32x4.shr_s", .@"i32x4.shr_u",
+        .@"i64x2.shl", .@"i64x2.shr_s", .@"i64x2.shr_u",
+        // 2 → 1: shuffle (2 v128 + 16-byte imm) / swizzle.
+        .@"i8x16.shuffle", .@"i8x16.swizzle",
+        // 2 → 1: replace_lane (pop v128 + scalar; imm in payload).
+        .@"i8x16.replace_lane", .@"i16x8.replace_lane",
+        .@"i32x4.replace_lane", .@"i64x2.replace_lane",
+        .@"f32x4.replace_lane", .@"f64x2.replace_lane",
+        // 2 → 1: narrow saturating (2 v128 → 1 v128).
+        .@"i8x16.narrow_i16x8_s", .@"i8x16.narrow_i16x8_u",
+        .@"i16x8.narrow_i32x4_s", .@"i16x8.narrow_i32x4_u",
+        // 2 → 1: ext multiply / dot / q15mulr.
+        .@"i16x8.q15mulr_sat_s", .@"i32x4.dot_i16x8_s",
+        .@"i16x8.extmul_low_i8x16_s", .@"i16x8.extmul_high_i8x16_s",
+        .@"i16x8.extmul_low_i8x16_u", .@"i16x8.extmul_high_i8x16_u",
+        .@"i32x4.extmul_low_i16x8_s", .@"i32x4.extmul_high_i16x8_s",
+        .@"i32x4.extmul_low_i16x8_u", .@"i32x4.extmul_high_i16x8_u",
+        .@"i64x2.extmul_low_i32x4_s", .@"i64x2.extmul_high_i32x4_s",
+        .@"i64x2.extmul_low_i32x4_u", .@"i64x2.extmul_high_i32x4_u",
+        => .{ .pops = 2, .pushes = 1 },
+        // 3 → 1: bitselect (a, b, mask).
+        .@"v128.bitselect" => .{ .pops = 3, .pushes = 1 },
         else => null,
     };
 }
