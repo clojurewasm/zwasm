@@ -37,3 +37,7 @@ include/wasm.h.upstream
 
 # Bench rolling per-commit results (history.yaml is committed; recent.yaml is local)
 bench/results/recent.yaml
+
+# Per-developer windowsmini gate state (recorded by scripts/should_gate_windows.sh
+# --record after a successful windowsmini run; per-clone, not authoritative)
+.dev/last_windowsmini_sha

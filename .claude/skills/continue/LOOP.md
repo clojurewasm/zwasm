@@ -18,11 +18,20 @@ cost shapes**:
 - **Mac**: native, fast (≤ 60 s typical). Run synchronously and
   fail-fast — there is no value in backgrounding it because the
   next steps (commit / push) need its result inline.
-- **OrbStack + windowsmini**: cross-machine, slow (each can take
-  several minutes; windowsmini occasionally hits the D-028 IPC
-  flake). These two MUST run **concurrently in the background**.
-  Re-running them just to re-grep is forbidden — they are
-  expensive enough that every invocation must be the only one.
+- **OrbStack**: cross-machine, slow (~3-5 min typical). Run
+  per-chunk in the background. SysV x86_64 ground truth.
+- **windowsmini**: cross-machine + slow (~3-5 min) + flaky (D-028
+  IPC timeout retry rate ~6%). Win64-specific divergence catcher.
+  **Gated per-chunk via `scripts/should_gate_windows.sh`** — runs
+  only when the diff plausibly hits Win64-specific code paths
+  (ABI / calling convention / frame layout) OR 4+ commits have
+  accumulated since the last windowsmini run. Otherwise deferred
+  to the next checkpoint. Empirical justification: the §9.7 / §9.9
+  run (15+ chunks of encoder + handler additions) saw zero
+  windowsmini-unique findings vs Mac + OrbStack while adding
+  ~30-45 min of cumulative wall-clock; this is rebalanced by
+  the gating script. See lesson
+  `.dev/lessons/2026-05-10-loop-overgating-retro.md`.
 
 ### Mandatory shape of the gate
 
@@ -45,20 +54,35 @@ git commit -m "<conventional commit>"
 #    new ref before its zig build starts.
 git push origin zwasm-from-scratch
 
-# 4. Kick OrbStack + windowsmini IN PARALLEL, BOTH BACKGROUNDED,
-#    each writing its full stdout+stderr to a tmp log file.
-#    The two Bash tool calls go in a SINGLE tool message so the
-#    harness launches them simultaneously.
+# 4. Decide whether windowsmini gate is required this chunk.
+#    Returns 0 → run windowsmini; 1 → defer to next checkpoint.
+if bash scripts/should_gate_windows.sh; then
+    GATE_WINDOWS=1
+else
+    GATE_WINDOWS=0
+fi
+
+# 5. Kick OrbStack always; windowsmini conditionally. The two
+#    background Bash tool calls (when both fire) MUST go in a
+#    SINGLE tool message so the harness launches concurrently.
 orb run -m my-ubuntu-amd64 bash -c \
   'cd /Users/shota.508/Documents/MyProducts/zwasm_from_scratch && zig build test-all' \
   > /tmp/orb.log 2>&1                                           # run_in_background: true
-bash scripts/run_remote_windows.sh test-all \
-  > /tmp/win.log 2>&1                                           # run_in_background: true
+if [ "$GATE_WINDOWS" -eq 1 ]; then
+    bash scripts/run_remote_windows.sh test-all \
+      > /tmp/win.log 2>&1                                       # run_in_background: true
+fi
 
-# 5. WAIT for both completion notifications (do NOT poll).
-#    When each fires, Read /tmp/orb.log resp. /tmp/win.log to
+# 6. WAIT for completion notifications (do NOT poll). When each
+#    fires, Read /tmp/orb.log (and /tmp/win.log if gated) to
 #    inspect the tail. NEVER re-invoke the gate command just to
 #    extract output — the log file already has everything.
+
+# 7. After successful windowsmini run, record HEAD as the new
+#    last-tested commit so future deferral decisions reset.
+if [ "$GATE_WINDOWS" -eq 1 ]; then
+    bash scripts/should_gate_windows.sh --record
+fi
 ```
 
 **Why this exact shape:**

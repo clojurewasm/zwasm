@@ -238,20 +238,30 @@ the rest run in main.
 
 ### Chunk granularity — when to bundle vs split
 
-Default: **bundle same-shape ops into one chunk**. The 7.7-fp
-chain showed an over-split anti-pattern (5 separate chunks for
-trunc-sat / trunc-trap variants when many shared identical
-helpers). A single 200–400 LOC commit covering an op family is
-more efficient than 3-5 commits each adding one variant — testing
-overhead per chunk dominates the implementation time.
+**Default chunk size for established-pattern emit/handler chunks:
+5–15 ops.** Sub-1-op chunks are reserved for ADR-grade design
+changes (new ABI surface, new scratch reservation, new shared
+helper). The 7.7-fp + §9.7 / §9.9 retrospectives both surfaced
+over-split anti-patterns where 1–4 op chunks dominated commit
+overhead despite mechanical implementation; the §9.7 / §9.9
+run alone landed ~25 chunks where ~6 would have served the same
+purpose with materially less wall-clock per delivered op.
 
 **Bundle into one chunk when ALL hold:**
 
-- Same encoder family (e.g. all SSE2 scalar binary, all CVTSI2SS
-  variants, all i32 ALU).
+- Same **dispatch helper consumer** (e.g. all `v128MemPrologue`
+  consumers — load + load_splat + load_zero + load_lane +
+  load_extend = ~24 ops in one chunk; all `emitV128IntBinop`
+  consumers — int min/max + sat arith + avgr ~22 ops in one
+  chunk). The criterion is "do these wrappers share the same
+  shared helper?", not "do they share the same encoder family"
+  — the latter is too narrow and was the binding constraint
+  driving the over-split run.
 - Same handler shape (only `op` field differs; switch arms
   inside the handler).
-- Total source diff ≤ 400 LOC, total test diff ≤ 250 LOC.
+- Total source diff ≤ 800 LOC, total test diff ≤ 400 LOC (was
+  400 / 250 — raised to match the actual cap above which
+  reviewability deteriorates rather than the median chunk size).
 - Boundary semantics across variants are coordinated (one ADR /
   one rationale comment covers the family).
 
@@ -259,30 +269,43 @@ overhead per chunk dominates the implementation time.
 
 - Implementation crosses an instruction class (GPR vs XMM
   pipeline, ALU vs memory, scalar vs SIMD).
-- One variant requires a structurally different branch shape
+- One variant requires a structurally different recipe
   (e.g. trunc-sat-u64's 2^63 split vs trunc-sat-u32's direct
-  .q-form).
+  .q-form, or fmin/fmax NaN-correction vs pmin/pmax direct
+  MINPS).
 - ADR-grade design choice for one variant only (e.g. chunk
-  introduces a new scratch-register reservation or new ABI
-  contract).
-- Mid-cycle ratchet would push the diff > 600 LOC including
+  introduces a new scratch-register reservation, new ABI
+  contract, new shared helper that didn't exist before).
+- Mid-cycle ratchet would push the diff > 1200 LOC including
   tests.
 
-**Concrete examples (looking back at §9.7 / 7.7):**
+**Concrete examples (looking back at §9.7 + §9.9):**
 
 | Group                                | Should have been | Was             |
 |--------------------------------------|------------------|-----------------|
 | 7.7-alu (i32 add/sub/mul/and/or/xor) | 1 chunk          | 1 chunk ✓       |
 | 7.7-cmp + 7.7-eqz                    | 1 chunk          | 2 chunks (over) |
-| 7.7-bitcount (clz/ctz/popcnt)        | 1 chunk          | 1 chunk ✓       |
 | trunc-sat-u32 + trunc-sat-u64        | 1 chunk          | 2 chunks (over) |
 | trunc-trap-signed + trunc-sat-signed | 2 chunks         | 2 chunks ✓ (semantics differ) |
 | fp-convert-simple + fp-convert-unsigned | 1 chunk       | 2 chunks (over) |
+| 9.7-au (int min/max + sat + avgr 22 ops) | 1 chunk      | 1 chunk ✓       |
+| 9.7-ax..bb (v128 mem family 22 ops)  | 1–2 chunks      | 5 chunks (over: ax/ay/az/ba/bb) |
+| 9.9-a + 9.9-b (foundation + v128 ABI) | 1 chunk        | 2 chunks (over: ABI was small) |
 
 When in doubt, **bundle**: the chunk-table row in handover.md
 is a status marker, not a unit of work. One commit covering
-"f32/f64 convert + reinterpret + promote/demote (10 ops)" is
-more readable in `git log` than five 2-op commits.
+"f32/f64 convert + reinterpret + promote/demote (10 ops)" or
+"v128 memory family (load + store + splat ×4 + zero ×2 + lane
+×8 + extend ×6 = 22 ops)" is more readable in `git log` than
+ten 2-op commits, and the cumulative test-gate wall-clock
+shrinks proportionally.
+
+**Anti-pattern: "1 op = 1 chunk"** for ops that follow an
+established pattern (existing helper, single-instruction
+mapping, or copy of an immediately-adjacent variant). Each
+extra commit adds ~5-10 min of wall-clock (test gate + push +
+windowsmini if gated + handover + chore + re-arm) for ~1 min
+of marginal review value when the implementation is mechanical.
 
 ### Step 0 — Survey (subagent: Explore, default mode "medium")
 

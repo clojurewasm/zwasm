@@ -288,20 +288,36 @@ All of:
    `src/engine/codegen/arm64/gpr.zig`.
 6. As phases add layers, `zig build test-all` runs them too
 
-OrbStack Ubuntu x86_64 + `windowsmini` SSH must also pass before
-push. Run them **concurrently in the background, single-message,
-file-logged** per the Three-host invocation pattern above —
-never sequentially, and **never re-invoke a remote gate just to
-re-grep output** (Read the existing log file instead):
-- `orb run -m my-ubuntu-amd64 bash -c '... zig build test-all' > /tmp/orb.log 2>&1` (run_in_background)
-- `bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1` (run_in_background)
+**OrbStack Ubuntu x86_64 must pass per chunk; windowsmini SSH
+runs at checkpoint cadence** per `bash scripts/should_gate_windows.sh`
+(per-chunk gating heuristic — runs windowsmini when the diff
+plausibly hits Win64-specific code paths OR 4+ commits have
+accumulated since last windowsmini run; defers otherwise).
+Empirical justification + history in lesson
+[`2026-05-10-loop-overgating-retro.md`](.dev/lessons/2026-05-10-loop-overgating-retro.md).
 
-The same three-host `test-all` is the **A13 merge gate** (per
-ROADMAP §A13 / §9.6 / 6.5): every push to `zwasm-from-scratch`
+When invoked, OrbStack and windowsmini still run **concurrently
+in the background, single-message, file-logged** per the Three-host
+invocation pattern above — never sequentially, and **never
+re-invoke a remote gate just to re-grep output** (Read the existing
+log file instead):
+- `orb run -m my-ubuntu-amd64 bash -c '... zig build test-all' > /tmp/orb.log 2>&1` (run_in_background)
+- `bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1` (run_in_background; only when `should_gate_windows.sh` exits 0)
+
+After a successful windowsmini run, record HEAD as the new
+last-tested commit:
+- `bash scripts/should_gate_windows.sh --record`
+
+The three-host `test-all` is the **A13 merge gate** (per ROADMAP
+§A13 / §9.6 / 6.5): every push to `main` (release tag, etc.)
 must pass `test-all` on Mac + OrbStack Ubuntu + windowsmini.
-`scripts/gate_merge.sh` automates this; the `continue` skill's
-per-task TDD loop already enforces it for autonomous commits.
-`test-all` aggregates `test-wasmtime-misc-basic` (§9.6 / 6.B per ADR-0012, was `test-v1-carry-over`),
-`test-realworld` + `test-realworld-run` (§9.6 / 6.1), and the
-unit / spec / c-api / wasi layers — i.e. every A13 component
-v2 has stood up. ClojureWasm guest joins when §9.6 / 6.3 lands.
+The autonomous loop's per-chunk gate is **rebalanced** —
+windowsmini gates on the heuristic above instead of every chunk;
+phase boundaries (`audit_scaffolding` mandatory trigger) and any
+ABI-touching diff still force the full 3-host gate.
+`scripts/gate_merge.sh` automates the strict 3-host gate when
+needed. `test-all` aggregates `test-wasmtime-misc-basic` (§9.6 /
+6.B per ADR-0012, was `test-v1-carry-over`), `test-realworld` +
+`test-realworld-run` (§9.6 / 6.1), and the unit / spec / c-api /
+wasi layers — i.e. every A13 component v2 has stood up.
+ClojureWasm guest joins when §9.6 / 6.3 lands.
