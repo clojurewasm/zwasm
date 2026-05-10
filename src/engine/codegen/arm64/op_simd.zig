@@ -1093,13 +1093,27 @@ pub fn emitI64x2Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 // V29 = fp_spill_stage[0] reused as DUP destination scratch.
 // W<dup_tmp_w> via spill stage 0 GPR (X14 per abi.zig).
 
-fn emitV128IntShl(
+/// Wasm shift semantic: amount is taken `mod element_width` (per
+/// spec §3.3.6). NEON USHL/SSHL semantic: when `|shift| >=
+/// element_width`, all result bits are zeroed (per Arm IHI 0055
+/// §C7.2.412). The two semantics diverge for shift amounts at
+/// or beyond element_width — Wasm wraps to a small mod, NEON
+/// zeroes. We bridge with an explicit `AND W<amt>, #(lane-1)`
+/// before DUP / NEG. Lane mask: 7 / 15 / 31 / 63 for i8x16 /
+/// i16x8 / i32x4 / i64x2.
+const shift_scratch_mask_x: u5 = 16; // X16 / IP0
+const shift_scratch_amt_x: u5 = 17;  // X17 / IP1 (post-mask + post-NEG)
+
+fn emitV128IntShift(
     ctx: *EmitCtx,
+    lane_mask: u16, // 7 / 15 / 31 / 63
+    is_64bit: bool, // true for i64x2 (use X-form NEG)
+    is_shr: bool,   // true for shr_s/shr_u (NEG amount before DUP)
     dup_encoder: *const fn (rd: u5, rn: u5) u32,
-    ushl_encoder: *const fn (rd: u5, rn: u5, rm: u5) u32,
+    shift_encoder: *const fn (rd: u5, rn: u5, rm: u5) u32,
 ) Error!void {
     const amt_vreg = ctx.pushed_vregs.pop().?;
-    // SPILL-EXEMPT: i32 amount; amount source is consumed by DUP into V29.
+    // SPILL-EXEMPT: i32 amount; consumed via AND/NEG/DUP below.
     const amt_w = try gpr.resolveGpr(ctx.alloc, amt_vreg);
 
     const src_vreg = ctx.pushed_vregs.pop().?;
@@ -1111,28 +1125,83 @@ fn emitV128IntShl(
     const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
 
     const dup_v: u5 = 29; // fp_spill_stage[0]
-    try gpr.writeU32(ctx.allocator, ctx.buf, dup_encoder(dup_v, amt_w));
-    try gpr.writeU32(ctx.allocator, ctx.buf, ushl_encoder(result_v, src_v, dup_v));
+
+    // MOVZ X16, #lane_mask ; AND W17, W<amt>, W16  (masks the amount mod lane_width).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(shift_scratch_mask_x, lane_mask));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAndRegW(shift_scratch_amt_x, amt_w, shift_scratch_mask_x));
+    if (is_shr) {
+        if (is_64bit) {
+            // SUB X17, XZR, X17 — full 64-bit NEG (mask cleared upper bits, so X17's high half is 0 pre-NEG).
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubReg(shift_scratch_amt_x, 31, shift_scratch_amt_x));
+        } else {
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubRegW(shift_scratch_amt_x, 31, shift_scratch_amt_x));
+        }
+    }
+    try gpr.writeU32(ctx.allocator, ctx.buf, dup_encoder(dup_v, shift_scratch_amt_x));
+    try gpr.writeU32(ctx.allocator, ctx.buf, shift_encoder(result_v, src_v, dup_v));
     try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
+
 pub fn emitI8x16Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    try emitV128IntShl(ctx, inst_neon.encDup16B, inst_neon.encUshl16B);
+    try emitV128IntShift(ctx, 7,  false, false, inst_neon.encDup16B,    inst_neon.encUshl16B);
 }
 pub fn emitI16x8Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    try emitV128IntShl(ctx, inst_neon.encDup8H, inst_neon.encUshl8H);
+    try emitV128IntShift(ctx, 15, false, false, inst_neon.encDup8H,     inst_neon.encUshl8H);
 }
 pub fn emitI32x4Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    try emitV128IntShl(ctx, inst_neon.encDup4S, inst_neon.encUshl4S);
+    try emitV128IntShift(ctx, 31, false, false, inst_neon.encDup4S,     inst_neon.encUshl4S);
+}
+pub fn emitI64x2Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShift(ctx, 63, true,  false, inst_neon.encDupGen2D,  inst_neon.encUshl2D);
 }
 
-/// `i64x2.shl`: DUP V.2D takes X register (64-bit). The Wasm i32
-/// amount is in W<amt>; reading X<amt> implicitly zero-extends
-/// to 64-bit, which is correct for shl since amount is taken
-/// mod 64 (always non-negative for shl).
-pub fn emitI64x2Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    try emitV128IntShl(ctx, inst_neon.encDupGen2D, inst_neon.encUshl2D);
+// ============================================================
+// §9.9 / 9.9-g-8 — int shift right (i*x*.shr_s, i*x*.shr_u)
+// ============================================================
+//
+// NEON's USHL/SSHL with **negative** shift amount in V<m>'s
+// per-lane element performs a right shift (logical for U,
+// arithmetic for S). The recipe extends `emitV128IntShl` with a
+// preceding NEG of the W<amt> (or X<amt> for i64x2) before DUP:
+//
+//   SUB W<tmp>, WZR, W<amt>        ; 32-bit NEG (i8x16/i16x8/i32x4)
+//   DUP V<dup>.<T>, W<tmp>
+//   (U|S)SHL Vd.<T>, Vsrc.<T>, V<dup>.<T>
+//
+// For i64x2: SUB X<tmp>, XZR, X<amt> — full 64-bit NEG, since the
+// W amount has been zero-extended into X<amt>'s low 32 bits and
+// the high 32 bits are 0 (Wasm shift amount mod 64 is always
+// non-negative, so the zero-extended X<amt> already represents
+// the correct positive value pre-NEG).
+
+// shr_u — USHL with negative (masked) amount.
+pub fn emitI8x16ShrU(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShift(ctx, 7,  false, true, inst_neon.encDup16B,   inst_neon.encUshl16B);
+}
+pub fn emitI16x8ShrU(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShift(ctx, 15, false, true, inst_neon.encDup8H,    inst_neon.encUshl8H);
+}
+pub fn emitI32x4ShrU(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShift(ctx, 31, false, true, inst_neon.encDup4S,    inst_neon.encUshl4S);
+}
+pub fn emitI64x2ShrU(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShift(ctx, 63, true,  true, inst_neon.encDupGen2D, inst_neon.encUshl2D);
+}
+
+// shr_s — SSHL with negative (masked) amount (arithmetic sign extension).
+pub fn emitI8x16ShrS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShift(ctx, 7,  false, true, inst_neon.encDup16B,   inst_neon.encSshl16B);
+}
+pub fn emitI16x8ShrS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShift(ctx, 15, false, true, inst_neon.encDup8H,    inst_neon.encSshl8H);
+}
+pub fn emitI32x4ShrS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShift(ctx, 31, false, true, inst_neon.encDup4S,    inst_neon.encSshl4S);
+}
+pub fn emitI64x2ShrS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShift(ctx, 63, true,  true, inst_neon.encDupGen2D, inst_neon.encSshl2D);
 }
 
 // ============================================================

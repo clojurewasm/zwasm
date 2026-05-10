@@ -380,6 +380,11 @@ pub fn encUshl16B(rd: Vn, rn: Vn, rm: Vn) u32 { return 0x6E204400 | (@as(u32, rm
 pub fn encUshl8H(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6E604400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
 pub fn encUshl4S(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6EA04400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
 pub fn encUshl2D(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6EE04400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+// SSHL — signed counterpart of USHL (negative amount = arithmetic shift right). U=0.
+pub fn encSshl16B(rd: Vn, rn: Vn, rm: Vn) u32 { return 0x4E204400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encSshl8H(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x4E604400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encSshl4S(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x4EA04400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encSshl2D(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x4EE04400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
 
 // =====================================================================
 // Across-lane reductions (UMAXV / UMINV) — Advanced SIMD across-lanes,

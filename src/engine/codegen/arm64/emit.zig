@@ -1470,13 +1470,19 @@ pub fn compile(
             .@"i16x8.mul" => try op_simd.emitI16x8Mul(&ctx, &ins),
             .@"i32x4.mul" => try op_simd.emitI32x4Mul(&ctx, &ins),
             // (i64x2.mul dispatch lives below alongside the §9.5-c-vii-mul block.)
-            // §9.9 / 9.9-g-7 — int shl (4 shapes). shr_s / shr_u
-            // surface as UnsupportedOp until the next chunk wires
-            // the NEG-then-(U|S)SHL synthesis.
+            // §9.9 / 9.9-g-7 + 9.9-g-8 — int shifts (12 ops).
             .@"i8x16.shl" => try op_simd.emitI8x16Shl(&ctx, &ins),
             .@"i16x8.shl" => try op_simd.emitI16x8Shl(&ctx, &ins),
             .@"i32x4.shl" => try op_simd.emitI32x4Shl(&ctx, &ins),
             .@"i64x2.shl" => try op_simd.emitI64x2Shl(&ctx, &ins),
+            .@"i8x16.shr_u" => try op_simd.emitI8x16ShrU(&ctx, &ins),
+            .@"i16x8.shr_u" => try op_simd.emitI16x8ShrU(&ctx, &ins),
+            .@"i32x4.shr_u" => try op_simd.emitI32x4ShrU(&ctx, &ins),
+            .@"i64x2.shr_u" => try op_simd.emitI64x2ShrU(&ctx, &ins),
+            .@"i8x16.shr_s" => try op_simd.emitI8x16ShrS(&ctx, &ins),
+            .@"i16x8.shr_s" => try op_simd.emitI16x8ShrS(&ctx, &ins),
+            .@"i32x4.shr_s" => try op_simd.emitI32x4ShrS(&ctx, &ins),
+            .@"i64x2.shr_s" => try op_simd.emitI64x2ShrS(&ctx, &ins),
             // §9.9 / 9.9-g-3 — v128 reductions (any_true / all_true).
             .@"v128.any_true" => try op_simd.emitV128AnyTrue(&ctx, &ins),
             .@"i8x16.all_true" => try op_simd.emitI8x16AllTrue(&ctx, &ins),

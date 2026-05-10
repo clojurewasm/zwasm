@@ -90,10 +90,14 @@ NAMES=(
   # Sub-ops 1..6 are fully wired since §9.9-d-3 (load_extend
   # family).
   simd_load_extend
-  # §9.9 / 9.9-g-6: int extend ops (134..137/166..169/199..202).
+  # §9.9 / 9.9-g-6: int extend ops (135..138/167..170/199..202).
   # ZirOps + per-arch emit dispatch pre-existed; lower-side
-  # wiring landed in 9.9-g-6.
+  # wiring landed in 9.9-g-6 (off-by-one fixed at 9.9-g-7).
   simd_int_to_int_extend
+  # §9.9 / 9.9-g-8: int shifts (107..109/139..141/171..173/
+  # 203..205). shl wired in 9.9-g-7; shr_s/shr_u in 9.9-g-8 via
+  # NEG-then-(U|S)SHL synthesis.
+  simd_bit_shift
 )
 
 mkdir -p "$DEST"
