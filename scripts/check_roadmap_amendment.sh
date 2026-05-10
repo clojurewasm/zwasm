@@ -32,16 +32,20 @@ esac
 MSG=$(cat <<'EOF'
 §18 reminder: editing ROADMAP. Decide before saving:
 
-- Routine status update — flipping `[ ]` → `[x]`, opening the
-  next phase's task table inline, backfilling SHA pointers,
-  advancing the Phase Status widget. Proceed; no ADR needed.
-- Deviation from a load-bearing claim — anything in §1, §2 (P/A),
-  §4 (architecture / Zone / ZirOp), §5 (file layout), §9 phase
-  rows (scope / exit criteria), §11 layers, §14 forbidden list.
-  STOP. File `.dev/decisions/NNNN_<slug>.md` FIRST per §18.2,
-  reference its number in the commit message, then edit.
-- "Quiet" edits to load-bearing sections without ADR are
-  forbidden (§18.3).
+- Routine update (§18.3a) — `[ ]` → `[x]` where row scope text
+  is unchanged; SHA backfill on `[x]` row; Phase Status widget
+  advance; one-time inline-expansion of the NEXT phase's task
+  table when it opens; pointing a row at an existing
+  `phase_log/<phase>.md` entry. Proceed; no ADR needed.
+- Load-bearing change (§18.3) — scope or exit-criterion edits
+  in §1, §2 (P/A), §4 (Zone / ZirOp / architecture), §5 (file
+  layout), §9 phase rows (scope / exit), §11 layers, §14
+  forbidden list. STOP. File `.dev/decisions/NNNN_<slug>.md`
+  FIRST per §18.2, reference its number in the commit message,
+  then edit.
+- Forbidden (§18.3) — accumulating sub-chunk prose into a §9
+  row description or status cell. Sub-chunk records belong in
+  commit messages + `.dev/phase_log/<phase>.md`.
 
 If unsure which bucket this edit falls in, ask the user before
 proceeding.
