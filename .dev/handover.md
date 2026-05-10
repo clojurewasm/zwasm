@@ -13,45 +13,52 @@
 5. `.dev/decisions/0041_simd_128_design.md` (SSE4.2 baseline post-9.7-m
    amendment).
 
-## Current state — Phase 9 / §9.9 in-flight; **9.9-d-6 NEXT — populateShapeTags vreg-numbering gap (D-061) so v128 select / lane mem dispatch reaches new emit handlers from any function shape**
+## Current state — Phase 9 / §9.9 in-flight; **9.9-e NEXT — v128 PARAM marshal + v128 local frame layout per ADR-0046 (unblocks simd_select.0 + simd_const.387 fixtures)**
 
-9.9-d-5 (`618f621d`): ARM64 v128 select + 8 lane mem handlers
-(`v128.{load,store}{8,16,32,64}_lane`) added. New encoders
-`encCsetmX` (X-form CSETM) + `encDupGen2D` (DUP V.2D from X)
-verified against clang-as. The 8 INS/UMOV/scalar load-store
-encoders for lane mem already existed. Per-arch divergence
-(ARM64 prologue → UMOV → STR vs x86_64 PEXTR-before-prologue)
-documented in handler comments.
+9.9-d-6 (`ffe75802`): `populateShapeTags` (D-061) discharged.
+Extends `any_simd` trigger to v128 in
+`func.sig.params`/`results`/`func.locals`; handles
+`local.get` / `local.tee` with type-aware tagging from
+`func.localValType(payload)`; falls through to
+`liveness.stackEffect` for catch-all push counting. The prior
+walk's `else => false` arm dropped vreg increments for any op
+outside its explicit lists, drifting tag indices for any
+function with scalar binops between SIMD ops. `stackEffect` +
+`StackEffect` are now `pub`.
 
-**Mac aarch64 simd_assert_runner totals after 9.9-d-5**:
-226 PASS / 36 FAIL / 296 SKIP — **unchanged vs 9.9-d-4**. The
-new emit handlers are wired but unreachable for the
-`simd_select.0` fixture today because `populateShapeTags`
-returns null when no SIMD ops appear in the function body —
-bare `local.get v128 / select` therefore routes through the
-.scalar branch. Filed as **D-061**.
+**Mac aarch64 simd_assert_runner totals after 9.9-d-6**:
+226 PASS / 36 FAIL / 296 SKIP — **unchanged**. The
+populateShapeTags fix is a prerequisite for v128 select
+dispatch but the `simd_select.0` fixture is still blocked on
+v128 local.get/set/tee handlers (arm64+x86_64 emit explicitly
+reject v128 type; frame layout uses 8-byte slots not 16).
+Discharging that is §9.9-e's scope.
 
-Residual 36 fails (same as 9.9-d-4):
-- 3 compile UnsupportedOp — `simd_select.0` (D-061), `simd_const.387`
-  (local.tee with v128 type — separate emit gap), `simd_align.90`.
-- 21 value-mismatch (`got v128`) — defer to 9.9-d-7.
+Residual 36 fails (same shape as 9.9-d-4):
+- 3 compile UnsupportedOp — `simd_select.0` + `simd_const.387`
+  + `simd_align.90` (all blocked on v128 frame-layout work,
+  i.e. 9.9-e).
+- 21 value-mismatch (`got v128`) — defer to 9.9-d-7 audit.
 - 3 small validator surfaces (BadBlockType / BadValType /
   NotImplemented).
 - The remaining 9 likely cluster around assert_invalid /
   assert_trap shapes the runner partially supports.
 
-**Next — 9.9-d-6 (D-061 discharge)**: extend
-`populateShapeTags` (`src/engine/codegen/shared/regalloc.zig`)
-to (a) trigger `any_simd = true` when the function signature
-or local types contain v128, and (b) account for `local.get`
-/ `local.tee` pushes in the vreg-numbering walk, tagging the
-produced vreg with the local's type. This unblocks
-`simd_select.0` end-to-end exercising the 9.9-d-5 emit code.
+**Next — 9.9-e**: v128 PARAM marshal + v128 local frame
+layout per ADR-0046. Per-host work:
+1. Frame layout: bump local-slot stride from 8 to 16 for
+   v128 locals. arm64 `prologue.zig` + x86_64 `localDisp` /
+   prologue both touch the slot computation.
+2. Param marshal: incoming v128 params arrive in V0..V7
+   (AAPCS64) / XMM0..XMM7 (SystemV); emit STR Q / MOVAPS to
+   stash into the v128 local slot.
+3. local.get / local.set / local.tee for v128: LDR Q / STR Q
+   on arm64; MOVDQU on x86_64.
+4. Edge fixtures + the simd_select.0 fixture flips PASS via
+   the 9.9-d-5 emitV128Select path.
 
 Subsequent §9.9 chunks per ADR-0045:
 - 9.9-d-7: investigate residual 21 value-mismatches.
-- 9.9-e: v128 PARAM marshal per ADR-0046 (unblocks multi-arg
-  spec assertions like simd_select).
 - 9.9-f: scale to FP arith + compares (heavy 9k+ files).
 - 9.9-g: aggregate `test-spec-simd` into `test-all`; flip §9.9 [x].
 
@@ -60,8 +67,6 @@ After §9.9: §9.10 (smoke benches + gap analysis), §9.11
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
-- **D-061** (populateShapeTags vreg-numbering gap) — `now`;
-  9.9-d-6 discharge target.
 - **D-055** (x86_64 prologue inject) — blocked-by D-052 prologue
   extract.
 - **D-057** (op_simd.zig hard-cap, now ~4442 LOC) — blocked-by
@@ -79,6 +84,6 @@ code in `src/ir/coalesce/`, regalloc.zig LIFO free-pool,
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
 §9.7 [x] (x86_64 SSE4.1+SSE4.2; 9.7-a..bb landed),
 §9.8 [x] (scope absorbed per ADR-0044),
-§9.9 in-flight (9.9-a..c + 9.9-d-1..5 landed; 9.9-d-6 NEXT —
-populateShapeTags vreg-numbering gap / D-061 discharge).
+§9.9 in-flight (9.9-a..c + 9.9-d-1..6 landed; 9.9-e NEXT —
+v128 PARAM marshal + v128 local frame layout per ADR-0046).
 **Branch**: `zwasm-from-scratch`。
