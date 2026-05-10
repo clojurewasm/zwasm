@@ -13,43 +13,43 @@
 5. `.dev/decisions/0041_simd_128_design.md` (SSE4.2 baseline post-9.7-m
    amendment).
 
-## Current state — Phase 9 / §9.9 in-flight (9.9-a..c + 9.9-d-1, 9.9-d-2 landed); **9.9-d-3 ARM64 v128 mem op gaps (load_extend / load_splat / load_zero / load_lane / store_lane / select_v128) NEXT**
+## Current state — Phase 9 / §9.9 in-flight; **9.9-d-4 NEXT — investigate `(i32)→v128` runtime miscompile + close residual ARM64 emit gaps**
 
-9.9-d-2 (`c0fd94fb`): closes D-060. ARM64 `emitV128Load` /
-`emitV128Store` rewritten to mirror `op_memory.emitMemOp`'s
-prologue (ORR W16+offset-fold+ADD X17 access_size+CMP X27+
-B.HI fixup) ending in `LDR/STR Q<vt>, [X28, X16]`. Private
-`v128MemPrologue` helper in `arm64/op_simd.zig` for upcoming
-mem op reuse. New encoders `encLdrQReg` / `encStrQReg` in
-`inst_neon.zig` (Q-form reg-offset, verified against clang
-assembler). simd_assert_runner runner completes without SEGV.
+9.9-d-3 (`a4a1b032`): bundle 12 ARM64 v128 mem ops sharing
+`v128MemPrologue`. 4 new LD1R encoders in `inst_neon.zig`
+(verified via clang-as). Shared scaffolding helper
+`emitV128LoadFamily(ctx, ins, access_size, emit_tail)` in
+`op_simd.zig`. Tail shapes: load_zero → LDR S/D; load_splat
+→ ADD X16,X28,X16 + LD1R; load_extend → LDR D + SXTL/UXTL.
+Compile-stage UnsupportedOp count 14 → 3.
 
-**Mac aarch64 simd_assert_runner totals after 9.9-d-2**:
-72 passed, 234 failed, 286 skipped over 4 manifests.
-Failure categories:
-- 14 `compile: UnsupportedOp` — ARM64 emit gaps:
-  load8x8_{s,u} / load16x4_{s,u} / load32x2_{s,u} (extend);
-  load{8,16,32,64}_splat (splat-from-mem); load{8,16,32,64}_lane
-  / store{8,16,32,64}_lane (lane-merge mem); load{32,64}_zero;
-  select on v128 (simd_select.0).
-- 1 `BadBlockType`, 1 `BadValType`, 1 `NotImplemented`
-  — small-cluster surfaces, investigate per-case.
-- 150 value-mismatch (`→ got`) — almost all in simd_const,
-  likely f32x4/f64x2 NaN canonicalization or specific lane
-  encoding differences vs spec hex tokens.
+**Mac aarch64 simd_assert_runner totals after 9.9-d-3**:
+62 PASS / 200 FAIL / 296 SKIP. Residual:
+- 3 compile UnsupportedOp — select_v128 (simd_select.0) +
+  v128.load_lane / v128.store_lane (8 ops).
+- 26 simd_address runtime mismatches: `(i32)→v128` returns
+  bytes that look like a `[]const u32` slice header with
+  `len=12` matching `simd_address.0.wasm`'s func count,
+  hinting X28 is being routed to func_offsets metadata
+  rather than vm_base under this calling shape. Either a
+  runner-side data-segment gap (runner doesn't call
+  setupRuntime — only memset's scratch_memory) OR a
+  JIT-prologue routing issue. Needs spike investigation.
+- ~158 simd_const value-mismatches — FP NaN canonicalization
+  / specific lane encodings (deferred to 9.9-d-N FP-cluster).
+- 1 BadBlockType / 1 BadValType / 1 NotImplemented — small
+  validator surfaces.
 
-**Next — 9.9-d-3**: bundle the ARM64 v128 mem op family. Per
-chunk-granularity rule "same dispatch helper consumer": all
-new ops route through `v128MemPrologue` + a final encoder pair.
-Reuse pattern from x86_64's §9.7-ax..bb cluster (which bundled
-22 ops). Estimated 14 ops in one chunk:
-- `load8x8_{s,u}` / `load16x4_{s,u}` / `load32x2_{s,u}` —
-  load 8 bytes via `LDR D` then NEON SXTL/UXTL .8H / .4S / .2D.
-- `load{8,16,32,64}_splat` — `LD1R.{8B/16B,4H/8H,2S/4S,1D/2D}`
-  or `LDR + DUP` from staged GPR.
-- `load{32,64}_zero` — `LDR S/D` (zero-extends upper lanes).
-Then a separate small chunk for load/store_lane (8 ops, mem +
-lane-imm) and select on v128 (1 op).
+**Next — 9.9-d-4**: spike on the `(i32)→v128` runtime issue
+first (cheap to discriminate runner-side vs JIT-side: write a
+minimal i32-arg test against the existing v128 entry helper +
+print rt.vm_base before/after the call). Then either fix the
+runner (apply data segments via setupRuntime) or fix the JIT
+(if X28 routing under this shape is broken).
+
+After 9.9-d-4 spike: bundle select_v128 + load_lane + store_lane
+(9 ops in one chunk; all small). After that, 9.9-d-5 attacks
+the simd_const FP cluster.
 
 Subsequent §9.9 chunks per ADR-0045:
 - 9.9-e: v128 PARAM marshal per ADR-0046 (unblocks multi-arg
@@ -79,6 +79,6 @@ code in `src/ir/coalesce/`, regalloc.zig LIFO free-pool,
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
 §9.7 [x] (x86_64 SSE4.1+SSE4.2; 9.7-a..bb landed),
 §9.8 [x] (scope absorbed per ADR-0044),
-§9.9 in-flight (9.9-a..c + 9.9-d-1, 9.9-d-2 landed; 9.9-d-3
-NEXT — ARM64 v128 mem op family bundle).
+§9.9 in-flight (9.9-a..c + 9.9-d-1..3 landed; 9.9-d-4 NEXT —
+spike (i32)→v128 runtime miscompile, then close residual emit gaps).
 **Branch**: `zwasm-from-scratch`。
