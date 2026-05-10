@@ -33,18 +33,27 @@
 
 ## Next sub-chunk candidates (names only)
 
-- **D-067 bitmask 9.9-g-19 implementation ready** — Step 0
-  survey landed at `private/notes/p9-9.9-g-19-bitmask-neon-
-  survey.md` (full recipe by shape, encoder list, const-pool
-  values). Existing emit pattern reference:
-  `arm64/op_simd.zig:1305 emitV128AnyTrue` uses
-  `emitV128ReduceWithEncoder` shared helper —
-  bitmask follows the same shape with a longer recipe (SSHR +
-  AND const + ADDV + UMOV). Encoder precedent:
-  `inst_neon.zig:422 encUmaxv16B` (Q=1, U=1, opcode=01010).
-  Estimated diff 400-600 source LOC + 200-300 test LOC; at
-  upper LOOP.md chunk-granularity bound. Closes simd_boolean.0
-  on both arches.
+- **D-067 bitmask 9.9-g-19 — BLOCKED on ARM64 const-pool
+  infrastructure (load-bearing tradeoff)**. Survey lands at
+  `private/notes/p9-9.9-g-19-bitmask-neon-survey.md`; encoder
+  bit patterns verified via clang-as in /tmp/claude-501/asm_test
+  (SSHR.16B/8H/4S = 0x4F09/11/21_0420 family; ADDV.16B/8H/4S =
+  0x4E31/71/B1_B820; ZIP1.16B = 0x4E02_3820; EXT.16B #8 =
+  0x6E02_4020). **Blocking gap**: ARM64 `func.simd_consts` only
+  holds user-written v128.const literals; x86_64 has an
+  `extra_consts` + `simd_consts_base` mechanism (per ADR-0042)
+  for emit-handler-injected per-shape masks. Bitmask requires
+  4 per-shape masks (one per i8x16/i16x8/i32x4 — i64x2 takes
+  scalar-extract path, no vector mask). **Design choice needed**:
+  (a) mirror x86_64 ADR-0042 by adding `extra_consts` to ARM64
+  `ctx_mod` + thread through emit close, OR (b) inline mask
+  materialisation via MOVI+MOVK sequences (4-8 instructions per
+  mask, larger code size). ADR required before implementation
+  per ROADMAP §18.2 — touches §4 architecture (ARM64 ctx_mod
+  surface) + §11 layers (const-pool plumbing). Recommended path
+  per autonomous-loop survey: option (a), mirroring x86_64;
+  changes are bounded to arm64/ctx.zig + arm64/emit.zig const-
+  pool flush logic.
 - **D-078 (c) simd_bitwise.17 — root cause: x86_64 v128
   XMM spill not yet implemented**. `resolveXmm` rejects
   spilled v128 vregs (handler not XMM-spill-aware). Discharge
