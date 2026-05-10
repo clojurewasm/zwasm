@@ -25,9 +25,13 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest landed**: `67aa0025` (§9.9 / 9.9-g-13 — preventive
-  `emitV128IntCmpUnsigned` `dst==lhs` alias fix). See commit
-  body for measured deltas.
+- **Latest §9.9 landing**: `67aa0025` (§9.9 / 9.9-g-13 —
+  preventive `emitV128IntCmpUnsigned` `dst==lhs` alias fix).
+  See commit body for measured deltas.
+- **Note**: HEAD is past `67aa0025` by 4 meta-work commits
+  (`ddc9e54c..030ce80a`) — scaffolding split per §18.3
+  amendment + 2026-05-11 ADR audit response. Not §9.9 chunk
+  work; `git log --grep="§9.9"` for actual chunk anchor.
 - **Active row**: §9.9 (still `[ ]`). Closes when fail = skip = 0
   on the 3-host gate per the row's exit criterion.
 
@@ -49,8 +53,10 @@ impossibility check (debt.md `blocked-by:` barriers).
   residuals — categorised in debt body, NOT here).
 - `blocked-by`: D-007 / D-010 / D-016 / D-018 / D-020 / D-021 /
   D-022 / D-026 / D-028 / D-052 / D-055 / D-057 / D-058 / D-059 /
-  D-065 / D-070 — barrier dissolution re-evaluated every resume
-  per SKILL.md Step 0.5.
+  D-065 / D-070 / D-072 / D-073 / D-074 / D-075 / D-076 — barrier
+  dissolution re-evaluated every resume per SKILL.md Step 0.5.
+  D-072..D-076 added 2026-05-11 by ADR audit response (out of
+  /continue chunk-work scope; named structural barriers).
 
 ## Recent surprise (drift signal)
 
