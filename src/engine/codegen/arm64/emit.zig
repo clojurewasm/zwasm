@@ -139,6 +139,77 @@ fn computeOutgoingMaxBytes(
     return max_bytes;
 }
 
+/// §9.9 / 9.9-e-1: per-function local-frame layout. Wasm locals
+/// (params + declared) are split by type into two regions:
+/// scalars (i32 / i64 / f32 / f64 / refs) at 8-byte stride, then
+/// v128 at 16-byte stride. The split keeps the per-local offset
+/// formula pure (a single offset table consulted by index) AND
+/// avoids the per-slot 16-byte waste of a uniform v128-stride
+/// frame. Per `private/notes/p9-9.9-e-survey.md` strategy C.
+///
+/// `offsets[i]` is the byte offset within the locals zone
+/// (relative to `local_base_off`) for Wasm-local-index `i`.
+/// `total_bytes` includes any tail padding for v128 alignment.
+/// The callee zero-initialises declared locals (Wasm spec
+/// §4.5.3.1) using offsets[N..total_locals].
+const LocalLayout = struct {
+    offsets: []u32,
+    total_bytes: u32,
+    v128_count: u32,
+
+    fn deinit(self: *LocalLayout, allocator: Allocator) void {
+        if (self.offsets.len != 0) allocator.free(self.offsets);
+    }
+};
+
+/// Compute `LocalLayout` from `func.sig.params` + `func.locals`
+/// (+ synthetic_locals via `func.totalLocalCount`). Two-pass:
+/// pass 1 counts scalars vs v128; pass 2 assigns offsets in
+/// declaration order — scalars consume the low region (8-byte
+/// stride), v128 the high region (16-byte stride, base rounded
+/// up to 16 from the scalar tail). Caller frees `offsets` via
+/// `LocalLayout.deinit`.
+fn computeLocalLayout(allocator: Allocator, func: *const ZirFunc) Error!LocalLayout {
+    const num_params: u32 = @intCast(func.sig.params.len);
+    const num_locals: u32 = func.totalLocalCount();
+    const total_locals: u32 = num_params + num_locals;
+    if (total_locals == 0) {
+        return .{ .offsets = &.{}, .total_bytes = 0, .v128_count = 0 };
+    }
+    const offsets = try allocator.alloc(u32, total_locals);
+    errdefer allocator.free(offsets);
+
+    var scalar_count: u32 = 0;
+    var v128_count: u32 = 0;
+    var i: u32 = 0;
+    while (i < total_locals) : (i += 1) {
+        if (func.localValType(i) == .v128) v128_count += 1 else scalar_count += 1;
+    }
+
+    const scalar_bytes: u32 = scalar_count * 8;
+    // v128 region must be 16-byte aligned within the locals zone.
+    // Caller (compile()) rounds `local_base_off` up to 16 when
+    // v128_count > 0 so that `local_base_off + v128_region_off`
+    // is a multiple of 16 in the SP-relative absolute frame.
+    const v128_region_off: u32 = if (v128_count == 0) scalar_bytes else (scalar_bytes + 15) & ~@as(u32, 15);
+    const total_bytes: u32 = v128_region_off + v128_count * 16;
+
+    var scalar_within: u32 = 0;
+    var v128_within: u32 = 0;
+    i = 0;
+    while (i < total_locals) : (i += 1) {
+        if (func.localValType(i) == .v128) {
+            offsets[i] = v128_region_off + v128_within * 16;
+            v128_within += 1;
+        } else {
+            offsets[i] = scalar_within * 8;
+            scalar_within += 1;
+        }
+    }
+
+    return .{ .offsets = offsets, .total_bytes = total_bytes, .v128_count = v128_count };
+}
+
 /// Emit ARM64 machine code for `func`. Requires `alloc.slots`
 /// to be populated (call `regalloc.compute` first; pass the
 /// `Allocation` here).
@@ -196,8 +267,8 @@ pub fn compile(
     //   local-slot at `[SP, p_idx*8]`.
     for (func.sig.params) |p| {
         switch (p) {
-            .i32, .i64, .f32, .f64 => {},
-            .v128, .funcref, .externref => {
+            .i32, .i64, .f32, .f64, .v128 => {},
+            .funcref, .externref => {
                 std.debug.print("arm64/emit: param type `{s}` unsupported (func_idx={d})\n", .{ @tagName(p), func.func_idx });
                 return Error.UnsupportedOp;
             },
@@ -207,10 +278,13 @@ pub fn compile(
     const num_locals: u32 = func.totalLocalCount();
     // Wasm local-index space: 0..num_params-1 = params,
     // num_params..num_params+num_locals-1 = declared locals.
-    // Both share the same per-slot 8-byte stack region; frame
-    // size accounts for both.
+    // §9.9 / 9.9-e-1: per-local frame layout split by type
+    // (scalars 8-byte stride, v128 16-byte stride). See
+    // `computeLocalLayout` doc for the strategy.
     const total_locals: u32 = num_params + num_locals;
-    const locals_bytes: u32 = total_locals * 8;
+    var layout = try computeLocalLayout(allocator, func);
+    defer layout.deinit(allocator);
+    const locals_bytes: u32 = layout.total_bytes;
     // ADR-0018: extend frame by spill region. Layout:
     //   [SP + 0 .. locals_bytes-1]                   locals
     //   [SP + locals_bytes .. +spill_bytes-1]        spills
@@ -225,7 +299,14 @@ pub fn compile(
     //   [SP + 0 .. outgoing_max-1]                     outgoing args
     //   [SP + outgoing_max .. +locals_bytes-1]         locals
     //   [SP + outgoing_max + locals_bytes .. +spill]   spills
-    const outgoing_max_bytes: u32 = computeOutgoingMaxBytes(func, func_sigs, module_types);
+    //
+    // §9.9-e-1: when v128 locals are present, round the locals-
+    // zone base up to 16 so `local_base_off + layout.offsets[v128
+    // _idx]` is 16-aligned (`encStrQImm` / `encLdrQImm` reject
+    // misaligned imm12). The 0-7 byte rounding waste is bounded
+    // and amortised against the v128-bearing path.
+    const outgoing_max_raw: u32 = computeOutgoingMaxBytes(func, func_sigs, module_types);
+    const outgoing_max_bytes: u32 = if (layout.v128_count > 0) (outgoing_max_raw + 15) & ~@as(u32, 15) else outgoing_max_raw;
     const local_base_off: u32 = outgoing_max_bytes;
     const spill_base_off: u32 = local_base_off + locals_bytes;
     const frame_bytes_unaligned: u32 = outgoing_max_bytes + locals_bytes + spill_bytes;
@@ -305,15 +386,27 @@ pub fn compile(
     // saved FP/LR pair pushed by the prologue's pre-index STP.
     var stack_arg_idx: u14 = 0;
     while (p_idx < num_params) : (p_idx += 1) {
-        // §9.7 / 7.9-d-11: param slot lives at `[SP, #(local_base_off
-        // + p_idx*8)]` — the local region sits above the outgoing-
-        // args region. Width-checked per encoding (W-form u14,
-        // X/D-form u15).
-        const param_off_u: u32 = local_base_off + p_idx * 8;
-        if (param_off_u > 16380) return Error.UnsupportedOp;
-        const param_off_w: u14 = @intCast(param_off_u);
-        const param_off_x: u15 = @intCast(param_off_u);
-        switch (func.sig.params[p_idx]) {
+        // §9.7 / 7.9-d-11 / §9.9-e-1: param slot lives at
+        // `[SP, #(local_base_off + layout.offsets[p_idx])]`. The
+        // local region sits above the outgoing-args region.
+        // Per-type encoding caps:
+        //   STR W (.i32 / .f32): byte_offset ≤ 16380 (imm12*4)
+        //   STR X (.i64 / .f64): byte_offset ≤ 32760 (imm12*8)
+        //   STR Q (.v128): byte_offset ≤ 65520 (imm12*16) +
+        //   16-byte alignment (`local_base_off` rounded above).
+        const param_off_u: u32 = local_base_off + layout.offsets[p_idx];
+        const param_ty = func.sig.params[p_idx];
+        const cap: u32 = switch (param_ty) {
+            .i32, .f32 => 16380,
+            .i64, .f64 => 32760,
+            .v128 => 65520,
+            .funcref, .externref => unreachable,
+        };
+        if (param_off_u > cap) return Error.UnsupportedOp;
+        const param_off_w: u14 = if (param_ty == .i32 or param_ty == .f32) @intCast(param_off_u) else 0;
+        const param_off_x: u15 = if (param_ty == .i64 or param_ty == .f64) @intCast(param_off_u) else 0;
+        const param_off_v128: u16 = if (param_ty == .v128) @intCast(param_off_u) else 0;
+        switch (param_ty) {
             .i32 => {
                 if (int_arg_idx > 7) {
                     const stack_off_u: u32 = 16 + @as(u32, stack_arg_idx) * 8;
@@ -373,23 +466,54 @@ pub fn compile(
                     fp_arg_idx += 1;
                 }
             },
-            // SIMD / refs were already filtered above; the
-            // exhaustive switch here is for zlinter satisfaction.
-            .v128, .funcref, .externref => unreachable,
+            // §9.9 / 9.9-e-1: v128 param marshal per AAPCS64
+            // §6.4 SIMD calling convention. v128 args arrive in
+            // V0..V7; stash via `STR Q V<n>, [SP, #param_off_v128]`.
+            // Overflow path per §6.4.2 stage C.4: align next stack
+            // arg to 16 (consume 1 padding slot if odd), then load
+            // the 16-byte v128 from `[X29, #(16 + 8*stack_arg_idx)]`
+            // and re-store. Each overflow v128 consumes 2 of the
+            // 8-byte stack-arg slots.
+            .v128 => {
+                if (fp_arg_idx > 7) {
+                    if (stack_arg_idx & 1 != 0) stack_arg_idx += 1;
+                    const stack_off_u: u32 = 16 + @as(u32, stack_arg_idx) * 8;
+                    if (stack_off_u > 65520) return Error.UnsupportedOp;
+                    const stack_off: u16 = @intCast(stack_off_u);
+                    try gpr.writeU32(allocator, &buf, inst_neon.encLdrQImm(16, 29, stack_off));
+                    try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(16, 31, param_off_v128));
+                    stack_arg_idx += 2;
+                } else {
+                    try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(fp_arg_idx, 31, param_off_v128));
+                    fp_arg_idx += 1;
+                }
+            },
+            // refs were filtered above; exhaustive for zlinter.
+            .funcref, .externref => unreachable,
         }
     }
 
     // Zero-initialise declared locals (Wasm spec §4.5.3.1: locals
-    // beyond params are initialised to zero on entry). Each slot is
-    // 8 bytes; STR XZR covers all i32/i64/f32/f64 widths since the
-    // upper bits of narrower local-loads are masked by the LDR W /
-    // LDR S forms.
+    // beyond params are initialised to zero on entry). Scalar
+    // slots (8 bytes) get STR XZR; v128 slots (16 bytes) get two
+    // STR XZR (no SIMD-zero-immediate encoder; ZR-pair is the
+    // canonical zero pattern and is bench-cost identical to
+    // `MOVI V31.16B, #0; STR Q V31`).
     var loc_idx: u32 = num_params;
     while (loc_idx < total_locals) : (loc_idx += 1) {
-        const loc_off_u: u32 = local_base_off + loc_idx * 8;
-        if (loc_off_u > 32760) return Error.UnsupportedOp;
-        const loc_off: u15 = @intCast(loc_off_u);
-        try gpr.writeU32(allocator, &buf, inst.encStrImm(31, 31, loc_off));
+        const loc_off_u: u32 = local_base_off + layout.offsets[loc_idx];
+        const ty = func.localValType(loc_idx);
+        if (ty == .v128) {
+            if (loc_off_u + 8 > 32760) return Error.UnsupportedOp;
+            const lo_off: u15 = @intCast(loc_off_u);
+            const hi_off: u15 = @intCast(loc_off_u + 8);
+            try gpr.writeU32(allocator, &buf, inst.encStrImm(31, 31, lo_off));
+            try gpr.writeU32(allocator, &buf, inst.encStrImm(31, 31, hi_off));
+        } else {
+            if (loc_off_u > 32760) return Error.UnsupportedOp;
+            const loc_off: u15 = @intCast(loc_off_u);
+            try gpr.writeU32(allocator, &buf, inst.encStrImm(31, 31, loc_off));
+        }
     }
 
     // ============================================================
@@ -767,17 +891,23 @@ pub fn compile(
             => try op_alu_int.emitI64DivRem(&ctx, &ins),
             .@"local.get" => {
                 // Push a fresh vreg holding the value loaded from
-                // [SP, #(local_idx * 8)]. Width follows declared
-                // local type (i32 → LDR W, i64 → LDR X) per D-033.
+                // `[SP, #(local_base_off + layout.offsets[local_idx])]`.
+                // Width follows declared local type (i32 → LDR W,
+                // i64 → LDR X, v128 → LDR Q per §9.9-e-1).
                 const local_idx = ins.payload;
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
-                // §9.7 / 7.9-d-11: local slot at `[SP, #(local_base_off
-                // + local_idx*8)]` (above the outgoing-args region).
-                const offset_u: u32 = local_base_off + local_idx * 8;
-                if (offset_u > 16380) return Error.UnsupportedOp;
-                const offset_w: u14 = @intCast(offset_u);
-                const offset_x: u15 = @intCast(offset_u);
+                const offset_u: u32 = local_base_off + layout.offsets[local_idx];
+                const cap: u32 = switch (ty) {
+                    .i32, .f32 => 16380,
+                    .i64, .f64 => 32760,
+                    .v128 => 65520,
+                    .funcref, .externref => 16380,
+                };
+                if (offset_u > cap) return Error.UnsupportedOp;
+                const offset_w: u14 = if (ty == .i32 or ty == .f32) @intCast(offset_u) else 0;
+                const offset_x: u15 = if (ty == .i64 or ty == .f64) @intCast(offset_u) else 0;
+                const offset_q: u16 = if (ty == .v128) @intCast(offset_u) else 0;
                 const vreg = next_vreg;
                 next_vreg += 1;
                 if (vreg >= alloc.slots.len) {
@@ -805,7 +935,17 @@ pub fn compile(
                         try gpr.writeU32(allocator, &buf, inst.encLdrDImm(vd, 31, offset_x));
                         try gpr.fpStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
                     },
-                    .v128, .funcref, .externref => {
+                    .v128 => {
+                        // Wasm spec §3.5.3 + §4.4.5.1 — local.get
+                        // copies the local's stored value (16 bytes
+                        // for v128). LDR Q reads the full 128-bit
+                        // lane group; q* spill helpers handle V-reg
+                        // vs. spill-frame placement.
+                        const vd = try gpr.qDefSpilled(alloc, vreg, 0);
+                        try gpr.writeU32(allocator, &buf, inst_neon.encLdrQImm(vd, 31, offset_q));
+                        try gpr.qStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
+                    },
+                    .funcref, .externref => {
                         std.debug.print("arm64/emit: local.get type `{s}` unsupported (idx={d})\n", .{ @tagName(ty), local_idx });
                         return Error.UnsupportedOp;
                     },
@@ -813,16 +953,24 @@ pub fn compile(
                 try pushed_vregs.append(allocator, vreg);
             },
             .@"local.set" => {
-                // Pop top vreg, write to [SP, #(local_idx * 8)].
-                // Width follows declared local type per D-033.
+                // Pop top vreg, write to
+                // `[SP, #(local_base_off + layout.offsets[local_idx])]`.
+                // Width follows declared local type per §9.9-e-1.
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 const local_idx = ins.payload;
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
-                const offset_u: u32 = local_base_off + local_idx * 8;
-                if (offset_u > 16380) return Error.UnsupportedOp;
-                const offset_w: u14 = @intCast(offset_u);
-                const offset_x: u15 = @intCast(offset_u);
+                const offset_u: u32 = local_base_off + layout.offsets[local_idx];
+                const cap: u32 = switch (ty) {
+                    .i32, .f32 => 16380,
+                    .i64, .f64 => 32760,
+                    .v128 => 65520,
+                    .funcref, .externref => 16380,
+                };
+                if (offset_u > cap) return Error.UnsupportedOp;
+                const offset_w: u14 = if (ty == .i32 or ty == .f32) @intCast(offset_u) else 0;
+                const offset_x: u15 = if (ty == .i64 or ty == .f64) @intCast(offset_u) else 0;
+                const offset_q: u16 = if (ty == .v128) @intCast(offset_u) else 0;
                 const src = pushed_vregs.pop().?;
                 switch (ty) {
                     .i32 => {
@@ -841,23 +989,36 @@ pub fn compile(
                         const vs = try gpr.fpLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
                         try gpr.writeU32(allocator, &buf, inst.encStrDImm(vs, 31, offset_x));
                     },
-                    .v128, .funcref, .externref => {
+                    .v128 => {
+                        // Wasm spec §4.4.5.2 — local.set writes 16
+                        // bytes for v128. STR Q via the q* helpers.
+                        const vs = try gpr.qLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
+                        try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(vs, 31, offset_q));
+                    },
+                    .funcref, .externref => {
                         std.debug.print("arm64/emit: local.set type `{s}` unsupported (idx={d})\n", .{ @tagName(ty), local_idx });
                         return Error.UnsupportedOp;
                     },
                 }
             },
             .@"local.tee" => {
-                // Write top vreg to [SP, #(local_idx * 8)] WITHOUT
-                // popping — the value remains pushed.
+                // Write top vreg to local slot WITHOUT popping —
+                // the value remains pushed.
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 const local_idx = ins.payload;
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
-                const offset_u: u32 = local_base_off + local_idx * 8;
-                if (offset_u > 16380) return Error.UnsupportedOp;
-                const offset_w: u14 = @intCast(offset_u);
-                const offset_x: u15 = @intCast(offset_u);
+                const offset_u: u32 = local_base_off + layout.offsets[local_idx];
+                const cap: u32 = switch (ty) {
+                    .i32, .f32 => 16380,
+                    .i64, .f64 => 32760,
+                    .v128 => 65520,
+                    .funcref, .externref => 16380,
+                };
+                if (offset_u > cap) return Error.UnsupportedOp;
+                const offset_w: u14 = if (ty == .i32 or ty == .f32) @intCast(offset_u) else 0;
+                const offset_x: u15 = if (ty == .i64 or ty == .f64) @intCast(offset_u) else 0;
+                const offset_q: u16 = if (ty == .v128) @intCast(offset_u) else 0;
                 const src = pushed_vregs.items[pushed_vregs.items.len - 1];
                 switch (ty) {
                     .i32 => {
@@ -876,7 +1037,13 @@ pub fn compile(
                         const vs = try gpr.fpLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
                         try gpr.writeU32(allocator, &buf, inst.encStrDImm(vs, 31, offset_x));
                     },
-                    .v128, .funcref, .externref => {
+                    .v128 => {
+                        // Wasm spec §4.4.5.3 — local.tee mirrors
+                        // local.set's 16-byte write.
+                        const vs = try gpr.qLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
+                        try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(vs, 31, offset_q));
+                    },
+                    .funcref, .externref => {
                         std.debug.print("arm64/emit: local.tee type `{s}` unsupported (idx={d})\n", .{ @tagName(ty), local_idx });
                         return Error.UnsupportedOp;
                     },
