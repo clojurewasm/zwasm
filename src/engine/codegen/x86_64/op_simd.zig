@@ -845,10 +845,20 @@ fn emitV128IntCmpSigned(
     const base_x = if (swap) rhs_x else lhs_x;
     const cmp_x = if (swap) lhs_x else rhs_x;
 
+    // Aliasing safety (D-066 mirror; D-071 part b discharge):
+    // regalloc's LIFO slot-reuse can put `result_v` in the same
+    // physical XMM as `cmp_v`. Naive MOVAPS would clobber cmp's
+    // value before PCMPGT reads it. Stash through XMM7 (project
+    // SIMD scratch). Same shape as 9.9-g-11's int/fp helpers.
+    var cmp_for_op = cmp_x;
+    if (dst_x != base_x and dst_x == cmp_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, cmp_x).slice());
+        cmp_for_op = .xmm7;
+    }
     if (dst_x != base_x) {
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, base_x).slice());
     }
-    try buf.appendSlice(allocator, encoder_gt(dst_x, cmp_x).slice());
+    try buf.appendSlice(allocator, encoder_gt(dst_x, cmp_for_op).slice());
 
     // le_s / ge_s: invert via PXOR with all-ones.
     if (kind == .le or kind == .ge) {
