@@ -188,6 +188,36 @@ pub fn encDupGen2D(rd: Vn, rn: Xn) u32 {
     return 0x4E080C00 | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+/// `DUP V<d>.16B, W<n>` — broadcast 8-bit GPR value to all
+/// sixteen lanes (i8x16.splat). imm5=00001. bits[11:10]=11
+/// (DUP general from GPR). Constants verified via `clang
+/// -arch arm64`. Per Arm IHI 0055 §C7.2.106.
+pub fn encDup16B(rd: Vn, rn: Xn) u32 {
+    return 0x4E010C00 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `DUP V<d>.8H, W<n>` — broadcast 16-bit GPR value to all
+/// eight lanes (i16x8.splat). imm5=00010.
+pub fn encDup8H(rd: Vn, rn: Xn) u32 {
+    return 0x4E020C00 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `DUP V<d>.4S, V<n>.S[0]` — broadcast lane 0 of an FP/SIMD
+/// register to all four 32-bit lanes (f32x4.splat). DUP element
+/// form: bit[11]=0 vs 1 for the GPR-broadcast form above. imm5
+/// selects the source-lane index (here 0). Per Arm IHI 0055
+/// §C7.2.105.
+pub fn encDup4SFromS0(rd: Vn, rn: Vn) u32 {
+    return 0x4E040400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `DUP V<d>.2D, V<n>.D[0]` — broadcast lane 0 of an FP/SIMD
+/// register to both 64-bit lanes (f64x2.splat). Element form,
+/// imm5=01000.
+pub fn encDup2DFromD0(rd: Vn, rn: Vn) u32 {
+    return 0x4E080400 | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 /// `AND V<d>.16B, V<n>.16B, V<m>.16B` — bitwise AND across the
 /// full 128 bits. §9.9 / 9.9-f-1 v128.and. Encoding (SIMD AND
 /// vector, U=0, size=00):
@@ -1185,6 +1215,14 @@ test "encMovV16B: V0, V1 — alias of ORR Vd, Vn, Vn" {
     try testing.expectEqual(@as(u32, 0x4EA11C20), encMovV16B(0, 1));
     // Equivalent to encOrrV16B(0, 1, 1).
     try testing.expectEqual(encOrrV16B(0, 1, 1), encMovV16B(0, 1));
+}
+
+test "encDup16B/8H/4S element forms: V0, V1 across shapes" {
+    // Verified via `clang -arch arm64`.
+    try testing.expectEqual(@as(u32, 0x4E010C20), encDup16B(0, 1));
+    try testing.expectEqual(@as(u32, 0x4E020C20), encDup8H(0, 1));
+    try testing.expectEqual(@as(u32, 0x4E040420), encDup4SFromS0(0, 1));
+    try testing.expectEqual(@as(u32, 0x4E080420), encDup2DFromD0(0, 1));
 }
 
 test "encDup4S: V0, W1 (i32x4.splat)" {

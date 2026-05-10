@@ -293,23 +293,79 @@ pub fn emitV128Load32x2U(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try emitV128LoadFamily(ctx, ins, 8, tail);
 }
 
-/// `i32x4.splat`: pop scalar i32 (Wn), push v128 result (Vd.4S).
-/// `DUP V<vd>.4S, W<wn>` broadcasts the i32 to all four 32-bit
-/// lanes.
-pub fn emitI32x4Splat(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+/// Wasm spec §4.4.5 (`<shape>.splat`) — broadcast a scalar to
+/// every lane of a v128. Shared GPR-source helper (i8x16 / i16x8
+/// / i32x4 / i64x2 splat); FP-source variants (f32x4 / f64x2)
+/// use `emitV128SplatFromV` because their sources are V-class.
+fn emitV128SplatFromGpr(
+    ctx: *EmitCtx,
+    encoder: *const fn (rd: u5, rn: u5) u32,
+) Error!void {
     const src_vreg = ctx.pushed_vregs.pop().?;
-    // SPILL-EXEMPT: i32 src; GPR spill-aware path is its own follow-on.
+    // SPILL-EXEMPT: scalar i32/i64 src; GPR spill-aware path is its own follow-on.
     const src_reg = try gpr.resolveGpr(ctx.alloc, src_vreg);
 
     const result_vreg = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    // §9.5-c-ii: v128 result via Q-form def + store helpers.
     const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
-
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encDup4S(result_v, src_reg));
+    try gpr.writeU32(ctx.allocator, ctx.buf, encoder(result_v, src_reg));
     try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+/// FP-source splat helper. Takes an f32/f64 scalar in V-class
+/// register's lane 0 and broadcasts via DUP element form.
+fn emitV128SplatFromV(
+    ctx: *EmitCtx,
+    encoder: *const fn (rd: u5, rn: u5) u32,
+) Error!void {
+    const src_vreg = ctx.pushed_vregs.pop().?;
+    // f32/f64 scalar lives in a V-class reg's lane 0; loadSpilled
+    // here uses the FP D-form spill stride (8 bytes) — fpLoadSpilled
+    // returns the V index that DUP element can read from.
+    const src_v = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, encoder(result_v, src_v));
+    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+/// `i8x16.splat`: pop i32 scalar (low byte), broadcast to 16 bytes.
+pub fn emitI8x16Splat(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128SplatFromGpr(ctx, inst_neon.encDup16B);
+}
+
+/// `i16x8.splat`: pop i32 scalar (low half), broadcast to 8 halves.
+pub fn emitI16x8Splat(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128SplatFromGpr(ctx, inst_neon.encDup8H);
+}
+
+/// `i32x4.splat`: pop scalar i32 (Wn), push v128 result (Vd.4S).
+/// `DUP V<vd>.4S, W<wn>` broadcasts the i32 to all four 32-bit
+/// lanes.
+pub fn emitI32x4Splat(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128SplatFromGpr(ctx, inst_neon.encDup4S);
+}
+
+/// `i64x2.splat`: pop i64 scalar (Xn), broadcast to both 64-bit lanes.
+pub fn emitI64x2Splat(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128SplatFromGpr(ctx, inst_neon.encDupGen2D);
+}
+
+/// `f32x4.splat`: pop f32 scalar (S<vn>), broadcast to all 4 32-bit
+/// lanes via DUP element form (V<vn>.S[0] → V<vd>.4S).
+pub fn emitF32x4Splat(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128SplatFromV(ctx, inst_neon.encDup4SFromS0);
+}
+
+/// `f64x2.splat`: pop f64 scalar (D<vn>), broadcast to both lanes.
+pub fn emitF64x2Splat(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128SplatFromV(ctx, inst_neon.encDup2DFromD0);
 }
 
 // ============================================================

@@ -1438,7 +1438,13 @@ pub fn compile(
             .@"v128.store16_lane" => try op_simd.emitV128Store16Lane(&ctx, &ins),
             .@"v128.store32_lane" => try op_simd.emitV128Store32Lane(&ctx, &ins),
             .@"v128.store64_lane" => try op_simd.emitV128Store64Lane(&ctx, &ins),
+            // §9.9 / 9.9-g-4 — splat handlers for all 6 shapes.
+            .@"i8x16.splat" => try op_simd.emitI8x16Splat(&ctx, &ins),
+            .@"i16x8.splat" => try op_simd.emitI16x8Splat(&ctx, &ins),
             .@"i32x4.splat" => try op_simd.emitI32x4Splat(&ctx, &ins),
+            .@"i64x2.splat" => try op_simd.emitI64x2Splat(&ctx, &ins),
+            .@"f32x4.splat" => try op_simd.emitF32x4Splat(&ctx, &ins),
+            .@"f64x2.splat" => try op_simd.emitF64x2Splat(&ctx, &ins),
             .@"i32x4.extract_lane" => try op_simd.emitI32x4ExtractLane(&ctx, &ins),
             .@"i32x4.replace_lane" => try op_simd.emitI32x4ReplaceLane(&ctx, &ins),
             // §9.9 / 9.9-f-1 — v128 bitwise (AND / OR / XOR / ANDNOT
