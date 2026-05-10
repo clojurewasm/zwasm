@@ -55983,3 +55983,279 @@
       stddev_ms: 0.02
       min_ms: 2.16
       max_ms: 2.20
+
+- date: 2026-05-10T02:50:18Z
+  commit: 1241e3b1af2110b46974c682146941b8e269115c
+  arch: aarch64-darwin
+  reason: "CI: feat(p9): §9.7 / 9.7-ay — v128.load{8,16,32,64}_splat (4 ops) (1241e3b)"
+  runs: 3
+  warmup: 1
+  benches:
+    - name: shootout/fib2
+      mean_ms: 96866.20
+      stddev_ms: 1690.60
+      min_ms: 95202.00
+      max_ms: 98582.00
+    - name: shootout/sieve
+      mean_ms: 34184.30
+      stddev_ms: 1025.19
+      min_ms: 33190.20
+      max_ms: 35238.00
+    - name: shootout/nestedloop
+      mean_ms: 7.52
+      stddev_ms: 0.52
+      min_ms: 7.01
+      max_ms: 8.05
+    - name: shootout/matrix
+      mean_ms: 13571.20
+      stddev_ms: 1156.29
+      min_ms: 12236.10
+      max_ms: 14249.00
+    - name: shootout/heapsort
+      mean_ms: 33073.60
+      stddev_ms: 2675.26
+      min_ms: 30850.70
+      max_ms: 36042.70
+    - name: shootout/base64
+      mean_ms: 13057.20
+      stddev_ms: 419.00
+      min_ms: 12656.60
+      max_ms: 13492.40
+    - name: shootout/gimli
+      mean_ms: 189.05
+      stddev_ms: 2.93
+      min_ms: 186.41
+      max_ms: 192.21
+    - name: shootout/memmove
+      mean_ms: 203.10
+      stddev_ms: 5.57
+      min_ms: 199.23
+      max_ms: 209.47
+    - name: shootout/keccak
+      mean_ms: 443.50
+      stddev_ms: 13.38
+      min_ms: 432.74
+      max_ms: 458.48
+    - name: tinygo/arith
+      mean_ms: 3.51
+      stddev_ms: 0.47
+      min_ms: 3.19
+      max_ms: 4.05
+    - name: tinygo/fib
+      mean_ms: 2.78
+      stddev_ms: 0.19
+      min_ms: 2.60
+      max_ms: 2.98
+    - name: tinygo/fib_loop
+      mean_ms: 3.62
+      stddev_ms: 0.97
+      min_ms: 2.87
+      max_ms: 4.71
+    - name: tinygo/gcd
+      mean_ms: 3.03
+      stddev_ms: 0.21
+      min_ms: 2.79
+      max_ms: 3.20
+    - name: tinygo/list_build
+      mean_ms: 2.41
+      stddev_ms: 0.12
+      min_ms: 2.29
+      max_ms: 2.53
+    - name: tinygo/mfr
+      mean_ms: 2.57
+      stddev_ms: 0.17
+      min_ms: 2.42
+      max_ms: 2.76
+    - name: tinygo/nqueens
+      mean_ms: 2.32
+      stddev_ms: 0.05
+      min_ms: 2.26
+      max_ms: 2.35
+    - name: tinygo/real_work
+      mean_ms: 6.36
+      stddev_ms: 0.34
+      min_ms: 6.02
+      max_ms: 6.70
+    - name: tinygo/sieve
+      mean_ms: 2.67
+      stddev_ms: 0.17
+      min_ms: 2.55
+      max_ms: 2.86
+    - name: tinygo/string_ops
+      mean_ms: 2.34
+      stddev_ms: 0.01
+      min_ms: 2.33
+      max_ms: 2.35
+    - name: tinygo/tak
+      mean_ms: 2.43
+      stddev_ms: 0.11
+      min_ms: 2.30
+      max_ms: 2.51
+    - name: handwritten/nbody
+      mean_ms: 2.14
+      stddev_ms: 0.04
+      min_ms: 2.10
+      max_ms: 2.17
+    - name: cljw/fib
+      mean_ms: 2.41
+      stddev_ms: 0.04
+      min_ms: 2.37
+      max_ms: 2.45
+    - name: cljw/gcd
+      mean_ms: 2.44
+      stddev_ms: 0.21
+      min_ms: 2.25
+      max_ms: 2.67
+    - name: cljw/arith
+      mean_ms: 2.36
+      stddev_ms: 0.13
+      min_ms: 2.22
+      max_ms: 2.47
+    - name: cljw/sieve
+      mean_ms: 2.45
+      stddev_ms: 0.14
+      min_ms: 2.29
+      max_ms: 2.56
+    - name: cljw/tak
+      mean_ms: 2.53
+      stddev_ms: 0.27
+      min_ms: 2.33
+      max_ms: 2.83
+
+- date: 2026-05-10T02:50:19Z
+  commit: 1241e3b1af2110b46974c682146941b8e269115c
+  arch: x86_64-linux
+  reason: "CI: feat(p9): §9.7 / 9.7-ay — v128.load{8,16,32,64}_splat (4 ops) (1241e3b)"
+  runs: 3
+  warmup: 1
+  benches:
+    - name: shootout/fib2
+      mean_ms: 215975.00
+      stddev_ms: 294.87
+      min_ms: 215772.00
+      max_ms: 216314.00
+    - name: shootout/sieve
+      mean_ms: 29860.60
+      stddev_ms: 375.64
+      min_ms: 29506.30
+      max_ms: 30254.40
+    - name: shootout/nestedloop
+      mean_ms: 8.86
+      stddev_ms: 0.17
+      min_ms: 8.67
+      max_ms: 9.00
+    - name: shootout/matrix
+      mean_ms: 19353.90
+      stddev_ms: 5781.33
+      min_ms: 15695.80
+      max_ms: 26019.00
+    - name: shootout/heapsort
+      mean_ms: 38540.80
+      stddev_ms: 1544.16
+      min_ms: 37616.00
+      max_ms: 40323.50
+    - name: shootout/base64
+      mean_ms: 20478.20
+      stddev_ms: 3432.22
+      min_ms: 17359.00
+      max_ms: 24155.10
+    - name: shootout/gimli
+      mean_ms: 291.38
+      stddev_ms: 37.01
+      min_ms: 267.05
+      max_ms: 333.97
+    - name: shootout/memmove
+      mean_ms: 263.63
+      stddev_ms: 0.10
+      min_ms: 263.55
+      max_ms: 263.74
+    - name: shootout/keccak
+      mean_ms: 648.98
+      stddev_ms: 34.70
+      min_ms: 610.41
+      max_ms: 677.69
+    - name: tinygo/arith
+      mean_ms: 2.13
+      stddev_ms: 0.03
+      min_ms: 2.11
+      max_ms: 2.16
+    - name: tinygo/fib
+      mean_ms: 2.17
+      stddev_ms: 0.02
+      min_ms: 2.15
+      max_ms: 2.19
+    - name: tinygo/fib_loop
+      mean_ms: 2.20
+      stddev_ms: 0.04
+      min_ms: 2.17
+      max_ms: 2.25
+    - name: tinygo/gcd
+      mean_ms: 2.14
+      stddev_ms: 0.02
+      min_ms: 2.12
+      max_ms: 2.16
+    - name: tinygo/list_build
+      mean_ms: 2.18
+      stddev_ms: 0.04
+      min_ms: 2.14
+      max_ms: 2.22
+    - name: tinygo/mfr
+      mean_ms: 2.14
+      stddev_ms: 5124.64
+      min_ms: 2.14
+      max_ms: 2.15
+    - name: tinygo/nqueens
+      mean_ms: 2.16
+      stddev_ms: 0.04
+      min_ms: 2.14
+      max_ms: 2.20
+    - name: tinygo/real_work
+      mean_ms: 14.63
+      stddev_ms: 0.25
+      min_ms: 14.39
+      max_ms: 14.89
+    - name: tinygo/sieve
+      mean_ms: 3.49
+      stddev_ms: 0.19
+      min_ms: 3.28
+      max_ms: 3.62
+    - name: tinygo/string_ops
+      mean_ms: 2.22
+      stddev_ms: 0.06
+      min_ms: 2.17
+      max_ms: 2.29
+    - name: tinygo/tak
+      mean_ms: 2.16
+      stddev_ms: 0.03
+      min_ms: 2.13
+      max_ms: 2.18
+    - name: handwritten/nbody
+      mean_ms: 1.54
+      stddev_ms: 0.03
+      min_ms: 1.51
+      max_ms: 1.57
+    - name: cljw/fib
+      mean_ms: 2.11
+      stddev_ms: 0.03
+      min_ms: 2.09
+      max_ms: 2.14
+    - name: cljw/gcd
+      mean_ms: 2.09
+      stddev_ms: 0.02
+      min_ms: 2.07
+      max_ms: 2.11
+    - name: cljw/arith
+      mean_ms: 2.12
+      stddev_ms: 5121.80
+      min_ms: 2.11
+      max_ms: 2.12
+    - name: cljw/sieve
+      mean_ms: 2.10
+      stddev_ms: 0.01
+      min_ms: 2.08
+      max_ms: 2.11
+    - name: cljw/tak
+      mean_ms: 2.13
+      stddev_ms: 0.02
+      min_ms: 2.11
+      max_ms: 2.14
