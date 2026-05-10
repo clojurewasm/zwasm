@@ -13,40 +13,37 @@
 5. `.dev/decisions/0041_simd_128_design.md` (SSE4.2 baseline post-9.7-m
    amendment).
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..ba landed); **9.7-bb v128.load*x*_s/u extending NEXT**
+## Current state — Phase 9 / §9.7 + §9.8 closed; **§9.9 simd.wast spec test wiring NEXT**
 
-9.7-ba: 8 ops (commit `21ae2170`) — v128.load_lane / store_lane
-× {8,16,32,64}. memarg + 1-byte lane immediate (sub-opcodes
-84..91). Validator path replaced binop catch-all with proper
-opSimdLoadLane / opSimdStoreLane helpers. Lower path:
-emitMemargLane packs offset + lane (align dropped). Emit path:
-2 parametric helpers (load + merge via PINSR; PEXTR + store
-with PUSH/POP RCX). No new encoders. 231 SIMD ops handled
-total. 3-host green.
+9.7-bb: 6 ops (commit `401f2e1f`) — v128.load{8x8,16x4,32x2}_{s,u}
+extending loads. MOVSD + PMOVSX/ZX{BW,WD,DQ}. Closes the §9.7
+v128 op surface — all 237 SIMD ZirOps in zir.zig:184-288 have
+x86_64 emit handlers (verified by grep). 3-host green.
 
-**Next — 9.7-bb**: v128.load{8x8,16x4,32x2}_{s,u} (6 ops).
-Extending loads — load 8 bytes into low qword, sign/zero-extend
-each lane to the next-larger size (8→16, 16→32, 32→64).
-Recipe per cranelift `lower.isle:4977-5010`:
-- load8x8_s: MOVQ xmm, [mem]; PMOVSXBW xmm — extend low 8 i8
-  lanes to 8 i16.
-- load8x8_u: MOVQ xmm, [mem]; PMOVZXBW xmm.
-- load16x4_s/u: MOVQ + PMOVSX/ZXWD.
-- load32x2_s/u: MOVQ + PMOVSX/ZXDQ.
+**§9.8 closed per ADR-0044** — its nominal scope (SSE4.1 SIMD
+comparison + shuffle + FP arith + conversion) was absorbed by
+§9.7's progressive expansion (9.7-k..n compares; 9.7-o FP
+compares; 9.7-p..q FP arith; 9.7-ab..ae conversions; 9.7-ar
+shuffle; 9.7-aj..aq pairwise extadd). No additional emit work;
+ADR-0044 documents the scope-merge.
 
-Encoders: PMOVSX/ZX{BW,WD,DQ} all exist from 9.7-x. Need MOVQ
-xmm, m64 mem-form encoder OR reuse existing MOVSD memory-load
-(both produce xmm with low qword loaded + upper zeroed; PMOVSX/ZX
-only reads low qword anyway). Plan: reuse MOVSD via existing
-encMovssMovsdMemBaseIdx, no new encoders.
+**Next — §9.9**: `simd.wast` spec test wired in; fail=skip=0
+across both backends (3-host gate). Likely sub-chunks:
+- Locate WebAssembly testsuite simd.wast bundle:
+  `~/Documents/OSS/WebAssembly/testsuite/proposals/simd/*.wast`
+  (~50 files, ~7000 assertions per the §9.1 survey).
+- Wire into test-all via `test/spec/wast_runner.zig` extension
+  (similar to existing wasm-1.0 + Wasm 2.0 multi-value runners).
+- Initial run will produce a fail+skip baseline; iterate
+  until 0 of each. Likely surfaces:
+  - validator gaps for SIMD edge cases not yet exercised
+  - emit-side off-by-one or sign-handling subtleties
+  - shape_tag / regalloc bugs only triggered by specific spec
+    fixtures
+- Edge-case fixtures (per ADR-0020) for any newly-found bugs.
 
-Sub-chunks remaining:
-- 9.7-bb: load*x*_s/u extending × 6
-
-After this, §9.7 row scope is exhausted: all v128 ZirOps from
-zir.zig:184-288 have x86_64 emit handlers. §9.7 row + §9.8 row
-(overlapping scope) close together via §18 ADR or scope merge.
-Then §9.9/9.10/9.11/9.12 close-out.
+After §9.9: §9.10 (smoke benches + gap analysis), §9.11
+(audit + SHA backfill), §9.12 (open Phase 10).
 
 Subsequent: §9.9 (simd.wast wired in, fail=skip=0), §9.10
 (smoke benches + gap analysis), §9.11 (audit + SHA backfill),
@@ -69,6 +66,7 @@ code in `src/ir/coalesce/`, regalloc.zig LIFO free-pool,
 
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..ba landed; 9.7-bb
-NEXT; 6 v128 memory ops still unhandled before §9.7 close).
+§9.7 [x] (x86_64 SSE4.1+SSE4.2; 9.7-a..bb landed),
+§9.8 [x] (scope absorbed per ADR-0044), §9.9 NEXT (simd.wast
+spec test wiring).
 **Branch**: `zwasm-from-scratch`。
