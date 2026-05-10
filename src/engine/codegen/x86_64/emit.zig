@@ -247,6 +247,13 @@ pub fn compile(
                 .@"v128.store16_lane",
                 .@"v128.store32_lane",
                 .@"v128.store64_lane",
+                // §9.7 / 9.7-bb: extending loads (load*x*_s/u × 6).
+                .@"v128.load8x8_s",
+                .@"v128.load8x8_u",
+                .@"v128.load16x4_s",
+                .@"v128.load16x4_u",
+                .@"v128.load32x2_s",
+                .@"v128.load32x2_u",
                 .@"global.get",
                 .@"global.set",
                 .@"memory.size",
@@ -1173,6 +1180,15 @@ pub fn compile(
             .@"v128.store16_lane" => try op_simd.emitV128Store16Lane(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, ins.payload, ins.extra, func.func_idx),
             .@"v128.store32_lane" => try op_simd.emitV128Store32Lane(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, ins.payload, ins.extra, func.func_idx),
             .@"v128.store64_lane" => try op_simd.emitV128Store64Lane(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, ins.payload, ins.extra, func.func_idx),
+            // §9.7 / 9.7-bb: v128.load{8x8,16x4,32x2}_{s,u} (6 ops).
+            // MOVSD load + PMOVSX/ZX{BW,WD,DQ} extend. No new
+            // encoders. Closes the §9.7 v128 op surface.
+            .@"v128.load8x8_s" => try op_simd.emitV128Load8x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
+            .@"v128.load8x8_u" => try op_simd.emitV128Load8x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
+            .@"v128.load16x4_s" => try op_simd.emitV128Load16x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
+            .@"v128.load16x4_u" => try op_simd.emitV128Load16x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
+            .@"v128.load32x2_s" => try op_simd.emitV128Load32x2S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
+            .@"v128.load32x2_u" => try op_simd.emitV128Load32x2U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
             // §9.7 / 9.7-af: native single-instr multiply-and-add
             // pair. PMULHRSW (SSSE3) implements Q15 multiply-round-
             // saturate exactly per Wasm spec; PMADDWD (SSE2)

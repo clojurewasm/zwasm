@@ -541,6 +541,74 @@ pub fn emitV128Load64Zero(
 }
 
 // =============================================================
+// §9.7 / 9.7-bb — v128.load{8x8,16x4,32x2}_{s,u} (6 ops)
+//
+// Wasm spec §4.4.7. Load 8 bytes from mem into low qword of dst
+// (upper 64 zeroed), then extend each lane to the next-larger
+// size: 8→16, 16→32, 32→64. Cranelift recipe `lower.isle:
+// 4977-5010` is identical: MOVQ + PMOVSX/ZX{BW,WD,DQ}. Reuses
+// 9.7-ax's v128MemPrologue with access_size=8 and the existing
+// PMOVSX/ZX encoders from 9.7-x. No new encoders.
+// =============================================================
+
+fn v128LoadExtend(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    bounds_fixups: *std.ArrayList(u32),
+    spill_base_off: u32,
+    offset: u32,
+    func_idx: u32,
+    extend_encoder: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const idx_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_v, 0);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+
+    try v128MemPrologue(allocator, buf, bounds_fixups, idx_r, offset, 8, func_idx);
+    try buf.appendSlice(allocator, inst.encMovssMovsdMemBaseIdx(.f64, false, dst_x, .rax, .rdx).slice());
+    try buf.appendSlice(allocator, extend_encoder(dst_x, dst_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.7 (v128.load8x8_s) — 8 i8 → 8 i16 sign-extend.
+pub fn emitV128Load8x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, bounds_fixups: *std.ArrayList(u32), spill_base_off: u32, offset: u32, func_idx: u32) Error!void {
+    return v128LoadExtend(allocator, buf, alloc, pushed_vregs, next_vreg, bounds_fixups, spill_base_off, offset, func_idx, inst.encPmovsxbw);
+}
+
+/// Wasm spec §4.4.7 (v128.load8x8_u) — 8 u8 → 8 i16 zero-extend.
+pub fn emitV128Load8x8U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, bounds_fixups: *std.ArrayList(u32), spill_base_off: u32, offset: u32, func_idx: u32) Error!void {
+    return v128LoadExtend(allocator, buf, alloc, pushed_vregs, next_vreg, bounds_fixups, spill_base_off, offset, func_idx, inst.encPmovzxbw);
+}
+
+/// Wasm spec §4.4.7 (v128.load16x4_s) — 4 i16 → 4 i32 sign-extend.
+pub fn emitV128Load16x4S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, bounds_fixups: *std.ArrayList(u32), spill_base_off: u32, offset: u32, func_idx: u32) Error!void {
+    return v128LoadExtend(allocator, buf, alloc, pushed_vregs, next_vreg, bounds_fixups, spill_base_off, offset, func_idx, inst.encPmovsxwd);
+}
+
+/// Wasm spec §4.4.7 (v128.load16x4_u) — 4 u16 → 4 i32 zero-extend.
+pub fn emitV128Load16x4U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, bounds_fixups: *std.ArrayList(u32), spill_base_off: u32, offset: u32, func_idx: u32) Error!void {
+    return v128LoadExtend(allocator, buf, alloc, pushed_vregs, next_vreg, bounds_fixups, spill_base_off, offset, func_idx, inst.encPmovzxwd);
+}
+
+/// Wasm spec §4.4.7 (v128.load32x2_s) — 2 i32 → 2 i64 sign-extend.
+pub fn emitV128Load32x2S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, bounds_fixups: *std.ArrayList(u32), spill_base_off: u32, offset: u32, func_idx: u32) Error!void {
+    return v128LoadExtend(allocator, buf, alloc, pushed_vregs, next_vreg, bounds_fixups, spill_base_off, offset, func_idx, inst.encPmovsxdq);
+}
+
+/// Wasm spec §4.4.7 (v128.load32x2_u) — 2 u32 → 2 i64 zero-extend.
+pub fn emitV128Load32x2U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, bounds_fixups: *std.ArrayList(u32), spill_base_off: u32, offset: u32, func_idx: u32) Error!void {
+    return v128LoadExtend(allocator, buf, alloc, pushed_vregs, next_vreg, bounds_fixups, spill_base_off, offset, func_idx, inst.encPmovzxdq);
+}
+
+// =============================================================
 // §9.7 / 9.7-ba — load_lane / store_lane × {8, 16, 32, 64} (8 ops)
 //
 // Wasm spec §4.4.7. load_lane: load N bytes from mem into a GPR
