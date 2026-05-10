@@ -25,21 +25,21 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: `e4386604` (§9.9 / 9.9-g-16 —
-  `emitI64x2Mul` `dst==rhs` alias fix; D-071 part a discharged.
-  All a/b/c-actual D-066 mirror clusters now closed). See
-  commit body for measured deltas.
+- **Latest §9.9 landing**: `83217ff5` (§9.9 / 9.9-g-17 —
+  `emitI8x16Shuffle` `dst==rhs` alias fix). OrbStack FAIL:
+  9 → 4 (-5 of 6 simd_lane shuffle variants). See commit
+  body for measured deltas.
 - **Active row**: §9.9 (still `[ ]`). Closes when fail = skip = 0
   on the 3-host gate per the row's exit criterion.
 
 ## Next sub-chunk candidates (names only)
 
-- **D-067** — bitmask validator-shape (lower + ARM64 emit).
-  Covers simd_boolean.0 + simd_bitwise.17 + simd_lane.140 +
-  the simd_lane ×6 cluster (likely same root family — verify
-  via /tmp/claude-501/orb-mul.log fail samples first chunk).
-- **simd_lane residual ×6** — if distinct from D-067, separate
-  investigation.
+- **simd_lane f64x2_extract_lane** value mismatch (got 0
+  expected NaN-like). Distinct from the shuffle alias cluster.
+- **D-067** — covers simd_bitwise.17 (UnsupportedOp) +
+  simd_boolean.0 (StackUnderflow) + simd_lane.140 (UnsupportedOp).
+  All compile-time / validator gaps; see fail-line strings in
+  /tmp/claude-501/orb-shuf.log for source dispatch.
 - Aggregate `test-spec-simd` into `test-all` (preventive — surfaces
   silent x86_64 simd regressions in autonomous loop gating).
 
