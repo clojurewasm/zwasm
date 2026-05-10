@@ -614,9 +614,16 @@ Never `git commit --no-verify` (forbidden by ROADMAP §14).
 4. `git add .dev/ROADMAP.md .dev/handover.md [.dev/debt.md]
    [.dev/lessons/...]` and commit (`chore(p<N>): mark §9.<N> /
    N.M [x]; retarget handover at N.M+1`).
-5. **Push**. `git push origin zwasm-from-scratch`. No approval
-   needed (see "Push policy"). If push fails non-fast-forward,
-   that is bucket 2 of the stop whitelist.
+5. **Push**. `git pull --rebase --autostash origin
+   zwasm-from-scratch && git push origin zwasm-from-scratch`. The
+   pre-push rebase integrates the bench CI bot's
+   `bench(ci): record <sha> [skip ci]` commits (always disjoint
+   from loop diffs); see LOOP.md "Push policy" for the rationale.
+   No approval needed. If the rebase raises a conflict, that is
+   bucket 2 of the stop whitelist (history work needs user
+   input); a plain non-fast-forward after rebase means a parallel
+   non-bench commit landed — retry the same `pull --rebase +
+   push` once before stopping.
 6. **Re-arm** the loop with `ScheduleWakeup` (see
    "Self-perpetuation" for the call shape and `delaySeconds`
    choice). This is mandatory.

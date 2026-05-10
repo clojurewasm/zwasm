@@ -50,8 +50,14 @@ zig build lint -- --max-warnings 0     > /tmp/mac-lint.log 2>&1
 git add <source-files>
 git commit -m "<conventional commit>"
 
-# 3. Push immediately so windowsmini's git-fetch picks up the
-#    new ref before its zig build starts.
+# 3. Sync the bench CI bot's commits, then push so windowsmini's
+#    git-fetch picks up the new ref before its zig build starts.
+#    The bot pushes `bench(ci): record <sha> [skip ci]` to
+#    zwasm-from-scratch asynchronously after every loop push;
+#    `--rebase --autostash` integrates those commits with zero
+#    conflict (bench/results/*.yaml is disjoint from loop diffs)
+#    and avoids the per-chunk non-fast-forward reject cycle.
+git pull --rebase --autostash origin zwasm-from-scratch
 git push origin zwasm-from-scratch
 
 # 4. Decide whether windowsmini gate is required this chunk.
@@ -174,10 +180,25 @@ Specifically:
     re-run `bash scripts/run_remote_windows.sh`, evaluate gate.
   - End of every Step 7, after `[x]` flip + handover update —
     push so the gone-from-local risk is bounded by one task.
-- Push is **never to `main`** and **never `--force`**. If a
-  non-fast-forward error is raised, stop and surface to the user
-  (this is bucket 2 of the stop whitelist — unsolvable without
-  user input on history rewriting).
+- **Pre-push rebase is the default**. Always run `git pull
+  --rebase --autostash origin zwasm-from-scratch` immediately
+  before `git push`. The bench CI bot pushes
+  `bench(ci): record <sha> [skip ci]` commits to the same branch
+  asynchronously after every loop push, so the local branch is
+  almost always behind by 1–3 such commits when Step 6 / Step 7
+  fire. Bench commits only touch `bench/results/*.yaml` (disjoint
+  from loop diffs in `src/`, `.dev/`, `scripts/`, `test/`), so
+  the rebase is conflict-free in practice. `--autostash` covers
+  any uncommitted scratch in the worktree.
+- A non-fast-forward error after pre-push rebase indicates **non-
+  bench commits arrived between the rebase and the push** (rare;
+  e.g. a parallel manual push). Re-run the same `git pull
+  --rebase --autostash + git push` once. Only stop and surface
+  to the user if the rebase itself raises a conflict —
+  conflicts are bucket-2 of the stop whitelist (load-bearing
+  history work needs user input).
+- Push is **never to `main`** and **never `--force` /
+  `--force-with-lease`** (denied at the harness level too).
 - `--no-verify`, `--no-gpg-sign`, and any pre-commit / pre-push
   hook bypass remain forbidden (ROADMAP §14).
 
