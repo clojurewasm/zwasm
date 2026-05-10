@@ -356,6 +356,132 @@ fn v128MemPrologue(
     trace.writeBounds(func_idx, fixup_at);
 }
 
+/// Wasm spec §4.4.7 (v128.load8_splat) — pop i32 idx, load 1 byte
+/// from `[mem + idx + offset]`, broadcast to all 16 lanes. Recipe:
+/// MOVZX RCX, byte [RAX+RDX]; MOVD dst, ECX; PXOR XMM14, XMM14;
+/// PSHUFB dst, XMM14 (zero-mask broadcast). Cranelift recipe at
+/// `lower.isle:4840-4843` uses PINSRB-mem which we don't yet have
+/// in encoder form; the GPR round-trip is one extra instr.
+pub fn emitV128Load8Splat(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    bounds_fixups: *std.ArrayList(u32),
+    spill_base_off: u32,
+    offset: u32,
+    func_idx: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const idx_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_v, 0);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14: zero ctrl mask
+
+    try v128MemPrologue(allocator, buf, bounds_fixups, idx_r, offset, 1, func_idx);
+    try buf.appendSlice(allocator, inst.encMovzxR32_8MemBaseIdx(.rcx, .rax, .rdx).slice());
+    try buf.appendSlice(allocator, inst.encMovdXmmFromR32(dst_x, .rcx).slice());
+    try buf.appendSlice(allocator, inst.encPxor(scratch_x, scratch_x).slice());
+    try buf.appendSlice(allocator, inst.encPshufb(dst_x, scratch_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.7 (v128.load16_splat) — load 2 bytes, broadcast
+/// to all 8 lanes. PSHUFLW broadcasts the low 16 to lanes 0-3 (low
+/// qword); PSHUFD then broadcasts the low 32 (= 2× the value) to
+/// all 4 dwords (= 8 lanes total).
+pub fn emitV128Load16Splat(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    bounds_fixups: *std.ArrayList(u32),
+    spill_base_off: u32,
+    offset: u32,
+    func_idx: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const idx_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_v, 0);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+
+    try v128MemPrologue(allocator, buf, bounds_fixups, idx_r, offset, 2, func_idx);
+    try buf.appendSlice(allocator, inst.encMovzxR32_16MemBaseIdx(.rcx, .rax, .rdx).slice());
+    try buf.appendSlice(allocator, inst.encMovdXmmFromR32(dst_x, .rcx).slice());
+    try buf.appendSlice(allocator, inst.encPshuflw(dst_x, dst_x, 0).slice());
+    try buf.appendSlice(allocator, inst.encPshufd(dst_x, dst_x, 0).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.7 (v128.load32_splat) — load 4 bytes, broadcast
+/// to all 4 lanes. MOVSS loads 4 bytes into lane 0 + zeros upper
+/// 96; PSHUFD imm 0 broadcasts lane 0 to all 4.
+pub fn emitV128Load32Splat(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    bounds_fixups: *std.ArrayList(u32),
+    spill_base_off: u32,
+    offset: u32,
+    func_idx: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const idx_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_v, 0);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+
+    try v128MemPrologue(allocator, buf, bounds_fixups, idx_r, offset, 4, func_idx);
+    try buf.appendSlice(allocator, inst.encMovssMovsdMemBaseIdx(.f32, false, dst_x, .rax, .rdx).slice());
+    try buf.appendSlice(allocator, inst.encPshufd(dst_x, dst_x, 0).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.7 (v128.load64_splat) — load 8 bytes, broadcast
+/// to both 64-bit lanes. MOVSD loads 8 bytes into low qword +
+/// zeros upper qword; PSHUFD imm 0x44 (= 01_00_01_00) broadcasts
+/// the low qword (dwords 0+1) to the upper qword (dwords 2+3).
+pub fn emitV128Load64Splat(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    bounds_fixups: *std.ArrayList(u32),
+    spill_base_off: u32,
+    offset: u32,
+    func_idx: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const idx_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_v, 0);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+
+    try v128MemPrologue(allocator, buf, bounds_fixups, idx_r, offset, 8, func_idx);
+    try buf.appendSlice(allocator, inst.encMovssMovsdMemBaseIdx(.f64, false, dst_x, .rax, .rdx).slice());
+    try buf.appendSlice(allocator, inst.encPshufd(dst_x, dst_x, 0x44).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.3 (i64x2.extract_lane <imm>) — pop v128, push
 /// scalar i64 = the 64-bit lane at the immediate index. Single
 /// `PEXTRQ r64, xmm, imm8` (SSE4.1 REX.W=1; lane is u1 since

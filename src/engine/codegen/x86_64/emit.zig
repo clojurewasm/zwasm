@@ -230,6 +230,11 @@ pub fn compile(
                 // for vm_base / mem_limit reload.
                 .@"v128.load",
                 .@"v128.store",
+                // §9.7 / 9.7-ay: load_splat family (4 ops).
+                .@"v128.load8_splat",
+                .@"v128.load16_splat",
+                .@"v128.load32_splat",
+                .@"v128.load64_splat",
                 .@"global.get",
                 .@"global.set",
                 .@"memory.size",
@@ -1129,6 +1134,15 @@ pub fn compile(
             // spill_base_off + ins.payload threading mirrors i32.load.
             .@"v128.load" => try op_simd.emitV128Load(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
             .@"v128.store" => try op_simd.emitV128Store(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
+            // §9.7 / 9.7-ay: v128.load{8,16,32,64}_splat (4 ops).
+            // All reuse v128MemPrologue with appropriate access_size
+            // + a per-lane-width broadcast tail. 8/16-bit go through
+            // GPR (MOVZX + MOVD); 32/64-bit use MOVSS/MOVSD direct
+            // load + PSHUFD broadcast.
+            .@"v128.load8_splat" => try op_simd.emitV128Load8Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
+            .@"v128.load16_splat" => try op_simd.emitV128Load16Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
+            .@"v128.load32_splat" => try op_simd.emitV128Load32Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
+            .@"v128.load64_splat" => try op_simd.emitV128Load64Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.payload, func.func_idx),
             // §9.7 / 9.7-af: native single-instr multiply-and-add
             // pair. PMULHRSW (SSSE3) implements Q15 multiply-round-
             // saturate exactly per Wasm spec; PMADDWD (SSE2)
