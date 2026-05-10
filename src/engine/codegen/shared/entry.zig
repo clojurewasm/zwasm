@@ -387,6 +387,25 @@ pub fn callV128_i32(
     return @bitCast(result);
 }
 
+/// Wasm spec §4.4 — `(v128) → v128` invocation. §9.9 / 9.9-f-4
+/// scope expansion: enables FP / int unop fixtures
+/// (simd_f32x4_arith neg / sqrt, simd_i32x4_arith neg / abs,
+/// etc.). a0 lowers to V0/XMM0; result also V0/XMM0.
+pub fn callV128_v128(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+) Error![16]u8 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec) callconv(.c) Vec;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0));
+    if (rt.trap_flag != 0) return Error.Trap;
+    return @bitCast(result);
+}
+
 /// Wasm spec §4.4 — `(v128, v128) → v128` invocation. §9.9 / 9.9-f
 /// scope expansion: enables FP arith / int arith / bitwise binop
 /// fixtures (simd_bitwise, simd_f32x4_arith, simd_i32x4_arith,

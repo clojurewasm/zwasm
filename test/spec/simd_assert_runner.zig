@@ -369,6 +369,13 @@ fn runAssertReturn(
                     return false;
                 };
             }
+            if (n_args == 1 and args[0] == .v128) {
+                // §9.9 / 9.9-f-4: (v128) → v128 unop shape.
+                break :blk entry.callV128_v128(compiled.module, func_idx, &rt, args[0].v128) catch |err| {
+                    try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                    return false;
+                };
+            }
             if (n_args == 2 and args[0] == .v128 and args[1] == .v128) {
                 // §9.9 / 9.9-f: (v128, v128) → v128 binop shape —
                 // FP arith / int arith / bitwise fixtures.

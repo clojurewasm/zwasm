@@ -63,6 +63,10 @@ NAMES=(
   # — single-arch SSE2 instructions on x86_64 + NEON V.16B on ARM64,
   # all already wired in op_simd.zig dispatch.
   simd_bitwise
+  # §9.9 / 9.9-f-4: scale to FP arith (1819 assertions in upstream).
+  # Shapes: (v128, v128) → v128 (add/sub/mul/div), (v128) → v128
+  # (neg/sqrt). Float ops already wired in 9.6/9.7 emit chunks.
+  simd_f32x4_arith
 )
 
 mkdir -p "$DEST"
@@ -164,6 +168,10 @@ SUPPORTED = {
     # int arith / bitwise fixtures). Entry helper:
     # `entry.callV128_v128v128`.
     (("v128", "v128"), ("v128",)): True,
+    # §9.9 / 9.9-f-4: (v128) → v128 unop shape (neg / sqrt /
+    # abs / popcnt / extend_low / etc.). Entry helper:
+    # `entry.callV128_v128`.
+    (("v128",), ("v128",)): True,
 }
 
 lines = []

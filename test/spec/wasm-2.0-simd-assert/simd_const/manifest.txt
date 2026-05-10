@@ -594,9 +594,9 @@ assert_return as-block-retval2 () -> v128:00000000000000000100000000000000
 assert_return as-loop-retval2 () -> v128:00000000000000000100000000000000
 assert_return as-drop-operand2 () -> ()
 module simd_const.387.wasm
-skip v128-param-pending as-local.set/get-value_0_0
-skip v128-param-pending as-local.set/get-value_0_1
-skip v128-param-pending as-local.set/get-value_3_0
+assert_return as-local.set/get-value_0_0 v128:00000000000000000000000000000000 -> v128:00000000000000000000000000000000
+assert_return as-local.set/get-value_0_1 v128:01000000010000000100000001000000 -> v128:01000000010000000100000001000000
+assert_return as-local.set/get-value_3_0 v128:02000000020000000200000002000000 -> v128:02000000020000000200000002000000
 assert_return as-local.tee-value () -> v128:00000000010000000200000003000000
 module simd_const.388.wasm
 skip v128-param-pending as-global.set_value_$g0_$g1_$g2_$g3
