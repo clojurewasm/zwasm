@@ -7,61 +7,67 @@
 
 1. `.dev/handover.md` (this file).
 2. `.dev/ROADMAP.md` §9 Phase Status widget + §9.7 row — Phase 9 active.
-3. `.dev/debt.md` — D-055 + 9 `blocked-by:` rows (D-054 closed `b80cca3d`).
+3. `.dev/debt.md` — D-055 / D-057 + 10 `blocked-by:` rows.
 4. `.dev/lessons/INDEX.md` — keyword-grep for the active task domain
-   (focus: simd compare ops, x86_64 SSE/PCMPGT idioms, ADR-0041 §5
-   baseline rationale).
+   (focus: simd ops, x86_64 SSE/SSE4.1/SSE4.2, ADR-0041 §5,
+   v1-monolith-file-survey-miss).
 5. `.dev/decisions/0041_simd_128_design.md` (SSE4.2 baseline post-9.7-m
    amendment; §5 + Alternative E hold the rationale).
-6. `private/notes/p9-9.7-m-survey.md` (gitignored; cranelift recipe +
-   adoption data) — only if revisiting the SSE4.2 baseline call.
 
-## Current state — Phase 9 / §9.7 in-flight (9.7-a..as landed; D-054 closed); **9.7-at NEXT**
+## Current state — Phase 9 / §9.7 in-flight (9.7-a..at landed); **§9.7 row scope-review NEXT**
 
-9.7-as: D-054 close. SysV x86_64 `frame_unaligned` was missing
-`r15_save_bytes` (8). With outgoing_max_bytes=0 (no shadow
-space), local 0 at [RBP-16] sat BELOW RSP and the next CALL's
-pushed return address clobbered it (the 0xFD1BD386 garbage =
-stack residue). Win64's 32-byte shadow space hid it. Fix is a
-1-line + in emit.zig:278. OrbStack now strict 212/0/20 (was
-211/1/20 with D-054 carry). 187 SIMD ops still handled
-(D-054 close orthogonal to SIMD count).
+9.7-at: `i32x4.trunc_sat_f32x4_u` (commit `2c318bfb`). Closed
+the last of 4 deferred 9.7-ae u-variants. 14-instr cranelift
+recipe (`lower.isle:3919-3962`) — XORPS+MAXPS clamp, magic
+synthesis (PCMPEQD+PSRLD+CVTDQ2PS = 0x4f000000), two-path
+CVTTPS2DQ + CMPPS-LE mask + PMAXSD-zero clamp + PADDD merge.
+New encoder encPmaxsd (SSE4.1). Prior session's "3-scratch
+budget exceeded" reading was wrong: dst (regalloc'd from
+XMM8..XMM13) + XMM14 + XMM15 already gives 3 distinct physical
+xmms within existing fp_spill_stage_xmms reservation; no ABI
+change needed. Same dual-scratch pattern as 9.7-q/w/ac. 188
+SIMD ops handled total.
 
-**9.7-at NEXT** — `i32x4.trunc_sat_f32x4_u` (1 op, last of 4
-deferred 9.7-ae u-variants). Cranelift recipe needs 3 scratch
-xmms, exceeding zwasm's 2-scratch budget (XMM14/15). Two paths:
-(a) ADR-grade extension to reserve a 3rd scratch xmm
-    (e.g., XMM13). Affects regalloc XMM pool, abi.zig,
-    inst.zig spill-aware machinery — broad change.
-(b) Spill one scratch through stack: emit `MOVUPS [RBP-spill],
-    XMM14` then reuse XMM14 + reload. Adds 4-6 instr per call
-    but no infra change.
-Recommend (b) for one-off use; if more 3-scratch ops arrive,
-reconsider (a).
+**Next — §9.7 row scope review**. 9.7-at was the last
+known-deferred sub-chunk. Step 0 should grep
+`src/engine/codegen/x86_64/emit.zig` switch arms vs Wasm SIMD
+op total (~415 spec ops, 188 currently handled per the row's
+running tally) to determine: (a) are remaining unhandled ops
+genuinely scope of §9.8 (ROADMAP description: "x86_64 emit
+SSE4.1 — comparison + shuffle + float arith + conversion")?
+Note that 9.7's prose has expanded inline to cover
+comparison/shuffle/FP arith/conversion across 9.7-k..ad — so
+9.8's nominal scope already overlaps. Decide whether (i) flip
+9.7 [x] + 9.8 [x] (both substantively done by 9.7's prose
+expansion), (ii) carve remaining ops into 9.7-au... or 9.8
+sub-chunks, or (iii) fold 9.8 scope into 9.7 prose explicitly
+via §18 ADR. The answer is **not pre-decided**; it requires a
+concrete unhandled-op grep to scope.
 
-Subsequent: §9.7 close-out — backfill SHA pointers per phase-
-boundary procedure, then **§9.7 / 7.13 hard gate** triggers
-(per `.dev/phase8_transition_gate.md`). Loop pauses for
-collaborative review.
+Subsequent: §9.7 close-out → Phase-9-internal §9.8/9.9
+(simd.wast spec test wired, fail=skip=0 across both backends)
+→ §9.10 (smoke benches, gap analysis) → §9.11 (audit + SHA
+backfill) → §9.12 (open §9.10 ie Phase 10).
 
 ## Open structural debt (pointers — full list in `.dev/debt.md`)
 
-- **D-054 CLOSED** (`b80cca3d`) — was OrbStack-only `as-loop-broke`
-  FAIL; root cause was SysV x86_64 frame under-allocation; 1-line
-  fix (`frame_unaligned` += `r15_save_bytes`).
 - **D-055** (x86_64 prologue inject) — blocked-by D-052 prologue
-  extract.
-- 9 `blocked-by:` rows: D-007/D-010/D-016/D-018/D-020/D-021/D-022/
-  D-026/D-028/D-052 — barriers all hold.
+  extract (still holds).
+- **D-057** (op_simd.zig hard-cap) — blocked-by ADR for source-
+  split landing. file_size_check.sh continues to report breach
+  (3819 LOC after 9.7-at). Discharge requires ADR mirror of
+  ADR-0030; deferred until §9.7 row close.
+- 10 `blocked-by:` rows: D-007/D-010/D-016/D-018/D-020/D-021/
+  D-022/D-026/D-028/D-052 — barriers all hold this resume.
 
 Closed Phase 8b artefacts (preserved for Phase 12 + Phase 15
 reference) live in git: ADRs 0035-0040, lessons indexed in
 `.dev/lessons/INDEX.md`, code in `src/ir/coalesce/`,
 `src/engine/codegen/shared/regalloc.zig` (LIFO free-pool),
-`src/engine/codegen/aot/`. No need to duplicate pointers here —
-`git log` is the authoritative lookup.
+`src/engine/codegen/aot/`. `git log` is authoritative.
 
-**Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline post-9.7-m).
+**Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
-§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..as landed; D-054 closed; 9.7-at NEXT).
+§9.7 in-flight (x86_64 SSE4.1+SSE4.2; 9.7-a..at landed; row
+close pending scope review).
 **Branch**: `zwasm-from-scratch`。
