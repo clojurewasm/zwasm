@@ -415,6 +415,7 @@ pub const encPmaxuw = inst_sse.encPmaxuw;
 pub const encPminuw = inst_sse.encPminuw;
 pub const encPmaxud = inst_sse.encPmaxud;
 pub const encPminud = inst_sse.encPminud;
+pub const encPmaxsd = inst_sse.encPmaxsd;
 
 // ============================================================
 // Tests

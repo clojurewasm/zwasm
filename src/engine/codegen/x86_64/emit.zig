@@ -1071,6 +1071,13 @@ pub fn compile(
             // pending ADR-0042 const-pool plumbing.
             .@"f32x4.convert_i32x4_u" => try op_simd.emitF32x4ConvertI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i32x4.trunc_sat_f32x4_s" => try op_simd.emitI32x4TruncSatF32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.7 / 9.7-at: i32x4.trunc_sat_f32x4_u closes the
+            // last of the 4 deferred 9.7-ae u-variants. The
+            // "3-scratch" framing turned out to be a non-issue:
+            // dst (regalloc'd from XMM8..XMM13) + XMM14 + XMM15
+            // gives 3 distinct physical xmms within the existing
+            // fp_spill_stage_xmms reservation. No ABI change.
+            .@"i32x4.trunc_sat_f32x4_u" => try op_simd.emitI32x4TruncSatF32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-af: native single-instr multiply-and-add
             // pair. PMULHRSW (SSSE3) implements Q15 multiply-round-
             // saturate exactly per Wasm spec; PMADDWD (SSE2)

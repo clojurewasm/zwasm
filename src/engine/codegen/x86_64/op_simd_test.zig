@@ -2201,6 +2201,45 @@ test "emitI32x4TruncSatF32x4S: 9-instr NaN-mask + XOR-fix recipe" {
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
+test "emitI32x4TruncSatF32x4U: 14-instr two-path inline-magic recipe" {
+    var slot_ids = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 2,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    var next_vreg: u32 = 1;
+
+    try op_simd.emitI32x4TruncSatF32x4U(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    // src = xmm8, dst = xmm9, tmp2 = xmm14, tmp1 = xmm15.
+    try expected.appendSlice(testing.allocator, inst.encXorps(.xmm14, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encMaxps(.xmm9, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqD(.xmm14, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPsrldImm(.xmm14, 1).slice());
+    try expected.appendSlice(testing.allocator, inst.encCvtdq2ps(.xmm14, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm15, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encCvttps2dq(.xmm9, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encSubps(.xmm15, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encCmpps(.xmm14, .xmm15, 0x02).slice());
+    try expected.appendSlice(testing.allocator, inst.encCvttps2dq(.xmm15, .xmm15).slice());
+    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm15, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm14, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPmaxsd(.xmm15, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPaddD(.xmm9, .xmm15).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
 test "emitF64x2 Ceil/Floor/Trunc/Nearest: ROUNDPD imm bits 0A/09/0B/08" {
     var slot_ids = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{

@@ -1594,6 +1594,12 @@ pub fn encPmaxud(dst: Xmm, src: Xmm) EncodedInsn {
     return encSsePackedIntBinopExt(0x38, 0x3F, dst, src);
 }
 
+/// `PMAXSD xmm, xmm` (66 [REX?] 0F 38 3D /r) — SSE4.1 packed
+/// signed 32-bit max (4 lanes).
+pub fn encPmaxsd(dst: Xmm, src: Xmm) EncodedInsn {
+    return encSsePackedIntBinopExt(0x38, 0x3D, dst, src);
+}
+
 /// `PMINUD xmm, xmm` (66 [REX?] 0F 38 3B /r) — SSE4.1 packed
 /// unsigned 32-bit min (4 lanes).
 pub fn encPminud(dst: Xmm, src: Xmm) EncodedInsn {

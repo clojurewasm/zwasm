@@ -2914,6 +2914,91 @@ pub fn emitI32x4TruncSatF32x4S(allocator: Allocator, buf: *std.ArrayList(u8), al
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// Wasm spec §4.4.4 (i32x4.trunc_sat_f32x4_u) — saturating
+/// truncate f32→u32 (NaN→0, negative→0, OOR→UINT32_MAX). Recipe
+/// per cranelift `lower.isle:3919-3962`: 14-instruction inline
+/// path. CVTTPS2DQ saturates positive OOR to 0x80000000 (signed
+/// INT_MIN), so the unsigned recipe splits into two paths:
+/// (1) clamped src → CVTTPS2DQ direct for [0, INT_MAX]; (2) src
+/// minus magic (INT_MAX+1 = 0x4f000000 as f32) → CVTTPS2DQ for
+/// [INT_MAX+1, UINT_MAX]; mask the second-path result to 0 where
+/// the lane belongs to path (1) and add. The "3 scratch xmm"
+/// limit reported by cranelift's regalloc2 maps to dst (regalloc'd
+/// from XMM8..XMM13) + XMM14 + XMM15 in zwasm — already covered
+/// by the existing fp_spill_stage_xmms reservation; no ABI change
+/// needed. Closes the last of the 4 deferred §9.7-ae u-variants.
+pub fn emitI32x4TruncSatF32x4U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const tmp2 = abi.fp_spill_stage_xmms[0]; // XMM14: zero, then magic, then mask, then zero again
+    const tmp1 = abi.fp_spill_stage_xmms[1]; // XMM15: second-path copy
+
+    // 1: tmp2 = 0 (XORPS XMM14, XMM14).
+    try buf.appendSlice(allocator, inst.encXorps(tmp2, tmp2).slice());
+
+    // 2: dst = MAXPS(src, 0) — clamp negatives + NaN to 0.
+    // (MAXPS returns 2nd operand on NaN per Intel SDM; with
+    // 2nd operand = 0 the result is 0 for NaN lanes.)
+    if (dst_x != src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encMaxps(dst_x, tmp2).slice());
+
+    // 3-5: tmp2 = magic = 0x4f000000 (= f32(INT_MAX+1) via PSRLD-1
+    // on all-ones then CVTDQ2PS round-up at the 2^23 boundary).
+    try buf.appendSlice(allocator, inst.encPcmpeqD(tmp2, tmp2).slice());
+    try buf.appendSlice(allocator, inst.encPsrldImm(tmp2, 1).slice());
+    try buf.appendSlice(allocator, inst.encCvtdq2ps(tmp2, tmp2).slice());
+
+    // 6: tmp1 = dst (clamped src) — second-path copy.
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(tmp1, dst_x).slice());
+
+    // 7: dst = CVTTPS2DQ(dst) — first path. Lanes in [0, INT_MAX]
+    // produce correct i32; lanes >= INT_MAX+1 saturate to
+    // 0x80000000 (signed INT_MIN sentinel) per Intel SDM.
+    try buf.appendSlice(allocator, inst.encCvttps2dq(dst_x, dst_x).slice());
+
+    // 8: tmp1 -= magic. Lanes in [0, INT_MAX] become negative;
+    // lanes in [INT_MAX+1, UINT_MAX] become [0, INT_MAX]; lanes
+    // >= UINT_MAX+1 become >= INT_MAX+1.
+    try buf.appendSlice(allocator, inst.encSubps(tmp1, tmp2).slice());
+
+    // 9: tmp2 = (magic LE tmp1) — mask: 0xFFFFFFFF where the
+    // post-subtract value is >= magic (= original src >= UINT_MAX),
+    // 0 elsewhere. CMPPS imm 0x02 = LE_OS.
+    try buf.appendSlice(allocator, inst.encCmpps(tmp2, tmp1, 0x02).slice());
+
+    // 10: tmp1 = CVTTPS2DQ(tmp1). Same saturation behaviour.
+    try buf.appendSlice(allocator, inst.encCvttps2dq(tmp1, tmp1).slice());
+
+    // 11: tmp1 ^= mask. Where the lane should saturate to UINT_MAX,
+    // CVTTPS2DQ returned 0x80000000; XOR with 0xFFFFFFFF flips it
+    // to 0x7FFFFFFF. (PADDD with first-path's 0x80000000 then
+    // gives 0xFFFFFFFF = UINT_MAX.) Other lanes XOR with 0 = no-op.
+    try buf.appendSlice(allocator, inst.encPxor(tmp1, tmp2).slice());
+
+    // 12-13: clamp tmp1's first-path-only lanes (originally negative
+    // post-subtract) to 0 via SMAX(tmp1, 0). Saturates to 0 the
+    // [0, INT_MAX] lanes whose second path produced negative junk.
+    try buf.appendSlice(allocator, inst.encPxor(tmp2, tmp2).slice());
+    try buf.appendSlice(allocator, inst.encPmaxsd(tmp1, tmp2).slice());
+
+    // 14: dst = first_path + second_path. For [0, INT_MAX] lanes
+    // dst already holds the correct value + 0; for [INT_MAX+1,
+    // UINT_MAX] dst holds 0x80000000 + (i32)(src - magic) = the
+    // correct u32 reinterpreted as i32; for OOR-high lanes dst
+    // holds 0x80000000 + 0x7FFFFFFF = 0xFFFFFFFF = UINT_MAX. ✓
+    try buf.appendSlice(allocator, inst.encPaddD(dst_x, tmp1).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
 /// Wasm spec §4.4.4 (i16x8.q15mulr_sat_s) — Q15-format multiply
 /// with rounding and saturating clamp to i16. PMULHRSW (SSSE3,
 /// `lower.isle:1287-1294`) implements exactly this in 1
