@@ -1463,6 +1463,16 @@ pub fn compile(
             .@"i64x2.sub" => try op_simd.emitI64x2Sub(&ctx, &ins),
             .@"i16x8.mul" => try op_simd.emitI16x8Mul(&ctx, &ins),
             .@"i32x4.mul" => try op_simd.emitI32x4Mul(&ctx, &ins),
+            // §9.9/9.9-f-7 — int unops (abs / neg / popcnt).
+            .@"i8x16.abs" => try op_simd.emitI8x16Abs(&ctx, &ins),
+            .@"i8x16.neg" => try op_simd.emitI8x16Neg(&ctx, &ins),
+            .@"i8x16.popcnt" => try op_simd.emitI8x16Popcnt(&ctx, &ins),
+            .@"i16x8.abs" => try op_simd.emitI16x8Abs(&ctx, &ins),
+            .@"i16x8.neg" => try op_simd.emitI16x8Neg(&ctx, &ins),
+            .@"i32x4.abs" => try op_simd.emitI32x4Abs(&ctx, &ins),
+            .@"i32x4.neg" => try op_simd.emitI32x4Neg(&ctx, &ins),
+            .@"i64x2.abs" => try op_simd.emitI64x2Abs(&ctx, &ins),
+            .@"i64x2.neg" => try op_simd.emitI64x2Neg(&ctx, &ins),
             // §9.9/9.5-c-vi — int lane access for B/H/D element forms.
             // i32x4 already wired in 9.5-c-iii above. f32x4/f64x2 +
             // i64x2.mul defer to 9.5-c-vii.

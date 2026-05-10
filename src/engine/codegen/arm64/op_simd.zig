@@ -552,17 +552,10 @@ pub fn emitV128Andnot(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 /// `v128.not`: pop 1 v128, push 1 v128 with all bits inverted.
-/// `MVN V<d>.16B, V<n>.16B`.
+/// `MVN V<d>.16B, V<n>.16B`. Uses the shared `emitV128Unop` helper
+/// (defined later in this file alongside the f32x4 / f64x2 unops).
 pub fn emitV128Not(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
-    const src_vreg = ctx.pushed_vregs.pop().?;
-    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
-    const result_vreg = ctx.next_vreg.*;
-    ctx.next_vreg.* += 1;
-    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMvn16B(result_v, src_v));
-    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
-    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+    try emitV128Unop(ctx, inst_neon.encMvn16B);
 }
 
 /// `v128.bitselect c v1 v2`: result lanes = `(v1 AND c) | (v2 AND NOT c)`.
@@ -587,7 +580,9 @@ pub fn emitV128Bitselect(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     if (mask_v != c_v) {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(mask_v, c_v));
     }
+    // SPILL-EXEMPT: 3-source BSL — see comment above.
     const v1_v = try gpr.resolveFp(ctx.alloc, v1_vreg);
+    // SPILL-EXEMPT: 3-source BSL — see comment above.
     const v2_v = try gpr.resolveFp(ctx.alloc, v2_vreg);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encBsl16B(mask_v, v1_v, v2_v));
     try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
@@ -617,6 +612,38 @@ pub fn emitI64x2Add(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 pub fn emitI64x2Sub(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try emitV128Binop(ctx, inst_neon.encSub2D);
+}
+
+// §9.9 / 9.9-f-7 — int unops (abs / neg / popcnt). Wasm SIMD
+// spec §4.4 (vector arith). NEON ABS/NEG share the
+// two-register-misc encoding with size selecting lane shape;
+// CNT is byte-only (16B) and exists only for `i8x16.popcnt`.
+pub fn emitI8x16Abs(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encAbs16B);
+}
+pub fn emitI8x16Neg(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encNeg16B);
+}
+pub fn emitI8x16Popcnt(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encCnt16B);
+}
+pub fn emitI16x8Abs(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encAbs8H);
+}
+pub fn emitI16x8Neg(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encNeg8H);
+}
+pub fn emitI32x4Abs(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encAbs4S);
+}
+pub fn emitI32x4Neg(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encNeg4S);
+}
+pub fn emitI64x2Abs(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encAbs2D);
+}
+pub fn emitI64x2Neg(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128Unop(ctx, inst_neon.encNeg2D);
 }
 // Note: Wasm SIMD has no `i8x16.mul` (only i16x8/i32x4/i64x2). The
 // underlying NEON `MUL Vd.16B` encoding (encMul16B) is preserved

@@ -318,6 +318,27 @@ pub fn encMul4S(rd: Vn, rn: Vn, rm: Vn) u32 {
 }
 
 // =====================================================================
+// Integer unops (abs / neg / popcnt) — Advanced SIMD two-reg misc,
+// Q=1, opcode=01011 (ABS/NEG) or 00101 (CNT, byte-only). U=0 → ABS,
+// U=1 → NEG. size[23:22] selects 16B/8H/4S/2D. Constants verified
+// via `clang -arch arm64`. Per Arm IHI 0055 §C7.2.1 / §C7.2.62 /
+// §C7.2.230.
+// =====================================================================
+
+pub fn encAbs16B(rd: Vn, rn: Vn) u32 { return 0x4E20B800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encAbs8H(rd: Vn, rn: Vn) u32  { return 0x4E60B800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encAbs4S(rd: Vn, rn: Vn) u32  { return 0x4EA0B800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encAbs2D(rd: Vn, rn: Vn) u32  { return 0x4EE0B800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encNeg16B(rd: Vn, rn: Vn) u32 { return 0x6E20B800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encNeg8H(rd: Vn, rn: Vn) u32  { return 0x6E60B800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encNeg4S(rd: Vn, rn: Vn) u32  { return 0x6EA0B800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encNeg2D(rd: Vn, rn: Vn) u32  { return 0x6EE0B800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+/// `CNT V<d>.16B, V<n>.16B` — per-byte popcount. Byte-only on
+/// NEON (no 8H/4S/2D form). Same opcode field (00101) as MVN/NOT
+/// but U=0 instead of U=1.
+pub fn encCnt16B(rd: Vn, rn: Vn) u32 { return 0x4E205800 | (@as(u32, rn) << 5) | @as(u32, rd); }
+
+// =====================================================================
 // Lane access (extract / replace)
 // =====================================================================
 
@@ -1204,6 +1225,29 @@ test "encAdd4S: V31, V31, V31" {
 test "encAdd4S vs encOrrV16B: distinct opcodes (4S add ≠ 16B or)" {
     // Sanity: same operands produce different bytes.
     try testing.expect(encAdd4S(0, 1, 2) != encOrrV16B(0, 1, 2));
+}
+
+// §9.9 / 9.9-f-7 — int-unop encoders. Expected bytes verified via
+// `clang -arch arm64` of `(abs|neg).(16b|8h|4s|2d) v0, v1` and
+// `cnt.16b v0, v1`.
+test "encAbs/encNeg/encCnt: V0, V1 across shapes" {
+    try testing.expectEqual(@as(u32, 0x4E20B820), encAbs16B(0, 1));
+    try testing.expectEqual(@as(u32, 0x4E60B820), encAbs8H(0, 1));
+    try testing.expectEqual(@as(u32, 0x4EA0B820), encAbs4S(0, 1));
+    try testing.expectEqual(@as(u32, 0x4EE0B820), encAbs2D(0, 1));
+    try testing.expectEqual(@as(u32, 0x6E20B820), encNeg16B(0, 1));
+    try testing.expectEqual(@as(u32, 0x6E60B820), encNeg8H(0, 1));
+    try testing.expectEqual(@as(u32, 0x6EA0B820), encNeg4S(0, 1));
+    try testing.expectEqual(@as(u32, 0x6EE0B820), encNeg2D(0, 1));
+    try testing.expectEqual(@as(u32, 0x4E205820), encCnt16B(0, 1));
+}
+
+test "encAbs vs encNeg: U bit (29) is the only difference" {
+    try testing.expectEqual(@as(u32, 0x20000000), encNeg16B(0, 0) ^ encAbs16B(0, 0));
+    try testing.expectEqual(@as(u32, 0x20000000), encNeg2D(31, 30) ^ encAbs2D(31, 30));
+    // Max indices.
+    try testing.expectEqual(@as(u32, 0x4E20BBFF), encAbs16B(31, 31));
+    try testing.expectEqual(@as(u32, 0x6EE0BBFF), encNeg2D(31, 31));
 }
 
 test "encLdrQImm vs encStrQImm: distinct opcode bits" {
