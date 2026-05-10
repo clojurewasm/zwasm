@@ -33,6 +33,7 @@
 const std = @import("std");
 
 const zir = @import("../../../ir/zir.zig");
+const liveness = @import("../../../ir/analysis/liveness.zig");
 const reg_class = @import("reg_class.zig");
 
 const Allocator = std.mem.Allocator;
@@ -329,30 +330,36 @@ pub fn deinit(allocator: Allocator, alloc: Allocation) void {
 }
 
 /// Populate `Allocation.shape_tags` for a function whose
-/// `func.instrs` contains SIMD-128 ZirOps (§9.9 / 9.5-b per
-/// ADR-0041 §"Decision" / 2). Walks the instr stream once
-/// simulating the operand-stack vreg-numbering (def-order
-/// matching liveness's contract): each instr that produces a
-/// vreg increments a running `next_vreg` counter; SIMD ops
-/// (per `zir.isSimdZirOp`) mark their pushed vreg as `.v128`.
+/// `func.instrs` contains SIMD-128 ZirOps OR whose signature /
+/// locals declare v128 (§9.9 / 9.5-b per ADR-0041 §"Decision" /
+/// 2). Walks the instr stream once mirroring liveness's
+/// def-order vreg numbering (each push increments `next_vreg`);
+/// the produced vreg's tag is determined by the op:
 ///
-/// Conservative MVP: pure tag-prefix matching on the producing
-/// op. A vreg's shape is determined by the op that defined it;
-/// downstream consumers (binops) are assumed to preserve shape
-/// (which they do by construction — `i32x4.add` pops 2 v128
-/// and pushes 1 v128). Tighter shape-flow tracking (e.g.
-/// extract_lane producing scalar from v128) defers to a 9.5-b
-/// follow-on once emit-side handlers exercise the catalogue.
+/// - `local.get` / `local.tee`: tag = `func.localValType(payload)`
+///   (v128 if the local was declared with valtype 0x7B).
+/// - SIMD-producing ops (per the explicit list below): `.v128`.
+/// - All other producers: `.scalar` (the @memset default), with
+///   the push count taken from `liveness.stackEffect` for
+///   accurate vreg-id counting.
+///
+/// The any_simd trigger expands to v128 in
+/// `func.sig.params`/`results` and `func.locals` so a function
+/// whose body is `local.get v128; local.get v128; local.get i32;
+/// select` (the `simd_select.0` fixture's shape — D-061
+/// discharge) still produces shape_tags, allowing the v128-aware
+/// emit dispatch to fire on the local.get-pushed vregs.
 ///
 /// Returns a freshly-allocated slice; caller stores in
 /// `alloc.shape_tags` and pairs free with `regalloc.deinit`.
-/// Returns `null`-equivalent (zero-length slice via the caller's
-/// `?[]const ShapeTag` field) when no SIMD ops appear; the
-/// caller leaves `shape_tags = null` in that case.
+/// Returns `null` when no v128 indicators are present — the
+/// caller treats that as all-scalar.
 pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: usize) Error!?[]ShapeTag {
-    // Quick bail: if no SIMD ops appear, leave shape_tags null
-    // (matches the §"Decision" / 2 framing — `null` means all
-    // vregs are scalar by default).
+    // Quick bail: trigger when any v128 indicator is present —
+    // a SIMD ZirOp in the body OR a v128-typed param / local /
+    // result. The `local.get v128 / select` shape (no inline
+    // SIMD op) needs the latter trigger or it would silently
+    // fall back to all-scalar shape_tags.
     var any_simd: bool = false;
     for (func.instrs.items) |ins| {
         if (zir.isSimdZirOp(ins.op)) {
@@ -360,27 +367,50 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
             break;
         }
     }
+    if (!any_simd) {
+        for (func.sig.params) |p| if (p == .v128) {
+            any_simd = true;
+            break;
+        };
+    }
+    if (!any_simd) {
+        for (func.sig.results) |r| if (r == .v128) {
+            any_simd = true;
+            break;
+        };
+    }
+    if (!any_simd) {
+        for (func.locals) |l| if (l == .v128) {
+            any_simd = true;
+            break;
+        };
+    }
     if (!any_simd) return null;
 
     const tags = try allocator.alloc(ShapeTag, n_vregs);
     errdefer allocator.free(tags);
     @memset(tags, .scalar);
 
-    // Walk instrs simulating liveness's def-order vreg numbering.
-    // For the MVP catalogue (matching 9.4 lower):
-    // - Pushing ops (const/load/splat/binop): consume `pop_count`
-    //   operand-stack values, push 1 producing a fresh vreg.
-    // - For each pushing op that is a SIMD op, mark the produced
-    //   vreg as `.v128`.
+    // Walk instrs mirroring liveness.compute's def-order vreg
+    // numbering (each push increments next_vreg, and the produced
+    // vreg gets a per-op shape tag).
     var next_vreg: usize = 0;
     for (func.instrs.items) |ins| {
+        // local.get / local.tee push one vreg whose type comes
+        // from the indexed local. v128 locals (params / declared
+        // locals) flow through here; D-061 discharge.
+        if (ins.op == .@"local.get" or ins.op == .@"local.tee") {
+            if (next_vreg < tags.len) {
+                if (func.localValType(ins.payload) == .v128) tags[next_vreg] = .v128;
+            }
+            next_vreg += 1;
+            continue;
+        }
         // Per ADR-0041 §"Decision" / 1: extract_lane ops produce
         // scalar (i32 / i64 / f32 / f64) from v128. v128.const +
         // v128.load* / splat / binop / unop / shuffle / swizzle
-        // produce v128. The MVP catalogue is small; expand as
-        // emit handlers land in 9.5-c+.
-        const produces_vreg: bool = switch (ins.op) {
-            // SIMD ops that push a v128 result.
+        // produce v128.
+        const is_simd_producer: bool = switch (ins.op) {
             .@"v128.const",
             .@"v128.load",
             .@"v128.load8x8_s",
@@ -597,46 +627,28 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
             .@"i64x2.replace_lane",
             .@"f32x4.replace_lane",
             .@"f64x2.replace_lane",
-            => blk: {
-                if (next_vreg < tags.len) tags[next_vreg] = .v128;
-                break :blk true;
-            },
-            // Scalar-producing ops (mark as .scalar — already the
-            // memset default, but listed to make def-order
-            // bookkeeping explicit).
-            .@"i32.const",
-            .@"i64.const",
-            .@"f32.const",
-            .@"f64.const",
-            .@"i8x16.extract_lane_s",
-            .@"i8x16.extract_lane_u",
-            .@"i16x8.extract_lane_s",
-            .@"i16x8.extract_lane_u",
-            .@"i32x4.extract_lane",
-            .@"i64x2.extract_lane",
-            .@"f32x4.extract_lane",
-            .@"f64x2.extract_lane",
-            .@"v128.any_true",
-            .@"i8x16.all_true",
-            .@"i16x8.all_true",
-            .@"i32x4.all_true",
-            .@"i64x2.all_true",
-            .@"i8x16.bitmask",
-            .@"i16x8.bitmask",
-            .@"i32x4.bitmask",
-            .@"i64x2.bitmask",
             => true,
-            // All other ops: not handled by this MVP. Conservative
-            // default — neither produces nor consumes from our
-            // counter. (Liveness's actual numbering for non-SIMD
-            // ops happens elsewhere; this helper only needs to
-            // track v128 vreg ids accurately for emit's spill-
-            // stride decision.) When a non-SIMD op produces a
-            // vreg, the wider scalar pool already handles it
-            // correctly via the .scalar default.
             else => false,
         };
-        if (produces_vreg) next_vreg += 1;
+        if (is_simd_producer) {
+            if (next_vreg < tags.len) tags[next_vreg] = .v128;
+            next_vreg += 1;
+            continue;
+        }
+        // All other producers: tag stays `.scalar` (memset
+        // default); push count comes from `liveness.stackEffect`.
+        // stackEffect returns null for control-flow ops
+        // (block / loop / if / else / end / br / br_if /
+        // br_table / return / unreachable) and for call /
+        // call_indirect — both of which need different handling
+        // in liveness.compute. Control-flow ops do not push;
+        // call / call_indirect's variadic-results push count
+        // would require func_sigs / module_types threading and
+        // is deferred (call-with-v128-result fixtures aren't in
+        // §9.9 scope).
+        if (liveness.stackEffect(ins.op)) |eff| {
+            next_vreg += eff.pushes;
+        }
     }
 
     return tags;
@@ -977,6 +989,66 @@ test "populateShapeTags: empty func returns null (no SIMD)" {
     try f.instrs.append(testing.allocator, .{ .op = .end });
     const tags = try populateShapeTags(testing.allocator, &f, 0);
     try testing.expect(tags == null);
+}
+
+test "populateShapeTags: D-061 — v128 params trigger populate via local.get tagging" {
+    // simd_select.0 fixture shape: (v128, v128, i32) → v128 with
+    // body `local.get 0; local.get 1; local.get 2; select; end`.
+    // Without D-061 fix populateShapeTags would return null
+    // (no SIMD op in body) and arm64/emit's select handler would
+    // dispatch through the .scalar branch — UnsupportedOp.
+    const params = [_]zir.ValType{ .v128, .v128, .i32 };
+    const results = [_]zir.ValType{.v128};
+    const sig: zir.FuncType = .{ .params = &params, .results = &results };
+    var f = zir.ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 2 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"select" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    const tags = try populateShapeTags(testing.allocator, &f, 4);
+    try testing.expect(tags != null);
+    defer testing.allocator.free(tags.?);
+    try testing.expectEqual(@as(usize, 4), tags.?.len);
+    try testing.expectEqual(ShapeTag.v128, tags.?[0]); // local.get 0 → v128 param
+    try testing.expectEqual(ShapeTag.v128, tags.?[1]); // local.get 1 → v128 param
+    try testing.expectEqual(ShapeTag.scalar, tags.?[2]); // local.get 2 → i32 param
+    // tags[3] is `select`'s result; left .scalar today
+    // (per-vreg type-flow tracking via operand-stack simulation
+    // is a separate enhancement — see populateShapeTags doc).
+}
+
+test "populateShapeTags: scalar binop between SIMD ops keeps vreg numbering aligned" {
+    // i32x4.splat (v128 vreg 0)
+    // i32.const   (scalar vreg 1)
+    // i32.add     (scalar vreg 2 — pre-D-061 walk would NOT
+    //              increment, drifting tags[3] for the next push)
+    // i32x4.splat (v128 vreg 3)
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32x4.splat" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.add" });
+    try f.instrs.append(testing.allocator, .{ .op = .drop });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32x4.splat" });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    const tags = try populateShapeTags(testing.allocator, &f, 7);
+    try testing.expect(tags != null);
+    defer testing.allocator.free(tags.?);
+    // vreg layout (def-order): 0=i32.const, 1=i32x4.splat,
+    // 2=i32.const, 3=i32.const, 4=i32.add, 5=i32.const, 6=i32x4.splat.
+    // Seven pushes; tags[1] = v128, tags[6] = v128.
+    try testing.expectEqual(ShapeTag.scalar, tags.?[0]);
+    try testing.expectEqual(ShapeTag.v128, tags.?[1]);
+    try testing.expectEqual(ShapeTag.scalar, tags.?[2]);
+    try testing.expectEqual(ShapeTag.scalar, tags.?[3]);
+    try testing.expectEqual(ShapeTag.scalar, tags.?[4]);
+    try testing.expectEqual(ShapeTag.scalar, tags.?[5]);
+    try testing.expectEqual(ShapeTag.v128, tags.?[6]);
 }
 
 // ============================================================

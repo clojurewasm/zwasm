@@ -49,13 +49,18 @@ pub const Error = error{
 /// accepts cannot exceed this depth at runtime.
 const max_simulated_stack: usize = 1024;
 
-const StackEffect = struct { pops: u8, pushes: u8 };
+pub const StackEffect = struct { pops: u8, pushes: u8 };
 
 /// Stack effect of an MVP op for liveness purposes. Returns
 /// `null` for ops the analysis does not yet model (control flow,
 /// memory ops, pseudo opcodes); callers translate that into the
 /// appropriate error.
-fn stackEffect(op: ZirOp) ?StackEffect {
+///
+/// Exposed (pub since §9.9 / 9.9-d-6 / D-061) so
+/// `regalloc.populateShapeTags` can mirror this same vreg
+/// numbering — keeping the two in sync without duplicating
+/// the catalogue.
+pub fn stackEffect(op: ZirOp) ?StackEffect {
     return switch (op) {
         // 0 → 0
         .nop => .{ .pops = 0, .pushes = 0 },
