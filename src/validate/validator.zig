@@ -320,6 +320,7 @@ const Validator = struct {
                 -2 => .{ .single = .i64 }, // 0x7E
                 -3 => .{ .single = .f32 }, // 0x7D
                 -4 => .{ .single = .f64 }, // 0x7C
+                -5 => .{ .single = .v128 }, // 0x7B (§9.9 / 9.9-f-2)
                 else => return Error.BadBlockType,
             };
             return .{ .start = .empty, .end = end };
