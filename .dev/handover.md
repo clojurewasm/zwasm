@@ -13,34 +13,44 @@
 5. `.dev/decisions/0041_simd_128_design.md` (SSE4.2 baseline post-9.7-m
    amendment).
 
-## Current state — Phase 9 / §9.7 + §9.8 closed; **§9.9 simd.wast spec test wiring NEXT**
+## Current state — Phase 9 / §9.9 in-flight (9.9-a foundation landed); **9.9-b populate manifest NEXT**
 
-9.7-bb: 6 ops (commit `401f2e1f`) — v128.load{8x8,16x4,32x2}_{s,u}
-extending loads. MOVSD + PMOVSX/ZX{BW,WD,DQ}. Closes the §9.7
-v128 op surface — all 237 SIMD ZirOps in zir.zig:184-288 have
-x86_64 emit handlers (verified by grep). 3-host green.
+9.9-a: foundation chunk per ADR-0045 (commit `d8ffe36b`).
+- ADR-0045 — parallel `simd_assert_runner` + v128-aware text
+  manifest format (`v128:<32 hex>` token shape) decision.
+- New `scripts/regen_spec_simd_assert.sh` skeleton — wast2json-
+  driven; NAMES list empty.
+- New `test/spec/simd_assert_runner.zig` skeleton — corpus walk
+  reports manifest count, exits 0 when 0 manifests.
+- `build.zig` `test-spec-simd` step (NOT yet aggregated into
+  test-all).
+- 3-host green; smoke output: `simd_assert_runner: 0 passed,
+  0 failed, 0 skipped (over 0 manifests; §9.9-a foundation)`.
 
-**§9.8 closed per ADR-0044** — its nominal scope (SSE4.1 SIMD
-comparison + shuffle + FP arith + conversion) was absorbed by
-§9.7's progressive expansion (9.7-k..n compares; 9.7-o FP
-compares; 9.7-p..q FP arith; 9.7-ab..ae conversions; 9.7-ar
-shuffle; 9.7-aj..aq pairwise extadd). No additional emit work;
-ADR-0044 documents the scope-merge.
+**Next — 9.9-b**: populate the lightweight starter set in
+`scripts/regen_spec_simd_assert.sh`'s NAMES list. Per the
+survey (private/notes/p9-9.9-survey.md):
+- simd_address (46 assertions)
+- simd_align (54 assertions)
+- simd_const (lightweight)
+- simd_select (6 assertions)
+- simd_*_splat (per-shape splat fixtures)
 
-**Next — §9.9**: `simd.wast` spec test wired in; fail=skip=0
-across both backends (3-host gate). Likely sub-chunks:
-- Locate WebAssembly testsuite simd.wast bundle:
-  `~/Documents/OSS/WebAssembly/testsuite/proposals/simd/*.wast`
-  (~50 files, ~7000 assertions per the §9.1 survey).
-- Wire into test-all via `test/spec/wast_runner.zig` extension
-  (similar to existing wasm-1.0 + Wasm 2.0 multi-value runners).
-- Initial run will produce a fail+skip baseline; iterate
-  until 0 of each. Likely surfaces:
-  - validator gaps for SIMD edge cases not yet exercised
-  - emit-side off-by-one or sign-handling subtleties
-  - shape_tag / regalloc bugs only triggered by specific spec
-    fixtures
-- Edge-case fixtures (per ADR-0020) for any newly-found bugs.
+Implementation:
+1. Extend regen script with the wast2json invocation pattern
+   from `scripts/regen_spec_1_0_assert.sh` (lines 60+) — adapt
+   the Python distillation step for v128 args / results.
+2. Run regen → populates `test/spec/wasm-2.0-simd-assert/`.
+3. Extend `simd_assert_runner.zig` with manifest parsing for
+   v128 tokens + JIT execution + assert_return comparison.
+4. Capture baseline fail/skip count; commit + push.
+
+Subsequent §9.9 chunks per ADR-0045:
+- 9.9-c: iterate to fail=skip=0 on lightweight set; surfaces
+  validator + emit gaps.
+- 9.9-d: scale to FP arithmetic + compares (heavy 9k+ assertion
+  files); NaN canonicalisation likely surfaces.
+- 9.9-e: aggregate `test-spec-simd` into `test-all`; flip §9.9 [x].
 
 After §9.9: §9.10 (smoke benches + gap analysis), §9.11
 (audit + SHA backfill), §9.12 (open Phase 10).
@@ -67,6 +77,7 @@ code in `src/ir/coalesce/`, regalloc.zig LIFO free-pool,
 **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline).
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
 §9.7 [x] (x86_64 SSE4.1+SSE4.2; 9.7-a..bb landed),
-§9.8 [x] (scope absorbed per ADR-0044), §9.9 NEXT (simd.wast
-spec test wiring).
+§9.8 [x] (scope absorbed per ADR-0044),
+§9.9 in-flight (9.9-a foundation landed per ADR-0045; 9.9-b
+NEXT populate manifest with lightweight starter set).
 **Branch**: `zwasm-from-scratch`。
