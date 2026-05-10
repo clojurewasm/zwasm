@@ -25,22 +25,19 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: `67aa0025` (§9.9 / 9.9-g-13 —
-  preventive `emitV128IntCmpUnsigned` `dst==lhs` alias fix).
-  See commit body for measured deltas.
-- **Note**: HEAD is past `67aa0025` by 4 meta-work commits
-  (`ddc9e54c..030ce80a`) — scaffolding split per §18.3
-  amendment + 2026-05-11 ADR audit response. Not §9.9 chunk
-  work; `git log --grep="§9.9"` for actual chunk anchor.
+- **Latest §9.9 landing**: `ee126013` (§9.9 / 9.9-g-14 —
+  `emitV128IntNe` `dst==rhs` alias fix; D-071 part c-actual
+  discharged). See commit body for measured deltas.
 - **Active row**: §9.9 (still `[ ]`). Closes when fail = skip = 0
   on the 3-host gate per the row's exit criterion.
 
 ## Next sub-chunk candidates (names only)
 
 - **D-071 (b)** — `i8x16.popcnt` x86_64 PSHUFB recipe debug.
-- **D-071 (c-actual)** — `i*x*.ne` family PCMPEQ+PXOR recipe.
 - **D-071 (a)** — `i64x2.mul` x86_64 PMULUDQ recipe debug.
 - **D-067** — bitmask validator-shape (lower + ARM64 emit).
+- **simd_lane residual ×6** on OrbStack — investigate whether
+  same root cause cluster as D-067 or distinct.
 - Aggregate `test-spec-simd` into `test-all` (preventive — surfaces
   silent x86_64 simd regressions in autonomous loop gating).
 
@@ -50,7 +47,9 @@ impossibility check (debt.md `blocked-by:` barriers).
 ## Open structural debt (pointers — see `.dev/debt.md`)
 
 - `now`: D-063 (call_indirect v128 Trap), D-071 (x86_64 SIMD
-  residuals — categorised in debt body, NOT here).
+  residuals — categorised in debt body, NOT here), D-077
+  (simd_assert_runner deinit panic on OrbStack — pre-existing,
+  surfaced 2026-05-11).
 - `blocked-by`: D-007 / D-010 / D-016 / D-018 / D-020 / D-021 /
   D-022 / D-026 / D-028 / D-052 / D-055 / D-057 / D-058 / D-059 /
   D-065 / D-070 / D-072 / D-073 / D-074 / D-075 / D-076 — barrier
