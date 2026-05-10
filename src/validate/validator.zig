@@ -737,32 +737,37 @@ const Validator = struct {
             //   124/125 i16x8.extadd_pairwise_i8x16_{s,u}
             //   126/127 i32x4.extadd_pairwise_i16x8_{s,u}
             //   128/129 i16x8.{abs,neg}
-            //   134..137 i16x8.extend_{low,high}_i8x16_{s,u}
+            //   135..138 i16x8.extend_{low,high}_i8x16_{s,u} (per spec
+            //            0x87..0x8A; the prior 134..137 numbering was
+            //            off-by-one — 9.9-g-7 corrects it.)
             //   160/161 i32x4.{abs,neg}
-            //   166..169 i32x4.extend_{low,high}_i16x8_{s,u}
+            //   167..170 i32x4.extend_{low,high}_i16x8_{s,u} (per spec
+            //            0xA7..0xAA; off-by-one corrected at 9.9-g-7).
             //   192/193 i64x2.{abs,neg}
-            //   199..202 i64x2.extend_{low,high}_i32x4_{s,u}
+            //   199..202 i64x2.extend_{low,high}_i32x4_{s,u} (per spec
+            //            0xC7..0xCA; numbering already correct).
             96, 97, 98,
             124, 125, 126, 127,
             128, 129,
-            134, 135, 136, 137,
+            135, 136, 137, 138,
             160, 161,
-            166, 167, 168, 169,
+            167, 168, 169, 170,
             192, 193,
             199, 200, 201, 202,
             => try self.opSimdUnop(),
             // Everything else in 94..211 stays binop (cmp / arith /
             // shifts / saturated arith / dot / extmul / etc.).
-            94, 95, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+            94, 95, 100, 101, 102, 103, 104, 105, 106, 110, 111,
             112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123,
-            130, 132, 133,
-            138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149,
+            130, 132, 133, 134,
+            142, 143, 144, 145, 146, 147, 148, 149,
             150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
-            162, 164, 165,
-            170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183,
+            162, 164, 165, 166,
+            174, 175, 176, 177, 178, 179, 180, 181, 182, 183,
             184, 185, 186, 187, 188, 189, 190, 191,
             194, 196, 197, 198,
-            203, 204, 205, 206, 207, 208, 209, 210, 211,
+            206, 207, 208, 209, 210, 211, // i64x2 add/.../sub etc.
+            // 213 i64x2.mul (per §9.9 / 9.9-f-8).
             213, // §9.9 / 9.9-f-8 — i64x2.mul (handler-side multi-instr synthesis on ARM64 since NEON has no MUL.2D).
             => try self.opSimdBinop(),
 
@@ -770,6 +775,22 @@ const Validator = struct {
             // i64x2.{eq, ne, lt_s, gt_s, le_s, ge_s}; spec only
             // defines signed cmp for the 64-bit lane shape.
             214, 215, 216, 217, 218, 219 => try self.opSimdBinop(),
+
+            // §9.9 / 9.9-g-7 — int shift family. Wasm SIMD shifts
+            // pop (i32_amount, v128_value), push v128. Per spec
+            // (BinarySIMD.md):
+            //   107..109 (0x6B..6D) i8x16.{shl, shr_s, shr_u}
+            //   139..141 (0x8B..8D) i16x8.{shl, shr_s, shr_u}
+            //   171..173 (0xAB..AD) i32x4.{shl, shr_s, shr_u}
+            //   203..205 (0xCB..CD) i64x2.{shl, shr_s, shr_u}
+            // ARM64 emit currently only handles shl; shr_s/shr_u
+            // surface as UnsupportedOp at compile (next chunk wires
+            // the NEG-then-(U|S)SHL synthesis).
+            107, 108, 109,
+            139, 140, 141,
+            171, 172, 173,
+            203, 204, 205,
+            => try self.opSimdShift(),
 
             // §9.9 / 9.9-g-3 — int all_true reductions (sub-ops 99 /
             // 131 / 163 / 195). i*x*.all_true pops v128, pushes i32.
@@ -885,6 +906,14 @@ const Validator = struct {
     fn opSimdBitselect(self: *Validator) Error!void {
         try self.popExpect(.v128);
         try self.popExpect(.v128);
+        try self.popExpect(.v128);
+        try self.pushType(.v128);
+    }
+
+    /// SIMD int shift (`i*x*.shl/shr_s/shr_u`): pop i32 amount,
+    /// pop v128 value, push v128. Wasm SIMD spec §3.3.6.
+    fn opSimdShift(self: *Validator) Error!void {
+        try self.popExpect(.i32);
         try self.popExpect(.v128);
         try self.pushType(.v128);
     }

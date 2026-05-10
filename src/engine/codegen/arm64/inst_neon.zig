@@ -369,6 +369,19 @@ pub fn encNeg2D(rd: Vn, rn: Vn) u32  { return 0x6EE0B800 | (@as(u32, rn) << 5) |
 pub fn encCnt16B(rd: Vn, rn: Vn) u32 { return 0x4E205800 | (@as(u32, rn) << 5) | @as(u32, rd); }
 
 // =====================================================================
+// Per-element shifts — `USHL Vd.<T>, Vn.<T>, Vm.<T>` (vector form).
+// Positive amount in Vm = shift left; negative = shift right (logical
+// for U, arithmetic for S). Wasm shl uses USHL with positive amount;
+// shr_u / shr_s use NEG-then-USHL/SSHL. Verified via `clang -arch
+// arm64`. Per Arm IHI 0055 §C7.2.412 (USHL) / §C7.2.331 (SSHL).
+// =====================================================================
+
+pub fn encUshl16B(rd: Vn, rn: Vn, rm: Vn) u32 { return 0x6E204400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUshl8H(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6E604400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUshl4S(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6EA04400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+pub fn encUshl2D(rd: Vn, rn: Vn, rm: Vn) u32  { return 0x6EE04400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd); }
+
+// =====================================================================
 // Across-lane reductions (UMAXV / UMINV) — Advanced SIMD across-lanes,
 // Q=1, U=1, opcode=01010 (UMAXV) or 11010 (UMINV). size selects lane:
 // 00=.16B, 01=.8H, 10=.4S. NEON has NO 2D form for these — i64x2

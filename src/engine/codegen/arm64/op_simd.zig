@@ -1077,6 +1077,65 @@ pub fn emitI64x2Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
+// §9.9 / 9.9-g-7 — int shift left (i*x*.shl)
+// ============================================================
+//
+// Wasm SIMD spec §3.3.6 (vector shift): `i*x*.shl` pops i32
+// amount + v128 value, pushes v128. Recipe: DUP V<tmp>.<T>,
+// W<amt> (broadcast scalar amount to all lanes), then USHL
+// V<d>.<T>, V<src>.<T>, V<tmp>.<T>. NEON USHL automatically
+// masks the shift to lane-element bitwidth (per Arm IHI 0055
+// §C7.2.412), matching Wasm's "amount mod lane_width" semantic.
+// shr_s / shr_u use the same shape but require NEG W<amt> first
+// (NEON treats negative amount as right-shift) — deferred to a
+// follow-up chunk.
+//
+// V29 = fp_spill_stage[0] reused as DUP destination scratch.
+// W<dup_tmp_w> via spill stage 0 GPR (X14 per abi.zig).
+
+fn emitV128IntShl(
+    ctx: *EmitCtx,
+    dup_encoder: *const fn (rd: u5, rn: u5) u32,
+    ushl_encoder: *const fn (rd: u5, rn: u5, rm: u5) u32,
+) Error!void {
+    const amt_vreg = ctx.pushed_vregs.pop().?;
+    // SPILL-EXEMPT: i32 amount; amount source is consumed by DUP into V29.
+    const amt_w = try gpr.resolveGpr(ctx.alloc, amt_vreg);
+
+    const src_vreg = ctx.pushed_vregs.pop().?;
+    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
+
+    const dup_v: u5 = 29; // fp_spill_stage[0]
+    try gpr.writeU32(ctx.allocator, ctx.buf, dup_encoder(dup_v, amt_w));
+    try gpr.writeU32(ctx.allocator, ctx.buf, ushl_encoder(result_v, src_v, dup_v));
+    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+pub fn emitI8x16Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShl(ctx, inst_neon.encDup16B, inst_neon.encUshl16B);
+}
+pub fn emitI16x8Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShl(ctx, inst_neon.encDup8H, inst_neon.encUshl8H);
+}
+pub fn emitI32x4Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShl(ctx, inst_neon.encDup4S, inst_neon.encUshl4S);
+}
+
+/// `i64x2.shl`: DUP V.2D takes X register (64-bit). The Wasm i32
+/// amount is in W<amt>; reading X<amt> implicitly zero-extends
+/// to 64-bit, which is correct for shl since amount is taken
+/// mod 64 (always non-negative for shl).
+pub fn emitI64x2Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try emitV128IntShl(ctx, inst_neon.encDupGen2D, inst_neon.encUshl2D);
+}
+
+// ============================================================
 // §9.9 / 9.9-g-3 — v128 reductions (any_true / all_true)
 // ============================================================
 //
