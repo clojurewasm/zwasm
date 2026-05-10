@@ -88,11 +88,12 @@ NAMES=(
   simd_lane
   # §9.9 / 9.9-g-5: scale corpus to v128.load*x*_* memory ops.
   # Sub-ops 1..6 are fully wired since §9.9-d-3 (load_extend
-  # family). simd_int_to_int_extend / simd_boolean deferred —
-  # they need extend_low/high (sub-ops 134..137/166..169) or
-  # bitmask emit handlers, neither yet wired (D-067-followup +
-  # extend-wiring chunk material).
+  # family).
   simd_load_extend
+  # §9.9 / 9.9-g-6: int extend ops (134..137/166..169/199..202).
+  # ZirOps + per-arch emit dispatch pre-existed; lower-side
+  # wiring landed in 9.9-g-6.
+  simd_int_to_int_extend
 )
 
 mkdir -p "$DEST"

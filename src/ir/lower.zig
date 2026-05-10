@@ -736,6 +736,26 @@ const Lowerer = struct {
             163 => try self.emit(.@"i32x4.all_true", 0, 0),
             195 => try self.emit(.@"i64x2.all_true", 0, 0),
 
+            // §9.9 / 9.9-g-6 — int extend ops. ZirOps + per-arch
+            // emit dispatch already exist (ARM64 NEON SXTL/UXTL,
+            // x86_64 SSE PMOVSXBW/PMOVZXBW etc.). Wasm SIMD spec
+            // sub-ops:
+            //   134..137 i16x8.extend_{low,high}_i8x16_{s,u}
+            //   166..169 i32x4.extend_{low,high}_i16x8_{s,u}
+            //   199..202 i64x2.extend_{low,high}_i32x4_{s,u}
+            134 => try self.emit(.@"i16x8.extend_low_i8x16_s", 0, 0),
+            135 => try self.emit(.@"i16x8.extend_high_i8x16_s", 0, 0),
+            136 => try self.emit(.@"i16x8.extend_low_i8x16_u", 0, 0),
+            137 => try self.emit(.@"i16x8.extend_high_i8x16_u", 0, 0),
+            166 => try self.emit(.@"i32x4.extend_low_i16x8_s", 0, 0),
+            167 => try self.emit(.@"i32x4.extend_high_i16x8_s", 0, 0),
+            168 => try self.emit(.@"i32x4.extend_low_i16x8_u", 0, 0),
+            169 => try self.emit(.@"i32x4.extend_high_i16x8_u", 0, 0),
+            199 => try self.emit(.@"i64x2.extend_low_i32x4_s", 0, 0),
+            200 => try self.emit(.@"i64x2.extend_high_i32x4_s", 0, 0),
+            201 => try self.emit(.@"i64x2.extend_low_i32x4_u", 0, 0),
+            202 => try self.emit(.@"i64x2.extend_high_i32x4_u", 0, 0),
+
             else => return Error.NotImplemented,
         }
     }
