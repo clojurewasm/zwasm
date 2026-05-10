@@ -1,7 +1,7 @@
 ---
 name: Scaffolding auto-load reduction (progressive disclosure for project rules)
-description: Apply skill-creator's progressive disclosure pattern to .claude/rules/, splitting reference-heavy rules into gate (auto-loaded, ≤70 LOC) + on-demand references/ + converting debug_jit to a skill. Targets ~55% reduction in per-Zig-edit auto-load context cost (1356 → ~608 LOC).
-status: Proposed
+description: Apply skill-creator's progressive disclosure pattern to .claude/rules/, splitting reference-heavy rules into gate (auto-loaded, ≤70 LOC) + on-demand references/ + converting debug_jit to a skill. Achieved ~69% reduction in per-Zig-edit auto-load context cost (1356 → 424 LOC), exceeding the 55% target.
+status: Accepted
 date: 2026-05-10
 ---
 
@@ -9,9 +9,11 @@ date: 2026-05-10
 
 ## Status
 
-Proposed (2026-05-10) — flips to Accepted in the same commit as the
-restructure lands, after subagent post-commit thorough audit
-confirms no normative content was lost.
+Accepted (2026-05-10) — restructure committed at `3d694d7f`;
+post-commit thorough audit confirmed no normative content was
+lost across the gate trim, all 7 reference files reachable from
+their gate pointer, all cross-references updated, ADR achieved
+numbers match reality.
 
 ## Context
 
@@ -282,10 +284,93 @@ spec required" carve-out.
 
 ## Self-review (subagent post-commit, 2026-05-10)
 
-*Filled in after the restructure commit lands. The Phase 5
-thorough audit's findings + remediation surface here. The ADR
-is upgraded from Proposed → Accepted only after this section
-confirms no normative content was lost.*
+An independent Explore subagent audited commit `3d694d7f`
+read-only against the pre-commit baseline `5f38430c`, with
+no edit privileges, producing
+`/tmp/scaffolding-postcommit-audit-2026-05-10.md` (306 lines,
+§A-§H structured).
+
+### §A — Load-bearing content (per-rule verdict)
+
+All six gate rules retain their core disciplines verbatim:
+
+- **`zig_tips.md`** (93 LOC): 5 lint-gate rules + project-canonical
+  surface (tagged union, ArrayList shape, `*std.Io.Writer`, stdout
+  pattern, etc.) preserved. Full 43-row API rename table + idiom
+  guide moved to references/, reachable from gate pointers at
+  L18 and L92.
+- **`textbook_survey.md`** (71 LOC): textbooks table + 5 Guards
+  one-liner + skip-criteria (3 AND) + brief survey procedure
+  intact. Full Guard expansion + "continuation of prior task"
+  narrow definition + v1 monolith trap + worked-examples table
+  → references/, linked at L48 and L70.
+- **`no_copy_from_v1.md`** (71 LOC): 3 axioms + 3-point why
+  section + exception list (testsuite, WASI, realworld,
+  wasm.h) preserved verbatim. Full examples + reviewer
+  checklist → references/, linked at L70.
+- **`no_workaround.md`** (46 LOC): 3 principles + forbidden
+  commit phrases + 4-condition workaround bar preserved.
+  Anti-patterns D116/W54/D117 + spike boundary + reviewer
+  checklist → references/, linked at L45.
+- **`spec_citation.md`** (79 LOC): citation format + 8-row
+  category table + "if Wasm spec changed, would this fn
+  change?" decision criterion preserved. Format examples +
+  audit_scaffolding grep mechanics + proposal-merge
+  staleness + anti-patterns → references/, linked at L78.
+- **`bug_fix_survey.md`** (53 LOC): 3-step procedure (shape /
+  grep / apply or document) + skip conditions + case study
+  D-027 preserved. Full procedure + historic instances (W54,
+  D014) + rule-interaction table + anti-patterns →
+  references/, linked at L52.
+- **`debug_jit.md`** (11 LOC stub, `paths: []`, no auto-load):
+  Full toolkit (8 tools / 6 recipes / decision tree / lessons-
+  ADR landing / living-doc meta) → `debug_jit_auto/SKILL.md`
+  (276 LOC), reachable from stub + cited in
+  `extended_challenge.md` L113-114.
+
+No CRITICAL findings. No WARN findings.
+
+### §B — Reference reachability (7/7 linked)
+
+All seven `references/*.md` files are reachable from their
+parent gate rule's pointer line; relative path `../references/`
+verified to resolve. All references correctly declare "Loaded
+on demand from <gate>; not auto-loaded." headers and lack
+`paths:` frontmatter.
+
+### §C — Cross-references updated
+
+- `extended_challenge.md` L113-114: old `rules/debug_jit.md`
+  citation updated to `skills/debug_jit_auto/SKILL.md`. ✓
+- No broken links to old paths in CLAUDE.md / handover.md /
+  debt.md / ROADMAP.md / other rules.
+
+### §D — ADR self-consistency
+
+- Achieved numbers (gate 424 + references 758 + skill 276)
+  match the actual filesystem state.
+- Phase 1-4 implementation complete per the plan.
+- Per-Zig-edit auto-load reduction: 1356 → 424 = **69%
+  reduction** on the rules tier, exceeding the 55% target.
+
+### §E — Verdict
+
+**READY-TO-ACCEPT.** No supplementary fix required.
+
+### Deferred follow-ups (not blocking ADR Accept)
+
+Surfaced during the audit but not required for landing:
+
+1. `scripts/check_rule_paths.sh` (still pending from ADR-0047
+   self-review §) — lint that catches drift between a rule's
+   body "Auto-loaded when..." line and its `paths:` frontmatter.
+   Phase 10 boundary deliverable.
+2. `scripts/check_skill_descriptions.sh` (also from 0047) —
+   measure skill description length / forbidden patterns.
+3. Consider per-reference auto-fetch hooks: when an Explore
+   subagent runs Step 0 on a task that touches a gate rule,
+   automatically pull in the matching `references/` file. Not
+   blocking; current pointer-based mechanism is acceptable.
 
 ## References
 
@@ -303,6 +388,7 @@ confirms no normative content was lost.*
 
 ## Revision history
 
-| Date       | Commit         | Note |
-|------------|----------------|------|
-| 2026-05-10 | `(this commit)` | Proposed: restructure executed; awaits Phase 5 thorough audit. |
+| Date       | Commit       | Note                                                                                                  |
+|------------|--------------|-------------------------------------------------------------------------------------------------------|
+| 2026-05-10 | `3d694d7f`   | Proposed: Phase 1-4 restructure landed (7 references, 1 skill, 6 gate-trim, 1 stub, 1 cross-ref).     |
+| 2026-05-10 | `(this commit)` | Accepted: Phase 5 thorough audit confirmed no normative loss; cross-references intact; 69% reduction. |
