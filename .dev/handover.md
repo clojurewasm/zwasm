@@ -10,6 +10,10 @@
 3. `.dev/debt.md` — D-063 / D-066 + D-065 + 11 `blocked-by:` rows.
 4. `.dev/lessons/INDEX.md` — keyword-grep for the active task domain.
 5. `.dev/decisions/0041_simd_128_design.md` (SSE4.2 baseline).
+6. **`.dev/decisions/0049_defer_windowsmini_to_phase_close_batch.md`**
+   — gate policy: per-chunk gate is Mac + OrbStack only;
+   windowsmini reconciles at Phase boundaries. Effective
+   from 2026-05-11.
 
 ## Current state — Phase 9 / §9.9 in-flight; **9.9-g-9 NEXT — corpus expansion (simd_boolean / simd_i8x16_arith2 / simd_i16x8_arith2 / simd_i32x4_arith2 / simd_i64x2_arith2) OR D-066 spike OR D-063 spike**
 
