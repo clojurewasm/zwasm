@@ -2735,11 +2735,22 @@ pub fn emitI64x2Eq(
 /// `PCMPEQB scratch, scratch` (any width works; byte chosen as
 /// shortest encoding) on `abi.fp_spill_stage_xmms[0]` (XMM14).
 ///
-/// Emit sequence (4 instructions plus optional MOVAPS preamble):
+/// Emit sequence (4 instructions plus optional MOVAPS preamble +
+/// optional rhs-stash for the `dst==rhs` alias case):
+///   MOVAPS xmm7, rhs           ; only when dst!=lhs && dst==rhs
 ///   MOVAPS dst, lhs            ; only when dst != lhs
-///   <PCMPEQ_eq> dst, rhs       ; per-shape encoder
+///   <PCMPEQ_eq> dst, rhs_op    ; per-shape encoder; rhs_op = xmm7 when stashed
 ///   PCMPEQB scratch, scratch   ; build all-ones mask
 ///   PXOR    dst, scratch       ; flip every bit → ne result
+///
+/// Aliasing safety (D-071 part c-actual; mirrors the D-066 guard
+/// already present in `emitV128IntCmpSigned` / `emitV128IntCmpUnsigned`):
+/// regalloc's LIFO slot-reuse can place `result_v` in the same
+/// physical XMM as `rhs_v`. Naive `MOVAPS dst, lhs` would clobber
+/// rhs before PCMPEQ reads it, leaving the comparison to read
+/// `lhs ?== lhs` → all-ones, which the trailing PXOR with
+/// all-ones flips to all-zeros. Stash through XMM7 (project SIMD
+/// scratch) when the alias is detected.
 fn emitV128IntNe(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -2760,10 +2771,15 @@ fn emitV128IntNe(
     const dst_x = try gpr.resolveXmm(alloc, result_v);
     const ones = abi.fp_spill_stage_xmms[0]; // XMM14 — all-ones scratch
 
+    var rhs_for_op = rhs_x;
+    if (dst_x != lhs_x and dst_x == rhs_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, rhs_x).slice());
+        rhs_for_op = .xmm7;
+    }
     if (dst_x != lhs_x) {
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, lhs_x).slice());
     }
-    try buf.appendSlice(allocator, encoder_eq(dst_x, rhs_x).slice());
+    try buf.appendSlice(allocator, encoder_eq(dst_x, rhs_for_op).slice());
     try buf.appendSlice(allocator, inst.encPcmpeqB(ones, ones).slice());
     try buf.appendSlice(allocator, inst.encPxor(dst_x, ones).slice());
     try pushed_vregs.append(allocator, result_v);

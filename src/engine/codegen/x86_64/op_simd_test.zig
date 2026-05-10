@@ -1118,6 +1118,46 @@ test "emitI64x2Ne: dispatches to PCMPEQQ (SSE4.1 0x29)" {
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
+// D-071 part c (actual): IntNe lacked the dst==rhs alias guard that
+// IntCmpSigned / IntCmpUnsigned already carry. When regalloc's LIFO
+// slot-reuse aliases `dst == rhs` (and dst != lhs), the unguarded
+// `MOVAPS dst, lhs` clobbers rhs before `PCMPEQ dst, rhs` reads it,
+// leaving PCMPEQ to compare lhs with itself → all-ones, which the
+// trailing PXOR with all-ones flips to all-zeros (the symptom seen
+// in simd_i16x8_cmp / simd_i32x4_cmp `ne` fixtures on OrbStack
+// x86_64). Stash rhs through XMM7 (project SIMD scratch).
+test "emitI16x8Ne: dst aliases rhs — stash rhs to XMM7 before PCMPEQW (D-071 part c-actual)" {
+    var slot_ids = [_]u16{ 0, 1, 1 }; // result vreg 2 → XMM9 (== rhs).
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 3,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0);
+    try pushed.append(testing.allocator, 1);
+    var next_vreg: u32 = 2;
+
+    try op_simd.emitI16x8Ne(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    const ones = abi.fp_spill_stage_xmms[0];
+    // Stash rhs (XMM9) to XMM7, then MOVAPS dst, lhs, PCMPEQW dst,
+    // xmm7 (original rhs), build all-ones mask, PXOR to invert.
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm7, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqW(.xmm9, .xmm7).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(ones, ones).slice());
+    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm9, ones).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
 test "emitF64x2Splat: PSHUFD dst, src, 0x44 — broadcast low qword" {
     var slot_ids = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{
