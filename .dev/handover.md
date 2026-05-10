@@ -13,32 +13,33 @@
 5. `.dev/decisions/0041_simd_128_design.md` (SSE4.2 baseline post-9.7-m
    amendment).
 
-## Current state — Phase 9 / §9.9 in-flight; **9.9-f-2 NEXT — block-type decoder v128 widening (unblocks simd_bitwise.17 + simd_const.386 BadBlockType) OR scale to next fixture (simd_f32x4_arith / simd_i32x4_arith)**
+## Current state — Phase 9 / §9.9 in-flight; **9.9-f-3 NEXT — v128 merge MOV in `arm64/op_control.zig:emitEndIntra` (unblocks simd_const.386 + scales to multi-arm-result-v128 fixtures)**
 
-9.9-f-1 (`b7fe37ee`): scaled corpus to simd_bitwise; 5 structural
-changes — (v128,v128)→v128 entry helper + runner dispatch arm;
-validator split for prefix-FD 77 (unop) + 82 (3-pop bitselect);
-lower-side wiring for 78..82; ARM64 NEON emit handlers for
-v128.{not,and,or,xor,andnot,bitselect}; 4 new NEON encoders
-(encAnd16B, encBic16B, encEor16B, encMvn16B).
+9.9-f-2 (`a968a84d`): two-line fix — extend `validator.readBlockType`
++ `lower.readBlockArity` to accept -5 (0x7B) → v128 single
+valtype block result. Per Wasm spec §5.3.5 blocktype encoding;
+was missing in the -1..-4 (i32/i64/f32/f64) switch.
 
-**Mac aarch64 simd_assert_runner totals after 9.9-f-1**:
-**381 PASS** (was 257, +124) / **4 FAIL** (was 3, +1) /
-338 SKIP. Tests: 1552/1564 (+4 encoder tests). OrbStack
-1536/1564.
+**Mac aarch64 simd_assert_runner totals after 9.9-f-2**:
+**394 PASS** (was 381, +13) / **3 FAIL** (was 4, -1) /
+325 SKIP. simd_bitwise.17 unblocked. simd_const.386 moved
+past validator into emit-side UnsupportedOp.
 
-Residual 4 fails:
-- simd_bitwise.17 BadBlockType — `block (result v128)` shape
-- simd_const.386 BadBlockType — same family
-- simd_const.388 BadValType — separate
+Residual 3 fails:
+- simd_const.386 emit UnsupportedOp — `arm64/op_control.zig:
+  emitEndIntra` merge MOV uses GPR helpers; v128 result
+  needs `qLoadSpilled` / `encMovV16B`. Concrete next chunk.
+- simd_const.388 BadValType — separate parse-side gap
 - simd_const.389 NotImplemented — separate
 
-**Next — 9.9-f-2**: investigate the BadBlockType failure
-shape. Likely the block-type decoder (`parse/sections.zig`
-or `validate/validator.zig`) doesn't accept v128 as a valid
-block result type. Single-line fix candidate. Followup is
-9.9-f-3+: scale to simd_f32x4_arith / simd_i32x4_arith /
-etc. with similar (v128, v128) → v128 binop shapes.
+**Next — 9.9-f-3**: extend `emitEndIntra`'s merge MOV to
+type-aware dispatch. Track the result type per-arity slot
+(via the label or pushed-vreg shape_tag); for v128 slots
+emit `qLoadSpilled(else_result, stage 1)` + `qDefSpilled
+(merge_vreg, stage 0)` + `encMovV16B(merge_reg, else_reg)`
++ `qStoreSpilled(merge_vreg, 0)`. The same widening must
+apply to br/br_if's branch-fixup result marshal if those
+also touch the merge.
 
 After §9.9: §9.10 (smoke benches + gap analysis), §9.11
 (audit + SHA backfill), §9.12 (open Phase 10).
@@ -62,6 +63,6 @@ code in `src/ir/coalesce/`, regalloc.zig LIFO free-pool,
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
 §9.7 [x] (x86_64 SSE4.1+SSE4.2; 9.7-a..bb landed),
 §9.8 [x] (scope absorbed per ADR-0044),
-§9.9 in-flight (9.9-a..c + 9.9-d-1..7 + 9.9-e-1..2 + 9.9-f-1
-landed; 9.9-f-2 NEXT — BadBlockType / v128 block result).
+§9.9 in-flight (9.9-a..c + 9.9-d-1..7 + 9.9-e-1..2 + 9.9-f-1..2
+landed; 9.9-f-3 NEXT — v128 merge MOV in emitEndIntra).
 **Branch**: `zwasm-from-scratch`。
