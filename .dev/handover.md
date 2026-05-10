@@ -25,18 +25,21 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: `252a1355` (§9.9 / 9.9-g-15 —
-  `emitI8x16Popcnt` `dst==src` alias fix; D-071 part b
-  discharged). See commit body for measured deltas.
+- **Latest §9.9 landing**: `e4386604` (§9.9 / 9.9-g-16 —
+  `emitI64x2Mul` `dst==rhs` alias fix; D-071 part a discharged.
+  All a/b/c-actual D-066 mirror clusters now closed). See
+  commit body for measured deltas.
 - **Active row**: §9.9 (still `[ ]`). Closes when fail = skip = 0
   on the 3-host gate per the row's exit criterion.
 
 ## Next sub-chunk candidates (names only)
 
-- **D-071 (a)** — `i64x2.mul` x86_64 PMULUDQ recipe debug.
 - **D-067** — bitmask validator-shape (lower + ARM64 emit).
-- **simd_lane residual ×6** on OrbStack — investigate whether
-  same root cause cluster as D-067 or distinct.
+  Covers simd_boolean.0 + simd_bitwise.17 + simd_lane.140 +
+  the simd_lane ×6 cluster (likely same root family — verify
+  via /tmp/claude-501/orb-mul.log fail samples first chunk).
+- **simd_lane residual ×6** — if distinct from D-067, separate
+  investigation.
 - Aggregate `test-spec-simd` into `test-all` (preventive — surfaces
   silent x86_64 simd regressions in autonomous loop gating).
 
