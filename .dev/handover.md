@@ -13,43 +13,36 @@
 5. `.dev/decisions/0041_simd_128_design.md` (SSE4.2 baseline post-9.7-m
    amendment).
 
-## Current state — Phase 9 / §9.9 in-flight; **9.9-d-4 NEXT — investigate `(i32)→v128` runtime miscompile + close residual ARM64 emit gaps**
+## Current state — Phase 9 / §9.9 in-flight; **9.9-d-5 NEXT — bundle ARM64 select_v128 + v128.load_lane / v128.store_lane (9 ops) + investigate residual 21 value-mismatches**
 
-9.9-d-3 (`a4a1b032`): bundle 12 ARM64 v128 mem ops sharing
-`v128MemPrologue`. 4 new LD1R encoders in `inst_neon.zig`
-(verified via clang-as). Shared scaffolding helper
-`emitV128LoadFamily(ctx, ins, access_size, emit_tail)` in
-`op_simd.zig`. Tail shapes: load_zero → LDR S/D; load_splat
-→ ADD X16,X28,X16 + LD1R; load_extend → LDR D + SXTL/UXTL.
-Compile-stage UnsupportedOp count 14 → 3.
+9.9-d-4 (`3aaed99f`): fix arm64 function-level `end` handler's
+v128 return marshal (was missed in 9.9-b). The `.return` op
+handler had the correct `.v128 →` arm but the function-level
+`.end` handler classified v128 as `is_fp = false` and routed
+through the GPR path. Spike via debug prints in the runner +
+disassembling the JIT body confirmed `MOV X0, Xn` was being
+emitted instead of `MOV V0.16B, Vn.16B`. Lesson:
+[`fn-end-vs-return-parallel-handlers`](lessons/2026-05-10-fn-end-vs-return-parallel-handlers.md).
 
-**Mac aarch64 simd_assert_runner totals after 9.9-d-3**:
-62 PASS / 200 FAIL / 296 SKIP. Residual:
-- 3 compile UnsupportedOp — select_v128 (simd_select.0) +
-  v128.load_lane / v128.store_lane (8 ops).
-- 26 simd_address runtime mismatches: `(i32)→v128` returns
-  bytes that look like a `[]const u32` slice header with
-  `len=12` matching `simd_address.0.wasm`'s func count,
-  hinting X28 is being routed to func_offsets metadata
-  rather than vm_base under this calling shape. Either a
-  runner-side data-segment gap (runner doesn't call
-  setupRuntime — only memset's scratch_memory) OR a
-  JIT-prologue routing issue. Needs spike investigation.
-- ~158 simd_const value-mismatches — FP NaN canonicalization
-  / specific lane encodings (deferred to 9.9-d-N FP-cluster).
-- 1 BadBlockType / 1 BadValType / 1 NotImplemented — small
-  validator surfaces.
+**Mac aarch64 simd_assert_runner totals after 9.9-d-4**:
+62 → **226 PASS** / 200 → **36 FAIL** / 296 SKIP. PASS +164,
+FAIL -164.
 
-**Next — 9.9-d-4**: spike on the `(i32)→v128` runtime issue
-first (cheap to discriminate runner-side vs JIT-side: write a
-minimal i32-arg test against the existing v128 entry helper +
-print rt.vm_base before/after the call). Then either fix the
-runner (apply data segments via setupRuntime) or fix the JIT
-(if X28 routing under this shape is broken).
+Residual 36 fails:
+- 3 compile UnsupportedOp — select_v128 + load_lane / store_lane.
+- 21 value-mismatch (`got v128`) — small enough to inspect
+  case-by-case after 9.9-d-5 lands the missing emit handlers
+  (some may be unblocked by select_v128 wiring; others likely
+  FP NaN canonicalization).
+- 3 small validator surfaces (BadBlockType / BadValType /
+  NotImplemented).
+- The remaining 9 likely cluster around assert_invalid /
+  assert_trap shapes the runner partially supports.
 
-After 9.9-d-4 spike: bundle select_v128 + load_lane + store_lane
-(9 ops in one chunk; all small). After that, 9.9-d-5 attacks
-the simd_const FP cluster.
+**Next — 9.9-d-5**: bundle the 9 missing emit handlers per
+chunk-granularity rule (same shape — all ARM64 v128
+mem-or-select ops; small, sharing v128MemPrologue or a
+similar scaffold for store_lane / load_lane).
 
 Subsequent §9.9 chunks per ADR-0045:
 - 9.9-e: v128 PARAM marshal per ADR-0046 (unblocks multi-arg
@@ -79,6 +72,6 @@ code in `src/ir/coalesce/`, regalloc.zig LIFO free-pool,
 §9.5 [x] (ARM64 NEON pt 1), §9.6 [x] (ARM64 NEON pt 2),
 §9.7 [x] (x86_64 SSE4.1+SSE4.2; 9.7-a..bb landed),
 §9.8 [x] (scope absorbed per ADR-0044),
-§9.9 in-flight (9.9-a..c + 9.9-d-1..3 landed; 9.9-d-4 NEXT —
-spike (i32)→v128 runtime miscompile, then close residual emit gaps).
+§9.9 in-flight (9.9-a..c + 9.9-d-1..4 landed; 9.9-d-5 NEXT —
+ARM64 select_v128 + load_lane / store_lane bundle).
 **Branch**: `zwasm-from-scratch`。
