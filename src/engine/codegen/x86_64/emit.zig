@@ -76,19 +76,6 @@ const LabelKind = label_mod.LabelKind;
 const Fixup = label_mod.Fixup;
 const Label = label_mod.Label;
 
-/// Centralised diagnostic helper for `Error.UnsupportedOp` rejects
-/// in this orchestrator. Every silent `return Error.UnsupportedOp`
-/// path goes through this so the spec_assert / test runner outputs
-/// surface **which** structural reason fired (not just the bare
-/// error name). Mirror of the per-arch reject pattern; ARM64 has
-/// equivalent prints scattered inline. Centralising avoids the
-/// "reject in 12 places, print in 0" gap that blocked the chunk
-/// 14b probe.
-fn rejectUnsupported(reason: []const u8, func_idx: u32) Error {
-    std.debug.print("x86_64/emit: UnsupportedOp[{s}] (func_idx={d})\n", .{ reason, func_idx });
-    return Error.UnsupportedOp;
-}
-
 /// §9.7 / 7.10-f mirror of `arm64/emit.zig:computeOutgoingMaxBytes`.
 /// Pre-scan the function body for the worst-case outgoing-args
 /// region size at the bottom of the caller's frame (`[RSP, #0]`
@@ -1473,7 +1460,23 @@ pub fn compile(
                                 try buf.appendSlice(allocator, inst.encMovapsXmmXmm(abi.return_xmm, src_x).slice());
                             }
                         },
-                        .v128 => return rejectUnsupported("return-v128", func.func_idx),
+                        .v128 => {
+                            // Mirror the function-level `end` v128 case
+                            // below (per ADR-0046 / §9.9-b). MOVAPS XMM0,
+                            // src_x copies all 128 bits per Intel SDM
+                            // Vol 2A. resolveXmm avoids spill-staging's
+                            // MOVSD truncation; spilled v128 surfaces
+                            // UnsupportedOp explicitly. The ARM64
+                            // counterpart at `arm64/emit.zig:1150`
+                            // already lands the same shape; this arm
+                            // closes the x86_64 gap for explicit
+                            // `return` opcodes (vs implicit
+                            // function-level end already wired).
+                            const src_x = try gpr.resolveXmm(alloc, top);
+                            if (src_x != abi.return_xmm) {
+                                try buf.appendSlice(allocator, inst.encMovapsXmmXmm(abi.return_xmm, src_x).slice());
+                            }
+                        },
                     }
                 }
                 if (frame_bytes > 0) {
