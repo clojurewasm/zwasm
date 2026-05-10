@@ -628,9 +628,10 @@ Never `git commit --no-verify` (forbidden by ROADMAP §14).
    input); a plain non-fast-forward after rebase means a parallel
    non-bench commit landed — retry the same `pull --rebase +
    push` once before stopping.
-6. **Re-arm** the loop with `ScheduleWakeup` (see
-   "Self-perpetuation" for the call shape and `delaySeconds`
-   choice). This is mandatory.
+6. **Re-arm** the loop with `ScheduleWakeup(delaySeconds=60,
+   prompt="/continue")`. Always 60s — see LOOP.md
+   "Self-perpetuation" for the full call shape. This is
+   mandatory.
 7. Final user-facing text: one sentence. State the closed task
    id and the next task id. Do not write a status table.
 

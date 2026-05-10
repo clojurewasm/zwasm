@@ -213,7 +213,7 @@ of the turn is to schedule the next iteration so the loop survives
 without a fresh user message. **This is mandatory** — skipping it
 silently re-introduces user-babysitting.
 
-Use `ScheduleWakeup`:
+Use `ScheduleWakeup` with **`delaySeconds = 60` always**:
 
 ```
 ScheduleWakeup(
@@ -234,16 +234,7 @@ way.)
 a fresh session, load its schema via
 `ToolSearch(query="select:ScheduleWakeup", max_results=1)` once
 before the first call; subsequent calls in the same session do
-not need re-loading. Pick `delaySeconds` per the cache-window
-rule:
-
-- **60–270s** when work is actively flowing — Step 5 finished
-  green, Step 6 + 7 just landed, and the next task is small. Keeps
-  the prompt cache warm.
-- **1200–1800s** when a long subagent / build / audit was just
-  kicked off in the background and you need to wait for it.
-- Never choose 300s — pay the cache miss properly or stay under
-  it.
+not need re-loading.
 
 If the user replies between iterations, that is automatic
 intervention — the wakeup is consumed by the new turn and the
