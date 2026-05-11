@@ -50,11 +50,12 @@
    chunk deferred until all 4 tracks resolve (per
    `phase10_prep.md` §"After all 4 tracks complete").
 2. **Track B — D-057 / D-065 source-split partition** —
-   **DELIVERABLE LANDED, AWAITING USER DECISION** at
-   `.dev/phase10_prep/track_b_source_split.md` (5 files over §A2
-   cap; proposed 3-way split per heavy file × 2 arches = 6
-   migration chunks; ADR-0054 draft + partition tables + open
-   questions §8 on granularity/naming/helpers).
+   **DECIDED 2026-05-12**: 4-way source split + 4-way test
+   mirror (`<source>_test.zig` suffix) + 3-way encoder split,
+   single ADR-0054, tiered pub. 6 migration chunks
+   (9.9-h-15..-20). Legacy `emit_test_int/float.zig` deferred
+   to new debt D-081 (filed at chunk 9.9-h-20). Deliverable:
+   `.dev/phase10_prep/track_b_source_split.md` §9.
    (`op_simd.zig` 4554 + `inst_neon.zig` 2249 +
    `op_simd_test.zig` 2624 vs §A2 cap 2000). Output: partition
    table + ADR-0054 draft skeleton. See §"Track B".

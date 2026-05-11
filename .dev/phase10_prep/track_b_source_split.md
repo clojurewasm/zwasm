@@ -1,6 +1,10 @@
 # Phase 10 prep — Track B: D-057 / D-065 source-split partition
 
-> Status: **DRAFT — awaiting user partition approval**
+> Status: **DECIDED — 5 design choices confirmed**
+> (Q1=4-way, Q2=single ADR, Q3=4-way mirror + `_test.zig` suffix,
+> Q4=`_int`/`_float`, Q5=tiered pub). See §8 for resolved
+> questions and §9 for the decision record table.
+> Decision date: 2026-05-12 (user-confirmed in prep mode session)
 > Date: 2026-05-12
 > Author: autonomous `/continue` loop, Phase 10 prep mode
 > Path note: relocated from `private/notes/p10-prep-track-b-…`
@@ -114,62 +118,97 @@ acceptable but bounded. With 2700 LOC across 91 tests, the file
 warrants a family split to align with the source split,
 otherwise the test↔handler 1:1 navigation breaks.
 
-## §4. Proposed partition
+## §4. Proposed partition (DECIDED)
 
 ### §4.1 Strategy summary
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| ADR shape | **Single ADR-0054** covering both x86_64 and arm64 (5 files together) | D-057/D-065 are co-derived from the same gate-dormancy lesson; one ADR keeps the design rationale unified |
-| Primary split target | Each file ≤ 1800 LOC post-split (~90% of cap, leaving headroom) | Single migration; no second-pass needed for normal Phase 10 growth |
-| Granularity | **3-way per heavy file** (orchestrator + int + fp) | Matches op_simd.zig's natural class boundary (V128/I/F prefix); avoids ADR-0030's "too-fine family split" deferral problem |
-| Test split | Mirror source split (3-way per arch) | Test↔handler navigation preserved |
-| Encoder split (inst_sse / inst_neon) | 3-way by encoder family | Memory/reg-move foundation + arith + lane/cmp; matches functional grouping visible in current file order |
+| Decision        | Choice                                                                                                                                                            | Rationale                                                                                                            |
+|-----------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| ADR shape       | **Single ADR-0054** covering both x86_64 and arm64 (5 files together)                                                                                             | D-057/D-065 are co-derived from the same gate-dormancy lesson; one ADR keeps the design rationale unified            |
+| Granularity     | **4-way per heavy `op_simd.zig` file** (orchestrator + `op_simd_int_arith` + `op_simd_int_cmp_lane` + `op_simd_float`)                                            | 3-way would leave `op_simd_int.zig` at ~1900 LOC (soft-cap re-breach in Phase 10 with GC reftype / memory64 adds). 4-way matches the no-drift principle inherited from Track A |
+| Encoder split   | **3-way per encoder file** (`inst_sse` → foundation + packed + scalar; `inst_neon` → foundation + arith + lane_cmp)                                                | Encoder family grouping visible in current file order; no further sub-split needed                                   |
+| Test split      | **4-way mirror of source** with strict **`<source>_test.zig` suffix** naming                                                                                       | Source↔test 1:1 navigation; Zig idiomatic suffix convention                                                          |
+| File naming     | **`_int_arith` / `_int_cmp_lane` / `_float`** (matches existing `emit_test_int.zig` / `emit_test_float.zig` precedent: `_int` + `_float`)                          | Codebase consistency with existing `_int` + `_float` precedent                                                       |
+| Helper visibility | **Tiered pub**: cross-class primitives `pub` in `op_simd.zig`; class-internal recipes stay `fn` in their class file                                              | `pub` keyword itself signals intent (primitive vs recipe); no doc-comment ceremony                                   |
+| Legacy `emit_test_int.zig` / `emit_test_float.zig` | **Left as-is** in Track B scope; rename deferred to D-052 prologue-extract or new debt row                                                       | Source `emit.zig` is monolithic; renaming `emit_test_int.zig` → `emit_int_test.zig` would imply non-existent `emit_int.zig` source |
 
 ### §4.2 Partition table — x86_64
 
-| Current file → New file                              | Op group / handler list                                                                | LOC est. |
-|------------------------------------------------------|----------------------------------------------------------------------------------------|----------|
-| `op_simd.zig` (kept; orchestrator)                   | `emitConstLoad`, `v128MemPrologue`, `v128LoadExtend/Lane`, `v128StoreLane`, `emitV128IntBinop`, all `emitV128*` handlers (mem + bitwise) | ~1100    |
-| `op_simd_int.zig` (new)                              | All `emitI*` handlers (152 fns) + `emitV128IntCmpSigned/Unsigned`, `emitV128IntShift`, `emitV128IntNeg`, `emitV128IntNe`, `emitV128ExtendLow/High`, `emitV128AllTrue` | ~1900    |
-| `op_simd_fp.zig` (new)                               | All `emitF*` handlers (54 fns) + `emitV128FpCmp`, `emitV128FpUnop`, `emitV128FpMin/Max`, `emitV128FpAbs/Neg/Round` | ~1600    |
-| `op_simd_test.zig` (kept; aggregator)                | Cross-cutting V128 mem/bitwise tests + import statements for split test files          | ~600     |
-| `op_simd_test_int.zig` (new)                         | Int arith/cmp/shift/lane/extend/narrow/popcnt/bitmask tests                            | ~1100    |
-| `op_simd_test_fp.zig` (new)                          | FP arith/cmp/min-max/lane/convert/round tests                                          | ~1000    |
-| `inst_sse.zig` (kept; foundation)                    | `EncodedInsn` struct, mem load/store XMM, MOV register-shape, scalar cvt helpers       | ~1100    |
-| `inst_sse_packed.zig` (new)                          | All `encP*` packed binary encoders (PADD/PSUB/PMUL/PCMP/PMIN/PMAX/PAND/POR/PXOR/PSHUFB/PSHUFD/PSLL/PSRL/PSRA/PEXTR/PINSR/etc.) | ~900     |
-| `inst_sse_scalar.zig` (new)                          | `encSseScalarBinary`, `encUcomi{ss,sd}`, `encRoundss/sd`, `encSsePackedBinary`, FP convert encoders | ~500     |
+**Source** (`op_simd.zig` 4-way + `inst_sse.zig` 3-way):
+
+| Current file → New file               | Op group / handler list                                                                                                                                                                                  | LOC est. | Helpers `pub` (tiered) |
+|---------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|------------------------|
+| `op_simd.zig` (kept; orchestrator)    | `emitConstLoad`, `v128MemPrologue`, `v128LoadExtend/Lane`, `v128StoreLane`, `emitV128IntBinop`, `emitV128AllTrue`, all `emitV128*` handlers (mem + bitwise + bitselect + Not/And/Or/Xor/Andnot)         | ~1100    | `pub`: `v128MemPrologue`, `emitV128IntBinop`, `v128LoadExtend`, `v128LoadLane`, `v128StoreLane`, `emitV128AllTrue` (cross-class primitives) |
+| `op_simd_int_arith.zig` (new)         | i8x16/i16x8/i32x4/i64x2 ADD/SUB/MUL + sat arith + shift (Shl/ShrS/ShrU) + Neg/Abs + min/max + avgr + popcnt; helpers: `emitV128IntShift`, `emitV128IntNeg`, related recipes                              | ~1100    | All recipe helpers `fn` |
+| `op_simd_int_cmp_lane.zig` (new)      | Int cmp (Eq/Ne/GtS/LtS/LeS/GeS/GtU/LtU/LeU/GeU) + lane (splat/extract/replace) + extend/narrow + extadd-pairwise + extmul + bitmask + AllTrue; helpers: `emitV128IntCmpSigned/Unsigned`, `emitV128IntNe`, `emitV128ExtendLow/High` | ~1300    | All recipe helpers `fn` |
+| `op_simd_float.zig` (new)             | All `emitF*` handlers (54 fns: arith + cmp + lane + convert + round + neg/abs/sqrt + pmin/pmax); helpers: `emitV128FpCmp`, `emitV128FpUnop`, `emitV128FpMin/Max`, `emitV128FpAbs/Neg/Round`              | ~1500    | All recipe helpers `fn` |
+| `inst_sse.zig` (kept; foundation)     | `EncodedInsn` struct, mem load/store XMM (F32/F64/V128 RBP/RSP/MemBaseIdx variants), MOV register-shape (MOVAPS/MOVUPS/MOVD/MOVQ), scalar cvt helpers (Cvttss/Cvtsi2)                                     | ~1100    | (unchanged)            |
+| `inst_sse_packed.zig` (new)           | All `encP*` packed binary encoders (PADD/PSUB/PMUL/PCMP/PMIN/PMAX/PAND/POR/PXOR/PANDN/PSHUFB/PSHUFD/PSLL/PSRL/PSRA/PEXTR/PINSR/PMOVMSKB/PTEST etc.)                                                       | ~900     | (unchanged)            |
+| `inst_sse_scalar.zig` (new)           | `encSseScalarBinary`, `encUcomi{ss,sd}`, `encRoundss/sd`, `encSsePackedBinary`, FP packed shapes ADD/SUB/MUL/DIV/MIN/MAX/CMP/SQRT (PS/PD variants)                                                         | ~500     | (unchanged)            |
+
+**Tests** (`op_simd_test.zig` 4-way mirror + strict `_test.zig` suffix):
+
+| Current file → New file                       | Test groups                                                                                       | LOC est. |
+|-----------------------------------------------|---------------------------------------------------------------------------------------------------|----------|
+| `op_simd_test.zig` (kept; aggregator)         | V128 mem + bitwise + bitselect tests + import statements for sibling test modules                 | ~400     |
+| `op_simd_int_arith_test.zig` (new)            | int arith / sat / shift / min-max / neg/abs / avgr / popcnt tests                                 | ~700     |
+| `op_simd_int_cmp_lane_test.zig` (new)         | int cmp (signed + unsigned) + lane (splat/extract/replace) + extend/narrow + bitmask + AllTrue + alias-stash tests | ~900     |
+| `op_simd_float_test.zig` (new)                | FP arith + cmp + min-max NaN-correction + lane + convert + round + pmin/pmax tests                | ~700     |
 
 ### §4.3 Partition table — arm64
 
-| Current file → New file                | Op group / handler list                                                  | LOC est. |
-|----------------------------------------|--------------------------------------------------------------------------|----------|
-| `op_simd.zig` (kept; orchestrator)     | Helpers + all `emitV128*` handlers (mem + bitwise)                       | ~650     |
-| `op_simd_int.zig` (new)                | All `emitI*` handlers (126 fns) + int-shared helpers                     | ~1200    |
-| `op_simd_fp.zig` (new)                 | All `emitF*` handlers (54 fns) + FP-shared helpers                       | ~700     |
-| `inst_neon.zig` (kept; foundation)     | Memory (LDR/STR Q-form, LD1R), reg-move (ORR/MOV/DUP/AND/BIC/EOR/MVN), Q-shape helpers | ~700     |
-| `inst_neon_arith.zig` (new)            | ADD/SUB/MUL/MIN/MAX/ABS/NEG/CNT/AVGR/sat-arith encoders (per-shape variants) | ~900    |
-| `inst_neon_lane_cmp.zig` (new)         | UMOV/SMOV/INS lane access + CMEQ/CMGT/CMHI/CMHS comparison + extract/replace | ~750     |
+**Source** (`op_simd.zig` 4-way + `inst_neon.zig` 3-way):
 
-### §4.4 Why this granularity, not finer
+| Current file → New file                | Op group / handler list                                                                                                       | LOC est. | Helpers `pub` (tiered) |
+|----------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|----------|------------------------|
+| `op_simd.zig` (kept; orchestrator)     | Helpers + all `emitV128*` handlers (mem + bitwise)                                                                            | ~500     | Cross-class primitives `pub` (mirror x86_64 shape) |
+| `op_simd_int_arith.zig` (new)          | Int ADD/SUB/MUL + sat + shift + min/max + neg/abs + avgr + popcnt                                                              | ~600     | recipe helpers `fn`    |
+| `op_simd_int_cmp_lane.zig` (new)       | Int cmp + lane access + extend/narrow + bitmask + AllTrue                                                                      | ~600     | recipe helpers `fn`    |
+| `op_simd_float.zig` (new)              | All `emitF*` handlers (54 fns)                                                                                                | ~600     | recipe helpers `fn`    |
+| `inst_neon.zig` (kept; foundation)     | Memory (LDR/STR Q-form, LD1R), reg-move (ORR/MOV/DUP/AND/BIC/EOR/MVN), Q-shape helpers                                        | ~700     | (unchanged)            |
+| `inst_neon_arith.zig` (new)            | ADD/SUB/MUL/MIN/MAX/ABS/NEG/CNT/AVGR/sat-arith encoders (per-shape variants)                                                  | ~900     | (unchanged)            |
+| `inst_neon_lane_cmp.zig` (new)         | UMOV/SMOV/INS lane access + CMEQ/CMGT/CMHI/CMHS comparison + FP cmp variants                                                  | ~750     | (unchanged)            |
 
-A 4-way split (e.g. separating int_arith from int_cmp_lane) was
-considered. Rejected because:
+**Tests** (arm64 `op_simd_test.zig` if exists; mirror x86_64 shape):
 
-- Each new file would land at ~700–900 LOC, far below the soft
-  cap (1000). Phase 10 SIMD-adjacent additions (GC reftype
-  packing, memory64 lane variants) would need to navigate
-  more files. The proposed 3-way layout leaves headroom for
-  Phase 10 growth without needing a second-pass split.
-- ADR-0030 explicitly rejected ADR-0021's 6-file family split
-  as the immediate path; that level of decomposition was
-  deferred to "opportunistic Phase 8 cleanup". Same logic
-  applies here: defer file_test family splits below the
-  proposed 3-way to opportunistic Phase 12+ cleanup if a
-  consumer pattern emerges (e.g. test-only changes producing
-  large diffs in unrelated handler regions).
-- The 3-way prefix split (`V128*` / `I*` / `F*`) matches the
-  Wasm SIMD opcode taxonomy 1:1 — no semantic loss.
+| Current file → New file                       | Test groups                                          | LOC est. |
+|-----------------------------------------------|------------------------------------------------------|----------|
+| `op_simd_test.zig` (kept; aggregator)         | V128 mem + bitwise tests + sibling import statements | varies   |
+| `op_simd_int_arith_test.zig` (new)            | int arith / sat / shift / min-max tests              | varies   |
+| `op_simd_int_cmp_lane_test.zig` (new)         | int cmp / lane / extend / bitmask tests              | varies   |
+| `op_simd_float_test.zig` (new)                | FP arith / cmp / lane / convert tests                | varies   |
+
+### §4.4 Why 4-way granularity (chosen over 3-way)
+
+The original draft proposed 3-way (`op_simd` + `op_simd_int` +
+`op_simd_float`). User judgment (Q1=B) chose 4-way because:
+
+- **3-way leaves `op_simd_int.zig` at ~1900 LOC** (152 emitI*
+  handlers + cmp/shift/extend helpers). Soft cap is 1000;
+  hard cap 2000. 1900 LOC is structural debt waiting to
+  re-trip — Phase 10's GC reftype packing handlers + memory64
+  lane variants are SIMD-adjacent and will land in the same
+  file family.
+- **No-drift principle (Track A inheritance)**: if 4-way is
+  the structurally correct answer for SIMD's int subspace
+  (arith recipes are distinct from cmp/lane recipes), name it
+  now. Deferring to a second-pass split mid-Phase 10 would
+  duplicate the migration cost.
+- **Recipe boundary is meaningful**:
+  - `_int_arith`: ALU operations that use binop recipe
+    (`emitV128IntBinop` shape: 2-op MOVAPS preamble + encoder
+    dispatch).
+  - `_int_cmp_lane`: comparison (PCMPGT-based recipes with
+    swap/NOT branches), lane access (PSHUFD/PSHUFB sequences),
+    extend/narrow (saturating pack/unpack), bitmask
+    (PMOVMSKB direct). These share **none** of the
+    `emitV128IntBinop` recipe shape.
+
+ADR-0030's "defer fine-grained split to opportunistic
+cleanup" guidance was for emit.zig's ALU-dominated content
+where 3-way was sufficient. SIMD's int subspace has more
+distinct recipe families — the principled split is one level
+finer.
 
 ### §4.5 Why kept-file naming (`op_simd.zig`) instead of renaming
 
@@ -178,12 +217,69 @@ orchestrator and added sibling files. Same pattern here:
 
 - `op_simd.zig` (kept) = orchestrator + V128 mem/bitwise; consumers
   importing `op_simd` still resolve the same set of `pub fn
-  emitV128*` symbols.
+  emitV128*` symbols + the now-`pub` cross-class primitives
+  (per §4.6 tiered visibility).
 - New siblings export `pub fn emitI*` and `pub fn emitF*`
   respectively; consumers must update import paths for those
   handlers. The dispatch site (`src/engine/codegen/x86_64/op_simd_
   dispatch.zig` if exists, or whichever file routes per opcode)
   updates to multi-import. Mechanical change.
+
+### §4.6 Tiered helper visibility (Q5 decision)
+
+Visibility rule (codified in ADR-0054):
+
+- **`pub` from day 1** — cross-class primitives that have a
+  foreseeable consumer outside `op_simd*` (Phase 10 GC,
+  memory64, future Wasm proposals):
+  - `emitV128IntBinop` (generic 2-op shape)
+  - `v128MemPrologue` (memory addressing — V128 mem + future
+    GC mem)
+  - `v128LoadExtend`, `v128LoadLane`, `v128StoreLane` (lane
+    mem primitives)
+  - `emitV128AllTrue` (control-flow primitive — reusable for
+    GC null check)
+  - ADR-0053 spilled-V128 ABI helpers (`xmmLoadSpilledV128` /
+    `xmmDefSpilledV128` / `xmmStoreSpilledV128`)
+- **`fn` (file-private)** — class-internal recipes specific
+  to one handler family:
+  - `emitV128IntCmpSigned` / `emitV128IntCmpUnsigned` (signed-
+    int PCMPGT recipe specifics) → `op_simd_int_cmp_lane.zig`
+  - `emitV128FpCmp` / `emitV128FpMin` / `emitV128FpMax` /
+    `emitV128FpUnop` / `emitV128FpAbs` / `emitV128FpNeg` /
+    `emitV128FpRound` → `op_simd_float.zig`
+  - `emitV128IntShift` / `emitV128IntNeg` / `emitV128IntNe` →
+    their class file
+  - `emitV128ExtendLow` / `emitV128ExtendHigh` →
+    `op_simd_int_cmp_lane.zig` (int-only semantics)
+
+**Operational rule** (codified in ADR-0054 §Consequences):
+no `// internal use only` doc-comments — the `pub`/`fn`
+keyword itself signals the contract. When Phase 10 surfaces
+a new cross-class consumer for an `fn` helper, flip it to
+`pub` in that chunk (cheap, ~1 LOC).
+
+### §4.7 Test file naming convention (Q3/Q4 decision)
+
+**Rule**: for files where source and tests are 1:1 mirror-
+split, use `<source>_test.zig` suffix convention:
+
+| Source                       | Test                              |
+|------------------------------|-----------------------------------|
+| `op_simd.zig`                | `op_simd_test.zig` (existing)     |
+| `op_simd_int_arith.zig`      | `op_simd_int_arith_test.zig`      |
+| `op_simd_int_cmp_lane.zig`   | `op_simd_int_cmp_lane_test.zig`   |
+| `op_simd_float.zig`          | `op_simd_float_test.zig`          |
+
+**Exception — legacy `emit_test_int.zig` / `emit_test_float.zig`**:
+these were created as a tests-only family split of monolithic
+`emit.zig` (no `emit_int.zig` / `emit_float.zig` source files
+exist). Renaming them to `emit_int_test.zig` / `emit_float_test.zig`
+would imply non-existent source files. **Leave as-is** in
+Track B scope; file a new debt row that defers the cleanup
+to when `emit.zig` source split happens (D-052 prologue
+extract or follow-up). The new debt is filed in Track B's
+final chunk (9.9-h-20).
 
 ## §5. ADR-0054 draft skeleton
 
@@ -223,42 +319,88 @@ in handler bodies (not tests).
 
 ## Decision
 
-3-way per heavy file, single ADR covering both arches.
-**See `.dev/phase10_prep/track_b_source_split.md` §4.2 + §4.3**
-for the partition tables. Summary:
+**4-way `op_simd.zig` source split + 3-way encoder split + 4-way
+test mirror with `<source>_test.zig` suffix**, single ADR
+covering both arches, tiered helper pub visibility. See
+`.dev/phase10_prep/track_b_source_split.md` §4.2 + §4.3 for the
+partition tables. Summary:
 
-- **x86_64**: op_simd.zig → {op_simd, op_simd_int, op_simd_fp};
-  op_simd_test.zig → {op_simd_test, op_simd_test_int, op_simd_test_fp};
-  inst_sse.zig → {inst_sse, inst_sse_packed, inst_sse_scalar}.
-- **arm64**: op_simd.zig → {op_simd, op_simd_int, op_simd_fp};
-  inst_neon.zig → {inst_neon, inst_neon_arith, inst_neon_lane_cmp}.
+- **x86_64**:
+  - source: `op_simd.zig` → {`op_simd`, `op_simd_int_arith`,
+    `op_simd_int_cmp_lane`, `op_simd_float`} (4-way)
+  - test: `op_simd_test.zig` → {`op_simd_test`,
+    `op_simd_int_arith_test`, `op_simd_int_cmp_lane_test`,
+    `op_simd_float_test`} (4-way mirror, `_test.zig` suffix)
+  - encoder: `inst_sse.zig` → {`inst_sse`, `inst_sse_packed`,
+    `inst_sse_scalar`} (3-way)
+- **arm64** (parallel shape):
+  - source: `op_simd.zig` → {`op_simd`, `op_simd_int_arith`,
+    `op_simd_int_cmp_lane`, `op_simd_float`} (4-way)
+  - test: mirror x86_64 shape
+  - encoder: `inst_neon.zig` → {`inst_neon`, `inst_neon_arith`,
+    `inst_neon_lane_cmp`} (3-way)
 
-Migration plan: 6 chunks (one per current cap-breach file),
-each chunk lands the split + import-fixup + test gate green.
+### Naming convention (load-bearing)
 
-Post-discharge target LOC: every file ≤ 1800 LOC (~90% of cap).
+When source files are partition-split with 1:1 test mirror, use
+strict **`<source>_test.zig`** suffix:
 
-After the 6 chunks land, `scripts/file_size_check.sh` flips from
+- `op_simd_int_arith.zig` ↔ `op_simd_int_arith_test.zig` ✓
+- NOT `op_simd_test_int_arith.zig` (legacy `_test_<family>`
+  middle-form was a tests-only family split shape for monolithic
+  `emit.zig`, which lacks corresponding source files).
+
+Legacy `emit_test_int.zig` / `emit_test_float.zig` remain as-is;
+renaming to `emit_int_test.zig` / `emit_float_test.zig` is
+deferred to when `emit.zig` itself splits into `emit_int.zig` /
+`emit_float.zig` (D-052 prologue extract or follow-up). New debt
+row D-081 tracks this dependency.
+
+### Helper visibility — tiered pub
+
+- **`pub` from day 1** (cross-class primitives in `op_simd.zig`):
+  `emitV128IntBinop`, `v128MemPrologue`, `v128LoadExtend/Lane`,
+  `v128StoreLane`, `emitV128AllTrue`, ADR-0053 spilled-V128 ABI
+  helpers.
+- **`fn` (file-private)** in class file: cmp / min-max / shift /
+  extend / round recipes.
+- No `// internal use only` doc-comments — `pub`/`fn` keyword
+  signals contract directly.
+
+### Migration plan
+
+6 chunks (9.9-h-15..-20). Each chunk lands the split +
+import-fixup + test gate green on Mac + OrbStack. Post-discharge
+target LOC: every file ≤ 1500 LOC (~75% of cap; 4-way grants
+extra headroom for Phase 10 SIMD-adjacent growth).
+
+After chunk 9.9-h-20, `scripts/file_size_check.sh` flips from
 warn-only to hard-gate (the 2026-05-11 hook activation reverted
-to warn-only pending D-057/D-065 discharge).
+to warn-only pending D-057/D-065 discharge). The same chunk
+files **new debt D-081** for the deferred legacy `emit_test_*`
+rename.
 
 ## Alternatives considered
 
 ### A — Two ADRs (one per arch, ADR-0054 x86_64 + ADR-0055 arm64)
 
 Rejected. D-057 + D-065 share the same root cause (gate dormancy)
-and the same discharge shape (3-way structural split mirroring
-ADR-0030). Two ADRs would duplicate context and risk drift between
-the two arches' final shape. One ADR keeps the design unified;
-the 6 migration chunks are independent enough that they don't
-need separate ADRs.
+and the same discharge shape (4-way structural split mirroring
+ADR-0030's pattern). Two ADRs would duplicate context and risk
+drift between the two arches' final shape. One ADR keeps the
+design unified; the 6 migration chunks are independent enough
+that they don't need separate ADRs.
 
-### B — Family-split (6+ files per arch, mirroring arm64's emit_test family)
+### B — 3-way granularity (`op_simd` + `op_simd_int` + `op_simd_float`)
 
-Rejected as primary path (deferred to opportunistic Phase 12+
-cleanup). Same reasoning as ADR-0030: each step's correctness
-should be verifiable independently; family-split before the
-structural 3-way split lands invites bisection complexity.
+Rejected (initial draft). 3-way leaves `op_simd_int.zig` at
+~1900 LOC — soft-cap re-breach guaranteed in Phase 10 once GC
+reftype packing + memory64 lane variants land. The no-drift
+principle (inherited from Track A's Option 3 decision lens)
+demands the structurally correct granularity now, not a
+second-pass split mid-Phase 10. 4-way separates the
+`emitV128IntBinop` recipe family from the cmp/lane/extend
+recipe families, which share no implementation shape.
 
 ### C — Keep test files monolithic; only split source
 
@@ -322,20 +464,20 @@ is structural debt unrelated to bench infra.
 | 2026-05-XX | `<backfill>` | Initial Decision; 3-way split per arch (6 chunks total) |
 ```
 
-## §6. Migration plan — 6 chunks
+## §6. Migration plan — 6 chunks (revised for 4-way granularity)
 
 Sized for the per-task TDD loop in autonomous `/continue` mode
 post-prep. Each chunk lands in a single commit with test gate
 green on Mac + OrbStack (windowsmini deferred per ADR-0049).
 
-| Chunk        | Scope                                                                         | Estimated LOC moved | Risk          |
-|--------------|-------------------------------------------------------------------------------|---------------------|---------------|
-| 9.9-h-15     | x86_64 `op_simd.zig` → {op_simd, op_simd_int, op_simd_fp} source split        | ~3500 (moved)       | medium (152 emitI* + 54 emitF* import-site updates) |
-| 9.9-h-16     | x86_64 `op_simd_test.zig` → {op_simd_test, op_simd_test_int, op_simd_test_fp} | ~2000 (moved)       | low (test-only) |
-| 9.9-h-17     | x86_64 `inst_sse.zig` → {inst_sse, inst_sse_packed, inst_sse_scalar}          | ~1300 (moved)       | medium (165 encoders, mostly consumed by op_simd*) |
-| 9.9-h-18     | arm64 `op_simd.zig` → {op_simd, op_simd_int, op_simd_fp}                       | ~1600 (moved)       | medium (mirror of 9.9-h-15) |
-| 9.9-h-19     | arm64 `inst_neon.zig` → {inst_neon, inst_neon_arith, inst_neon_lane_cmp}      | ~1500 (moved)       | medium |
-| 9.9-h-20     | Flip `scripts/file_size_check.sh` warn → gate; remove `(warn-only, see D-057)` note from `gate_commit.sh`; debt rows D-057 + D-065 discharge | ~30 (config) | low |
+| Chunk        | Scope                                                                                                                                                                                                                              | Estimated LOC moved | Risk          |
+|--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------|---------------|
+| 9.9-h-15     | x86_64 `op_simd.zig` → {`op_simd`, `op_simd_int_arith`, `op_simd_int_cmp_lane`, `op_simd_float`} 4-way source split; tiered pub for cross-class primitives                                                                          | ~3500 (moved)       | medium-high (152 emitI* + 54 emitF* import-site updates; biggest chunk) |
+| 9.9-h-16     | x86_64 `op_simd_test.zig` → {`op_simd_test`, `op_simd_int_arith_test`, `op_simd_int_cmp_lane_test`, `op_simd_float_test`} 4-way mirror with strict `_test.zig` suffix                                                              | ~2200 (moved)       | low (test-only)            |
+| 9.9-h-17     | x86_64 `inst_sse.zig` → {`inst_sse`, `inst_sse_packed`, `inst_sse_scalar`} 3-way encoder split                                                                                                                                       | ~1300 (moved)       | medium (165 encoders, consumed by op_simd*) |
+| 9.9-h-18     | arm64 `op_simd.zig` → {`op_simd`, `op_simd_int_arith`, `op_simd_int_cmp_lane`, `op_simd_float`} 4-way source split + `op_simd_test.zig` mirror (if exists; else extract from inline tests)                                          | ~1600 (moved)       | medium (mirror of 9.9-h-15) |
+| 9.9-h-19     | arm64 `inst_neon.zig` → {`inst_neon`, `inst_neon_arith`, `inst_neon_lane_cmp`} 3-way encoder split                                                                                                                                   | ~1500 (moved)       | medium                     |
+| 9.9-h-20     | Flip `scripts/file_size_check.sh` warn → gate; remove `(warn-only, see D-057)` note from `gate_commit.sh`; close D-057 + D-065; **file new debt row D-081 (legacy `emit_test_int.zig` / `emit_test_float.zig` rename when emit.zig source-splits)** | ~30 (config)        | low                        |
 
 Chunks 15-19 are independent at file granularity but **must
 sequence after Track A/C/D implementation chunks** (those
@@ -376,42 +518,37 @@ For each split chunk (15-19):
   Option (3) net cost (1 chunk for §9.10 migration), Track B
   is the **single largest prep-driven implementation effort**.
 
-## §8. Open questions for user
+## §8. Resolved questions
 
-1. **3-way vs 4-way granularity for x86_64 op_simd.zig**:
-   proposed 3-way leaves `op_simd_int.zig` at ~1900 LOC (close
-   to soft cap). Would you prefer a 4-way split now
-   (`op_simd_int_arith.zig` + `op_simd_int_cmp_lane.zig`)?
-   Tradeoff: more files now vs. faster soft-cap re-breach in
-   Phase 10.
-2. **Single ADR-0054 vs ADR-0054 + ADR-0055**: proposed single
-   ADR covering both arches. OK or prefer separation?
-3. **Test family split scope**: proposed 3-way test split
-   mirrors source. Want to also split test-only sub-families
-   (e.g. `op_simd_test_int_cmp.zig` separate from
-   `op_simd_test_int_arith.zig`) in the same chunk, or defer to
-   opportunistic Phase 12+ cleanup per ADR-0030 precedent?
-4. **Naming**: `op_simd_int.zig` / `op_simd_fp.zig` proposed.
-   Alternative names considered: `op_simd_integer.zig` /
-   `op_simd_float.zig` (more explicit), or
-   `op_simd_intops.zig` / `op_simd_fpops.zig` (compact). The
-   `_int` / `_fp` shape matches existing `emit_test_int.zig` /
-   `emit_test_float.zig` precedent — recommend keeping.
-5. **Helper visibility**: the deeper-private helpers
-   (`emitV128IntCmpSigned`, `emitV128FpMin`, etc.) currently
-   `fn` (file-private). After split, the int handlers in
-   `op_simd_int.zig` call `emitV128IntCmpSigned` which now lives
-   either in `op_simd.zig` (foundation) or in `op_simd_int.zig`
-   (callsite-local). Proposed: keep cmp helpers in
-   `op_simd_int.zig` (single-arch use); cross-class helpers
-   (`emitV128IntBinop`, `v128MemPrologue`) stay in `op_simd.zig`
-   and become `pub`. OK?
+1. **Granularity**: 4-way per heavy `op_simd.zig` file
+   (`op_simd` + `op_simd_int_arith` + `op_simd_int_cmp_lane` +
+   `op_simd_float`). 3-way left `op_simd_int.zig` at ~1900 LOC
+   which would re-trip in Phase 10.
+2. **ADR shape**: single ADR-0054 covering both arches. Shared
+   root cause (gate dormancy) and shared shape (structural
+   split mirroring ADR-0030); two ADRs would duplicate context.
+3. **Test split scope**: 4-way mirror of source split with
+   strict `<source>_test.zig` suffix convention. Legacy
+   `emit_test_int.zig` / `emit_test_float.zig` left as-is;
+   rename deferred to when `emit.zig` source split happens
+   (new debt D-081 tracks this).
+4. **Naming**: `_int` + `_float` (matches existing
+   `emit_test_int.zig` + `emit_test_float.zig` codebase
+   precedent). Initial proposal `_int` + `_fp` was incorrect
+   (precedent mismatch); corrected to `_int` + `_float`.
+5. **Helper visibility**: tiered pub. Cross-class primitives
+   (`emitV128IntBinop`, `v128MemPrologue`, `v128LoadExtend/
+   Lane`, `v128StoreLane`, `emitV128AllTrue`, ADR-0053
+   spilled-V128 helpers) `pub` from day 1. Class-internal
+   recipes (cmp/min-max/shift/extend) stay `fn` in their
+   class file. No `// internal use only` doc-comments — the
+   `pub`/`fn` keyword itself is the contract.
 
 ## §9. Decision record
 
-| Date       | Decision | Recorded by |
-|------------|----------|-------------|
-| (pending)  | TBD      | (user review) |
+| Date       | Decision                                                                                       | Recorded by              |
+|------------|------------------------------------------------------------------------------------------------|--------------------------|
+| 2026-05-12 | Q1=B (4-way), Q2=A (single ADR), Q3=B+γ (4-way mirror + suffix convention, legacy left as-is), Q4=(a) `_int`/`_float`, Q5=C (tiered pub) | user (prep mode session) |
 
 ## §10. References
 
