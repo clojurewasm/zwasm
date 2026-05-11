@@ -23,6 +23,14 @@ bash scripts/zone_check.sh --gate
 echo "[gate_commit] file_size_check --gate ..."
 bash scripts/file_size_check.sh --gate
 
+# Per ADR-0029 Path B (chunk 9.9-h-24): verify prefix-vocab
+# coherence — every `skip-adr-<id>` manifest line resolves to an
+# existing `.dev/decisions/skip_<id>.md` ADR, and every skip-ADR
+# has ≥ 1 manifest consumer (no orphans). Plus the original
+# fixture-path existence checks for cited `.wasm` files.
+echo "[gate_commit] check_skip_adrs --gate ..."
+bash scripts/check_skip_adrs.sh --gate > /dev/null
+
 if [ ! -f build.zig ]; then
     echo "[gate_commit] (no build.zig — skipping zig build test)"
 else

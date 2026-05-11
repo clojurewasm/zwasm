@@ -1,6 +1,6 @@
 # Skip — `embenchen_*1.wasm` (emscripten `env`-module imports)
 
-- **Status**: Accepted (skip until follow-up — see "Removal plan"); **NOT EFFECTIVE per ADR-0050 D-2 — see "Current effectiveness gap" below**
+- **Status**: Accepted (skip until follow-up — see "Removal plan"). Operationally effective via `skip-adr-skip_embenchen_emcc_env_imports` prefix per ADR-0029 Path B (since chunk 9.9-h-23, 2026-05-12); see §"Implementation" below.
 - **Date**: 2026-05-04
 - **Author**: zwasm v2 / continue loop
 - **Tags**: phase-6, skip-adr, misc-runtime, embenchen, manifest-format
@@ -153,6 +153,23 @@ options the discharge can pick from (per ADR-0050 D-2):
 
 The skip-ADR's design intent and Removal condition are
 unchanged; only the runner-side wiring is missing.
+
+## Implementation (per ADR-0029 Path B, since chunk 9.9-h-23)
+
+The 4 fixtures' `manifest_runtime.txt` carry the line
+`skip-adr-skip_embenchen_emcc_env_imports embenchen_<topic>.1.wasm`
+in place of `module embenchen_<topic>.1.wasm`. Parsed by
+`test/runners/wast_runtime_runner.zig` (since chunk 9.9-h-23);
+the runner emits the line in the `skip-adr` tally rather than
+`skip-impl`, so `zig build test-wasmtime-misc-runtime` reports
+`266 passed, 0 failed, 5 skipped (= 0 skip-impl + 5 skip-adr)`
+— operationally effective per ADR-0050 D-2. The companion
+`module embenchen_<topic>.0.wasm as $env` line still loads
+(the `.0.wasm` "env stub" instantiates correctly; the gap is
+in `.1.wasm`'s emscripten `env` imports). The "Current
+effectiveness gap (2026-05-11)" §below predates the migration
+and is retained for historical context; do not interpret it
+as current state.
 
 ## References
 

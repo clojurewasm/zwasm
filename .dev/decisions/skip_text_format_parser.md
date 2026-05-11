@@ -64,6 +64,18 @@ output (`SKIP-ADR  ... directive-assert_malformed-text`) cites
 this ADR by basename so reviewers can trace the deliberate
 rejection.
 
+## Implementation (per ADR-0029 Path B, since chunk 9.9-h-22)
+
+Manifest lines waived under this ADR carry the prefix
+`skip-adr-skip_text_format_parser <reason>`. Emitted by
+`scripts/regen_spec_1_0_assert.sh` + `scripts/regen_spec_simd_assert.sh`
+when the upstream `assert_malformed` directive has
+`module_type == "text"`. Parsed by `spec_assert_runner.zig` +
+`simd_assert_runner.zig` (since chunk 9.9-h-21); the runner emits
+the line in the `skip-adr` tally rather than `skip-impl`, so the
+`skip-impl == 0` gate is preserved while these waivers are
+visible.
+
 ## References
 
 - ADR-0029 (skip-impl vs skip-adr counting)

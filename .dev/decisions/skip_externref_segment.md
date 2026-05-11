@@ -1,6 +1,6 @@
 # Skip — `externref-segment.0.wasm` (externref element segment)
 
-- **Status**: Accepted (skip until externref reftype lands); **NOT EFFECTIVE per ADR-0050 D-2 — see "Current effectiveness gap" below**
+- **Status**: Accepted (skip until externref reftype lands). Operationally effective via `skip-adr-skip_externref_segment` prefix per ADR-0029 Path B (since chunk 9.9-h-23, 2026-05-12); see §"Implementation" below.
 - **Date**: 2026-05-04
 - **Author**: zwasm v2 / continue loop
 - **Tags**: phase-6, skip-adr, misc-runtime, externref, reftypes
@@ -89,6 +89,20 @@ Discharge tracked as **D-072** alongside the embenchen
 skip-ADR. The structural fix (externref reftype landing per
 "What v2 needs to fix this honestly") naturally retires this
 skip-ADR.
+
+## Implementation (per ADR-0029 Path B, since chunk 9.9-h-23)
+
+The fixture's `manifest_runtime.txt` carries the line
+`skip-adr-skip_externref_segment externref-segment.0.wasm`
+in place of `module externref-segment.0.wasm`. Parsed by
+`test/runners/wast_runtime_runner.zig` (since chunk 9.9-h-23);
+the runner emits the line in the `skip-adr` tally rather than
+`skip-impl`, contributing to the
+`266 passed, 0 failed, 5 skipped (= 0 skip-impl + 5 skip-adr)`
+tally on `zig build test-wasmtime-misc-runtime` — operationally
+effective per ADR-0050 D-2. The "Current effectiveness gap
+(2026-05-11)" §below predates the migration and is retained for
+historical context.
 
 ## References
 

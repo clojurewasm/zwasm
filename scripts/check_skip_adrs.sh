@@ -83,10 +83,55 @@ done
 
 echo
 echo "============================================================"
+echo "Prefix-vocab coherence (per ADR-0029 Path B)"
+echo "============================================================"
+
+# Per ADR-0029: every `skip-adr-<id>` line in a manifest must
+# resolve to an existing `.dev/decisions/skip_<id>.md` file, and
+# every `skip_<id>.md` should have ≥ 1 manifest consumer (an
+# orphaned skip-ADR is a candidate for removal).
+
+prefix_violations=0
+
+# (1) Every `skip-adr-<id>` prefix in test/ → ADR file exists.
+# Each input row is `<file>:<lineno>:<content>`; parse all 3 fields.
+declare -A seen_missing_ids=()
+while IFS=: read -r path lineno content; do
+  prefix=$(printf '%s' "$content" | awk '{print $1}')
+  adr_id=${prefix#skip-adr-}
+  adr_file="$DECISIONS_DIR/${adr_id}.md"
+  if [[ ! -e "$adr_file" ]]; then
+    # Print one diagnostic per (file, adr_id); dedupe per file.
+    key="${path}::${adr_id}"
+    if [[ -z "${seen_missing_ids[$key]:-}" ]]; then
+      echo "  ✗ ${path#$REPO_ROOT/}: skip-adr-${adr_id} → MISSING ADR file ${adr_id}.md"
+      seen_missing_ids[$key]=1
+    fi
+    prefix_violations=$((prefix_violations + 1))
+  fi
+done < <(grep -rEHn '^skip-adr-[a-zA-Z0-9_-]+ ' "$REPO_ROOT/test/" 2>/dev/null || true)
+
+# (2) Every skip_*.md ADR → ≥ 1 manifest consumer.
+for f in "${skip_files[@]}"; do
+  rel="${f#$REPO_ROOT/}"
+  base="$(basename "$f" .md)"
+  count=$(grep -rEc "^skip-adr-${base} " "$REPO_ROOT/test/" 2>/dev/null \
+    | awk -F: '{ s += $2 } END { print s+0 }')
+  if [[ "$count" -eq 0 ]]; then
+    echo "  ✗ $rel: 0 manifest consumers (orphaned skip-ADR; remove or wire a manifest line)"
+    prefix_violations=$((prefix_violations + 1))
+  else
+    echo "  ✓ $rel: $count manifest line(s) reference skip-adr-${base}"
+  fi
+done
+
+echo
+echo "============================================================"
 echo "Total skip-ADRs: ${#skip_files[@]}"
 echo "Fixture-path violations: $violations"
+echo "Prefix-vocab violations: $prefix_violations"
 
-if $GATE_MODE && [[ $violations -gt 0 ]]; then
+if $GATE_MODE && [[ $((violations + prefix_violations)) -gt 0 ]]; then
   exit 1
 fi
 exit 0
