@@ -779,6 +779,35 @@ test "encLeaR64BaseDisp32: lea r9, [rbp-1024] → 4c 8d 8d 00 fc ff ff (REX.R)" 
     try testing.expectEqualSlices(u8, &.{ 0x4C, 0x8D, 0x8D, 0x00, 0xFC, 0xFF, 0xFF }, enc.slice());
 }
 
+test "encLeaR64BaseRspDisp32: lea rdx, [rsp+48] → 48 8d 94 24 30 00 00 00 (SIB 0x24 for RSP base)" {
+    // §9.9 / 9.9-i-1 Win64 v128 marshal caller-side: scratch
+    // is in the outgoing-args region at [RSP + scratch_disp];
+    // LEA the address into the int-arg slot (RDX for arg 1).
+    // RSP base mandates SIB byte 0x24 (rm=100 ⇒ SIB-escape per
+    // AMD64); distinct encoder from encLeaR64BaseDisp32.
+    const enc = encLeaR64BaseRspDisp32(.rdx, 48);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x8D, 0x94, 0x24, 0x30, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encLeaR64BaseRspDisp32: lea r8, [rsp+64] → 4c 8d 84 24 40 00 00 00 (REX.R for R8)" {
+    // R8 = Win64 int-arg slot 3 (after RCX runtime-ptr, RDX, R8).
+    const enc = encLeaR64BaseRspDisp32(.r8, 64);
+    try testing.expectEqualSlices(u8, &.{ 0x4C, 0x8D, 0x84, 0x24, 0x40, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encStoreXmmV128MemRSPDisp32: movups [rsp+48], xmm1 → 0f 11 8c 24 30 00 00 00" {
+    // §9.9 / 9.9-i-1 Win64 v128 marshal caller-side scratch write.
+    // ModR/M mod=10, reg=001 (xmm1), rm=100 (SIB-escape for RSP).
+    // SIB = 0x24 (scale=00, index=100=none, base=100=RSP).
+    const enc = encStoreXmmV128MemRSPDisp32(.xmm1, 48);
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x11, 0x8C, 0x24, 0x30, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
+test "encStoreXmmV128MemRSPDisp32: movups [rsp+64], xmm12 → 44 0f 11 a4 24 40 00 00 00 (REX.R for xmm12)" {
+    const enc = encStoreXmmV128MemRSPDisp32(.xmm12, 64);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x0F, 0x11, 0xA4, 0x24, 0x40, 0x00, 0x00, 0x00 }, enc.slice());
+}
+
 test "encAddR64Imm32: add rdx, 4 → 48 81 c2 04 00 00 00" {
     const enc = encAddR64Imm32(.rdx, 4);
     try testing.expectEqualSlices(u8, &.{ 0x48, 0x81, 0xC2, 0x04, 0, 0, 0 }, enc.slice());

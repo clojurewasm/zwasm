@@ -1,6 +1,6 @@
 # 0055 — Win64 v128 param marshal via hidden-pointer (Microsoft x64 ABI)
 
-- **Status**: Draft
+- **Status**: Accepted
 - **Date**: 2026-05-12
 - **Author**: zwasm v2 maintainer (autonomous `/continue` loop, Phase 9 close)
 - **Tags**: phase-9, simd, x86_64, abi, windows
@@ -167,6 +167,7 @@ introspection layer.
 
 ## Revision history
 
-| Date       | SHA          | Note                                                                                  |
-|------------|--------------|---------------------------------------------------------------------------------------|
-| 2026-05-12 | `<backfill>` | Draft. Awaiting implementation chunk (proposed 9.9-i-1). Closes D-084 at chunk close. |
+| Date       | SHA          | Note                                                                                                                                                                                                                                                                                                                                                            |
+|------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 2026-05-12 | `<backfill>` | Draft. Awaiting implementation chunk (proposed 9.9-i-1). Closes D-084 at chunk close.                                                                                                                                                                                                                                                                           |
+| 2026-05-12 | `<backfill>` | Accepted at §9.9 / 9.9-i-1 land. 3-host bit-identical SIMD subset achieved on first iteration: windowsmini `simd_assert_runner: 13301 passed, 0 failed, 440 skipped (= 50 skip-impl + 390 skip-adr)` matches Mac+OrbStack exactly. D-052 partial discharge (rbp_disp.zig extract, ~90 LOC) bundled. SysV fp_arg_idx>=8 stack-overflow co-discharged in same chunk. |
