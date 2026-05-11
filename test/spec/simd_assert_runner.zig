@@ -177,6 +177,23 @@ fn runCorpus(
                 module_bad = true;
                 continue;
             };
+            // D-063 discharge (§9.9 / 9.9-h-4) — populate the
+            // funcref table from active element segments. Without
+            // this, `call_indirect` traps on every call because
+            // `table_size = 0` makes the bounds check (`CMP idx,
+            // W25=0` → HS) always branch into the trap stub.
+            runner_mod.applyTableInit(
+                gpa,
+                wasm_bytes,
+                &compiled,
+                scratch_funcptrs[0..],
+                scratch_typeidxs[0..],
+            ) catch |err| {
+                try stdout.print("FAIL  {s}/{s} table-init: {s}\n", .{ name, file, @errorName(err) });
+                failed.* += 1;
+                module_bad = true;
+                continue;
+            };
             continue;
         }
 
@@ -292,6 +309,12 @@ const Value = zwasm.runtime.Value;
 /// scalars. Reset to zero on each `module` directive; init values
 /// written via `applyDefinedGlobalsInit`.
 var scratch_globals: [256]u8 align(16) = undefined;
+/// D-063 discharge (§9.9 / 9.9-h-4) — funcref table for
+/// `call_indirect`. Populated via `applyTableInit`. Sized for
+/// realistic spec-fixture tables; simd_const.386 uses 2 entries.
+const scratch_table_capacity = 32;
+var scratch_funcptrs: [scratch_table_capacity]u64 = undefined;
+var scratch_typeidxs: [scratch_table_capacity]u32 = undefined;
 
 fn parseArgToken(tok: []const u8) !ArgValue {
     if (std.mem.startsWith(u8, tok, "i32:")) return .{ .i32 = try parseI32Token(tok[4..]) };
@@ -327,9 +350,12 @@ fn runAssertReturn(
     var rt: entry.JitRuntime = .{
         .vm_base = scratch_memory[0..],
         .mem_limit = scratch_memory.len,
-        .funcptr_base = undefined,
-        .table_size = 0,
-        .typeidx_base = undefined,
+        // D-063 discharge — point at the call_indirect-ready
+        // scratch funcref table populated by `applyTableInit` on
+        // each `module` directive.
+        .funcptr_base = &scratch_funcptrs,
+        .table_size = scratch_funcptrs.len,
+        .typeidx_base = &scratch_typeidxs,
         .trap_flag = 0,
         // ADR-0052 — JIT emit (`global.get/set` for both scalar
         // and v128 globals) addresses storage by byte offset off

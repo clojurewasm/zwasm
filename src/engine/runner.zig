@@ -465,6 +465,58 @@ fn evalConstV128Expr(expr: []const u8) Error!([16]u8) {
     return out;
 }
 
+/// D-063 discharge (§9.9 / 9.9-h-4) — walk the module's active
+/// element segments and populate caller-owned `funcptrs_buf` +
+/// `typeidxs_buf` with table entries that match the c_api
+/// `setupRuntime` shape. Without this, the JIT-emitted
+/// `call_indirect` bounds-check (`CMP W17, W25 (=table_size)`)
+/// and sig-check (`LDR W16, [X24 (=typeidx_base), X17, LSL #2]`)
+/// see uninitialised state and trap on every call.
+///
+/// Caller passes `funcptrs_buf.len == typeidxs_buf.len ==
+/// max_table_entries` (i.e. the runner's fixed-size scratch);
+/// segments writing past that bound surface
+/// `UnsupportedEntrySignature`. `typeidxs_buf` is pre-seeded to
+/// `maxInt(u32)` (the "no func here" sentinel — the JIT
+/// sig-check's CMP-against-typeidx never matches, traps cleanly
+/// rather than dereferencing NULL).
+pub fn applyTableInit(
+    allocator: Allocator,
+    wasm_bytes: []const u8,
+    compiled: *const CompiledWasm,
+    funcptrs_buf: []u64,
+    typeidxs_buf: []u32,
+) Error!void {
+    if (funcptrs_buf.len != typeidxs_buf.len) return Error.UnsupportedEntrySignature;
+    @memset(funcptrs_buf, 0);
+    @memset(typeidxs_buf, std.math.maxInt(u32));
+
+    var temp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = try parser.parse(ta, wasm_bytes);
+    const section = module.find(.element) orelse return;
+    var elems = try sections.decodeElement(ta, section.body);
+    defer elems.deinit();
+
+    for (elems.items) |seg| {
+        if (seg.kind != .active) continue;
+        if (seg.tableidx != 0) continue;
+        const off = evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
+        if (off < 0) return Error.UnsupportedEntrySignature;
+        const base: usize = @intCast(off);
+        if (base + seg.funcidxs.len > funcptrs_buf.len) return Error.UnsupportedEntrySignature;
+        for (seg.funcidxs, 0..) |fidx, i| {
+            if (fidx == std.math.maxInt(u32)) continue; // ref.null funcref
+            if (fidx >= compiled.func_sigs.len) return Error.UnsupportedEntrySignature;
+            const f_off = compiled.module.func_offsets[fidx];
+            typeidxs_buf[base + i] = compiled.func_typeidxs[fidx];
+            if (f_off == linker.IMPORT_SENTINEL_OFFSET) continue;
+            funcptrs_buf[base + i] = @intFromPtr(compiled.module.block.bytes.ptr + f_off);
+        }
+    }
+}
+
 /// Apply active data segments from `wasm_bytes` into `memory`
 /// (a caller-owned buffer, e.g. a fixed-size scratch arena).
 /// Mirrors the data-init half of `setupRuntime` so spec-test
