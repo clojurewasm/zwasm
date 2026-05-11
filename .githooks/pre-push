@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
-# .githooks/pre_push
+# .githooks/pre-push
 #
 # Activated by:
 #   git config core.hooksPath .githooks
 #
-# Runs the merge gate (Mac native + OrbStack Ubuntu native +
-# windowsmini SSH). Phase 0 / early phases: missing OrbStack VM or
-# unreachable windowsmini logs WARN and continues (per
-# scripts/gate_merge.sh).
+# Runs the **commit gate only** (zig fmt + zone + file_size + zig
+# build test). This is the same suite the pre-commit hook runs;
+# rerunning it pre-push catches the case where multiple commits
+# were stacked locally and a later one broke the gate.
+#
+# The full 3-host merge gate (Mac + OrbStack + windowsmini test-all)
+# lives in `scripts/gate_merge.sh` and is invoked **manually**:
+#   - At Phase boundary close, as part of the §9.<N> SHA backfill
+#     ritual.
+#   - Before any push to `main` (the A13 merge gate).
+# Per-push to `zwasm-from-scratch` does not run the full gate
+# because test-all takes 15–45 minutes across hosts and the
+# autonomous /continue loop pushes per chunk. See
+# `.claude/skills/continue/SKILL.md` § "Phase boundary" for the
+# canonical invocation site.
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-bash scripts/gate_merge.sh
+bash scripts/gate_commit.sh
