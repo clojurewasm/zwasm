@@ -44,10 +44,12 @@
 
 ## Next sub-chunk candidates — **PREP TRACKS (run A → B → C → D in order)**
 
-1. **Track A — §9.10 scope reality check** (does §9.10 stay,
-   descope to baseline-only, or move to Phase 11). Blocks
-   §9.9-after-skip / §9.10 entry. See `phase10_prep.md`
-   §"Track A".
+1. **Track A — §9.10 scope reality check** — **DELIVERABLE
+   LANDED, AWAITING USER DECISION** at
+   `.dev/phase10_prep/track_a_9.10_scope.md` (3 options surveyed;
+   recommendation Option (2) baseline-only descope). User
+   reviews → next `/continue` picks up Track B OR begins
+   implementing the chosen option.
 2. **Track B — D-057 / D-065 source-split partition**
    (`op_simd.zig` 4554 + `inst_neon.zig` 2249 +
    `op_simd_test.zig` 2624 vs §A2 cap 2000). Output: partition
