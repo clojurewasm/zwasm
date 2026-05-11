@@ -238,7 +238,7 @@ assert_return f32x4.add v128:0000807f0000807f0000807f0000807f v128:db0fc9c0db0fc
 assert_return f32x4.add v128:0000807f0000807f0000807f0000807f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.add v128:0000807f0000807f0000807f0000807f v128:ffff7fffffff7fffffff7fffffff7fff -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.add v128:0000807f0000807f0000807f0000807f v128:0000807f0000807f0000807f0000807f -> v128:0000807f0000807f0000807f0000807f
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
+assert_return f32x4.add v128:0000807f0000807f0000807f0000807f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:00000000000000000000000000000000 -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:00000080000000800000008000000080 -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:01000000010000000100000001000000 -> v128:000080ff000080ff000080ff000080ff
@@ -253,152 +253,152 @@ assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:db0fc940db0fc
 assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128:000080ff000080ff000080ff000080ff
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
+assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:000080ff000080ff000080ff000080ff -> v128:000080ff000080ff000080ff000080ff
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.add !nan-token-in-lane:nan:arithmetic
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:00000000000000000000000000000000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:00000080000000800000008000000080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:01000000010000000100000001000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:01000000010000000100000001000000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:01000080010000800100008001000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:01000080010000800100008001000080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:00008000000080000000800000008000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:00008000000080000000800000008000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:00008080000080800000808000008080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:00008080000080800000808000008080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000003f0000003f0000003f0000003f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:000000bf000000bf000000bf000000bf v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000803f0000803f0000803f0000803f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:000080bf000080bf000080bf000080bf v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:db0fc940db0fc940db0fc940db0fc940 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:ffff7fffffff7fffffff7fffffff7fff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000807f0000807f0000807f0000807f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000c07f0000c07f0000c07f0000c07f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:00000000000000000000000000000000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:00000080000000800000008000000080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:01000000010000000100000001000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:01000000010000000100000001000000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:01000080010000800100008001000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:01000080010000800100008001000080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00008000000080000000800000008000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:00008000000080000000800000008000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00008080000080800000808000008080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:00008080000080800000808000008080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000003f0000003f0000003f0000003f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:000000bf000000bf000000bf000000bf v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000803f0000803f0000803f0000803f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:000080bf000080bf000080bf000080bf v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:db0fc940db0fc940db0fc940db0fc940 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:ffff7fffffff7fffffff7fffffff7fff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000807f0000807f0000807f0000807f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:00000000000000000000000000000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:00000000000000000000000000000000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:00000080000000800000008000000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:00000080000000800000008000000080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:01000000010000000100000001000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:01000000010000000100000001000000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:01000080010000800100008001000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:01000080010000800100008001000080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:00008000000080000000800000008000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:00008000000080000000800000008000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:00008080000080800000808000008080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:00008080000080800000808000008080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000003f0000003f0000003f0000003f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:000000bf000000bf000000bf000000bf v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000803f0000803f0000803f0000803f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:000080bf000080bf000080bf000080bf v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:db0fc940db0fc940db0fc940db0fc940 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:ffff7fffffff7fffffff7fffffff7fff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000807f0000807f0000807f0000807f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a07f0000a07f0000a07f0000a07f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00000000000000000000000000000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:00000000000000000000000000000000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00000080000000800000008000000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:00000080000000800000008000000080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:01000000010000000100000001000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:01000000010000000100000001000000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:01000080010000800100008001000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:01000080010000800100008001000080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00008000000080000000800000008000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:00008000000080000000800000008000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00008080000080800000808000008080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:00008080000080800000808000008080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000003f0000003f0000003f0000003f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:000000bf000000bf000000bf000000bf v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000803f0000803f0000803f0000803f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:000080bf000080bf000080bf000080bf v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:db0fc940db0fc940db0fc940db0fc940 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:ffff7fffffff7fffffff7fffffff7fff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000807f0000807f0000807f0000807f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:000080ff000080ff000080ff000080ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.add v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
 assert_return f32x4.add v128:a379eb4ca379eb4ca379eb4ca379eb4c v128:a379eb4ca379eb4ca379eb4ca379eb4c -> v128:a3796b4da3796b4da3796b4da3796b4d
 assert_return f32x4.add v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:7b4dff6c7b4dff6c7b4dff6c7b4dff6c
 assert_return f32x4.add v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:7b4dff6c7b4dff6c7b4dff6c7b4dff6c
@@ -661,7 +661,7 @@ assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:db0fc940db0fc
 assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:ffff7fffffff7fffffff7fffffff7fff -> v128:0000807f0000807f0000807f0000807f
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
+assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:000080ff000080ff000080ff000080ff -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:00000000000000000000000000000000 -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:00000080000000800000008000000080 -> v128:000080ff000080ff000080ff000080ff
@@ -678,151 +678,151 @@ assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:db0fc9c0db0fc
 assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:0000807f0000807f0000807f0000807f -> v128:000080ff000080ff000080ff000080ff
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sub !nan-token-in-lane:nan:arithmetic
+assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:00000000000000000000000000000000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:00000080000000800000008000000080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:01000000010000000100000001000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:01000000010000000100000001000000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:01000080010000800100008001000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:01000080010000800100008001000080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:00008000000080000000800000008000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:00008000000080000000800000008000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:00008080000080800000808000008080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:00008080000080800000808000008080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000003f0000003f0000003f0000003f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:000000bf000000bf000000bf000000bf v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000803f0000803f0000803f0000803f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:000080bf000080bf000080bf000080bf v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:db0fc940db0fc940db0fc940db0fc940 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:ffff7fffffff7fffffff7fffffff7fff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000c07f0000c07f0000c07f0000c07f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:00000000000000000000000000000000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:00000080000000800000008000000080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:01000000010000000100000001000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:01000000010000000100000001000000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:01000080010000800100008001000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:01000080010000800100008001000080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00008000000080000000800000008000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:00008000000080000000800000008000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00008080000080800000808000008080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:00008080000080800000808000008080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000003f0000003f0000003f0000003f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:000000bf000000bf000000bf000000bf v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000803f0000803f0000803f0000803f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:000080bf000080bf000080bf000080bf v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:db0fc940db0fc940db0fc940db0fc940 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:ffff7fffffff7fffffff7fffffff7fff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:00000000000000000000000000000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:00000000000000000000000000000000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:00000080000000800000008000000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:00000080000000800000008000000080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:01000000010000000100000001000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:01000000010000000100000001000000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:01000080010000800100008001000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:01000080010000800100008001000080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:00008000000080000000800000008000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:00008000000080000000800000008000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:00008080000080800000808000008080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:00008080000080800000808000008080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000003f0000003f0000003f0000003f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:000000bf000000bf000000bf000000bf v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000803f0000803f0000803f0000803f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:000080bf000080bf000080bf000080bf v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:db0fc940db0fc940db0fc940db0fc940 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:ffff7fffffff7fffffff7fffffff7fff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a07f0000a07f0000a07f0000a07f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00000000000000000000000000000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:00000000000000000000000000000000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00000080000000800000008000000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:00000080000000800000008000000080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:01000000010000000100000001000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:01000000010000000100000001000000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:01000080010000800100008001000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:01000080010000800100008001000080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00008000000080000000800000008000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:00008000000080000000800000008000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00008080000080800000808000008080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:00008080000080800000808000008080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000003f0000003f0000003f0000003f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:000000bf000000bf000000bf000000bf v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000803f0000803f0000803f0000803f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:000080bf000080bf000080bf000080bf v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:db0fc940db0fc940db0fc940db0fc940 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:ffff7fffffff7fffffff7fffffff7fff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000807f0000807f0000807f0000807f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:000080ff000080ff000080ff000080ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sub v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
 assert_return f32x4.sub v128:a379eb4ca379eb4ca379eb4ca379eb4c v128:a379eb4ca379eb4ca379eb4ca379eb4c -> v128:00000000000000000000000000000000
 assert_return f32x4.sub v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:00000000000000000000000000000000
 assert_return f32x4.sub v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:00000000000000000000000000000000
@@ -861,8 +861,8 @@ assert_return f32x4.mul v128:00000000000000000000000000000000 v128:db0fc940db0fc
 assert_return f32x4.mul v128:00000000000000000000000000000000 v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128:00000080000000800000008000000080
 assert_return f32x4.mul v128:00000000000000000000000000000000 v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128:00000000000000000000000000000000
 assert_return f32x4.mul v128:00000000000000000000000000000000 v128:ffff7fffffff7fffffff7fffffff7fff -> v128:00000080000000800000008000000080
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
+assert_return f32x4.mul v128:00000000000000000000000000000000 v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00000000000000000000000000000000 v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.mul v128:00000080000000800000008000000080 v128:00000000000000000000000000000000 -> v128:00000080000000800000008000000080
 assert_return f32x4.mul v128:00000080000000800000008000000080 v128:00000080000000800000008000000080 -> v128:00000000000000000000000000000000
 assert_return f32x4.mul v128:00000080000000800000008000000080 v128:01000000010000000100000001000000 -> v128:00000080000000800000008000000080
@@ -877,8 +877,8 @@ assert_return f32x4.mul v128:00000080000000800000008000000080 v128:db0fc940db0fc
 assert_return f32x4.mul v128:00000080000000800000008000000080 v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128:00000000000000000000000000000000
 assert_return f32x4.mul v128:00000080000000800000008000000080 v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128:00000080000000800000008000000080
 assert_return f32x4.mul v128:00000080000000800000008000000080 v128:ffff7fffffff7fffffff7fffffff7fff -> v128:00000000000000000000000000000000
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
+assert_return f32x4.mul v128:00000080000000800000008000000080 v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00000080000000800000008000000080 v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.mul v128:01000000010000000100000001000000 v128:00000000000000000000000000000000 -> v128:00000000000000000000000000000000
 assert_return f32x4.mul v128:01000000010000000100000001000000 v128:00000080000000800000008000000080 -> v128:00000080000000800000008000000080
 assert_return f32x4.mul v128:01000000010000000100000001000000 v128:01000000010000000100000001000000 -> v128:00000000000000000000000000000000
@@ -1071,8 +1071,8 @@ assert_return f32x4.mul v128:ffff7fffffff7fffffff7fffffff7fff v128:ffff7f7fffff7
 assert_return f32x4.mul v128:ffff7fffffff7fffffff7fffffff7fff v128:ffff7fffffff7fffffff7fffffff7fff -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.mul v128:ffff7fffffff7fffffff7fffffff7fff v128:0000807f0000807f0000807f0000807f -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.mul v128:ffff7fffffff7fffffff7fffffff7fff v128:000080ff000080ff000080ff000080ff -> v128:0000807f0000807f0000807f0000807f
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
+assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:01000000010000000100000001000000 -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:01000080010000800100008001000080 -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:00008000000080000000800000008000 -> v128:0000807f0000807f0000807f0000807f
@@ -1087,8 +1087,8 @@ assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:ffff7f7fffff7
 assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:ffff7fffffff7fffffff7fffffff7fff -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:0000807f0000807f0000807f0000807f -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:000080ff000080ff000080ff000080ff -> v128:000080ff000080ff000080ff000080ff
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
+assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:01000000010000000100000001000000 -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:01000080010000800100008001000080 -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:00008000000080000000800000008000 -> v128:000080ff000080ff000080ff000080ff
@@ -1103,150 +1103,150 @@ assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:ffff7f7fffff7
 assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:0000807f0000807f0000807f0000807f -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:000080ff000080ff000080ff000080ff -> v128:0000807f0000807f0000807f0000807f
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.mul !nan-token-in-lane:nan:arithmetic
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00000000000000000000000000000000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00000080000000800000008000000080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:01000000010000000100000001000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:01000000010000000100000001000000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:01000080010000800100008001000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:01000080010000800100008001000080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:00008000000080000000800000008000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00008000000080000000800000008000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:00008080000080800000808000008080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00008080000080800000808000008080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000003f0000003f0000003f0000003f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:000000bf000000bf000000bf000000bf v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000803f0000803f0000803f0000803f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:000080bf000080bf000080bf000080bf v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:db0fc940db0fc940db0fc940db0fc940 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:ffff7fffffff7fffffff7fffffff7fff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000c07f0000c07f0000c07f0000c07f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00000000000000000000000000000000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00000080000000800000008000000080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:01000000010000000100000001000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:01000000010000000100000001000000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:01000080010000800100008001000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:01000080010000800100008001000080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00008000000080000000800000008000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00008000000080000000800000008000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00008080000080800000808000008080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:00008080000080800000808000008080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000003f0000003f0000003f0000003f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:000000bf000000bf000000bf000000bf v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000803f0000803f0000803f0000803f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:000080bf000080bf000080bf000080bf v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:db0fc940db0fc940db0fc940db0fc940 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:ffff7fffffff7fffffff7fffffff7fff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:00000000000000000000000000000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:00000000000000000000000000000000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:00000080000000800000008000000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:00000080000000800000008000000080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:01000000010000000100000001000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:01000000010000000100000001000000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:01000080010000800100008001000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:01000080010000800100008001000080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:00008000000080000000800000008000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:00008000000080000000800000008000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:00008080000080800000808000008080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:00008080000080800000808000008080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000003f0000003f0000003f0000003f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:000000bf000000bf000000bf000000bf v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000803f0000803f0000803f0000803f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:000080bf000080bf000080bf000080bf v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:db0fc940db0fc940db0fc940db0fc940 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:ffff7fffffff7fffffff7fffffff7fff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a07f0000a07f0000a07f0000a07f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00000000000000000000000000000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:00000000000000000000000000000000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00000080000000800000008000000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:00000080000000800000008000000080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:01000000010000000100000001000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:01000000010000000100000001000000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:01000080010000800100008001000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:01000080010000800100008001000080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00008000000080000000800000008000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:00008000000080000000800000008000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00008080000080800000808000008080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:00008080000080800000808000008080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000003f0000003f0000003f0000003f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:000000bf000000bf000000bf000000bf v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000803f0000803f0000803f0000803f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:000080bf000080bf000080bf000080bf v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:db0fc940db0fc940db0fc940db0fc940 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:ffff7fffffff7fffffff7fffffff7fff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000807f0000807f0000807f0000807f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:000080ff000080ff000080ff000080ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.mul v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
 assert_return f32x4.mul v128:a379eb4ca379eb4ca379eb4ca379eb4c v128:a379eb4ca379eb4ca379eb4ca379eb4c -> v128:8b98585a8b98585a8b98585a8b98585a
 assert_return f32x4.mul v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.mul v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:0000807f0000807f0000807f0000807f
@@ -1271,8 +1271,8 @@ assert_return f32x4.mul v128:b4a2915bb4a2915bb4a2915bb4a2915b v128:b4a2915bb4a29
 assert_return f32x4.mul v128:b4a21165b4a21165b4a21165b4a21165 v128:b4a21165b4a21165b4a21165b4a21165 -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.mul v128:b4a21165b4a21165b4a21165b4a21165 v128:b4a21165b4a21165b4a21165b4a21165 -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.mul v128:b4a21152b4a21152b4a21152b4a21152 v128:b4a21152b4a21152b4a21152b4a21152 -> v128:6fb3a5646fb3a5646fb3a5646fb3a564
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
+assert_return f32x4.div v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00000000000000000000000000000000 v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.div v128:00000000000000000000000000000000 v128:01000000010000000100000001000000 -> v128:00000000000000000000000000000000
 assert_return f32x4.div v128:00000000000000000000000000000000 v128:01000080010000800100008001000080 -> v128:00000080000000800000008000000080
 assert_return f32x4.div v128:00000000000000000000000000000000 v128:00008000000080000000800000008000 -> v128:00000000000000000000000000000000
@@ -1287,8 +1287,8 @@ assert_return f32x4.div v128:00000000000000000000000000000000 v128:ffff7f7fffff7
 assert_return f32x4.div v128:00000000000000000000000000000000 v128:ffff7fffffff7fffffff7fffffff7fff -> v128:00000080000000800000008000000080
 assert_return f32x4.div v128:00000000000000000000000000000000 v128:0000807f0000807f0000807f0000807f -> v128:00000000000000000000000000000000
 assert_return f32x4.div v128:00000000000000000000000000000000 v128:000080ff000080ff000080ff000080ff -> v128:00000080000000800000008000000080
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
+assert_return f32x4.div v128:00000080000000800000008000000080 v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00000080000000800000008000000080 v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.div v128:00000080000000800000008000000080 v128:01000000010000000100000001000000 -> v128:00000080000000800000008000000080
 assert_return f32x4.div v128:00000080000000800000008000000080 v128:01000080010000800100008001000080 -> v128:00000000000000000000000000000000
 assert_return f32x4.div v128:00000080000000800000008000000080 v128:00008000000080000000800000008000 -> v128:00000080000000800000008000000080
@@ -1509,8 +1509,8 @@ assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:db0fc940db0fc
 assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:ffff7fffffff7fffffff7fffffff7fff -> v128:000080ff000080ff000080ff000080ff
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
+assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:00000000000000000000000000000000 -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:00000080000000800000008000000080 -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:01000000010000000100000001000000 -> v128:000080ff000080ff000080ff000080ff
@@ -1525,152 +1525,152 @@ assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:db0fc940db0fc
 assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128:0000807f0000807f0000807f0000807f
 assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128:000080ff000080ff000080ff000080ff
 assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128:0000807f0000807f0000807f0000807f
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.div !nan-token-in-lane:nan:arithmetic
+assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00000000000000000000000000000000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00000080000000800000008000000080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:01000000010000000100000001000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:01000000010000000100000001000000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:01000080010000800100008001000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:01000080010000800100008001000080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:00008000000080000000800000008000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00008000000080000000800000008000 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:00008080000080800000808000008080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00008080000080800000808000008080 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000003f0000003f0000003f0000003f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:000000bf000000bf000000bf000000bf v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000803f0000803f0000803f0000803f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:000080bf000080bf000080bf000080bf v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:db0fc940db0fc940db0fc940db0fc940 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:ffff7fffffff7fffffff7fffffff7fff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000c07f0000c07f0000c07f0000c07f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00000000000000000000000000000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00000000000000000000000000000000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00000080000000800000008000000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00000080000000800000008000000080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:01000000010000000100000001000000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:01000000010000000100000001000000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:01000080010000800100008001000080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:01000080010000800100008001000080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00008000000080000000800000008000 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00008000000080000000800000008000 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:00008080000080800000808000008080 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:00008080000080800000808000008080 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000003f0000003f0000003f0000003f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:000000bf000000bf000000bf000000bf v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000803f0000803f0000803f0000803f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:000080bf000080bf000080bf000080bf v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:db0fc940db0fc940db0fc940db0fc940 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:ffff7fffffff7fffffff7fffffff7fff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000c0ff0000c0ff0000c0ff0000c0ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:00000000000000000000000000000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:00000000000000000000000000000000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:00000080000000800000008000000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:00000080000000800000008000000080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:01000000010000000100000001000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:01000000010000000100000001000000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:01000080010000800100008001000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:01000080010000800100008001000080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:00008000000080000000800000008000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:00008000000080000000800000008000 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:00008080000080800000808000008080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:00008080000080800000808000008080 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000003f0000003f0000003f0000003f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:000000bf000000bf000000bf000000bf v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000803f0000803f0000803f0000803f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:000080bf000080bf000080bf000080bf v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:db0fc940db0fc940db0fc940db0fc940 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:ffff7fffffff7fffffff7fffffff7fff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a07f0000a07f0000a07f0000a07f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00000000000000000000000000000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:00000000000000000000000000000000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00000080000000800000008000000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:00000080000000800000008000000080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:01000000010000000100000001000000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:01000000010000000100000001000000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:01000080010000800100008001000080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:01000080010000800100008001000080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00008000000080000000800000008000 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:00008000000080000000800000008000 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:00008080000080800000808000008080 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:00008080000080800000808000008080 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000003f0000003f0000003f0000003f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000003f0000003f0000003f0000003f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:000000bf000000bf000000bf000000bf v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000803f0000803f0000803f0000803f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000803f0000803f0000803f0000803f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:000080bf000080bf000080bf000080bf v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:db0fc940db0fc940db0fc940db0fc940 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:db0fc940db0fc940db0fc940db0fc940 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:ffff7f7fffff7f7fffff7f7fffff7f7f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:ffff7fffffff7fffffff7fffffff7fff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000807f0000807f0000807f0000807f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000807f0000807f0000807f0000807f v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:000080ff000080ff000080ff000080ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.div v128:0000a0ff0000a0ff0000a0ff0000a0ff v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
 assert_return f32x4.div v128:a379eb4ca379eb4ca379eb4ca379eb4c v128:a379eb4ca379eb4ca379eb4ca379eb4c -> v128:0000803f0000803f0000803f0000803f
 assert_return f32x4.div v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:0000803f0000803f0000803f0000803f
 assert_return f32x4.div v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:0000803f0000803f0000803f0000803f
@@ -1698,23 +1698,23 @@ assert_return f32x4.div v128:b4a21152b4a21152b4a21152b4a21152 v128:b4a21152b4a21
 assert_return f32x4.sqrt v128:00000000000000000000000000000000 -> v128:00000000000000000000000000000000
 assert_return f32x4.sqrt v128:00000080000000800000008000000080 -> v128:00000080000000800000008000000080
 assert_return f32x4.sqrt v128:01000000010000000100000001000000 -> v128:f304351af304351af304351af304351a
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:canonical
+assert_return f32x4.sqrt v128:01000080010000800100008001000080 -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.sqrt v128:00008000000080000000800000008000 -> v128:00000020000000200000002000000020
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:canonical
+assert_return f32x4.sqrt v128:00008080000080800000808000008080 -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.sqrt v128:0000003f0000003f0000003f0000003f -> v128:f304353ff304353ff304353ff304353f
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:canonical
+assert_return f32x4.sqrt v128:000000bf000000bf000000bf000000bf -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.sqrt v128:0000803f0000803f0000803f0000803f -> v128:0000803f0000803f0000803f0000803f
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:canonical
+assert_return f32x4.sqrt v128:000080bf000080bf000080bf000080bf -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.sqrt v128:db0fc940db0fc940db0fc940db0fc940 -> v128:996c2040996c2040996c2040996c2040
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:canonical
+assert_return f32x4.sqrt v128:db0fc9c0db0fc9c0db0fc9c0db0fc9c0 -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.sqrt v128:ffff7f7fffff7f7fffff7f7fffff7f7f -> v128:ffff7f5fffff7f5fffff7f5fffff7f5f
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:canonical
+assert_return f32x4.sqrt v128:ffff7fffffff7fffffff7fffffff7fff -> v128_lanes:f32x4:c,c,c,c
 assert_return f32x4.sqrt v128:0000807f0000807f0000807f0000807f -> v128:0000807f0000807f0000807f0000807f
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4.sqrt !nan-token-in-lane:nan:arithmetic
+assert_return f32x4.sqrt v128:000080ff000080ff000080ff000080ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sqrt v128:0000c07f0000c07f0000c07f0000c07f -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sqrt v128:0000c0ff0000c0ff0000c0ff0000c0ff -> v128_lanes:f32x4:c,c,c,c
+assert_return f32x4.sqrt v128:0000a07f0000a07f0000a07f0000a07f -> v128_lanes:f32x4:a,a,a,a
+assert_return f32x4.sqrt v128:0000a0ff0000a0ff0000a0ff0000a0ff -> v128_lanes:f32x4:a,a,a,a
 assert_return f32x4.sqrt v128:a379eb4ca379eb4ca379eb4ca379eb4c -> v128:729c2d46729c2d46729c2d46729c2d46
 assert_return f32x4.sqrt v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:aea6ff55aea6ff55aea6ff55aea6ff55
 assert_return f32x4.sqrt v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c -> v128:aea6ff55aea6ff55aea6ff55aea6ff55
@@ -1784,9 +1784,9 @@ assert_return f32x4.neg v128:b4a21165b4a21165b4a21165b4a21165 -> v128:b4a211e5b4
 assert_return f32x4.neg v128:b4a21165b4a21165b4a21165b4a21165 -> v128:b4a211e5b4a211e5b4a211e5b4a211e5
 assert_return f32x4.neg v128:b4a21152b4a21152b4a21152b4a21152 -> v128:b4a211d2b4a211d2b4a211d2b4a211d2
 module simd_f32x4_arith.1.wasm
-skip-impl nan-or-bad-token f32x4_sqrt_arith !nan-token-in-lane:nan:arithmetic
-skip-impl nan-or-bad-token f32x4_sqrt_canon !nan-token-in-lane:nan:canonical
-skip-impl nan-or-bad-token f32x4_sqrt_mixed !nan-token-in-lane:nan:canonical
+assert_return f32x4_sqrt_arith () -> v128_lanes:f32x4:a,a,V40800000,V40a00000
+assert_return f32x4_sqrt_canon () -> v128_lanes:f32x4:c,c,V40000000,V40400000
+assert_return f32x4_sqrt_mixed () -> v128_lanes:f32x4:c,a,V40c00000,V40e00000
 assert_invalid simd_f32x4_arith.2.wasm
 assert_invalid simd_f32x4_arith.3.wasm
 assert_invalid simd_f32x4_arith.4.wasm

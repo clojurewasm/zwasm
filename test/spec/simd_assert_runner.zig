@@ -10,6 +10,20 @@
 //! v128 layout (lane-0-byte-0 first), produced by
 //! `scripts/regen_spec_simd_assert.sh`'s Python distillation.
 //!
+//! Per-lane NaN-pattern result tokens (chunk 9.9-h-25) extend the
+//! v128 form with `v128_lanes:<shape>:<l0>,<l1>,...,<lN>` where
+//! `<shape>` ∈ {`f32x4`, `f64x2`} and each lane is one of:
+//!   `c`       — canonical NaN (±canonical accepted)
+//!   `a`       — arithmetic NaN (any quiet NaN per Wasm spec)
+//!   `V<hex>`  — exact bit pattern (8 hex / lane for f32x4,
+//!               16 hex / lane for f64x2; upper-byte-first
+//!               natural-width hex — distinct from the
+//!               lane-0-byte-0 packing of `v128:`).
+//! Per Wasm spec testsuite semantics, each lane is checked
+//! independently; the assertion passes iff every lane matches its
+//! pattern. Only emitted for FP shapes that actually contain a
+//! `nan:*` token; otherwise the legacy `v128:` form is preserved.
+//!
 //! §9.9-c (this commit) — populates manifest + JIT execution.
 //! Walks each subdirectory's `manifest.txt`, dispatches `module` /
 //! `assert_return` / `assert_invalid` / `assert_malformed` / `skip`
@@ -306,6 +320,81 @@ fn parseV128Token(tok: []const u8) ![16]u8 {
     return out;
 }
 
+// Per-lane NaN-pattern result decoder (chunk 9.9-h-25). The
+// canonical / arithmetic checks match Wasm spec §A.2 "Result
+// types" + the testsuite's `nan:canonical` / `nan:arithmetic`
+// semantics: a canonical NaN has exponent all-1s and mantissa =
+// `1 << (mantissa_width - 1)` (sign arbitrary); an arithmetic
+// NaN is any quiet NaN (exponent all-1s, mantissa MSB = 1).
+const LaneShape = enum { f32x4, f64x2 };
+const LaneSpec = union(enum) {
+    canonical,
+    arithmetic,
+    exact: u64,
+};
+
+const ParsedV128Lanes = struct {
+    shape: LaneShape,
+    lanes: [4]LaneSpec,
+    n_lanes: u8,
+};
+
+fn parseV128LanesToken(s: []const u8) !ParsedV128Lanes {
+    // `s` is the suffix after `v128_lanes:`; expects
+    // `<shape>:<lane0>,<lane1>,...,<laneN>`.
+    const colon = std.mem.findScalar(u8, s, ':') orelse return error.BadValue;
+    const shape_s = s[0..colon];
+    const rest = s[colon + 1 ..];
+
+    var out: ParsedV128Lanes = undefined;
+    var hex_width: usize = undefined;
+    if (std.mem.eql(u8, shape_s, "f32x4")) {
+        out.shape = .f32x4;
+        out.n_lanes = 4;
+        hex_width = 8;
+    } else if (std.mem.eql(u8, shape_s, "f64x2")) {
+        out.shape = .f64x2;
+        out.n_lanes = 2;
+        hex_width = 16;
+    } else return error.BadValue;
+
+    var idx: u8 = 0;
+    var it = std.mem.splitScalar(u8, rest, ',');
+    while (it.next()) |lane_tok| {
+        if (idx >= out.n_lanes) return error.BadValue;
+        if (lane_tok.len == 1 and lane_tok[0] == 'c') {
+            out.lanes[idx] = .canonical;
+        } else if (lane_tok.len == 1 and lane_tok[0] == 'a') {
+            out.lanes[idx] = .arithmetic;
+        } else if (lane_tok.len == hex_width + 1 and lane_tok[0] == 'V') {
+            const bits = try std.fmt.parseInt(u64, lane_tok[1..], 16);
+            out.lanes[idx] = .{ .exact = bits };
+        } else return error.BadValue;
+        idx += 1;
+    }
+    if (idx != out.n_lanes) return error.BadValue;
+    return out;
+}
+
+fn matchLaneF32(got_bits: u32, spec: LaneSpec) bool {
+    return switch (spec) {
+        // Canonical NaN: sign-agnostic ±0x7fc00000.
+        .canonical => got_bits == 0x7fc00000 or got_bits == 0xffc00000,
+        // Arithmetic NaN: exp all-1s + mantissa MSB = 1
+        // (= any quiet NaN, includes canonical).
+        .arithmetic => (got_bits & 0x7fc00000) == 0x7fc00000,
+        .exact => |bits| got_bits == @as(u32, @intCast(bits & 0xffffffff)),
+    };
+}
+
+fn matchLaneF64(got_bits: u64, spec: LaneSpec) bool {
+    return switch (spec) {
+        .canonical => got_bits == 0x7ff8000000000000 or got_bits == 0xfff8000000000000,
+        .arithmetic => (got_bits & 0x7ff8000000000000) == 0x7ff8000000000000,
+        .exact => |bits| got_bits == bits,
+    };
+}
+
 const ArgKind = enum { i32, i64, f32, f64, v128 };
 const ArgValue = union(ArgKind) {
     i32: u32,
@@ -462,48 +551,49 @@ fn runAssertReturn(
             try stdout.print("FAIL  {s}: bad v128 result token '{s}'\n", .{ name, results_s });
             return false;
         };
-        const got: [16]u8 = blk: {
-            if (n_args == 0) {
-                break :blk entry.callV128NoArgs(compiled.module, func_idx, &rt) catch |err| {
-                    try stdout.print("FAIL  {s}: call {s}(): {s}\n", .{ name, fn_name, @errorName(err) });
-                    return false;
-                };
-            }
-            if (n_args == 1 and args[0] == .i32) {
-                break :blk entry.callV128_i32(compiled.module, func_idx, &rt, args[0].i32) catch |err| {
-                    try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
-                    return false;
-                };
-            }
-            if (n_args == 1 and args[0] == .v128) {
-                // §9.9 / 9.9-f-4: (v128) → v128 unop shape.
-                break :blk entry.callV128_v128(compiled.module, func_idx, &rt, args[0].v128) catch |err| {
-                    try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
-                    return false;
-                };
-            }
-            if (n_args == 2 and args[0] == .v128 and args[1] == .v128) {
-                // §9.9 / 9.9-f: (v128, v128) → v128 binop shape —
-                // FP arith / int arith / bitwise fixtures.
-                break :blk entry.callV128_v128v128(compiled.module, func_idx, &rt, args[0].v128, args[1].v128) catch |err| {
-                    try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
-                    return false;
-                };
-            }
-            if (n_args == 3 and args[0] == .v128 and args[1] == .v128 and args[2] == .v128) {
-                // §9.9 / 9.9-h-14 (D-070 unblock): (v128, v128, v128)
-                // → v128 — bitselect / select corpus assertions.
-                break :blk entry.callV128_v128v128v128(compiled.module, func_idx, &rt, args[0].v128, args[1].v128, args[2].v128) catch |err| {
-                    try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
-                    return false;
-                };
-            }
-            try stdout.print("FAIL  {s}: v128-result unsupported (n_args={d}, arg shape) for {s}({s})\n", .{ name, n_args, fn_name, args_s });
-            return false;
-        };
+        const got = (try invokeV128(compiled, func_idx, &rt, fn_name, args_s, args[0..n_args], stdout, name)) orelse return false;
         if (!std.mem.eql(u8, &got, &expected)) {
             try stdout.print("FAIL  {s}: {s}({s}) → got v128:{x}, expected v128:{x}\n", .{ name, fn_name, args_s, got, expected });
             return false;
+        }
+        return true;
+    }
+
+    if (std.mem.startsWith(u8, results_s, "v128_lanes:")) {
+        const parsed = parseV128LanesToken(results_s[11..]) catch {
+            try stdout.print("FAIL  {s}: bad v128_lanes result token '{s}'\n", .{ name, results_s });
+            return false;
+        };
+        const got = (try invokeV128(compiled, func_idx, &rt, fn_name, args_s, args[0..n_args], stdout, name)) orelse return false;
+        switch (parsed.shape) {
+            .f32x4 => {
+                var lane: usize = 0;
+                while (lane < 4) : (lane += 1) {
+                    const off = lane * 4;
+                    const bits = std.mem.readInt(u32, got[off..][0..4], .little);
+                    if (!matchLaneF32(bits, parsed.lanes[lane])) {
+                        try stdout.print(
+                            "FAIL  {s}: {s}({s}) → f32x4 lane {d}: got 0x{x:0>8} vs {s}\n",
+                            .{ name, fn_name, args_s, lane, bits, laneSpecName(parsed.lanes[lane]) },
+                        );
+                        return false;
+                    }
+                }
+            },
+            .f64x2 => {
+                var lane: usize = 0;
+                while (lane < 2) : (lane += 1) {
+                    const off = lane * 8;
+                    const bits = std.mem.readInt(u64, got[off..][0..8], .little);
+                    if (!matchLaneF64(bits, parsed.lanes[lane])) {
+                        try stdout.print(
+                            "FAIL  {s}: {s}({s}) → f64x2 lane {d}: got 0x{x:0>16} vs {s}\n",
+                            .{ name, fn_name, args_s, lane, bits, laneSpecName(parsed.lanes[lane]) },
+                        );
+                        return false;
+                    }
+                }
+            },
         }
         return true;
     }
@@ -562,4 +652,61 @@ fn runAssertReturn(
         return false;
     }
     return true;
+}
+
+/// Dispatch the JIT-compiled function for a v128-result assertion.
+/// Returns `null` on unsupported shape / call error (after the
+/// caller-level FAIL line has been printed); the caller maps `null`
+/// to `return false` from `runAssertReturn`.
+fn invokeV128(
+    compiled: *const runner_mod.CompiledWasm,
+    func_idx: u32,
+    rt: *entry.JitRuntime,
+    fn_name: []const u8,
+    args_s: []const u8,
+    args: []const ArgValue,
+    stdout: *std.Io.Writer,
+    name: []const u8,
+) !?[16]u8 {
+    const n_args = args.len;
+    if (n_args == 0) {
+        return entry.callV128NoArgs(compiled.module, func_idx, rt) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}(): {s}\n", .{ name, fn_name, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 1 and args[0] == .i32) {
+        return entry.callV128_i32(compiled.module, func_idx, rt, args[0].i32) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 1 and args[0] == .v128) {
+        return entry.callV128_v128(compiled.module, func_idx, rt, args[0].v128) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 2 and args[0] == .v128 and args[1] == .v128) {
+        return entry.callV128_v128v128(compiled.module, func_idx, rt, args[0].v128, args[1].v128) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 3 and args[0] == .v128 and args[1] == .v128 and args[2] == .v128) {
+        return entry.callV128_v128v128v128(compiled.module, func_idx, rt, args[0].v128, args[1].v128, args[2].v128) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    try stdout.print("FAIL  {s}: v128-result unsupported (n_args={d}, arg shape) for {s}({s})\n", .{ name, n_args, fn_name, args_s });
+    return null;
+}
+
+fn laneSpecName(spec: LaneSpec) []const u8 {
+    return switch (spec) {
+        .canonical => "nan:canonical",
+        .arithmetic => "nan:arithmetic",
+        .exact => "exact",
+    };
 }

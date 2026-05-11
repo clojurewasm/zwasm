@@ -158,14 +158,14 @@ def encode_v128(value, lane_type):
     plus a `lane_type`. We pack each lane as a fixed-width little-
     endian integer (FP lanes ship as their bit pattern reinterpreted
     as int) and concatenate to 16 bytes — exactly the in-memory Wasm
-    v128 layout. Output as 32-char lower-hex (lane-0-byte-0 first)."""
+    v128 layout. Output as 32-char lower-hex (lane-0-byte-0 first).
+
+    Raises ValueError if any lane is a NaN-pattern token
+    (`nan:canonical` / `nan:arithmetic`); callers use that signal
+    to emit the per-lane `v128_lanes:` form instead."""
     sz = LANE_SIZE[lane_type]
     out = bytearray()
     for lane in value:
-        # wast2json may emit "nan:canonical" / "nan:arithmetic" for
-        # FP NaN lanes. The starter set (address/align/const/select)
-        # uses concrete bit patterns only; surface NaN tokens as a
-        # parse error so the caller can flip the directive to skip.
         if isinstance(lane, str) and lane.startswith("nan"):
             raise ValueError(f"nan-token-in-lane:{lane}")
         n = int(lane)
@@ -179,19 +179,67 @@ def encode_v128(value, lane_type):
         raise ValueError(f"v128 length {len(out)} != 16")
     return out.hex()
 
+# Per-lane NaN-pattern manifest form (chunk 9.9-h-25). Only the
+# FP shapes f32x4 / f64x2 carry `nan:*` tokens (integer lanes are
+# always bit-exact). Emitted as
+#   v128_lanes:<shape>:<lane0>,<lane1>,...,<laneN>
+# where <shape> ∈ {f32x4, f64x2} and each lane is:
+#   c        — canonical NaN (sign-agnostic ±canonical)
+#   a        — arithmetic NaN (any quiet NaN per spec)
+#   V<hex>   — exact bit pattern (8 hex chars for f32, 16 for f64)
+LANE_SHAPE = {"f32": ("f32x4", 4, 8), "f64": ("f64x2", 2, 16)}
+
+def encode_v128_lanes(value, lane_type):
+    """Emit a per-lane NaN-pattern manifest token. Only valid when
+    `lane_type` is `f32` or `f64`; the caller restricts to that
+    case after checking for nan tokens."""
+    shape, n_lanes, hex_width = LANE_SHAPE[lane_type]
+    if len(value) != n_lanes:
+        raise ValueError(f"v128_lanes lane count {len(value)} != {n_lanes}")
+    parts = []
+    for lane in value:
+        if lane == "nan:canonical":
+            parts.append("c")
+        elif lane == "nan:arithmetic":
+            parts.append("a")
+        else:
+            # wast2json emits numeric lane values as decimal strings
+            # (sometimes negative); int() parses both. Mask to the
+            # lane width then format as natural-width hex.
+            n = int(lane)
+            mask = (1 << (hex_width * 4)) - 1
+            n &= mask
+            parts.append(f"V{n:0{hex_width}x}")
+    return f"v128_lanes:{shape}:" + ",".join(parts)
+
 def fmt_scalar(v):
     return f"{v['type']}:{v['value']}"
 
+def has_nan_lane(v):
+    if v.get("type") != "v128":
+        return False
+    return any(isinstance(lane, str) and lane.startswith("nan")
+               for lane in v.get("value", []))
+
 def fmt_token(v):
     """Format a single arg / result token for the manifest. Returns
-    `None` if the lane carries an unsupported NaN-pattern (caller
+    a string starting with `!` to signal an unsupported case (caller
     converts the directive to a skip)."""
     t = v["type"]
     if t in ("i32", "i64", "f32", "f64"):
         return fmt_scalar(v)
     if t == "v128":
+        lane_type = v.get("lane_type")
+        # NaN-pattern lanes only appear in FP shapes; integer lanes
+        # are always bit-exact (verified empirically — see 9.9-h-25
+        # commit body). Emit the per-lane form only when needed.
+        if has_nan_lane(v) and lane_type in ("f32", "f64"):
+            try:
+                return encode_v128_lanes(v["value"], lane_type)
+            except ValueError as e:
+                return f"!{e}"
         try:
-            hex_s = encode_v128(v["value"], v["lane_type"])
+            hex_s = encode_v128(v["value"], lane_type)
         except ValueError as e:
             return f"!{e}"
         return f"v128:{hex_s}"
