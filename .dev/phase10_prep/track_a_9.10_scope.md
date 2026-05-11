@@ -1,6 +1,7 @@
 # Phase 10 prep — Track A: §9.10 scope reality check
 
-> Status: **DRAFT — awaiting user decision**
+> Status: **DECIDED — Option (3): move §9.10 entirely to Phase 11**
+> Decision date: 2026-05-11 (user-confirmed in prep mode session)
 > Date: 2026-05-11
 > Author: autonomous `/continue` loop, Phase 10 prep mode
 > Path note: `phase10_prep.md` Track A names
@@ -250,8 +251,70 @@ Phase 11 alongside D-074's bench infra cohort.
 
 ## §4. Recommendation
 
-**Option (2) — baseline-only descope, per-op gap analysis
-moved to Phase 15.**
+**Option (3) — move §9.10 entirely to Phase 11.**
+
+(Initial draft recommended Option (2); revised to Option (3)
+after user clarified the prep-track intent: "ensure proper
+future resolution; prevent drift / oversight" — for that goal,
+folding §9.10 into Phase 11's existing bench-infra cohort is
+strictly stronger than Option (2)'s "amend ADR-0043 → defer to
+Phase 15" path. Option (2) carries hidden drift risk: a
+deferred §9.10 row text becomes orphaned across 5 phases and
+its consumption at Phase 15 requires re-interpreting the
+amendment. Option (3) collapses the work into Phase 11 where
+D-074's barrier explicitly names "Phase 11 (WASI 0.1 full +
+bench infra)" as the natural carrier — the bench-infra cohort
++ SIMD per-op gap analysis become one coherent design pass.)
+
+### §4.1 Why Option (3) > Option (2) under the "no-drift" lens
+
+- **Phase 11 already scopes bench infra**: ROADMAP lines
+  1669–1682 list `bench/history.yaml` per-merge automatic
+  recording across Mac/Linux/Windows as Phase 11 exit
+  criteria. Adding SIMD per-op gap analysis is in-scope
+  expansion, not a foreign import.
+- **D-074 alignment is explicit**: its barrier literally
+  says "Phase 11 (WASI 0.1 full + bench infra) is the
+  natural carrier". Option (3) acts on this; Option (2)
+  leaves the alignment implicit.
+- **Single design pass**: Option (3) means all of D-074's
+  `-Dwith-bench-compare` flag, wazero/wasmer in flake.nix,
+  SIMD micro-bench corpus, gap-analysis script, Phase 15
+  debt-filing convention land in one phase. Option (2)
+  splits them: Phase 9 closes with wasmtime baseline only,
+  rest scattered into Phase 15.
+- **Phase 11 row prominently signals the work**: amending
+  Phase 11 row prose to add "SIMD per-op gap analysis"
+  means it appears in the Phase Status widget when Phase 11
+  opens. Option (2)'s ADR-0043 amendment risks being a
+  "soft promise" buried in an ADR §"Amendment log" row.
+
+### §4.2 Why Option (3) > Option (1)
+
+- **Phase 9 close discipline**: Phase 9 = SIMD-128 spec
+  completion. Coupling its close to bench infra (which has
+  no other Phase 9 reason to exist) violates phase scope.
+- **D-074 stays a coherent cohort**: Option (1) closes the
+  bench-relevant *subset* of D-074 piecemeal at Phase 9,
+  leaving the WASI-relevant subset for Phase 11. Option (3)
+  keeps D-074 as one cohort discharged at Phase 11.
+
+### §4.3 Renumber-avoidance shape
+
+ADR-0014 forbids §9 row renumber. Option (3) avoids it by:
+
+- Leaving §9.10 row in place with `[~]` status and prose
+  `moved to Phase 11 §11.X — per-op SIMD gap analysis folded
+  into bench infra cohort (D-074 alignment); see ADR-0043
+  Amendment log`. Row number stays `9.10`.
+- §9.11 (audit + SHA backfill) stays §9.11.
+- §9.12 (open Phase 10) stays §9.12.
+- Phase 11 row prose gains the SIMD per-op gap analysis as
+  an enumerated exit criterion.
+
+This is the same shape as the §9.6 / 6.H "structural;
+hyperfine wiring at Phase 11" precedent (ROADMAP line 1474)
+— a marker pointing forward without renumber.
 
 Rationale:
 
@@ -330,25 +393,58 @@ Rationale:
    Phase 15) but the D122 reference can stay as historical
    anchor. OK?
 
-## §7. After user decision
+## §7. Implementation plan for Option (3) — to land after all 4 tracks decided
 
-- **Option (1) chosen**: open the 8-chunk plan in §9.10
-  (ADR-0043 unchanged), proceed normally. D-074
-  discharges piecewise across the chunks.
-- **Option (2) chosen**: 1 chunk per §3.2 prerequisites.
-  ADR-0043 amendment + §9.10 baseline run + Phase 15 row
-  amendment + D-076 close land together.
-- **Option (3) chosen**: 1-chunk ROADMAP migration; §9.10
-  becomes "moved to Phase 11" without renumber; Phase 11
-  row absorbs the surface; ADR-0043 §"Decision" §9.10
-  reference flips to Phase 11.
+Per `phase10_prep.md` §"After all 4 tracks complete", actual
+implementation chunks fire after Track B / C / D also resolve.
+The Option (3) implementation is a 1-chunk pass:
 
-Whichever option is chosen, this prep track's outcome must
-be reflected in a single follow-up commit (`chore(p10-prep):
-track A decision — <option>`) that updates `.dev/handover.md`
-to drop "Track A" from the prep-mode `Next candidates` list.
+1. **ROADMAP edits** (single commit):
+   - §9.10 row → `[~] moved to Phase 11 §11.X — per-op SIMD
+     gap analysis folded into bench infra cohort (D-074
+     alignment); see ADR-0043 Amendment log`. Row number
+     preserved (no renumber per ADR-0014).
+   - Phase 11 row prose: append a bullet to Exit criterion
+     enumerating "SIMD per-op gap analysis vs (wasmtime,
+     wazero, wasmer); 3× median threshold; Phase 15 debt-
+     entry filing per ADR-0043".
+   - §9 Phase Status widget: §9.10 description suffix
+     "(moved to Phase 11)".
+2. **ADR-0043 amendment**:
+   - §"Decision" §9.10 paragraph → reframe as "Phase 11
+     paragraph". Keep the 3× threshold, v1 D122 reference,
+     candidate optimisation list (AVX path / MOVAPS peephole
+     / SIMD coalescing) intact — they're still load-bearing,
+     just attached to Phase 11.
+   - §"Amendment log" row: "2026-05-11 — §9.10 scope folded
+     into Phase 11 per Phase 10 prep Track A Option (3);
+     Track A deliverable `.dev/phase10_prep/track_a_9.10_
+     scope.md`; user decision recorded in commit body".
+3. **Debt updates**:
+   - D-074: barrier statement updated to reflect that Phase
+     11 now ALSO carries SIMD per-op gap analysis (not just
+     ADR-0012 §1–§3 cohort). Status stays `blocked-by:` until
+     Phase 11 opens.
+   - D-076: discharge in same commit (ADR-0043 wording
+     verified to be in ROADMAP line 1649, and the same wording
+     moves to Phase 11 row prose).
+4. **Track D dependency**: Phase 10 transition gate doc
+   (Track D's deliverable) will need a §"Pre-conditions
+   moved" subsection noting §9.10 is no longer a Phase 9 close
+   gate — gate doc checklist reads "Phase 11 carries the
+   SIMD perf gap work" so the autonomous loop's Phase 10
+   entry doesn't expect §9.10 to be `[x]`.
 
-## §8. References
+This chunk lands as `feat(p9-close): §9.10 → Phase 11
+migration per Track A Option (3) + D-074/D-076 alignment`.
+
+## §8. Decision record
+
+| Date       | Decision                                       | Recorded by             |
+|------------|------------------------------------------------|-------------------------|
+| 2026-05-11 | Option (3): move §9.10 entirely to Phase 11    | user (prep mode session) |
+
+## §9. References
 
 - `.dev/decisions/0012_first_principles_test_bench_redesign.md`
   §1–§3 + Amendment log

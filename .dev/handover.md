@@ -44,13 +44,12 @@
 
 ## Next sub-chunk candidates — **PREP TRACKS (run A → B → C → D in order)**
 
-1. **Track A — §9.10 scope reality check** — **DELIVERABLE
-   LANDED, AWAITING USER DECISION** at
-   `.dev/phase10_prep/track_a_9.10_scope.md` (3 options surveyed;
-   recommendation Option (2) baseline-only descope). User
-   reviews → next `/continue` picks up Track B OR begins
-   implementing the chosen option.
-2. **Track B — D-057 / D-065 source-split partition**
+1. **Track A — §9.10 scope reality check** — **DECIDED 2026-05-11**:
+   Option (3) "move §9.10 entirely to Phase 11" (deliverable:
+   `.dev/phase10_prep/track_a_9.10_scope.md` §8). Implementation
+   chunk deferred until all 4 tracks resolve (per
+   `phase10_prep.md` §"After all 4 tracks complete").
+2. **Track B — D-057 / D-065 source-split partition** — **NEXT**.
    (`op_simd.zig` 4554 + `inst_neon.zig` 2249 +
    `op_simd_test.zig` 2624 vs §A2 cap 2000). Output: partition
    table + ADR-0054 draft skeleton. See §"Track B".
