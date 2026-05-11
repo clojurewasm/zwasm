@@ -25,14 +25,12 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: §9.9 / 9.9-h-12 — ADR-0053 Part 3b/3c
-  (D-078 (c) FULLY DISCHARGED). Bitselect reclaims XMM7 as a
-  3rd staging slot for `a` + spilled dst; Load / Store / Const
-  also migrated. **OrbStack simd_assert: 11257 / 1 → 11270 / 0
-  FAIL** — simd_bitwise.17 cleared. Mac unchanged 11270 / 0.
-  **Both hosts at zero failing fixtures.** §9.9 exit criterion
-  now blocked only on: windowsmini reconciliation (deferred to
-  phase boundary per ADR-0049) + SKIP-cluster review.
+- **Latest §9.9 landing**: §9.9 / 9.9-h-13 — `test-spec-simd`
+  aggregated into `test-all`. Post-D-078 (c), both Mac + OrbStack
+  at 11270 / 0 simd_assert; the dependency adds preventive per-
+  chunk SIMD regression gating to the autonomous loop. Both
+  hosts' `zig build test-all` green incl simd. Build-only change,
+  no src diff.
 - **Active row**: §9.9 (still `[ ]`). Mac is at FAIL=0 / SKIP>0;
   the exit criterion is fail=skip=0 across the 3-host gate, so
   skips remain (assert_invalid SKIP-VALIDATOR-GAP cluster +
@@ -52,10 +50,6 @@
   §9.9 SKIPs are at zero, run `scripts/run_remote_windows.sh
   test-all` once, fix any windowsmini-only deltas, then
   `should_gate_windows.sh --record`.
-- **Aggregate `test-spec-simd` into `test-all`** — both
-  hosts are at 0 FAIL now, so adding the dependency in
-  `build.zig` no longer breaks the gate. Preventive
-  regression detection.
 - **Remaining v128-class `resolveXmm` audit** — many other
   v128 handlers (lane extract/replace, splat, shifts,
   shuffle, compares, convert) still use `resolveXmm`. No
