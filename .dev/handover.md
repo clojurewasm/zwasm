@@ -25,12 +25,14 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: §9.9 / 9.9-h-13 — `test-spec-simd`
-  aggregated into `test-all`. Post-D-078 (c), both Mac + OrbStack
-  at 11270 / 0 simd_assert; the dependency adds preventive per-
-  chunk SIMD regression gating to the autonomous loop. Both
-  hosts' `zig build test-all` green incl simd. Build-only change,
-  no src diff.
+- **Latest §9.9 landing**: §9.9 / 9.9-h-14 — D-070 + D-071
+  discharged. New `entry.callV128_v128v128v128` + runner
+  dispatch + manifest regen flips ~800 v128-param-pending
+  skips into runnable assertions. Predicted alias bug surfaces
+  on both arches (bitselect mask==v1 / v2 on ARM64; dst==c /
+  dst==b on x86_64) — alias-stash fixes land in same commit.
+  **Both hosts: 11270 / 0 → 11384 / 0 simd_assert** (+114 PASS
+  each).
 - **Active row**: §9.9 (still `[ ]`). Mac is at FAIL=0 / SKIP>0;
   the exit criterion is fail=skip=0 across the 3-host gate, so
   skips remain (assert_invalid SKIP-VALIDATOR-GAP cluster +
