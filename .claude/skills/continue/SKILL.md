@@ -783,6 +783,19 @@ Currently registered hard gates:
      re-engages by working through the gate checklist, marking
      ☑ as items resolve, and finally asking for the gate to
      be cleared (= flipping 7.13 to `[x]`).
+- **§9.9 → Phase 10 (Phase 9 → Phase 10)** — anchored at row
+  §9.9 / 9.12, document `.dev/phase10_transition_gate.md`
+  (Track D prep deliverable). Triggers when the next-task
+  lookup resolves to row 9.12 OR to "open Phase 10". The loop
+  must:
+  1. Skip `ScheduleWakeup` (do **not** re-arm).
+  2. Surface a one-sentence handoff: "Phase 10 entry gate
+     (`.dev/phase10_transition_gate.md`) needs collaborative
+     review; pausing autonomous mode."
+  3. Treat resumption as bucket-1 user intervention — the user
+     re-engages by working through the gate checklist, marking
+     ☑ as items resolve, and finally asking for the gate to
+     be cleared (= flipping 9.12 to `[x]`).
 
 **Detection rule** — the loop scans for hard gates at **two**
 checkpoints:

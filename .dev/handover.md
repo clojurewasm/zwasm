@@ -11,56 +11,41 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9 task table.
 
-## Active state — **Phase 9 closing, §9.11 LANDED**
+## Active state — **HARD GATE PENDING — Phase 10 entry review**
 
-Phase: 9 (SIMD-128). §9.5/6/7/8 [x]; §9.9 [ ] (skip-impl=0 met,
-2-host bit-identical; flips at Phase boundary close after
-windowsmini reconcile); §9.10 [~] **moved to Phase 11** per
-Track A Option (3); §9.11 [x] this chunk; §9.12 [ ] next.
+§9.9 [x] (Mac+OrbStack green; windowsmini Win64 v128 ABI gap =
+D-084); §9.10 [~] moved to Phase 11 (Track A); §9.11 [x]
+(audit + SHA backfill + ADR-0043 amend); §9.12 [ ] 🔒
+**Phase 10 entry gate** ([`phase10_transition_gate.md`](phase10_transition_gate.md)).
 
-Track A migration (this chunk): ADR-0043 amended (§"Decision"
-+ §"Migration history" + §"Amendment log" 2026-05-12 row);
-ROADMAP §9.10 row → `[~] moved to Phase 11`; Phase 11 row
-exit-criterion gains SIMD per-op gap analysis bullet (with the
-3× threshold, D122 ref, AVX/MOVAPS/coalescing candidate list
-intact); Phase Status widget Phase 11 line annotated; Phase 15
-narrative cite-refs `§9.10` → `Phase 11`. D-076 discharged;
-D-074 barrier updated to name SIMD-perf as additional
-Phase 11 carrier. audit_scaffolding ran (3 block / 8 soon /
-6 watch); top block was handover length+contradiction, fixed
-by this rewrite.
+**Next /continue HITS the hard gate**: SKILL.md §"Currently
+registered hard gates" registers §9.9 → Phase 10 anchored at
+9.12 (this chunk landed the registration). Resume Step 2
+detector fires; loop surfaces gate doc for collaborative
+review; no autonomous TDD chunks fire until 9.12 is
+collaboratively flipped `[x]`.
 
-## Implementation queue (matches ROADMAP first `[ ]`)
+## What surfaces at the gate
 
-§9.12 next; then Phase 10 entry HARD GATE STOP.
+`phase10_transition_gate.md` §"Checklist" enumerates Phase 9
+functional completion + debt reconciliation + design
+cleanliness extrapolation + per-subsystem ADR slots
+(0055..0058: memory64 / Tail Call / EH / WasmGC). The §"Phase
+9 functional completion" section explicitly enumerates 3-host
+green — the windowsmini Win64 v128 ABI gap (D-084) surfaces
+there for collaborative decision (file own Phase 10 row vs
+absorb into Phase 10 EH/GC ABI work).
 
-1. **§9.12 + Track D wiring** (1 chunk): retarget §9.12 row
-   text from `Open §9.10 inline + flip phase tracker` to
-   `🔒 Phase 10 entry gate review (.dev/phase10_transition_
-   gate.md)`. Add Phase 9→10 hard-gate entry to
-   `.claude/skills/continue/SKILL.md` "Currently registered
-   hard gates" list. Run windowsmini phase-boundary reconcile
-   (`bash scripts/run_remote_windows.sh test-spec-simd`);
-   if green, §9.9 row flips `[x]` in same chunk. §9.12 row
-   itself flips `[x]` at commit-time.
-2. **Phase 10 entry HARD GATE STOP** — next resume after
-   §9.12 wiring lands hits the row, detector fires, loop
-   surfaces `phase10_transition_gate.md` for collaborative
-   review. No `ScheduleWakeup`; bucket-1 user-intervention
-   stop.
+## Cohort of debt rows the gate will reference
 
-## Phase 10 design ADR slots (Track D §9 Q3)
-
-ADR-0054 = Track B; ADR-0043 amended (Track A migration);
-ADR-0029 amended (Track C). Phase 10 per-subsystem (Q2 order):
-ADR-0055 memory64 → 0056 Tail Call → 0057 EH → 0058 WasmGC.
-
-## Open structural debt (pointers — see `.dev/debt.md`)
-
-- `now`: none.
-- `blocked-by`: D-007/010/016/018/020/021/022/026/028/052/055/
-  D-057/058/059/062/D-065/D-072/D-073/D-074(updated)/075/
-  D-079(ii)/081/082. D-076 discharged this chunk.
+- **D-084** (new, this chunk) — windowsmini Win64 v128 ABI
+  marshal gap; 41 FAIL + 12466 skip-impl on windowsmini
+  while Mac+OrbStack are bit-identical green.
+- **D-079(ii)** — v128 cross-module imports
+  (`Runtime.globals` shape extension).
+- **D-074(updated)** — ADR-0012 §1–§3 bench infra cohort +
+  SIMD per-op gap analysis (Track A migrated 2026-05-12).
+- Plus the 17-row blocked-by cohort listed at handover bottom.
 
 ## Sandbox quirks + hook scope
 
@@ -70,7 +55,21 @@ ADR-0055 memory64 → 0056 Tail Call → 0057 EH → 0058 WasmGC.
   rotation; restart via `pkill -9 -f OrbStack && open -a
   OrbStack`, then top-level `orb run -m my-ubuntu-amd64
   bash -c '...'` directly.
-- `.githooks/pre-push` → `gate_commit.sh` (light); full 3-host
-  `gate_merge.sh` manual at Phase boundary + before push to
-  main. Per-chunk loop is 2-host (Mac+OrbStack) per ADR-0049;
-  windowsmini phase-boundary only (§9.12 chunk fires it).
+- `scripts/run_remote_windows.sh` fails on
+  `windowsmini.local` mDNS resolution intermittently;
+  workaround: direct `ssh windowsmini "cd
+  Documents/MyProducts/zwasm_from_scratch && zig build
+  test-spec-simd"`. Filed as new debt candidate (script SSH
+  path uses bash login shell which lacks mDNS in some
+  states).
+- `.githooks/pre-push` → `gate_commit.sh` (light); full
+  3-host `gate_merge.sh` manual at Phase boundary + before
+  push to main. Per-chunk loop is 2-host (Mac+OrbStack) per
+  ADR-0049; windowsmini phase-boundary fired at this chunk.
+
+## Open structural debt pointers — see `.dev/debt.md`
+
+- `now`: none.
+- `blocked-by`: D-007/010/016/018/020/021/022/026/028/052/
+  055/057/058/059/062/065/072/073/074/075/079(ii)/081/082/
+  **D-084 (new)**.
