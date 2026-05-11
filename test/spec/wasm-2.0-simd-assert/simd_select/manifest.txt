@@ -1,7 +1,7 @@
 module simd_select.0.wasm
-skip v128-param-pending select_v128_i32
-skip v128-param-pending select_v128_i32
-skip v128-param-pending select_v128_i32
-skip v128-param-pending select_v128_i32
-skip v128-param-pending select_v128_i32
-skip v128-param-pending select_v128_i32
+skip-impl v128-param-pending select_v128_i32
+skip-impl v128-param-pending select_v128_i32
+skip-impl v128-param-pending select_v128_i32
+skip-impl v128-param-pending select_v128_i32
+skip-impl v128-param-pending select_v128_i32
+skip-impl v128-param-pending select_v128_i32

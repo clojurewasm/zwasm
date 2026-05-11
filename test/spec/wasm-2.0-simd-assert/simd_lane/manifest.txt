@@ -1,202 +1,202 @@
 module simd_lane.0.wasm
-skip v128-param-pending i8x16_extract_lane_s-first
-skip v128-param-pending i8x16_extract_lane_s-first
-skip v128-param-pending i8x16_extract_lane_s-first
-skip v128-param-pending i8x16_extract_lane_s-first
-skip v128-param-pending i8x16_extract_lane_u-first
-skip v128-param-pending i8x16_extract_lane_u-first
-skip v128-param-pending i8x16_extract_lane_s-last
-skip v128-param-pending i8x16_extract_lane_s-last
-skip v128-param-pending i8x16_extract_lane_u-last
-skip v128-param-pending i8x16_extract_lane_u-last
-skip v128-param-pending i8x16_extract_lane_u-last
-skip v128-param-pending i8x16_extract_lane_u-last
-skip v128-param-pending i16x8_extract_lane_s-first
-skip v128-param-pending i16x8_extract_lane_s-first
-skip v128-param-pending i16x8_extract_lane_s-first
-skip v128-param-pending i16x8_extract_lane_s-first
-skip v128-param-pending i16x8_extract_lane_s-first
-skip v128-param-pending i16x8_extract_lane_s-first
-skip v128-param-pending i16x8_extract_lane_u-first
-skip v128-param-pending i16x8_extract_lane_u-first
-skip v128-param-pending i16x8_extract_lane_u-first
-skip v128-param-pending i16x8_extract_lane_u-first
-skip v128-param-pending i16x8_extract_lane_s-last
-skip v128-param-pending i16x8_extract_lane_s-last
-skip v128-param-pending i16x8_extract_lane_s-last
-skip v128-param-pending i16x8_extract_lane_s-last
-skip v128-param-pending i16x8_extract_lane_u-last
-skip v128-param-pending i16x8_extract_lane_u-last
-skip v128-param-pending i16x8_extract_lane_u-last
-skip v128-param-pending i16x8_extract_lane_u-last
-skip v128-param-pending i16x8_extract_lane_u-last
-skip v128-param-pending i16x8_extract_lane_u-last
-skip v128-param-pending i32x4_extract_lane-first
-skip v128-param-pending i32x4_extract_lane-first
-skip v128-param-pending i32x4_extract_lane-first
-skip v128-param-pending i32x4_extract_lane-first
-skip v128-param-pending i32x4_extract_lane-first
-skip v128-param-pending i32x4_extract_lane-first
-skip v128-param-pending i32x4_extract_lane-last
-skip v128-param-pending i32x4_extract_lane-last
-skip v128-param-pending i32x4_extract_lane-last
-skip v128-param-pending i32x4_extract_lane-last
-skip v128-param-pending i32x4_extract_lane-last
-skip v128-param-pending i32x4_extract_lane-last
-skip v128-param-pending i64x2_extract_lane-first
-skip v128-param-pending i64x2_extract_lane-first
-skip v128-param-pending i64x2_extract_lane-first
-skip v128-param-pending i64x2_extract_lane-first
-skip v128-param-pending i64x2_extract_lane-first
-skip v128-param-pending i64x2_extract_lane-first
-skip v128-param-pending i64x2_extract_lane-last
-skip v128-param-pending i64x2_extract_lane-last
-skip v128-param-pending i64x2_extract_lane-last
-skip v128-param-pending i64x2_extract_lane-last
-skip v128-param-pending i64x2_extract_lane-last
-skip v128-param-pending i64x2_extract_lane-last
-skip v128-param-pending i64x2_extract_lane-last
-skip v128-param-pending i64x2_extract_lane-last
-skip v128-param-pending i64x2_extract_lane-last
-skip v128-param-pending f32x4_extract_lane-first
-skip v128-param-pending f32x4_extract_lane-first
-skip v128-param-pending f32x4_extract_lane-first
-skip v128-param-pending f32x4_extract_lane-first
-skip v128-param-pending f32x4_extract_lane-first
-skip v128-param-pending f32x4_extract_lane-first
-skip v128-param-pending f32x4_extract_lane-first
-skip v128-param-pending f32x4_extract_lane-first
-skip v128-param-pending f32x4_extract_lane-last
-skip v128-param-pending f32x4_extract_lane-last
-skip v128-param-pending f32x4_extract_lane-last
-skip v128-param-pending f32x4_extract_lane-last
-skip v128-param-pending f32x4_extract_lane-last
-skip v128-param-pending f32x4_extract_lane-last
-skip v128-param-pending f32x4_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-first
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending f64x2_extract_lane-last
-skip v128-param-pending i8x16_replace_lane-first
-skip v128-param-pending i8x16_replace_lane-first
-skip v128-param-pending i8x16_replace_lane-first
-skip v128-param-pending i8x16_replace_lane-first
-skip v128-param-pending i8x16_replace_lane-last
-skip v128-param-pending i8x16_replace_lane-last
-skip v128-param-pending i8x16_replace_lane-last
-skip v128-param-pending i8x16_replace_lane-last
-skip v128-param-pending i16x8_replace_lane-first
-skip v128-param-pending i16x8_replace_lane-first
-skip v128-param-pending i16x8_replace_lane-first
-skip v128-param-pending i16x8_replace_lane-first
-skip v128-param-pending i16x8_replace_lane-first
-skip v128-param-pending i16x8_replace_lane-first
-skip v128-param-pending i16x8_replace_lane-last
-skip v128-param-pending i16x8_replace_lane-last
-skip v128-param-pending i16x8_replace_lane-last
-skip v128-param-pending i16x8_replace_lane-last
-skip v128-param-pending i16x8_replace_lane-last
-skip v128-param-pending i16x8_replace_lane-last
-skip v128-param-pending i32x4_replace_lane-first
-skip v128-param-pending i32x4_replace_lane-first
-skip v128-param-pending i32x4_replace_lane-first
-skip v128-param-pending i32x4_replace_lane-first
-skip v128-param-pending i32x4_replace_lane-last
-skip v128-param-pending i32x4_replace_lane-last
-skip v128-param-pending i32x4_replace_lane-last
-skip v128-param-pending i32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-first
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending f32x4_replace_lane-last
-skip v128-param-pending i64x2_replace_lane-first
-skip v128-param-pending i64x2_replace_lane-first
-skip v128-param-pending i64x2_replace_lane-first
-skip v128-param-pending i64x2_replace_lane-first
-skip v128-param-pending i64x2_replace_lane-last
-skip v128-param-pending i64x2_replace_lane-last
-skip v128-param-pending i64x2_replace_lane-last
-skip v128-param-pending i64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-first
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
-skip v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending i8x16_extract_lane_s-first
+skip-impl v128-param-pending i8x16_extract_lane_s-first
+skip-impl v128-param-pending i8x16_extract_lane_s-first
+skip-impl v128-param-pending i8x16_extract_lane_s-first
+skip-impl v128-param-pending i8x16_extract_lane_u-first
+skip-impl v128-param-pending i8x16_extract_lane_u-first
+skip-impl v128-param-pending i8x16_extract_lane_s-last
+skip-impl v128-param-pending i8x16_extract_lane_s-last
+skip-impl v128-param-pending i8x16_extract_lane_u-last
+skip-impl v128-param-pending i8x16_extract_lane_u-last
+skip-impl v128-param-pending i8x16_extract_lane_u-last
+skip-impl v128-param-pending i8x16_extract_lane_u-last
+skip-impl v128-param-pending i16x8_extract_lane_s-first
+skip-impl v128-param-pending i16x8_extract_lane_s-first
+skip-impl v128-param-pending i16x8_extract_lane_s-first
+skip-impl v128-param-pending i16x8_extract_lane_s-first
+skip-impl v128-param-pending i16x8_extract_lane_s-first
+skip-impl v128-param-pending i16x8_extract_lane_s-first
+skip-impl v128-param-pending i16x8_extract_lane_u-first
+skip-impl v128-param-pending i16x8_extract_lane_u-first
+skip-impl v128-param-pending i16x8_extract_lane_u-first
+skip-impl v128-param-pending i16x8_extract_lane_u-first
+skip-impl v128-param-pending i16x8_extract_lane_s-last
+skip-impl v128-param-pending i16x8_extract_lane_s-last
+skip-impl v128-param-pending i16x8_extract_lane_s-last
+skip-impl v128-param-pending i16x8_extract_lane_s-last
+skip-impl v128-param-pending i16x8_extract_lane_u-last
+skip-impl v128-param-pending i16x8_extract_lane_u-last
+skip-impl v128-param-pending i16x8_extract_lane_u-last
+skip-impl v128-param-pending i16x8_extract_lane_u-last
+skip-impl v128-param-pending i16x8_extract_lane_u-last
+skip-impl v128-param-pending i16x8_extract_lane_u-last
+skip-impl v128-param-pending i32x4_extract_lane-first
+skip-impl v128-param-pending i32x4_extract_lane-first
+skip-impl v128-param-pending i32x4_extract_lane-first
+skip-impl v128-param-pending i32x4_extract_lane-first
+skip-impl v128-param-pending i32x4_extract_lane-first
+skip-impl v128-param-pending i32x4_extract_lane-first
+skip-impl v128-param-pending i32x4_extract_lane-last
+skip-impl v128-param-pending i32x4_extract_lane-last
+skip-impl v128-param-pending i32x4_extract_lane-last
+skip-impl v128-param-pending i32x4_extract_lane-last
+skip-impl v128-param-pending i32x4_extract_lane-last
+skip-impl v128-param-pending i32x4_extract_lane-last
+skip-impl v128-param-pending i64x2_extract_lane-first
+skip-impl v128-param-pending i64x2_extract_lane-first
+skip-impl v128-param-pending i64x2_extract_lane-first
+skip-impl v128-param-pending i64x2_extract_lane-first
+skip-impl v128-param-pending i64x2_extract_lane-first
+skip-impl v128-param-pending i64x2_extract_lane-first
+skip-impl v128-param-pending i64x2_extract_lane-last
+skip-impl v128-param-pending i64x2_extract_lane-last
+skip-impl v128-param-pending i64x2_extract_lane-last
+skip-impl v128-param-pending i64x2_extract_lane-last
+skip-impl v128-param-pending i64x2_extract_lane-last
+skip-impl v128-param-pending i64x2_extract_lane-last
+skip-impl v128-param-pending i64x2_extract_lane-last
+skip-impl v128-param-pending i64x2_extract_lane-last
+skip-impl v128-param-pending i64x2_extract_lane-last
+skip-impl v128-param-pending f32x4_extract_lane-first
+skip-impl v128-param-pending f32x4_extract_lane-first
+skip-impl v128-param-pending f32x4_extract_lane-first
+skip-impl v128-param-pending f32x4_extract_lane-first
+skip-impl v128-param-pending f32x4_extract_lane-first
+skip-impl v128-param-pending f32x4_extract_lane-first
+skip-impl v128-param-pending f32x4_extract_lane-first
+skip-impl v128-param-pending f32x4_extract_lane-first
+skip-impl v128-param-pending f32x4_extract_lane-last
+skip-impl v128-param-pending f32x4_extract_lane-last
+skip-impl v128-param-pending f32x4_extract_lane-last
+skip-impl v128-param-pending f32x4_extract_lane-last
+skip-impl v128-param-pending f32x4_extract_lane-last
+skip-impl v128-param-pending f32x4_extract_lane-last
+skip-impl v128-param-pending f32x4_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-first
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending f64x2_extract_lane-last
+skip-impl v128-param-pending i8x16_replace_lane-first
+skip-impl v128-param-pending i8x16_replace_lane-first
+skip-impl v128-param-pending i8x16_replace_lane-first
+skip-impl v128-param-pending i8x16_replace_lane-first
+skip-impl v128-param-pending i8x16_replace_lane-last
+skip-impl v128-param-pending i8x16_replace_lane-last
+skip-impl v128-param-pending i8x16_replace_lane-last
+skip-impl v128-param-pending i8x16_replace_lane-last
+skip-impl v128-param-pending i16x8_replace_lane-first
+skip-impl v128-param-pending i16x8_replace_lane-first
+skip-impl v128-param-pending i16x8_replace_lane-first
+skip-impl v128-param-pending i16x8_replace_lane-first
+skip-impl v128-param-pending i16x8_replace_lane-first
+skip-impl v128-param-pending i16x8_replace_lane-first
+skip-impl v128-param-pending i16x8_replace_lane-last
+skip-impl v128-param-pending i16x8_replace_lane-last
+skip-impl v128-param-pending i16x8_replace_lane-last
+skip-impl v128-param-pending i16x8_replace_lane-last
+skip-impl v128-param-pending i16x8_replace_lane-last
+skip-impl v128-param-pending i16x8_replace_lane-last
+skip-impl v128-param-pending i32x4_replace_lane-first
+skip-impl v128-param-pending i32x4_replace_lane-first
+skip-impl v128-param-pending i32x4_replace_lane-first
+skip-impl v128-param-pending i32x4_replace_lane-first
+skip-impl v128-param-pending i32x4_replace_lane-last
+skip-impl v128-param-pending i32x4_replace_lane-last
+skip-impl v128-param-pending i32x4_replace_lane-last
+skip-impl v128-param-pending i32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-first
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending f32x4_replace_lane-last
+skip-impl v128-param-pending i64x2_replace_lane-first
+skip-impl v128-param-pending i64x2_replace_lane-first
+skip-impl v128-param-pending i64x2_replace_lane-first
+skip-impl v128-param-pending i64x2_replace_lane-first
+skip-impl v128-param-pending i64x2_replace_lane-last
+skip-impl v128-param-pending i64x2_replace_lane-last
+skip-impl v128-param-pending i64x2_replace_lane-last
+skip-impl v128-param-pending i64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-first
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
+skip-impl v128-param-pending f64x2_replace_lane-last
 assert_return v8x16_swizzle v128:101112131415161718191a1b1c1d1e1f v128:000102030405060708090a0b0c0d0e0f -> v128:101112131415161718191a1b1c1d1e1f
 assert_return v8x16_swizzle v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:f8f9fafbfcfdfeff1011121314151617 -> v128:00000000000000000000000000000000
 assert_return v8x16_swizzle v128:6465666768696a6b6c6d6e6f70717273 v128:0f0e0d0c0b0a09080706050403020100 -> v128:737271706f6e6d6c6b6a696867666564
@@ -222,34 +222,34 @@ assert_return v8x16_shuffle-1 v128:0000803f0000c07f0000807f000080ff v128:0001020
 assert_return v8x16_shuffle-1 v128:03020100070605040b0a09080f0e0d0c v128:000000800000c07f0000807f000080ff -> v128:03020100070605040b0a09080f0e0d0c
 assert_return v8x16_swizzle v128:d202964978563412d202964978563412 v128:000102030405060708090a0b0c0d0e0f -> v128:d202964978563412d202964978563412
 assert_return v8x16_shuffle-1 v128:d20a1feb8ca954abefcdab9078563412 v128:d20a1feb8ca954abefcdab9078563412 -> v128:d20a1feb8ca954abefcdab9078563412
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.29.wasm
 assert_invalid simd_lane.30.wasm
 assert_invalid simd_lane.31.wasm
@@ -313,51 +313,51 @@ assert_invalid simd_lane.88.wasm
 assert_invalid simd_lane.89.wasm
 assert_invalid simd_lane.90.wasm
 assert_invalid simd_lane.91.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.96.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 module simd_lane.137.wasm
 assert_return i8x16_extract_lane_s v128:00000000000000000000000000000000 v128:ffffffffffffffffffffffffffffffff -> v128:ff000000000000000000000000000000
 assert_return i8x16_extract_lane_u v128:00000000000000000000000000000000 v128:ffffffffffffffffffffffffffffffff -> v128:ff000000000000000000000000000000
@@ -365,18 +365,18 @@ assert_return i16x8_extract_lane_s v128:00000000000000000000000000000000 v128:ff
 assert_return i16x8_extract_lane_u v128:00000000000000000000000000000000 v128:ffffffffffffffffffffffffffffffff -> v128:ffff0000000000000000000000000000
 assert_return i32x4_extract_lane v128:00000000000000000000000000000000 v128:00000100ffffffffffffffffffffffff -> v128:00000100000000000000000000000000
 assert_return f32x4_extract_lane v128:00000000000000000000000000000000 v128:9976967e0000c07f0000c07f0000c07f -> v128:9976967e000000000000000000000000
-skip v128-param-pending i8x16_replace_lane-s
-skip v128-param-pending i8x16_replace_lane-u
-skip v128-param-pending i16x8_replace_lane-s
-skip v128-param-pending i16x8_replace_lane-u
-skip v128-param-pending i32x4_replace_lane
-skip v128-param-pending f32x4_replace_lane
+skip-impl v128-param-pending i8x16_replace_lane-s
+skip-impl v128-param-pending i8x16_replace_lane-u
+skip-impl v128-param-pending i16x8_replace_lane-s
+skip-impl v128-param-pending i16x8_replace_lane-u
+skip-impl v128-param-pending i32x4_replace_lane
+skip-impl v128-param-pending f32x4_replace_lane
 assert_return i64x2_extract_lane v128:00000000000000000000000000000000 v128:ffffffffffffffffffffffffffffffff -> v128:ffffffffffffffff0000000000000000
 assert_return f64x2_extract_lane v128:00000000000000000000000000000000 v128:a0c8eb85f3cce17f000000000000f87f -> v128:a0c8eb85f3cce17f0000000000000000
-skip v128-param-pending i64x2_replace_lane
-skip v128-param-pending f64x2_replace_lane
-skip v128-param-pending as-v8x16_swizzle-operand
-skip v128-param-pending as-v8x16_shuffle-operands
+skip-impl v128-param-pending i64x2_replace_lane
+skip-impl v128-param-pending f64x2_replace_lane
+skip-impl v128-param-pending as-v8x16_swizzle-operand
+skip-impl v128-param-pending as-v8x16_shuffle-operands
 module simd_lane.138.wasm
 assert_return as-i8x16_splat-operand v128:ff000000000000000000000000000000 -> v128:ffffffffffffffffffffffffffffffff
 assert_return as-i16x8_splat-operand v128:ffffffffffffffff0000000000000000 -> v128:ffffffffffffffffffffffffffffffff
@@ -384,42 +384,42 @@ assert_return as-i32x4_splat-operand v128:00000100000000000000000000000000 -> v1
 assert_return as-f32x4_splat-operand v128:c3f548400000c07f0000c07f0000c07f -> v128:c3f54840c3f54840c3f54840c3f54840
 assert_return as-i64x2_splat-operand v128:ffffffffffffffff0000000000000000 -> v128:ffffffffffffffffffffffffffffffff
 assert_return as-f64x2_splat-operand v128:000000000000f07f000000000000f87f -> v128:000000000000f07f000000000000f07f
-skip v128-param-pending as-i8x16_add-operands
-skip v128-param-pending as-i16x8_add-operands
-skip v128-param-pending as-i32x4_add-operands
-skip v128-param-pending as-i64x2_add-operands
-skip v128-param-pending swizzle-as-i8x16_add-operands
-skip v128-param-pending shuffle-as-i8x16_sub-operands
-skip v128-param-pending as-i8x16_any_true-operand
-skip v128-param-pending as-i16x8_any_true-operand
-skip v128-param-pending as-i32x4_any_true-operand1
-skip v128-param-pending as-i32x4_any_true-operand2
-skip v128-param-pending swizzle-as-i8x16_all_true-operands
-skip v128-param-pending swizzle-as-i8x16_all_true-operands
-skip v128-param-pending shuffle-as-i8x16_any_true-operands
+skip-impl v128-param-pending as-i8x16_add-operands
+skip-impl v128-param-pending as-i16x8_add-operands
+skip-impl v128-param-pending as-i32x4_add-operands
+skip-impl v128-param-pending as-i64x2_add-operands
+skip-impl v128-param-pending swizzle-as-i8x16_add-operands
+skip-impl v128-param-pending shuffle-as-i8x16_sub-operands
+skip-impl v128-param-pending as-i8x16_any_true-operand
+skip-impl v128-param-pending as-i16x8_any_true-operand
+skip-impl v128-param-pending as-i32x4_any_true-operand1
+skip-impl v128-param-pending as-i32x4_any_true-operand2
+skip-impl v128-param-pending swizzle-as-i8x16_all_true-operands
+skip-impl v128-param-pending swizzle-as-i8x16_all_true-operands
+skip-impl v128-param-pending shuffle-as-i8x16_any_true-operands
 module simd_lane.139.wasm
-skip v128-param-pending as-v128_store-operand-1
-skip v128-param-pending as-v128_store-operand-2
-skip v128-param-pending as-v128_store-operand-3
-skip v128-param-pending as-v128_store-operand-4
-skip v128-param-pending as-v128_store-operand-5
-skip v128-param-pending as-v128_store-operand-6
+skip-impl v128-param-pending as-v128_store-operand-1
+skip-impl v128-param-pending as-v128_store-operand-2
+skip-impl v128-param-pending as-v128_store-operand-3
+skip-impl v128-param-pending as-v128_store-operand-4
+skip-impl v128-param-pending as-v128_store-operand-5
+skip-impl v128-param-pending as-v128_store-operand-6
 module simd_lane.140.wasm
-skip v128-param-pending as-if-condition-value
-skip v128-param-pending as-return-value-1
-skip v128-param-pending as-local_set-value
-skip v128-param-pending as-global_set-value-1
+skip-impl v128-param-pending as-if-condition-value
+skip-impl v128-param-pending as-return-value-1
+skip-impl v128-param-pending as-local_set-value
+skip-impl v128-param-pending as-global_set-value-1
 assert_return as-return-value-2 v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:0f0e0d0c0b0a09080706050403020100 -> v128:fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0
 assert_return as-global_set-value-2 v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:100f0e0d0c0b0a090807060504030201 -> v128:f0f1f2f3f4f5f6f70807060504030201
-skip v128-param-pending as-local_set-value-1
-skip v128-param-pending as-global_set-value-3
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-impl v128-param-pending as-local_set-value-1
+skip-impl v128-param-pending as-global_set-value-3
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 module simd_lane.148.wasm
 module simd_lane.149.wasm
 module simd_lane.150.wasm
@@ -427,49 +427,49 @@ module simd_lane.151.wasm
 module simd_lane.152.wasm
 module simd_lane.153.wasm
 module simd_lane.154.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.157.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.160.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.163.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.166.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.169.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.172.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.175.wasm
 assert_invalid simd_lane.176.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.179.wasm
 assert_invalid simd_lane.180.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.183.wasm
 assert_invalid simd_lane.184.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.187.wasm
 assert_invalid simd_lane.188.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.191.wasm
 assert_invalid simd_lane.192.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.195.wasm
 assert_invalid simd_lane.196.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_lane.199.wasm
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text

@@ -2645,12 +2645,12 @@ assert_return f64x2.ge v128:00000000000000400000000000000040 v128:000000000000f0
 assert_return f64x2.ge v128:00000000000000400000000000000040 v128:00000000000000000000000000000000 -> v128:ffffffffffffffffffffffffffffffff
 assert_return f64x2.ge v128:00000000000000400000000000000040 v128:000000000000f03f000000000000f03f -> v128:ffffffffffffffffffffffffffffffff
 assert_return f64x2.ge v128:00000000000000400000000000000040 v128:00000000000000400000000000000040 -> v128:ffffffffffffffffffffffffffffffff
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_f64x2_cmp.7.wasm
 assert_invalid simd_f64x2_cmp.8.wasm
 assert_invalid simd_f64x2_cmp.9.wasm

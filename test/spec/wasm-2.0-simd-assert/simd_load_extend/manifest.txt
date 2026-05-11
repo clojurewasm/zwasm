@@ -53,18 +53,18 @@ assert_return v128.load32x2_u_align1 i32:1 -> v128:01020304000000000506070800000
 assert_return v128.load32x2_u_offset0_align1 i32:2 -> v128:02030405000000000607080900000000
 assert_return v128.load32x2_u_offset10_align4 i32:3 -> v128:0d0e0f80000000008182838400000000
 assert_return v128.load32x2_u_offset20_align8 i32:4 -> v128:88890000000000000000000000000000
-skip assert_trap-v128-pending v128.load8x8_s
-skip assert_trap-v128-pending v128.load8x8_u
-skip assert_trap-v128-pending v128.load16x4_s
-skip assert_trap-v128-pending v128.load16x4_u
-skip assert_trap-v128-pending v128.load32x2_s
-skip assert_trap-v128-pending v128.load32x2_u
-skip assert_trap-v128-pending v128.load8x8_s_offset1_align1
-skip assert_trap-v128-pending v128.load8x8_u_offset1_align1
-skip assert_trap-v128-pending v128.load16x4_s_offset1_align1
-skip assert_trap-v128-pending v128.load16x4_u_offset1_align1
-skip assert_trap-v128-pending v128.load32x2_s_offset1_align1
-skip assert_trap-v128-pending v128.load32x2_u_offset1_align1
+skip-impl assert_trap-v128-pending v128.load8x8_s
+skip-impl assert_trap-v128-pending v128.load8x8_u
+skip-impl assert_trap-v128-pending v128.load16x4_s
+skip-impl assert_trap-v128-pending v128.load16x4_u
+skip-impl assert_trap-v128-pending v128.load32x2_s
+skip-impl assert_trap-v128-pending v128.load32x2_u
+skip-impl assert_trap-v128-pending v128.load8x8_s_offset1_align1
+skip-impl assert_trap-v128-pending v128.load8x8_u_offset1_align1
+skip-impl assert_trap-v128-pending v128.load16x4_s_offset1_align1
+skip-impl assert_trap-v128-pending v128.load16x4_u_offset1_align1
+skip-impl assert_trap-v128-pending v128.load32x2_s_offset1_align1
+skip-impl assert_trap-v128-pending v128.load32x2_u_offset1_align1
 assert_invalid simd_load_extend.1.wasm
 assert_invalid simd_load_extend.2.wasm
 assert_invalid simd_load_extend.3.wasm
@@ -77,12 +77,12 @@ assert_invalid simd_load_extend.9.wasm
 assert_invalid simd_load_extend.10.wasm
 assert_invalid simd_load_extend.11.wasm
 assert_invalid simd_load_extend.12.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 module simd_load_extend.19.wasm
 assert_return v128.load8x8_s-in-block () -> v128:00000100020003000400050006000700
 assert_return v128.load8x8_u-in-block () -> v128:01000200030004000500060007000800

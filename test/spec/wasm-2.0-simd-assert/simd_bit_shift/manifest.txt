@@ -1,188 +1,188 @@
 module simd_bit_shift.0.wasm
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shl
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_u
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
-skip v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shl
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_u
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
+skip-impl v128-param-pending i8x16.shr_s
 assert_return i8x16.shl_1 v128:000102030405060708090a0b0c0d0e0f -> v128:00020406080a0c0e10121416181a1c1e
 assert_return i8x16.shr_u_8 v128:000102030405060708090a0b0c0d0e0f -> v128:000102030405060708090a0b0c0d0e0f
 assert_return i8x16.shr_s_9 v128:000102030405060708090a0b0c0d0e0f -> v128:00000101020203030404050506060707
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shl
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_u
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
-skip v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shl
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_u
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
+skip-impl v128-param-pending i16x8.shr_s
 assert_return i16x8.shl_1 v128:00000100020003000400050006000700 -> v128:000002000400060008000a000c000e00
 assert_return i16x8.shr_u_16 v128:00000100020003000400050006000700 -> v128:00000100020003000400050006000700
 assert_return i16x8.shr_s_17 v128:00000100020003000400050006000700 -> v128:00000000010001000200020003000300
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shl
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_u
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
-skip v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shl
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_u
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
+skip-impl v128-param-pending i32x4.shr_s
 assert_return i32x4.shl_1 v128:00000000010000000e0000000f000000 -> v128:00000000020000001c0000001e000000
 assert_return i32x4.shr_u_32 v128:00000000010000000e0000000f000000 -> v128:00000000010000000e0000000f000000
 assert_return i32x4.shr_s_33 v128:00000000010000000e0000000f000000 -> v128:00000000000000000700000007000000
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shl
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_u
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
-skip v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shl
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_u
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
+skip-impl v128-param-pending i64x2.shr_s
 assert_return i64x2.shl_1 v128:01000000000000000f00000000000000 -> v128:02000000000000001e00000000000000
 assert_return i64x2.shr_u_64 v128:01000000000000000f00000000000000 -> v128:01000000000000000f00000000000000
 assert_return i64x2.shr_s_65 v128:01000000000000000f00000000000000 -> v128:00000000000000000700000000000000
@@ -223,21 +223,21 @@ assert_invalid simd_bit_shift.10.wasm
 assert_invalid simd_bit_shift.11.wasm
 assert_invalid simd_bit_shift.12.wasm
 assert_invalid simd_bit_shift.13.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_bit_shift.29.wasm
 assert_invalid simd_bit_shift.30.wasm
 assert_invalid simd_bit_shift.31.wasm

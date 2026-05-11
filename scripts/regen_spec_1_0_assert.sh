@@ -87,7 +87,7 @@ for c in d['commands']:
     elif t == 'assert_return':
         a = c['action']
         if a.get('type') != 'invoke':
-            lines.append(f'skip non-invoke-action')
+            lines.append(f'skip-impl non-invoke-action')
             continue
         args = a.get('args', [])
         results = c.get('expected', [])
@@ -97,7 +97,7 @@ for c in d['commands']:
         # `more-than-2-args` filter below.
         allowed_arg = lambda x: x['type'] in ('i32', 'i64', 'f32', 'f64')
         if not all(allowed_arg(x) for x in args):
-            lines.append(f'skip non-int-arg {a["field"]}')
+            lines.append(f'skip-impl non-int-arg {a["field"]}')
             continue
         # 7.5-close-c1: void-result (`expected: []`) flows through
         # via callVoid* helpers. 7.5-close-c2: f32/f64 single
@@ -105,13 +105,13 @@ for c in d['commands']:
         # Multi-result (Wasm 2.0) still skip-impl pending runner
         # extension.
         if len(results) > 1 or any(r['type'] not in ('i32', 'i64', 'f32', 'f64') for r in results):
-            lines.append(f'skip non-int-result {a["field"]}')
+            lines.append(f'skip-impl non-int-result {a["field"]}')
             continue
         # 7.5-close-mta: lift cap to 5; runner has callXX_<5-args>
         # helpers for the curated `(i64 f32 f64 i32 i32)` family
         # (local_get/set type-mixed/read/write fixtures).
         if len(args) > 5:
-            lines.append(f'skip more-than-5-args {a["field"]}')
+            lines.append(f'skip-impl more-than-5-args {a["field"]}')
             continue
         args_s = ' '.join(fmt(x) for x in args) if args else '()'
         results_s = ' '.join(fmt(x) for x in results) if results else '()'
@@ -119,14 +119,14 @@ for c in d['commands']:
     elif t == 'assert_trap':
         a = c['action']
         if a.get('type') != 'invoke':
-            lines.append(f'skip trap-non-invoke')
+            lines.append(f'skip-impl trap-non-invoke')
             continue
         args = a.get('args', [])
         if any(x['type'] not in ('i32', 'i64') for x in args):
-            lines.append(f'skip trap-non-int-arg {a["field"]}')
+            lines.append(f'skip-impl trap-non-int-arg {a["field"]}')
             continue
         if len(args) > 2:
-            lines.append(f'skip trap-more-than-2-args {a["field"]}')
+            lines.append(f'skip-impl trap-more-than-2-args {a["field"]}')
             continue
         args_s = ' '.join(fmt(x) for x in args) if args else '()'
         lines.append(f'assert_trap {a["field"]} {args_s}')
@@ -145,11 +145,11 @@ for c in d['commands']:
         # 'text'` for .wast that doesn't decompile to .wasm —
         # those have no `filename` and we have to skip.
         if c.get('module_type') != 'binary' or 'filename' not in c:
-            lines.append(f'skip directive-assert_malformed-text')
+            lines.append(f'skip-adr-skip_text_format_parser directive-assert_malformed-text')
             continue
         lines.append(f'assert_malformed {c["filename"]}')
     else:
-        lines.append(f'skip directive-{t}')
+        lines.append(f'skip-impl directive-{t}')
 with open(dst, 'w') as f:
     f.write('\n'.join(lines) + '\n')
 PY

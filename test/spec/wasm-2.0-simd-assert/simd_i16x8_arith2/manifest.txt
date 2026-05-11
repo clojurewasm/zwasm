@@ -114,8 +114,8 @@ assert_return i16x8.abs v128:00000000000000000000000000000000 -> v128:0000000000
 assert_return i16x8.abs v128:00000000000000000000000000000000 -> v128:00000000000000000000000000000000
 assert_return i16x8.abs v128:00000000000000000000000000000000 -> v128:00000000000000000000000000000000
 assert_return i16x8.abs v128:00000000000000000000000000000000 -> v128:00000000000000000000000000000000
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_i16x8_arith2.3.wasm
 assert_invalid simd_i16x8_arith2.4.wasm
 assert_invalid simd_i16x8_arith2.5.wasm

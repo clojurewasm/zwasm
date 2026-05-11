@@ -54,45 +54,45 @@ assert_invalid simd_align.52.wasm
 assert_invalid simd_align.53.wasm
 assert_invalid simd_align.54.wasm
 assert_invalid simd_align.55.wasm
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
-skip directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
 module simd_align.90.wasm
-skip export-name-has-spaces 'v128.load align=16'
-skip export-name-has-spaces 'v128.load align=16'
-skip v128-param-pending v128.store align=16
-skip export-name-has-spaces 'v128.load align=16'
+skip-impl export-name-has-spaces 'v128.load align=16'
+skip-impl export-name-has-spaces 'v128.load align=16'
+skip-impl v128-param-pending v128.store align=16
+skip-impl export-name-has-spaces 'v128.load align=16'
 module simd_align.91.wasm
 assert_return v128_unaligned_read_and_write () -> v128:000102030405060708090a0b0c0d0e0f
 assert_return v128_aligned_read_and_write () -> v128:00000100020003000400050006000700

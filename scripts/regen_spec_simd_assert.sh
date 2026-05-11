@@ -9,7 +9,8 @@
 #   assert_return <fn> <args> -> <results>          → invoke + compare
 #   assert_invalid <file>                           → expect compile reject
 #   assert_malformed <file>                         → expect parser reject
-#   skip <reason>                                   → record as skipped
+#   skip-impl <reason>                              → implementation gap; counts toward gate
+#   skip-adr-<ADR-id> <reason>                      → design-deferred per named skip-ADR; waived
 #
 # args / results format (per ADR-0045 §"Decision" / 2):
 #   <type>:<value>  for scalars (i32:13, f64:0x3ff8000000000000)
@@ -238,7 +239,7 @@ for c in d["commands"]:
     elif t == "assert_return":
         a = c["action"]
         if a.get("type") != "invoke":
-            lines.append("skip non-invoke-action")
+            lines.append("skip-impl non-invoke-action")
             continue
         args = a.get("args", [])
         results = c.get("expected", [])
@@ -248,15 +249,15 @@ for c in d["commands"]:
             # shape" so 9.9-e + later widening can grep the manifests
             # for the specific gap.
             if any(t == "v128" for t in sig[0]):
-                lines.append(f"skip v128-param-pending {a['field']}")
+                lines.append(f"skip-impl v128-param-pending {a['field']}")
             else:
-                lines.append(f"skip unsupported-shape {sig[0]}->{sig[1]} {a['field']}")
+                lines.append(f"skip-impl unsupported-shape {sig[0]}->{sig[1]} {a['field']}")
             continue
         arg_toks = [fmt_token(x) for x in args]
         res_toks = [fmt_token(r) for r in results]
         bad = [tok for tok in (arg_toks + res_toks) if tok and tok.startswith("!")]
         if bad:
-            lines.append(f"skip nan-or-bad-token {a['field']} {' '.join(bad)}")
+            lines.append(f"skip-impl nan-or-bad-token {a['field']} {' '.join(bad)}")
             continue
         # The runner's directive parser splits on the first space
         # to extract `<fn> <args>`; export names containing spaces
@@ -266,7 +267,7 @@ for c in d["commands"]:
         # tracked separately; skip these so the manifest stays
         # clean.
         if " " in a["field"]:
-            lines.append(f"skip export-name-has-spaces {a['field']!r}")
+            lines.append(f"skip-impl export-name-has-spaces {a['field']!r}")
             continue
         args_s = " ".join(arg_toks) if arg_toks else "()"
         results_s = " ".join(res_toks) if res_toks else "()"
@@ -275,7 +276,7 @@ for c in d["commands"]:
         lines.append(f"assert_invalid {c['filename']}")
     elif t == "assert_malformed":
         if c.get("module_type") != "binary" or "filename" not in c:
-            lines.append("skip directive-assert_malformed-text")
+            lines.append("skip-adr-skip_text_format_parser directive-assert_malformed-text")
             continue
         lines.append(f"assert_malformed {c['filename']}")
     elif t == "assert_trap":
@@ -284,9 +285,9 @@ for c in d["commands"]:
         # the runner needs an `assert_trap` v128-result path. Skip
         # for §9.9-c; widen in §9.9-d.
         a = c["action"]
-        lines.append(f"skip assert_trap-v128-pending {a.get('field', '?')}")
+        lines.append(f"skip-impl assert_trap-v128-pending {a.get('field', '?')}")
     else:
-        lines.append(f"skip directive-{t}")
+        lines.append(f"skip-impl directive-{t}")
 
 with open(dst, "w") as f:
     f.write("\n".join(lines) + "\n")
