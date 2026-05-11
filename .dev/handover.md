@@ -20,11 +20,12 @@ Deliverables: `.dev/phase10_prep/track_{a,b,c}_*.md` +
 Phase: 9 (SIMD-128). §9.5/6/7/8 [x]; §9.9 [ ] (Mac+OrbStack
 11384/0 post-h-14; SKIP=2357; windowsmini reconcile pending).
 
-Latest landed: `1c7f5e6d` — 9.9-h-22 Track C chunk 2/4 (regen
-scripts emit prefix vocab; 31 manifests swept; bare-skip in
-test/spec/ → 0; tally skip-impl 1967 + skip-adr 390 simd-only);
-next chunk `9.9-h-23` (wast_runtime_runner + hand-migrate
-wasmtime_misc manifests + D-072 (a/b) discharge + D-082 file).
+Latest landed: `d254ed56` — 9.9-h-23 Track C chunk 3/4
+(wast_runtime_runner prefix-aware + 5 wasmtime_misc manifests
+migrated; test-wasmtime-misc-runtime now 266/0/5 = 0 skip-impl
++ 5 skip-adr; D-072 (a/b) discharged; D-082 filed). Next chunk
+`9.9-h-24` (ADR-0029 §"Amendment log" + check_skip_adrs.sh +
+D-072/D-073 close).
 
 ## Implementation queue (matches ROADMAP first `[ ]`)
 
@@ -42,15 +43,14 @@ gate. Specs: `phase10_prep/track_*.md` §6/§7.
      (spec_assert + simd_assert).
    - **9.9-h-22** `[x]` `1c7f5e6d` — regen scripts + manifest
      sweep (bare-skip in test/spec/ → 0).
-   - **9.9-h-23** **NEXT** — wast_runtime_runner prefix-aware
-     + hand-migrate `wasmtime_misc/wast/{embenchen,reftypes}/manifest_runtime.txt`;
-     D-072 (a/b) discharge; file D-082 (D-072 (c)-path actual
-     fixture fixes, blocked-by Phase 11 embenchen + externref
-     segment work).
-   - **9.9-h-24** — ADR-0029 §"Amendment log" Path B closure
-     row; extend `scripts/check_skip_adrs.sh` as
-     `.githooks/pre-commit`-invoked gate; close D-073 +
-     D-072 (a/b) status update.
+   - **9.9-h-23** `[x]` `d254ed56` — wast_runtime_runner
+     prefix-aware + 5 wasmtime_misc manifests migrated +
+     D-072 (a/b) discharged + D-082 filed.
+   - **9.9-h-24** **NEXT** — ADR-0029 §"Amendment log" Path B
+     closure row + update 3 skip-ADRs with §"Implementation"
+     subsection (drop "NOT EFFECTIVE" warning on 2 of them) +
+     extend `scripts/check_skip_adrs.sh` as `.githooks/pre-commit`-invoked
+     gate + delete D-072 + delete D-073.
 3. **§9.9 close residual** (h-25..-N, count TBD by live
    status post-Track-C): `p9_simd_status.sh` surfaces
    `skip-impl` count (currently ~1967 = nan-or-bad-token 1222
