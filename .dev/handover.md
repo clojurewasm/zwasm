@@ -25,43 +25,34 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: §9.9 / 9.9-h-2 — v128 globals JIT
-  path per ADR-0052. `compileWasm` computes per-defined-global
-  byte offsets + valtypes (scalars 8B / v128 16B align 16) and
-  threads through `compileOne` → `emit.compile` → `EmitCtx` on
-  both arches. arm64 `op_globals.zig` adds v128 path via
-  LDR Q [X23, #off]; x86_64 adds MOVUPS [RAX + disp32] via new
-  `encMovupsXmmMemBaseDisp32` in `inst_sse.zig`. Runner-side
-  `applyDefinedGlobalsInit` populates init values; simd_assert_
-  runner switches `scratch_globals` to `[256]u8 align(16)` +
-  calls the new helper. D-078 (b) PARTIALLY DISCHARGED (storage
-  gap closed); residual 4 Mac fails on simd_const.388 cascade
-  from a SKIPPED v128-multi-arg setter invoke (new **D-079**:
-  `((v128,v128,v128,v128),())` entry helper + v128 cross-module
-  imports). FAIL value shape on simd_const.388 changes
-  observably from `2e000000...` (garbage) to init-expr value
-  (`00010203...`).
+- **Latest §9.9 landing**: §9.9 / 9.9-h-3 — D-079 (i) discharge.
+  Three new entry helpers (`callVoid_v128`, `callVoid_v128v128`,
+  `callVoid_v128v128v128v128`) in `engine/codegen/shared/
+  entry.zig`; simd_assert_runner void-result dispatch extended
+  to handle 1 / 2 / 4 v128 args; `regen_spec_simd_assert.sh`
+  SUPPORTED set adds the three setter shapes; manifests
+  regenerated. simd_const.388 Mac fails 4 → 0 cleared (the 4
+  setter-cascade fails). Mac aarch64 simd_assert:
+  **11263 PASS / 6 FAIL → 11268 PASS / 2 FAIL** (-4). Residual
+  2 fails are D-063 (call_indirect v128 args Trap). OrbStack
+  visible FAILs unchanged (D-078 a + c + D-077 panic — all
+  pre-existing).
 - **Active row**: §9.9 (still `[ ]`). Closes when fail = skip = 0
   on the 3-host gate per the row's exit criterion.
 
 ## Next sub-chunk candidates (names only)
 
-- **D-079 (i) v128-multi-arg setter invoke entry helper**.
-  Add `callVoid_v128x4` (or equivalent shape) + manifest-gen
-  SUPPORTED-set extension. Discharges the 4 cascading Mac
-  fails on simd_const.388 (+ symmetric OrbStack fail).
-- **D-079 (ii) v128 cross-module imports**. Extend
-  `Runtime.globals` pointer-per-entry layer + `globals_offsets`
-  plumbing into the import-binding path.
+- **D-063 simd_const call_indirect-param Trap** — Mac aarch64
+  v128 args via call_indirect; lldb spike per debt.md. 2 of the
+  current Mac fails (`as-call_indirect-param()` /
+  `-param2()`).
+- **D-078 (a) f64x2_extract_lane value mismatch** — JIT-disasm
+  spike via debug_jit_auto skill (Mac PASSES, x86_64 only).
 - **D-078 (c) simd_bitwise.17** — root cause: x86_64 v128 XMM
   spill not yet implemented. `resolveXmm` rejects spilled v128
   vregs. Needs `xmmLoadSpilledV128` + `xmmStoreSpilledV128`
   (16-byte MOVUPS) + ~100 handler updates. Substantial refactor;
   co-deliverable with D-057 source-split.
-- **D-078 (a) f64x2_extract_lane value mismatch** — JIT-disasm
-  spike via debug_jit_auto skill (Mac PASSES, x86_64 only).
-- **D-063 simd_const call_indirect-param Trap** — Mac aarch64
-  v128 args via call_indirect; lldb spike per debt.md.
 - Aggregate `test-spec-simd` into `test-all` (preventive — surfaces
   silent x86_64 simd regressions in autonomous loop gating).
 
