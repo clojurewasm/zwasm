@@ -11,41 +11,34 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9 task table.
 
-## Active state — **HARD GATE PENDING — Phase 10 entry review**
+## Active state — **Phase 9 RE-OPENED: §9.9 in-Phase-9 Win64 marshal**
 
-§9.9 [x] (Mac+OrbStack green; windowsmini Win64 v128 ABI gap =
-D-084); §9.10 [~] moved to Phase 11 (Track A); §9.11 [x]
-(audit + SHA backfill + ADR-0043 amend); §9.12 [ ] 🔒
-**Phase 10 entry gate** ([`phase10_transition_gate.md`](phase10_transition_gate.md)).
+§9.11 [x] (audit + SHA backfill); §9.10 [~] moved to Phase 11;
+§9.12 [ ] 🔒 Phase 10 entry gate (wired but cannot fire until
+§9.9 closes); **§9.9 [ ]** — was prematurely flipped at last
+chunk; reverted 2026-05-12 after user-correction. Discharge =
+implementing Win64 v128 marshal per ADR-0055 (D-084 = `now`).
 
-**Next /continue HITS the hard gate**: SKILL.md §"Currently
-registered hard gates" registers §9.9 → Phase 10 anchored at
-9.12 (this chunk landed the registration). Resume Step 2
-detector fires; loop surfaces gate doc for collaborative
-review; no autonomous TDD chunks fire until 9.12 is
-collaboratively flipped `[x]`.
+Mac+OrbStack bit-identical 13301/0/440; windowsmini 885/41/12856
+(41 FAIL all = `compile: UnsupportedOp = Win64 v128 param
+unsupported`, single root cause per agent report at
+`private/d084-phase10-scope.md`).
 
-## What surfaces at the gate
+## Implementation queue
 
-`phase10_transition_gate.md` §"Checklist" enumerates Phase 9
-functional completion + debt reconciliation + design
-cleanliness extrapolation + per-subsystem ADR slots
-(0055..0058: memory64 / Tail Call / EH / WasmGC). The §"Phase
-9 functional completion" section explicitly enumerates 3-host
-green — the windowsmini Win64 v128 ABI gap (D-084) surfaces
-there for collaborative decision (file own Phase 10 row vs
-absorb into Phase 10 EH/GC ABI work).
-
-## Cohort of debt rows the gate will reference
-
-- **D-084** (new, this chunk) — windowsmini Win64 v128 ABI
-  marshal gap; 41 FAIL + 12466 skip-impl on windowsmini
-  while Mac+OrbStack are bit-identical green.
-- **D-079(ii)** — v128 cross-module imports
-  (`Runtime.globals` shape extension).
-- **D-074(updated)** — ADR-0012 §1–§3 bench infra cohort +
-  SIMD per-op gap analysis (Track A migrated 2026-05-12).
-- Plus the 17-row blocked-by cohort listed at handover bottom.
+1. **§9.9-i-1 NEXT** — Win64 v128 param marshal in
+   `src/engine/codegen/x86_64/emit.zig` per ADR-0055
+   (cranelift `ABIArg::ImplicitPtrArg` recipe; caller-allocated
+   16-byte scratch + pointer-in-integer-arg-reg + callee MOVUPS
+   load). Co-discharge SysV stack-arg overflow (`fp_arg_idx ≥
+   8`) deferral from 9.9-e-2 if budget allows. Verify 41 FAIL →
+   0 on windowsmini. Closes D-084.
+2. Pending user paste — additional Phase 9 close items (test /
+   bench / realworld coverage gaps vs zwasm v1's Wasm 2.0 +
+   SIMD reach).
+3. **§9.9** flips `[x]` only when 3-host green AND user-pasted
+   coverage cohort discharged.
+4. **§9.12 🔒 hard gate** then fires per existing detection.
 
 ## Sandbox quirks + hook scope
 
@@ -59,17 +52,26 @@ absorb into Phase 10 EH/GC ABI work).
   `windowsmini.local` mDNS resolution intermittently;
   workaround: direct `ssh windowsmini "cd
   Documents/MyProducts/zwasm_from_scratch && zig build
-  test-spec-simd"`. Filed as new debt candidate (script SSH
-  path uses bash login shell which lacks mDNS in some
-  states).
+  test-spec-simd"`.
 - `.githooks/pre-push` → `gate_commit.sh` (light); full
   3-host `gate_merge.sh` manual at Phase boundary + before
   push to main. Per-chunk loop is 2-host (Mac+OrbStack) per
-  ADR-0049; windowsmini phase-boundary fired at this chunk.
+  ADR-0049; **windowsmini fired at §9.12 reconcile 2026-05-12
+  and surfaced 41 FAIL = Phase 9 incompletion**.
+
+## Worktree subagent pattern for §9.9-i-1
+
+- `git worktree add ../zwasm-win64-v128 -b feature/win64-v128-marshal
+  zwasm-from-scratch` (separate worktree on feature branch).
+- Subagent iterates implementation in worktree; pushes feature
+  branch to origin; `ssh windowsmini` fetches feature branch +
+  runs `zig build test-spec-simd` for verification iterations.
+- On 41 FAIL → 0, parent agent merges feature branch into
+  `zwasm-from-scratch` + cleans up worktree.
 
 ## Open structural debt pointers — see `.dev/debt.md`
 
-- `now`: none.
+- `now`: **D-084 (Win64 v128 marshal; this Phase's next chunk
+  discharges)**.
 - `blocked-by`: D-007/010/016/018/020/021/022/026/028/052/
-  055/057/058/059/062/065/072/073/074/075/079(ii)/081/082/
-  **D-084 (new)**.
+  055/057/058/059/062/065/072/073/074/075/079(ii)/081/082.
