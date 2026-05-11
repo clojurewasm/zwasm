@@ -633,14 +633,34 @@ pub fn emitV128Bitselect(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     // FP-spill scaffold extends.
     const mask_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
     const c_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, c_vreg, 1);
+    const v1_x = try gpr.resolveFp(ctx.alloc, v1_vreg);
+    const v2_x = try gpr.resolveFp(ctx.alloc, v2_vreg);
+
+    // §9.9 / 9.9-h-14 (D-070 discharge): regalloc's LIFO slot-
+    // reuse can assign `result_vreg` (=mask_v) the same physical
+    // V reg as v1 or v2. The naive `MOV mask_v, c_v` then
+    // clobbers v1 or v2 before `BSL` reads it; symptom is
+    // `bitselect(aa, bb, c)` returning wrong values for the
+    // c==0 / c==all-ones boundary cases. Stash the destroyed
+    // operand through V31 (popcnt scratch — outside any
+    // popcnt sequence in this handler).
+    const v1_for_op: inst_neon.Vn = if (mask_v != c_v and mask_v == v1_x) blk: {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(31, v1_x));
+        break :blk 31;
+    } else v1_x;
+    const v2_for_op: inst_neon.Vn = if (mask_v != c_v and mask_v == v2_x) blk: {
+        // mask_v can equal at most one of {v1_x, v2_x} unless
+        // v1_v == v2_v (same vreg passed twice). The latter is
+        // not a slot-reuse alias — it's identical-input, and
+        // BSL reads it once before BSL semantics consume.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(31, v2_x));
+        break :blk 31;
+    } else v2_x;
+
     if (mask_v != c_v) {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(mask_v, c_v));
     }
-    // SPILL-EXEMPT: 3-source BSL — see comment above.
-    const v1_v = try gpr.resolveFp(ctx.alloc, v1_vreg);
-    // SPILL-EXEMPT: 3-source BSL — see comment above.
-    const v2_v = try gpr.resolveFp(ctx.alloc, v2_vreg);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encBsl16B(mask_v, v1_v, v2_v));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encBsl16B(mask_v, v1_for_op, v2_for_op));
     try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }

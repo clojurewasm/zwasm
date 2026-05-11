@@ -216,6 +216,10 @@ SUPPORTED = {
     # abs / popcnt / extend_low / etc.). Entry helper:
     # `entry.callV128_v128`.
     (("v128",), ("v128",)): True,
+    # §9.9 / 9.9-h-14 (D-070 unblock): (v128, v128, v128) → v128
+    # — bitselect / select corpus assertions. Entry helper:
+    # `entry.callV128_v128v128v128`.
+    (("v128", "v128", "v128"), ("v128",)): True,
     # §9.9 / 9.9-h-3 (D-079 (i)): v128 multi-arg setter shapes
     # — `(v128,) → ()`, `(v128, v128) → ()`, `(v128 ×4) → ()`.
     # Drives simd_const `as-global.set_value_$g*` exports.

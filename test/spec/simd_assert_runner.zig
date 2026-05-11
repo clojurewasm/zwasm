@@ -470,6 +470,14 @@ fn runAssertReturn(
                     return false;
                 };
             }
+            if (n_args == 3 and args[0] == .v128 and args[1] == .v128 and args[2] == .v128) {
+                // §9.9 / 9.9-h-14 (D-070 unblock): (v128, v128, v128)
+                // → v128 — bitselect / select corpus assertions.
+                break :blk entry.callV128_v128v128v128(compiled.module, func_idx, &rt, args[0].v128, args[1].v128, args[2].v128) catch |err| {
+                    try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                    return false;
+                };
+            }
             try stdout.print("FAIL  {s}: v128-result unsupported (n_args={d}, arg shape) for {s}({s})\n", .{ name, n_args, fn_name, args_s });
             return false;
         };

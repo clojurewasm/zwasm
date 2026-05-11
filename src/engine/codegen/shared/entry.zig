@@ -486,6 +486,29 @@ pub fn callV128_v128v128(
     return @bitCast(result);
 }
 
+/// Wasm spec §4.4 — `(v128, v128, v128) → v128` invocation.
+/// §9.9 / 9.9-h-14 (D-070 unblock): enables bitselect / select
+/// corpus assertions that take 3 v128 inputs and produce a v128
+/// result. a0 → V0/XMM0, a1 → V1/XMM1, a2 → V2/XMM2; result is
+/// V0/XMM0. AAPCS64 / SysV register pool covers ≤ 8 v128 args
+/// (V0..V7 / XMM0..XMM7).
+pub fn callV128_v128v128v128(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: [16]u8,
+    a2: [16]u8,
+) Error![16]u8 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: Vec, a2: Vec) callconv(.c) Vec;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), @bitCast(a1), @bitCast(a2));
+    if (rt.trap_flag != 0) return Error.Trap;
+    return @bitCast(result);
+}
+
 // ============================================================
 // Tests
 // ============================================================

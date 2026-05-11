@@ -1793,26 +1793,40 @@ pub fn emitV128Bitselect(
         .spill => .xmm7,
     };
 
+    // §9.9 / 9.9-h-14 (D-070 mirror for x86_64): regalloc LIFO
+    // slot-reuse can assign `result_v` (= dst_x) the same in-reg
+    // physical XMM as `c_v` or `b_v`. The MOVAPS dst,a then
+    // clobbers c or b before subsequent reads. Stash whichever
+    // alias hits, before step 1. c_x is stashed into XMM14
+    // (= the scratch_x slot below; the MOVAPS already in place
+    // for "copy c to XMM14" folds out). b_x is stashed into
+    // XMM15 (= b's stage 1 if it was spilled — but if b was in-
+    // reg this stage is currently unused).
+    const c_safe: inst.Xmm = if (dst_x != a_x and dst_x == c_x and c_x != .xmm14) blk: {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm14, c_x).slice());
+        break :blk .xmm14;
+    } else c_x;
+    const b_safe: inst.Xmm = if (dst_x != a_x and dst_x == b_x and b_x != .xmm15) blk: {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm15, b_x).slice());
+        break :blk .xmm15;
+    } else b_x;
+
     // Step 1: dst = MOVAPS(a). Skipped when dst already equals a
     // (in-reg alias OR both-spilled-and-routed-through-XMM7).
     if (dst_x != a_x) {
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, a_x).slice());
     }
-    // Step 2: dst = PAND(dst, c). c persists in c_x past this.
-    try buf.appendSlice(allocator, inst.encPand(dst_x, c_x).slice());
+    // Step 2: dst = PAND(dst, c). c persists in c_safe past this.
+    try buf.appendSlice(allocator, inst.encPand(dst_x, c_safe).slice());
 
     // Steps 3-4: scratch = c; scratch = PANDN(scratch, b). Reuse
-    // XMM14 as scratch — when c is spilled, c_x is already XMM14
-    // and the MOVAPS folds out. When c is in-reg, copy c into
-    // XMM14 first so the PANDN doesn't destroy c's home register
-    // (the in-reg c might still be needed by a downstream
-    // consumer in the same function — paranoia preserves the
-    // host's regalloc lifetime assumption).
+    // XMM14 as scratch — when c_safe is already XMM14 (spilled
+    // load OR alias-stashed above), the MOVAPS folds out.
     const scratch_x: inst.Xmm = .xmm14;
-    if (c_x != scratch_x) {
-        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(scratch_x, c_x).slice());
+    if (c_safe != scratch_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(scratch_x, c_safe).slice());
     }
-    try buf.appendSlice(allocator, inst.encPandn(scratch_x, b_x).slice());
+    try buf.appendSlice(allocator, inst.encPandn(scratch_x, b_safe).slice());
     // Step 5: dst = POR(dst, scratch).
     try buf.appendSlice(allocator, inst.encPor(dst_x, scratch_x).slice());
 
