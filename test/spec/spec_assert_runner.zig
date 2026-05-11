@@ -8,7 +8,9 @@
 //!   `module <file>`                                — load .wasm into JIT
 //!   `assert_return <fn> () -> <type>:<value>`      — invoke 0-arg
 //!   `assert_return <fn> i32:<v> -> i32:<v>`        — invoke 1-i32-arg
-//!   `skip <reason>`                                — record as skipped
+//!   `skip-impl <reason>`                           — implementation gap; counts toward `skip-impl == 0` gate
+//!   `skip-adr-<ADR-id> <reason>`                   — design-deferred per the named skip-ADR; waived from gate
+//!   `skip <reason>`                                — legacy bare form (back-compat warning; counts as skip-impl)
 //!
 //! Chunk-a covers ONLY i32→i32 (0/1 args). Subsequent chunks
 //! widen the surface (i64, f32/f64, multi-arg, traps).
@@ -99,11 +101,32 @@ fn runCorpus(
         const line = std.mem.trim(u8, raw, " \r\t");
         if (line.len == 0) continue;
 
+        // Per ADR-0029 (Path B vocabulary, prep-mode chunk 9.9-h-21):
+        // manifest skip directives carry one of three forms:
+        //   `skip-impl <reason>`        — implementation gap; counts toward `skip-impl == 0` gate.
+        //   `skip-adr-<ADR-id> <reason>` — design-deferred; counts toward `skip-adr` tally only.
+        //   `skip <reason>`             — legacy bare form; back-compat warning + counts as skip-impl
+        //                                   until manifest regen sweeps the corpus (chunk 9.9-h-22).
+        // Prefix-aware classification means new skip-ADRs need only:
+        //   (a) `.dev/decisions/skip_<topic>.md` and
+        //   (b) `scripts/regen_spec_*.sh` emit the `skip-adr-<topic>` prefix.
+        // No runner-code edits per new ADR.
+        if (std.mem.startsWith(u8, line, "skip-impl ")) {
+            skipped.* += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, line, "skip-adr-")) {
+            skipped_adr.* += 1;
+            continue;
+        }
         if (std.mem.startsWith(u8, line, "skip ")) {
-            // skip-adr classification — `directive-assert_malformed-text`
-            // is covered by `.dev/decisions/skip_text_format_parser.md`
-            // and counts as skip-adr (not skip-impl) per ADR-0029.
-            // Other skip reasons remain skip-impl until ADR-promoted.
+            // Back-compat for un-migrated manifests. Bare `skip` is being
+            // phased out in 9.9-h-22's regen sweep. The legacy hardcoded
+            // reason-string mapping for `directive-assert_malformed-text`
+            // (per skip_text_format_parser.md) preserves classification
+            // accuracy until that sweep lands. Once 0 lines fire here,
+            // the back-compat arm can be removed in a follow-up.
+            try stdout.print("WARN  {s}: bare `skip` line — migrate to `skip-impl` or `skip-adr-<id>` (chunk 9.9-h-22 regen sweep): {s}\n", .{ name, line });
             const reason = line[5..];
             if (std.mem.eql(u8, reason, "directive-assert_malformed-text")) {
                 skipped_adr.* += 1;
