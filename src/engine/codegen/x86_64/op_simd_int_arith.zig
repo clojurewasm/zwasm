@@ -1,0 +1,839 @@
+//! x86_64 emit pass - SIMD-128 integer arithmetic op handlers
+//! (split from `op_simd.zig` per
+//! `.dev/phase10_prep/track_b_source_split.md` Sec 9.9 / 9.9-h-15;
+//! tracking ADR-0054 once filed in chunk 9.9-h-20).
+//!
+//! Houses int ALU (add/sub/mul/neg/abs), saturating arith
+//! (add_sat / sub_sat), shift (shl / shr_s / shr_u), min/max
+//! (signed + unsigned), avgr_u, popcnt, q15mulr_sat_s, and
+//! dot product. Uses `op_simd.emitV128IntBinop` for the 2-op
+//! MOVAPS-preamble + encoder dispatch shape; FP-class single-
+//! instr unaries (e.g. PABSB/W/D via `op_simd_float.emitV128FpUnop`)
+//! are reached cross-module.
+//!
+//! Zone 2 (`src/engine/codegen/x86_64/`) - must NOT import
+//! `src/engine/codegen/arm64/` per ROADMAP Sec A3.
+
+const std = @import("std");
+
+const regalloc = @import("../shared/regalloc.zig");
+const inst = @import("inst.zig");
+const abi = @import("abi.zig");
+const gpr = @import("gpr.zig");
+const types = @import("types.zig");
+const op_simd = @import("op_simd.zig");
+const op_simd_float = @import("op_simd_float.zig");
+
+const Allocator = std.mem.Allocator;
+const Error = types.Error;
+
+pub fn emitI8x16Add(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPaddB);
+}
+
+pub fn emitI8x16Sub(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsubB);
+}
+
+pub fn emitI16x8Add(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPaddW);
+}
+
+pub fn emitI16x8Sub(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsubW);
+}
+
+pub fn emitI32x4Add(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPaddD);
+}
+
+pub fn emitI32x4Sub(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsubD);
+}
+
+pub fn emitI64x2Add(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPaddQ);
+}
+
+pub fn emitI64x2Sub(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsubQ);
+}
+
+// §9.7-c: native multiply ops. i16x8.mul reaches PMULLW (SSE2);
+// i32x4.mul reaches PMULLD (SSE4.1). i64x2.mul has no native
+// SSE4.1 instruction and synthesises via PMULUDQ + shifts/adds —
+// queued for §9.7-d. The Wasm spec's modular-wraparound semantics
+// match the CPU's truncating low-half multiply for both ops.
+
+pub fn emitI16x8Mul(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmullW);
+}
+
+pub fn emitI32x4Mul(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmullD);
+}
+
+/// Wasm spec §4.4.4 (i*x*.{shl, shr_s, shr_u}) for shapes that
+/// have direct SSE2 packed-shift instructions — i16x8 / i32x4 /
+/// i64x2 (with PSRAQ / i8x16 deferred to §9.7-u for synthesis).
+/// Stack: pop count (i32), pop vec (v128), push v128.
+///
+/// SSE shift count semantics differ from Wasm: Intel SDM "If the
+/// count value is greater than the operand size, destination is
+/// set to all-zeros (PSLL/PSRL) or sign-extended (PSRA)". Wasm
+/// requires `c mod lane_width` semantics. The explicit
+/// `AND count_r, lane_width-1` aligns the two — when c <
+/// lane_width, both behave identically.
+///
+/// 5-instruction emit:
+///   AND count_r, mask_imm           ; mask to lane bits
+///   MOVD scratch_xmm, count_r       ; count → low 32 of scratch
+///   MOVAPS dst, vec                 ; (skip if dst==vec)
+///   <shift> dst, scratch_xmm        ; shift dst in-place
+fn emitV128IntShift(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+    encoder_shift: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+    mask_imm: i8,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const count_v = pushed_vregs.pop().?;
+    const vec_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const vec_x = try gpr.resolveXmm(alloc, vec_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
+    const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    try buf.appendSlice(allocator, inst.encAndRImm8(.d, count_r, mask_imm).slice());
+    try buf.appendSlice(allocator, inst.encMovdXmmFromR32(scratch_x, count_r).slice());
+    if (dst_x != vec_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
+    }
+    try buf.appendSlice(allocator, encoder_shift(dst_x, scratch_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI16x8Shl(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128IntShift(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsllwReg, 15);
+}
+
+pub fn emitI16x8ShrS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128IntShift(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsrawReg, 15);
+}
+
+pub fn emitI16x8ShrU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128IntShift(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsrlwReg, 15);
+}
+
+pub fn emitI32x4Shl(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128IntShift(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPslldReg, 31);
+}
+
+pub fn emitI32x4ShrS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128IntShift(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsradReg, 31);
+}
+
+pub fn emitI32x4ShrU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128IntShift(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsrldReg, 31);
+}
+
+pub fn emitI64x2Shl(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128IntShift(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsllqReg, 63);
+}
+
+pub fn emitI64x2ShrU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128IntShift(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsrlqReg, 63);
+}
+
+/// Wasm spec §4.4.4 (i64x2.shr_s) — pop count (i32), pop vec
+/// (v128), push v128 with arithmetic (signed) shift-right per
+/// 64-bit lane. SSE2 lacks PSRAQ (added in AVX-512); synthesise
+/// per cranelift `lower.isle:943-951` with runtime sign-bit-mask
+/// generation (avoids the const-pool plumbing the cranelift code
+/// uses via `flip_high_bit_mask`):
+///
+///   AND count_r, 63                ; mask count
+///   PCMPEQB scratch_mask, scratch_mask ; XMM14 = all-ones
+///   PSLLQ-imm scratch_mask, 63     ; XMM14 = 0x80...0 per qword (sign bits)
+///   MOVD scratch_count, count_r    ; XMM15 = count
+///   PSRLQ-reg scratch_mask, scratch_count ; XMM14 = sign_bit_loc =
+///                                  ;   0x80...0 >> c per qword
+///   MOVAPS dst, vec                ; (skip if dst==vec)
+///   PSRLQ-reg dst, scratch_count   ; ushr lanes
+///   PXOR dst, scratch_mask         ; flip sign-bit-loc bits
+///   PSUBQ dst, scratch_mask        ; subtract sign_bit_loc → arithmetic shr
+///
+/// 9-instruction emit; XMM14 holds sign_bit_loc (= mask shifted),
+/// XMM15 holds count. dst gets the canonical signed-shifted result.
+/// Wasm spec §4.4.4 (i8x16.shl) — pop count (i32), pop vec
+/// (v128), push v128 with each byte shifted left by `c & 7`.
+/// SSE has no native byte shift; synthesise via 16-bit-lane
+/// shift + AND-mask broadcast (cranelift's approach uses a
+/// const-pool table; we synthesise the mask inline to avoid
+/// the still-pending ADR-0042 const-pool dependency).
+///
+/// 9-instruction emit:
+///   AND count_r, 7                    ; mask count
+///   PCMPEQB XMM14, XMM14              ; XMM14 = all-0xFF
+///   MOVD XMM15, count_r                ; XMM15 = count
+///   PSLLW XMM14, XMM15                  ; XMM14 = 0xFFFF<<c per word;
+///                                      ;   low byte of each word = 0xFF<<c (= mask byte)
+///   MOVAPS dst, vec                    ; (skip-elide if dst==vec)
+///   PSLLW dst, XMM15                    ; shift vec lanes (16-bit shift; carry pollutes high bytes)
+///   PXOR XMM15, XMM15                   ; reuse XMM15 as zero-control for PSHUFB
+///   PSHUFB XMM14, XMM15                 ; broadcast byte 0 of XMM14 to all 16 bytes (uniform mask)
+///   PAND dst, XMM14                     ; clear cross-byte carry bits
+pub fn emitI8x16Shl(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const count_v = pushed_vregs.pop().?;
+    const vec_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const vec_x = try gpr.resolveXmm(alloc, vec_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
+    const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14
+    const count_x = abi.fp_spill_stage_xmms[1]; // XMM15
+
+    try buf.appendSlice(allocator, inst.encAndRImm8(.d, count_r, 7).slice());
+    try buf.appendSlice(allocator, inst.encPcmpeqB(mask_x, mask_x).slice());
+    try buf.appendSlice(allocator, inst.encMovdXmmFromR32(count_x, count_r).slice());
+    try buf.appendSlice(allocator, inst.encPsllwReg(mask_x, count_x).slice());
+    if (dst_x != vec_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPsllwReg(dst_x, count_x).slice());
+    try buf.appendSlice(allocator, inst.encPxor(count_x, count_x).slice()); // reuse as zero ctrl
+    try buf.appendSlice(allocator, inst.encPshufb(mask_x, count_x).slice()); // broadcast byte 0
+    try buf.appendSlice(allocator, inst.encPand(dst_x, mask_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.4 (i8x16.shr_u) — pop count (i32), pop vec,
+/// push v128 with each byte logically shifted right by `c & 7`.
+/// 10-instruction synthesis: PSRLW(0xFFFF, 8) → 0x00FF per word,
+/// PSRLW that by c → 0x00FF >> c whose low byte = 0xFF >> c =
+/// per-byte mask. PSHUFB-broadcast then PAND.
+pub fn emitI8x16ShrU(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const count_v = pushed_vregs.pop().?;
+    const vec_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const vec_x = try gpr.resolveXmm(alloc, vec_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
+    const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14
+    const count_x = abi.fp_spill_stage_xmms[1]; // XMM15
+
+    try buf.appendSlice(allocator, inst.encAndRImm8(.d, count_r, 7).slice());
+    try buf.appendSlice(allocator, inst.encPcmpeqB(mask_x, mask_x).slice());
+    try buf.appendSlice(allocator, inst.encPsrlwImm(mask_x, 8).slice()); // → 0x00FF per word
+    try buf.appendSlice(allocator, inst.encMovdXmmFromR32(count_x, count_r).slice());
+    try buf.appendSlice(allocator, inst.encPsrlwReg(mask_x, count_x).slice()); // → 0x00FF >> c per word
+    if (dst_x != vec_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPsrlwReg(dst_x, count_x).slice());
+    try buf.appendSlice(allocator, inst.encPxor(count_x, count_x).slice()); // zero ctrl
+    try buf.appendSlice(allocator, inst.encPshufb(mask_x, count_x).slice()); // broadcast byte 0
+    try buf.appendSlice(allocator, inst.encPand(dst_x, mask_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.4 (i*x*.neg) — pop one v128, push v128 with
+/// per-lane signed negation. Computed as `0 - src` via PSUB:
+///
+///   PXOR XMM14, XMM14            ; XMM14 = zero
+///   PSUB_<shape> XMM14, src      ; XMM14 = 0 - src = -src
+///   MOVAPS dst, XMM14            ; dst = -src
+///
+/// 3-instruction emit; aliasing-safe (dst is written only at
+/// the end, after src has been fully consumed). PSUB doesn't
+/// saturate at INT_MIN so the negation wraps modulo lane width
+/// (matches Wasm spec).
+fn emitV128IntNeg(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    encoder_psub: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    try buf.appendSlice(allocator, inst.encPxor(scratch_x, scratch_x).slice());
+    try buf.appendSlice(allocator, encoder_psub(scratch_x, src_x).slice());
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, scratch_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI8x16Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsubB);
+}
+
+pub fn emitI16x8Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsubW);
+}
+
+pub fn emitI32x4Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsubD);
+}
+
+pub fn emitI64x2Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return emitV128IntNeg(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPsubq);
+}
+
+/// Wasm spec §4.4.4 (i*x*.abs) — pop one v128, push v128 with
+/// per-lane signed absolute value. SSSE3 PABSB/W/D directly
+/// handle 8/16/32-bit lanes. i64x2.abs has no native SSE
+/// instruction (PABSQ is AVX-512); synthesise per cranelift
+/// `lower.isle:vec_int_abs` via sign-mask + PXOR/PSUBQ:
+///
+///   sign_mask = (src < 0) ? 0xFF...F : 0     (per qword)
+///   result = (src ^ sign_mask) - sign_mask
+///
+/// For src >= 0: sign_mask = 0; result = src.
+/// For src < 0:  sign_mask = -1; result = ~src - (-1) = -src.
+pub fn emitI8x16Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return op_simd_float.emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPabsb);
+}
+
+pub fn emitI16x8Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return op_simd_float.emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPabsw);
+}
+
+pub fn emitI32x4Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+    return op_simd_float.emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPabsd);
+}
+
+/// i64x2.abs synthesis (no PABSQ in SSE; SSE4.2 PCMPGTQ
+/// available per ADR-0041 baseline post-9.7-m). 5-instr recipe:
+///   PXOR XMM14, XMM14                ; XMM14 = zero
+///   PCMPGTQ XMM14, src                ; XMM14 = sign-mask of src
+///                                     ;   (0xFF...F where src < 0, else 0)
+///   MOVAPS dst, src                   ; (skip-elide if alias)
+///   PXOR dst, XMM14                   ; flip bits where negative
+///   PSUBQ dst, XMM14                  ; subtract sign-mask → abs
+pub fn emitI64x2Abs(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14
+
+    try buf.appendSlice(allocator, inst.encPxor(mask_x, mask_x).slice());
+    try buf.appendSlice(allocator, inst.encPcmpgtQ(mask_x, src_x).slice());
+    if (dst_x != src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPxor(dst_x, mask_x).slice());
+    try buf.appendSlice(allocator, inst.encPsubq(dst_x, mask_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI8x16ShrS(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const count_v = pushed_vregs.pop().?;
+    const vec_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const vec_x = try gpr.resolveXmm(alloc, vec_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
+    const sign_x = abi.fp_spill_stage_xmms[0]; // XMM14: sign-mask, then count
+    const high_x = abi.fp_spill_stage_xmms[1]; // XMM15: src copy, then high-half sign-extended
+
+    try buf.appendSlice(allocator, inst.encAndRImm8(.d, count_r, 7).slice());
+    try buf.appendSlice(allocator, inst.encPxor(sign_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encPcmpgtB(sign_x, vec_x).slice());
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(high_x, vec_x).slice());
+    if (dst_x != vec_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPunpcklbw(dst_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encPunpckhbw(high_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encMovdXmmFromR32(sign_x, count_r).slice()); // sign_x repurposed → count
+    try buf.appendSlice(allocator, inst.encPsrawReg(dst_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encPsrawReg(high_x, sign_x).slice());
+    try buf.appendSlice(allocator, inst.encPacksswb(dst_x, high_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitI64x2ShrS(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const count_v = pushed_vregs.pop().?;
+    const vec_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const vec_x = try gpr.resolveXmm(alloc, vec_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
+    const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14 — sign_bit_loc
+    const count_x = abi.fp_spill_stage_xmms[1]; // XMM15 — count broadcast
+
+    try buf.appendSlice(allocator, inst.encAndRImm8(.d, count_r, 63).slice());
+    try buf.appendSlice(allocator, inst.encPcmpeqB(mask_x, mask_x).slice());
+    try buf.appendSlice(allocator, inst.encPsllqImm(mask_x, 63).slice());
+    try buf.appendSlice(allocator, inst.encMovdXmmFromR32(count_x, count_r).slice());
+    try buf.appendSlice(allocator, inst.encPsrlqReg(mask_x, count_x).slice());
+    if (dst_x != vec_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPsrlqReg(dst_x, count_x).slice());
+    try buf.appendSlice(allocator, inst.encPxor(dst_x, mask_x).slice());
+    try buf.appendSlice(allocator, inst.encPsubq(dst_x, mask_x).slice());
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.4 (i64x2.mul) — pop two v128, push their
+/// element-wise 64-bit product per lane (2 lanes; modular
+/// wraparound at 2^64). x86_64 has **no native instruction**
+/// for 64×64→64 packed multiply at the SSE4.1 baseline (AVX-512
+/// VPMULLQ exists but is gated by ADR-0041 §"5. SSE4.1 minimum
+/// baseline").
+///
+/// Synthesis (cranelift idiom — 8 instructions, 2 SIMD scratches):
+///
+/// Let lhs = (a1:a0) and rhs = (b1:b0) per 64-bit lane (a1 / b1
+/// = high 32, a0 / b0 = low 32). The product mod 2^64 is:
+///   a*b ≡ (a_hi * b_lo + a_lo * b_hi) << 32 + a_lo * b_lo
+///
+///   1. MOVAPS s1, lhs              ; s1 = a
+///   2. PSRLQ  s1, 32               ; s1 = (0:a_hi)
+///   3. PMULUDQ s1, rhs             ; s1 = a_hi * b_lo
+///   4. MOVAPS s2, rhs              ; s2 = b
+///   5. PSRLQ  s2, 32               ; s2 = (0:b_hi)
+///   6. PMULUDQ s2, lhs             ; s2 = b_hi * a_lo
+///   7. PADDQ  s1, s2               ; s1 = a_hi*b_lo + a_lo*b_hi
+///   8. PSLLQ  s1, 32               ; (cross terms) << 32
+///   9. MOVAPS dst, lhs (if dst != lhs)
+///  10. PMULUDQ dst, rhs            ; dst = a_lo * b_lo (full 64-bit)
+///  11. PADDQ  dst, s1              ; final = low + (cross<<32)
+///
+/// **Scratch reservation**: reuses `abi.fp_spill_stage_xmms`
+/// (XMM14 / XMM15) as in-handler SIMD scratch. Safe because the
+/// synthesis is atomic — no nested `xmmLoadSpilled` calls
+/// intervene between the MOVAPS s1/s2 setup and the final
+/// PADDQ. Avoids a new ABI reservation; mirrors the principle
+/// from ARM64 op_simd.zig that scratch reuse is preferable to
+/// pool churn (per ROADMAP P3 cold-start; per p9-9.7-d-survey.md
+/// "scratch strategy B").
+///
+/// Aliasing safety (D-071 part a; D-066 mirror): regalloc's LIFO
+/// slot-reuse can place `result_v` in the same physical XMM as
+/// `rhs_v` (with `dst != lhs`). Step 9's `MOVAPS dst, lhs` then
+/// overwrites rhs before step 10's `PMULUDQ dst, rhs` reads it,
+/// degenerating step 10 to `a_lo * a_lo`. Symptom on OrbStack
+/// simd_i64x2_arith: i64x2.mul(1, 0xFFFFFFFFFFFFFFFF) →
+/// 0xFFFFFFFF_00000001 (= 1*1 + cross<<32) instead of
+/// 0xFFFFFFFFFFFFFFFF. Stash rhs through XMM7 (project SIMD
+/// scratch — `abi.zig:200` reserves it mirroring arm64's V31)
+/// when the alias is detected; reads at steps 3, 4, and 10 use
+/// the stashed copy.
+pub fn emitI64x2Mul(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+) Error!void {
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const rhs_v = pushed_vregs.pop().?;
+    const lhs_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const rhs_x = try gpr.resolveXmm(alloc, rhs_v);
+    const lhs_x = try gpr.resolveXmm(alloc, lhs_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+
+    // SIMD scratch: reuse fp_spill_stage_xmms[0..1]. The spill-
+    // staging path is unused inside this handler (no nested
+    // xmmLoadSpilled), so XMM14 / XMM15 are free to clobber.
+    const s1 = abi.fp_spill_stage_xmms[0]; // XMM14
+    const s2 = abi.fp_spill_stage_xmms[1]; // XMM15
+
+    var rhs_for_op = rhs_x;
+    if (dst_x != lhs_x and dst_x == rhs_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, rhs_x).slice());
+        rhs_for_op = .xmm7;
+    }
+
+    // 1-3: cross term a_hi * b_lo into s1.
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(s1, lhs_x).slice());
+    try buf.appendSlice(allocator, inst.encPsrlqImm(s1, 32).slice());
+    try buf.appendSlice(allocator, inst.encPmuludq(s1, rhs_for_op).slice());
+
+    // 4-6: cross term a_lo * b_hi into s2.
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(s2, rhs_for_op).slice());
+    try buf.appendSlice(allocator, inst.encPsrlqImm(s2, 32).slice());
+    try buf.appendSlice(allocator, inst.encPmuludq(s2, lhs_x).slice());
+
+    // 7-8: combine cross terms and shift into the high half.
+    try buf.appendSlice(allocator, inst.encPaddQ(s1, s2).slice());
+    try buf.appendSlice(allocator, inst.encPsllqImm(s1, 32).slice());
+
+    // 9-11: low product into dst, then add cross terms.
+    if (dst_x != lhs_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, lhs_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPmuludq(dst_x, rhs_for_op).slice());
+    try buf.appendSlice(allocator, inst.encPaddQ(dst_x, s1).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.4 (i8x16.min_s) — packed signed 8-bit min.
+pub fn emitI8x16MinS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPminsb);
+}
+
+/// Wasm spec §4.4.4 (i8x16.min_u) — packed unsigned 8-bit min.
+pub fn emitI8x16MinU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPminub);
+}
+
+/// Wasm spec §4.4.4 (i8x16.max_s) — packed signed 8-bit max.
+pub fn emitI8x16MaxS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaxsb);
+}
+
+/// Wasm spec §4.4.4 (i8x16.max_u) — packed unsigned 8-bit max.
+pub fn emitI8x16MaxU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaxub);
+}
+
+/// Wasm spec §4.4.4 (i16x8.min_s) — packed signed 16-bit min.
+pub fn emitI16x8MinS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPminsw);
+}
+
+/// Wasm spec §4.4.4 (i16x8.min_u) — packed unsigned 16-bit min.
+pub fn emitI16x8MinU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPminuw);
+}
+
+/// Wasm spec §4.4.4 (i16x8.max_s) — packed signed 16-bit max.
+pub fn emitI16x8MaxS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaxsw);
+}
+
+/// Wasm spec §4.4.4 (i16x8.max_u) — packed unsigned 16-bit max.
+pub fn emitI16x8MaxU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaxuw);
+}
+
+/// Wasm spec §4.4.4 (i32x4.min_s) — packed signed 32-bit min.
+pub fn emitI32x4MinS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPminsd);
+}
+
+/// Wasm spec §4.4.4 (i32x4.min_u) — packed unsigned 32-bit min.
+pub fn emitI32x4MinU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPminud);
+}
+
+/// Wasm spec §4.4.4 (i32x4.max_s) — packed signed 32-bit max.
+pub fn emitI32x4MaxS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaxsd);
+}
+
+/// Wasm spec §4.4.4 (i32x4.max_u) — packed unsigned 32-bit max.
+pub fn emitI32x4MaxU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaxud);
+}
+
+/// Wasm spec §4.4.4 (i8x16.add_sat_s) — packed signed saturating add.
+pub fn emitI8x16AddSatS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPaddsb);
+}
+
+/// Wasm spec §4.4.4 (i8x16.add_sat_u) — packed unsigned saturating add.
+pub fn emitI8x16AddSatU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPaddusb);
+}
+
+/// Wasm spec §4.4.4 (i8x16.sub_sat_s) — packed signed saturating sub.
+pub fn emitI8x16SubSatS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsubsb);
+}
+
+/// Wasm spec §4.4.4 (i8x16.sub_sat_u) — packed unsigned saturating sub.
+pub fn emitI8x16SubSatU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsubusb);
+}
+
+/// Wasm spec §4.4.4 (i16x8.add_sat_s) — packed signed saturating add.
+pub fn emitI16x8AddSatS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPaddsw);
+}
+
+/// Wasm spec §4.4.4 (i16x8.add_sat_u) — packed unsigned saturating add.
+pub fn emitI16x8AddSatU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPaddusw);
+}
+
+/// Wasm spec §4.4.4 (i16x8.sub_sat_s) — packed signed saturating sub.
+pub fn emitI16x8SubSatS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsubsw);
+}
+
+/// Wasm spec §4.4.4 (i16x8.sub_sat_u) — packed unsigned saturating sub.
+pub fn emitI16x8SubSatU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsubusw);
+}
+
+/// Wasm spec §4.4.4 (i8x16.avgr_u) — packed unsigned 8-bit
+/// rounded average: (a+b+1) >> 1 per lane.
+pub fn emitI8x16AvgrU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPavgb);
+}
+
+/// Wasm spec §4.4.4 (i16x8.avgr_u) — packed unsigned 16-bit
+/// rounded average: (a+b+1) >> 1 per lane.
+pub fn emitI16x8AvgrU(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPavgw);
+}
+
+/// Wasm spec §4.4.4 (i16x8.q15mulr_sat_s) — Q15-format multiply
+/// with rounding and saturating clamp to i16. PMULHRSW (SSSE3,
+/// `lower.isle:1287-1294`) implements exactly this in 1
+/// instruction; reuses op_simd.emitV128IntBinop.
+pub fn emitI16x8Q15mulrSatS(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmulhrsw);
+}
+
+/// Wasm spec §4.4.4 (i32x4.dot_i16x8_s) — pairwise dot product
+/// of i16 lanes producing 4 i32 lanes. PMADDWD (SSE2,
+/// `lower.isle:4073-4078`) implements exactly this in 1
+/// instruction. Wrapping i32 accumulation matches Wasm spec
+/// (INT16_MIN^2 + INT16_MIN^2 wraps modulo 2^32).
+pub fn emitI32x4DotI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaddwd);
+}
+
+/// 16-byte 0x0F-per-byte mask used by popcnt's nibble-split path.
+const NIBBLE_MASK_BROADCAST: [16]u8 = [_]u8{0x0F} ** 16;
+
+/// Wasm spec §4.4.4 (i8x16.popcnt) per-byte popcount LUT used by
+/// popcnt's PSHUFB-LUT path. Byte i = popcount(i) for i in 0..15.
+const POPCNT_LUT: [16]u8 = [_]u8{ 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 };
+
+/// Wasm spec §4.4.4 (i8x16.popcnt) — per-byte population count
+/// via SSSE3 PSHUFB-LUT (cranelift `lower.isle:2491-2517`). Two
+/// const-pool entries: 16-byte LUT[0..15] = popcount(i), and a
+/// 0x0F-per-byte nibble mask. The recipe splits each byte into
+/// low/high nibbles, looks each up in the LUT via PSHUFB, then
+/// adds. PSHUFB clobbers its destination so the LUT must be
+/// reloaded between the two halves.
+///
+/// Recipe (11 instr including 2 const loads, fits 2-scratch budget;
+/// + optional 1-instr stash on the `dst==src` alias case):
+/// 0.  MOVAPS XMM7, src                 ; only when dst_x == src_x
+/// 1.  MOVUPS XMM15, [RIP+nibble_mask]
+/// 2-4. compute high_nibbles into XMM14 (MOVAPS+PSRLW+PAND)
+/// 5.  MOVUPS dst, [RIP+LUT]
+/// 6.  PSHUFB dst, XMM14                ; popcount(high)
+/// 7-8. compute low_nibbles into XMM14 (MOVAPS+PAND)
+/// 9.  MOVUPS XMM15, [RIP+LUT]          ; reload (clobbers mask)
+/// 10. PSHUFB XMM15, XMM14              ; popcount(low)
+/// 11. PADDB dst, XMM15
+///
+/// Aliasing safety (D-071 part b; D-066 mirror): regalloc's LIFO
+/// slot-reuse can place `result_v` in the same physical XMM as
+/// `src_v` (1-pop op: src dies at popcnt's pop, slot reused for
+/// result). Step 5's `MOVUPS dst, [RIP+LUT]` overwrites src
+/// before step 7's `MOVAPS t1, src_x` re-reads it; the low-nibble
+/// path then computes `LUT[LUT[low_nibble(src)]]` (since LUT[i] <
+/// 16 for all i) instead of `LUT[low_nibble(src)]`. Symptom on
+/// OrbStack simd_i8x16_arith2: popcnt(0xFF) → 5 vs 8, popcnt(0x80)
+/// → 2 vs 1, popcnt(0x01) → 0 vs 1. Stash src through XMM7
+/// (project SIMD scratch — `abi.zig:200` reserves it mirroring
+/// arm64's V31).
+pub fn emitI8x16Popcnt(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    simd_const_fixups: *std.ArrayList(@import("types.zig").SimdConstFixup),
+    extra_consts: *std.ArrayList([16]u8),
+    simd_consts_base: u32,
+) Error!void {
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const src_x = try gpr.resolveXmm(alloc, src_v);
+    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const t1 = abi.fp_spill_stage_xmms[0]; // XMM14
+    const t2 = abi.fp_spill_stage_xmms[1]; // XMM15
+
+    const lut_idx = try op_simd.lookupOrAppendExtraConst(allocator, extra_consts, simd_consts_base, POPCNT_LUT);
+    const mask_idx = try op_simd.lookupOrAppendExtraConst(allocator, extra_consts, simd_consts_base, NIBBLE_MASK_BROADCAST);
+
+    var src_for_op = src_x;
+    if (dst_x == src_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, src_x).slice());
+        src_for_op = .xmm7;
+    }
+
+    // 1: t2 = nibble_mask (0x0F per byte).
+    try op_simd.emitConstLoad(allocator, buf, simd_const_fixups, t2, mask_idx);
+    // 2-4: t1 = high_nibbles per byte. PSRLW shifts at word level
+    // so the mask AND is required.
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(t1, src_for_op).slice());
+    try buf.appendSlice(allocator, inst.encPsrlwImm(t1, 4).slice());
+    try buf.appendSlice(allocator, inst.encPand(t1, t2).slice());
+    // 5-6: dst = LUT, then PSHUFB(dst, t1) → dst = popcount(high).
+    try op_simd.emitConstLoad(allocator, buf, simd_const_fixups, dst_x, lut_idx);
+    try buf.appendSlice(allocator, inst.encPshufb(dst_x, t1).slice());
+    // 7-8: t1 = low_nibbles per byte. PAND with mask suffices —
+    // no shift needed.
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(t1, src_for_op).slice());
+    try buf.appendSlice(allocator, inst.encPand(t1, t2).slice());
+    // 9-10: t2 = LUT (reload — t2 was the mask, no longer needed),
+    // then PSHUFB(t2, t1) → t2 = popcount(low).
+    try op_simd.emitConstLoad(allocator, buf, simd_const_fixups, t2, lut_idx);
+    try buf.appendSlice(allocator, inst.encPshufb(t2, t1).slice());
+    // 11: dst = popcount(high) + popcount(low) = popcount(byte).
+    try buf.appendSlice(allocator, inst.encPaddB(dst_x, t2).slice());
+
+    try pushed_vregs.append(allocator, result_v);
+}

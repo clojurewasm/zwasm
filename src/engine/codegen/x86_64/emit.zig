@@ -56,6 +56,9 @@ const op_control = @import("op_control.zig");
 const op_call = @import("op_call.zig");
 const op_globals = @import("op_globals.zig");
 const op_simd = @import("op_simd.zig");
+const op_simd_int_arith = @import("op_simd_int_arith.zig");
+const op_simd_int_cmp_lane = @import("op_simd_int_cmp_lane.zig");
+const op_simd_float = @import("op_simd_float.zig");
 const gpr = @import("gpr.zig");
 
 const Allocator = std.mem.Allocator;
@@ -862,136 +865,136 @@ pub fn compile(
             // shape-tag pipeline on x86_64 per ADR-0041; spilled
             // v128 vregs surface UnsupportedOp until 9.7-c MOVDQU
             // helpers land.
-            .@"i8x16.add" => try op_simd.emitI8x16Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.sub" => try op_simd.emitI8x16Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.add" => try op_simd.emitI16x8Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.sub" => try op_simd.emitI16x8Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.add" => try op_simd.emitI32x4Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.sub" => try op_simd.emitI32x4Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64x2.add" => try op_simd.emitI64x2Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64x2.sub" => try op_simd.emitI64x2Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.add" => try op_simd_int_arith.emitI8x16Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.sub" => try op_simd_int_arith.emitI8x16Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.add" => try op_simd_int_arith.emitI16x8Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.sub" => try op_simd_int_arith.emitI16x8Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.add" => try op_simd_int_arith.emitI32x4Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.sub" => try op_simd_int_arith.emitI32x4Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.add" => try op_simd_int_arith.emitI64x2Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.sub" => try op_simd_int_arith.emitI64x2Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-c: native multiply. PMULLW (SSE2) for
             // i16x8.mul; PMULLD (SSE4.1) for i32x4.mul.
-            .@"i16x8.mul" => try op_simd.emitI16x8Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.mul" => try op_simd.emitI32x4Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.mul" => try op_simd_int_arith.emitI16x8Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.mul" => try op_simd_int_arith.emitI32x4Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-d: i64x2.mul synthesis (no native SSE4.1 form;
             // PMULUDQ + shift/add idiom uses XMM14/15 as scratch).
-            .@"i64x2.mul" => try op_simd.emitI64x2Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.mul" => try op_simd_int_arith.emitI64x2Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-e: lane access foundation (i32x4 only — other
             // shapes follow in 9.7-f). Splat broadcasts a scalar i32
             // across 4 lanes; extract_lane pulls one lane back to
             // scalar via PEXTRD (SSE4.1).
-            .@"i32x4.splat" => try op_simd.emitI32x4Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.extract_lane" => try op_simd.emitI32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i32x4.splat" => try op_simd_int_cmp_lane.emitI32x4Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.extract_lane" => try op_simd_int_cmp_lane.emitI32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
             // §9.7 / 9.7-aw: i64x2.extract_lane via PEXTRQ (SSE4.1
             // REX.W=1 variant of PEXTRD). Mirror of i32x4.extract_
             // lane handler with u1 lane (i64x2 has 2 lanes).
-            .@"i64x2.extract_lane" => try op_simd.emitI64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i64x2.extract_lane" => try op_simd_int_cmp_lane.emitI64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
             // §9.7 / 9.7-f: replace_lane for the wide-int v128 shapes.
             // PINSRD (32-bit) / PINSRQ (64-bit, REX.W mandatory) plus a
             // MOVAPS preamble when dst doesn't alias the input vec.
-            .@"i32x4.replace_lane" => try op_simd.emitI32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
-            .@"i64x2.replace_lane" => try op_simd.emitI64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i32x4.replace_lane" => try op_simd_int_cmp_lane.emitI32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i64x2.replace_lane" => try op_simd_int_cmp_lane.emitI64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
             // §9.7 / 9.7-g: narrow-int lane access (i8x16 / i16x8).
             // PEXTRB / PEXTRW + optional MOVSX for signed extract.
             // PINSRB / PINSRW + MOVAPS preamble for replace.
-            .@"i8x16.extract_lane_s" => try op_simd.emitI8x16ExtractLaneS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
-            .@"i8x16.extract_lane_u" => try op_simd.emitI8x16ExtractLaneU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
-            .@"i16x8.extract_lane_s" => try op_simd.emitI16x8ExtractLaneS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
-            .@"i16x8.extract_lane_u" => try op_simd.emitI16x8ExtractLaneU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
-            .@"i8x16.replace_lane" => try op_simd.emitI8x16ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
-            .@"i16x8.replace_lane" => try op_simd.emitI16x8ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i8x16.extract_lane_s" => try op_simd_int_cmp_lane.emitI8x16ExtractLaneS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i8x16.extract_lane_u" => try op_simd_int_cmp_lane.emitI8x16ExtractLaneU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i16x8.extract_lane_s" => try op_simd_int_cmp_lane.emitI16x8ExtractLaneS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i16x8.extract_lane_u" => try op_simd_int_cmp_lane.emitI16x8ExtractLaneU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i8x16.replace_lane" => try op_simd_int_cmp_lane.emitI8x16ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"i16x8.replace_lane" => try op_simd_int_cmp_lane.emitI16x8ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
             // §9.7 / 9.7-h: integer splat siblings (i32x4 already
             // landed in 9.7-e). i8x16 via PSHUFB-broadcast; i16x8
             // via PSHUFLW + PSHUFD; i64x2 via PUNPCKLQDQ.
-            .@"i8x16.splat" => try op_simd.emitI8x16Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.splat" => try op_simd.emitI16x8Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64x2.splat" => try op_simd.emitI64x2Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.splat" => try op_simd_int_cmp_lane.emitI8x16Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.splat" => try op_simd_int_cmp_lane.emitI16x8Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.splat" => try op_simd_int_cmp_lane.emitI64x2Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-i: f32x4 lane access trio. XMM-source
             // semantics — splat / extract reuse encPshufd; replace
             // uses the new INSERTPS encoder (SSE4.1 3A 21 /r ib).
-            .@"f32x4.splat" => try op_simd.emitF32x4Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.extract_lane" => try op_simd.emitF32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
-            .@"f32x4.replace_lane" => try op_simd.emitF32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
+            .@"f32x4.splat" => try op_simd_float.emitF32x4Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.extract_lane" => try op_simd_float.emitF32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
+            .@"f32x4.replace_lane" => try op_simd_float.emitF32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             // §9.7 / 9.7-j: f64x2 lane access trio. splat + extract_lane
             // reuse encPshufd (imm 0x44 / 0xEE for low/high qword).
             // replace_lane uses MOVAPS preamble + MOVSD (lane=0) /
             // MOVLHPS (lane=1).
-            .@"f64x2.splat" => try op_simd.emitF64x2Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.extract_lane" => try op_simd.emitF64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
-            .@"f64x2.replace_lane" => try op_simd.emitF64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
+            .@"f64x2.splat" => try op_simd_float.emitF64x2Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.extract_lane" => try op_simd_float.emitF64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
+            .@"f64x2.replace_lane" => try op_simd_float.emitF64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             // §9.7 / 9.7-k: int compare eq/ne family. PCMPEQ B/W/D
             // (SSE2) + PCMPEQQ (SSE4.1); ne paths apply NOT via
             // PXOR with an all-ones mask (PCMPEQB scratch, scratch).
-            .@"i8x16.eq" => try op_simd.emitI8x16Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.eq" => try op_simd.emitI16x8Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.eq" => try op_simd.emitI32x4Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64x2.eq" => try op_simd.emitI64x2Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.ne" => try op_simd.emitI8x16Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.ne" => try op_simd.emitI16x8Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.ne" => try op_simd.emitI32x4Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.ne" => try op_simd.emitI64x2Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.eq" => try op_simd_int_cmp_lane.emitI8x16Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.eq" => try op_simd_int_cmp_lane.emitI16x8Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.eq" => try op_simd_int_cmp_lane.emitI32x4Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.eq" => try op_simd_int_cmp_lane.emitI64x2Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.ne" => try op_simd_int_cmp_lane.emitI8x16Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.ne" => try op_simd_int_cmp_lane.emitI16x8Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.ne" => try op_simd_int_cmp_lane.emitI32x4Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.ne" => try op_simd_int_cmp_lane.emitI64x2Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-l: signed lt/gt/le/ge for 8/16/32-bit shapes
             // (12 ops). PCMPGT_<shape> direct for gt; operand swap for
             // lt; PXOR-with-all-ones NOT for le/ge. i64x2 signed
             // compares defer to 9.7-m (PCMPGTQ is SSE4.2 — needs ADR).
-            .@"i8x16.gt_s" => try op_simd.emitI8x16GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.lt_s" => try op_simd.emitI8x16LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.le_s" => try op_simd.emitI8x16LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.ge_s" => try op_simd.emitI8x16GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.gt_s" => try op_simd.emitI16x8GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.lt_s" => try op_simd.emitI16x8LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.le_s" => try op_simd.emitI16x8LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.ge_s" => try op_simd.emitI16x8GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.gt_s" => try op_simd.emitI32x4GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.lt_s" => try op_simd.emitI32x4LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.le_s" => try op_simd.emitI32x4LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.ge_s" => try op_simd.emitI32x4GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.gt_s" => try op_simd_int_cmp_lane.emitI8x16GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.lt_s" => try op_simd_int_cmp_lane.emitI8x16LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.le_s" => try op_simd_int_cmp_lane.emitI8x16LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.ge_s" => try op_simd_int_cmp_lane.emitI8x16GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.gt_s" => try op_simd_int_cmp_lane.emitI16x8GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.lt_s" => try op_simd_int_cmp_lane.emitI16x8LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.le_s" => try op_simd_int_cmp_lane.emitI16x8LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.ge_s" => try op_simd_int_cmp_lane.emitI16x8GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.gt_s" => try op_simd_int_cmp_lane.emitI32x4GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.lt_s" => try op_simd_int_cmp_lane.emitI32x4LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.le_s" => try op_simd_int_cmp_lane.emitI32x4LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.ge_s" => try op_simd_int_cmp_lane.emitI32x4GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-m: i64x2 signed compare lt_s/gt_s/le_s/ge_s
             // (4 ops). PCMPGTQ (SSE4.2 0F 38 37) threaded through
             // 9.7-l's emitV128IntCmpSigned helper. Per ADR-0041 §5
             // amend at 9.7-m — x86_64 baseline raised SSE4.1 →
             // SSE4.2 (Steam Apr 2026 98.18% adoption).
-            .@"i64x2.gt_s" => try op_simd.emitI64x2GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.lt_s" => try op_simd.emitI64x2LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.le_s" => try op_simd.emitI64x2LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.ge_s" => try op_simd.emitI64x2GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.gt_s" => try op_simd_int_cmp_lane.emitI64x2GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.lt_s" => try op_simd_int_cmp_lane.emitI64x2LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.le_s" => try op_simd_int_cmp_lane.emitI64x2LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.ge_s" => try op_simd_int_cmp_lane.emitI64x2GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-n: unsigned compares lt_u/gt_u/le_u/ge_u for
             // 8/16/32-bit shapes (12 ops). PMINU/PMAXU + PCMPEQ
             // (cranelift `lower.isle:2016-2080`): gt/lt = NOT eq(min/max,
             // rhs); ge/le = eq(lhs, max/min). PMAXUB/PMINUB SSE2;
             // PMAXU{W,D} / PMINU{W,D} SSE4.1. i64x2 unsigned not in
             // Wasm SIMD spec.
-            .@"i8x16.gt_u" => try op_simd.emitI8x16GtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.lt_u" => try op_simd.emitI8x16LtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.le_u" => try op_simd.emitI8x16LeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.ge_u" => try op_simd.emitI8x16GeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.gt_u" => try op_simd.emitI16x8GtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.lt_u" => try op_simd.emitI16x8LtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.le_u" => try op_simd.emitI16x8LeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.ge_u" => try op_simd.emitI16x8GeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.gt_u" => try op_simd.emitI32x4GtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.lt_u" => try op_simd.emitI32x4LtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.le_u" => try op_simd.emitI32x4LeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.ge_u" => try op_simd.emitI32x4GeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.gt_u" => try op_simd_int_cmp_lane.emitI8x16GtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.lt_u" => try op_simd_int_cmp_lane.emitI8x16LtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.le_u" => try op_simd_int_cmp_lane.emitI8x16LeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.ge_u" => try op_simd_int_cmp_lane.emitI8x16GeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.gt_u" => try op_simd_int_cmp_lane.emitI16x8GtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.lt_u" => try op_simd_int_cmp_lane.emitI16x8LtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.le_u" => try op_simd_int_cmp_lane.emitI16x8LeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.ge_u" => try op_simd_int_cmp_lane.emitI16x8GeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.gt_u" => try op_simd_int_cmp_lane.emitI32x4GtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.lt_u" => try op_simd_int_cmp_lane.emitI32x4LtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.le_u" => try op_simd_int_cmp_lane.emitI32x4LeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.ge_u" => try op_simd_int_cmp_lane.emitI32x4GeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-o: FP compare eq/ne/lt/gt/le/ge for f32x4 +
             // f64x2 (12 ops). CMPPS (SSE 0F C2 /r ib) + CMPPD (SSE2
             // 66 0F C2 /r ib) with imm8 predicate per Intel SDM Vol
             // 2A "CMPPS" Table 3-7. eq/ne/lt/le direct with imm
             // 0/4/1/2; gt/ge swap operands + imm 1/2 per cranelift
             // `lower.isle:2169-2172`.
-            .@"f32x4.eq" => try op_simd.emitF32x4Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.ne" => try op_simd.emitF32x4Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.lt" => try op_simd.emitF32x4Lt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.gt" => try op_simd.emitF32x4Gt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.le" => try op_simd.emitF32x4Le(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.ge" => try op_simd.emitF32x4Ge(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.eq" => try op_simd.emitF64x2Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.ne" => try op_simd.emitF64x2Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.lt" => try op_simd.emitF64x2Lt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.gt" => try op_simd.emitF64x2Gt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.le" => try op_simd.emitF64x2Le(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.ge" => try op_simd.emitF64x2Ge(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.eq" => try op_simd_float.emitF32x4Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.ne" => try op_simd_float.emitF32x4Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.lt" => try op_simd_float.emitF32x4Lt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.gt" => try op_simd_float.emitF32x4Gt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.le" => try op_simd_float.emitF32x4Le(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.ge" => try op_simd_float.emitF32x4Ge(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.eq" => try op_simd_float.emitF64x2Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.ne" => try op_simd_float.emitF64x2Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.lt" => try op_simd_float.emitF64x2Lt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.gt" => try op_simd_float.emitF64x2Gt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.le" => try op_simd_float.emitF64x2Le(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.ge" => try op_simd_float.emitF64x2Ge(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-p: FP arithmetic add/sub/mul/div + sqrt
             // for f32x4 + f64x2 (10 ops). ADDPS/SUBPS/MULPS/DIVPS/
             // SQRTPS (SSE 0F 58/5C/59/5E/51) + PD variants (SSE2 66
@@ -999,16 +1002,16 @@ pub fn compile(
             // sqrt uses new emitV128FpUnop. min/max defer to 9.7-q
             // (NaN-correction synthesis ~7 instr per cranelift
             // `lower.isle` F32X4/F64X2 fmin/fmax).
-            .@"f32x4.add" => try op_simd.emitF32x4Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f32x4.sub" => try op_simd.emitF32x4Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f32x4.mul" => try op_simd.emitF32x4Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f32x4.div" => try op_simd.emitF32x4Div(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f32x4.sqrt" => try op_simd.emitF32x4Sqrt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.add" => try op_simd.emitF64x2Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f64x2.sub" => try op_simd.emitF64x2Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f64x2.mul" => try op_simd.emitF64x2Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f64x2.div" => try op_simd.emitF64x2Div(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f64x2.sqrt" => try op_simd.emitF64x2Sqrt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.add" => try op_simd_float.emitF32x4Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"f32x4.sub" => try op_simd_float.emitF32x4Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"f32x4.mul" => try op_simd_float.emitF32x4Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"f32x4.div" => try op_simd_float.emitF32x4Div(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"f32x4.sqrt" => try op_simd_float.emitF32x4Sqrt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.add" => try op_simd_float.emitF64x2Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"f64x2.sub" => try op_simd_float.emitF64x2Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"f64x2.mul" => try op_simd_float.emitF64x2Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"f64x2.div" => try op_simd_float.emitF64x2Div(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"f64x2.sqrt" => try op_simd_float.emitF64x2Sqrt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-q: f32x4 + f64x2 min/max NaN-correction
             // synthesis (4 ops). MINPS/MAXPS / MINPD/MAXPD wrapped
             // with cranelift's 10-instr (fmin) / 13-instr (fmax)
@@ -1017,10 +1020,10 @@ pub fn compile(
             // zero-aware) where naive MIN/MAX would return src2 on
             // unordered inputs (off-spec). XMM14 + XMM15 used as
             // scratch.
-            .@"f32x4.min" => try op_simd.emitF32x4Min(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.max" => try op_simd.emitF32x4Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.min" => try op_simd.emitF64x2Min(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.max" => try op_simd.emitF64x2Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.min" => try op_simd_float.emitF32x4Min(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.max" => try op_simd_float.emitF32x4Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.min" => try op_simd_float.emitF64x2Min(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.max" => try op_simd_float.emitF64x2Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-r: v128 bitwise ops + v128.any_true (7 ops).
             // PAND/POR/PXOR/PANDN (SSE2) for and/or/xor/andnot;
             // 3-instr synthesis for not (PCMPEQB ones,ones + PXOR);
@@ -1039,27 +1042,27 @@ pub fn compile(
             // `lower.isle:4936`). bitmask via PMOVMSKB / MOVMSKPS /
             // MOVMSKPD direct for i8/i32/i64; i16x8 needs PACKSSWB
             // + PMOVMSKB + SHR 8 (cranelift `lower.isle:4977`).
-            .@"i8x16.all_true" => try op_simd.emitI8x16AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.all_true" => try op_simd.emitI16x8AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.all_true" => try op_simd.emitI32x4AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64x2.all_true" => try op_simd.emitI64x2AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.bitmask" => try op_simd.emitI8x16Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.bitmask" => try op_simd.emitI16x8Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.bitmask" => try op_simd.emitI32x4Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64x2.bitmask" => try op_simd.emitI64x2Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.all_true" => try op_simd_int_cmp_lane.emitI8x16AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.all_true" => try op_simd_int_cmp_lane.emitI16x8AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.all_true" => try op_simd_int_cmp_lane.emitI32x4AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.all_true" => try op_simd_int_cmp_lane.emitI64x2AllTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.bitmask" => try op_simd_int_cmp_lane.emitI8x16Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.bitmask" => try op_simd_int_cmp_lane.emitI16x8Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.bitmask" => try op_simd_int_cmp_lane.emitI32x4Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.bitmask" => try op_simd_int_cmp_lane.emitI64x2Bitmask(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-t: i*x* packed shifts shl/shr_s/shr_u for
             // i16x8 + i32x4 + i64x2 (8 ops; i8x16 + i64x2.shr_s
             // synthesis defer to 9.7-u). 5-instr emit per shift:
             // AND mask (lane_width - 1), MOVD count→xmm, MOVAPS
             // dst,vec (skip-elide), <shift> dst,scratch.
-            .@"i16x8.shl" => try op_simd.emitI16x8Shl(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.shr_s" => try op_simd.emitI16x8ShrS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.shr_u" => try op_simd.emitI16x8ShrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.shl" => try op_simd.emitI32x4Shl(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.shr_s" => try op_simd.emitI32x4ShrS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.shr_u" => try op_simd.emitI32x4ShrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64x2.shl" => try op_simd.emitI64x2Shl(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64x2.shr_u" => try op_simd.emitI64x2ShrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.shl" => try op_simd_int_arith.emitI16x8Shl(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.shr_s" => try op_simd_int_arith.emitI16x8ShrS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.shr_u" => try op_simd_int_arith.emitI16x8ShrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.shl" => try op_simd_int_arith.emitI32x4Shl(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.shr_s" => try op_simd_int_arith.emitI32x4ShrS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.shr_u" => try op_simd_int_arith.emitI32x4ShrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.shl" => try op_simd_int_arith.emitI64x2Shl(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.shr_u" => try op_simd_int_arith.emitI64x2ShrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-u: i64x2.shr_s synthesis (no native PSRAQ
             // in SSE; runtime-mask sign-bit fixup recipe per
             // cranelift `lower.isle:943-951` — 9 instr, no
@@ -1067,118 +1070,118 @@ pub fn compile(
             // PCMPEQB+PSLLQ-imm-synthesised inline). i8x16 shifts
             // defer to 9.7-v (count-dependent broadcast mask
             // synthesis or const-pool dependency per ADR-0042).
-            .@"i64x2.shr_s" => try op_simd.emitI64x2ShrS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64x2.shr_s" => try op_simd_int_arith.emitI64x2ShrS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-v: i8x16.shl + i8x16.shr_u via inline-mask
             // synthesis (no const-pool dep). 9-/10-instr recipes
             // using PSLLW/PSRLW + PCMPEQB-derived all-ones + PSHUFB
             // broadcast of byte-0 of the shifted-mask word.
             // i8x16.shr_s defers to 9.7-w (byte→word extension via
             // PUNPCKLBW + PSRAW + PACKSSWB — structurally different).
-            .@"i8x16.shl" => try op_simd.emitI8x16Shl(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.shr_u" => try op_simd.emitI8x16ShrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.shl" => try op_simd_int_arith.emitI8x16Shl(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.shr_u" => try op_simd_int_arith.emitI8x16ShrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-w: i8x16.shr_s via cranelift sign-extension
             // synthesis (`lower.isle:846+`). 11-instr: PCMPGTB sign-
             // mask + PUNPCKL/HBW byte→word extension + PSRAW per
             // half + PACKSSWB pack.
-            .@"i8x16.shr_s" => try op_simd.emitI8x16ShrS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.shr_s" => try op_simd_int_arith.emitI8x16ShrS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-x: i*x*.extend_{low,high}_*_{s,u} (12 ops).
             // Low half: 1-instr SSE4.1 PMOVSX*/PMOVZX* direct.
             // High half: PSHUFD imm=0xEE swaps upper qword to lower
             // position + PMOVSX/ZX. 2 instr per high-extend.
-            .@"i16x8.extend_low_i8x16_s" => try op_simd.emitI16x8ExtendLowI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.extend_low_i8x16_u" => try op_simd.emitI16x8ExtendLowI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.extend_high_i8x16_s" => try op_simd.emitI16x8ExtendHighI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.extend_high_i8x16_u" => try op_simd.emitI16x8ExtendHighI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.extend_low_i16x8_s" => try op_simd.emitI32x4ExtendLowI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.extend_low_i16x8_u" => try op_simd.emitI32x4ExtendLowI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.extend_high_i16x8_s" => try op_simd.emitI32x4ExtendHighI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.extend_high_i16x8_u" => try op_simd.emitI32x4ExtendHighI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.extend_low_i32x4_s" => try op_simd.emitI64x2ExtendLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.extend_low_i32x4_u" => try op_simd.emitI64x2ExtendLowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.extend_high_i32x4_s" => try op_simd.emitI64x2ExtendHighI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.extend_high_i32x4_u" => try op_simd.emitI64x2ExtendHighI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extend_low_i8x16_s" => try op_simd_int_cmp_lane.emitI16x8ExtendLowI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extend_low_i8x16_u" => try op_simd_int_cmp_lane.emitI16x8ExtendLowI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extend_high_i8x16_s" => try op_simd_int_cmp_lane.emitI16x8ExtendHighI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extend_high_i8x16_u" => try op_simd_int_cmp_lane.emitI16x8ExtendHighI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extend_low_i16x8_s" => try op_simd_int_cmp_lane.emitI32x4ExtendLowI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extend_low_i16x8_u" => try op_simd_int_cmp_lane.emitI32x4ExtendLowI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extend_high_i16x8_s" => try op_simd_int_cmp_lane.emitI32x4ExtendHighI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extend_high_i16x8_u" => try op_simd_int_cmp_lane.emitI32x4ExtendHighI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.extend_low_i32x4_s" => try op_simd_int_cmp_lane.emitI64x2ExtendLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.extend_low_i32x4_u" => try op_simd_int_cmp_lane.emitI64x2ExtendLowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.extend_high_i32x4_s" => try op_simd_int_cmp_lane.emitI64x2ExtendHighI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.extend_high_i32x4_u" => try op_simd_int_cmp_lane.emitI64x2ExtendHighI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-y: i*x*.narrow_*_{s,u} (4 ops). PACKSSWB
             // (SSE2) + PACKUSWB (SSE2) for i8x16; PACKSSDW (SSE2)
             // + PACKUSDW (SSE4.1) for i16x8. All single-instr via
             // emitV128IntBinop.
-            .@"i8x16.narrow_i16x8_s" => try op_simd.emitI8x16NarrowI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.narrow_i16x8_u" => try op_simd.emitI8x16NarrowI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.narrow_i32x4_s" => try op_simd.emitI16x8NarrowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.narrow_i32x4_u" => try op_simd.emitI16x8NarrowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.narrow_i16x8_s" => try op_simd_int_cmp_lane.emitI8x16NarrowI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.narrow_i16x8_u" => try op_simd_int_cmp_lane.emitI8x16NarrowI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.narrow_i32x4_s" => try op_simd_int_cmp_lane.emitI16x8NarrowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.narrow_i32x4_u" => try op_simd_int_cmp_lane.emitI16x8NarrowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-z: i*x*.abs (4 ops). PABSB/W/D (SSSE3
             // 0F 38 1C/1D/1E) for 8/16/32-bit lanes — single-instr
             // unary via emitV128FpUnop. i64x2.abs synthesises via
             // 5-instr sign-mask + PXOR + PSUBQ recipe (no PABSQ
             // in SSE; SSE4.2 PCMPGTQ available per ADR-0041).
-            .@"i8x16.abs" => try op_simd.emitI8x16Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.abs" => try op_simd.emitI16x8Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.abs" => try op_simd.emitI32x4Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.abs" => try op_simd.emitI64x2Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.abs" => try op_simd_int_arith.emitI8x16Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.abs" => try op_simd_int_arith.emitI16x8Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.abs" => try op_simd_int_arith.emitI32x4Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.abs" => try op_simd_int_arith.emitI64x2Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-aa: i*x*.neg (4 ops). 3-instr recipe via
             // emitV128IntNeg helper: PXOR XMM14,XMM14 + PSUB_<shape>
             // XMM14, src + MOVAPS dst, XMM14. Aliasing-safe.
-            .@"i8x16.neg" => try op_simd.emitI8x16Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.neg" => try op_simd.emitI16x8Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.neg" => try op_simd.emitI32x4Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.neg" => try op_simd.emitI64x2Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.neg" => try op_simd_int_arith.emitI8x16Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.neg" => try op_simd_int_arith.emitI16x8Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.neg" => try op_simd_int_arith.emitI32x4Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.neg" => try op_simd_int_arith.emitI64x2Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ab: FP convert signed + promote/demote
             // (4 ops). Single-instr unary CVT* via emitV128FpUnop.
             // u-variants and trunc-sat defer (cranelift uses
             // const-pool float magic numbers; ADR-0042 pending).
-            .@"f32x4.convert_i32x4_s" => try op_simd.emitF32x4ConvertI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.convert_low_i32x4_s" => try op_simd.emitF64x2ConvertLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.promote_low_f32x4" => try op_simd.emitF64x2PromoteLowF32x4(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.demote_f64x2_zero" => try op_simd.emitF32x4DemoteF64x2Zero(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.convert_i32x4_s" => try op_simd_float.emitF32x4ConvertI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.convert_low_i32x4_s" => try op_simd_float.emitF64x2ConvertLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.promote_low_f32x4" => try op_simd_float.emitF64x2PromoteLowF32x4(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.demote_f64x2_zero" => try op_simd_float.emitF32x4DemoteF64x2Zero(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ae: 2 inline-synth FP convert / trunc-sat
             // ops. The 4 const-pool-dependent variants
             // (f64x2.convert_low_i32x4_u, i32x4.trunc_sat_f32x4_u,
             // i32x4.trunc_sat_f64x2_{s,u}_zero) defer to 9.7-ag
             // pending ADR-0042 const-pool plumbing.
-            .@"f32x4.convert_i32x4_u" => try op_simd.emitF32x4ConvertI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.trunc_sat_f32x4_s" => try op_simd.emitI32x4TruncSatF32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.convert_i32x4_u" => try op_simd_float.emitF32x4ConvertI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.trunc_sat_f32x4_s" => try op_simd_float.emitI32x4TruncSatF32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-at: i32x4.trunc_sat_f32x4_u closes the
             // last of the 4 deferred 9.7-ae u-variants. The
             // "3-scratch" framing turned out to be a non-issue:
             // dst (regalloc'd from XMM8..XMM13) + XMM14 + XMM15
             // gives 3 distinct physical xmms within the existing
             // fp_spill_stage_xmms reservation. No ABI change.
-            .@"i32x4.trunc_sat_f32x4_u" => try op_simd.emitI32x4TruncSatF32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.trunc_sat_f32x4_u" => try op_simd_float.emitI32x4TruncSatF32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-au: int min/max + saturating arith +
             // avgr_u (22 ops). All single-instruction native
             // SSE2/SSE4.1 ops; each wrapper dispatches via
             // emitV128IntBinop with the matching encoder. No new
             // helpers; cranelift maps 1-to-1 (`inst.isle:2470-2486`).
-            .@"i8x16.min_s" => try op_simd.emitI8x16MinS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.min_u" => try op_simd.emitI8x16MinU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.max_s" => try op_simd.emitI8x16MaxS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.max_u" => try op_simd.emitI8x16MaxU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.min_s" => try op_simd.emitI16x8MinS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.min_u" => try op_simd.emitI16x8MinU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.max_s" => try op_simd.emitI16x8MaxS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.max_u" => try op_simd.emitI16x8MaxU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.min_s" => try op_simd.emitI32x4MinS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.min_u" => try op_simd.emitI32x4MinU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.max_s" => try op_simd.emitI32x4MaxS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.max_u" => try op_simd.emitI32x4MaxU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.add_sat_s" => try op_simd.emitI8x16AddSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.add_sat_u" => try op_simd.emitI8x16AddSatU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.sub_sat_s" => try op_simd.emitI8x16SubSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.sub_sat_u" => try op_simd.emitI8x16SubSatU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.add_sat_s" => try op_simd.emitI16x8AddSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.add_sat_u" => try op_simd.emitI16x8AddSatU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.sub_sat_s" => try op_simd.emitI16x8SubSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.sub_sat_u" => try op_simd.emitI16x8SubSatU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.avgr_u" => try op_simd.emitI8x16AvgrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.avgr_u" => try op_simd.emitI16x8AvgrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.min_s" => try op_simd_int_arith.emitI8x16MinS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.min_u" => try op_simd_int_arith.emitI8x16MinU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.max_s" => try op_simd_int_arith.emitI8x16MaxS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.max_u" => try op_simd_int_arith.emitI8x16MaxU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.min_s" => try op_simd_int_arith.emitI16x8MinS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.min_u" => try op_simd_int_arith.emitI16x8MinU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.max_s" => try op_simd_int_arith.emitI16x8MaxS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.max_u" => try op_simd_int_arith.emitI16x8MaxU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.min_s" => try op_simd_int_arith.emitI32x4MinS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.min_u" => try op_simd_int_arith.emitI32x4MinU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.max_s" => try op_simd_int_arith.emitI32x4MaxS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.max_u" => try op_simd_int_arith.emitI32x4MaxU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.add_sat_s" => try op_simd_int_arith.emitI8x16AddSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.add_sat_u" => try op_simd_int_arith.emitI8x16AddSatU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.sub_sat_s" => try op_simd_int_arith.emitI8x16SubSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.sub_sat_u" => try op_simd_int_arith.emitI8x16SubSatU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.add_sat_s" => try op_simd_int_arith.emitI16x8AddSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.add_sat_u" => try op_simd_int_arith.emitI16x8AddSatU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.sub_sat_s" => try op_simd_int_arith.emitI16x8SubSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.sub_sat_u" => try op_simd_int_arith.emitI16x8SubSatU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.avgr_u" => try op_simd_int_arith.emitI8x16AvgrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.avgr_u" => try op_simd_int_arith.emitI16x8AvgrU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-av: f32x4/f64x2 .pmin/pmax (4 ops). Direct
             // dispatch to MINPS/MAXPS/MINPD/MAXPD with operands
             // swapped (dst=c2, src=c1) to align Wasm pseudo-min/max
             // semantics with x86's "return src on equal/NaN/zero".
             // Cranelift maps the same way (`lower.isle:1542-1545`).
-            .@"f32x4.pmin" => try op_simd.emitF32x4Pmin(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.pmax" => try op_simd.emitF32x4Pmax(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.pmin" => try op_simd.emitF64x2Pmin(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.pmax" => try op_simd.emitF64x2Pmax(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.pmin" => try op_simd_float.emitF32x4Pmin(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.pmax" => try op_simd_float.emitF32x4Pmax(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.pmin" => try op_simd_float.emitF64x2Pmin(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.pmax" => try op_simd_float.emitF64x2Pmax(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ax: v128.load + v128.store foundation
             // memory ops. Mirror scalar emitMemOp shape with
             // access_size=16 + MOVUPS final encoding. RAX/RCX/RDX
@@ -1227,56 +1230,56 @@ pub fn compile(
             // saturate exactly per Wasm spec; PMADDWD (SSE2)
             // implements pairwise dot product with wrapping i32
             // accumulation matching the Wasm spec.
-            .@"i16x8.q15mulr_sat_s" => try op_simd.emitI16x8Q15mulrSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.dot_i16x8_s" => try op_simd.emitI32x4DotI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.q15mulr_sat_s" => try op_simd_int_arith.emitI16x8Q15mulrSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.dot_i16x8_s" => try op_simd_int_arith.emitI32x4DotI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-ag: i16x8.extmul × 4. Cranelift recipe
             // `lower.isle:1197-1285` — PMOVSX/ZX BW each operand
             // (extend i8→i16) + PMULLW. High variants prefix
             // PSHUFD imm=0xEE to swap upper 64 bits down before
             // extending. No new encoders.
-            .@"i16x8.extmul_low_i8x16_s" => try op_simd.emitI16x8ExtmulLowI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.extmul_high_i8x16_s" => try op_simd.emitI16x8ExtmulHighI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.extmul_low_i8x16_u" => try op_simd.emitI16x8ExtmulLowI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.extmul_high_i8x16_u" => try op_simd.emitI16x8ExtmulHighI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extmul_low_i8x16_s" => try op_simd_int_cmp_lane.emitI16x8ExtmulLowI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extmul_high_i8x16_s" => try op_simd_int_cmp_lane.emitI16x8ExtmulHighI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extmul_low_i8x16_u" => try op_simd_int_cmp_lane.emitI16x8ExtmulLowI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extmul_high_i8x16_u" => try op_simd_int_cmp_lane.emitI16x8ExtmulHighI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ah: i32x4.extmul × 4 (i16x8 → i32x4).
             // Same recipe as 9.7-ag with PMOVSXWD/PMOVZXWD +
             // PMULLD substituted; helpers reused unchanged.
-            .@"i32x4.extmul_low_i16x8_s" => try op_simd.emitI32x4ExtmulLowI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.extmul_high_i16x8_s" => try op_simd.emitI32x4ExtmulHighI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.extmul_low_i16x8_u" => try op_simd.emitI32x4ExtmulLowI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.extmul_high_i16x8_u" => try op_simd.emitI32x4ExtmulHighI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extmul_low_i16x8_s" => try op_simd_int_cmp_lane.emitI32x4ExtmulLowI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extmul_high_i16x8_s" => try op_simd_int_cmp_lane.emitI32x4ExtmulHighI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extmul_low_i16x8_u" => try op_simd_int_cmp_lane.emitI32x4ExtmulLowI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extmul_high_i16x8_u" => try op_simd_int_cmp_lane.emitI32x4ExtmulHighI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ai: i64x2.extmul × 4 (i32x4 → i64x2).
             // Different shape: PMULDQ/PMULUDQ already widen
             // i32→i64, so PSHUFD imm=0x{50,FA} is the only
             // positioning needed (no PMOVSX/ZX prefix).
-            .@"i64x2.extmul_low_i32x4_s" => try op_simd.emitI64x2ExtmulLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.extmul_high_i32x4_s" => try op_simd.emitI64x2ExtmulHighI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.extmul_low_i32x4_u" => try op_simd.emitI64x2ExtmulLowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.extmul_high_i32x4_u" => try op_simd.emitI64x2ExtmulHighI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.extmul_low_i32x4_s" => try op_simd_int_cmp_lane.emitI64x2ExtmulLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.extmul_high_i32x4_s" => try op_simd_int_cmp_lane.emitI64x2ExtmulHighI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.extmul_low_i32x4_u" => try op_simd_int_cmp_lane.emitI64x2ExtmulLowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i64x2.extmul_high_i32x4_u" => try op_simd_int_cmp_lane.emitI64x2ExtmulHighI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-aj: i16x8.extadd_pairwise_i8x16 × 2.
             // PCMPEQB + PABSB synthesises a 0x01-per-byte vector;
             // PMADDUBSW (SSSE3) reduces to pairwise add. No
             // const-pool dep.
-            .@"i16x8.extadd_pairwise_i8x16_s" => try op_simd.emitI16x8ExtaddPairwiseI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.extadd_pairwise_i8x16_u" => try op_simd.emitI16x8ExtaddPairwiseI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extadd_pairwise_i8x16_s" => try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extadd_pairwise_i8x16_u" => try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ak: i32x4.extadd_pairwise_i16x8_s.
             // Inline-synth 0x00010001-per-dword mask + PMADDWD.
             // The _u variant is deferred (PMADDWD reads i16 as
             // signed; u16 inputs need pre-correction via ADR-0042
             // const-pool sign-flip + post-add fixup).
-            .@"i32x4.extadd_pairwise_i16x8_s" => try op_simd.emitI32x4ExtaddPairwiseI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extadd_pairwise_i16x8_s" => try op_simd_int_cmp_lane.emitI32x4ExtaddPairwiseI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7/9.7-aq — i32x4.extadd_pairwise_i16x8_u via
             // sign-flip XOR + PMADDWD-with-+1 + bias-correction-add.
             // 11-instr inline-synth (no const-pool dep) — closes
             // the extadd_pairwise family.
-            .@"i32x4.extadd_pairwise_i16x8_u" => try op_simd.emitI32x4ExtaddPairwiseI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extadd_pairwise_i16x8_u" => try op_simd_int_cmp_lane.emitI32x4ExtaddPairwiseI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7/9.7-ar — i8x16.shuffle via PSHUFB-pair + POR.
             // The handler reads the original Wasm mask from
             // func.simd_consts[ins.payload], derives a-mask /
             // b-mask, and appends both to extra_consts.
             .@"i8x16.shuffle" => {
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
-                try op_simd.emitI8x16Shuffle(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base, func.simd_consts, ins.payload);
+                try op_simd_int_cmp_lane.emitI8x16Shuffle(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base, func.simd_consts, ins.payload);
             },
             // §9.7/9.7-al — v128.const via ADR-0042 const-pool
             // (mirror of ARM64 §9.6/9.6-f-ii). Lower pass stored
@@ -1288,48 +1291,48 @@ pub fn compile(
             // into per-emit-pass extra_consts.
             .@"i32x4.trunc_sat_f64x2_s_zero" => {
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
-                try op_simd.emitI32x4TruncSatF64x2SZero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base);
+                try op_simd_float.emitI32x4TruncSatF64x2SZero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base);
             },
             // §9.7/9.7-an — i8x16.popcnt via SSSE3 PSHUFB-LUT
             // (1 op, 2 const-pool entries shared via extra_consts).
             .@"i8x16.popcnt" => {
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
-                try op_simd.emitI8x16Popcnt(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base);
+                try op_simd_int_arith.emitI8x16Popcnt(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base);
             },
             // §9.7/9.7-ao — f64x2.convert_low_i32x4_u via IEEE-754
             // mantissa-overlay trick (5 instr + 2 const-pool entries).
             .@"f64x2.convert_low_i32x4_u" => {
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
-                try op_simd.emitF64x2ConvertLowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base);
+                try op_simd_float.emitF64x2ConvertLowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base);
             },
             // §9.7/9.7-ap — i32x4.trunc_sat_f64x2_u_zero via the
             // ROUNDPD + ADDPD-magic + SHUFPS-extract recipe per
             // cranelift `lower.isle:5061-5093`.
             .@"i32x4.trunc_sat_f64x2_u_zero" => {
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
-                try op_simd.emitI32x4TruncSatF64x2UZero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base);
+                try op_simd_float.emitI32x4TruncSatF64x2UZero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base);
             },
             // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.
-            .@"i8x16.swizzle" => try op_simd.emitI8x16Swizzle(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.swizzle" => try op_simd_int_cmp_lane.emitI8x16Swizzle(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ad: FP unop family (12 ops). abs / neg
             // via inline sign-mask synthesis (PCMPEQB ones +
             // PSLL{D,Q}-imm 31/63); ceil/floor/trunc/nearest via
             // SSE4.1 ROUNDPS/ROUNDPD imm with precision-exception
             // suppression (bit 3 set).
-            .@"f32x4.abs" => try op_simd.emitF32x4Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.abs" => try op_simd.emitF64x2Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.neg" => try op_simd.emitF32x4Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.neg" => try op_simd.emitF64x2Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.ceil" => try op_simd.emitF32x4Ceil(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.floor" => try op_simd.emitF32x4Floor(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.trunc" => try op_simd.emitF32x4Trunc(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.nearest" => try op_simd.emitF32x4Nearest(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.ceil" => try op_simd.emitF64x2Ceil(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.floor" => try op_simd.emitF64x2Floor(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.trunc" => try op_simd.emitF64x2Trunc(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.nearest" => try op_simd.emitF64x2Nearest(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.abs" => try op_simd_float.emitF32x4Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.abs" => try op_simd_float.emitF64x2Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.neg" => try op_simd_float.emitF32x4Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.neg" => try op_simd_float.emitF64x2Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.ceil" => try op_simd_float.emitF32x4Ceil(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.floor" => try op_simd_float.emitF32x4Floor(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.trunc" => try op_simd_float.emitF32x4Trunc(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.nearest" => try op_simd_float.emitF32x4Nearest(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.ceil" => try op_simd_float.emitF64x2Ceil(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.floor" => try op_simd_float.emitF64x2Floor(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.trunc" => try op_simd_float.emitF64x2Trunc(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.nearest" => try op_simd_float.emitF64x2Nearest(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"memory.size" => {
                 // Wasm spec §4.4.7 — return current memory size in
                 // 64-KiB pages. mem_limit (bytes) lives at

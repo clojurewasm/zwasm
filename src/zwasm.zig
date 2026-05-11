@@ -212,6 +212,9 @@ test {
     _ = @import("engine/codegen/x86_64/op_alu_int.zig");
     _ = @import("engine/codegen/x86_64/op_alu_float.zig");
     _ = @import("engine/codegen/x86_64/op_simd.zig");
+    _ = @import("engine/codegen/x86_64/op_simd_int_arith.zig");
+    _ = @import("engine/codegen/x86_64/op_simd_int_cmp_lane.zig");
+    _ = @import("engine/codegen/x86_64/op_simd_float.zig");
     _ = @import("engine/codegen/x86_64/op_simd_test.zig");
     _ = @import("engine/codegen/x86_64/emit.zig");
     _ = @import("engine/codegen/x86_64/emit_test.zig");
