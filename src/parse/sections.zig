@@ -304,12 +304,10 @@ pub fn decodeGlobals(parent_alloc: Allocator, body: []const u8) Error!Globals {
         pos += 1;
         if (m > 1) return Error.InvalidFunctype; // reused; malformed mut byte
         const start = pos;
-        while (pos < body.len and body[pos] != 0x0B) pos += 1;
-        if (pos >= body.len) return Error.UnexpectedEnd;
         // Include the terminating end (0x0B) in the init_expr slice so
         // callers can drive a validator/lowerer the same way they would a
         // function body.
-        pos += 1;
+        try scanInitExpr(body, &pos);
         g.* = .{ .valtype = t, .mutable = m == 1, .init_expr = body[start..pos] };
     }
 
@@ -467,9 +465,7 @@ pub fn decodeData(parent_alloc: Allocator, body: []const u8) Error!Datas {
         switch (flag) {
             0 => {
                 const expr_start = pos;
-                while (pos < body.len and body[pos] != 0x0B) pos += 1;
-                if (pos >= body.len) return Error.UnexpectedEnd;
-                pos += 1; // consume the trailing end
+                try scanInitExpr(body, &pos);
                 const expr = body[expr_start..pos];
                 const size = try leb128.readUleb128(u32, body, &pos);
                 const size_us: usize = @intCast(size);
@@ -495,9 +491,7 @@ pub fn decodeData(parent_alloc: Allocator, body: []const u8) Error!Datas {
             2 => {
                 const memidx = try leb128.readUleb128(u32, body, &pos);
                 const expr_start = pos;
-                while (pos < body.len and body[pos] != 0x0B) pos += 1;
-                if (pos >= body.len) return Error.UnexpectedEnd;
-                pos += 1;
+                try scanInitExpr(body, &pos);
                 const expr = body[expr_start..pos];
                 const size = try leb128.readUleb128(u32, body, &pos);
                 const size_us: usize = @intCast(size);
@@ -611,9 +605,7 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
         switch (flag) {
             0 => {
                 const expr_start = pos;
-                while (pos < body.len and body[pos] != 0x0B) pos += 1;
-                if (pos >= body.len) return Error.UnexpectedEnd;
-                pos += 1;
+                try scanInitExpr(body, &pos);
                 const expr = body[expr_start..pos];
                 const n = try leb128.readUleb128(u32, body, &pos);
                 const funcs = try alloc.alloc(u32, n);
@@ -655,9 +647,7 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
                 // latter resolves to the spec null sentinel via
                 // `funcidxs` carrying `std.math.maxInt(u32)`.
                 const expr_start = pos;
-                while (pos < body.len and body[pos] != 0x0B) pos += 1;
-                if (pos >= body.len) return Error.UnexpectedEnd;
-                pos += 1;
+                try scanInitExpr(body, &pos);
                 const expr = body[expr_start..pos];
                 const n = try leb128.readUleb128(u32, body, &pos);
                 const funcs = try alloc.alloc(u32, n);
@@ -675,9 +665,7 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
                 // vec(funcidx).
                 const tableidx = try leb128.readUleb128(u32, body, &pos);
                 const expr_start = pos;
-                while (pos < body.len and body[pos] != 0x0B) pos += 1;
-                if (pos >= body.len) return Error.UnexpectedEnd;
-                pos += 1;
+                try scanInitExpr(body, &pos);
                 const expr = body[expr_start..pos];
                 if (pos >= body.len) return Error.UnexpectedEnd;
                 const elemkind = body[pos];
@@ -710,9 +698,7 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
                 // vec(reftype-expr).
                 const tableidx = try leb128.readUleb128(u32, body, &pos);
                 const expr_start = pos;
-                while (pos < body.len and body[pos] != 0x0B) pos += 1;
-                if (pos >= body.len) return Error.UnexpectedEnd;
-                pos += 1;
+                try scanInitExpr(body, &pos);
                 const expr = body[expr_start..pos];
                 if (pos >= body.len) return Error.UnexpectedEnd;
                 const reftype = body[pos];
@@ -770,6 +756,67 @@ fn readFuncrefInitExpr(body: []const u8, pos: *usize) Error!u32 {
     if (body[pos.*] != 0x0B) return Error.InvalidFunctype;
     pos.* += 1;
     return idx;
+}
+
+/// Walk one constant expression starting at `pos.*` and advance past
+/// its terminating `end` (0x0B).
+///
+/// Wasm spec §3.3.2.10 (constant expressions) defines the closed set
+/// of opcodes legal in init expressions: `t.const c` for each value
+/// type t, `ref.null t`, `ref.func x`, `global.get x`, and `end`.
+/// The SIMD proposal adds `v128.const` (prefix 0xFD sub-op 0x0C +
+/// 16 immediate bytes).
+///
+/// Replacing the prior naive byte-scan for 0x0B is mandatory: the
+/// `v128.const` immediate is raw bytes and can legally contain 0x0B
+/// (case study: simd_const.388.wasm — a global's v128.const lane
+/// byte 11 = 0x0B caused the next global's globaltype byte to be
+/// read inside the lane data → BadValType).
+fn scanInitExpr(body: []const u8, pos: *usize) Error!void {
+    while (true) {
+        if (pos.* >= body.len) return Error.UnexpectedEnd;
+        const op = body[pos.*];
+        pos.* += 1;
+        switch (op) {
+            0x0B => return,
+            0x41 => try skipLeb128(body, pos, 5), // i32.const (sleb128)
+            0x42 => try skipLeb128(body, pos, 10), // i64.const (sleb128)
+            0x43 => { // f32.const
+                if (pos.* + 4 > body.len) return Error.UnexpectedEnd;
+                pos.* += 4;
+            },
+            0x44 => { // f64.const
+                if (pos.* + 8 > body.len) return Error.UnexpectedEnd;
+                pos.* += 8;
+            },
+            0x23 => _ = try leb128.readUleb128(u32, body, pos), // global.get
+            0xD0 => { // ref.null reftype
+                if (pos.* >= body.len) return Error.UnexpectedEnd;
+                pos.* += 1;
+            },
+            0xD2 => _ = try leb128.readUleb128(u32, body, pos), // ref.func
+            0xFD => { // SIMD prefix — only v128.const (0x0C) is constant
+                const sub = try leb128.readUleb128(u32, body, pos);
+                if (sub != 0x0C) return Error.InvalidFunctype;
+                if (pos.* + 16 > body.len) return Error.UnexpectedEnd;
+                pos.* += 16;
+            },
+            else => return Error.InvalidFunctype,
+        }
+    }
+}
+
+/// Advance `pos.*` past a LEB128 byte sequence (signed or unsigned).
+/// Only the continuation bits are inspected; the value is discarded.
+fn skipLeb128(body: []const u8, pos: *usize, comptime max_bytes: usize) Error!void {
+    var i: usize = 0;
+    while (i < max_bytes) : (i += 1) {
+        if (pos.* >= body.len) return Error.UnexpectedEnd;
+        const byte = body[pos.*];
+        pos.* += 1;
+        if ((byte & 0x80) == 0) return;
+    }
+    return Error.InvalidFunctype;
 }
 
 fn readValType(body: []const u8, pos: *usize) Error!ValType {
@@ -1038,6 +1085,47 @@ test "decodeImports: rejects unknown desc kind" {
 test "decodeGlobals: rejects unterminated init_expr" {
     const body = [_]u8{ 0x01, 0x7F, 0x00, 0x41, 0x00 }; // missing 0x0B
     try testing.expectError(Error.UnexpectedEnd, decodeGlobals(testing.allocator, &body));
+}
+
+test "decodeGlobals: v128 init_expr whose lane byte equals 0x0B (simd_const.388)" {
+    // Two v128-mut globals back-to-back. Global 0's v128.const immediate
+    // contains the byte 0x0B (lane 11 = 0x0B). A naive scan-for-0x0B
+    // would truncate global 0's init_expr mid-immediate and misparse
+    // the rest as global 1's globaltype → BadValType. This regression-
+    // detects the simd_const.388.wasm failure surfaced after §9.9-g-19.
+    //
+    // Body (count=2):
+    //   global 0: 7B 01  fd 0c <16 bytes with 0x0B at offset 11>  0b
+    //   global 1: 7B 01  fd 0c <16 zero bytes>                    0b
+    const body = [_]u8{
+        0x02, // count
+        // global 0
+        0x7B, 0x01, // v128 mut
+        0xFD, 0x0C,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x0B, // lane 11 = 0x0B (the trap byte)
+        0x00, 0x00, 0x00, 0x00,
+        0x0B, // end
+        // global 1
+        0x7B, 0x01, // v128 mut
+        0xFD, 0x0C,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x0B, // end
+    };
+    var g = try decodeGlobals(testing.allocator, &body);
+    defer g.deinit();
+    try testing.expectEqual(@as(usize, 2), g.items.len);
+    try testing.expectEqual(ValType.v128, g.items[0].valtype);
+    try testing.expectEqual(ValType.v128, g.items[1].valtype);
+    try testing.expectEqual(true, g.items[0].mutable);
+    try testing.expectEqual(true, g.items[1].mutable);
+    // Global 0's init_expr must span the full FD 0C + 16 bytes + 0x0B
+    // (21 bytes total) — proves the scanner walked the v128.const
+    // immediate instead of bailing at the embedded 0x0B byte.
+    // FD 0C + 16 immediate + 0x0B = 19 bytes.
+    try testing.expectEqual(@as(usize, 19), g.items[0].init_expr.len);
+    try testing.expectEqual(@as(usize, 19), g.items[1].init_expr.len);
 }
 
 test "decodeData: empty section" {
