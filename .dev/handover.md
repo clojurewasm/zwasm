@@ -25,16 +25,16 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: §9.9 / 9.9-h-9 — ADR-0053 Part 1
-  (shape-aware spill offsets). `Allocation.spill_offsets:
-  ?[]const u32` table gives v128 slots 16-byte alignment +
-  stride; scalar slots stay 8-byte. Computed post-`compute()`
-  via new `computeSpillOffsets()` helper. Legacy uniform-8
-  formula remains the all-scalar default. +5 new unit tests.
-  No observable behaviour change yet — Parts 2 (MOVUPS
-  helpers) + 3 (handler migration) needed before
-  simd_bitwise.17 flips. Mac 11270 / 0, all test-all green;
-  OrbStack 11257 / 1 unchanged.
+- **Latest §9.9 landing**: §9.9 / 9.9-h-10 — ADR-0053 Part 2
+  (v128 XMM spill helpers). Three new MOVUPS-based helpers
+  in `x86_64/gpr.zig` (`xmmLoadSpilledV128` /
+  `xmmStoreSpilledV128` / `xmmDefSpilledV128`) mirror the
+  existing MOVSD-based xmm helpers but write 16 bytes via
+  `encLoadXmmV128MemRBP*` / `encStoreXmmV128MemRBP*`. Stage
+  pool unchanged (XMM14/XMM15). +4 unit tests. No callers
+  yet — pure addition; simd_bitwise.17 awaits Part 3
+  migration. Mac 11270 / 0 + all test-all green; OrbStack
+  11257 / 1 unchanged.
 - **Active row**: §9.9 (still `[ ]`). Mac is at FAIL=0 / SKIP>0;
   the exit criterion is fail=skip=0 across the 3-host gate, so
   skips remain (assert_invalid SKIP-VALIDATOR-GAP cluster +
@@ -43,12 +43,13 @@
 
 ## Next sub-chunk candidates (names only)
 
-- **ADR-0053 §9.9-h-10** — Part 2 (`xmmLoadSpilledV128` /
-  `xmmStoreSpilledV128` / `xmmDefSpilledV128` helpers in
-  `gpr.zig`). MOVUPS-based. Mechanical add.
 - **ADR-0053 §9.9-h-11..-N** — Part 3 (handler migration in
-  `op_simd.zig`), interleaved with D-057 source-split when
-  LOC ratchet trips §A2 cap.
+  `op_simd.zig`). Switch ~145 `resolveXmm` call sites that
+  handle v128 vregs to the new `xmmLoadSpilledV128` / etc.
+  helpers. Interleaved with D-057 source-split when LOC
+  ratchet trips §A2 cap. Likely several sub-chunks per
+  op family (binop / unop / cmp / lane / mem / shuffle).
+  Discharges D-078 (c).
 - Aggregate `test-spec-simd` into `test-all` (preventive — surfaces
   silent x86_64 simd regressions in autonomous loop gating).
 - **D-066 alias-stash pattern audit** — `bug_fix_survey.md` grep
