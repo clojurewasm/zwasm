@@ -105,7 +105,19 @@ pub fn alloc(size: usize) Error!JitBlock {
 }
 
 /// Free a block previously returned by `alloc`.
+///
+/// **Sentinel guard (D-077 discharge, §9.9 / 9.9-h-6)**: empty
+/// modules (`func_bodies.len == 0` at link time) carry an
+/// empty static sentinel slice (`&[_:0]u8{}`) instead of an
+/// mmap-backed region. Calling munmap on a zero-length /
+/// non-page-aligned pointer returns `EINVAL`. macOS hid this
+/// because the platform's `std.c.munmap` discards the return;
+/// Linux's `std.posix.munmap` asserts INVAL → `unreachable`
+/// and the entire process panics. The guard short-circuits at
+/// `bytes.len == 0` on every platform — there is nothing to
+/// release.
 pub fn free(block: JitBlock) void {
+    if (block.bytes.len == 0) return;
     if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) {
         _ = std.c.munmap(@ptrCast(block.bytes.ptr), block.bytes.len);
         return;
