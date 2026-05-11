@@ -522,6 +522,16 @@ pub fn build(b: *std.Build) void {
     //   windowsmini Win   : 212 passed, 0 failed, 20 skipped
     // skip-adr-text-format = 20, skip-impl = 0 per ADR-0029.
     test_all_step.dependOn(&run_spec_assert.step);
+    // §9.9 / 9.9-h-13 (post-D-078 (c) close): wire `test-spec-simd`
+    // into `test-all` on ALL hosts. Both Mac aarch64 + OrbStack
+    // Linux x86_64 are now at 0 FAIL on the SIMD spec corpus
+    // (11270/0 each post-§9.9-h-12), so this aggregation no
+    // longer breaks the gate. Preventive — surfaces silent
+    // x86_64 SIMD regressions in the autonomous `/continue` loop
+    // (per `LOOP.md` "Parallel test gate" 2-host subset).
+    // windowsmini reconciliation runs at phase boundary
+    // separately per ADR-0049.
+    test_all_step.dependOn(&run_simd_assert.step);
 
     // `zig build run-repro -Dtask=<name>` — discover
     // `private/dbg/<task>/repro.zig`, link it against the zwasm
