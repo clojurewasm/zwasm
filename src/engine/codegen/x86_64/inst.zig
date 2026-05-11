@@ -304,6 +304,7 @@ pub const encMovqXmmFromR64 = inst_sse.encMovqXmmFromR64;
 pub const encMovapsXmmXmm = inst_sse.encMovapsXmmXmm;
 pub const encMovssMovsdMemBaseIdx = inst_sse.encMovssMovsdMemBaseIdx;
 pub const encMovupsMemBaseIdx = inst_sse.encMovupsMemBaseIdx;
+pub const encMovupsXmmMemBaseDisp32 = inst_sse.encMovupsXmmMemBaseDisp32;
 pub const encCvttScalar2Int = inst_sse.encCvttScalar2Int;
 pub const encCvtsi2Scalar = inst_sse.encCvtsi2Scalar;
 pub const encMovdR32FromXmm = inst_sse.encMovdR32FromXmm;

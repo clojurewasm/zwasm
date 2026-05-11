@@ -27,7 +27,7 @@ test "compile: empty body without liveness errors AllocationMissing" {
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{}));
 }
 
 test "compile: empty function (no instrs) emits prologue only" {
@@ -36,7 +36,7 @@ test "compile: empty function (no instrs) emits prologue only" {
     defer f.deinit(testing.allocator);
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Prologue only: 55 48 89 E5 = 4 bytes (push rbp + mov rbp, rsp).
     try testing.expectEqualSlices(u8, &.{ 0x55, 0x48, 0x89, 0xE5 }, out.bytes);
@@ -51,7 +51,7 @@ test "compile: (i32.const 42) end → 13 bytes" {
     f.liveness = .{ .ranges = &[_]zir.LiveRange{.{ .def_pc = 0, .last_use_pc = 1 }} };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected stream (slot 0 = RBX after pool shrink — chunk 13b):
@@ -89,7 +89,7 @@ test "compile: (i32.const 0xDEADBEEF) end — little-endian imm32" {
     f.liveness = .{ .ranges = &[_]zir.LiveRange{.{ .def_pc = 0, .last_use_pc = 1 }} };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Differs from the 42 case only at the imm32 bytes. The imm32 follows the
     // 4-byte prologue + 1-byte MOV-EBX opcode (0xBB) → starts at offset 5.
@@ -104,7 +104,7 @@ test "compile: void function with `end` only emits prologue + epilogue" {
     try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // 55 48 89 E5 5D C3 = 6 bytes (prologue + pop + ret; no return marshalling).
     try testing.expectEqualSlices(u8, &.{ 0x55, 0x48, 0x89, 0xE5, 0x5D, 0xC3 }, out.bytes);
@@ -126,7 +126,7 @@ test "compile: function with 1 local + (i32.const 42) (local.set 0) (local.get 0
     };
     const slots = [_]u16{ 0, 1 }; // R10D, R11D
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected stream (slot 0 = RBX, slot 1 = R12 after pool shrink — chunk 13b):
@@ -196,7 +196,7 @@ test "compile: local.tee preserves stack — uses top vreg without popping" {
     } };
     const slots = [_]u16{0}; // R10D
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // local.tee writes [RBP-8] but doesn't pop, so the top vreg
     // (slot 0 = RBX after chunk 13b pool shrink) is still on the stack
@@ -220,7 +220,7 @@ test "compile: (block (br 0) end) end — forward br with end-patch" {
     try f.instrs.append(testing.allocator, .{ .op = .end }); // function-level
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected stream:
@@ -257,7 +257,7 @@ test "compile: (loop (br 0) end) end — backward br with concrete disp" {
     try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // loop captures byte_offset = 4 (post-prologue). br at offset 4
@@ -296,7 +296,7 @@ test "compile: (i32.const 1) (if) (i32.const 7) (end) end — single-arm if; JE 
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected layout (slot 0 = RBX, slot 1 = R12 after chunk 13b pool shrink):
@@ -353,7 +353,7 @@ test "compile: (block (i32.const 0) (br_if 0) end) end — Jcc forward fixup" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected (slot 0 = RBX after chunk 13b pool shrink):
@@ -400,7 +400,7 @@ test "compile: (loop (i32.const 0) (br_if 0) end) end — Jcc backward concrete 
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // loop entry at offset 4 (post-prologue). After chunk 13b pool shrink,
@@ -447,7 +447,7 @@ test "compile: br_table — single case + default both → block end" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected stream (slot 0 = RBX after chunk 13b pool shrink):
@@ -506,7 +506,7 @@ test "compile: br_table count > 127 → UnsupportedOp (i8 cap)" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0));
+    try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}));
 }
 
 test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bounds check + load" {
@@ -524,7 +524,7 @@ test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bound
     };
     const slots = [_]u16{ 0, 1 }; // R10D, R11D
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // ADR-0026 prologue (uses_runtime_ptr=true):
@@ -600,7 +600,7 @@ test "compile: i32.load with stack underflow → AllocationMissing" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}));
 }
 
 test "compile: (i32.const 0)(i32.const 99) i32.store offset=0 — store path" {
@@ -619,7 +619,7 @@ test "compile: (i32.const 0)(i32.const 99) i32.store offset=0 — store path" {
     };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Prologue: 13 bytes (PUSH RBP / PUSH R15 / MOV RBP,RSP / MOV R15,RDI / SUB RSP,8)
@@ -656,7 +656,7 @@ test "compile: (i32.const 0) i32.load8_u → MOVZX r8" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Find MOVZX r32, byte ptr [RAX + RDX]: REX.R + 0F B6 24 10
@@ -688,7 +688,7 @@ test "compile: (i32.const 0) i32.load16_s → MOVSX r16" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // MOVSX r32, word ptr [RAX + RDX] for R12D (slot 1 after chunk 13b pool shrink):
@@ -719,7 +719,7 @@ test "compile: (i32.const 0)(i32.const 7) i32.store8 → MOV r8 store" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // MOV [RAX + RDX], R12B (8-bit; slot 1 = R12 after chunk 13b pool shrink):
@@ -748,7 +748,7 @@ test "compile: i32.store with stack underflow → AllocationMissing" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}));
 }
 
 test "compile: global.get 0 — emits ADR-0027 reload-from-runtime-ptr (i32)" {
@@ -762,7 +762,7 @@ test "compile: global.get 0 — emits ADR-0027 reload-from-runtime-ptr (i32)" {
     } };
     const slots = [_]u16{0}; // R10D
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Body should contain the 2-instruction global.get sequence:
@@ -796,7 +796,7 @@ test "compile: (i32.const 42) global.set 1 — emits ADR-0027 reload + store (i3
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Body should contain the global.set sequence:
@@ -826,7 +826,7 @@ test "compile: global.set with stack underflow → AllocationMissing" {
     try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, empty, &.{}, &.{}, 0));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, empty, &.{}, &.{}, 0, &.{}, &.{}));
 }
 
 test "compile: br with depth strictly above labels.len → UnsupportedOp" {
@@ -840,7 +840,7 @@ test "compile: br with depth strictly above labels.len → UnsupportedOp" {
     try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
-    try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0));
+    try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{}));
 }
 
 test "compile: function with 16 locals compiles (§9.7 / 7.10-g lifts the i8 cap)" {
@@ -853,7 +853,7 @@ test "compile: function with 16 locals compiles (§9.7 / 7.10-g lifts the i8 cap
     try f.instrs.append(testing.allocator, .{ .op = .end });
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 }
 
@@ -869,7 +869,7 @@ test "compile: function with v128 param → SysV compile-success (§9.9 / 9.9-e-
     defer f.deinit(testing.allocator);
     f.liveness = .{ .ranges = &.{} };
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 }
 
@@ -886,7 +886,7 @@ test "compile: i32 param + local.get + end — params marshal MOV [rbp-8], esi" 
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // The marshalled MOV [rbp-8], <argreg> appears between the
     // SUB RSP and the body's local.get. SysV's user int arg 0 is
@@ -922,7 +922,7 @@ test "compile: (i32.const 7) (i32.const 5) i32.add end — verifies ADD is emitt
     } };
     const slots = [_]u16{ 0, 1, 2 }; // RBX, R12D, R13D after chunk 13b pool shrink
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected stream:
@@ -992,7 +992,7 @@ test "compile: i32.add when dst==rhs slot — commute path emits ADD dst, lhs (n
     // with commute, emit ADD dst, lhs (1 instr) directly.
     const slots = [_]u16{ 0, 1, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Look for ADD R12D, EBX (commuted: dst==R12, lhs==EBX). Encoding:
     //   41 01 DC                 ADD R12D, EBX
@@ -1023,7 +1023,7 @@ test "compile: (i32.const 8) (i32.const 3) i32.sub end — SUB opcode 29" {
     } };
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Spot-check (slot 2 = R13, slot 1 = R12 after chunk 13b pool shrink):
     // SUB R13D, R12D = 45 29 E5 lives at offset 18..21.
@@ -1045,7 +1045,7 @@ test "compile: (i32.const 6) (i32.const 7) i32.mul end — IMUL 0F AF" {
     } };
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // IMUL r9, r/m9 has flipped REX semantics (slot 2 = R13, slot 1 = R12 after
     // chunk 13b pool shrink). dst=R13D (R=1), src=R12D (B=1) → REX = 0x45.
@@ -1069,7 +1069,7 @@ test "compile: (i32.const 7) (i32.const 5) i32.eq end — CMP+SETE+MOVZX" {
     } };
     const slots = [_]u16{ 0, 1, 2 }; // RBX, R12D, R13D after chunk 13b pool shrink
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected stream:
@@ -1133,7 +1133,7 @@ test "compile: i32.lt_s vs i32.lt_u — different cc codes" {
         } };
         const slots = [_]u16{ 0, 1, 2 };
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
         defer deinit(testing.allocator, out);
         // SETcc opcode byte (slot 0 = RBX, slot 1 = R12 after chunk 13b pool shrink).
         // Layout: [prologue 4][movimm-EBX 5][movimm-R12D 6][cmp 3] = 18,
@@ -1155,7 +1155,7 @@ test "compile: (i32.const 0) i32.eqz end — TEST+SETE+MOVZX" {
     } };
     const slots = [_]u16{ 0, 1 }; // RBX, R12D after chunk 13b pool shrink
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected stream:
@@ -1210,7 +1210,7 @@ test "compile: (i32.const 1) (i32.const 4) i32.shl end — MOV CL + MOV dst + SH
     } };
     const slots = [_]u16{ 0, 1, 2 }; // RBX, R12D, R13D after chunk 13b pool shrink
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected stream:
@@ -1275,7 +1275,7 @@ test "compile: i32.shr_s vs i32.shr_u — kind byte differs (sar 41 D3 fd vs shr
         } };
         const slots = [_]u16{ 0, 1, 2 };
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
         defer deinit(testing.allocator, out);
         // Layout (slot 0=RBX, slot 1=R12, slot 2=R13 after chunk 13b pool shrink):
         // 4 prologue + 5 mov-EBX + 6 mov-R12D + 3 mov-ECX + 3 mov-R13D = 21,
@@ -1298,7 +1298,7 @@ test "compile: (i32.const 8) i32.clz end — LZCNT" {
     } };
     const slots = [_]u16{ 0, 1 }; // RBX, R12D after chunk 13b pool shrink
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected stream:
@@ -1349,7 +1349,7 @@ test "compile: i32.clz vs i32.ctz vs i32.popcnt — opcode byte differs" {
         } };
         const slots = [_]u16{ 0, 1 };
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
         defer deinit(testing.allocator, out);
         // Layout (slot 0 = RBX after chunk 13b pool shrink):
         // 4 prologue + 5 mov-EBX-imm32 = 9. Then F3 at 9, REX at 10 (0x44),
@@ -1371,7 +1371,7 @@ test "compile: i32.eqz with stack underflow → AllocationMissing" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}));
 }
 
 test "compile: i32.wrap_i64 emits MOV r32_dst, r32_src (self-MOV zero-extends)" {
@@ -1392,7 +1392,7 @@ test "compile: i32.wrap_i64 emits MOV r32_dst, r32_src (self-MOV zero-extends)" 
     // upper half).
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Layout: 4 prologue + 5 mov-EBX-imm32 = 9. Then MOV EBX, EBX = 2 bytes.
     const expected = inst.encMovRR(.d, .rbx, .rbx);
@@ -1412,7 +1412,7 @@ test "compile: i64.extend_i32_u emits MOV r32_dst, r32_src" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Layout (slot 0 = RBX after chunk 13b pool shrink):
     // 4 prologue + 5 mov-EBX-imm32 = 9. Then MOV EBX, EBX = 2 bytes.
@@ -1434,7 +1434,7 @@ test "compile: i64.extend_i32_s emits MOVSXD r64_dst, r32_src" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Layout (slot 0 = RBX after chunk 13b pool shrink):
     // 4 prologue + 5 mov-EBX-imm32 = 9. Then MOVSXD RBX, EBX = 3 bytes.
@@ -1455,7 +1455,7 @@ test "compile: call N — 0 args, void return — emits MOV RDI,R15 + CALL + fix
 
     const slots = [_]u16{};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Prologue (uses_runtime_ptr=true since `call` triggers prescan):
@@ -1500,7 +1500,7 @@ test "compile: call N — 0 args, i32 return — captures EAX into result vreg" 
 
     const slots = [_]u16{0}; // result vreg → RBX (after chunk 13b pool shrink)
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Body layout (post-prologue at 13). §9.7 / 7.10-f folded
@@ -1531,7 +1531,7 @@ test "compile: call N — 1 i32 arg — marshals top-of-stack into arg_gprs[1] (
 
     const slots = [_]u16{0}; // arg vreg → RBX (after chunk 13b pool shrink)
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Body layout (post-prologue at 13). Cc-pivot derives the
@@ -1560,7 +1560,7 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
 
     const slots = [_]u16{0}; // idx vreg → RBX (after chunk 13b pool shrink)
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &module_types, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &module_types, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Body starts at byte 13 (uses_runtime_ptr=true prologue).

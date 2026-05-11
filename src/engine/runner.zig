@@ -69,6 +69,20 @@ pub const CompiledWasm = struct {
     /// `func_results` covers only the defined functions and is
     /// indexed by `defined_idx = wasm_idx - num_imports`.
     num_imports: u32,
+    /// Per-defined-global metadata (ADR-0052; §9.9 / 9.9-h-2).
+    /// `globals_offsets[i]` is the byte offset of defined global
+    /// `i` inside the runtime's globals byte buffer;
+    /// `globals_valtypes[i]` selects the JIT emit path for
+    /// global.get / global.set on that index. Scalar globals
+    /// (i32/i64/f32/f64/ref) occupy 8 bytes; v128 globals
+    /// occupy 16 bytes with 16-byte alignment padding.
+    /// `globals_byte_size` is the total bytes the runtime
+    /// needs to allocate (16-byte aligned; sum of per-global
+    /// sizes plus alignment padding). Empty slices / zero when
+    /// the module has no defined globals.
+    globals_offsets: []u32,
+    globals_valtypes: []zir.ValType,
+    globals_byte_size: u32,
     arena: std.heap.ArenaAllocator,
 
     pub fn deinit(self: *CompiledWasm, allocator: Allocator) void {
@@ -76,6 +90,8 @@ pub const CompiledWasm = struct {
         allocator.free(self.func_results);
         allocator.free(self.func_sigs);
         allocator.free(self.func_typeidxs);
+        allocator.free(self.globals_offsets);
+        allocator.free(self.globals_valtypes);
         self.module.deinit(allocator);
         self.arena.deinit();
     }
@@ -121,6 +137,8 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         const empty_module = try linker.link(allocator, &.{}, sig_count);
         const sigs = try allocator.alloc(FuncType, sig_count);
         const typeidxs = try allocator.alloc(u32, sig_count);
+        const empty_global_offsets = try allocator.alloc(u32, 0);
+        const empty_global_valtypes = try allocator.alloc(zir.ValType, 0);
         if (imports_buf) |ib| {
             // Need a type section to resolve func imports' typeidx.
             if (sig_count > 0) {
@@ -148,6 +166,9 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             .func_sigs = sigs,
             .func_typeidxs = typeidxs,
             .num_imports = sig_count,
+            .globals_offsets = empty_global_offsets,
+            .globals_valtypes = empty_global_valtypes,
+            .globals_byte_size = 0,
             .arena = arena,
         };
     }
@@ -222,6 +243,36 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             validator_globals[gi] = .{ .valtype = gd.valtype, .mutable = gd.mutable };
         }
     }
+
+    // ADR-0052 §9.9 / 9.9-h-2 — per-defined-global byte offsets.
+    // Scalar globals (i32/i64/f32/f64/ref) occupy 8 bytes; v128
+    // globals occupy 16 bytes with 16-byte alignment padding.
+    // Indexed by defined-global idx (i.e. import-globals are NOT
+    // counted; the JIT emit path keys off this same indexing via
+    // its `payload < imp_globals` branch — out of scope this chunk,
+    // tracked under D-079).
+    const defined_globals_count: u32 = if (globals_buf) |g| @intCast(g.items.len) else 0;
+    const globals_offsets = try allocator.alloc(u32, defined_globals_count);
+    errdefer allocator.free(globals_offsets);
+    const globals_valtypes = try allocator.alloc(zir.ValType, defined_globals_count);
+    errdefer allocator.free(globals_valtypes);
+    var globals_byte_size: u32 = 0;
+    if (globals_buf) |g| {
+        var off: u32 = 0;
+        for (g.items, 0..) |gd, gi| {
+            globals_valtypes[gi] = gd.valtype;
+            const size_align: struct { size: u32, alignv: u32 } = switch (gd.valtype) {
+                .v128 => .{ .size = 16, .alignv = 16 },
+                .i32, .i64, .f32, .f64, .funcref, .externref => .{ .size = 8, .alignv = 8 },
+            };
+            off = std.mem.alignForward(u32, off, size_align.alignv);
+            globals_offsets[gi] = off;
+            off += size_align.size;
+        }
+        // Round total up to 16 bytes so the byte buffer is safe to
+        // address as v128 from any starting position.
+        globals_byte_size = std.mem.alignForward(u32, off, 16);
+    }
     const validator_tables: []const zir.TableEntry = if (tables_buf) |t| t.items else &.{};
     const validator_data_count: u32 = if (datas_buf) |d| @intCast(d.items.len) else 0;
     const validator_elem_count: u32 = if (elems_buf) |e| @intCast(e.items.len) else 0;
@@ -273,6 +324,8 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             types.items,
             func_sigs,
             num_imports,
+            globals_offsets,
+            globals_valtypes,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → {s}\n", .{
                 wasm_idx,
@@ -303,8 +356,113 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         .func_sigs = func_sigs,
         .func_typeidxs = func_typeidxs,
         .num_imports = num_imports,
+        .globals_offsets = globals_offsets,
+        .globals_valtypes = globals_valtypes,
+        .globals_byte_size = globals_byte_size,
         .arena = arena,
     };
+}
+
+/// ADR-0052 — write each defined global's init-expression value
+/// into `globals_buf` at the per-global byte offset (i.e. the
+/// same offset the JIT-emitted `global.get/set` ops bake in).
+/// Scalar globals (i32/i64/f32/f64/refs) write 8 bytes;
+/// v128 globals write 16 bytes. Mirrors `applyActiveDataSegments`
+/// for spec-test runners that build their JitRuntime around a
+/// caller-owned globals byte buffer instead of going through the
+/// full `setupRuntime` allocation path.
+///
+/// The caller's buffer MUST be at least `compiled.globals_byte_size`
+/// bytes; v128 access requires 16-byte alignment per the
+/// MOVUPS/LDR-Q layout. Buffers smaller than required are rejected
+/// with `Error.UnsupportedEntrySignature`.
+pub fn applyDefinedGlobalsInit(
+    allocator: Allocator,
+    wasm_bytes: []const u8,
+    globals_offsets: []const u32,
+    globals_valtypes: []const zir.ValType,
+    globals_buf: []u8,
+) Error!void {
+    if (globals_offsets.len == 0) return;
+    var temp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = try parser.parse(ta, wasm_bytes);
+    const section = module.find(.global) orelse return;
+    var globals_decoded = try sections.decodeGlobals(ta, section.body);
+    defer globals_decoded.deinit();
+    if (globals_decoded.items.len != globals_offsets.len) return Error.UnsupportedEntrySignature;
+
+    for (globals_decoded.items, 0..) |gd, gi| {
+        const off = globals_offsets[gi];
+        const vt = globals_valtypes[gi];
+        switch (vt) {
+            .v128 => {
+                if (off + 16 > globals_buf.len) return Error.UnsupportedEntrySignature;
+                const bytes = try evalConstV128Expr(gd.init_expr);
+                @memcpy(globals_buf[off..][0..16], &bytes);
+            },
+            .i32, .i64, .f32, .f64, .funcref, .externref => {
+                if (off + 8 > globals_buf.len) return Error.UnsupportedEntrySignature;
+                const raw = try evalConstScalarRaw(gd.init_expr);
+                std.mem.writeInt(u64, globals_buf[off..][0..8], raw, .little);
+            },
+        }
+    }
+}
+
+/// Decode a single scalar `*.const` (i32/i64/f32/f64) or
+/// `ref.null` init-expression and return its 8-byte raw bit
+/// pattern (little-endian). Mirrors
+/// `runtime/instance/instantiate.zig:evalConstExprValue` but
+/// stays in this module so the engine layer can run const-expr
+/// evaluation without crossing into the runtime-instance Zone.
+fn evalConstScalarRaw(expr: []const u8) Error!u64 {
+    if (expr.len < 2) return Error.UnsupportedEntrySignature;
+    var pos: usize = 1;
+    const v: u64 = switch (expr[0]) {
+        0x41 => blk: { // i32.const
+            const n = leb128.readSleb128(i32, expr, &pos) catch return Error.UnsupportedEntrySignature;
+            const u: u32 = @bitCast(n);
+            break :blk @as(u64, u);
+        },
+        0x42 => blk: { // i64.const
+            const n = leb128.readSleb128(i64, expr, &pos) catch return Error.UnsupportedEntrySignature;
+            break :blk @bitCast(n);
+        },
+        0x43 => blk: { // f32.const
+            if (pos + 4 > expr.len) return Error.UnsupportedEntrySignature;
+            const bits = std.mem.readInt(u32, expr[pos..][0..4], .little);
+            pos += 4;
+            break :blk @as(u64, bits);
+        },
+        0x44 => blk: { // f64.const
+            if (pos + 8 > expr.len) return Error.UnsupportedEntrySignature;
+            const bits = std.mem.readInt(u64, expr[pos..][0..8], .little);
+            pos += 8;
+            break :blk bits;
+        },
+        0xD0 => blk: { // ref.null reftype
+            if (pos >= expr.len) return Error.UnsupportedEntrySignature;
+            pos += 1;
+            break :blk 0;
+        },
+        else => return Error.UnsupportedEntrySignature,
+    };
+    if (pos >= expr.len or expr[pos] != 0x0B) return Error.UnsupportedEntrySignature;
+    return v;
+}
+
+/// Decode a `v128.const` (0xFD 0x0C) terminated init-expression
+/// and return the 16-byte little-endian-encoded constant.
+fn evalConstV128Expr(expr: []const u8) Error!([16]u8) {
+    // (v128.const v128) (end) — 0xFD 0x0C <16 bytes> 0x0B
+    if (expr.len < 2 + 16 + 1) return Error.UnsupportedEntrySignature;
+    if (expr[0] != 0xFD or expr[1] != 0x0C) return Error.UnsupportedEntrySignature;
+    if (expr[18] != 0x0B) return Error.UnsupportedEntrySignature;
+    var out: [16]u8 = undefined;
+    @memcpy(&out, expr[2..][0..16]);
+    return out;
 }
 
 /// Apply active data segments from `wasm_bytes` into `memory`

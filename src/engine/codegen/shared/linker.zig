@@ -248,9 +248,9 @@ test "link: 2-function module — fn0 calls fn1, returns 7" {
     const fn1_slots = [_]u16{0};
     const fn1_alloc: regalloc.Allocation = .{ .slots = &fn1_slots, .n_slots = 1 };
 
-    const out0 = try emit.compile(testing.allocator, &fn0, fn0_alloc, &sigs, &.{}, 0);
+    const out0 = try emit.compile(testing.allocator, &fn0, fn0_alloc, &sigs, &.{}, 0, &.{}, &.{});
     defer emit.deinit(testing.allocator, out0);
-    const out1 = try emit.compile(testing.allocator, &fn1, fn1_alloc, &sigs, &.{}, 0);
+    const out1 = try emit.compile(testing.allocator, &fn1, fn1_alloc, &sigs, &.{}, 0, &.{}, &.{});
     defer emit.deinit(testing.allocator, out1);
 
     const bodies = [_]FuncBody{

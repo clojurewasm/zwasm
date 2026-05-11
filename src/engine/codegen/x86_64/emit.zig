@@ -145,6 +145,8 @@ pub fn compile(
     func_sigs: []const zir.FuncType,
     module_types: []const zir.FuncType,
     num_imports: u32,
+    globals_offsets: []const u32,
+    globals_valtypes: []const zir.ValType,
 ) Error!EmitOutput {
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
@@ -853,8 +855,8 @@ pub fn compile(
             => try op_memory.emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.op, ins.payload, func.func_idx),
             .@"memory.fill" => try op_memory.emitMemoryFill(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx),
             .@"memory.copy" => try op_memory.emitMemoryCopy(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx),
-            .@"global.get" => try op_globals.emitI32GlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
-            .@"global.set" => try op_globals.emitI32GlobalSet(allocator, &buf, alloc, &pushed_vregs, spill_base_off, ins.payload),
+            .@"global.get" => try op_globals.emitGlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload, globals_offsets, globals_valtypes),
+            .@"global.set" => try op_globals.emitGlobalSet(allocator, &buf, alloc, &pushed_vregs, spill_base_off, ins.payload, globals_offsets, globals_valtypes),
             // §9.7 / 9.7-a + 9.7-b: SIMD-128 packed integer add/sub
             // family (8 ops). Wires the FP-class regalloc +
             // shape-tag pipeline on x86_64 per ADR-0041; spilled

@@ -129,7 +129,7 @@ fn runCorpus(
             current_wasm = null;
             module_bad = false;
             @memset(scratch_memory[0..], 0);
-            @memset(scratch_globals[0..], Value.fromI32(0));
+            @memset(scratch_globals[0..], 0);
 
             const wasm_bytes = dir.readFileAlloc(io, file, gpa, .limited(4 << 20)) catch |err| {
                 try stdout.print("FAIL  {s}/{s} module read: {s}\n", .{ name, file, @errorName(err) });
@@ -155,6 +155,24 @@ fn runCorpus(
             // v128:000... vs the expected data-segment bytes.
             runner_mod.applyActiveDataSegments(gpa, wasm_bytes, scratch_memory[0..]) catch |err| {
                 try stdout.print("FAIL  {s}/{s} data-init: {s}\n", .{ name, file, @errorName(err) });
+                failed.* += 1;
+                module_bad = true;
+                continue;
+            };
+            // ADR-0052 §9.9 / 9.9-h-2 — write defined-globals
+            // init values into the shared scratch buffer at the
+            // module-specific per-global byte offsets the JIT
+            // emit baked in. Without this, v128 globals start at
+            // zero and assert_return on `global.get` returns
+            // garbage (the prior 4-fail cluster on Mac).
+            runner_mod.applyDefinedGlobalsInit(
+                gpa,
+                wasm_bytes,
+                compiled.globals_offsets,
+                compiled.globals_valtypes,
+                scratch_globals[0..],
+            ) catch |err| {
+                try stdout.print("FAIL  {s}/{s} globals-init: {s}\n", .{ name, file, @errorName(err) });
                 failed.* += 1;
                 module_bad = true;
                 continue;
@@ -268,8 +286,12 @@ const ArgValue = union(ArgKind) {
 var scratch_memory: [65536]u8 = undefined;
 
 const Value = zwasm.runtime.Value;
-/// 16 globals slots. Reset on each `module` directive.
-var scratch_globals: [16]Value = undefined;
+/// Globals byte buffer. ADR-0052 — v128 globals live in 16-byte
+/// slots (with 16-byte alignment); scalar globals in 8-byte
+/// slots. 256 bytes accommodates up to 16 v128 globals or 32
+/// scalars. Reset to zero on each `module` directive; init values
+/// written via `applyDefinedGlobalsInit`.
+var scratch_globals: [256]u8 align(16) = undefined;
 
 fn parseArgToken(tok: []const u8) !ArgValue {
     if (std.mem.startsWith(u8, tok, "i32:")) return .{ .i32 = try parseI32Token(tok[4..]) };
@@ -309,8 +331,14 @@ fn runAssertReturn(
         .table_size = 0,
         .typeidx_base = undefined,
         .trap_flag = 0,
-        .globals_base = &scratch_globals,
-        .globals_count = scratch_globals.len,
+        // ADR-0052 — JIT emit (`global.get/set` for both scalar
+        // and v128 globals) addresses storage by byte offset off
+        // `globals_base`. Cast the byte buffer as `[*]Value` so
+        // the existing 8-byte-stride field type keeps compiling;
+        // the actual access width depends on the global's valtype
+        // (8B for scalars, 16B for v128 via MOVUPS/LDR-Q).
+        .globals_base = @ptrCast(@alignCast(&scratch_globals)),
+        .globals_count = scratch_globals.len / @sizeOf(Value),
         .host_dispatch_base = undefined,
         .host_dispatch_count = 0,
     };

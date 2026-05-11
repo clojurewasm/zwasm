@@ -136,6 +136,21 @@ pub const EmitCtx = struct {
     /// BL + CallFixup (defined function call) and an
     /// import-as-trap branch (B → trap stub via bounds_fixups).
     num_imports: u32,
+    /// Per-defined-global metadata (ADR-0052; §9.9 / 9.9-h-2).
+    /// Indexed by **defined** global idx (= wasm-space global
+    /// idx minus the leading imported-global count). Parallel
+    /// arrays: `globals_offsets[i]` is the byte offset of
+    /// global i inside the runtime's globals byte buffer;
+    /// `globals_valtypes[i]` selects the JIT emit path
+    /// (i32/i64/f32/f64/ref → 8-byte slot via existing
+    /// `globals_base: [*]Value`; v128 → 16-byte slot via
+    /// `LDR Q [X23, #off]`). Empty slices when the module has
+    /// no defined globals. v128 globals as cross-module imports
+    /// are out of scope this chunk (D-079 follow-up); imported
+    /// global idx beyond `globals_offsets.len` falls back to
+    /// the i32 emit shape with `idx*8` byte offset.
+    globals_offsets: []const u32,
+    globals_valtypes: []const zir.ValType,
 
     /// Pop two operands + allocate a result vreg. Shared header
     /// for every binary op-handler. Returns the lhs / rhs / result

@@ -43,7 +43,7 @@ test "compile: block + br 0 + end — forward unconditional branch fixup" {
     };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:
@@ -78,7 +78,7 @@ test "compile: loop + br 0 + end — backward unconditional branch" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Loop entry recorded at body0; br targets it from body0 → disp = 0 words.
@@ -111,7 +111,7 @@ test "compile: if (i32.const N) end — single-arm if; CBZ skips to end" {
     };
     const slots = [_]u16{ 0, 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:
@@ -148,7 +148,7 @@ test "compile: if/else/end — CBZ skips to else; B-uncond skips to end" {
     };
     const slots = [_]u16{ 0, 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:
@@ -203,7 +203,7 @@ test "compile: br_table — emits CMP+B.NE+B chain + default B" {
     };
     const slots = [_]u16{ 0, 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:
@@ -243,7 +243,7 @@ test "compile: br_if 0 — forward CBNZ fixup" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:

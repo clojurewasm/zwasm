@@ -228,6 +228,8 @@ pub fn compile(
     func_sigs: []const zir.FuncType,
     module_types: []const zir.FuncType,
     num_imports: u32,
+    globals_offsets: []const u32,
+    globals_valtypes: []const zir.ValType,
 ) Error!EmitOutput {
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
@@ -641,6 +643,8 @@ pub fn compile(
         .local_base_off = local_base_off,
         .spill_base_off = spill_base_off,
         .num_imports = num_imports,
+        .globals_offsets = globals_offsets,
+        .globals_valtypes = globals_valtypes,
     };
 
     // §9.7 / 7.5-emit-deadcode: track polymorphic-stack dead
@@ -1201,8 +1205,8 @@ pub fn compile(
             },
             .call_indirect => try op_call.emitCallIndirect(&ctx, &ins),
             .call => try op_call.emitCall(&ctx, &ins),
-            .@"global.get" => try op_globals.emitI32GlobalGet(&ctx, &ins),
-            .@"global.set" => try op_globals.emitI32GlobalSet(&ctx, &ins),
+            .@"global.get" => try op_globals.emitGlobalGet(&ctx, &ins),
+            .@"global.set" => try op_globals.emitGlobalSet(&ctx, &ins),
             .@"memory.size" => {
                 // Wasm memory.size returns current size in 64-KiB pages.
                 // X27 carries the byte limit; pages = bytes >> 16.

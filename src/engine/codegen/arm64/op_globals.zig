@@ -1,15 +1,19 @@
 //! ARM64 emit pass — `global.get` / `global.set` handlers.
 //!
-//! Per ADR-0027: each global is one `runtime.value.Value` (8 bytes)
-//! at byte offset `idx * 8` within `[X23 = globals_base_save_gpr]`.
-//! X23 is pre-loaded from `[X19 + globals_base_off]` at the function
-//! prologue when the function actually touches a global op (prescan-
-//! driven; functions without globals skip the X23 load).
+//! Per ADR-0027 / ADR-0052: each defined global lives at byte
+//! offset `ctx.globals_offsets[idx]` within `[X23 =
+//! globals_base_save_gpr]`. Scalar globals (i32/i64/f32/f64/refs)
+//! use 8-byte slots and the legacy `idx*8` offset; v128 globals
+//! use 16-byte slots aligned to 16 bytes, addressed via Q-form
+//! LDR/STR. X23 is pre-loaded from `[X19 + globals_base_off]` at
+//! the function prologue when the function actually touches a
+//! global op (prescan-driven; functions without globals skip the
+//! X23 load).
 //!
 //! i32 globals access the low 4 bytes of the 8-byte slot via
-//! W-form LDR / STR. i64 / f32 / f64 globals are out of scope for
-//! this chunk (M3-a-1 ships i32 globals only; widening lands as a
-//! separate chunk paired with i64 / FP infrastructure).
+//! W-form LDR / STR. i64 / f32 / f64 globals fall through to
+//! UnsupportedOp until the matching FP / 64-bit emit pieces land
+//! (out of scope this chunk).
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`).
 
@@ -17,6 +21,7 @@ const std = @import("std");
 
 const zir = @import("../../../ir/zir.zig");
 const inst = @import("inst.zig");
+const inst_neon = @import("inst_neon.zig");
 const ctx_mod = @import("ctx.zig");
 const gpr = @import("gpr.zig");
 const abi = @import("abi.zig");
@@ -25,16 +30,46 @@ const ZirInstr = zir.ZirInstr;
 const EmitCtx = ctx_mod.EmitCtx;
 const Error = ctx_mod.Error;
 
-/// `global.get N` — push a vreg, load `[X23 + N*8]` (W-form for
-/// i32) into the assigned reg.
+/// Look up the byte offset + valtype for global `idx`. Returns
+/// the legacy `idx * 8` shape when the index falls outside the
+/// per-defined-global metadata range (imported globals; the v128
+/// imports path is tracked under D-079).
+fn lookupGlobalShape(ctx: *const EmitCtx, idx: u32) struct { byte_off: u32, vt: zir.ValType } {
+    if (idx < ctx.globals_offsets.len) {
+        return .{ .byte_off = ctx.globals_offsets[idx], .vt = ctx.globals_valtypes[idx] };
+    }
+    return .{ .byte_off = idx * 8, .vt = .i32 };
+}
+
+/// Wasm spec §4.4.5 (global.get N) — push the value of global N
+/// onto the operand stack. Dispatch on the global's valtype:
+///
+///   i32 → `LDR Wd, [X23, #byte_off]` (W-form imm12 scaled by 4)
+///   v128 → `LDR Qd, [X23, #byte_off]` (Q-form imm12 scaled by 16)
 ///
 /// Caller MUST have ensured `uses_globals` was true at prologue
 /// time; otherwise X23 is undefined.
-pub fn emitI32GlobalGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
-    const idx = ins.payload;
-    // imm12 in W-form scales by 4 → max byte_offset = 4 * 4095 = 16380
-    // → max idx = 16380 / 8 = 2047. Beyond that, escalate (very rare).
-    const byte_off: u32 = idx * 8;
+pub fn emitGlobalGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    const shape = lookupGlobalShape(ctx, ins.payload);
+    switch (shape.vt) {
+        .i32 => try emitI32GlobalGet(ctx, ins.payload, shape.byte_off),
+        .v128 => try emitV128GlobalGet(ctx, ins.payload, shape.byte_off),
+        .i64, .f32, .f64, .funcref, .externref => return Error.UnsupportedOp,
+    }
+}
+
+/// Wasm spec §4.4.5 (global.set N).
+pub fn emitGlobalSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    const shape = lookupGlobalShape(ctx, ins.payload);
+    switch (shape.vt) {
+        .i32 => try emitI32GlobalSet(ctx, ins.payload, shape.byte_off),
+        .v128 => try emitV128GlobalSet(ctx, ins.payload, shape.byte_off),
+        .i64, .f32, .f64, .funcref, .externref => return Error.UnsupportedOp,
+    }
+}
+
+fn emitI32GlobalGet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
+    // imm12 in W-form scales by 4 → max byte_offset = 4 * 4095 = 16380.
     if (byte_off > 16380) {
         std.debug.print("arm64/op_globals: global.get SlotOverflow func[{d}] idx={d} byte_off={d}>16380\n", .{ ctx.func.func_idx, idx, byte_off });
         return Error.SlotOverflow;
@@ -53,13 +88,7 @@ pub fn emitI32GlobalGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try ctx.pushed_vregs.append(ctx.allocator, result);
 }
 
-/// `global.set N` — pop a vreg, store its W (low 32 bits) into
-/// `[X23 + N*8]` (i32 globals only; the upper 32 bits of the
-/// 8-byte slot are left untouched, which is fine for i32-typed
-/// globals because the slot was zero-initialised at module load).
-pub fn emitI32GlobalSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
-    const idx = ins.payload;
-    const byte_off: u32 = idx * 8;
+fn emitI32GlobalSet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
     if (byte_off > 16380) {
         std.debug.print("arm64/op_globals: global.set SlotOverflow func[{d}] idx={d} byte_off={d}>16380\n", .{ ctx.func.func_idx, idx, byte_off });
         return Error.SlotOverflow;
@@ -70,4 +99,49 @@ pub fn emitI32GlobalSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const ws = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
 
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(ws, abi.globals_base_save_gpr, @intCast(byte_off)));
+}
+
+/// `global.get N` (v128) — load 16 bytes from `[X23 + byte_off]`
+/// into a fresh v128 vreg via `LDR Q`. ADR-0052 §3 — imm12 in
+/// Q-form scales by 16 with max byte_off = 16 * 4095 = 65520
+/// (~4095 v128 globals fit immediate-form addressing; beyond
+/// that, escalation TBD).
+fn emitV128GlobalGet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
+    if (byte_off > 65520) {
+        std.debug.print("arm64/op_globals: v128 global.get SlotOverflow func[{d}] idx={d} byte_off={d}>65520\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.SlotOverflow;
+    }
+    if ((byte_off & 0xF) != 0) {
+        // Q-form imm12 scales by 16; encoder shifts >> 4.
+        std.debug.print("arm64/op_globals: v128 global.get UnalignedOffset func[{d}] idx={d} byte_off={d}\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.UnsupportedOp;
+    }
+
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encLdrQImm(result_v, abi.globals_base_save_gpr, @intCast(byte_off)));
+    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
+/// `global.set N` (v128) — pop a v128 vreg, store 16 bytes to
+/// `[X23 + byte_off]` via `STR Q`.
+fn emitV128GlobalSet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
+    if (byte_off > 65520) {
+        std.debug.print("arm64/op_globals: v128 global.set SlotOverflow func[{d}] idx={d} byte_off={d}>65520\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.SlotOverflow;
+    }
+    if ((byte_off & 0xF) != 0) {
+        std.debug.print("arm64/op_globals: v128 global.set UnalignedOffset func[{d}] idx={d} byte_off={d}\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.UnsupportedOp;
+    }
+
+    if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_vreg = ctx.pushed_vregs.pop().?;
+    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encStrQImm(src_v, abi.globals_base_save_gpr, @intCast(byte_off)));
 }

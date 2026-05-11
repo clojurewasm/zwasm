@@ -44,7 +44,7 @@ test "compile: f32 binary ALU each emits S-form" {
         } };
         const slots = [_]u16{ 0, 1, 0 };
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
         defer deinit(testing.allocator, out);
         const body0 = prologue.body_start_offset(false);
         // Each f32.const emits MOVZ + MOVK + FMOV (3 u32s = 12 bytes).
@@ -77,7 +77,7 @@ test "compile: f32 cmps each emit FCMP-S + CSET-W with right Cond" {
         } };
         const slots = [_]u16{ 0, 1, 0 };
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
         defer deinit(testing.allocator, out);
         const body0 = prologue.body_start_offset(false);
         // FCMP at body+24; CSET at body+28.
@@ -129,7 +129,7 @@ test "compile: f32 unary ops + min/max each emit correct encoding" {
             .{ .slots = &slots_binary, .n_slots = 2 }
         else
             .{ .slots = &slots_unary, .n_slots = 1 };
-        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
         defer deinit(testing.allocator, out);
         const body0 = prologue.body_start_offset(false);
         // For unary: 1 const = 3 u32s (MOVZ + MOVK + FMOV S) → body+12.
@@ -155,7 +155,7 @@ test "compile: f32.copysign emits 8-instr FMOV/BIC/AND/ORR sequence" {
     } };
     const slots = [_]u16{ 0, 1, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // After 2 consts (each 3 u32s = 24 bytes), 8-instr copysign sequence at body+24.
@@ -185,7 +185,7 @@ test "compile: f64.copysign emits X-form 8-instr sequence with hw=3 mask" {
     } };
     const slots = [_]u16{ 0, 1, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // f64.const 1.5: bits=0x3FF8000000000000. Lanes: l0=0,l1=0,
     // l2=0,l3=0x3FF8. Only l3 nonzero → MOVZ + MOVK lane3 + FMOV D
@@ -226,7 +226,7 @@ test "compile: f64 binary ALU each emits D-form" {
         } };
         const slots = [_]u16{ 0, 1, 0 };
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
         defer deinit(testing.allocator, out);
         // f64.const 1.0: bits=0x3FF0000000000000. Lanes: lo=0, l1=0,
         // l2=0, l3=0x3FF0. Only lane 3 nonzero (besides lane 0).
@@ -252,7 +252,7 @@ test "compile: i32.wrap_i64 emits MOV W,W (= ORR W, WZR, W)" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // After MOVZ X9, #0xCAFE: ORR W9, WZR, W9 (in-place wrap) at body+4.
@@ -272,7 +272,7 @@ test "compile: i64.extend_i32_s emits SXTW X, W" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // After MOVZ + MOVK loading 0xFFFFFFFF into W9 (8 bytes): SXTW X9,W9 at body+8.
@@ -292,7 +292,7 @@ test "compile: i64.extend_i32_u emits MOV W,W (zero-extends via W-write)" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // After MOVZ W9 #42: ORR W9, WZR, W9 at body+4.
@@ -312,7 +312,7 @@ test "compile: f32.convert_i32_s emits SCVTF S, W" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // After MOVZ W9 #7: SCVTF S16, W9 at body+4.
@@ -332,7 +332,7 @@ test "compile: f64.convert_i64_u emits UCVTF D, X" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // After MOVZ X9 #0xDEAD: UCVTF D16, X9 at body+4.
@@ -352,7 +352,7 @@ test "compile: f32.demote_f64 emits FCVT S, D" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Find FCVT S16, D16 in the byte stream.
     const expected = inst.encFcvtSFromD(16, 16);
@@ -380,7 +380,7 @@ test "compile: f64.promote_f32 emits FCVT D, S" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const expected = inst.encFcvtDFromS(16, 16);
     var found = false;
@@ -407,7 +407,7 @@ test "compile: i32.trunc_sat_f32_s emits FCVTZS W, S" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const expected = inst.encFcvtzsWFromS(9, 16); // dest W9, src V16
     var found = false;
@@ -434,7 +434,7 @@ test "compile: i64.trunc_sat_f64_u emits FCVTZU X, D" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const expected = inst.encFcvtzuXFromD(9, 16);
     var found = false;
@@ -461,7 +461,7 @@ test "compile: i32.reinterpret_f32 emits FMOV W, S" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const expected = inst.encFmovWFromS(9, 16);
     var found = false;
@@ -488,7 +488,7 @@ test "compile: f64.reinterpret_i64 emits FMOV D, X" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const expected = inst.encFmovDtoFromX(16, 9);
     var found = false;
@@ -515,7 +515,7 @@ test "compile: i32.trunc_f32_s emits NaN+lower+upper checks then FCVTZS W,S" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Expected core instructions to find in the byte stream:
@@ -561,7 +561,7 @@ test "compile: i32.trunc_f64_s emits NaN+f64-lower+f64-upper checks then FCVTZS 
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
 
     // Walk the byte stream looking for the D-form NaN check + 2

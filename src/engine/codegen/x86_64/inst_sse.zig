@@ -296,6 +296,32 @@ pub fn encMovssMovsdMemBaseIdx(scalar_kind: SseScalarKind, is_store: bool, xmm: 
     return enc;
 }
 
+/// `MOVUPS xmm, [base + disp32]` and the store direction — 128-bit
+/// unaligned packed-single load/store at a 32-bit displacement
+/// from `base`. ADR-0052 §3 — v128 global.get/set emit pattern:
+/// the runtime-ptr scratch (RAX) is reloaded with `globals_base`
+/// once via `MOV RAX, [R15 + globals_base_off]`, then MOVUPS
+/// references `[RAX + globals_offsets[idx]]`. `base.low3() == 4`
+/// (RSP/R12) is rejected by the encoder because ModR/M=10b with
+/// rm=100 escapes to SIB; v128 global storage never uses RSP as
+/// base, so the rejection is a guard not a constraint.
+pub fn encMovupsXmmMemBaseDisp32(is_store: bool, xmm: Xmm, base: Gpr, disp: i32) EncodedInsn {
+    std.debug.assert(base.low3() != 4); // SIB escape — unsupported here
+    var enc: EncodedInsn = .{};
+    if (xmm.extBit() != 0 or base.extBit() != 0) {
+        enc.push(encodeRex(false, xmm.extBit(), 0, base.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(if (is_store) @as(u8, 0x11) else 0x10);
+    enc.push(encodeModrm(0b10, xmm.low3(), base.low3()));
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
 /// `MOVUPS xmm, [base+idx]` and the store direction — 128-bit
 /// unaligned packed-single load/store with SIB scale=1 (no
 /// displacement). No prefix (SSE base-set MOVUPS is the no-prefix
