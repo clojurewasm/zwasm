@@ -19,78 +19,66 @@
    `blocked-by:` barriers (per resume Step 0.5).
 4. Open `.dev/ROADMAP.md` §9 Phase Status widget + §9.9 row.
 
-## Active state
+## Active state — **PHASE 10 PREP MODE** 🛑
 
-- **Phase**: Phase 9 (SIMD-128, ADR-0041 — SSE4.2 baseline).
-  §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
-  ADR-0044), **§9.9 in-flight**.
+- **Mode**: preparation / decision-gathering phase, **not**
+  normal chunk work. See `.dev/phase10_prep.md` (load-bearing —
+  read it before any other step).
+- **Phase**: Phase 9 (SIMD-128). §9.5/9.6/9.7/9.8 [x],
+  **§9.9 still `[ ]`** (Mac + OrbStack at **11384 / 0** simd_
+  assert post-§9.9-h-14; SKIP=2357 each; windowsmini not yet
+  reconciled). §9.10/§9.11/§9.12 unopened.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: §9.9 / 9.9-h-14 — D-070 + D-071
-  discharged. New `entry.callV128_v128v128v128` + runner
-  dispatch + manifest regen flips ~800 v128-param-pending
-  skips into runnable assertions. Predicted alias bug surfaces
-  on both arches (bitselect mask==v1 / v2 on ARM64; dst==c /
-  dst==b on x86_64) — alias-stash fixes land in same commit.
-  **Both hosts: 11270 / 0 → 11384 / 0 simd_assert** (+114 PASS
-  each).
-- **Active row**: §9.9 (still `[ ]`). Mac is at FAIL=0 / SKIP>0;
-  the exit criterion is fail=skip=0 across the 3-host gate, so
-  skips remain (assert_invalid SKIP-VALIDATOR-GAP cluster +
-  cascading-skipped under bad modules). OrbStack still has 2
-  visible FAILs (D-078 a + c) blocked on x86_64-specific work.
+- **Why prep mode**: 4 design decisions block clean Phase 9
+  close + Phase 10 entry. Each requires human judgment between
+  named alternatives. Surfaces sized for review one at a time.
+- **Loop contract per track** (per `.dev/phase10_prep.md`):
+  1. Read the track scope.
+  2. Survey + draft the **Markdown deliverable** (no `src/`
+     code changes).
+  3. Commit as `docs(p10-prep): track <X> — <one line>`.
+  4. **Surface to user with one sentence**: deliverable path +
+     "awaiting decision before proceeding".
+  5. **Do NOT call `ScheduleWakeup`.** The user resumes
+     manually with `/continue` after reviewing.
 
-## Next sub-chunk candidates (names only)
+## Next sub-chunk candidates — **PREP TRACKS (run A → B → C → D in order)**
 
-- **SKIP-cluster review** — Mac 2471 SKIPs, OrbStack 2471
-  SKIPs. Most are `SKIP-VALIDATOR-GAP` (assert_invalid that
-  the validator currently accepts) + `skip
-  v128-param-pending` for un-supported invoke shapes +
-  cascading-skipped-under-bad-module entries. §9.9 exit
-  criterion needs these classified and either fixed or
-  ADR-justified.
-- **windowsmini phase-boundary reconciliation** — when the
-  §9.9 SKIPs are at zero, run `scripts/run_remote_windows.sh
-  test-all` once, fix any windowsmini-only deltas, then
-  `should_gate_windows.sh --record`.
-- **Remaining v128-class `resolveXmm` audit** — many other
-  v128 handlers (lane extract/replace, splat, shifts,
-  shuffle, compares, convert) still use `resolveXmm`. No
-  current fixture triggers spilled-v128 on them, but a grep
-  audit + preventive migration prevents future surprises.
-- **D-057 / D-065 source-split** — `op_simd.zig` (4554 LOC)
-  + `inst_neon.zig` (2249 LOC) + `op_simd_test.zig` (2624
-  LOC) breach the §A2 hard cap. ADR-0053 mentioned this as
-  co-deliverable but it's still pending.
-- Aggregate `test-spec-simd` into `test-all` (preventive — surfaces
-  silent x86_64 simd regressions in autonomous loop gating).
-- **D-066 alias-stash pattern audit** — `bug_fix_survey.md` grep
-  surfaced ~20 sites in x86_64/op_simd.zig with the
-  `encMovapsXmmXmm(dst, …)` shape. Several may have latent
-  `dst == src2` alias bugs that no current fixture exercises;
-  systematic audit + preventive stash-or-prove safe.
-- §9.9 exit-criterion narrowing: with Mac at 0 FAIL, the
-  remaining gate work is OrbStack-only (1 visible FAIL +
-  D-077) plus the SKIP-cluster review.
+1. **Track A — §9.10 scope reality check** (does §9.10 stay,
+   descope to baseline-only, or move to Phase 11). Blocks
+   §9.9-after-skip / §9.10 entry. See `phase10_prep.md`
+   §"Track A".
+2. **Track B — D-057 / D-065 source-split partition**
+   (`op_simd.zig` 4554 + `inst_neon.zig` 2249 +
+   `op_simd_test.zig` 2624 vs §A2 cap 2000). Output: partition
+   table + ADR-0054 draft skeleton. See §"Track B".
+3. **Track C — ADR-0029 path A vs B** (skip-impl/skip-adr
+   vocabulary OR runner-internal classification). Resolves
+   D-072 + D-073 + the §9.9 skip-exit interpretation. See
+   §"Track C".
+4. **Track D — Phase 10 transition gate doc** (draft
+   `.dev/phase10_transition_gate.md` so `/continue` hard-gate
+   detector halts at Phase 10 entry). See §"Track D".
 
-Pick by: live evidence from Step 2's script + structural
-impossibility check (debt.md `blocked-by:` barriers).
+After all 4 tracks land + user reviews, normal autonomous
+`/continue` resumes; this file's `Active state` flips back
+out of prep mode.
 
 ## Open structural debt (pointers — see `.dev/debt.md`)
 
-- `now`: D-063 (call_indirect v128 Trap), D-071 (D-066 mirror
-  cluster fully discharged at 9.9-g-16; row body retained for
-  historical traceability), D-077 (OrbStack simd_assert_runner
-  deinit panic — pre-existing), D-078 (residual cluster
-  diagnosis: (a) f64x2_extract_lane spike, (b) v128 globals
-  storage gap PARTIALLY DISCHARGED at 9.9-h-2 — cascading fails
-  now belong to D-079, (c) simd_bitwise.17 XMM spill), D-079
-  (v128 multi-arg setter invoke + v128 imports; new at 9.9-h-2).
+- `now`: **none** as of §9.9-h-14 close (D-063 / D-066 / D-070
+  / D-071 / D-077 / D-078 (a)+(b)+(c) / D-079 (i) / D-080 all
+  discharged; the row table's Active section is `blocked-by:`
+  only).
 - `blocked-by`: D-007 / D-010 / D-016 / D-018 / D-020 / D-021 /
-  D-022 / D-026 / D-028 / D-052 / D-055 / D-057 / D-058 / D-059 /
-  D-065 / D-070 / D-072 / D-073 / D-074 / D-075 / D-076 — barrier
-  dissolution re-evaluated every resume per SKILL.md Step 0.5.
-  D-072..D-076 added 2026-05-11 by ADR audit response (out of
-  /continue chunk-work scope; named structural barriers).
+  D-022 / D-026 / D-028 / D-052 / D-055 / **D-057** /
+  D-058 / D-059 / D-062 / **D-065** / D-072 / D-073 /
+  **D-074** / D-075 / **D-076** / **D-079 (ii)** —
+  barrier dissolution re-evaluated every resume per SKILL.md
+  Step 0.5. **Bold = directly addressed by a prep track**
+  (D-057 / D-065 → Track B; D-072 / D-073 → Track C; D-074
+  / D-076 → Track A; D-079 (ii) → unblocked by Phase 10
+  schedule, naturally drops when Track D's gate doc lands).
 
 ## Recent surprise (drift signal)
 
@@ -139,7 +127,16 @@ subset; windowsmini phase-boundary only per ADR-0049).
   write into `~/.orbstack/log/` (sandbox-denied). Top-level
   `orb run -m my-ubuntu-amd64 bash -c '...'` works directly.
 
-## After §9.9 closes
+## After Phase 10 prep completes
 
-§9.10 (SIMD smoke benches + per-op gap profile), §9.11 (audit
-+ SHA backfill), §9.12 (open Phase 10).
+User holds 4 decisions (Track A scope, Track B partition,
+Track C ADR-0029 path, Track D gate doc). Each unblocks
+specific debt rows. After review:
+
+- §9.9 close (the actual fail=skip=0 measurement against
+  the resolved skip-counting rule from Track C).
+- §9.10 (scope per Track A's decision).
+- §9.11 audit + SHA backfill.
+- §9.12 (open Phase 10 — guarded by Track D's hard gate).
+
+Normal autonomous `/continue` resumes at that point.
