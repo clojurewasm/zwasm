@@ -11,8 +11,10 @@
 > `.claude/skills/continue/SKILL.md` §"Exception — hard
 > human-in-loop transition gates" carve-out for Phase 9 → 10.
 >
-> **DRAFT — awaiting user gate-checklist amendment before
-> Phase 10 prep mode closes**.
+> **DECIDED 2026-05-12** — all 5 open questions resolved per
+> §9 decision record. Gate-doc framework finalised; per-section
+> ☑ marking happens during Phase 9 close work and the per-
+> subsystem ADR landings in Phase 10 prep.
 
 ## Why this gate exists
 
@@ -383,47 +385,44 @@ If a future cycle decides to **remove** this gate, that
 decision **does** need an ADR — reversing a load-bearing
 workflow rule.
 
-## §9. Open questions for user
+## §9. Resolved questions
 
-1. **Phase 10 scope confirmation**: 4 subsystems (GC + EH +
-   Tail Call + memory64) is the current ROADMAP framing. Any
-   subsystem to add (e.g. function-references — Wasm 3.0-
-   adjacent) or remove (e.g. defer GC to Phase 10b)?
-2. **Subsystem ordering**: default proposed memory64 → Tail
-   Call → EH → GC (small → large design surface). OK?
-   Alternative: GC first (largest dependency consumer for
-   later subsystems) or EH first (validator-shape lessons
-   propagate to others).
-3. **ADR numbering for Phase 10 design ADRs**: 4 subsystem
-   design ADRs will land. Numbers depend on what Phase 10
-   prep cycle's actual ADR landings consume:
-   - Track A: amends ADR-0043 (no new ADR; or new ADR-0055
-     "§9.10 → Phase 11 migration" if user prefers explicit)
-   - Track B: ADR-0054 (single ADR per Q2=A)
-   - Track C: amends ADR-0029 (no new ADR; or new ADR-0056
-     "Skip vocabulary prefix migration" if user prefers
-     explicit)
-   - Track D: this gate doc; no ADR per §8 above
-   Phase 10 design ADRs would then start at ADR-0055 or
-   ADR-0057 depending on Track A/C ADR-numbering choice.
-4. **D-082 sub-row (b) early-discharge**: if Phase 10 GC
-   design surfaces a fix for the externref segment bug, do
-   we want a debt-row Status flip rule "if Phase 10 GC chunks
-   touch externref segment handling, fix in-cycle and retire
-   `skip_externref_segment.md`"? Or strict defer-to-Phase-11?
-5. **Gate doc evolution**: this doc's §3 per-subsystem ADR
-   checklist is currently 4 ADRs × ~5 items each = 20
-   checkboxes. Should sub-checkboxes (e.g. "GC validator
-   extension scoped" → "subtyping rules drafted") be inlined
-   here, or each subsystem ADR gets its own checklist? Phase
-   8 gate kept item-level granularity; default to mirror.
+1. **Phase 10 scope**: maintain current ROADMAP framing — **4
+   subsystems** (WasmGC + EH + Tail Call + memory64). No
+   addition (function-references stays out per ROADMAP §1.2's
+   "Wasm 3.0 完備" wording boundary) and no removal /
+   sub-phase splitting.
+2. **Subsystem ordering**: **memory64 → Tail Call → EH → GC**
+   (small → large design surface). memory64 lights up existing
+   load/store with a flag; Tail Call is regalloc-coupled but
+   bounded; EH cross-cuts unwind + spill restoration; GC is
+   the largest (heap manager + barriers + root scan).
+3. **ADR numbering for Phase 10 design ADRs**:
+   - Track A: **in-place amend ADR-0043** (no new ADR).
+   - Track B: **new ADR-0054** (single ADR per Track B Q2=A).
+   - Track C: **in-place amend ADR-0029** (no new ADR).
+   - Track D: this gate doc (no ADR per §8).
+   Phase 10 design ADRs start at **ADR-0055** (memory64 first
+   per Q2 ordering) → ADR-0056 (Tail Call) → ADR-0057 (EH) →
+   ADR-0058 (GC).
+4. **D-082 sub-row (b) early-discharge**: **(α) flip-rule** —
+   if Phase 10 GC chunks touch externref segment handling,
+   fix in the same chunk and retire `skip_externref_
+   segment.md`. Matches the no-drift principle (機会主義的
+   前倒し). D-082 row body's sub-row (b) discharge trigger
+   already documents this — `/continue` Step 0.5 barrier walk
+   surfaces the early-discharge opportunity automatically.
+5. **Gate doc granularity**: **(α) item-level granularity
+   maintained** (Phase 8 gate mirror). 22 checkboxes total
+   stays inline; per-subsystem design ADRs may carry their
+   own deeper checklists referenced from §3a–§3d.
 
 ## §10. Decision record
 
-| Date       | Decision                                                                                       | Recorded by              |
-|------------|------------------------------------------------------------------------------------------------|--------------------------|
-| 2026-05-12 | Initial gate doc landed (Phase 10 prep mode Track D deliverable); §3 + §4 awaiting user review | autonomous loop          |
-| (pending)  | User-confirmed gate-checklist amendments (§9 open questions resolution)                        | (user)                   |
+| Date       | Decision                                                                                                                                       | Recorded by              |
+|------------|------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------|
+| 2026-05-12 | Initial gate doc landed (Phase 10 prep mode Track D deliverable); §3 + §4 framework drafted                                                    | autonomous loop          |
+| 2026-05-12 | Q1=keep 4 subsystems, Q2=memory64→TailCall→EH→GC ordering, Q3=ADR-0055..0058 numbering, Q4=(α) flip-rule for D-082 (b), Q5=(α) item-granularity | user (prep mode session) |
 
 ## §11. References
 

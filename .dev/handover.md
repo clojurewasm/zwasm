@@ -4,160 +4,77 @@
 > state` block at session end. Keep ≤ 80 lines.
 >
 > Per [`.claude/rules/no_handover_predictions.md`](../.claude/rules/no_handover_predictions.md):
-> **no numeric predictions** in this file. Live measurements live
-> in `scripts/p<N>_*_status.sh`. Past chunk facts live in commit
-> messages and ROADMAP chunk records.
+> **no numeric predictions** in this file.
 
-## Cold-start procedure (do not skip)
+## Cold-start procedure
 
-1. `git log --oneline -5` — latest commits.
-2. `bash scripts/p9_simd_status.sh` — **live** SIMD spec FAIL
-   breakdown across Mac + OrbStack + active `now` debt rows.
-   Authoritative. If anything below disagrees with this output,
-   trust the script and update this file.
-3. `cat .dev/debt.md | head -60` — `now` rows + recent
-   `blocked-by:` barriers (per resume Step 0.5).
-4. Open `.dev/ROADMAP.md` §9 Phase Status widget + §9.9 row.
+1. `git log --oneline -5`.
+2. `bash scripts/p9_simd_status.sh` — live SIMD FAIL/SKIP
+   breakdown. Authoritative; if anything below disagrees, trust
+   the script.
+3. `cat .dev/debt.md | head -60` — `now` rows + `blocked-by:`.
+4. Open ROADMAP §9 Phase Status widget + §9.9 row.
 
-## Active state — **PHASE 10 PREP MODE** 🛑
+## Active state — **PHASE 10 PREP CLOSED ✅ → §9.9 close work**
 
-- **Mode**: preparation / decision-gathering phase, **not**
-  normal chunk work. See `.dev/phase10_prep.md` (load-bearing —
-  read it before any other step).
-- **Phase**: Phase 9 (SIMD-128). §9.5/9.6/9.7/9.8 [x],
-  **§9.9 still `[ ]`** (Mac + OrbStack at **11384 / 0** simd_
-  assert post-§9.9-h-14; SKIP=2357 each; windowsmini not yet
-  reconciled). §9.10/§9.11/§9.12 unopened.
-- **Branch**: `zwasm-from-scratch`.
-- **Why prep mode**: 4 design decisions block clean Phase 9
-  close + Phase 10 entry. Each requires human judgment between
-  named alternatives. Surfaces sized for review one at a time.
-- **Loop contract per track** (per `.dev/phase10_prep.md`):
-  1. Read the track scope.
-  2. Survey + draft the **Markdown deliverable** (no `src/`
-     code changes).
-  3. Commit as `docs(p10-prep): track <X> — <one line>`.
-  4. **Surface to user with one sentence**: deliverable path +
-     "awaiting decision before proceeding".
-  5. **Do NOT call `ScheduleWakeup`.** The user resumes
-     manually with `/continue` after reviewing.
+Phase 10 prep mode complete (2026-05-11 .. 2026-05-12). All
+4 tracks decided; deliverables at
+`.dev/phase10_prep/track_{a,b,c}_*.md` +
+`.dev/phase10_transition_gate.md`. **Normal autonomous
+`/continue` resumes**.
 
-## Next sub-chunk candidates — **PREP TRACKS (run A → B → C → D in order)**
+Phase: 9 (SIMD-128). §9.5/9.6/9.7/9.8 [x]; §9.9 still `[ ]`
+(Mac + OrbStack 11384/0 simd_assert post-§9.9-h-14; SKIP=2357
+each; windowsmini phase-boundary reconciliation pending).
 
-1. **Track A — §9.10 scope reality check** — **DECIDED 2026-05-11**:
-   Option (3) "move §9.10 entirely to Phase 11" (deliverable:
-   `.dev/phase10_prep/track_a_9.10_scope.md` §8). Implementation
-   chunk deferred until all 4 tracks resolve (per
-   `phase10_prep.md` §"After all 4 tracks complete").
-2. **Track B — D-057 / D-065 source-split partition** —
-   **DECIDED 2026-05-12**: 4-way source split + 4-way test
-   mirror (`<source>_test.zig` suffix) + 3-way encoder split,
-   single ADR-0054, tiered pub. 6 migration chunks
-   (9.9-h-15..-20). Legacy `emit_test_int/float.zig` deferred
-   to new debt D-081 (filed at chunk 9.9-h-20). Deliverable:
-   `.dev/phase10_prep/track_b_source_split.md` §9.
-   (`op_simd.zig` 4554 + `inst_neon.zig` 2249 +
-   `op_simd_test.zig` 2624 vs §A2 cap 2000). Output: partition
-   table + ADR-0054 draft skeleton. See §"Track B".
-3. **Track C — ADR-0029 path A vs B** — **DECIDED 2026-05-12**:
-   Path B (migrate to `skip-impl` / `skip-adr-<filename-stub>`
-   prefix vocabulary). 4 implementation chunks (9.9-h-21..-24).
-   Bare-`skip` back-compat: warning + count permanently.
-   D-072 (a/b)-path discharged at chunk 9.9-h-23;
-   **(c)-path deferred via new debt D-082** (embenchen 4
-   fixtures → Phase 11 / externref 1 fixture → Phase 11
-   default-or-Phase 10 if GC surfaces it; load-bearing spec in
-   Track C §6.1). `check_skip_adrs.sh` becomes pre-commit gate
-   at chunk 9.9-h-24. Deliverable:
-   `.dev/phase10_prep/track_c_adr_0029_path.md` §9.
-4. **Track D — Phase 10 transition gate doc** — **DELIVERABLE
-   LANDED, AWAITING USER REVIEW** at
-   `.dev/phase10_transition_gate.md` (gate-checklist mirror of
-   phase8_transition_gate.md structure; §3 per-subsystem ADR
-   gating for the 4 Wasm 3.0 subsystems; §4a Phase 10 → 11
-   deferral DAG visualised; §4b cross-subsystem cooperation
-   matrix; §6 ROADMAP wiring spec for §9.12 row text update +
-   SKILL.md hard-gate list extension; §9 has 5 open questions
-   on Phase 10 scope / subsystem ordering / ADR numbering /
-   D-082 sub-row (b) early-discharge / gate-doc granularity).
+## Implementation queue (sequenced; pick top-down)
 
-After all 4 tracks land + user reviews, normal autonomous
-`/continue` resumes; this file's `Active state` flips back
-out of prep mode.
+1. **Track A impl** (1 chunk): §9.10 `[~] moved to Phase 11` +
+   Phase 11 row prose expansion + ADR-0043 amend + D-074
+   barrier update + D-076 close. Spec:
+   `phase10_prep/track_a_9.10_scope.md` §7.
+2. **Track C impl** (9.9-h-21..-24): Path B prefix-vocab
+   migration (runner → regen → wast_runtime_runner + D-082
+   file → ADR-0029 amend + check_skip_adrs.sh pre-commit gate
+   + D-073 close). Spec: `track_c_adr_0029_path.md` §6.
+3. **Track B impl** (9.9-h-15..-20): 4-way source split +
+   4-way test mirror (`<source>_test.zig` suffix) + 3-way
+   encoder split + ADR-0054 + tiered pub + file_size_check
+   warn→gate flip + D-081 file + D-057/D-065 close. Spec:
+   `track_b_source_split.md` §6.
+4. **Phase 9 close cluster**: §9.11 audit_scaffolding +
+   §9.9 SHA backfill; §9.12 row text update + Track D gate
+   finalization + SKILL.md hard-gate list extension.
+5. **Phase 10 entry hard gate STOP**: autonomous loop
+   surfaces with `phase10_transition_gate.md` checklist for
+   collaborative review. No `ScheduleWakeup`.
+
+## Phase 10 design ADR slots (Track D §9 Q3)
+
+ADR-0054 = Track B. A amends ADR-0043; C amends ADR-0029.
+Phase 10 per-subsystem reserved (Q2 ordering):
+ADR-0055 memory64 → 0056 Tail Call → 0057 EH → 0058 WasmGC.
 
 ## Open structural debt (pointers — see `.dev/debt.md`)
 
-- `now`: **none** as of §9.9-h-14 close (D-063 / D-066 / D-070
-  / D-071 / D-077 / D-078 (a)+(b)+(c) / D-079 (i) / D-080 all
-  discharged; the row table's Active section is `blocked-by:`
-  only).
-- `blocked-by`: D-007 / D-010 / D-016 / D-018 / D-020 / D-021 /
-  D-022 / D-026 / D-028 / D-052 / D-055 / **D-057** /
-  D-058 / D-059 / D-062 / **D-065** / D-072 / D-073 /
-  **D-074** / D-075 / **D-076** / **D-079 (ii)** —
-  barrier dissolution re-evaluated every resume per SKILL.md
-  Step 0.5. **Bold = directly addressed by a prep track**
-  (D-057 / D-065 → Track B; D-072 / D-073 → Track C; D-074
-  / D-076 → Track A; D-079 (ii) → unblocked by Phase 10
-  schedule, naturally drops when Track D's gate doc lands).
+- `now`: none post-§9.9-h-14.
+- `blocked-by`: D-007/010/016/018/020/021/022/026/028/052/055/
+  D-057/058/059/062/D-065/D-072/D-073/D-074/075/D-076/D-079(ii).
+  Prep impl discharges **D-057 / D-065 / D-072 (a/b) / D-073 /
+  D-076**; D-074 updated; **D-081 / D-082** newly filed.
 
-## Recent surprise (drift signal)
+## Sandbox quirks (Mac aarch64, 2026-05-12)
 
-§9.9-g-13 surfaced that the prior handover's "Targets ~16
-fails" prediction (alias case) didn't match live evidence
-(actual 16 = `i*x*.ne` family). Rule
-[`.claude/rules/no_handover_predictions.md`](../.claude/rules/no_handover_predictions.md)
-+ live-measurement script
-[`scripts/p9_simd_status.sh`](../scripts/p9_simd_status.sh) +
-`/continue` Resume **Step 0.5b** landed 2026-05-11 to prevent
-recurrence. Lesson:
-[`2026-05-11-handover-prediction-vs-evidence.md`](lessons/2026-05-11-handover-prediction-vs-evidence.md).
+- `~/.cache/zig` not write-allowed → prefix `zig build*` with
+  `ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache`.
+- `bash scripts/p9_simd_status.sh` OrbStack branch fails on
+  daemon log-rotation; use top-level
+  `orb run -m my-ubuntu-amd64 bash -c '...'` directly.
 
-**2026-05-11 gate-dormancy surprise**: `.githooks/pre_commit`
-and `.githooks/pre_push` used underscore filenames since
-bootstrap (`9bd21b2f`); git only recognises hyphenated names,
-so every gate ran was a manual `bash scripts/gate_commit.sh`
-invocation. `scripts/file_size_check.sh --gate` had been silently
-failing for 1400+ commits. `zig fmt --check` drift across 43
-src/*.zig files accumulated. Resolved by `chore(fmt): apply zig
-fmt 0.16 across src/` + `chore(hooks): activate gate by renaming
-pre_{commit,push} → pre-{commit,push}` (file_size_check switched
-to warn-only mode pending D-057 source-split discharge). Bisect
-trail: first-bad commit was `c2cd9b5e` (§9.1 / 1.2 ZirOp
-catalogue) — the very first src-bearing commit on this branch.
+## Pre-push hook scope
 
-**Pre-push hook scope**: `.githooks/pre-push` calls
-`scripts/gate_commit.sh` (light: fmt + zone + file_size + zig
-build test). The full 3-host `scripts/gate_merge.sh` (Mac +
-OrbStack + windowsmini test-all) is **invoked manually** at
-Phase boundary close + before any push to `main`, NOT
-per-push to `zwasm-from-scratch`. Per-chunk autonomous loop
-matches SKILL.md "Parallel test gate" (2-host Mac + OrbStack
-subset; windowsmini phase-boundary only per ADR-0049).
-
-## Sandbox quirks (Mac aarch64 host, 2026-05-11)
-
-- `~/.cache/zig` is outside the write-allow list. Builds that
-  need to populate global cache (`compiler_rt`, `ubsan_rt`,
-  `builtin.zig`) fail with PermissionDenied unless
-  `ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache` is set. Workaround:
-  prefix `zig build*` invocations with the env var; the cache
-  inside `.zig-cache` (local) is unaffected.
-- `bash scripts/p9_simd_status.sh` OrbStack branch fails because
-  the inner `orb run` subprocess triggers a daemon log-rotation
-  write into `~/.orbstack/log/` (sandbox-denied). Top-level
-  `orb run -m my-ubuntu-amd64 bash -c '...'` works directly.
-
-## After Phase 10 prep completes
-
-User holds 4 decisions (Track A scope, Track B partition,
-Track C ADR-0029 path, Track D gate doc). Each unblocks
-specific debt rows. After review:
-
-- §9.9 close (the actual fail=skip=0 measurement against
-  the resolved skip-counting rule from Track C).
-- §9.10 (scope per Track A's decision).
-- §9.11 audit + SHA backfill.
-- §9.12 (open Phase 10 — guarded by Track D's hard gate).
-
-Normal autonomous `/continue` resumes at that point.
+`.githooks/pre-push` → `scripts/gate_commit.sh` (light gate).
+Full 3-host `scripts/gate_merge.sh` invoked **manually** at
+Phase boundary + before push to `main`. Per-chunk loop is
+2-host (Mac + OrbStack) per ADR-0049; windowsmini
+phase-boundary only.
