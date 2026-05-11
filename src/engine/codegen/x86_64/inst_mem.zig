@@ -476,6 +476,53 @@ pub fn encLeaR64BaseDisp8(dst: Gpr, base: Gpr, disp: i8) EncodedInsn {
     return enc;
 }
 
+/// `LEA r64, [base + disp32]` (opcode 0x8D /r with REX.W,
+/// ModR/M mod=10, disp32). disp32 form for offsets that exceed
+/// i8 range. §9.9 / 9.9-i-1 Win64 v128 marshal caller-side path:
+/// compute `[RBP + scratch_disp]` (scratch_disp typically deep
+/// in the local frame, well past i8 range) into the int-arg-reg
+/// slot per Microsoft x64 ABI §"Parameter passing" hidden-
+/// pointer recipe.
+///
+/// **Caller constraint** (same as disp8 sibling): `base` must NOT
+/// be RSP (low3=0b100). RBP / R13 are safe (mod=10 disp32 form is
+/// direct disp, no SIB). RSP base would mandate a SIB byte; this
+/// encoder emits none and would produce a malformed instruction.
+pub fn encLeaR64BaseDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
+    // base.low3() != 4 (RSP) — would mandate a SIB byte; this
+    // encoder emits none. Current callers pass only `.rbp`.
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), 0, base.extBit()));
+    enc.push(0x8D);
+    enc.push(encodeModrm(0b10, dst.low3(), base.low3()));
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
+/// `LEA r64, [RSP + disp32]` (opcode 0x8D /r with REX.W,
+/// ModR/M mod=10, rm=100, SIB 0x24). RSP base mandates a SIB
+/// byte (rm=100 ⇒ SIB-escape per AMD64). §9.9 / 9.9-i-1 Win64
+/// v128 marshal caller-side: compute scratch slot address into
+/// an int-arg register (RDX/R8/R9). Distinct encoder from
+/// `encLeaR64BaseDisp32` because the latter excludes RSP base.
+pub fn encLeaR64BaseRspDisp32(dst: Gpr, disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, dst.extBit(), 0, 0));
+    enc.push(0x8D);
+    enc.push(encodeModrm(0b10, dst.low3(), 0b100));
+    enc.push(0x24); // SIB: scale=00, index=100 (none), base=100 (RSP)
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
 /// `MOV DWORD PTR [base + disp32], imm32` (opcode 0xC7 /0).
 /// Used by trap stub to set `JitRuntime.trap_flag = 1` per
 /// ADR-0017 sub-7.5b-ii equivalent.

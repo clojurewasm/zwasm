@@ -242,6 +242,8 @@ pub const encMovzxR64_16MemBaseIdx = inst_mem.encMovzxR64_16MemBaseIdx;
 pub const encMovsxR64_16MemBaseIdx = inst_mem.encMovsxR64_16MemBaseIdx;
 pub const encMovsxdR64_32MemBaseIdx = inst_mem.encMovsxdR64_32MemBaseIdx;
 pub const encLeaR64BaseDisp8 = inst_mem.encLeaR64BaseDisp8;
+pub const encLeaR64BaseDisp32 = inst_mem.encLeaR64BaseDisp32;
+pub const encLeaR64BaseRspDisp32 = inst_mem.encLeaR64BaseRspDisp32;
 pub const encStoreImm32MemDisp32 = inst_mem.encStoreImm32MemDisp32;
 pub const encStoreR32MemRBP = inst_mem.encStoreR32MemRBP;
 pub const encLoadR32MemRBP = inst_mem.encLoadR32MemRBP;
@@ -304,6 +306,7 @@ pub const encStoreXmmV128MemRBPDisp32 = inst_sse.encStoreXmmV128MemRBPDisp32;
 pub const encLoadXmmV128MemRBPDisp32 = inst_sse.encLoadXmmV128MemRBPDisp32;
 pub const encStoreXmmF32MemRSPDisp32 = inst_sse.encStoreXmmF32MemRSPDisp32;
 pub const encStoreXmmF64MemRSPDisp32 = inst_sse.encStoreXmmF64MemRSPDisp32;
+pub const encStoreXmmV128MemRSPDisp32 = inst_sse.encStoreXmmV128MemRSPDisp32;
 pub const encMovdXmmFromR32 = inst_sse.encMovdXmmFromR32;
 pub const encMovqXmmFromR64 = inst_sse.encMovqXmmFromR64;
 pub const encMovapsXmmXmm = inst_sse.encMovapsXmmXmm;
@@ -759,6 +762,21 @@ test "encLeaR64BaseDisp8: lea rcx, [rdx+4] → 48 8d 4a 04" {
 test "encLeaR64BaseDisp8: lea rcx, [r15+8] → 49 8d 4f 08 (REX.B)" {
     const enc = encLeaR64BaseDisp8(.rcx, .r15, 8);
     try testing.expectEqualSlices(u8, &.{ 0x49, 0x8D, 0x4F, 0x08 }, enc.slice());
+}
+
+test "encLeaR64BaseDisp32: lea rdx, [rbp-256] → 48 8d 95 00 ff ff ff" {
+    // §9.9 / 9.9-i-1 Win64 v128 marshal: caller writes v128 into
+    // scratch at [RBP+disp32], LEAs the disp into the int-arg-reg.
+    // disp32 = -256 (i32 little-endian 0xFFFFFF00).
+    const enc = encLeaR64BaseDisp32(.rdx, .rbp, -256);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x8D, 0x95, 0x00, 0xFF, 0xFF, 0xFF }, enc.slice());
+}
+
+test "encLeaR64BaseDisp32: lea r9, [rbp-1024] → 4c 8d 8d 00 fc ff ff (REX.R)" {
+    // R9 is one of the Win64 int-arg regs (slot 4 = RCX runtime-ptr,
+    // R9 = user-arg slot 3).
+    const enc = encLeaR64BaseDisp32(.r9, .rbp, -1024);
+    try testing.expectEqualSlices(u8, &.{ 0x4C, 0x8D, 0x8D, 0x00, 0xFC, 0xFF, 0xFF }, enc.slice());
 }
 
 test "encAddR64Imm32: add rdx, 4 → 48 81 c2 04 00 00 00" {

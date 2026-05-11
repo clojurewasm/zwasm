@@ -197,6 +197,28 @@ pub fn encLoadXmmV128MemRBPDisp32(dst: Xmm, disp: i32) EncodedInsn {
     return enc;
 }
 
+/// `MOVUPS [RSP + disp32], xmm` (0F 11 /r) — 128-bit unaligned
+/// store via RSP base. §9.9 / 9.9-i-1 Win64 v128 marshal:
+/// caller-side write into the 16-byte aligned scratch slot in
+/// the outgoing-args region. RSP base requires a SIB byte
+/// (scale=00, index=100 (none), base=100 (RSP) = 0x24) — that's
+/// what differentiates this from `encMovupsXmmMemBaseDisp32`,
+/// which asserts non-RSP base.
+pub fn encStoreXmmV128MemRSPDisp32(src: Xmm, disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (src.extBit() == 1) enc.push(encodeRex(false, 1, 0, 0));
+    enc.push(0x0F);
+    enc.push(0x11);
+    enc.push(encodeModrm(0b10, src.low3(), 0b100));
+    enc.push(0x24);
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
 /// `MOVSS [RSP + disp32], xmm` (F3 0F 11 /r). f32 caller-side
 /// stack arg.
 pub fn encStoreXmmF32MemRSPDisp32(src: Xmm, disp: i32) EncodedInsn {

@@ -35,6 +35,29 @@ const gpr = @import("gpr.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
 const types = @import("types.zig");
 
+/// §9.9 / 9.9-i-1 helper: per-call v128-scratch base for Win64.
+/// Returns the [RSP + N] offset where the first 16-byte v128
+/// scratch slot lives in the caller's outgoing-args region.
+/// Must agree with `emit.zig:computeOutgoingMaxBytes` Win64
+/// branch. Mirror of cranelift's prologue-time
+/// `ABIArg::ImplicitPtrArg` offset finalisation
+/// (cranelift `cranelift/codegen/src/isa/x64/abi.rs:383-395`).
+fn win64V128ScratchBase(callee_sig: zir.FuncType) u32 {
+    var n_int: u32 = 0;
+    var n_fp: u32 = 0;
+    var n_v128: u32 = 0;
+    for (callee_sig.params) |p| switch (p) {
+        .i32, .i64 => n_int += 1,
+        .f32, .f64 => n_fp += 1,
+        .v128 => n_v128 += 1,
+        .funcref, .externref => {},
+    };
+    const n_total = n_int + n_v128 + n_fp;
+    const n_overflow: u32 = if (n_total > 3) n_total - 3 else 0;
+    const shadow_and_overflow = abi.current.shadow_space_bytes + n_overflow * 8;
+    return (shadow_and_overflow + 15) & ~@as(u32, 15);
+}
+
 const Allocator = std.mem.Allocator;
 const Error = types.Error;
 const CallFixup = types.CallFixup;
@@ -301,6 +324,14 @@ pub fn marshalCallArgs(
     // overflow). Win64 reuses gpr_arg_slot/fp_arg_slot's shared
     // value to derive its overflow slot.
     var nsaa_idx: u32 = 0;
+    // §9.9 / 9.9-i-1 Win64 v128 hidden-pointer scratch index.
+    // Counts v128 args processed so far; the per-arg scratch
+    // lives at `[RSP + win64V128ScratchBase(sig) + v128_idx*16]`.
+    var v128_idx: u32 = 0;
+    const win64_v128_scratch_base: u32 = if (abi.current_cc == .win64)
+        win64V128ScratchBase(callee_sig)
+    else
+        0;
     var k: u32 = 0;
     while (k < n_args) : (k += 1) {
         const src_vreg = arg_vregs[k];
@@ -374,29 +405,59 @@ pub fn marshalCallArgs(
                 fp_arg_slot += 1;
                 if (abi.current_cc == .win64) gpr_arg_slot += 1;
             },
-            // §9.9 / 9.9-h-7 (D-080 discharge): caller-side v128 arg
-            // marshal per SysV §3.2.3 SIMD calling convention (XMM0..
-            // XMM7 are the v128 arg regs). Register-only — spilled
-            // v128 vregs trip D-078 (c) via `resolveXmm`'s explicit
-            // UnsupportedOp, and stack-overflow (≥ 9 v128 args) trips
-            // D-062 via the `fp_arg_slot >= arg_xmms.len` branch
-            // below. Win64 v128-by-pointer (Microsoft x64 ABI) is
-            // out of scope here — that path lives in D-062 too.
+            // §9.9 / 9.9-h-7 SysV + §9.9 / 9.9-i-1 Win64 caller-side
+            // v128 marshal. SysV (§3.2.3 SIMD): XMM0..XMM7 direct,
+            // overflow on stack as 2-eightbyte SSE class (16-byte
+            // aligned). Win64 (Microsoft x64 §"Param passing"):
+            // hidden-pointer — write v128 to 16-byte aligned scratch
+            // in caller's outgoing-args region, pass scratch address
+            // in the next int-arg-reg slot (RDX/R8/R9) or overflow
+            // 8-byte stack slot. Spilled v128 vregs trip D-078 (c)
+            // via `resolveXmm`'s explicit UnsupportedOp.
             .v128 => {
-                if (fp_arg_slot >= abi.current.arg_xmms.len) {
-                    // D-062: v128 stack-arg overflow (≥ 9 v128 args).
-                    return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:v128-stack-overflow", 0);
-                }
                 if (abi.current_cc == .win64) {
-                    // D-062: Win64 passes v128 by hidden pointer.
-                    return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:v128-win64", 0);
+                    // Write v128 source into the per-call scratch
+                    // slot at `[RSP + scratch_base + v128_idx*16]`.
+                    const src = try gpr.resolveXmm(alloc, src_vreg);
+                    const scratch_disp: i32 = @intCast(win64_v128_scratch_base + v128_idx * 16);
+                    try buf.appendSlice(allocator, inst.encStoreXmmV128MemRSPDisp32(src, scratch_disp).slice());
+                    // Pass the scratch address in the int-arg-reg slot,
+                    // or store the pointer onto the stack overflow.
+                    if (gpr_arg_slot < abi.current.arg_gprs.len) {
+                        const ptr_reg = abi.current.arg_gprs[gpr_arg_slot];
+                        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(ptr_reg, scratch_disp).slice());
+                    } else {
+                        // Stack overflow: caller writes the 8-byte
+                        // pointer into the int-arg shared slot.
+                        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(.rax, scratch_disp).slice());
+                        const disp = computeOverflowDisp(nsaa_idx, gpr_arg_slot);
+                        try buf.appendSlice(allocator, inst.encStoreR64MemRSPDisp32(.rax, disp).slice());
+                        nsaa_idx += 1;
+                    }
+                    gpr_arg_slot += 1;
+                    fp_arg_slot += 1;
+                    v128_idx += 1;
+                } else {
+                    // SysV path.
+                    if (fp_arg_slot >= abi.current.arg_xmms.len) {
+                        // §9.9 / 9.9-i-1 SysV v128 stack-overflow co-discharge:
+                        // write the 16-byte v128 to `[RSP + nsaa_disp]`,
+                        // 16-byte aligned (NSAA SSE class takes 2 eightbytes).
+                        if ((nsaa_idx & 1) != 0) nsaa_idx += 1;
+                        const src = try gpr.resolveXmm(alloc, src_vreg);
+                        const disp: i32 = @intCast(nsaa_idx * 8);
+                        try buf.appendSlice(allocator, inst.encStoreXmmV128MemRSPDisp32(src, disp).slice());
+                        nsaa_idx += 2;
+                        fp_arg_slot += 1;
+                    } else {
+                        const dst = abi.current.arg_xmms[fp_arg_slot];
+                        const src = try gpr.resolveXmm(alloc, src_vreg);
+                        if (src != dst) {
+                            try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, src).slice());
+                        }
+                        fp_arg_slot += 1;
+                    }
                 }
-                const dst = abi.current.arg_xmms[fp_arg_slot];
-                const src = try gpr.resolveXmm(alloc, src_vreg);
-                if (src != dst) {
-                    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, src).slice());
-                }
-                fp_arg_slot += 1;
             },
             .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:funcref-externref", 0),
         }

@@ -60,6 +60,23 @@ const op_simd_int_arith = @import("op_simd_int_arith.zig");
 const op_simd_int_cmp_lane = @import("op_simd_int_cmp_lane.zig");
 const op_simd_float = @import("op_simd_float.zig");
 const gpr = @import("gpr.zig");
+const rbp_disp = @import("rbp_disp.zig");
+
+// rbp/rsp form-selectors live in rbp_disp.zig per D-052
+// progression (extract when emit.zig approached the 2000-LOC
+// hard cap). Call-site shape is unchanged.
+const rbpStoreR32 = rbp_disp.rbpStoreR32;
+const rbpLoadR32 = rbp_disp.rbpLoadR32;
+const rbpStoreR64 = rbp_disp.rbpStoreR64;
+const rbpLoadR64 = rbp_disp.rbpLoadR64;
+const rbpStoreXmmF32 = rbp_disp.rbpStoreXmmF32;
+const rbpLoadXmmF32 = rbp_disp.rbpLoadXmmF32;
+const rbpStoreXmmF64 = rbp_disp.rbpStoreXmmF64;
+const rbpLoadXmmF64 = rbp_disp.rbpLoadXmmF64;
+const rbpStoreXmmV128 = rbp_disp.rbpStoreXmmV128;
+const rbpLoadXmmV128 = rbp_disp.rbpLoadXmmV128;
+const rspSub = rbp_disp.rspSub;
+const rspAdd = rbp_disp.rspAdd;
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
@@ -112,29 +129,46 @@ fn computeOutgoingMaxBytes(
         const callee_sig = sig orelse continue;
         var n_int: u32 = 0;
         var n_fp: u32 = 0;
+        var n_v128: u32 = 0;
         for (callee_sig.params) |p| {
             switch (p) {
                 .i32, .i64 => n_int += 1,
                 .f32, .f64 => n_fp += 1,
-                .v128, .funcref, .externref => {},
+                // §9.9 / 9.9-i-1: Win64 v128 is a hidden-pointer
+                // arg — consumes one int-arg-reg slot for the
+                // pointer; on SysV it's an XMM-reg / stack-eightbyte
+                // arg (already excluded from n_int / n_fp here).
+                .v128 => n_v128 += 1,
+                .funcref, .externref => {},
             }
         }
+        // §9.9 / 9.9-h-7 SysV: v128 fp-class consumes 2 eightbytes
+        // on stack per overflowed arg (SSE class). §9.9 / 9.9-i-1
+        // Win64: v128 = hidden ptr in int-arg slot + 16-byte scratch
+        // in caller's outgoing region (Microsoft x64 §Param passing).
         const bytes: u32 = switch (abi.current_cc) {
             .sysv => blk: {
                 const n_int_overflow: u32 = if (n_int > 5) n_int - 5 else 0;
-                const n_fp_overflow: u32 = if (n_fp > 8) n_fp - 8 else 0;
+                const n_fp_total = n_fp + 2 * n_v128;
+                const n_fp_overflow: u32 = if (n_fp_total > 8) n_fp_total - 8 else 0;
                 break :blk (n_int_overflow + n_fp_overflow) * 8;
             },
             .win64 => blk: {
-                const n_total = n_int + n_fp;
+                const n_int_w = n_int + n_v128;
+                const n_total = n_int_w + n_fp;
                 const n_overflow: u32 = if (n_total > 3) n_total - 3 else 0;
-                break :blk abi.current.shadow_space_bytes + n_overflow * 8;
+                const shadow_and_overflow = abi.current.shadow_space_bytes + n_overflow * 8;
+                const scratch_base = (shadow_and_overflow + 15) & ~@as(u32, 15);
+                break :blk scratch_base + n_v128 * 16;
             },
         };
         if (bytes > max_bytes) max_bytes = bytes;
     }
     return max_bytes;
 }
+
+// `win64V128ScratchBase` helper lives in `op_call.zig` (used by
+// the caller-side marshal). See §9.9 / 9.9-i-1.
 
 /// Emit x86_64 machine code for `func`. Requires `alloc.slots`
 /// to be populated (call `regalloc.compute` first; pass the
@@ -166,19 +200,13 @@ pub fn compile(
     const num_params: u32 = @intCast(func.sig.params.len);
     for (func.sig.params) |p| {
         switch (p) {
-            .i32, .i64, .f32, .f64 => {},
-            .v128 => {
-                // §9.9 / 9.9-e-2: SystemV passes v128 in
-                // XMM0..XMM7. Win64 passes v128 by hidden pointer
-                // (§"Argument Passing" — types > 8 bytes are
-                // referenced); zwasm v2's x86_64 v128 marshal is
-                // SystemV-only today. Win64 v128 punted to a debt
-                // row.
-                if (abi.current_cc == .win64) {
-                    std.debug.print("x86_64/emit: Win64 v128 param unsupported (func_idx={d})\n", .{func.func_idx});
-                    return Error.UnsupportedOp;
-                }
-            },
+            // §9.9 / 9.9-i-1: v128 is supported under both ABIs.
+            // SysV uses direct XMM0..XMM7 + stack-overflow (16-byte
+            // aligned eightbyte pair). Win64 uses hidden-pointer
+            // marshal per Microsoft x64 ABI §"Parameter passing"
+            // (`__m128` passed via pointer in int-arg reg slot;
+            // ADR-0055).
+            .i32, .i64, .f32, .f64, .v128 => {},
             .funcref, .externref => {
                 std.debug.print("x86_64/emit: param type `{s}` unsupported (func_idx={d})\n", .{ @tagName(p), func.func_idx });
                 return Error.UnsupportedOp;
@@ -435,7 +463,20 @@ pub fn compile(
                         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, stack_disp).slice());
                         try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice());
                     },
-                    .v128, .funcref, .externref => unreachable, // Win64 v128 / refs filtered above
+                    .v128 => {
+                        // §9.9 / 9.9-i-1 Win64 v128 hidden-pointer
+                        // marshal — stack-overflow slot. Per Microsoft
+                        // x64 ABI §"Parameter passing" the caller wrote
+                        // an 8-byte pointer at the int-arg stack slot;
+                        // the pointed-to memory holds the 16-byte v128
+                        // value (16-byte aligned per ABI). Load pointer
+                        // → RAX, then MOVUPS xmm_tmp ← [RAX] and store
+                        // to local slot.
+                        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, stack_disp).slice());
+                        try buf.appendSlice(allocator, inst.encMovupsXmmMemBaseDisp32(false, .xmm0, .rax, 0).slice());
+                        try buf.appendSlice(allocator, rbpStoreXmmV128(off, .xmm0).slice());
+                    },
+                    .funcref, .externref => unreachable, // refs filtered above
                 }
                 int_arg_idx += 1;
                 fp_arg_idx += 1;
@@ -489,17 +530,42 @@ pub fn compile(
                     if (abi.current_cc == .win64) int_arg_idx += 1;
                 },
                 .v128 => {
-                    // §9.9 / 9.9-e-2: SysV v128 in XMM0..XMM7
-                    // (AMD64 ABI §3.2.3 SSE class). Win64 v128
-                    // was rejected at type-check above. Stack-arg
-                    // overflow (fp_arg_idx >= 8) is a follow-up
-                    // chunk; surface UnsupportedOp until then.
-                    if (fp_arg_idx >= abi.current.arg_xmms.len) {
-                        std.debug.print("x86_64/emit: SysV v128 stack-arg overflow not yet supported (param={d})\n", .{p_idx});
-                        return Error.UnsupportedOp;
+                    if (abi.current_cc == .win64) {
+                        // §9.9 / 9.9-i-1 Win64 v128 hidden-pointer
+                        // marshal — register slot. Per Microsoft x64
+                        // ABI §"Parameter passing" the caller wrote
+                        // the v128 into a 16-byte aligned scratch buf
+                        // in its outgoing-args region and passed the
+                        // address in the int-arg-reg slot (RDX/R8/R9).
+                        // Load via MOVUPS xmm_tmp ← [ptr_reg] and
+                        // store to local slot.
+                        const ptr_reg = abi.current.arg_gprs[int_arg_idx];
+                        try buf.appendSlice(allocator, inst.encMovupsXmmMemBaseDisp32(false, .xmm0, ptr_reg, 0).slice());
+                        try buf.appendSlice(allocator, rbpStoreXmmV128(off, .xmm0).slice());
+                        int_arg_idx += 1;
+                        fp_arg_idx += 1;
+                    } else {
+                        // §9.9 / 9.9-e-2 + §9.9 / 9.9-i-1 SysV co-discharge:
+                        // SysV v128 in XMM0..XMM7 direct (AMD64 ABI §3.2.3
+                        // SSE class); stack-overflow at `fp_arg_idx >= 8`
+                        // reads 16 consecutive aligned bytes from the
+                        // NSAA stream (SSE class → 2 eightbytes on stack).
+                        if (fp_arg_idx >= abi.current.arg_xmms.len) {
+                            // SysV NSAA v128 alignment: each v128 takes
+                            // 2 eightbyte slots, 16-byte aligned. Round
+                            // nsaa_idx up to even before consuming.
+                            if ((nsaa_idx & 1) != 0) nsaa_idx += 1;
+                            const r15_save_off: i32 = if (uses_runtime_ptr) 8 else 0;
+                            const stack_disp: i32 = 16 + r15_save_off + @as(i32, @intCast(nsaa_idx * 8));
+                            try buf.appendSlice(allocator, inst.encMovupsXmmMemBaseDisp32(false, .xmm0, .rbp, stack_disp).slice());
+                            try buf.appendSlice(allocator, rbpStoreXmmV128(off, .xmm0).slice());
+                            nsaa_idx += 2;
+                            fp_arg_idx += 1;
+                        } else {
+                            try buf.appendSlice(allocator, rbpStoreXmmV128(off, abi.current.arg_xmms[fp_arg_idx]).slice());
+                            fp_arg_idx += 1;
+                        }
                     }
-                    try buf.appendSlice(allocator, rbpStoreXmmV128(off, abi.current.arg_xmms[fp_arg_idx]).slice());
-                    fp_arg_idx += 1;
                 },
                 .funcref, .externref => unreachable, // refs filtered above
             }
@@ -1762,85 +1828,8 @@ fn computeLocalLayout(allocator: Allocator, func: *const ZirFunc, base_off_for_l
     return .{ .disps = disps, .total_bytes = total_bytes, .v128_count = v128_count };
 }
 
-/// `MOV [RBP + disp], r32` — picks disp8 / disp32 form per `disp`
-/// range. §9.7 / 7.10-g auto-helper used by all RBP-relative
-/// stores so call sites don't replicate the form-selection logic.
-fn rbpStoreR32(disp: i32, src: inst.Gpr) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encStoreR32MemRBP(@intCast(disp), src);
-    return inst.encStoreR32MemRBPDisp32(disp, src);
-}
-
-/// `MOV r32, [RBP + disp]` — load form auto-helper.
-fn rbpLoadR32(dst: inst.Gpr, disp: i32) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encLoadR32MemRBP(dst, @intCast(disp));
-    return inst.encLoadR32MemRBPDisp32(dst, disp);
-}
-
-/// `MOV [RBP + disp], r64` — store form auto-helper (REX.W).
-fn rbpStoreR64(disp: i32, src: inst.Gpr) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encStoreR64MemRBP(@intCast(disp), src);
-    return inst.encStoreR64MemRBPDisp32(disp, src);
-}
-
-/// `MOV r64, [RBP + disp]` — load form auto-helper (REX.W).
-fn rbpLoadR64(dst: inst.Gpr, disp: i32) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encLoadR64MemRBP(dst, @intCast(disp));
-    return inst.encLoadR64MemRBPDisp32(dst, disp);
-}
-
-/// `MOVSS [RBP + disp], xmm` — store form auto-helper (f32).
-fn rbpStoreXmmF32(disp: i32, src: inst.Xmm) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encStoreXmmF32MemRBP(@intCast(disp), src);
-    return inst.encStoreXmmF32MemRBPDisp32(disp, src);
-}
-
-/// `MOVSS xmm, [RBP + disp]` — load form auto-helper (f32).
-fn rbpLoadXmmF32(dst: inst.Xmm, disp: i32) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encLoadXmmF32MemRBP(dst, @intCast(disp));
-    return inst.encLoadXmmF32MemRBPDisp32(dst, disp);
-}
-
-/// `MOVSD [RBP + disp], xmm` — store form auto-helper (f64).
-fn rbpStoreXmmF64(disp: i32, src: inst.Xmm) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encStoreXmmF64MemRBP(@intCast(disp), src);
-    return inst.encStoreXmmF64MemRBPDisp32(disp, src);
-}
-
-/// `MOVSD xmm, [RBP + disp]` — load form auto-helper (f64).
-fn rbpLoadXmmF64(dst: inst.Xmm, disp: i32) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encLoadXmmF64MemRBP(dst, @intCast(disp));
-    return inst.encLoadXmmF64MemRBPDisp32(dst, disp);
-}
-
-/// `MOVUPS [RBP + disp], xmm` — store form auto-helper (v128).
-/// §9.9 / 9.9-e-2 v128 local-store path. MOVUPS chosen over
-/// MOVAPS because v128 local-slot disps depend on the per-
-/// function layout and aren't guaranteed 16-byte aligned.
-fn rbpStoreXmmV128(disp: i32, src: inst.Xmm) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encStoreXmmV128MemRBP(@intCast(disp), src);
-    return inst.encStoreXmmV128MemRBPDisp32(disp, src);
-}
-
-/// `MOVUPS xmm, [RBP + disp]` — load form auto-helper (v128).
-fn rbpLoadXmmV128(dst: inst.Xmm, disp: i32) inst.EncodedInsn {
-    if (disp >= -128 and disp <= 127) return inst.encLoadXmmV128MemRBP(dst, @intCast(disp));
-    return inst.encLoadXmmV128MemRBPDisp32(dst, disp);
-}
-
-/// `SUB RSP, imm` — picks imm8 / imm32 form per `imm` range. The
-/// caller passes a positive `u32` byte count; encoders consume an
-/// i32 / i8 (zero-extended in practice — frame_bytes is always
-/// positive since RSP grows down).
-fn rspSub(imm: u32) inst.EncodedInsn {
-    if (imm <= 127) return inst.encSubRSpImm8(@intCast(imm));
-    return inst.encSubRSpImm32(@intCast(imm));
-}
-
-/// `ADD RSP, imm` — pair of `rspSub`.
-fn rspAdd(imm: u32) inst.EncodedInsn {
-    if (imm <= 127) return inst.encAddRSpImm8(@intCast(imm));
-    return inst.encAddRSpImm32(@intCast(imm));
-}
+// rbp/rsp form-selectors moved to rbp_disp.zig (D-052 progression);
+// aliased at the top of this file so call-sites stay the same.
 
 /// `local.get K` — push a fresh vreg holding the value loaded
 /// from [RBP + localDisp(K)].
