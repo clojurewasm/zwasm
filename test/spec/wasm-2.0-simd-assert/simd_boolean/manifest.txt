@@ -121,60 +121,60 @@ assert_return i16x8_all_true_as_br_if_cond v128:01000100010001000100010001000100
 assert_return i16x8_all_true_as_br_if_cond v128:01000100010001000100010000000100 -> i32:0
 assert_return i32x4_all_true_as_br_if_cond v128:01000000010000000100000001000000 -> i32:1
 assert_return i32x4_all_true_as_br_if_cond v128:01000000010000000000000001000000 -> i32:0
-skip-impl v128-param-pending i8x16_any_true_as_i32.and_operand
-skip-impl v128-param-pending i8x16_any_true_as_i32.and_operand
-skip-impl v128-param-pending i8x16_any_true_as_i32.and_operand
-skip-impl v128-param-pending i16x8_any_true_as_i32.and_operand
-skip-impl v128-param-pending i16x8_any_true_as_i32.and_operand
-skip-impl v128-param-pending i16x8_any_true_as_i32.and_operand
-skip-impl v128-param-pending i32x4_any_true_as_i32.and_operand
-skip-impl v128-param-pending i32x4_any_true_as_i32.and_operand
-skip-impl v128-param-pending i32x4_any_true_as_i32.and_operand
-skip-impl v128-param-pending i8x16_any_true_as_i32.or_operand
-skip-impl v128-param-pending i8x16_any_true_as_i32.or_operand
-skip-impl v128-param-pending i8x16_any_true_as_i32.or_operand
-skip-impl v128-param-pending i16x8_any_true_as_i32.or_operand
-skip-impl v128-param-pending i16x8_any_true_as_i32.or_operand
-skip-impl v128-param-pending i16x8_any_true_as_i32.or_operand
-skip-impl v128-param-pending i32x4_any_true_as_i32.or_operand
-skip-impl v128-param-pending i32x4_any_true_as_i32.or_operand
-skip-impl v128-param-pending i32x4_any_true_as_i32.or_operand
-skip-impl v128-param-pending i8x16_any_true_as_i32.xor_operand
-skip-impl v128-param-pending i8x16_any_true_as_i32.xor_operand
-skip-impl v128-param-pending i8x16_any_true_as_i32.xor_operand
-skip-impl v128-param-pending i16x8_any_true_as_i32.xor_operand
-skip-impl v128-param-pending i16x8_any_true_as_i32.xor_operand
-skip-impl v128-param-pending i16x8_any_true_as_i32.xor_operand
-skip-impl v128-param-pending i32x4_any_true_as_i32.xor_operand
-skip-impl v128-param-pending i32x4_any_true_as_i32.xor_operand
-skip-impl v128-param-pending i32x4_any_true_as_i32.xor_operand
-skip-impl v128-param-pending i8x16_all_true_as_i32.and_operand
-skip-impl v128-param-pending i8x16_all_true_as_i32.and_operand
-skip-impl v128-param-pending i8x16_all_true_as_i32.and_operand
-skip-impl v128-param-pending i16x8_all_true_as_i32.and_operand
-skip-impl v128-param-pending i16x8_all_true_as_i32.and_operand
-skip-impl v128-param-pending i16x8_all_true_as_i32.and_operand
-skip-impl v128-param-pending i32x4_all_true_as_i32.and_operand
-skip-impl v128-param-pending i32x4_all_true_as_i32.and_operand
-skip-impl v128-param-pending i32x4_all_true_as_i32.and_operand
-skip-impl v128-param-pending i8x16_all_true_as_i32.or_operand
-skip-impl v128-param-pending i8x16_all_true_as_i32.or_operand
-skip-impl v128-param-pending i8x16_all_true_as_i32.or_operand
-skip-impl v128-param-pending i16x8_all_true_as_i32.or_operand
-skip-impl v128-param-pending i16x8_all_true_as_i32.or_operand
-skip-impl v128-param-pending i16x8_all_true_as_i32.or_operand
-skip-impl v128-param-pending i32x4_all_true_as_i32.or_operand
-skip-impl v128-param-pending i32x4_all_true_as_i32.or_operand
-skip-impl v128-param-pending i32x4_all_true_as_i32.or_operand
-skip-impl v128-param-pending i8x16_all_true_as_i32.xor_operand
-skip-impl v128-param-pending i8x16_all_true_as_i32.xor_operand
-skip-impl v128-param-pending i8x16_all_true_as_i32.xor_operand
-skip-impl v128-param-pending i16x8_all_true_as_i32.xor_operand
-skip-impl v128-param-pending i16x8_all_true_as_i32.xor_operand
-skip-impl v128-param-pending i16x8_all_true_as_i32.xor_operand
-skip-impl v128-param-pending i32x4_all_true_as_i32.xor_operand
-skip-impl v128-param-pending i32x4_all_true_as_i32.xor_operand
-skip-impl v128-param-pending i32x4_all_true_as_i32.xor_operand
+assert_return i8x16_any_true_as_i32.and_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_any_true_as_i32.and_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000100 -> i32:0
+assert_return i8x16_any_true_as_i32.and_operand v128:00000000000000000000000000000100 v128:00000000000000000000000000000100 -> i32:1
+assert_return i16x8_any_true_as_i32.and_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_any_true_as_i32.and_operand v128:00000000000000000000000000000000 v128:00000000000000000000000001000000 -> i32:0
+assert_return i16x8_any_true_as_i32.and_operand v128:00000000000000000000000001000000 v128:00000000000000000000000001000000 -> i32:1
+assert_return i32x4_any_true_as_i32.and_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_any_true_as_i32.and_operand v128:00000000000000000000000000000000 v128:00000000000000000100000000000000 -> i32:0
+assert_return i32x4_any_true_as_i32.and_operand v128:00000000000000000100000000000000 v128:00000000000000000100000000000000 -> i32:1
+assert_return i8x16_any_true_as_i32.or_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_any_true_as_i32.or_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000100 -> i32:1
+assert_return i8x16_any_true_as_i32.or_operand v128:00000000000000000000000000000100 v128:00000000000000000000000000000100 -> i32:1
+assert_return i16x8_any_true_as_i32.or_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_any_true_as_i32.or_operand v128:00000000000000000000000000000000 v128:00000000000000000000000001000000 -> i32:1
+assert_return i16x8_any_true_as_i32.or_operand v128:00000000000000000000000001000000 v128:00000000000000000000000001000000 -> i32:1
+assert_return i32x4_any_true_as_i32.or_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_any_true_as_i32.or_operand v128:00000000000000000000000000000000 v128:00000000000000000100000000000000 -> i32:1
+assert_return i32x4_any_true_as_i32.or_operand v128:00000000000000000100000000000000 v128:00000000000000000100000000000000 -> i32:1
+assert_return i8x16_any_true_as_i32.xor_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_any_true_as_i32.xor_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000100 -> i32:1
+assert_return i8x16_any_true_as_i32.xor_operand v128:00000000000000000000000000000100 v128:00000000000000000000000000000100 -> i32:0
+assert_return i16x8_any_true_as_i32.xor_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_any_true_as_i32.xor_operand v128:00000000000000000000000000000000 v128:00000000000000000000000001000000 -> i32:1
+assert_return i16x8_any_true_as_i32.xor_operand v128:00000000000000000000000001000000 v128:00000000000000000000000001000000 -> i32:0
+assert_return i32x4_any_true_as_i32.xor_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_any_true_as_i32.xor_operand v128:00000000000000000000000000000000 v128:00000000000000000100000000000000 -> i32:1
+assert_return i32x4_any_true_as_i32.xor_operand v128:00000000000000000100000000000000 v128:00000000000000000100000000000000 -> i32:0
+assert_return i8x16_all_true_as_i32.and_operand v128:01010101010101010101010101010101 v128:01010101010101010101010101010101 -> i32:1
+assert_return i8x16_all_true_as_i32.and_operand v128:01010101010101010101010101010101 v128:01010101010101010101010101010001 -> i32:0
+assert_return i8x16_all_true_as_i32.and_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_all_true_as_i32.and_operand v128:01000100010001000100010001000100 v128:01000100010001000100010001000100 -> i32:1
+assert_return i16x8_all_true_as_i32.and_operand v128:01000100010001000100010001000100 v128:01000100010001000100010000000100 -> i32:0
+assert_return i16x8_all_true_as_i32.and_operand v128:00000000000000000000000000000000 v128:00000000000000000000000001000000 -> i32:0
+assert_return i32x4_all_true_as_i32.and_operand v128:01000000010000000100000001000000 v128:01000000010000000100000001000000 -> i32:1
+assert_return i32x4_all_true_as_i32.and_operand v128:01000000010000000100000001000000 v128:01000000010000000000000001000000 -> i32:0
+assert_return i32x4_all_true_as_i32.and_operand v128:00000000000000000000000000000000 v128:00000000000000000100000000000000 -> i32:0
+assert_return i8x16_all_true_as_i32.or_operand v128:01010101010101010101010101010101 v128:01010101010101010101010101010101 -> i32:1
+assert_return i8x16_all_true_as_i32.or_operand v128:01010101010101010101010101010101 v128:01010101010101010101010101010001 -> i32:1
+assert_return i8x16_all_true_as_i32.or_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_all_true_as_i32.or_operand v128:01000100010001000100010001000100 v128:01000100010001000100010001000100 -> i32:1
+assert_return i16x8_all_true_as_i32.or_operand v128:01000100010001000100010001000100 v128:01000100010001000100010000000100 -> i32:1
+assert_return i16x8_all_true_as_i32.or_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_all_true_as_i32.or_operand v128:01000000010000000100000001000000 v128:01000000010000000100000001000000 -> i32:1
+assert_return i32x4_all_true_as_i32.or_operand v128:01000000010000000100000001000000 v128:01000000010000000000000001000000 -> i32:1
+assert_return i32x4_all_true_as_i32.or_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_all_true_as_i32.xor_operand v128:01010101010101010101010101010101 v128:01010101010101010101010101010101 -> i32:0
+assert_return i8x16_all_true_as_i32.xor_operand v128:01010101010101010101010101010101 v128:01010101010101010101010101010001 -> i32:1
+assert_return i8x16_all_true_as_i32.xor_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_all_true_as_i32.xor_operand v128:01000100010001000100010001000100 v128:01000100010001000100010001000100 -> i32:0
+assert_return i16x8_all_true_as_i32.xor_operand v128:01000100010001000100010001000100 v128:01000100010001000100010000000100 -> i32:1
+assert_return i16x8_all_true_as_i32.xor_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_all_true_as_i32.xor_operand v128:01000000010000000100000001000000 v128:01000000010000000100000001000000 -> i32:0
+assert_return i32x4_all_true_as_i32.xor_operand v128:01000000010000000100000001000000 v128:01000000010000000000000001000000 -> i32:1
+assert_return i32x4_all_true_as_i32.xor_operand v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
 assert_return i8x16_any_true_with_v128.not v128:00000000000000000000000000000000 -> i32:1
 assert_return i8x16_any_true_with_v128.not v128:ffffffffffffffffffffffffffffffff -> i32:0
 assert_return i8x16_any_true_with_v128.not v128:0000000000000000000000000000ff00 -> i32:1
@@ -184,33 +184,33 @@ assert_return i16x8_any_true_with_v128.not v128:000000000000000000000000ffff0000
 assert_return i32x4_any_true_with_v128.not v128:00000000000000000000000000000000 -> i32:1
 assert_return i32x4_any_true_with_v128.not v128:ffffffffffffffffffffffffffffffff -> i32:0
 assert_return i32x4_any_true_with_v128.not v128:0000000000000000ffffffff00000000 -> i32:1
-skip-impl v128-param-pending i8x16_any_true_with_v128.and
-skip-impl v128-param-pending i8x16_any_true_with_v128.and
-skip-impl v128-param-pending i8x16_any_true_with_v128.and
-skip-impl v128-param-pending i16x8_any_true_with_v128.and
-skip-impl v128-param-pending i16x8_any_true_with_v128.and
-skip-impl v128-param-pending i16x8_any_true_with_v128.and
-skip-impl v128-param-pending i32x4_any_true_with_v128.and
-skip-impl v128-param-pending i32x4_any_true_with_v128.and
-skip-impl v128-param-pending i32x4_any_true_with_v128.and
-skip-impl v128-param-pending i8x16_any_true_with_v128.or
-skip-impl v128-param-pending i8x16_any_true_with_v128.or
-skip-impl v128-param-pending i8x16_any_true_with_v128.or
-skip-impl v128-param-pending i16x8_any_true_with_v128.or
-skip-impl v128-param-pending i16x8_any_true_with_v128.or
-skip-impl v128-param-pending i16x8_any_true_with_v128.or
-skip-impl v128-param-pending i32x4_any_true_with_v128.or
-skip-impl v128-param-pending i32x4_any_true_with_v128.or
-skip-impl v128-param-pending i32x4_any_true_with_v128.or
-skip-impl v128-param-pending i8x16_any_true_with_v128.xor
-skip-impl v128-param-pending i8x16_any_true_with_v128.xor
-skip-impl v128-param-pending i8x16_any_true_with_v128.xor
-skip-impl v128-param-pending i16x8_any_true_with_v128.xor
-skip-impl v128-param-pending i16x8_any_true_with_v128.xor
-skip-impl v128-param-pending i16x8_any_true_with_v128.xor
-skip-impl v128-param-pending i32x4_any_true_with_v128.xor
-skip-impl v128-param-pending i32x4_any_true_with_v128.xor
-skip-impl v128-param-pending i32x4_any_true_with_v128.xor
+assert_return i8x16_any_true_with_v128.and v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_any_true_with_v128.and v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i8x16_any_true_with_v128.and v128:0000000000000000000000000000ff00 v128:0000000000000000000000000000ff00 -> i32:1
+assert_return i16x8_any_true_with_v128.and v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_any_true_with_v128.and v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i16x8_any_true_with_v128.and v128:000000000000000000000000ffff0000 v128:000000000000000000000000ffff0000 -> i32:1
+assert_return i32x4_any_true_with_v128.and v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_any_true_with_v128.and v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i32x4_any_true_with_v128.and v128:0000000000000000ffffffff00000000 v128:0000000000000000ffffffff00000000 -> i32:1
+assert_return i8x16_any_true_with_v128.or v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_any_true_with_v128.or v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i8x16_any_true_with_v128.or v128:0000000000000000000000000000ff00 v128:0000000000000000000000000000ff00 -> i32:1
+assert_return i16x8_any_true_with_v128.or v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_any_true_with_v128.or v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i16x8_any_true_with_v128.or v128:000000000000000000000000ffff0000 v128:000000000000000000000000ffff0000 -> i32:1
+assert_return i32x4_any_true_with_v128.or v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_any_true_with_v128.or v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i32x4_any_true_with_v128.or v128:0000000000000000ffffffff00000000 v128:0000000000000000ffffffff00000000 -> i32:1
+assert_return i8x16_any_true_with_v128.xor v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_any_true_with_v128.xor v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:0
+assert_return i8x16_any_true_with_v128.xor v128:00000000000000000000000000000000 v128:0000000000000000000000000000ff00 -> i32:1
+assert_return i16x8_any_true_with_v128.xor v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_any_true_with_v128.xor v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:0
+assert_return i16x8_any_true_with_v128.xor v128:00000000000000000000000000000000 v128:000000000000000000000000ffff0000 -> i32:1
+assert_return i32x4_any_true_with_v128.xor v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_any_true_with_v128.xor v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:0
+assert_return i32x4_any_true_with_v128.xor v128:00000000000000000000000000000000 v128:0000000000000000ffffffff00000000 -> i32:1
 skip-impl v128-param-pending i8x16_any_true_with_v128.bitselect
 skip-impl v128-param-pending i8x16_any_true_with_v128.bitselect
 skip-impl v128-param-pending i16x8_any_true_with_v128.bitselect
@@ -226,33 +226,33 @@ assert_return i16x8_all_true_with_v128.not v128:000000000000000000000000ffff0000
 assert_return i32x4_all_true_with_v128.not v128:00000000000000000000000000000000 -> i32:1
 assert_return i32x4_all_true_with_v128.not v128:ffffffffffffffffffffffffffffffff -> i32:0
 assert_return i32x4_all_true_with_v128.not v128:0000000000000000ffffffff00000000 -> i32:0
-skip-impl v128-param-pending i8x16_all_true_with_v128.and
-skip-impl v128-param-pending i8x16_all_true_with_v128.and
-skip-impl v128-param-pending i8x16_all_true_with_v128.and
-skip-impl v128-param-pending i16x8_all_true_with_v128.and
-skip-impl v128-param-pending i16x8_all_true_with_v128.and
-skip-impl v128-param-pending i16x8_all_true_with_v128.and
-skip-impl v128-param-pending i32x4_all_true_with_v128.and
-skip-impl v128-param-pending i32x4_all_true_with_v128.and
-skip-impl v128-param-pending i32x4_all_true_with_v128.and
-skip-impl v128-param-pending i8x16_all_true_with_v128.or
-skip-impl v128-param-pending i8x16_all_true_with_v128.or
-skip-impl v128-param-pending i8x16_all_true_with_v128.or
-skip-impl v128-param-pending i16x8_all_true_with_v128.or
-skip-impl v128-param-pending i16x8_all_true_with_v128.or
-skip-impl v128-param-pending i16x8_all_true_with_v128.or
-skip-impl v128-param-pending i32x4_all_true_with_v128.or
-skip-impl v128-param-pending i32x4_all_true_with_v128.or
-skip-impl v128-param-pending i32x4_all_true_with_v128.or
-skip-impl v128-param-pending i8x16_all_true_with_v128.xor
-skip-impl v128-param-pending i8x16_all_true_with_v128.xor
-skip-impl v128-param-pending i8x16_all_true_with_v128.xor
-skip-impl v128-param-pending i16x8_all_true_with_v128.xor
-skip-impl v128-param-pending i16x8_all_true_with_v128.xor
-skip-impl v128-param-pending i16x8_all_true_with_v128.xor
-skip-impl v128-param-pending i32x4_all_true_with_v128.xor
-skip-impl v128-param-pending i32x4_all_true_with_v128.xor
-skip-impl v128-param-pending i32x4_all_true_with_v128.xor
+assert_return i8x16_all_true_with_v128.and v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_all_true_with_v128.and v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i8x16_all_true_with_v128.and v128:0000000000000000000000000000ff00 v128:0000000000000000000000000000ff00 -> i32:0
+assert_return i16x8_all_true_with_v128.and v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_all_true_with_v128.and v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i16x8_all_true_with_v128.and v128:000000000000000000000000ffff0000 v128:000000000000000000000000ffff0000 -> i32:0
+assert_return i32x4_all_true_with_v128.and v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_all_true_with_v128.and v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i32x4_all_true_with_v128.and v128:0000000000000000ffffffff00000000 v128:0000000000000000ffffffff00000000 -> i32:0
+assert_return i8x16_all_true_with_v128.or v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_all_true_with_v128.or v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i8x16_all_true_with_v128.or v128:0000000000000000000000000000ff00 v128:0000000000000000000000000000ff00 -> i32:0
+assert_return i16x8_all_true_with_v128.or v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_all_true_with_v128.or v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i16x8_all_true_with_v128.or v128:000000000000000000000000ffff0000 v128:000000000000000000000000ffff0000 -> i32:0
+assert_return i32x4_all_true_with_v128.or v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_all_true_with_v128.or v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:1
+assert_return i32x4_all_true_with_v128.or v128:0000000000000000ffffffff00000000 v128:0000000000000000ffffffff00000000 -> i32:0
+assert_return i8x16_all_true_with_v128.xor v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i8x16_all_true_with_v128.xor v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:0
+assert_return i8x16_all_true_with_v128.xor v128:00ff00ff00ff00ff00ff00ff00ff00ff v128:ff00ff00ff00ff00ff00ff00ff00ff00 -> i32:1
+assert_return i16x8_all_true_with_v128.xor v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i16x8_all_true_with_v128.xor v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:0
+assert_return i16x8_all_true_with_v128.xor v128:0000ffff0000ffff0000ffff0000ffff v128:ffff0000ffff0000ffff0000ffff0000 -> i32:1
+assert_return i32x4_all_true_with_v128.xor v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
+assert_return i32x4_all_true_with_v128.xor v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:0
+assert_return i32x4_all_true_with_v128.xor v128:00000000ffffffff00000000ffffffff v128:ffffffff00000000ffffffff00000000 -> i32:1
 skip-impl v128-param-pending i8x16_all_true_with_v128.bitselect
 skip-impl v128-param-pending i8x16_all_true_with_v128.bitselect
 skip-impl v128-param-pending i16x8_all_true_with_v128.bitselect

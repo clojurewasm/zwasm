@@ -667,6 +667,22 @@ fn runAssertReturn(
             };
             break :blk @as(u64, @bitCast(r));
         }
+        // chunk 9.9-h-27 (v128-param-pending residual discharge):
+        // (v128) → i64 for i64x2.extract_lane.
+        if (n_args == 1 and args[0] == .v128 and result_kind == .i64) {
+            break :blk entry.callI64_v128(compiled.module, func_idx, &rt, args[0].v128) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+        }
+        // chunk 9.9-h-27: (v128, v128) → i32 for composite
+        // `*_with_v128.{and,or,xor}` / `*_as_i32.*_operand`.
+        if (n_args == 2 and args[0] == .v128 and args[1] == .v128 and result_kind == .i32) {
+            break :blk @as(u64, entry.callI32_v128v128(compiled.module, func_idx, &rt, args[0].v128, args[1].v128) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            });
+        }
         try stdout.print("FAIL  {s}: scalar-result unsupported (n_args={d}, shape) for {s}({s}) -> {s}\n", .{ name, n_args, fn_name, args_s, results_s });
         return false;
     };
@@ -746,6 +762,21 @@ fn invokeV128(
             return null;
         };
         return r;
+    }
+    // chunk 9.9-h-27 (v128-param-pending residual discharge):
+    // (v128, i64) → v128 — i64x2.replace_lane.
+    if (n_args == 2 and args[0] == .v128 and args[1] == .i64) {
+        return entry.callV128_v128i64(compiled.module, func_idx, rt, args[0].v128, args[1].i64) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    // chunk 9.9-h-27: (v128, v128, i32) → v128 — select_v128_i32.
+    if (n_args == 3 and args[0] == .v128 and args[1] == .v128 and args[2] == .i32) {
+        return entry.callV128_v128v128i32(compiled.module, func_idx, rt, args[0].v128, args[1].v128, args[2].i32) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
     }
     try stdout.print("FAIL  {s}: v128-result unsupported (n_args={d}, arg shape) for {s}({s})\n", .{ name, n_args, fn_name, args_s });
     return null;

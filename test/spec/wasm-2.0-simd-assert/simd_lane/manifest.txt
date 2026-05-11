@@ -43,21 +43,21 @@ assert_return i32x4_extract_lane-last v128:000000000000000000000000ffffffff -> i
 assert_return i32x4_extract_lane-last v128:000000000000000000000000ffffffff -> i32:4294967295
 assert_return i32x4_extract_lane-last v128:000000000000000000000000b168de3a -> i32:987654321
 assert_return i32x4_extract_lane-last v128:00000000000000000000000088a9cbed -> i32:3989547400
-skip-impl v128-param-pending i64x2_extract_lane-first
-skip-impl v128-param-pending i64x2_extract_lane-first
-skip-impl v128-param-pending i64x2_extract_lane-first
-skip-impl v128-param-pending i64x2_extract_lane-first
-skip-impl v128-param-pending i64x2_extract_lane-first
-skip-impl v128-param-pending i64x2_extract_lane-first
-skip-impl v128-param-pending i64x2_extract_lane-last
-skip-impl v128-param-pending i64x2_extract_lane-last
-skip-impl v128-param-pending i64x2_extract_lane-last
-skip-impl v128-param-pending i64x2_extract_lane-last
-skip-impl v128-param-pending i64x2_extract_lane-last
-skip-impl v128-param-pending i64x2_extract_lane-last
-skip-impl v128-param-pending i64x2_extract_lane-last
-skip-impl v128-param-pending i64x2_extract_lane-last
-skip-impl v128-param-pending i64x2_extract_lane-last
+assert_return i64x2_extract_lane-first v128:ffffffffffffff7f0000000000000000 -> i64:9223372036854775807
+assert_return i64x2_extract_lane-first v128:feffffffffffff7f0000000000000000 -> i64:9223372036854775806
+assert_return i64x2_extract_lane-first v128:ffffffffffffffff0000000000000000 -> i64:18446744073709551615
+assert_return i64x2_extract_lane-first v128:ffffffffffffffff0000000000000000 -> i64:18446744073709551615
+assert_return i64x2_extract_lane-first v128:1581e97df41022110000000000000000 -> i64:1234567890123456789
+assert_return i64x2_extract_lane-first v128:efcdab90785634120000000000000000 -> i64:1311768467294899695
+assert_return i64x2_extract_lane-last v128:00000000000000000000000000000080 -> i64:9223372036854775808
+assert_return i64x2_extract_lane-last v128:00000000000000000000000000000080 -> i64:9223372036854775808
+assert_return i64x2_extract_lane-last v128:00000000000000000000000000000080 -> i64:9223372036854775808
+assert_return i64x2_extract_lane-last v128:0000000000000000ffffffffffffff7f -> i64:9223372036854775807
+assert_return i64x2_extract_lane-last v128:00000000000000000000000000000080 -> i64:9223372036854775808
+assert_return i64x2_extract_lane-last v128:0000000000000000ffffffffffffff7f -> i64:9223372036854775807
+assert_return i64x2_extract_lane-last v128:000000000000f0ff000000000000f07f -> i64:9218868437227405312
+assert_return i64x2_extract_lane-last v128:00000000000000001581e97df4102211 -> i64:1234567890123456789
+assert_return i64x2_extract_lane-last v128:0000000000000000efcdab9078563412 -> i64:1311768467294899695
 assert_return f32x4_extract_lane-first v128:0000a0c0000000000000000000000000 -> f32:3231711232
 assert_return f32x4_extract_lane-first v128:9976967e000000000000000000000000 -> f32:2123789977
 assert_return f32x4_extract_lane-first v128:ffff7f7f000000000000000000000000 -> f32:2139095039
@@ -157,14 +157,14 @@ assert_return f32x4_replace_lane-last v128:00000000000000000000000000000000 f32:
 assert_return f32x4_replace_lane-last v128:00000000000000000000000000000000 f32:1820282235 -> v128:0000000000000000000000007b4d7f6c
 assert_return f32x4_replace_lane-last v128:00000000000000000000000000000000 f32:1695654580 -> v128:000000000000000000000000b4a21165
 assert_return f32x4_replace_lane-last v128:00000000000000000000000000000000 f32:1376887476 -> v128:000000000000000000000000b4a21152
-skip-impl v128-param-pending i64x2_replace_lane-first
-skip-impl v128-param-pending i64x2_replace_lane-first
-skip-impl v128-param-pending i64x2_replace_lane-first
-skip-impl v128-param-pending i64x2_replace_lane-first
-skip-impl v128-param-pending i64x2_replace_lane-last
-skip-impl v128-param-pending i64x2_replace_lane-last
-skip-impl v128-param-pending i64x2_replace_lane-last
-skip-impl v128-param-pending i64x2_replace_lane-last
+assert_return i64x2_replace_lane-first v128:00000000000000000000000000000000 i64:9223372036854775807 -> v128:ffffffffffffff7f0000000000000000
+assert_return i64x2_replace_lane-first v128:00000000000000000000000000000000 i64:18446744073709551615 -> v128:ffffffffffffffff0000000000000000
+assert_return i64x2_replace_lane-first v128:00000000000000000000000000000000 i64:1234567890123456789 -> v128:1581e97df41022110000000000000000
+assert_return i64x2_replace_lane-first v128:00000000000000000000000000000000 i64:1311768467294899695 -> v128:efcdab90785634120000000000000000
+assert_return i64x2_replace_lane-last v128:00000000000000000000000000000000 i64:9223372036854775808 -> v128:00000000000000000000000000000080
+assert_return i64x2_replace_lane-last v128:00000000000000000000000000000000 i64:9223372036854775808 -> v128:00000000000000000000000000000080
+assert_return i64x2_replace_lane-last v128:00000000000000000000000000000000 i64:1234567890123456789 -> v128:00000000000000001581e97df4102211
+assert_return i64x2_replace_lane-last v128:00000000000000000000000000000000 i64:1311768467294899695 -> v128:0000000000000000efcdab9078563412
 assert_return f64x2_replace_lane-first v128:000000000000f03f000000000000f03f f64:0 -> v128:0000000000000000000000000000f03f
 assert_return f64x2_replace_lane-first v128:000000000000f0bf000000000000f0bf f64:9223372036854775808 -> v128:0000000000000080000000000000f0bf
 assert_return f64x2_replace_lane-first v128:00000000000000000000000000000000 f64:4608308318706860032 -> v128:000000000000f43f0000000000000000
@@ -394,15 +394,15 @@ skip-impl v128-param-pending as-i8x16_any_true-operand
 skip-impl v128-param-pending as-i16x8_any_true-operand
 skip-impl v128-param-pending as-i32x4_any_true-operand1
 skip-impl v128-param-pending as-i32x4_any_true-operand2
-skip-impl v128-param-pending swizzle-as-i8x16_all_true-operands
-skip-impl v128-param-pending swizzle-as-i8x16_all_true-operands
-skip-impl v128-param-pending shuffle-as-i8x16_any_true-operands
+assert_return swizzle-as-i8x16_all_true-operands v128:0102030405060708090a0b0c0d0e0f10 v128:000102030405060708090a0b0c0d0e0f -> i32:1
+assert_return swizzle-as-i8x16_all_true-operands v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:000102030405060708090a0b0c0d0e10 -> i32:0
+assert_return shuffle-as-i8x16_any_true-operands v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:000102030405060708090a0b0c0d0e0f -> i32:1
 module simd_lane.139.wasm
 assert_return as-v128_store-operand-1 v128:00000000000000000000000000000000 i32:1 -> v128:01000000000000000000000000000000
 assert_return as-v128_store-operand-2 v128:00000000000000000000000000000000 i32:256 -> v128:00010000000000000000000000000000
 assert_return as-v128_store-operand-3 v128:00000000000000000000000000000000 i32:4294967295 -> v128:ffffffff000000000000000000000000
 assert_return as-v128_store-operand-4 v128:00000000000000000000000000000000 f32:1078523331 -> v128:c3f54840000000000000000000000000
-skip-impl v128-param-pending as-v128_store-operand-5
+assert_return as-v128_store-operand-5 v128:00000000000000000000000000000000 i64:18446744073709551615 -> v128:ffffffffffffffff0000000000000000
 assert_return as-v128_store-operand-6 v128:00000000000000000000000000000000 f64:4614253070214989087 -> v128:1f85eb51b81e09400000000000000000
 module simd_lane.140.wasm
 assert_return as-if-condition-value v128:00000000000000000000000000000000 -> i32:0
@@ -411,7 +411,7 @@ assert_return as-local_set-value v128:ffffffffffffffffffffffffffffffff -> i32:42
 assert_return as-global_set-value-1 v128:00000000000000000000000000000000 f32:1078523331 -> v128:c3f54840000000000000000000000000
 assert_return as-return-value-2 v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:0f0e0d0c0b0a09080706050403020100 -> v128:fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0
 assert_return as-global_set-value-2 v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:100f0e0d0c0b0a090807060504030201 -> v128:f0f1f2f3f4f5f6f70807060504030201
-skip-impl v128-param-pending as-local_set-value-1
+assert_return as-local_set-value-1 v128:ffffffffffffffffffffffffffffffff -> i64:18446744073709551615
 assert_return as-global_set-value-3 v128:00000000000000000000000000000000 f64:4614253070214989087 -> v128:1f85eb51b81e09400000000000000000
 skip-adr-skip_text_format_parser directive-assert_malformed-text
 skip-adr-skip_text_format_parser directive-assert_malformed-text

@@ -297,6 +297,26 @@ SUPPORTED = {
     # chunk 9.9-h-26: (v128, f64) → v128 — f64x2.replace_lane.
     # Entry helper: `entry.callV128_v128f64`.
     (("v128", "f64"), ("v128",)): True,
+    # chunk 9.9-h-27 (v128-param-pending residual discharge):
+    # (v128,) → i64 — i64x2.extract_lane (lane in opcode
+    # immediate). Entry helper: `entry.callI64_v128`.
+    (("v128",), ("i64",)): True,
+    # chunk 9.9-h-27: (v128, i64) → v128 — i64x2.replace_lane
+    # (i64 value; lane in opcode). Entry helper:
+    # `entry.callV128_v128i64`.
+    (("v128", "i64"), ("v128",)): True,
+    # chunk 9.9-h-27: (v128, v128) → i32 — composite
+    # `*_with_v128.{and,or,xor}` / `*_as_i32.*_operand` exports
+    # whose body does `(any_true|all_true)(v128 op v128)` and
+    # returns i32. Entry helper: `entry.callI32_v128v128`.
+    (("v128", "v128"), ("i32",)): True,
+    # (v128, v128, i32) → v128 (`select_v128_i32`) intentionally
+    # NOT in SUPPORTED — chunk 9.9-h-27 surfaced a runtime bug in
+    # the v128 `select` op handler (got=0 expected=val2 when
+    # cond=0). The entry helper `callV128_v128v128i32` + runner
+    # arm are wired (mechanical), but the SUPPORTED entry is
+    # deliberately deferred until the handler bug is fixed.
+    # See D-083 for the investigation hand-off.
 }
 
 lines = []
