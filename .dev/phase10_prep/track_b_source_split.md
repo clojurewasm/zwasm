@@ -477,7 +477,49 @@ green on Mac + OrbStack (windowsmini deferred per ADR-0049).
 | 9.9-h-17     | x86_64 `inst_sse.zig` → {`inst_sse`, `inst_sse_packed`, `inst_sse_scalar`} 3-way encoder split                                                                                                                                       | ~1300 (moved)       | medium (165 encoders, consumed by op_simd*) |
 | 9.9-h-18     | arm64 `op_simd.zig` → {`op_simd`, `op_simd_int_arith`, `op_simd_int_cmp_lane`, `op_simd_float`} 4-way source split + `op_simd_test.zig` mirror (if exists; else extract from inline tests)                                          | ~1600 (moved)       | medium (mirror of 9.9-h-15) |
 | 9.9-h-19     | arm64 `inst_neon.zig` → {`inst_neon`, `inst_neon_arith`, `inst_neon_lane_cmp`} 3-way encoder split                                                                                                                                   | ~1500 (moved)       | medium                     |
-| 9.9-h-20     | Flip `scripts/file_size_check.sh` warn → gate; remove `(warn-only, see D-057)` note from `gate_commit.sh`; close D-057 + D-065; **file new debt row D-081 (legacy `emit_test_int.zig` / `emit_test_float.zig` rename when emit.zig source-splits)** | ~30 (config)        | low                        |
+| 9.9-h-20     | Flip `scripts/file_size_check.sh` warn → gate; remove `(warn-only, see D-057)` note from `gate_commit.sh`; close D-057 + D-065; **file new debt row D-081 with load-bearing deferral spec (see §6.1)** | ~30 (config)        | low                        |
+
+### §6.1 Deferral accountability — new debt D-081 (legacy `emit_test_*` rename)
+
+Per the user's "先送り先で責任をもって解消" principle, the
+deferred legacy-naming cleanup lands as a load-bearing debt row
+filed in chunk 9.9-h-20:
+
+**D-081 row body** (drafted; lands in chunk 9.9-h-20):
+
+> **Legacy `emit_test_int.zig` / `emit_test_float.zig` rename to
+> `<source>_test.zig` suffix convention**. Per ADR-0054 §"Naming
+> convention", the strict suffix shape is `<source>_test.zig`
+> (e.g. `op_simd_int_arith.zig` ↔ `op_simd_int_arith_test.zig`).
+> The legacy `emit_test_int.zig` / `emit_test_float.zig` files
+> are tests-only family splits of monolithic `emit.zig` (no
+> corresponding `emit_int.zig` / `emit_float.zig` source exists).
+> Renaming to `emit_int_test.zig` / `emit_float_test.zig`
+> without source split would imply non-existent source files —
+> deferred to when `emit.zig` itself splits.
+>
+> - **Status**: `blocked-by: emit.zig source split (D-052 prologue extract OR follow-up source-family split creating emit_int.zig / emit_float.zig)`
+> - **Discharge trigger**: in the same chunk that splits
+>   `emit.zig` source into `emit_int.zig` + `emit_float.zig`,
+>   rename `emit_test_int.zig` → `emit_int_test.zig` and
+>   `emit_test_float.zig` → `emit_float_test.zig` via git mv +
+>   update root-imports in `src/zwasm.zig`. Mechanical change;
+>   bundled with the source split chunk so the naming
+>   transition is atomic.
+> - **Cross-arch**: same applies to `arm64/emit_test_*.zig` if
+>   parallel files exist; check at discharge time.
+> - **Re-evaluation**: barrier dissolves when D-052's
+>   "approach to 1000-LOC soft cap" trigger fires (per ADR-0030
+>   §"Tier-2 deferral"). The current `emit.zig` is **1983 LOC**
+>   (per ADR-0030 Revision History 2026-05-11), already past
+>   the 1000 soft cap. D-052's trigger has effectively fired;
+>   discharge becomes `now`-eligible whenever the loop has
+>   capacity for the emit.zig source split. **Re-walk this
+>   barrier on every resume per `/continue` Step 0.5** (cheap
+>   grep for `emit_int.zig` existence).
+> - **Refs**: D-052 (prologue extract trigger; primary
+>   dependency), ADR-0030 §"Tier-2 deferral", ADR-0054
+>   §"Naming convention".
 
 Chunks 15-19 are independent at file granularity but **must
 sequence after Track A/C/D implementation chunks** (those

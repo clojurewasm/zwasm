@@ -1,6 +1,11 @@
 # Phase 10 prep — Track C: ADR-0029 path A vs B (skip semantics)
 
-> Status: **DRAFT — awaiting user path decision**
+> Status: **DECIDED — Path B + all 5 sub-decisions confirmed**
+> (Q1=Path B, Q2=warning+count, Q3=filename stub, Q4=defer
+> (c)-path to Phase 10/11 with accountable new debt D-082,
+> Q5=pre-commit gate). See §8 for resolved questions, §9 for
+> decision record.
+> Decision date: 2026-05-12 (user-confirmed in prep mode session)
 > Date: 2026-05-12
 > Author: autonomous `/continue` loop, Phase 10 prep mode
 > Path note: relocated from `private/notes/p10-prep-track-c-…`
@@ -303,22 +308,89 @@ Rationale (Track A/B precedent consistency):
 - Manifest diff is large: ~500 LOC auto-generated. Reviewer can
   verify by diffing the regen output before/after.
 
-## §6. Implementation chunks (if Path B chosen)
+## §6. Implementation chunks — Path B (DECIDED)
 
 Per `phase10_prep.md` §"After all 4 tracks complete", actual
 implementation fires after Track D decision lands too. Path B
-chunks (proposed sequence):
+chunk sequence (4 chunks):
 
-| Chunk        | Scope                                                                                                                                                                                          | Risk          |
-|--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|
-| 9.9-h-21     | `spec_assert_runner.zig` + `wast_runner.zig` (if applicable): prefix-detection logic + bare-`skip` back-compat warning. Test gate green. **No manifest changes yet** — runner accepts both forms. | medium (runner change with both forms working) |
-| 9.9-h-22     | Update `scripts/regen_spec_simd_assert.sh` + `scripts/regen_spec_1_0_assert.sh` to emit prefix-vocab lines; re-run regen; commit manifest deltas. ~500 LOC auto-generated.                       | medium (large diff, but mechanical)            |
-| 9.9-h-23     | `wast_runtime_runner.zig` prefix-aware migration; hand-migrate `test/wasmtime_misc/wast/{embenchen,reftypes}/manifest_runtime.txt`; close **D-072 (b)-path partial** + the 2 skip-ADRs gain effective runner enforcement | medium                                         |
-| 9.9-h-24     | ADR-0029 §"Amendment log" row recording Path B closure; update existing 3 skip-ADRs to reference prefix vocab in §"Implementation"; `check_skip_adrs.sh --gate` extension (if exists); D-073 close + D-072 status update | low                                            |
+| Chunk        | Scope                                                                                                                                                                                                                                                                                       | Risk          |
+|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|
+| 9.9-h-21     | `spec_assert_runner.zig` + `wast_runner.zig` (if applicable): prefix-detection logic (`startsWith "skip-impl "` / `startsWith "skip-adr-"`) + bare-`skip` back-compat **warning + count as skip-impl** (Q2). Test gate green. **No manifest changes yet** — runner accepts both forms.        | medium (runner change with both forms working) |
+| 9.9-h-22     | Update `scripts/regen_spec_simd_assert.sh` + `scripts/regen_spec_1_0_assert.sh` to emit prefix-vocab lines (e.g. `skip-impl nan-or-bad-token <field>`, `skip-adr-skip_text_format_parser directive-assert_malformed-text` per Q3 filename-stub convention); re-run regen; commit manifest deltas. ~500 LOC auto-generated. | medium (large diff, but mechanical) |
+| 9.9-h-23     | `wast_runtime_runner.zig` prefix-aware migration; hand-migrate `test/wasmtime_misc/wast/{embenchen,reftypes}/manifest_runtime.txt` to prefix vocab. **D-072 (a/b)-path discharge** + the 2 currently-NOT-EFFECTIVE skip-ADRs (`skip_embenchen_emcc_env_imports.md`, `skip_externref_segment.md`) gain effective runner enforcement. **File new debt D-082 for (c)-path actual-fixture-fixes** (see §6.1 for accountable scope). | medium |
+| 9.9-h-24     | ADR-0029 §"Amendment log" row recording Path B closure; update existing 3 skip-ADRs to reference prefix vocab in new §"Implementation" subsection; **extend `scripts/check_skip_adrs.sh` as `.githooks/pre-commit`-invoked gate (Q5)** — coherence checks: every `skip-adr-<id>` references existing skip-ADR; every skip-ADR has ≥1 manifest consumer; D-073 close + D-072 (a/b)-status update to "closed (vocab path); (c)-path moved to D-082". | low |
 
 Total: 4 chunks. Sequencing requires Track A/B/D
 implementation chunks to NOT interleave (autonomous loop runs
 each track's implementation in order).
+
+### §6.1 Deferral accountability — new debt D-082 (Q4 discharge spec)
+
+Q4 defers D-072 (c)-path (actual root-cause fixes for the 5
+wasmtime_misc fixtures) out of Phase 9 scope. Per the user's
+"先送り先で責任をもって解消" principle, the deferral lands as
+**new debt D-082** in chunk 9.9-h-23 with the following
+load-bearing spec:
+
+**D-082 row body** (drafted; lands in chunk 9.9-h-23):
+
+> **D-072 (c)-path: actual root-cause fixes for 5 wasmtime_misc
+> realruntime fixtures**. Path B's vocab migration (9.9-h-23)
+> discharged the runner-side enforcement gap; the 5 fixtures
+> now correctly skip via prefix-vocab. This debt tracks the
+> downstream task: **actually fix the fixtures** so the skip
+> ADRs can retire.
+>
+> **Sub-row (a) — 4 embenchen fixtures** (`skip_embenchen_emcc_
+> env_imports.md` scope):
+>   - Status: `blocked-by: Phase 11 embenchen full-perf-suite scope per ADR-0012 §6 "Out of Phase-6 scope" table`
+>   - Discharge trigger: when Phase 11 opens the embenchen
+>     full-perf-suite work item, these 4 fixtures' `emcc env
+>     imports` shim work lands as part of that cohort. Retire
+>     `skip_embenchen_emcc_env_imports.md` in the same chunk
+>     (delete the file, remove prefix lines from manifest).
+>   - Refs: `skip_embenchen_emcc_env_imports.md`, ADR-0012 §6,
+>     ROADMAP Phase 11 row.
+>
+> **Sub-row (b) — 1 externref segment fixture** (`skip_
+> externref_segment.md` scope):
+>   - Status: `blocked-by: externref segment bug root-cause investigation; Phase 11 candidate (alongside embenchen cohort) OR earlier if a related reftype handler change in Phase 10 surfaces it`
+>   - Discharge trigger: case-by-case. If Phase 10 GC work
+>     touches externref segment handling, fix in the same
+>     chunk and retire the skip-ADR. Otherwise defer to Phase
+>     11 alongside (a). Re-evaluate barrier on every resume
+>     per `/continue` Step 0.5 (no "vague blocked-by" allowed;
+>     when Phase 10 GC opens, walk this row's barrier).
+>   - Refs: `skip_externref_segment.md`, ADR-0050 D-2 (the
+>     effectiveness-test that surfaced the original NOT
+>     EFFECTIVE state).
+>
+> **Refs (shared)**: D-072 (closes (a/b)-path at chunk
+> 9.9-h-23; this row inherits the (c)-path scope), ADR-0029,
+> ADR-0050, ADR-0012 §6.
+
+This means **the deferral is committed as a row that the
+autonomous loop's per-resume Step 0.5 will re-evaluate every
+session**. Both sub-rows have concrete barriers with named
+discharge triggers; no "TBD" or "later" phrasing.
+
+### §6.2 Back-compat warning lifecycle
+
+Q2 chose "warning + count as skip-impl" for bare `skip <reason>`
+lines. The warning's purpose evolves across the migration:
+
+- **During 9.9-h-21 → 9.9-h-22 transition**: warning fires on
+  every manifest line (manifests not yet regen'd). Expected
+  noise; gate stays green because skip-impl counts are
+  preserved.
+- **After 9.9-h-22 + 9.9-h-23**: warning should fire on 0
+  lines (regen sweep + hand-migration complete). If any
+  warning fires post-9.9-h-23, that's a missed migration —
+  catch via the `check_skip_adrs.sh` gate added in 9.9-h-24.
+- **Phase 10+**: warning remains as forward-compat protection
+  against future hand-authored manifests that forget the
+  prefix. No removal trigger — permanent feature.
 
 ## §7. Effect on Track D + Phase 10 entry
 
@@ -335,37 +407,31 @@ each track's implementation in order).
   deferral ADRs, Path B saves ~5-10 chunks of work over the
   phase lifetime.
 
-## §8. Open questions for user
+## §8. Resolved questions
 
-1. **Path A vs Path B**: recommended Path B (no-drift principle,
-   Phase 10 workflow benefit, D-072 piggyback discharge). OK to
-   proceed with Path B?
-2. **If Path B**: backward-compat warning behaviour. Should bare
-   `skip <reason>` lines emit a warning AND count as skip-impl
-   (current proposal) OR be rejected outright (force-clean
-   migration)? Recommend warning + count (allows piecemeal
-   migration if any manifest is missed).
-3. **If Path B**: ADR vocabulary precise shape. `skip-adr-<ADR-
-   id>` where `<ADR-id>` is the filename stub
-   (`skip_text_format_parser`) OR the numeric prefix (no
-   numeric prefix exists for skip ADRs today). Recommend
-   filename stub (already established convention).
-4. **D-072 sequencing**: if Path B chosen, chunk 9.9-h-23
-   includes D-072 (b)-path discharge as a bonus. Do you want
-   D-072 (c)-path (actual fixes for the 5 wasmtime_misc
-   fixtures) to land in the same Phase 9 boundary, or defer to
-   Phase 10/11? Recommend defer — (c)-path is substantive code
-   work unrelated to vocab migration.
-5. **Skip-ADR check gate**: extend `check_skip_adrs.sh` to be a
-   pre-commit / pre-push gate (per ADR-0050 D-3), or keep it
-   manual-invoke? Recommend pre-commit gate hook addition
-   alongside the prefix-vocab landing.
+1. **Path A vs Path B**: **Path B** (no-drift principle,
+   Phase 10 workflow benefit, D-072 (a/b) piggyback discharge).
+2. **Back-compat warning behaviour**: warning + count as
+   skip-impl. Permanent feature (forward-compat protection); no
+   removal trigger. See §6.2 for warning-lifecycle.
+3. **ADR-id format**: filename stub (e.g.
+   `skip-adr-skip_text_format_parser` references
+   `.dev/decisions/skip_text_format_parser.md`). Matches existing
+   `skip_*.md` naming convention.
+4. **D-072 (c)-path sequencing**: defer to Phase 10/11 via
+   **new debt D-082** with two sub-rows: (a) 4 embenchen
+   fixtures → Phase 11 (ADR-0012 §6 cohort), (b) 1 externref
+   fixture → Phase 11 default, Phase 10 if GC reftype work
+   surfaces it. See §6.1 for the load-bearing D-082 spec.
+5. **Skip-ADR check gate**: extend `scripts/check_skip_adrs.sh`
+   as `.githooks/pre-commit`-invoked gate. Lands in chunk
+   9.9-h-24 alongside the prefix-vocab final-state checks.
 
 ## §9. Decision record
 
-| Date | Decision | Recorded by |
-|------|----------|-------------|
-| (pending) | TBD | (user review) |
+| Date       | Decision                                                                                                                          | Recorded by              |
+|------------|-----------------------------------------------------------------------------------------------------------------------------------|--------------------------|
+| 2026-05-12 | Q1=Path B (migrate to prefix vocab), Q2=warning+count, Q3=filename stub, Q4=defer (c)-path via D-082, Q5=pre-commit gate          | user (prep mode session) |
 
 ## §10. References
 
