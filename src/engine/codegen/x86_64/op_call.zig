@@ -374,7 +374,31 @@ pub fn marshalCallArgs(
                 fp_arg_slot += 1;
                 if (abi.current_cc == .win64) gpr_arg_slot += 1;
             },
-            .v128, .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:242", 0),
+            // §9.9 / 9.9-h-7 (D-080 discharge): caller-side v128 arg
+            // marshal per SysV §3.2.3 SIMD calling convention (XMM0..
+            // XMM7 are the v128 arg regs). Register-only — spilled
+            // v128 vregs trip D-078 (c) via `resolveXmm`'s explicit
+            // UnsupportedOp, and stack-overflow (≥ 9 v128 args) trips
+            // D-062 via the `fp_arg_slot >= arg_xmms.len` branch
+            // below. Win64 v128-by-pointer (Microsoft x64 ABI) is
+            // out of scope here — that path lives in D-062 too.
+            .v128 => {
+                if (fp_arg_slot >= abi.current.arg_xmms.len) {
+                    // D-062: v128 stack-arg overflow (≥ 9 v128 args).
+                    return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:v128-stack-overflow", 0);
+                }
+                if (abi.current_cc == .win64) {
+                    // D-062: Win64 passes v128 by hidden pointer.
+                    return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:v128-win64", 0);
+                }
+                const dst = abi.current.arg_xmms[fp_arg_slot];
+                const src = try gpr.resolveXmm(alloc, src_vreg);
+                if (src != dst) {
+                    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, src).slice());
+                }
+                fp_arg_slot += 1;
+            },
+            .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:funcref-externref", 0),
         }
     }
 }
@@ -438,7 +462,17 @@ pub fn captureCallResult(
             }
             try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
         },
-        .v128, .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:275", 0),
+        // §9.9 / 9.9-h-7 (D-080 discharge): v128 result via MOVAPS
+        // from XMM0 (= return_xmm). Mirrors the ARM64
+        // `captureCallResult.v128` path. Register-only — spilled
+        // v128 result vregs trip D-078 (c) via `resolveXmm`.
+        .v128 => {
+            const dst = try gpr.resolveXmm(alloc, result);
+            if (dst != abi.return_xmm) {
+                try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, abi.return_xmm).slice());
+            }
+        },
+        .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:capture-funcref-externref", 0),
     }
     try pushed_vregs.append(allocator, result);
 }

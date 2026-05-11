@@ -429,21 +429,36 @@ pub fn emitEndIntra(
             // Pop in reverse (top = else_{N-1}); per-slot MOV
             // is independent because vregs are unique under
             // fresh-vreg-per-op regalloc.
+            //
+            // §9.9 / 9.9-h-7 (D-080 discharge): dispatch on
+            // `alloc.shapeTag(merge_vreg)` so v128 merge results
+            // take the XMM/MOVAPS path instead of the 32-bit GPR
+            // MOV that previously truncated v128 to 32 bits.
+            // Mirrors `arm64/op_control.zig` lines ~423-440. v128
+            // spilled vregs trip D-078 (c) via `resolveXmm`.
             var i: u32 = arity;
             while (i > 0) {
                 i -= 1;
                 const else_result = pushed_vregs.pop().?;
                 const merge_vreg = lbl.merge_top_vregs[i];
-                // D-045 chunk 13b: spill-aware merge MOV. Stage 0 (R10)
-                // carries the else_reg load when spilled; stage 1
-                // (R11) reserves the merge_vreg def slot when spilled
-                // so the two never collide.
-                const else_reg = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, else_result, 0);
-                const merge_reg = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
-                if (merge_reg != else_reg) {
-                    try buf.appendSlice(allocator, inst.encMovRR(.d, merge_reg, else_reg).slice());
+                if (alloc.shapeTag(merge_vreg) == .v128) {
+                    const else_xmm = try gpr.resolveXmm(alloc, else_result);
+                    const merge_xmm = try gpr.resolveXmm(alloc, merge_vreg);
+                    if (merge_xmm != else_xmm) {
+                        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_xmm, else_xmm).slice());
+                    }
+                } else {
+                    // D-045 chunk 13b: spill-aware merge MOV. Stage 0
+                    // (R10) carries the else_reg load when spilled;
+                    // stage 1 (R11) reserves the merge_vreg def slot
+                    // when spilled so the two never collide.
+                    const else_reg = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, else_result, 0);
+                    const merge_reg = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
+                    if (merge_reg != else_reg) {
+                        try buf.appendSlice(allocator, inst.encMovRR(.d, merge_reg, else_reg).slice());
+                    }
+                    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
                 }
-                try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
             }
         }
     }
