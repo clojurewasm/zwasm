@@ -25,31 +25,33 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: §9.9 / 9.9-g-19 (this commit) —
-  ARM64 `extra_consts` infrastructure (ADR-0051) + 4 bitmask
-  emit handlers; D-067 discharged. Mac aarch64 simd_assert
-  11263/3 (-1 simd_boolean.0 compile flip); OrbStack 2 visible
-  FAILs before pre-existing D-077 runner panic.
+- **Latest §9.9 landing**: §9.9 / 9.9-g-20 (this commit) —
+  parser init_expr opcode-walker per Wasm spec §3.3.2.10
+  (8 sites in `decodeGlobals`/`decodeData`/`decodeElement`
+  rewired to `scanInitExpr`); simd_const.388 compile flips
+  PASS but surfaces 4 downstream v128 `global.get` runtime
+  fails — D-078 (b) sharpened. Mac aarch64 simd_assert 11263/3
+  unchanged. OrbStack test-all green.
 - **Active row**: §9.9 (still `[ ]`). Closes when fail = skip = 0
   on the 3-host gate per the row's exit criterion.
 
 ## Next sub-chunk candidates (names only)
 
+- **D-078 (b) v128 global.get/set runtime gap** (both arches)
+  — sharpened 2026-05-11 / 9.9-g-20; runtime path returns
+  garbage on Mac too (not just compile gap on OrbStack).
+  Step 0 survey of wasmtime's GlobalsTable stride/layout
+  + add v128 path to both arches' op_globals.zig.
 - **D-078 (c) simd_bitwise.17 — root cause: x86_64 v128
   XMM spill not yet implemented**. `resolveXmm` rejects
-  spilled v128 vregs (handler not XMM-spill-aware). Discharge
-  needs `xmmLoadSpilledV128` / `xmmStoreSpilledV128` using
-  16-byte MOVUPS + handler updates (~100 sites). Substantial
-  refactor; Step 0 survey + co-deliverable with D-057
-  source-split.
+  spilled v128 vregs. Discharge needs `xmmLoadSpilledV128`
+  / `xmmStoreSpilledV128` using 16-byte MOVUPS + handler
+  updates (~100 sites). Substantial refactor; co-deliverable
+  with D-057 source-split.
 - **D-078 (a) f64x2_extract_lane value mismatch** — JIT-disasm
   spike via debug_jit_auto skill (Mac PASSES, x86_64 only).
 - **D-063 simd_const call_indirect-param Trap** — Mac aarch64
-  v128 args via call_indirect bounds/sig/BLR sequence; static
-  analysis at 9.9-g-1 ruled out marshal-spill alias; lldb spike
-  next per debt.md.
-- **simd_const.388 BadValType (Mac)** — fresh exposure from
-  9.9-g-19 wider validator coverage; needs investigation.
+  v128 args via call_indirect; lldb spike per debt.md.
 - Aggregate `test-spec-simd` into `test-all` (preventive — surfaces
   silent x86_64 simd regressions in autonomous loop gating).
 
@@ -62,8 +64,10 @@ impossibility check (debt.md `blocked-by:` barriers).
   cluster fully discharged at 9.9-g-16; row body retained for
   historical traceability), D-077 (OrbStack simd_assert_runner
   deinit panic — pre-existing), D-078 (residual cluster
-  diagnosis: f64x2_extract_lane spike + simd_bitwise.17 dispatch
-  — (b) v128 globals retired as misdiagnosis at 9.9-g-18).
+  diagnosis: (a) f64x2_extract_lane spike, (b) v128 globals
+  runtime gap — sharpened 9.9-g-20 after simd_const.388 compile
+  flip exposed runtime mismatch on Mac, (c) simd_bitwise.17
+  XMM spill).
 - `blocked-by`: D-007 / D-010 / D-016 / D-018 / D-020 / D-021 /
   D-022 / D-026 / D-028 / D-052 / D-055 / D-057 / D-058 / D-059 /
   D-065 / D-070 / D-072 / D-073 / D-074 / D-075 / D-076 — barrier
