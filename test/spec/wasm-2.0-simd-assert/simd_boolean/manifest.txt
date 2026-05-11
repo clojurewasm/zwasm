@@ -211,12 +211,12 @@ assert_return i16x8_any_true_with_v128.xor v128:00000000000000000000000000000000
 assert_return i32x4_any_true_with_v128.xor v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
 assert_return i32x4_any_true_with_v128.xor v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:0
 assert_return i32x4_any_true_with_v128.xor v128:00000000000000000000000000000000 v128:0000000000000000ffffffff00000000 -> i32:1
-skip-impl v128-param-pending i8x16_any_true_with_v128.bitselect
-skip-impl v128-param-pending i8x16_any_true_with_v128.bitselect
-skip-impl v128-param-pending i16x8_any_true_with_v128.bitselect
-skip-impl v128-param-pending i16x8_any_true_with_v128.bitselect
-skip-impl v128-param-pending i32x4_any_true_with_v128.bitselect
-skip-impl v128-param-pending i32x4_any_true_with_v128.bitselect
+assert_return i8x16_any_true_with_v128.bitselect v128:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa v128:55555555555555555555555555555555 v128:55555555555555555555555555555555 -> i32:0
+assert_return i8x16_any_true_with_v128.bitselect v128:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa v128:55555555555555555555555555555555 v128:5555555555555555555555555555ff55 -> i32:1
+assert_return i16x8_any_true_with_v128.bitselect v128:aa00aa00aa00aa00aa00aa00aa00aa00 v128:55005500550055005500550055005500 v128:55005500550055005500550055005500 -> i32:0
+assert_return i16x8_any_true_with_v128.bitselect v128:aa00aa00aa00aa00aa00aa00aa00aa00 v128:55005500550055005500550055005500 v128:550055005500550055005500ff005500 -> i32:1
+assert_return i32x4_any_true_with_v128.bitselect v128:aa000000aa000000aa000000aa000000 v128:55000000550000005500000055000000 v128:55000000550000005500000055000000 -> i32:0
+assert_return i32x4_any_true_with_v128.bitselect v128:aa000000aa000000aa000000aa000000 v128:55000000550000005500000055000000 v128:5500000055000000ff00000055000000 -> i32:1
 assert_return i8x16_all_true_with_v128.not v128:00000000000000000000000000000000 -> i32:1
 assert_return i8x16_all_true_with_v128.not v128:ffffffffffffffffffffffffffffffff -> i32:0
 assert_return i8x16_all_true_with_v128.not v128:0000000000000000000000000000ff00 -> i32:0
@@ -253,12 +253,12 @@ assert_return i16x8_all_true_with_v128.xor v128:0000ffff0000ffff0000ffff0000ffff
 assert_return i32x4_all_true_with_v128.xor v128:00000000000000000000000000000000 v128:00000000000000000000000000000000 -> i32:0
 assert_return i32x4_all_true_with_v128.xor v128:ffffffffffffffffffffffffffffffff v128:ffffffffffffffffffffffffffffffff -> i32:0
 assert_return i32x4_all_true_with_v128.xor v128:00000000ffffffff00000000ffffffff v128:ffffffff00000000ffffffff00000000 -> i32:1
-skip-impl v128-param-pending i8x16_all_true_with_v128.bitselect
-skip-impl v128-param-pending i8x16_all_true_with_v128.bitselect
-skip-impl v128-param-pending i16x8_all_true_with_v128.bitselect
-skip-impl v128-param-pending i16x8_all_true_with_v128.bitselect
-skip-impl v128-param-pending i32x4_all_true_with_v128.bitselect
-skip-impl v128-param-pending i32x4_all_true_with_v128.bitselect
+assert_return i8x16_all_true_with_v128.bitselect v128:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa v128:55555555555555555555555555555555 v128:55555555555555555555555555555555 -> i32:0
+assert_return i8x16_all_true_with_v128.bitselect v128:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa v128:55555555555555555555555555555555 v128:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -> i32:1
+assert_return i16x8_all_true_with_v128.bitselect v128:aa00aa00aa00aa00aa00aa00aa00aa00 v128:55005500550055005500550055005500 v128:55005500550055005500550055005500 -> i32:0
+assert_return i16x8_all_true_with_v128.bitselect v128:aa00aa00aa00aa00aa00aa00aa00aa00 v128:55005500550055005500550055005500 v128:aa00aa00aa00aa00aa00aa00aa00aa00 -> i32:1
+assert_return i32x4_all_true_with_v128.bitselect v128:aa000000aa000000aa000000aa000000 v128:55000000550000005500000055000000 v128:55000000550000005500000055000000 -> i32:0
+assert_return i32x4_all_true_with_v128.bitselect v128:aa000000aa000000aa000000aa000000 v128:55000000550000005500000055000000 v128:aa000000aa000000aa000000aa000000 -> i32:1
 assert_invalid simd_boolean.2.wasm
 assert_invalid simd_boolean.3.wasm
 assert_invalid simd_boolean.4.wasm

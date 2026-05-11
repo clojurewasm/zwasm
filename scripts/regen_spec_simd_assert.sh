@@ -317,6 +317,49 @@ SUPPORTED = {
     # arm are wired (mechanical), but the SUPPORTED entry is
     # deliberately deferred until the handler bug is fixed.
     # See D-083 for the investigation hand-off.
+    # chunk 9.9-h-28 (v128-param-pending residual discharge):
+    # (v128, v128, v128) → i32 — `simd_boolean`
+    # `*_with_v128.bitselect` (any_true/all_true of bitselect).
+    # Entry helper: `entry.callI32_v128v128v128`.
+    (("v128", "v128", "v128"), ("i32",)): True,
+    # chunk 9.9-h-28: (v128, i32) → i32 — `simd_lane`
+    # `i*x*_replace_lane-{s,u}` (replace lane + extract back) and
+    # `as-i*x*_any_true-operand`. Entry helper: `entry.callI32_v128i32`.
+    (("v128", "i32"), ("i32",)): True,
+    # chunk 9.9-h-28: (v128, i64) → i32 — `simd_lane`
+    # `as-i32x4_any_true-operand2`. Entry helper:
+    # `entry.callI32_v128i64`.
+    (("v128", "i64"), ("i32",)): True,
+    # chunk 9.9-h-28: (v128, i64) → i64 — `simd_lane`
+    # `i64x2_replace_lane`. Entry helper: `entry.callI64_v128i64`.
+    (("v128", "i64"), ("i64",)): True,
+    # chunk 9.9-h-28: (v128, f32) → f32 — `simd_lane`
+    # `f32x4_replace_lane`. Entry helper: `entry.callF32_v128f32`.
+    (("v128", "f32"), ("f32",)): True,
+    # chunk 9.9-h-28: (v128, f64) → f64 — `simd_lane`
+    # `f64x2_replace_lane`. Entry helper: `entry.callF64_v128f64`.
+    (("v128", "f64"), ("f64",)): True,
+    # chunk 9.9-h-28: (v128, v128, v128, v128) → v128 —
+    # `simd_lane` `swizzle-as-i8x16_add-operands` /
+    # `shuffle-as-i8x16_sub-operands`. Entry helper:
+    # `entry.callV128_v128v128v128v128`.
+    (("v128", "v128", "v128", "v128"), ("v128",)): True,
+    # chunk 9.9-h-28: (v128, i32, v128) → v128 — `simd_lane`
+    # `as-v8x16_swizzle-operand`. Entry helper:
+    # `entry.callV128_v128i32v128`.
+    (("v128", "i32", "v128"), ("v128",)): True,
+    # chunk 9.9-h-28: (v128, i32, v128, i32) → v128 — `simd_lane`
+    # `as-v8x16_shuffle-operands` / `as-i*x*_add-operands`. Entry
+    # helper: `entry.callV128_v128i32v128i32`.
+    (("v128", "i32", "v128", "i32"), ("v128",)): True,
+    # chunk 9.9-h-28: (v128, i64, v128, i64) → v128 — `simd_lane`
+    # `as-i64x2_add-operands`. Entry helper:
+    # `entry.callV128_v128i64v128i64`.
+    (("v128", "i64", "v128", "i64"), ("v128",)): True,
+    # chunk 9.9-h-28: (i32, v128) → () — `simd_align`
+    # `v128.store align=16` (address + value, void return). Entry
+    # helper: `entry.callVoid_i32v128`.
+    (("i32", "v128"), ()): True,
 }
 
 lines = []

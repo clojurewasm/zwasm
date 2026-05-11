@@ -727,6 +727,258 @@ pub fn callV128_v128v128i32(
     return @bitCast(result);
 }
 
+/// Wasm spec §4.4 — `(v128, v128, v128) → i32` invocation. §9.9 /
+/// 9.9-h-28 (v128-param-pending residual discharge): enables the
+/// composite `*_with_v128.bitselect` exports from `simd_boolean`
+/// whose body is `(any_true|all_true)(bitselect(v0, v1, v2))` and
+/// reduces to i32. Per AAPCS64 / SysV: a0 → V0/XMM0, a1 → V1/XMM1,
+/// a2 → V2/XMM2; result returns in W0/EAX.
+pub fn callI32_v128v128v128(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: [16]u8,
+    a2: [16]u8,
+) Error!u32 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: Vec, a2: Vec) callconv(.c) u32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), @bitCast(a1), @bitCast(a2));
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4 — `(v128, i32) → i32` invocation. §9.9 / 9.9-h-28
+/// (v128-param-pending residual discharge): enables `simd_lane`
+/// composite exports `i*x*_replace_lane-{s,u}` (replace lane then
+/// extract back as i32) and `as-i*x*_any_true-operand` (any_true
+/// on `v128 op v128(splat i32 arg)`). Per AAPCS64 / SysV: a0 →
+/// V0/XMM0, a1 → W1/ESI (first GPR after `rt`); result returns
+/// in W0/EAX.
+pub fn callI32_v128i32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: u32,
+) Error!u32 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: u32) callconv(.c) u32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4 — `(v128, i64) → i32` invocation. §9.9 / 9.9-h-28
+/// (v128-param-pending residual discharge): enables `simd_lane`
+/// `as-i32x4_any_true-operand2` whose body takes `(v128, i64)` and
+/// returns i32 via `i32x4.any_true ((v128 op v128(splat i64)))`.
+/// Per AAPCS64 / SysV: a0 → V0/XMM0, a1 → X1/RSI; result returns
+/// in W0/EAX.
+pub fn callI32_v128i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: u64,
+) Error!u32 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: u64) callconv(.c) u32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4 — `(v128, i64) → i64` invocation. §9.9 / 9.9-h-28
+/// (v128-param-pending residual discharge): enables `simd_lane`
+/// composite `i64x2_replace_lane` (replace lane with i64 arg, then
+/// `i64x2.extract_lane` it back). Per AAPCS64 / SysV: a0 → V0/XMM0,
+/// a1 → X1/RSI; result returns in X0/RAX.
+pub fn callI64_v128i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: u64,
+) Error!u64 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: u64) callconv(.c) u64;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4 — `(v128, f32) → f32` invocation. §9.9 / 9.9-h-28
+/// (v128-param-pending residual discharge): enables `simd_lane`
+/// composite `f32x4_replace_lane` (replace lane with f32 arg then
+/// extract back). Per AAPCS64 / SysV: a0 → V0/XMM0, a1 → V1/XMM1
+/// (both vector / FP args use the FP register file in declaration
+/// order); result returns in S0/XMM0.
+pub fn callF32_v128f32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: f32,
+) Error!f32 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: f32) callconv(.c) f32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4 — `(v128, f64) → f64` invocation. §9.9 / 9.9-h-28
+/// (v128-param-pending residual discharge): enables `simd_lane`
+/// composite `f64x2_replace_lane`. Per AAPCS64 / SysV: a0 → V0/XMM0,
+/// a1 → V1/XMM1; result returns in D0/XMM0.
+pub fn callF64_v128f64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: f64,
+) Error!f64 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: f64) callconv(.c) f64;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4 — `(v128, v128, v128, v128) → v128` invocation.
+/// §9.9 / 9.9-h-28 (v128-param-pending residual discharge): enables
+/// `simd_lane` `swizzle-as-i8x16_add-operands` /
+/// `shuffle-as-i8x16_sub-operands` which take 4 v128 inputs and
+/// produce a v128 result. Per AAPCS64 / SysV the V0..V7 / XMM0..XMM7
+/// FP register pool covers ≤ 8 v128 args; a0..a3 → V0..V3 /
+/// XMM0..XMM3; result returns in V0/XMM0.
+pub fn callV128_v128v128v128v128(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: [16]u8,
+    a2: [16]u8,
+    a3: [16]u8,
+) Error![16]u8 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: Vec, a2: Vec, a3: Vec) callconv(.c) Vec;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), @bitCast(a1), @bitCast(a2), @bitCast(a3));
+    if (rt.trap_flag != 0) return Error.Trap;
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(v128, i32, v128) → v128` invocation. §9.9 /
+/// 9.9-h-28 (v128-param-pending residual discharge): enables
+/// `simd_lane` `as-v8x16_swizzle-operand` (swizzle takes (v128, v128)
+/// but the export wraps it with an i32 arg in the middle threading
+/// the lane index). Per AAPCS64 / SysV: a0 → V0/XMM0, a1 → W1/ESI
+/// (first GPR after `rt`), a2 → V1/XMM1 (next vector slot); result
+/// returns in V0/XMM0.
+pub fn callV128_v128i32v128(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: u32,
+    a2: [16]u8,
+) Error![16]u8 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: u32, a2: Vec) callconv(.c) Vec;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), a1, @bitCast(a2));
+    if (rt.trap_flag != 0) return Error.Trap;
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(v128, i32, v128, i32) → v128` invocation.
+/// §9.9 / 9.9-h-28 (v128-param-pending residual discharge): enables
+/// `simd_lane` `as-v8x16_shuffle-operands` /
+/// `as-i*x*_add-operands` (4-arg composite that interleaves two
+/// (v128, i32) `replace_lane` pairs into a single `add`). Per
+/// AAPCS64 / SysV: a0 → V0/XMM0, a1 → W1/ESI, a2 → V1/XMM1, a3 →
+/// W2/EDX; result returns in V0/XMM0.
+pub fn callV128_v128i32v128i32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: u32,
+    a2: [16]u8,
+    a3: u32,
+) Error![16]u8 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: u32, a2: Vec, a3: u32) callconv(.c) Vec;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), a1, @bitCast(a2), a3);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(v128, i64, v128, i64) → v128` invocation.
+/// §9.9 / 9.9-h-28 (v128-param-pending residual discharge): enables
+/// `simd_lane` `as-i64x2_add-operands` (i64-typed sibling of
+/// `as-i32x4_add-operands`; two `(v128, i64)` `replace_lane` pairs
+/// composed into `i64x2.add`). Per AAPCS64 / SysV: a0 → V0/XMM0,
+/// a1 → X1/RSI, a2 → V1/XMM1, a3 → X2/RDX; result returns in
+/// V0/XMM0.
+pub fn callV128_v128i64v128i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: [16]u8,
+    a1: u64,
+    a2: [16]u8,
+    a3: u64,
+) Error![16]u8 {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: Vec, a1: u64, a2: Vec, a3: u64) callconv(.c) Vec;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, @bitCast(a0), a1, @bitCast(a2), a3);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(i32, v128) → ()` invocation. §9.9 / 9.9-h-28
+/// (v128-param-pending residual discharge): enables `simd_align`
+/// `v128.store align=N` fixtures (store address + v128 value, void
+/// return). Per AAPCS64 / SysV: a0 → W1/ESI (i32 address), a1 →
+/// V0/XMM0 (v128 value uses first FP slot); no result. The GPR /
+/// FP register pools are independent so the i32 arg doesn't push
+/// the v128 down the FP pool.
+pub fn callVoid_i32v128(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u32,
+    a1: [16]u8,
+) Error!void {
+    rt.trap_flag = 0;
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (rt: *const JitRuntime, a0: u32, a1: Vec) callconv(.c) void;
+    const f = module.entry(func_idx, Fn);
+    f(rt, a0, @bitCast(a1));
+    if (rt.trap_flag != 0) return Error.Trap;
+}
+
 // ============================================================
 // Tests
 // ============================================================

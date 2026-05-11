@@ -536,6 +536,15 @@ fn runAssertReturn(
             };
             return true;
         }
+        // chunk 9.9-h-28 (v128-param-pending residual discharge):
+        // (i32, v128) → () — `simd_align` `v128.store align=16`.
+        if (n_args == 2 and args[0] == .i32 and args[1] == .v128) {
+            entry.callVoid_i32v128(compiled.module, func_idx, &rt, args[0].i32, args[1].v128) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+            return true;
+        }
         try stdout.print("FAIL  {s}: void-result with {d} args unsupported for {s}\n", .{ name, n_args, fn_name });
         return false;
     }
@@ -683,6 +692,57 @@ fn runAssertReturn(
                 return false;
             });
         }
+        // chunk 9.9-h-28 (v128-param-pending residual discharge):
+        // (v128, v128, v128) → i32 — `simd_boolean`
+        // `*_with_v128.bitselect` (any_true/all_true of bitselect).
+        if (n_args == 3 and args[0] == .v128 and args[1] == .v128 and args[2] == .v128 and result_kind == .i32) {
+            break :blk @as(u64, entry.callI32_v128v128v128(compiled.module, func_idx, &rt, args[0].v128, args[1].v128, args[2].v128) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            });
+        }
+        // chunk 9.9-h-28: (v128, i32) → i32 — `simd_lane`
+        // `i*x*_replace_lane-{s,u}` / `as-i*x*_any_true-operand`.
+        if (n_args == 2 and args[0] == .v128 and args[1] == .i32 and result_kind == .i32) {
+            break :blk @as(u64, entry.callI32_v128i32(compiled.module, func_idx, &rt, args[0].v128, args[1].i32) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            });
+        }
+        // chunk 9.9-h-28: (v128, i64) → i32 — `simd_lane`
+        // `as-i32x4_any_true-operand2`.
+        if (n_args == 2 and args[0] == .v128 and args[1] == .i64 and result_kind == .i32) {
+            break :blk @as(u64, entry.callI32_v128i64(compiled.module, func_idx, &rt, args[0].v128, args[1].i64) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            });
+        }
+        // chunk 9.9-h-28: (v128, i64) → i64 — `simd_lane`
+        // `i64x2_replace_lane`.
+        if (n_args == 2 and args[0] == .v128 and args[1] == .i64 and result_kind == .i64) {
+            break :blk entry.callI64_v128i64(compiled.module, func_idx, &rt, args[0].v128, args[1].i64) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+        }
+        // chunk 9.9-h-28: (v128, f32) → f32 — `simd_lane`
+        // `f32x4_replace_lane`.
+        if (n_args == 2 and args[0] == .v128 and args[1] == .f32 and result_kind == .f32) {
+            const r = entry.callF32_v128f32(compiled.module, func_idx, &rt, args[0].v128, @as(f32, @bitCast(args[1].f32))) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+            break :blk @as(u64, @as(u32, @bitCast(r)));
+        }
+        // chunk 9.9-h-28: (v128, f64) → f64 — `simd_lane`
+        // `f64x2_replace_lane`.
+        if (n_args == 2 and args[0] == .v128 and args[1] == .f64 and result_kind == .f64) {
+            const r = entry.callF64_v128f64(compiled.module, func_idx, &rt, args[0].v128, @as(f64, @bitCast(args[1].f64))) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+            break :blk @as(u64, @bitCast(r));
+        }
         try stdout.print("FAIL  {s}: scalar-result unsupported (n_args={d}, shape) for {s}({s}) -> {s}\n", .{ name, n_args, fn_name, args_s, results_s });
         return false;
     };
@@ -774,6 +834,39 @@ fn invokeV128(
     // chunk 9.9-h-27: (v128, v128, i32) → v128 — select_v128_i32.
     if (n_args == 3 and args[0] == .v128 and args[1] == .v128 and args[2] == .i32) {
         return entry.callV128_v128v128i32(compiled.module, func_idx, rt, args[0].v128, args[1].v128, args[2].i32) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    // chunk 9.9-h-28 (v128-param-pending residual discharge):
+    // (v128, v128, v128, v128) → v128 — `simd_lane`
+    // `swizzle-as-i8x16_add-operands` / `shuffle-as-i8x16_sub-operands`.
+    if (n_args == 4 and args[0] == .v128 and args[1] == .v128 and args[2] == .v128 and args[3] == .v128) {
+        return entry.callV128_v128v128v128v128(compiled.module, func_idx, rt, args[0].v128, args[1].v128, args[2].v128, args[3].v128) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    // chunk 9.9-h-28: (v128, i32, v128) → v128 — `simd_lane`
+    // `as-v8x16_swizzle-operand`.
+    if (n_args == 3 and args[0] == .v128 and args[1] == .i32 and args[2] == .v128) {
+        return entry.callV128_v128i32v128(compiled.module, func_idx, rt, args[0].v128, args[1].i32, args[2].v128) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    // chunk 9.9-h-28: (v128, i32, v128, i32) → v128 — `simd_lane`
+    // `as-v8x16_shuffle-operands` / `as-i*x*_add-operands`.
+    if (n_args == 4 and args[0] == .v128 and args[1] == .i32 and args[2] == .v128 and args[3] == .i32) {
+        return entry.callV128_v128i32v128i32(compiled.module, func_idx, rt, args[0].v128, args[1].i32, args[2].v128, args[3].i32) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    // chunk 9.9-h-28: (v128, i64, v128, i64) → v128 — `simd_lane`
+    // `as-i64x2_add-operands`.
+    if (n_args == 4 and args[0] == .v128 and args[1] == .i64 and args[2] == .v128 and args[3] == .i64) {
+        return entry.callV128_v128i64v128i64(compiled.module, func_idx, rt, args[0].v128, args[1].i64, args[2].v128, args[3].i64) catch |err| {
             try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
             return null;
         };

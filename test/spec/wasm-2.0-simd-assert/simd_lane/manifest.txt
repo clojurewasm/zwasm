@@ -365,18 +365,18 @@ assert_return i16x8_extract_lane_s v128:00000000000000000000000000000000 v128:ff
 assert_return i16x8_extract_lane_u v128:00000000000000000000000000000000 v128:ffffffffffffffffffffffffffffffff -> v128:ffff0000000000000000000000000000
 assert_return i32x4_extract_lane v128:00000000000000000000000000000000 v128:00000100ffffffffffffffffffffffff -> v128:00000100000000000000000000000000
 assert_return f32x4_extract_lane v128:00000000000000000000000000000000 v128:9976967e0000c07f0000c07f0000c07f -> v128:9976967e000000000000000000000000
-skip-impl v128-param-pending i8x16_replace_lane-s
-skip-impl v128-param-pending i8x16_replace_lane-u
-skip-impl v128-param-pending i16x8_replace_lane-s
-skip-impl v128-param-pending i16x8_replace_lane-u
-skip-impl v128-param-pending i32x4_replace_lane
-skip-impl v128-param-pending f32x4_replace_lane
+assert_return i8x16_replace_lane-s v128:00000000000000000000000000000000 i32:255 -> i32:4294967295
+assert_return i8x16_replace_lane-u v128:00000000000000000000000000000000 i32:255 -> i32:255
+assert_return i16x8_replace_lane-s v128:00000000000000000000000000000000 i32:65535 -> i32:4294967295
+assert_return i16x8_replace_lane-u v128:00000000000000000000000000000000 i32:65535 -> i32:65535
+assert_return i32x4_replace_lane v128:00000000000000000000000000000000 i32:4294967295 -> i32:4294967295
+assert_return f32x4_replace_lane v128:00000000000000000000000000000000 f32:1067450368 -> f32:1067450368
 assert_return i64x2_extract_lane v128:00000000000000000000000000000000 v128:ffffffffffffffffffffffffffffffff -> v128:ffffffffffffffff0000000000000000
 assert_return f64x2_extract_lane v128:00000000000000000000000000000000 v128:a0c8eb85f3cce17f000000000000f87f -> v128:a0c8eb85f3cce17f0000000000000000
-skip-impl v128-param-pending i64x2_replace_lane
-skip-impl v128-param-pending f64x2_replace_lane
-skip-impl v128-param-pending as-v8x16_swizzle-operand
-skip-impl v128-param-pending as-v8x16_shuffle-operands
+assert_return i64x2_replace_lane v128:00000000000000000000000000000000 i64:18446744073709551615 -> i64:18446744073709551615
+assert_return f64x2_replace_lane v128:00000000000000000000000000000000 f64:4612811918334230528 -> f64:4612811918334230528
+assert_return as-v8x16_swizzle-operand v128:000102030405060708090a0b0c0d0e0f i32:255 v128:ff0f0e0d0c0b0a090807060504030201 -> v128:000f0e0d0c0b0a090807060504030201
+assert_return as-v8x16_shuffle-operands v128:00ff00ff0fff00ffffff00ff7fff00ff i32:1 v128:550055005500550055005500550155ff i32:0 -> v128:55ff55ff55ff55ff55ff55ff55ff55ff
 module simd_lane.138.wasm
 assert_return as-i8x16_splat-operand v128:ff000000000000000000000000000000 -> v128:ffffffffffffffffffffffffffffffff
 assert_return as-i16x8_splat-operand v128:ffffffffffffffff0000000000000000 -> v128:ffffffffffffffffffffffffffffffff
@@ -384,16 +384,16 @@ assert_return as-i32x4_splat-operand v128:00000100000000000000000000000000 -> v1
 assert_return as-f32x4_splat-operand v128:c3f548400000c07f0000c07f0000c07f -> v128:c3f54840c3f54840c3f54840c3f54840
 assert_return as-i64x2_splat-operand v128:ffffffffffffffff0000000000000000 -> v128:ffffffffffffffffffffffffffffffff
 assert_return as-f64x2_splat-operand v128:000000000000f07f000000000000f87f -> v128:000000000000f07f000000000000f07f
-skip-impl v128-param-pending as-i8x16_add-operands
-skip-impl v128-param-pending as-i16x8_add-operands
-skip-impl v128-param-pending as-i32x4_add-operands
-skip-impl v128-param-pending as-i64x2_add-operands
-skip-impl v128-param-pending swizzle-as-i8x16_add-operands
-skip-impl v128-param-pending shuffle-as-i8x16_sub-operands
-skip-impl v128-param-pending as-i8x16_any_true-operand
-skip-impl v128-param-pending as-i16x8_any_true-operand
-skip-impl v128-param-pending as-i32x4_any_true-operand1
-skip-impl v128-param-pending as-i32x4_any_true-operand2
+assert_return as-i8x16_add-operands v128:ff02030405060708090a0b0c0d0e0f10 i32:1 v128:100f0e0d0c0b0a0908070605040302ff i32:1 -> v128:11111111111111111111111111111111
+assert_return as-i16x8_add-operands v128:ffff0400090010001900240031004000 i32:1 v128:4000310024001900100009000400ffff i32:1 -> v128:410035002d00290029002d0035004100
+assert_return as-i32x4_add-operands v128:ffffffff080000001b00000040000000 i32:1 v128:400000001b00000008000000ffffffff i32:1 -> v128:41000000230000002300000041000000
+assert_return as-i64x2_add-operands v128:ffffffffffffffff0800000000000000 i64:1 v128:40000000000000001b00000000000000 i64:1 -> v128:41000000000000000900000000000000
+assert_return swizzle-as-i8x16_add-operands v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:000102030405060708090a0b0c0d0e0f v128:000102030405060708090a0b0c0d0e0f v128:0f0e0d0c0b0a09080706050403020100 -> v128:ffffffffffffffffffffffffffffffff
+assert_return shuffle-as-i8x16_sub-operands v128:000102030405060708090a0b0c0d0e0f v128:0f0e0d0c0b0a09080706050403020100 v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:0f0e0d0c0b0a09080706050403020100 -> v128:f1f3f5f7f9fbfdff01030507090b0d0f
+assert_return as-i8x16_any_true-operand v128:00000000000000000000000000000000 i32:1 -> i32:1
+assert_return as-i16x8_any_true-operand v128:00000000000000000000000000000000 i32:1 -> i32:1
+assert_return as-i32x4_any_true-operand1 v128:01000000000000000000000000000000 i32:0 -> i32:0
+assert_return as-i32x4_any_true-operand2 v128:01000000000000000000000000000000 i64:0 -> i32:0
 assert_return swizzle-as-i8x16_all_true-operands v128:0102030405060708090a0b0c0d0e0f10 v128:000102030405060708090a0b0c0d0e0f -> i32:1
 assert_return swizzle-as-i8x16_all_true-operands v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:000102030405060708090a0b0c0d0e10 -> i32:0
 assert_return shuffle-as-i8x16_any_true-operands v128:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff v128:000102030405060708090a0b0c0d0e0f -> i32:1
