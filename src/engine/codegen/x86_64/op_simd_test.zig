@@ -1320,6 +1320,67 @@ test "emitF64x2ReplaceLane: lane 1 → MOVAPS + MOVLHPS (writes value to dst's h
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
+test "emitF64x2ReplaceLane: dst aliases value — stash value to XMM7 (D-078 (a) fix)" {
+    // slot_ids = {0, 1, 1} → vreg 0 (vec) → XMM8, vreg 1 (value) → XMM9,
+    // vreg 2 (result) → XMM9 (LIFO-reuse after value's slot is freed).
+    // Pre-fix: MOVAPS dst, vec clobbered value before MOVSD dst, value
+    // read it; symptom on simd_lane.137 / f64x2_extract_lane was
+    // result = vec instead of (value_lo, vec_hi).
+    var slot_ids = [_]u16{ 0, 1, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 3,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0); // vec
+    try pushed.append(testing.allocator, 1); // value
+    var next_vreg: u32 = 2;
+
+    try op_simd.emitF64x2ReplaceLane(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    // Pre-stash value (XMM9) into XMM7 before the vec MOVAPS overwrites
+    // it; subsequent MOVSD reads from XMM7 instead of the clobbered XMM9.
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm7, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovsdXmmXmm(.xmm9, .xmm7).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
+test "emitF32x4ReplaceLane: dst aliases value — stash value to XMM7" {
+    var slot_ids = [_]u16{ 0, 1, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slot_ids,
+        .n_slots = 3,
+        .max_reg_slots_gpr = 4,
+        .max_reg_slots_fp = 6,
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var pushed: std.ArrayList(u32) = .empty;
+    defer pushed.deinit(testing.allocator);
+    try pushed.append(testing.allocator, 0); // vec
+    try pushed.append(testing.allocator, 1); // value
+    var next_vreg: u32 = 2;
+
+    try op_simd.emitF32x4ReplaceLane(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(testing.allocator);
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm7, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encInsertps(.xmm9, .xmm7, 0).slice());
+    try testing.expectEqualSlices(u8, expected.items, buf.items);
+}
+
 test "emitF32x4Splat: PSHUFD dst, src, 0x00" {
     var slot_ids = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{

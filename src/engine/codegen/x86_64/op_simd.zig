@@ -2903,14 +2903,28 @@ pub fn emitF64x2ReplaceLane(
     const vec_x = try gpr.resolveXmm(alloc, vec_v);
     const dst_x = try gpr.resolveXmm(alloc, result_v);
 
+    // D-066 mirror class (§9.9 / 9.9-h-5; D-078 (a) discharge):
+    // when regalloc's LIFO slot-reuse aliases `dst == value &&
+    // dst != vec`, the unconditional `MOVAPS dst, vec` clobbers
+    // value before the subsequent MOVSD/MOVLHPS reads it. Stash
+    // value through XMM7 (project-reserved scratch outside any
+    // popcnt sequence; mutually exclusive with the dst==vec
+    // case since that takes the MOVAPS-elide branch). Symptom
+    // pre-fix on simd_lane.137 / `f64x2_extract_lane`: result
+    // returned vec unchanged (= 0...0) instead of (value, vec_hi).
+    var value_for_op = value_x;
+    if (dst_x != vec_x and dst_x == value_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, value_x).slice());
+        value_for_op = .xmm7;
+    }
     if (dst_x != vec_x) {
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
     }
     const lane: u1 = @intCast(payload & 0b1);
     if (lane == 0) {
-        try buf.appendSlice(allocator, inst.encMovsdXmmXmm(dst_x, value_x).slice());
+        try buf.appendSlice(allocator, inst.encMovsdXmmXmm(dst_x, value_for_op).slice());
     } else {
-        try buf.appendSlice(allocator, inst.encMovlhps(dst_x, value_x).slice());
+        try buf.appendSlice(allocator, inst.encMovlhps(dst_x, value_for_op).slice());
     }
     try pushed_vregs.append(allocator, result_v);
 }
@@ -3000,12 +3014,21 @@ pub fn emitF32x4ReplaceLane(
     const vec_x = try gpr.resolveXmm(alloc, vec_v);
     const dst_x = try gpr.resolveXmm(alloc, result_v);
 
+    // D-066 mirror class (§9.9 / 9.9-h-5; bug-fix-time grep
+    // sibling of `emitF64x2ReplaceLane`): when `dst == value &&
+    // dst != vec`, the MOVAPS-from-vec clobbers value before
+    // INSERTPS reads it. Stash value through XMM7 first.
+    var value_for_op = value_x;
+    if (dst_x != vec_x and dst_x == value_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, value_x).slice());
+        value_for_op = .xmm7;
+    }
     if (dst_x != vec_x) {
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
     }
     const lane: u8 = @intCast(payload & 0b11);
     const imm8: u8 = lane << 4;
-    try buf.appendSlice(allocator, inst.encInsertps(dst_x, value_x, imm8).slice());
+    try buf.appendSlice(allocator, inst.encInsertps(dst_x, value_for_op, imm8).slice());
     try pushed_vregs.append(allocator, result_v);
 }
 
