@@ -25,17 +25,18 @@
   §9.5 [x], §9.6 [x], §9.7 [x], §9.8 [x] (absorbed per
   ADR-0044), **§9.9 in-flight**.
 - **Branch**: `zwasm-from-scratch`.
-- **Latest §9.9 landing**: §9.9 / 9.9-h-4 — D-063 discharge.
-  Root cause: `simd_assert_runner.zig` left
-  `funcptr_base / typeidx_base = undefined, table_size = 0`,
-  so the call_indirect bounds check always trapped. NOT a JIT
-  emit bug. New `runner.applyTableInit` helper walks element
-  segments + populates caller-owned scratch funcptrs/typeidxs
-  (parallel to 9.9-h-2's globals-init helper). Mac aarch64
-  simd_assert: **11268 PASS / 2 FAIL → 11270 PASS / 0 FAIL**.
-  OrbStack visible FAILs unchanged (D-078 a + c + D-077 panic
-  — all pre-existing). Mac unit 1575/1587 (12 skip); lint
-  clean.
+- **Latest §9.9 landing**: §9.9 / 9.9-h-5 — D-078 (a) discharge.
+  Root cause was in `emitF64x2ReplaceLane`, NOT extract_lane
+  (debt narrative's static-analysis was right that extract was
+  correct; the fixture body uses both, exported under
+  extract_lane name). D-066 mirror class: `dst == value &&
+  dst != vec` aliasing → MOVAPS-from-vec clobbered value before
+  MOVSD/MOVLHPS read. Fix stashes value via XMM7. Sibling
+  `emitF32x4ReplaceLane` got the same fix (per bug_fix_survey
+  grep). 2 new alias regression tests added. OrbStack visible
+  FAILs: simd_lane f64x2_extract_lane cleared; only
+  simd_bitwise.17 (D-078 c) + D-077 panic remain. Mac
+  unchanged at 11270/0 FAIL. Mac unit 1577/1589.
 - **Active row**: §9.9 (still `[ ]`). Mac is at FAIL=0 / SKIP>0;
   the exit criterion is fail=skip=0 across the 3-host gate, so
   skips remain (assert_invalid SKIP-VALIDATOR-GAP cluster +
@@ -44,16 +45,12 @@
 
 ## Next sub-chunk candidates (names only)
 
-- **D-078 (a) f64x2_extract_lane value mismatch** — JIT-disasm
-  spike via debug_jit_auto skill (Mac PASSES, x86_64 only).
-  Only Mac-visible blocker is now non-FAIL skips; OrbStack
-  carries this as 1 of its 2 remaining visible FAILs.
-- **D-078 (c) simd_bitwise.17** — root cause: x86_64 v128 XMM
-  spill not yet implemented. `resolveXmm` rejects spilled v128
-  vregs. Needs `xmmLoadSpilledV128` + `xmmStoreSpilledV128`
-  (16-byte MOVUPS) + ~100 handler updates. Substantial refactor;
-  co-deliverable with D-057 source-split. The other of the
-  OrbStack 2 visible FAILs.
+- **D-078 (c) simd_bitwise.17** — x86_64 v128 XMM spill not yet
+  implemented. `resolveXmm` rejects spilled v128 vregs. Needs
+  `xmmLoadSpilledV128` + `xmmStoreSpilledV128` (16-byte MOVUPS)
+  + ~100 handler updates. Substantial refactor; co-deliverable
+  with D-057 source-split. **Last remaining OrbStack visible
+  FAIL** modulo the D-077 panic.
 - **D-077 OrbStack runner deinit panic** — `jit_mem.free` munmap
   INVAL. Pre-existing. Cleaning this restores the structured
   `simd_assert_runner: P passed, F failed, S skipped` summary
@@ -61,9 +58,14 @@
   be derived via `grep -c ^FAIL`).
 - Aggregate `test-spec-simd` into `test-all` (preventive — surfaces
   silent x86_64 simd regressions in autonomous loop gating).
+- **D-066 alias-stash pattern audit** — `bug_fix_survey.md` grep
+  surfaced ~20 sites in x86_64/op_simd.zig with the
+  `encMovapsXmmXmm(dst, …)` shape. Several may have latent
+  `dst == src2` alias bugs that no current fixture exercises;
+  systematic audit + preventive stash-or-prove safe.
 - §9.9 exit-criterion narrowing: with Mac at 0 FAIL, the
-  remaining gate work is OrbStack-only (2 FAILs) plus the
-  SKIP-cluster review.
+  remaining gate work is OrbStack-only (1 visible FAIL +
+  D-077) plus the SKIP-cluster review.
 
 Pick by: live evidence from Step 2's script + structural
 impossibility check (debt.md `blocked-by:` barriers).
