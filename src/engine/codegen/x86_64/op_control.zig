@@ -662,4 +662,10 @@ pub fn emitEndIntra(
     if (pushed_vregs.items.len > new_len) {
         pushed_vregs.shrinkRetainingCapacity(new_len);
     }
+    // D-093 (d-5): pad with placeholder vreg 0 when loop fall-
+    // through is dead. See `arm64/op_control.zig:emitEndIntra`
+    // for the rationale (`loop.wast:cont-inner`).
+    while (pushed_vregs.items.len < new_len) {
+        try pushed_vregs.append(allocator, 0);
+    }
 }

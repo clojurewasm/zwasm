@@ -1405,7 +1405,17 @@ pub fn compile(
                     continue;
                 }
                 // Function-level end (labels stack is empty).
-                if (pushed_vregs.items.len > 0 and func.sig.results.len > 0) {
+                // D-093 (d-5): when the function body terminates
+                // via a dead-fall-through loop (the function
+                // never returns at runtime; an infinite loop or
+                // br target above the function), pushed_vregs
+                // may carry a placeholder vreg 0 with no
+                // allocation entry. The marshal code would
+                // be unreachable at runtime regardless, so skip
+                // when top_vreg has no slot entry.
+                if (pushed_vregs.items.len > 0 and func.sig.results.len > 0 and
+                    pushed_vregs.items[pushed_vregs.items.len - 1] < alloc.slots.len)
+                {
                     const top_vreg = pushed_vregs.items[pushed_vregs.items.len - 1];
                     const result_kind = func.sig.results[0];
                     switch (result_kind) {

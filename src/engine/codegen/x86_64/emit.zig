@@ -1585,9 +1585,15 @@ pub fn compile(
                     try op_control.emitEndIntra(allocator, &buf, &pushed_vregs, alloc, &labels, spill_base_off);
                     continue;
                 }
-                if (pushed_vregs.items.len > 0 and func.sig.results.len > 0) {
+                // D-093 (d-5): function-level end may inherit a
+                // placeholder vreg from a dead-fall-through loop
+                // (`loop.wast:cont-inner` shape). The marshal is
+                // unreachable at runtime; skip when top_vreg has
+                // no slot entry.
+                if (pushed_vregs.items.len > 0 and func.sig.results.len > 0 and
+                    pushed_vregs.items[pushed_vregs.items.len - 1] < alloc.slots.len)
+                {
                     const top = pushed_vregs.items[pushed_vregs.items.len - 1];
-                    if (top >= alloc.slots.len) return Error.SlotOverflow;
                     switch (func.sig.results[0]) {
                         .i32, .funcref, .externref => {
                             const src = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, top, 0);

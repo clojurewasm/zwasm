@@ -697,4 +697,19 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     if (ctx.pushed_vregs.items.len > new_len) {
         ctx.pushed_vregs.shrinkRetainingCapacity(new_len);
     }
+    // D-093 (d-5): `.loop` fall-through is dead when the loop body
+    // ends with a backward `br` (= unconditional continue). The
+    // operand stack reaches loop-end with `< entry + arity`
+    // entries; the validator accepts via polymorphic-stack but
+    // emit's downstream pops need `arity` placeholder slots.
+    // Surfaced by `loop.wast:cont-inner` (`loop (result i32)
+    // (br 0)` shape inside `i32.add` operand position; post-loop
+    // i32.add pops the loop's result but pushed_vregs is empty
+    // → AllocationMissing). Vreg 0 is always allocatable per
+    // regalloc invariants; the generated post-loop code reading
+    // these placeholders is unreachable at runtime so the values
+    // don't matter.
+    while (ctx.pushed_vregs.items.len < new_len) {
+        try ctx.pushed_vregs.append(ctx.allocator, 0);
+    }
 }
