@@ -881,6 +881,19 @@ pub fn compile(
             .@"f64.store",
             => try op_memory.emitMemOp(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.op, ins.payload, func.func_idx),
             .@"memory.fill" => try op_memory.emitMemoryFill(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx),
+            // §9.9 / 9.9-m-3a: data.drop / elem.drop — write 1 to
+            // the dropped-flag byte. No operands; no result. The
+            // validator already bounds-checks idx.
+            //   MOV r10, [r15 + ptr_off]      ; load base
+            //   MOV BYTE [r10 + idx], 1
+            .@"data.drop" => {
+                try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.r10, abi.runtime_ptr_save_gpr, jit_abi.data_dropped_ptr_off).slice());
+                try buf.appendSlice(allocator, inst.encStoreImm8MemBaseDisp32(.r10, @intCast(ins.payload), 1).slice());
+            },
+            .@"elem.drop" => {
+                try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.r10, abi.runtime_ptr_save_gpr, jit_abi.elem_dropped_ptr_off).slice());
+                try buf.appendSlice(allocator, inst.encStoreImm8MemBaseDisp32(.r10, @intCast(ins.payload), 1).slice());
+            },
             .@"memory.copy" => try op_memory.emitMemoryCopy(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx),
             .@"global.get" => try op_globals.emitGlobalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload, globals_offsets, globals_valtypes),
             .@"global.set" => try op_globals.emitGlobalSet(allocator, &buf, alloc, &pushed_vregs, spill_base_off, ins.payload, globals_offsets, globals_valtypes),

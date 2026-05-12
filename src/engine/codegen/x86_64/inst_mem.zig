@@ -523,6 +523,23 @@ pub fn encLeaR64BaseRspDisp32(dst: Gpr, disp: i32) EncodedInsn {
     return enc;
 }
 
+/// `MOV BYTE PTR [base + disp32], imm8` (opcode 0xC6 /0).
+/// Used by `data.drop` / `elem.drop` (§9.9 / 9.9-m-3a) to write
+/// `1` into the dropped-flag table.
+pub fn encStoreImm8MemBaseDisp32(base: Gpr, disp: i32, imm: u8) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (base.extBit() == 1) enc.push(encodeRex(false, 0, 0, 1));
+    enc.push(0xC6);
+    enc.push(encodeModrm(0b10, 0, base.low3())); // /0 in reg field
+    const ud: u32 = @bitCast(disp);
+    enc.push(@truncate(ud));
+    enc.push(@truncate(ud >> 8));
+    enc.push(@truncate(ud >> 16));
+    enc.push(@truncate(ud >> 24));
+    enc.push(imm);
+    return enc;
+}
+
 /// `MOV DWORD PTR [base + disp32], imm32` (opcode 0xC7 /0).
 /// Used by trap stub to set `JitRuntime.trap_flag = 1` per
 /// ADR-0017 sub-7.5b-ii equivalent.

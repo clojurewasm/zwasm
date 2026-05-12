@@ -245,6 +245,7 @@ pub const encLeaR64BaseDisp8 = inst_mem.encLeaR64BaseDisp8;
 pub const encLeaR64BaseDisp32 = inst_mem.encLeaR64BaseDisp32;
 pub const encLeaR64BaseRspDisp32 = inst_mem.encLeaR64BaseRspDisp32;
 pub const encStoreImm32MemDisp32 = inst_mem.encStoreImm32MemDisp32;
+pub const encStoreImm8MemBaseDisp32 = inst_mem.encStoreImm8MemBaseDisp32;
 pub const encStoreR32MemRBP = inst_mem.encStoreR32MemRBP;
 pub const encLoadR32MemRBP = inst_mem.encLoadR32MemRBP;
 pub const encStoreR64MemRBP = inst_mem.encStoreR64MemRBP;

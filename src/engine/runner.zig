@@ -652,6 +652,11 @@ const RuntimeOwned = struct {
     // (FuncEntity.runtime, .func_idx) are not exercised on this
     // code path (no full Runtime; interp uses its own allocation).
     func_entities: []@import("../runtime/instance/func.zig").FuncEntity,
+    // §9.9 / 9.9-m-3a: parallel data/elem segment "dropped"
+    // flag arrays. bool stored as u8 (matches extern struct
+    // layout the JIT expects).
+    data_dropped: []u8,
+    elem_dropped: []u8,
 
     fn deinit(self: *RuntimeOwned, allocator: Allocator) void {
         if (self.memory.len > 0) allocator.free(self.memory);
@@ -660,6 +665,8 @@ const RuntimeOwned = struct {
         allocator.free(self.funcptrs);
         allocator.free(self.typeidxs);
         if (self.func_entities.len > 0) allocator.free(self.func_entities);
+        if (self.data_dropped.len > 0) allocator.free(self.data_dropped);
+        if (self.elem_dropped.len > 0) allocator.free(self.elem_dropped);
     }
 };
 
@@ -810,13 +817,35 @@ fn setupRuntime(
     const total_funcs = compiled.func_sigs.len;
     const func_entities = try allocator.alloc(FuncEntity, total_funcs);
     errdefer allocator.free(func_entities);
-    // Contents left default — neither field is read by the JIT
-    // path; interp uses its own FuncEntity allocation through a
-    // full Runtime. (Zig's `alloc` returns uninitialised memory;
-    // any reader of `.runtime` / `.func_idx` would be a bug.)
     for (func_entities, 0..) |*fe, i| {
         fe.* = .{ .runtime = undefined, .func_idx = @intCast(i) };
     }
+
+    // §9.9 / 9.9-m-3a: data / elem segment dropped-flag arrays.
+    // Each is a bool[] sized to the module's segment count;
+    // initialised to false (segment not yet dropped). JIT data.drop
+    // / elem.drop write byte stores; JIT memory.init (m-3b) reads
+    // before computing seg_len. For modules without segments, the
+    // arrays are zero-length (no allocation, ptr = undefined).
+    var data_dropped_count: u32 = 0;
+    if (module.find(.data)) |s| {
+        var datas_buf = try sections.decodeData(ta, s.body);
+        defer datas_buf.deinit();
+        data_dropped_count = @intCast(datas_buf.items.len);
+    }
+    const data_dropped = try allocator.alloc(u8, data_dropped_count);
+    errdefer allocator.free(data_dropped);
+    @memset(data_dropped, 0);
+
+    var elem_dropped_count: u32 = 0;
+    if (module.find(.element)) |s| {
+        var elems_buf = try sections.decodeElement(ta, s.body);
+        defer elems_buf.deinit();
+        elem_dropped_count = @intCast(elems_buf.items.len);
+    }
+    const elem_dropped = try allocator.alloc(u8, elem_dropped_count);
+    errdefer allocator.free(elem_dropped);
+    @memset(elem_dropped, 0);
 
     return .{
         .rt = .{
@@ -832,6 +861,10 @@ fn setupRuntime(
             .host_dispatch_count = compiled.num_imports,
             .func_entities_ptr = @ptrCast(func_entities.ptr),
             .func_entities_count = @intCast(total_funcs),
+            .data_dropped_ptr = data_dropped.ptr,
+            .data_dropped_count = data_dropped_count,
+            .elem_dropped_ptr = elem_dropped.ptr,
+            .elem_dropped_count = elem_dropped_count,
         },
         .memory = memory,
         .dispatch = dispatch,
@@ -839,6 +872,8 @@ fn setupRuntime(
         .funcptrs = funcptrs_buf,
         .typeidxs = typeidxs_buf,
         .func_entities = func_entities,
+        .data_dropped = data_dropped,
+        .elem_dropped = elem_dropped,
     };
 }
 

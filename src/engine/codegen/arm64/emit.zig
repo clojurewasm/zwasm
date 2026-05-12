@@ -1353,6 +1353,22 @@ pub fn compile(
             => try op_memory.emitMemOp(&ctx, &ins),
             .@"memory.fill" => try op_memory.emitMemoryFill(&ctx),
             .@"memory.copy" => try op_memory.emitMemoryCopy(&ctx),
+            // §9.9 / 9.9-m-3a: data.drop / elem.drop — write 1 to
+            // the dropped-flag byte at `[r15+ptr_off]+idx`. No
+            // operands consumed; no result pushed. validator already
+            // bounds-checks the index, so no trap path needed.
+            .@"data.drop" => {
+                if (ins.payload >= 4096) return Error.UnsupportedOp;
+                try gpr.writeU32(allocator, &buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.data_dropped_ptr_off));
+                try gpr.writeU32(allocator, &buf, inst.encMovzImm16(17, 1));
+                try gpr.writeU32(allocator, &buf, inst.encStrbImm(17, 16, @intCast(ins.payload)));
+            },
+            .@"elem.drop" => {
+                if (ins.payload >= 4096) return Error.UnsupportedOp;
+                try gpr.writeU32(allocator, &buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.elem_dropped_ptr_off));
+                try gpr.writeU32(allocator, &buf, inst.encMovzImm16(17, 1));
+                try gpr.writeU32(allocator, &buf, inst.encStrbImm(17, 16, @intCast(ins.payload)));
+            },
             .br_table => try op_control.emitBrTable(&ctx, &ins),
             .@"if" => try op_control.emitIf(&ctx, &ins),
             .@"else" => try op_control.emitElse(&ctx, &ins),

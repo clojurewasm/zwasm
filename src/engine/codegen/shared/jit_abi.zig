@@ -133,6 +133,21 @@ pub const JitRuntime = extern struct {
     /// host-side diagnostic + future debugger hooks.
     func_entities_count: u32 = 0,
     _pad5: u32 = 0,
+    /// §9.9 / 9.9-m-3a (per ADR-0056): parallel "data segment
+    /// dropped" flag table. JIT `data.drop dataidx` emits
+    /// `MOV [r15+data_dropped_ptr_off] + idx, 1` (1 byte per
+    /// flag; bool = u8 in Zig extern layout). JIT `memory.init`
+    /// (m-3b) reads the same flags before computing seg_len.
+    data_dropped_ptr: [*]u8 = undefined,
+    data_dropped_count: u32 = 0,
+    _pad6: u32 = 0,
+    /// §9.9 / 9.9-m-3a (per ADR-0056): parallel "element segment
+    /// dropped" flag table. JIT `elem.drop elemidx` emits a byte
+    /// store to `[r15+elem_dropped_ptr_off] + idx`. table.init
+    /// (m-2) reads.
+    elem_dropped_ptr: [*]u8 = undefined,
+    elem_dropped_count: u32 = 0,
+    _pad7: u32 = 0,
 };
 
 // ============================================================
@@ -160,6 +175,10 @@ pub const host_dispatch_count_off: u12 = @offsetOf(JitRuntime, "host_dispatch_co
 pub const jit_executed_flag_off: u12 = @offsetOf(JitRuntime, "jit_executed_flag");
 pub const func_entities_ptr_off: u12 = @offsetOf(JitRuntime, "func_entities_ptr");
 pub const func_entities_count_off: u12 = @offsetOf(JitRuntime, "func_entities_count");
+pub const data_dropped_ptr_off: u12 = @offsetOf(JitRuntime, "data_dropped_ptr");
+pub const data_dropped_count_off: u12 = @offsetOf(JitRuntime, "data_dropped_count");
+pub const elem_dropped_ptr_off: u12 = @offsetOf(JitRuntime, "elem_dropped_ptr");
+pub const elem_dropped_count_off: u12 = @offsetOf(JitRuntime, "elem_dropped_count");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -205,6 +224,15 @@ comptime {
     if ((func_entities_count_off & 3) != 0) @compileError("func_entities_count_off not 4-aligned");
     if (func_entities_ptr_off > 32760) @compileError("func_entities_ptr_off exceeds X-form imm12 budget");
     if (func_entities_count_off > 16380) @compileError("func_entities_count_off exceeds W-form imm12 budget");
+    // §9.9 / 9.9-m-3a: data_dropped / elem_dropped pointer + count.
+    if ((data_dropped_ptr_off & 7) != 0) @compileError("data_dropped_ptr_off not 8-aligned");
+    if ((data_dropped_count_off & 3) != 0) @compileError("data_dropped_count_off not 4-aligned");
+    if (data_dropped_ptr_off > 32760) @compileError("data_dropped_ptr_off exceeds X-form imm12 budget");
+    if (data_dropped_count_off > 16380) @compileError("data_dropped_count_off exceeds W-form imm12 budget");
+    if ((elem_dropped_ptr_off & 7) != 0) @compileError("elem_dropped_ptr_off not 8-aligned");
+    if ((elem_dropped_count_off & 3) != 0) @compileError("elem_dropped_count_off not 4-aligned");
+    if (elem_dropped_ptr_off > 32760) @compileError("elem_dropped_ptr_off exceeds X-form imm12 budget");
+    if (elem_dropped_count_off > 16380) @compileError("elem_dropped_count_off exceeds W-form imm12 budget");
 }
 
 // ============================================================
@@ -225,13 +253,17 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 104 bytes (post-§9.9 / 9.9-m-1b func_entities tail)" {
-    try testing.expectEqual(@as(u32, 104), head_size);
+test "JitRuntime: total size = 136 bytes (post-§9.9 / 9.9-m-3a data/elem dropped tail)" {
+    try testing.expectEqual(@as(u32, 136), head_size);
 }
 
-test "JitRuntime: §9.9 / 9.9-m-1b new field offsets" {
+test "JitRuntime: §9.9 / 9.9-m-1b + 9.9-m-3a new field offsets" {
     try testing.expectEqual(@as(u12, 88), func_entities_ptr_off);
     try testing.expectEqual(@as(u12, 96), func_entities_count_off);
+    try testing.expectEqual(@as(u12, 104), data_dropped_ptr_off);
+    try testing.expectEqual(@as(u12, 112), data_dropped_count_off);
+    try testing.expectEqual(@as(u12, 120), elem_dropped_ptr_off);
+    try testing.expectEqual(@as(u12, 128), elem_dropped_count_off);
 }
 
 test "JitRuntime: round-trip construction + field reads" {

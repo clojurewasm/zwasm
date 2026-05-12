@@ -103,6 +103,10 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // §9.9 / 9.9-m-1b: ref.func loads func_entities_ptr
             // from [r15+off]. Requires R15.
             .@"ref.func",
+            // §9.9 / 9.9-m-3a: data.drop / elem.drop load
+            // dropped_ptr from [r15+off] then byte-store 1.
+            .@"data.drop",
+            .@"elem.drop",
             .@"i32.div_s",
             .@"i32.div_u",
             .@"i32.rem_s",
