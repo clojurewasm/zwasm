@@ -31,26 +31,57 @@ On the next chunk's first obstacle, walk
 `extended_challenge.md` Step 1 BEFORE reaching for a filter /
 fallback / skip-ADR.
 
-### Next task — D-093 cluster (d) investigation
+### Next task — D-093 (d-1) implementation: lower.zig unreachable-code tracking
 
-Pick up D-093 cluster (d) first (largest, most likely single
-underlying root cause — `Label.arity` / `branch_arity` split
-not covering wasm-2.0 shapes). Concrete starting point:
-`br: nested-block-value(()) → got 12, expected 9` on
-`br.0.wasm`; `wasm-objdump -d` the module, identify the shape,
-grep for `Label.arity` / `Label.branch_arity` consumers in
-`src/interp/`, `src/ir/lower.zig`, per-arch emit's
-`op_control.zig`. The single_slot_dual_meaning.md rule
-(7b26760's fix) is the closest prior art.
+Root cause re-derived this iteration: lower.zig emits dead
+ZirInstrs after `br / return / unreachable / br_table`. Liveness
+then closes ALL live vregs at the br (single sim_stack pop loop),
+the dead i32.add etc. pop from empty + push fresh vregs, end is
+liveness-transparent, so the dead-code's top vreg propagates to
+post-block consumers as if it were the block's result. Combined
+with regalloc reusing dead V_one's slot for the dead-code
+V_add, the function returns garbage.
 
-Cluster (a) memory.grow JIT (3 fixtures), (b) loop.0.wasm
-AllocationMissing, (c) if.0.wasm StackUnderflow are smaller
-follow-ups. Other queued post-D-093 names (still candidates):
-`address`, `align`, `br_table`, `call`, `call_indirect`,
-`const`, `data`, `elem`, `f32_bitwise`, `f64_bitwise`, `fac`,
-`func`, `func_ptrs`, `global`, `load`, `memory`, `memory_grow`,
-`memory_size`, `select`, `start`, `store`, `switch`, `table`,
-`traps`, `type`, `unwind`.
+**Preferred fix**: close the gap at the source — `src/ir/lower.zig`
+adds `unreachable_at_depth: ?u32` field, set at the br/return/
+unreachable emit site, cleared at the matching `end` (when
+`block_stack_len` drops below the saved depth) or `else` (else
+arm is reachable). While set, `emit()` becomes a no-op AND
+openBlock/closeBlock still manage block_stack normally (block
+structure is parsed even in dead code per Wasm spec). The
+block enter / end / else themselves emit through a dedicated
+path that bypasses the unreachable skip so block-frame
+bookkeeping stays consistent.
+
+Recipe (~80 LOC in lower.zig):
+1. Add `unreachable_at_depth: ?u32 = null` to Lowerer.
+2. Wrap `emit()`: if `unreachable_at_depth != null`, skip
+   append to `out.instrs`.
+3. At dispatch of 0x0C (br) / 0x0D (br_if) — only br closes:
+   set `unreachable_at_depth = block_stack_len`. br_if does not.
+4. At 0x0E (br_table): set the flag (table also closes the path).
+5. At 0x0F (return) / 0x00 (unreachable): set the flag.
+6. `openBlock`: still emits + pushes block_stack regardless.
+7. `closeBlock`: still emits end + pops block_stack. AFTER pop,
+   if `unreachable_at_depth != null and block_stack_len <
+   unreachable_at_depth.?`, clear flag.
+8. `emitElse`: emit else op normally. Clear flag (else-arm
+   reachable).
+
+Regression fixture: add `test/edge_cases/p9/nested_block_value/
+br_overshadow.{wat,wasm,expect}` exercising `block (result i32)
+... br 0 (i32.const 8) ; i32.add` → expected 9. Per ADR-0020 /
+`edge_case_testing.md`.
+
+After (d-1): (d-2) re-add `nop / block / loop / br / br_if /
+if / labels / local_tee` to NAMES; verify clean. Residual
+fails point to cluster (a/b/c).
+
+Other queued post-D-093 names: `address`, `align`, `br_table`,
+`call`, `call_indirect`, `const`, `data`, `elem`, `f32_bitwise`,
+`f64_bitwise`, `fac`, `func`, `func_ptrs`, `global`, `load`,
+`memory`, `memory_grow`, `memory_size`, `select`, `start`,
+`store`, `switch`, `table`, `traps`, `type`, `unwind`.
 
 ## Implementation queue (sequential)
 
@@ -68,7 +99,8 @@ Per-stage state of l-1 (all complete + D-092 close landed):
 | D-091-close | [x] f22acf6c | x86_64 i32.trunc_f64_s lower-bound `-(2^31+1)` + JBE |
 | D-092-close | [x] 520246cd+111e232b | x86_64 emitFpMinMax dst==rhs swap; f32+f64 in NAMES |
 | k-1-expand-2 | [x] a9b06a15 | 4 safe wasm-2.0 names (unreachable/local_get/local_set/return); D-093 filed for the other 8 |
-| **D-093 (d)** | **NEXT** | nested-value propagation cluster — `br.0.wasm` shape bisect |
+| D-093 (d) root-cause | [x] this commit | lower.zig + liveness gap analysis; impl recipe filed |
+| **D-093 (d-1)** | **NEXT** | lower.zig unreachable-code tracking (~80 LOC + regression fixture) |
 
 Other queued chunks (post-l-1):
 - k-1 — Wasm 2.0 non-SIMD wast vendor (~30 files).
