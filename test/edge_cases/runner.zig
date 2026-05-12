@@ -1,19 +1,20 @@
 //! Edge-case fixture runner (sub-7.5b-iii).
 //!
 //! Walks `test/edge_cases/p<N>/<concept>/<case>.wasm` triples,
-//! reads the sibling `.expect`, runs the wasm through the
-//! ARM64 JIT via `jit.run_wasm.runI32Export`, and compares
-//! the result. Reports pass/fail counts to stdout.
+//! reads the sibling `.expect`, runs the wasm through the JIT
+//! via `engine.runner.runI32Export`, and compares the result.
+//! Reports pass/fail counts to stdout.
 //!
 //! Usage:
 //!   zwasm-edge-runner <corpus-dir>
 //!
-//! Mac aarch64 only today (the underlying JIT runner panics on
-//! other hosts). Skipped on non-darwin-aarch64; the test-edge
-//! build step gates accordingly.
+//! §9.9 / 9.9-j-2b (per ADR-0056): host-arch gate removed
+//! (D-086 close). Phase 9 SIMD work proved the JIT pipeline
+//! works end-to-end on both Mac aarch64 and OrbStack x86_64;
+//! the sub-7.5b-iii era "panic on non-darwin-aarch64" guard
+//! is stale. Runs on all hosts that can compile the engine.
 
 const std = @import("std");
-const builtin = @import("builtin");
 
 const zwasm = @import("zwasm");
 const run_wasm = zwasm.engine.runner;
@@ -25,12 +26,6 @@ pub fn main(init: std.process.Init) !void {
     var stdout_buf: [1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
-
-    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        try stdout.print("edge-case runner: skipped (Mac aarch64 only)\n", .{});
-        try stdout.flush();
-        return;
-    }
 
     var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
     defer arg_it.deinit();

@@ -466,15 +466,35 @@ pub fn emitI32DivRem(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         .@"i32.div_u", .@"i32.rem_u" => false,
         else => unreachable,
     };
+    const is_rem = (ins.op == .@"i32.rem_s" or ins.op == .@"i32.rem_u");
+    // §9.9 / 9.9-j-2b D-085 fix: SDIV writes wd, which the regalloc
+    // may have aliased to wn (lhs) OR wm (rhs). For pure div this
+    // is fine (no further reads of wn/wm). For rem, MSUB(wd, wd, wm,
+    // wn) reads Wn=wd / Wm=wm / Wa=wn — if wd aliases wm, Wm reads
+    // post-SDIV quotient instead of original divisor; if wd aliases
+    // wn, Wa reads quotient instead of original lhs. Both cases
+    // silently miscompile (D-085 surfaced on INT_MIN/-1 where the
+    // alias-corrupted result is INT_MIN instead of spec-mandated 0).
+    // Fix: stash wn AND wm in IP0 (X16) / IP1 (X17) before SDIV, use
+    // the stashed copies in MSUB. IP0/IP1 are intra-procedure
+    // scratch (`single_slot_dual_meaning.md`); never in the regalloc
+    // pool. 2 extra MOV (= ORR Wd, WZR, Wm alias) instructions per
+    // rem; div is unchanged.
+    const ip0: inst.Xn = 16; // IP0 / X16 — stashes wn
+    const ip1: inst.Xn = 17; // IP1 / X17 — stashes wm
+    if (is_rem) {
+        // MOV W16, Wn ; MOV W17, Wm (both via ORR Wd, WZR, Wm alias)
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(ip0, 31, wn));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(ip1, 31, wm));
+    }
     const div_word: u32 = if (is_signed)
         inst.encSdivRegW(wd, wn, wm)
     else
         inst.encUdivRegW(wd, wn, wm);
     try gpr.writeU32(ctx.allocator, ctx.buf, div_word);
-    // rem = lhs - (quotient × divisor). Reuse wd as the quotient
-    // (already computed) and as the result destination.
-    if (ins.op == .@"i32.rem_s" or ins.op == .@"i32.rem_u") {
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMsubRegW(wd, wd, wm, wn));
+    if (is_rem) {
+        // wd = stashed_wn - quotient(wd) × stashed_wm
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMsubRegW(wd, wd, ip1, ip0));
     }
     try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
@@ -502,13 +522,23 @@ pub fn emitI64DivRem(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         .@"i64.div_u", .@"i64.rem_u" => false,
         else => unreachable,
     };
+    const is_rem_64 = (ins.op == .@"i64.rem_s" or ins.op == .@"i64.rem_u");
+    // §9.9 / 9.9-j-2b D-085 mirror: same alias preservation as the
+    // i32 path. SDIV writes xd which may alias xn or xm; MSUB then
+    // reads Wm and Wa expecting originals. Stash via IP0/IP1.
+    const ip0_64: inst.Xn = 16;
+    const ip1_64: inst.Xn = 17;
+    if (is_rem_64) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(ip0_64, 31, xn));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(ip1_64, 31, xm));
+    }
     const div_word: u32 = if (is_signed)
         inst.encSdivRegX(xd, xn, xm)
     else
         inst.encUdivRegX(xd, xn, xm);
     try gpr.writeU32(ctx.allocator, ctx.buf, div_word);
-    if (ins.op == .@"i64.rem_s" or ins.op == .@"i64.rem_u") {
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMsubRegX(xd, xd, xm, xn));
+    if (is_rem_64) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMsubRegX(xd, xd, ip1_64, ip0_64));
     }
     try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);

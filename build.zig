@@ -548,13 +548,14 @@ pub fn build(b: *std.Build) void {
     // line 333-343 above (NOT in test-all) is now historical; the
     // panic gap referenced there has closed.
     //
-    // test-edge-cases wiring deferred to 9.9-j-2b — wiring surfaced
-    // a real JIT bug at `idiv_overflow/i32_rem_intmin_neg1.wasm`
-    // (`i32.rem_s(INT_MIN, -1)` returns INT_MIN instead of 0 per
-    // Wasm spec §4.4.1.1 "if i_2 == -1 and i_1 == INT_MIN the
-    // remainder is 0"). i64 path correctly returns 0; i32 path
-    // surfaces a JIT-only bug not currently caught by any other
-    // runner. Filed as D-085; discharge target = 9.9-j-2b chunk.
+    // §9.9 / 9.9-j-2b (per ADR-0056): test-edge-cases CAN now run
+    // cross-platform (D-086 host-arch gate removed; D-085 rem_s
+    // alias bug fixed). BUT wiring into test-all is deferred: the
+    // OrbStack pass uncovered 8 pre-existing x86_64 JIT trap gaps
+    // — 4 trunc_f{32,64}_s overflow/NaN traps + 2 div_s INT_MIN/-1
+    // overflow traps + glibc ld.so dl-fini assertion at runner
+    // exit (filed as D-087 / D-088 / D-089). Wiring re-enabled in
+    // the chunk that discharges D-087 + D-088.
     test_all_step.dependOn(&run_realworld_run_jit.step);
     test_all_step.dependOn(&run_wasmtime_misc_runtime.step);
 
