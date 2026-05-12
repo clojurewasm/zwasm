@@ -548,14 +548,20 @@ pub fn build(b: *std.Build) void {
     // line 333-343 above (NOT in test-all) is now historical; the
     // panic gap referenced there has closed.
     //
-    // §9.9 / 9.9-j-2b (per ADR-0056): test-edge-cases CAN now run
-    // cross-platform (D-086 host-arch gate removed; D-085 rem_s
-    // alias bug fixed). BUT wiring into test-all is deferred: the
-    // OrbStack pass uncovered 8 pre-existing x86_64 JIT trap gaps
-    // — 4 trunc_f{32,64}_s overflow/NaN traps + 2 div_s INT_MIN/-1
-    // overflow traps + glibc ld.so dl-fini assertion at runner
-    // exit (filed as D-087 / D-088 / D-089). Wiring re-enabled in
-    // the chunk that discharges D-087 + D-088.
+    // §9.9 / 9.9-m-5 (per ADR-0056): test-edge-cases wired into
+    // test-all on all hosts. D-087 (x86_64 trunc trap), D-088
+    // (x86_64 div_s/rem_s overflow trap), and D-089 (Linux
+    // ld.so dl-fini assertion) all discharged together by
+    // extending the `uses_runtime_ptr` whitelist (emit.zig) to
+    // include div / rem / trunc_trap ops — these emit trap-stub
+    // fixups that write `[r15 + trap_flag_off]`, which requires
+    // R15 to hold the runtime ptr. Without R15 initialised, the
+    // trap store hits a garbage address; trap_flag stays 0 (runner
+    // sees value-return instead of trap) AND adjacent memory
+    // corruption manifests as the dl-fini assertion at process
+    // exit. Single-cause cohort: 8 fixtures pass + assertion gone.
+    // Mac 35/0 + OrbStack 35/0 post-fix.
+    test_all_step.dependOn(&run_edge_p7.step);
     test_all_step.dependOn(&run_realworld_run_jit.step);
     test_all_step.dependOn(&run_wasmtime_misc_runtime.step);
 

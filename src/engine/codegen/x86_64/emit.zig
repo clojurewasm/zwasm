@@ -44,6 +44,7 @@ const std = @import("std");
 const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const inst = @import("inst.zig");
+const usage = @import("usage.zig");
 const abi = @import("abi.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
 const types = @import("types.zig");
@@ -221,92 +222,10 @@ pub fn compile(
     // ~268M slots — far past any realistic Wasm function.
 
     // Prescan: does this function need the runtime-ptr save?
-    // Per ADR-0026, memory ops (and future calls / call_indirect)
-    // require RDI captured into R15 at function entry. Functions
-    // that don't touch memory or make calls keep the simpler 1-PUSH
-    // prologue, preserving backward-compat with the existing skel
-    // / ALU / control tests.
-    // **Same-class grep target**: i64 / f32 / f64 memory ops will
-    // be added to BOTH this prescan AND emitMemOp's `access_size`
-    // switch + dispatch arm in `body switch` simultaneously. Forgetting
-    // either one leads to "uses_runtime_ptr=false but R15 referenced"
-    // class bugs (silent invalid instruction stream). See D-030 for
-    // the planned discharge timing (post-7.7 op surface completion).
-    const uses_runtime_ptr = blk: {
-        for (func.instrs.items) |ins| {
-            switch (ins.op) {
-                .@"i32.load",
-                .@"i32.load8_s",
-                .@"i32.load8_u",
-                .@"i32.load16_s",
-                .@"i32.load16_u",
-                .@"i32.store",
-                .@"i32.store8",
-                .@"i32.store16",
-                .@"i64.load",
-                .@"i64.load8_s",
-                .@"i64.load8_u",
-                .@"i64.load16_s",
-                .@"i64.load16_u",
-                .@"i64.load32_s",
-                .@"i64.load32_u",
-                .@"i64.store",
-                .@"i64.store8",
-                .@"i64.store16",
-                .@"i64.store32",
-                .@"f32.load",
-                .@"f64.load",
-                .@"f32.store",
-                .@"f64.store",
-                // §9.7 / 9.7-ax: v128 memory ops also touch [R15+...]
-                // for vm_base / mem_limit reload.
-                .@"v128.load",
-                .@"v128.store",
-                // §9.7 / 9.7-ay: load_splat family (4 ops).
-                .@"v128.load8_splat",
-                .@"v128.load16_splat",
-                .@"v128.load32_splat",
-                .@"v128.load64_splat",
-                // §9.7 / 9.7-az: load*_zero family (2 ops).
-                .@"v128.load32_zero",
-                .@"v128.load64_zero",
-                // §9.7 / 9.7-ba: load_lane / store_lane × 4 sizes.
-                .@"v128.load8_lane",
-                .@"v128.load16_lane",
-                .@"v128.load32_lane",
-                .@"v128.load64_lane",
-                .@"v128.store8_lane",
-                .@"v128.store16_lane",
-                .@"v128.store32_lane",
-                .@"v128.store64_lane",
-                // §9.7 / 9.7-bb: extending loads (load*x*_s/u × 6).
-                .@"v128.load8x8_s",
-                .@"v128.load8x8_u",
-                .@"v128.load16x4_s",
-                .@"v128.load16x4_u",
-                .@"v128.load32x2_s",
-                .@"v128.load32x2_u",
-                .@"global.get",
-                .@"global.set",
-                .@"memory.size",
-                .@"memory.grow",
-                .@"memory.copy",
-                .@"memory.fill",
-                .call,
-                .call_indirect,
-                // `unreachable` emits a JMP to the trap stub which
-                // stores `1` to `[R15 + trap_flag_off]`. Without
-                // R15 initialised, the store hits a garbage address
-                // and the entry shim sees `trap_flag = 0` (no trap)
-                // — exactly the "did NOT trap" pattern surfacing on
-                // unreachable.wast / handcrafted_trap fixtures.
-                .@"unreachable",
-                => break :blk true,
-                else => {},
-            }
-        }
-        break :blk false;
-    };
+    // Helper in `usage.zig`. Per ADR-0026 + §9.9 / 9.9-m-5
+    // (D-087/088/089 cohort) — see helper doc for the full
+    // op set.
+    const uses_runtime_ptr = usage.usesRuntimePtr(func);
 
     // Frame-bytes formula depends on prologue shape (SysV §3.2.2
     // 16-byte stack alignment; CALL pushes ret addr → entry RSP
