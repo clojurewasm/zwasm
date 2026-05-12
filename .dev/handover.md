@@ -13,18 +13,21 @@
    per-chunk pickup chain (recipes, file paths, ADR notes) for
    the queue below. Authoritative for next session continuation.
 
-## Active state — **Phase 9 extended; l-1a stages 1-4 landed 2026-05-12**
+## Active state — **Phase 9 extended; l-1a stages 1-5 landed 2026-05-12**
 
 **Read first on next session**: `private/l-1a-next-session-pickup.md`
 — full recipe + stage state for resuming the spec_assert_runner
-factoring at stage 5.
+factoring at stage 6 (or jumping straight to l-1b if stage 6
+optional hoist isn't load-bearing for the non-SIMD runner).
 
 ### One-line state
 
-l-1a stages 1-4 (base extraction + runCorpus + RunnerCallbacks)
-landed; stage 5 (runAssertReturn / runAssertTrap argument-parsing
-split for l-1b reuse) pending. SIMD test gate stays at 13301/0/440
-bit-identical pre/post each stage.
+l-1a stages 1-5 (base extraction + runCorpus/RunnerCallbacks +
+arg-parser hoist) landed; simd_assert_runner.zig down to 868 LOC.
+Stage 6 (scratch-buffer + makeJitRuntime hoist) is the trigger-fired
+optional cleanup since simd > 800 LOC; l-1b can begin in parallel.
+SIMD test gate stays at 13301/0/440 bit-identical pre/post each
+stage.
 
 ### Original m-2 cluster state (earlier this session)
 
@@ -50,10 +53,12 @@ m-2c-init ElemSlice).
 
 ## Implementation queue (sequential — pickup detail in pickup docs)
 
-Next session picks up at **l-1a stage 5** (runAssertReturn /
-runAssertTrap argument-parsing split — `parseAssertReturnArgs`
-hoisted into base so l-1b can reuse the scalar arg-list parser).
-See `private/l-1a-next-session-pickup.md` for the full recipe.
+Next session picks up at **l-1a stage 6** (scratch buffer +
+`makeJitRuntime` hoist into base; trigger-fired since simd > 800
+LOC at 868). Alternative path: skip stage 6 and start l-1b's
+`spec_assert_runner_non_simd.zig` directly — the scratch-buffer
+move is "mechanical" per pickup doc, can defer until l-1b actually
+needs to share them.
 
 Per-stage state of l-1a:
 
@@ -63,8 +68,8 @@ Per-stage state of l-1a:
 | 2 | [x] dc7bc047 | AssertTally + classifySkipLine |
 | 3 | [x] 4727fc02 | DirectiveKind + classifyDirective (types only) |
 | 4 | [x] d8157857 | runCorpus + RunnerCallbacks trait in base |
-| **5** | **NEXT** | **runAssertReturn / runAssertTrap arg-parser split** |
-| 6 | optional | scratch buffer move (only if simd > 800 LOC after 5) |
+| 5 | [x] d9a1fff1 | parseAssertReturnArgs + ArgValue/parseArgToken/parseV128Token in base |
+| **6** | **NEXT (optional)** | **scratch buffer + makeJitRuntime hoist** |
 
 Then l-1b (new spec_assert_runner_non_simd.zig + curated wasm-2.0
 corpus + test-spec-wasm-2.0-assert build step).
