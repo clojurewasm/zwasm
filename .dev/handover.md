@@ -13,34 +13,40 @@
    per-chunk pickup chain (recipes, file paths, ADR notes) for
    the queue below. Authoritative for next session continuation.
 
-## Active state — **Phase 9 extended; m-3b landed 2026-05-12**
+## Active state — **Phase 9 extended; m-2a landed 2026-05-12**
 
 §9.11 [x]; §9.10 [~] Phase 11; §9.12 [ ] 🔒 (waits §9.9);
 **§9.9 [ ]** scope = full Wasm 2.0 PASS on Mac+OrbStack per
-ADR-0056. m-3b adds JIT `memory.init` end-to-end (3rd-gen
-JitRuntime ABI extension: `SegmentSlice` + `data_segments_ptr`).
-Mac aarch64 test-all green incl. 5 new edge_cases fixtures
-(init_happy/n_zero/oob_src/oob_dst/dropped); OrbStack
-reconciles on this commit. Live counts in
-`bash scripts/p9_simd_status.sh`.
+ADR-0056. m-2a adds JIT `table.get` / `table.set` / `table.size`
+both arches (4th-gen JitRuntime ABI extension: `TableSlice` +
+`tables_ptr`). Mac aarch64 + OrbStack test-all green incl. 5
+new p9/table_ops edge_cases fixtures (size_initial /
+get_null_funcref / set_get_roundtrip / get_oob / set_oob).
+Live counts in `bash scripts/p9_simd_status.sh`.
 
-11 chunks landed across the prior session + this session
-(see pickup doc §"Landed" + this commit). 7 debt rows
-discharged across the same window.
-2 ADRs (ADR-0055, ADR-0056) accepted. ADR-0003 amended.
+12 chunks landed across the §9.9 close window so far. 7 debt
+rows discharged. 3 ADRs (ADR-0055, ADR-0056, ADR-0058)
+accepted; ADR-0003 amended; ADR-0017 implicit Revision
+extensions x4 (m-1b, m-3a, m-3b, m-2a TableSlice).
 
 ## Implementation queue (sequential — pickup detail in pickup doc)
 
-Next session picks up at **m-2**. Order:
+Next session picks up at **m-2b**. Order:
 
-1. **m-2 NEXT** — table.* full 7-op family. Likely ADR-0058
-   scope. Split candidate (m-2a/b/c per pickup doc §"m-2").
-2. m-4c — untyped .select (0x1B) lower-time type inference.
-3. l-1 — non-SIMD spec_assert_runner. ADR-0057 expected.
-4. k-1 — Wasm 2.0 non-SIMD wast vendor (~30 files).
-5. k-2 — SIMD wast vendor (33 files).
-6. n-1 — fib2 perf root cause.
-7. j-3b — SKIP gate real enforcement (last).
+1. **m-2b NEXT** — table.grow + table.fill both arches. grow
+   returns -1 on OOM/max (spec §4.4.13; runtime-helper call);
+   fill = inline loop. Builds on m-2a's `tables_ptr` TableSlice
+   shape per ADR-0058. The TableSlice.max field (m-2a allocated
+   but currently unused) is consumed here by the grow cap check.
+2. m-2c — table.copy + table.init. memmove semantics for copy;
+   init reads `elem_dropped_ptr` (already in JitRuntime). Closes
+   m-2 cluster.
+3. m-4c — untyped .select (0x1B) lower-time type inference.
+4. l-1 — non-SIMD spec_assert_runner. ADR-0057 expected.
+5. k-1 — Wasm 2.0 non-SIMD wast vendor (~30 files).
+6. k-2 — SIMD wast vendor (33 files).
+7. n-1 — fib2 perf root cause.
+8. j-3b — SKIP gate real enforcement (last).
 
 ## Sandbox quirks + hook scope
 
@@ -69,5 +75,5 @@ Next session picks up at **m-2**. Order:
 - `private/p9-y-tests-bench-audit.md` — bench/tests audit.
 - `private/p9-z-realworld-v1-parity.md` — realworld + v1 parity.
 
-TaskList state in CLI mirrors this queue (#21-#26 pending +
-#30 m-3b + #31 m-4c).
+TaskList state in CLI mirrors this queue (#3 m-2b + #4 m-2c
+pending; #2 m-2a completed).
