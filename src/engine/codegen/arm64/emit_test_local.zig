@@ -106,11 +106,13 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 test "compile: unsupported op surfaces UnsupportedOp" {
     // With sub-h block fully closed, the remaining unsupported MVP
     // ops live in feature/ext_2_0. memory.copy / memory.fill landed
-    // chunk c2; pick a still-unsupported Wasm 2.0 op as the probe.
+    // chunk c2; table.{get,set,size,fill,copy} landed §9.9 / 9.9-m-2a..c.
+    // table.grow remains unimplemented (deferred to m-2d behind an
+    // allocator-helper infrastructure) — use it as the probe.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"table.copy" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"table.grow" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty, &.{}, &.{}, 0, &.{}, &.{}));

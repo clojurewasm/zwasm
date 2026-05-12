@@ -235,3 +235,157 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     ));
     std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], inst.encCbzW(14, skip_disp_words), .little);
 }
+
+/// Wasm spec §4.4.15 (table.copy x y) — pop n / src / dst; copy n
+/// reftype values from tables[y][src..src+n] into
+/// tables[x][dst..dst+n]. Traps `OutOfBoundsTableAccess` if either
+/// `dst+n > tables[x].len` or `src+n > tables[y].len`. memmove
+/// semantics on overlap (only matters when x == y).
+///
+/// Encoding: ins.payload = dst-tableidx (x); ins.extra = src-tableidx (y).
+///
+/// Holder regs after Step A:
+///   W17 = dst_idx, W16 = src_idx, W14 = n (counter).
+///
+/// Scratch reused across the handler:
+///   X10 = tables_ptr (transient)
+///   X11 = dst_refs  (long-lived for the copy loop)
+///   X12 = src_refs  (long-lived; loaded after dst bounds check)
+///   W13 = dst_len / src_len (transient, reused per bounds check)
+///   X15 = ref scratch (per-iter LDR target → STR source)
+pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    const dst_tbl = ins.payload;
+    const src_tbl = ins.extra;
+    if (dst_tbl >= 1024 or src_tbl >= 1024) return Error.UnsupportedOp;
+    const dst_tbl_off: u15 = @intCast(@as(u32, dst_tbl) * 16);
+    const src_tbl_off: u15 = @intCast(@as(u32, src_tbl) * 16);
+    const same_table = (dst_tbl == src_tbl);
+
+    if (ctx.pushed_vregs.items.len < 3) return Error.AllocationMissing;
+    const n_v = ctx.pushed_vregs.pop().?;
+    const src_v = ctx.pushed_vregs.pop().?;
+    const dst_v = ctx.pushed_vregs.pop().?;
+
+    // Step A: snapshot operands into private holders.
+    const w_dst_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_v, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_dst_src));
+    const w_src_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(16, 31, w_src_src));
+    const w_n_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, n_v, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(14, 31, w_n_src));
+
+    // Step B: load tables_ptr → X10.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(10, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off));
+
+    // Step C1: bounds check dst_idx + n vs tables[x].len.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(11, 10, dst_tbl_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(13, 10, @intCast(@as(u32, dst_tbl_off) + 8)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, 17, 14));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(15, 13));
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
+        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        trace.writeBounds(ctx.func.func_idx, fixup_at);
+    }
+
+    // Step C2: bounds check src_idx + n vs tables[y].len.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(12, 10, src_tbl_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(13, 10, @intCast(@as(u32, src_tbl_off) + 8)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, 16, 14));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(15, 13));
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
+        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        trace.writeBounds(ctx.func.func_idx, fixup_at);
+    }
+
+    // Step D: if n == 0, skip the loop entirely.
+    const skip_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0));
+
+    if (same_table) {
+        // Step E (same-table): direction switch.
+        //   CMP W17, W16 ; B.LS .fwd  (dst <= src → forward safe)
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 16));
+        const fwd_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ls, 0));
+
+        // .bwd: pre-advance both indices by n (W17 += W14; W16 += W14),
+        // then loop with pre-decrement of indices.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(17, 17, 14));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(16, 16, 14));
+        const bwd_loop_start: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(17, 17, 1));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(16, 16, 1));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 12, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 11, 17));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
+        {
+            const back: i32 = @divExact(
+                @as(i32, @intCast(bwd_loop_start)) - @as(i32, @intCast(ctx.buf.items.len)),
+                4,
+            );
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, back));
+        }
+        const bwd_end_jmp_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
+
+        // .fwd: patch the B.LS to land here.
+        const fwd_byte: u32 = @intCast(ctx.buf.items.len);
+        {
+            const disp: i32 = @divExact(
+                @as(i32, @intCast(fwd_byte)) - @as(i32, @intCast(fwd_at)),
+                4,
+            );
+            std.mem.writeInt(u32, ctx.buf.items[fwd_at..][0..4], inst.encBCond(.ls, disp), .little);
+        }
+        const fwd_loop_start: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 12, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 11, 17));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(17, 17, 1));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(16, 16, 1));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
+        {
+            const back: i32 = @divExact(
+                @as(i32, @intCast(fwd_loop_start)) - @as(i32, @intCast(ctx.buf.items.len)),
+                4,
+            );
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, back));
+        }
+
+        // Patch the bwd→end jump.
+        const end_byte: u32 = @intCast(ctx.buf.items.len);
+        {
+            const disp: i32 = @divExact(
+                @as(i32, @intCast(end_byte)) - @as(i32, @intCast(bwd_end_jmp_at)),
+                4,
+            );
+            std.mem.writeInt(u32, ctx.buf.items[bwd_end_jmp_at..][0..4], inst.encB(disp), .little);
+        }
+    } else {
+        // Different tables: no overlap possible; forward only.
+        const fwd_loop_start: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 12, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 11, 17));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(17, 17, 1));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(16, 16, 1));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
+        {
+            const back: i32 = @divExact(
+                @as(i32, @intCast(fwd_loop_start)) - @as(i32, @intCast(ctx.buf.items.len)),
+                4,
+            );
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, back));
+        }
+    }
+
+    // Patch the n==0 skip.
+    const end_byte: u32 = @intCast(ctx.buf.items.len);
+    const skip_disp: i19 = @intCast(@divExact(
+        @as(i32, @intCast(end_byte)) - @as(i32, @intCast(skip_at)),
+        4,
+    ));
+    std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], inst.encCbzW(14, skip_disp), .little);
+}
