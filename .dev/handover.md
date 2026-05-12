@@ -10,22 +10,17 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-092 discharged 2026-05-12**
+## Active state — **Phase 9 extended; k-1-expand-2 landed 2026-05-12**
 
 ### One-line state
 
-D-092 closed: x86_64 `emitFpMinMax` now handles regalloc's
-`dst == rhs and dst != lhs` slot shape via commutative swap
-(mirrors `emitFpBinary`; min/max are commutative across all
-three branches — UCOMI / MINSS-MAXSS / ORPS-ANDPS / ADDSS).
-Mac + OrbStack `test-spec-wasm-2.0-assert`: **11540 / 0 /
-106 bit-identical** (skip_text_format_parser only). f32 /
-f64 re-enabled in `scripts/regen_spec_2_0_assert.sh` NAMES.
-simd_assert 13301/0/440 + spec_assert 212/0/20 unchanged.
-Co-discharged: orphan `skip_x86_64_trunc_precision.md` ADR
-(Superseded since D-091 close, silently failing
-`check_skip_adrs --gate`) deleted; dead `TRUNC_TRAP_OPS`
-python helper purged from regen script.
+k-1-expand-2 landed (a9b06a15): NAMES += unreachable /
+local_get / local_set / return (4 safe). Mac + OrbStack
+`test-spec-wasm-2.0-assert`: **11773 / 0 / 106 bit-identical**
+(+233 PASS vs D-092 close). The candidate batch's other 8
+names (nop / block / loop / br / br_if / if / labels /
+local_tee) exposed 30+ real JIT-side correctness failures
+filed as **D-093** (now) — NOT papered over with skip-ADRs.
 
 ### Standing reminder for the autonomous loop
 
@@ -36,20 +31,26 @@ On the next chunk's first obstacle, walk
 `extended_challenge.md` Step 1 BEFORE reaching for a filter /
 fallback / skip-ADR.
 
-### Next task — k-1-expand-2
+### Next task — D-093 cluster (d) investigation
 
-Continue the spec_assert_runner_non_simd corpus expansion: add
-the next batch of wasm-2.0 wast names to NAMES in
-`scripts/regen_spec_2_0_assert.sh`, regen, run, address any new
-dispatch-shape gaps. Candidates (not yet in NAMES, from upstream
-`WebAssembly/spec/test/core/`): `address`, `align`, `block`,
-`br`, `br_if`, `br_table`, `call`, `call_indirect`, `const`,
-`data`, `elem`, `f32_bitwise`, `f64_bitwise`, `fac`, `func`,
-`func_ptrs`, `global`, `if`, `labels`, `load`, `local_get`,
-`local_set`, `local_tee`, `loop`, `memory`, `memory_grow`,
-`memory_size`, `nop`, `return`, `select`, `start`, `store`,
-`switch`, `table`, `traps`, `type`, `unreachable`, `unwind`.
-Bundle ~5–15 names per chunk per LOOP "Chunk granularity".
+Pick up D-093 cluster (d) first (largest, most likely single
+underlying root cause — `Label.arity` / `branch_arity` split
+not covering wasm-2.0 shapes). Concrete starting point:
+`br: nested-block-value(()) → got 12, expected 9` on
+`br.0.wasm`; `wasm-objdump -d` the module, identify the shape,
+grep for `Label.arity` / `Label.branch_arity` consumers in
+`src/interp/`, `src/ir/lower.zig`, per-arch emit's
+`op_control.zig`. The single_slot_dual_meaning.md rule
+(7b26760's fix) is the closest prior art.
+
+Cluster (a) memory.grow JIT (3 fixtures), (b) loop.0.wasm
+AllocationMissing, (c) if.0.wasm StackUnderflow are smaller
+follow-ups. Other queued post-D-093 names (still candidates):
+`address`, `align`, `br_table`, `call`, `call_indirect`,
+`const`, `data`, `elem`, `f32_bitwise`, `f64_bitwise`, `fac`,
+`func`, `func_ptrs`, `global`, `load`, `memory`, `memory_grow`,
+`memory_size`, `select`, `start`, `store`, `switch`, `table`,
+`traps`, `type`, `unwind`.
 
 ## Implementation queue (sequential)
 
@@ -65,8 +66,9 @@ Per-stage state of l-1 (all complete + D-092 close landed):
 | l-1b-trap-widen | [x] a7bf59d8 | assert_trap f32/f64 arms + i32.wrap_i64 |
 | k-1-expand-1 | [x] 894e0e00 | 6 binop helpers + 7 wasts |
 | D-091-close | [x] f22acf6c | x86_64 i32.trunc_f64_s lower-bound `-(2^31+1)` + JBE |
-| D-092-close | [x] 520246cd | x86_64 emitFpMinMax dst==rhs swap; f32+f64 in NAMES |
-| **k-1-expand-2** | **NEXT** | next batch of wasm-2.0 wast names |
+| D-092-close | [x] 520246cd+111e232b | x86_64 emitFpMinMax dst==rhs swap; f32+f64 in NAMES |
+| k-1-expand-2 | [x] a9b06a15 | 4 safe wasm-2.0 names (unreachable/local_get/local_set/return); D-093 filed for the other 8 |
+| **D-093 (d)** | **NEXT** | nested-value propagation cluster — `br.0.wasm` shape bisect |
 
 Other queued chunks (post-l-1):
 - k-1 — Wasm 2.0 non-SIMD wast vendor (~30 files).
@@ -86,7 +88,7 @@ Other queued chunks (post-l-1):
 
 ## Open debt — see `.dev/debt.md`
 
-- `now`: none (D-091 + D-092 discharged).
+- `now`: **D-093** (wasm-2.0 spec corpus failures cluster (a)/(b)/(c)/(d) — investigation).
 - `blocked-by`: D-007/010/016/018/020/021/022/026/028/052(partial)/
   055/057/058/059/062(partial)/065/072/073/074/075/079(ii)/
   081/082/090.
