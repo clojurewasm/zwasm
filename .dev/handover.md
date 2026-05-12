@@ -13,26 +13,26 @@
    per-chunk pickup chain (recipes, file paths, ADR notes) for
    the queue below. Authoritative for next session continuation.
 
-## Active state — **Phase 9 extended; l-1b corpus starter landed 2026-05-12**
+## Active state — **Phase 9 extended; l-1b widen landed 2026-05-12**
 
 ### One-line state
 
-l-1a (6 stages) + l-1b runner half + l-1b corpus starter
-landed. `scripts/regen_spec_2_0_assert.sh` distills upstream
-WebAssembly/spec `conversions.wast` into 27 .wasm fixtures +
-manifest under `test/spec/wasm-2.0-assert/conversions/`.
-test-spec-wasm-2.0-assert: **Mac + OrbStack 37 / 0 / 581
-bit-identical** (581 skip-impl flags runner-shape gaps in
-`spec_assert_runner_non_simd.dispatchScalarResult` — every
-cross-type conversion shape is missing). simd_assert 13301/0/440
-and spec_assert 212/0/20 unchanged.
+l-1a (6 stages) + l-1b runner half + l-1b corpus starter +
+l-1b-widen landed. Mac + OrbStack `test-spec-wasm-2.0-assert`:
+**493 / 0 / 125 bit-identical** (87 skip-impl + 38 skip-adr).
+10 cross-type entry helpers + matching dispatch arms drove
+the corpus from 37 → 493 PASS. simd_assert 13301/0/440 +
+spec_assert 212/0/20 unchanged. x86_64 trunc precision bug
+(D-091) surfaced + ADR-skipped at boundary; 38 fixtures waived.
 
-Next: **widen the runner ladder** with cross-type entry
-helpers — `entry.callI32_f32` / `callI32_f64` / `callI64_f32` /
-`callI64_f64` (trunc-family) + `callF32_i32` / `callF32_i64` /
-`callF64_i32` / `callF64_i64` (convert-family) + `callF32_f64`
-/ `callF64_f32` (promote/demote) + the corresponding dispatch
-arms. Should collapse the 581 skip-impl substantially.
+Next: choose between (a) **NaN-pattern result matcher** for
+the non-SIMD runner — collapses ~79 of the 87 skip-impl (the
+`nan:canonical` / `nan:arithmetic` cases in conversions) by
+porting simd's `matchLaneF32`/`matchLaneF64` to scalar; OR
+(b) **D-091 discharge** — rewrite x86_64 `op_convert.zig`
+trapping-trunc with a range-aware predicate (retires the 38
+skip-adr). Either path is ≤ 1 chunk and unrelated to the
+hard gate at §9.12.
 
 ### Original m-2 cluster state (earlier this session)
 
@@ -58,28 +58,28 @@ m-2c-init ElemSlice).
 
 ## Implementation queue (sequential — pickup detail in pickup docs)
 
-Next session picks up at **l-1b dispatch widen**: extend
-`spec_assert_runner_non_simd.zig`'s `dispatchScalarResult` /
-`dispatchVoidResult` ladders with the cross-type shapes
-`conversions.wast` needs — `(f32) → i32`, `(f64) → i64`,
-`(i32) → f64`, etc. Each new arm needs a matching `entry.callXX`
-helper in `src/engine/codegen/shared/entry.zig`. Then re-run
-the regen script (filter set in the script must mirror the
-runner ladder) to confirm 581 skip-impl shrinks.
+Next session picks up at **one of**:
+  - **l-1b-nan**: port simd's `matchLaneF32`/`matchLaneF64`
+    NaN-aware comparators to scalar in the non-SIMD runner;
+    parse `nan:canonical` / `nan:arithmetic` result tokens via
+    a new `expectedFpKind` enum (literal vs canonical-nan vs
+    arithmetic-nan). Removes the 79 nan-pattern skip-impl.
+  - **D-091**: x86_64 trapping-trunc precision fix per
+    `skip_x86_64_trunc_precision.md`; rewrite `op_convert.zig`
+    with a range-aware predicate before CVTTSD2SI / CVTTSS2SI;
+    delete the regen-script filter + the skip-ADR; re-regen
+    the manifest. Retires the 38 skip-adr.
 
 Per-stage state of l-1 (l-1a all complete; l-1b in progress):
 
 | Stage | Status | What |
 |---|---|---|
-| l-1a-1 | [x] 06c3bfdc | scalar token parsers + splitFnAndArgs |
-| l-1a-2 | [x] dc7bc047 | AssertTally + classifySkipLine |
-| l-1a-3 | [x] 4727fc02 | DirectiveKind + classifyDirective |
-| l-1a-4 | [x] d8157857 | runCorpus + RunnerCallbacks trait in base |
-| l-1a-5 | [x] d9a1fff1 | parseAssertReturnArgs / ArgValue / parseArgToken / parseV128Token in base |
-| l-1a-6 | [x] 8e52a241 | makeJitRuntime helper hoist to base |
-| l-1b-runner | [x] bff477f5 | new spec_assert_runner_non_simd.zig + test-spec-wasm-2.0-assert step + test-all wiring |
+| l-1a-1..6 | [x] | base extraction + runCorpus + arg-parser + makeJitRuntime hoists |
+| l-1b-runner | [x] bff477f5 | new spec_assert_runner_non_simd.zig + test-spec-wasm-2.0-assert + test-all wiring |
 | l-1b-corpus | [x] 3b92bed6 | regen_spec_2_0_assert.sh + conversions starter (37/0/581) |
-| **l-1b-widen** | **NEXT** | **cross-type entry helpers + dispatch arms (collapse 581 skip-impl)** |
+| l-1b-widen  | [x] 774ae3c8 | 10 cross-type entry helpers + dispatch arms + boundary skip-adr (493/0/125) |
+| **l-1b-nan** | **NEXT (option A)** | **NaN-pattern result matcher (collapses 79 skip-impl)** |
+| **D-091** | **NEXT (option B)** | **x86_64 trapping-trunc precision fix (retires 38 skip-adr)** |
 
 Then l-1b (new spec_assert_runner_non_simd.zig + curated wasm-2.0
 corpus + test-spec-wasm-2.0-assert build step).
