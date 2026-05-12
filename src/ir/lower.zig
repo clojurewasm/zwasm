@@ -60,6 +60,11 @@ pub const Error = error{
 
 pub const max_control_stack: usize = 1024;
 
+/// D-093 (d-1) — sentinel in `block_stack[]` for blocks opened
+/// while the lowerer is in dead-code mode. closeBlock detects
+/// this and skips `.end` emission + `out.blocks` mutation.
+const unreachable_block_sentinel: u32 = std.math.maxInt(u32);
+
 /// Lower the body bytes into `out`. `out` must be initialised
 /// (typically via `ZirFunc.init`); lowering appends to its
 /// `instrs` and `blocks` lists. The caller retains ownership and
@@ -94,6 +99,20 @@ const Lowerer = struct {
 
     block_stack: [max_control_stack]u32 = undefined,
     block_stack_len: usize = 0,
+
+    /// D-093 (d-1) — Wasm spec §3.4 polymorphic-stack tracking.
+    /// `null` = reachable; non-null = `block_stack_len` snapshot
+    /// at the unconditional terminator (br / return / unreachable
+    /// / br_table). While set, `emit()` becomes a no-op so dead
+    /// ZirInstrs never reach the downstream regalloc / emit
+    /// passes. Cleared at the matching `end` (closeBlock detects
+    /// block_stack_len dropping below the saved depth) or at
+    /// `else` (else-arm is reachable independent of then-arm's
+    /// terminator). Block structure inside the dead region is
+    /// still tracked via `block_stack` using the sentinel
+    /// `unreachable_block_sentinel` so closeBlock knows whether
+    /// to emit `.end` or just bookkeep.
+    unreachable_at_depth: ?u32 = null,
 
     /// SIMD 16-byte const-pool builder (per ADR-0042). Each entry is
     /// the raw immediate of a `v128.const` / `i8x16.shuffle` op.
@@ -130,7 +149,10 @@ const Lowerer = struct {
 
     fn dispatch(self: *Lowerer, op: u8, fn_done: *bool) Error!void {
         switch (op) {
-            0x00 => try self.emit(.@"unreachable", 0, 0),
+            0x00 => {
+                try self.emit(.@"unreachable", 0, 0);
+                self.markUnreachable();
+            },
             0x01 => try self.emit(.nop, 0, 0),
             0x02 => try self.openBlock(.block, .block),
             0x03 => try self.openBlock(.loop, .loop),
@@ -138,6 +160,11 @@ const Lowerer = struct {
             0x05 => try self.emitElse(),
             0x0B => {
                 if (self.block_stack_len == 0) {
+                    // D-093 (d-1): function-end is always part
+                    // of the canonical IR; clear the dead-region
+                    // flag (if set by a top-level br/return/
+                    // unreachable) so the `.end` ZirInstr lands.
+                    self.unreachable_at_depth = null;
                     try self.emit(.end, 0, 0);
                     fn_done.* = true;
                 } else {
@@ -147,8 +174,12 @@ const Lowerer = struct {
             0x0C => {
                 const depth = try leb128.readUleb128(u32, self.body, &self.pos);
                 try self.emit(.br, depth, 0);
+                self.markUnreachable();
             },
-            0x0F => try self.emit(.@"return", 0, 0),
+            0x0F => {
+                try self.emit(.@"return", 0, 0);
+                self.markUnreachable();
+            },
             0x1A => try self.emit(.drop, 0, 0),
             0x20 => try self.emitLocalIndexed(.@"local.get"),
             0x21 => try self.emitLocalIndexed(.@"local.set"),
@@ -410,6 +441,12 @@ const Lowerer = struct {
     }
 
     fn emit(self: *Lowerer, op: ZirOp, payload: u32, extra: u32) Error!void {
+        // D-093 (d-1): skip ZirInstr emission while in the dead
+        // region following an unconditional terminator. Operand
+        // bytes are still consumed by the caller (the dispatch
+        // arm parses them before calling `emit`), so the lowerer
+        // stays positionally correct in `self.body`.
+        if (self.unreachable_at_depth != null) return;
         try self.out.instrs.append(self.alloc, .{ .op = op, .payload = payload, .extra = extra });
     }
 
@@ -871,7 +908,20 @@ const Lowerer = struct {
     /// instr's `extra` is the start index into branch_targets; payload
     /// is the count (not including default — default is at start+count).
     fn emitBrTable(self: *Lowerer) Error!void {
+        // D-093 (d-1): branch_targets is a per-function pool the
+        // emit reads via (start, count). In dead code the pool
+        // doesn't need new entries (emit skips the .br_table
+        // ZirInstr); parse the operands to stay positional, but
+        // don't grow `out.branch_targets`.
         const count = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (self.unreachable_at_depth != null) {
+            var i: u32 = 0;
+            while (i < count) : (i += 1) _ = try leb128.readUleb128(u32, self.body, &self.pos);
+            _ = try leb128.readUleb128(u32, self.body, &self.pos); // default
+            // Already in dead region — flag stays set; no
+            // markUnreachable needed.
+            return;
+        }
         const start: u32 = @intCast(self.out.branch_targets.items.len);
         var i: u32 = 0;
         while (i < count) : (i += 1) {
@@ -881,11 +931,32 @@ const Lowerer = struct {
         const default = try leb128.readUleb128(u32, self.body, &self.pos);
         try self.out.branch_targets.append(self.alloc, default);
         try self.emit(.br_table, count, start);
+        self.markUnreachable();
+    }
+
+    /// D-093 (d-1) helper: enter the dead-code region. Records
+    /// `block_stack_len` at the terminator's site so the matching
+    /// `end` / `else` knows when to clear. Idempotent — repeated
+    /// terminators in dead code don't update the depth.
+    fn markUnreachable(self: *Lowerer) void {
+        if (self.unreachable_at_depth == null) {
+            self.unreachable_at_depth = @intCast(self.block_stack_len);
+        }
     }
 
     fn openBlock(self: *Lowerer, kind: BlockKind, op: ZirOp) Error!void {
         const arity = try self.readBlockArity();
         if (self.block_stack_len == max_control_stack) return Error.ControlStackOverflow;
+
+        // D-093 (d-1): block opened inside the dead region —
+        // bookkeep depth via the sentinel, skip BlockInfo /
+        // ZirInstr allocation. The matching `end` (closeBlock
+        // detects the sentinel) just pops.
+        if (self.unreachable_at_depth != null) {
+            self.block_stack[self.block_stack_len] = unreachable_block_sentinel;
+            self.block_stack_len += 1;
+            return;
+        }
 
         const block_idx: u32 = @intCast(self.out.blocks.items.len);
         const start_inst: u32 = @intCast(self.out.instrs.items.len);
@@ -931,8 +1002,27 @@ const Lowerer = struct {
     }
 
     fn closeBlock(self: *Lowerer) Error!void {
-        const block_idx = self.block_stack[self.block_stack_len - 1];
         self.block_stack_len -= 1;
+        const block_idx = self.block_stack[self.block_stack_len];
+
+        // D-093 (d-1): sentinel marks a block opened entirely
+        // inside dead code — pop + return, no ZirInstr / no
+        // out.blocks update. The unreachable flag itself stays
+        // set (we're still inside the outer dead region).
+        if (block_idx == unreachable_block_sentinel) return;
+
+        // If popping this (live) block crosses the depth where
+        // the unreachable region started, clear the flag NOW so
+        // the `.end` ZirInstr below emits cleanly. The block
+        // that "started the unreachable region" is the one that
+        // contained the br/return/unreachable; its end is part
+        // of the reachable structure.
+        if (self.unreachable_at_depth) |d| {
+            if (self.block_stack_len < d) {
+                self.unreachable_at_depth = null;
+            }
+        }
+
         const end_inst: u32 = @intCast(self.out.instrs.items.len);
         try self.emit(.end, block_idx, 0);
         self.out.blocks.items[block_idx].end_inst = end_inst;
@@ -941,6 +1031,22 @@ const Lowerer = struct {
     fn emitElse(self: *Lowerer) Error!void {
         if (self.block_stack_len == 0) return Error.UnexpectedOpcode;
         const block_idx = self.block_stack[self.block_stack_len - 1];
+
+        // D-093 (d-1): else of a dead-code if — stays dead.
+        if (block_idx == unreachable_block_sentinel) return;
+
+        // If the then-arm's br/return/unreachable made us
+        // unreachable AT THIS if-block's depth, the else-arm is
+        // reachable independent of the then-arm; clear the flag.
+        // Deeper unreachable depths (from nested blocks inside
+        // the then-arm) were already cleared at their matching
+        // ends per closeBlock's check.
+        if (self.unreachable_at_depth) |d| {
+            if (self.block_stack_len == d) {
+                self.unreachable_at_depth = null;
+            }
+        }
+
         const else_pc: u32 = @intCast(self.out.instrs.items.len);
         self.out.blocks.items[block_idx].kind = .else_open;
         self.out.blocks.items[block_idx].else_inst = else_pc;

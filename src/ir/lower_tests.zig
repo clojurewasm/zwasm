@@ -137,6 +137,123 @@ test "lower: br carries depth in payload" {
     try testing.expectEqual(@as(u32, 0), br.payload);
 }
 
+test "lower: D-093 (d-1) — dead-code i32.add after br is not emitted" {
+    var f = newFunc(i32_result_sig);
+    defer f.deinit(testing.allocator);
+
+    // Mirror of br.wast `nested-block-value`:
+    //   i32.const 1
+    //   block (result i32)
+    //     i32.const 4
+    //     i32.const 8
+    //     br 0
+    //     i32.add        ; dead — must NOT land in ZIR
+    //   end
+    //   i32.add
+    //   end_fn
+    const body = [_]u8{
+        0x41, 0x01, // i32.const 1
+        0x02, 0x7F, // block (result i32)
+        0x41, 0x04, // i32.const 4
+        0x41, 0x08, // i32.const 8
+        0x0C, 0x00, // br 0
+        0x6A, // i32.add  (dead)
+        0x0B, // end (block)
+        0x6A, // i32.add
+        0x0B, // end_fn
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+
+    // Expected ZIR (no dead i32.add):
+    //   .@"i32.const"(1)
+    //   .block(0, arity=1)
+    //   .@"i32.const"(4)
+    //   .@"i32.const"(8)
+    //   .br(0)
+    //   .end(block_idx=0)
+    //   .@"i32.add"
+    //   .end(function)
+    try testing.expectEqual(@as(usize, 8), f.instrs.items.len);
+    try testing.expectEqual(ZirOp.@"i32.const", f.instrs.items[0].op);
+    try testing.expectEqual(ZirOp.block, f.instrs.items[1].op);
+    try testing.expectEqual(ZirOp.@"i32.const", f.instrs.items[2].op);
+    try testing.expectEqual(ZirOp.@"i32.const", f.instrs.items[3].op);
+    try testing.expectEqual(ZirOp.br, f.instrs.items[4].op);
+    try testing.expectEqual(ZirOp.end, f.instrs.items[5].op);
+    try testing.expectEqual(ZirOp.@"i32.add", f.instrs.items[6].op);
+    try testing.expectEqual(ZirOp.end, f.instrs.items[7].op);
+}
+
+test "lower: D-093 (d-1) — nested block inside dead code emits no ZirInstrs" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+
+    //   block
+    //     br 0
+    //     block (result i32)   ; dead — block + content + end skipped
+    //       i32.const 7
+    //     end
+    //   end
+    //   end_fn
+    const body = [_]u8{
+        0x02, 0x40, // block (empty)
+        0x0C, 0x00, // br 0
+        0x02, 0x7F, // block (result i32) — dead
+        0x41, 0x07, // i32.const 7      — dead
+        0x0B, // end (inner)      — dead
+        0x0B, // end (outer)      — reachable
+        0x0B, // end_fn
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+
+    // Expected ZIR: .block, .br, .end (outer block), .end (fn).
+    try testing.expectEqual(@as(usize, 4), f.instrs.items.len);
+    try testing.expectEqual(ZirOp.block, f.instrs.items[0].op);
+    try testing.expectEqual(ZirOp.br, f.instrs.items[1].op);
+    try testing.expectEqual(ZirOp.end, f.instrs.items[2].op);
+    try testing.expectEqual(ZirOp.end, f.instrs.items[3].op);
+    // Only the outer block lands in `blocks` — the inner dead-code
+    // block contributes nothing.
+    try testing.expectEqual(@as(usize, 1), f.blocks.items.len);
+}
+
+test "lower: D-093 (d-1) — else after then-arm br is reachable" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+
+    //   block
+    //     i32.const 1
+    //     if (empty)
+    //       br 1             ; out of block
+    //       nop              ; dead
+    //     else
+    //       nop              ; reachable
+    //     end
+    //   end
+    //   end_fn
+    const body = [_]u8{
+        0x02, 0x40, // block
+        0x41, 0x01, // i32.const 1
+        0x04, 0x40, // if
+        0x0C, 0x01, // br 1
+        0x01, // nop (dead)
+        0x05, // else
+        0x01, // nop (reachable)
+        0x0B, // end (if)
+        0x0B, // end (block)
+        0x0B, // end_fn
+    };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+
+    // Find the two .nop slots. Only the else-arm nop should
+    // land — the post-br nop in the then-arm is dead-skipped.
+    var nop_count: usize = 0;
+    for (f.instrs.items) |ins| {
+        if (ins.op == .nop) nop_count += 1;
+    }
+    try testing.expectEqual(@as(usize, 1), nop_count);
+}
+
 test "lower: local.{get,set,tee} carry index in payload" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);

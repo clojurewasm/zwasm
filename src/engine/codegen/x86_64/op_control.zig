@@ -45,11 +45,22 @@ const merge_top_vregs_cap: u8 = 8;
 /// Wasm spec §3.4.4 (block) — push a forward-resolving label
 /// frame. No code emitted; the matching `end` patches all
 /// `pending` fixups.
-pub fn emitBlock(allocator: Allocator, labels: *std.ArrayList(Label)) Error!void {
+/// D-093 (d-1): records result_arity (from ZirInstr.extra) +
+/// entry_stack_depth so emitEndIntra can truncate operand
+/// stack at block close.
+pub fn emitBlock(
+    allocator: Allocator,
+    labels: *std.ArrayList(Label),
+    pushed_vregs: *const std.ArrayList(u32),
+    arity_u32: u32,
+) Error!void {
+    const arity: u8 = std.math.cast(u8, arity_u32) orelse return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:emitBlock-arity", arity_u32);
     try labels.append(allocator, .{
         .kind = .block,
         .target_byte_offset = 0,
         .pending = .empty,
+        .result_arity = arity,
+        .entry_stack_depth = @intCast(pushed_vregs.items.len),
     });
 }
 
@@ -57,11 +68,20 @@ pub fn emitBlock(allocator: Allocator, labels: *std.ArrayList(Label)) Error!void
 /// frame. Captures the current buf offset as the loop entry;
 /// subsequent `br` to this label resolves to a backward JMP with
 /// concrete disp.
-pub fn emitLoop(allocator: Allocator, buf: *std.ArrayList(u8), labels: *std.ArrayList(Label)) Error!void {
+pub fn emitLoop(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    labels: *std.ArrayList(Label),
+    pushed_vregs: *const std.ArrayList(u32),
+    arity_u32: u32,
+) Error!void {
+    const arity: u8 = std.math.cast(u8, arity_u32) orelse return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:emitLoop-arity", arity_u32);
     try labels.append(allocator, .{
         .kind = .loop,
         .target_byte_offset = @intCast(buf.items.len),
         .pending = .empty,
+        .result_arity = arity,
+        .entry_stack_depth = @intCast(pushed_vregs.items.len),
     });
 }
 
@@ -331,6 +351,9 @@ pub fn emitIf(
         .pending = .empty,
         .if_skip_byte = skip_at,
         .result_arity = arity,
+        // D-093 (d-1): measured AFTER popping cond_v, matches
+        // the depth a subsequent br would target.
+        .entry_stack_depth = @intCast(pushed_vregs.items.len),
     });
 }
 
@@ -479,5 +502,22 @@ pub fn emitEndIntra(
                 @as(i32, @intCast(fx.byte_offset)) - @as(i32, fx.insn_size);
             inst.patchRel32(buf.items, fx.byte_offset, fx.insn_size, disp);
         }
+    }
+
+    // D-093 (d-1): truncate pushed_vregs to entry_stack_depth +
+    // result_arity, keeping the top result_arity values. Mirrors
+    // `arm64/op_control.zig:emitEndIntra` final block; see that
+    // file for the rationale (br inside block leaves extras on
+    // operand stack that downstream consumers must not see).
+    const new_len: usize = @as(usize, lbl.entry_stack_depth) + @as(usize, lbl.result_arity);
+    if (pushed_vregs.items.len > new_len and lbl.result_arity > 0) {
+        const top_start = pushed_vregs.items.len - lbl.result_arity;
+        var i: usize = 0;
+        while (i < lbl.result_arity) : (i += 1) {
+            pushed_vregs.items[lbl.entry_stack_depth + i] = pushed_vregs.items[top_start + i];
+        }
+    }
+    if (pushed_vregs.items.len > new_len) {
+        pushed_vregs.shrinkRetainingCapacity(new_len);
     }
 }

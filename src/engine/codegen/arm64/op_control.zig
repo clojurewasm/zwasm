@@ -54,21 +54,31 @@ const Allocator = std.mem.Allocator;
 const merge_top_vregs_cap: u8 = 8;
 
 /// `block` — push a forward-resolving label frame.
-pub fn emitBlock(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+pub fn emitBlock(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    // D-093 (d-1): record result_arity (from ZirInstr.extra,
+    // per lower.zig:openBlock) + entry_stack_depth so
+    // emitEndIntra can truncate the operand stack at block
+    // close.
+    const arity: u8 = std.math.cast(u8, ins.extra) orelse return Error.UnsupportedOp;
     try ctx.labels.append(ctx.allocator, .{
         .kind = .block,
         .target_byte_offset = 0, // unknown until matching `end`
         .pending = .empty,
+        .result_arity = arity,
+        .entry_stack_depth = @intCast(ctx.pushed_vregs.items.len),
     });
 }
 
 /// `loop` — push a backward-resolving label frame; capture the
 /// current buf offset as the loop entry.
-pub fn emitLoop(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+pub fn emitLoop(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    const arity: u8 = std.math.cast(u8, ins.extra) orelse return Error.UnsupportedOp;
     try ctx.labels.append(ctx.allocator, .{
         .kind = .loop,
         .target_byte_offset = @intCast(ctx.buf.items.len),
         .pending = .empty,
+        .result_arity = arity,
+        .entry_stack_depth = @intCast(ctx.pushed_vregs.items.len),
     });
 }
 
@@ -305,6 +315,10 @@ pub fn emitIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         .pending = .empty,
         .if_skip_byte = skip_byte,
         .result_arity = arity,
+        // D-093 (d-1): entry_stack_depth measured AFTER popping
+        // the if's condition vreg (matches the depth a
+        // subsequent br would target).
+        .entry_stack_depth = @intCast(ctx.pushed_vregs.items.len),
     });
 }
 
@@ -468,5 +482,31 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
             };
             std.mem.writeInt(u32, ctx.buf.items[fx.byte_offset..][0..4], new_word, .little);
         }
+    }
+
+    // D-093 (d-1): truncate pushed_vregs to entry_stack_depth +
+    // result_arity, keeping the top result_arity values. When a
+    // br inside the block left extra vregs on the operand stack
+    // (e.g. `block (result i32) (i32.const 4) (i32.const 8)
+    // (br 0)`: stack = [pre, V_four, V_eight] but block result
+    // is just V_eight), the extras must be discarded so the
+    // post-block consumer reads the correct vregs. For the
+    // simple fall-through case (no br) the stack already has
+    // exactly `entry + result_arity` entries; the truncation is
+    // a no-op. For if/else with merge MOVs (else_open branch
+    // above), the merge already aligned pushed_vregs to the
+    // canonical merge target vregs, so this final truncation
+    // collapses the redundant else-arm slots into a single
+    // result slot.
+    const new_len: usize = @as(usize, lbl.entry_stack_depth) + @as(usize, lbl.result_arity);
+    if (ctx.pushed_vregs.items.len > new_len and lbl.result_arity > 0) {
+        const top_start = ctx.pushed_vregs.items.len - lbl.result_arity;
+        var i: usize = 0;
+        while (i < lbl.result_arity) : (i += 1) {
+            ctx.pushed_vregs.items[lbl.entry_stack_depth + i] = ctx.pushed_vregs.items[top_start + i];
+        }
+    }
+    if (ctx.pushed_vregs.items.len > new_len) {
+        ctx.pushed_vregs.shrinkRetainingCapacity(new_len);
     }
 }

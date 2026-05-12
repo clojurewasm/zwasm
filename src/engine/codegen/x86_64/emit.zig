@@ -1561,8 +1561,8 @@ pub fn compile(
                 try buf.appendSlice(allocator, inst.encRet().slice());
                 dead_code = true;
             },
-            .block => try op_control.emitBlock(allocator, &labels),
-            .loop => try op_control.emitLoop(allocator, &buf, &labels),
+            .block => try op_control.emitBlock(allocator, &labels, &pushed_vregs, ins.extra),
+            .loop => try op_control.emitLoop(allocator, &buf, &labels, &pushed_vregs, ins.extra),
             .br => {
                 try op_control.emitBr(allocator, &buf, alloc, &pushed_vregs, &labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, ins.payload);
                 // br is an unconditional control transfer; subsequent

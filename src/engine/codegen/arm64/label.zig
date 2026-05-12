@@ -78,4 +78,15 @@ pub const Label = struct {
     /// validator's polymorphic-stack discipline leaves the
     /// operand stack short of `arity`).
     merge_captured: bool = false,
+    /// D-093 (d-1) — `pushed_vregs.items.len` snapshot at
+    /// emitBlock / emitLoop / emitIf, used by emitEndIntra to
+    /// truncate operand stack to `entry_stack_depth +
+    /// result_arity` at block end. Necessary when a `br` inside
+    /// the block left extra vregs on top of the operand stack
+    /// (lower.zig strips post-br dead ZirInstrs but the br's
+    /// own pre-arg pushes stay on the operand stack — only the
+    /// top `branch_arity` vregs are spec-defined block
+    /// results). Default 0; emitBlock / emitLoop / emitIf set
+    /// the live value before pushing the Label.
+    entry_stack_depth: u32 = 0,
 };
