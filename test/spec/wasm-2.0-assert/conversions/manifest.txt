@@ -23,20 +23,20 @@ skip-impl runner-shape-gap (i64, i32) i32.wrap_i64
 skip-impl runner-shape-gap (i64, i32) i32.wrap_i64
 skip-impl runner-shape-gap (i64, i32) i32.wrap_i64
 skip-impl runner-shape-gap (i64, i32) i32.wrap_i64
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_s
+assert_return i32.trunc_f32_s f32:0 -> i32:0
+assert_return i32.trunc_f32_s f32:2147483648 -> i32:0
+assert_return i32.trunc_f32_s f32:1 -> i32:0
+assert_return i32.trunc_f32_s f32:2147483649 -> i32:0
+assert_return i32.trunc_f32_s f32:1065353216 -> i32:1
+assert_return i32.trunc_f32_s f32:1066192077 -> i32:1
+assert_return i32.trunc_f32_s f32:1069547520 -> i32:1
+assert_return i32.trunc_f32_s f32:3212836864 -> i32:4294967295
+assert_return i32.trunc_f32_s f32:3213675725 -> i32:4294967295
+assert_return i32.trunc_f32_s f32:3217031168 -> i32:4294967295
+assert_return i32.trunc_f32_s f32:3220386611 -> i32:4294967295
+assert_return i32.trunc_f32_s f32:3221225472 -> i32:4294967294
+assert_return i32.trunc_f32_s f32:1325400063 -> i32:2147483520
+skip-adr-x86_64_trunc_precision i32.trunc_f32_s edge-input
 skip-impl trap-non-int-arg i32.trunc_f32_s
 skip-impl trap-non-int-arg i32.trunc_f32_s
 skip-impl trap-non-int-arg i32.trunc_f32_s
@@ -45,19 +45,19 @@ skip-impl trap-non-int-arg i32.trunc_f32_s
 skip-impl trap-non-int-arg i32.trunc_f32_s
 skip-impl trap-non-int-arg i32.trunc_f32_s
 skip-impl trap-non-int-arg i32.trunc_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_f32_u
+skip-adr-x86_64_trunc_precision i32.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f32_u edge-input
+assert_return i32.trunc_f32_u f32:1066192077 -> i32:1
+assert_return i32.trunc_f32_u f32:1069547520 -> i32:1
+assert_return i32.trunc_f32_u f32:1072902963 -> i32:1
+assert_return i32.trunc_f32_u f32:1073741824 -> i32:2
+assert_return i32.trunc_f32_u f32:1325400064 -> i32:2147483648
+assert_return i32.trunc_f32_u f32:1333788671 -> i32:4294967040
+skip-adr-x86_64_trunc_precision i32.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f32_u edge-input
 skip-impl trap-non-int-arg i32.trunc_f32_u
 skip-impl trap-non-int-arg i32.trunc_f32_u
 skip-impl trap-non-int-arg i32.trunc_f32_u
@@ -66,22 +66,22 @@ skip-impl trap-non-int-arg i32.trunc_f32_u
 skip-impl trap-non-int-arg i32.trunc_f32_u
 skip-impl trap-non-int-arg i32.trunc_f32_u
 skip-impl trap-non-int-arg i32.trunc_f32_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_s
+assert_return i32.trunc_f64_s f64:0 -> i32:0
+assert_return i32.trunc_f64_s f64:9223372036854775808 -> i32:0
+assert_return i32.trunc_f64_s f64:1 -> i32:0
+assert_return i32.trunc_f64_s f64:9223372036854775809 -> i32:0
+assert_return i32.trunc_f64_s f64:4607182418800017408 -> i32:1
+assert_return i32.trunc_f64_s f64:4607632778762754458 -> i32:1
+assert_return i32.trunc_f64_s f64:4609434218613702656 -> i32:1
+assert_return i32.trunc_f64_s f64:13830554455654793216 -> i32:4294967295
+assert_return i32.trunc_f64_s f64:13831004815617530266 -> i32:4294967295
+assert_return i32.trunc_f64_s f64:13832806255468478464 -> i32:4294967295
+assert_return i32.trunc_f64_s f64:13834607695319426662 -> i32:4294967295
+assert_return i32.trunc_f64_s f64:13835058055282163712 -> i32:4294967294
+skip-adr-x86_64_trunc_precision i32.trunc_f64_s edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_s edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_s edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_s edge-input
 skip-impl trap-non-int-arg i32.trunc_f64_s
 skip-impl trap-non-int-arg i32.trunc_f64_s
 skip-impl trap-non-int-arg i32.trunc_f64_s
@@ -90,22 +90,22 @@ skip-impl trap-non-int-arg i32.trunc_f64_s
 skip-impl trap-non-int-arg i32.trunc_f64_s
 skip-impl trap-non-int-arg i32.trunc_f64_s
 skip-impl trap-non-int-arg i32.trunc_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_f64_u
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
+assert_return i32.trunc_f64_u f64:4607632778762754458 -> i32:1
+assert_return i32.trunc_f64_u f64:4609434218613702656 -> i32:1
+assert_return i32.trunc_f64_u f64:4611235658464650854 -> i32:1
+assert_return i32.trunc_f64_u f64:4611686018427387904 -> i32:2
+assert_return i32.trunc_f64_u f64:4746794007248502784 -> i32:2147483648
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
+assert_return i32.trunc_f64_u f64:4726483295884279808 -> i32:100000000
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i32.trunc_f64_u edge-input
 skip-impl trap-non-int-arg i32.trunc_f64_u
 skip-impl trap-non-int-arg i32.trunc_f64_u
 skip-impl trap-non-int-arg i32.trunc_f64_u
@@ -117,22 +117,22 @@ skip-impl trap-non-int-arg i32.trunc_f64_u
 skip-impl trap-non-int-arg i32.trunc_f64_u
 skip-impl trap-non-int-arg i32.trunc_f64_u
 skip-impl trap-non-int-arg i32.trunc_f64_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_s
+assert_return i64.trunc_f32_s f32:0 -> i64:0
+assert_return i64.trunc_f32_s f32:2147483648 -> i64:0
+assert_return i64.trunc_f32_s f32:1 -> i64:0
+assert_return i64.trunc_f32_s f32:2147483649 -> i64:0
+assert_return i64.trunc_f32_s f32:1065353216 -> i64:1
+assert_return i64.trunc_f32_s f32:1066192077 -> i64:1
+assert_return i64.trunc_f32_s f32:1069547520 -> i64:1
+assert_return i64.trunc_f32_s f32:3212836864 -> i64:18446744073709551615
+assert_return i64.trunc_f32_s f32:3213675725 -> i64:18446744073709551615
+assert_return i64.trunc_f32_s f32:3217031168 -> i64:18446744073709551615
+assert_return i64.trunc_f32_s f32:3220386611 -> i64:18446744073709551615
+assert_return i64.trunc_f32_s f32:3221225472 -> i64:18446744073709551614
+assert_return i64.trunc_f32_s f32:1333788672 -> i64:4294967296
+assert_return i64.trunc_f32_s f32:3481272320 -> i64:18446744069414584320
+assert_return i64.trunc_f32_s f32:1593835519 -> i64:9223371487098961920
+skip-adr-x86_64_trunc_precision i64.trunc_f32_s edge-input
 skip-impl trap-non-int-arg i64.trunc_f32_s
 skip-impl trap-non-int-arg i64.trunc_f32_s
 skip-impl trap-non-int-arg i64.trunc_f32_s
@@ -141,17 +141,17 @@ skip-impl trap-non-int-arg i64.trunc_f32_s
 skip-impl trap-non-int-arg i64.trunc_f32_s
 skip-impl trap-non-int-arg i64.trunc_f32_s
 skip-impl trap-non-int-arg i64.trunc_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_f32_u
+skip-adr-x86_64_trunc_precision i64.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f32_u edge-input
+assert_return i64.trunc_f32_u f32:1066192077 -> i64:1
+assert_return i64.trunc_f32_u f32:1069547520 -> i64:1
+assert_return i64.trunc_f32_u f32:1333788672 -> i64:4294967296
+assert_return i64.trunc_f32_u f32:1602224127 -> i64:18446742974197923840
+skip-adr-x86_64_trunc_precision i64.trunc_f32_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f32_u edge-input
 skip-impl trap-non-int-arg i64.trunc_f32_u
 skip-impl trap-non-int-arg i64.trunc_f32_u
 skip-impl trap-non-int-arg i64.trunc_f32_u
@@ -160,22 +160,22 @@ skip-impl trap-non-int-arg i64.trunc_f32_u
 skip-impl trap-non-int-arg i64.trunc_f32_u
 skip-impl trap-non-int-arg i64.trunc_f32_u
 skip-impl trap-non-int-arg i64.trunc_f32_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_s
+assert_return i64.trunc_f64_s f64:0 -> i64:0
+assert_return i64.trunc_f64_s f64:9223372036854775808 -> i64:0
+assert_return i64.trunc_f64_s f64:1 -> i64:0
+assert_return i64.trunc_f64_s f64:9223372036854775809 -> i64:0
+assert_return i64.trunc_f64_s f64:4607182418800017408 -> i64:1
+assert_return i64.trunc_f64_s f64:4607632778762754458 -> i64:1
+assert_return i64.trunc_f64_s f64:4609434218613702656 -> i64:1
+assert_return i64.trunc_f64_s f64:13830554455654793216 -> i64:18446744073709551615
+assert_return i64.trunc_f64_s f64:13831004815617530266 -> i64:18446744073709551615
+assert_return i64.trunc_f64_s f64:13832806255468478464 -> i64:18446744073709551615
+assert_return i64.trunc_f64_s f64:13834607695319426662 -> i64:18446744073709551615
+assert_return i64.trunc_f64_s f64:13835058055282163712 -> i64:18446744073709551614
+assert_return i64.trunc_f64_s f64:4751297606875873280 -> i64:4294967296
+assert_return i64.trunc_f64_s f64:13974669643730649088 -> i64:18446744069414584320
+assert_return i64.trunc_f64_s f64:4890909195324358655 -> i64:9223372036854774784
+skip-adr-x86_64_trunc_precision i64.trunc_f64_s edge-input
 skip-impl trap-non-int-arg i64.trunc_f64_s
 skip-impl trap-non-int-arg i64.trunc_f64_s
 skip-impl trap-non-int-arg i64.trunc_f64_s
@@ -184,21 +184,21 @@ skip-impl trap-non-int-arg i64.trunc_f64_s
 skip-impl trap-non-int-arg i64.trunc_f64_s
 skip-impl trap-non-int-arg i64.trunc_f64_s
 skip-impl trap-non-int-arg i64.trunc_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_f64_u
+skip-adr-x86_64_trunc_precision i64.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f64_u edge-input
+assert_return i64.trunc_f64_u f64:4607632778762754458 -> i64:1
+assert_return i64.trunc_f64_u f64:4609434218613702656 -> i64:1
+assert_return i64.trunc_f64_u f64:4751297606873776128 -> i64:4294967295
+assert_return i64.trunc_f64_u f64:4751297606875873280 -> i64:4294967296
+assert_return i64.trunc_f64_u f64:4895412794951729151 -> i64:18446744073709549568
+skip-adr-x86_64_trunc_precision i64.trunc_f64_u edge-input
+skip-adr-x86_64_trunc_precision i64.trunc_f64_u edge-input
+assert_return i64.trunc_f64_u f64:4726483295884279808 -> i64:100000000
+assert_return i64.trunc_f64_u f64:4846369599423283200 -> i64:10000000000000000
+assert_return i64.trunc_f64_u f64:4890909195324358656 -> i64:9223372036854775808
 skip-impl trap-non-int-arg i64.trunc_f64_u
 skip-impl trap-non-int-arg i64.trunc_f64_u
 skip-impl trap-non-int-arg i64.trunc_f64_u
@@ -207,391 +207,391 @@ skip-impl trap-non-int-arg i64.trunc_f64_u
 skip-impl trap-non-int-arg i64.trunc_f64_u
 skip-impl trap-non-int-arg i64.trunc_f64_u
 skip-impl trap-non-int-arg i64.trunc_f64_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i32) i32.trunc_sat_f32_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i32) i32.trunc_sat_f64_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_s
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f32, i64) i64.trunc_sat_f32_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_s
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (f64, i64) i64.trunc_sat_f64_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_s
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_s
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_s
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_s
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_s
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_s
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_s
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i32, f32) f32.convert_i32_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i64, f32) f32.convert_i64_u
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_u
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_u
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_u
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_u
-skip-impl runner-shape-gap (i32, f64) f64.convert_i32_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (i64, f64) f64.convert_i64_u
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f32, f64) f64.promote_f32
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (f64, f32) f32.demote_f64
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i32, f32) f32.reinterpret_i32
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (i64, f64) f64.reinterpret_i64
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f32, i32) i32.reinterpret_f32
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
-skip-impl runner-shape-gap (f64, i64) i64.reinterpret_f64
+assert_return f32.convert_i32_s i32:1 -> f32:1065353216
+assert_return f32.convert_i32_s i32:4294967295 -> f32:3212836864
+assert_return f32.convert_i32_s i32:0 -> f32:0
+assert_return f32.convert_i32_s i32:2147483647 -> f32:1325400064
+assert_return f32.convert_i32_s i32:2147483648 -> f32:3472883712
+assert_return f32.convert_i32_s i32:1234567890 -> f32:1318267910
+assert_return i32.trunc_sat_f32_s f32:0 -> i32:0
+assert_return i32.trunc_sat_f32_s f32:2147483648 -> i32:0
+assert_return i32.trunc_sat_f32_s f32:1 -> i32:0
+assert_return i32.trunc_sat_f32_s f32:2147483649 -> i32:0
+assert_return i32.trunc_sat_f32_s f32:1065353216 -> i32:1
+assert_return i32.trunc_sat_f32_s f32:1066192077 -> i32:1
+assert_return i32.trunc_sat_f32_s f32:1069547520 -> i32:1
+assert_return i32.trunc_sat_f32_s f32:3212836864 -> i32:4294967295
+assert_return i32.trunc_sat_f32_s f32:3213675725 -> i32:4294967295
+assert_return i32.trunc_sat_f32_s f32:3217031168 -> i32:4294967295
+assert_return i32.trunc_sat_f32_s f32:3220386611 -> i32:4294967295
+assert_return i32.trunc_sat_f32_s f32:3221225472 -> i32:4294967294
+assert_return i32.trunc_sat_f32_s f32:1325400063 -> i32:2147483520
+assert_return i32.trunc_sat_f32_s f32:3472883712 -> i32:2147483648
+assert_return i32.trunc_sat_f32_s f32:1325400064 -> i32:2147483647
+assert_return i32.trunc_sat_f32_s f32:3472883713 -> i32:2147483648
+assert_return i32.trunc_sat_f32_s f32:2139095040 -> i32:2147483647
+assert_return i32.trunc_sat_f32_s f32:4286578688 -> i32:2147483648
+assert_return i32.trunc_sat_f32_s f32:2143289344 -> i32:0
+assert_return i32.trunc_sat_f32_s f32:2141192192 -> i32:0
+assert_return i32.trunc_sat_f32_s f32:4290772992 -> i32:0
+assert_return i32.trunc_sat_f32_s f32:4288675840 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:0 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:2147483648 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:1 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:2147483649 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:1065353216 -> i32:1
+assert_return i32.trunc_sat_f32_u f32:1066192077 -> i32:1
+assert_return i32.trunc_sat_f32_u f32:1069547520 -> i32:1
+assert_return i32.trunc_sat_f32_u f32:1072902963 -> i32:1
+assert_return i32.trunc_sat_f32_u f32:1073741824 -> i32:2
+assert_return i32.trunc_sat_f32_u f32:1325400064 -> i32:2147483648
+assert_return i32.trunc_sat_f32_u f32:1333788671 -> i32:4294967040
+assert_return i32.trunc_sat_f32_u f32:3211159142 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:3212836863 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:1333788672 -> i32:4294967295
+assert_return i32.trunc_sat_f32_u f32:3212836864 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:2139095040 -> i32:4294967295
+assert_return i32.trunc_sat_f32_u f32:4286578688 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:2143289344 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:2141192192 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:4290772992 -> i32:0
+assert_return i32.trunc_sat_f32_u f32:4288675840 -> i32:0
+assert_return i32.trunc_sat_f64_s f64:0 -> i32:0
+assert_return i32.trunc_sat_f64_s f64:9223372036854775808 -> i32:0
+assert_return i32.trunc_sat_f64_s f64:1 -> i32:0
+assert_return i32.trunc_sat_f64_s f64:9223372036854775809 -> i32:0
+assert_return i32.trunc_sat_f64_s f64:4607182418800017408 -> i32:1
+assert_return i32.trunc_sat_f64_s f64:4607632778762754458 -> i32:1
+assert_return i32.trunc_sat_f64_s f64:4609434218613702656 -> i32:1
+assert_return i32.trunc_sat_f64_s f64:13830554455654793216 -> i32:4294967295
+assert_return i32.trunc_sat_f64_s f64:13831004815617530266 -> i32:4294967295
+assert_return i32.trunc_sat_f64_s f64:13832806255468478464 -> i32:4294967295
+assert_return i32.trunc_sat_f64_s f64:13834607695319426662 -> i32:4294967295
+assert_return i32.trunc_sat_f64_s f64:13835058055282163712 -> i32:4294967294
+assert_return i32.trunc_sat_f64_s f64:4746794007244308480 -> i32:2147483647
+assert_return i32.trunc_sat_f64_s f64:13970166044103278592 -> i32:2147483648
+assert_return i32.trunc_sat_f64_s f64:4746794007248502784 -> i32:2147483647
+assert_return i32.trunc_sat_f64_s f64:13970166044105375744 -> i32:2147483648
+assert_return i32.trunc_sat_f64_s f64:9218868437227405312 -> i32:2147483647
+assert_return i32.trunc_sat_f64_s f64:18442240474082181120 -> i32:2147483648
+assert_return i32.trunc_sat_f64_s f64:9221120237041090560 -> i32:0
+assert_return i32.trunc_sat_f64_s f64:9219994337134247936 -> i32:0
+assert_return i32.trunc_sat_f64_s f64:18444492273895866368 -> i32:0
+assert_return i32.trunc_sat_f64_s f64:18443366373989023744 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:0 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:9223372036854775808 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:1 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:9223372036854775809 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:4607182418800017408 -> i32:1
+assert_return i32.trunc_sat_f64_u f64:4607632778762754458 -> i32:1
+assert_return i32.trunc_sat_f64_u f64:4609434218613702656 -> i32:1
+assert_return i32.trunc_sat_f64_u f64:4611235658464650854 -> i32:1
+assert_return i32.trunc_sat_f64_u f64:4611686018427387904 -> i32:2
+assert_return i32.trunc_sat_f64_u f64:4746794007248502784 -> i32:2147483648
+assert_return i32.trunc_sat_f64_u f64:4751297606873776128 -> i32:4294967295
+assert_return i32.trunc_sat_f64_u f64:13829653735729319117 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:13830554455654793215 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:4726483295884279808 -> i32:100000000
+assert_return i32.trunc_sat_f64_u f64:4751297606875873280 -> i32:4294967295
+assert_return i32.trunc_sat_f64_u f64:13830554455654793216 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:4846369599423283200 -> i32:4294967295
+assert_return i32.trunc_sat_f64_u f64:5055640609639927018 -> i32:4294967295
+assert_return i32.trunc_sat_f64_u f64:4890909195324358656 -> i32:4294967295
+assert_return i32.trunc_sat_f64_u f64:9218868437227405312 -> i32:4294967295
+assert_return i32.trunc_sat_f64_u f64:18442240474082181120 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:9221120237041090560 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:9219994337134247936 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:18444492273895866368 -> i32:0
+assert_return i32.trunc_sat_f64_u f64:18443366373989023744 -> i32:0
+assert_return i64.trunc_sat_f32_s f32:0 -> i64:0
+assert_return i64.trunc_sat_f32_s f32:2147483648 -> i64:0
+assert_return i64.trunc_sat_f32_s f32:1 -> i64:0
+assert_return i64.trunc_sat_f32_s f32:2147483649 -> i64:0
+assert_return i64.trunc_sat_f32_s f32:1065353216 -> i64:1
+assert_return i64.trunc_sat_f32_s f32:1066192077 -> i64:1
+assert_return i64.trunc_sat_f32_s f32:1069547520 -> i64:1
+assert_return i64.trunc_sat_f32_s f32:3212836864 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f32_s f32:3213675725 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f32_s f32:3217031168 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f32_s f32:3220386611 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f32_s f32:3221225472 -> i64:18446744073709551614
+assert_return i64.trunc_sat_f32_s f32:1333788672 -> i64:4294967296
+assert_return i64.trunc_sat_f32_s f32:3481272320 -> i64:18446744069414584320
+assert_return i64.trunc_sat_f32_s f32:1593835519 -> i64:9223371487098961920
+assert_return i64.trunc_sat_f32_s f32:3741319168 -> i64:9223372036854775808
+assert_return i64.trunc_sat_f32_s f32:1593835520 -> i64:9223372036854775807
+assert_return i64.trunc_sat_f32_s f32:3741319169 -> i64:9223372036854775808
+assert_return i64.trunc_sat_f32_s f32:2139095040 -> i64:9223372036854775807
+assert_return i64.trunc_sat_f32_s f32:4286578688 -> i64:9223372036854775808
+assert_return i64.trunc_sat_f32_s f32:2143289344 -> i64:0
+assert_return i64.trunc_sat_f32_s f32:2141192192 -> i64:0
+assert_return i64.trunc_sat_f32_s f32:4290772992 -> i64:0
+assert_return i64.trunc_sat_f32_s f32:4288675840 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:0 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:2147483648 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:1 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:2147483649 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:1065353216 -> i64:1
+assert_return i64.trunc_sat_f32_u f32:1066192077 -> i64:1
+assert_return i64.trunc_sat_f32_u f32:1069547520 -> i64:1
+assert_return i64.trunc_sat_f32_u f32:1333788672 -> i64:4294967296
+assert_return i64.trunc_sat_f32_u f32:1602224127 -> i64:18446742974197923840
+assert_return i64.trunc_sat_f32_u f32:3211159142 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:3212836863 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:1602224128 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f32_u f32:3212836864 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:2139095040 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f32_u f32:4286578688 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:2143289344 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:2141192192 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:4290772992 -> i64:0
+assert_return i64.trunc_sat_f32_u f32:4288675840 -> i64:0
+assert_return i64.trunc_sat_f64_s f64:0 -> i64:0
+assert_return i64.trunc_sat_f64_s f64:9223372036854775808 -> i64:0
+assert_return i64.trunc_sat_f64_s f64:1 -> i64:0
+assert_return i64.trunc_sat_f64_s f64:9223372036854775809 -> i64:0
+assert_return i64.trunc_sat_f64_s f64:4607182418800017408 -> i64:1
+assert_return i64.trunc_sat_f64_s f64:4607632778762754458 -> i64:1
+assert_return i64.trunc_sat_f64_s f64:4609434218613702656 -> i64:1
+assert_return i64.trunc_sat_f64_s f64:13830554455654793216 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f64_s f64:13831004815617530266 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f64_s f64:13832806255468478464 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f64_s f64:13834607695319426662 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f64_s f64:13835058055282163712 -> i64:18446744073709551614
+assert_return i64.trunc_sat_f64_s f64:4751297606875873280 -> i64:4294967296
+assert_return i64.trunc_sat_f64_s f64:13974669643730649088 -> i64:18446744069414584320
+assert_return i64.trunc_sat_f64_s f64:4890909195324358655 -> i64:9223372036854774784
+assert_return i64.trunc_sat_f64_s f64:14114281232179134464 -> i64:9223372036854775808
+assert_return i64.trunc_sat_f64_s f64:4890909195324358656 -> i64:9223372036854775807
+assert_return i64.trunc_sat_f64_s f64:14114281232179134465 -> i64:9223372036854775808
+assert_return i64.trunc_sat_f64_s f64:9218868437227405312 -> i64:9223372036854775807
+assert_return i64.trunc_sat_f64_s f64:18442240474082181120 -> i64:9223372036854775808
+assert_return i64.trunc_sat_f64_s f64:9221120237041090560 -> i64:0
+assert_return i64.trunc_sat_f64_s f64:9219994337134247936 -> i64:0
+assert_return i64.trunc_sat_f64_s f64:18444492273895866368 -> i64:0
+assert_return i64.trunc_sat_f64_s f64:18443366373989023744 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:0 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:9223372036854775808 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:1 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:9223372036854775809 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:4607182418800017408 -> i64:1
+assert_return i64.trunc_sat_f64_u f64:4607632778762754458 -> i64:1
+assert_return i64.trunc_sat_f64_u f64:4609434218613702656 -> i64:1
+assert_return i64.trunc_sat_f64_u f64:4751297606873776128 -> i64:4294967295
+assert_return i64.trunc_sat_f64_u f64:4751297606875873280 -> i64:4294967296
+assert_return i64.trunc_sat_f64_u f64:4895412794951729151 -> i64:18446744073709549568
+assert_return i64.trunc_sat_f64_u f64:13829653735729319117 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:13830554455654793215 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:4726483295884279808 -> i64:100000000
+assert_return i64.trunc_sat_f64_u f64:4846369599423283200 -> i64:10000000000000000
+assert_return i64.trunc_sat_f64_u f64:4890909195324358656 -> i64:9223372036854775808
+assert_return i64.trunc_sat_f64_u f64:4895412794951729152 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f64_u f64:13830554455654793216 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:9218868437227405312 -> i64:18446744073709551615
+assert_return i64.trunc_sat_f64_u f64:18442240474082181120 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:9221120237041090560 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:9219994337134247936 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:18444492273895866368 -> i64:0
+assert_return i64.trunc_sat_f64_u f64:18443366373989023744 -> i64:0
+assert_return f32.convert_i32_s i32:16777217 -> f32:1266679808
+assert_return f32.convert_i32_s i32:4278190079 -> f32:3414163456
+assert_return f32.convert_i32_s i32:16777219 -> f32:1266679810
+assert_return f32.convert_i32_s i32:4278190077 -> f32:3414163458
+assert_return f32.convert_i64_s i64:1 -> f32:1065353216
+assert_return f32.convert_i64_s i64:18446744073709551615 -> f32:3212836864
+assert_return f32.convert_i64_s i64:0 -> f32:0
+assert_return f32.convert_i64_s i64:9223372036854775807 -> f32:1593835520
+assert_return f32.convert_i64_s i64:9223372036854775808 -> f32:3741319168
+assert_return f32.convert_i64_s i64:314159265358979 -> f32:1468980468
+assert_return f32.convert_i64_s i64:16777217 -> f32:1266679808
+assert_return f32.convert_i64_s i64:18446744073692774399 -> f32:3414163456
+assert_return f32.convert_i64_s i64:16777219 -> f32:1266679810
+assert_return f32.convert_i64_s i64:18446744073692774397 -> f32:3414163458
+assert_return f32.convert_i64_s i64:9223371212221054977 -> f32:1593835519
+assert_return f32.convert_i64_s i64:9223372311732682753 -> f32:3741319167
+assert_return f32.convert_i64_s i64:9007199791611905 -> f32:1509949441
+assert_return f32.convert_i64_s i64:18437736873917939711 -> f32:3657433089
+assert_return f64.convert_i32_s i32:1 -> f64:4607182418800017408
+assert_return f64.convert_i32_s i32:4294967295 -> f64:13830554455654793216
+assert_return f64.convert_i32_s i32:0 -> f64:0
+assert_return f64.convert_i32_s i32:2147483647 -> f64:4746794007244308480
+assert_return f64.convert_i32_s i32:2147483648 -> f64:13970166044103278592
+assert_return f64.convert_i32_s i32:987654321 -> f64:4741568253304766464
+assert_return f64.convert_i64_s i64:1 -> f64:4607182418800017408
+assert_return f64.convert_i64_s i64:18446744073709551615 -> f64:13830554455654793216
+assert_return f64.convert_i64_s i64:0 -> f64:0
+assert_return f64.convert_i64_s i64:9223372036854775807 -> f64:4890909195324358656
+assert_return f64.convert_i64_s i64:9223372036854775808 -> f64:14114281232179134464
+assert_return f64.convert_i64_s i64:4669201609102990 -> f64:4841535201405015694
+assert_return f64.convert_i64_s i64:9007199254740993 -> f64:4845873199050653696
+assert_return f64.convert_i64_s i64:18437736874454810623 -> f64:14069245235905429504
+assert_return f64.convert_i64_s i64:9007199254740995 -> f64:4845873199050653698
+assert_return f64.convert_i64_s i64:18437736874454810621 -> f64:14069245235905429506
+assert_return f32.convert_i32_u i32:1 -> f32:1065353216
+assert_return f32.convert_i32_u i32:0 -> f32:0
+assert_return f32.convert_i32_u i32:2147483647 -> f32:1325400064
+assert_return f32.convert_i32_u i32:2147483648 -> f32:1325400064
+assert_return f32.convert_i32_u i32:305419896 -> f32:1301390004
+assert_return f32.convert_i32_u i32:4294967295 -> f32:1333788672
+assert_return f32.convert_i32_u i32:2147483776 -> f32:1325400064
+assert_return f32.convert_i32_u i32:2147483777 -> f32:1325400065
+assert_return f32.convert_i32_u i32:2147483778 -> f32:1325400065
+assert_return f32.convert_i32_u i32:4294966912 -> f32:1333788670
+assert_return f32.convert_i32_u i32:4294966913 -> f32:1333788671
+assert_return f32.convert_i32_u i32:4294966914 -> f32:1333788671
+assert_return f32.convert_i32_u i32:16777217 -> f32:1266679808
+assert_return f32.convert_i32_u i32:16777219 -> f32:1266679810
+assert_return f32.convert_i64_u i64:1 -> f32:1065353216
+assert_return f32.convert_i64_u i64:0 -> f32:0
+assert_return f32.convert_i64_u i64:9223372036854775807 -> f32:1593835520
+assert_return f32.convert_i64_u i64:9223372036854775808 -> f32:1593835520
+assert_return f32.convert_i64_u i64:18446744073709551615 -> f32:1602224128
+assert_return f32.convert_i64_u i64:16777217 -> f32:1266679808
+assert_return f32.convert_i64_u i64:16777219 -> f32:1266679810
+assert_return f32.convert_i64_u i64:9007199791611905 -> f32:1509949441
+assert_return f32.convert_i64_u i64:9223371761976868863 -> f32:1593835519
+assert_return f32.convert_i64_u i64:9223372586610589697 -> f32:1593835521
+assert_return f32.convert_i64_u i64:18446742424442109953 -> f32:1602224127
+assert_return f64.convert_i32_u i32:1 -> f64:4607182418800017408
+assert_return f64.convert_i32_u i32:0 -> f64:0
+assert_return f64.convert_i32_u i32:2147483647 -> f64:4746794007244308480
+assert_return f64.convert_i32_u i32:2147483648 -> f64:4746794007248502784
+assert_return f64.convert_i32_u i32:4294967295 -> f64:4751297606873776128
+assert_return f64.convert_i64_u i64:1 -> f64:4607182418800017408
+assert_return f64.convert_i64_u i64:0 -> f64:0
+assert_return f64.convert_i64_u i64:9223372036854775807 -> f64:4890909195324358656
+assert_return f64.convert_i64_u i64:9223372036854775808 -> f64:4890909195324358656
+assert_return f64.convert_i64_u i64:18446744073709551615 -> f64:4895412794951729152
+assert_return f64.convert_i64_u i64:9223372036854776832 -> f64:4890909195324358656
+assert_return f64.convert_i64_u i64:9223372036854776833 -> f64:4890909195324358657
+assert_return f64.convert_i64_u i64:9223372036854776834 -> f64:4890909195324358657
+assert_return f64.convert_i64_u i64:18446744073709548544 -> f64:4895412794951729150
+assert_return f64.convert_i64_u i64:18446744073709548545 -> f64:4895412794951729151
+assert_return f64.convert_i64_u i64:18446744073709548546 -> f64:4895412794951729151
+assert_return f64.convert_i64_u i64:9007199254740993 -> f64:4845873199050653696
+assert_return f64.convert_i64_u i64:9007199254740995 -> f64:4845873199050653698
+assert_return f64.promote_f32 f32:0 -> f64:0
+assert_return f64.promote_f32 f32:2147483648 -> f64:9223372036854775808
+assert_return f64.promote_f32 f32:1 -> f64:3936146074321813504
+assert_return f64.promote_f32 f32:2147483649 -> f64:13159518111176589312
+assert_return f64.promote_f32 f32:1065353216 -> f64:4607182418800017408
+assert_return f64.promote_f32 f32:3212836864 -> f64:13830554455654793216
+assert_return f64.promote_f32 f32:4286578687 -> f64:14407015207421345792
+assert_return f64.promote_f32 f32:2139095039 -> f64:5183643170566569984
+assert_return f64.promote_f32 f32:67108864 -> f64:4071254063142928384
+assert_return f64.promote_f32 f32:2118632255 -> f64:5172657297058430976
+assert_return f64.promote_f32 f32:2139095040 -> f64:9218868437227405312
+assert_return f64.promote_f32 f32:4286578688 -> f64:18442240474082181120
+skip-impl nan-pattern-result f64.promote_f32
+skip-impl nan-pattern-result f64.promote_f32
+skip-impl nan-pattern-result f64.promote_f32
+skip-impl nan-pattern-result f64.promote_f32
+assert_return f32.demote_f64 f64:0 -> f32:0
+assert_return f32.demote_f64 f64:9223372036854775808 -> f32:2147483648
+assert_return f32.demote_f64 f64:1 -> f32:0
+assert_return f32.demote_f64 f64:9223372036854775809 -> f32:2147483648
+assert_return f32.demote_f64 f64:4607182418800017408 -> f32:1065353216
+assert_return f32.demote_f64 f64:13830554455654793216 -> f32:3212836864
+assert_return f32.demote_f64 f64:4039728865214464000 -> f32:8388608
+assert_return f32.demote_f64 f64:13263100902069239808 -> f32:2155872256
+assert_return f32.demote_f64 f64:4039728865214463999 -> f32:8388607
+assert_return f32.demote_f64 f64:13263100902069239807 -> f32:2155872255
+assert_return f32.demote_f64 f64:3936146074321813504 -> f32:1
+assert_return f32.demote_f64 f64:13159518111176589312 -> f32:2147483649
+assert_return f32.demote_f64 f64:5183643170298134528 -> f32:2139095038
+assert_return f32.demote_f64 f64:14407015207152910336 -> f32:4286578686
+assert_return f32.demote_f64 f64:5183643170298134529 -> f32:2139095039
+assert_return f32.demote_f64 f64:14407015207152910337 -> f32:4286578687
+assert_return f32.demote_f64 f64:5183643170566569984 -> f32:2139095039
+assert_return f32.demote_f64 f64:14407015207421345792 -> f32:4286578687
+assert_return f32.demote_f64 f64:5183643170835005439 -> f32:2139095039
+assert_return f32.demote_f64 f64:14407015207689781247 -> f32:4286578687
+assert_return f32.demote_f64 f64:5183643170835005440 -> f32:2139095040
+assert_return f32.demote_f64 f64:14407015207689781248 -> f32:4286578688
+assert_return f32.demote_f64 f64:4071254063142928384 -> f32:67108864
+assert_return f32.demote_f64 f64:5172657297058430976 -> f32:2118632255
+assert_return f32.demote_f64 f64:9218868437227405312 -> f32:2139095040
+assert_return f32.demote_f64 f64:18442240474082181120 -> f32:4286578688
+assert_return f32.demote_f64 f64:4607182418800017409 -> f32:1065353216
+assert_return f32.demote_f64 f64:4607182418800017407 -> f32:1065353216
+assert_return f32.demote_f64 f64:4607182419068452864 -> f32:1065353216
+assert_return f32.demote_f64 f64:4607182419068452865 -> f32:1065353217
+assert_return f32.demote_f64 f64:4607182419605323775 -> f32:1065353217
+assert_return f32.demote_f64 f64:4607182419605323776 -> f32:1065353218
+assert_return f32.demote_f64 f64:4607182420142194688 -> f32:1065353218
+assert_return f32.demote_f64 f64:4715268810125344768 -> f32:1266679808
+assert_return f32.demote_f64 f64:4715268810125344769 -> f32:1266679809
+assert_return f32.demote_f64 f64:4715268810662215679 -> f32:1266679809
+assert_return f32.demote_f64 f64:4715268810662215680 -> f32:1266679810
+assert_return f32.demote_f64 f64:5094955347580439664 -> f32:1973901096
+assert_return f32.demote_f64 f64:4101111194527827589 -> f32:122722105
+assert_return f32.demote_f64 f64:4038806939559600639 -> f32:7529997
+assert_return f32.demote_f64 f64:13836913116900734306 -> f32:3224680794
+assert_return f32.demote_f64 f64:14338315240173327556 -> f32:4158615026
+skip-impl nan-pattern-result f32.demote_f64
+skip-impl nan-pattern-result f32.demote_f64
+skip-impl nan-pattern-result f32.demote_f64
+skip-impl nan-pattern-result f32.demote_f64
+assert_return f32.demote_f64 f64:4503599627370496 -> f32:0
+assert_return f32.demote_f64 f64:9227875636482146304 -> f32:2147483648
+assert_return f32.demote_f64 f64:3931642474694443008 -> f32:0
+assert_return f32.demote_f64 f64:13155014511549218816 -> f32:2147483648
+assert_return f32.demote_f64 f64:3931642474694443009 -> f32:1
+assert_return f32.demote_f64 f64:13155014511549218817 -> f32:2147483649
+assert_return f32.reinterpret_i32 i32:0 -> f32:0
+assert_return f32.reinterpret_i32 i32:2147483648 -> f32:2147483648
+assert_return f32.reinterpret_i32 i32:1 -> f32:1
+assert_return f32.reinterpret_i32 i32:4294967295 -> f32:4294967295
+assert_return f32.reinterpret_i32 i32:123456789 -> f32:123456789
+assert_return f32.reinterpret_i32 i32:2147483649 -> f32:2147483649
+assert_return f32.reinterpret_i32 i32:2139095040 -> f32:2139095040
+assert_return f32.reinterpret_i32 i32:4286578688 -> f32:4286578688
+assert_return f32.reinterpret_i32 i32:2143289344 -> f32:2143289344
+assert_return f32.reinterpret_i32 i32:4290772992 -> f32:4290772992
+assert_return f32.reinterpret_i32 i32:2141192192 -> f32:2141192192
+assert_return f32.reinterpret_i32 i32:4288675840 -> f32:4288675840
+assert_return f64.reinterpret_i64 i64:0 -> f64:0
+assert_return f64.reinterpret_i64 i64:1 -> f64:1
+assert_return f64.reinterpret_i64 i64:18446744073709551615 -> f64:18446744073709551615
+assert_return f64.reinterpret_i64 i64:9223372036854775808 -> f64:9223372036854775808
+assert_return f64.reinterpret_i64 i64:1234567890 -> f64:1234567890
+assert_return f64.reinterpret_i64 i64:9223372036854775809 -> f64:9223372036854775809
+assert_return f64.reinterpret_i64 i64:9218868437227405312 -> f64:9218868437227405312
+assert_return f64.reinterpret_i64 i64:18442240474082181120 -> f64:18442240474082181120
+assert_return f64.reinterpret_i64 i64:9221120237041090560 -> f64:9221120237041090560
+assert_return f64.reinterpret_i64 i64:18444492273895866368 -> f64:18444492273895866368
+assert_return f64.reinterpret_i64 i64:9219994337134247936 -> f64:9219994337134247936
+assert_return f64.reinterpret_i64 i64:18443366373989023744 -> f64:18443366373989023744
+assert_return i32.reinterpret_f32 f32:0 -> i32:0
+assert_return i32.reinterpret_f32 f32:2147483648 -> i32:2147483648
+assert_return i32.reinterpret_f32 f32:1 -> i32:1
+assert_return i32.reinterpret_f32 f32:4294967295 -> i32:4294967295
+assert_return i32.reinterpret_f32 f32:2147483649 -> i32:2147483649
+assert_return i32.reinterpret_f32 f32:1065353216 -> i32:1065353216
+assert_return i32.reinterpret_f32 f32:1078530010 -> i32:1078530010
+assert_return i32.reinterpret_f32 f32:2139095039 -> i32:2139095039
+assert_return i32.reinterpret_f32 f32:4286578687 -> i32:4286578687
+assert_return i32.reinterpret_f32 f32:2139095040 -> i32:2139095040
+assert_return i32.reinterpret_f32 f32:4286578688 -> i32:4286578688
+assert_return i32.reinterpret_f32 f32:2143289344 -> i32:2143289344
+assert_return i32.reinterpret_f32 f32:4290772992 -> i32:4290772992
+assert_return i32.reinterpret_f32 f32:2141192192 -> i32:2141192192
+assert_return i32.reinterpret_f32 f32:4288675840 -> i32:4288675840
+assert_return i64.reinterpret_f64 f64:0 -> i64:0
+assert_return i64.reinterpret_f64 f64:9223372036854775808 -> i64:9223372036854775808
+assert_return i64.reinterpret_f64 f64:1 -> i64:1
+assert_return i64.reinterpret_f64 f64:18446744073709551615 -> i64:18446744073709551615
+assert_return i64.reinterpret_f64 f64:9223372036854775809 -> i64:9223372036854775809
+assert_return i64.reinterpret_f64 f64:4607182418800017408 -> i64:4607182418800017408
+assert_return i64.reinterpret_f64 f64:4614256656552045841 -> i64:4614256656552045841
+assert_return i64.reinterpret_f64 f64:9218868437227405311 -> i64:9218868437227405311
+assert_return i64.reinterpret_f64 f64:18442240474082181119 -> i64:18442240474082181119
+assert_return i64.reinterpret_f64 f64:9218868437227405312 -> i64:9218868437227405312
+assert_return i64.reinterpret_f64 f64:18442240474082181120 -> i64:18442240474082181120
+assert_return i64.reinterpret_f64 f64:9221120237041090560 -> i64:9221120237041090560
+assert_return i64.reinterpret_f64 f64:18444492273895866368 -> i64:18444492273895866368
+assert_return i64.reinterpret_f64 f64:9219994337134247936 -> i64:9219994337134247936
+assert_return i64.reinterpret_f64 f64:18443366373989023744 -> i64:18443366373989023744
 assert_invalid conversions.1.wasm
 assert_invalid conversions.2.wasm
 assert_invalid conversions.3.wasm
