@@ -531,11 +531,12 @@ test "compile: select_typed i64 (extra=0x7E) emits CSEL Xd, not Wd (§9.9 / 9.9-
     try testing.expect(!saw_csel_w);
 }
 
-test "compile: select_typed f64 (extra=0x7C) returns UnsupportedOp (m-4b pending)" {
-    // m-4a defers f32 / f64 select_typed to m-4b (needs FCSEL
-    // S/D encoders + XMM regalloc dispatch). Verifies the
-    // explicit UnsupportedOp surface (vs the pre-m-4a silent
-    // miscompile through GPR helpers on FP-class operands).
+test "compile: select_typed f64 (extra=0x7C) emits FCSEL Dd via FP regalloc (§9.9 / 9.9-m-4b)" {
+    // FCSEL D form: opcode base 0x1E600C00. Bit pattern check —
+    // search emitted body for at least one instr matching
+    // (word & 0xFFE00C00) == 0x1E600C00 (FCSEL D class). f64
+    // operands flow through fpLoadSpilled / fpDefSpilled to
+    // V-registers, not GPRs.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.f64} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
@@ -552,6 +553,16 @@ test "compile: select_typed f64 (extra=0x7C) returns UnsupportedOp (m-4b pending
     } };
     const slots = [_]u16{ 0, 1, 2, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const res = compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
-    try testing.expectError(Error.UnsupportedOp, res);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+    const body0 = prologue.body_start_offset(false);
+    var saw_fcsel_d: bool = false;
+    var i: usize = body0;
+    while (i + 4 <= out.bytes.len) : (i += 4) {
+        const word = std.mem.readInt(u32, out.bytes[i..][0..4], .little);
+        // FCSEL D-class: bits[31:21] == 0b00011110011 (0x0F3); plus
+        // the [11:10]=11 fixed bits. Mask 0xFFE00C00 captures both.
+        if ((word & 0xFFE00C00) == 0x1E600C00) saw_fcsel_d = true;
+    }
+    try testing.expect(saw_fcsel_d);
 }

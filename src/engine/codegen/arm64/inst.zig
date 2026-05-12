@@ -515,6 +515,31 @@ pub fn encCselX(rd: Xn, rn: Xn, rm: Xn, cond: Cond) u32 {
         @as(u32, rd);
 }
 
+/// `FCSEL Sd, Sn, Sm, cond` — 32-bit FP conditional select
+/// (single-precision). `Sd = if cond holds then Sn else Sm`.
+/// ARMv8-A C6.2.84. Encoding:
+///   `0 0 0 1 1 1 1 0 0 0 1 [Rm:5] [cond:4] 1 1 [Rn:5] [Rd:5]`
+/// = `0x1E200C00 | (Rm<<16) | (cond<<12) | (Rn<<5) | Rd`. Used by
+/// §9.9 / 9.9-m-4b select_typed f32 dispatch.
+pub fn encFcselS(vd: Vn, vn: Vn, vm: Vn, cond: Cond) u32 {
+    return 0x1E200C00 |
+        (@as(u32, vm) << 16) |
+        (@as(u32, @intFromEnum(cond)) << 12) |
+        (@as(u32, vn) << 5) |
+        @as(u32, vd);
+}
+
+/// `FCSEL Dd, Dn, Dm, cond` — 64-bit FP conditional select
+/// (double-precision). Same shape as `encFcselS` with `type` field
+/// = 01 (sf-equivalent for FP class) → opcode base `0x1E600C00`.
+pub fn encFcselD(vd: Vn, vn: Vn, vm: Vn, cond: Cond) u32 {
+    return 0x1E600C00 |
+        (@as(u32, vm) << 16) |
+        (@as(u32, @intFromEnum(cond)) << 12) |
+        (@as(u32, vn) << 5) |
+        @as(u32, vd);
+}
+
 /// `LSR Wd, Wn, #imm` — alias for UBFM Wd, Wn, #imm, #31.
 /// Logical right shift with immediate count (1..31). Encoding
 /// (32-bit UBFM, sf=0, opc=10):
@@ -1421,6 +1446,22 @@ test "encCsetW w0, eq — `cset w0, eq` → 0x1A9F17E0" {
 test "encCsetW w3, lt — `cset w3, lt` → 0x1A9FA7E3" {
     // invert(LT=0xB) = 0xA = GE; (0xA << 12) = 0xA000; Rd=3.
     try testing.expectEqual(@as(u32, 0x1A9FA7E3), encCsetW(3, .lt));
+}
+
+test "encFcselS s0, s1, s2, ne — `fcsel s0, s1, s2, ne` → 0x1E221C20" {
+    // FCSEL Sd, Sn, Sm, cond — single-precision FP conditional
+    // select. base 0x1E200C00; Rm=2 (<<16=0x20000); cond=NE
+    // (0x1 << 12 = 0x1000); Rn=1 (<<5=0x20); Rd=0. Used by
+    // §9.9 / 9.9-m-4b select_typed f32 dispatch.
+    try testing.expectEqual(@as(u32, 0x1E221C20), encFcselS(0, 1, 2, .ne));
+}
+
+test "encFcselD d3, d5, d7, eq — `fcsel d3, d5, d7, eq` → 0x1E6700A3" {
+    // FCSEL Dd, Dn, Dm, cond — double-precision FP conditional
+    // select. base 0x1E600C00; Rm=7 (<<16=0x70000); cond=EQ
+    // (0x0 << 12); Rn=5 (<<5=0xA0); Rd=3. Used by §9.9 / 9.9-m-4b
+    // select_typed f64 dispatch.
+    try testing.expectEqual(@as(u32, 0x1E6700A3 | 0x0C00), encFcselD(3, 5, 7, .eq));
 }
 
 test "encCsetmX x0, ne — `csetm x0, ne` → 0xDA9F03E0" {

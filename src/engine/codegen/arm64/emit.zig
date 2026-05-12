@@ -1114,31 +1114,46 @@ pub fn compile(
                     try op_simd.emitV128Select(&ctx, cond_v, val1_v, val2_v, result_v);
                     try pushed_vregs.append(allocator, result_v);
                 } else {
-                    // §9.9 / 9.9-m-4a: dispatch on `ins.extra` for
-                    // select_typed (0x1C). For untyped select (0x1B),
-                    // extra=0 → fall to CSEL Wd (i32 default). Lower-
-                    // time type inference for untyped select is m-4c.
-                    const is_64bit: bool = switch (ins.extra) {
-                        0x7E, 0x70, 0x6F => true, // i64 / funcref / externref
-                        0x7D, 0x7C => return Error.UnsupportedOp, // f32 / f64 (m-4b)
-                        else => false, // 0x7F i32 or untyped (0x1B) → 32-bit default
+                    // §9.9 / 9.9-m-4a (GPR) + 9.9-m-4b (FP):
+                    // dispatch on `ins.extra` for select_typed (0x1C).
+                    // For untyped .select (0x1B), extra=0 → i32 CSEL
+                    // Wd default. Lower-time type inference for
+                    // untyped non-i32 select pending m-4c.
+                    const TypeClass = enum { gpr32, gpr64, fp32, fp64 };
+                    const tc: TypeClass = switch (ins.extra) {
+                        0x7E, 0x70, 0x6F => .gpr64, // i64 / funcref / externref
+                        0x7D => .fp32, // f32 (9.9-m-4b)
+                        0x7C => .fp64, // f64 (9.9-m-4b)
+                        else => .gpr32, // 0x7F i32 or untyped .select
                     };
-
-                    // D-034 spill-aware: 3 source operands but only 2
-                    // stage regs. CMP is encoded first using stage 0
-                    // for cond; after CMP the cond value is dead, so
-                    // stage 0 is reused for val1 (and result).
+                    // CMP cond, #0 emits first (stage 0 for cond). After
+                    // CMP, cond is dead; stage 0 free for reuse.
                     const cond_w = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, cond_v, 0);
                     try gpr.writeU32(allocator, &buf, inst.encCmpImmW(cond_w, 0));
-                    const val1_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val1_v, 0);
-                    const val2_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val2_v, 1);
-                    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
-                    const csel_word: u32 = if (is_64bit)
-                        inst.encCselX(dst_r, val1_r, val2_r, .ne)
-                    else
-                        inst.encCselW(dst_r, val1_r, val2_r, .ne);
-                    try gpr.writeU32(allocator, &buf, csel_word);
-                    try gpr.gprStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, result_v, 0);
+                    switch (tc) {
+                        .gpr32, .gpr64 => {
+                            const val1_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val1_v, 0);
+                            const val2_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val2_v, 1);
+                            const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+                            const csel_word: u32 = if (tc == .gpr64)
+                                inst.encCselX(dst_r, val1_r, val2_r, .ne)
+                            else
+                                inst.encCselW(dst_r, val1_r, val2_r, .ne);
+                            try gpr.writeU32(allocator, &buf, csel_word);
+                            try gpr.gprStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, result_v, 0);
+                        },
+                        .fp32, .fp64 => {
+                            const val1_v_phys = try gpr.fpLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val1_v, 0);
+                            const val2_v_phys = try gpr.fpLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val2_v, 1);
+                            const dst_v = try gpr.fpDefSpilled(alloc, result_v, 0);
+                            const fcsel_word: u32 = if (tc == .fp64)
+                                inst.encFcselD(dst_v, val1_v_phys, val2_v_phys, .ne)
+                            else
+                                inst.encFcselS(dst_v, val1_v_phys, val2_v_phys, .ne);
+                            try gpr.writeU32(allocator, &buf, fcsel_word);
+                            try gpr.fpStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, result_v, 0);
+                        },
+                    }
                     try pushed_vregs.append(allocator, result_v);
                 }
             },

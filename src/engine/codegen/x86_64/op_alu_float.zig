@@ -482,3 +482,47 @@ pub fn emitFpBinary(
     try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
     try pushed_vregs.append(allocator, result_v);
 }
+
+/// Wasm spec §4.4.4 / §3.3.2.2 — `select_typed t` for `t ∈ {f32,
+/// f64}`. x86 has no FP CMOV, so we shuttle the FP bits through
+/// scratch GPRs (R10/R11 from `abi.spill_stage_gprs`), do a GPR
+/// `CMOVNE`, and MOVD/Q back into the destination XMM. 6 instr
+/// (8 with MOV/Q-back). is_f64=true uses MOVQ (full 64-bit
+/// shuttle); is_f64=false uses MOVD (low 32 bits — upper 96
+/// bits of XMM register are don't-care for Wasm f32 semantics).
+/// §9.9 / 9.9-m-4b per ADR-0056.
+pub fn emitFpSelect(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    spill_base_off: u32,
+    pushed_vregs: *std.ArrayList(u32),
+    is_f64: bool,
+    cond_v: u32,
+    val1_v: u32,
+    val2_v: u32,
+    result_v: u32,
+) Error!void {
+    const xmm_val1 = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, val1_v, 0);
+    const xmm_val2 = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, val2_v, 1);
+    const cond_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, cond_v, 0);
+    const r_a = abi.spill_stage_gprs[0];
+    const r_b = abi.spill_stage_gprs[1];
+    if (is_f64) {
+        try buf.appendSlice(allocator, inst.encMovqR64FromXmm(r_a, xmm_val1).slice());
+        try buf.appendSlice(allocator, inst.encMovqR64FromXmm(r_b, xmm_val2).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encMovdR32FromXmm(r_a, xmm_val1).slice());
+        try buf.appendSlice(allocator, inst.encMovdR32FromXmm(r_b, xmm_val2).slice());
+    }
+    try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
+    try buf.appendSlice(allocator, inst.encCmovccRR(.q, .ne, r_b, r_a).slice());
+    const xmm_dst = try gpr.xmmDefSpilled(alloc, result_v, 0);
+    if (is_f64) {
+        try buf.appendSlice(allocator, inst.encMovqXmmFromR64(xmm_dst, r_b).slice());
+    } else {
+        try buf.appendSlice(allocator, inst.encMovdXmmFromR32(xmm_dst, r_b).slice());
+    }
+    try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}

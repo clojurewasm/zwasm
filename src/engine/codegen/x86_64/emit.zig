@@ -1456,12 +1456,14 @@ pub fn compile(
                     try pushed_vregs.append(allocator, result_v);
                     continue;
                 }
-                // §9.9 / 9.9-m-4a: f32 / f64 select_typed require
-                // XMM regalloc dispatch (separate chunk m-4b).
-                switch (ins.extra) {
-                    0x7D, 0x7C => return Error.UnsupportedOp, // f32 / f64
-                    else => {}, // 0x7F i32 / 0x7E i64 / 0x70 funcref / 0x6F externref / 0 untyped → q-form
+                // §9.9 / 9.9-m-4b: f32 / f64 select via op_alu_float.
+                // emitFpSelect (MOVD/Q-to-GPR + CMOVNE + MOVD/Q-back
+                // shuttle; x86 has no FP CMOV).
+                if (ins.extra == 0x7D or ins.extra == 0x7C) {
+                    try op_alu_float.emitFpSelect(allocator, &buf, alloc, spill_base_off, &pushed_vregs, ins.extra == 0x7C, cond_v, val1_v, val2_v, result_v);
+                    continue;
                 }
+                // GPR path (i32 / i64 / funcref / externref).
                 // D-045 chunk 13b spill staging: cond is consumed
                 // first by TEST + Jcc, so its stage reg is dead
                 // before val1/val2 load. Use stage 0 for cond and
